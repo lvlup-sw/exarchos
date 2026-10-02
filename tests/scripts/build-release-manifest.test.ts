@@ -32,7 +32,6 @@
  * changes, this goes red — which is the point.
  */
 import { describe, it, expect, beforeAll } from 'vitest';
-import { spawnSync } from 'node:child_process';
 import { createHash, generateKeyPairSync } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -65,6 +64,7 @@ import {
   SIGNATURE_ALGORITHM,
   TrustRootSet,
 } from '../../src/runtime/extensions/trust-root.js';
+import { spawnAsync, spawnAsyncBuffer } from '../../tools/test-helpers/spawn.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '../..');
@@ -92,13 +92,13 @@ const GENERATED_TARGET = GENERATED_AT_BUILD_PATHS[0];
  * `Buffer` out) so no encoding or line-ending normalization can leak an edit
  * back into the repository.
  */
-function withPlantedEdits<T>(relPaths: readonly string[], fn: () => T): T {
+async function withPlantedEdits<T>(relPaths: readonly string[], fn: () => T | Promise<T>): Promise<T> {
   const targets = relPaths.map((p) => ({ abs: join(REPO_ROOT, p), original: readFileSync(join(REPO_ROOT, p)) }));
   try {
     for (const t of targets) {
       writeFileSync(t.abs, Buffer.concat([t.original, Buffer.from('\n// t27 sourceState probe\n', 'utf8')]));
     }
-    return fn();
+    return await fn();
   } finally {
     for (const t of targets) writeFileSync(t.abs, t.original);
   }
@@ -111,14 +111,13 @@ function withPlantedEdits<T>(relPaths: readonly string[], fn: () => T): T {
  * that stopped detecting dirtiness (or that widened its allowlist) disagrees
  * with this and goes red.
  */
-function independentWorkingTreeVerdict(pathspecs: readonly string[]): {
+async function independentWorkingTreeVerdict(pathspecs: readonly string[]): Promise<{
   state: 'clean' | 'modified';
   paths: string[];
-} {
-  const r = spawnSync(
+}> {
+  const r = await spawnAsync(
     'git',
     ['-C', REPO_ROOT, 'status', '--porcelain', '--untracked-files=all', '--', ...pathspecs],
-    { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 },
   );
   if (r.status !== 0) throw new Error(`git status failed: ${r.stderr}`);
   const generated = new Set<string>(GENERATED_AT_BUILD_PATHS);
@@ -137,8 +136,8 @@ function independentWorkingTreeVerdict(pathspecs: readonly string[]): {
 // ─── Independent authorities (deliberately NOT the producer's code) ──────────
 
 /** `git rev-parse HEAD`, spawned here — not read back from the producer. */
-function gitHeadCommit(): string {
-  const r = spawnSync('git', ['-C', REPO_ROOT, 'rev-parse', 'HEAD'], { encoding: 'utf8' });
+async function gitHeadCommit(): Promise<string> {
+  const r = await spawnAsync('git', ['-C', REPO_ROOT, 'rev-parse', 'HEAD']);
   if (r.status !== 0) throw new Error(`git rev-parse failed: ${r.stderr}`);
   return r.stdout.trim();
 }
@@ -152,11 +151,8 @@ function gitHeadCommit(): string {
  * different call shape is enough of an independent route), so a producer that
  * silently narrowed its inventory goes red.
  */
-function independentSourceTreeDigest(commit: string): string {
-  const ls = spawnSync('git', ['-C', REPO_ROOT, 'ls-tree', '-r', commit, '--', ...SOURCE_TREE_ROOTS], {
-    encoding: 'utf8',
-    maxBuffer: 256 * 1024 * 1024,
-  });
+async function independentSourceTreeDigest(commit: string): Promise<string> {
+  const ls = await spawnAsync('git', ['-C', REPO_ROOT, 'ls-tree', '-r', commit, '--', ...SOURCE_TREE_ROOTS]);
   if (ls.status !== 0) throw new Error(`git ls-tree failed: ${ls.stderr}`);
 
   const paths: string[] = [];
@@ -173,12 +169,11 @@ function independentSourceTreeDigest(commit: string): string {
 
   // Read the blobs through `git cat-file --batch` driven from a Buffer stdin
   // and parsed independently of the producer's parser.
-  const cat = spawnSync('git', ['-C', REPO_ROOT, 'cat-file', '--batch'], {
+  const cat = await spawnAsyncBuffer('git', ['-C', REPO_ROOT, 'cat-file', '--batch'], {
     input: `${oids.join('\n')}\n`,
-    maxBuffer: 1024 * 1024 * 1024,
   });
   if (cat.status !== 0) throw new Error(`git cat-file failed: ${String(cat.stderr)}`);
-  const out = cat.stdout as unknown as Buffer;
+  const out = cat.stdout;
 
   const entries: Array<{ path: string; content: string }> = [];
   let pos = 0;
@@ -280,7 +275,7 @@ describe('DR-20 release manifest producer', () => {
   let expectedContractDigest: string;
   let expectedAssetDigest: string;
 
-  beforeAll(() => {
+  beforeAll(async () => {
     scratch = mkdtempSync(join(tmpdir(), 'exarchos-dr20-'));
     const binDir = join(scratch, 'bin');
     const assetsDir = join(scratch, 'assets');
@@ -289,10 +284,10 @@ describe('DR-20 release manifest producer', () => {
 
     // 1. REAL compile of the host target into a scratch dir.
     const bun = resolveBunExecutable();
-    const build = spawnSync(
+    const build = await spawnAsync(
       bun,
       ['run', join(REPO_ROOT, 'tools', 'release', 'build-binary.ts'), '--outdir', binDir],
-      { cwd: REPO_ROOT, encoding: 'utf8', env: process.env, timeout: 300_000 },
+      { cwd: REPO_ROOT, env: process.env, timeout: 300_000 },
     );
     if (build.status !== 0) {
       throw new Error(
@@ -317,7 +312,7 @@ describe('DR-20 release manifest producer', () => {
     const keyPath = join(scratch, 'signing-key.pem');
     writeFileSync(keyPath, privatePem, 'utf8');
     manifestPath = join(scratch, RELEASE_MANIFEST_FILENAME);
-    const gen = spawnSync(
+    const gen = await spawnAsync(
       bun,
       [
         'run',
@@ -331,7 +326,7 @@ describe('DR-20 release manifest producer', () => {
         '--private-key-file',
         keyPath,
       ],
-      { cwd: REPO_ROOT, encoding: 'utf8', env: process.env, timeout: 300_000 },
+      { cwd: REPO_ROOT, env: process.env, timeout: 300_000 },
     );
     if (gen.status !== 0) {
       throw new Error(
@@ -346,8 +341,8 @@ describe('DR-20 release manifest producer', () => {
 
     // 3. Independent expectations, derived after the build so they describe the
     //    same tree state the two producers saw.
-    expectedCommit = gitHeadCommit();
-    expectedTreeDigest = independentSourceTreeDigest(expectedCommit);
+    expectedCommit = await gitHeadCommit();
+    expectedTreeDigest = await independentSourceTreeDigest(expectedCommit);
     expectedContractDigest = independentContractDigest();
     expectedAssetDigest = independentRawDigest(join(assetsDir, assetName));
   }, 400_000);
@@ -511,7 +506,7 @@ describe('DR-20 release manifest producer', () => {
     expect(id.contract).toEqual(signed.manifest.contract);
   });
 
-  it('BuildIdentity_ModifiedWorkingTree_ReportsModifiedAndNamesPath', () => {
+  it('BuildIdentity_ModifiedWorkingTree_ReportsModifiedAndNamesPath', async () => {
     // Scoped to a single file so the verdict is deterministic regardless of
     // what else is dirty in this checkout.
     const scope = [PLANT_TARGET];
@@ -523,12 +518,12 @@ describe('DR-20 release manifest producer', () => {
     expect(before.state, `${PLANT_TARGET} was already dirty — the modified arm would be vacuous`).toBe('clean');
     expect(before.modifiedPaths).toEqual([]);
     expect(before.modifiedCount).toBe(0);
-    expect(independentWorkingTreeVerdict(scope).state).toBe('clean');
+    expect((await independentWorkingTreeVerdict(scope)).state).toBe('clean');
 
     // MODIFIED ARM — a genuine edit to a real tracked file on disk.
-    const during = withPlantedEdits(scope, () => ({
+    const during = await withPlantedEdits(scope, async () => ({
       producer: collectSourceState(REPO_ROOT, scope),
-      independent: independentWorkingTreeVerdict(scope),
+      independent: await independentWorkingTreeVerdict(scope),
     }));
 
     expect(during.independent.state, 'the plant did not actually dirty the working tree').toBe('modified');
@@ -543,29 +538,27 @@ describe('DR-20 release manifest producer', () => {
     expect(after.state, `${PLANT_TARGET} was not restored byte-for-byte`).toBe('clean');
   });
 
-  it('BuildIdentity_GeneratedPathAllowlist_IsNotABlanketEscape', () => {
+  it('BuildIdentity_GeneratedPathAllowlist_IsNotABlanketEscape', async () => {
     const scope = [GENERATED_TARGET, PLANT_TARGET];
     expect(collectSourceState(REPO_ROOT, scope).state, 'probe scope was already dirty').toBe('clean');
 
     // ARM A — the allowlist does its job: the build regenerates this file on
     // every compile, so dirtying it alone must NOT flag the source.
-    const generatedOnly = withPlantedEdits([GENERATED_TARGET], () =>
+    const generatedOnly = await withPlantedEdits([GENERATED_TARGET], () =>
       collectSourceState(REPO_ROOT, scope),
     );
     expect(generatedOnly.state).toBe('clean');
     expect(generatedOnly.modifiedCount).toBe(0);
     // …and it really was dirty on disk — the exclusion is the reason it reads
     // clean, not an absence of change.
-    const generatedOnlyRaw = withPlantedEdits([GENERATED_TARGET], () =>
-      spawnSync('git', ['-C', REPO_ROOT, 'status', '--porcelain', '--', GENERATED_TARGET], {
-        encoding: 'utf8',
-      }).stdout.trim(),
+    const generatedOnlyRaw = await withPlantedEdits([GENERATED_TARGET], async () =>
+      (await spawnAsync('git', ['-C', REPO_ROOT, 'status', '--porcelain', '--', GENERATED_TARGET])).stdout.trim(),
     );
     expect(generatedOnlyRaw).toContain(GENERATED_TARGET);
 
     // ARM B — the allowlist is NOT a blanket escape: a non-allowlisted edit
     // still reddens even while an allowlisted file is simultaneously dirty.
-    const both = withPlantedEdits([GENERATED_TARGET, PLANT_TARGET], () =>
+    const both = await withPlantedEdits([GENERATED_TARGET, PLANT_TARGET], () =>
       collectSourceState(REPO_ROOT, scope),
     );
     expect(both.state).toBe('modified');
@@ -576,7 +569,7 @@ describe('DR-20 release manifest producer', () => {
     expect(collectSourceState(REPO_ROOT, scope).state, 'probe files were not restored').toBe('clean');
   });
 
-  it('BuildBinary_EmbedsSourceState_AgreeingWithIndependentGitVerdict', () => {
+  it('BuildBinary_EmbedsSourceState_AgreeingWithIndependentGitVerdict', async () => {
     const id = embedded as EmbeddedBuildIdentity;
     expect(id, 'built artifact carries no embedded build identity').toBeDefined();
 
@@ -585,7 +578,7 @@ describe('DR-20 release manifest producer', () => {
     // Environment-agnostic on purpose: a clean CI checkout must come out
     // 'clean' and this (permanently dirty) working copy must come out
     // 'modified' — the assertion never hardcodes either.
-    const independent = independentWorkingTreeVerdict(SOURCE_TREE_ROOTS);
+    const independent = await independentWorkingTreeVerdict(SOURCE_TREE_ROOTS);
     expect(id.sourceState).toBe(independent.state);
 
     if (id.sourceState === 'clean') {

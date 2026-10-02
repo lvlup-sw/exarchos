@@ -1,8 +1,8 @@
-import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { runCli } from './cli-runner.js';
+import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 
 /** Default binary the v2.9 install flow puts on PATH. */
 const BINARY_NAME = 'exarchos';
@@ -38,10 +38,10 @@ const BINARY_NAME = 'exarchos';
  * Any non-zero exit (or thrown OS error) is treated as "not found" and
  * re-thrown as an Error with remediation guidance.
  */
-export function assertExarchosOnPath(command: string = BINARY_NAME): void {
+export async function assertExarchosOnPath(command: string = BINARY_NAME): Promise<void> {
   const lookup = process.platform === 'win32' ? 'where' : 'which';
   try {
-    execFileSync(lookup, [command], { stdio: 'pipe' });
+    await execFileAsync(lookup, [command]);
   } catch {
     throw new Error(
       `${command} not found on PATH. To test the working tree, build the host ` +

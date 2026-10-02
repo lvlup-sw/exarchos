@@ -47,9 +47,9 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { execFileAsync } from '../../../tools/test-helpers/spawn.js';
 
 const SKILLS_SRC = join(process.cwd(), 'content');
 
@@ -70,11 +70,9 @@ const CONSTRAINTS_STEP_RE = /\bConstraints\b/;
  * Throws rather than returning `[]` — an empty corpus would make both sweeps
  * below vacuously green.
  */
-function trackedSkillSources(): string[] {
-  const stdout = execFileSync('git', ['ls-files', '-z', '--', '*.md'], {
+async function trackedSkillSources(): Promise<string[]> {
+  const stdout = await execFileAsync('git', ['ls-files', '-z', '--', '*.md'], {
     cwd: SKILLS_SRC,
-    encoding: 'utf-8',
-    maxBuffer: 32 * 1024 * 1024,
   });
   const files = stdout.split('\0').filter((line) => line.length > 0).sort();
   if (files.length === 0) {
@@ -97,11 +95,11 @@ function catalogGatedSources(files: readonly string[]): string[] {
 }
 
 describe('catalog-registration gating lint (DR-33)', () => {
-  it('SkillsSrc_NoSourceAnywhereMentionsTheRetiredDevCatalogFlag', () => {
+  it('SkillsSrc_NoSourceAnywhereMentionsTheRetiredDevCatalogFlag', async () => {
     // WHOLE TREE. The claim is about the corpus, so the sweep is too: a
     // `devCatalog` instruction planted in any source outside the superseded
     // nine-file list used to be invisible to this lint.
-    const files = trackedSkillSources();
+    const files = await trackedSkillSources();
     expect(files.length).toBeGreaterThan(0);
 
     const offenders = files.filter((file) => /devCatalog/i.test(read(file)));
@@ -112,8 +110,8 @@ describe('catalog-registration gating lint (DR-33)', () => {
     ).toEqual([]);
   });
 
-  it('SkillsSrc_EveryCatalogGatedSource_ExpressesTheRegistrationGate', () => {
-    const files = trackedSkillSources();
+  it('SkillsSrc_EveryCatalogGatedSource_ExpressesTheRegistrationGate', async () => {
+    const files = await trackedSkillSources();
     const gated = catalogGatedSources(files);
 
     // NON-EMPTY DENOMINATOR: a discriminant that selected nothing would make the
@@ -155,11 +153,11 @@ describe('catalog-registration gating lint (DR-33)', () => {
     ).toBe(false);
   });
 
-  it('SkillsSrcGating_PopulationTracksTheTree_NotATranscribedList', () => {
+  it('SkillsSrcGating_PopulationTracksTheTree_NotATranscribedList', async () => {
     // The derived population is not the superseded nine-entry array. It picks up
     // `review/SKILL.md`-class sources the moment they gate on the catalog, and
     // the whole-tree devCatalog sweep covers every source either way.
-    const files = trackedSkillSources();
+    const files = await trackedSkillSources();
     const gated = catalogGatedSources(files);
 
     // The corpus is far larger than the population the old list named, which is

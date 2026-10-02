@@ -45,10 +45,10 @@
 // that module is owned by a separate task.
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 
 // Fake ONLY the process boundary. `src/vcs/shell.ts` is the single `execFile`
 // shim every provider funnels through, so replacing it leaves 100% of the
@@ -107,27 +107,23 @@ async function mkTemp(prefix: string): Promise<string> {
 
 const TARGET_BRANCH = 'main';
 
-function git(repoRoot: string, args: readonly string[]): string {
-  return execFileSync('git', [...args], {
-    cwd: repoRoot,
-    encoding: 'utf-8',
-    stdio: ['pipe', 'pipe', 'pipe'],
-  });
+function git(repoRoot: string, args: readonly string[]): Promise<string> {
+  return execFileAsync('git', [...args], { cwd: repoRoot });
 }
 
 /** A real repository on disk with one base commit on `main`. */
 async function makeGitRepo(): Promise<string> {
   const repoRoot = await mkTemp('dr12-repo-');
-  git(repoRoot, ['init', '--quiet']);
-  git(repoRoot, ['config', 'user.email', 'dr12@example.invalid']);
-  git(repoRoot, ['config', 'user.name', 'DR-12 Fixture']);
-  git(repoRoot, ['config', 'commit.gpgsign', 'false']);
-  git(repoRoot, ['config', 'core.autocrlf', 'false']);
+  await git(repoRoot, ['init', '--quiet']);
+  await git(repoRoot, ['config', 'user.email', 'dr12@example.invalid']);
+  await git(repoRoot, ['config', 'user.name', 'DR-12 Fixture']);
+  await git(repoRoot, ['config', 'commit.gpgsign', 'false']);
+  await git(repoRoot, ['config', 'core.autocrlf', 'false']);
   await fs.writeFile(path.join(repoRoot, 'base.txt'), 'base\n', 'utf-8');
-  git(repoRoot, ['add', '.']);
-  git(repoRoot, ['commit', '--quiet', '-m', 'base']);
+  await git(repoRoot, ['add', '.']);
+  await git(repoRoot, ['commit', '--quiet', '-m', 'base']);
   // Normalize the initial branch name across git versions / init.defaultBranch.
-  git(repoRoot, ['branch', '-M', TARGET_BRANCH]);
+  await git(repoRoot, ['branch', '-M', TARGET_BRANCH]);
   return repoRoot;
 }
 
@@ -137,29 +133,29 @@ async function makeFeatureBranch(
   branch: string,
   file: string,
 ): Promise<void> {
-  git(repoRoot, ['checkout', '--quiet', '-b', branch, TARGET_BRANCH]);
+  await git(repoRoot, ['checkout', '--quiet', '-b', branch, TARGET_BRANCH]);
   await fs.writeFile(path.join(repoRoot, file), `${file}\n`, 'utf-8');
-  git(repoRoot, ['add', '.']);
-  git(repoRoot, ['commit', '--quiet', '-m', `feat: ${file}`]);
-  git(repoRoot, ['checkout', '--quiet', TARGET_BRANCH]);
+  await git(repoRoot, ['add', '.']);
+  await git(repoRoot, ['commit', '--quiet', '-m', `feat: ${file}`]);
+  await git(repoRoot, ['checkout', '--quiet', TARGET_BRANCH]);
 }
 
 /**
  * GROUND TRUTH #1 — how many merge commits exist on `branch`.
  * Shells `git log --merges --oneline <branch>` and counts non-empty lines.
  */
-function mergeCommitCount(repoRoot: string, branch: string): number {
-  const out = git(repoRoot, ['log', '--merges', '--oneline', branch]).trim();
+async function mergeCommitCount(repoRoot: string, branch: string): Promise<number> {
+  const out = (await git(repoRoot, ['log', '--merges', '--oneline', branch])).trim();
   return out.length === 0 ? 0 : out.split('\n').filter((l) => l.trim()).length;
 }
 
 /** GROUND TRUTH #2 — total commit count reachable from `branch`. */
-function revCount(repoRoot: string, branch: string): number {
-  return Number(git(repoRoot, ['rev-list', '--count', branch]).trim());
+async function revCount(repoRoot: string, branch: string): Promise<number> {
+  return Number((await git(repoRoot, ['rev-list', '--count', branch])).trim());
 }
 
-function revParse(repoRoot: string, rev: string): string {
-  return git(repoRoot, ['rev-parse', rev]).trim();
+async function revParse(repoRoot: string, rev: string): Promise<string> {
+  return (await git(repoRoot, ['rev-parse', rev])).trim();
 }
 
 // ─── DispatchContext wiring (mirrors merge-orchestrate.race.test.ts) ───────
@@ -284,9 +280,9 @@ describe('DR-12 — duplicate merge and duplicate PR prevention (shipped path)',
     const featureId = 'dr12-merge-dup';
     await initStateFile(stateDir, featureId, 'feature');
 
-    const baseMergeCommits = mergeCommitCount(repoRoot, TARGET_BRANCH);
-    const baseRevs = revCount(repoRoot, TARGET_BRANCH);
-    const featureTip = revParse(repoRoot, 'feat/dup');
+    const baseMergeCommits = await mergeCommitCount(repoRoot, TARGET_BRANCH);
+    const baseRevs = await revCount(repoRoot, TARGET_BRANCH);
+    const featureTip = await revParse(repoRoot, 'feat/dup');
     expect(baseMergeCommits).toBe(0);
 
     // Identical request identity on every invocation — this is what makes the
@@ -310,20 +306,20 @@ describe('DR-12 — duplicate merge and duplicate PR prevention (shipped path)',
     // One real merge commit exists after the first call — proves the shipped
     // adapter actually mutated the repository (guards against the test passing
     // because nothing ever happened).
-    expect(mergeCommitCount(repoRoot, TARGET_BRANCH)).toBe(baseMergeCommits + 1);
-    const mergeShaAfterFirst = revParse(repoRoot, TARGET_BRANCH);
+    expect(await mergeCommitCount(repoRoot, TARGET_BRANCH)).toBe(baseMergeCommits + 1);
+    const mergeShaAfterFirst = await revParse(repoRoot, TARGET_BRANCH);
     // The merge commit's SECOND parent is the feature tip — it is a real merge
     // of the requested branch, not an unrelated commit.
-    expect(revParse(repoRoot, `${TARGET_BRANCH}^2`)).toBe(featureTip);
+    expect(await revParse(repoRoot, `${TARGET_BRANCH}^2`)).toBe(featureTip);
 
     const second = await handleExecuteMerge({ ...request }, ctx);
     // A duplicate request is a clean no-op / cache-hit, NOT an error.
     expect(second.success).toBe(true);
 
     // ── GROUND TRUTH: exactly one merge commit, repo unchanged by the replay ─
-    expect(mergeCommitCount(repoRoot, TARGET_BRANCH)).toBe(1);
-    expect(revCount(repoRoot, TARGET_BRANCH)).toBe(baseRevs + 2); // feature commit + merge commit
-    expect(revParse(repoRoot, TARGET_BRANCH)).toBe(mergeShaAfterFirst);
+    expect(await mergeCommitCount(repoRoot, TARGET_BRANCH)).toBe(1);
+    expect(await revCount(repoRoot, TARGET_BRANCH)).toBe(baseRevs + 2); // feature commit + merge commit
+    expect(await revParse(repoRoot, TARGET_BRANCH)).toBe(mergeShaAfterFirst);
 
     // ── Durable-log truth: the idempotency key deduped the terminal events ──
     // This is the assertion that `verbs/merge/merge-keys.ts` is load-bearing
@@ -363,7 +359,7 @@ describe('DR-12 — duplicate merge and duplicate PR prevention (shipped path)',
     expect(typeof raceB.success).toBe('boolean');
     expect([raceA, raceB].filter((r) => r.success).length).toBeGreaterThanOrEqual(1);
 
-    expect(mergeCommitCount(raceRepo, TARGET_BRANCH)).toBe(1);
+    expect(await mergeCommitCount(raceRepo, TARGET_BRANCH)).toBe(1);
     const raceEvents = await raceHarness.eventStore.query(raceFeatureId);
     expect(countEvents(raceEvents, 'merge.executed')).toBe(1);
     expect(countEvents(raceEvents, 'merge.requested')).toBe(1);
@@ -396,9 +392,9 @@ describe('DR-12 — duplicate merge and duplicate PR prevention (shipped path)',
     expect(other.success).toBe(true);
 
     // A genuinely distinct merge produced a SECOND real merge commit…
-    expect(mergeCommitCount(repoRoot, TARGET_BRANCH)).toBe(2);
-    expect(revParse(repoRoot, `${TARGET_BRANCH}^2`)).toBe(
-      revParse(repoRoot, 'feat/other'),
+    expect(await mergeCommitCount(repoRoot, TARGET_BRANCH)).toBe(2);
+    expect(await revParse(repoRoot, `${TARGET_BRANCH}^2`)).toBe(
+      await revParse(repoRoot, 'feat/other'),
     );
     // …and a SECOND durable terminal event on the SAME stream. If the key
     // dropped its taskId segment, this collides with arm 1's claim and the
@@ -431,7 +427,7 @@ describe('DR-12 — duplicate merge and duplicate PR prevention (shipped path)',
       ctx,
     );
     expect(third.success).toBe(true);
-    expect(mergeCommitCount(repoRoot, TARGET_BRANCH)).toBe(3);
+    expect(await mergeCommitCount(repoRoot, TARGET_BRANCH)).toBe(3);
     expect(
       countEvents(await eventStore.query(otherFeatureId), 'merge.executed'),
     ).toBe(1);

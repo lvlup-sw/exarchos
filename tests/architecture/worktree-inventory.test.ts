@@ -10,7 +10,8 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+
+import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..');
 
@@ -32,24 +33,26 @@ const inventory = JSON.parse(
   fs.readFileSync(path.join(REPO_ROOT, 'tools/audit/worktree-inventory.json'), 'utf8'),
 ) as Inventory;
 
-function liveWorktreeCount(): number {
-  return execFileSync('git', ['worktree', 'list', '--porcelain'], {
-    cwd: REPO_ROOT,
-    encoding: 'utf8',
-    maxBuffer: 64 * 1024 * 1024,
-  })
+async function liveWorktreeCount(): Promise<number> {
+  return (
+    await execFileAsync('git', ['worktree', 'list', '--porcelain'], {
+      cwd: REPO_ROOT,
+    })
+  )
     .split('\n')
     .filter((line) => line.startsWith('worktree ')).length;
 }
+
+const worktreesAtCollection = await liveWorktreeCount();
 
 describe('worktree inventory', () => {
   // The committed inventory is a snapshot of the author's multi-worktree
   // machine. A CI checkout (and this cloud agent) has one worktree, so the
   // live-count assertion is skipped there. Internal consistency still runs.
-  it.skipIf(liveWorktreeCount() <= 1)('WorktreeInventory_EveryRegisteredWorktree_IsRecorded', () => {
+  it.skipIf(worktreesAtCollection <= 1)('WorktreeInventory_EveryRegisteredWorktree_IsRecorded', async () => {
     // A partial inventory is the dangerous kind: whatever it omits looks like
     // it does not exist.
-    const registered = liveWorktreeCount();
+    const registered = await liveWorktreeCount();
 
     expect(inventory.worktrees.records).toHaveLength(inventory.worktrees.total);
     expect(inventory.worktrees.total).toBe(registered);

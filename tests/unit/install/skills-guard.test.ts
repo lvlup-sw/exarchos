@@ -31,7 +31,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { execSync } from 'node:child_process';
+import { execFileAsync } from '../../../tools/test-helpers/spawn.js';
 
 const tempDirs: string[] = [];
 
@@ -112,7 +112,7 @@ function writeRuntimeFixtures(runtimesDir: string): void {
  *   - `skills/` generated from an initial `buildAllSkills()` call
  *   - all of the above committed, so `git diff` starts clean
  */
-function provisionProject(): string {
+async function provisionProject(): Promise<string> {
   const root = makeTempDir();
 
   mkdirSync(join(root, 'content', 'foo'), { recursive: true });
@@ -143,9 +143,9 @@ function provisionProject(): string {
     GIT_COMMITTER_NAME: 'test',
     GIT_COMMITTER_EMAIL: 'test@example.com',
   };
-  execSync('git init -q -b main', { cwd: root, env: gitEnv });
-  execSync('git add -A', { cwd: root, env: gitEnv });
-  execSync('git commit -q -m "seed"', { cwd: root, env: gitEnv });
+  await execFileAsync('git', ['init', '-q', '-b', 'main'], { cwd: root, env: gitEnv });
+  await execFileAsync('git', ['add', '-A'], { cwd: root, env: gitEnv });
+  await execFileAsync('git', ['commit', '-q', '-m', 'seed'], { cwd: root, env: gitEnv });
 
   return root;
 }
@@ -167,7 +167,7 @@ function provisionProject(): string {
  *     `validateCallMacro` is skipped and the test does not depend on
  *     the MCP server schemas.
  */
-function provisionProjectWithCallMacro(): string {
+async function provisionProjectWithCallMacro(): Promise<string> {
   const root = makeTempDir();
 
   mkdirSync(join(root, 'content', 'foo'), { recursive: true });
@@ -204,16 +204,16 @@ function provisionProjectWithCallMacro(): string {
     GIT_COMMITTER_NAME: 'test',
     GIT_COMMITTER_EMAIL: 'test@example.com',
   };
-  execSync('git init -q -b main', { cwd: root, env: gitEnv });
-  execSync('git add -A', { cwd: root, env: gitEnv });
-  execSync('git commit -q -m "seed"', { cwd: root, env: gitEnv });
+  await execFileAsync('git', ['init', '-q', '-b', 'main'], { cwd: root, env: gitEnv });
+  await execFileAsync('git', ['add', '-A'], { cwd: root, env: gitEnv });
+  await execFileAsync('git', ['commit', '-q', '-m', 'seed'], { cwd: root, env: gitEnv });
 
   return root;
 }
 
 describe('skills-guard — task 023', () => {
-  it('SkillsGuard_CleanBuild_Passes', () => {
-    const root = provisionProject();
+  it('SkillsGuard_CleanBuild_Passes', async () => {
+    const root = await provisionProject();
 
     const result = runSkillsGuard({ cwd: root, regenerateAgents: noopRegenerateAgents });
 
@@ -224,8 +224,8 @@ describe('skills-guard — task 023', () => {
     );
   });
 
-  it('SkillsGuard_UncommittedDiff_Fails', () => {
-    const root = provisionProject();
+  it('SkillsGuard_UncommittedDiff_Fails', async () => {
+    const root = await provisionProject();
 
     // Mutate the source so a subsequent build produces different output
     // than what is currently committed under `skills/`. We do NOT commit
@@ -242,8 +242,8 @@ describe('skills-guard — task 023', () => {
     expect(result.exitCode).not.toBe(0);
   });
 
-  it('SkillsGuard_FailureMessage_IncludesRemediation', () => {
-    const root = provisionProject();
+  it('SkillsGuard_FailureMessage_IncludesRemediation', async () => {
+    const root = await provisionProject();
 
     // Force a drift by editing the source without rebuilding.
     writeFileSync(
@@ -262,8 +262,8 @@ describe('skills-guard — task 023', () => {
     expect(result.message).toMatch(/stale|out of sync|drift/i);
   });
 
-  it('SkillsGuard_DirectSkillEdit_Detected', () => {
-    const root = provisionProject();
+  it('SkillsGuard_DirectSkillEdit_Detected', async () => {
+    const root = await provisionProject();
 
     // Simulate a developer hand-editing a generated file. The build
     // itself will overwrite that edit, which is exactly how the guard
@@ -283,8 +283,8 @@ describe('skills-guard — task 023', () => {
       GIT_COMMITTER_NAME: 'test',
       GIT_COMMITTER_EMAIL: 'test@example.com',
     };
-    execSync('git add -A', { cwd: root, env: gitEnv });
-    execSync('git commit -q -m "hand-edit generated file"', {
+    await execFileAsync('git', ['add', '-A'], { cwd: root, env: gitEnv });
+    await execFileAsync('git', ['commit', '-q', '-m', 'hand-edit generated file'], {
       cwd: root,
       env: gitEnv,
     });
@@ -337,8 +337,8 @@ describe('skills-guard — task 13 agents/ drift', () => {
    * directories share the same code path so a single representative
    * regression is sufficient.
    */
-  it('SkillsGuard_NonClaudeAgentsDirDrift_FailsCheck', () => {
-    const root = provisionProject();
+  it('SkillsGuard_NonClaudeAgentsDirDrift_FailsCheck', async () => {
+    const root = await provisionProject();
 
     const codexAgentsDir = join(root, '.codex', 'agents');
     mkdirSync(codexAgentsDir, { recursive: true });
@@ -354,8 +354,8 @@ describe('skills-guard — task 13 agents/ drift', () => {
       GIT_COMMITTER_NAME: 'test',
       GIT_COMMITTER_EMAIL: 'test@example.com',
     };
-    execSync('git add -A', { cwd: root, env: gitEnv });
-    execSync('git commit -q -m "drifted codex agents file"', {
+    await execFileAsync('git', ['add', '-A'], { cwd: root, env: gitEnv });
+    await execFileAsync('git', ['commit', '-q', '-m', 'drifted codex agents file'], {
       cwd: root,
       env: gitEnv,
     });
@@ -377,8 +377,8 @@ describe('skills-guard — task 13 agents/ drift', () => {
     expect(result.message).toMatch(/\.codex\/agents\/implementer\.toml/);
   });
 
-  it('SkillsGuard_AgentsDirDrift_FailsCheck', () => {
-    const root = provisionProject();
+  it('SkillsGuard_AgentsDirDrift_FailsCheck', async () => {
+    const root = await provisionProject();
 
     // Seed a committed `agents/implementer.md` whose content differs
     // from what the (injected) regenerator below will produce. After
@@ -399,8 +399,8 @@ describe('skills-guard — task 13 agents/ drift', () => {
       GIT_COMMITTER_NAME: 'test',
       GIT_COMMITTER_EMAIL: 'test@example.com',
     };
-    execSync('git add -A', { cwd: root, env: gitEnv });
-    execSync('git commit -q -m "drifted agents file"', {
+    await execFileAsync('git', ['add', '-A'], { cwd: root, env: gitEnv });
+    await execFileAsync('git', ['commit', '-q', '-m', 'drifted agents file'], {
       cwd: root,
       env: gitEnv,
     });
@@ -448,8 +448,8 @@ describe('skills-guard — task 011 CALL macro determinism', () => {
     clearRegistryLookup();
   });
 
-  it('SkillsGuard_AfterCallMacroRender_NoDrift', () => {
-    const root = provisionProjectWithCallMacro();
+  it('SkillsGuard_AfterCallMacroRender_NoDrift', async () => {
+    const root = await provisionProjectWithCallMacro();
 
     // First guard invocation: the seed build already committed the
     // rendered output; the guard rebuilds in-process and diffs against
@@ -552,7 +552,7 @@ function writeAliasRuntimeFixtures(runtimesDir: string): void {
  *   - `skills/` + `command-aliases/opencode/` both generated and committed
  * so `git diff` starts clean across both trees.
  */
-function provisionProjectWithAliases(): string {
+async function provisionProjectWithAliases(): Promise<string> {
   const root = makeTempDir();
 
   mkdirSync(join(root, 'content', 'foo'), { recursive: true });
@@ -597,16 +597,16 @@ function provisionProjectWithAliases(): string {
     GIT_COMMITTER_NAME: 'test',
     GIT_COMMITTER_EMAIL: 'test@example.com',
   };
-  execSync('git init -q -b main', { cwd: root, env: gitEnv });
-  execSync('git add -A', { cwd: root, env: gitEnv });
-  execSync('git commit -q -m "seed"', { cwd: root, env: gitEnv });
+  await execFileAsync('git', ['init', '-q', '-b', 'main'], { cwd: root, env: gitEnv });
+  await execFileAsync('git', ['add', '-A'], { cwd: root, env: gitEnv });
+  await execFileAsync('git', ['commit', '-q', '-m', 'seed'], { cwd: root, env: gitEnv });
 
   return root;
 }
 
 describe('skills-guard — T4 command-aliases/ drift (#1472)', () => {
-  it('AliasesGuard_CleanBuild_Passes', () => {
-    const root = provisionProjectWithAliases();
+  it('AliasesGuard_CleanBuild_Passes', async () => {
+    const root = await provisionProjectWithAliases();
 
     const result = runSkillsGuard({
       cwd: root,
@@ -622,8 +622,8 @@ describe('skills-guard — T4 command-aliases/ drift (#1472)', () => {
     ).toBe(true);
   });
 
-  it('AliasesGuard_StaleCommandDescription_Fails', () => {
-    const root = provisionProjectWithAliases();
+  it('AliasesGuard_StaleCommandDescription_Fails', async () => {
+    const root = await provisionProjectWithAliases();
 
     // A contributor edits a command description (the lifted source) but
     // forgets to regenerate. The committed `command-aliases/` tree is now
@@ -653,8 +653,8 @@ describe('skills-guard — T4 command-aliases/ drift (#1472)', () => {
     expect(result.message).toMatch(/command-aliases/);
   });
 
-  it('AliasesGuard_DirectAliasEdit_Detected', () => {
-    const root = provisionProjectWithAliases();
+  it('AliasesGuard_DirectAliasEdit_Detected', async () => {
+    const root = await provisionProjectWithAliases();
 
     // Simulate a developer hand-editing a generated alias file and
     // committing it. A fresh regeneration overwrites the hand-edit, so
@@ -671,8 +671,8 @@ describe('skills-guard — T4 command-aliases/ drift (#1472)', () => {
       GIT_COMMITTER_NAME: 'test',
       GIT_COMMITTER_EMAIL: 'test@example.com',
     };
-    execSync('git add -A', { cwd: root, env: gitEnv });
-    execSync('git commit -q -m "hand-edit generated alias"', {
+    await execFileAsync('git', ['add', '-A'], { cwd: root, env: gitEnv });
+    await execFileAsync('git', ['commit', '-q', '-m', 'hand-edit generated alias'], {
       cwd: root,
       env: gitEnv,
     });

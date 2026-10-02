@@ -37,7 +37,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
-import { execSync } from 'node:child_process';
+import { execFileAsync } from '../../../tools/test-helpers/spawn.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -2575,7 +2575,7 @@ describe('buildAllSkills — task 003: classification-driven emission', () => {
     expect(report.variantsWritten).toBe(6);
   });
 
-  it('skillsGuard_StandardTreeDrift_Fails', () => {
+  it('skillsGuard_StandardTreeDrift_Fails', async () => {
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'rendered', 'skills');
@@ -2590,9 +2590,9 @@ describe('buildAllSkills — task 003: classification-driven emission', () => {
     writeRuntimeFixtures(runtimesDir);
     buildAllSkills({ srcDir, outDir, runtimesDir });
 
-    execSync('git init -q -b main', { cwd: root, env: GIT_ENV });
-    execSync('git add -A', { cwd: root, env: GIT_ENV });
-    execSync('git commit -q -m "seed"', { cwd: root, env: GIT_ENV });
+    await execFileAsync('git', ['init', '-q', '-b', 'main'], { cwd: root, env: GIT_ENV });
+    await execFileAsync('git', ['add', '-A'], { cwd: root, env: GIT_ENV });
+    await execFileAsync('git', ['commit', '-q', '-m', 'seed'], { cwd: root, env: GIT_ENV });
 
     // Hand-edit the committed standard render and commit the drift. A fresh
     // guard build regenerates the canonical bytes, so `git diff` on the
@@ -2600,8 +2600,8 @@ describe('buildAllSkills — task 003: classification-driven emission', () => {
     const standardFile = join(outDir, 'standard', 'proc', 'SKILL.md');
     expect(existsSync(standardFile)).toBe(true);
     writeFileSync(standardFile, readFileSync(standardFile, 'utf8') + '\n<!-- hand edit -->\n');
-    execSync('git add -A', { cwd: root, env: GIT_ENV });
-    execSync('git commit -q -m "drift standard"', { cwd: root, env: GIT_ENV });
+    await execFileAsync('git', ['add', '-A'], { cwd: root, env: GIT_ENV });
+    await execFileAsync('git', ['commit', '-q', '-m', 'drift standard'], { cwd: root, env: GIT_ENV });
 
     const result = runSkillsGuard({ cwd: root, regenerateAgents: () => {} });
 

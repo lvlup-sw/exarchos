@@ -15,7 +15,6 @@
 //   - a non-git target / unreachable origin fails CLOSED with a structured error.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { execFileSync } from 'node:child_process';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { existsSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -24,6 +23,7 @@ import * as path from 'node:path';
 import { EventStore } from '../../../../src/events/store.js';
 import type { WorkflowEvent } from '../../../../src/events/schemas.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
+import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import {
   WorktreeManager,
@@ -70,29 +70,25 @@ import {
 
 // ─── git + event-store helpers (mirror lifecycle.test.ts) ─────────────────────
 
-function git(cwd: string, args: readonly string[]): string {
-  return execFileSync('git', args as string[], {
-    cwd,
-    encoding: 'utf-8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-  }).trim();
+async function git(cwd: string, args: readonly string[]): Promise<string> {
+  return (await execFileAsync('git', args, { cwd })).trim();
 }
 
 async function initRepo(dir: string): Promise<string> {
   await mkdir(dir, { recursive: true });
-  git(dir, ['init', '-q', '-b', 'work']);
-  git(dir, ['config', 'user.email', 'teardown@example.com']);
-  git(dir, ['config', 'user.name', 'Teardown Test']);
-  git(dir, ['config', 'commit.gpgsign', 'false']);
+  await git(dir, ['init', '-q', '-b', 'work']);
+  await git(dir, ['config', 'user.email', 'teardown@example.com']);
+  await git(dir, ['config', 'user.name', 'Teardown Test']);
+  await git(dir, ['config', 'commit.gpgsign', 'false']);
   await writeFile(path.join(dir, 'README.md'), '# launcher teardown test\n');
-  git(dir, ['add', '.']);
-  git(dir, ['commit', '-q', '-m', 'init']);
+  await git(dir, ['add', '.']);
+  await git(dir, ['commit', '-q', '-m', 'init']);
   return realpathSync(dir);
 }
 
 async function addBaseWorktree(repo: string, workdir: string): Promise<string> {
   const base = path.join(workdir, 'base-wt');
-  git(repo, ['worktree', 'add', '-q', base, '-b', 'base-branch']);
+  await git(repo, ['worktree', 'add', '-q', base, '-b', 'base-branch']);
   return realpathSync(base);
 }
 
@@ -428,7 +424,7 @@ describe('teardownLaunch — launcher teardown safety + recovery (DR-6)', () => 
       ownerStartedAt: 'crashed',
     });
     // The worktree is created on disk...
-    git(repo, ['worktree', 'add', worktreePath, '-b', 'crashed-launch']);
+    await git(repo, ['worktree', 'add', worktreePath, '-b', 'crashed-launch']);
     // ...but the launcher crashed BEFORE emitting the INV-13 create terminal
     // (a dangling `worktree.create.requested`) and before any launch event.
     await store.append(

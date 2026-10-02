@@ -16,11 +16,12 @@
 // git-bash's MSYS environment is testing an untargeted platform, not a
 // real gap.
 import { describe, it, expect } from 'vitest';
-import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
+
+import { spawnAsync } from '../../tools/test-helpers/spawn.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -28,12 +29,11 @@ const REPO_ROOT = resolve(__dirname, '../..');
 const SHELL_TEST = join(REPO_ROOT, 'tests/scripts/get-exarchos.test.sh');
 
 describe.skipIf(process.platform === 'win32')('tools/release/get-exarchos.sh (shell harness)', () => {
-  it('passes the full tests/scripts/get-exarchos.test.sh suite', () => {
+  it('passes the full tests/scripts/get-exarchos.test.sh suite', async () => {
     expect(existsSync(SHELL_TEST)).toBe(true);
 
-    const result = spawnSync('bash', [SHELL_TEST], {
+    const result = await spawnAsync('bash', [SHELL_TEST], {
       cwd: REPO_ROOT,
-      encoding: 'utf-8',
       env: process.env,
       timeout: 60_000,
     });

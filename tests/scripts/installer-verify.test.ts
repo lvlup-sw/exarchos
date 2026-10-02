@@ -28,7 +28,7 @@
 // this workstream before.
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { createServer, type Server } from 'node:http';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createReadStream, statSync } from 'node:fs';
@@ -36,6 +36,8 @@ import { tmpdir } from 'node:os';
 import { delimiter, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
+
+import { spawnAsync } from '../../tools/test-helpers/spawn.js';
 
 import {
   buildReleaseFixture,
@@ -55,8 +57,8 @@ const WINDOWS_ASSET = 'exarchos-windows-x64.exe';
 // ─── Toolchain discovery ─────────────────────────────────────────────────────
 
 /**
- * On Windows `bun` is a `.cmd`/`.ps1` shim, not a PATH `.exe`, so `spawnSync`
- * cannot find it by name. Mirrors `scripts/build-release-manifest.test.ts`.
+ * On Windows `bun` is a `.cmd`/`.ps1` shim, not a PATH `.exe`, so a spawn
+ * without a shell cannot find it by name. Mirrors `scripts/build-release-manifest.test.ts`.
  */
 function resolveBunExecutable(): string {
   const dirs = (process.env['PATH'] ?? '').split(delimiter).filter((d) => d.length > 0);
@@ -74,20 +76,19 @@ function resolveBunExecutable(): string {
   return 'bun';
 }
 
-function resolveBash(): string | undefined {
+async function resolveBash(): Promise<string | undefined> {
   const candidates =
     process.platform === 'win32'
       ? ['C:/Program Files/Git/bin/bash.exe', 'C:/Program Files/Git/usr/bin/bash.exe']
       : ['/bin/bash', '/usr/bin/bash'];
   for (const c of candidates) if (existsSync(c)) return c;
-  const probe = spawnSync('bash', ['-c', 'echo ok'], { encoding: 'utf-8', timeout: 15_000 });
+  const probe = await spawnAsync('bash', ['-c', 'echo ok'], { timeout: 15_000 });
   return probe.status === 0 ? 'bash' : undefined;
 }
 
-function resolvePwsh(): string | undefined {
+async function resolvePwsh(): Promise<string | undefined> {
   for (const exe of ['pwsh', 'powershell']) {
-    const probe = spawnSync(exe, ['-NoProfile', '-Command', 'exit 0'], {
-      encoding: 'utf-8',
+    const probe = await spawnAsync(exe, ['-NoProfile', '-Command', 'exit 0'], {
       timeout: 20_000,
     });
     if (probe.status === 0) return exe;
@@ -95,8 +96,8 @@ function resolvePwsh(): string | undefined {
   return undefined;
 }
 
-const BASH = resolveBash();
-const PWSH = resolvePwsh();
+const BASH = await resolveBash();
+const PWSH = await resolvePwsh();
 
 // ─── Tolerated-skip ledger (DR-7, task 078) ──────────────────────────────────
 //
@@ -370,8 +371,11 @@ function builtInVerifierOf(path: string, open: string, close: string): string {
 }
 
 /** Exit code and verdict tag of one verifier run. */
-function verdictOf(verifier: string, args: readonly string[]): { status: number | null; verdict: string } {
-  const run = spawnSync(process.execPath, [verifier, ...args], { encoding: 'utf-8', timeout: 60_000 });
+async function verdictOf(
+  verifier: string,
+  args: readonly string[],
+): Promise<{ status: number | null; verdict: string }> {
+  const run = await spawnAsync(process.execPath, [verifier, ...args], { timeout: 60_000 });
   const text = `${run.stdout}${run.stderr}`;
   const tag = /release REJECTED \[([a-z-]+)\]/.exec(text)?.[1];
   const verdict = tag ?? (text.includes('release verified') ? 'verified' : text.includes('usage error') ? 'usage' : text);
@@ -434,8 +438,7 @@ beforeAll(async () => {
   // that no longer emits the shipped path would still leave every installer test
   // green against a stale file.
   rmSync(SHIPPED_VERIFIER, { force: true });
-  const build = spawnSync(resolveBunExecutable(), argv.slice(1), {
-    encoding: 'utf-8',
+  const build = await spawnAsync(resolveBunExecutable(), argv.slice(1), {
     cwd: REPO_ROOT,
     timeout: 180_000,
   });
@@ -512,7 +515,7 @@ describe('DR-20 — the installers consume the signed release manifest', () => {
     }
   });
 
-  it('the verifier is shipped: package.json exposes it as a bin and includes it in files[]', () => {
+  it('the verifier is shipped: package.json exposes it as a bin and includes it in files[]', async () => {
     const pkg = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8')) as {
       bin?: Record<string, string>;
       files?: string[];
@@ -525,21 +528,20 @@ describe('DR-20 — the installers consume the signed release manifest', () => {
     expect(existsSync(SHIPPED_VERIFIER)).toBe(true);
 
     // It is a real, runnable CLI (usage error == exit 3, per the CLI contract).
-    const probe = spawnSync(process.execPath, [SHIPPED_VERIFIER], {
-      encoding: 'utf-8',
+    const probe = await spawnAsync(process.execPath, [SHIPPED_VERIFIER], {
       timeout: 60_000,
     });
     expect(probe.status).toBe(3);
     expect(`${probe.stdout}${probe.stderr}`).toContain('--manifest is required');
   }, 120_000);
 
-  it('npm pack ships dist/release-verify.js and not the test fixtures', () => {
+  it('npm pack ships dist/release-verify.js and not the test fixtures', async () => {
     // Node >=20 refuses to spawn a `.cmd` shim without a shell (CVE-2024-27980).
     const isWin = process.platform === 'win32';
-    const packed = spawnSync(
+    const packed = await spawnAsync(
       isWin ? 'npm.cmd' : 'npm',
       ['pack', '--dry-run', '--json', '--ignore-scripts'],
-      { encoding: 'utf-8', cwd: REPO_ROOT, timeout: 300_000, shell: isWin },
+      { cwd: REPO_ROOT, timeout: 300_000, shell: isWin },
     );
     expect(packed.status, `${String(packed.error)}\n${packed.stderr}`).toBe(0);
     const files = (
@@ -576,7 +578,7 @@ describe('DR-20 — the installers consume the signed release manifest', () => {
       expect(ps1Copy()).toBe(sh);
     });
 
-    it('BuiltInVerifier_EverySeededFault_ReturnsTheShippedVerifierVerdict', () => {
+    it('BuiltInVerifier_EverySeededFault_ReturnsTheShippedVerifierVerdict', async () => {
       const builtIn = join(scratch, 'built-in-verifier.cjs');
       writeFileSync(builtIn, `${shCopy()}\n`, 'utf8');
       const faults: ReadonlyArray<readonly [string, Omit<ReleaseFixtureOptions, 'outDir' | 'assets'>, string]> = [
@@ -600,12 +602,12 @@ describe('DR-20 — the installers consume the signed release manifest', () => {
           '--expect-contract', fixture.contractDigest,
           '--asset', `${LINUX_ASSET}=${join(fixture.releaseDir, LINUX_ASSET)}`,
         ];
-        const shipped = verdictOf(SHIPPED_VERIFIER, args);
-        const carried = verdictOf(builtIn, args);
+        const shipped = await verdictOf(SHIPPED_VERIFIER, args);
+        const carried = await verdictOf(builtIn, args);
         expect(shipped.verdict, `shipped verifier on '${name}'`).toBe(expected);
         expect(carried, `built-in verifier on '${name}'`).toEqual(shipped);
       }
-      expect(verdictOf(builtIn, [])).toEqual(verdictOf(SHIPPED_VERIFIER, []));
+      expect(await verdictOf(builtIn, [])).toEqual(await verdictOf(SHIPPED_VERIFIER, []));
     }, 180_000);
   });
 

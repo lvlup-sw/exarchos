@@ -32,6 +32,7 @@ import { buildLocalGitMergeAdapter } from '../../../../src/verbs/merge/local-git
 import type { GitExec } from '../../../../src/verbs/pure/execute-merge.js';
 import { EventStore } from '../../../../src/events/store.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
+import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 import { capabilitiesForPosture } from '../../../../src/workflow/capabilities/posture-mapping.js';
 import { isSuccess } from '../../../../src/dispatch/core/effect-carrier.js';
 import { VcsMutationOwner, VCS_REQUESTED, VCS_EXECUTED } from '../../../../src/vcs/mutation-owner.js';
@@ -44,12 +45,8 @@ import {
 
 // ─── git helpers ─────────────────────────────────────────────────────────────
 
-function git(cwd: string, args: readonly string[]): string {
-  return execFileSync('git', args as string[], {
-    cwd,
-    encoding: 'utf-8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-  }).trim();
+async function git(cwd: string, args: readonly string[]): Promise<string> {
+  return (await execFileAsync('git', args, { cwd })).trim();
 }
 
 /** A `GitExec` (execute-merge's shape) that captures exit codes rather than throwing. */
@@ -57,6 +54,7 @@ const captureGitExec: GitExec = (repoRoot, args) => {
   try {
     const stdout = execFileSync('git', ['-C', repoRoot, ...args], {
       encoding: 'utf-8',
+      timeout: 15_000,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     return { stdout, exitCode: 0 };
@@ -68,20 +66,17 @@ const captureGitExec: GitExec = (repoRoot, args) => {
 
 /** Init a real repo on `main` with one commit; returns its canonical path. */
 async function initRepo(dir: string): Promise<string> {
-  git(dir, ['init', '-q', '-b', 'main']);
-  git(dir, ['config', 'user.email', 'setup@example.com']);
-  git(dir, ['config', 'user.name', 'Setup Worktree Test']);
-  git(dir, ['config', 'commit.gpgsign', 'false']);
-  execFileSync('git', ['commit', '-q', '--allow-empty', '-m', 'init'], {
-    cwd: dir,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  await git(dir, ['init', '-q', '-b', 'main']);
+  await git(dir, ['config', 'user.email', 'setup@example.com']);
+  await git(dir, ['config', 'user.name', 'Setup Worktree Test']);
+  await git(dir, ['config', 'commit.gpgsign', 'false']);
+  await execFileAsync('git', ['commit', '-q', '--allow-empty', '-m', 'init'], { cwd: dir });
   return realpathSync(dir);
 }
 
 /** Count on-disk worktrees EXCLUDING the main checkout. */
-function extraWorktreeCount(repoRoot: string): number {
-  const all = git(repoRoot, ['worktree', 'list', '--porcelain'])
+async function extraWorktreeCount(repoRoot: string): Promise<number> {
+  const all = (await git(repoRoot, ['worktree', 'list', '--porcelain']))
     .split('\n')
     .filter((l) => l.startsWith('worktree ')).length;
   return all - 1;
@@ -115,7 +110,7 @@ describe('setup_worktree / merge production-path exit proofs (P04-05)', () => {
   afterEach(async () => {
     vi.restoreAllMocks();
     try {
-      git(repo, ['worktree', 'prune']);
+      await git(repo, ['worktree', 'prune']);
     } catch {
       /* best effort */
     }
@@ -132,14 +127,14 @@ describe('setup_worktree / merge production-path exit proofs (P04-05)', () => {
     const firstData = first.data as SetupData;
     expect(firstData.passed).toBe(true);
     expect(existsSync(firstData.worktreePath)).toBe(true);
-    expect(extraWorktreeCount(repo)).toBe(1);
+    expect(await extraWorktreeCount(repo)).toBe(1);
 
     // Second identical request: the owner's path-keyed idempotency replays the
     // recorded outcome WITHOUT a second `git worktree add` (which would either
     // error on the existing path or, pre-owner, orphan a duplicate).
     const second = await handleSetupWorktree(args);
     expect(second.success).toBe(true);
-    expect(extraWorktreeCount(repo)).toBe(1); // still exactly ONE
+    expect(await extraWorktreeCount(repo)).toBe(1); // still exactly ONE
 
     // Exactly one executed terminal recorded for the worktree — the effect ran once.
     const types = await ledgerTypes(repo);
@@ -198,7 +193,7 @@ describe('setup_worktree / merge production-path exit proofs (P04-05)', () => {
     // The on-disk worktree exists — but it is NOT an event-less orphan: a
     // durable INTENT was recorded, and NO terminal. A reconciler can find it.
     expect(existsSync(worktreePath)).toBe(true);
-    expect(extraWorktreeCount(repo)).toBe(1);
+    expect(await extraWorktreeCount(repo)).toBe(1);
     const typesAfterCrash = await ledgerTypes(repo);
     expect(typesAfterCrash).toContain(VCS_REQUESTED);
     expect(typesAfterCrash).not.toContain(VCS_EXECUTED);
@@ -208,7 +203,7 @@ describe('setup_worktree / merge production-path exit proofs (P04-05)', () => {
     const retried = await handleSetupWorktree(args, undefined, { provisioner });
     expect(retried.success).toBe(true);
     expect((retried.data as SetupData).passed).toBe(true);
-    expect(extraWorktreeCount(repo)).toBe(1); // converged, not re-created
+    expect(await extraWorktreeCount(repo)).toBe(1); // converged, not re-created
     const typesAfterRetry = await ledgerTypes(repo);
     expect(typesAfterRetry).toContain(VCS_EXECUTED);
   });
@@ -217,12 +212,9 @@ describe('setup_worktree / merge production-path exit proofs (P04-05)', () => {
 
   it('(c) a duplicate merge request runs the local-git merge adapter exactly ONCE', async () => {
     // Stand up a feature branch with a real commit to merge into main.
-    git(repo, ['checkout', '-q', '-b', 'feature/x']);
-    execFileSync('git', ['commit', '-q', '--allow-empty', '-m', 'feature work'], {
-      cwd: repo,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    git(repo, ['checkout', '-q', 'main']);
+    await git(repo, ['checkout', '-q', '-b', 'feature/x']);
+    await execFileAsync('git', ['commit', '-q', '--allow-empty', '-m', 'feature work'], { cwd: repo });
+    await git(repo, ['checkout', '-q', 'main']);
 
     const store = new EventStore(path.join(repo, '.git', 'exarchos', 'vcs-merges'));
     await store.initialize();
@@ -261,7 +253,7 @@ describe('setup_worktree / merge production-path exit proofs (P04-05)', () => {
         expect(second.value).toEqual(first.value); // replayed the recorded outcome
       }
       // Exactly ONE merge commit landed on main.
-      expect(git(repo, ['rev-list', '--merges', '--count', 'HEAD'])).toBe('1');
+      expect(await git(repo, ['rev-list', '--merges', '--count', 'HEAD'])).toBe('1');
     } finally {
       store.close();
     }
@@ -280,6 +272,6 @@ describe('setup_worktree / merge production-path exit proofs (P04-05)', () => {
     expect(outcome.ok).toBe(true);
     expect(outcome.branchCreated).toBe(true);
     expect(outcome.worktreeCreated).toBe(true);
-    expect(extraWorktreeCount(repo)).toBe(1);
+    expect(await extraWorktreeCount(repo)).toBe(1);
   });
 });

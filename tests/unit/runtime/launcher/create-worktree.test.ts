@@ -20,7 +20,6 @@
 //   - the flow NEVER emits the task-scoped `worktree.created`.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { execFileSync } from 'node:child_process';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { existsSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -28,6 +27,7 @@ import * as path from 'node:path';
 
 import { EventStore } from '../../../../src/events/store.js';
 import type { WorkflowEvent } from '../../../../src/events/schemas.js';
+import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import {
   WORKTREES_STREAM,
@@ -49,24 +49,20 @@ import {
 // ─── git + event-store helpers ──────────────────────────────────────────────
 
 /** Run `git <args>` from `cwd`, returning trimmed stdout (throws on failure). */
-function git(cwd: string, args: readonly string[]): string {
-  return execFileSync('git', args as string[], {
-    cwd,
-    encoding: 'utf-8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-  }).trim();
+async function git(cwd: string, args: readonly string[]): Promise<string> {
+  return (await execFileAsync('git', args, { cwd })).trim();
 }
 
 /** Init a real repo on branch `work` with one commit; returns its canonical path. */
 async function initRepo(dir: string): Promise<string> {
   await mkdir(dir, { recursive: true });
-  git(dir, ['init', '-q', '-b', 'work']);
-  git(dir, ['config', 'user.email', 'launcher@example.com']);
-  git(dir, ['config', 'user.name', 'Launcher Test']);
-  git(dir, ['config', 'commit.gpgsign', 'false']);
+  await git(dir, ['init', '-q', '-b', 'work']);
+  await git(dir, ['config', 'user.email', 'launcher@example.com']);
+  await git(dir, ['config', 'user.name', 'Launcher Test']);
+  await git(dir, ['config', 'commit.gpgsign', 'false']);
   await writeFile(path.join(dir, 'README.md'), '# launcher create test\n');
-  git(dir, ['add', '.']);
-  git(dir, ['commit', '-q', '-m', 'init']);
+  await git(dir, ['add', '.']);
+  await git(dir, ['commit', '-q', '-m', 'init']);
   // `.native` (not the JS `realpathSync`) so Windows 8.3 SHORT names are expanded
   // to their long form — mirroring production's `defaultRealpath`, so the path the
   // launcher derives (via `deriveWorktreePath`) matches this test's expectation on
@@ -99,7 +95,7 @@ async function projection(store: EventStore): Promise<WorktreesProjection> {
 /** A base sibling worktree (`git worktree add`) the launcher derives siblings off. */
 async function addBaseWorktree(repo: string, workdir: string): Promise<string> {
   const base = path.join(workdir, 'base-wt');
-  git(repo, ['worktree', 'add', '-q', base, '-b', 'base-branch']);
+  await git(repo, ['worktree', 'add', '-q', base, '-b', 'base-branch']);
   return realpathSync.native(base);
 }
 
@@ -237,7 +233,7 @@ describe('createLauncherWorktree (real git + real event store)', () => {
     // Persist a bare `worktree.create.requested` intent for a real, hand-made
     // worktree, with NO terminal — the crash window.
     const presentDir = path.join(workdir, 'resumed-present');
-    git(repo, ['worktree', 'add', '-q', presentDir, '-b', 'present-branch']);
+    await git(repo, ['worktree', 'add', '-q', presentDir, '-b', 'present-branch']);
     const onDiskPath = realpathSync(presentDir);
     const onDiskId = canonicalWorktreeId(onDiskPath);
     const opPresent = '11111111-1111-4111-8111-111111111111';
@@ -411,7 +407,7 @@ describe('createLauncherWorktree (real git + real event store)', () => {
     // ...and the created worktree exists ONLY because the runner performed it
     // (no scattered execFile bypass) — the worktree is on disk + git-registered.
     expect(existsSync(result.worktreePath)).toBe(true);
-    const listed = git(repo, ['worktree', 'list', '--porcelain']);
+    const listed = await git(repo, ['worktree', 'list', '--porcelain']);
     expect(listed).toContain(result.worktreePath);
     // Every recorded git op is a worktree op — nothing else shelled out of band.
     for (const c of calls) expect(c[0]).toBe('worktree');
@@ -482,7 +478,7 @@ describe('createLauncherWorktree (real git + real event store)', () => {
     expect(existsSync(absentPath)).toBe(true);
     // The resumed worktree is on the ORIGINALLY-REQUESTED branch — proof the
     // persisted `-b` was replayed rather than derived from the path basename.
-    expect(git(absentPath, ['symbolic-ref', '--short', 'HEAD'])).toBe(requestedBranch);
+    expect(await git(absentPath, ['symbolic-ref', '--short', 'HEAD'])).toBe(requestedBranch);
   });
 
   // ─── the flow never emits the task-scoped worktree.created ────────────────

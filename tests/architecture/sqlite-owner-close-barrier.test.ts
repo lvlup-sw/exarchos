@@ -95,8 +95,8 @@ function scanSource(fileName: string, source: string): OpenSite[] {
   return sites;
 }
 
-function scanTree(): { readonly filesScanned: number; readonly sites: readonly OpenSite[] } {
-  const files = listTrackedFiles(REPO_ROOT, {
+async function scanTree(): Promise<{ readonly filesScanned: number; readonly sites: readonly OpenSite[] }> {
+  const files = await listTrackedFiles(REPO_ROOT, {
     exclude: (rel) => !rel.startsWith('src/') || rel.endsWith('.test.ts'),
   });
   const sites: OpenSite[] = [];
@@ -110,8 +110,8 @@ function scanTree(): { readonly filesScanned: number; readonly sites: readonly O
 
 describe('SQLite handle owners refuse to reopen after close (#2026)', () => {
   /** A moved tree or a broken filter would otherwise leave nothing to check. */
-  it('SqliteOwnerGuard_ScansTheSourceTreeAndTheKnownOwners', () => {
-    const { filesScanned, sites } = scanTree();
+  it('SqliteOwnerGuard_ScansTheSourceTreeAndTheKnownOwners', async () => {
+    const { filesScanned, sites } = await scanTree();
 
     expect(filesScanned).toBeGreaterThan(500);
     expect(sites.length).toBeGreaterThanOrEqual(3);
@@ -124,8 +124,8 @@ describe('SQLite handle owners refuse to reopen after close (#2026)', () => {
     }
   });
 
-  it('SqliteOwnerGuard_EveryOpenComesAfterTheCloseBarrier', () => {
-    const { sites } = scanTree();
+  it('SqliteOwnerGuard_EveryOpenComesAfterTheCloseBarrier', async () => {
+    const { sites } = await scanTree();
     const unguarded = sites.filter((s) => !s.guarded).map((s) => s.site);
 
     expect(sites.length).toBeGreaterThanOrEqual(3);

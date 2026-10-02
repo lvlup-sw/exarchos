@@ -2,7 +2,6 @@
 import { describe, it, expect, afterEach, beforeAll } from 'vitest';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
-import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { spawnMcpClient, type SpawnedMcpClient } from './mcp-client.js';
 import { withHermeticEnv } from './hermetic.js';
@@ -12,6 +11,7 @@ import {
   replayInto,
   type EventSnapshot,
 } from './event-replay.js';
+import { spawnAsync } from '../../tools/test-helpers/spawn.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
@@ -39,7 +39,7 @@ function track<T extends SpawnedMcpClient>(c: T): T {
 }
 
 describe('event-replay primitives', () => {
-  beforeAll(() => {
+  beforeAll(async () => {
     // Confirm the MCP entrypoint is reachable; the fixture self-tests are part
     // of the `unit` project which does not gate on `exarchos` binary presence.
     if (!fs.existsSync(MCP_ENTRY)) {
@@ -48,7 +48,7 @@ describe('event-replay primitives', () => {
     // Bun preflight — every spawn site below uses `command: 'bun'`. A missing
     // bun would surface late as an opaque ENOENT inside `transport.start()`;
     // probe up-front so the failure message names the actual missing dep.
-    const probe = spawnSync('bun', ['--version'], { stdio: 'ignore' });
+    const probe = await spawnAsync('bun', ['--version']);
     if (probe.error || probe.status !== 0) {
       throw new Error(
         `bun not found on PATH (required to spawn the MCP server because ` +

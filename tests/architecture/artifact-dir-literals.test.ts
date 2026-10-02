@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 
 // ─── Artifact-directory literal scan (DR-6, task 005) ────────────────────────
 //
@@ -119,11 +120,8 @@ interface Scan {
   readonly filesScanned: number;
 }
 
-function scan(): Scan {
-  const tracked = execFileSync('git', ['-C', REPO_ROOT, 'ls-files', '*.ts', '*.mjs', '*.js'], {
-    encoding: 'utf-8',
-    maxBuffer: 32 * 1024 * 1024,
-  })
+async function scan(): Promise<Scan> {
+  const tracked = (await execFileAsync('git', ['-C', REPO_ROOT, 'ls-files', '*.ts', '*.mjs', '*.js']))
     .split('\n')
     .filter(Boolean)
     .filter((f) => !f.includes('node_modules') && !f.endsWith('.test.ts') && !f.includes('__fixtures__'));
@@ -153,9 +151,9 @@ function scan(): Scan {
   return { functional, prose, filesScanned: tracked.length };
 }
 
-describe('artifact-directory literals have exactly one owner (DR-6)', () => {
-  const result = scan();
+const result = await scan();
 
+describe('artifact-directory literals have exactly one owner (DR-6)', () => {
   it('the scan is not vacuous', () => {
     // A scan that walks nothing passes everything. If the glob, the git call,
     // or the comment stripper breaks, this is the test that says so.

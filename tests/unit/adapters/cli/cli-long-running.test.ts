@@ -151,6 +151,28 @@ const EXTRA_ARGS_PER_ACTION: Record<string, string[]> = {
   check_integration_suite: [],
 };
 
+/**
+ * Runs `invoke` with timers and `Date` on a fake clock, stepping the clock
+ * 100 ms at a time until the call settles. Real I/O still runs between steps,
+ * so the verdict depends on the code's timers, not on the host's speed.
+ */
+async function runOnFakeClock(invoke: () => Promise<unknown>): Promise<void> {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+  try {
+    let settled = false;
+    const run = invoke().finally(() => {
+      settled = true;
+    });
+    while (!settled) {
+      await vi.advanceTimersByTimeAsync(100);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    await run;
+  } finally {
+    vi.useRealTimers();
+  }
+}
+
 describe('CLI long-running heartbeat emission (DR-5)', () => {
   let ctx: DispatchContext;
   let stderrSpy: ReturnType<typeof vi.spyOn>;
@@ -201,18 +223,18 @@ describe('CLI long-running heartbeat emission (DR-5)', () => {
         // Invoke the flagged action via --json so the adapter sees a
         // "machine" caller — heartbeats must only emit in this mode
         // (not in interactive pretty-print mode).
-        const spawnStart = Date.now();
-        await program.parseAsync([
-          'node',
-          'exarchos',
-          orchestrate!.cli?.alias ?? 'orch',
-          flagged!.cli?.alias ?? flagged!.name,
-          '--feature-id',
-          'dr5-test',
-          ...(EXTRA_ARGS_PER_ACTION[actionName] ?? []),
-          '--json',
-        ]);
-        const totalMs = Date.now() - spawnStart;
+        await runOnFakeClock(() =>
+          program.parseAsync([
+            'node',
+            'exarchos',
+            orchestrate!.cli?.alias ?? 'orch',
+            flagged!.cli?.alias ?? flagged!.name,
+            '--feature-id',
+            'dr5-test',
+            ...(EXTRA_ARGS_PER_ACTION[actionName] ?? []),
+            '--json',
+          ]),
+        );
 
         // Collect everything written to stderr during the invocation.
         const stderrText = stderrSpy.mock.calls
@@ -222,19 +244,11 @@ describe('CLI long-running heartbeat emission (DR-5)', () => {
         const heartbeatMatches =
           stderrText.match(new RegExp(HEARTBEAT_PATTERN, 'g')) ?? [];
 
-        // Either the process finished within ~2s (no heartbeat needed),
-        // OR we observed at least one heartbeat line within 2.5s of spawn.
-        const exitedQuickly = totalMs < 2000;
-        const emittedHeartbeatInTime =
-          heartbeatMatches.length >= 1 && totalMs <= 3500;
-
         expect(
-          exitedQuickly || emittedHeartbeatInTime,
-          `expected either quick exit (<2s) or heartbeat on stderr within 2.5s; ` +
-            `action=${actionName}, totalMs=${totalMs}, ` +
-            `heartbeatCount=${heartbeatMatches.length}, ` +
-            `stderr=${JSON.stringify(stderrText).slice(0, 200)}`,
-        ).toBe(true);
+          heartbeatMatches.length,
+          `expected a heartbeat on stderr before the ${dispatchDelayMs.current}ms handler returned; ` +
+            `action=${actionName}, stderr=${JSON.stringify(stderrText).slice(0, 200)}`,
+        ).toBeGreaterThanOrEqual(1);
 
         // Heartbeat lines, if any, must each end with a newline (line-buffered).
         for (const line of heartbeatMatches) {

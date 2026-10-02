@@ -12,10 +12,11 @@
  * the compile pipeline is caught on every CI run.
  */
 import { describe, it, expect, beforeAll } from 'vitest';
-import { spawnSync } from 'node:child_process';
 import { existsSync, statSync, readFileSync, mkdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { spawnAsync } from '../../tools/test-helpers/spawn.js';
 
 // `__dirname` happens to be defined under the current vitest tsx loader,
 // but pure ESM does not provide it — derive from `import.meta.url` so
@@ -46,7 +47,7 @@ function expectedBinaryPath(): string {
 describe('tools/release/build-binary.ts', () => {
   let builtBinary: string;
 
-  beforeAll(() => {
+  beforeAll(async () => {
     // Ensure dist/bin exists so the existence check below reliably asserts
     // the build itself created the file.
     mkdirSync(DIST_BIN_DIR, { recursive: true });
@@ -58,9 +59,8 @@ describe('tools/release/build-binary.ts', () => {
       );
     }
 
-    const result = spawnSync('bun', ['run', BUILD_SCRIPT], {
+    const result = await spawnAsync('bun', ['run', BUILD_SCRIPT], {
       cwd: REPO_ROOT,
-      encoding: 'utf-8',
       env: process.env,
       // 3 minute timeout for cold cache; typical run is ~30s.
       timeout: 180_000,
@@ -93,7 +93,7 @@ describe('tools/release/build-binary.ts', () => {
     }
   });
 
-  it('BuildBinary_CompiledBinary_RespondsToVersionFlag', () => {
+  it('BuildBinary_CompiledBinary_RespondsToVersionFlag', async () => {
     // Load root package.json for reference — documented in the provenance
     // block that the CLI currently hardcodes its own version constant and
     // wiring it to package.json is out of scope for task 1.4. This test
@@ -105,8 +105,7 @@ describe('tools/release/build-binary.ts', () => {
     ) as { version: string };
     void pkgJson.version;
 
-    const result = spawnSync(builtBinary, ['--version'], {
-      encoding: 'utf-8',
+    const result = await spawnAsync(builtBinary, ['--version'], {
       timeout: 30_000,
     });
 

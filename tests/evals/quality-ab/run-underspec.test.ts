@@ -129,7 +129,7 @@ describe('dispatchCell — materialize a run dir from an injected model result',
   let base: string;
   let tasksDir: string;
 
-  const okModel = (result: string): RunModelFn => () => ({ ok: true, result, modelId: 'fake-model', costUsd: 0.01 });
+  const okModel = (result: string): RunModelFn => async () => ({ ok: true, result, modelId: 'fake-model', costUsd: 0.01 });
 
   beforeAll(() => {
     base = fs.mkdtempSync(path.join(os.tmpdir(), 'exp3-dispatch-'));
@@ -142,12 +142,12 @@ describe('dispatchCell — materialize a run dir from an injected model result',
 
   const cell: CellId = { model: 'opus', task: PARSE_DURATION, arm: 'E', rep: 1 };
 
-  it('writes impl.ts + test.ts from a well-formed E-arm result', () => {
+  it('writes impl.ts + test.ts from a well-formed E-arm result', async () => {
     const runs = path.join(base, 'runs-ok');
     const model = okModel(
       '===FILE:impl.ts===\nexport const impl = 1;\n===ENDFILE===\n===FILE:test.ts===\nconsole.log("ok");\n===ENDFILE===',
     );
-    const out = dispatchCell(runs, cell, { runModel: model, tasksDir, skipExisting: false });
+    const out = await dispatchCell(runs, cell, { runModel: model, tasksDir, skipExisting: false });
     expect(out.status).toBe('ok');
     expect(out.modelId).toBe('fake-model');
     expect(out.filesWritten).toEqual(['impl.ts', 'test.ts']);
@@ -156,33 +156,33 @@ describe('dispatchCell — materialize a run dir from an injected model result',
     expect(fs.existsSync(path.join(runDir, 'test.ts'))).toBe(true);
   });
 
-  it('BLOCKS (never fabricates) when the model call errors — DR-7', () => {
+  it('BLOCKS (never fabricates) when the model call errors — DR-7', async () => {
     const runs = path.join(base, 'runs-err');
-    const model: RunModelFn = () => ({ ok: false, result: '', modelId: null, costUsd: null, error: 'boom' });
-    const out = dispatchCell(runs, cell, { runModel: model, tasksDir, skipExisting: false });
+    const model: RunModelFn = async () => ({ ok: false, result: '', modelId: null, costUsd: null, error: 'boom' });
+    const out = await dispatchCell(runs, cell, { runModel: model, tasksDir, skipExisting: false });
     expect(out.status).toBe('blocked');
     expect(out.error).toBe('boom');
     expect(fs.existsSync(cellRunDir(runs, cell))).toBe(false);
   });
 
-  it('BLOCKS when the model output has no parseable impl.ts — DR-7', () => {
+  it('BLOCKS when the model output has no parseable impl.ts — DR-7', async () => {
     const runs = path.join(base, 'runs-noimpl');
-    const out = dispatchCell(runs, cell, { runModel: okModel('here is some prose, no files'), tasksDir, skipExisting: false });
+    const out = await dispatchCell(runs, cell, { runModel: okModel('here is some prose, no files'), tasksDir, skipExisting: false });
     expect(out.status).toBe('blocked');
     expect(out.error).toMatch(/no parseable impl/);
   });
 
-  it('resumes: skips re-dispatch when a non-empty impl.ts already exists', () => {
+  it('resumes: skips re-dispatch when a non-empty impl.ts already exists', async () => {
     const runs = path.join(base, 'runs-resume');
     const runDir = cellRunDir(runs, cell);
     fs.mkdirSync(runDir, { recursive: true });
     fs.writeFileSync(path.join(runDir, 'impl.ts'), 'export const prior = 1;\n');
     let called = false;
-    const model: RunModelFn = () => {
+    const model: RunModelFn = async () => {
       called = true;
       return { ok: true, result: '===FILE:impl.ts===\nnew\n===ENDFILE===', modelId: 'x', costUsd: 0 };
     };
-    const out = dispatchCell(runs, cell, { runModel: model, tasksDir, skipExisting: true });
+    const out = await dispatchCell(runs, cell, { runModel: model, tasksDir, skipExisting: true });
     expect(out.status).toBe('ok');
     expect(called).toBe(false); // did not re-spend
     expect(fs.readFileSync(path.join(runDir, 'impl.ts'), 'utf-8')).toContain('prior');

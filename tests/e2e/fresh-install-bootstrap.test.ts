@@ -38,10 +38,11 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { spawnSync } from 'node:child_process';
 import { dirname, resolve, join } from 'node:path';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+
+import { spawnAsync } from '../../tools/test-helpers/spawn.js';
 
 // ---------------------------------------------------------------------
 // Module-scope paths
@@ -65,10 +66,9 @@ const e2eEnabled = process.env.ENABLE_E2E_SMOKE === '1';
  * non-zero exit, spawn error, or missing binary is treated as "docker
  * not available" — never a test failure.
  */
-function isDockerAvailable(): boolean {
+async function isDockerAvailable(): Promise<boolean> {
   try {
-    const r = spawnSync('docker', ['info'], {
-      stdio: 'ignore',
+    const r = await spawnAsync('docker', ['info'], {
       timeout: 5_000,
     });
     return r.status === 0;
@@ -77,7 +77,7 @@ function isDockerAvailable(): boolean {
   }
 }
 
-const dockerAvailable = isDockerAvailable();
+const dockerAvailable = await isDockerAvailable();
 
 // ---------------------------------------------------------------------
 // Docker command builder (extracted from the inline form in RED)
@@ -151,7 +151,7 @@ export function buildInContainerCommand(opts: BuildInContainerOpts): string {
 }
 
 /**
- * Build the argv for `spawnSync('docker', ...)`. Factored out so the
+ * Build the argv for `spawnAsync('docker', ...)`. Factored out so the
  * volume-mount + shell invocation wiring has a single definition.
  */
 export function buildDockerArgs(
@@ -180,17 +180,16 @@ type SmokeOutcome =
   | { kind: 'download-missing'; stdout: string; stderr: string; status: number }
   | { kind: 'fail'; stdout: string; stderr: string; status: number | null };
 
-function runDockerSmoke(image: string, installPrelude: string): SmokeOutcome {
+async function runDockerSmoke(image: string, installPrelude: string): Promise<SmokeOutcome> {
   const versionTag = process.env.EXARCHOS_SMOKE_VERSION ?? 'v2.9.0';
   const inContainer = buildInContainerCommand({ installPrelude, versionTag });
-  const r = spawnSync('docker', buildDockerArgs(image, inContainer), {
-    encoding: 'utf8',
+  const r = await spawnAsync('docker', buildDockerArgs(image, inContainer), {
     timeout: 180_000,
     // Hermetic run — bootstrap needs no host env to function.
     env: {},
   });
-  const stdout = r.stdout ?? '';
-  const stderr = r.stderr ?? '';
+  const stdout = r.stdout;
+  const stderr = r.stderr;
   if (r.status === 0) {
     return { kind: 'pass', stdout, stderr };
   }
@@ -254,8 +253,8 @@ describe('task 2.9 — fresh-environment bootstrap smoke (unit)', () => {
 describe('task 2.9 — fresh-environment bootstrap smoke', () => {
   it.skipIf(skipReason !== null)(
     'FreshInstall_BootstrapScript_ProducesWorkingBinary_Ubuntu',
-    () => {
-      const outcome = runDockerSmoke(
+    async () => {
+      const outcome = await runDockerSmoke(
         'ubuntu:24.04',
         'apt-get update -qq && apt-get install -y -qq curl ca-certificates >/dev/null',
       );
@@ -286,14 +285,14 @@ describe('task 2.9 — fresh-environment bootstrap smoke', () => {
 
   it.skipIf(skipReason !== null)(
     'FreshInstall_BootstrapScript_ProducesWorkingBinary_Alpine',
-    () => {
+    async () => {
       // Alpine ships only musl. v2.9's bootstrap warns and still
       // downloads the glibc binary — which will fail to execute under
       // musl. This test is XFAIL-equivalent until the musl track
       // lands (deferred per plan). When the script correctly bails
       // with the glibc-on-musl error we still consider the smoke
       // "observation complete" and record the outcome.
-      const outcome = runDockerSmoke(
+      const outcome = await runDockerSmoke(
         'alpine:latest',
         'apk add --no-cache curl ca-certificates bash >/dev/null',
       );

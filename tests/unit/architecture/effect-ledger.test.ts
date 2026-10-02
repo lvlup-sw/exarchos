@@ -52,7 +52,7 @@ const REPO_ROOT = join(SRC_ROOT, '..');
  * recursing partway. Containment against a derived list fails on all three, and
  * names the modules that went missing.
  */
-function trackedScannableModules(): string[] {
+async function trackedScannableModules(): Promise<string[]> {
   return listTrackedFiles(SRC_ROOT, {
     exclude: (path) => {
       const segments = path.split('/');
@@ -753,7 +753,7 @@ describe('DR-13 live tree — the widened census is green and load-bearing', () 
     expect(
       trackedFilesMissedBy(
         files.map((file) => relative(SRC_ROOT, file).replaceAll('\\', '/')),
-        trackedScannableModules(),
+        await trackedScannableModules(),
       ),
       'the bare-import sweep did not reach every tracked module in its scope — ' +
         'the unvetted-dependency finding below ranges over an incomplete tree',
@@ -1002,7 +1002,7 @@ describe('DR-26 kill fixture — where the heuristic and a real parse disagree',
     expect(
       trackedFilesMissedBy(
         files.map((file) => relative(SRC_ROOT, file).replaceAll('\\', '/')),
-        trackedScannableModules(),
+        await trackedScannableModules(),
       ),
       'the superseded-lexer sweep did not reach every tracked module in its ' +
         'scope — a shipped import of the retired walk could sit in the gap',
@@ -1066,7 +1066,7 @@ describe('DR-26 non-empty denominator — a scan that resolved nothing FAILS', (
     // The MODULE population must be healthy for this arm to say anything: the
     // claim is "the lexer answered nothing over a full tree", not "the walk also
     // collapsed". Pinned to the tracked count rather than a `> 100` floor.
-    expect(result.moduleCount).toBeGreaterThanOrEqual(trackedScannableModules().length);
+    expect(result.moduleCount).toBeGreaterThanOrEqual((await trackedScannableModules()).length);
     expect(result.specifierCount).toBe(0);
     expect(result.ok).toBe(false);
     expect(result.diagnostics.map((d) => d.code)).toContain('EMPTY_SPECIFIER_DENOMINATOR');
@@ -1083,7 +1083,7 @@ describe('DR-26 non-empty denominator — a scan that resolved nothing FAILS', (
     //     ownership verdict above ranged over the remainder;
     //   • far more than tracked → an exclusion stopped working, so the census is
     //     judging `__tests__`/`evals` harness code by shipped-source rules.
-    const tracked = trackedScannableModules();
+    const tracked = await trackedScannableModules();
     const scan = await scanEffectTree(SRC_ROOT, lexModule);
     expect(scan.moduleCount).toBeGreaterThanOrEqual(tracked.length);
     expect(
@@ -1095,7 +1095,7 @@ describe('DR-26 non-empty denominator — a scan that resolved nothing FAILS', (
     expect(scan.occurrences.length).toBeGreaterThan(0);
   });
 
-  it('EffectLedger_DeclaredGovernedRoot_IsTheRootTheLiveAuditWalks', () => {
+  it('EffectLedger_DeclaredGovernedRoot_IsTheRootTheLiveAuditWalks', async () => {
     // DR-8, task 079 — a guard's scan root is part of its claim, so the claim has
     // to be checkable. The header used to say "the shipped source" while every
     // live caller passed `servers/exarchos-mcp/src`: prose asserting a
@@ -1106,7 +1106,7 @@ describe('DR-26 non-empty denominator — a scan that resolved nothing FAILS', (
     expect(resolve(REPO_ROOT, GOVERNED_SOURCE_ROOT)).toBe(resolve(SRC_ROOT));
 
     // …and it names a real, populated tree, not a path that resolves to nothing.
-    expect(trackedScannableModules().length).toBeGreaterThan(0);
+    expect((await trackedScannableModules()).length).toBeGreaterThan(0);
   });
 
   it('EffectLedgerPopulationPin_NarrowedScanRoot_FailsInsteadOfPassing', async () => {
@@ -1122,6 +1122,6 @@ describe('DR-26 non-empty denominator — a scan that resolved nothing FAILS', (
     ).toBeGreaterThan(100);
 
     // The derived pin rejects it.
-    expect(narrowed.moduleCount).toBeLessThan(trackedScannableModules().length);
+    expect(narrowed.moduleCount).toBeLessThan((await trackedScannableModules()).length);
   });
 });

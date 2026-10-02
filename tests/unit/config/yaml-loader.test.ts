@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { execFileAsync } from '../../../tools/test-helpers/spawn.js';
 import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 import { toPosix } from '../../../src/utils/paths.js';
 
@@ -161,8 +162,7 @@ describe('discoverProjectRoot', () => {
     // Create a temp git repo without .exarchos.yml
     const gitDir = fs.mkdtempSync(path.join(os.tmpdir(), 'discover-git-'));
     try {
-      const { execSync } = await import('node:child_process');
-      execSync('git init', { cwd: gitDir, stdio: 'ignore' });
+      await execFileAsync('git', ['init'], { cwd: gitDir });
       const childDir = path.join(gitDir, 'src');
       fs.mkdirSync(childDir, { recursive: true });
       const result = discoverProjectRoot(childDir);

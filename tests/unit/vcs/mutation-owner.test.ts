@@ -8,7 +8,6 @@
 // (fencing predicate, capability gate, ledger fold) are unit-tested alongside.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { execFileSync } from 'node:child_process';
 import { mkdtemp } from 'node:fs/promises';
 import { existsSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -16,6 +15,7 @@ import * as path from 'node:path';
 
 import { EventStore } from '../../../src/events/store.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
+import { execFileAsync } from '../../../tools/test-helpers/spawn.js';
 import { capabilitiesForPosture } from '../../../src/workflow/capabilities/posture-mapping.js';
 import type { Capability } from '../../../src/runtime/agents/capabilities.js';
 import {
@@ -47,30 +47,23 @@ import type { WorkflowEvent } from '../../../src/events/schemas.js';
 
 // ─── git + event-store helpers ──────────────────────────────────────────────
 
-function git(cwd: string, args: readonly string[]): string {
-  return execFileSync('git', args as string[], {
-    cwd,
-    encoding: 'utf-8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-  }).trim();
+async function git(cwd: string, args: readonly string[]): Promise<string> {
+  return (await execFileAsync('git', args, { cwd })).trim();
 }
 
 /** Init a real repo on branch `main` with one commit; returns its canonical path. */
 async function initRepo(dir: string): Promise<string> {
-  git(dir, ['init', '-q', '-b', 'main']);
-  git(dir, ['config', 'user.email', 'vcs@example.com']);
-  git(dir, ['config', 'user.name', 'VCS Owner Test']);
-  git(dir, ['config', 'commit.gpgsign', 'false']);
-  execFileSync('git', ['commit', '-q', '--allow-empty', '-m', 'init'], {
-    cwd: dir,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  await git(dir, ['init', '-q', '-b', 'main']);
+  await git(dir, ['config', 'user.email', 'vcs@example.com']);
+  await git(dir, ['config', 'user.name', 'VCS Owner Test']);
+  await git(dir, ['config', 'commit.gpgsign', 'false']);
+  await execFileAsync('git', ['commit', '-q', '--allow-empty', '-m', 'init'], { cwd: dir });
   return realpathSync(dir);
 }
 
-function branchExists(repoRoot: string, branch: string): boolean {
+async function branchExists(repoRoot: string, branch: string): Promise<boolean> {
   try {
-    git(repoRoot, ['show-ref', '--verify', '--quiet', `refs/heads/${branch}`]);
+    await git(repoRoot, ['show-ref', '--verify', '--quiet', `refs/heads/${branch}`]);
     return true;
   } catch {
     return false;
@@ -78,8 +71,8 @@ function branchExists(repoRoot: string, branch: string): boolean {
 }
 
 /** Count on-disk worktrees EXCLUDING the main checkout. */
-function extraWorktreeCount(repoRoot: string): number {
-  const all = git(repoRoot, ['worktree', 'list', '--porcelain'])
+async function extraWorktreeCount(repoRoot: string): Promise<number> {
+  const all = (await git(repoRoot, ['worktree', 'list', '--porcelain']))
     .split('\n')
     .filter((l) => l.startsWith('worktree ')).length;
   return all - 1;
@@ -130,7 +123,7 @@ describe('VCS mutation owner (P04-05)', () => {
     store.close();
     // Detach any worktrees git still tracks before the tmp dir is removed.
     try {
-      git(repo, ['worktree', 'prune']);
+      await git(repo, ['worktree', 'prune']);
     } catch {
       /* best effort */
     }
@@ -194,7 +187,7 @@ describe('VCS mutation owner (P04-05)', () => {
       // The on-disk branch is the assertion that matters: the old failure was a
       // plausible outcome for work that never happened.
       expect(isSuccess(outcome)).toBe(true);
-      expect(branchExists(repo, 'feature/live-default')).toBe(true);
+      expect(await branchExists(repo, 'feature/live-default')).toBe(true);
     });
 
     it('VcsMutationOwner_ExplicitDryRun_IsStillHonoured', async () => {
@@ -211,7 +204,7 @@ describe('VCS mutation owner (P04-05)', () => {
       // Dry-run did not disappear; it stopped being chosen for you.
       expect(isDryRun(outcome)).toBe(true);
       expect(calls).toEqual([]);
-      expect(branchExists(repo, 'feature/explicit-dry')).toBe(false);
+      expect(await branchExists(repo, 'feature/explicit-dry')).toBe(false);
     });
   });
 
@@ -250,7 +243,7 @@ describe('VCS mutation owner (P04-05)', () => {
     const first = await o.createBranch(req);
     expect(isSuccess(first)).toBe(true);
     if (isSuccess(first)) expect(first.value.created).toBe(true);
-    expect(branchExists(repo, 'feature/dup')).toBe(true);
+    expect(await branchExists(repo, 'feature/dup')).toBe(true);
 
     // Second request, SAME key: must replay WITHOUT any MUTATING git call.
     // The replay path is allowed exactly one READ-ONLY reality probe
@@ -268,7 +261,7 @@ describe('VCS mutation owner (P04-05)', () => {
     // Exactly one branch, exactly one terminal.
     const terminals = (await ledgerEvents()).filter((e) => e.type === VCS_EXECUTED);
     expect(terminals).toHaveLength(1);
-    const branches = git(repo, ['branch', '--list', 'feature/dup'])
+    const branches = (await git(repo, ['branch', '--list', 'feature/dup']))
       .split('\n')
       .filter((l) => l.trim().length > 0);
     expect(branches).toHaveLength(1);
@@ -295,11 +288,11 @@ describe('VCS mutation owner (P04-05)', () => {
       expect(first.value.createdBranch).toBe(true);
     }
     expect(existsSync(wtPath)).toBe(true);
-    expect(extraWorktreeCount(repo)).toBe(1);
+    expect(await extraWorktreeCount(repo)).toBe(1);
 
     const second = await o.createWorktree(req);
     expect(isSuccess(second)).toBe(true);
-    expect(extraWorktreeCount(repo)).toBe(1); // still exactly one
+    expect(await extraWorktreeCount(repo)).toBe(1); // still exactly one
   });
 
   // ── (c2) remove-then-recreate at the SAME path re-runs the effect ──────────
@@ -337,7 +330,7 @@ describe('VCS mutation owner (P04-05)', () => {
     const recreate = await o.createWorktree(req);
     expect(isSuccess(recreate)).toBe(true);
     expect(existsSync(wtPath)).toBe(true);
-    expect(extraWorktreeCount(repo)).toBe(1);
+    expect(await extraWorktreeCount(repo)).toBe(1);
   });
 
   it('(c3) removeWorktree after a recreate re-runs the remove instead of replaying', async () => {
@@ -443,7 +436,7 @@ describe('VCS mutation owner (P04-05)', () => {
     // The on-disk worktree exists, but it is NOT an event-less orphan: the
     // durable INTENT is recorded, so a reconciler can find + converge it.
     expect(existsSync(wtPath)).toBe(true);
-    expect(extraWorktreeCount(repo)).toBe(1);
+    expect(await extraWorktreeCount(repo)).toBe(1);
     const openBefore = await o.openIntents();
     expect(openBefore).toContain('wt-interrupt-1');
     expect((await ledgerEvents()).some((e) => e.type === VCS_EXECUTED)).toBe(false);
@@ -457,7 +450,7 @@ describe('VCS mutation owner (P04-05)', () => {
       expect(retried.value.createdWorktree).toBe(false); // converged, not re-created
       expect(retried.value.createdBranch).toBe(false);
     }
-    expect(extraWorktreeCount(repo)).toBe(1);
+    expect(await extraWorktreeCount(repo)).toBe(1);
     expect(await o.openIntents()).not.toContain('wt-interrupt-1');
     expect((await ledgerEvents()).some((e) => e.type === VCS_EXECUTED)).toBe(true);
   });
@@ -488,7 +481,7 @@ describe('VCS mutation owner (P04-05)', () => {
 
     expect(isError(result)).toBe(true);
     // The branch minted for the failed worktree must have been deleted.
-    expect(branchExists(repo, 'feature/should-be-compensated')).toBe(false);
+    expect(await branchExists(repo, 'feature/should-be-compensated')).toBe(false);
     // A compensated terminal is recorded, so the key is closed, not orphaned.
     expect(await o.openIntents()).not.toContain('wt-fail-1');
   });
@@ -610,7 +603,7 @@ describe('VCS mutation owner (P04-05)', () => {
     expect(isError(stale)).toBe(true);
     if (isError(stale)) expect(stale.error.code).toBe('VCS_STALE_EPOCH');
     // The stale owner's branch was never created.
-    expect(branchExists(repo, 'feature/owner-1-stale')).toBe(false);
+    expect(await branchExists(repo, 'feature/owner-1-stale')).toBe(false);
   });
 
   // ── (g) dry-run performs no mutation ───────────────────────────────────────
@@ -633,7 +626,7 @@ describe('VCS mutation owner (P04-05)', () => {
       expect(outcome.plan.idempotent).toBe(true);
     }
     expect(calls).toEqual([]); // structurally never reached git
-    expect(branchExists(repo, 'feature/never')).toBe(false);
+    expect(await branchExists(repo, 'feature/never')).toBe(false);
     expect(await ledgerEvents()).toEqual([]); // no intent, no terminal
   });
 

@@ -45,7 +45,6 @@
  * probe that emits the relaxed copy to JavaScript and runs it in a spawned
  * node process, reading the outcome off stdout.
  */
-import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -59,6 +58,7 @@ import {
   materializeCarrier,
   type Relaxation,
 } from '../helpers/carrier-compile-harness.js';
+import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 
 /**
  * The control arm: the REAL carrier must reject the fixture, and must reject it
@@ -73,8 +73,12 @@ import {
  * neither measuring the guard. Naming the fixture in the diagnostic is what
  * rules that out.
  */
-function expectRejectedForTheFixture(dir: string, files: readonly string[], fixture: string): void {
-  const run = compile(dir, files);
+async function expectRejectedForTheFixture(
+  dir: string,
+  files: readonly string[],
+  fixture: string,
+): Promise<void> {
+  const run = await compile(dir, files);
   expect(run.accepted, `the REAL carrier accepted ${fixture}`).toBe(false);
   expect(
     run.output,
@@ -92,13 +96,13 @@ function expectRejectedForTheFixture(dir: string, files: readonly string[], fixt
  * outcome is read off stdout rather than an exit code, so a crash in the
  * harness cannot be mistaken for the effect being refused.
  */
-function runLiveWithNoRecorder(dir: string, relaxations: readonly Relaxation[]): string {
+async function runLiveWithNoRecorder(dir: string, relaxations: readonly Relaxation[]): Promise<string> {
   materializeCarrier(dir, relaxations);
 
   // Emit rather than type-check. Replay identity is a runtime import, so the
   // local stub has to be emitted beside the carrier.
   try {
-    execFileSync(
+    await execFileAsync(
       process.execPath,
       [
         TSC_BIN,
@@ -114,7 +118,7 @@ function runLiveWithNoRecorder(dir: string, relaxations: readonly Relaxation[]):
         'action-contract.ts',
         'effect-carrier.ts',
       ],
-      { cwd: dir, encoding: 'utf8', stdio: 'pipe' },
+      { cwd: dir },
     );
   } catch {
     // tsc emits even when it reports errors; the relaxed copy is expected to
@@ -140,10 +144,8 @@ carrier
     'utf8',
   );
 
-  const stdout = execFileSync(process.execPath, ['out/runner.cjs'], {
+  const stdout = await execFileAsync(process.execPath, ['out/runner.cjs'], {
     cwd: dir,
-    encoding: 'utf8',
-    stdio: 'pipe',
   });
   const line = stdout.split('\n').find((l) => l.startsWith('OUTCOME:'));
   if (line === undefined) {
@@ -209,11 +211,11 @@ describe('kill probes: every gate is shown to fail', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  it('KillProbe_RequiredEmissionsRelaxed_TypecheckStopsFailing', () => {
+  it('KillProbe_RequiredEmissionsRelaxed_TypecheckStopsFailing', async () => {
     write(dir, 'omits-emits.ts');
 
     materializeCarrier(dir, []);
-    expectRejectedForTheFixture(dir, ['effect-carrier.ts', 'schemas.ts', 'omits-emits.ts'], 'omits-emits.ts');
+    await expectRejectedForTheFixture(dir, ['effect-carrier.ts', 'schemas.ts', 'omits-emits.ts'], 'omits-emits.ts');
 
     materializeCarrier(dir, [
       { find: '  readonly emits: PlanEmissions;', replace: '  readonly emits?: PlanEmissions;' },
@@ -233,16 +235,16 @@ describe('kill probes: every gate is shown to fail', () => {
       },
     ]);
     expect(
-      compile(dir, ['effect-carrier.ts', 'schemas.ts', 'omits-emits.ts']).accepted,
+      (await compile(dir, ['effect-carrier.ts', 'schemas.ts', 'omits-emits.ts'])).accepted,
       'relaxing the required field did not make the omission compile, so the gate measures something else',
     ).toBe(true);
   });
 
-  it('KillProbe_SuccessArmDropsEvidence_ValueBecomesReachable', () => {
+  it('KillProbe_SuccessArmDropsEvidence_ValueBecomesReachable', async () => {
     write(dir, 'success-without-evidence.ts');
 
     materializeCarrier(dir, []);
-    expectRejectedForTheFixture(dir, ['effect-carrier.ts', 'schemas.ts', 'success-without-evidence.ts'], 'success-without-evidence.ts');
+    await expectRejectedForTheFixture(dir, ['effect-carrier.ts', 'schemas.ts', 'success-without-evidence.ts'], 'success-without-evidence.ts');
 
     materializeCarrier(dir, [
       {
@@ -252,16 +254,16 @@ describe('kill probes: every gate is shown to fail', () => {
       },
     ]);
     expect(
-      compile(dir, ['effect-carrier.ts', 'schemas.ts', 'success-without-evidence.ts']).accepted,
+      (await compile(dir, ['effect-carrier.ts', 'schemas.ts', 'success-without-evidence.ts'])).accepted,
       'making evidence optional did not make the evidence-free value compile',
     ).toBe(true);
   });
 
-  it('KillProbe_WitnessUnbranded_EvidenceBecomesForgeable', () => {
+  it('KillProbe_WitnessUnbranded_EvidenceBecomesForgeable', async () => {
     write(dir, 'forged-witness.ts');
 
     materializeCarrier(dir, []);
-    expectRejectedForTheFixture(dir, ['effect-carrier.ts', 'schemas.ts', 'forged-witness.ts'], 'forged-witness.ts');
+    await expectRejectedForTheFixture(dir, ['effect-carrier.ts', 'schemas.ts', 'forged-witness.ts'], 'forged-witness.ts');
 
     materializeCarrier(dir, [
       {
@@ -277,27 +279,27 @@ describe('kill probes: every gate is shown to fail', () => {
       },
     ]);
     expect(
-      compile(dir, ['effect-carrier.ts', 'schemas.ts', 'forged-witness.ts']).accepted,
+      (await compile(dir, ['effect-carrier.ts', 'schemas.ts', 'forged-witness.ts'])).accepted,
       'removing the brand did not make the forged witness compile',
     ).toBe(true);
   });
 
-  it('KillProbe_RecorderMadeOptional_LiveRunNeedsNoCapability', () => {
+  it('KillProbe_RecorderMadeOptional_LiveRunNeedsNoCapability', async () => {
     write(dir, 'omits-recorder.ts');
 
     materializeCarrier(dir, []);
-    expectRejectedForTheFixture(dir, ['effect-carrier.ts', 'schemas.ts', 'omits-recorder.ts'], 'omits-recorder.ts');
+    await expectRejectedForTheFixture(dir, ['effect-carrier.ts', 'schemas.ts', 'omits-recorder.ts'], 'omits-recorder.ts');
 
     materializeCarrier(dir, [
       { find: '  recorder: EmissionRecorder,', replace: '  recorder?: EmissionRecorder,' },
     ]);
     expect(
-      compile(dir, ['effect-carrier.ts', 'schemas.ts', 'omits-recorder.ts']).accepted,
+      (await compile(dir, ['effect-carrier.ts', 'schemas.ts', 'omits-recorder.ts'])).accepted,
       'widening the recorder parameter did not make the capability-free call compile',
     ).toBe(true);
   });
 
-  it('KillProbe_RecorderMadeConditional_LiveRunProceeds', () => {
+  it('KillProbe_RecorderMadeConditional_LiveRunProceeds', async () => {
     // The EXECUTING probe, and the reason this file no longer claims every gate
     // is type-level. Restoring the `declaredEmissions(plan).length > 0 &&`
     // condition leaves the PARAMETER required, so the compile probe above stays
@@ -305,12 +307,12 @@ describe('kill probes: every gate is shown to fail', () => {
     // plan silently stops needing a capability at all. That is the abstention
     // hole the unconditional demand closed, and only running the code can see
     // it reopen.
-    const refused = runLiveWithNoRecorder(dir, []);
+    const refused = await runLiveWithNoRecorder(dir, []);
     expect(refused, 'the REAL carrier committed a live run with no capability').toMatch(
       /^OUTCOME:refused:/,
     );
 
-    const proceeded = runLiveWithNoRecorder(dir, [
+    const proceeded = await runLiveWithNoRecorder(dir, [
       {
         // Two lines, because the first alone also matches `recordEmissions`.
         find:

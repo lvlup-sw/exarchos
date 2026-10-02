@@ -67,6 +67,13 @@ const tierTimeout = (linuxBudgetMs: number): number => linuxBudgetMs * WIN32_SPA
 // workers, where the inherited value must win — hence `??=`, never `=`.
 process.env['EXARCHOS_TEST_RUN_ID'] ??= `${Date.now().toString(36)}${randomBytes(4).toString('hex')}`;
 
+/**
+ * Loaded by every project. It yields to the event loop before and after each
+ * test, so synchronous work cannot add up across tests and block the worker
+ * past vitest's 60 s RPC timeout (#2029).
+ */
+const YIELD_BETWEEN_TESTS = './tests/helpers/yield-between-tests.ts';
+
 export default defineConfig({
   test: {
     globals: false,
@@ -105,7 +112,7 @@ export default defineConfig({
       {
         test: {
           name: 'unit',
-          setupFiles: ['./tests/helpers/hermetic-install-identity.ts'],
+          setupFiles: ['./tests/helpers/hermetic-install-identity.ts', YIELD_BETWEEN_TESTS],
           // Root-package unit tests only. Everything under `src/` now belongs to
           // the `core` project below — task 019 folded the MCP server's tree
           // into `src/`, so the glob that used to mean "the installer toolchain"
@@ -259,7 +266,11 @@ export default defineConfig({
             process.env.EXARCHOS_SMOKE_ONLY === '1'
               ? [...EXCLUDE]
               : [...EXCLUDE, 'tests/unit/verbs/stryker-adapter.smoke.test.ts'],
-          setupFiles: ['./tests/helpers/hermetic-install-identity.ts', './tests/helpers/close-sqlite.ts'],
+          setupFiles: [
+            './tests/helpers/hermetic-install-identity.ts',
+            './tests/helpers/close-sqlite.ts',
+            YIELD_BETWEEN_TESTS,
+          ],
         },
       },
       {
@@ -270,7 +281,11 @@ export default defineConfig({
           include: ['tests/process/**/*.test.ts'],
           exclude: EXCLUDE,
           testTimeout: tierTimeout(15000),
-          setupFiles: ['./tests/helpers/hermetic-install-identity.ts', './tests/helpers/global.ts'],
+          setupFiles: [
+            './tests/helpers/hermetic-install-identity.ts',
+            './tests/helpers/global.ts',
+            YIELD_BETWEEN_TESTS,
+          ],
         },
       },
       {
@@ -304,7 +319,11 @@ export default defineConfig({
           // the setting was written to prevent. `poolOptions` is the
           // per-project form and does what the old line said.
           poolOptions: { forks: { singleFork: true } },
-          setupFiles: ['./tests/helpers/hermetic-install-identity.ts', './tests/helpers/close-sqlite.ts'],
+          setupFiles: [
+            './tests/helpers/hermetic-install-identity.ts',
+            './tests/helpers/close-sqlite.ts',
+            YIELD_BETWEEN_TESTS,
+          ],
         },
       },
       {
@@ -334,7 +353,7 @@ export default defineConfig({
           // that holds.
           name: 'acceptance',
           include: ['tests/acceptance/**/*.test.ts'],
-          setupFiles: ['./tests/helpers/hermetic-install-identity.ts'],
+          setupFiles: ['./tests/helpers/hermetic-install-identity.ts', YIELD_BETWEEN_TESTS],
           exclude: EXCLUDE,
           testTimeout: tierTimeout(120000),
           // The install writes into a scratch HOME and the archive step shells
@@ -365,7 +384,11 @@ export default defineConfig({
           include: ['tools/conformance/src/**/*.test.ts'],
           exclude: EXCLUDE,
           testTimeout: tierTimeout(30000),
-          setupFiles: ['./tests/helpers/hermetic-install-identity.ts', './tests/helpers/close-sqlite.ts'],
+          setupFiles: [
+            './tests/helpers/hermetic-install-identity.ts',
+            './tests/helpers/close-sqlite.ts',
+            YIELD_BETWEEN_TESTS,
+          ],
         },
       },
     ],

@@ -8,7 +8,6 @@
 // green while the key is unpinned.
 
 import { describe, it, expect, afterEach } from 'vitest';
-import { spawnSync } from 'node:child_process';
 import { createHash, createPublicKey, generateKeyPairSync } from 'node:crypto';
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -16,6 +15,8 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import yaml from 'js-yaml';
+
+import { spawnAsync } from '../../tools/test-helpers/spawn.js';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const TOOL = join(REPO_ROOT, 'tools', 'release', 'pin-trust-root.mjs');
@@ -70,8 +71,8 @@ function ed25519PublicKey(dir: string, name: string): { path: string; pem: strin
   return { path, pem: pem.trim(), fingerprint };
 }
 
-function runTool(args: readonly string[]): { status: number | null; stdout: string; stderr: string } {
-  const result = spawnSync(process.execPath, [TOOL, ...args], { encoding: 'utf8', timeout: 30_000 });
+async function runTool(args: readonly string[]): Promise<{ status: number | null; stdout: string; stderr: string }> {
+  const result = await spawnAsync(process.execPath, [TOOL, ...args], { timeout: 30_000 });
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 
@@ -95,21 +96,21 @@ function needsOf(job: Job | undefined): string[] {
 }
 
 describe('pin-trust-root.mjs', () => {
-  it('PinTrustRoot_SeededSentinel_CheckRefuses', () => {
+  it('PinTrustRoot_SeededSentinel_CheckRefuses', async () => {
     const { sh, ps1 } = seededCopies(scratch());
-    const result = runTool(['--check', sh, ps1]);
+    const result = await runTool(['--check', sh, ps1]);
     expect(result.status, result.stderr).toBe(1);
     expect(result.stderr).toContain('not pinned');
     expect(result.stderr).toContain(SENTINEL);
   });
 
-  it('PinTrustRoot_RuntimeEd25519Key_ReplacesOnlyTheSentinelAndCheckAccepts', () => {
+  it('PinTrustRoot_RuntimeEd25519Key_ReplacesOnlyTheSentinelAndCheckAccepts', async () => {
     const dir = scratch();
     const { sh, ps1 } = seededCopies(dir);
     const before = snapshot([sh, ps1]);
     const key = ed25519PublicKey(dir, 'publisher.pub.pem');
 
-    const pinned = runTool([key.path, sh, ps1]);
+    const pinned = await runTool([key.path, sh, ps1]);
     expect(pinned.status, pinned.stderr).toBe(0);
     expect(pinned.stdout).toContain(key.fingerprint);
 
@@ -119,23 +120,22 @@ describe('pin-trust-root.mjs', () => {
       expect(after[i]).not.toContain(SENTINEL);
     }
 
-    const checked = runTool(['--check', sh, ps1]);
+    const checked = await runTool(['--check', sh, ps1]);
     expect(checked.status, checked.stderr).toBe(0);
     expect(checked.stdout).toContain(key.fingerprint);
   });
 
   it.skipIf(process.platform === 'win32')(
     'PinTrustRoot_PinnedShInstaller_MaterializesThePinnedKey',
-    () => {
+    async () => {
       const dir = scratch();
       const { sh, ps1 } = seededCopies(dir);
       const key = ed25519PublicKey(dir, 'publisher.pub.pem');
-      expect(runTool([key.path, sh, ps1]).status).toBe(0);
+      expect((await runTool([key.path, sh, ps1])).status).toBe(0);
 
       const env: NodeJS.ProcessEnv = { ...process.env, EXARCHOS_LIB_ONLY: '1', INSTALLER: sh, WORK: dir };
       delete env['EXARCHOS_TRUST_ROOT_PEM_FILE'];
-      const result = spawnSync('bash', ['-c', '. "$INSTALLER" && resolve_trust_root_pem "$WORK"'], {
-        encoding: 'utf8',
+      const result = await spawnAsync('bash', ['-c', '. "$INSTALLER" && resolve_trust_root_pem "$WORK"'], {
         env,
         timeout: 30_000,
       });
@@ -146,10 +146,14 @@ describe('pin-trust-root.mjs', () => {
     },
   );
 
-  it('PinTrustRoot_PinnedPs1Installer_MaterializesThePinnedKey', () => {
-    const pwsh = ['pwsh', 'powershell'].find(
-      (exe) => spawnSync(exe, ['-NoProfile', '-Command', 'exit 0'], { timeout: 20_000 }).status === 0,
-    );
+  it('PinTrustRoot_PinnedPs1Installer_MaterializesThePinnedKey', async () => {
+    let pwsh: string | undefined;
+    for (const exe of ['pwsh', 'powershell']) {
+      if ((await spawnAsync(exe, ['-NoProfile', '-Command', 'exit 0'], { timeout: 20_000 })).status === 0) {
+        pwsh = exe;
+        break;
+      }
+    }
     if (pwsh === undefined) {
       expect(IS_CI, 'CI must provide pwsh to prove the pinned .ps1 installer').toBe(false);
       return;
@@ -157,11 +161,11 @@ describe('pin-trust-root.mjs', () => {
     const dir = scratch();
     const { sh, ps1 } = seededCopies(dir);
     const key = ed25519PublicKey(dir, 'publisher.pub.pem');
-    expect(runTool([key.path, sh, ps1]).status).toBe(0);
+    expect((await runTool([key.path, sh, ps1])).status).toBe(0);
 
     const env: NodeJS.ProcessEnv = { ...process.env, INSTALLER: ps1, WORK: dir };
     delete env['EXARCHOS_TRUST_ROOT_PEM_FILE'];
-    const result = spawnSync(
+    const result = await spawnAsync(
       pwsh,
       [
         '-NoProfile',
@@ -169,14 +173,14 @@ describe('pin-trust-root.mjs', () => {
         '-Command',
         '. $env:INSTALLER -LoadOnly; $p = Resolve-TrustRootPem -WorkDir $env:WORK; [Console]::Out.Write($p)',
       ],
-      { encoding: 'utf8', env, timeout: 60_000 },
+      { env, timeout: 60_000 },
     );
     expect(result.status, result.stderr).toBe(0);
     const written = readFileSync(result.stdout.trim(), 'utf8').replace(/\r\n/g, '\n');
     expect(written.trim()).toBe(key.pem);
   }, 90_000);
 
-  it('PinTrustRoot_NonEd25519Key_RefusedAndNothingWritten', () => {
+  it('PinTrustRoot_NonEd25519Key_RefusedAndNothingWritten', async () => {
     const dir = scratch();
     const { sh, ps1 } = seededCopies(dir);
     const before = snapshot([sh, ps1]);
@@ -184,13 +188,13 @@ describe('pin-trust-root.mjs', () => {
     const ecPath = join(dir, 'ec.pub.pem');
     writeFileSync(ecPath, publicKey.export({ type: 'spki', format: 'pem' }));
 
-    const result = runTool([ecPath, sh, ps1]);
+    const result = await runTool([ecPath, sh, ps1]);
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('Ed25519');
     expect(snapshot([sh, ps1])).toEqual(before);
   });
 
-  it('PinTrustRoot_PrivateKey_RefusedWithoutEchoingIt', () => {
+  it('PinTrustRoot_PrivateKey_RefusedWithoutEchoingIt', async () => {
     const dir = scratch();
     const { sh, ps1 } = seededCopies(dir);
     const before = snapshot([sh, ps1]);
@@ -199,7 +203,7 @@ describe('pin-trust-root.mjs', () => {
     const privatePath = join(dir, 'throwaway.key.pem');
     writeFileSync(privatePath, privatePem, { mode: 0o600 });
 
-    const result = runTool([privatePath, sh, ps1]);
+    const result = await runTool([privatePath, sh, ps1]);
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('PRIVATE key');
     const body = privatePem.split('\n')[1] ?? '';
@@ -208,28 +212,28 @@ describe('pin-trust-root.mjs', () => {
     expect(snapshot([sh, ps1])).toEqual(before);
   });
 
-  it('PinTrustRoot_OneInstallerAlreadyPinned_RefusesAndWritesNeither', () => {
+  it('PinTrustRoot_OneInstallerAlreadyPinned_RefusesAndWritesNeither', async () => {
     const dir = scratch();
     const { sh, ps1 } = seededCopies(dir);
     const first = ed25519PublicKey(dir, 'first.pub.pem');
-    expect(runTool([first.path, ps1]).status).toBe(0);
+    expect((await runTool([first.path, ps1])).status).toBe(0);
     const before = snapshot([sh, ps1]);
 
     const second = ed25519PublicKey(dir, 'second.pub.pem');
-    const result = runTool([second.path, sh, ps1]);
+    const result = await runTool([second.path, sh, ps1]);
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('exactly once');
     expect(snapshot([sh, ps1])).toEqual(before);
     expect(before[0]).toContain(SENTINEL);
   });
 
-  it('PinTrustRoot_InstallersPinDifferentKeys_CheckRefuses', () => {
+  it('PinTrustRoot_InstallersPinDifferentKeys_CheckRefuses', async () => {
     const dir = scratch();
     const { sh, ps1 } = seededCopies(dir);
-    expect(runTool([ed25519PublicKey(dir, 'a.pub.pem').path, sh]).status).toBe(0);
-    expect(runTool([ed25519PublicKey(dir, 'b.pub.pem').path, ps1]).status).toBe(0);
+    expect((await runTool([ed25519PublicKey(dir, 'a.pub.pem').path, sh])).status).toBe(0);
+    expect((await runTool([ed25519PublicKey(dir, 'b.pub.pem').path, ps1])).status).toBe(0);
 
-    const result = runTool(['--check', sh, ps1]);
+    const result = await runTool(['--check', sh, ps1]);
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('different keys');
   });

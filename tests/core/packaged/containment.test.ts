@@ -43,7 +43,6 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -63,7 +62,7 @@ import {
   type ProjectionKind,
   type RequiredProjection,
 } from '../../../src/install/projection-containment.js';
-import { needsWindowsShell } from '../../../src/utils/process.js';
+import { spawnAsync } from '../../../tools/test-helpers/spawn.js';
 
 // ─── Repo-root discovery ─────────────────────────────────────────────────────
 
@@ -108,22 +107,18 @@ const PACK_CHILD_TIMEOUT_MS = 150_000;
 const EXTRACT_CHILD_TIMEOUT_MS = 20_000;
 const PACK_HOOK_TIMEOUT_MS = 180_000;
 
-function runNpmPack(repoRoot: string, destDir: string): string {
+async function runNpmPack(repoRoot: string, destDir: string): Promise<string> {
   fs.mkdirSync(destDir, { recursive: true });
-  const useShell = needsWindowsShell('npm');
-  const res = spawnSync('npm', ['pack', '--ignore-scripts', '--pack-destination', destDir], {
+  const res = await spawnAsync('npm', ['pack', '--ignore-scripts', '--pack-destination', destDir], {
     cwd: repoRoot,
-    encoding: 'utf8',
-    stdio: 'pipe',
     timeout: PACK_CHILD_TIMEOUT_MS,
     killSignal: 'SIGKILL',
-    ...(useShell ? { shell: true } : {}),
   });
   if (res.error !== undefined || res.status !== 0) {
     throw new Error(
       `npm pack failed (exit ${String(res.status)}${
         res.error === undefined ? '' : `, ${res.error.message}`
-      }):\n${res.stdout ?? ''}\n${res.stderr ?? ''}`,
+      }):\n${res.stdout}\n${res.stderr}`,
     );
   }
   const tarballs = fs.readdirSync(destDir).filter((f) => f.endsWith('.tgz'));
@@ -142,14 +137,12 @@ function runNpmPack(repoRoot: string, destDir: string): string {
  * (`C:\…`) as a `host:path` remote spec and fails with "Cannot connect to C",
  * while bsdtar accepts it. A relative name from `cwd` works under both.
  */
-function extractTarball(tarball: string, intoDir: string): string {
+async function extractTarball(tarball: string, intoDir: string): Promise<string> {
   fs.mkdirSync(intoDir, { recursive: true });
   const local = path.join(intoDir, 'artifact.tgz');
   fs.copyFileSync(tarball, local);
-  const res = spawnSync('tar', ['-xzf', 'artifact.tgz'], {
+  const res = await spawnAsync('tar', ['-xzf', 'artifact.tgz'], {
     cwd: intoDir,
-    encoding: 'utf8',
-    stdio: 'pipe',
     timeout: EXTRACT_CHILD_TIMEOUT_MS,
     killSignal: 'SIGKILL',
   });
@@ -157,7 +150,7 @@ function extractTarball(tarball: string, intoDir: string): string {
     throw new Error(
       `tar extraction failed (exit ${String(res.status)}${
         res.error === undefined ? '' : `, ${res.error.message}`
-      }):\n${res.stdout ?? ''}\n${res.stderr ?? ''}`,
+      }):\n${res.stdout}\n${res.stderr}`,
     );
   }
   const packageDir = path.join(intoDir, 'package');
@@ -208,10 +201,10 @@ function verifyPackedAgainstSource(packageDir: string): ContainmentResult {
   return verifyContainment({ required: sourceProjections, layers: [packed.layer] });
 }
 
-beforeAll(() => {
+beforeAll(async () => {
   workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-t29-packed-'));
-  const tarball = runNpmPack(REPO_ROOT, path.join(workDir, 'tgz'));
-  pristinePackageDir = extractTarball(tarball, path.join(workDir, 'pristine'));
+  const tarball = await runNpmPack(REPO_ROOT, path.join(workDir, 'tgz'));
+  pristinePackageDir = await extractTarball(tarball, path.join(workDir, 'pristine'));
   sourceProjections = enumerateProjections(REPO_ROOT, npmFilesSpecs()).projections;
 }, PACK_HOOK_TIMEOUT_MS);
 

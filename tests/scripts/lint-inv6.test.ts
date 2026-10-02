@@ -2,10 +2,11 @@
 // surfaces candidate INV-6 (workflow-agnosticism) violations.
 
 import { describe, it, expect } from 'vitest';
-import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+
+import { spawnAsync } from '../../tools/test-helpers/spawn.js';
 
 const REPO_ROOT = path.resolve(__dirname, '../..');
 const LINT_SCRIPT = path.join(REPO_ROOT, 'tools', 'audit', 'gates', 'lint-inv6.mjs');
@@ -24,22 +25,13 @@ interface LintOutput {
   readonly advisory: boolean;
 }
 
-function runLint(arg: string): { stdout: string; status: number } {
-  try {
-    const stdout = execFileSync('node', [LINT_SCRIPT, arg], {
-      encoding: 'utf8',
-      cwd: REPO_ROOT,
-      maxBuffer: 64 * 1024 * 1024,
-    });
-    return { stdout, status: 0 };
-  } catch (err) {
-    const e = err as { stdout?: string; status?: number };
-    return { stdout: e.stdout ?? '', status: e.status ?? 1 };
-  }
+async function runLint(arg: string): Promise<{ stdout: string; status: number }> {
+  const result = await spawnAsync('node', [LINT_SCRIPT, arg], { cwd: REPO_ROOT });
+  return { stdout: result.stdout, status: result.status ?? 1 };
 }
 
 describe('lint-inv6', () => {
-  it('LintINV6_FlagsWorkflowTypeLiterals_NonZeroFindings', () => {
+  it('LintINV6_FlagsWorkflowTypeLiterals_NonZeroFindings', async () => {
     // Set up a tmpdir with two synthetic skill SKILL.md files:
     //  - flagged: contains `feature/merge-pending` literal and NO
     //    `workflow-type:` frontmatter
@@ -79,7 +71,7 @@ describe('lint-inv6', () => {
       ].join('\n');
       fs.writeFileSync(path.join(cleanDir, 'SKILL.md'), cleanBody, 'utf8');
 
-      const { stdout, status } = runLint(tmpdir);
+      const { stdout, status } = await runLint(tmpdir);
       expect(status, 'lint must exit 0 (advisory)').toBe(0);
       const out = JSON.parse(stdout) as LintOutput;
       expect(out.advisory).toBe(true);
@@ -99,8 +91,8 @@ describe('lint-inv6', () => {
     }
   });
 
-  it('LintINV6_RunsAdvisoryAgainstRealCatalog_ExitsZero', () => {
-    const { stdout, status } = runLint('content/');
+  it('LintINV6_RunsAdvisoryAgainstRealCatalog_ExitsZero', async () => {
+    const { stdout, status } = await runLint('content/');
     expect(status, 'lint must exit 0 even with findings (advisory)').toBe(0);
     const out = JSON.parse(stdout) as LintOutput;
     expect(Array.isArray(out.findings)).toBe(true);
@@ -137,7 +129,7 @@ function findingsFor(out: LintOutput, dirName: string): Finding[] {
 }
 
 describe('lint-inv6 — literal narrowing (T-22)', () => {
-  it('LintINV6_ProseUsageOfBareVerbLiterals_YieldsZeroFindings', () => {
+  it('LintINV6_ProseUsageOfBareVerbLiterals_YieldsZeroFindings', async () => {
     // The headline acceptance fixture: ordinary sentences using the four
     // bare-verb/noun literals as plain English, with no declared
     // `workflow-type` escape hatch. Narrowing must make this silent.
@@ -155,7 +147,7 @@ describe('lint-inv6 — literal narrowing (T-22)', () => {
       ].join('\n');
       makeSkillFixture(tmpdir, 'prose-skill', body);
 
-      const { stdout, status } = runLint(tmpdir);
+      const { stdout, status } = await runLint(tmpdir);
       expect(status).toBe(0);
       const out = JSON.parse(stdout) as LintOutput;
       const findings = findingsFor(out, 'prose-skill');
@@ -168,7 +160,7 @@ describe('lint-inv6 — literal narrowing (T-22)', () => {
     }
   });
 
-  it('LintINV6_GenuineWorkflowCoupling_StillFlagged', () => {
+  it('LintINV6_GenuineWorkflowCoupling_StillFlagged', async () => {
     // The negative twin: real structural coupling — a hard-coded `feature/`
     // branch prefix, a `merge-pending` state value, a `phase: delegate`
     // assignment, and a `/synthesize` slash command — with NO
@@ -195,7 +187,7 @@ describe('lint-inv6 — literal narrowing (T-22)', () => {
       ].join('\n');
       makeSkillFixture(tmpdir, 'coupled-skill', body);
 
-      const { stdout, status } = runLint(tmpdir);
+      const { stdout, status } = await runLint(tmpdir);
       expect(status).toBe(0);
       const out = JSON.parse(stdout) as LintOutput;
       const findings = findingsFor(out, 'coupled-skill');
@@ -216,7 +208,7 @@ describe('lint-inv6 — literal narrowing (T-22)', () => {
     }
   });
 
-  it('LintINV6_FeatureIdUsage_NeverFlagged_NotAWorkflowTypeLiteral', () => {
+  it('LintINV6_FeatureIdUsage_NeverFlagged_NotAWorkflowTypeLiteral', async () => {
     // `featureId` is the universal stream/workflow identifier parameter —
     // used identically by every workflow type (feature, refactor, debug,
     // oneshot, discover, ...). A skill referencing it is being
@@ -242,7 +234,7 @@ describe('lint-inv6 — literal narrowing (T-22)', () => {
       ].join('\n');
       makeSkillFixture(tmpdir, 'featureid-skill', body);
 
-      const { stdout, status } = runLint(tmpdir);
+      const { stdout, status } = await runLint(tmpdir);
       expect(status).toBe(0);
       const out = JSON.parse(stdout) as LintOutput;
       expect(
@@ -254,7 +246,7 @@ describe('lint-inv6 — literal narrowing (T-22)', () => {
     }
   });
 
-  it('LintINV6_LongerWordsContainingLiterals_DoNotTripWordBoundary', () => {
+  it('LintINV6_LongerWordsContainingLiterals_DoNotTripWordBoundary', async () => {
     // reviewer / previewing / delegated / reviewed must NOT trip `review` /
     // `delegate` — the old `String.includes` had no boundary logic at all.
     const tmpdir = fs.mkdtempSync(path.join(os.tmpdir(), 'lint-inv6-boundary-'));
@@ -268,7 +260,7 @@ describe('lint-inv6 — literal narrowing (T-22)', () => {
       ].join('\n');
       makeSkillFixture(tmpdir, 'boundary-skill', body);
 
-      const { stdout, status } = runLint(tmpdir);
+      const { stdout, status } = await runLint(tmpdir);
       expect(status).toBe(0);
       const out = JSON.parse(stdout) as LintOutput;
       const findings = findingsFor(out, 'boundary-skill');
@@ -281,7 +273,7 @@ describe('lint-inv6 — literal narrowing (T-22)', () => {
     }
   });
 
-  it('LintINV6_WorkflowTypeFrontmatterDeclared_StillSuppressesFindings', () => {
+  it('LintINV6_WorkflowTypeFrontmatterDeclared_StillSuppressesFindings', async () => {
     // Contract preservation: the `metadata.workflow-type:` escape hatch
     // still silences an otherwise-flagged skill, even with the narrowed
     // literal detection.
@@ -295,7 +287,7 @@ describe('lint-inv6 — literal narrowing (T-22)', () => {
       ].join('\n');
       makeSkillFixture(tmpdir, 'declared-skill', body, ['workflow-type: feature']);
 
-      const { stdout, status } = runLint(tmpdir);
+      const { stdout, status } = await runLint(tmpdir);
       expect(status).toBe(0);
       const out = JSON.parse(stdout) as LintOutput;
       expect(findingsFor(out, 'declared-skill')).toEqual([]);
@@ -304,7 +296,7 @@ describe('lint-inv6 — literal narrowing (T-22)', () => {
     }
   });
 
-  it('LintINV6_SharedDirectory_StillExempt', () => {
+  it('LintINV6_SharedDirectory_StillExempt', async () => {
     // Contract preservation: `_shared/` skills remain exempt regardless of
     // literal narrowing.
     const tmpdir = fs.mkdtempSync(path.join(os.tmpdir(), 'lint-inv6-shared-'));
@@ -325,7 +317,7 @@ describe('lint-inv6 — literal narrowing (T-22)', () => {
         'utf8',
       );
 
-      const { stdout, status } = runLint(tmpdir);
+      const { stdout, status } = await runLint(tmpdir);
       expect(status).toBe(0);
       const out = JSON.parse(stdout) as LintOutput;
       expect(out.findings).toEqual([]);
@@ -334,7 +326,7 @@ describe('lint-inv6 — literal narrowing (T-22)', () => {
     }
   });
 
-  it('LintINV6_ExitCodeAndShape_UnchangedEvenWithFindings', () => {
+  it('LintINV6_ExitCodeAndShape_UnchangedEvenWithFindings', async () => {
     // Contract preservation: exit code stays 0 (advisory) and the JSON shape
     // (`{findings: [...], advisory: true}` with per-finding `file`/`line`/
     // `snippet`/`rule`/`severity`/`message`) is unchanged.
@@ -346,7 +338,7 @@ describe('lint-inv6 — literal narrowing (T-22)', () => {
         ['# Shape skill', '', 'Track the workflow on the `feature/` branch.', ''].join('\n'),
       );
 
-      const { stdout, status } = runLint(tmpdir);
+      const { stdout, status } = await runLint(tmpdir);
       expect(status).toBe(0);
       const out = JSON.parse(stdout) as LintOutput;
       expect(out.advisory).toBe(true);
@@ -366,7 +358,7 @@ describe('lint-inv6 — literal narrowing (T-22)', () => {
     }
   });
 
-  it('LintINV6_RealSkillsTree_FindingCountAtOrBelowAttainedThreshold', () => {
+  it('LintINV6_RealSkillsTree_FindingCountAtOrBelowAttainedThreshold', async () => {
     // Threshold-attainability measurement: narrowing the bare-verb literals
     // (354 -> 196) and then removing the mis-scoped `featureId` literal
     // entirely (196 -> ~103, measured at the time of T-22's second pass)
@@ -376,7 +368,7 @@ describe('lint-inv6 — literal narrowing (T-22)', () => {
     // `featureId` being re-added to the literal set — is visible as a test
     // failure rather than silently ballooning findings back toward
     // "unreachable zero" territory.
-    const { stdout, status } = runLint('content/');
+    const { stdout, status } = await runLint('content/');
     expect(status).toBe(0);
     const out = JSON.parse(stdout) as LintOutput;
     expect(Array.isArray(out.findings)).toBe(true);
@@ -393,7 +385,7 @@ describe('lint-inv6 — literal narrowing (T-22)', () => {
     expect(literalsSeen.has('featureId'), 'featureId must never be a matched literal').toBe(false);
   });
 
-  it('LintINV6_DeclaringWorkflowTypeOnEveryResidualSkill_ClearsAllFindings', () => {
+  it('LintINV6_DeclaringWorkflowTypeOnEveryResidualSkill_ClearsAllFindings', async () => {
     // Crisp verdict on the remainder (T-22 second pass): every surviving
     // real-tree finding is either (a) genuine coupling a human could fix,
     // or (b) clearable by declaring `metadata.workflow-type:` on that
@@ -403,7 +395,7 @@ describe('lint-inv6 — literal narrowing (T-22)', () => {
     // tree (content/ itself is never touched) and showing findings drop
     // to exactly zero. If some residual finding were neither (a) nor (b),
     // it would still be present here.
-    const before = JSON.parse(runLint('content/').stdout) as LintOutput;
+    const before = JSON.parse((await runLint('content/')).stdout) as LintOutput;
     const flaggedFiles = [...new Set(before.findings.map((f) => f.file))];
     expect(
       flaggedFiles.length,
@@ -428,7 +420,7 @@ describe('lint-inv6 — literal narrowing (T-22)', () => {
         fs.writeFileSync(tmpFile, original.replace(/^---\n/, '---\nworkflow-type: core\n'), 'utf8');
       }
 
-      const after = JSON.parse(runLint(tmpdir).stdout) as LintOutput;
+      const after = JSON.parse((await runLint(tmpdir)).stdout) as LintOutput;
       expect(
         after.findings.map((f) => path.relative(tmpdir, f.file)),
         'declaring workflow-type on every currently-flagged skill must clear all residual findings',

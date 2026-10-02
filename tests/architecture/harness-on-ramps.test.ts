@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { runCommandSync } from '../../src/utils/process.js';
+import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 
 /**
  * The harness on-ramps — runtime maps, the hooks template and the binding
@@ -63,7 +63,7 @@ describe('HarnessOnRamps', () => {
 describe('GitHookSample', () => {
   const HOOK_DIR = join(REPO_ROOT, 'tools/git-hooks');
 
-  it('AfterRelocation_IsStillCollectedAndPasses', () => {
+  it('AfterRelocation_IsStillCollectedAndPasses', async () => {
     const sample = join(HOOK_DIR, 'pre-push.ship-gate.sample');
     const test = join(HOOK_DIR, 'pre-push.test.ts');
     expect(existsSync(sample), 'the shipped hook sample is missing').toBe(true);
@@ -73,10 +73,10 @@ describe('GitHookSample', () => {
     // at the old `hooks/` root, and a test that no project collects passes by
     // never running — so ask the runner what it collects rather than trusting
     // the config to be current.
-    const listed = runCommandSync(
+    const listed = await execFileAsync(
       'npx',
       ['vitest', 'list', '--filesOnly', 'tools/git-hooks/pre-push.test.ts'],
-      { cwd: REPO_ROOT, encoding: 'utf8', timeout: 120_000 },
+      { cwd: REPO_ROOT, timeout: 120_000 },
     );
     expect(String(listed), 'no vitest project collects the relocated hook test').toContain(
       'pre-push.test.ts',

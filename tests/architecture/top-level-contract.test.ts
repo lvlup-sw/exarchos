@@ -22,7 +22,8 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+
+import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..');
 
@@ -88,11 +89,11 @@ const files = entries.filter((e) => e.isFile()).map((e) => e.name);
  * for part of the repository.
  */
 const trackedRootFiles = new Set(
-  execFileSync('git', ['ls-files', '-z', '--', ':(top)*'], {
-    cwd: REPO_ROOT,
-    encoding: 'utf8',
-    maxBuffer: 128 * 1024 * 1024,
-  })
+  (
+    await execFileAsync('git', ['ls-files', '-z', '--', ':(top)*'], {
+      cwd: REPO_ROOT,
+    })
+  )
     .split('\0')
     .filter((rel) => rel.length > 0 && !rel.includes('/')),
 );

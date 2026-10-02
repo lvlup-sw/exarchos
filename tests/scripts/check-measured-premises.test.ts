@@ -27,11 +27,12 @@
  * on one side, the live `TOOL_REGISTRY` census on the other.
  */
 import { describe, it, expect } from 'vitest';
-import { spawnSync } from 'node:child_process';
 import { readFileSync, existsSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { spawnAsync } from '../../tools/test-helpers/spawn.js';
 
 import {
   checkMeasuredPremises,
@@ -96,10 +97,9 @@ interface Report {
   };
 }
 
-function runCli(args: string[]): { status: number | null; report: Report; stderr: string } {
-  const result = spawnSync(process.execPath, [SCRIPT, ...args, '--json'], {
+async function runCli(args: string[]): Promise<{ status: number | null; report: Report; stderr: string }> {
+  const result = await spawnAsync(process.execPath, [SCRIPT, ...args, '--json'], {
     cwd: REPO_ROOT,
-    encoding: 'utf8',
     env: { ...process.env },
   });
   let report: Report;
@@ -119,7 +119,7 @@ function claimsNamed(report: Report, name: string): ReportClaim[] {
 }
 
 describe('check-measured-premises (task 054, DR-27)', () => {
-  it('MeasuredPremises_Rev3Document_ReportsDr4CountsAsDrifted', () => {
+  it('MeasuredPremises_Rev3Document_ReportsDr4CountsAsDrifted', async () => {
     // The fixture is rev 3's committed text with the rev-4 annotations
     // transplanted onto it and its LITERALS LEFT ALONE. Rev 3 is a document
     // proven wrong by measurement; a checker that passes on it has not been
@@ -134,7 +134,7 @@ describe('check-measured-premises (task 054, DR-27)', () => {
       '<!-- measured: output-schema-substantive -->12<!-- /measured -->',
     );
 
-    const { status, report } = runCli([
+    const { status, report } = await runCli([
       '--document',
       'tools/audit/test-fixtures/measured-premises/rev3-internal-mechanics-overhaul.md',
     ]);
@@ -207,7 +207,7 @@ describe('check-measured-premises (task 054, DR-27)', () => {
     //    by construction and cannot rot.
   }, 120_000);
 
-  it('MeasuredPremises_LiveLiteral_Agrees', () => {
+  it('MeasuredPremises_LiveLiteral_Agrees', async () => {
     // THE NOT-BLANKET-REJECTION HALF. A checker that reported every claim
     // drifted would fail the rev-3 fixture above for the wrong reason — it
     // would look like a working checker while actually reading nothing.
@@ -217,7 +217,7 @@ describe('check-measured-premises (task 054, DR-27)', () => {
     // resolved, and write a one-claim document carrying that exact value. It
     // must agree. Any hardcoded literal would be a coincidence waiting to
     // expire, which is precisely the failure this replaces.
-    const { report: live } = runCli(['--document', path.relative(REPO_ROOT, REV3_FIXTURE)]);
+    const { report: live } = await runCli(['--document', path.relative(REPO_ROOT, REV3_FIXTURE)]);
     const resolved = live.claims.find((c) => typeof c.derived === 'number');
     expect(resolved, 'no claim in the fixture resolved a derived value').toBeDefined();
 
@@ -229,7 +229,7 @@ describe('check-measured-premises (task 054, DR-27)', () => {
         `# Live-literal probe\n\nThe count is <!-- measured: ${resolved!.name} -->${resolved!.derived}<!-- /measured --> today.\n`,
         'utf8',
       );
-      const { report } = runCli(['--document', probePath]);
+      const { report } = await runCli(['--document', probePath]);
       const claims = claimsNamed(report, resolved!.name);
       expect(claims.length, `the probe declared no ${resolved!.name} claim`).toBeGreaterThan(0);
       for (const claim of claims) {
@@ -410,12 +410,12 @@ describe('check-measured-premises (task 054, DR-27)', () => {
     }
   });
 
-  it('MeasuredPremises_GapsVerdict_ExitsDistinctFromPass', () => {
+  it('MeasuredPremises_GapsVerdict_ExitsDistinctFromPass', async () => {
     // Asserted against the REAL CLI on the REAL DR-27 scope, because the defect
     // was in what the process returned, not in what the pure function computed.
     // Whichever verdict today's tree produces, the code must identify it — and
     // `gaps` must never share a code with `pass`.
-    const { status, report } = runCli([]);
+    const { status, report } = await runCli([]);
     expect(['pass', 'gaps', 'fail']).toContain(report.verdict);
     expect(status).toBe(report.exitCode);
     if (report.verdict === 'gaps') {

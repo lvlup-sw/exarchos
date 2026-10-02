@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1292,
-    "parsedFiles": 1247,
+    "testFiles": 1297,
+    "parsedFiles": 1252,
     "shellFiles": 45,
-    "cases": 14300,
-    "dynamicTitles": 172,
+    "cases": 14328,
+    "dynamicTitles": 160,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -4552,6 +4552,22 @@
     {
       "from": "tests/unit/projections/rehydration/reducer.delegate-contract.test.ts",
       "to": "tests/unit/workflow/topology/phase-events-derivations.test.ts"
+    },
+    {
+      "from": "tests/integration/perf-validation.test.ts",
+      "to": "tests/unit/adapters/mcp/output-validation.bench.ts"
+    },
+    {
+      "from": "tests/unit/projections/telemetry/benchmarks/cold-start.test.ts",
+      "to": "tests/unit/projections/telemetry/benchmarks/cold-start.bench.ts"
+    },
+    {
+      "from": "tests/unit/projections/telemetry/benchmarks/event-store.test.ts",
+      "to": "tests/unit/projections/telemetry/benchmarks/event-store.bench.ts"
+    },
+    {
+      "from": "tests/unit/projections/telemetry/benchmarks/latency.test.ts",
+      "to": "tests/unit/projections/telemetry/benchmarks/latency.bench.ts"
     }
   ],
   "files": {
@@ -6902,7 +6918,73 @@
         },
         {
           "suite": "vitest.config",
+          "name": "VitestConfig_EveryProject_YieldsBetweenTests",
+          "dynamic": false
+        },
+        {
+          "suite": "vitest.config",
           "name": "VitestConfig_CoreProject_DeclaresBenchInclude",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/worker-loop-and-clock.test.ts": {
+      "file": "tests/architecture/worker-loop-and-clock.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "NoSyncSpawnInTestCode",
+          "name": "Denominator_ScansTheTestTreeAndItsSpawners",
+          "dynamic": false
+        },
+        {
+          "suite": "NoSyncSpawnInTestCode",
+          "name": "TestCode_CallsNoSynchronousSpawnApi",
+          "dynamic": false
+        },
+        {
+          "suite": "NoSyncSpawnInTestCode",
+          "name": "Exemptions_ArePinnedByCountAndBoundedByTimeout",
+          "dynamic": false
+        },
+        {
+          "suite": "NoSyncSpawnInTestCode",
+          "name": "StatedTimeout_IsReadFromALiteralOrAFileConstant",
+          "dynamic": false
+        },
+        {
+          "suite": "NoSyncSpawnInTestCode",
+          "name": "SeededViolations_AreNamedWithTheirApi",
+          "dynamic": false
+        },
+        {
+          "suite": "NoSyncSpawnInTestCode",
+          "name": "CleanTwins_AreNotFindings",
+          "dynamic": false
+        },
+        {
+          "suite": "NoSyncSpawnInTestCode",
+          "name": "IsolatedSync_WithABlockBody_StillFindsEachCall",
+          "dynamic": false
+        },
+        {
+          "suite": "NoElapsedTimeAssertionInCorrectnessTests",
+          "name": "Denominator_ScansTheFilesThatReadTheClock",
+          "dynamic": false
+        },
+        {
+          "suite": "NoElapsedTimeAssertionInCorrectnessTests",
+          "name": "CorrectnessTests_AssertNoElapsedTime",
+          "dynamic": false
+        },
+        {
+          "suite": "NoElapsedTimeAssertionInCorrectnessTests",
+          "name": "SeededViolations_AreFound",
+          "dynamic": false
+        },
+        {
+          "suite": "NoElapsedTimeAssertionInCorrectnessTests",
+          "name": "CleanTwins_AreNotFindings",
           "dynamic": false
         }
       ]
@@ -9023,6 +9105,32 @@
         }
       ]
     },
+    "tests/helpers/yield-between-tests.test.ts": {
+      "file": "tests/helpers/yield-between-tests.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "YieldBetweenTests",
+          "name": "QueuesAMacrotask",
+          "dynamic": false
+        },
+        {
+          "suite": "YieldBetweenTests",
+          "name": "MacrotaskFromThePreviousTest_HasRunBeforeThisTestStarts",
+          "dynamic": false
+        },
+        {
+          "suite": "YieldBetweenTests_UnderFakeTimers",
+          "name": "LeavesFakeTimersInstalled",
+          "dynamic": false
+        },
+        {
+          "suite": "YieldBetweenTests_UnderFakeTimers",
+          "name": "NextTestStarts_BecauseTheYieldUsesRealTimers",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/integration/action-contract-emissions.test.ts": {
       "file": "tests/integration/action-contract-emissions.test.ts",
       "runner": "vitest:root",
@@ -9356,17 +9464,6 @@
         {
           "suite": "oneshot workflow integration (T16)",
           "name": "oneshotIntegration_cancelMidImplementing_transitionsToCancelled",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/integration/perf-validation.test.ts": {
-      "file": "tests/integration/perf-validation.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "F.6 — output validation overhead",
-          "name": "PerfValidation_RepeatedDispatch_MedianBelowBudget",
           "dynamic": false
         }
       ]
@@ -14759,6 +14856,17 @@
         {
           "suite": "createMcpServer",
           "name": "CreateMcpServer_SlimRegistration_UsesSlimDescriptions",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/adapters/mcp/output-validation.bench.ts": {
+      "file": "tests/unit/adapters/mcp/output-validation.bench.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "MCP output validation overhead",
+          "name": "ViewPipeline_ThroughTheMcpCarrier",
           "dynamic": false
         }
       ]
@@ -23676,6 +23784,62 @@
         }
       ]
     },
+    "tests/unit/events/append-cost-budget.test.ts": {
+      "file": "tests/unit/events/append-cost-budget.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "append cost budget",
+          "name": "UnkeyedAppend_RunsOneImmediateTransaction_AndCompilesNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "append cost budget",
+          "name": "KeyedAppend_ReadsTheClaimOutsideTheTransaction_ThenWritesItInside",
+          "dynamic": false
+        },
+        {
+          "suite": "append cost budget",
+          "name": "KeyedRetry_ReadsTheClaim_AndOpensNoTransaction",
+          "dynamic": false
+        },
+        {
+          "suite": "append cost budget",
+          "name": "UnkeyedBatchOf%i_RunsOneTransaction_AndOnlyTheEventInsertGrowsPerEvent",
+          "dynamic": false
+        },
+        {
+          "suite": "append cost budget",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "append cost budget",
+          "name": "KeyedBatchOf%i_WritesOneClaim_AndOnlyTheEventInsertGrowsPerEvent",
+          "dynamic": false
+        },
+        {
+          "suite": "append cost budget",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "append cost budget",
+          "name": "StreamRead_RunsOneSelect_AndCompilesItOnlyOnTheFirstRead",
+          "dynamic": false
+        },
+        {
+          "suite": "append cost budget",
+          "name": "Connection_SetsWalAndNormalSync_AndNoOtherDurabilityPragma",
+          "dynamic": false
+        },
+        {
+          "suite": "append cost budget",
+          "name": "FullSyncStore_SetsSynchronousFull_AndKeepsTheSameAppendStatements",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/events/appender-close-barrier.test.ts": {
       "file": "tests/unit/events/appender-close-barrier.test.ts",
       "runner": "vitest:root",
@@ -25498,19 +25662,9 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "Poc_SqliteBackend_AllConsumersUnchangedAndBenchHits1000OpsPerSec",
+          "suite": "Poc_SqliteBackend_AllConsumersUnchanged",
           "name": "AC3 — exactly the expected src consumers reference AtomicAppender",
           "dynamic": false
-        },
-        {
-          "suite": "Poc_SqliteBackend_AllConsumersUnchangedAndBenchHits1000OpsPerSec",
-          "name": "Bench — SQLite-backed appender hits ≥ 1000 ops/sec/stream",
-          "dynamic": false
-        },
-        {
-          "suite": "Poc_SqliteBackend_AllConsumersUnchangedAndBenchHits1000OpsPerSec",
-          "name": "<dynamic-case-1>",
-          "dynamic": true
         }
       ]
     },
@@ -28057,6 +28211,11 @@
         {
           "suite": "EventStore Append Benchmarks",
           "name": "Append_1000Events_Sequential",
+          "dynamic": false
+        },
+        {
+          "suite": "AtomicAppender Throughput Benchmarks",
+          "name": "AppendUnkeyed_5000Sequential_SqliteBackend",
           "dynamic": false
         },
         {
@@ -37754,115 +37913,65 @@
         }
       ]
     },
-    "tests/unit/projections/telemetry/benchmarks/cold-start.test.ts": {
-      "file": "tests/unit/projections/telemetry/benchmarks/cold-start.test.ts",
+    "tests/unit/projections/telemetry/benchmarks/cold-start.bench.ts": {
+      "file": "tests/unit/projections/telemetry/benchmarks/cold-start.bench.ts",
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "Cold-Start Latency Benchmarks > full replay (no snapshot)",
+          "suite": "Cold-start materialization budgets",
           "name": "<dynamic-case-1>",
           "dynamic": true
         },
         {
-          "suite": "Cold-Start Latency Benchmarks > full replay (no snapshot)",
-          "name": "<dynamic-case-2>",
-          "dynamic": true
-        },
-        {
-          "suite": "Cold-Start Latency Benchmarks",
-          "name": "materialize_SnapshotAssisted100Events_CompletesUnderThreshold",
+          "suite": "Cold-start materialization budgets",
+          "name": "materialize_SnapshotAssisted100Events",
           "dynamic": false
         },
         {
-          "suite": "Cold-Start Latency Benchmarks",
-          "name": "<dynamic-case-3>",
-          "dynamic": true
-        },
-        {
-          "suite": "Cold-Start Latency Benchmarks",
-          "name": "materialize_WarmCacheHit_NearZeroLatency",
+          "suite": "Cold-start materialization budgets",
+          "name": "materialize_WarmCacheHit",
           "dynamic": false
         },
         {
-          "suite": "Cold-Start Latency Benchmarks",
-          "name": "<dynamic-case-4>",
-          "dynamic": true
-        },
-        {
-          "suite": "Cold-Start Latency Benchmarks",
-          "name": "loadSnapshot_RawDiskLoad_CompletesUnder50ms",
+          "suite": "Cold-start materialization budgets",
+          "name": "loadSnapshot_RawDiskLoad",
           "dynamic": false
-        },
-        {
-          "suite": "Cold-Start Latency Benchmarks",
-          "name": "<dynamic-case-5>",
-          "dynamic": true
         }
       ]
     },
-    "tests/unit/projections/telemetry/benchmarks/event-store.test.ts": {
-      "file": "tests/unit/projections/telemetry/benchmarks/event-store.test.ts",
+    "tests/unit/projections/telemetry/benchmarks/event-store.bench.ts": {
+      "file": "tests/unit/projections/telemetry/benchmarks/event-store.bench.ts",
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "Event Store Benchmarks",
-          "name": "append_SingleEvent_CompletesWithinThreshold",
+          "suite": "EventStore telemetry budgets",
+          "name": "append_SingleEvent",
           "dynamic": false
         },
         {
-          "suite": "Event Store Benchmarks",
-          "name": "<dynamic-case-1>",
-          "dynamic": true
-        },
-        {
-          "suite": "Event Store Benchmarks",
-          "name": "batchAppend_50Events_CompletesWithinThreshold",
+          "suite": "EventStore telemetry budgets",
+          "name": "batchAppend_50Events",
           "dynamic": false
         },
         {
-          "suite": "Event Store Benchmarks",
-          "name": "<dynamic-case-2>",
-          "dynamic": true
-        },
-        {
-          "suite": "Event Store Benchmarks",
-          "name": "append_Concurrent10Streams_CompletesWithinThreshold",
+          "suite": "EventStore telemetry budgets",
+          "name": "append_Concurrent10Streams",
           "dynamic": false
         },
         {
-          "suite": "Event Store Benchmarks",
-          "name": "<dynamic-case-3>",
-          "dynamic": true
-        },
-        {
-          "suite": "Event Store Benchmarks",
-          "name": "query_100EventsNoFilter_CompletesWithinThreshold",
+          "suite": "EventStore telemetry budgets",
+          "name": "query_100EventsNoFilter",
           "dynamic": false
         },
         {
-          "suite": "Event Store Benchmarks",
-          "name": "<dynamic-case-4>",
-          "dynamic": true
-        },
-        {
-          "suite": "Event Store Benchmarks",
-          "name": "query_100EventsTypeFilter_CompletesWithinThreshold",
+          "suite": "EventStore telemetry budgets",
+          "name": "query_100EventsTypeFilter",
           "dynamic": false
         },
         {
-          "suite": "Event Store Benchmarks",
-          "name": "<dynamic-case-5>",
-          "dynamic": true
-        },
-        {
-          "suite": "Event Store Benchmarks",
-          "name": "initSequence_100EventsNoSeqCache_CompletesWithinThreshold",
+          "suite": "EventStore telemetry budgets",
+          "name": "initSequence_100Events",
           "dynamic": false
-        },
-        {
-          "suite": "Event Store Benchmarks",
-          "name": "<dynamic-case-6>",
-          "dynamic": true
         }
       ]
     },
@@ -37887,29 +37996,24 @@
         }
       ]
     },
-    "tests/unit/projections/telemetry/benchmarks/latency.test.ts": {
-      "file": "tests/unit/projections/telemetry/benchmarks/latency.test.ts",
+    "tests/unit/projections/telemetry/benchmarks/latency.bench.ts": {
+      "file": "tests/unit/projections/telemetry/benchmarks/latency.bench.ts",
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "Latency Benchmarks",
-          "name": "withTelemetry wrapper adds less than 10ms overhead",
+          "suite": "Telemetry latency budgets",
+          "name": "handler_Bare",
           "dynamic": false
         },
         {
-          "suite": "Latency Benchmarks",
-          "name": "<dynamic-case-1>",
-          "dynamic": true
-        },
-        {
-          "suite": "Latency Benchmarks",
-          "name": "telemetry view materialization completes under 100ms for 100 events",
+          "suite": "Telemetry latency budgets",
+          "name": "handler_WithTelemetry",
           "dynamic": false
         },
         {
-          "suite": "Latency Benchmarks",
-          "name": "<dynamic-case-2>",
-          "dynamic": true
+          "suite": "Telemetry latency budgets",
+          "name": "viewTelemetry_100Events",
+          "dynamic": false
         }
       ]
     },
@@ -40150,6 +40254,17 @@
         }
       ]
     },
+    "tests/unit/projections/views/lifecycle/operations-fold.bench.ts": {
+      "file": "tests/unit/projections/views/lifecycle/operations-fold.bench.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "operations-fold cold read",
+          "name": "operations-fold-cold-10k-events",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/projections/views/lifecycle/operations-fold.test.ts": {
       "file": "tests/unit/projections/views/lifecycle/operations-fold.test.ts",
       "runner": "vitest:root",
@@ -40218,16 +40333,6 @@
           "suite": "OperationsFold — generic in-flight operations (DR-3) > real EventStore boundary",
           "name": "OperationsFold_RealEventStoreEvents_MatchesGenericFold",
           "dynamic": false
-        },
-        {
-          "suite": "OperationsFold — generic in-flight operations (DR-3) > real EventStore boundary",
-          "name": "operations-fold-cold-10k-events",
-          "dynamic": false
-        },
-        {
-          "suite": "OperationsFold — generic in-flight operations (DR-3) > real EventStore boundary",
-          "name": "<dynamic-case-1>",
-          "dynamic": true
         }
       ]
     },
@@ -83203,6 +83308,87 @@
         {
           "suite": "isQuotedMention",
           "name": "QuotedMention_ClosedQuoteEarlierInTheSentenceDoesNotCarryOver",
+          "dynamic": false
+        }
+      ]
+    },
+    "tools/test-helpers/spawn.test.ts": {
+      "file": "tools/test-helpers/spawn.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "execFileAsync",
+          "name": "ZeroExit_ResolvesWithStdout",
+          "dynamic": false
+        },
+        {
+          "suite": "execFileAsync",
+          "name": "NonZeroExit_RejectsWithStatusAndStreams",
+          "dynamic": false
+        },
+        {
+          "suite": "execFileAsync",
+          "name": "MissingCommand_Rejects",
+          "dynamic": false
+        },
+        {
+          "suite": "spawnAsync",
+          "name": "NonZeroExit_ResolvesWithTheStatus",
+          "dynamic": false
+        },
+        {
+          "suite": "spawnAsync",
+          "name": "MissingCommand_ResolvesWithAnError",
+          "dynamic": false
+        },
+        {
+          "suite": "spawnAsync",
+          "name": "Input_IsWrittenToStdin",
+          "dynamic": false
+        },
+        {
+          "suite": "spawnAsync",
+          "name": "CwdAndEnv_ReachTheChild",
+          "dynamic": false
+        },
+        {
+          "suite": "spawnAsync",
+          "name": "Timeout_KillsTheChildAndReportsIt",
+          "dynamic": false
+        },
+        {
+          "suite": "spawnAsync",
+          "name": "ReturnsBeforeTheChildRuns",
+          "dynamic": false
+        },
+        {
+          "suite": "spawnAsync",
+          "name": "WhileAChildRuns_TheEventLoopKeepsTurning",
+          "dynamic": false
+        },
+        {
+          "suite": "spawnAsyncBuffer and execAsync",
+          "name": "SpawnAsyncBuffer_ReturnsBytes",
+          "dynamic": false
+        },
+        {
+          "suite": "spawnAsyncBuffer and execAsync",
+          "name": "ExecAsync_RunsAShellCommandLine",
+          "dynamic": false
+        },
+        {
+          "suite": "isolatedSync",
+          "name": "YieldsBeforeTheCall",
+          "dynamic": false
+        },
+        {
+          "suite": "isolatedSync",
+          "name": "YieldsAfterTheCall",
+          "dynamic": false
+        },
+        {
+          "suite": "isolatedSync",
+          "name": "ThrowingCall_Rejects",
           "dynamic": false
         }
       ]

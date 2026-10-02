@@ -10,17 +10,18 @@ import { EventStore } from '../../../src/events/store.js';
 // Mock ONLY `child_process.execFile` (the async side-effect path the SUT shells
 // git through) — the rest of the module stays REAL so the INV-14 dirty-guard's
 // `defaultGitRunner` (spawnSync-backed) and the real-worktree test setup below
-// (execFileSync) run actual git. Spreading the actual module keeps
-// `spawnSync`/`execFileSync` defined; without it the whole module would be
+// (`spawn`, through the test spawn helper) run actual git. Spreading the actual
+// module keeps `spawnSync`/`spawn` defined; without it the whole module would be
 // replaced and those would be `undefined`.
 vi.mock('child_process', async () => {
   const actual = await vi.importActual<typeof import('child_process')>('child_process');
   return { ...actual, execFile: vi.fn() };
 });
 
-import { execFile, execFileSync } from 'child_process';
+import { execFile } from 'child_process';
 import * as fsSync from 'node:fs';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
+import { execFileAsync } from '../../../tools/test-helpers/spawn.js';
 import { WORKTREES_STREAM, defaultGitRunner } from '../../../src/verbs/worktree/manager.js';
 import { createWorktreesReducer } from '../../../src/verbs/worktree/projections/worktrees.js';
 import type { RealpathResolver } from '../../../src/verbs/worktree/pure/path-containment.js';
@@ -1480,15 +1481,9 @@ describe('Task 010: teardown dirty-guard (INV-14 / DR-3)', () => {
   let stateDir: string;
   let eventStore: EventStore;
 
-  /** Real git in `cwd` (child_process is spread-actual, so execFileSync is real). */
-  function git(cwd: string, args: readonly string[]): string {
-    return execFileSync('git', args as string[], {
-      cwd,
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
-      .toString()
-      .trim();
+  /** Real git in `cwd` (child_process is spread-actual, so `spawn` is real). */
+  async function git(cwd: string, args: readonly string[]): Promise<string> {
+    return (await execFileAsync('git', args, { cwd })).trim();
   }
 
   /** True if any mocked execFile call was `git worktree remove … --force`. */
@@ -1505,16 +1500,16 @@ describe('Task 010: teardown dirty-guard (INV-14 / DR-3)', () => {
     vi.clearAllMocks();
     repoDir = await fs.mkdtemp(path.join(os.tmpdir(), 'exarchos-task010-'));
     // Real repo with one commit so a worktree can be added off a real branch.
-    git(repoDir, ['init', '-q', '-b', 'work']);
-    git(repoDir, ['config', 'user.email', 'task010@example.com']);
-    git(repoDir, ['config', 'user.name', 'Task010 Test']);
-    git(repoDir, ['config', 'commit.gpgsign', 'false']);
+    await git(repoDir, ['init', '-q', '-b', 'work']);
+    await git(repoDir, ['config', 'user.email', 'task010@example.com']);
+    await git(repoDir, ['config', 'user.name', 'Task010 Test']);
+    await git(repoDir, ['config', 'commit.gpgsign', 'false']);
     await fs.writeFile(path.join(repoDir, 'README.md'), '# dirty-guard test\n');
-    git(repoDir, ['add', '.']);
-    git(repoDir, ['commit', '-q', '-m', 'init']);
+    await git(repoDir, ['add', '.']);
+    await git(repoDir, ['commit', '-q', '-m', 'init']);
 
     worktreePath = path.join(repoDir, 'wt');
-    git(repoDir, ['worktree', 'add', '-q', worktreePath, '-b', 'feature/x']);
+    await git(repoDir, ['worktree', 'add', '-q', worktreePath, '-b', 'feature/x']);
 
     // Real event store (the DR-3 unified `worktrees` stream lands here).
     stateDir = await fs.mkdtemp(path.join(os.tmpdir(), 'exarchos-task010-state-'));

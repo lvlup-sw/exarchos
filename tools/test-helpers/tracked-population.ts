@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFileAsync } from './spawn.js';
 
 /**
  * DR-8 — the SECOND AUTHORITY for a guard's denominator.
@@ -61,19 +61,15 @@ export interface TrackedPopulationQuery {
 /**
  * Every file `root` tracks, `root`-relative and forward-slashed, sorted.
  *
- * Throws when the query resolves nothing: a second authority that answers zero
+ * Rejects when the query resolves nothing: a second authority that answers zero
  * cannot corroborate anything, and a silent empty list would make every
  * containment assertion built on it vacuously true — the very failure mode this
  * module exists to detect, reproduced inside the detector.
  */
-export function listTrackedFiles(root: string, query: TrackedPopulationQuery = {}): string[] {
+export async function listTrackedFiles(root: string, query: TrackedPopulationQuery = {}): Promise<string[]> {
   const extensions = query.extensions ?? ['.ts'];
   const pathspecs = extensions.map((extension) => `*${extension}`);
-  const stdout = execFileSync('git', ['ls-files', '-z', '--', ...pathspecs], {
-    cwd: root,
-    encoding: 'utf-8',
-    maxBuffer: 64 * 1024 * 1024,
-  });
+  const stdout = await execFileAsync('git', ['ls-files', '-z', '--', ...pathspecs], { cwd: root });
 
   const files = stdout
     .split('\0')
@@ -93,8 +89,8 @@ export function listTrackedFiles(root: string, query: TrackedPopulationQuery = {
 }
 
 /** How many files `root` tracks under {@link listTrackedFiles}'s query. */
-export function countTrackedFiles(root: string, query: TrackedPopulationQuery = {}): number {
-  return listTrackedFiles(root, query).length;
+export async function countTrackedFiles(root: string, query: TrackedPopulationQuery = {}): Promise<number> {
+  return (await listTrackedFiles(root, query)).length;
 }
 
 /**

@@ -110,7 +110,7 @@ describe('RawReaderCensus — no fold-external reader depends on a telemetry eve
     const census = await censusPromise;
     expect(census.scannedModuleCount).toBeGreaterThan(0);
 
-    const tracked = listTrackedFiles(REPO_ROOT, {
+    const tracked = await listTrackedFiles(REPO_ROOT, {
       exclude: (file) =>
         !file.startsWith('src/') ||
         file.startsWith('src/projections/') ||

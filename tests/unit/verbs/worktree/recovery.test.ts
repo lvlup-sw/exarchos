@@ -30,7 +30,6 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { readFileSync, realpathSync, rmSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -39,6 +38,7 @@ import { EventStore } from '../../../../src/events/store.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
 import type { ToolResult } from '../../../../src/format.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
+import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 
 import { serializeMerge } from '../../../../src/verbs/worktree/merge-serializer.js';
 import { handleReconcileWorktrees, handleSerializeMerge } from '../../../../src/verbs/worktree/handlers.js';
@@ -371,29 +371,25 @@ describe('DR-12 — stale dead-holder reclamation', () => {
 // unchanged. The other DR-12 describes keep running on win32 (deterministic tables).
 describe.skipIf(process.platform === 'win32')('DR-12 — concurrent prune + merge', () => {
   // Real-git helpers (mirrors the prune suite's ground-truth setup).
-  function git(cwd: string, args: readonly string[]): string {
-    return execFileSync('git', args as string[], {
-      cwd,
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    }).trim();
+  async function git(cwd: string, args: readonly string[]): Promise<string> {
+    return (await execFileAsync('git', args, { cwd })).trim();
   }
 
   async function initRepoWithOrigin(workdir: string, name: string): Promise<string> {
     const origin = path.join(workdir, `${name}-origin.git`);
-    git(workdir, ['init', '-q', '--bare', origin]);
+    await git(workdir, ['init', '-q', '--bare', origin]);
     const repo = path.join(workdir, name);
     await mkdir(repo, { recursive: true });
-    git(repo, ['init', '-q', '-b', 'work']);
-    git(repo, ['config', 'user.email', 'wlm@example.com']);
-    git(repo, ['config', 'user.name', 'WLM Test']);
-    git(repo, ['config', 'commit.gpgsign', 'false']);
+    await git(repo, ['init', '-q', '-b', 'work']);
+    await git(repo, ['config', 'user.email', 'wlm@example.com']);
+    await git(repo, ['config', 'user.name', 'WLM Test']);
+    await git(repo, ['config', 'commit.gpgsign', 'false']);
     await writeFile(path.join(repo, 'README.md'), '# wlm recovery prune\n');
-    git(repo, ['add', '.']);
-    git(repo, ['commit', '-q', '-m', 'init']);
+    await git(repo, ['add', '.']);
+    await git(repo, ['commit', '-q', '-m', 'init']);
     const real = realpathSync(repo);
-    git(real, ['remote', 'add', 'origin', origin]);
-    git(real, ['push', '-q', 'origin', 'work']);
+    await git(real, ['remote', 'add', 'origin', origin]);
+    await git(real, ['push', '-q', 'origin', 'work']);
     return real;
   }
 
@@ -404,9 +400,9 @@ describe.skipIf(process.platform === 'win32')('DR-12 — concurrent prune + merg
 
     const repo = await initRepoWithOrigin(workdir, 'repo');
     const integrationRef = 'feat/integ';
-    git(repo, ['branch', integrationRef]); // integration ref at HEAD.
+    await git(repo, ['branch', integrationRef]); // integration ref at HEAD.
     const wtPath = path.join(workdir, 'wt-merging');
-    git(repo, ['worktree', 'add', '-q', wtPath, '-b', 'wbranch']); // HEAD == integ → merged.
+    await git(repo, ['worktree', 'add', '-q', wtPath, '-b', 'wbranch']); // HEAD == integ → merged.
     const wtId = canonicalWorktreeId(wtPath);
 
     // Wire the worktree's feature → integration branch (per-worktree ref lookup).

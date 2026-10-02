@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { execSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { execFileAsync } from '../../../tools/test-helpers/spawn.js';
 import { withTmpGit, addSiblingWorktree } from './tmp-git.js';
 
 describe('withTmpGit', () => {
@@ -24,9 +24,8 @@ describe('withTmpGit', () => {
       expect(sibling.startsWith(path.join(repo, '.git'))).toBe(false);
       expect(fs.existsSync(sibling)).toBe(true);
 
-      const porcelain = execSync('git worktree list --porcelain', {
+      const porcelain = await execFileAsync('git', ['worktree', 'list', '--porcelain'], {
         cwd: repo,
-        encoding: 'utf8',
       });
       // Two entries: main repo + sibling. Each entry starts with `worktree <path>`.
       const entries = porcelain

@@ -14,10 +14,11 @@
  * limitation rather than silently passing.
  */
 import { describe, it, expect } from 'vitest';
-import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { spawnAsync } from '../../tools/test-helpers/spawn.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -25,9 +26,8 @@ const REPO_ROOT = resolve(__dirname, '../..');
 const SCRIPT_PATH = join(REPO_ROOT, 'tools', 'release', 'get-exarchos.ps1');
 const PESTER_PATH = join(REPO_ROOT, 'tools', 'release', 'get-exarchos.ps1.test.ps1');
 
-function hasPwsh(): boolean {
-  const probe = spawnSync('pwsh', ['-NoProfile', '-Command', '$PSVersionTable.PSVersion.Major'], {
-    encoding: 'utf-8',
+async function hasPwsh(): Promise<boolean> {
+  const probe = await spawnAsync('pwsh', ['-NoProfile', '-Command', '$PSVersionTable.PSVersion.Major'], {
     timeout: 10_000,
   });
   return probe.status === 0;
@@ -43,22 +43,21 @@ describe('tools/release/get-exarchos.ps1', () => {
   });
 
   // These pwsh-spawning tests budget a 10s `hasPwsh()` probe plus a 30s
-  // spawnSync, so the vitest test envelope (3rd arg) must exceed their combined
+  // spawn, so the vitest test envelope (3rd arg) must exceed their combined
   // worst case — the 5s default aborts them mid-spawn under CI load (observed at
   // 7.8-10.8s). Mirrors the Pester suite's explicit timeout below.
-  it('GetExarchos_PS1_ParsesWithoutErrors_WhenPwshAvailable', () => {
-    if (!hasPwsh()) {
+  it('GetExarchos_PS1_ParsesWithoutErrors_WhenPwshAvailable', async () => {
+    if (!(await hasPwsh())) {
       console.log('[skip] pwsh not on PATH — PowerShell parser check deferred to CI runners that have it.');
       return;
     }
 
     // -LoadOnly is a sentinel understood by the script itself (see RED test),
     // making the file source cleanly without triggering the main entry point.
-    const result = spawnSync(
+    const result = await spawnAsync(
       'pwsh',
       ['-NoProfile', '-NonInteractive', '-File', SCRIPT_PATH, '-LoadOnly'],
       {
-        encoding: 'utf-8',
         timeout: 30_000,
         cwd: REPO_ROOT,
       },
@@ -67,17 +66,16 @@ describe('tools/release/get-exarchos.ps1', () => {
     expect(result.status, `stderr:\n${result.stderr}\nstdout:\n${result.stdout}`).toBe(0);
   }, 60_000);
 
-  it('GetExarchos_DryRun_PrintsPlan_WhenPwshAvailable', () => {
-    if (!hasPwsh()) {
+  it('GetExarchos_DryRun_PrintsPlan_WhenPwshAvailable', async () => {
+    if (!(await hasPwsh())) {
       console.log('[skip] pwsh not on PATH — dry-run smoke deferred to CI runners that have it.');
       return;
     }
 
-    const result = spawnSync(
+    const result = await spawnAsync(
       'pwsh',
       ['-NoProfile', '-NonInteractive', '-File', SCRIPT_PATH, '-DryRun'],
       {
-        encoding: 'utf-8',
         timeout: 30_000,
         cwd: REPO_ROOT,
       },
@@ -99,30 +97,30 @@ describe('tools/release/get-exarchos.ps1', () => {
     expect(combined).toMatch(/\.sha512/);
   }, 60_000);
 
-  // Vitest test timeout (3rd arg, ms) must exceed the spawnSync child-process
+  // Vitest test timeout (3rd arg, ms) must exceed the spawn child-process
   // timeout below. Pester suite execution against the .ps1 typically takes
-  // 4-6 seconds on GHA ubuntu-latest runners; the spawnSync gets up to 2 min;
+  // 4-6 seconds on GHA ubuntu-latest runners; the spawn gets up to 2 min;
   // the vitest test envelope gets up to 2.5 min so it never aborts before
-  // spawnSync returns its own structured result.
+  // the spawn returns its own structured result.
   it(
     'GetExarchos_PesterSuite_Passes_WhenPesterAvailable',
-    () => {
-      if (!hasPwsh()) {
+    async () => {
+      if (!(await hasPwsh())) {
         console.log('[skip] pwsh not on PATH — Pester suite deferred.');
         return;
       }
 
-      const pesterProbe = spawnSync(
+      const pesterProbe = await spawnAsync(
         'pwsh',
         ['-NoProfile', '-NonInteractive', '-Command', 'if (Get-Module -ListAvailable -Name Pester) { exit 0 } else { exit 1 }'],
-        { encoding: 'utf-8', timeout: 15_000 },
+        { timeout: 15_000 },
       );
       if (pesterProbe.status !== 0) {
         console.log('[skip] Pester module not installed — skipping shell-native assertions.');
         return;
       }
 
-      const result = spawnSync(
+      const result = await spawnAsync(
         'pwsh',
         [
           '-NoProfile',
@@ -131,7 +129,6 @@ describe('tools/release/get-exarchos.ps1', () => {
           `$r = Invoke-Pester -Path '${PESTER_PATH}' -PassThru -Output Detailed; if ($r.FailedCount -gt 0) { exit 1 } else { exit 0 }`,
         ],
         {
-          encoding: 'utf-8',
           timeout: 120_000,
           cwd: REPO_ROOT,
         },

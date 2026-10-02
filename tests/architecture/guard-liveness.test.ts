@@ -14,7 +14,8 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+
+import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..');
 
@@ -47,10 +48,8 @@ const baseline = JSON.parse(
  * this suite green the whole time.
  */
 const live = JSON.parse(
-  execFileSync(process.execPath, [path.join(REPO_ROOT, 'tools/audit/measure-guard-liveness.mjs')], {
+  await execFileAsync(process.execPath, [path.join(REPO_ROOT, 'tools/audit/measure-guard-liveness.mjs')], {
     cwd: REPO_ROOT,
-    encoding: 'utf8',
-    maxBuffer: 64 * 1024 * 1024,
   }),
 ) as Baseline;
 
@@ -147,14 +146,14 @@ describe('guard liveness', () => {
     }
   });
 
-  it('GuardLiveness_Baseline_IsCurrentWithTheTree', () => {
+  it('GuardLiveness_Baseline_IsCurrentWithTheTree', async () => {
     // A baseline captured against a different tree size is stale, and a stale
     // baseline is a comparison against fiction.
-    const tracked = execFileSync('git', ['ls-files', '-z'], {
-      cwd: REPO_ROOT,
-      encoding: 'utf8',
-      maxBuffer: 128 * 1024 * 1024,
-    })
+    const tracked = (
+      await execFileAsync('git', ['ls-files', '-z'], {
+        cwd: REPO_ROOT,
+      })
+    )
       .split('\0')
       .filter((rel) => rel.length > 0).length;
 

@@ -394,7 +394,7 @@ describe('DR-26 — the retired INV-2 parity citations are re-pointed', () => {
     expect(citesRetiredParityFramingIn(`${self}\n// per INV-2 parity, #1127.`)).toBe(true);
   });
 
-  it('ShippedSource_CitesNoRetiredInv2ParityFraming', () => {
+  it('ShippedSource_CitesNoRetiredInv2ParityFraming', async () => {
     const files = walkTsFiles(SHIPPED_SRC_ROOT);
     // DERIVED denominator (task 079 / DR-8). This read `>= 300` over a corpus of
     // ~655 — less than half the real population, so a sweep that lost most of the
@@ -406,7 +406,7 @@ describe('DR-26 — the retired INV-2 parity citations are re-pointed', () => {
     expect(
       trackedFilesMissedBy(
         files.map((file) => path.relative(SHIPPED_SRC_ROOT, file).split(path.sep).join('/')),
-        listTrackedFiles(SHIPPED_SRC_ROOT, {
+        await listTrackedFiles(SHIPPED_SRC_ROOT, {
           exclude: (file) => file.endsWith('.test.ts') || file.endsWith('.type-test.ts'),
         }),
       ),

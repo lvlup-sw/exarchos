@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
+import { execFileAsync } from '../../../tools/test-helpers/spawn.js';
 
 // Resolve repo root (handles worktree paths)
 const repoRoot = process.cwd();
@@ -152,7 +152,7 @@ describe('enforcement-handler excision grep-sweep (#1476)', () => {
   // subcommands or their deleted handler modules. We grep the tracked
   // source (excluding docs/historical artifacts, dist, node_modules, and
   // this test itself, which legitimately names them to assert absence).
-  it('NoSourceReferences_ToRetiredEnforcementSubcommands', () => {
+  it('NoSourceReferences_ToRetiredEnforcementSubcommands', async () => {
     const patterns = [
       // Task 017 moved `cli-commands/` to `lifecycle/`. Left pinned to the old
       // directory these three could never match again — a resurrected handler
@@ -174,7 +174,7 @@ describe('enforcement-handler excision grep-sweep (#1476)', () => {
       try {
         // `git grep` searches only tracked files; the pathspecs exclude
         // tests, docs, the changelog, and the generated dist tree.
-        out = execFileSync(
+        out = await execFileAsync(
           'git',
           [
             'grep',
@@ -188,7 +188,7 @@ describe('enforcement-handler excision grep-sweep (#1476)', () => {
             ':!*.test.ts',
             ':!*.test.sh',
           ],
-          { cwd: repoRoot, encoding: 'utf-8' },
+          { cwd: repoRoot },
         );
       } catch {
         // `git grep` exits 1 when there are no matches — that's the pass case.

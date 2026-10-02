@@ -1,7 +1,6 @@
 import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawnSync } from 'node:child_process';
 import { describe, it, expect } from 'vitest';
 import {
   PRIMARY_ROOT,
@@ -16,6 +15,7 @@ import {
   EXIT_OK,
   EXIT_PROTECTED,
 } from '../../../tools/audit/check-protected.mjs';
+import { spawnAsync } from '../../../tools/test-helpers/spawn.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, '../../..');
@@ -230,28 +230,25 @@ describe('resolveChangedFiles — arg > stdin > git fallback priority', () => {
 });
 
 describe('CLI end-to-end — the guard as actually invoked', () => {
-  it('exits 0 for a clean change-set passed as argv', () => {
-    const res = spawnSync('node', [CLI_PATH, 'README.md', 'package.json'], {
+  it('exits 0 for a clean change-set passed as argv', async () => {
+    const res = await spawnAsync('node', [CLI_PATH, 'README.md', 'package.json'], {
       cwd: REPO_ROOT,
-      encoding: 'utf8',
     });
     expect(res.status).toBe(EXIT_OK);
     expect(res.stdout).toMatch(/OK/);
   });
 
-  it('exits non-zero for a change-set touching a keep-class protected file', () => {
-    const res = spawnSync('node', [CLI_PATH, `${PRIMARY_ROOT}/events/parity.test.ts`], {
+  it('exits non-zero for a change-set touching a keep-class protected file', async () => {
+    const res = await spawnAsync('node', [CLI_PATH, `${PRIMARY_ROOT}/events/parity.test.ts`], {
       cwd: REPO_ROOT,
-      encoding: 'utf8',
     });
     expect(res.status).toBe(EXIT_PROTECTED);
     expect(res.stderr).toMatch(/FAIL/);
   });
 
-  it('exits 0 for a change touching event-store/tools.test.ts (fast-check import, not protected)', () => {
-    const res = spawnSync('node', [CLI_PATH, `${PRIMARY_ROOT}/events/tools.test.ts`], {
+  it('exits 0 for a change touching event-store/tools.test.ts (fast-check import, not protected)', async () => {
+    const res = await spawnAsync('node', [CLI_PATH, `${PRIMARY_ROOT}/events/tools.test.ts`], {
       cwd: REPO_ROOT,
-      encoding: 'utf8',
     });
     expect(res.status).toBe(EXIT_OK);
   });

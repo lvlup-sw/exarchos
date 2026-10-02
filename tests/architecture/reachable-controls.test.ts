@@ -99,7 +99,7 @@ function findEnablers(relativePath: string, source: string): Enabler[] {
   return found;
 }
 
-function sourceFiles(roots: readonly string[]): string[] {
+async function sourceFiles(roots: readonly string[]): Promise<string[]> {
   return listTrackedFiles(REPO_ROOT, {
     extensions: POLICY.sourceExtensions,
     exclude: (relative) =>
@@ -115,7 +115,7 @@ function sourceFiles(roots: readonly string[]): string[] {
  * not change during a run.
  */
 const CALLER_BODIES: ReadonlyMap<string, string> = new Map(
-  sourceFiles(POLICY.callerRoots).map((file) => [file, executableSource(file)]),
+  (await sourceFiles(POLICY.callerRoots)).map((file) => [file, executableSource(file)]),
 );
 
 /**
@@ -168,8 +168,8 @@ function isAllowlisted(enabler: Enabler): boolean {
 }
 
 describe('reachable controls', () => {
-  it('ReachableControls_NoEnabler_IsCalledOnlyFromTests', () => {
-    const files = sourceFiles(POLICY.scannedRoots);
+  it('ReachableControls_NoEnabler_IsCalledOnlyFromTests', async () => {
+    const files = await sourceFiles(POLICY.scannedRoots);
 
     // (1) Denominator. An empty walk makes the assertion below vacuously true,
     // which is precisely how this guard would fail open.

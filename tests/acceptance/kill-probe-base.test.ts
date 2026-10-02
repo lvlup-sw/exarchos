@@ -14,7 +14,6 @@
 // @oracle-sources: ../../src/verbs/gates/test-adequacy-handler.ts, a real git repository and `node --test` run under the real npm script, read back through the gate rows and evidence the event store persisted
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { execFileSync } from 'node:child_process';
 import { mkdtemp, mkdir, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
@@ -25,6 +24,7 @@ import { EventStore } from '../../src/events/store.js';
 import { evidenceArtifactStore, resolveEvidenceArtifact } from '../../src/workflow/admission/evidence-artifact.js';
 import { createInMemoryResolver } from '../../src/workflow/capabilities/resolver.js';
 import { initStateFile } from '../../src/workflow/state-store.js';
+import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 
 const STREAM = 'feat-kill-probe-base';
@@ -43,8 +43,8 @@ let eventStore: EventStore;
 let repo: string;
 const scratchDirs: string[] = [];
 
-function git(cwd: string, args: readonly string[]): string {
-  return execFileSync('git', [...args], { cwd, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+function git(cwd: string, args: readonly string[]): Promise<string> {
+  return execFileAsync('git', [...args], { cwd });
 }
 
 async function write(root: string, file: string, text: string): Promise<void> {
@@ -61,10 +61,10 @@ function testFile(module: string, body: string): string {
 async function twoWaveRepository(): Promise<string> {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), 'kill-probe-base-repo-')));
   scratchDirs.push(root);
-  git(root, ['init', '-q', '--initial-branch=main']);
-  git(root, ['config', 'user.email', 'test@example.com']);
-  git(root, ['config', 'user.name', 'Test']);
-  git(root, ['config', 'commit.gpgsign', 'false']);
+  await git(root, ['init', '-q', '--initial-branch=main']);
+  await git(root, ['config', 'user.email', 'test@example.com']);
+  await git(root, ['config', 'user.name', 'Test']);
+  await git(root, ['config', 'commit.gpgsign', 'false']);
   const scripts = {
     'test:run': 'node --test',
     test: 'node --test',
@@ -75,20 +75,20 @@ async function twoWaveRepository(): Promise<string> {
   await write(root, 'package.json', JSON.stringify({ name: 'fixture', private: true, type: 'module', scripts }, null, 2));
   await write(root, 'src/a.js', 'export function value() {\n  return 1;\n}\n');
   await write(root, 'src/b.js', 'export function value() {\n  return 1;\n}\n');
-  git(root, ['add', '.']);
-  git(root, ['commit', '-q', '-m', 'main']);
+  await git(root, ['add', '.']);
+  await git(root, ['commit', '-q', '-m', 'main']);
 
-  git(root, ['checkout', '-q', '-b', INTEGRATION_BRANCH]);
+  await git(root, ['checkout', '-q', '-b', INTEGRATION_BRANCH]);
   await write(root, 'src/a.js', 'export function value() {\n  return 2;\n}\n');
   await write(root, 'test/a.test.js', testFile('a', 'assert.strictEqual(value(), 2);'));
-  git(root, ['add', '.']);
-  git(root, ['commit', '-q', '-m', 'wave one: a returns 2, with a real test']);
+  await git(root, ['add', '.']);
+  await git(root, ['commit', '-q', '-m', 'wave one: a returns 2, with a real test']);
 
-  git(root, ['checkout', '-q', '-b', TASK_BRANCH]);
+  await git(root, ['checkout', '-q', '-b', TASK_BRANCH]);
   await write(root, 'src/b.js', 'export function value() {\n  return 3;\n}\n');
   await write(root, 'test/b.test.js', testFile('b', 'assert.ok(true);'));
-  git(root, ['add', '.']);
-  git(root, ['commit', '-q', '-m', 'wave two: b returns 3, with a test that asserts nothing']);
+  await git(root, ['add', '.']);
+  await git(root, ['commit', '-q', '-m', 'wave two: b returns 3, with a test that asserts nothing']);
   return root;
 }
 
@@ -167,7 +167,7 @@ describe('the kill probe measures a task from the branch it forked from', () => 
     expect(carrier.redObserved).toBe(true);
     expect(carrier.passed).toBe(true);
     expect(carrier.disposition).toBe('proved');
-    expect(git(repo, ['status', '--porcelain'])).toBe('');
+    expect(await git(repo, ['status', '--porcelain'])).toBe('');
   });
 
   it('KillProbe_MeasuredFromTheIntegrationBranch_BlocksTheVacuousTest', async () => {
@@ -176,7 +176,7 @@ describe('the kill probe measures a task from the branch it forked from', () => 
     expect(carrier.redObserved).toBe(false);
     expect(carrier.passed).toBe(false);
     expect(carrier.disposition).toBe('blocked');
-    expect(git(repo, ['status', '--porcelain'])).toBe('');
+    expect(await git(repo, ['status', '--porcelain'])).toBe('');
   });
 
   it('KillProbe_WithNoBase_IsBaseMissingAndProbesNothing', async () => {
@@ -185,7 +185,7 @@ describe('the kill probe measures a task from the branch it forked from', () => 
     expect(carrier.passed).toBe(false);
     expect(carrier.disposition).toBe('blocked');
     expect(carrier.probedTests).toEqual([]);
-    expect(git(repo, ['status', '--porcelain'])).toBe('');
+    expect(await git(repo, ['status', '--porcelain'])).toBe('');
   });
 
   it('KillProbe_ThroughSettle_RunsUnderTheBaseTheCapsuleFroze_AndRejectsTheBatch', async () => {
@@ -239,6 +239,6 @@ describe('the kill probe measures a task from the branch it forked from', () => 
     expect(recorded).toHaveLength(1);
     const report = await resolveEvidenceArtifact(evidenceArtifactStore(stateDir), recorded[0]?.evidence.artifactRefs?.[0]);
     expect(String(report)).toContain('stayed GREEN with the task source reverted');
-    expect(git(repo, ['status', '--porcelain'])).toBe('');
+    expect(await git(repo, ['status', '--porcelain'])).toBe('');
   });
 });

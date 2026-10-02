@@ -21,21 +21,17 @@ import * as path from 'node:path';
 import { runProbe, type TestRunFn } from '../../../../src/verbs/gates/test-adequacy.js';
 import { changedFilesFor } from '../../../../src/verbs/gates/test-adequacy-handler.js';
 import type { GitExec } from '../../../../src/verbs/pure/execute-merge.js';
+import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 
-function git(repoRoot: string, args: readonly string[]): string {
-  return execFileSync('git', [...args], {
-    cwd: repoRoot,
-    encoding: 'utf-8',
-    timeout: 30_000,
-    stdio: ['pipe', 'pipe', 'pipe'],
-  });
+function git(repoRoot: string, args: readonly string[]): Promise<string> {
+  return execFileAsync('git', args, { cwd: repoRoot, timeout: 30_000 });
 }
 
 const realGitExec: GitExec = (repoRoot, args) => {
   try {
     const stdout = execFileSync('git', [...args], {
       cwd: repoRoot,
-      timeout: 30_000,
+      timeout: 15_000,
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -49,12 +45,12 @@ const realGitExec: GitExec = (repoRoot, args) => {
   }
 };
 
-function initRepo(prefix: string): string {
+async function initRepo(prefix: string): Promise<string> {
   const repoRoot = mkdtempSync(path.join(os.tmpdir(), prefix));
-  git(repoRoot, ['init', '--initial-branch=main', '-q']);
-  git(repoRoot, ['config', 'user.email', 'test@example.com']);
-  git(repoRoot, ['config', 'user.name', 'Test']);
-  git(repoRoot, ['config', 'commit.gpgsign', 'false']);
+  await git(repoRoot, ['init', '--initial-branch=main', '-q']);
+  await git(repoRoot, ['config', 'user.email', 'test@example.com']);
+  await git(repoRoot, ['config', 'user.name', 'Test']);
+  await git(repoRoot, ['config', 'commit.gpgsign', 'false']);
   return repoRoot;
 }
 
@@ -64,33 +60,33 @@ function initRepo(prefix: string): string {
  * the shape the gate previously mis-handled: task-added source paths, on a
  * committed branch, observed from a repo whose HEAD is not that branch.
  */
-function setupCommittedTaskBranch(prefix: string): {
+async function setupCommittedTaskBranch(prefix: string): Promise<{
   repoRoot: string;
   baseRef: string;
   branch: string;
-} {
-  const repoRoot = initRepo(prefix);
+}> {
+  const repoRoot = await initRepo(prefix);
   mkdirSync(path.join(repoRoot, 'src'), { recursive: true });
   writeFileSync(path.join(repoRoot, 'src', 'existing.js'), 'export const kept = () => 0;\n');
-  git(repoRoot, ['add', '.']);
-  git(repoRoot, ['commit', '-m', 'base', '-q']);
-  const baseRef = git(repoRoot, ['rev-parse', 'HEAD']).trim();
+  await git(repoRoot, ['add', '.']);
+  await git(repoRoot, ['commit', '-m', 'base', '-q']);
+  const baseRef = (await git(repoRoot, ['rev-parse', 'HEAD'])).trim();
 
-  git(repoRoot, ['checkout', '-b', 'feature/added', '-q']);
+  await git(repoRoot, ['checkout', '-b', 'feature/added', '-q']);
   writeFileSync(path.join(repoRoot, 'src', 'added.js'), 'export const added = () => 42;\n');
   writeFileSync(path.join(repoRoot, 'src', 'added.test.js'), '// pins added()===42\n');
-  git(repoRoot, ['add', '.']);
-  git(repoRoot, ['commit', '-m', 'task: add module + test', '-q']);
+  await git(repoRoot, ['add', '.']);
+  await git(repoRoot, ['commit', '-m', 'task: add module + test', '-q']);
 
   // Leave the repo on main — the orchestrator's main-worktree situation.
-  git(repoRoot, ['checkout', 'main', '-q']);
+  await git(repoRoot, ['checkout', 'main', '-q']);
 
   return { repoRoot, baseRef, branch: 'feature/added' };
 }
 
 describe('TestAdequacy_CommittedBranchDiscovery (WFQ-005)', () => {
-  it('discovers task-added files from a named branch when HEAD is a different branch', () => {
-    const { repoRoot, baseRef, branch } = setupCommittedTaskBranch('wfq005-disc-');
+  it('discovers task-added files from a named branch when HEAD is a different branch', async () => {
+    const { repoRoot, baseRef, branch } = await setupCommittedTaskBranch('wfq005-disc-');
 
     const viaBranch = changedFilesFor(realGitExec, repoRoot, baseRef, branch);
     expect(viaBranch.ok).toBe(true);
@@ -100,10 +96,10 @@ describe('TestAdequacy_CommittedBranchDiscovery (WFQ-005)', () => {
     );
   });
 
-  it('returns an empty diff — not the branch diff — when HEAD is used instead of the branch', () => {
+  it('returns an empty diff — not the branch diff — when HEAD is used instead of the branch', async () => {
     // Characterizes WHY the bug passed vacuously: HEAD is main, so the diff is
     // empty even though the branch plainly added a test file.
-    const { repoRoot, baseRef } = setupCommittedTaskBranch('wfq005-head-');
+    const { repoRoot, baseRef } = await setupCommittedTaskBranch('wfq005-head-');
 
     const viaHead = changedFilesFor(realGitExec, repoRoot, baseRef);
     expect(viaHead.ok).toBe(true);
@@ -111,8 +107,8 @@ describe('TestAdequacy_CommittedBranchDiscovery (WFQ-005)', () => {
     expect(viaHead.files).toEqual([]);
   });
 
-  it('reports a git failure as a failure rather than an empty file list', () => {
-    const { repoRoot, baseRef } = setupCommittedTaskBranch('wfq005-gitfail-');
+  it('reports a git failure as a failure rather than an empty file list', async () => {
+    const { repoRoot, baseRef } = await setupCommittedTaskBranch('wfq005-gitfail-');
 
     const result = changedFilesFor(realGitExec, repoRoot, baseRef, 'refs/heads/does-not-exist');
     expect(result.ok).toBe(false);
@@ -202,8 +198,8 @@ describe('TestAdequacy_NoFalseAdvisorySuccess (WFQ-005)', () => {
 
 describe('TestAdequacy_TaskAddedSource_RealKillProbe (WFQ-005)', () => {
   it('reverts task-added source and observes a real red, not revert-conflict', async () => {
-    const { repoRoot, baseRef, branch } = setupCommittedTaskBranch('wfq005-kill-');
-    git(repoRoot, ['checkout', branch, '-q']);
+    const { repoRoot, baseRef, branch } = await setupCommittedTaskBranch('wfq005-kill-');
+    await git(repoRoot, ['checkout', branch, '-q']);
 
     const changed = changedFilesFor(realGitExec, repoRoot, baseRef, branch);
     expect(changed.ok).toBe(true);

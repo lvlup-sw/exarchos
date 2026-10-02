@@ -74,7 +74,6 @@
 //
 // @oracle-sources: ../../../src/output-schema-vacuity-allowlist.ts, the exit status and stdout/stderr of a separate OS process running the shipped guard entrypoint under tsx
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -82,6 +81,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { censusLiveOutputSchemas } from './bindings/output-schema.js';
 import { REPO_ROOT, SUBJECT_PACKAGE_ROOT } from './subject-root.js';
 import { VACUITY_ALLOWLIST_IDS } from '../../../src/output-schema-vacuity-allowlist.js';
+import { spawnAsync } from '../../test-helpers/spawn.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 /** `servers/exarchos-mcp` — the subject package, which is no longer this one. */
@@ -147,9 +147,8 @@ function textOf(value: string | null | undefined): string {
   return typeof value === 'string' ? value : '';
 }
 
-function runEntrypoint(entry: string): ProcessRun {
-  const result = spawnSync(process.execPath, [resolveTsxCli(), entry], {
-    encoding: 'utf8',
+async function runEntrypoint(entry: string): Promise<ProcessRun> {
+  const result = await spawnAsync(process.execPath, [resolveTsxCli(), entry], {
     cwd: REPO_ROOT,
   });
   if (result.error !== undefined) {
@@ -393,7 +392,7 @@ let guardSource = '';
 let liveRun: ProcessRun = { code: null, stdout: '', stderr: '' };
 
 /** Write a copy of the guard under `name`, plus its sidecars, and run it. */
-function runCopy(name: string, mutation: Mutation | undefined): ProcessRun {
+async function runCopy(name: string, mutation: Mutation | undefined): Promise<ProcessRun> {
   const dir = mkdtempSync(join(scratchDir, 'copy-'));
   const overrides =
     mutation === undefined ? new Map<string, string>() : mutation.overrides(guardSource, dir);
@@ -407,10 +406,10 @@ function runCopy(name: string, mutation: Mutation | undefined): ProcessRun {
   return runEntrypoint(entry);
 }
 
-beforeAll(() => {
+beforeAll(async () => {
   scratchDir = mkdtempSync(join(tmpdir(), 'imo-018-g2-selftest-'));
   guardSource = readFileSync(GUARD_PATH, 'utf8');
-  liveRun = runEntrypoint(GUARD_PATH);
+  liveRun = await runEntrypoint(GUARD_PATH);
 });
 
 afterAll(() => {
@@ -469,7 +468,7 @@ describe('DR-4 / G2 self-test: guard-execution failure cannot pass as success', 
     expect(combined).toContain(`${liveWaived} waived`);
   });
 
-  it('OutputSchemaRatchetGuard_SameSourceUnderADifferentName_StillEnforces', () => {
+  it('OutputSchemaRatchetGuard_SameSourceUnderADifferentName_StillEnforces', async () => {
     // THE RENAME TOOTH, and the reason this task was real.
     //
     // A rename is an ordinary, reviewable edit: move the file, update the `run:`
@@ -482,7 +481,7 @@ describe('DR-4 / G2 self-test: guard-execution failure cannot pass as success', 
     // @kill-seam: the entrypoint predicate — the `legacy-filename-coupled-predicate`
     // mutation below restores the filename match and shows the same copy going
     // silently green, which is what makes this arm evidence rather than assertion.
-    const renamed = runCopy('a-name-the-predicate-cannot-know.ts', undefined);
+    const renamed = await runCopy('a-name-the-predicate-cannot-know.ts', undefined);
 
     expect(renamed.code).toBe(liveRun.code);
     expect(withoutDays(renamed.stdout)).toBe(withoutDays(liveRun.stdout));
@@ -499,7 +498,7 @@ describe('DR-4 / G2 self-test: guard-execution failure cannot pass as success', 
     expect(rewritten).not.toContain(LEGACY_FILENAME_PREDICATE);
   });
 
-  it('OutputSchemaRatchetGuard_BrokenMechanism_RedensTheProcessNotJustTheLibrary', () => {
+  it('OutputSchemaRatchetGuard_BrokenMechanism_RedensTheProcessNotJustTheLibrary', async () => {
     // `process.exitCode = runGuard()` is the plumbing that makes a finding block
     // a merge, and no test had ever run it. Replace it with a bare `runGuard();`,
     // or pin the code to 0, and every assertion task 017 shipped still passes
@@ -512,7 +511,7 @@ describe('DR-4 / G2 self-test: guard-execution failure cannot pass as success', 
     expect(red.length).toBeGreaterThan(1);
 
     for (const mutation of red) {
-      const run = runCopy(`${mutation.id}-guard.ts`, mutation);
+      const run = await runCopy(`${mutation.id}-guard.ts`, mutation);
       expect(run.code, `${mutation.id}: ${mutation.why}`).toBe(1);
       expect(run.stderr, mutation.id).toContain(mutation.expectFinding);
       // The report goes to stderr and stdout stays empty, so a CI log scraper
@@ -521,7 +520,7 @@ describe('DR-4 / G2 self-test: guard-execution failure cannot pass as success', 
     }
   });
 
-  it('OutputSchemaRatchetGuard_LegacyFilenamePredicate_GoesSilentlyGreen', () => {
+  it('OutputSchemaRatchetGuard_LegacyFilenamePredicate_GoesSilentlyGreen', async () => {
     // THE KILL FIXTURE. Without it the two probes above would be satisfied by an
     // unconditional `process.exit(runGuard())` — a predicate that is always true
     // also runs under any name — and would prove nothing about the predicate.
@@ -534,7 +533,7 @@ describe('DR-4 / G2 self-test: guard-execution failure cannot pass as success', 
     expect(mutation).toBeDefined();
     if (mutation === undefined) return;
 
-    const silent = runCopy('a-name-the-legacy-predicate-cannot-match.ts', mutation);
+    const silent = await runCopy('a-name-the-legacy-predicate-cannot-match.ts', mutation);
     expect(silent.code).toBe(0);
     expect(silent.stdout).toBe('');
     expect(silent.stderr).toBe('');
@@ -543,13 +542,13 @@ describe('DR-4 / G2 self-test: guard-execution failure cannot pass as success', 
     // mutated source under the ORIGINAL name still runs and still reports. Without
     // this control the fixture would be indistinguishable from "the edit broke the
     // module", and it would prove the wrong thing.
-    const underOriginalName = runCopy('output-schema-ratchet-guard.ts', mutation);
+    const underOriginalName = await runCopy('output-schema-ratchet-guard.ts', mutation);
     expect(underOriginalName.stdout.length + underOriginalName.stderr.length).toBeGreaterThan(0);
     expect(withoutDays(underOriginalName.stdout)).toBe(withoutDays(liveRun.stdout));
     expect(underOriginalName.code).toBe(liveRun.code);
   });
 
-  it('OutputSchemaRatchetGuard_ImportedRatherThanInvoked_DoesNotSelfExecute', () => {
+  it('OutputSchemaRatchetGuard_ImportedRatherThanInvoked_DoesNotSelfExecute', async () => {
     // The other half of the predicate's contract, and the anti-vacuity tooth for
     // every arm above: a guard that ran on IMPORT would satisfy all of them and
     // would also `process.exit` inside its own test runner, inside the census, and
@@ -571,7 +570,7 @@ describe('DR-4 / G2 self-test: guard-execution failure cannot pass as success', 
       'utf8',
     );
 
-    const imported = runEntrypoint(entry);
+    const imported = await runEntrypoint(entry);
     expect(imported.code).toBe(0);
     expect(imported.stdout).toBe(marker);
     expect(imported.stderr).toBe('');

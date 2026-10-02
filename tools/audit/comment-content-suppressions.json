@@ -2574,11 +2574,6 @@
       "count": 2
     }
   },
-  "tests/integration/perf-validation.test.ts": {
-    "comments/comment-content": {
-      "count": 1
-    }
-  },
   "tests/integration/tools-call.test.ts": {
     "comments/comment-content": {
       "count": 1
@@ -3396,7 +3391,7 @@
   },
   "tests/unit/events/poc.acceptance.test.ts": {
     "comments/comment-content": {
-      "count": 7
+      "count": 6
     }
   },
   "tests/unit/events/registration-validate.boot.test.ts": {

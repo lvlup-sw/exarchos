@@ -53,7 +53,6 @@
 //
 // @oracle-sources: the exit status and stdout/stderr of separate OS processes running each shipped entrypoint — byte-identical, renamed, and legacy-predicate-mutated — under its own declared runtime
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { spawnSync } from 'node:child_process';
 import {
   copyFileSync,
   existsSync,
@@ -68,6 +67,8 @@ import {
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+
+import { spawnAsync } from '../../test-helpers/spawn.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, '../../..');
@@ -167,9 +168,9 @@ function resolveTsxCli(): string {
  * up explicitly, so an absent Bun here is a broken environment, not a supported
  * configuration.
  */
-function resolveBun(): string {
+async function resolveBun(): Promise<string> {
   const candidate = process.env.EXARCHOS_BUN_BIN ?? 'bun';
-  const probe = spawnSync(candidate, ['--version'], { encoding: 'utf8' });
+  const probe = await spawnAsync(candidate, ['--version']);
   if (probe.error !== undefined || probe.status !== 0) {
     throw new Error(
       `bun is not runnable as "${candidate}" (${probe.error?.message ?? `exit ${String(probe.status)}`}). ` +
@@ -194,12 +195,12 @@ function textOf(value: string | null | undefined): string {
 /** Every child this file starts. The non-empty-denominator tooth reads it. */
 let spawnCount = 0;
 
-function runEntrypoint(site: Site, entry: string, cwd: string): ProcessRun {
+async function runEntrypoint(site: Site, entry: string, cwd: string): Promise<ProcessRun> {
   spawnCount += 1;
   const result =
     site.runner === 'bun'
-      ? spawnSync(resolveBun(), ['run', entry], { encoding: 'utf8', cwd })
-      : spawnSync(process.execPath, [resolveTsxCli(), entry], { encoding: 'utf8', cwd });
+      ? await spawnAsync(await resolveBun(), ['run', entry], { cwd })
+      : await spawnAsync(process.execPath, [resolveTsxCli(), entry], { cwd });
   if (result.error !== undefined) {
     throw new Error(`spawning ${entry} under ${site.runner} failed: ${result.error.message}`);
   }
@@ -355,13 +356,13 @@ function distinctName(site: Site, tag: string): string {
  * match, because a probe that renames a file to something the predicate still
  * accepts measures nothing.
  */
-function runCopy(
+async function runCopy(
   site: Site,
   shadow: ShadowRoot,
   name: string,
   body: string,
   allowOriginalName = false,
-): ProcessRun {
+): Promise<ProcessRun> {
   if (!allowOriginalName && name.endsWith(basename(site.script))) {
     throw new Error(
       `copy name "${name}" still ends with "${basename(site.script)}", so the legacy ` +
@@ -373,14 +374,14 @@ function runCopy(
   return runEntrypoint(site, entry, join(shadow.root, 'servers', 'exarchos-mcp'));
 }
 
-beforeAll(() => {
+beforeAll(async () => {
   scratchDir = mkdtempSync(join(tmpdir(), 'imo-074-entrypoints-'));
   renameShadow = buildShadowRoot(scratchDir, new Set());
   originalNameShadow = buildShadowRoot(scratchDir, new Set(SITES.map((s) => basename(s.script))));
   for (const site of SITES) {
     const abs = join(REPO_ROOT, site.script);
     sourceOf.set(site.id, readFileSync(abs, 'utf8'));
-    liveRunOf.set(site.id, runEntrypoint(site, abs, REPO_ROOT));
+    liveRunOf.set(site.id, await runEntrypoint(site, abs, REPO_ROOT));
   }
 });
 
@@ -399,7 +400,7 @@ afterAll(() => {
 });
 
 describe('DR-4 (074): entrypoint predicates test identity, not filename', () => {
-  it('EntrypointSelfTest_ResolvesItsRunnersAndEverySubject_NonEmptyDenominator', () => {
+  it('EntrypointSelfTest_ResolvesItsRunnersAndEverySubject_NonEmptyDenominator', async () => {
     // NON-EMPTY DENOMINATOR, first half. Nothing below means anything if the
     // subject list is empty, a subject has moved, or a runner is missing — each
     // of which would otherwise read as "no failures".
@@ -412,7 +413,7 @@ describe('DR-4 (074): entrypoint predicates test identity, not filename', () => 
     // Both resolvers THROW rather than returning a sentinel, so binding them is
     // the assertion.
     expect(resolveTsxCli().endsWith('cli.mjs')).toBe(true);
-    expect(resolveBun().length).toBeGreaterThan(0);
+    expect((await resolveBun()).length).toBeGreaterThan(0);
     // Both runtimes are genuinely exercised — a table that had drifted to
     // tsx-only would silently stop covering DR-4's Bun question.
     expect(new Set(SITES.map((s) => s.runner))).toEqual(new Set(['tsx', 'bun']));
@@ -421,7 +422,7 @@ describe('DR-4 (074): entrypoint predicates test identity, not filename', () => 
     expect(originalNameShadow.mirrored).toBeGreaterThan(0);
   });
 
-  it('EntrypointSelfTest_BunSemanticsMatchNodes_MeasuredNotAssumed', () => {
+  it('EntrypointSelfTest_BunSemanticsMatchNodes_MeasuredNotAssumed', async () => {
     // DR-4 required the Bun case to be CHECKED rather than argued from Node's
     // behaviour, and `generate-agents.ts` records the opposite belief in a
     // comment ("tsx loaders rewrite the script URL in ways that vary by
@@ -464,9 +465,9 @@ describe('DR-4 (074): entrypoint predicates test identity, not filename', () => 
     const bunTemplate = SITES.find((s) => s.runner === 'bun');
     expect(bunTemplate, 'no site in SITES runs under bun — this probe measures nothing').toBeDefined();
     const bunSite: Site = { ...bunTemplate!, runner: 'bun' };
-    expect(runEntrypoint(bunSite, join(probeDir, probeName), probeDir).stdout).toBe('true');
-    expect(runEntrypoint(bunSite, probeName, probeDir).stdout).toBe('true');
-    expect(runEntrypoint(bunSite, join(linkedDir, probeName), probeDir).stdout).toBe('true');
+    expect((await runEntrypoint(bunSite, join(probeDir, probeName), probeDir)).stdout).toBe('true');
+    expect((await runEntrypoint(bunSite, probeName, probeDir)).stdout).toBe('true');
+    expect((await runEntrypoint(bunSite, join(linkedDir, probeName), probeDir)).stdout).toBe('true');
   });
 
   for (const site of SITES) {
@@ -484,7 +485,7 @@ describe('DR-4 (074): entrypoint predicates test identity, not filename', () => 
         expect(combined).toContain(site.verdictMarker);
       });
 
-      it(`${site.id}: SameSourceUnderADifferentName_StillEnforces`, () => {
+      it(`${site.id}: SameSourceUnderADifferentName_StillEnforces`, async () => {
         // THE RENAME TOOTH, and the reason this task was real. A rename is an
         // ordinary, reviewable edit: move the file, update the invocation. Under
         // the legacy predicate that combination left a step that existed, ran,
@@ -494,7 +495,7 @@ describe('DR-4 (074): entrypoint predicates test identity, not filename', () => 
         // so the only variable between it and the live run is the filename.
         const source = sourceOf.get(site.id) ?? '';
         const name = distinctName(site, 'a-name-the-predicate-cannot-know');
-        const renamed = runCopy(site, renameShadow, name, source);
+        const renamed = await runCopy(site, renameShadow, name, source);
         expect(readFileSync(join(renameShadow.scriptsDir, name), 'utf8')).toBe(source);
 
         const live = liveRunOf.get(site.id);
@@ -511,7 +512,7 @@ describe('DR-4 (074): entrypoint predicates test identity, not filename', () => 
         expect(code).not.toContain(legacyPredicateFor(site));
       });
 
-      it(`${site.id}: LegacyFilenamePredicate_GoesSilentlyGreen`, () => {
+      it(`${site.id}: LegacyFilenamePredicate_GoesSilentlyGreen`, async () => {
         // THE KILL FIXTURE. Without it the rename probe would be satisfied by an
         // unconditional `if (true)` — a predicate that is always true also runs
         // under any name — and would prove nothing about the predicate.
@@ -521,7 +522,7 @@ describe('DR-4 (074): entrypoint predicates test identity, not filename', () => 
         // nothing on stdout, nothing on stderr. That is entrypoint-execution
         // failure passing as success, reproduced on demand.
         const mutated = restoreLegacyPredicate(site, sourceOf.get(site.id) ?? '');
-        const silent = runCopy(
+        const silent = await runCopy(
           site,
           renameShadow,
           distinctName(site, 'a-name-the-legacy-predicate-cannot-match'),
@@ -535,14 +536,14 @@ describe('DR-4 (074): entrypoint predicates test identity, not filename', () => 
         // same mutated source under the ORIGINAL basename still runs and still
         // reports. Without this control the fixture would be indistinguishable
         // from "the edit broke the module", and would prove the wrong thing.
-        const underOriginalName = runCopy(site, originalNameShadow, basename(site.script), mutated, true);
+        const underOriginalName = await runCopy(site, originalNameShadow, basename(site.script), mutated, true);
         const live = liveRunOf.get(site.id);
         expect(underOriginalName.stdout.length + underOriginalName.stderr.length).toBeGreaterThan(0);
         expect(withoutDays(underOriginalName.stdout)).toBe(withoutDays(live?.stdout ?? ''));
         expect(underOriginalName.code).toBe(live?.code ?? null);
       });
 
-      it(`${site.id}: ImportedRatherThanInvoked_DoesNotSelfExecute`, () => {
+      it(`${site.id}: ImportedRatherThanInvoked_DoesNotSelfExecute`, async () => {
         // The other half of the predicate's contract, and the anti-vacuity tooth
         // for both arms above: a module that ran on IMPORT would satisfy them and
         // would also fire inside its own test file, inside the census, and inside
@@ -557,7 +558,7 @@ describe('DR-4 (074): entrypoint predicates test identity, not filename', () => 
           `process.stdout.write('${marker}');`,
           '',
         ].join('\n');
-        const imported = runCopy(site, renameShadow, name, body);
+        const imported = await runCopy(site, renameShadow, name, body);
         expect(imported.code).toBe(0);
         expect(imported.stdout).toBe(marker);
         expect(imported.stderr).toBe('');

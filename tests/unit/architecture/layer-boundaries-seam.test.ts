@@ -35,7 +35,7 @@ import {
 import { lexModule } from '../../../tools/test-helpers/module-lexer.js';
 
 import { existsSync, readFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
+import { execFileAsync } from '../../../tools/test-helpers/spawn.js';
 import { classifySdkImport } from '../../../src/architecture/sdk-generation-seam.js';
 import { parseModuleSpecifiers } from '../../../tools/test-helpers/module-specifier-parser.js';
 
@@ -70,11 +70,11 @@ const REPO_ROOT = join(SRC_ROOT, '..');
  * the scan's exclusions or its recursion, so agreement between the two is
  * evidence the walk reached the tree rather than a restatement of it.
  */
-function countTrackedModules(root: string): number {
-  const out = execFileSync(
+async function countTrackedModules(root: string): Promise<number> {
+  const out = await execFileAsync(
     'git',
     ['ls-files', '--', '*.ts', '*.mts', '*.cts', '*.js', '*.mjs', '*.cjs'],
-    { cwd: root, encoding: 'utf-8', maxBuffer: 64 * 1024 * 1024 },
+    { cwd: root },
   );
   return out
     .split('\n')
@@ -917,7 +917,7 @@ describe('DR-26 — SDK generation seam: a direct SDK import fails the rule', ()
     // that lost 96% of the tree still cleared it — the same loose-floor shape that
     // let a src-only walk pass for a package-wide claim. Pinning against an
     // independently counted population means a narrowed root fails instead.
-    const trackedModules = countTrackedModules(REPO_ROOT);
+    const trackedModules = await countTrackedModules(REPO_ROOT);
     expect(
       scan.moduleCount,
       'the walk resolved far fewer modules than the repository tracks — scan root ' +

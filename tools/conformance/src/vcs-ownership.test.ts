@@ -192,7 +192,7 @@ describe('DR-8 — the governed root is declared, and its complement is measured
     // Every module the repository tracks, partitioned into governed / not. The
     // population comes from `git ls-files` — it knows nothing about the census's
     // scan root, so it cannot inherit the census's blind spot.
-    const tracked = listTrackedFiles(REPO_ROOT, {
+    const tracked = await listTrackedFiles(REPO_ROOT, {
       exclude: (path) => {
         const segments = path.split('/');
         const name = segments[segments.length - 1] ?? '';

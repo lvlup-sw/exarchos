@@ -1,32 +1,13 @@
 /**
- * EventStore micro-benchmarks (v2.11 substrate-cut, Phase 3).
+ * EventStore micro-benchmarks on the SQLite substrate. Advisory only.
  *
- * Scope:
- *   - Document append + query throughput on the (sole) SQLite substrate
- *     so cost regressions land on a number we already report.
- *   - Pre-Phase-3 this file paired each bench arm with a `_Sqlite` sibling
- *     (constructed via `EventStoreOptions.appenderBackend: 'sqlite'`,
- *     T51). Phase 3 collapsed the option — the SQLite path is the only
- *     path, so the legacy "JSONL-base" arms were removed and the
- *     `_Sqlite` suffix dropped from the survivors.
+ * `bench()` only observes; it cannot fail CI. The merge gate for append
+ * throughput is `append-cost-budget.test.ts`: it counts the statements and
+ * transactions of each append and fails on any extra one, so its verdict does
+ * not depend on the runner (#2029). The `AppendUnkeyed_5000Sequential_SqliteBackend`
+ * arm below reports the old 1000 ops/sec per stream figure as a measurement.
  *
- * Regression gate — NOT IN THIS FILE.
- *   `bench()` is observational only; it does not assert and cannot fail
- *   CI. The binding ≥1000 ops/sec/stream regression gate for the SQLite
- *   append path lives in the test layer at:
- *
- *     ./poc.acceptance.test.ts
- *       describe('Poc_SqliteBackend_AllSevenConsumersUnchangedAndBenchHits1000OpsPerSec')
- *         it('Bench — SQLite-backed appender hits ≥ 1000 ops/sec/stream')
- *
- *   That `it()` constructs an `AtomicAppender` with `backend: 'sqlite'`,
- *   drives `BENCH_APPEND_COUNT = 5000` sequential `appendUnkeyed` calls,
- *   and asserts the measured ops/sec is ≥ `BENCH_THRESHOLD_OPS_PER_SEC = 1000`.
- *   If you change the threshold, change it there.
- *
- * Run:
- *   npm run bench           # vitest bench (all arms)
- *   npx vitest bench --run store.bench
+ * Run: `npm run bench`, or `npx vitest bench --run store.bench`.
  */
 
 import { bench, describe } from 'vitest';
@@ -34,6 +15,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { EventStore } from '../../../src/events/store.js';
+import { AtomicAppender } from '../../../src/events/atomic-appender.js';
 import { createGateExecutedEvent } from '../../../tools/evals/benchmarks/event-factories.js';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
@@ -109,6 +91,28 @@ describe('EventStore Append Benchmarks', () => {
       }
     },
     { warmupIterations: 1, iterations: 5 },
+  );
+});
+
+describe('AtomicAppender Throughput Benchmarks', () => {
+  bench(
+    'AppendUnkeyed_5000Sequential_SqliteBackend',
+    async () => {
+      const dir = createTempDir();
+      try {
+        const appender = new AtomicAppender({ stateDir: dir, backend: 'sqlite' });
+        const streamId = 'throughput-stream';
+        const warmup = await appender.appendUnkeyed(streamId, [{ type: 'task.assigned', data: { warmup: true } }]);
+        if (!warmup.ok) throw new Error(`warm-up append failed: ${warmup.reason}`);
+        for (let i = 0; i < 5000; i++) {
+          const r = await appender.appendUnkeyed(streamId, [{ type: 'task.assigned', data: { i } }]);
+          if (!r.ok) throw new Error(`append failed at i=${i}: reason=${r.reason}`);
+        }
+      } finally {
+        cleanupDir(dir);
+      }
+    },
+    { warmupIterations: 0, iterations: 3 },
   );
 });
 

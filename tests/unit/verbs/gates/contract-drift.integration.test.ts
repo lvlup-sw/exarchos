@@ -26,7 +26,6 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, afterEach } from 'vitest';
-import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, chmodSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -35,24 +34,20 @@ import { EventStore } from '../../../../src/events/store.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
 import { handleOrchestrate } from '../../../../src/verbs/composite.js';
 import { runAsTrustedCaller, seedActivePhaseAttempt, withTrustedCaller } from '../../../../tools/test-helpers/trusted-context.js';
+import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 
 // ─── git fixture helpers ─────────────────────────────────────────────────────
 
-function git(repoRoot: string, args: readonly string[]): string {
-  return execFileSync('git', [...args], {
-    cwd: repoRoot,
-    encoding: 'utf-8',
-    timeout: 30_000,
-    stdio: ['pipe', 'pipe', 'pipe'],
-  });
+function git(repoRoot: string, args: readonly string[]): Promise<string> {
+  return execFileAsync('git', args, { cwd: repoRoot, timeout: 30_000 });
 }
 
-function initRepo(prefix: string): string {
+async function initRepo(prefix: string): Promise<string> {
   const repoRoot = mkdtempSync(path.join(os.tmpdir(), prefix));
-  git(repoRoot, ['init', '--initial-branch=main', '-q']);
-  git(repoRoot, ['config', 'user.email', 'test@example.com']);
-  git(repoRoot, ['config', 'user.name', 'Test']);
-  git(repoRoot, ['config', 'commit.gpgsign', 'false']);
+  await git(repoRoot, ['init', '--initial-branch=main', '-q']);
+  await git(repoRoot, ['config', 'user.email', 'test@example.com']);
+  await git(repoRoot, ['config', 'user.name', 'Test']);
+  await git(repoRoot, ['config', 'commit.gpgsign', 'false']);
   return repoRoot;
 }
 
@@ -108,10 +103,10 @@ const DIFF_STUB = [
  * to those scripts. `typecheckPasses` controls whether a `typecheck` command is
  * wired (a no-op `true` when passing, `false` when failing).
  */
-function writeBaseProject(
+async function writeBaseProject(
   repoRoot: string,
   opts: { wireContract: boolean; typecheck: string },
-): void {
+): Promise<void> {
   mkdirSync(path.join(repoRoot, 'stubs'), { recursive: true });
   const codegenPath = path.join(repoRoot, 'stubs', 'codegen.sh');
   const diffPath = path.join(repoRoot, 'stubs', 'diff.sh');
@@ -133,8 +128,8 @@ function writeBaseProject(
     : ['# no contract wired', `typecheck: '${opts.typecheck}'`, ''].join('\n');
   writeFileSync(path.join(repoRoot, '.exarchos.yml'), exarchosYml);
 
-  git(repoRoot, ['add', '.']);
-  git(repoRoot, ['commit', '-m', 'base: openapi + contract stubs', '-q']);
+  await git(repoRoot, ['add', '.']);
+  await git(repoRoot, ['commit', '-m', 'base: openapi + contract stubs', '-q']);
 }
 
 function makeCtx(stateDir: string, eventStore: EventStore): DispatchContext {
@@ -190,18 +185,18 @@ describe('check_contract_drift acceptance (through handleOrchestrate)', () => {
   it(
     'HandleOrchestrate_CheckContractDrift_BreakingSchemaDiff_Fails',
     async () => {
-      const repoRoot = initRepo('contract-drift-breaking-');
+      const repoRoot = await initRepo('contract-drift-breaking-');
       cleanups.push(() => rmSync(repoRoot, { recursive: true, force: true }));
-      writeBaseProject(repoRoot, { wireContract: true, typecheck: 'true' });
+      await writeBaseProject(repoRoot, { wireContract: true, typecheck: 'true' });
 
       // Branch: edit the schema in a way the diff stub flags as breaking.
-      git(repoRoot, ['checkout', '-b', 'feature/breaking', '-q']);
+      await git(repoRoot, ['checkout', '-b', 'feature/breaking', '-q']);
       writeFileSync(
         path.join(repoRoot, 'openapi.yaml'),
         OPENAPI_BASE + '# BREAKING-MARKER: removed field\n',
       );
-      git(repoRoot, ['add', '.']);
-      git(repoRoot, ['commit', '-m', 'feat: breaking schema change', '-q']);
+      await git(repoRoot, ['add', '.']);
+      await git(repoRoot, ['commit', '-m', 'feat: breaking schema change', '-q']);
 
       const { success, data } = await dispatch(repoRoot, 'feature/breaking');
 
@@ -218,18 +213,18 @@ describe('check_contract_drift acceptance (through handleOrchestrate)', () => {
   it(
     'HandleOrchestrate_CheckContractDrift_CleanRegenAndTypecheck_Passes',
     async () => {
-      const repoRoot = initRepo('contract-drift-clean-');
+      const repoRoot = await initRepo('contract-drift-clean-');
       cleanups.push(() => rmSync(repoRoot, { recursive: true, force: true }));
-      writeBaseProject(repoRoot, { wireContract: true, typecheck: 'true' });
+      await writeBaseProject(repoRoot, { wireContract: true, typecheck: 'true' });
 
       // Branch: a non-breaking schema edit (no sentinel marker).
-      git(repoRoot, ['checkout', '-b', 'feature/clean', '-q']);
+      await git(repoRoot, ['checkout', '-b', 'feature/clean', '-q']);
       writeFileSync(
         path.join(repoRoot, 'openapi.yaml'),
         OPENAPI_BASE + '# additive: new optional field\n',
       );
-      git(repoRoot, ['add', '.']);
-      git(repoRoot, ['commit', '-m', 'feat: additive schema change', '-q']);
+      await git(repoRoot, ['add', '.']);
+      await git(repoRoot, ['commit', '-m', 'feat: additive schema change', '-q']);
 
       const { success, data } = await dispatch(repoRoot, 'feature/clean');
 
@@ -244,18 +239,18 @@ describe('check_contract_drift acceptance (through handleOrchestrate)', () => {
   it(
     'HandleOrchestrate_CheckContractDrift_NoToolResolves_SkippedAdvisory',
     async () => {
-      const repoRoot = initRepo('contract-drift-skip-');
+      const repoRoot = await initRepo('contract-drift-skip-');
       cleanups.push(() => rmSync(repoRoot, { recursive: true, force: true }));
       // No contract commands wired → the gate cannot resolve a tool.
-      writeBaseProject(repoRoot, { wireContract: false, typecheck: 'true' });
+      await writeBaseProject(repoRoot, { wireContract: false, typecheck: 'true' });
 
-      git(repoRoot, ['checkout', '-b', 'feature/notool', '-q']);
+      await git(repoRoot, ['checkout', '-b', 'feature/notool', '-q']);
       writeFileSync(
         path.join(repoRoot, 'openapi.yaml'),
         OPENAPI_BASE + '# BREAKING-MARKER: but no tool to detect it\n',
       );
-      git(repoRoot, ['add', '.']);
-      git(repoRoot, ['commit', '-m', 'feat: schema change, no contract tool', '-q']);
+      await git(repoRoot, ['add', '.']);
+      await git(repoRoot, ['commit', '-m', 'feat: schema change, no contract tool', '-q']);
 
       const { success, data } = await dispatch(repoRoot, 'feature/notool');
 

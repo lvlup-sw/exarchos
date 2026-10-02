@@ -22,7 +22,6 @@
  * extension at import time.
  */
 import { describe, it, expect } from 'vitest';
-import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -36,6 +35,7 @@ import {
   diskTree,
   DEFAULT_POLICY_PATH,
 } from '../../tools/audit/gates/validate-plugin.mjs';
+import { spawnAsync } from '../../tools/test-helpers/spawn.js';
 
 const SCRIPTS_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPTS_DIR, '../..');
@@ -465,18 +465,18 @@ describe('validate-plugin — the shipped policy vs the shipped tree (task 064, 
 });
 
 describe('validate-plugin — CLI (task 064, DR-24)', () => {
-  function runGate(args: string[]): { status: number | null; stdout: string; stderr: string } {
-    const result = spawnSync('node', [GATE, ...args], { cwd: REPO_ROOT, encoding: 'utf8' });
+  async function runGate(args: string[]): Promise<{ status: number | null; stdout: string; stderr: string }> {
+    const result = await spawnAsync('node', [GATE, ...args], { cwd: REPO_ROOT });
     return { status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
   }
 
-  it('ValidatePluginCli_ShippedTree_ExitsZero', () => {
-    const { status, stdout } = runGate([]);
+  it('ValidatePluginCli_ShippedTree_ExitsZero', async () => {
+    const { status, stdout } = await runGate([]);
     expect(status).toBe(0);
     expect(stdout).toContain('**Result: PASS**');
   }, 20000);
 
-  it('ValidatePluginCli_SeededBrokenTree_ExitsOneAndNamesEveryFailure', () => {
+  it('ValidatePluginCli_SeededBrokenTree_ExitsOneAndNamesEveryFailure', async () => {
     // A real tree on disk, missing skills/ AND carrying a forbidden .mcp.json:
     // both failures must appear in one run. The old gate reported them too, but
     // only because bash `check` accumulated — the property is worth pinning.
@@ -490,7 +490,7 @@ describe('validate-plugin — CLI (task 064, DR-24)', () => {
       fs.writeFileSync(path.join(dir, 'hooks/hooks.json'), fileAt(files, 'hooks/hooks.json'));
       fs.writeFileSync(path.join(dir, '.mcp.json'), '{"mcpServers":{"exarchos":{}}}');
 
-      const { status, stdout } = runGate([
+      const { status, stdout } = await runGate([
         '--repo-root',
         dir,
         '--policy',
@@ -508,14 +508,14 @@ describe('validate-plugin — CLI (task 064, DR-24)', () => {
     }
   }, 20000);
 
-  it('ValidatePluginCli_UnreadablePolicy_ExitsTwoNotZero', () => {
-    const { status, stderr } = runGate(['--policy', '.claude-plugin/does-not-exist.json']);
+  it('ValidatePluginCli_UnreadablePolicy_ExitsTwoNotZero', async () => {
+    const { status, stderr } = await runGate(['--policy', '.claude-plugin/does-not-exist.json']);
     expect(status).toBe(2);
     expect(stderr).toContain('could not be read');
   }, 20000);
 
-  it('ValidatePluginCli_UnknownArgument_ExitsTwo', () => {
-    const { status } = runGate(['--nope']);
+  it('ValidatePluginCli_UnknownArgument_ExitsTwo', async () => {
+    const { status } = await runGate(['--nope']);
     expect(status).toBe(2);
   }, 20000);
 });

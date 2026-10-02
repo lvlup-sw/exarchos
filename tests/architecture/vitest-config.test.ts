@@ -13,6 +13,7 @@ function projects(): Array<{
     testTimeout?: number;
     hookTimeout?: number;
     benchmark?: { include?: readonly string[] };
+    setupFiles?: string | readonly string[];
   };
 }> {
   const cfg = vitestConfig as unknown as {
@@ -23,6 +24,7 @@ function projects(): Array<{
           testTimeout?: number;
           hookTimeout?: number;
           benchmark?: { include?: readonly string[] };
+          setupFiles?: string | readonly string[];
         };
       }>;
     };
@@ -131,6 +133,22 @@ describe('vitest.config', () => {
       expect(ladder[i] as number).toBeGreaterThan(ladder[i - 1] as number);
     }
     expect(ladder).toEqual([5000, 15000, 30000, 60000]);
+  });
+
+  /**
+   * Every project loads the setup file that yields to the event loop between
+   * tests, so synchronous work cannot add up across a file and block the
+   * worker past vitest's 60 s RPC timeout (#2029).
+   */
+  it('VitestConfig_EveryProject_YieldsBetweenTests', () => {
+    expect(projects().length).toBeGreaterThan(0);
+    for (const project of projects()) {
+      const setup = project.test?.setupFiles;
+      const files = setup === undefined ? [] : typeof setup === 'string' ? [setup] : [...setup];
+      expect(files, `project "${project.test?.name ?? '(unnamed)'}"`).toContain(
+        './tests/helpers/yield-between-tests.ts',
+      );
+    }
   });
 
   it('VitestConfig_CoreProject_DeclaresBenchInclude', () => {

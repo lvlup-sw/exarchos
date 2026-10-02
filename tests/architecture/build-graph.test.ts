@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 
 // ─── The build graph (DR-2, task 011) ────────────────────────────────────────
 //
@@ -43,8 +44,8 @@ const DECLARED_PACKAGES: Readonly<
   },
 };
 
-function trackedManifests(): string[] {
-  return execFileSync('git', ['-C', REPO_ROOT, 'ls-files', '*package.json'], { encoding: 'utf8' })
+async function trackedManifests(): Promise<string[]> {
+  return (await execFileAsync('git', ['-C', REPO_ROOT, 'ls-files', '*package.json']))
     .split('\n')
     .filter(Boolean)
     .filter((p) => !p.includes('node_modules'))
@@ -54,8 +55,8 @@ function trackedManifests(): string[] {
 const coreConfig = readFileSync(CORE_CONFIG, 'utf8');
 
 describe('BuildGraph_AfterUnification_DeclaredPackageSetMatchesTheManifestSet', () => {
-  it('every tracked manifest is declared, and every declaration is tracked', () => {
-    const tracked = trackedManifests();
+  it('every tracked manifest is declared, and every declaration is tracked', async () => {
+    const tracked = await trackedManifests();
     expect(tracked.length).toBeGreaterThan(1);
     expect(
       tracked,
@@ -88,8 +89,8 @@ describe('ManifestSet_EveryTrackedPackageJson_IsClassifiedRetainedOrRetired', ()
   // Task 011a. A fifth manifest must not be able to appear unnoticed: every
   // tracked package.json is the product, a declared tool package, or explicitly
   // retired. There is no fourth state, and "nobody got round to it" is not one.
-  it('every manifest carries an explicit disposition', () => {
-    const tracked = trackedManifests();
+  it('every manifest carries an explicit disposition', async () => {
+    const tracked = await trackedManifests();
     for (const manifest of tracked) {
       const meta = DECLARED_PACKAGES[manifest];
       expect(meta, `${manifest} is tracked but unclassified`).toBeDefined();

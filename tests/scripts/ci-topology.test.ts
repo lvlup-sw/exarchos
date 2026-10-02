@@ -42,13 +42,13 @@
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { execFileSync, spawnSync } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import yaml from 'js-yaml';
 // The repo's own glob semantics, so this agrees with the guard inventory's
 // reading of the same workflow rather than inventing a second one.
 import { globMatches } from '../../tools/audit/gates/guard-inventory.js';
+import { execFileAsync, spawnAsync } from '../../tools/test-helpers/spawn.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -307,20 +307,19 @@ interface AggregatorRun {
  * `${{ }}` interpolation (asserted below) and take every GitHub value through
  * `env:`.
  */
-function runAggregator(
+async function runAggregator(
   workflow: Workflow,
   needs: NeedsContext | string,
   licensedSkipsOverride?: string,
-): AggregatorRun {
+): Promise<AggregatorRun> {
   const step = evaluateStep(workflow);
   const licensed = licensedSkipsOverride ?? String(step.env?.LICENSED_SKIPS ?? '');
-  const result = spawnSync('bash', ['-c', step.run as string], {
+  const result = await spawnAsync('bash', ['-c', step.run as string], {
     env: {
       ...process.env,
       NEEDS_JSON: typeof needs === 'string' ? needs : JSON.stringify(needs),
       LICENSED_SKIPS: licensed,
     },
-    encoding: 'utf8',
   });
   if (result.error) throw result.error;
   return {
@@ -503,7 +502,7 @@ describe('CI path-filter & guard coverage (DR-22)', () => {
     );
   });
 
-  it('Filters_EveryGlob_MatchesAtLeastOneTrackedFile', () => {
+  it('Filters_EveryGlob_MatchesAtLeastOneTrackedFile', async () => {
     // Membership is not protection. A filter listing `agents/**` reads as
     // covering the agents, and goes on reading that way after the directory is
     // renamed — the entry is still there, it just selects nothing, and the job
@@ -512,11 +511,7 @@ describe('CI path-filter & guard coverage (DR-22)', () => {
     // direction that looks green.
     const workflow = loadWorkflow(CI_WORKFLOW_PATH);
     const filters = getPathsFilters(workflow);
-    const tracked = execFileSync('git', ['ls-files'], {
-      cwd: REPO_ROOT,
-      encoding: 'utf8',
-      maxBuffer: 2e8,
-    })
+    const tracked = (await execFileAsync('git', ['ls-files'], { cwd: REPO_ROOT }))
       .split('\n')
       .filter(Boolean);
 
@@ -818,13 +813,13 @@ describe('CI-gate execution policy (DR-10)', () => {
 
   // ── Executable assertions: the shipped script, run for real ─────────────
 
-  it('Aggregator_AllLanesSucceed_Passes', () => {
+  it('Aggregator_AllLanesSucceed_Passes', async () => {
     const workflow = loadWorkflow(CI_WORKFLOW_PATH);
-    const run = runAggregator(workflow, synthesizeNeeds(workflow));
+    const run = await runAggregator(workflow, synthesizeNeeds(workflow));
     expect(run.status, run.output).toBe(0);
   });
 
-  it('Aggregator_AnyLaneFailingOrCancelled_Reddens', () => {
+  it('Aggregator_AnyLaneFailingOrCancelled_Reddens', async () => {
     // Supersedes DR-2's "evaluate coverage" grep: derived over the real
     // `needs:` list, and proven by exit status rather than text matching.
     const workflow = loadWorkflow(CI_WORKFLOW_PATH);
@@ -833,14 +828,14 @@ describe('CI-gate execution policy (DR-10)', () => {
 
     for (const lane of lanes) {
       for (const result of ['failure', 'cancelled']) {
-        const run = runAggregator(workflow, synthesizeNeeds(workflow, { results: { [lane]: result } }));
+        const run = await runAggregator(workflow, synthesizeNeeds(workflow, { results: { [lane]: result } }));
         expect(run.status, `lane "${lane}" reporting "${result}" did not fail the gate:\n${run.output}`).not.toBe(0);
         expect(run.output).toContain(lane);
       }
     }
   });
 
-  it('Aggregator_UnlicensedLaneSkipped_Reddens', () => {
+  it('Aggregator_UnlicensedLaneSkipped_Reddens', async () => {
     // The headline DR-10 case. Every lane with no declared legitimate skip —
     // `grep-gates`, `manifest-gate`, `outcome-tests`, `validate-no-legacy`
     // and `changes` — must fail the gate when it does not run.
@@ -850,30 +845,30 @@ describe('CI-gate execution policy (DR-10)', () => {
     expect(unlicensed.length, 'expected at least one lane with no licensed skip').toBeGreaterThan(0);
 
     for (const lane of unlicensed) {
-      const run = runAggregator(workflow, synthesizeNeeds(workflow, { results: { [lane]: 'skipped' } }));
+      const run = await runAggregator(workflow, synthesizeNeeds(workflow, { results: { [lane]: 'skipped' } }));
       expect(run.status, `skipped lane "${lane}" was treated as passing:\n${run.output}`).not.toBe(0);
       expect(run.output).toContain(lane);
     }
   });
 
-  it('Aggregator_GrepGatesSkipped_Reddens', () => {
+  it('Aggregator_GrepGatesSkipped_Reddens', async () => {
     // Named explicitly, not just covered by the derived loop above: this is
     // the kill fixture the task specifies. `grep-gates` hosts the whole
     // enforcement substrate, so if a future PR gives it a path filter that
     // excludes the changed files, the lane skips — and CI Gate must redden
     // rather than print success.
     const workflow = loadWorkflow(CI_WORKFLOW_PATH);
-    const run = runAggregator(workflow, synthesizeNeeds(workflow, { results: { 'grep-gates': 'skipped' } }));
+    const run = await runAggregator(workflow, synthesizeNeeds(workflow, { results: { 'grep-gates': 'skipped' } }));
     expect(run.status, `grep-gates skipped but the gate passed:\n${run.output}`).not.toBe(0);
     expect(run.output).toContain('grep-gates');
   });
 
-  it('Aggregator_LaneAddedToNeedsWithoutPolicyEdit_Reddens', () => {
+  it('Aggregator_LaneAddedToNeedsWithoutPolicyEdit_Reddens', async () => {
     // The structural claim, made executable: the policy is TOTAL over the
     // needs context, so a lane nobody has licensed is governed the moment it
     // is added. Omission fails closed.
     const workflow = loadWorkflow(CI_WORKFLOW_PATH);
-    const run = runAggregator(
+    const run = await runAggregator(
       workflow,
       synthesizeNeeds(workflow, { extraLanes: { 'future-lane': 'skipped' } }),
     );
@@ -881,7 +876,7 @@ describe('CI-gate execution policy (DR-10)', () => {
     expect(run.output).toContain('future-lane');
   });
 
-  it('Aggregator_LicensedLaneSkippedUnderItsFilter_Passes', () => {
+  it('Aggregator_LicensedLaneSkippedUnderItsFilter_Passes', async () => {
     // The other half of the contract: a legitimate skip must NOT redden, or
     // the gate becomes noise and gets weakened back.
     const workflow = loadWorkflow(CI_WORKFLOW_PATH);
@@ -889,7 +884,7 @@ describe('CI-gate execution policy (DR-10)', () => {
     expect(licensed.size).toBeGreaterThan(0);
 
     for (const [lane, key] of licensed) {
-      const run = runAggregator(
+      const run = await runAggregator(
         workflow,
         synthesizeNeeds(workflow, {
           results: { [lane]: 'skipped' },
@@ -900,7 +895,7 @@ describe('CI-gate execution policy (DR-10)', () => {
     }
   });
 
-  it('Aggregator_LicenceKeyNotDeclaredByChanges_Reddens', () => {
+  it('Aggregator_LicenceKeyNotDeclaredByChanges_Reddens', async () => {
     // THE THIRD DECLARATION SITE. A licence names a `changes` output, and
     // `changes_output` returned the empty string both for a declared 'false'
     // and for a key that does not exist — so renaming or deleting an entry in
@@ -911,7 +906,7 @@ describe('CI-gate execution policy (DR-10)', () => {
     expect(licensed.size).toBeGreaterThan(0);
 
     for (const [lane, key] of licensed) {
-      const run = runAggregator(
+      const run = await runAggregator(
         workflow,
         synthesizeNeeds(workflow, {
           results: { [lane]: 'skipped' },
@@ -926,7 +921,7 @@ describe('CI-gate execution policy (DR-10)', () => {
     }
   });
 
-  it('Aggregator_LicensedLaneSkippedDespiteItsFilterFiring_Reddens', () => {
+  it('Aggregator_LicensedLaneSkippedDespiteItsFilterFiring_Reddens', async () => {
     // Supersedes DR-2's "skip-guard coverage" grep, and preserves the wave-S
     // DR-3 guarantee: a filtered lane that skips when its own filter says the
     // area DID change is a path-filter/matrix regression, not a licence.
@@ -935,7 +930,7 @@ describe('CI-gate execution policy (DR-10)', () => {
     expect(licensed.size).toBeGreaterThan(0);
 
     for (const [lane, key] of licensed) {
-      const run = runAggregator(
+      const run = await runAggregator(
         workflow,
         synthesizeNeeds(workflow, {
           results: { [lane]: 'skipped' },
@@ -947,7 +942,7 @@ describe('CI-gate execution policy (DR-10)', () => {
     }
   });
 
-  it('Aggregator_LicensedSkipWhileChangeDetectionDidNotSucceed_Reddens', () => {
+  it('Aggregator_LicensedSkipWhileChangeDetectionDidNotSucceed_Reddens', async () => {
     // A licence is read off the `changes` outputs, so it is only as good as
     // that lane. If change detection did not succeed its outputs are empty,
     // which would otherwise read as "nothing changed" and license everything.
@@ -958,25 +953,25 @@ describe('CI-gate execution policy (DR-10)', () => {
 
     const needs = synthesizeNeeds(workflow, { results: { [lane as string]: 'skipped' } });
     needs['changes'] = { result: 'failure', outputs: {} };
-    const run = runAggregator(workflow, needs);
+    const run = await runAggregator(workflow, needs);
     expect(run.status, `licensed skip honoured while changes failed:\n${run.output}`).not.toBe(0);
   });
 
-  it('Aggregator_UnrecognisedLaneResult_Reddens', () => {
+  it('Aggregator_UnrecognisedLaneResult_Reddens', async () => {
     const workflow = loadWorkflow(CI_WORKFLOW_PATH);
-    const run = runAggregator(
+    const run = await runAggregator(
       workflow,
       synthesizeNeeds(workflow, { results: { 'grep-gates': 'mystery-state' } }),
     );
     expect(run.status, `an unclassifiable result was treated as passing:\n${run.output}`).not.toBe(0);
   });
 
-  it('Aggregator_UnreadableNeedsContext_Reddens', () => {
+  it('Aggregator_UnreadableNeedsContext_Reddens', async () => {
     // If the aggregator cannot read the context, it cannot prove any lane
     // ran — the one thing it exists to prove.
     const workflow = loadWorkflow(CI_WORKFLOW_PATH);
     for (const malformed of ['', 'not json', '[]', 'null', '{}']) {
-      const run = runAggregator(workflow, malformed);
+      const run = await runAggregator(workflow, malformed);
       expect(run.status, `malformed needs context ${JSON.stringify(malformed)} passed:\n${run.output}`).not.toBe(0);
     }
   });

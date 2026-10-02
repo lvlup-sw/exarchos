@@ -1,10 +1,10 @@
-import { execFileSync } from 'node:child_process';
 import { appendFileSync, cpSync, existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { RENDER_SCOPES, findEmptyScopes, runRenderGuard } from '../../src/install/render-guard.js';
+import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 
 /**
  * One guard now covers every generated tree. Consolidation removes two places
@@ -48,15 +48,15 @@ const GIT_ENV = {
 };
 
 /** A committed copy of the generated trees, isolated from the real repository. */
-function makeSandbox(): string {
+async function makeSandbox(): Promise<string> {
   const root = mkdtempSync(join(tmpdir(), 'render-guard-'));
   for (const tree of SANDBOX_TREES) {
     const from = join(REPO_ROOT, tree);
     if (existsSync(from)) cpSync(from, join(root, tree), { recursive: true });
   }
-  execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: root, env: GIT_ENV });
-  execFileSync('git', ['add', '-A'], { cwd: root, env: GIT_ENV });
-  execFileSync('git', ['commit', '-q', '-m', 'seed'], { cwd: root, env: GIT_ENV });
+  await execFileAsync('git', ['init', '-q', '-b', 'main'], { cwd: root, env: GIT_ENV });
+  await execFileAsync('git', ['add', '-A'], { cwd: root, env: GIT_ENV });
+  await execFileAsync('git', ['commit', '-q', '-m', 'seed'], { cwd: root, env: GIT_ENV });
   return root;
 }
 
@@ -78,10 +78,10 @@ function removeSandbox(root: string): void {
 
 /** Commit an edit to a generated file, so it reads as drift rather than as a
  *  pending edit the next build would overwrite. */
-function seedDrift(root: string, rel: string, addition: string): void {
+async function seedDrift(root: string, rel: string, addition: string): Promise<void> {
   appendFileSync(join(root, rel), addition);
-  execFileSync('git', ['add', '-A'], { cwd: root, env: GIT_ENV });
-  execFileSync('git', ['commit', '-q', '-m', 'drift'], { cwd: root, env: GIT_ENV });
+  await execFileAsync('git', ['add', '-A'], { cwd: root, env: GIT_ENV });
+  await execFileAsync('git', ['commit', '-q', '-m', 'drift'], { cwd: root, env: GIT_ENV });
 }
 
 describe('RenderGuard', () => {
@@ -104,13 +104,13 @@ describe('RenderGuard', () => {
     }
   });
 
-  it('DriftInRenderedTree_FailsClosed', () => {
-    const root = makeSandbox();
+  it('DriftInRenderedTree_FailsClosed', async () => {
+    const root = await makeSandbox();
     try {
       const clean = runRenderGuard({ cwd: root, regenerateAgents: () => {} });
       expect(clean.ok, `sandbox should start clean:\n${clean.message}`).toBe(true);
 
-      seedDrift(root, 'rendered/skills/standard/plan/SKILL.md', '\n<!-- seeded drift -->\n');
+      await seedDrift(root, 'rendered/skills/standard/plan/SKILL.md', '\n<!-- seeded drift -->\n');
 
       const drifted = runRenderGuard({ cwd: root, regenerateAgents: () => {} });
       expect(drifted.ok, 'drift in the rendered tree must fail the guard').toBe(false);
@@ -121,12 +121,12 @@ describe('RenderGuard', () => {
     }
   }, 300_000);
 
-  it('DriftInHarnessDotDirectory_FailsClosed', () => {
-    const root = makeSandbox();
+  it('DriftInHarnessDotDirectory_FailsClosed', async () => {
+    const root = await makeSandbox();
     try {
       // The agent generator is stubbed, so the drift has to be detected by the
       // diff over the harness directories rather than by regeneration.
-      seedDrift(root, '.codex/agents/implementer.toml', '\n# seeded drift\n');
+      await seedDrift(root, '.codex/agents/implementer.toml', '\n# seeded drift\n');
 
       const drifted = runRenderGuard({
         cwd: root,

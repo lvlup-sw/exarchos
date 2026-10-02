@@ -16,8 +16,8 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { execFileSync } from 'node:child_process';
 
+import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 import { withTmpGit, addSiblingWorktree } from './_helpers/tmp-git.js';
 import { handleMergeOrchestrate } from '../../src/verbs/merge/merge-orchestrate.js';
 import { EventStore } from '../../src/events/store.js';
@@ -27,12 +27,12 @@ import type { DispatchContext } from '../../src/dispatch/core/dispatch.js';
 // reducer. Mirrors the import in merge-orchestrate.migration.test.ts.
 import '../../src/projections/merge-orchestrator/index.js';
 
-function gitOut(repo: string, args: string[]): string {
-  return execFileSync('git', args, { cwd: repo, encoding: 'utf8' }).trim();
+async function gitOut(repo: string, args: string[]): Promise<string> {
+  return (await execFileAsync('git', args, { cwd: repo })).trim();
 }
 
-function gitRun(repo: string, args: string[]): void {
-  execFileSync('git', args, { cwd: repo, stdio: 'pipe' });
+async function gitRun(repo: string, args: string[]): Promise<void> {
+  await execFileAsync('git', args, { cwd: repo });
 }
 
 describe('merge-orchestrate multi-worktree topology outcome (#1356)', () => {
@@ -47,7 +47,7 @@ describe('merge-orchestrate multi-worktree topology outcome (#1356)', () => {
         // Create the `integration` (target) branch first, then check it
         // out into a sibling worktree (this is the #1356 trigger
         // condition).
-        gitRun(repoPath, ['branch', 'integration']);
+        await gitRun(repoPath, ['branch', 'integration']);
         const sibling = await addSiblingWorktree(repoPath, 'feature/source');
 
         // Stay on `main` in the primary worktree so the orchestrator's
@@ -55,8 +55,8 @@ describe('merge-orchestrate multi-worktree topology outcome (#1356)', () => {
         // `feature/source` so there is something to merge into
         // `integration`.
         await fs.writeFile(path.join(sibling, 'a.txt'), 'hello\n');
-        gitRun(sibling, ['add', 'a.txt']);
-        gitRun(sibling, ['commit', '-m', 'feature: add a.txt']);
+        await gitRun(sibling, ['add', 'a.txt']);
+        await gitRun(sibling, ['commit', '-m', 'feature: add a.txt']);
 
         // Now move `integration` into ANOTHER sibling worktree so the
         // target is checked out elsewhere (the regression scenario).
@@ -67,12 +67,12 @@ describe('merge-orchestrate multi-worktree topology outcome (#1356)', () => {
         // Rename: `addSiblingWorktree` creates a new branch
         // `integration-checkout`. We actually want `integration` itself
         // checked out — switch the sibling onto `integration`.
-        gitRun(integrationWt, ['checkout', 'integration']);
+        await gitRun(integrationWt, ['checkout', 'integration']);
 
         // Primary worktree: ensure HEAD is on the original main commit
         // (not on `integration`, since `integration` is now elsewhere).
-        gitRun(repoPath, ['checkout', 'main']);
-        const initialHead = gitOut(repoPath, ['rev-parse', 'HEAD']);
+        await gitRun(repoPath, ['checkout', 'main']);
+        const initialHead = await gitOut(repoPath, ['rev-parse', 'HEAD']);
 
         // ─── 2. Build a real EventStore + DispatchContext ────────────────
         const stateDir = await fs.mkdtemp(
@@ -115,7 +115,7 @@ describe('merge-orchestrate multi-worktree topology outcome (#1356)', () => {
           expect(data.phase).toBe('aborted');
           expect(data.reason).toBe('target-checked-out-elsewhere');
 
-          const postHead = gitOut(repoPath, ['rev-parse', 'HEAD']);
+          const postHead = await gitOut(repoPath, ['rev-parse', 'HEAD']);
           expect(postHead).toBe(initialHead);
         } finally {
           await fs.rm(stateDir, { recursive: true, force: true });

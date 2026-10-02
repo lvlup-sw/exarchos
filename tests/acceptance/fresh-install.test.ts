@@ -1,4 +1,3 @@
-import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -7,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { installSkills } from '../../src/install/install-skills.js';
 import { loadAllRuntimes } from '../../src/install/runtimes/load.js';
+import { execFileAsync, spawnAsyncBuffer } from '../../tools/test-helpers/spawn.js';
 
 /**
  * Repinning `plugin.json` at the `rendered/` tree is a sanctioned clean break,
@@ -27,14 +27,17 @@ let clone: string;
 let scratch: string;
 
 /** Materialize HEAD's tracked content — no working-tree residue, no .git. */
-function materializeCleanClone(dest: string): void {
-  const archive = execFileSync('git', ['archive', '--format=tar', 'HEAD'], {
+async function materializeCleanClone(dest: string): Promise<void> {
+  // A Buffer, not a string: the archive is binary and utf8 decoding corrupts it.
+  const archive = await spawnAsyncBuffer('git', ['archive', '--format=tar', 'HEAD'], {
     cwd: REPO_ROOT,
-    maxBuffer: 512 * 1024 * 1024,
-    // A Buffer, not a string: the archive is binary and utf8 decoding corrupts it.
-    encoding: 'buffer',
   });
-  execFileSync('tar', ['-x', '-C', dest], { input: archive, maxBuffer: 512 * 1024 * 1024 });
+  if (archive.status !== 0 || archive.error !== undefined) {
+    throw new Error(
+      `git archive failed (exit ${String(archive.status)}): ${archive.error?.message ?? archive.stderr.toString('utf8')}`,
+    );
+  }
+  await execFileAsync('tar', ['-x', '-C', dest], { input: archive.stdout });
 }
 
 const readJson = (root: string, rel: string): Record<string, unknown> =>
@@ -50,11 +53,11 @@ function fileCount(dir: string): number {
   return count;
 }
 
-beforeAll(() => {
+beforeAll(async () => {
   scratch = mkdtempSync(join(tmpdir(), 'exarchos-fresh-install-'));
   clone = join(scratch, 'clone');
   mkdirSync(clone, { recursive: true });
-  materializeCleanClone(clone);
+  await materializeCleanClone(clone);
 }, 120_000);
 
 afterAll(() => {

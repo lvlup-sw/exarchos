@@ -30,11 +30,11 @@
 
 import { describe, it, expect } from 'vitest';
 import { withTmpHome } from './_helpers/tmp-home.js';
-import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { execFileAsync, SpawnFailure } from '../../tools/test-helpers/spawn.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -66,12 +66,12 @@ interface OnboardRun {
 /**
  * Run `exarchos onboard --runtime claude` against an isolated repo + HOME.
  * `--runtime claude` short-circuits agent-host detection so the run is
- * deterministic. execFileSync throws on a non-zero exit; we capture the status
+ * deterministic. execFileAsync rejects on a non-zero exit; we capture the status
  * so the test can assert on it with a clear message instead of an opaque throw.
  */
-function runOnboard(home: string, cwd: string): OnboardRun {
+async function runOnboard(home: string, cwd: string): Promise<OnboardRun> {
   try {
-    execFileSync(CLI_BINARY, ['onboard', '--runtime', 'claude'], {
+    await execFileAsync(CLI_BINARY, ['onboard', '--runtime', 'claude'], {
       env: {
         ...process.env,
         HOME: home,
@@ -80,16 +80,14 @@ function runOnboard(home: string, cwd: string): OnboardRun {
         FORCE_COLOR: '0',
       },
       cwd,
-      stdio: 'pipe',
       timeout: 60_000,
     });
     return { status: 0, stderr: '' };
   } catch (err) {
-    const e = err as { status?: number; stderr?: Buffer | string };
-    return {
-      status: e.status ?? 1,
-      stderr: typeof e.stderr === 'string' ? e.stderr : (e.stderr?.toString() ?? ''),
-    };
+    if (err instanceof SpawnFailure) {
+      return { status: err.status ?? 1, stderr: err.stderr };
+    }
+    return { status: 1, stderr: '' };
   }
 }
 
@@ -122,9 +120,9 @@ describe('onboard outcome', () => {
     await withTmpHome(async (home) => {
       const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-onboard-repo-'));
       try {
-        execFileSync('git', ['init', '-q', repo]);
+        await execFileAsync('git', ['init', '-q', repo]);
 
-        const first = runOnboard(home, repo);
+        const first = await runOnboard(home, repo);
         expect(
           first.status,
           `onboard should exit 0 (drive the repo green); stderr=${first.stderr.slice(0, 800)}`,
@@ -136,7 +134,7 @@ describe('onboard outcome', () => {
 
         // Idempotence: a second run converges — SessionStart is retired (removed)
         // and SubagentStop still numbers exactly one.
-        const second = runOnboard(home, repo);
+        const second = await runOnboard(home, repo);
         expect(
           second.status,
           `second onboard should exit 0; stderr=${second.stderr.slice(0, 800)}`,

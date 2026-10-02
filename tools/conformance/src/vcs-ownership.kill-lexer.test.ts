@@ -183,7 +183,7 @@ describe('DR-2 kill fixture — vcs-ownership.stripComments, both instruments', 
     expect(() => stripComments(broken, lexModule)).toThrow(/did not parse cleanly/);
   });
 
-  it('VcsOwnership_NoShippedModuleImportsTheSupersededSiteLexers', () => {
+  it('VcsOwnership_NoShippedModuleImportsTheSupersededSiteLexers', async () => {
     // The retired walks are retained ONLY as the other half of the measurement
     // above. If shipped source imports them again, the defect is back.
     //
@@ -207,7 +207,7 @@ describe('DR-2 kill fixture — vcs-ownership.stripComments, both instruments', 
     expect(
       trackedFilesMissedBy(
         walked,
-        listTrackedFiles(SRC_ROOT, {
+        await listTrackedFiles(SRC_ROOT, {
           exclude: (path) => {
             const segments = path.split('/');
             const name = segments[segments.length - 1] ?? '';

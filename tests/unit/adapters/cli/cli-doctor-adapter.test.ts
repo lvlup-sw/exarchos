@@ -44,6 +44,7 @@ import { EventStore } from '../../../../src/events/store.js';
 import * as dispatchModule from '../../../../src/dispatch/core/dispatch.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
 import { DoctorOutputSchema } from '../../../../src/verbs/doctor/schema.js';
+import { spawnAsync } from '../../../../tools/test-helpers/spawn.js';
 import { rmrf, rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { expectedTrustedContext } from '../../../../tools/test-helpers/trusted-context.js';
 
@@ -313,15 +314,13 @@ describe('doctor CLI-adapter — shebang invocation (#1337)', () => {
       // flake at the 5s default under load (project memory: vitest spawn-timeout
       // flake). 30s mirrors the existing install-skills binary smoke test.
       if (!SMOKE_BINARY) throw new Error('binary check should have skipped');
-      const { spawnSync } = await import('node:child_process');
       const homeTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-shebang-home-'));
       const stateTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-shebang-state-'));
       try {
         // Invoke the binary directly — the kernel honors the `#!/usr/bin/env
         // node` shebang to launch it. `doctor --json` must produce a parseable
         // envelope and a contract-compliant exit code (0 when no Fails).
-        const result = spawnSync(SMOKE_BINARY, ['doctor', '--json'], {
-          encoding: 'utf-8',
+        const result = await spawnAsync(SMOKE_BINARY, ['doctor', '--json'], {
           timeout: 25_000,
           env: {
             ...process.env,

@@ -25,7 +25,6 @@
  * extension at import time.
  */
 import { describe, it, expect } from 'vitest';
-import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -42,6 +41,7 @@ import {
   DEFAULT_MANIFEST_PATH,
 } from '../../tools/audit/gates/run-validate.mjs';
 import { EXIT_GAPS } from '../../tools/audit/gates/check-measured-premises.mjs';
+import { spawnAsync } from '../../tools/test-helpers/spawn.js';
 
 const SCRIPTS_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPTS_DIR, '../..');
@@ -89,8 +89,8 @@ function seedManifest(steps: unknown[]): { manifestPath: string; cleanup: () => 
   return { manifestPath: file, cleanup: () => fs.rmSync(dir, { recursive: true, force: true }) };
 }
 
-function runCli(args: string[]): { status: number | null; stdout: string; stderr: string } {
-  const result = spawnSync('node', [RUNNER, ...args], { cwd: REPO_ROOT, encoding: 'utf8' });
+async function runCli(args: string[]): Promise<{ status: number | null; stdout: string; stderr: string }> {
+  const result = await spawnAsync('node', [RUNNER, ...args], { cwd: REPO_ROOT });
   return { status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
 }
 
@@ -432,7 +432,7 @@ describe('run-validate — verdict fidelity (task 078, DR-7)', () => {
 });
 
 describe('run-validate — CLI (task 064, DR-24)', () => {
-  it('RunValidateCli_RedFirstStep_StillRunsAndReportsTheLaterSteps', () => {
+  it('RunValidateCli_RedFirstStep_StillRunsAndReportsTheLaterSteps', async () => {
     // THE KILL FIXTURE end-to-end. `node -e 'process.exit(1)'` is a genuine red
     // step 1; the two after it must appear in the JSON report as executed.
     const seeded = seedManifest([
@@ -441,7 +441,7 @@ describe('run-validate — CLI (task 064, DR-24)', () => {
       { id: 'seeded-green-b', command: 'node', args: ['-e', 'process.exit(0)'] },
     ]);
     try {
-      const { status, stdout } = runCli(['--json', '--manifest', seeded.manifestPath]);
+      const { status, stdout } = await runCli(['--json', '--manifest', seeded.manifestPath]);
       expect(status).toBe(1);
       const report = JSON.parse(stdout) as Summary & { steps: Outcome[] };
       expect(report.declared).toBe(3);
@@ -457,10 +457,10 @@ describe('run-validate — CLI (task 064, DR-24)', () => {
     }
   }, 20000);
 
-  it('RunValidateCli_EmptyManifest_ExitsNonZero', () => {
+  it('RunValidateCli_EmptyManifest_ExitsNonZero', async () => {
     const seeded = seedManifest([]);
     try {
-      const { status, stdout } = runCli(['--json', '--manifest', seeded.manifestPath]);
+      const { status, stdout } = await runCli(['--json', '--manifest', seeded.manifestPath]);
       expect(status).toBe(1);
       const report = JSON.parse(stdout) as Summary;
       expect(report.ok).toBe(false);
@@ -470,22 +470,22 @@ describe('run-validate — CLI (task 064, DR-24)', () => {
     }
   }, 20000);
 
-  it('RunValidateCli_UnreadableManifest_ExitsTwoNotZero', () => {
+  it('RunValidateCli_UnreadableManifest_ExitsTwoNotZero', async () => {
     // Fail CLOSED. A runner that cannot find its manifest knows of no gates,
     // and "knows of no gates" must never render as "all gates passed".
-    const { status, stderr } = runCli(['--manifest', 'scripts/does-not-exist.json']);
+    const { status, stderr } = await runCli(['--manifest', 'scripts/does-not-exist.json']);
     expect(status).toBe(2);
     expect(stderr).toContain('could not be read');
   }, 20000);
 
-  it('RunValidateCli_List_EnumeratesTheShippedSteps', () => {
-    const { status, stdout } = runCli(['--list']);
+  it('RunValidateCli_List_EnumeratesTheShippedSteps', async () => {
+    const { status, stdout } = await runCli(['--list']);
     expect(status).toBe(0);
     expect(stdout).toContain('plugin-packaging');
     expect(stdout).toContain('declared step(s)');
   }, 20000);
 
-  it('RunValidateCli_StepExitingWithDeclaredGapsCode_ReportsGapsNotPass', () => {
+  it('RunValidateCli_StepExitingWithDeclaredGapsCode_ReportsGapsNotPass', async () => {
     // DR-7 end to end through a REAL spawned step: the runner classifies what
     // the process actually returned, not what the pure loop was handed.
     const seeded = seedManifest([
@@ -500,7 +500,7 @@ describe('run-validate — CLI (task 064, DR-24)', () => {
       { id: 'seeded-green', command: 'node', args: ['-e', 'process.exit(0)'] },
     ]);
     try {
-      const { status, stdout } = runCli(['--json', '--manifest', seeded.manifestPath]);
+      const { status, stdout } = await runCli(['--json', '--manifest', seeded.manifestPath]);
       // Advisory ⇒ the chain still exits 0 …
       expect(status).toBe(0);
       const report = JSON.parse(stdout) as Summary & { steps: Outcome[] };

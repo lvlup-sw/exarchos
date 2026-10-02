@@ -231,9 +231,13 @@ const RECURSIVE_RM_RE = /\b(?:fs\.|fsp\.|fsPromises\.)?rm(?:Sync)?\s*\([^;]{0,16
 // portable form the shim rules are steering callers TOWARDS.
 const DYNAMIC_SPAWN_RE =
   /\b(?:execFile|execFileSync|spawn|spawnSync)\s*\(\s*(?!process\.execPath\b)[A-Za-z_$][\w$.]*/g;
-// The shell-aware spawn helpers legitimately call raw execFile/spawn with a
-// variable bin — that is their whole job. Exempt only this file.
-const SPAWN_HELPER_RE = /utils[/\\]process\.ts$/;
+/**
+ * The shell-aware spawn helpers legitimately call raw execFile/spawn with a
+ * variable bin; that is their whole job. Exempt only these two files: the
+ * production helper, and the async test-side helper that applies the same
+ * shim rule before it spawns (#2029).
+ */
+const SPAWN_HELPER_RE = /(?:utils[/\\]process|test-helpers[/\\]spawn)\.ts$/;
 // CI/build tooling is NOT shipped runtime — it runs on the ubuntu CI host,
 // and the audit gates that shell out a tool (knip-diff / cycle-gate →
 // `node_modules/.bin/*`) DEGRADE-TO-FAIL-CLOSED on a spawn error (incl. win32,

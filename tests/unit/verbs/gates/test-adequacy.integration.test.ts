@@ -23,7 +23,6 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, afterEach } from 'vitest';
-import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -33,24 +32,20 @@ import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js'
 import { handleOrchestrate } from '../../../../src/verbs/composite.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 import { runAsTrustedCaller, seedActivePhaseAttempt, withTrustedCaller } from '../../../../tools/test-helpers/trusted-context.js';
+import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 
 // ─── git fixture helpers ─────────────────────────────────────────────────────
 
-function git(repoRoot: string, args: readonly string[]): string {
-  return execFileSync('git', [...args], {
-    cwd: repoRoot,
-    encoding: 'utf-8',
-    timeout: 30_000,
-    stdio: ['pipe', 'pipe', 'pipe'],
-  });
+function git(repoRoot: string, args: readonly string[]): Promise<string> {
+  return execFileAsync('git', args, { cwd: repoRoot, timeout: 30_000 });
 }
 
-function initRepo(prefix: string): string {
+async function initRepo(prefix: string): Promise<string> {
   const repoRoot = mkdtempSync(path.join(os.tmpdir(), prefix));
-  git(repoRoot, ['init', '--initial-branch=main', '-q']);
-  git(repoRoot, ['config', 'user.email', 'test@example.com']);
-  git(repoRoot, ['config', 'user.name', 'Test']);
-  git(repoRoot, ['config', 'commit.gpgsign', 'false']);
+  await git(repoRoot, ['init', '--initial-branch=main', '-q']);
+  await git(repoRoot, ['config', 'user.email', 'test@example.com']);
+  await git(repoRoot, ['config', 'user.name', 'Test']);
+  await git(repoRoot, ['config', 'commit.gpgsign', 'false']);
   return repoRoot;
 }
 
@@ -59,7 +54,7 @@ function initRepo(prefix: string): string {
  * the temp repo). `package.json` declares a `test:run` script so the resolver
  * (npm tier) produces a runnable command, and `test` for good measure.
  */
-function writeBaseProject(repoRoot: string): void {
+async function writeBaseProject(repoRoot: string): Promise<void> {
   writeFileSync(
     path.join(repoRoot, 'package.json'),
     JSON.stringify(
@@ -76,8 +71,8 @@ function writeBaseProject(repoRoot: string): void {
   // Base source: a function returning 1. The task diff will change it to 2.
   mkdirSync(path.join(repoRoot, 'src'), { recursive: true });
   writeFileSync(path.join(repoRoot, 'src', 'calc.js'), 'export function value() {\n  return 1;\n}\n');
-  git(repoRoot, ['add', '.']);
-  git(repoRoot, ['commit', '-m', 'base: project scaffold', '-q']);
+  await git(repoRoot, ['add', '.']);
+  await git(repoRoot, ['commit', '-m', 'base: project scaffold', '-q']);
 }
 
 function makeCtx(stateDir: string, eventStore: EventStore): DispatchContext {
@@ -139,14 +134,14 @@ describe('check_test_adequacy acceptance (kill probe through handleOrchestrate)'
   it(
     'HandleOrchestrate_CheckTestAdequacy_RealTest_PassesProbe',
     async () => {
-      const repoRoot = initRepo('test-adequacy-real-');
+      const repoRoot = await initRepo('test-adequacy-real-');
       cleanups.push(() => rmrf(repoRoot));
-      writeBaseProject(repoRoot);
+      await writeBaseProject(repoRoot);
 
       // Task diff on a feature branch: change source AND add a REAL test that
       // pins the new behavior (asserts value() === 2). Reverting calc.js back
       // to `return 1` makes this test FAIL → red observed → probe passes.
-      git(repoRoot, ['checkout', '-b', 'feature/real', '-q']);
+      await git(repoRoot, ['checkout', '-b', 'feature/real', '-q']);
       writeFileSync(path.join(repoRoot, 'src', 'calc.js'), 'export function value() {\n  return 2;\n}\n');
       writeFileSync(
         path.join(repoRoot, 'src', 'calc.test.js'),
@@ -161,8 +156,8 @@ describe('check_test_adequacy acceptance (kill probe through handleOrchestrate)'
           '',
         ].join('\n'),
       );
-      git(repoRoot, ['add', '.']);
-      git(repoRoot, ['commit', '-m', 'feat: bump value to 2 with test', '-q']);
+      await git(repoRoot, ['add', '.']);
+      await git(repoRoot, ['commit', '-m', 'feat: bump value to 2 with test', '-q']);
 
       const { success, data } = await dispatch(repoRoot, 'feature/real');
 
@@ -179,13 +174,13 @@ describe('check_test_adequacy acceptance (kill probe through handleOrchestrate)'
   it(
     'HandleOrchestrate_CheckTestAdequacy_AssertNothingTest_FailsProbe',
     async () => {
-      const repoRoot = initRepo('test-adequacy-vacuous-');
+      const repoRoot = await initRepo('test-adequacy-vacuous-');
       cleanups.push(() => rmrf(repoRoot));
-      writeBaseProject(repoRoot);
+      await writeBaseProject(repoRoot);
 
       // Task diff: change source but add an ASSERT-NOTHING test. Reverting the
       // source leaves the tautology green → no red observed → probe FAILS.
-      git(repoRoot, ['checkout', '-b', 'feature/vacuous', '-q']);
+      await git(repoRoot, ['checkout', '-b', 'feature/vacuous', '-q']);
       writeFileSync(path.join(repoRoot, 'src', 'calc.js'), 'export function value() {\n  return 2;\n}\n');
       writeFileSync(
         path.join(repoRoot, 'src', 'calc.test.js'),
@@ -199,8 +194,8 @@ describe('check_test_adequacy acceptance (kill probe through handleOrchestrate)'
           '',
         ].join('\n'),
       );
-      git(repoRoot, ['add', '.']);
-      git(repoRoot, ['commit', '-m', 'feat: bump value to 2 with vacuous test', '-q']);
+      await git(repoRoot, ['add', '.']);
+      await git(repoRoot, ['commit', '-m', 'feat: bump value to 2 with vacuous test', '-q']);
 
       const { success, data } = await dispatch(repoRoot, 'feature/vacuous');
 

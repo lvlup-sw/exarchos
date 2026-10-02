@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -7,6 +6,7 @@ import { handlePrepareReview, type PrepareReviewArgs } from '../../../../src/ver
 import { QUALITY_CHECK_CATALOG } from '../../../../src/review/check-catalog.js';
 import { EventStore } from '../../../../src/events/store.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
+import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 import { resolveWorkflowState } from '../../../../src/verbs/resolve-state.js';
 import type { ToolResult } from '../../../../src/format.js';
 
@@ -279,27 +279,27 @@ describe('handlePrepareReview', () => {
      * deterministic file — so `changedFilesAgainstBase(repoRoot)` resolves a
      * non-empty changed-file set without depending on the live working tree.
      */
-    function seedRepoWithDiff(): string {
+    async function seedRepoWithDiff(): Promise<string> {
       const repo = mkdtempSync(join(tmpdir(), 'prepare-review-repo-'));
-      const git = (...a: string[]): void => {
-        execFileSync('git', a, { cwd: repo, stdio: ['pipe', 'pipe', 'pipe'] });
+      const git = async (...a: string[]): Promise<void> => {
+        await execFileAsync('git', a, { cwd: repo });
       };
-      git('init', '-q', '-b', 'main');
-      git('config', 'user.email', 'test@example.com');
-      git('config', 'user.name', 'Test');
+      await git('init', '-q', '-b', 'main');
+      await git('config', 'user.email', 'test@example.com');
+      await git('config', 'user.name', 'Test');
       writeFileSync(join(repo, 'base.txt'), 'base\n');
-      git('add', '-A');
-      git('commit', '-qm', 'base');
-      git('checkout', '-q', '-b', 'feat');
+      await git('add', '-A');
+      await git('commit', '-qm', 'base');
+      await git('checkout', '-q', '-b', 'feat');
       mkdirSync(join(repo, 'servers'), { recursive: true });
       writeFileSync(join(repo, 'servers', 'a.ts'), 'export const x = 1;\n');
-      git('add', '-A');
-      git('commit', '-qm', 'change');
+      await git('add', '-A');
+      await git('commit', '-qm', 'change');
       return repo;
     }
 
     it('PrepareReview_WithIntent_GroundsSpecReviewChecklist', async () => {
-      const repo = seedRepoWithDiff();
+      const repo = await seedRepoWithDiff();
       try {
         const data = expectSuccess(
           await callPrepareReview({ featureId: 'cr-grounded', repoRoot: repo, scope: 'code' }),

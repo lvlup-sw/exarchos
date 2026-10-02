@@ -45,7 +45,6 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import {
@@ -59,6 +58,7 @@ import {
 import { buildVerificationNote } from '../../../src/runtime/agents/definitions.js';
 import type { RiskTier } from '../../../src/workflow/verification-policy.js';
 import { stampProvenance, type Provenance } from '../../../tools/evals/evals/provenance.js';
+import { execFileAsync, spawnAsync } from '../../../tools/test-helpers/spawn.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const QAB = __dirname; // tests/evals/quality-ab
@@ -181,7 +181,7 @@ export type RunModelFn = (args: {
   readonly prompt: string;
   readonly model: string;
   readonly systemPrompt: string;
-}) => ModelRunResult;
+}) => Promise<ModelRunResult>;
 
 /**
  * REAL dispatch: `claude -p` as a pure TEXT generator.
@@ -192,9 +192,9 @@ export type RunModelFn = (args: {
  * Never throws: a spawn failure / non-zero exit / provider error degrades to
  * `{ ok: false, error }` so the caller records a BLOCKED cell (DR-7).
  */
-export const runModelViaClaude: RunModelFn = ({ prompt, model, systemPrompt }) => {
+export const runModelViaClaude: RunModelFn = async ({ prompt, model, systemPrompt }) => {
   try {
-    const stdout = execFileSync(
+    const run = await spawnAsync(
       'claude',
       [
         '-p', prompt,
@@ -204,9 +204,11 @@ export const runModelViaClaude: RunModelFn = ({ prompt, model, systemPrompt }) =
         '--strict-mcp-config',
         '--output-format', 'json',
       ],
-      { cwd: RUNS_DIR, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 300_000, maxBuffer: 32 * 1024 * 1024 },
+      { cwd: RUNS_DIR, timeout: 300_000 },
     );
-    const j = JSON.parse(stdout) as {
+    if (run.error !== undefined) throw run.error;
+    if (run.status !== 0) throw Object.assign(new Error(`claude exited ${String(run.status ?? run.signal)}`), { stderr: run.stderr });
+    const j = JSON.parse(run.stdout) as {
       is_error?: boolean;
       result?: string;
       total_cost_usd?: number;
@@ -286,11 +288,11 @@ export interface DispatchOutcome {
  * files, and materialize the run dir (`impl.ts` + any `test.ts`). Blocked (never
  * fabricated) when the call errors or no `impl.ts` is produced.
  */
-export function dispatchCell(
+export async function dispatchCell(
   baseRunsDir: string,
   cell: CellId,
   deps: { readonly runModel: RunModelFn; readonly tasksDir: string; readonly skipExisting?: boolean },
-): DispatchOutcome {
+): Promise<DispatchOutcome> {
   const runDir = cellRunDir(baseRunsDir, cell);
   const implPath = path.join(runDir, 'impl.ts');
   if (deps.skipExisting !== false && fs.existsSync(implPath) && fs.readFileSync(implPath, 'utf-8').trim().length > 0) {
@@ -303,7 +305,7 @@ export function dispatchCell(
   const stubText = fs.readFileSync(path.join(deps.tasksDir, cell.task.name, 'impl.stub.ts'), 'utf-8');
   const prompt = buildUserPrompt(cell.task, cell.arm, specText, stubText);
 
-  const res = deps.runModel({ prompt, model: cell.model, systemPrompt: SYSTEM_PROMPT });
+  const res = await deps.runModel({ prompt, model: cell.model, systemPrompt: SYSTEM_PROMPT });
   if (!res.ok) {
     return { status: 'blocked', runDir, modelId: res.modelId, costUsd: res.costUsd, filesWritten: [], error: res.error ?? 'model call failed' };
   }
@@ -377,8 +379,8 @@ export async function captureCell(
   }
 
   const runDir = dispatch.runDir;
-  const oracle = gradeOracle(runDir, cell.task.name, deps.tasksDir);
-  const typecheckOk = gradeTypecheck(runDir);
+  const oracle = await gradeOracle(runDir, cell.task.name, deps.tasksDir);
+  const typecheckOk = await gradeTypecheck(runDir);
   const wroteTests = detectTests(runDir);
   const adequacy = await gradeAdequacy(runDir, cell.task.name, {
     tasksDir: deps.tasksDir,
@@ -499,9 +501,9 @@ export function renderReport(rows: readonly CellRow[]): string {
 
 // ─── Script entry point (guarded — import-safe) ───────────────────────────────
 
-function gitSha(): string {
+async function gitSha(): Promise<string> {
   try {
-    return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: REPO_ROOT, encoding: 'utf-8' }).trim();
+    return (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: REPO_ROOT })).trim();
   } catch {
     return 'unknown';
   }
@@ -540,7 +542,7 @@ async function main(): Promise<void> {
   for (const cell of cells) {
     const label = `${cell.model}/${runName(cell.task.name, cell.arm, cell.rep)}`;
     process.stderr.write(`[exp3] dispatch ${label} … `);
-    const dispatch = dispatchCell(RUNS_DIR, cell, { runModel: runModelViaClaude, tasksDir: TASKS_DIR, skipExisting });
+    const dispatch = await dispatchCell(RUNS_DIR, cell, { runModel: runModelViaClaude, tasksDir: TASKS_DIR, skipExisting });
     if (dispatch.modelId) resolvedModelIds.add(dispatch.modelId);
     const row = await captureCell(RUNS_DIR, cell, dispatch, { tasksDir: TASKS_DIR });
     rows.push(row);
@@ -557,7 +559,7 @@ async function main(): Promise<void> {
   // Provenance: model ids default to the study matrix if nothing resolved (e.g.
   // wholesale-blocked run) so the stamp is always complete/honest.
   const modelIds = resolvedModelIds.size ? [...resolvedModelIds].sort() : models;
-  const provenance: Provenance = { binaryTag: binaryTag(), gitSha: gitSha(), modelIds, date: '2026-07-09' };
+  const provenance: Provenance = { binaryTag: binaryTag(), gitSha: await gitSha(), modelIds, date: '2026-07-09' };
 
   fs.mkdirSync(DATA_DIR, { recursive: true });
   fs.writeFileSync(CSV_PATH, buildCsv(rows, provenance));

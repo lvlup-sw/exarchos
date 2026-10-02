@@ -19,7 +19,6 @@
 // the boundary note asks for.
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { execFileSync } from 'node:child_process';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -37,6 +36,7 @@ import {
   PruneExecutedData,
   type WorkflowEvent,
 } from '../../../src/events/schemas.js';
+import { execFileAsync } from '../../../tools/test-helpers/spawn.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 import type { DispatchContext } from '../../../src/dispatch/core/dispatch.js';
 import { handleExecuteMerge } from '../../../src/verbs/merge/execute-merge.js';
@@ -69,16 +69,16 @@ async function makeStore(prefix: string): Promise<{ store: EventStore; stateDir:
 async function initRepo(prefix: string): Promise<string> {
   const dir = await mkdtemp(path.join(tmpdir(), prefix));
   scratchDirs.push(dir);
-  const git = (args: readonly string[]): void => {
-    execFileSync('git', args as string[], { cwd: dir, stdio: 'ignore' });
+  const git = async (args: readonly string[]): Promise<void> => {
+    await execFileAsync('git', args, { cwd: dir });
   };
-  git(['init', '-q', '-b', 'work']);
-  git(['config', 'user.email', 'dr2@example.com']);
-  git(['config', 'user.name', 'DR2 Test']);
-  git(['config', 'commit.gpgsign', 'false']);
+  await git(['init', '-q', '-b', 'work']);
+  await git(['config', 'user.email', 'dr2@example.com']);
+  await git(['config', 'user.name', 'DR2 Test']);
+  await git(['config', 'commit.gpgsign', 'false']);
   await writeFile(path.join(dir, 'README.md'), '# dr2 liveness instanceId test\n');
-  git(['add', '.']);
-  git(['commit', '-q', '-m', 'init']);
+  await git(['add', '.']);
+  await git(['commit', '-q', '-m', 'init']);
   return realpathSync(dir);
 }
 

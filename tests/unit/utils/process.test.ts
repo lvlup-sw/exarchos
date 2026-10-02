@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { needsWindowsShell, runCommandSync, spawnCommandSync } from '../../../src/utils/process.js';
+import { isolatedSync } from '../../../tools/test-helpers/spawn.js';
 
 describe('needsWindowsShell (#1623)', () => {
   it('NeedsWindowsShell_BarePackageManagerOnWin32_True', () => {
@@ -38,32 +39,32 @@ describe('needsWindowsShell (#1623)', () => {
 });
 
 describe('runCommandSync (#1623)', () => {
-  it('RunCommandSync_NativeCommand_PassesThroughAndReturnsStdout', () => {
+  it('RunCommandSync_NativeCommand_PassesThroughAndReturnsStdout', async () => {
     // On the POSIX CI host this exercises the non-shell pass-through path
     // against a real binary; the win32 shell branch is covered end-to-end by
     // the un-skipped test-adequacy integration test on windows-latest.
-    const out = String(runCommandSync('node', ['--version'], { encoding: 'utf-8' }));
+    const out = String(await isolatedSync(() => runCommandSync('node', ['--version'], { encoding: 'utf-8' })));
     expect(out).toMatch(/^v\d+\./);
   });
 
-  it('RunCommandSync_NonZeroExit_Throws', () => {
-    expect(() => runCommandSync('node', ['-e', 'process.exit(3)'])).toThrow();
+  it('RunCommandSync_NonZeroExit_Throws', async () => {
+    await expect(isolatedSync(() => runCommandSync('node', ['-e', 'process.exit(3)']))).rejects.toThrow();
   });
 });
 
 describe('spawnCommandSync (#1623)', () => {
-  it('SpawnCommandSync_NativeCommand_ReturnsStdoutAndZeroStatus', () => {
+  it('SpawnCommandSync_NativeCommand_ReturnsStdoutAndZeroStatus', async () => {
     // POSIX CI host exercises the non-shell pass-through; the win32 `.cmd`-shim
     // branch is covered end-to-end by the post-merge spawn on windows-latest.
-    const r = spawnCommandSync('node', ['--version'], { encoding: 'utf-8' });
+    const r = await isolatedSync(() => spawnCommandSync('node', ['--version'], { encoding: 'utf-8' }));
     expect(r.status).toBe(0);
     expect(r.stdout).toMatch(/^v\d+\./);
   });
 
-  it('SpawnCommandSync_NonZeroExit_CapturesStatusWithoutThrowing', () => {
+  it('SpawnCommandSync_NonZeroExit_CapturesStatusWithoutThrowing', async () => {
     // Unlike runCommandSync, the spawn sibling does NOT throw — it surfaces the
     // exit code so callers (post-merge) can branch on it.
-    const r = spawnCommandSync('node', ['-e', 'process.exit(3)'], { encoding: 'utf-8' });
+    const r = await isolatedSync(() => spawnCommandSync('node', ['-e', 'process.exit(3)'], { encoding: 'utf-8' }));
     expect(r.status).toBe(3);
   });
 });
