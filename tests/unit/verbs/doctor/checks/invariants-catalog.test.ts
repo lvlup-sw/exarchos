@@ -58,7 +58,7 @@ describe('invariantsCatalog', () => {
   });
 
   /**
-   * With `configured: false` and no warnings, `invariants.catalogs` registers nothing.
+   * `configured: false` with no warnings means that `invariants.catalogs` registers nothing.
    * The check skips, and the skip must carry a reason.
    */
   it('InvariantsCatalog_NoCatalogConfigured_ReturnsSkipped', async () => {

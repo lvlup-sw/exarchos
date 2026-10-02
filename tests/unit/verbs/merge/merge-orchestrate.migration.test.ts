@@ -2,7 +2,7 @@
 // The handler appends `merge.preflight`, then commits `merge.requested` through the pure decide closure under `withStateRetry`.
 // The executor side effect runs outside that retry boundary, so a lost OCC race does not fire the side effect again.
 // The side-effect import of `merge-orchestrator/index.js` registers the `merge-orchestrator@v1` reducer for `decide`.
-// This test mocks the executor, so it pins only this sequence:
+// The mocked executor appends only `merge.executed`, not `merge.completed`, so the test pins this sequence:
 //
 //   merge.preflight → merge.requested → merge.executed
 

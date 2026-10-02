@@ -210,7 +210,10 @@ describe('parseTaskBlocks', () => {
 
 /** The repo root, resolved from this file URL, because `__dirname` is not defined under ESM. */
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
-/** A real spec with only four-hash task headers. The test that reads it skips when the file is absent. */
+/**
+ * A real spec with only four-hash task headers. The test that reads it skips when the file is absent.
+ * Git ignores `docs/specs/`, so the file exists only after `npm run docs:mount`.
+ */
 const FOUR_HASH_CORPUS_SPEC = resolve(
   REPO_ROOT,
   'docs/specs/2026-07-03-wlm-reconcile-enforce.md',
@@ -1233,7 +1236,7 @@ describe('handleTaskDecomposition — plausibility (P02-06)', () => {
     expect(size?.observed).toBe(15);
   });
 
-  /** The well-decomposed fixture, with three mixed tasks and small file sets, gets no challenge. */
+  /** The well-decomposed fixture, with three tasks and small file sets, gets no challenge. */
   it('HandleTaskDecomposition_WellDecomposedPlan_NoPlausibilityChallenge', async () => {
     mockedReadFile.mockResolvedValue(WELL_DECOMPOSED_PLAN);
 

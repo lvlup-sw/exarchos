@@ -4,9 +4,10 @@
 // feature workflow to the `merge-pending` substate. `computeNextActions` then
 // offers the `merge_orchestrate` verb with an idempotency key. The composite
 // `exarchos_orchestrate` routes that action to `handleMergeOrchestrate`, which
-// runs preflight and appends `merge.preflight`. `handleExecuteMerge` appends
-// the merge events after the VCS merge. The stream must hold the events in
-// order, with increasing sequence numbers.
+// runs preflight, appends `merge.preflight`, and commits `merge.requested`.
+// `handleExecuteMerge` appends `merge.executing_started` before the VCS merge,
+// and `merge.executed` and `merge.completed` after it. The stream must hold the
+// events in order, with increasing sequence numbers.
 //
 // The composition-root gate excludes test files, so a direct `new EventStore`
 // is allowed here. Only the VCS and git leaves are stubs. The code between the

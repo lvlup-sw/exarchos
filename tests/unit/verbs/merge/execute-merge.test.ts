@@ -6,7 +6,7 @@
 //
 // When the VCS merge rejects, the pure executor runs the recovery ladder: `git merge --abort`, then
 // `git reset --keep <rollbackSha>`, never `--hard`. The handler appends only `merge.recovered`, with
-// the categorized reason and, after a blocked recovery, `recoveryError` and `recoveryErrorDetail`.
+// the categorized reason and, after a recovery that does not land cleanly, `recoveryError` and `recoveryErrorDetail`.
 // It returns a `MERGE_ROLLED_BACK` failure.
 
 import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';

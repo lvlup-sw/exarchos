@@ -2,7 +2,8 @@
  * Tests for the `execute_intent` registration boundary. `compile.test.ts` and `executor.test.ts` cover the handler itself.
  *
  * - The composite router: `exarchos_orchestrate` sends `execute_intent` to `handleExecuteIntent`, passes the live handler table, and wraps the result in an envelope.
- * - The registered economy: over budget, the action's own `economy.summarize` caps the receipt and keeps the fields that a caller follows the operation by.
+ * - The registered economy: over budget, the action's own `economy.summarize` caps the receipt.
+ *   It keeps `operationId`, `outcome`, `failedLeaf` and `tailSequence`, which a caller uses to follow the operation.
  *
  * The mock stubs only `handleExecuteIntent`. `productionExecuteDeps` stays real, so the test proves that the composite passes the handler table to the executor.
  */
@@ -79,7 +80,7 @@ describe('execute_intent registered economy declaration', () => {
 
   /**
    * The receipt has many more leaves than the shipped intent, so it is far over budget but still realistic.
-   * The cap keeps `bundleRefs`, the only pointer into the run, next to the fields that a caller follows.
+   * The cap keeps `bundleRefs`, the only pointer into the run, next to the fields that a caller uses to follow the operation.
    * The cap is a ceiling: the capped data must fit the declared budget, not only carry a truncation label.
    */
   it('ExecuteIntentEconomy_OverBudgetPlusOne_SummarizesAndKeepsPinnedFields', () => {

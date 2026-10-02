@@ -2,6 +2,8 @@
  * Parity tests for `task-decomposition.ts` against the behavior of the
  * `check-task-decomposition.sh` script. A plan of three well-decomposed tasks
  * passes. A task with files and tests passes, even with a terse description.
+ * In that case the handler differs from the script, which fails a description
+ * below its word minimum.
  *
  * The gate-utils mock includes `requireGateEvent`, which the handler calls.
  * The gate-runner mock calls only the provider, because these cases test the

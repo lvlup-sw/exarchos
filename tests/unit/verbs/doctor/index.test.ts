@@ -217,7 +217,7 @@ describe('handleDoctor — parallel execution + timeout', () => {
     expect(data.durationMs).toBeGreaterThanOrEqual(0);
   });
 
-  /** The external abort fires before the check gives a result, so no partial event is written. */
+  /** The external abort fires before the check gives a result, so the composer writes no partial event. */
   it('HandleDoctor_OnAbort_DoesNotAppendEvent', async () => {
     const appendSpy = vi.fn(async () => ({}));
     const ctx: DispatchContext = {
@@ -391,8 +391,8 @@ describe('handleDoctor — verification-toolchain roster (task 009)', () => {
   /**
    * The block-drift check and the retired-hooks check both reach the output of
    * the composer, not only the static list. The drift check has the `agent`
-   * category. It comes before the retired-hooks check, the same order that the
-   * reconciler gives their plan steps.
+   * category. It comes before the retired-hooks check, so a derived plan puts
+   * the block-write step before the hook-removal step.
    */
   it('HandleDoctorWithChecks_RosterIncludesBlockDriftAndRetiredHooks', async () => {
     const ctx = fakeContext();

@@ -271,7 +271,7 @@ describe('handleExecuteIntent commit', () => {
     expect(byDerived.map((event) => event.type)).toEqual(['task.completed']);
   });
 
-  /** A leaf event names its stream with its sequence. This leaf addresses the subject, so the pair names the subject stream. */
+  /** Each receipt event carries its stream next to its sequence. This leaf addresses the subject, so that stream is the subject stream. */
   it('TailSequence_IsTheHighestSequenceTheLeavesReached', async () => {
     const deps = depsFor([fixtureStep('fixture_promises', 'stop')], {
       fixture_promises: appendingHandler('task.completed'),
@@ -891,6 +891,7 @@ describe('handleExecuteIntent commit races', () => {
   /**
    * The executor serializes in-process calls with the same operation id.
    * The second call waits, finds the claim of the first call in its pre-flight, and replays it.
+   * Without that order, both calls see an empty pre-flight and both run the leaves.
    */
   it('ConcurrentSameRequest_RunsTheSegmentOnceAndBothCallersGetTheReceipt', async () => {
     const leaf = vi.fn(silentHandler());
@@ -939,6 +940,7 @@ describe('handleExecuteIntent commit races', () => {
 describe('handleExecuteIntent without an ambient dispatch context', () => {
   /**
    * A direct in-process call with no `runWithDispatchContext` wrapper mints the outer packet.
+   * With no ambient context, `stampFromAmbient` adds no correlation id, so the commit must run inside the minted packet.
    * The operation record and the leaf events must carry the same minted correlation id.
    */
   it('OperationRecordAndLeafEvents_ShareTheMintedOuterCorrelationId', async () => {
@@ -990,7 +992,7 @@ describe('handleExecuteIntent per-leaf ensures', () => {
     ensures: declared({ source: 'durable-evidence', when: 'success', evidenceType: 'gate' }),
   });
 
-  /** A comparison over appended event types alone skips the durable-evidence source and reports nothing. */
+  /** Shipped gate actions declare this source. A comparison over appended event types alone skips it and reports nothing. */
   it('SilentLeafWithADurableEvidenceEnsures_FailsItsContract', async () => {
     const deps = depsFor([fixtureStep('fixture_evidences', 'stop')], {
       fixture_evidences: silentHandler(),
@@ -1003,7 +1005,7 @@ describe('handleExecuteIntent per-leaf ensures', () => {
     expect(result.error?.message).toContain('evidence gate');
   });
 
-  /** The control: the leaf records the evidence that the gate runner records, with the same keys, under its derived identity. */
+  /** The control: the leaf records gate evidence in the real evidence schema, under its derived operation id. */
   it('SameLeafRecordingTheEvidence_Passes', async () => {
     const deps = depsFor([fixtureStep('fixture_evidences', 'stop')], {
       fixture_evidences: gateEvidenceHandler({
@@ -1457,6 +1459,7 @@ describe('handleExecuteIntent run bundle', () => {
 
   /**
    * A claim from a build before custody carries no `bundleRefs`, and a replay returns that receipt unchanged.
+   * This case is the reason that `bundleRefs` is optional on the receipt.
    * The test seeds the claim with the commit primitive of the executor, under the digest that the executor computes for the request.
    */
   it('AClaimPersistedBeforeCustody_ReplaysThroughTheOutputSchema', async () => {

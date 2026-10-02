@@ -87,7 +87,7 @@ describe('env-variables', () => {
 
   /**
    * `KNOWN` is hand-maintained, so this test proves it against the tree.
-   * The floor of 20 names stops an empty scan from passing.
+   * The check for more than 20 names stops an empty scan from passing.
    * The test sets every name at once, so that one Warning names every unrecognized name.
    */
   it('EnvVariables_EveryNameTheSourceMentions_IsRecognized', async () => {

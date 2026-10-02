@@ -3,7 +3,7 @@ import type { AgentEnvironment } from '../../../../../../src/runtime/agent-envir
 import { makeStubProbes } from '../../../../../../src/verbs/doctor/checks/__shared__/make-stub-probes.js';
 
 describe('makeStubProbes', () => {
-  /** The `env` record does not throw. It is empty, so callers read a missing key as unset. */
+  /** Unlike the probes, a read of `env` does not throw. The record is empty, so callers read a missing key as unset. */
   it('MakeStubProbes_WithNoOverrides_ThrowsOnAnyProbeCall', () => {
     const probes = makeStubProbes();
 

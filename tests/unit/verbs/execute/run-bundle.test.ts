@@ -161,7 +161,7 @@ describe('run-bundle document', () => {
 
   /**
    * The executor does not own the error codes of third-party handlers.
-   * A refusal of an empty code aborts the commit after every leaf effect lands, and again on each retry.
+   * If the schema refuses an empty code, the commit aborts after every leaf effect lands, and again on each retry.
    */
   it('Schema_RecordsWhateverCodeAHandlerReturned', () => {
     const [leaf] = DOCUMENT.leaves;

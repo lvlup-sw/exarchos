@@ -128,8 +128,8 @@ function makeFixDeps(
 
 describe('doctor --fix (DR-4)', () => {
   /**
-   * The fix path emits `onboard.requested` and `onboard.executed` with trigger
-   * `doctor-fix`, not `diagnostic.executed`. After the fix, each check passes.
+   * The fix path emits `onboard.requested` and then `onboard.executed`, each with
+   * trigger `doctor-fix`. After the fix, each check passes.
    * A later reconcile with trigger `onboard` over the same repo and store then
    * has an empty plan and applies nothing, because both use one reconciler.
    */

@@ -610,8 +610,8 @@ describe('onboardMigrate (DR-3/DR-8 — stale old-name skill dir reconcile)', ()
   });
 
   /**
-   * The migration hashers copy the hashers in `src/install/install-skills.ts`. Equal results
-   * here make sure that an edit to one side cannot break provenance matching.
+   * The migration hashers copy the hashers in `src/install/install-skills.ts`. This test fails
+   * when an edit to one side makes their results differ, which breaks provenance matching.
    */
   it('migrationHashers_MirrorInstallSkillsSourceOfTruth', () => {
     const base = nodeFs.mkdtempSync(path.join(tmpdir(), 'migrate-hashguard-'));

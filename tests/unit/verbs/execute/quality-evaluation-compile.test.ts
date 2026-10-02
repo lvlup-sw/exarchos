@@ -112,8 +112,9 @@ describe('quality-evaluation compiles against the live registry', () => {
   );
 
   /**
-   * The registry declares `diffContent` optional, but the security-scan handler refuses at run
-   * time without it. A refusal in the middle of the segment comes after the earlier leaves ran.
+   * The intent requires `diffContent`, although the registry declares it optional. The
+   * security-scan handler refuses at run time without it, and a refusal in the middle of the
+   * segment comes after the earlier leaves ran.
    */
   it('QualityEvaluation_WithoutDiffContent_Refuses', () => {
     const { diffContent: _dropped, ...partial } = ARGS;

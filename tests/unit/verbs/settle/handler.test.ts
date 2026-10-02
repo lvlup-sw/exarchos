@@ -404,8 +404,8 @@ describe('settle — the adjudication endpoint', () => {
     /**
      * A harness that timed out resubmits only the batch, with no id of its own, and that must find
      * the first verdict. The first call puts two blobs in custody: the run bundle of the segment and
-     * the settlement bundle. The replay adds no blob, so it adjudicated nothing, although
-     * `decideOnce` returns the first receipt in both cases.
+     * the settlement bundle. The replay adds no blob, so it adjudicates nothing. The receipts
+     * cannot show this, because `decideOnce` returns the first receipt in both cases.
      */
     it('Settle_ARetryOfTheSameBatch_ReturnsThePersistedVerdictAndAppendsNothing', async () => {
       const args = { featureId: STREAM, capsuleVersion: 7, batchId: 'batch-replay', claims: [passingClaim()] };
@@ -529,7 +529,7 @@ describe('settle — the adjudication endpoint', () => {
     });
 
     /**
-     * A caller id is a second key, and the same batch under two caller ids adjudicates twice.
+     * A caller id adds a second key, so the same batch under two caller ids can adjudicate twice.
      * Dispatch and the leaf compile of the executor parse this strict schema before the handler
      * runs, so the refusal is in the schema.
      */

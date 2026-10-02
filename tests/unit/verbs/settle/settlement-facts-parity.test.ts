@@ -66,7 +66,7 @@ const EXCLUDED_KEYS = new Set([
   'digest',
   'timestamp',
   'createdAt',
-  /** The projection folds this stamp and the next two from the timestamp of each fact. */
+  /** The projection folds `updatedAt`, `completedAt`, and `resolvedAt` from the timestamp of each fact. */
   'updatedAt',
   'completedAt',
   'resolvedAt',
@@ -253,7 +253,7 @@ async function taskStatuses(dir: string): Promise<[string, string][]> {
 describe('settlement composition — parity with completing each task by hand', () => {
   /**
    * After the seeded prelude, both paths leave the gate evidence, the gate signal, and the completion, once per task, in that order.
-   * The settled store also holds the plane records: one segment record per task, and the settlement that reads them.
+   * The settled store also holds the plane records: `workflow.prepared`, one segment record per task, and the settlement that reads them.
    */
   it('SettlementParity_ASettledBatch_LeavesTheSameLeafFacts', async () => {
     await completeByHand();

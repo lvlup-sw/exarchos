@@ -2,7 +2,8 @@
 //
 // Runs the live orchestrate handler table over the deterministic subset of the
 // shipped review runbook. The subset leaves out `check_static_analysis`, which
-// runs the project toolchain in a shell. The four other leaves decide in-process.
+// runs the project toolchain in a shell, so its verdict depends on the machine.
+// The four other leaves decide in-process.
 // Their steps come unchanged from the shipped runbook, so the compiler builds the
 // shipped arguments.
 //
@@ -53,7 +54,10 @@ const COVERED = [
   'check_review_verdict',
 ];
 
-/** The three gates in the subset that declare `durable-evidence` in `ensures`. */
+/**
+ * Three gates of the subset that declare `durable-evidence` in `ensures`. The list leaves out
+ * `check_review_verdict`, which also declares it.
+ */
 const REPAIRED = ['check_security_scan', 'check_convergence', 'check_invariant_conformance'];
 
 const INTENT_ARGS = {
