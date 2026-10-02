@@ -12,25 +12,17 @@ const VCS_PROVIDER_NEEDS = none('VCS provider calls are not in the closed capabi
 const VCS_READ_EMISSIONS = none('read-only VCS queries emit no catalog events');
 
 /**
- * `create_pr`, `add_pr_comment` and `create_issue` all state the shared `vcs`
- * stream on their RESOURCE axis, so observation resolves the stream their two
- * journal records land on from the declaration itself rather than from the
- * call's own arguments.
- *
- * Given that, the abstention here stands on the division between the axes,
- * not on stream resolution. Both records are catalog events appended
- * unconditionally, which is what the emission axis declares and what the
- * verifier already checks — on that same resolved stream. Restating them as
- * postconditions would give one fact two declarations free to drift apart.
- * What the postcondition axis carries and the emission axis cannot express is
- * durable evidence, and these handlers record none.
+ * The ensures abstention for `create_pr`, `add_pr_comment` and `create_issue`. Each declares the
+ * shared `vcs` stream as a resource, and its two journal records land there.
+ * The emission axis declares those records, and the verifier checks them on that stream.
+ * A postcondition for the same records gives one fact two declarations. These handlers record no
+ * durable evidence, which is the only thing the postcondition axis adds.
  */
 const VCS_JOURNAL_ENSURES = none(
   'the two journal records are declared on the emission axis and checked there against the vcs stream this action declares; the postcondition axis carries the durable evidence this handler does not record',
 );
 
 export const vcsActions: readonly BuiltinToolAction[] = [
-  // ─── VCS Actions ──────────────────────────────────────────────────────────
   withActionContract(
     {
       name: 'create_pr',
@@ -42,9 +34,10 @@ export const vcsActions: readonly BuiltinToolAction[] = [
         head: z.string().min(1),
         draft: z.boolean().optional(),
         labels: z.array(z.string()).optional(),
-        // DR-1 (#1593) task 006: optional — grounds the PR body in
-        // `artifacts.intent` (a deterministic `## Intent` section). Absent /
-        // unreadable / empty intent → the body is left untouched.
+        /**
+         * Selects the workflow for the single-PR-owner guard. The handler also adds an `## Intent`
+         * section from its `artifacts.intent`. A missing or empty intent leaves the body unchanged.
+         */
         featureId: featureIdSchema.optional(),
       }),
       phases: ALL_PHASES,
@@ -58,13 +51,12 @@ export const vcsActions: readonly BuiltinToolAction[] = [
       needs: VCS_PROVIDER_NEEDS,
       touches: {
         frame: 'single-machine',
+        /**
+         * The `vcs` stream comes first, as a literal, because the two journal records land there for
+         * any `featureId`. It is not imported from the reserved-id module, so the declarations do not
+         * reach into the dispatch core.
+         */
         resources: declared(
-          // First, and a stream LITERAL rather than an argument name: the two
-          // journal records go here whatever `featureId` the caller passed.
-          // Spelled out rather than imported from the reserved-id module, the
-          // way every other infrastructure-stream declaration in this tree is —
-          // the declarations may reference schemas, not reach into the
-          // dispatch core.
           { kind: 'stream', selector: 'vcs' },
           { kind: 'git-ref', selector: 'head' },
           { kind: 'git-ref', selector: 'base' },
@@ -72,9 +64,6 @@ export const vcsActions: readonly BuiltinToolAction[] = [
       },
       executionAuthority: { kind: 'local' },
       replay: { kind: 'reject-replay', because: 'creating a pull request is a remote side effect that would open a second request' },
-      // `pr.created` used to stand here. Nothing in the shipped tree appends it —
-      // the handler has journalled the intent/result pair since the two-event
-      // split — so the declaration named an event that could never land.
       emissions: declared(
         { event: 'pr.create.requested', condition: 'always', owner: 'orchestrate', role: 'primary' },
         { event: 'pr.create.executed', condition: 'always', owner: 'orchestrate', role: 'primary' },
@@ -97,20 +86,11 @@ export const vcsActions: readonly BuiltinToolAction[] = [
     },
     {
       requires: none('provider PR merge has no authored admission discriminant'),
-      // The append fires only when the provider reports the merge landed —
-      // a declined merge is a successful call with no record, and the
-      // postcondition vocabulary (`success` / `failure` / `always`) has no
-      // way to state "required when the remote outcome says so, silent
-      // otherwise". A `when: 'success'` ensures here would fire the
-      // postcondition check on every declined merge too, reporting a
-      // violation for a call that correctly wrote nothing.
-      //
-      // That is a real gap in what this axis can express, not a reason to
-      // leave the record unguarded: the handler itself refuses to report
-      // success when the merge landed but the append then failed, rather
-      // than let a completed merge go unrecorded with no signal anywhere.
-      // The postcondition axis cannot state that conditional obligation;
-      // the handler enforces it directly instead.
+      /**
+       * A declined merge is a successful call with no record, and the `when` vocabulary cannot state
+       * that condition. A `when: 'success'` ensure reports a violation on each declined merge.
+       * Instead, the handler withholds success when the merge lands but the append fails.
+       */
       ensures: none(
         'a declined merge is a successful call with no durable record and the postcondition vocabulary cannot express that condition; when the merge DOES land, the handler itself withholds success on a failed append rather than reporting one silently missing',
       ),
@@ -191,10 +171,7 @@ export const vcsActions: readonly BuiltinToolAction[] = [
       description: 'Get comments on a pull/merge request via the VCS provider abstraction. Read-only, no events emitted.',
       schema: z.object({
         prId: z.string().min(1),
-        // DR-3 — window + projection inputs, schema-declared so the CLI flags
-        // auto-emit via schema-to-flags. The default newest-window + `page`
-        // metadata + `fields` projection land in the handler under Task 006;
-        // Task 022 owns only the schema surface here.
+        /** The window and projection inputs. The schema declares them, so the CLI derives their flags. */
         limit: coercedPositiveInt().optional(),
         offset: coercedNonnegativeInt().optional(),
         fields: coercedStringArray().optional(),
@@ -242,7 +219,6 @@ export const vcsActions: readonly BuiltinToolAction[] = [
       },
       executionAuthority: { kind: 'local' },
       replay: { kind: 'reject-replay', because: 'posting a comment is a remote side effect that would duplicate the thread entry' },
-      // `pr.commented` used to stand here and nothing appends it.
       emissions: declared(
         { event: 'pr.comment.requested', condition: 'always', owner: 'orchestrate', role: 'primary' },
         { event: 'pr.comment.executed', condition: 'always', owner: 'orchestrate', role: 'primary' },
@@ -274,7 +250,6 @@ export const vcsActions: readonly BuiltinToolAction[] = [
       },
       executionAuthority: { kind: 'local' },
       replay: { kind: 'reject-replay', because: 'creating an issue is a remote side effect that would open a second issue' },
-      // `issue.created` used to stand here and nothing appends it.
       emissions: declared(
         { event: 'issue.create.requested', condition: 'always', owner: 'orchestrate', role: 'primary' },
         { event: 'issue.create.executed', condition: 'always', owner: 'orchestrate', role: 'primary' },

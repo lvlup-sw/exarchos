@@ -1,30 +1,12 @@
-// ─── Generated CLI client surface derivation (P03-05, Section 1 + 2) ─────────
-//
-// The GENERATION half of the CLI contract seam, extracted from
-// `cli-contract-seam.ts` when the DR-25 primary resolution made it a
-// PRODUCTION import target: `generated-client.ts` lazily imports THIS module to
-// verify every CLI-addressed ActionId against the derived surface, while the
-// census half (which dynamically imports `adapters/cli/cli.js` to walk the live
-// Commander tree) stays in the seam. Splitting them keeps the runtime import
-// graph acyclic — adapter → generated client → surface derivation, with the
-// census sitting outside that chain (the `import-cycles` gate counts dynamic
-// imports as runtime edges, so this separation is load-bearing, not cosmetic).
-//
-//   1. GENERATION  — `deriveCliSurface(compiledContract)` projects the compiled
-//      descriptors into a deterministic, byte-stable CLI client surface
-//      (per-action command path, help, flags, render format, and the stable
-//      exit codes each action can produce).
-//   2. GOLDEN      — the checked-in `generated/cli-surface.json` + its drift
-//      guard mirror the P03-03 proof-fixture pattern: running the generator
-//      (`npx tsx src/contract/cli/cli-contract-seam.ts`) IS the regeneration
-//      gesture.
-//
-// PURE apart from reading the in-memory registry (via the compiler); the
-// file-writing generator only runs when invoked through the seam's
-// direct-invocation entry, so importing this module has no filesystem side
-// effect. `cli-contract-seam.ts` re-exports everything here, so census callers
-// and tests keep a single import surface.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * The generation half of the CLI contract seam. `deriveCliSurface` projects the compiled
+ * contract into a byte-stable CLI client surface. The generator writes it and the addressing
+ * module to `generated/`. Run `npx tsx src/contract/cli/cli-contract-seam.ts` to regenerate them.
+ *
+ * The census half stays in `cli-contract-seam.ts` because it imports the CLI adapter. The
+ * `import-cycles` gate counts that dynamic import, so the split keeps the import graph acyclic.
+ * Importing this module writes no file. `cli-contract-seam.ts` re-exports everything here.
+ */
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -45,10 +27,6 @@ import {
 } from '../../registry/action-contract.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-
-// ════════════════════════════════════════════════════════════════════════════
-//  SECTION 1 — Generated CLI client surface (derived from the compiled contract)
-// ════════════════════════════════════════════════════════════════════════════
 
 const byString = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
@@ -80,19 +58,18 @@ export interface CliCommand {
   /** Top-level promotion name (presentation alias), or null. */
   readonly topLevel: string | null;
   readonly flags: readonly CliFlag[];
-  /** The success exit code (always SUCCESS). */
+  /** The success exit code. It is always `SUCCESS`. */
   readonly successExitCode: number;
-  /** Every stable error code → CLI exit code, from the frozen contract. */
+  /** The CLI exit code for each stable error code of the action. */
   readonly errorExits: readonly CliExitMapping[];
   /**
-   * The compiler's normalized action contract, when the descriptor carries one.
-   * Absent live contracts stay absent — this view does not invent a contract
-   * from annotations or auto-emits.
+   * The normalized action contract of the descriptor. It is absent when the descriptor declares
+   * none. This view does not make a contract from annotations or auto-emits.
    */
   readonly actionContract?: ActionContract;
 }
 
-/** The whole generated CLI client surface — a byte-stable contract projection. */
+/** The whole generated CLI client surface. It is a byte-stable projection of the contract. */
 export interface CliSurface {
   readonly surfaceVersion: string;
   readonly generator: 'P03-05';
@@ -108,7 +85,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-/** Coarse JSON-Schema type of one property (for the flag's value hint). */
+/** The coarse JSON Schema type of one property, for the value hint of the flag. */
 function coarseType(propSchema: unknown): string {
   if (!isRecord(propSchema)) return 'unknown';
   if (Array.isArray(propSchema.enum)) return 'enum';
@@ -120,9 +97,8 @@ function coarseType(propSchema: unknown): string {
 }
 
 /**
- * Project an action's input JSON Schema into the CLI flag list. Mirrors the
- * adapter's flag derivation: skip the `action` discriminator, kebab-case the
- * name, mark required from the schema `required` array. Deterministic (sorted).
+ * Projects the input JSON Schema of an action into a sorted CLI flag list. Like the adapter,
+ * it skips the `action` discriminator, kebab-cases each name, and reads `required` from the schema.
  */
 export function deriveFlags(inputSchema: JsonSchema | undefined): CliFlag[] {
   if (inputSchema === undefined) return [];
@@ -144,10 +120,7 @@ export function deriveFlags(inputSchema: JsonSchema | undefined): CliFlag[] {
   return flags.sort((a, b) => byString(a.name, b.name));
 }
 
-/**
- * Project the compiler's declared contract into the CLI view. Missing stays
- * missing — annotations and auto-emits are not a source for inventing one.
- */
+/** Normalizes the declared contract of the descriptor. It returns `undefined` when none is declared. */
 function projectCliActionContract(descriptor: ActionDescriptor): ActionContract | undefined {
   const declared = descriptor.actionContract ?? descriptor.policy.actionContract;
   if (declared === undefined) return undefined;
@@ -176,11 +149,8 @@ function deriveCommand(descriptor: ActionDescriptor, input: JsonSchema | undefin
 }
 
 /**
- * Derive the generated CLI client surface from a compiled contract. Total and
- * deterministic: commands are sorted by ActionId, flags + exit mappings are
- * sorted, and every field comes from the frozen contract (descriptors, schemas,
- * the declared action contract when present, and the exit-code authority) —
- * no clock, path, or locale leaks in.
+ * Derives the CLI client surface from a compiled contract. Commands, flags, and exit mappings
+ * are sorted. Every field comes from the contract, so no clock, path, or locale gets in.
  */
 export function deriveCliSurface(contract: CompiledContract): CliSurface {
   const commands = [...contract.descriptors]
@@ -194,10 +164,6 @@ export function serializeCliSurface(surface: CliSurface): string {
   return canonicalJson(surface);
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-//  SECTION 2 — Golden generator (checked-in drift baseline)
-// ════════════════════════════════════════════════════════════════════════════
-
 /** The checked-in generated-artifact directory. */
 export const GENERATED_DIR = path.resolve(HERE, 'generated');
 
@@ -205,9 +171,8 @@ export const GENERATED_DIR = path.resolve(HERE, 'generated');
 export const CLI_SURFACE_FILE = path.resolve(GENERATED_DIR, 'cli-surface.json');
 
 /**
- * Compile the live contract or throw a readable aggregated diagnostic. The throw
- * is intentional: the generator must fail loudly (blocked authority, a missing
- * policy field) rather than emit a partial or stale baseline (mirrors P03-03).
+ * Compiles the live contract, or throws with all the diagnostics. The generator must fail
+ * instead of writing a partial or stale baseline.
  */
 export function compileForCli(): CompiledContract {
   const outcome = compile(deriveMetaModel());
@@ -221,37 +186,14 @@ export function compileForCli(): CompiledContract {
 }
 
 /**
- * Compile the live contract with the generation-time AUTHORITY freeze gate
- * stubbed `ok` — the UNGATED twin of {@link compileForCli}.
+ * Compiles the live contract with the authority freeze gate stubbed `ok`. No dispatch path
+ * calls it. The test `AddressingSurface_IsByteIdentical_ToTheGenerationSurface` compares its CLI
+ * surface with the surface from {@link compileForCli}.
  *
- * NOT ON THE DISPATCH PATH. It was, briefly: the generated client's verify step
- * ran this compile lazily per process, until the win32 packaged proof showed
- * that a per-process compile blows the budget when every probe spawns a fresh
- * binary. Addressing now resolves from the static `generated/cli-action-ids.ts`
- * module, and this function's remaining job is verification — it is the second
- * term in `AddressingSurface_IsByteIdentical_ToTheGenerationSurface`, which is
- * what makes "verified against the generated module" equivalent to "verified
- * against the compiled contract".
- *
- * WHY THE STUB IS LOAD-BEARING, NOT A SHORTCUT: `verifyContractAuthority()`
- * collects its inputs by READING THE SOURCE TREE — `package.json`, the
- * `.exarchos/invariants.md` catalog, and `.ts` source files, all resolved
- * relative to `import.meta.url`. Inside a compiled single-file binary those
- * paths resolve into the bundle's virtual root (`/package.json`) and throw
- * ENOENT, so a runtime dispatch path gated on the freeze check crashes EVERY
- * CLI invocation of the shipped artifact (the P05-02 packaged proof caught
- * exactly this). The freeze gate is a GENERATION/CI-time control — it blocks
- * emitting artifacts from an unapproved tree via {@link compileForCli}, the
- * golden drift guard, and the authority tests — never a per-dispatch check.
- *
- * The PURE gates (meta-model SHAPE validation and SURFACE compatibility) still
- * run, and the authority verdict never alters compiler OUTPUT (it only gates),
- * so the descriptors — and therefore the ActionId surface — are byte-identical
- * to {@link compileForCli}'s whenever the tree's authority is approved. The
- * packaged-binary guard in `generated-client.test.ts` pins the LIVE dispatch
- * path (`invokeContractAction` → `contractActionIds`) rather than this
- * function; this function's own fs-independence is pinned there too, as a
- * property of a verification helper.
+ * The freeze check reads the source tree, and inside the single-file binary those reads fail
+ * with ENOENT. Thus the freeze gate is a generation-time control only. The authority verdict
+ * only gates and never changes the output, so the result equals that of {@link compileForCli}
+ * when the authority is approved.
  */
 export function compileForCliAddressing(): CompiledContract {
   const outcome = compile(deriveMetaModel(), {
@@ -274,7 +216,7 @@ export function compileForCliAddressing(): CompiledContract {
   return outcome.output;
 }
 
-/** The canonical, byte-stable serialization written to disk (trailing newline). */
+/** The canonical serialization that the generator writes to disk, with a trailing newline. */
 export function serializedCliSurfaceBaseline(): string {
   return serializeCliSurface(deriveCliSurface(compileForCli())) + '\n';
 }
@@ -285,18 +227,13 @@ export interface GenerateCliResult {
   readonly commandCount: number;
 }
 
-/** Path of the generated ADDRESSING module (see {@link renderCliActionIdsModule}). */
+/** The path of the generated addressing module. See {@link renderCliActionIdsModule}. */
 export const CLI_ACTION_IDS_FILE = path.resolve(GENERATED_DIR, 'cli-action-ids.ts');
 
 /**
- * Render the generated addressing module: the sorted ActionId list of the
- * compiled surface as a static TS constant. The generated client imports this
- * MODULE (bundled at build time — no filesystem read, no meta-model compile)
- * to verify an id before dispatch, which is what keeps packaged cold-start
- * flat: the win32 packaged-proof probes timed out when every fresh process
- * re-ran the full meta-model → surface pipeline just to learn the id set.
- * Drift is impossible to hide: this file regenerates with the golden in one
- * gesture, and the seam's baseline test pins module == golden == derivation.
+ * Renders the addressing module: the sorted ActionIds of the surface as a static TS constant.
+ * The generated client imports it to verify an id before dispatch, with no file read and no
+ * compile at start. It regenerates with the golden, and the seam baseline test pins the two together.
  */
 export function renderCliActionIdsModule(surface: CliSurface): string {
   const ids = [...surface.commands.map((c) => c.actionId)].sort();
@@ -314,7 +251,7 @@ export function renderCliActionIdsModule(surface: CliSurface): string {
   ].join('\n');
 }
 
-/** Regenerate + write the checked-in CLI-surface baseline + addressing module. */
+/** Writes the CLI surface baseline and the addressing module to `generated/`. */
 export function generateCliArtifacts(): GenerateCliResult {
   const surface = deriveCliSurface(compileForCli());
   fs.mkdirSync(GENERATED_DIR, { recursive: true });

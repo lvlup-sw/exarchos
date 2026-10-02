@@ -1,25 +1,14 @@
-// ─── Pre-startup binding verification (P03-04) ───────────────────────────────
-//
-// PROGRAM-03, API-004. Exit proof: "missing, duplicate, or stale bindings fail
-// BEFORE server startup." This module is that gate. It reconciles the contract's
-// ActionIds (the registration manifest generated from the compiled contract)
-// against the implementation-binding table (the real composite-handler loaders)
-// and returns a typed verdict; the MCP bootstrap calls `assertBindingsAtStartup`
-// and REFUSES TO START on any violation — never deferring the failure to the
-// first tool call.
-//
-// Four fail-closed violation modes:
-//   • missing      — a contract ActionId whose tool has no bound handler.
-//   • duplicate    — two bindings claiming the same tool (ambiguous handler).
-//   • stale        — a binding for a tool that no ActionId in the contract uses.
-//   • non-function — a "binding" whose handler is not a function (a serializable
-//                    stand-in that was forged / round-tripped through JSON).
-//
-// Composes with the P03-01 authority freeze: the compiled contract this checks
-// against is only emitted once `verifyContractAuthority()` is green (the compiler
-// gates on it), so a blocked authority already halts generation upstream and a
-// missing/stale binding halts the wire projection here.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * The pre-startup binding gate. It compares the contract ActionIds with the implementation-binding
+ * table and returns a typed verdict. The MCP bootstrap calls `assertBindingsAtStartup`, so a bad
+ * binding stops startup and not the first tool call.
+ *
+ * The four violation kinds:
+ * - `missing`: a contract ActionId whose tool has no valid binding.
+ * - `duplicate`: more than one binding for the same tool.
+ * - `stale`: a binding for a tool that no contract ActionId uses.
+ * - `non-function`: a binding whose handler is not a function, such as a JSON copy.
+ */
 
 import {
   BINDING_TABLE,
@@ -40,7 +29,7 @@ export interface BindingViolation {
   readonly kind: BindingViolationKind;
   /** The offending tool (`<null>` only when a forged binding has no tool). */
   readonly tool: string;
-  /** The offending ActionId for a `missing` violation; `null` for tool-level faults. */
+  /** The offending ActionId for a `missing` violation. It is `null` for a tool-level fault. */
   readonly actionId: string | null;
   readonly message: string;
 }
@@ -66,9 +55,9 @@ function sortViolations(violations: readonly BindingViolation[]): BindingViolati
 }
 
 /**
- * Verify that every ActionId in `contract` resolves to EXACTLY ONE non-
- * serializable handler binding in `table`. Pure and total: returns a verdict,
- * never throws. `ok === true` is the pre-startup green light.
+ * Verifies that each ActionId in `contract` resolves to exactly one binding in `table` whose
+ * handler is a function. The function is pure and returns a verdict. It does not throw.
+ * Duplicate counts include invalid bindings, because any second claim on a tool is ambiguous.
  */
 export function verifyBindings(
   contract: BindingContract,
@@ -76,8 +65,6 @@ export function verifyBindings(
 ): BindingVerdict {
   const violations: BindingViolation[] = [];
 
-  // 1. Validate each binding is a real, non-serializable holder, and count
-  //    bindings per tool (a valid binding requires a function `load`).
   const validCountByTool = new Map<string, number>();
   const totalCountByTool = new Map<string, number>();
   const boundTools = new Set<string>();
@@ -103,8 +90,6 @@ export function verifyBindings(
     boundTools.add(binding.tool);
   });
 
-  // 2. Duplicate — a tool claimed by more than one binding is an ambiguous
-  //    handler (which of the two would serve the ActionId?).
   for (const [tool, count] of totalCountByTool) {
     if (count > 1) {
       violations.push({
@@ -116,7 +101,6 @@ export function verifyBindings(
     }
   }
 
-  // 3. Missing — a contract ActionId whose tool has no VALID binding.
   const contractTools = new Set<string>();
   for (const ref of contract.descriptors) {
     contractTools.add(ref.tool);
@@ -130,7 +114,6 @@ export function verifyBindings(
     }
   }
 
-  // 4. Stale — a binding for a tool no ActionId in the contract uses.
   for (const tool of boundTools) {
     if (!contractTools.has(tool)) {
       violations.push({
@@ -163,11 +146,9 @@ export class BindingVerificationError extends Error {
 }
 
 /**
- * The pre-startup gate the MCP bootstrap calls. Derives the contract's ActionId
- * set from the live registry (the fast, in-memory path — no filesystem I/O),
- * verifies it against the real binding table, and THROWS on any violation so a
- * missing/duplicate/stale/non-function binding halts BEFORE the server registers
- * a single tool (never at first invocation).
+ * The pre-startup gate that the MCP bootstrap calls. It derives the contract ActionIds from the
+ * live registry in memory and verifies them against the binding table. On any violation it throws,
+ * before the server registers a tool.
  */
 export function assertBindingsAtStartup(
   table: readonly ImplementationBinding[] = BINDING_TABLE,

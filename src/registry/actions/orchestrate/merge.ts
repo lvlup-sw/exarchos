@@ -10,7 +10,6 @@ function contracted(action: BuiltinActionDraft, contract: unknown): BuiltinToolA
 }
 
 export const mergeActions: readonly BuiltinToolAction[] = [
-  // ─── Merge Orchestrator (DR-MO-1) ─────────────────────────────────────────
   contracted(
     {
       name: 'merge_orchestrate',
@@ -20,51 +19,41 @@ export const mergeActions: readonly BuiltinToolAction[] = [
         sourceBranch: z.string().min(1),
         targetBranch: z.string().min(1),
         taskId: z.string().optional(),
-        // Required-no-default — matches `merge_pr.strategy` per #1127, gives
-        // CLI/MCP user-visible parity (#1109 §2), and keeps operator intent
-        // explicit in the event log (DIM-2 / DIM-3).
+        /**
+         * Required, with no default, like `merge_pr.strategy`. The CLI and MCP then show the same
+         * parameter, and the event log records the choice of the operator.
+         */
         strategy: z.enum(['squash', 'rebase', 'merge']),
         dryRun: z.boolean().optional(),
         resume: z.boolean().optional(),
         repoRoot: z.string().optional(),
-        // DR-2 single-writer lease guard: the caller-presented merge-lease
-        // correlator. When the target integration ref carries an in-flight
-        // `worktrees@v1` lease whose holder `operationId` differs from this
-        // value AND the holder is not provably dead, the handler fails closed
-        // (route through `serialize_merge`). `serialize_merge` threads its own
-        // lease `operationId` here so its composed call passes the guard; a
-        // crash-resumed caller presents the ORIGINAL claim's `operationId`.
-        // Optional string — the SOLE declaration of this field across the
-        // registry, so `buildRegistrationSchema` sees no same-name base-type
-        // collision. Omitting it preserves today's no-lease behavior.
+        /**
+         * The merge-lease correlator of the caller. The handler fails closed when the target ref has
+         * an in-flight `worktrees@v1` lease with another holder `operationId` that is not provably
+         * dead. `serialize_merge` passes its own lease `operationId`, and a crash-resumed caller
+         * passes the original one. No other action declares this field, so
+         * `buildRegistrationSchema` sees no type collision. When it is absent, no lease check runs.
+         */
         leaseOperationId: z.string().optional(),
       }),
       phases: ALL_PHASES,
       roles: ROLE_LEAD,
-      // T9 (#1440 Op 2, preview-4 design §4.3): multi-step git merge
-      // orchestration (preflight → execute → optional rollback) is the
-      // canonical long-running verb and benefits from Tasks-augmented
-      // dispatch. Advisory — the binding opt-in gate stays at
-      // `dispatch/core/dispatch.ts:927-954`.
+      /**
+       * The merge runs preflight, execute, and an optional rollback, so it suits task-augmented
+       * dispatch. This hint is advisory. The opt-in gate is in `dispatch/core/dispatch.ts`.
+       */
       dispatch: { taskSuitable: true, taskTtlSuggestionMs: 60_000 },
-      // DR-5 (task 076): `merge-orchestrate` is promoted to a top-level verb from
-      // HERE, the registry declaration — not by a hand-written
-      // `.command('merge-orchestrate')` in the composition root. Task 023 found
-      // that duplicate declaration while seeding G1's allowlist: the verb was
-      // declared twice (registry action + composition root), which is the
-      // multiply-owned-representation defect DR-5 exists to eliminate, and the
-      // guard's kill fixture refuses to exempt it. The DR-7 hoist loop reads this
-      // hint and routes the top-level command through `registerActionCommand` —
-      // the same schema, handler and exit-code ladder as the `orch
-      // merge-orchestrate` subcommand form. The operator-visible surface is
-      // UNCHANGED (`exarchos merge-orchestrate …` still works), so no rename stub
-      // or deprecation window is spent: this is a change of WHERE the name is
-      // declared, not WHETHER the verb exists.
+      /**
+       * This declaration is the only owner of the top-level `merge-orchestrate` verb. The hoist loop
+       * reads it and routes the command through `registerActionCommand`, with the same schema,
+       * handler, and exit codes as `orch merge-orchestrate`.
+       */
       cli: { topLevel: 'merge-orchestrate' },
-      // #1305 T13: merge_orchestrate mutates shared state (the integration
-      // branch, the working tree, the event store) from the main worktree with
-      // no worktree isolation — the strictest mutating trust tier. The resolver
-      // mints fs:write + shell:exec from this posture.
+      /**
+       * The merge changes the integration branch, the working tree, and the event store from the
+       * main worktree, with no isolation. This is the strictest mutating tier, and the resolver
+       * mints `fs:write` and `shell:exec` from it.
+       */
       posture: 'shared-mutating',
       outputSchema: vacuityWaiver('exarchos_orchestrate.merge_orchestrate'),
       annotations: COMPENSABLE_REMOTE,
@@ -113,10 +102,11 @@ export const mergeActions: readonly BuiltinToolAction[] = [
           description: 'After the merge lands and the terminal marker is written',
         },
         {
-          // Conditional rather than unconditional: a dryRun call returns success
-          // after preflight without ever entering the executing phase, so the
-          // liveness marker is genuinely absent on a successful run.
           event: 'merge.executing_started',
+          /**
+           * Conditional, because a `dryRun` call returns success after preflight and never enters
+           * the executing phase.
+           */
           condition: 'conditional',
           owner: 'orchestrate',
           role: 'primary',

@@ -47,14 +47,12 @@ export const reviewOpsActions: readonly BuiltinToolAction[] = [
       name: 'pre_synthesis_check',
       description: 'Run pre-synthesis checks: task completion, reviews, tests, and stack health',
       schema: z.object({
-        // Required, not optional: the gate declares durable evidence, and the
-        // observer reads that record on the stream the call names. A
-        // stateFile-only call had no stream to record against, so the
-        // declaration could not be paid.
+        /**
+         * Required, because the gate declares durable evidence and the observer reads it on the named stream.
+         * A call with only `stateFile` has no stream for that record.
+         */
         featureId: z.string().min(1),
-        // INV-1: the event store is the sole source of truth. `stateFile` is an
-        // optional override; when omitted the gate materializes state from the
-        // event store via `featureId` (MCP-only workflows have no `.state.json`).
+        /** An optional override. Without it, the gate builds state from the event store through `featureId`. */
         stateFile: z.string().min(1).optional(),
         repoRoot: z.string().optional(),
         skipTests: z.boolean().optional(),
@@ -64,8 +62,7 @@ export const reviewOpsActions: readonly BuiltinToolAction[] = [
       phases: new Set<string>(['synthesize']),
       roles: ROLE_LEAD,
       gate: { blocking: true, gateClass: 'pre-synthesis' },
-      // DR-5: runs the full project test suite + typecheck + build + stack
-      // assessment; routinely seconds-to-minutes on real repos.
+      /** It runs the test suite, typecheck, build, and stack assessment, which can take minutes. */
       longRunning: true,
       outputSchema: vacuityWaiver('exarchos_orchestrate.pre_synthesis_check'),
       annotations: LOCAL_MUTATION,
@@ -107,8 +104,7 @@ export const reviewOpsActions: readonly BuiltinToolAction[] = [
       schema: z.object({
         owner: z.string(),
         repo: z.string(),
-        // DR-3/Task 010 — same coerced int-array param as assess_stack's
-        // prNumbers so the shared registration flattener sees one contract.
+        /** The same coerced integer array as `assess_stack`, so the registration flattener sees one contract. */
         prNumbers: coercedIntArray(),
       }),
       phases: ALL_PHASES,
@@ -219,11 +215,12 @@ export const reviewOpsActions: readonly BuiltinToolAction[] = [
       name: 'verify_review_triage',
       description: 'Verify review triage routing — check review.routed events against state PRs',
       schema: z.object({
-        // featureId OR stateFile — the handler enforces "at least one source".
+        /** The handler requires `featureId` or `stateFile`. */
         featureId: z.string().min(1).optional(),
-        // INV-1: PRs resolve from the event-store projection; `review.routed`
-        // events are queried directly from the store. Both file inputs are
-        // OPTIONAL overrides for legacy file-based workflows.
+        /**
+         * An optional override for file-based workflows, like `eventStream`.
+         * Without them, PRs come from the event-store projection and `review.routed` events come from the store.
+         */
         stateFile: z.string().min(1).optional(),
         eventStream: z.string().min(1).optional(),
       }),
@@ -260,33 +257,22 @@ export const reviewOpsActions: readonly BuiltinToolAction[] = [
       }),
       phases: REVIEW_PHASES,
       roles: ROLE_LEAD,
-      // DR-15 / task 027: this gate BLOCKS on check-mode findings only. Raising
-      // INV-13/14/16 to `mode:check` (alongside INV-4) gave the gate deterministic
-      // mechanical findings; a blocking-severity check violation (INV-4/14/16)
-      // folds to a HIGH → NEEDS_FIXES. The scope to check-mode is STRUCTURAL, not
-      // a flag knob: the 11 audit-mode entries render into the review subagent's
-      // PROMPT (never a programmatic finding in this handler), and an
-      // advisory-severity check finding (INV-13) surfaces as MEDIUM without
-      // gating — so declaring `blocking:true` cannot red CI on the unproven
-      // audit-mode rules.
+      /**
+       * The gate blocks only on check-mode findings. A blocking-severity check violation folds to HIGH and `NEEDS_FIXES`.
+       * Audit-mode entries go into the review subagent prompt, not into handler findings.
+       * An advisory-severity check finding shows as MEDIUM and does not block.
+       */
       gate: { blocking: true, gateClass: 'invariant-conformance' },
-      // DR-4 / task 069: PAID DOWN. This gate governs conformance to the catalog
-      // that contains the anti-vacuity invariant, and it used to advertise
-      // `EnvelopeSchema(z.unknown())` — total over every payload shape, including
-      // the wrong ones. `auditPrompt` is the one field the audit-mode path exists
-      // to deliver, so a consumer instructed to act on it needs the contract to
-      // guarantee its presence and its name; `auditInvariantIds` is its enumerable
-      // checklist. Both are declared REQUIRED, and
-      // `architecture/audit-delivery-closure.ts` reddens if either stops being so.
-      // Its allowlist entry MOVED to `VACUITY_RETIRED` — a shrink, which leaves the
-      // pinned seed digest unchanged.
+      /**
+       * The schema requires `auditPrompt` and `auditInvariantIds`, because a consumer acts on the audit prompt.
+       * `architecture/audit-delivery-closure.ts` fails if either field becomes optional.
+       */
       outputSchema: withCappedShape(CheckInvariantConformanceOutputSchema),
-      // The gate reads the catalog and computes a verdict, but `emitGateEvent`s
-      // on every call — so it is NOT readOnly. Annotating it read-only would let
-      // readonly-capability clients mutate the event store. LOCAL_MUTATION
-      // matches the actual write surface and the rest of the check_* family that
-      // auto-emits gate.executed (see check_convergence / check_review_verdict);
-      // the `RegistryDrift_AutoEmitsImpliesNotReadOnly` invariant enforces this.
+      /**
+       * The gate appends a gate event on each call, so it is not read-only.
+       * A read-only annotation lets read-only clients write to the event store.
+       * The `RegistryDrift_AutoEmitsImpliesNotReadOnly` test enforces this.
+       */
       annotations: LOCAL_MUTATION,
     },
     {
@@ -322,9 +308,7 @@ export const reviewOpsActions: readonly BuiltinToolAction[] = [
         scope: z.string().optional(),
         dimensions: z.array(z.string()).optional(),
         repoRoot: z.string().optional(),
-        // DR-10 (plan-review scope) — the unified artifact under review, the
-        // spec it must satisfy, and the frozen planning depth (scales the
-        // adversarial rung; the second consumer of designDepth).
+        /** For the plan scope: the artifact under review. `spec` is what it must satisfy, and `designDepth` scales the adversarial rung. */
         artifact: z.string().optional(),
         spec: z.string().optional(),
         designDepth: z.enum(['thin', 'standard', 'deep']).optional(),
@@ -337,10 +321,10 @@ export const reviewOpsActions: readonly BuiltinToolAction[] = [
     },
     {
       requires: none('prepare_review provisions the review packet; it does not admit a prior gate'),
-      // The plan scope DOES write a durable record — the counted dispatch the
-      // revision cap reads back. It is not an `ensures` because a postcondition
-      // is observed on every successful return, and the default scope returns
-      // successfully without provisioning a plan review at all.
+      /**
+       * The plan scope writes the dispatch record that the revision cap reads.
+       * It is not an `ensures`, because the default scope succeeds and writes nothing.
+       */
       ensures: none('the plan-review dispatch record is written only on the plan scope, which a postcondition observed on every success cannot express'),
       needs: declared('subagent:spawn'),
       touches: {
@@ -373,18 +357,10 @@ export const reviewOpsActions: readonly BuiltinToolAction[] = [
         discoverFeatureId: z.string().optional(),
         correlationId: z.string().optional(),
       }),
-      // The deep-rung authoring affordance fires during PLAN authoring. A single
-      // 'plan' phase — deliberately NOT the full PLAN_PHASES set (the task-013
-      // canonical-plan-gate binding trap).
+      /** Only the `plan` phase. The full `PLAN_PHASES` set makes the action count as a canonical plan gate. */
       phases: new Set<string>(['plan']),
       roles: ROLE_LEAD,
       gate: { blocking: false },
-      // The `orchestrate` area reaching onto an event the `workflow` area owns:
-      // `wf update` is the canonical `state.patched` emitter, and this action
-      // appends its own row instead of routing through it. Declared as the
-      // NON-primary arm with an expiry so the shortcut has to be re-argued (or
-      // folded onto the canonical surface) rather than quietly becoming a second
-      // permanent writer of the same fact.
       outputSchema: vacuityWaiver('exarchos_orchestrate.discover_bridge'),
       annotations: LOCAL_MUTATION,
     },
@@ -401,6 +377,10 @@ export const reviewOpsActions: readonly BuiltinToolAction[] = [
       },
       executionAuthority: { kind: 'host', obligation: 'human-approval' },
       replay: { kind: 'claim-required', scope: 'stream-subject-request' },
+      /**
+       * `wf update` is the canonical `state.patched` emitter, but this action appends its own row.
+       * The recovery role and the expiry make the shortcut temporary.
+       */
       emissions: declared({
         event: 'state.patched',
         condition: 'conditional',

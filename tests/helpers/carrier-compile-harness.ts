@@ -60,7 +60,7 @@ export const TSC_FLAGS: readonly string[] = [
  * fail on the carrier's TYPES, not on its proofs, so removing proofs never
  * makes a fixture compile on its own.
  */
-export const PROOF_BLOCK_MARKER = '// ─── Compile-time proofs';
+export const PROOF_BLOCK_MARKER = 'type Expect<T extends true> = T;';
 
 export interface CompileResult {
   readonly accepted: boolean;

@@ -135,8 +135,10 @@ export const verificationActions: readonly BuiltinToolAction[] = [
     name: 'select_debug_track',
     description: 'Select hotfix or thorough debug track based on urgency and root cause knowledge',
     schema: z.object({
-      // INV-1: urgency/rootCauseKnown resolve from the event-store projection
-      // when not passed directly; `featureId` enables fileless resolution.
+      /**
+       * Without direct values, `urgency` and `rootCauseKnown` resolve from the event-store projection.
+       * `featureId` names the stream for that resolution, so no state file is necessary.
+       */
       featureId: z.string().min(1).optional(),
       urgency: z.string().optional(),
       rootCauseKnown: z.union([z.boolean(), z.string()]).optional(),
@@ -156,9 +158,10 @@ export const verificationActions: readonly BuiltinToolAction[] = [
     name: 'investigation_timer',
     description: 'Check investigation time budget and recommend continue or escalate',
     schema: z.object({
-      // INV-1: investigation.startedAt resolves from the event-store
-      // projection when not passed directly; `featureId` enables fileless
-      // resolution for MCP-only workflows.
+      /**
+       * Without a direct value, `investigation.startedAt` resolves from the event-store projection.
+       * `featureId` names the stream for that resolution, so no state file is necessary.
+       */
       featureId: z.string().min(1).optional(),
       startedAt: z.string().optional(),
       stateFile: z.string().optional(),
@@ -178,10 +181,10 @@ export const verificationActions: readonly BuiltinToolAction[] = [
     name: 'check_coverage_thresholds',
     description: 'Check code coverage metrics against threshold values',
     schema: z.object({
-      // The stream the gate's durable evidence is recorded against. Required:
-      // the postcondition observer reads the record on the stream the CALL
-      // names, so a gate with no stream identity can never pay the evidence it
-      // declares.
+      /**
+       * The stream that records the durable gate evidence. It is required, because the postcondition
+       * observer reads the record on the stream that the call names.
+       */
       featureId: z.string().min(1),
       coverageFile: z.string().min(1),
       lineThreshold: z.number().optional(),
@@ -206,9 +209,10 @@ export const verificationActions: readonly BuiltinToolAction[] = [
     name: 'assess_refactor_scope',
     description: 'Assess refactoring scope and recommend polish or overhaul track',
     schema: z.object({
-      // INV-1: explore.scopeAssessment.filesAffected resolves from the
-      // event-store projection when no explicit `files` list is supplied;
-      // `featureId` enables fileless resolution.
+      /**
+       * Without a `files` list, `explore.scopeAssessment.filesAffected` resolves from the event-store
+       * projection. `featureId` names the stream for that resolution.
+       */
       featureId: z.string().min(1).optional(),
       files: z.array(z.string()).optional(),
       stateFile: z.string().optional(),
@@ -247,13 +251,12 @@ export const verificationActions: readonly BuiltinToolAction[] = [
       bodyFile: z.string().optional(),
       body: z.string().optional(),
       template: z.string().optional(),
-      // DR-1 (#1593) task 006: optional — enables the advisory intent-grounding
-      // check (reads `artifacts.intent`). Absent → unchanged legacy validation.
+      /** When present, it turns on the advisory intent-grounding check, which reads `artifacts.intent`. */
       featureId: featureIdSchema.optional(),
-      // Optional, and the default keeps the shipped semantics: a deficient body
-      // is reported on the success carrier. A caller whose next step depends on
-      // the verdict cannot read a payload field — a composition sees the
-      // envelope — so it asks for the verdict as a refusal instead.
+      /**
+       * By default, a deficient body is reported on the success carrier. A composition sees only the
+       * envelope, so a caller that depends on the verdict sets `enforce` to get a refusal instead.
+       */
       enforce: z.boolean().optional(),
     }),
     phases: SYNTHESIS_REVIEW_PHASES,
@@ -270,9 +273,10 @@ export const verificationActions: readonly BuiltinToolAction[] = [
     name: 'validate_pr_stack',
     description: 'Validate PR stack ordering and base branch consistency',
     schema: z.object({
-      // The stream the gate's durable evidence is recorded against. Required
-      // for the same reason the sibling gates need one: the observer looks for
-      // the record on the stream the call names.
+      /**
+       * The stream that records the durable gate evidence. It is required, because the observer reads
+       * the record on the stream that the call names.
+       */
       featureId: z.string().min(1),
       baseBranch: z.string().min(1),
     }),
@@ -294,9 +298,10 @@ export const verificationActions: readonly BuiltinToolAction[] = [
     name: 'debug_review_gate',
     description: 'Run debug-track review gate: verify test files exist and pass for changed files',
     schema: z.object({
-      // The stream the gate's durable evidence is recorded against. The action
-      // already replayed under a stream-subject claim scope while naming no
-      // stream at all; this is the identity that scope always presumed.
+      /**
+       * The stream that records the durable gate evidence. It is also the subject of the
+       * stream-subject claim scope for replay.
+       */
       featureId: z.string().min(1),
       repoRoot: z.string().min(1),
       baseBranch: z.string().min(1),
@@ -321,11 +326,15 @@ export const verificationActions: readonly BuiltinToolAction[] = [
     name: 'extract_fix_tasks',
     description: 'Extract fix tasks from review findings and map to worktrees',
     schema: z.object({
-      // featureId OR stateFile — the handler enforces "at least one source"
-      // (Zod single-field `.min(1)` can't express the cross-field rule).
+      /**
+       * The handler requires `featureId` or `stateFile`, because a single-field `.min(1)` cannot
+       * express the cross-field rule.
+       */
       featureId: z.string().min(1).optional(),
-      // INV-1: findings + worktrees resolve from the event-store projection;
-      // `stateFile` is an optional override for legacy file-based workflows.
+      /**
+       * An optional override for file-based workflows. Otherwise the findings and worktrees resolve
+       * from the event-store projection.
+       */
       stateFile: z.string().min(1).optional(),
       reviewReport: z.string().optional(),
       repoRoot: z.string().optional(),
@@ -350,18 +359,19 @@ export const verificationActions: readonly BuiltinToolAction[] = [
       featureId: z.string().min(1),
       actionItems: z.array(z.record(z.string(), z.unknown())),
     }),
-    // Shepherd operates within `synthesize` and invokes classify_review_items
-    // after assess_stack; restricting to REVIEW_PHASES would trip phase-guard
-    // at runtime (#1161 / Sentry bug prediction).
+    /**
+     * The shepherd runs in `synthesize` and calls this action after `assess_stack`. With only
+     * `REVIEW_PHASES`, the phase guard refuses that call.
+     */
     phases: SYNTHESIS_REVIEW_PHASES,
     roles: ROLE_LEAD,
     outputSchema: vacuityWaiver('exarchos_orchestrate.classify_review_items'),
     annotations: LOCAL_MUTATION,
   }, {
-    // The classification telemetry is best-effort by design: the handler logs an
-    // append failure and still returns the grouping, which is the shepherd-visible
-    // result. A postcondition would turn that deliberate tolerance into a dispatch
-    // failure, so the append is carried on the emission axis alone.
+    /**
+     * The classification record is best-effort. The handler logs an append failure and still returns
+     * the grouping. A postcondition makes that a dispatch failure, so only the emission declares it.
+     */
     ensures: none('the classification record is best-effort — the handler swallows an append failure and still returns the grouping'),
     needs: declared('mcp:exarchos'),
     resources: declared({ kind: 'stream', selector: 'featureId' }),
@@ -399,28 +409,24 @@ export const verificationActions: readonly BuiltinToolAction[] = [
     name: 'spec_coverage_check',
     description: 'Verify that test files referenced in the plan exist in the repo',
     schema: z.object({
-      // The gate declares durable gate evidence keyed to a phase attempt, and
-      // evidence is recorded against a stream — the action cannot pay a
-      // postcondition it has no subject for. Required rather than optional:
-      // `when: 'always'` admits no "when the caller supplied one".
+      /**
+       * The stream that records the durable gate evidence. It is required, because the
+       * `when: 'always'` postcondition needs a subject on each call.
+       */
       featureId: z.string().min(1),
       planFile: z.string().min(1),
       repoRoot: z.string().min(1),
       skipRun: z.boolean().optional(),
-      // WFQ-010. Declared here or the parameter cannot reach the handler at all:
-      // dispatch forwards only schema-parsed args and Zod strips unknown keys, so
-      // an undeclared field left `runPlanSyntaxCheck` unreachable and applied
-      // post-implementation semantics in the plan phases this action is bound to.
-      // The handler's default stays `post-implementation` for back-compat; plan-time
-      // callers pass `coveragePhase: 'plan'` so a declared-but-uncreated test file
-      // reads as a forward declaration rather than a failure.
-      //
-      // NOT named `phase`: `buildRegistrationSchema` flattens field names across
-      // every action, and `check_test_adequacy` already declares a free-form
-      // `phase: z.string()` legacy workflow-phase carrier. Two different meanings
-      // under one name is a hard collision (base types differ, string vs enum) that
-      // throws at server construction — and widening this one to `string` to match
-      // would trade a schema-level constraint for a prose one, which INV-5a forbids.
+      /**
+       * The coverage phase. Dispatch forwards only schema-parsed args, so this field must be declared
+       * to reach the handler. The handler default is `post-implementation`. A plan-time caller passes
+       * `'plan'`, so a declared test file that does not exist yet is not a failure.
+       *
+       * The name is not `phase`. `buildRegistrationSchema` flattens field names across all actions,
+       * and `check_test_adequacy` declares `phase` as a free-form string. The two base types collide
+       * and throw at server construction. A string type here loses the enum check, so the field has
+       * its own name.
+       */
       coveragePhase: z.enum(['plan', 'post-implementation']).optional(),
     }),
     phases: PLAN_PHASES,
@@ -463,10 +469,10 @@ export const verificationActions: readonly BuiltinToolAction[] = [
       taskName: z.string().min(1),
       baseBranch: z.string().optional(),
       skipTests: z.boolean().optional(),
-      // DR-3 (T-09, #1204): resolution priority is
-      //   `branch` > `workflow.tasks[id=taskId].branch` > legacy default.
-      // Provide `featureId` to let the composite adapter look up the planned
-      // branch from workflow state when `branch` is not supplied.
+      /**
+       * The branch resolves from `branch`, then `workflow.tasks[id=taskId].branch`, then the default.
+       * With `featureId` and no `branch`, the composite adapter reads the planned branch from state.
+       */
       branch: z.string().min(1).optional(),
       featureId: z.string().min(1).optional(),
     }),
@@ -506,10 +512,10 @@ export const verificationActions: readonly BuiltinToolAction[] = [
     description: 'Run post-delegation checks: task completion, test pass, branch existence',
     schema: z.object({
       stateFile: z.string().min(1).optional(),
-      // Required, not optional: the gate declares durable evidence, and the
-      // observer reads that record on the stream the call names. A stateFile-only
-      // call had no stream to record against, so the declaration could not be
-      // paid. `stateFile` remains the optional state-resolution override.
+      /**
+       * The stream that records the durable gate evidence. It is required, because the observer reads
+       * the record on the stream that the call names. `stateFile` is an optional state override.
+       */
       featureId: z.string().min(1),
       repoRoot: z.string().min(1),
       skipTests: z.boolean().optional(),
@@ -517,8 +523,7 @@ export const verificationActions: readonly BuiltinToolAction[] = [
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,
     gate: { blocking: true, gateClass: 'post-delegation' },
-    // Runs the resolved test command in every task worktree with a 120s
-    // per-worktree timeout; scales with the number of tasks.
+    /** It runs the resolved test command in each task worktree with a 120s timeout, so it grows with the task count. */
     longRunning: true,
     outputSchema: vacuityWaiver('exarchos_orchestrate.post_delegation_check'),
     annotations: COMPENSABLE_LOCAL,

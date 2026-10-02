@@ -1,74 +1,17 @@
-// ─── The independent contract-vs-behavior oracle (P03-09) ────────────────────
-//
-// PROGRAM-03, API-010. Exit proof: "seeded incorrect handlers, missing
-// authorization, undeclared effects, malformed outputs, and compatibility
-// breaks are caught EVEN WHEN GENERATED FILES AGREE."
-//
-// ## Why this exists — the blind spot every other PROGRAM-03 package shares
-//
-// Everything else in the chain is a GENERATION pipeline. The compiler (P03-03)
-// derives a meta-model from the live `TOOL_REGISTRY`, projects descriptors and
-// schemas (`compiler/descriptors.ts`), and emits a checked-in proof-fixture
-// baseline; the binding generator (P03-04) projects the registration manifest
-// and reconciles it against the loader table; the CLI generator (P03-05)
-// projects a client. Every one of those layers, and every drift guard that
-// polices them, is a pure function of the DECLARED contract. They compare a
-// declaration to another declaration derived from the same declaration.
-//
-// That means: if the meta-model itself is wrong, or a handler quietly does
-// something its contract never declared, EVERY generated artifact agrees with
-// every other generated artifact and the whole system is self-consistently
-// wrong. Declaration-to-declaration drift guards cannot see it.
-//
-// ## How this oracle is INDEPENDENT of that pipeline
-//
-//   1. It never calls `deriveMetaModel()` / `compile()` and never reads the
-//      checked-in `generated/proof-fixtures.json`. It derives its expectations
-//      DIRECTLY from the declared contract (`ContractDeclaration`) and the frozen
-//      P03-02 contract-surface primitives (`error-families`, `envelope`,
-//      `compatibility`) — a different route than the compiler's transform.
-//   2. Its decisive signal is OBSERVED BEHAVIOR, not another declaration. It
-//      invokes the handler against a probe, watches the effects it actually
-//      performs (a runtime effect recorder), probes it with an unauthorized
-//      caller, validates the value it actually returns against the declared
-//      output schema, and compares the output shape it actually emits against a
-//      recorded prior-version observation. Behavior is a genuinely different
-//      information source than any generated file.
-//
-// The independence is provable, not asserted: a seeded break leaves the
-// DECLARATION byte-identical (only the handler misbehaves), so
-// `deriveGeneratedDescriptor()` — the faithful model of the generation route —
-// produces a byte-identical artifact for the broken and the correct subject.
-// No generation/drift check can tell them apart; the oracle tells them apart by
-// observing behavior. See `oracle-seam.test.ts` exit proof (g).
-//
-// ## `not-observed` is NOT `pass` (DR-24)
-//
-// An axis has THREE outcomes, and the third one is load-bearing: `pass` means
-// "we looked and it was fine", `fail` means "we looked and it was broken", and
-// `not-observed` means "we did not look". Reporting `pass` for an axis that was
-// never exercised is how an oracle silently goes vacuous — it reads green on a
-// system it never inspected. So every axis here refuses to emit `pass` without
-// positive evidence:
-//
-//   • authorization is DIFFERENTIAL — the handler must SERVE an authorized
-//     caller and REFUSE an unauthorized one, through a real
-//     {@link AuthorizationSurface}. An empty / open-marker role set, a subject
-//     with no probeable surface, or a handler that refuses everyone all yield
-//     `not-observed`.
-//   • the effect axis requires effect EVIDENCE (a runtime record or a static
-//     scan). An empty recorder cannot distinguish "performed nothing" from
-//     "was never instrumented", so it yields `not-observed`.
-//   • idempotency is not compared when the authorized probe was declined.
-//
-// {@link axisCoverage} then makes the residual vacuity legible: an axis whose
-// `observed` count is zero across a suite reported nothing at all.
-//
-// This module is a TEST-INVOKED source-lint gate (the `-seam.ts` convention):
-// its co-located test runs `runOracleSuite()` against the real registry and
-// against the seeded-break fixtures. It exports pure analysis functions; it is
-// not a production import target.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * The oracle that judges handler behavior against the contract. It catches a wrong handler, a
+ * missing authorization check, an undeclared effect, a malformed output, and a compatibility
+ * break, even when the generated files agree.
+ *
+ * Each generation guard compares one declaration with another declaration from the same source.
+ * Thus a wrong meta-model or a misbehaving handler is invisible to them. This oracle does not
+ * call `deriveMetaModel()` or `compile()`, and it does not read `generated/proof-fixtures.json`.
+ * It derives expectations from the declared contract and judges the observed handler behavior.
+ *
+ * Each axis has three outcomes: `pass`, `fail`, and `not-observed`. An axis reports `pass` only
+ * with positive evidence. {@link axisCoverage} shows each axis that observed nothing.
+ * The test of this module runs `runOracleSuite()` on the real registry and the seeded breaks.
+ */
 
 import { z } from 'zod';
 import { canonicalJson } from '../request-context.js';
@@ -82,8 +25,6 @@ import {
   type EffectClass,
   type ModuleLexer,
 } from '../../architecture/effect-ledger.js';
-
-// ─── The five detection axes ─────────────────────────────────────────────────
 
 /** The five independently-seedable, independently-reported detection axes. */
 export const ORACLE_AXES = [
@@ -99,28 +40,18 @@ export type OracleAxis = (typeof ORACLE_AXES)[number];
 export type ActionSafety = 'read-only' | 'local-mutation' | 'remote-mutation' | 'compensable';
 
 /**
- * One event a contract declares a handler appends, in the SAME `{event,
- * condition}` vocabulary the registry declares, the compiler compiles and the
- * dispatch verifier enforces.
- *
- * `condition` is the whole reason this is a record rather than a bare event
- * name. An `always` edge is PROMISED on every call, so its absence is a fault.
- * A `conditional` edge fires only when the run takes the branch that produces
- * it, so its absence proves nothing and can never be a fault — it can only
- * corroborate, by landing. Flattening the two into one list is how an axis
- * starts failing handlers for taking a branch they were entitled to take.
+ * One event that a contract declares a handler appends, in the `{event, condition}` form of the
+ * registry. An `always` edge is promised on each call, so its absence is a fault. A
+ * `conditional` edge fires only on one branch, so its absence is never a fault.
  */
 export interface DeclaredEmission {
   readonly event: string;
   readonly condition: 'always' | 'conditional';
 }
 
-// ─── The declared contract (the oracle's expectation source) ─────────────────
-
 /**
- * What a contract DECLARES about one action. The oracle reads this directly —
- * NOT via the compiler's meta-model transform — and derives per-axis
- * expectations from it. Every field is a declaration; none is behavior.
+ * What a contract declares about one action. The oracle reads it directly, not through the
+ * meta-model of the compiler, and derives the expectation of each axis from it.
  */
 export interface ContractDeclaration {
   readonly actionId: string;
@@ -133,14 +64,11 @@ export interface ContractDeclaration {
    * the action declares no role requirement (authorization axis not observed).
    */
   readonly requiredRoles: readonly string[];
-  /** The effect classes the contract declares this handler may perform. */
+  /** The effect classes that the contract lets this handler perform. */
   readonly declaredEffects: readonly EffectClass[];
   /**
-   * The events the contract declares this handler appends, each with the
-   * condition under which it is promised. Optional: a subject whose observed
-   * function is not the action's handler has no append to attribute, so it
-   * declares none and the emission axis reports `not-observed` rather than a
-   * vacuous `pass`.
+   * The events that the contract declares this handler appends. A subject whose observed
+   * function is not the handler of the action declares none. Then the emission axis reports `not-observed`.
    */
   readonly declaredEmissions?: readonly DeclaredEmission[];
   /** The declared input schema. */
@@ -151,8 +79,6 @@ export interface ContractDeclaration {
   readonly surfaceVersion: string;
 }
 
-// ─── Runtime observation surface ─────────────────────────────────────────────
-
 /** One effect the handler actually performed, as recorded at runtime. */
 export interface EffectEvent {
   readonly effectClass: EffectClass;
@@ -160,12 +86,8 @@ export interface EffectEvent {
 }
 
 /**
- * A runtime effect recorder threaded into the handler's observation context. In
- * a real deployment these records are emitted by the narrow, per-module effect
- * ports (P07-06 `*-effect-port-seam.ts`); the synthetic fixtures model that by
- * having the handler call `record()` at the point it performs an effect. Either
- * way this is a genuinely independent signal from the static effect ledger
- * (P04-01), which can only see import surface.
+ * A runtime effect recorder in the observation context. A handler calls `record()` when it
+ * performs an effect. This signal is independent of the static effect ledger, which sees only imports.
  */
 export interface EffectRecorder {
   record(effectClass: EffectClass, evidence: string): void;
@@ -191,12 +113,9 @@ export interface EmissionEvent {
 }
 
 /**
- * A runtime emission recorder threaded into the handler's observation context,
- * minted the exact way {@link EffectRecorder} is (see the three mint sites in
- * {@link observeBehavior}). Its evidence is an OBSERVED append: a handler that
- * threads a real event-store append through `record()` at the point it commits
- * is the difference between "declared to emit" and "was seen appending" —
- * re-reading the declaration would be tautological.
+ * A runtime emission recorder in the observation context, made the same way as
+ * {@link EffectRecorder}. A handler calls `record()` when it commits an append, so the
+ * evidence is an observed append and not the declaration.
  */
 export interface EmissionRecorder {
   record(eventType: string, evidence: string): void;
@@ -226,11 +145,8 @@ export interface ObservationContext {
   readonly caller: Caller;
   readonly effects: EffectRecorder;
   /**
-   * The emission recorder. Optional on the TYPE only so the one
-   * existing caller-constructed literal (`fixtures.ts`'s admission probe)
-   * keeps compiling unchanged; {@link observeBehavior} always mints and
-   * injects one, so a handler reached through the oracle can rely on it being
-   * present.
+   * The emission recorder. It is optional so that a context literal built outside the oracle
+   * compiles. {@link observeBehavior} always supplies one.
    */
   readonly emissions?: EmissionRecorder;
 }
@@ -246,7 +162,7 @@ export type ObservableHandler = (
   ctx: ObservationContext,
 ) => unknown | Promise<unknown>;
 
-/** The authorization stable codes a refusal may carry (P03-02 error families). */
+/** The stable authorization codes that a refusal can carry. */
 export const AUTHORIZATION_CODES: ReadonlySet<string> = new Set(
   layerCodes('authorization'),
 );
@@ -262,18 +178,18 @@ export class UnauthorizedError extends Error {
 }
 
 /**
- * The registry's OPEN-role marker (`roles: new Set(['any'])`): every
- * authenticated caller holds it, so it expresses NO restrictive requirement.
- * An action declaring only this marker has nothing for the authorization axis
- * to observe — see {@link checkMissingAuthorization} (DR-24).
+ * The open-role marker of the registry. Each authenticated caller holds it, so it states no
+ * restrictive requirement. See {@link checkMissingAuthorization}.
  */
 export const OPEN_ROLE_MARKER = 'any';
 
-/** Throw {@link UnauthorizedError} unless the caller holds every required role. */
+/**
+ * Throws {@link UnauthorizedError} unless the caller holds one of the required roles. A required
+ * {@link OPEN_ROLE_MARKER} admits each caller.
+ */
 export function guardRoles(ctx: ObservationContext, requiredRoles: readonly string[]): void {
   if (requiredRoles.length === 0) return;
   const held = new Set(ctx.caller.roles);
-  // `any` is the registry's open-role marker: any authenticated caller holds it.
   const authorized = requiredRoles.some(
     (role) => role === OPEN_ROLE_MARKER || held.has(role),
   );
@@ -292,40 +208,23 @@ export interface CompatBaseline {
 }
 
 /**
- * How the oracle's synthetic {@link Caller} reaches the handler's REAL
- * authorization surface (DR-24).
- *
- *  • `observation-context` — the handler reads `ctx.caller` directly, so the
- *    {@link ObservationContext} IS the principal (the seeded subjects, whose
- *    correct arm calls {@link guardRoles}).
- *  • `dispatch-authority` — a real adapter projects the caller onto the REAL
- *    runtime authorization substrate (the trusted caller-authorization
- *    snapshot carried on the dispatch async scope) before invoking the real
- *    handler, so withholding the principal is a genuine runtime condition.
- *
- * A subject that OMITS this field has no probeable authorization surface, and
- * the authorization axis then reports `not-observed` — **never** `pass`. That
- * asymmetry is deliberate: because "we did not look" is not a passing outcome,
- * omitting the surface buys a subject nothing.
+ * How the synthetic {@link Caller} reaches the real authorization surface of the handler. With
+ * `observation-context`, the handler reads `ctx.caller`. With `dispatch-authority`, an adapter
+ * puts the caller on the authorization snapshot of the dispatch scope before the call.
+ * Without a surface, the authorization axis reports `not-observed`.
  */
 export type AuthorizationSurface = 'observation-context' | 'dispatch-authority';
 
 /**
- * The two shapes a runtime-owned per-call carrier can take. The kind is what
- * makes {@link VolatileCarrier} auditable: the oracle checks the OBSERVED
- * values against it before honoring the mask.
- *
- *  • `measurement-block` — an object whose every value is a number, i.e. a
- *    measurement of THAT call (the `_perf` block a real composite handler
- *    stamps with elapsed ms / bytes / tokens).
- *  • `generation-timestamp` — an ISO-8601 instant recording WHEN the answer
- *    was computed, not WHAT the answer is.
+ * The two shapes of a per-call carrier. The oracle checks the observed values against the kind
+ * before it honors the mask. A `measurement-block` is an object of numbers, such as `_perf`.
+ * A `generation-timestamp` is an ISO-8601 instant.
  */
 export type VolatileCarrierKind = 'measurement-block' | 'generation-timestamp';
 
 /** A dot-path into the output that carries per-call runtime bookkeeping. */
 export interface VolatileCarrier {
-  /** Dot-path, e.g. `_perf` or `data.session.start`. */
+  /** The dot-path, for example `_perf` or `data.session.start`. */
   readonly path: string;
   readonly kind: VolatileCarrierKind;
 }
@@ -344,42 +243,23 @@ export interface OracleSubject {
    */
   readonly authorizationSurface?: AuthorizationSurface;
   /**
-   * Runtime-owned, per-call carriers to exclude from the IDEMPOTENCY
-   * comparison only — never from schema validation and never from the
-   * compatibility shape comparison.
+   * Per-call carriers to leave out of the idempotency comparison only. Schema validation and
+   * the compatibility comparison still see them.
    *
-   * A mask is a hole in an oracle, so this one is not taken on trust: each
-   * carrier declares its {@link VolatileCarrierKind} and the oracle HONORS it
-   * only when both observed values actually match that kind (see
-   * {@link honorsCarrier}). A path that is present but holds something other
-   * than the declared carrier shape has its mask REFUSED, stays in the
-   * comparison, and is named in the axis diagnostic — so a mask can never be
-   * widened to swallow a real behavioral divergence.
+   * The oracle honors a carrier only when both observed values match its kind. Otherwise it
+   * refuses the mask, keeps the value in the comparison, and names the path in the diagnostic.
    */
   readonly volatileCarriers?: readonly VolatileCarrier[];
   /**
-   * Optional handler source for the COMPLEMENTARY static effect scan (P04-01).
-   * Runtime effect recording is the primary signal; this cross-checks it.
-   *
-   * The source and the lexer that reads it are ONE optional field rather than
-   * two, so a caller cannot supply the subject without also supplying the
-   * instrument. `detectModuleEffects` needs a {@link ModuleLexer} port since
-   * DR-26 / task 065 — the effect ledger is shipped source and cannot import the
-   * TypeScript compiler — and a separate optional lexer would let this branch
-   * silently not run while looking configured.
-   *
-   * **R-11, recorded rather than fixed (task 065).** Nothing in the tree sets
-   * this field: the static-effect branch below is unreachable in practice and
-   * `staticEffects` is always `[]`. It is not this task's to wire, but a reader
-   * should not mistake it for a live cross-check.
+   * The handler source and its lexer, for the static effect scan that cross-checks the runtime
+   * record. They are one field, so a caller cannot supply the source without the lexer.
+   * No caller sets this field at this time, so `staticEffects` is always empty.
    */
   readonly handlerSource?: {
     readonly source: string;
     readonly lex: ModuleLexer;
   };
 }
-
-// ─── Observation ─────────────────────────────────────────────────────────────
 
 export interface Observation {
   readonly output: unknown;
@@ -413,7 +293,7 @@ export interface Observation {
    * effect axis must report as `not-observed` rather than a vacuous `pass`.
    */
   readonly effectsObserved: boolean;
-  /** Whether the subject exposed an authorization surface the oracle could probe. */
+  /** Whether the subject has an authorization surface that the oracle can probe. */
   readonly authorizationProbed: boolean;
   /** The authorization surface actually used, when one was available. */
   readonly authorizationSurface?: AuthorizationSurface;
@@ -433,10 +313,9 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+/** True when the handler declined: it threw any error, or it returned a `success:false` envelope. */
 function isRefusal(value: unknown, error: unknown): boolean {
   if (error !== undefined) {
-    // A handler that declines by throwing is refusing. Prefer an explicit
-    // authorization signal, but any thrown refusal counts.
     if (error instanceof UnauthorizedError) return true;
     if (typeof error === 'object' && error !== null && 'code' in error) {
       const code = (error as { code?: unknown }).code;
@@ -444,7 +323,6 @@ function isRefusal(value: unknown, error: unknown): boolean {
     }
     return true;
   }
-  // A handler that declines by returning a `success:false` envelope also refuses.
   if (typeof value === 'object' && value !== null) {
     const v = value as { success?: unknown };
     if (v.success === false) return true;
@@ -487,11 +365,8 @@ function deletePath(value: unknown, segments: readonly string[]): unknown {
 const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/;
 
 /**
- * Does the OBSERVED pair actually match the declared carrier kind? This is the
- * check that keeps {@link VolatileCarrier} from becoming a hole in the oracle:
- * a mask is honored only against the shape it claims to be masking, so
- * declaring `{ path: 'data', kind: 'generation-timestamp' }` over a real
- * payload masks nothing.
+ * True when both observed values match the declared carrier kind. Thus
+ * `{ path: 'data', kind: 'generation-timestamp' }` over a real payload masks nothing.
  */
 function honorsCarrier(kind: VolatileCarrierKind, first: unknown, second: unknown): boolean {
   if (kind === 'generation-timestamp') {
@@ -515,9 +390,8 @@ interface MaskResult {
 }
 
 /**
- * Build the idempotency comparison basis by stripping the carriers the oracle
- * is willing to honor. Present-but-wrong-shaped carriers are refused and
- * reported; absent carriers are silently skipped.
+ * Removes the honored carriers from both outputs for the idempotency comparison. A carrier with
+ * the wrong shape is refused and reported. An absent carrier is skipped.
  */
 function maskVolatileCarriers(
   first: unknown,
@@ -532,7 +406,7 @@ function maskVolatileCarriers(
     const segments = carrier.path.split('.');
     const a = readPath(first, segments);
     const b = readPath(second, segments);
-    if (!a.found || !b.found) continue; // nothing to mask on this output
+    if (!a.found || !b.found) continue;
     if (!honorsCarrier(carrier.kind, a.value, b.value)) {
       refused.push(carrier.path);
       continue;
@@ -545,9 +419,12 @@ function maskVolatileCarriers(
 }
 
 /**
- * Observe the subject's actual behavior: invoke the handler against the probe
- * (twice, for idempotency), watch the effects it performs, and probe it with an
- * unauthorized caller. Pure observation — no comparison to the contract yet.
+ * Observes the behavior of the subject. It calls the handler as an authorized caller. If that call
+ * does not throw, it calls it again with fresh recorders. Then it calls it once as a caller with no
+ * roles. It does not compare with the contract.
+ *
+ * A throw on the second call is a contradiction. A throw on an authorized call counts as not
+ * served here, and the incorrect-handler axis reports it.
  */
 export async function observeBehavior(subject: OracleSubject): Promise<Observation> {
   const { handler, probeInput, declaration } = subject;
@@ -555,7 +432,6 @@ export async function observeBehavior(subject: OracleSubject): Promise<Observati
     ? [...declaration.requiredRoles]
     : [OPEN_ROLE_MARKER];
 
-  // Authorized invocation #1 — the observed output + performed effects/emissions.
   const rec1 = createEffectRecorder();
   const emissionRec1 = createEmissionRecorder();
   let output: unknown;
@@ -570,7 +446,6 @@ export async function observeBehavior(subject: OracleSubject): Promise<Observati
     invocationError = errorMessage(err);
   }
 
-  // Authorized invocation #2 — the idempotency witness (fresh recorders).
   const rec2 = createEffectRecorder();
   const emissionRec2 = createEmissionRecorder();
   let outputRepeat: unknown;
@@ -582,12 +457,10 @@ export async function observeBehavior(subject: OracleSubject): Promise<Observati
         emissions: emissionRec2,
       });
     } catch (err) {
-      // A handler that succeeds once then throws is itself a contradiction.
       invocationError = `second invocation diverged by throwing: ${errorMessage(err)}`;
     }
   }
 
-  // Unauthorized probe — a caller holding NO roles.
   const rec3 = createEffectRecorder();
   const emissionRec3 = createEmissionRecorder();
   let unauthorizedRefused = false;
@@ -633,16 +506,12 @@ export async function observeBehavior(subject: OracleSubject): Promise<Observati
     ...(subject.authorizationSurface !== undefined
       ? { authorizationSurface: subject.authorizationSurface }
       : {}),
-    // A thrown authorized probe is a contradiction, not a refusal — the
-    // incorrect-handler axis owns it; here it only means "not served".
     authorizedRefused: invocationError !== undefined || isRefusal(output, undefined),
     unauthorizedRefused,
     unauthorizedDetail,
     ...(invocationError !== undefined ? { invocationError } : {}),
   };
 }
-
-// ─── Per-axis verdicts ───────────────────────────────────────────────────────
 
 export type AxisStatus = 'pass' | 'fail' | 'not-observed';
 
@@ -726,16 +595,11 @@ export function checkIncorrectHandler(
 }
 
 /**
- * Axis 2 — MISSING AUTHORIZATION. A declared authorization requirement that is
- * not actually enforced at runtime. Observed DIFFERENTIALLY: the handler must
- * SERVE an authorized caller and REFUSE an unauthorized one. Anything less is
- * `not-observed` (DR-24) — never `pass`, because:
+ * Axis 2, missing authorization: a declared role requirement that the runtime does not enforce.
+ * A `pass` needs the handler to serve the authorized caller and refuse the unauthorized caller.
  *
- *  • an empty / open-marker role set declares no restrictive requirement;
- *  • a subject with no {@link AuthorizationSurface} never had a principal
- *    withheld from it, so nothing about enforcement was observed; and
- *  • a handler that refuses EVERYONE (its authorized probe was declined too)
- *    proves nothing — a blanket failure is not evidence of enforcement.
+ * The verdict is `not-observed` for an empty or open-marker role set. It is also `not-observed`
+ * without an {@link AuthorizationSurface}, and when the handler refuses the authorized caller too.
  */
 export function checkMissingAuthorization(
   decl: ContractDeclaration,
@@ -802,14 +666,9 @@ export function checkMissingAuthorization(
 }
 
 /**
- * Axis 3 — UNDECLARED EFFECT. A handler performing an effect its contract does
- * not declare. Primary signal is RUNTIME (the effect recorder); the static
- * import scan (P04-01) is a complementary cross-check.
- *
- * DR-24: with NO evidence at all — no runtime record, no static scan — the
- * handler's effects were never observed. That is reported `not-observed`, never
- * `pass`: an empty recorder cannot distinguish "performed nothing" from
- * "was never instrumented", and the latter must not read as a clean bill.
+ * Axis 3, undeclared effect: a handler that performs an effect its contract does not declare.
+ * The runtime recorder is the primary signal, and the static import scan cross-checks it.
+ * With no evidence the verdict is `not-observed`, because an empty recorder can also mean no instrumentation.
  */
 export function checkUndeclaredEffect(
   decl: ContractDeclaration,
@@ -918,11 +777,8 @@ export function checkMalformedOutput(
 }
 
 /**
- * Axis 5 — COMPATIBILITY BREAK. A change violating the declared compatibility
- * policy: the output shape actually emitted dropped a field the prior-version
- * observation carried (a breaking structural change), yet the declared version
- * transition does not classify as breaking. Uses P03-02 `classifyVersionChange`
- * — independent of the compiler.
+ * Axis 5, compatibility break: the output dropped a field of the prior-version observation, but
+ * `classifyVersionChange` does not classify the declared version change as breaking.
  */
 export function checkCompatibilityBreak(
   subject: OracleSubject,
@@ -983,35 +839,24 @@ export function checkCompatibilityBreak(
   };
 }
 
-// ─── The emission axis ────────────────────────────────────────────────
-//
-// Reported SEPARATELY from {@link ORACLE_AXES} rather than folded into that
-// closed union: `fixtures.ts`'s `AXIS_HANDLERS` is typed `Record<OracleAxis, …>`
-// over the five original seedable axes, and this axis's own seeded-break
-// fixture and live-subject wiring are a later task's to add. The axis is
-// reported on {@link OracleReport.emissionVerdict}, using the identical
-// {@link AxisStatus} vocabulary, and participates in `ok` and `failures`
-// exactly as the other five do.
-
-/** The emission axis identifier — a member of {@link ALL_AXES}, not of {@link ORACLE_AXES}. */
+/**
+ * The emission axis. It is in {@link ALL_AXES} but not in {@link ORACLE_AXES}. `AXIS_HANDLERS` in
+ * `fixtures.ts` must hold a seeded break for each member of `ORACLE_AXES`, and this axis has none.
+ * The report carries it on {@link OracleReport.emissionVerdict}, and it counts toward `ok` and `failures`.
+ */
 export const EMISSION_AXIS = 'declared-emission';
 export type EmissionAxis = typeof EMISSION_AXIS;
 
 /**
- * The full selectable surface: the five originally-seedable {@link ORACLE_AXES}
- * plus the emission axis. `ORACLE_AXES` stays five-membered — `seededBreak`,
- * `axisCoverage` and the per-axis `it.each` tests are keyed on exactly those
- * five — but `RunOracleOptions.axes` selects from this six-member tuple, so the
- * emission axis is a real, filterable choice rather than a check that always
- * runs regardless of what a caller asked for.
+ * All the axes that a caller can select: {@link ORACLE_AXES} and the emission axis.
+ * `RunOracleOptions.axes` selects from this list, so a caller can also leave out the emission axis.
  */
 export const ALL_AXES = [...ORACLE_AXES, EMISSION_AXIS] as const;
 export type AnyAxis = (typeof ALL_AXES)[number];
 
 /**
- * Thrown by `runOracle`/`runOracleSuite` when `axes` is given but empty. An
- * empty array is a real selection of nothing, and silently producing zero
- * verdicts for it would read as a clean, fully-considered run.
+ * Thrown by `runOracle` and `runOracleSuite` when `axes` is an empty array. A run with zero
+ * verdicts looks like a clean run, so the oracle refuses it.
  */
 export class EmptyAxisSelectionError extends Error {
   constructor() {
@@ -1053,23 +898,11 @@ function emissionEvents(
 }
 
 /**
- * DECLARED EMISSION. A handler declaring an emission it does not perform.
- * Evidence is an OBSERVED append — the emission recorder minted and injected
- * into the observation context the exact way {@link EffectRecorder} is — never
- * a re-read of {@link ContractDeclaration.declaredEmissions}, which would be
- * tautological.
+ * The emission axis: a handler that declares an emission it does not perform. The evidence is an
+ * observed append in the emission recorder, not the declaration.
  *
- * The verdict follows the SAME `{event, condition}` semantics the dispatch
- * emission verifier reaches over the same declarations: only `always` edges
- * are required, so only an `always` edge can produce a `fail`. A `conditional`
- * edge that did not fire is the branch not being taken, not a defect — but one
- * that DID fire is positive observed evidence, and is enough to reach `pass`
- * on its own.
- *
- * `not-observed` whenever nothing was required and nothing was seen: there is
- * no evidence either way, and reporting `pass` would claim positive evidence
- * this axis never collected (see the module header's `not-observed` is NOT
- * `pass`).
+ * Only a missing `always` edge gives `fail`. A `conditional` edge that fired is enough for `pass`.
+ * When no edge is required and none fired, the verdict is `not-observed`.
  */
 export function checkDeclaredEmission(
   decl: ContractDeclaration,
@@ -1137,8 +970,6 @@ export function checkDeclaredEmission(
   };
 }
 
-// ─── The oracle run ──────────────────────────────────────────────────────────
-
 export interface OracleReport {
   readonly actionId: string;
   /**
@@ -1166,10 +997,8 @@ export interface OracleReport {
 }
 
 /**
- * A report on which the emission axis ran — narrows {@link OracleReport.emissionVerdict}
- * to defined. Use this instead of an `!== undefined` check at each call site so the
- * exclusion of a standard-only report from an emission census is enforced by the
- * type checker, not by remembering to filter correctly by hand.
+ * A report on which the emission axis ran, so {@link OracleReport.emissionVerdict} is defined.
+ * With this type, the type checker keeps a report without that axis out of an emission census.
  */
 export interface EmissionSelectedReport extends OracleReport {
   readonly emissionVerdict: EmissionAxisVerdict;
@@ -1241,9 +1070,8 @@ export interface OracleSuiteReport {
    */
   readonly failures: readonly (AxisVerdict | EmissionAxisVerdict)[];
   /**
-   * Per-axis observation census. Makes VACUITY visible: an axis whose
-   * `observed` count is 0 across the whole suite reported nothing at all, which
-   * `ok: true` alone would happily conceal.
+   * The observation census of each axis. An axis with an `observed` count of 0 reported nothing,
+   * and `ok: true` alone hides that.
    */
   readonly coverage: readonly AxisCoverage[];
   /** The axes this suite actually ran, in {@link ALL_AXES} order — same value every report in `reports` carries. */
@@ -1294,13 +1122,14 @@ function observationIsClean(verdicts: readonly { readonly status: AxisStatus }[]
   return determinate > 0 && failed === 0;
 }
 
-/** Run the oracle over many subjects. `ok` iff no subject failed; `clean` iff something was observed and nothing failed. */
+/**
+ * Runs the oracle over many subjects. `ok` is true when no subject failed. `clean` is true when
+ * an axis reached a verdict and none failed. An empty `axes` selection throws before any check runs.
+ */
 export async function runOracleSuite(
   subjects: readonly OracleSubject[],
   opts: RunOracleOptions = {},
 ): Promise<OracleSuiteReport> {
-  // Resolved (and any empty-selection error raised) before any subject is
-  // observed, so a rejected call never runs a single check.
   const { selectedAxes } = resolveAxisSelection(opts);
   const reports = await Promise.all(subjects.map((s) => runOracle(s, opts)));
   const failures: (AxisVerdict | EmissionAxisVerdict)[] = reports.flatMap((r) => [
@@ -1338,17 +1167,11 @@ export function summarizeReport(report: OracleReport): string {
   return [head, ...lines].join('\n');
 }
 
-// ─── Generation-consistency model (the independence proof's foil) ────────────
-//
-// A FAITHFUL model of the generation route: the projection the compiler applies
-// (registry → descriptor with content-addressed digest over policy + schemas)
-// — reusing the SAME `zodToJsonSchema` / `canonicalJson` / `digestText`
-// building blocks `compiler/descriptors.ts` uses. Critically it is a PURE
-// FUNCTION OF THE DECLARATION: no behavior enters. So for a seeded break — where
-// the declaration is byte-identical and only the handler misbehaves — this
-// produces a byte-identical descriptor for the broken and the correct subject.
-// That is the blind spot every generation/drift guard shares, made concrete.
-
+/**
+ * A model of the descriptor that the generation route makes. It uses the same building blocks as
+ * `compiler/descriptors.ts` and is a pure function of the declaration. Thus a seeded break gives
+ * the same descriptor for the broken subject and the correct subject.
+ */
 export interface GeneratedDescriptor {
   readonly actionId: string;
   readonly surfaceVersion: string;
@@ -1367,10 +1190,11 @@ export interface GeneratedDescriptor {
   readonly digest: string;
 }
 
+/**
+ * The error codes of the layers that each action is bound to. It is like `deriveErrorCodes` in
+ * `meta-model.ts`, without the task binding.
+ */
 function declaredErrorCodes(): readonly string[] {
-  // The declaration-derived error surface (the layers every action is bound
-  // to). A pure function of the contract surface — mirrors `meta-model.ts`
-  // `deriveErrorCodes` minus the behavioral task binding it cannot see.
   return [
     ...layerCodes('protocol'),
     ...layerCodes('authorization'),
@@ -1382,10 +1206,7 @@ function declaredErrorCodes(): readonly string[] {
     .sort(byString);
 }
 
-/**
- * Project a declaration to its generated runtime descriptor — the artifact a
- * generation/drift guard would compare. A pure function of the DECLARATION.
- */
+/** Projects a declaration to its generated descriptor, the artifact that a drift guard compares. */
 export function deriveGeneratedDescriptor(decl: ContractDeclaration): GeneratedDescriptor {
   const body = {
     actionId: decl.actionId,

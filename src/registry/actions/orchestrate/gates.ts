@@ -45,10 +45,10 @@ export const gateActions: readonly BuiltinToolAction[] = [
       branch: z.string().optional(),
       baseBranch: z.string().optional(),
       repoRoot: z.string().optional(),
-      // #1330: the handler threads worktreePath into resolveRepoRoot so
-      // `repoRoot: 'auto'` resolves the agent's worktree. The field must be
-      // declared here or action-level schema parsing drops it before the
-      // handler sees it (the task-completion runbook passes it as a template var).
+      /**
+       * The handler passes it to `resolveRepoRoot`, so `repoRoot: 'auto'` resolves the agent's worktree.
+       * Without this declaration, dispatch refuses the field before the handler sees it.
+       */
       worktreePath: z.string().optional(),
       skipLint: z.boolean().optional(),
       skipTypecheck: z.boolean().optional(),
@@ -56,14 +56,8 @@ export const gateActions: readonly BuiltinToolAction[] = [
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
     gate: { blocking: true, dimension: 'D2', gateClass: 'static-analysis' },
-    // DR-5: shells out to `npm run lint` and `npm run typecheck`; on
-    // non-trivial repos both exceed the 2s heartbeat threshold.
+    /** It runs `npm run lint` and `npm run typecheck`, which exceed the 2s heartbeat threshold on a large repo. */
     longRunning: true,
-    // T-01/T-02: routed through `runDurableGateProducer` → `runGate`, the
-    // single authoritative producer of `gate.executed` (minted from the SAME
-    // persisted `admission.evidence-recorded` record). Both rows are genuinely
-    // emitted on every call — declaring only the evidence row here understated
-    // the contract `task_complete`'s `hasPassingGate('static-analysis')` reads.
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_static_analysis'),
     annotations: LOCAL_MUTATION,
   }, {
@@ -108,12 +102,8 @@ export const gateActions: readonly BuiltinToolAction[] = [
     phases: STACK_PHASES,
     roles: ROLE_LEAD,
     gate: { blocking: true, dimension: 'D2', gateClass: 'integration-suite' },
-    // Shells out to `npm run test:run -- --reporter=json` over the entire
-    // suite; on a real repo this far exceeds the 2s heartbeat threshold.
+    /** It runs the full test suite, which exceeds the 2s heartbeat threshold on a real repo. */
     longRunning: true,
-    // T-01/T-02: routed through `runDurableGateProducer` → `runGate`, which
-    // mints `gate.executed` from the same persisted evidence record it just
-    // wrote — both rows are genuinely emitted on every call.
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_integration_suite'),
     annotations: LOCAL_MUTATION,
   }, {
@@ -257,13 +247,11 @@ export const gateActions: readonly BuiltinToolAction[] = [
         file: z.string().optional(),
         line: z.number().int().positive().optional(),
         message: z.string(),
-        // DR-3: intent-touching classification for the escalation policy. A
-        // spec-category (or explicitly-flagged) finding escalates immediately.
+        /** The classification for the escalation policy. A `spec` finding or a flagged finding escalates at once. */
         category: z.string().optional(),
         intentTouching: z.boolean().optional(),
       })).optional(),
-      // DR-3: per-loop override of the auto-fix bound (highest precedence over
-      // config `escalation.maxIterations` and the built-in default of 5).
+      /** Overrides the auto-fix bound for this loop. It takes precedence over `escalation.maxIterations` and the default. */
       maxFixCycles: coercedPositiveInt().optional(),
     }),
     phases: REVIEW_PHASES,
@@ -292,12 +280,10 @@ export const gateActions: readonly BuiltinToolAction[] = [
     roles: ROLE_LEAD,
     gate: { blocking: false, gateClass: 'convergence' },
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_convergence'),
-    // sentry HIGH on PR #1369: although `check_convergence` reads
-    // existing gate state, the handler `emitGateEvent`s on every call,
-    // so the action is not readOnly — annotating it as such would let
-    // readonly-capability clients mutate the event store. LOCAL_MUTATION
-    // matches the actual write surface (matches the rest of the check_*
-    // family that emits gate.executed).
+    /**
+     * The handler appends a gate event on each call, so the action is not read-only.
+     * A read-only annotation lets a readonly-tier client write to the event store.
+     */
     annotations: LOCAL_MUTATION,
   }, {
     ensures: declared(
@@ -344,16 +330,13 @@ export const gateActions: readonly BuiltinToolAction[] = [
       featureId: z.string().min(1),
       stateFile: z.string().optional(),
       designPath: z.string().optional(),
-      // Unified-artifact delegation: when design and plan are one docs/specs/
-      // file, planPath == designPath. Optional — the handler also resolves the
-      // path from workflow-state artifacts.
+      /** Equals `designPath` when one spec file holds the design and the plan. The handler can also resolve it from state. */
       planPath: z.string().optional(),
     }),
-    // Deprecated alias: callable in the (post-collapse) plan phase. Deliberately
-    // NOT the full PLAN_PHASES set — that set marks an action as a canonical
-    // plan-structure gate (see the `setEqualsNames(a.phases, PLAN_PHASE_NAMES)`
-    // binding pin in phase-kind.test.ts); this alias is being excised from the
-    // chains (task 014), so it must not register as a bound plan gate.
+    /**
+     * Only the `plan` phase, not `PLAN_PHASES`. An action with exactly `PLAN_PHASES` counts as a
+     * plan-structure gate, and this deprecated alias must not count as one.
+     */
     phases: new Set<string>(['plan']),
     roles: ROLE_LEAD,
     gate: { blocking: false, dimension: 'D1' },
@@ -412,20 +395,16 @@ export const gateActions: readonly BuiltinToolAction[] = [
       'layer planning, dimension D1) on every path, including the skip.',
     schema: z.object({
       featureId: z.string().min(1),
-      // The unified docs/specs/ artifact. Optional — resolved from workflow-state
-      // artifacts (plan preferred, then design) when absent.
+      /** The unified spec artifact. When absent, the handler resolves it from state: the plan first, then the design. */
       designPath: z.string().optional(),
-      // Frozen per-feature designDepth stamp. Optional — resolved from
-      // state.designDepth when absent; non-`deep` self-skips.
+      /** The frozen design depth of the feature. When absent, it comes from `state.designDepth`. A depth other than `deep` skips. */
       designDepth: z.enum(['thin', 'standard', 'deep']).optional(),
       stateFile: z.string().optional(),
     }),
-    // Callable in the plan phase, but deliberately NOT the full PLAN_PHASES set:
-    // that set is the canonical plan-STRUCTURE binding pinned to the `standard`
-    // rung (`setEqualsNames(a.phases, PLAN_PHASE_NAMES)` in phase-kind.test.ts).
-    // check_exploration_depth is the DEEP-ONLY obligation the plan-structure
-    // resolver appends at `deep` depth — it must stay OUT of the standard-rung
-    // binding, so it uses the subset idiom (cf. the check_design_completeness alias).
+    /**
+     * Only the `plan` phase, not `PLAN_PHASES`, which is the plan-structure binding of the `standard`
+     * rung. This gate is a `deep`-only obligation, so it must stay out of that binding.
+     */
     phases: new Set<string>(['plan']),
     roles: ROLE_LEAD,
     gate: { blocking: true, dimension: 'D1', gateClass: 'exploration-depth' },
@@ -459,6 +438,10 @@ export const gateActions: readonly BuiltinToolAction[] = [
       'per-task verification gate: it subsumes the regression-coverage intent of ' +
       'the retired check_tdd_compliance (#1587) — outcome-based test adequacy, ' +
       'test-after, NOT commit-order test-first.',
+    /**
+     * The schema is `.strict()`, so dispatch rejects an unknown key such as `base` and applies no silent
+     * default. Dispatch removes injected sibling-action defaults before this validation.
+     */
     schema: z.object({
       featureId: z.string().min(1),
       taskId: z.string().min(1),
@@ -467,26 +450,16 @@ export const gateActions: readonly BuiltinToolAction[] = [
       repoRoot: z.string().optional(),
       worktreePath: z.string().optional(),
       operationId: z.string().optional(),
-      // Legacy phase carrier retained for compatibility. Durable evidence uses
-      // the active persisted phaseAttemptId, never caller-supplied provenance.
+      /** A compatibility field. Durable evidence uses the stored `phaseAttemptId`, not this caller value. */
       phase: z.string().optional(),
       riskTier: z.enum(['low', 'medium', 'high']).optional(),
       boundaryTouching: z.boolean().optional(),
-      // .strict() so the dispatch layer rejects unknown keys (e.g. `base`
-      // instead of `baseBranch`) rather than silently defaulting — the #1188
-      // protection, inherited from the retired check_tdd_compliance (#1587).
-      // Tolerant dispatch strips leaked sibling-action defaults BEFORE this
-      // per-action validation, so strict never false-rejects a real dispatch.
     }).strict(),
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,
     gate: { blocking: true, dimension: 'D1', gateClass: 'test-adequacy' },
-    // Reverts source + shells out to the resolved test command; on a real repo
-    // this exceeds the 2s heartbeat threshold.
+    /** It reverts source and runs the test command, which exceeds the 2s heartbeat threshold on a real repo. */
     longRunning: true,
-    // T-01/T-02: routed through `runDurableGateProducer` → `runGate`, which
-    // mints `gate.executed` from the same persisted evidence record it just
-    // wrote — both rows are genuinely emitted on every call.
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_test_adequacy'),
     annotations: LOCAL_MUTATION,
   }, {
@@ -520,9 +493,10 @@ export const gateActions: readonly BuiltinToolAction[] = [
       '(INV-4). Pass repoRoot ("auto" to resolve the calling delegation\'s ' +
       'worktree). On a ' +
       'clean pass, surfaces a one-semantic-test steer in next_actions.',
-    // Field names + base types match check_test_adequacy exactly so the shared
-    // registration schema (buildRegistrationSchema) never sees a same-name
-    // field with a divergent base type.
+    /**
+     * The field names and base types match `check_test_adequacy`, so `buildRegistrationSchema` sees no
+     * field name with two base types.
+     */
     schema: z.object({
       featureId: z.string().min(1),
       taskId: z.string().min(1),
@@ -537,12 +511,8 @@ export const gateActions: readonly BuiltinToolAction[] = [
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,
     gate: { blocking: true, dimension: 'D1', gateClass: 'contract-drift' },
-    // Shells out to codegen/typecheck/breaking-diff against a real repo; on a
-    // real project this exceeds the 2s heartbeat threshold.
+    /** It runs codegen, typecheck and a breaking-change diff, which exceed the 2s heartbeat threshold. */
     longRunning: true,
-    // T-01/T-02: routed through `runDurableGateProducer` → `runGate`, which
-    // mints `gate.executed` from the same persisted evidence record it just
-    // wrote — both rows are genuinely emitted on every call.
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_contract_drift'),
     annotations: LOCAL_MUTATION,
   }, {
@@ -580,10 +550,10 @@ export const gateActions: readonly BuiltinToolAction[] = [
       'is an escape hatch that passes the gate advisory AND records the ' +
       'acknowledgement in durable evidence. Pass repoRoot ("auto" to resolve ' +
       "the calling delegation's worktree).",
-    // Field names + base types match check_test_adequacy / check_contract_drift
-    // exactly so the shared registration schema (buildRegistrationSchema) never
-    // sees a same-name field with a divergent base type. `reason` reuses the
-    // existing optional-string contract (request_synthesize.reason).
+    /**
+     * The field names and base types match `check_test_adequacy` and `check_contract_drift`, so
+     * `buildRegistrationSchema` sees no field name with two base types. `reason` is an optional string.
+     */
     schema: z.object({
       featureId: z.string().min(1),
       taskId: z.string().min(1),
@@ -598,14 +568,11 @@ export const gateActions: readonly BuiltinToolAction[] = [
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,
-    // Advisory by default — the runtime severity demotion lives in
-    // DEFAULTS.review.gates['mock-boundary'] (resolved per-call via
-    // resolveGateSeverity). The registry flag mirrors that default so the
-    // RunbookDrift blocking-gate coverage check treats it as advisory.
+    /**
+     * Advisory by default. `resolveGateSeverity` reads the severity from
+     * `DEFAULTS.review.gates['mock-boundary']`, and this flag mirrors it for the runbook drift check.
+     */
     gate: { blocking: false, dimension: 'D1', gateClass: 'mock-boundary' },
-    // T-01/T-02: routed through `runDurableGateProducer` → `runGate`, which
-    // mints `gate.executed` from the same persisted evidence record it just
-    // wrote — both rows are genuinely emitted on every call.
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_mock_boundary'),
     annotations: LOCAL_MUTATION,
   }, {
@@ -644,38 +611,31 @@ export const gateActions: readonly BuiltinToolAction[] = [
       'deferred advisory (no inline run). Emits mutation.executing_started/executed (INV-10) and a foldable ' +
       'gate.executed carrying mutationScore (INV-1); operationId makes the gate ' +
       'emission idempotent (INV-8). Reuse `base` as a string verbatim.',
-    // `base` reuses the existing string field contract (request_synthesize.base /
-    // assess_stack.base); `scope`/`worktreePath`/`operationId`/`threshold` match
-    // their existing declarations' base types so buildRegistrationSchema never
-    // sees a same-name field with a divergent contract (field-collision trap).
-    // `scope` is a plain string here (matching prepare_review.scope) and is
-    // validated to 'diff'|'full' by the handler — declaring it as an enum would
-    // collide with prepare_review's z.string().
+    /**
+     * Each field keeps the base type of other declarations with the same name, so
+     * `buildRegistrationSchema` sees no collision. `scope` is a plain string, as in `prepare_review`,
+     * and the handler accepts only `'diff'` or `'full'`.
+     */
     schema: z.object({
       featureId: z.string().min(1),
       base: z.string().min(1),
-      // `taskId` lets `repoRoot:'auto'` resolve via the task's worktree.created
-      // event (the check_test_adequacy contract). Optional here (the review-gate
-      // path often passes an explicit repoRoot/worktreePath); matches the
-      // existing `taskId: z.string().optional()` declarations so
-      // buildRegistrationSchema sees no divergent same-name contract.
+      /**
+       * Lets `repoRoot: 'auto'` resolve through the task's `worktree.created` event. It is optional,
+       * because the review-gate path often passes an explicit worktree.
+       */
       taskId: z.string().optional(),
       worktreePath: z.string().optional(),
       operationId: z.string().optional(),
       threshold: z.number().min(0).max(1).optional(),
       scope: z.string().optional(),
-      // DR-6: explicit offline/opt-in for a full-tree run. Inline `/review` never
-      // sets it, so `scope:'full'` stays deferred on the inline path.
+      /** The opt-in for a full-tree run. Inline `/review` does not set it, so `scope: 'full'` stays deferred there. */
       offline: z.boolean().optional(),
     }),
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
-    // Advisory by default — the runtime severity demotion lives in
-    // DEFAULTS.review.gates['mutation-adequacy'] (resolved per-call via
-    // resolveGateSeverity); the registry flag mirrors that default.
+    /** Advisory by default. This flag mirrors the severity in `DEFAULTS.review.gates['mutation-adequacy']`. */
     gate: { blocking: false, dimension: 'mutation-adequacy' },
-    // Shells out to a real mutation runner; on a real repo this exceeds the 2s
-    // heartbeat threshold.
+    /** It runs a mutation runner, which exceeds the 2s heartbeat threshold on a real repo. */
     longRunning: true,
     outputSchema: vacuityWaiver('exarchos_orchestrate.mutation-adequacy'),
     annotations: LOCAL_MUTATION,

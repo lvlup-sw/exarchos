@@ -1,19 +1,12 @@
-// ─── Canonical contract-surface serialization (P03-02) ───────────────────────
-//
-// Produces the deterministic, content-addressable serialization of the P03-02
-// CLOSED contract surface — the error/exit families, stable error registry,
-// output-carrier kinds, compatibility classes, change-class taxonomy, and the
-// protected request-context fields. `authority-collector.ts` digests this
-// string as the `contract-surface` authority so any change to the actual
-// contract shape (a new error code, a changed exit mapping, a new output kind,
-// a re-classified change class) trips the P03-01 freeze and demands explicit
-// re-approval via the authority lock CLI.
-//
-// The digest deliberately captures the STRUCTURAL contract — codes, layers,
-// exit codes, retry policies, kinds, severities, directions, protected fields,
-// and the surface version — but NOT free-text descriptions, so editing a
-// doc-comment does not spuriously trip the freeze.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * The canonical serialization of the closed contract surface. It covers the error and exit
+ * families, the stable error registry, and the output kinds. It also covers the change and
+ * compatibility classes, the migration directions, and the protected request-context fields.
+ *
+ * `authority-collector.ts` digests it as the `contract-surface` authority. Thus a change to the
+ * contract shape trips the authority freeze. The surface holds no free-text descriptions, so a
+ * comment edit does not trip the freeze.
+ */
 
 import {
   FAILURE_LAYERS,
@@ -33,10 +26,7 @@ import { PROTECTED_CONTEXT_FIELDS, canonicalJson } from './request-context.js';
 const sorted = <T>(xs: readonly T[]): T[] =>
   [...xs].sort((a, b) => (String(a) < String(b) ? -1 : String(a) > String(b) ? 1 : 0));
 
-/**
- * The structural contract-surface object. Key order is irrelevant —
- * {@link canonicalJson} sorts recursively — so this is a stable value.
- */
+/** The structural contract surface. {@link canonicalJson} sorts the keys, so the key order has no effect. */
 export function contractSurface(): Record<string, unknown> {
   return {
     version: CONTRACT_SURFACE_VERSION,
@@ -69,7 +59,7 @@ export function contractSurface(): Record<string, unknown> {
   };
 }
 
-/** The canonical, deterministic serialization digested as the authority. */
+/** The canonical serialization that the authority digest reads. */
 export function serializeContractSurface(): string {
   return canonicalJson(contractSurface());
 }

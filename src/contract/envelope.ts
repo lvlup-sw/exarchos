@@ -1,28 +1,14 @@
-// ─── Total output carrier union (P03-02) ─────────────────────────────────────
-//
-// PROGRAM-03, API-006. Formalises the CLOSED set of runtime-emittable output
-// shapes on top of the EXISTING live envelope (`format.ts` `ToolResult` /
-// `Envelope<T>` and `contract/schemas/envelope.ts`). It does NOT fork the envelope — it
-// names the four total variants every dispatched result already collapses to
-// and proves the set is closed:
-//
-//   baseline  success, full `data`, no economy marker
-//   capped    success, `data` replaced by a summary/first-page, `_meta.truncated`
-//   degraded  success, UNCAPPED `data`, `_meta.economyDegraded` (fail-open)
-//   error     `success:false`, structured `error` block
-//
-// The capped/degraded markers are the SAME keys the dispatch-core economy seam
-// (`dispatch/core/response-economy.ts`) already stamps: `ECONOMY_META_TRUNCATED` /
-// `ECONOMY_META_DEGRADED`. This module reads them, it does not invent new ones.
-//
-// Totality: {@link classifyOutput} maps any `ToolResult` to exactly one
-// {@link OutputKind}; {@link describeOutputKind} switches over the `OutputKind`
-// union with an `assertNever` default (a `never` assertion over the variant
-// union) so a new variant without a descriptor is a compile error.
-//
-// This module is PURE and is digested as part of the frozen `contract-surface`
-// authority (`contract-surface.ts`).
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * The closed set of runtime output shapes over the live envelope. Every dispatched result is one kind:
+ * - `baseline`: success with the full `data` and no economy marker.
+ * - `capped`: success where a summary or a first page replaces `data`, with `_meta.truncated`.
+ * - `degraded`: success with the uncapped `data`, with `_meta.economyDegraded`.
+ * - `error`: `success:false` with a structured `error` block.
+ * The markers are the keys that `dispatch/core/response-economy.ts` stamps.
+ * The module also re-exports the canonical envelope schemas, so generators import them from one place.
+ * The `contract-surface` authority digests the output-kind descriptors, so a descriptor change needs a
+ * new lock approval.
+ */
 
 import { z } from 'zod';
 import type { ToolResult } from '../format.js';
@@ -34,17 +20,13 @@ import {
 } from './schemas/envelope.js';
 import { assertNever } from './error-families.js';
 
-// Re-export the canonical envelope schemas so the contract module is a single
-// import site for downstream generators (P03-03/04/05) without re-cutting them.
 export { SuccessEnvelopeSchema, ErrorEnvelopeSchema, CacheHintsSchema };
-
-// ─── Output variants ────────────────────────────────────────────────────────
 
 /** The four total, mutually-exclusive runtime output shapes. */
 export const OUTPUT_KINDS = ['baseline', 'capped', 'degraded', 'error'] as const;
 export type OutputKind = (typeof OUTPUT_KINDS)[number];
 
-/** The economy marker a response may carry (mutually exclusive). */
+/** An economy marker on a response. A response carries at most one. */
 export type EconomyMarker = typeof ECONOMY_META_TRUNCATED | typeof ECONOMY_META_DEGRADED;
 
 export interface OutputKindDescriptor {
@@ -56,11 +38,7 @@ export interface OutputKindDescriptor {
   readonly description: string;
 }
 
-/**
- * Total descriptor lookup. The `default` arm's `assertNever(kind)` is the
- * mandated `never` exhaustiveness proof over the {@link OutputKind} union —
- * adding a variant without a case fails the build.
- */
+/** The descriptor for each output kind. The `assertNever` default fails the build for a kind with no case. */
 export function describeOutputKind(kind: OutputKind): OutputKindDescriptor {
   switch (kind) {
     case 'baseline':
@@ -101,8 +79,6 @@ export function describeOutputKind(kind: OutputKind): OutputKindDescriptor {
   }
 }
 
-// ─── Economy marker reading ─────────────────────────────────────────────────
-
 function metaRecord(result: ToolResult): Record<string, unknown> {
   return result._meta !== null && typeof result._meta === 'object'
     ? (result._meta as Record<string, unknown>)
@@ -117,20 +93,15 @@ export function economyMarker(result: ToolResult): EconomyMarker | null {
   return null;
 }
 
-/**
- * The economy markers are mutually exclusive on any single response
- * (`format.ts` `EconomyMeta` invariant). A result carrying BOTH is a contract
- * violation the seam must never emit.
- */
+/** False when a result carries both economy markers, which is a contract violation. */
 export function hasConsistentEconomyState(result: ToolResult): boolean {
   const meta = metaRecord(result);
   return !(meta[ECONOMY_META_TRUNCATED] === true && meta[ECONOMY_META_DEGRADED] === true);
 }
 
 /**
- * Classify a dispatched result into exactly one {@link OutputKind}. Total by
- * construction: `success:false` → `error`; otherwise the economy marker (if
- * any) selects `capped`/`degraded`, else `baseline`.
+ * Classifies a dispatched result as one {@link OutputKind}. A failure is `error`.
+ * For a success, the economy marker selects `capped` or `degraded`, and no marker gives `baseline`.
  */
 export function classifyOutput(result: ToolResult): OutputKind {
   if (!result.success) return 'error';
@@ -146,15 +117,9 @@ export function classifyOutput(result: ToolResult): OutputKind {
   }
 }
 
-// ─── The generic capped-data carrier ────────────────────────────────────────
-
 /**
- * The generic capped-fallback data fragment stamped by `dispatch/core/response-economy.ts`
- * when an over-budget response has no declared summarizer:
- * `{ summary, counts: { total, shown }, firstPage }`. Formalised here so the
- * closed output union can validate a generic-capped response, and so P03-03 can
- * emit it as a contract type. A declared summarizer instead produces the
- * action's own typed shape (which validates against its baseline `dataSchema`).
+ * The generic capped `data` that `dispatch/core/response-economy.ts` writes for an over-budget
+ * response with no declared summarizer. A declared summarizer gives the action's own typed shape.
  */
 export const CappedDataSchema = z
   .object({
@@ -168,20 +133,10 @@ export const CappedDataSchema = z
   .strict();
 export type CappedData = z.infer<typeof CappedDataSchema>;
 
-// ─── The closed output union ────────────────────────────────────────────────
-
 /**
- * The CLOSED output-envelope union for an action whose baseline payload is
- * `dataSchema`. Every runtime-emittable shape validates against it:
- *
- *   - baseline → `SuccessEnvelopeSchema(dataSchema)`
- *   - degraded → `SuccessEnvelopeSchema(dataSchema)` (uncapped `data` + marker)
- *   - capped   → `SuccessEnvelopeSchema(dataSchema | CappedDataSchema)`
- *   - error    → `ErrorEnvelopeSchema`
- *
- * The success branch accepts `dataSchema OR CappedDataSchema` so a capped
- * generic fallback still validates; the discriminator stays `success`.
- * This is the per-action output authority API-003 compiles wiring from.
+ * The closed output-envelope union for an action whose baseline payload is `dataSchema`.
+ * The success branch accepts `dataSchema` or {@link CappedDataSchema}, so a generic capped
+ * response also validates. The discriminator is `success`.
  */
 export function OutputEnvelopeSchema<T extends z.ZodType>(dataSchema: T) {
   return z.discriminatedUnion('success', [

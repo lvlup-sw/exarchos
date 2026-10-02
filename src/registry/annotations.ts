@@ -13,19 +13,12 @@ export type ActionAnnotations = {
   readonly openWorld: boolean;
 };
 
-// Mapping rules (mirror the §"Shared Annotation Presets" comment block
-// below). `superRefine` rejects contradictory tuples — e.g. an action
-// that claims `safety: 'read-only'` but flips `readOnly: false` would
-// otherwise pass the shape-only check yet smuggle a writer past the
-// capability boundary (CodeRabbit MAJOR on PR #1369; also the same
-// mis-annotation class behind the doctor / check_convergence Sentry
-// HIGH).
-//
-// `idempotent` is not asserted because the comment block explicitly
-// notes that idempotency varies per handler within the local-mutation
-// family. `openWorld` is asserted only where the safety enum implies
-// it (remote-mutation must be openWorld:true; other classes leave it
-// free because compensable splits local/remote).
+/**
+ * The annotation schema. `superRefine` rejects a flag tuple that contradicts its `safety` class.
+ * For example, `safety: 'read-only'` with `readOnly: false` lets a writer past the capability
+ * boundary. The schema does not check `idempotent`, because it varies per handler. It requires
+ * `openWorld: true` only for `remote-mutation`.
+ */
 export const ActionAnnotationsSchema = z.object({
   safety: z.enum(['read-only', 'local-mutation', 'remote-mutation', 'compensable']),
   readOnly: z.boolean(),
@@ -117,12 +110,8 @@ export function validateAnnotations(a: unknown, actionName: string): asserts a i
 }
 
 /**
- * How `validateAction` treats a missing `actionContract` block.
- *
- * Both `load` (built-in module-load loop) and `registration` (custom and
- * extension tools) require a complete block. The mode is retained so
- * call sites can name which door they came through; it does not skip
- * admission.
+ * The admission path that calls `validateAction`. `load` is the built-in module-load loop and
+ * `registration` is custom and extension tools. Both require a complete `actionContract` block.
  */
 export type ActionRegistrationMode = 'load' | 'registration';
 
@@ -135,16 +124,14 @@ function readActionContract(action: object): unknown {
 
 function replayAnnotationsOf(annotations: unknown): { readonly idempotent: boolean } | undefined {
   if (typeof annotations !== 'object' || annotations === null) return undefined;
-  // Read once and narrow the value, rather than probing twice and asserting
-  // the second read matches the first.
   const idempotent: unknown = Reflect.get(annotations, 'idempotent');
   return typeof idempotent === 'boolean' ? { idempotent } : undefined;
 }
 
 /**
- * Admission gate for the action-contract block. Built-in and extension
- * registration share this language: a missing block fails, and a present
- * block must normalize (including replay vs `annotations.idempotent`).
+ * The admission gate for the action-contract block. Built-in and extension registration share it.
+ * A missing block fails. A present block must normalize, which includes its replay check against
+ * `annotations.idempotent`.
  */
 export function admitActionContract(
   action: { name: string; annotations?: unknown; actionContract?: unknown },
@@ -176,20 +163,10 @@ export function admitActionContract(
 }
 
 /**
- * Registration-time invariant check (Wave 0 task C.3, design §2.1 + §2.4,
- * issues #1287 + #1289).
- *
- * Every action MUST declare both `outputSchema` (a Zod schema for the
- * response envelope) and `annotations` (a typed ActionAnnotations record).
- * Called from the module-load loop at the bottom of this file so any
- * malformed action fails the import — DIM-3 contracts fail closed at
- * startup rather than at first call. The thrown error always surfaces
- * the fully-qualified `${toolName}.${action.name}` identifier so the
- * operator can navigate from a failed import directly to the offender.
- *
- * `actionContract` is required on every admission door. Built-in load
- * and extension registration share `admitActionContract`; omitting the
- * block fails the import or the register call.
+ * The registration-time check of one action. The action must declare a Zod `outputSchema`, valid
+ * `annotations`, and an `actionContract` block. The module-load loop in `tools.ts` calls it, so a
+ * malformed built-in action fails the import. The error names the `<tool>.<action>` id. The
+ * annotations get a full schema check, not only a presence check.
  */
 export function validateAction(
   action: { name: string; outputSchema?: z.ZodType; annotations?: unknown },
@@ -203,36 +180,15 @@ export function validateAction(
   if (typeof Reflect.get(action.outputSchema, 'parse') !== 'function') {
     throw new Error(`Action '${id}' outputSchema is not a Zod schema`);
   }
-  // ActionAnnotationsSchema is re-validated here (not just a presence
-  // check) so a hand-edited field set that drifts from the schema fails
-  // at the same boundary as a missing declaration.
   validateAnnotations(action.annotations, id);
   admitActionContract(action, toolName);
 }
 
-// ─── Shared Annotation Presets (Wave 0 E.1-E.5, design §2.4) ────────
-//
-// Each preset codifies the (safety, readOnly, destructive, idempotent,
-// openWorld) tuple for one of the recurring action shapes in the
-// registry. Co-locating them removes drift risk across 90+ declaration
-// sites and makes per-action annotations a single keyword in the array
-// literal — the *kind* of action is the only thing the author has to
-// classify; the flag tuple follows from the preset.
-//
-// Mapping rules (DIM-3 safety boundary, applied uniformly):
-// - read-only            → readOnly:true,  destructive:false, idempotent:true,  openWorld:false
-// - read-only + external → readOnly:true,  destructive:false, idempotent:true,  openWorld:true
-// - local-mutation       → readOnly:false, destructive:false, idempotent:false, openWorld:false
-// - local-mutation idem. → readOnly:false, destructive:false, idempotent:true,  openWorld:false
-// - compensable (local)  → readOnly:false, destructive:true,  idempotent:false, openWorld:false
-// - compensable (remote) → readOnly:false, destructive:true,  idempotent:false, openWorld:true
-// - remote-mutation      → readOnly:false, destructive:false, idempotent:false, openWorld:true
-//
-// `idempotent: true` is asserted only for actions whose handler is
-// documented or empirically safe to re-run (reconcile, rehydrate,
-// checkpoint, sync, plus all pure reads). Default for state-writers is
-// false because re-running yields a new event in the stream.
-
+/**
+ * The annotation presets, one for each recurring action shape. An action author picks the kind of
+ * action, and the flag tuple follows from the preset. Only actions that are safe to run again get
+ * `idempotent: true`. A state writer gets `false`, because each run appends a new event.
+ */
 export const READ_ONLY_LOCAL: ActionAnnotations = {
   safety: 'read-only',
   readOnly: true,
@@ -265,12 +221,11 @@ export const LOCAL_MUTATION_IDEMPOTENT: ActionAnnotations = {
   openWorld: false,
 };
 
-// DR-6 (lifecycle-verbs) — a local-mutation whose side effect is a FILE written
-// OUTSIDE the managed `.exarchos/` store (the `export` diagnostic zip bundle),
-// so `openWorld` is true. Non-destructive (a diagnostic write, not a workflow
-// mutation) and NOT idempotent at the event level (a fresh invocation mints a
-// new INV-13 pair). `local-mutation` leaves `openWorld` free (the annotation
-// schema only pins it for `remote-mutation`), so this tuple is valid.
+/**
+ * A local mutation that writes a file outside the managed `.exarchos/` store, such as the `export`
+ * diagnostic bundle, so `openWorld` is true. It is not destructive. It is not idempotent, because
+ * each run appends a new requested and executed event pair.
+ */
 export const LOCAL_MUTATION_OPEN_WORLD: ActionAnnotations = {
   safety: 'local-mutation',
   readOnly: false,
@@ -303,10 +258,10 @@ export const REMOTE_MUTATION: ActionAnnotations = {
   openWorld: true,
 };
 
-// Wave 5 (#1437) — shared correlation-tuple filter shape spliced into every
-// view action that supports dispatch-boundary scoping. Keeping it in one
-// place prevents the six call sites from drifting if a field is added,
-// renamed, or constrained.
+/**
+ * The correlation-tuple filter shape that view actions with dispatch-boundary scoping spread into
+ * their schemas. One copy keeps the call sites in agreement.
+ */
 export const CORRELATION_TUPLE_FILTER_SHAPE = {
   operationId: z.string().optional(),
   correlationId: z.string().optional(),

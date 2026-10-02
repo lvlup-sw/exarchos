@@ -1,20 +1,11 @@
-// ─── Shared admission IR — JSON Schema artifact + drift discipline (P03-06) ──
-//
-// PROGRAM-03, API-007. Derives the checked-in JSON Schema artifact from the
-// single authored Zod source (`admission-ir.ts`) and serializes it with the
-// SAME determinism discipline as P03-03's proof-fixture baseline: canonical,
-// recursively key-sorted JSON (`canonicalJson`) with a trailing newline, so the
-// artifact is byte-identical across repeated generation and across a CRLF
-// working tree vs. an LF CI checkout.
-//
-// Running the generator CLI (`admission-ir-schema-cli.ts`) is the regeneration
-// gesture; the drift guard under `tests/unit/contract/ir/` fails when the
-// checked-in artifact diverges from a fresh generation (the same
-// "regenerate + review in a diff" gesture as the authority lock). It is NOT
-// co-located, as this note used to say — every test in this repository lives
-// under `tests/`, and a reader who went looking beside this file for the guard
-// would conclude there wasn't one.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Derives the checked-in JSON Schema artifact of the shared admission IR from its Zod source in
+ * `admission-ir.ts`. The serialization is canonical, key-sorted JSON with a trailing newline. The
+ * artifact is then byte-identical across repeated generation and across CRLF and LF checkouts.
+ *
+ * A run of `admission-ir-schema-cli.ts` regenerates the artifact. The drift guard under
+ * `tests/unit/contract/ir/` fails when the artifact differs from a fresh generation.
+ */
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -30,9 +21,8 @@ export const IR_GENERATED_DIR = path.resolve(HERE, 'generated');
 export const ADMISSION_IR_SCHEMA_FILE = path.resolve(IR_GENERATED_DIR, 'admission-ir.schema.json');
 
 /**
- * The canonical, byte-stable serialization of the shared-IR JSON Schema written
- * to disk. Reuses the P03-03 canonical-JSON discipline (recursive key sort +
- * trailing newline) so repeated generation is byte-identical.
+ * The canonical serialization of the shared-IR JSON Schema on disk: recursive key sort and a
+ * trailing newline, so repeated generation gives the same bytes.
  */
 export function serializeAdmissionIrJsonSchema(): string {
   return canonicalJson(admissionIrJsonSchema()) + '\n';

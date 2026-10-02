@@ -1,21 +1,11 @@
-// ─── Authority collector + verification entry point (P03-01) ─────────────────
-//
-// The impure counterpart to `authority-pin.ts`: reads the live authorities from
-// the real tree (schema module, compatibility policy, invariant catalog,
-// package.json, the MCP SDK protocol constant, and the ActionId registry),
-// loads the checked-in lockfile, and returns the fail-closed verdict.
-//
-// `verifyContractAuthority()` is the entry point that BLOCKS generation and
-// release (wired as a real test in `authority-collector.test.ts`). Downstream
-// work packages (P03-02 … P03-09) import `collectLiveAuthorities()` /
-// `verifyContractAuthority()` to gate their generators against the frozen,
-// approved snapshot.
-//
-// Path resolution is anchored to THIS module's location (import.meta.url) so it
-// works identically under vitest (source) and a built dist. All paths are
-// overridable via {@link AuthoritySourcePaths} for testing / targeting another
-// tree.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Reads the live contract authorities from the tree and verifies them against the checked-in
+ * lockfile. This is the impure side of `authority-pin.ts`.
+ *
+ * `verifyContractAuthority()` blocks generation and release, and fails closed. Paths resolve from
+ * the location of this module, so source and a built dist give the same result.
+ * {@link AuthoritySourcePaths} overrides each path.
+ */
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -35,9 +25,8 @@ import { CONTRACT_SURFACE_VERSION } from './compatibility.js';
 import { serializeContractSurface } from './contract-surface.js';
 
 /**
- * The declared compatibility-policy version. Bump this (and re-approve the
- * lock) when the semver compatibility policy in `src/lib/plugin-compat.ts`
- * changes meaning, not just implementation detail.
+ * The declared compatibility-policy version. Increase it, and approve the lock again, when the
+ * meaning of the semver policy in `src/runtime/lib/plugin-compat.ts` changes.
  */
 export const COMPATIBILITY_POLICY_VERSION = '1.0.0';
 
@@ -63,7 +52,6 @@ export function defaultSourcePaths(): AuthoritySourcePaths {
     strategosContractsFile: path.resolve(HERE, '../architecture/invariant-schema.ts'),
     compatibilityPolicyFile: path.resolve(HERE, '../runtime/lib/plugin-compat.ts'),
     packageJsonFile: path.resolve(HERE, '../../package.json'),
-    // src/contract → src → exarchos-mcp → servers → <repo root> → .exarchos/…
     invariantCatalogFile: path.resolve(HERE, '../../.exarchos/invariants.md'),
     lockFile: path.resolve(HERE, 'contract-authority.lock.json'),
   };
@@ -85,12 +73,8 @@ function readText(file: string): string {
 }
 
 /**
- * The pinned spec of the published Strategos contract package.
- *
- * Was the EXARCHOS package version, read from the same file's `version` key.
- * That made the freeze fire on every release of this repo whether or not a
- * contract moved, because the version and the digest were measured from
- * different files and nothing kept them in step (exarchos#1837).
+ * Returns the dependency spec of `@lvlup-sw/strategos-contracts`. The spec pins the contract, not
+ * the Exarchos package version, so a release of this repo does not change the authority.
  */
 function extractStrategosContractsSpec(packageJsonText: string): string {
   return extractDependencySpec(packageJsonText, '@lvlup-sw/strategos-contracts');
@@ -120,17 +104,15 @@ function extractDependencySpec(packageJsonText: string, packageName: string): st
   return '';
 }
 
+/**
+ * Returns the `@modelcontextprotocol/server` dependency spec. This package supplies the protocol
+ * version. A missing key returns `''`, which reads downstream as an unpinned dependency.
+ */
 function extractSdkVersionSpec(packageJsonText: string): string {
   const parsed: unknown = JSON.parse(packageJsonText);
   if (parsed && typeof parsed === 'object' && 'dependencies' in parsed) {
     const deps = (parsed as { dependencies?: unknown }).dependencies;
     if (deps && typeof deps === 'object') {
-      // Retargeted to the v2 server package by task 049 (DR-0). The v1
-      // `@modelcontextprotocol/sdk` dependency is gone, and an extractor still
-      // reading its key would silently return '' — which reads downstream as
-      // "unpinned" rather than "the package moved", i.e. a floating-dependency
-      // alarm nobody could act on. This must name the package the protocol
-      // version above is actually read from.
       const spec = (deps as Record<string, unknown>)['@modelcontextprotocol/server'];
       if (typeof spec === 'string') return spec;
     }
@@ -179,9 +161,9 @@ export function loadAuthorityLock(
 }
 
 /**
- * Verify the live tree against the approved lockfile. This is the entry point
- * that BLOCKS generation and release: it fails closed on a floating, unapproved,
- * mismatched, or missing authority — and on a missing/invalid lockfile.
+ * Verifies the live tree against the approved lockfile. This check blocks generation and release.
+ * It fails closed on a floating, unapproved, mismatched, or missing authority, and on a missing or
+ * invalid lockfile.
  */
 export function verifyContractAuthority(
   paths: AuthoritySourcePaths = defaultSourcePaths(),

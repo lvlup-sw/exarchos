@@ -345,6 +345,6 @@ describe('kill probes: every gate is shown to fail', () => {
     expect(live).toContain('  readonly emits: PlanEmissions;');
     expect(live).toContain('  recorder: EmissionRecorder,');
     expect(live).toContain('readonly [EMISSION_EVIDENCE_BRAND]: true;');
-    expect(live).toContain('// ─── Emission-declaration compile claims');
+    expect(live).toContain('export type _EffectCarrier_PlanWithoutEmissions_IsNotAnEffectPlan = Expect<');
   });
 });

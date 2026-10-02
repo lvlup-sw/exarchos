@@ -1,40 +1,14 @@
-// ─── Contract authority pins + lockfile contract (P03-01) ────────────────────
-//
-// PROGRAM-03 head. Freezes the authorities that every downstream generator
-// (P03-02 contract compiler, P03-03 MCP binding gen, P03-04 CLI gen, P03-05
-// shared admission IR, …) must build against, so generation and release are
-// pinned to an APPROVED snapshot rather than whatever floats in at build time.
-//
-// ## The authority set
-//
-//   strategos-contracts   version + digest  — hand-written Strategos.Contracts
-//                                              stand-in schema module.
-//   mcp-protocol          version           — the MCP wire protocol version.
-//   mcp-sdk               version           — the pinned @modelcontextprotocol
-//                                              /sdk dependency (exact, no range).
-//   action-id-registry    digest            — the stable ActionId set.
-//   compatibility-policy  version + digest  — the semver compatibility policy.
-//   invariant-catalog     version + digest  — the target invariant catalog.
-//
-// ## The freeze rule (exit proof)
-//
-// `verifyAuthorities` fails CLOSED when any authority is:
-//   • FLOATING     — no pin, or a version range instead of an exact pin;
-//   • UNAPPROVED   — the lock, or an individual pin, is not marked approved;
-//   • MISMATCHED   — the live digest/version differs from the locked one;
-//   • MISSING      — no pin exists for a required authority.
-//
-// This module is PURE: it takes already-collected authority VALUES + a parsed
-// lock and returns a verdict. The impure collection (reading files, the SDK
-// constant, and the registry) lives in `authority-collector.ts`. Keeping the
-// verification pure makes each fail-closed rule unit-testable without a repo.
-//
-// Relationship to `verbs/gates/contract-drift.ts`: that gate detects breaking
-// SCHEMA changes between a merge-base and HEAD by running external codegen/diff
-// tools. This module is the complementary FREEZE layer — it pins the authority
-// versions/digests a generator consumes. The two are orthogonal: drift compares
-// two tree states; the freeze compares the live tree to an approved lock.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Contract authority pins and the lockfile contract. Every contract generator builds against these
+ * pins, so generation and release use an approved snapshot.
+ *
+ * `verifyAuthorities` fails closed when an authority is floating, unapproved, mismatched, or
+ * missing. This module is pure: it takes collected authority values and a parsed lock, and it
+ * returns a verdict. `authority-collector.ts` reads the files, the SDK constant, and the registry.
+ *
+ * `verbs/gates/contract-drift.ts` compares the schemas of two tree states. This module compares
+ * the live tree to an approved lock.
+ */
 
 import { z } from 'zod';
 import {
@@ -44,16 +18,12 @@ import {
   DIGEST_RE,
 } from './authority-digest.js';
 
-// ─── Authority identity ─────────────────────────────────────────────────────
-
 /**
  * The frozen authorities, in canonical order.
  *
- * `contract-surface` (P03-02) freezes the CLOSED envelope/error/security/
- * compatibility contract surface (`error-families.ts`, `envelope.ts`,
- * `request-context.ts`, `compatibility.ts`) as a content-addressed digest so a
- * new stable error code, a changed exit mapping, a new output-carrier kind, or
- * a re-classified change class trips the freeze and demands re-approval.
+ * `contract-surface` is a digest of the closed contract surface in `error-families.ts`,
+ * `envelope.ts`, `request-context.ts` and `compatibility.ts`. A new error code, exit mapping, or
+ * output-carrier kind changes the digest, and the freeze then needs a new approval.
  */
 export const AUTHORITY_IDS = [
   'strategos-contracts',
@@ -78,8 +48,6 @@ export const AuthorityKindSchema = z.enum([
 ]);
 export type AuthorityKind = z.infer<typeof AuthorityKindSchema>;
 
-// ─── Live authority value ───────────────────────────────────────────────────
-
 /**
  * A LIVE-computed authority value (measured from the current tree). Compared
  * against the lock's {@link AuthorityPin} of the same id.
@@ -87,12 +55,11 @@ export type AuthorityKind = z.infer<typeof AuthorityKindSchema>;
 export interface AuthorityValue {
   readonly id: AuthorityId;
   readonly kind: AuthorityKind;
-  /** Human-facing pinned version (e.g. `1.29.0`), or `null` for digest-only. */
+  /** Human-facing pinned version, such as `1.29.0`, or `null` for a digest-only authority. */
   readonly version: string | null;
   /**
-   * The RAW version spec as declared in source (e.g. a package.json dependency
-   * range). Used for floating detection. `null` for authorities that have no
-   * version dimension (pure digest).
+   * The raw version spec from source, such as a `package.json` dependency range. Floating
+   * detection reads it. It is `null` for an authority that has no version.
    */
   readonly versionSpec: string | null;
   /** Content digest `sha256:<hex>`, or `null` for version-only authorities. */
@@ -100,8 +67,6 @@ export interface AuthorityValue {
   /** Provenance: what was measured, for lock review. */
   readonly source: string;
 }
-
-// ─── Lockfile wire contract ─────────────────────────────────────────────────
 
 /** A single pinned + approved authority entry in the lockfile. */
 export const AuthorityPinSchema = z
@@ -112,10 +77,8 @@ export const AuthorityPinSchema = z
     digest: z.string().regex(DIGEST_RE).nullable(),
     source: z.string(),
     /**
-     * Explicit per-authority approval marker. `false` (or a whole-lock
-     * `approved: false`) means the pin is recorded but NOT approved — the
-     * freeze blocks generation/release until a human re-runs the generator to
-     * approve the current digests.
+     * The approval marker of one authority. When this or the whole-lock marker is `false`, the
+     * freeze blocks generation and release until a person runs the generator again.
      */
     approved: z.boolean(),
   })
@@ -128,22 +91,19 @@ export const AuthorityLockSchema = z
     lockVersion: z.literal(1),
     /** Whole-lock approval marker (see {@link AuthorityPinSchema.approved}). */
     approved: z.boolean(),
-    /** Who/what approved this snapshot (work-package id, release, etc.). */
+    /** The person, release, or work package that approved this snapshot. */
     approvedBy: z.string(),
-    /** Optional human note (e.g. regeneration instructions). */
+    /** Optional human note, such as regeneration instructions. */
     note: z.string().optional(),
-    /** Keyed by {@link AuthorityId}; presence of each required id is verified. */
+    /** Pins keyed by {@link AuthorityId}. The verifier requires a pin for each id. */
     authorities: z.record(z.string(), AuthorityPinSchema),
   })
   .strict();
 export type AuthorityLock = z.infer<typeof AuthorityLockSchema>;
 
-// ─── Inputs → live authorities ──────────────────────────────────────────────
-
 /**
- * The raw, already-collected inputs the pure compute layer needs. The impure
- * collector (`authority-collector.ts`) reads these from disk / the SDK / the
- * registry; tests supply them directly.
+ * The collected inputs for {@link computeAuthorities}. `authority-collector.ts` reads them from
+ * disk, the SDK, and the registry. Tests supply them directly.
  */
 export interface AuthorityInputs {
   /** Version at which the hand-written contract stand-in ships (package version). */
@@ -164,15 +124,15 @@ export interface AuthorityInputs {
   readonly invariantCatalogSchemaVersion: string;
   /** Source of the target invariant catalog. */
   readonly invariantCatalogSource: string;
-  /** The P03-02 closed contract-surface version (`CONTRACT_SURFACE_VERSION`). */
+  /** The closed contract-surface version (`CONTRACT_SURFACE_VERSION`). */
   readonly contractSurfaceVersion: string;
-  /** Canonical serialization of the P03-02 closed contract surface. */
+  /** Canonical serialization of the closed contract surface. */
   readonly contractSurfaceSource: string;
 }
 
 /**
- * Compute the six live authority values from raw inputs. Pure + deterministic:
- * same inputs → byte-identical digests on any machine.
+ * Computes the live authority values from the inputs. The same inputs give the same digests on
+ * any machine.
  */
 export function computeAuthorities(inputs: AuthorityInputs): AuthorityValue[] {
   return [
@@ -241,8 +201,6 @@ export function computeAuthorities(inputs: AuthorityInputs): AuthorityValue[] {
   ];
 }
 
-// ─── Verification (fail-closed) ─────────────────────────────────────────────
-
 export type ViolationKind =
   | 'lock-unapproved'
   | 'missing'
@@ -258,7 +216,7 @@ export interface AuthorityViolation {
 }
 
 export interface AuthorityVerdict {
-  /** `true` iff there are zero violations — generation/release may proceed. */
+  /** `true` only when there are no violations, so generation and release can continue. */
   readonly ok: boolean;
   readonly violations: AuthorityViolation[];
   /** Human-readable summary. */
@@ -266,11 +224,15 @@ export interface AuthorityVerdict {
 }
 
 /**
- * Verify live authorities against an approved lock, failing CLOSED.
+ * Verifies the live authorities against an approved lock, and fails closed. It checks each
+ * authority in this order: missing, floating, unapproved, mismatch. A missing pin skips the other
+ * checks for that authority. It collects all other violations, so one run reports every problem.
  *
- * Order of checks per authority: missing → floating → unapproved → mismatch.
- * All independent violations are collected (not short-circuited) so a single
- * run reports every problem the operator must fix.
+ * A floating spec in the live value or in the lock pin is a violation. The verifier compares the
+ * version only when neither side has a digest. A digest moves exactly when the frozen content moves, so
+ * the version of a digest authority is provenance for the reviewer. The `strategos-contracts`
+ * version and digest come from different sources, and a version comparison fails on every
+ * release (lvlup-sw/exarchos#1837).
  */
 export function verifyAuthorities(
   live: readonly AuthorityValue[],
@@ -278,7 +240,6 @@ export function verifyAuthorities(
 ): AuthorityVerdict {
   const violations: AuthorityViolation[] = [];
 
-  // Whole-lock approval marker.
   if (lock.approved !== true) {
     violations.push({
       authority: '<lock>',
@@ -302,7 +263,6 @@ export function verifyAuthorities(
       continue;
     }
 
-    // Floating: the LIVE spec is a range/dist-tag rather than an exact pin.
     if (value?.versionSpec != null && isFloatingVersionSpec(value.versionSpec)) {
       violations.push({
         authority: id,
@@ -312,7 +272,6 @@ export function verifyAuthorities(
           'pin an exact version before generation/release',
       });
     }
-    // Floating: a range slipped into the lock itself.
     if (pin.version != null && isFloatingVersionSpec(pin.version)) {
       violations.push({
         authority: id,
@@ -321,7 +280,6 @@ export function verifyAuthorities(
       });
     }
 
-    // Unapproved pin.
     if (pin.approved !== true) {
       violations.push({
         authority: id,
@@ -330,7 +288,6 @@ export function verifyAuthorities(
       });
     }
 
-    // Mismatch — only meaningful when we could measure the live value.
     if (value) {
       if (value.digest !== pin.digest) {
         violations.push({
@@ -341,26 +298,6 @@ export function verifyAuthorities(
             `locked ${String(pin.digest)}`,
         });
       }
-      // Version is COMPARED only where there is no digest to compare.
-      //
-      // A digest-bearing authority already has the real signal: the digest moves
-      // exactly when the frozen content moves. Its version is provenance — the
-      // human-legible label a reviewer reads to know what was approved against —
-      // and comparing it too is at best redundant and at worst a false alarm.
-      //
-      // Redundant for `compatibility-policy`, `invariant-catalog` and
-      // `contract-surface`, whose version is a constant INSIDE the very source
-      // the digest covers, so it cannot move on its own.
-      //
-      // A false alarm for `strategos-contracts`, whose two dimensions have
-      // DIFFERENT sources — the version from package.json, the digest from the
-      // schema module. They disagree whenever one moves without the other, which
-      // is every release, and each trip costs a re-approval plus a wide red
-      // fan-out. A freeze that fires loudest when it has least to say trains its
-      // readers to re-approve without looking. See exarchos#1837.
-      //
-      // `mcp-protocol` and `mcp-sdk` carry no digest, so their version IS the
-      // authority and is still compared here.
       const versionIsTheOnlySignal = value.digest === null && pin.digest === null;
       if (versionIsTheOnlySignal && value.version !== pin.version) {
         violations.push({
@@ -400,25 +337,21 @@ function buildReport(
   return lines.join('\n');
 }
 
-// ─── Lock construction (generator/approval) ─────────────────────────────────
-
 export interface BuildLockOptions {
-  /** Who/what approves this snapshot (e.g. `'P03-01'`). */
+  /** The person, release, or work package that approves this snapshot. */
   readonly approvedBy: string;
-  /** Optional human note (regeneration instructions, etc.). */
+  /** Optional human note, such as regeneration instructions. */
   readonly note?: string;
   /**
-   * When `false`, produce an UNAPPROVED lock (whole-lock + every pin
-   * `approved: false`) — used to prove the freeze blocks unapproved snapshots.
-   * Defaults to `true`.
+   * When `false`, the lock and every pin are unapproved. Tests use it to prove that the freeze
+   * blocks an unapproved snapshot. Defaults to `true`.
    */
   readonly approved?: boolean;
 }
 
 /**
- * Build a lockfile object from live authorities. Running this (via the
- * generator CLI) is the APPROVAL gesture: the produced lock is `approved:true`
- * unless {@link BuildLockOptions.approved} is `false`.
+ * Builds a lockfile object from the live authorities. A run of the generator CLI is the approval:
+ * the lock is approved unless {@link BuildLockOptions.approved} is `false`.
  */
 export function buildAuthorityLock(
   live: readonly AuthorityValue[],

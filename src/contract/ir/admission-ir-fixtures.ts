@@ -1,16 +1,10 @@
-// ─── Shared admission IR — shared fixture corpus (P03-06) ────────────────────
-//
-// The SINGLE corpus validated by BOTH sides of the round-trip: the generated
-// JSON Schema (via Ajv) and the authored Zod runtime validators. `roundtrip.
-// test.ts` asserts the two agree accept/reject on every entry; `references.
-// test.ts` reuses the structurally-valid docs to exercise dangling-reference
-// rejection. Kept in one place so the two exit-proof halves cannot drift apart.
-//
-// Test-only data (the `*-fixtures.ts` module-intent class): never a production
-// import target. Fixtures are deliberately typed `unknown` (they include
-// malformed inputs); the `o`/`a` helpers narrow via `unknown` casts to poke
-// values into a cloned baseline without reaching for `any`.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * The one fixture corpus for both sides of the shared admission IR round trip: the generated JSON
+ * Schema under Ajv, and the authored Zod validators. One corpus keeps the two sides from drifting.
+ *
+ * This is test-only data, not a production import target. The fixtures have the type `unknown`,
+ * because some are malformed. The `o` and `a` helpers narrow through `unknown` casts, not `any`.
+ */
 
 /** Narrow an unknown fixture node to a mutable object (test-data navigation). */
 const o = (v: unknown): Record<string, unknown> => v as Record<string, unknown>;
@@ -104,7 +98,6 @@ export function minimalValidDoc(): Record<string, unknown> {
   };
 }
 
-// Convenience navigators into a cloned base document.
 const edge0 = (d: Record<string, unknown>): Record<string, unknown> => o(a(d['edges'])[0]);
 const cond = (d: Record<string, unknown>): Record<string, unknown> => o(edge0(d)['condition']);
 const condOps = (d: Record<string, unknown>): unknown[] => a(cond(d)['operands']);
@@ -117,9 +110,8 @@ export interface RoundTripFixture {
 }
 
 /**
- * Mutate a fresh valid doc in place and tag it. Keeps each malformed fixture a
- * one-line delta from a known-good baseline, so the ONLY thing under test is
- * the specific violation.
+ * Changes a fresh valid document in place and tags it. Each malformed fixture is a small change
+ * from a known-good base, so the test covers only that one violation.
  */
 function mutate(
   name: string,
@@ -132,7 +124,6 @@ function mutate(
 }
 
 export const ROUNDTRIP_FIXTURES: readonly RoundTripFixture[] = [
-  // ── structurally VALID ──
   { name: 'base valid document', doc: baseValidDoc(), structurallyValid: true },
   { name: 'minimal valid document', doc: minimalValidDoc(), structurallyValid: true },
   mutate('all collections empty', true, (d) => {
@@ -154,7 +145,6 @@ export const ROUNDTRIP_FIXTURES: readonly RoundTripFixture[] = [
     };
   }),
 
-  // ── ESCAPE HATCHES (closure property) — must be rejected by BOTH sides ──
   mutate('edge condition node carries an `expression` escape hatch', false, (d) => {
     o(condOps(d)[0])['expression'] = 'a && b';
   }),
@@ -180,7 +170,6 @@ export const ROUNDTRIP_FIXTURES: readonly RoundTripFixture[] = [
     d['script'] = 'process.exit(1)';
   }),
 
-  // ── other STRUCTURAL violations ──
   mutate('workflowId has a space (not a stable id)', false, (d) => {
     d['workflowId'] = 'wf demo';
   }),
@@ -222,15 +211,16 @@ export const ROUNDTRIP_FIXTURES: readonly RoundTripFixture[] = [
   { name: 'array document', doc: [], structurallyValid: false },
 ];
 
-// ─── Closed edge-condition cases (three-way agreement with the runtime) ──────
-
-/** An edge-condition case tagged with its declaration and structural validity. */
+/**
+ * An edge-condition case tagged with its declaration and structural validity. The Zod schema, the
+ * JSON Schema, and the runtime compiler must agree on each case.
+ */
 export interface EdgeConditionCase {
   readonly name: string;
   readonly condition: unknown;
   readonly fields: Readonly<Record<string, 'string' | 'number' | 'boolean'>>;
   readonly events: readonly string[];
-  /** Whether the runtime `compileEdgeCondition` + the IR schema should accept it. */
+  /** True when the runtime compiler and the IR schema accept the case. */
   readonly valid: boolean;
 }
 

@@ -76,10 +76,10 @@ export function projectDescribedActionContract(action: ToolAction): ActionContra
   return normalizeActionContract(declared, { annotations: action.annotations });
 }
 
-// Overloaded rather than defaulted: with `U = T` the compiler cannot see that
-// the untransformed branch already yields `readonly U[]`, and the only way to
-// keep one signature was to assert it. The two call shapes are genuinely
-// different return types, so declaring them is both honest and cast-free.
+/**
+ * Compacts a declared set, with an optional item transform. Two overloads declare the two return
+ * types. A single signature with a `U = T` default needs a cast on the untransformed branch.
+ */
 function compactDeclaredSet<T>(set: DeclaredSet<T>): CompactDeclaredSet<T>;
 function compactDeclaredSet<T, U>(
   set: DeclaredSet<T>,
@@ -114,8 +114,8 @@ function compactReplay(
 }
 
 /**
- * Compact projection of a normalized contract. Prose (`because`, emission
- * descriptions) may be omitted; every dimension and the digest stay.
+ * The compact projection of a normalized contract. It omits the `because` prose of a
+ * `reject-replay` policy and the emission descriptions. It keeps each dimension and the digest.
  */
 export function projectCompactActionContract(contract: ActionContract): CompactActionContract {
   return {
@@ -144,18 +144,20 @@ function describedActionContractFields(action: ToolAction): Record<string, unkno
 }
 
 /**
- * Handles the `describe` action for composite tools.
- * Returns full schemas, descriptions, gate metadata, and phase/role info
- * for the requested action names. Optionally includes HSM topology when
- * the `topology` parameter is provided, or phase playbooks when the
- * `playbook` parameter is provided.
+ * Answers the `describe` action for composite tools. For each requested action it returns the
+ * input schema, description, gate, phases, roles, and `economyBudgetTokens`. The budget comes from
+ * `resolveEconomyBudget`, which the dispatch core also enforces. The optional slots appear only
+ * when the action declares them. `outputSchemaJson` is the canonical output JSON Schema, and
+ * `outputSchema` is the same schema for older clients.
+ *
+ * It also returns the HSM topology, the phase playbooks, and the project config on request.
+ * The `update` action also carries `reservedFields`. `options.includeStateSchema` has no effect.
  */
 export async function handleDescribe(
   args: { actions?: string[]; topology?: string; playbook?: string; config?: boolean },
   toolActions: readonly ToolAction[],
   options?: { includeStateSchema?: boolean | undefined; projectConfig?: ResolvedProjectConfig | undefined },
 ): Promise<ToolResult> {
-  // Guard clauses: reject malformed values before computing flags
   if (args.actions !== undefined && (!Array.isArray(args.actions) || !args.actions.every((a: unknown) => typeof a === 'string'))) {
     return {
       success: false,
@@ -220,7 +222,6 @@ export async function handleDescribe(
 
   const results: Record<string, unknown> = {};
 
-  // Resolve action schemas if requested
   if (args.actions && args.actions.length > 0) {
     for (const actionName of args.actions) {
       const action = toolActions.find(a => a.name === actionName);
@@ -243,91 +244,45 @@ export async function handleDescribe(
         phases: [...action.phases],
         roles: [...action.roles],
         ...(emissions.length > 0 ? { autoEmits: [...emissions] } : {}),
-        // T41 / DR-4 / DR-11: surface the `deprecated` flag so model-facing
-        // agents can pivot to the canonical action without parsing the
-        // description string. Surfaced unconditionally (not just when true)
-        // so structurally-honest consumers can rely on the slot's presence.
         ...(action.deprecated ? { deprecated: true } : {}),
-        // T8 (#1440 Op 2, preview-4 design §4.3): project the `dispatch`
-        // DispatchHints slot so clients can enumerate task-suitable
-        // actions via `exarchos_view describe`. The slot is omitted
-        // entirely when the action does not declare it, mirroring the
-        // `autoEmits` / `deprecated` optional-field pattern above.
         ...(action.dispatch ? { dispatch: action.dispatch } : {}),
-        // DR-1 / Task 002 (design §"The economy block"): surface the
-        // action's *effective* response budget — its declared
-        // `economy.budgetTokens` or the registry default. Surfaced
-        // unconditionally (not just when declared) because every action
-        // resolves a concrete budget, and it is resolved through the single
-        // `resolveEconomyBudget` so the number a client sees here matches
-        // exactly what the dispatch-core measurement seam enforces (Task 003).
         economyBudgetTokens: resolveEconomyBudget(action),
-        // Wave 0 / Task G.3 (#1287 + INV-5b, design §2.1 Approach C):
-        // per-action `outputSchema` is surfaced as JSON Schema 2020-12
-        // under `outputSchemaJson` so clients can introspect the precise
-        // per-action contract via describe instead of relying on the LCD
-        // envelope advertised on `tools/list`. The legacy `outputSchema`
-        // key is retained alongside for one release to avoid breaking
-        // existing consumers; the canonical slot going forward is
-        // `outputSchemaJson`.
         ...(action.outputSchema
           ? {
               outputSchema: zodToJsonSchema(action.outputSchema),
               outputSchemaJson: zodToJsonSchema(action.outputSchema),
             }
           : {}),
-        // #1360 / PR 2 — surface the reserved-fields descriptor on the
-        // `update` action so callers can discover the immutable boundary
-        // (and the alternate write paths, e.g. `transition` for phase)
-        // through describe instead of trial-and-error against the
-        // `RESERVED_FIELD` error envelope. Sourced from
-        // `RESERVED_FIELDS_DESCRIPTOR` so the doc surface and the runtime
-        // guard (`isReservedField`) share one canonical list.
         ...(actionName === 'update'
           ? { reservedFields: RESERVED_FIELDS_DESCRIPTOR }
           : {}),
         ...describedActionContractFields(action),
       };
 
-      // T5a.1/DR-4 (#1259, v2.11): the prior `set`-specific stateSchema
-      // attachment has nothing to hang off — the `set` action is removed.
-      // `options.includeStateSchema` is retained on the signature so
-      // callers compile, but no action currently surfaces a stateSchema
-      // entry. A successor surface will re-bind this in v2.12.
-
       results[actionName] = actionResult;
     }
   }
 
-  // Resolve topology if requested
   if (hasTopology) {
     const topologyResult = handleTopologyDescribe(args.topology as string);
     if (!topologyResult.success) return topologyResult;
     results.topology = topologyResult.data;
   }
 
-  // Resolve playbook if requested
   if (hasPlaybook) {
     const playbookResult = handlePlaybookDescribe(args.playbook as string);
     if (!playbookResult.success) return playbookResult;
     results.playbook = playbookResult.data;
   }
 
-  // Resolve config description if requested
   if (hasConfig && options?.projectConfig) {
     results.config = buildConfigDescription(options.projectConfig);
   } else if (hasConfig) {
-    // Config requested but no project config available — return informative message
     results.config = { message: 'No .exarchos.yml project config loaded. Using all defaults.' };
   }
 
   return { success: true, data: results };
 }
-
-// T5a.1/DR-4 (#1259, v2.11): the prior `buildSetStateSchema` helper —
-// which described the `set` action's `updates` parameter shape — is
-// removed alongside the action itself. Re-introduce a successor helper
-// in v2.12 if a replacement surface needs equivalent discoverability.
 
 /**
  * Handles topology introspection for the workflow describe action.
@@ -450,21 +405,18 @@ export async function handleEventDescribe(
 
   const results: Record<string, unknown> = {};
 
-  // Resolve action schemas if requested
   if (args.actions && args.actions.length > 0) {
     const actionResult = await handleDescribe({ actions: args.actions }, toolActions);
     if (!actionResult.success) return actionResult;
     Object.assign(results, { actions: actionResult.data });
   }
 
-  // Resolve event type schemas if requested
   if (args.eventTypes && args.eventTypes.length > 0) {
     const eventResult = await handleEventTypeDescribe(args.eventTypes);
     if (!eventResult.success) return eventResult;
     Object.assign(results, { eventTypes: eventResult.data });
   }
 
-  // Resolve emission guide if requested
   if (hasEmissionGuide) {
     results.emissionGuide = serializeEventCatalog();
   }

@@ -1,20 +1,12 @@
-// ─── Contract-artifact generator / drift baseline (P03-03) ───────────────────
-//
-// PROGRAM-03, API-003. Compiles the live meta-model and writes the checked-in
-// PROOF-FIXTURE baseline (`generated/proof-fixtures.json`) so contract drift is
-// reviewable in a diff and the downstream oracle (P03-09) has a stable artifact
-// to verify against. This mirrors the P03-01 `authority-lock-cli.ts` pattern:
-// running the generator is the regeneration gesture; the co-located
-// `generated.test.ts` fails when the checked-in baseline drifts from a fresh
-// compile.
-//
-// Generation is GATED: `compile()` runs the real `verifyContractAuthority()`, so
-// a floating/unapproved authority throws here rather than writing a stale
-// baseline (P03-01 exit proof — floating/unapproved digests block generation).
-//
-// Usage (from servers/exarchos-mcp):
-//   npx tsx src/contract/compiler/generate.ts
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Compiles the live meta-model and writes the checked-in proof-fixture baseline
+ * (`generated/proof-fixtures.json`). Thus contract drift shows in a diff, and the oracle has a
+ * stable artifact. A drift test fails when the baseline differs from a fresh compile.
+ *
+ * `compile()` runs `verifyContractAuthority()`. A floating or unapproved authority gives a
+ * diagnostic, and {@link compileLiveContract} then throws before a write. Run it with
+ * `npx tsx src/contract/compiler/generate.ts`.
+ */
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -32,10 +24,8 @@ export const GENERATED_DIR = path.resolve(HERE, 'generated');
 export const PROOF_FIXTURES_FILE = path.resolve(GENERATED_DIR, 'proof-fixtures.json');
 
 /**
- * Compile the live contract or throw a readable, aggregated diagnostic. The
- * throw is intentional: a generator must fail loudly (blocked authority, a
- * missing policy field, an incompatible schema) rather than emit a partial or
- * stale baseline.
+ * Compiles the live contract, or throws one error that lists every diagnostic. The generator must
+ * fail and not write a partial or stale baseline.
  */
 export function compileLiveContract(): CompiledContract {
   const outcome = compile(deriveMetaModel());
@@ -66,8 +56,10 @@ export function generateContractArtifacts(): GenerateResult {
   return { fixturesFile: PROOF_FIXTURES_FILE, contractDigest: contract.contractDigest };
 }
 
-// Executed only when run directly (never on import) so importing this module in
-// a test has no filesystem side effect (mirrors `authority-lock-cli.ts`).
+/**
+ * Returns true when this module is the process entry point. The write runs only then, so an import
+ * in a test touches no file.
+ */
 function invokedDirectly(): boolean {
   const entry = process.argv[1];
   if (!entry) return false;
