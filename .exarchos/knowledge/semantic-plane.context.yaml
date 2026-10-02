@@ -18,7 +18,7 @@ packet:
   id: exarchos-semantic-plane
   version: 2
   as_of: 2026-10-01
-  main_at: 22f8c88bb
+  main_at: 9defc8a36
   owner_issue: 1875            # the decision record and build-order log
   roadmap_issue: 1599
   epic_issue: 1856
@@ -328,7 +328,7 @@ decisions:
     source: "#1912 A4 (#1919)"
     decision: "task.assigned promoted workflow-local -> capability; prepare and prepare_delegation append it; not reserved on the append surface."
   - date: "2026-09-15"
-    source: "#1920 (in review)"
+    source: "#1920"
     decision: "One decision round per held batch covering every pending deviation; a decision carries no claims; deviationId is content-derived; a decided batch is closed."
   - date: "2026-09-30"
     source: "Reed, roadmap review session"
@@ -390,7 +390,7 @@ build_order:
       status: "done"
       refs: "#1912: #1914, #1915, #1917, #1919"
     - leg: "divergence loop C1 (decision round)"
-      status: "in review"
+      status: "done"
       refs: "#1920"
     - leg: "divergence loop C2 (material path: design.revised, capsule.recompiled, continuation prepare)"
       status: "not started"
@@ -399,8 +399,8 @@ build_order:
       status: "not started"
       refs: "#1926"
     - leg: "conformance: verification scope (per-task repoRoot, worktreePath, baseRef in the capsule; worktree identity checked)"
-      status: "in progress (first slice: the kill-probe base, #1925, in review)"
-      refs: "#1929 (children #1925, #1526, #1753, #1813, #1814, #1540, #1886, #1721); gate verdict enforcement #1943"
+      status: "in progress (first slice landed: the kill-probe base, #1925 via #1974)"
+      refs: "#1929 (children #1925, #1526, #1753, #1813, #1814, #1540, #1886, #1721); gate verdict enforcement #1943 (done, #1975)"
     - leg: "conformance: VCS demotion (serialize_merge, setup_worktree, create_pr off the governance surface)"
       status: "decided"
       refs: "#1928 (every Git/PR write; related #1884, #1835)"
@@ -414,7 +414,7 @@ build_order:
       status: "in progress"
       refs: "#1898 (reopened 2026-10-01), #1779, #1825"
     - leg: "distribution (plugin primary, launcher retired, installer pinned, a release that carries the plane)"
-      status: "not started"
+      status: "in progress: installers carry a built-in verifier and the release gate refuses an unpinned key (#1939); the publisher key is pinned and v2.12.0 is the first release with a signed manifest (#1737); the stranded bundle is archived (#1931); the launcher is not retired (#1877)"
       refs: "#1877, #1737, #1690, #1931 (stranded-bundle GA ports)"
     - leg: "transport (prepare/settle on the 2026-07-28 stateless MCP spec; long-running settle)"
       status: "not started"
@@ -479,14 +479,14 @@ drift:
     resolution: "open question"
   - id: "launcher"
     design: "retired for plugin distribution"
-    built: "launcher shipped; no release carries the plane (latest v2.12.0-preview.4)"
+    built: "launcher shipped; v2.12.0 is the first release that carries the plane (the interim per-wave prepare/settle)"
     resolution: "distribution leg"
 
 # ─── measured facts (re-check before relying on them) ────────────────────────
 
 measured:
   as_of: 2026-10-01
-  main_at: 22f8c88bb
+  main_at: 9defc8a36
   facts:
     - fact: prepare refuses non-feature workflows and non-delegate phases
       check: "grep -n -E 'WORKFLOW_TYPE_UNSUPPORTED|PHASE_NOT_PREPARABLE' src/verbs/prepare/handler.ts"
@@ -510,8 +510,8 @@ measured:
       check: "sed -n 1,30p src/verbs/prepare/lower-definition.ts"
     - fact: next_actions is live
       check: "ls src/next-actions-computer.ts"
-    - fact: the kernel package is pinned at 0.14.0
-      check: "grep -n strategos-contracts package.json"
+    - fact: "the kernel package is a build-only devDependency pinned at 0.14.0; the published package does not list it (#1941)"
+      check: "node -p \"const p=require('./package.json'); [p.devDependencies['@lvlup-sw/strategos-contracts'], (p.dependencies||{})['@lvlup-sw/strategos-contracts']]\""
     - fact: "EventTypes count is 184 on main"
       check: "grep -rn 'EventTypes).toHaveLength' tests/unit/events/schemas.test.ts"
     - fact: per-intent call census
@@ -544,6 +544,7 @@ milestones:
   v2.12.0:
     outcome: GA of what shipped. Safe to install; correct verdicts on the paths it ships (prepare/settle as the interim delegate path).
     scope: [1737, 1925, 1656, 1641, 1545, 1716]
+    status: "landed: 1925, 1656, 1545, 1716 and 1641 item 1, plus two blockers found during closeout, 1941 and 1943. 1737 lands with the release PR that pins the publisher key and bumps the version to 2.12.0; the GA tag is cut from its merge."
     release: no interim preview; GA when the six land.
   v3.0.0:
     outcome: The semantic plane end to end. One prepare and one settle per normal workflow; the runtime does all the work, including Git.
@@ -574,7 +575,7 @@ issue_map:
   roadmap_index: 1599
   interaction_economy_epic: 1856
   event_authority_remainder: 1898      # auto-closed in error 2026-09-14; reopened 2026-10-01; on v3.0.0 (exit criterion)
-  divergence_loop: "1926 (tracker); C1 = PR 1920"
+  divergence_loop: "1926 (tracker); C1 = PR 1920 (merged)"
   first_adapter: "1912 (closed, complete)"
   executor: "1857 (closed; engine is settle's core)"
   workflow_scoped_capsule: 1927
@@ -589,11 +590,11 @@ issue_map:
   distribution: [1877, 1601, 1737, 1690]
   transport: [1604, 1283, 1780]
   verification_scope: [1925, 1526, 1753, 1813, 1814, 1540, 1886, 1721]
-  kill_probe_base: "1925 (first slice of 1929; base frozen at prepare; in review)"
-  gate_verdict_enforcement: 1943
+  kill_probe_base: "1925 (first slice of 1929; base frozen at prepare; closed by PR 1974)"
+  gate_verdict_enforcement: "1943 (closed by PR 1975); verdict-shaped gates 1976"
   vcs_effects: [1626, 1884, 1835]       # 1402, 1496, 1351, 1722 closed as superseded by #1928
   second_runtime_candidate: [1661, 1662, 1663, 1665, 1666, 1667, 1668]
-  stranded_branch: "feat/v2-12-bundle (tip e9a6209e, 2026-07-17, no PR, predates the restructure). Port-or-drop list: #1931."
+  stranded_branch: "feat/v2-12-bundle is deleted; the tag archive/feat-v2-12-bundle keeps its tip e9a6209e. Every issue records its disposition; #1931 is closed."
 
 # ─── traps that misled earlier sessions ──────────────────────────────────────
 

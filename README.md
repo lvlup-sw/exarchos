@@ -78,8 +78,6 @@ irm https://lvlup-sw.github.io/exarchos/get-exarchos.ps1 | iex
 
 The installers check the signed release manifest before they install anything. They need Node.js 20 or later on your `PATH` for that check.
 
-> **Until the next release:** no published release carries the signed manifest yet. Until the first release that does, both installers stop with `manifest-missing` and install nothing. In the meantime, download the binary for your platform (for example `exarchos-linux-x64`) and its `.sha512` file from the [latest release](https://github.com/lvlup-sw/exarchos/releases/latest). Check it with `sha512sum -c exarchos-linux-x64.sha512` (macOS: `shasum -a 512 -c`; Windows: compare `Get-FileHash -Algorithm SHA512`). Then put it on your `PATH` as `exarchos`. For Claude Code, add the [plugin](#claude-code-plugin) as well.
-
 ### Verification
 ```bash
 exarchos --version
