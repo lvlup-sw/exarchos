@@ -10,10 +10,10 @@
  * global config emptied, and reads the registry npm says it would publish to.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { spawnSync } from 'node:child_process';
 import { copyFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { spawnAsync } from '../../tools/test-helpers/spawn.js';
 import { makeTempDir, rmrf } from '../../tools/test-helpers/temp-dir.js';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
@@ -34,12 +34,12 @@ afterAll(() => {
 });
 
 /** The registry a dry-run publish reports, with no lifecycle scripts and no ambient npm config. */
-function dryRunPublishTarget(): string | undefined {
+async function dryRunPublishTarget(): Promise<string | undefined> {
   const isWin = process.platform === 'win32';
   const env = Object.fromEntries(
     Object.entries(process.env).filter(([key]) => !/^npm_config_/i.test(key)),
   );
-  const run = spawnSync(
+  const run = await spawnAsync(
     isWin ? 'npm.cmd' : 'npm',
     [
       'publish',
@@ -50,14 +50,14 @@ function dryRunPublishTarget(): string | undefined {
       '--globalconfig',
       join(scratch, 'empty-global-npmrc'),
     ],
-    { cwd: scratch, env, encoding: 'utf8', timeout: 60_000, shell: isWin },
+    { cwd: scratch, env, timeout: 60_000, shell: isWin },
   );
   expect(run.status, `${String(run.error)}\n${run.stderr}`).toBe(0);
   return /Publishing to (\S+) with tag/.exec(`${run.stdout}\n${run.stderr}`)?.[1];
 }
 
 describe('npm publish target', () => {
-  it('NpmPublish_WithTheRepositoryNpmrc_TargetsNpmjs', () => {
-    expect(dryRunPublishTarget()).toBe(NPMJS);
+  it('NpmPublish_WithTheRepositoryNpmrc_TargetsNpmjs', async () => {
+    expect(await dryRunPublishTarget()).toBe(NPMJS);
   }, 90_000);
 });
