@@ -1,17 +1,12 @@
-// ─── Validate PR Stack Handler Tests ────────────────────────────────────────
-//
-// Tests use a mock VcsProvider instead of mocking execFileSync.
+// Tests for `handleValidatePrStack` with a mock VcsProvider. These cases test
+// the provider's verdict, so the phase-gate runner mock only calls the
+// provider. `unrunbooked-gate-evidence-dispatch.test.ts` proves the durable
+// evidence over real dispatch.
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import type { VcsProvider, PrSummary, PrFilter } from '../../../../src/vcs/provider.js';
 import { handleValidatePrStack } from '../../../../src/verbs/vcs/validate-pr-stack.js';
 import type { EventStore } from '../../../../src/events/store.js';
-// The gate now records durable evidence through the shared phase-gate runner
-// before any success carrier escapes. These cases are about the PROVIDER's
-// verdict, so the runner is stubbed down to its provider call — the same seam
-// every other migrated gate's unit test stubs. The evidence a caller actually
-// gets is proven over real dispatch in
-// `unrunbooked-gate-evidence-dispatch.test.ts`.
 vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
   runPhaseGateWithEvidence: vi.fn(async (request) => {
     try {
@@ -41,8 +36,6 @@ const eventStore = {
   append: vi.fn().mockResolvedValue(undefined),
   query: vi.fn().mockResolvedValue([]),
 } as unknown as EventStore;
-
-// ─── Mock VcsProvider Helper ────────────────────────────────────────────────
 
 function createMockProvider(overrides: {
   listPrs?: PrSummary[];

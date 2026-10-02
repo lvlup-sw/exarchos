@@ -29,14 +29,10 @@ vi.mock('../../../../src/workflow/topology/loader.js', () => ({
 }));
 
 /**
- * Build a minimal `Topology` fixture for prune-selector tests. Each phase
- * gets a `staleness` block matching the typed contract schema in
- * `topology/phase-contract.ts`. Defaults exercise the same single-signal
- * (`lastActivity` only) verdict the legacy heuristic produced for entries
- * without secondary signals, so existing assertions stay green when the
- * selector is rewired through `scoreEntryThroughTopology`.
- *
- * Override `phases` to construct multi-signal contracts inline.
+ * Build a minimal `Topology` fixture. Each default phase has one `lastActivity`
+ * signal at the threshold, which defaults to 20160 minutes. The defaults include
+ * `delegate`, `review`, `synthesize`, and `ideate`, so mixed-phase handler tests
+ * reach scoring. Pass `phases` to build a multi-signal contract inline.
  */
 function buildTestTopology(
   phases?: Topology['phases'],
@@ -59,20 +55,11 @@ function buildTestTopology(
       review: lastActivityOnly(),
       synthesize: lastActivityOnly(),
       ideate: lastActivityOnly(),
-      // Phases that the selector still consults a contract for, even
-      // though they're often filtered upstream by phaseExclusions or
-      // terminal-phase short-circuits. Pre-populate them so handler
-      // tests with mixed-phase fixtures don't trip the loader's
-      // missing-contract throw.
     },
   };
 }
 
-/**
- * Build the same default topology with the `lastActivity` threshold
- * pinned to a custom minute count. Used by tests that override
- * `thresholdMinutes` (e.g. 60 minutes for fast staleness assertions).
- */
+/** Build the default topology with a custom `lastActivity` threshold in minutes. */
 function buildTestTopologyWithThreshold(thresholdMinutes: number): Topology {
   return buildTestTopology(undefined, {
     lastActivityThresholdMinutes: thresholdMinutes,
@@ -80,9 +67,8 @@ function buildTestTopologyWithThreshold(thresholdMinutes: number): Topology {
 }
 
 /**
- * Build a minimal WorkflowListEntry fixture.
- * Staleness is computed from `_checkpoint.lastActivityTimestamp` vs an
- * injectable `now` in the tests, so fixtures only need to set the timestamp.
+ * Build a minimal `WorkflowListEntry`. The tests pass a fixed `now`, so a
+ * fixture sets only the last-activity timestamp.
  */
 function makeEntry(overrides: {
   featureId: string;
@@ -101,17 +87,16 @@ function makeEntry(overrides: {
   };
 }
 
-// A fixed "now" for deterministic tests.
+/** A fixed "now" for deterministic tests. */
 const NOW = new Date('2026-04-11T12:00:00.000Z');
 
-// Helper: minutes-before-now as ISO string
+/** The ISO time `mins` minutes before `NOW`. */
 function minutesAgo(mins: number): string {
   return new Date(NOW.getTime() - mins * 60 * 1000).toISOString();
 }
 
 describe('selectPruneCandidates', () => {
   it('excludes terminal phases (completed, cancelled)', () => {
-    // Very stale so they'd otherwise qualify (> 10080 min default threshold)
     const stale = minutesAgo(30_000);
     const entries: WorkflowListEntry[] = [
       makeEntry({ featureId: 'a', phase: 'completed', lastActivityTimestamp: stale }),
@@ -126,11 +111,10 @@ describe('selectPruneCandidates', () => {
     expect(terminalExclusions.map((e) => e.featureId).sort()).toEqual(['a', 'b']);
   });
 
+  /** The default fixture threshold is 20160 minutes (14 days). */
   it('excludes fresh workflows (within default threshold)', () => {
-    // Default threshold is 20160 minutes (14 days), encoded on the
-    // typed PhaseContract via `buildTestTopology()`.
     const entries: WorkflowListEntry[] = [
-      makeEntry({ featureId: 'fresh', lastActivityTimestamp: minutesAgo(60) }), // 1h
+      makeEntry({ featureId: 'fresh', lastActivityTimestamp: minutesAgo(60) }),
       makeEntry({ featureId: 'stale', lastActivityTimestamp: minutesAgo(30_000) }),
     ];
 
@@ -164,16 +148,17 @@ describe('selectPruneCandidates', () => {
     }
   });
 
+  /** The threshold comes from the topology fixture, not from the config argument. */
   it('respects a custom threshold (60 min)', () => {
     const entries: WorkflowListEntry[] = [
-      makeEntry({ featureId: 'a', lastActivityTimestamp: minutesAgo(30) }), // fresh vs 60
-      makeEntry({ featureId: 'b', lastActivityTimestamp: minutesAgo(120) }), // stale vs 60
+      makeEntry({ featureId: 'a', lastActivityTimestamp: minutesAgo(30) }),
+      makeEntry({ featureId: 'b', lastActivityTimestamp: minutesAgo(120) }),
     ];
 
     const { candidates, excluded } = selectPruneCandidates(
       entries,
       buildTestTopologyWithThreshold(60),
-      {}, // threshold is sourced from the topology fixture (60 min)
+      {},
       NOW,
     );
 
@@ -213,8 +198,6 @@ describe('selectPruneCandidates', () => {
     expect(candidates.map((c) => c.featureId).sort()).toEqual(['f1', 'os1']);
     expect(excluded.filter((e) => e.reason === 'oneshot-excluded')).toEqual([]);
   });
-
-  // ─── Task 012: phaseExclusions filter ────────────────────────────────────
 
   it('selectPruneCandidates_DelegatePhase_ExcludedByDefault', () => {
     const stale = minutesAgo(30_000);
@@ -277,7 +260,6 @@ describe('selectPruneCandidates', () => {
       makeEntry({ featureId: 'impl', phase: 'implementing', lastActivityTimestamp: stale }),
     ];
 
-    // Custom exclusions: only 'plan' excluded, 'implementing' is fine
     const { candidates, excluded } = selectPruneCandidates(
       entries,
       buildTestTopology(),
@@ -289,29 +271,6 @@ describe('selectPruneCandidates', () => {
     expect(excluded.find((e) => e.featureId === 'plan')?.reason).toBe('phase-excluded');
   });
 
-  // ─── C8 (#1117): multi-signal staleness ──────────────────────────────────
-  //
-  // The single-signal gate on `_checkpoint.lastActivityTimestamp` is refreshed
-  // by ANY MCP read (`get`, `describe`), so a workflow polled by the
-  // orchestrator looks "fresh" forever. Two secondary signals close the
-  // false-fresh path:
-  //
-  // - `phaseTransitionTimestamp` — derived from the most-recent
-  //   `workflow.transition` event. Captures "stuck in phase X for N days"
-  //   even when reads keep `lastActivityTimestamp` fresh.
-  // - `branchActivityTimestamp` — `git log -1 --format=%ct` on the tracked
-  //   branch. Treats absence-of-activity in the threshold window as a
-  //   stale signal. Skipped silently when no branch is tracked.
-  //
-  // #1334 (β-07): the legacy heuristic
-  //   stale = phaseTransition stale AND (lastActivity stale OR branch inactive)
-  // is no longer expressible — DR-7 (#1332) hard-cut the untyped scorer
-  // and the contract reducer is `'all' | 'any'` only. These C8 tests now
-  // express the same intent through a typed PhaseContract that declares
-  // BOTH secondary signals with `freshnessRequires: 'any'`: the workflow
-  // is fresh iff at least one secondary signal is fresh, matching the
-  // semantics of "recent phase progress alone keeps fresh, recent branch
-  // activity alone keeps fresh".
   function c8Topology(): Topology {
     return {
       phases: {
@@ -329,19 +288,21 @@ describe('selectPruneCandidates', () => {
     };
   }
 
+  /**
+   * Reads refresh `lastActivityTimestamp`, so a polled workflow looks fresh.
+   * `c8Topology` scores `phaseTransition` and `branchActivity` with
+   * `freshnessRequires: 'any'`. Here the phase transition is 21 days old and the
+   * branch signal is absent, so both signals are stale.
+   */
   it('selectPruneCandidates_phaseStuckButReadActive_flagsAsStale', () => {
-    // Repro of #1117: phase entered 7d ago, but lastActivityTimestamp is 1h
-    // old because the orchestrator polls the workflow with read tools that
-    // refresh the checkpoint. The pruner used to mark this fresh and never
-    // touch it. Multi-signal scoring must catch it.
     const entries: WorkflowListEntry[] = [
       {
         featureId: 'stuck-but-polled',
         workflowType: 'feature',
         phase: 'implementing',
         stateFile: '/tmp/stuck-but-polled.state.json',
-        _checkpoint: { lastActivityTimestamp: minutesAgo(60) }, // 1h — fresh
-        phaseTransitionTimestamp: minutesAgo(60 * 24 * 21), // 21d — stale vs 14d default
+        _checkpoint: { lastActivityTimestamp: minutesAgo(60) },
+        phaseTransitionTimestamp: minutesAgo(60 * 24 * 21),
       },
     ];
 
@@ -351,16 +312,15 @@ describe('selectPruneCandidates', () => {
   });
 
   it('selectPruneCandidates_branchInactiveAndPhaseStuck_flagsAsStale', () => {
-    // Both secondary signals stale → flagged.
     const entries: WorkflowListEntry[] = [
       {
         featureId: 'branch-and-phase-stuck',
         workflowType: 'feature',
         phase: 'implementing',
         stateFile: '/tmp/branch-and-phase-stuck.state.json',
-        _checkpoint: { lastActivityTimestamp: minutesAgo(60) }, // fresh by reads
-        phaseTransitionTimestamp: minutesAgo(60 * 24 * 21), // 21d — stale vs 14d
-        branchActivityTimestamp: minutesAgo(60 * 24 * 21), // 21d — stale vs 14d
+        _checkpoint: { lastActivityTimestamp: minutesAgo(60) },
+        phaseTransitionTimestamp: minutesAgo(60 * 24 * 21),
+        branchActivityTimestamp: minutesAgo(60 * 24 * 21),
       },
     ];
 
@@ -369,21 +329,20 @@ describe('selectPruneCandidates', () => {
     expect(candidates.map((c) => c.featureId)).toEqual(['branch-and-phase-stuck']);
   });
 
+  /**
+   * Recent phase and branch activity keep the entry fresh, even with a 30-day-old
+   * `lastActivityTimestamp`. This guards against false positives.
+   */
   it('selectPruneCandidates_recentTransitionAndCommit_doesNotFlag', () => {
-    // Recent phase transition AND recent branch activity → NOT flagged.
-    // Pinned to prevent the new signals from creating false positives on
-    // legitimately active workflows.
     const entries: WorkflowListEntry[] = [
       {
         featureId: 'actively-progressing',
         workflowType: 'feature',
         phase: 'implementing',
         stateFile: '/tmp/actively-progressing.state.json',
-        // Even with an old lastActivityTimestamp, recent phase progress
-        // should keep this fresh.
-        _checkpoint: { lastActivityTimestamp: minutesAgo(60 * 24 * 30) }, // 30d
-        phaseTransitionTimestamp: minutesAgo(60), // 1h — fresh
-        branchActivityTimestamp: minutesAgo(60), // 1h — fresh
+        _checkpoint: { lastActivityTimestamp: minutesAgo(60 * 24 * 30) },
+        phaseTransitionTimestamp: minutesAgo(60),
+        branchActivityTimestamp: minutesAgo(60),
       },
     ];
 
@@ -393,33 +352,19 @@ describe('selectPruneCandidates', () => {
     expect(excluded.map((e) => e.featureId)).toEqual(['actively-progressing']);
   });
 
-  // ─── #1334 β-06: typed-contract scoring through Topology ───────────────────
-  //
-  // The orchestrator-side multi-signal heuristic
-  //   stale = phaseTransitionStale && (lastActivityStale || branchInactive)
-  // is not expressible by the typed `PhaseContract`'s `freshnessRequires:
-  // 'all' | 'any'` reducer, and DR-7 (#1332) hard-cut the untyped scorer
-  // path. The selector must accept a `Topology` argument and delegate
-  // staleness decisions to `scoreEntryThroughTopology`. This test asserts
-  // the topology argument exists AND its verdict — not the legacy
-  // heuristic — drives candidate selection.
-  // Sentry #1338 review (HIGH): if topology.yaml renames/removes a phase
-  // while a workflow still references the old name, `scoreEntryThroughTopology`
-  // throws — and without per-entry isolation that throw bubbles out of
-  // `selectPruneCandidates` and crashes the entire `handlePruneStaleWorkflows`
-  // batch (no workflows pruned at all). The selector must instead record
-  // the orphan-phase entry as a structured exclusion and keep going for
-  // the rest of the batch. DIM-7 resilience; INV-5b spec-aligned output.
+  /**
+   * A phase with no contract in the topology gives a `phase-not-in-topology`
+   * exclusion. The selector does not throw, so one orphan entry does not stop
+   * the batch.
+   */
   it('SelectPruneCandidates_EntryWithPhaseAbsentFromTopology_ExcludedNotThrown', () => {
-    const topology = buildTestTopology(); // declares implementing/plan/etc., NOT 'legacy_phase'
+    const topology = buildTestTopology();
     const entries: WorkflowListEntry[] = [
-      // Orphan-phase entry — should be excluded, not crash the batch.
       makeEntry({
         featureId: 'orphan',
         phase: 'legacy_phase',
         lastActivityTimestamp: minutesAgo(30_000),
       }),
-      // Stale entry on a valid phase — must still be selected as a candidate.
       makeEntry({
         featureId: 'valid-stale',
         phase: 'implementing',
@@ -427,9 +372,6 @@ describe('selectPruneCandidates', () => {
       }),
     ];
 
-    // The selector must NOT throw — the prior implementation propagated
-    // the scorer's exception. The new implementation pre-checks the
-    // topology and emits an exclusion.
     const { candidates, excluded } = selectPruneCandidates(entries, topology, {}, NOW);
 
     expect(candidates.map((c) => c.featureId)).toEqual(['valid-stale']);
@@ -467,11 +409,12 @@ describe('selectPruneCandidates', () => {
     expect(excluded).toEqual([]);
   });
 
+  /**
+   * The `implementing` contract has two 60-minute signals and `freshnessRequires: 'all'`.
+   * `lastActivity` is fresh, but `branchActivity` is absent and counts as stale.
+   * So the topology verdict is stale.
+   */
   it('SelectPruneCandidates_WithTopologyArgument_ReturnsCandidatesScoredByPhaseContract', () => {
-    // Topology: phase 'implementing' declares two signals with a 60-minute
-    // threshold and `freshnessRequires: 'all'`. With 'all', the entry is
-    // stale iff ANY declared signal is stale (or absent). Per
-    // `scoreStaleness`, an absent signal is treated as stale.
     const topology = buildTestTopology({
       implementing: {
         staleness: {
@@ -485,16 +428,6 @@ describe('selectPruneCandidates', () => {
       },
     });
 
-    // Entry: lastActivity 30 min ago (fresh vs 60-min threshold), no
-    // branchActivityTimestamp (absent → contract treats as stale).
-    //
-    // - Legacy heuristic verdict: no secondary signal → fall back to single
-    //   signal vs default 20_160 min → 30 min < 20_160 → FRESH.
-    // - Typed contract verdict: lastActivity fresh + branchActivity absent
-    //   (stale) under `freshnessRequires: 'all'` → STALE.
-    //
-    // The two verdicts diverge, so this test pins which one the selector
-    // produces when called WITH a topology argument.
     const entries: WorkflowListEntry[] = [
       {
         featureId: 'topology-driven',
@@ -505,8 +438,6 @@ describe('selectPruneCandidates', () => {
       },
     ];
 
-    // The new signature threads `topology` as the second positional
-    // argument. Once β-07 lands, this call compiles and passes.
     const { candidates, excluded } = selectPruneCandidates(
       entries,
       topology,
@@ -514,13 +445,10 @@ describe('selectPruneCandidates', () => {
       NOW,
     );
 
-    // Topology-driven verdict, NOT the legacy heuristic's "fresh".
     expect(candidates.map((c) => c.featureId)).toEqual(['topology-driven']);
     expect(excluded.filter((e) => e.reason === 'fresh')).toEqual([]);
   });
 });
-
-// ─── Handler Tests ──────────────────────────────────────────────────────────
 
 /**
  * Build a `handleList`-shaped ToolResult payload from minimal fixture data.
@@ -558,7 +486,10 @@ function makeEventStoreStub(): {
   return { append, ctx: { eventStore: { append } } };
 }
 
-/** Build a DI bundle with stubs. Defaults: safeguards always pass, branchName present. */
+/**
+ * Build a DI bundle with stubs. By default the safeguards pass, the branch name
+ * is `feat/x`, and the phase-transition and branch-activity signals are absent.
+ */
 function makeDeps(overrides: Partial<PruneHandlerDeps> = {}): PruneHandlerDeps & {
   listSpy: ReturnType<typeof vi.fn>;
   cancelSpy: ReturnType<typeof vi.fn>;
@@ -574,10 +505,6 @@ function makeDeps(overrides: Partial<PruneHandlerDeps> = {}): PruneHandlerDeps &
     hasOpenPR: vi.fn().mockResolvedValue(false),
     hasRecentCommits: vi.fn().mockResolvedValue(false),
   };
-  // C8 (#1117): default to "no signal" for the secondary staleness signals.
-  // Existing handler tests gated only on `_checkpoint.lastActivityTimestamp`;
-  // returning `undefined` keeps the selector on the legacy single-signal
-  // path so those tests retain their semantics.
   const phaseTransitionSpy = vi.fn().mockResolvedValue(undefined);
   const branchActivitySpy = vi.fn().mockResolvedValue(undefined);
   return {
@@ -606,9 +533,7 @@ describe('handlePruneStaleWorkflows', () => {
     return new Date(new Date(NOW_ISO).getTime() - mins * 60 * 1000).toISOString();
   }
 
-  // Reset the topology mock between tests; default to a successfully-loaded
-  // fixture so the handler stays on its happy path. β-08 tests opt out
-  // by reassigning the mock to throw "load before".
+  /** Each test starts with a loaded topology fixture. A test can make the loader throw. */
   beforeEach(() => {
     mockGetTopology.mockReset();
     mockGetTopology.mockImplementation(() => buildTestTopology());
@@ -616,13 +541,15 @@ describe('handlePruneStaleWorkflows', () => {
     mockExplicitTopologyRequested.mockReturnValue(true);
   });
 
-  // Restore all spies between tests (e.g. orchestrateLogger.warn spies in
-  // the β-08 + deprecation-warn cases) so spy call history doesn't leak
-  // across the suite. CodeRabbit #1338 review.
+  /** Restore the spies, such as `orchestrateLogger.warn`, so call history does not leak between tests. */
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
+  /**
+   * The handler returns `aborted` with the reason `topology_not_loaded`. It logs a
+   * warning with that reason and cancels nothing.
+   */
   it('PruneStaleWorkflows_TopologyYamlFailedToLoad_SkipsPruningWithLoggedReason', async () => {
     const { ctx } = makeEventStoreStub();
     const deps = makeDeps();
@@ -656,8 +583,6 @@ describe('handlePruneStaleWorkflows', () => {
       reason: 'topology_not_loaded',
     });
 
-    // The handler MUST have logged a warning carrying the same reason
-    // string so operators see why the run produced no candidates.
     expect(warnSpy).toHaveBeenCalled();
     const warnedWithReason = warnSpy.mock.calls.some((call) => {
       const meta = call[0];
@@ -669,27 +594,12 @@ describe('handlePruneStaleWorkflows', () => {
     });
     expect(warnedWithReason).toBe(true);
 
-    // Skip path is read-only — no cancel, no list invocation needed
-    // beyond the no-op load — and certainly no event-append.
     expect(deps.cancelSpy).not.toHaveBeenCalled();
 
     warnSpy.mockRestore();
   });
 
-  // ─── DR-9: the removed `thresholdMinutes` knob is REJECTED at the schema ───
-  //
-  // #1334 made `topology.yaml` `staleness` blocks the single source of
-  // staleness policy; `thresholdMinutes` was accepted-but-ignored until the
-  // debloat wave removed it. The rejection now lives on the REAL dispatch/CLI
-  // seam (the `prune_stale_workflows` action schema), NOT inside this handler —
-  // `parsed.data` can never carry the removed key past `dispatch()`. The former
-  // in-handler `'thresholdMinutes' in args` guard + its two direct tests were
-  // removed: they cast past the type boundary to certify a path real callers
-  // never reach (a vacuous gate). The behavior is pinned end-to-end by the
-  // dispatch-level arbiter in `dispatch/core/dispatch.test.ts`
-  // (`Dispatch_PruneLegacyThresholdMinutes_ActionableRemovalError`) and the
-  // yaml-config seam by `config/yaml-schema.test.ts`.
-
+  /** Without `topology.yaml`, the built-in topology covers only the built-in workflow types. */
   it('PruneStaleWorkflows_NoTopologyYamlApplyMode_CustomWorkflowTypeInABuiltInPhaseIsNotCancelled', async () => {
     const { ctx } = makeEventStoreStub();
     const deps = makeDeps();
@@ -739,6 +649,10 @@ describe('handlePruneStaleWorkflows', () => {
     expect(data.candidates.map((c) => c.featureId)).toEqual(['custom-plan', 'feature-plan']);
   });
 
+  /**
+   * A dry run omits `pruned`, so a preview differs from an apply run that pruned
+   * nothing. It appends no `workflow.pruned` event.
+   */
   it('dry run returns candidates without calling cancel', async () => {
     const { ctx } = makeEventStoreStub();
     const deps = makeDeps();
@@ -763,12 +677,8 @@ describe('handlePruneStaleWorkflows', () => {
       pruned?: unknown[];
     };
     expect(data.candidates.map((c) => c.featureId)).toEqual(['stale1']);
-    // Dry-run must omit `pruned` entirely — surfacing an empty array would
-    // blur the distinction between "preview" and "nothing was pruned in
-    // apply mode". The design spec shape has `pruned?` for this reason.
     expect(data).not.toHaveProperty('pruned');
     expect(deps.cancelSpy).not.toHaveBeenCalled();
-    // No workflow.pruned events in dry-run (prune.diagnostics is fine)
     const prunedEvents = ctx.eventStore.append.mock.calls.filter(
       (call: unknown[]) => (call[1] as { type: string }).type === 'workflow.pruned',
     );
@@ -885,13 +795,11 @@ describe('handlePruneStaleWorkflows', () => {
     );
 
     expect(result.success).toBe(true);
-    // When forced, safeguards must not even be consulted.
     expect(deps.safeguards.hasOpenPR).not.toHaveBeenCalled();
     expect(deps.safeguards.hasRecentCommits).not.toHaveBeenCalled();
     const data = result.data as { pruned: Array<{ featureId: string }> };
     expect(data.pruned.map((p) => p.featureId)).toEqual(['a']);
 
-    // Emitted event carries the skippedSafeguards marker
     const prunedCalls = append.mock.calls.filter(
       (call: unknown[]) => (call[1] as { type: string }).type === 'workflow.pruned',
     );
@@ -939,7 +847,6 @@ describe('handlePruneStaleWorkflows', () => {
     const deps = makeDeps({
       readBranchName: vi.fn().mockResolvedValue(undefined),
       safeguards: {
-        // Purposely throwing — they must not be called.
         hasOpenPR: vi.fn().mockRejectedValue(new Error('must-not-be-called')),
         hasRecentCommits: vi.fn().mockRejectedValue(new Error('must-not-be-called')),
       },
@@ -961,10 +868,11 @@ describe('handlePruneStaleWorkflows', () => {
     expect(data.pruned.map((p) => p.featureId)).toEqual(['nobrn']);
   });
 
+  /**
+   * The `workflow.pruned` append throws after a successful cancel. The entry goes
+   * to `skipped` with `event-append-failed`, not to `pruned`.
+   */
   it('handlePruneStaleWorkflows_eventAppendThrows_recordsInSkippedNotPruned', async () => {
-    // HIGH-2 regression: when eventStore.append throws after a successful
-    // cancel, the feature must appear in `skipped` with reason
-    // `event-append-failed` and MUST NOT appear in `pruned`.
     const append = vi.fn().mockRejectedValue(new Error('append boom'));
     const ctx = { eventStore: { append } };
     const deps = makeDeps();
@@ -982,26 +890,21 @@ describe('handlePruneStaleWorkflows', () => {
     );
 
     expect(result.success).toBe(true);
-    // The cancel MUST still have been invoked — the append failure happens
-    // AFTER the cancel succeeds.
     expect(deps.cancelSpy).toHaveBeenCalledTimes(1);
 
     const data = result.data as {
       pruned: Array<{ featureId: string }>;
       skipped: Array<{ featureId: string; reason: string; message?: string }>;
     };
-    // NOT in pruned (this is the core HIGH-2 assertion)
     expect(data.pruned).toEqual([]);
-    // IS in skipped with the new distinct reason
     expect(data.skipped).toHaveLength(1);
     expect(data.skipped[0]?.featureId).toBe('ea-fail');
     expect(data.skipped[0]?.reason).toBe('event-append-failed');
     expect(data.skipped[0]?.message).toContain('append boom');
   });
 
+  /** Apply mode without an event store fails with `MISSING_CONTEXT` before any cancel. */
   it('handlePruneStaleWorkflows_applyModeWithoutEventStore_returnsStructuredError', async () => {
-    // MEDIUM-1 regression: apply mode without ctx must not silently no-op
-    // on the append — it must refuse upfront with a structured error.
     const deps = makeDeps();
     deps.listSpy.mockResolvedValue(
       makeListResult([
@@ -1012,20 +915,18 @@ describe('handlePruneStaleWorkflows', () => {
     const result = await handlePruneStaleWorkflows(
       { dryRun: false, now: NOW_ISO },
       STATE_DIR,
-      undefined, // no ctx
+      undefined,
       deps,
     );
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('MISSING_CONTEXT');
     expect(result.error?.message).toContain('eventStore');
-    // Must refuse BEFORE touching handleCancel (no partial mutations).
     expect(deps.cancelSpy).not.toHaveBeenCalled();
   });
 
+  /** A dry run cancels nothing, so it runs without an event store. */
   it('handlePruneStaleWorkflows_dryRunWithoutEventStore_stillAllowed', async () => {
-    // Dry-run is read-only — no event emission needed, so the precondition
-    // does not apply. This guards against overly-broad refusals.
     const deps = makeDeps();
     deps.listSpy.mockResolvedValue(
       makeListResult([
@@ -1076,31 +977,23 @@ describe('handlePruneStaleWorkflows', () => {
     expect(data.pruned.map((p) => p.featureId).sort()).toEqual(['a', 'c']);
     const failed = data.skipped.find((s) => s.featureId === 'b');
     expect(failed?.reason).toBe('cancel-failed');
-    // Only successful cancels emit workflow.pruned events.
     const prunedCalls = append.mock.calls.filter(
       (call: unknown[]) => (call[1] as { type: string }).type === 'workflow.pruned',
     );
     expect(prunedCalls).toHaveLength(2);
   });
 
-  // ─── F1: fail-closed malformed-entry validation ───────────────────────────
-  // Shepherd iter 2 (CodeRabbit finding): the handler must refuse to prune
-  // handleList entries that are missing required fields. Previously, missing
-  // `_checkpoint` was coerced to `new Date(0)` which made them look
-  // maximally stale — if handleList ever regressed (as it did in T15), every
-  // workflow would be bulk-cancelled in apply mode. The handler now moves
-  // malformed entries to a separate `malformed` bucket and excludes them
-  // from candidates/pruned entirely.
+  /**
+   * The handler does not prune a `handleList` entry that lacks a required field
+   * or has a timestamp that does not parse. It reports the entry in `malformed`
+   * and logs a warning, so a broken `handleList` cannot cancel every workflow.
+   */
   it('handlePruneStaleWorkflows_malformedEntries_excludedFromCandidates', async () => {
     const { ctx } = makeEventStoreStub();
     const deps = makeDeps();
-    // Bypass makeListResult() — it always produces valid entries — and
-    // construct a raw mixed payload directly so we can inject malformed
-    // shapes.
     deps.listSpy.mockResolvedValue({
       success: true,
       data: [
-        // Valid, stale → should land in candidates + pruned
         {
           featureId: 'valid-stale',
           workflowType: 'feature',
@@ -1108,21 +1001,18 @@ describe('handlePruneStaleWorkflows', () => {
           stateFile: '/tmp/valid-stale.state.json',
           _checkpoint: { lastActivityTimestamp: staleIso(30_000) },
         },
-        // Missing _checkpoint → malformed
         {
           featureId: 'no-checkpoint',
           workflowType: 'feature',
           phase: 'implementing',
           stateFile: '/tmp/no-checkpoint.state.json',
         },
-        // Missing featureId → malformed (and featureId omitted in report)
         {
           workflowType: 'feature',
           phase: 'implementing',
           stateFile: '/tmp/anon.state.json',
           _checkpoint: { lastActivityTimestamp: staleIso(30_000) },
         },
-        // Invalid timestamp string → malformed
         {
           featureId: 'bad-timestamp',
           workflowType: 'feature',
@@ -1130,7 +1020,6 @@ describe('handlePruneStaleWorkflows', () => {
           stateFile: '/tmp/bad-timestamp.state.json',
           _checkpoint: { lastActivityTimestamp: 'not-a-date' },
         },
-        // Missing workflowType → malformed
         {
           featureId: 'no-type',
           phase: 'implementing',
@@ -1140,10 +1029,6 @@ describe('handlePruneStaleWorkflows', () => {
       ],
     });
 
-    // Silence the malformed-entries warning for the duration of the test —
-    // we assert on the return shape, not stderr. Also asserts the warning
-    // path fires: handler must call orchestrateLogger.warn when malformed
-    // entries are present so operators see the upstream regression.
     const warnSpy = vi.spyOn(orchestrateLogger, 'warn').mockImplementation((() => {}) as never);
 
     const result = await handlePruneStaleWorkflows(
@@ -1164,51 +1049,35 @@ describe('handlePruneStaleWorkflows', () => {
       malformed: Array<{ featureId?: string; reason: string }>;
     };
 
-    // Only the valid entry made it to candidates + pruned.
     expect(data.candidates.map((c) => c.featureId)).toEqual(['valid-stale']);
     expect(data.pruned.map((p) => p.featureId)).toEqual(['valid-stale']);
 
-    // The 4 malformed entries are reported separately.
     expect(data.malformed).toHaveLength(4);
     const malformedIds = data.malformed
       .map((m) => m.featureId)
       .filter((id): id is string => id !== undefined)
       .sort();
-    // `no-checkpoint`, `bad-timestamp`, `no-type` all have featureId; the
-    // missing-featureId entry reports undefined.
     expect(malformedIds).toEqual(['bad-timestamp', 'no-checkpoint', 'no-type']);
-    // One malformed entry has no featureId (it's the first field checked,
-    // so the missing-featureId case omits it from the report).
     expect(
       data.malformed.filter((m) => m.featureId === undefined),
     ).toHaveLength(1);
-    // Every malformed entry has a human-readable reason string.
     for (const m of data.malformed) {
       expect(typeof m.reason).toBe('string');
       expect(m.reason.length).toBeGreaterThan(0);
     }
 
-    // Critical: malformed entries must NOT appear in candidates or pruned,
-    // and must NOT have been cancelled.
     const allMalformedIds = new Set(['no-checkpoint', 'bad-timestamp', 'no-type']);
     expect(
       data.candidates.some((c) => allMalformedIds.has(c.featureId)),
     ).toBe(false);
     expect(data.pruned.some((p) => allMalformedIds.has(p.featureId))).toBe(false);
-    // handleCancel called exactly once — for the valid-stale entry only.
     expect(deps.cancelSpy).toHaveBeenCalledTimes(1);
     expect(
       (deps.cancelSpy.mock.calls[0]?.[0] as { featureId: string }).featureId,
     ).toBe('valid-stale');
   });
 
-  // ─── F2: `now` input validation ────────────────────────────────────────────
-  // Shepherd iter 2 (CodeRabbit finding): an invalid `now` must be rejected up
-  // front with a structured INVALID_INPUT error, BEFORE touching handleList,
-  // cancel, or the event store. (The `thresholdMinutes` shape-validation cases
-  // this block once carried were removed with the knob itself — DR-9 — and are
-  // now covered by the `PruneAction_LegacyKnobPassed_*` removal tests above.)
-
+  /** An invalid `now` fails with `INVALID_INPUT` before the handler calls `handleList`. */
   it('handlePruneStaleWorkflows_rejectsInvalidNow', async () => {
     const { ctx } = makeEventStoreStub();
     const deps = makeDeps();
@@ -1226,11 +1095,11 @@ describe('handlePruneStaleWorkflows', () => {
     expect(deps.listSpy).not.toHaveBeenCalled();
   });
 
+  /**
+   * The default fixture threshold is 20160 minutes (14 days). An entry one minute
+   * past it is a candidate, and an entry one minute short is not.
+   */
   it('handlePruneStaleWorkflows_defaultThreshold_appliedWhenOmitted', async () => {
-    // When `thresholdMinutes` is omitted and no projectConfig, the handler
-    // should default to 20160 (14 days). Verify by constructing an entry
-    // that is just barely stale vs the default (20161 min) — it should be
-    // a candidate.
     const { ctx } = makeEventStoreStub();
     const deps = makeDeps();
     deps.listSpy.mockResolvedValue(
@@ -1241,7 +1110,7 @@ describe('handlePruneStaleWorkflows', () => {
     );
 
     const result = await handlePruneStaleWorkflows(
-      { dryRun: true, now: NOW_ISO }, // thresholdMinutes intentionally omitted
+      { dryRun: true, now: NOW_ISO },
       STATE_DIR,
       ctx,
       deps,
@@ -1252,15 +1121,12 @@ describe('handlePruneStaleWorkflows', () => {
     expect(data.candidates.map((c) => c.featureId)).toEqual(['just-stale']);
   });
 
-  // ─── Task 009: Diagnostics field ──────────────────────────────────────────
-
   it('handlePrune_MalformedEntries_ReturnsDiagnosticsField', async () => {
     const { ctx } = makeEventStoreStub();
     const deps = makeDeps();
     deps.listSpy.mockResolvedValue({
       success: true,
       data: [
-        // Valid stale entry
         {
           featureId: 'valid-1',
           workflowType: 'feature',
@@ -1268,14 +1134,12 @@ describe('handlePruneStaleWorkflows', () => {
           stateFile: '/tmp/valid-1.state.json',
           _checkpoint: { lastActivityTimestamp: staleIso(30_000) },
         },
-        // Missing _checkpoint → malformed
         {
           featureId: 'bad-1',
           workflowType: 'feature',
           phase: 'implementing',
           stateFile: '/tmp/bad-1.state.json',
         },
-        // Missing featureId → malformed
         {
           workflowType: 'feature',
           phase: 'implementing',
@@ -1342,14 +1206,12 @@ describe('handlePruneStaleWorkflows', () => {
     deps.listSpy.mockResolvedValue({
       success: true,
       data: [
-        // Missing _checkpoint → malformed
         {
           featureId: 'bad-checkpoint',
           workflowType: 'feature',
           phase: 'implementing',
           stateFile: '/tmp/bad-checkpoint.state.json',
         },
-        // Unparsable timestamp → malformed
         {
           featureId: 'bad-timestamp',
           workflowType: 'feature',
@@ -1415,13 +1277,10 @@ describe('handlePruneStaleWorkflows', () => {
     deps.listSpy.mockResolvedValue({
       success: true,
       data: [
-        // Completely corrupt: not even an object
         42,
         null,
         'garbage',
-        // Object but missing everything
         {},
-        // Valid entry to confirm pipeline continues
         {
           featureId: 'valid-1',
           workflowType: 'feature',
@@ -1452,8 +1311,6 @@ describe('handlePruneStaleWorkflows', () => {
     expect(data.diagnostics.candidateCount).toBe(1);
   });
 
-  // ─── Task 010: prune.diagnostics event emission ───────────────────────────
-
   it('handlePrune_WithMalformed_EmitsPruneDiagnosticsEvent', async () => {
     const { append, ctx } = makeEventStoreStub();
     const deps = makeDeps();
@@ -1467,7 +1324,6 @@ describe('handlePruneStaleWorkflows', () => {
           stateFile: '/tmp/valid-1.state.json',
           _checkpoint: { lastActivityTimestamp: staleIso(30_000) },
         },
-        // Malformed: missing _checkpoint
         {
           featureId: 'bad-1',
           workflowType: 'feature',
@@ -1485,7 +1341,6 @@ describe('handlePruneStaleWorkflows', () => {
       deps,
     );
 
-    // Find the prune.diagnostics event among all appended events
     const diagnosticsCall = append.mock.calls.find(
       (call: unknown[]) => {
         const envelope = call[1] as { type: string };
@@ -1570,14 +1425,12 @@ describe('handlePruneStaleWorkflows', () => {
     expect(append).toHaveBeenCalledTimes(1);
   });
 
-  // ─── Task 011: Wire prune config from .exarchos.yml ───────────────────────
-
+  /**
+   * The project config holds no threshold. The topology fixture sets 30 days, so
+   * only the 35-day entry is a candidate.
+   */
   it('handlePrune_WithConfig_UsesConfiguredThreshold', async () => {
     const { append, ctx: baseCtx } = makeEventStoreStub();
-    // #1334 (β-07): per-phase staleness thresholds live on the typed
-    // PhaseContract, so the topology fixture drives the 30-day threshold
-    // this assertion exercises. (DR-9: the legacy `staleAfterDays` config
-    // knob was removed — the topology contract is the sole source now.)
     const ctx = {
       ...baseCtx,
       projectConfig: {
@@ -1590,14 +1443,12 @@ describe('handlePruneStaleWorkflows', () => {
       },
     };
     mockGetTopology.mockImplementation(() =>
-      buildTestTopologyWithThreshold(30 * 24 * 60 /* 30d in minutes */),
+      buildTestTopologyWithThreshold(30 * 24 * 60),
     );
     const deps = makeDeps();
-    // Entry at 20000 min is ~14 days — stale at default 7d, but fresh at 30d
     deps.listSpy.mockResolvedValue(
       makeListResult([
         { featureId: 'under-30d', lastActivityTimestamp: staleIso(30_000) },
-        // 50000 min ≈ 35 days — stale at 30d
         { featureId: 'over-30d', lastActivityTimestamp: staleIso(50_000) },
       ]),
     );
@@ -1611,15 +1462,16 @@ describe('handlePruneStaleWorkflows', () => {
 
     expect(result.success).toBe(true);
     const data = result.data as { candidates: Array<{ featureId: string }> };
-    // Only the 35-day-old entry should be a candidate when threshold = 30 days
     expect(data.candidates.map((c) => c.featureId)).toEqual(['over-30d']);
   });
 
+  /**
+   * Fourteen days is 20160 minutes. The entry at 20161 minutes is stale, and the
+   * entry at 20159 minutes is fresh.
+   */
   it('handlePrune_NoConfig_UsesDefaultThreshold14Days', async () => {
     const { ctx } = makeEventStoreStub();
     const deps = makeDeps();
-    // 14 days = 20160 minutes. Entry at 20161 min should be stale (just over 14d)
-    // Entry at 20000 min ≈ 13.9 days should be fresh
     deps.listSpy.mockResolvedValue(
       makeListResult([
         { featureId: 'just-over-14d', lastActivityTimestamp: staleIso(20_161) },
@@ -1639,8 +1491,6 @@ describe('handlePruneStaleWorkflows', () => {
     expect(data.candidates.map((c) => c.featureId)).toEqual(['just-over-14d']);
   });
 
-  // ─── Task 013: maxBatchSize cap ───────────────────────────────────────────
-
   it('handlePrune_ExceedsBatchSize_TruncatesCandidates', async () => {
     const { ctx: baseCtx } = makeEventStoreStub();
     const ctx = {
@@ -1655,7 +1505,6 @@ describe('handlePruneStaleWorkflows', () => {
       },
     };
     const deps = makeDeps();
-    // Create 10 stale entries with different staleness values
     const items = Array.from({ length: 10 }, (_, i) => ({
       featureId: `stale-${i}`,
       lastActivityTimestamp: staleIso(30_000 + i * 100),
@@ -1675,7 +1524,6 @@ describe('handlePruneStaleWorkflows', () => {
       truncated?: boolean;
       totalCandidates?: number;
     };
-    // Only 3 should be pruned due to maxBatchSize
     expect(data.pruned).toHaveLength(3);
     expect(data.truncated).toBe(true);
     expect(data.totalCandidates).toBe(10);
@@ -1716,7 +1564,6 @@ describe('handlePruneStaleWorkflows', () => {
       truncated?: boolean;
     };
     expect(data.pruned).toHaveLength(3);
-    // No truncation when under the limit
     expect(data.truncated).toBeUndefined();
   });
 
@@ -1762,8 +1609,6 @@ describe('handlePruneStaleWorkflows', () => {
     expect(data.totalCandidates).toBe(5);
   });
 
-  // ─── Task 014: malformedHandling modes ────────────────────────────────────
-
   it('handlePrune_MalformedHandlingReport_SurfacesDiagnostics', async () => {
     const { ctx: baseCtx } = makeEventStoreStub();
     const ctx = {
@@ -1788,7 +1633,6 @@ describe('handlePruneStaleWorkflows', () => {
           stateFile: '/tmp/valid-1.state.json',
           _checkpoint: { lastActivityTimestamp: staleIso(30_000) },
         },
-        // Malformed: missing _checkpoint
         {
           featureId: 'bad-1',
           workflowType: 'feature',
@@ -1811,12 +1655,11 @@ describe('handlePruneStaleWorkflows', () => {
       diagnostics: { malformedCount: number };
       candidates: Array<{ featureId: string }>;
     };
-    // Diagnostics visible
     expect(data.diagnostics.malformedCount).toBe(1);
-    // Malformed entry excluded from candidates
     expect(data.candidates.map((c) => c.featureId)).toEqual(['valid-1']);
   });
 
+  /** In `include` mode, a malformed entry with a `featureId` becomes a candidate with infinite staleness. */
   it('handlePrune_MalformedHandlingInclude_TreatsAsCandidates', async () => {
     const { ctx: baseCtx } = makeEventStoreStub();
     const ctx = {
@@ -1841,7 +1684,6 @@ describe('handlePruneStaleWorkflows', () => {
           stateFile: '/tmp/valid-1.state.json',
           _checkpoint: { lastActivityTimestamp: staleIso(30_000) },
         },
-        // Malformed: missing _checkpoint
         {
           featureId: 'bad-1',
           workflowType: 'feature',
@@ -1863,10 +1705,8 @@ describe('handlePruneStaleWorkflows', () => {
     const data = result.data as {
       candidates: Array<{ featureId: string; stalenessMinutes: number }>;
     };
-    // Both valid and malformed entries should be candidates
     const ids = data.candidates.map((c) => c.featureId).sort();
     expect(ids).toEqual(['bad-1', 'valid-1']);
-    // Malformed entry treated with Infinity staleness
     const malformedCandidate = data.candidates.find((c) => c.featureId === 'bad-1');
     expect(malformedCandidate?.stalenessMinutes).toBe(Infinity);
   });
@@ -1895,7 +1735,6 @@ describe('handlePruneStaleWorkflows', () => {
           stateFile: '/tmp/valid-1.state.json',
           _checkpoint: { lastActivityTimestamp: staleIso(30_000) },
         },
-        // Malformed: missing _checkpoint
         {
           featureId: 'bad-1',
           workflowType: 'feature',
@@ -1918,17 +1757,17 @@ describe('handlePruneStaleWorkflows', () => {
       candidates: Array<{ featureId: string }>;
       diagnostics?: unknown;
     };
-    // Malformed entry excluded
     expect(data.candidates.map((c) => c.featureId)).toEqual(['valid-1']);
-    // No diagnostics field in skip mode
     expect(data.diagnostics).toBeUndefined();
   });
 
-  // ─── Task 015: requireDryRun enforcement ──────────────────────────────────
-
+  /**
+   * With `requireDryRun`, apply mode needs a `prune.diagnostics` event from an
+   * earlier dry run.
+   */
   it('handlePrune_ApplyWithoutPriorDryRun_RejectsWhenRequired', async () => {
     const append = vi.fn().mockResolvedValue({ sequence: 1, type: 'workflow.pruned' });
-    const query = vi.fn().mockResolvedValue([]); // No prior dry-run events
+    const query = vi.fn().mockResolvedValue([]);
     const ctx = {
       eventStore: { append, query },
       projectConfig: {
@@ -1960,7 +1799,6 @@ describe('handlePruneStaleWorkflows', () => {
 
   it('handlePrune_ApplyAfterDryRun_Succeeds', async () => {
     const append = vi.fn().mockResolvedValue({ sequence: 1, type: 'workflow.pruned' });
-    // Simulate a prior prune.diagnostics event (from a previous dry-run)
     const query = vi.fn().mockResolvedValue([
       {
         type: 'prune.diagnostics',
@@ -1997,20 +1835,14 @@ describe('handlePruneStaleWorkflows', () => {
     expect(result.success).toBe(true);
   });
 
-  // ─── Task 022: E2E prune config integration test ──────────────────────────
-
+  /**
+   * One apply run with a 30-day topology threshold and the config
+   * `phaseExclusions: ['ideate']`, `malformedHandling: 'include'`, `maxBatchSize: 5`,
+   * and `requireDryRun: false`. The custom exclusions replace the default list, so
+   * `delegate-40d` qualifies. Seven entries qualify, and the cap keeps the five most
+   * stale. The malformed entry has infinite staleness, so it sorts first.
+   */
   it('handlePrune_FullConfigApplied_AllKnobsEffective', async () => {
-    // E2E test: provide a full config with non-default values and verify ALL
-    // config knobs take effect simultaneously in a single pipeline run.
-    //
-    // Config under test (all non-default):
-    //   maxBatchSize:       5   (default 25)
-    //   phaseExclusions:  ['ideate']  (default ['delegate','review','synthesize'])
-    //   malformedHandling: 'include'  (default 'report')
-    //   requireDryRun:     false      (default true)
-    // (DR-9: the 30-day staleness window is driven by the topology fixture
-    // below — the `staleAfterDays` config knob was removed.)
-
     const append = vi.fn().mockResolvedValue({ sequence: 1, type: 'workflow.pruned' });
     const ctx = {
       eventStore: { append },
@@ -2023,29 +1855,10 @@ describe('handlePruneStaleWorkflows', () => {
         },
       },
     };
-    // #1334 (β-07): per-phase staleness thresholds live on the typed
-    // PhaseContract. The fixture mirrors the configured 30-day window.
     mockGetTopology.mockImplementation(() =>
       buildTestTopologyWithThreshold(30 * 24 * 60),
     );
     const deps = makeDeps();
-
-    // Construct a diverse entry set that exercises every knob:
-    //
-    // 1. 'stale-45d' — 45 days old, implementing → stale at 30d threshold → CANDIDATE
-    // 2. 'stale-35d' — 35 days old, implementing → stale at 30d threshold → CANDIDATE
-    // 3. 'stale-32d' — 32 days old, implementing → stale at 30d threshold → CANDIDATE
-    // 4. 'stale-31d' — 31 days old, implementing → stale at 30d threshold → CANDIDATE
-    // 5. 'stale-31d-b' — 31 days old, plan       → stale at 30d threshold → CANDIDATE
-    // 6. 'fresh-20d'  — 20 days old, implementing → fresh at 30d threshold → EXCLUDED (fresh)
-    // 7. 'ideate-40d' — 40 days old, ideate phase → EXCLUDED (phase-excluded by config)
-    // 8. 'delegate-40d' — 40 days old, delegate   → NOT excluded (delegate is NOT in our custom exclusions)
-    //                                              → stale at 30d → CANDIDATE
-    // 9. 'completed-50d' — 50 days old, completed → EXCLUDED (terminal phase, always)
-    // 10. malformed entry (missing _checkpoint)    → malformedHandling='include' → promoted to CANDIDATE
-    //
-    // Valid candidates: #1-5, #8 = 6 valid candidates + #10 malformed promoted = 7 total
-    // maxBatchSize = 5 → only 5 should survive (oldest-first = highest staleness)
 
     const daysToMinutes = (d: number) => d * 24 * 60;
 
@@ -2115,7 +1928,6 @@ describe('handlePruneStaleWorkflows', () => {
           stateFile: '/tmp/completed-50d.state.json',
           _checkpoint: { lastActivityTimestamp: staleIso(daysToMinutes(50)) },
         },
-        // Malformed entry: missing _checkpoint entirely
         {
           featureId: 'malformed-no-cp',
           workflowType: 'feature',
@@ -2127,8 +1939,6 @@ describe('handlePruneStaleWorkflows', () => {
 
     vi.spyOn(orchestrateLogger, 'warn').mockImplementation((() => {}) as never);
 
-    // Apply mode (dryRun=false) without a prior dry-run — requireDryRun=false
-    // means this should succeed.
     const result = await handlePruneStaleWorkflows(
       { dryRun: false, now: NOW_ISO },
       STATE_DIR,
@@ -2151,42 +1961,21 @@ describe('handlePruneStaleWorkflows', () => {
       totalCandidates?: number;
     };
 
-    // ── Knob 1: topology 30-day threshold (43200 minutes) ──
-    // 'fresh-20d' (20 days) must be excluded — it's under the 30-day threshold.
-    // All entries >= 31 days should be candidates (before batch cap).
     const candidateIds = data.candidates.map((c) => c.featureId);
     expect(candidateIds).not.toContain('fresh-20d');
 
-    // ── Knob 2: phaseExclusions=['ideate'] ──
-    // 'ideate-40d' must be excluded even though it's stale (custom exclusion).
-    // 'delegate-40d' must NOT be excluded — it would be excluded under default
-    // config (['delegate','review','synthesize']), but our custom config only
-    // excludes 'ideate'.
     expect(candidateIds).not.toContain('ideate-40d');
-    // 'completed-50d' is terminal — always excluded regardless of config.
     expect(candidateIds).not.toContain('completed-50d');
 
-    // ── Knob 3: malformedHandling='include' ──
-    // The malformed entry ('malformed-no-cp') should be promoted to a candidate
-    // with stalenessMinutes=Infinity.
-    // Diagnostics should still report the malformed entry.
     expect(data.diagnostics).toBeDefined();
     expect(data.diagnostics.malformedCount).toBe(1);
     expect(data.diagnostics.malformedEntries).toHaveLength(1);
     expect(data.diagnostics.malformedEntries[0]?.featureId).toBe('malformed-no-cp');
 
-    // ── Knob 4: maxBatchSize=5 ──
-    // Before truncation: valid stale candidates = stale-45d, stale-35d, stale-32d,
-    // stale-31d, stale-31d-b, delegate-40d = 6, plus malformed-no-cp promoted = 7 total.
-    // After maxBatchSize=5 truncation (oldest/most-stale first):
-    //   The 5 with highest stalenessMinutes should survive.
-    //   malformed-no-cp has Infinity staleness → always first.
-    //   Then: stale-45d (45d), delegate-40d (40d), stale-35d (35d), stale-32d (32d).
     expect(data.truncated).toBe(true);
     expect(data.totalCandidates).toBe(7);
     expect(data.candidates).toHaveLength(5);
 
-    // Verify the top 5 by staleness descending: Infinity, 45d, 40d, 35d, 32d
     expect(data.candidates[0]?.featureId).toBe('malformed-no-cp');
     expect(data.candidates[0]?.stalenessMinutes).toBe(Infinity);
     expect(data.candidates[1]?.featureId).toBe('stale-45d');
@@ -2194,18 +1983,14 @@ describe('handlePruneStaleWorkflows', () => {
     expect(data.candidates[3]?.featureId).toBe('stale-35d');
     expect(data.candidates[4]?.featureId).toBe('stale-32d');
 
-    // ── Knob 5: requireDryRun=false ──
-    // Apply mode succeeded — pruned array should be present with all 5 candidates.
     expect(data.pruned).toHaveLength(5);
     const prunedIds = data.pruned.map((p) => p.featureId).sort();
     expect(prunedIds).toEqual(
       ['delegate-40d', 'malformed-no-cp', 'stale-32d', 'stale-35d', 'stale-45d'].sort(),
     );
 
-    // Cancel should have been called exactly 5 times (once per non-skipped candidate).
     expect(deps.cancelSpy).toHaveBeenCalledTimes(5);
 
-    // workflow.pruned events emitted for each pruned candidate.
     const prunedEvents = append.mock.calls.filter(
       (call: unknown[]) => (call[1] as { type: string }).type === 'workflow.pruned',
     );
@@ -2214,7 +1999,7 @@ describe('handlePruneStaleWorkflows', () => {
 
   it('handlePrune_RequireDryRunFalse_SkipsEnforcement', async () => {
     const append = vi.fn().mockResolvedValue({ sequence: 1, type: 'workflow.pruned' });
-    const query = vi.fn().mockResolvedValue([]); // No prior dry-run events
+    const query = vi.fn().mockResolvedValue([]);
     const ctx = {
       eventStore: { append, query },
       projectConfig: {
@@ -2240,9 +2025,7 @@ describe('handlePruneStaleWorkflows', () => {
       deps,
     );
 
-    // Should succeed without prior dry-run
     expect(result.success).toBe(true);
-    // query should not have been called for enforcement
     expect(query).not.toHaveBeenCalled();
   });
 });

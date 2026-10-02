@@ -1,33 +1,13 @@
-// ─── Worktree-surface conformance: registry-driven parity harness (WLM-6 T003) ─
+// Registry-driven conformance and parity suite for the worktree surface.
+// It iterates `TOOL_REGISTRY` filtered on `surface === 'worktree'`, so a new surface action gets the same checks with no list edit.
 //
-// The eight `surface: 'worktree'` actions — acquire_worktree, release_worktree,
-// prune_worktrees, serialize_merge, reconcile_worktrees (exarchos_orchestrate)
-// and worktrees, ps, wait (exarchos_view) — ride the existing visible tools
-// (INV-5d, no fifth tool) and delegate to the in-process `WorktreeManager` /
-// merge serializer.
+// Each action must route through `handleOrchestrate` or `handleView`, not to `UNKNOWN_ACTION`.
+// Each action must have a typed `outputSchema` and a valid annotation tuple.
+// The CLI adapter and the MCP adapter must project a byte-equal `ToolResult` from the same context and args.
+// The real envelope must pass the typed `outputSchema` on both adapters.
 //
-// This suite pins the DR-1 surface contract by ITERATING `TOOL_REGISTRY`
-// filtered on `surface === 'worktree'` — NOT a hardcoded name list — so a new
-// surface action is conformance-checked automatically and a non-conformant one
-// is caught by construction:
-//   1. DISPATCH — every action routes THROUGH `handleOrchestrate` / `handleView`,
-//      never `UNKNOWN_ACTION` (the #1534 composite-dispatch-handler-gap class).
-//   2. REGISTRY contract — a TYPED `outputSchema` (not `EnvelopeSchema(z.unknown())`)
-//      and a valid annotation tuple (re-run `validateAction`).
-//   3. INV-2 PARITY — the same DispatchContext + args project a byte-equal
-//      ToolResult through the CLI adapter and the MCP adapter.
-//   4. REAL-OUTPUT VALIDATION — the real handler's envelope `safeParse`s against
-//      the action's typed `outputSchema` on BOTH adapters.
-//
-// Adapter asymmetry (documented): the MCP adapter `safeParse`s the post-dispatch
-// envelope against `outputSchema` and REPLACES a miss with INTERNAL_ERROR
-// (`adapters/mcp.ts` — the `validateAgainstActionSchema` seam wired at the
-// tools/call boundary); the CLI adapter validates INPUT only and never checks
-// output (`adapters/cli.ts`). Proving CLI≡MCP parity AND that the MCP envelope
-// validates against the typed schema therefore proves the typed schemas do NOT
-// diverge the two adapters — a schema tight enough to pass MCP but that would
-// reshape CLI output would break parity here.
-// ─────────────────────────────────────────────────────────────────────────────
+// The MCP adapter replaces an output-schema miss with `INTERNAL_ERROR`, and the CLI adapter checks only input.
+// So parity plus MCP validation proves that the typed schemas do not make the two adapters differ.
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { z } from 'zod';
@@ -66,8 +46,6 @@ import type { GitWorktreeProbe } from '../../../../src/verbs/worktree/manager.js
 import type { ProcessSource } from '../../../../src/verbs/worktree/pure/process-identity.js';
 import type { SerializeMergeDeps } from '../../../../src/verbs/worktree/merge-serializer.js';
 
-// ─── Deterministic injected deps (no git spawn, fixed identity + clock) ──────
-
 /** Empty probe — `adopt`/`prune` observe zero on-disk worktrees, no git. */
 const EMPTY_PROBE: GitWorktreeProbe = {
   listWorktrees: () => [],
@@ -85,29 +63,23 @@ const VIEW_DEPS: WorktreeViewDeps = { gitProbe: EMPTY_PROBE, processSource: FIXE
 /** serialize_merge dry-run reads a fixed (null) integration head — no git, no lease. */
 const SERIALIZE_DEPS: SerializeMergeDeps = { readIntegrationHead: () => null, processSource: FIXED_SOURCE };
 
-// ─── Per-action fixture args (test inputs — NOT an assertion name list) ───────
-//
-// These are the deterministic argument vectors each action is invoked with;
-// the conformance ASSERTIONS still iterate the registry, so a new surface
-// action only needs a fixture entry, not a change to any assertion.
-
+/**
+ * Fixed arguments for each surface action.
+ * The assertions iterate the registry, so a new surface action needs only an entry here.
+ */
 const FIXTURE_ARGS: Readonly<Record<string, Record<string, unknown>>> = {
   acquire_worktree: { repoRoot: '/tmp/wlm-parity-repo', worktreeId: '/tmp/wlm-parity-wt' },
   release_worktree: { worktreeId: '/tmp/wlm-parity-wt' },
   prune_worktrees: { repoRoot: '/tmp/wlm-parity-repo' },
-  // dryRun defaults to true → planned effect, no lease, no git side effects.
+  /** `dryRun` defaults to true, so the result is a planned effect with no lease and no git side effects. */
   serialize_merge: { featureId: 'F', integrationRef: 'main', sourceBranch: 'feat', strategy: 'squash' },
   worktrees: {},
   ps: {},
-  // No parameters at all. On an empty store every pass finds nothing to heal,
-  // so the run is side-effect-free here despite being a mutation in general —
-  // which is what makes it safe to drive through the parity harness.
+  /** This mutation takes no parameters. On an empty store each pass finds nothing to heal, so the run has no side effects. */
   reconcile_worktrees: {},
-  // until:'idle' resolves immediately on an empty store; fixed clock → waitedMs 0.
+  /** `until: 'idle'` resolves at once on an empty store, and the fixed clock gives `waitedMs` 0. */
   wait: { until: 'idle', timeoutMs: 1000 },
 };
-
-// ─── Registry-driven surface enumeration ─────────────────────────────────────
 
 interface SurfaceEntry {
   readonly tool: string;
@@ -127,8 +99,10 @@ function surfaceActions(): ToolAction[] {
   return surfaceEntries().map((e) => e.action);
 }
 
-// ─── Composite stubs forwarding EVERY surface action with fixed deps ─────────
-
+/**
+ * Forwards each orchestrate surface action to its handler with fixed deps.
+ * `reconcile_worktrees` takes `WorktreeViewDeps`, so it gets `VIEW_DEPS` and its fixed clock for a byte-stable envelope.
+ */
 const orchestrateStub: CompositeHandler = async (args, ctx): Promise<ToolResult> => {
   const { action, ...rest } = args;
   switch (action) {
@@ -140,9 +114,6 @@ const orchestrateStub: CompositeHandler = async (args, ctx): Promise<ToolResult>
       return handlePruneWorktrees(rest, ctx, DETERMINISTIC_DEPS);
     case 'serialize_merge':
       return handleSerializeMerge(rest, ctx, SERIALIZE_DEPS);
-    // Threaded with VIEW_DEPS, not DETERMINISTIC_DEPS: this handler moved off
-    // `ps` and takes the same `WorktreeViewDeps` seam, so it needs the fixed
-    // clock for a byte-stable envelope across the two carriers.
     case 'reconcile_worktrees':
       return handleReconcileWorktrees(rest, ctx, VIEW_DEPS);
     default:
@@ -170,8 +141,6 @@ const viewStub: CompositeHandler = async (args, ctx): Promise<ToolResult> => {
   }
 };
 
-// ─── Arm helpers ─────────────────────────────────────────────────────────────
-
 interface Arm {
   readonly stateDir: string;
   readonly ctx: DispatchContext;
@@ -193,8 +162,7 @@ function normalize(value: unknown): unknown {
   });
 }
 
-// ─── Dispatch routing (composite-dispatch-handler-gap, #1534) ─────────────────
-
+/** These actions must reach their handlers through the composite handler, not `UNKNOWN_ACTION` (#1534). */
 describe('worktree dispatch routing (WLM foundation, task 008)', () => {
   let arms: Arm[] = [];
   afterEach(async () => {
@@ -235,12 +203,10 @@ describe('worktree dispatch routing (WLM foundation, task 008)', () => {
   });
 });
 
-// ─── Registry-driven surface conformance ─────────────────────────────────────
-
 describe('worktree surface conformance (registry-driven, DR-1)', () => {
+  /** Worktree operations are actions on the existing tools, not new visible tools. */
   it('Registry_VisibleCompositeToolCount_StaysFour', () => {
     const visible = TOOL_REGISTRY.filter((t) => !t.hidden);
-    // INV-5d: worktree actions are ACTIONS, not new visible tools.
     expect(visible.length).toBe(4);
     expect(visible.length).toBeLessThan(15);
     expect(TOOL_REGISTRY.length).toBeLessThan(15);
@@ -250,10 +216,6 @@ describe('worktree surface conformance (registry-driven, DR-1)', () => {
       'exarchos_view',
       'exarchos_workflow',
     ]);
-    // The surface enumerates exactly eight actions across two tools —
-    // `reconcile_worktrees` joined when the reclaim and the two reconcilers
-    // moved off `ps probe:true`, which is a re-parenting of existing behavior
-    // and NOT a new visible tool (the count above stays four).
     expect(surfaceActions().map((a) => a.name).sort()).toEqual([
       'acquire_worktree',
       'prune_worktrees',
@@ -271,10 +233,11 @@ describe('worktree surface conformance (registry-driven, DR-1)', () => {
     expect(Array.isArray(TOOL_REGISTRY)).toBe(true);
   });
 
+  /**
+   * Kill probe: a fake surface action with the untyped `EnvelopeSchema(z.unknown())` fails the conformance predicate.
+   * Every real surface action passes the same predicate, so the predicate, not a name list, catches an untyped action.
+   */
   it('WorktreeSurface_UntypedMarkedAction_FailsConformanceByConstruction', () => {
-    // Kill-probe: a stubbed 8th `surface:'worktree'` action carrying the untyped
-    // `EnvelopeSchema(z.unknown())` MUST fail the conformance predicate — the
-    // SAME predicate the parity suite applies — WITHOUT editing any name list.
     const untypedEighth = {
       name: '__fake_untyped_worktree__',
       surface: 'worktree' as const,
@@ -282,9 +245,6 @@ describe('worktree surface conformance (registry-driven, DR-1)', () => {
     };
     expect(envelopeDataSchemaIsTyped(untypedEighth.outputSchema)).toBe(false);
 
-    // …and every REAL surface action passes it. The predicate — not a
-    // hardcoded roster — is what separates conformant from non-conformant, so a
-    // future untyped surface action is caught by construction.
     for (const action of surfaceActions()) {
       expect(
         envelopeDataSchemaIsTyped(action.outputSchema),
@@ -293,6 +253,11 @@ describe('worktree surface conformance (registry-driven, DR-1)', () => {
     }
   });
 
+  /**
+   * For each surface action, this checks the typed schema, the annotation tuple, routing, and byte-equal CLI and MCP results.
+   * Parity is evidence that both clients route through one contract handler, not a proof that equivalence is constructed.
+   * Both envelopes must also pass the typed `outputSchema`.
+   */
   it('WorktreeSurface_EveryMarkedAction_HasTypedSchemaAndParity', async () => {
     const restore: Array<() => void> = [
       stubCompositeHandler('exarchos_orchestrate', orchestrateStub),
@@ -305,11 +270,9 @@ describe('worktree surface conformance (registry-driven, DR-1)', () => {
         const args = FIXTURE_ARGS[name];
         expect(args, `${name} needs a fixture`).toBeDefined();
 
-        // (2) typed outputSchema + valid annotation tuple.
         expect(envelopeDataSchemaIsTyped(action.outputSchema), `${name} typed schema`).toBe(true);
         expect(() => validateAction(action, tool), `${name} annotation tuple`).not.toThrow();
 
-        // (1/3/4) dispatch + CLI≡MCP parity + real-output validation.
         const cliArm = await createArm(`wlm-parity-cli-${name}-`);
         const mcpArm = await createArm(`wlm-parity-mcp-${name}-`);
         arms.push(cliArm, mcpArm);
@@ -317,21 +280,14 @@ describe('worktree surface conformance (registry-driven, DR-1)', () => {
         const { result: cliResult, exitCode } = await harnessCallCli(cliArm.ctx, cliAlias, name, args);
         const mcpResult = await harnessCallMcp(mcpArm.ctx, tool, { action: name, ...args });
 
-        // (1) routed, not UNKNOWN_ACTION / DOA.
         expect((mcpResult as { error?: { code?: string } }).error?.code, `${name} routed`).not.toBe('UNKNOWN_ACTION');
         expect(cliResult.success, `${name} cli success`).toBe(true);
         expect(mcpResult.success, `${name} mcp success`).toBe(true);
         expect(exitCode, `${name} cli exit`).toBe(0);
 
-        // (3) governing INV-2 WITNESS — byte-equal across carriers. Evidence
-        // that both clients route through the one contract handler; not, on
-        // its own, proof that equivalence is constructed.
         expect(normalize(cliResult), `${name} parity`).toEqual(normalize(mcpResult));
         expect(JSON.stringify(normalize(cliResult))).toEqual(JSON.stringify(normalize(mcpResult)));
 
-        // (4) real-output validation — the typed schema accepts BOTH adapters'
-        // envelopes, proving the schema does not diverge them (MCP would have
-        // replaced a miss with INTERNAL_ERROR; CLI never validates output).
         const mcpParsed = action.outputSchema.safeParse(mcpResult);
         expect(mcpParsed.success, `${name} mcp envelope validates: ${mcpParsed.success ? '' : JSON.stringify(mcpParsed.error.issues)}`).toBe(true);
         const cliParsed = action.outputSchema.safeParse(cliResult);

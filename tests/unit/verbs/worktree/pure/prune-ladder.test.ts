@@ -6,10 +6,9 @@ import {
 } from '../../../../../src/verbs/worktree/pure/prune-ladder.js';
 
 /**
- * A worktree that passes every safety rung: `released` state, clean tree,
- * merged into a resolvable integration ref, backing repo present, origin
- * reachable. Each test overrides exactly the field(s) under exercise so the
- * single deviation drives the classification.
+ * A candidate that passes every rung: `released`, clean, merged into a
+ * resolvable integration ref, with its backing repo and a reachable origin.
+ * Each test overrides only the fields under test.
  */
 function eligibleCandidate(overrides: Partial<PruneCandidate> = {}): PruneCandidate {
   return {
@@ -26,33 +25,30 @@ function eligibleCandidate(overrides: Partial<PruneCandidate> = {}): PruneCandid
 
 describe('classifyPruneCandidate', () => {
   it('PruneLadder_ReservedLiveOwner_SkippedInUse', () => {
-    // Reserved with a live owner (DR-3): actively in use -> never deleted.
     const result = classifyPruneCandidate(
       eligibleCandidate({ state: 'reserved', inUse: true }),
     );
     expect(result).toEqual<PruneClassification>({ action: 'skip', reason: 'in-use' });
   });
 
+  /**
+   * The `dirty` fact comes from `git status --porcelain --untracked-files=all`.
+   * So a worktree with only untracked changes is dirty and stays.
+   */
   it('PruneLadder_UntrackedOnlyChanges_SkippedDirty', () => {
-    // `dirty` reflects `git status --porcelain --untracked-files=all` — untracked-
-    // aware — so a worktree whose ONLY changes are untracked files is still
-    // protected (the #55724 preserve-uncommitted guarantee).
     const result = classifyPruneCandidate(eligibleCandidate({ dirty: true }));
     expect(result).toEqual<PruneClassification>({ action: 'skip', reason: 'dirty' });
   });
 
   it('PruneLadder_HeadNotAncestorOfInjectedIntegrationRef_SkippedUnmerged', () => {
-    // HEAD is NOT an ancestor of the injected integration ref -> it carries
-    // unmerged work -> skip, do not delete.
     const result = classifyPruneCandidate(
       eligibleCandidate({ integrationRef: 'feat/wlm', headAncestorOfIntegration: false }),
     );
     expect(result).toEqual<PruneClassification>({ action: 'skip', reason: 'unmerged' });
   });
 
+  /** With no resolvable integration ref, the merge state cannot be verified, so the ladder skips. */
   it('PruneLadder_NullIntegrationRef_TreatedUnverifiable_FailClosed', () => {
-    // No resolvable integration ref (unattached / unresolvable branch) -> merge
-    // state cannot be verified -> fail closed (skip), never delete.
     const result = classifyPruneCandidate(
       eligibleCandidate({ integrationRef: null, headAncestorOfIntegration: null }),
     );
@@ -62,9 +58,8 @@ describe('classifyPruneCandidate', () => {
     });
   });
 
+  /** An absent state means no adoption record. This rung backs up the adopt gate of the handler. */
   it('PruneLadder_NoAdoptionRecord_ClassifiedUnverifiable_NotDeletable', () => {
-    // No adoption record (state absent): defense in depth behind the handler's
-    // step-0 adopt-gate -> unverifiable -> not deletable.
     const result = classifyPruneCandidate(eligibleCandidate({ state: undefined }));
     expect(result).toEqual<PruneClassification>({
       action: 'skip',
@@ -72,10 +67,11 @@ describe('classifyPruneCandidate', () => {
     });
   });
 
+  /**
+   * With no backing gitdir, the content and the merge state cannot be verified.
+   * The candidate is an orphan, which the handler deletes only on an explicit opt-in.
+   */
   it('PruneLadder_BackingGitdirMissing_ClassifiedOrphan', () => {
-    // Backing `.git` gitdir pointer is gone -> content cannot be verified (the
-    // merge probe can't run either, hence null) -> orphan, deletable only under
-    // the handler's explicit orphan opt-in, never implicitly.
     const result = classifyPruneCandidate(
       eligibleCandidate({
         state: 'orphan',
@@ -86,13 +82,12 @@ describe('classifyPruneCandidate', () => {
     expect(result).toEqual<PruneClassification>({ action: 'orphan-unverifiable' });
   });
 
+  /**
+   * A `null` ancestry with the backing repo present does not reach the orphan
+   * rung. The merge is not proven, so the candidate must skip and not become
+   * `delete-eligible`.
+   */
   it('PruneLadder_NullHeadAncestorWithBacking_FailsClosed', () => {
-    // The merge probe was UNCOMPUTABLE (`null`) while the backing repo is
-    // PRESENT (so the orphan rung does not catch it). Merge state is therefore
-    // unverified — we could not prove HEAD is merged — so the candidate must
-    // fail closed (skip), NOT fall through to `delete-eligible`. This is the
-    // destructive hole: a `null` ancestry with a live backing repo previously
-    // reached deletion.
     const result = classifyPruneCandidate(
       eligibleCandidate({
         backingGitdirPresent: true,
@@ -105,9 +100,8 @@ describe('classifyPruneCandidate', () => {
     });
   });
 
+  /** With an unreachable origin, the ladder does not trust the merge ancestry. */
   it('PruneLadder_OriginUnreachable_LeftUntouchedFailClosed', () => {
-    // Origin unreachable -> merge ancestry cannot be trusted -> fail closed,
-    // left untouched.
     const result = classifyPruneCandidate(eligibleCandidate({ originReachable: false }));
     expect(result).toEqual<PruneClassification>({
       action: 'skip',
@@ -116,35 +110,32 @@ describe('classifyPruneCandidate', () => {
   });
 
   it('PruneLadder_ReleasedCleanMergedReachable_DeleteEligible', () => {
-    // The positive path: released state, clean tree, merged into a resolvable
-    // ref, backing repo present, origin reachable -> safe to reclaim.
     const result = classifyPruneCandidate(eligibleCandidate());
     expect(result).toEqual<PruneClassification>({ action: 'delete-eligible' });
   });
 
+  /**
+   * Eligibility comes from the state, not the mtime. An `adopted` worktree is
+   * not eligible, even when a long-running agent leaves it with a stale mtime.
+   */
   it('PruneLadder_AdoptedNeverReleased_SkippedActive_NotMtimeBased', () => {
-    // An `adopted` worktree (e.g. a just-created harness dir, or a long-running
-    // agent's worktree with a stale mtime) is NOT deletion-eligible — eligibility
-    // is state-based, never mtime-based. Reproduces + blocks the #55724 shape at
-    // the pure layer.
     const result = classifyPruneCandidate(eligibleCandidate({ state: 'adopted' }));
     expect(result).toEqual<PruneClassification>({ action: 'skip', reason: 'active' });
   });
 
+  /**
+   * A `reserved` entry with an owner that is not live stays until a reconcile
+   * changes it to `released`. The ladder does not delete a `reserved` entry.
+   */
   it('PruneLadder_ReservedDeadOwnerNotYetReconciled_SkippedActive', () => {
-    // Reserved but the owner is not live (inUse=false) and no reconcile fold has
-    // collapsed it to `released` yet -> still not deletion-eligible by state.
-    // Defense in depth: a reserved entry is never deleted regardless of liveness.
     const result = classifyPruneCandidate(
       eligibleCandidate({ state: 'reserved', inUse: false }),
     );
     expect(result).toEqual<PruneClassification>({ action: 'skip', reason: 'active' });
   });
 
+  /** The rungs run in order, so `in-use` wins over `dirty` and `unmerged`. */
   it('PruneLadder_InUseTakesPrecedenceOverDirtyAndUnmerged', () => {
-    // Ladder ordering: an in-use worktree is skipped as in-use even when other
-    // disqualifiers (dirty, unmerged) are also present — the most-protective
-    // reason wins and the worktree is never a delete candidate.
     const result = classifyPruneCandidate(
       eligibleCandidate({
         state: 'reserved',

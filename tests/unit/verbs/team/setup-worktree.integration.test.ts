@@ -1,24 +1,11 @@
-// ─── P04-05 follow-up — production-path VCS exit proofs ───────────────────────
-//
-// The owner-level exit proofs live in `vcs/mutation-owner.test.ts`; this suite
-// proves the SAME guarantees through the REAL shipped entry points now that
-// `setup_worktree` and the merge adapter route through the single typed VCS
-// mutation owner. Each test drives a REAL git repo (per-test tmp dir) and the
-// REAL durable EventStore — no mocked git — so the guarantees are pinned against
-// actual on-disk branches/worktrees + a real ledger:
-//
-//   (a) a duplicate `handleSetupWorktree` request creates exactly ONE worktree
-//       (idempotency replay, not a duplicate or a `git worktree add` error);
-//   (b) an interrupted `handleSetupWorktree` (crash after the git effect, before
-//       the ledger terminal) leaves a durable INTENT — never an event-less
-//       on-disk orphan (the observed defect) — and converges on retry;
-//   (c) a duplicate merge request runs the REAL local-git merge adapter exactly
-//       ONCE (the owner's provider-mutation idempotency boundary), landing a
-//       single merge commit.
-//
-// These call `handleSetupWorktree` / the merge adapter, NOT the owner's
-// createWorktree directly — the point is that the production call path is now
-// safe, not merely that the owner is.
+/**
+ * Exit proofs for the VCS mutation owner on the production call paths.
+ *
+ * The tests call `handleSetupWorktree` and the local-git merge adapter, not the
+ * owner alone. Each test uses a real git repo in a temporary directory and a real
+ * `EventStore`, with no mocked git. The owner-level proofs are in
+ * `tests/unit/vcs/mutation-owner.test.ts`.
+ */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
@@ -43,8 +30,6 @@ import {
   type WorktreeProvisioner,
 } from '../../../../src/vcs/worktree-provisioner.js';
 
-// ─── git helpers ─────────────────────────────────────────────────────────────
-
 async function git(cwd: string, args: readonly string[]): Promise<string> {
   return (await execFileAsync('git', args, { cwd })).trim();
 }
@@ -64,7 +49,7 @@ const captureGitExec: GitExec = (repoRoot, args) => {
   }
 };
 
-/** Init a real repo on `main` with one commit; returns its canonical path. */
+/** Initialize a real repo on `main` with one commit, and return its canonical path. */
 async function initRepo(dir: string): Promise<string> {
   await git(dir, ['init', '-q', '-b', 'main']);
   await git(dir, ['config', 'user.email', 'setup@example.com']);
@@ -112,13 +97,14 @@ describe('setup_worktree / merge production-path exit proofs (P04-05)', () => {
     try {
       await git(repo, ['worktree', 'prune']);
     } catch {
-      /* best effort */
     }
     await rmrfAsync(repo);
   });
 
-  // ── (a) duplicate setup_worktree → ONE worktree ────────────────────────────
-
+  /**
+   * The owner keys idempotency on the worktree path. The second request replays
+   * the recorded outcome and does not run `git worktree add` again.
+   */
   it('(a) a duplicate setup_worktree request creates exactly ONE worktree', async () => {
     const args = { repoRoot: repo, taskId: 'T-1', taskName: 'dup', skipTests: true };
 
@@ -129,24 +115,21 @@ describe('setup_worktree / merge production-path exit proofs (P04-05)', () => {
     expect(existsSync(firstData.worktreePath)).toBe(true);
     expect(await extraWorktreeCount(repo)).toBe(1);
 
-    // Second identical request: the owner's path-keyed idempotency replays the
-    // recorded outcome WITHOUT a second `git worktree add` (which would either
-    // error on the existing path or, pre-owner, orphan a duplicate).
     const second = await handleSetupWorktree(args);
     expect(second.success).toBe(true);
-    expect(await extraWorktreeCount(repo)).toBe(1); // still exactly ONE
+    expect(await extraWorktreeCount(repo)).toBe(1);
 
-    // Exactly one executed terminal recorded for the worktree — the effect ran once.
     const types = await ledgerTypes(repo);
     expect(types.filter((t) => t === VCS_EXECUTED)).toHaveLength(1);
   });
 
-  // ── (b) interrupted setup_worktree → recorded intent, converges on retry ───
-
+  /**
+   * The provisioner copies the production wiring, but the first `VCS_EXECUTED`
+   * append throws after the git effect. The handler then reports the check as
+   * failed, and the ledger holds the intent without a terminal. The retry
+   * appends the terminal and keeps one worktree.
+   */
   it('(b) an interrupted setup_worktree leaves a durable intent (no event-less orphan) and converges on retry', async () => {
-    // A provisioner that mirrors production wiring but, on the FIRST provision,
-    // crashes AFTER the git effect and BEFORE the ledger terminal — the exact
-    // shape of the observed non-atomic defect.
     const crash = { armed: true };
     const provisioner: WorktreeProvisioner = {
       async provision(req) {
@@ -155,7 +138,7 @@ describe('setup_worktree / merge production-path exit proofs (P04-05)', () => {
         const original = store.append.bind(store);
         vi.spyOn(store, 'append').mockImplementation(async (streamId, event, opts) => {
           if (crash.armed && event.type === VCS_EXECUTED) {
-            crash.armed = false; // fire exactly once
+            crash.armed = false;
             throw new Error('simulated crash before terminal append');
           }
           return original(streamId, event, opts);
@@ -182,36 +165,31 @@ describe('setup_worktree / merge production-path exit proofs (P04-05)', () => {
 
     const args = { repoRoot: repo, taskId: 'T-2', taskName: 'interrupt', skipTests: true };
 
-    // First (interrupted) run: the handler reports the worktree check as FAILED
-    // (the terminal never landed), yet the git effect already created the
-    // worktree on disk — the dangerous interior state.
     const interrupted = await handleSetupWorktree(args, undefined, { provisioner });
     expect(interrupted.success).toBe(true);
     expect((interrupted.data as SetupData).passed).toBe(false);
     const worktreePath = (interrupted.data as SetupData).worktreePath;
 
-    // The on-disk worktree exists — but it is NOT an event-less orphan: a
-    // durable INTENT was recorded, and NO terminal. A reconciler can find it.
     expect(existsSync(worktreePath)).toBe(true);
     expect(await extraWorktreeCount(repo)).toBe(1);
     const typesAfterCrash = await ledgerTypes(repo);
     expect(typesAfterCrash).toContain(VCS_REQUESTED);
     expect(typesAfterCrash).not.toContain(VCS_EXECUTED);
 
-    // Retry with the SAME task (crash now disarmed): the effect no-ops (branch +
-    // worktree already exist), the terminal lands, and there is STILL one worktree.
     const retried = await handleSetupWorktree(args, undefined, { provisioner });
     expect(retried.success).toBe(true);
     expect((retried.data as SetupData).passed).toBe(true);
-    expect(await extraWorktreeCount(repo)).toBe(1); // converged, not re-created
+    expect(await extraWorktreeCount(repo)).toBe(1);
     const typesAfterRetry = await ledgerTypes(repo);
     expect(typesAfterRetry).toContain(VCS_EXECUTED);
   });
 
-  // ── (c) duplicate merge → ONE merge ────────────────────────────────────────
-
+  /**
+   * Two `runProviderMutation` calls with one idempotency key run the real merge
+   * once. The second call replays the recorded outcome, and `main` gets one merge
+   * commit.
+   */
   it('(c) a duplicate merge request runs the local-git merge adapter exactly ONCE', async () => {
-    // Stand up a feature branch with a real commit to merge into main.
     await git(repo, ['checkout', '-q', '-b', 'feature/x']);
     await execFileAsync('git', ['commit', '-q', '--allow-empty', '-m', 'feature work'], { cwd: repo });
     await git(repo, ['checkout', '-q', 'main']);
@@ -245,22 +223,19 @@ describe('setup_worktree / merge production-path exit proofs (P04-05)', () => {
       const first = await owner.runProviderMutation(input, effect);
       const second = await owner.runProviderMutation(input, effect);
 
-      // The real merge ran exactly once across the duplicate requests.
       expect(mergeCalls).toBe(1);
       expect(isSuccess(first)).toBe(true);
       expect(isSuccess(second)).toBe(true);
       if (isSuccess(first) && isSuccess(second)) {
-        expect(second.value).toEqual(first.value); // replayed the recorded outcome
+        expect(second.value).toEqual(first.value);
       }
-      // Exactly ONE merge commit landed on main.
       expect(await git(repo, ['rev-list', '--merges', '--count', 'HEAD'])).toBe('1');
     } finally {
       store.close();
     }
   });
 
-  // ── default provisioner smoke: the production factory is really wired ───────
-
+  /** The production provisioner factory creates a real branch and worktree. */
   it('the default owner-backed provisioner provisions a real worktree end-to-end', async () => {
     const provisioner = createOwnerBackedWorktreeProvisioner();
     const outcome = await provisioner.provision({

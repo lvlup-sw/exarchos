@@ -1,13 +1,9 @@
-// ─── Check CodeRabbit Action Tests ──────────────────────────────────────────
-//
-// Tests use a mock VcsProvider instead of mocking execFileSync.
+// Tests for `handleCheckCoderabbit`. They use a mock VcsProvider.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { VcsProvider, ReviewStatus, ReviewerStatus } from '../../../../src/vcs/provider.js';
 import { handleCheckCoderabbit } from '../../../../src/verbs/vcs/check-coderabbit.js';
 import type { PrReviewResult } from '../../../../src/verbs/vcs/check-coderabbit.js';
-
-// ─── Mock VcsProvider Helper ────────────────────────────────────────────────
 
 function createMockProvider(
   reviewStatusByPr: Record<number, ReviewStatus> = {},
@@ -51,14 +47,10 @@ function makeReviewStatus(
   };
 }
 
-// ─── Tests ──────────────────────────────────────────────────────────────────
-
 describe('handleCheckCoderabbit', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
-
-  // ─── All PRs Approved ───────────────────────────────────────────────────
 
   it('handleCheckCoderabbit_AllApproved_ReturnsPassed', async () => {
     const provider = createMockProvider({
@@ -79,8 +71,6 @@ describe('handleCheckCoderabbit', () => {
     expect(data.results[1].verdict).toBe('pass');
   });
 
-  // ─── Uses VcsProvider ─────────────────────────────────────────────────
-
   it('handleCheckCoderabbit_UsesProviderGetReviewStatus', async () => {
     const provider = createMockProvider({
       1: makeReviewStatus([{ login: 'coderabbitai[bot]', state: 'approved' }]),
@@ -93,8 +83,6 @@ describe('handleCheckCoderabbit', () => {
 
     expect(provider.getReviewStatus).toHaveBeenCalledWith('1');
   });
-
-  // ─── CHANGES_REQUESTED -> Fail ──────────────────────────────────────────
 
   it('handleCheckCoderabbit_ChangesRequested_ReturnsFailed', async () => {
     const provider = createMockProvider({
@@ -111,8 +99,6 @@ describe('handleCheckCoderabbit', () => {
     expect(data.passed).toBe(false);
     expect(data.results[0].verdict).toBe('fail');
   });
-
-  // ─── No CodeRabbit Review -> Pass (NONE) ────────────────────────────────
 
   it('handleCheckCoderabbit_NoReview_ReturnsPassedWithNone', async () => {
     const provider = createMockProvider({
@@ -131,8 +117,6 @@ describe('handleCheckCoderabbit', () => {
     expect(data.results[0].verdict).toBe('pass');
   });
 
-  // ─── API Error -> Fail ──────────────────────────────────────────────────
-
   it('handleCheckCoderabbit_ApiError_ReturnsFailed', async () => {
     const provider = createMockProvider({}, new Set([1]));
 
@@ -148,8 +132,6 @@ describe('handleCheckCoderabbit', () => {
     expect(data.results[0].verdict).toBe('fail');
   });
 
-  // ─── Missing Owner -> Error ─────────────────────────────────────────────
-
   it('handleCheckCoderabbit_MissingOwner_ReturnsError', async () => {
     const provider = createMockProvider();
     const result = await handleCheckCoderabbit(
@@ -161,8 +143,6 @@ describe('handleCheckCoderabbit', () => {
     expect(result.error?.code).toBe('INVALID_INPUT');
     expect(result.error?.message).toContain('owner');
   });
-
-  // ─── Invalid PR Number -> Skip ──────────────────────────────────────────
 
   it('handleCheckCoderabbit_InvalidPrNumber_ReturnsSkip', async () => {
     const provider = createMockProvider({
@@ -183,8 +163,6 @@ describe('handleCheckCoderabbit', () => {
     expect(data.results[1].verdict).toBe('pass');
   });
 
-  // ─── Report Contains Markdown Table ────────────────────────────────────
-
   it('handleCheckCoderabbit_ReportContainsMarkdownTable', async () => {
     const provider = createMockProvider({
       42: makeReviewStatus([{ login: 'coderabbitai[bot]', state: 'approved' }]),
@@ -204,8 +182,6 @@ describe('handleCheckCoderabbit', () => {
     expect(data.report).toContain('PASS');
   });
 
-  // ─── Alternative CodeRabbit Login Names ────────────────────────────────
-
   it('handleCheckCoderabbit_AlternativeLoginNames_Recognized', async () => {
     const provider = createMockProvider({
       1: makeReviewStatus([{ login: 'coderabbit-ai[bot]', state: 'approved' }]),
@@ -221,8 +197,6 @@ describe('handleCheckCoderabbit', () => {
     expect(data.passed).toBe(true);
     expect(data.results[0].state).toBe('APPROVED');
   });
-
-  // ─── Pending Review -> Fail ─────────────────────────────────────────────
 
   it('handleCheckCoderabbit_PendingReview_ReturnsFailed', async () => {
     const provider = createMockProvider({
