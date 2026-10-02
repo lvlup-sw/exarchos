@@ -3,38 +3,19 @@ import type { ToolResult } from '../../format.js';
 import { ErrorCode } from '../schemas.js';
 import { handleSet } from './set.js';
 
-// ─── handleUpdate ───────────────────────────────────────────────────────────
-//
-// Wave 0 (#1340, v2.10.0-preview.2): canonical state-mutation surface for
-// non-phase fields. Delegates to `handleSet` with `updates` only after
-// rejecting any caller that tries to smuggle a `phase` field through the
-// `updates` payload. Phase mutation lives on the `transition` action and
-// its HSM-guarded code path — accepting `phase` here would silently
-// bypass guard evaluation, valid-target enumeration, and the
-// `workflow.transition` event emission.
-//
-// The guard is a structured `INVALID_INPUT` + `suggestedFix` envelope
-// (INV-5a — agent input ergonomics). Agents auto-correct off the
-// suggestedFix shape without parsing the message string, so the guard
-// stays robust under future error-message rewording.
-
 export interface UpdateInput {
   readonly featureId: string;
   readonly updates: Record<string, unknown>;
 }
 
 /**
- * Canonical non-phase state-mutation handler. Validates that `updates`
- * does not contain a `phase` field (which would route around the HSM
- * transition guard), then delegates to `handleSet({featureId, updates})`
- * so the same event-first / CAS / per-stream-lock machinery serves both
- * the legacy `set({updates})` entry point (now removed) and the
- * canonical `update` action.
+ * Canonical handler for non-phase state changes. It delegates to `handleSet`,
+ * so an update gets the same event-first write and CAS check.
  *
- * On `phase`-in-updates: returns `{success: false, error: {code:
- * 'INVALID_INPUT', suggestedFix: {tool: 'exarchos_workflow', params:
- * {action: 'transition', ...}}}}` so callers can self-correct in one
- * tool call.
+ * A `phase` field in `updates` gets an `INVALID_INPUT` error. Phase changes go
+ * through the HSM-guarded `transition` action, and this path must not bypass
+ * that guard. The `suggestedFix` names the `transition` call with the offending
+ * value as `target`, so an agent can correct itself in one call.
  */
 export async function handleUpdate(
   input: UpdateInput,
@@ -53,9 +34,6 @@ export async function handleUpdate(
           params: {
             action: 'transition',
             featureId: input.featureId,
-            // Surface the offending value so callers can re-issue the
-            // intended phase change with one search-and-replace; the
-            // narrowed payload is a parameter shape, not a recommendation.
             target: input.updates.phase,
           },
         },

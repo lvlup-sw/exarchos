@@ -1,26 +1,12 @@
-// ─── P06-05 / Transition task 019 — freeze the obligation lattice ────────────
-//
-// The open seam P06-04 flagged: the pure obligation lattice
-// ({@link ResolvedRequirements}, from P06-03's `resolveRequirements`) is NOT the
-// persisted requirement-record shape (`AdmissionRequirementV1[]`) that the
-// phase-attempt fold replays and that `evaluatePolicy` evaluates. This module
-// closes that seam by PROJECTING the lattice element into frozen, immutable,
-// content-addressed requirement records with stable ids, a bound subject, and a
-// `requirementSetDigest` naming the whole generation.
-//
-// Determinism is the load-bearing property: freezing the SAME obligations for
-// the SAME phase attempt + subject yields byte-identical records and the SAME
-// `requirementSetDigest`. Every id is derived from the requirement's semantic
-// content (never a clock or a counter), so a re-freeze is a no-op in identity —
-// exactly what an append-only fold needs to collapse duplicate resolutions.
-//
-// The projection is TOTAL and MONOTONE-PRESERVING: a stronger obligation
-// lattice element (more gates, higher floors, not-waivable) projects to an
-// at-least-as-large requirement set. It never invents an obligation the lattice
-// did not carry, and never drops one it did.
-//
-// Pure: no I/O, no clock, no config reads.
-
+/**
+ * Freeze the obligation lattice into persisted requirement records.
+ *
+ * The lattice from `resolveRequirements` is not the `AdmissionRequirementV1[]` shape
+ * that the phase-attempt fold replays and `evaluatePolicy` evaluates. This module
+ * projects it into frozen records with content-derived ids, a bound subject, and a
+ * `requirementSetDigest`. The same obligations, phase attempt, and subject always
+ * give identical records and the same digest. The module is pure.
+ */
 import { createHash } from 'node:crypto';
 
 import type { ResolvedGate } from '../phase-kind.js';
@@ -44,20 +30,12 @@ import {
 } from './requirement-strength.js';
 
 /**
- * The persisted-record floor for the number of independent corroborating
- * sources. The obligation lattice records any positive integer, but a
- * {@link AdmissionRequirementV1} `corroboration` record is only meaningful at
- * two or more sources (a single "corroborating" source corroborates nothing).
- * A positive lattice value therefore floors here, mirroring the note in
- * `requirement-strength.ts`.
+ * The minimum source count in a `corroboration` record. One source corroborates
+ * nothing, so a positive lattice value below this floor rises to it.
  */
 export const CORROBORATION_RECORD_FLOOR = 2 as const;
 
-/**
- * The approval class used when the caller does not supply one. Approval classes
- * are opaque, provider-neutral tokens; this default keeps the projection total
- * for a policy floor that demands approvals without naming a class.
- */
+/** The approval class when the caller supplies none. */
 export const DEFAULT_APPROVAL_CLASS: ApprovalClass =
   ApprovalClassSchema.parse('admission.approval');
 
@@ -73,17 +51,11 @@ export interface FreezeRequirementsInput {
 }
 
 export interface FrozenRequirementSetProjection {
-  /**
-   * The frozen requirement records, in canonical construction order
-   * (gate obligations in canonical gate order, then approval, then
-   * corroboration). Each id appears at most once.
-   */
+  /** The frozen records: gate records first, then approval, then corroboration. */
   readonly requirements: readonly AdmissionRequirementV1[];
   /** The digest of the complete set — the generation identity the fold groups by. */
   readonly requirementSetDigest: ContentDigestV1;
 }
-
-// ─── Canonical serialization (sorted keys, JSON leaves only) ─────────────────
 
 type CanonicalJson =
   | null
@@ -94,10 +66,8 @@ type CanonicalJson =
   | { readonly [key: string]: CanonicalJson };
 
 /**
- * Deterministic JSON serialization with lexicographically sorted object keys.
- * The inputs are validated plain records with primitive leaves, so this total
- * traversal is sufficient for stable content-addressing (no cycles, no dates,
- * no class instances reach here).
+ * JSON serialization with sorted object keys. The inputs are validated plain
+ * records with primitive leaves, so no cycles, dates, or class instances occur.
  */
 function canonicalJson(value: CanonicalJson): string {
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
@@ -116,10 +86,11 @@ function sha256Hex(input: string): string {
   return createHash('sha256').update(input, 'utf8').digest('hex');
 }
 
+/**
+ * A content-derived id. The prefix names the role of the id. The hex body is stable
+ * and uses only characters that `StableIdValueSchema` accepts.
+ */
 function stableId(prefix: string, discriminant: CanonicalJson): string {
-  // Prefix keeps the leading character a letter (StableIdValueSchema requires
-  // the first char in [A-Za-z0-9]) and names the id's role; the hex body makes
-  // the id both stable and regex-safe (`[a-f0-9]`).
   return `${prefix}-${sha256Hex(canonicalJson(discriminant)).slice(0, 40)}`;
 }
 
@@ -128,16 +99,14 @@ function gateDiscriminant(gate: ResolvedGate): CanonicalJson {
   return { family: gate.family, gate: gate.gate };
 }
 
-// ─── Projection ──────────────────────────────────────────────────────────────
-
 interface Binding {
   readonly phaseAttemptId: PhaseAttemptId;
   readonly subject: EvidenceSubjectV1;
   readonly subjectIdentity: CanonicalJson;
 }
 
+/** The subject as canonical JSON: its kind, its variant id, and its digest. */
 function subjectIdentity(subject: EvidenceSubjectV1): CanonicalJson {
-  // The subject as canonical JSON: its kind, its variant id, and its digest.
   return subject as unknown as CanonicalJson;
 }
 
@@ -181,13 +150,15 @@ function projectApproval(
   });
 }
 
+/**
+ * Project the corroboration obligation. Its evidence binds to its own id, so
+ * `sourceRequirementId` equals `requirementId`. The id excludes that field to
+ * prevent a self-reference cycle.
+ */
 function projectCorroboration(
   minimumIndependentSources: number,
   binding: Binding,
 ): AdmissionRequirementV1 {
-  // The id is derived WITHOUT `sourceRequirementId` to break the self-reference
-  // cycle: this corroboration obligation is satisfied by N independent evidence
-  // items bound to its OWN id, so `sourceRequirementId` equals `requirementId`.
   const discriminant = {
     kind: 'corroboration',
     minimumIndependentSources,
@@ -207,11 +178,8 @@ function projectCorroboration(
 }
 
 /**
- * Project a resolved obligation lattice element into the frozen, persisted
- * requirement records the runtime evaluates and replays.
- *
- * Total, pure, deterministic: the same obligations + binding always yield the
- * same records and the same {@link FrozenRequirementSetProjection.requirementSetDigest}.
+ * Project a resolved lattice element into the frozen records that the runtime
+ * evaluates and replays. The same input always gives the same records and digest.
  */
 export function freezeRequirements(
   input: FreezeRequirementsInput,
@@ -254,28 +222,10 @@ export function freezeRequirements(
   });
 }
 
-// ─── DR-10 (T-15): the frozen record is the authority ────────────────────────
-//
-// A frozen requirement set is not a cache of a resolution — it IS the
-// resolution, named by content. DR-10's third acceptance criterion is that a
-// LATER attempt reads that record back instead of re-resolving from whatever
-// the workflow state happens to say now: re-resolution is exactly how a weaker
-// tier stamped after the freeze could retroactively lower an in-flight phase's
-// obligations.
-//
-// Read-back is therefore a JOIN against the frozen record, never a replacement:
-//   - a weaker (or equal) re-resolution is ABSORBED — the frozen set and its
-//     digest come back byte-identical, so replaying the log and re-resolving
-//     live agree;
-//   - a strictly stronger re-resolution RAISES the set, because monotonicity
-//     runs one way only and new danger information must still be able to add
-//     obligations.
-
 /**
- * A frozen record read back as the authority for a later resolution.
- * `authority: 'frozen'` means the re-resolution added nothing and the original
- * generation stands; `'raised'` means it was strictly stronger and a NEW
- * generation was minted.
+ * A frozen record read back as the authority for a later resolution. `frozen`
+ * means the original generation stands. `raised` means a stronger re-resolution
+ * made a new generation.
  */
 export interface FrozenRequirementAuthority extends FrozenRequirementSetProjection {
   readonly authority: 'frozen' | 'raised';
@@ -294,12 +244,10 @@ export interface FrozenRequirementAuthorityInput {
 }
 
 /**
- * Re-freeze under the authority of an already-frozen set.
- *
- * Deterministic and content-addressed like {@link freezeRequirements}: when the
- * re-resolution is not stronger, the returned records and
- * `requirementSetDigest` are exactly those of a fresh freeze of `frozen`, so a
- * later weaker attempt cannot mint a competing generation.
+ * Re-freeze under the authority of a frozen set. The result is the join of the
+ * frozen set and the re-resolution, so a later attempt cannot lower the obligations
+ * of a phase in progress. A weaker or equal re-resolution gives the same records and
+ * digest as `frozen`. A stronger one raises the set.
  */
 export function reconcileFrozenRequirements(
   input: FrozenRequirementAuthorityInput,
@@ -325,6 +273,10 @@ const RESOLVED_GATE_FAMILIES: ReadonlySet<string> = new Set([
   'synthesis',
 ]);
 
+/**
+ * Parse one frozen gate. It checks the family against the known families and requires
+ * a non-empty gate name. It does not check the name against the vocabulary of the family.
+ */
 function parseFrozenGate(raw: unknown): ResolvedGate | null {
   if (typeof raw !== 'object' || raw === null) return null;
   const record = raw as { family?: unknown; gate?: unknown };
@@ -332,24 +284,13 @@ function parseFrozenGate(raw: unknown): ResolvedGate | null {
   if (!RESOLVED_GATE_FAMILIES.has(record.family) || record.gate.length === 0) {
     return null;
   }
-  // The family discriminant is validated above; the per-family gate vocabulary
-  // is owned by phase-kind.ts / review-contract.ts and is an open string there,
-  // so the cast re-attaches the discriminant rather than widening anything.
   return { family: record.family, gate: record.gate } as ResolvedGate;
 }
 
 /**
- * Read a frozen `phase.entered` gate list back as an ORDERED sequence, without
- * re-resolving anything.
- *
- * Order is preserved because gate order is evaluation order — the lattice's
- * canonical set form (see {@link readFrozenRequirements}) deliberately sorts,
- * which is right for set comparison and wrong for the event payload.
- *
- * Fail-closed and total: any unreadable entry yields `null` — "we could not
- * read the frozen sequence" — rather than a partial one. A partial sequence
- * would be a silently WEAKER authority, which is the failure mode this whole
- * read-back path exists to prevent.
+ * Read a frozen `phase.entered` gate list back in order, without re-resolving.
+ * Gate order is evaluation order, so this does not sort. One unreadable entry
+ * gives `null`, because a partial sequence is a weaker authority.
  */
 export function readFrozenGateSequence(
   gates: readonly unknown[] | undefined,
@@ -365,14 +306,9 @@ export function readFrozenGateSequence(
 }
 
 /**
- * Reconstruct the obligation lattice element a frozen `phase.entered` record
- * carries, WITHOUT re-resolving anything.
- *
- * Fail-closed and total: a record with any unreadable gate yields `null` — "we
- * could not read the frozen set" — rather than a partial set. A partial set
- * would be a silently WEAKER authority, which is the failure mode this whole
- * read-back path exists to prevent; `null` tells the caller it holds no
- * authority and must fall back to a full resolution.
+ * Rebuild the lattice element from a frozen `phase.entered` record, without
+ * re-resolving. One unreadable gate gives `null`. Then the caller holds no
+ * authority and must do a full resolution.
  */
 export function readFrozenRequirements(
   gates: readonly unknown[] | undefined,

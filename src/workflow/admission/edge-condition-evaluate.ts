@@ -1,32 +1,13 @@
 /**
- * P06-02 — Pure, total, three-valued edge-condition evaluator
- * (Transition task 010; DR-1, DR-9, DR-10).
+ * A pure, total, three-valued evaluator for edge conditions.
  *
- * ## Purity contract
+ * The evaluator reads no ambient state, does no I/O and changes no input.
+ * The same condition and facts always give the same outcome, so edge selection is safe to replay.
  *
- * `evaluateEdgeCondition` is a pure total function of its two arguments. It
- * imports no `fs`, `child_process`, `process`, clock, or randomness; it reads
- * no ambient state; it mutates neither the condition nor the facts. The same
- * compiled condition and the same facts always yield the same outcome — which
- * is what makes edge selection replay-safe (DR-9).
- *
- * ## Three-valued (Kleene K3) semantics
- *
- * Evaluation is three-valued because a projected fact may simply be **unknown**
- * at the point a route is chosen, and guessing would break fail-closed replay.
- * An unknown or malformed fact evaluates to `indeterminate`, never to a
- * fabricated `true`/`false`.
- *
- *   - `eventObserved` / `factPresent` are total two-valued: an unobserved event
- *     or an absent field is a *definite* `false` (the projection is complete
- *     for presence questions).
- *   - `factEquals` / `counterCompare` are `indeterminate` when the field is
- *     absent, and `counterCompare` is also `indeterminate` when the present
- *     value is not a finite number (malformed for a numeric comparison).
- *
- * The connectives are Kleene strong logic, so De Morgan's laws hold exactly:
- * `not(all(a, b)) === any(not(a), not(b))` and
- * `not(any(a, b)) === all(not(a), not(b))` for all three-valued operands.
+ * For `eventObserved` and `factPresent`, an absent event or field is a definite `false`.
+ * For `factEquals` and `counterCompare`, an absent field is `indeterminate`, not a guessed value.
+ * For `counterCompare`, a value that is not a finite number is also `indeterminate`.
+ * The connectives use Kleene strong logic, so De Morgan's laws hold for all three values.
  */
 import {
   assertNever,
@@ -46,9 +27,8 @@ export const EDGE_CONDITION_OUTCOME = {
 } as const;
 
 /**
- * The declared state an edge condition is evaluated against: a snapshot of
- * projected scalar facts and the set of observed event identities. This is
- * plain, inert data — never a closure, handle, or I/O source.
+ * The facts for an edge condition: projected scalar fields and the observed event identities.
+ * This is plain data, never a closure, a handle or an I/O source.
  */
 export interface EdgeConditionFacts {
   readonly fields: Readonly<Record<string, FactScalar>>;
@@ -129,8 +109,6 @@ function compareNumbers(
   }
 }
 
-// ─── Kleene K3 connectives ───────────────────────────────────────────────────
-
 function notK(value: EdgeConditionOutcome): EdgeConditionOutcome {
   switch (value) {
     case 'true':
@@ -144,7 +122,7 @@ function notK(value: EdgeConditionOutcome): EdgeConditionOutcome {
   }
 }
 
-/** Conjunction: any `false` ⇒ `false`; else any `indeterminate` ⇒ `indeterminate`; else `true`. */
+/** Kleene conjunction. Any `false` gives `false`. Else any `indeterminate` gives `indeterminate`. Else `true`. */
 function allK(
   operands: readonly EdgeConditionNode[],
   facts: EdgeConditionFacts,
@@ -158,7 +136,7 @@ function allK(
   return sawIndeterminate ? 'indeterminate' : 'true';
 }
 
-/** Disjunction: any `true` ⇒ `true`; else any `indeterminate` ⇒ `indeterminate`; else `false`. */
+/** Kleene disjunction. Any `true` gives `true`. Else any `indeterminate` gives `indeterminate`. Else `false`. */
 function anyK(
   operands: readonly EdgeConditionNode[],
   facts: EdgeConditionFacts,

@@ -1,25 +1,10 @@
 /**
- * P06-02 — Deterministic edge (route) selection over closed edge conditions
- * (Transition task 010; DR-1, DR-9).
+ * Deterministic edge selection over compiled edge conditions.
  *
- * Given an ordered list of candidate edges, each carrying a compiled edge
- * condition, {@link selectEdge} deterministically chooses the legal edge to
- * take. Ordering is priority: the FIRST candidate whose condition is `true`
- * wins. Both boundary cases are explicit and total, not accidental:
- *
- *   - **zero-match** — every candidate is `false` ⇒ `{ outcome: 'no-match' }`.
- *   - **multi-match** — more than one candidate is `true`; the first in order
- *     is selected and the result flags `multiMatch: true` (and names every
- *     colliding candidate in `matchedEdgeIds`) so the ambiguity is surfaced
- *     rather than hidden.
- *
- * Selection also fails closed (DR-9): if the highest-priority non-`false`
- * candidate is `indeterminate`, routing is `blocked` — the evaluator refuses to
- * skip an edge whose legality is unknown and silently fall through to a
- * lower-priority edge.
- *
- * This module performs no admission: a `selected` edge is *legal to take*, not
- * *admitted*. Evidence-backed admission is evaluated separately downstream.
+ * Candidate order is priority. The first candidate whose condition is `true` wins.
+ * When more than one candidate is `true`, the result sets `multiMatch` and names each match.
+ * When the first candidate that is not `false` is `indeterminate`, selection is `blocked`.
+ * A `selected` edge is legal to take, but this module does not admit it.
  */
 import type { CompiledEdgeCondition } from './edge-condition.js';
 import {
@@ -51,10 +36,7 @@ export type EdgeSelection =
       readonly multiMatch: boolean;
       /**
        * Every candidate whose condition evaluated to `true`, in priority order.
-       * `matchedEdgeIds.length > 1` is exactly `multiMatch` — the colliding
-       * candidates are named, not merely counted, so a caller can REPORT which
-       * outbound edges are simultaneously legal instead of silently resolving
-       * the ambiguity to whichever edge it happened to ask about.
+       * A caller can report each edge that is legal at the same time.
        */
       readonly matchedEdgeIds: readonly string[];
     }
@@ -78,8 +60,8 @@ export function evaluateEdgeCandidates(
 }
 
 /**
- * Deterministically select the legal edge for `facts`. First `true` in order
- * wins; a leading `indeterminate` blocks (fail closed); all `false` is no-match.
+ * Select the legal edge for `facts`. The first `true` candidate wins.
+ * A leading `indeterminate` candidate blocks selection. All `false` gives `no-match`.
  */
 export function selectEdge(
   candidates: readonly EdgeCandidate[],
@@ -101,7 +83,6 @@ export function selectEdge(
         matchedEdgeIds,
       };
     }
-    // First non-false candidate is indeterminate: fail closed.
     return {
       outcome: 'blocked',
       edgeId: evaluation.edgeId,

@@ -10,18 +10,15 @@ export interface CircuitBreakerState {
   readonly compoundStateId: string;
 }
 
-/**
- * Resolve the effective max fix cycles, preferring the MAX_FIX_CYCLES env var
- * when it parses to a valid positive integer.
- */
+/** Returns `MAX_FIX_CYCLES` when it parses to a positive integer, and `defaultMax` otherwise. */
 function resolveMaxFixCycles(defaultMax: number): number {
   const envVal = parseInt(process.env.MAX_FIX_CYCLES || '', 10);
   return Number.isFinite(envVal) && envVal > 0 ? envVal : defaultMax;
 }
 
 /**
- * Check if the circuit breaker allows continued fix cycles for a compound state.
- * The fix cycle count is derived from the event log.
+ * Reports whether the fix-cycle count for a compound state reached its limit.
+ * The count and `lastTrippedAt` come only from the events, so a replay gives the same result.
  */
 export function checkCircuitBreaker(
   events: readonly Event[],
@@ -32,8 +29,6 @@ export function checkCircuitBreaker(
   const fixCycleCount = getFixCycleCount(events, compoundStateId);
   const isOpen = fixCycleCount >= effectiveMax;
 
-  // Derive lastTrippedAt from the most recent fix-cycle event for this compound,
-  // keeping the circuit breaker deterministic and replayable from events alone.
   let lastTrippedAt: string | undefined;
   if (isOpen) {
     for (let i = events.length - 1; i >= 0; i--) {
@@ -58,10 +53,7 @@ export function checkCircuitBreaker(
   };
 }
 
-/**
- * Get the current circuit breaker state for a compound state.
- * Equivalent to checkCircuitBreaker — provided as a read-only query alias.
- */
+/** A read-only query alias of `checkCircuitBreaker`. */
 export function getCircuitBreakerState(
   events: readonly Event[],
   compoundStateId: string,
@@ -70,10 +62,7 @@ export function getCircuitBreakerState(
   return checkCircuitBreaker(events, compoundStateId, maxFixCycles);
 }
 
-/**
- * Check circuit breaker using the external event store.
- * Async version that reads from JSONL instead of embedded _events.
- */
+/** Runs the `checkCircuitBreaker` check on the count from the event store. The result has no `lastTrippedAt`. */
 export async function checkCircuitBreakerFromStore(
   eventStore: EventStore,
   streamId: string,

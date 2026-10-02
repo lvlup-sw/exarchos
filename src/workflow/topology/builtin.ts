@@ -1,11 +1,9 @@
 /**
- * The topology that staleness scoring uses when a project has no
- * `topology.yaml`.
+ * The topology that staleness scoring uses when a project has no `topology.yaml`.
  *
- * It is derived from the built-in workflow registry that also drives phase
- * transitions, so a new built-in phase is covered with no second list to keep
- * in step. Each covered phase gets one `lastActivity` signal at 14 days, the
- * default from before topology files existed.
+ * It comes from the built-in workflow registry that also drives phase transitions. Thus a new
+ * built-in phase is covered, with no second list to keep in step. Each covered phase gets one
+ * `lastActivity` signal at 14 days, which is the default staleness threshold.
  */
 import { getTopology, isExplicitTopologyRequested } from './loader.js';
 import type { Topology } from './phase-contract.js';

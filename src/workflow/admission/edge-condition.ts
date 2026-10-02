@@ -1,62 +1,26 @@
 /**
- * P06-02 — Closed edge-condition AST and compile/import-time validator
- * (Transition task 009; DR-1, DR-2, DR-10).
+ * The closed edge-condition AST and its compile-time validator.
+ * An edge condition answers one question: is this edge structurally legal to take?
+ * It is a pure selector over projected facts and observed event identities. It does no I/O and is not admission.
+ * Route selection picks which legal edge to take. Evidence-backed admission decides if the transition can occur.
  *
- * ## What this is
+ * The AST is a closed union of seven node kinds. It has no escape-hatch node and no literal boolean leaf.
+ * An empty `all` is always legal, and an empty `any` is never legal. A `never` check enforces exhaustiveness.
  *
- * An *edge condition* answers exactly one question: **"is this edge
- * structurally legal to take?"** It is a pure, declarative selector over
- * projected facts and observed event identities. It is deliberately NOT
- * admission: it never collects evidence, evaluates policy, models severity or
- * remediation, shells out, or performs any I/O. Route selection decides which
- * legal edge to take; evidence-backed admission (P06-03/P06-04) decides whether
- * a transition may actually occur.
- *
- * ## Closed by construction
- *
- * The AST is a closed discriminated union of exactly SEVEN node kinds
- * (`eventObserved`, `factPresent`, `factEquals`, `counterCompare`, `all`,
- * `any`, `not`). "Closed" means, concretely:
- *
- *   1. there is no escape-hatch node — no `custom`, no `expression: string`
- *      lowered to `eval`, no provider reference, no function-valued node;
- *   2. the node-kind union is exhaustive and that exhaustiveness is enforced at
- *      compile time by a `never` check (see {@link assertNever}); and
- *   3. every constant is expressed structurally — an empty `all` is the
- *      always-legal edge (`true`) and an empty `any` is the never-legal edge
- *      (`false`) — so there is no literal-boolean leaf to smuggle logic through.
- *
- * ## Rejected at compile/import time, not lazily at evaluation
- *
- * {@link compileEdgeCondition} is the ONLY supported way to obtain a
- * {@link CompiledEdgeCondition}, and it validates eagerly. It rejects, with a
- * structured {@link EdgeConditionCompileError}:
- *
- *   - unknown / unsupported `kind` values;
- *   - arbitrary executable values (any `function`) anywhere in the tree;
- *   - prototype-pollution keys (`__proto__`, `constructor`, `prototype`);
- *   - extra / unknown properties (which is how a string-expression escape hatch
- *     such as `{ kind: 'factEquals', expression: 'a && b' }` is caught);
- *   - non-scalar leaf values and non-finite numbers; and
- *   - references to state fields or event identities that were not declared.
- *
- * Because the evaluator only accepts an already-compiled condition, an invalid
- * condition can never reach evaluation.
+ * {@link compileEdgeCondition} is the only way to get a {@link CompiledEdgeCondition}, and it validates eagerly.
+ * It rejects unknown kinds, functions, prototype-pollution keys, unknown properties, bad leaf values, and undeclared references.
+ * The evaluator accepts only a compiled condition, so an invalid condition never reaches evaluation.
  */
 
-// ─── Scalar value algebra ────────────────────────────────────────────────────
-
-/** The closed set of declared field types the AST may reference. */
+/** The closed set of declared field types that the AST can reference. */
 export type FactType = 'string' | 'number' | 'boolean';
 
-/** The closed set of scalar values the AST may compare against. */
+/** The closed set of scalar values that the AST can compare against. */
 export type FactScalar = string | number | boolean;
 
 /** Comparison operators for {@link CounterCompareNode}. */
 export const EDGE_COMPARE_OPS = ['lt', 'lte', 'eq', 'gte', 'gt'] as const;
 export type EdgeCompareOp = (typeof EDGE_COMPARE_OPS)[number];
-
-// ─── Closed AST node kinds ───────────────────────────────────────────────────
 
 /** The exhaustive, closed set of approved condition-node kinds (V1). */
 export const EDGE_CONDITION_NODE_KINDS = [
@@ -125,13 +89,9 @@ export type EdgeConditionNode =
   | AnyNode
   | NotNode;
 
-// ─── Declaration of legal references ─────────────────────────────────────────
-
 /**
- * Declares which state fields and event identities a condition may reference.
- * Compilation rejects any reference outside this declaration, so a condition
- * can never depend on an undeclared field (which the runtime could never
- * populate deterministically).
+ * Declares the state fields and event identities that a condition can reference.
+ * Compilation rejects any other reference, because the runtime cannot fill an undeclared field deterministically.
  */
 export interface EdgeConditionDeclaration {
   /** Declared projected-fact fields and their scalar type. */
@@ -146,8 +106,6 @@ export interface NormalizedEdgeConditionDeclaration {
   readonly events: ReadonlySet<string>;
 }
 
-// ─── Compiled (validated) condition ──────────────────────────────────────────
-
 declare const compiledBrand: unique symbol;
 
 /**
@@ -161,36 +119,28 @@ export interface CompiledEdgeCondition {
   readonly [compiledBrand]: 'CompiledEdgeCondition';
 }
 
-// ─── Structured compile errors ───────────────────────────────────────────────
-
+/**
+ * The code of an {@link EdgeConditionCompileError}.
+ * `EXECUTABLE_VALUE` is a function value. `UNKNOWN_PROPERTY` is a key outside the closed node shape, such as `expression`.
+ * `INVALID_PROPERTY_TYPE` is a required property that is missing or has the wrong primitive type.
+ * `FIELD_TYPE_MISMATCH` is a field whose declared type does not fit the node.
+ *
+ * `INVALID_NUMBER` is a number that is not finite. The other names state their rule.
+ */
 export type EdgeConditionCompileErrorCode =
-  /** A node (or the whole condition) is not a plain object. */
   | 'NOT_AN_OBJECT'
-  /** A prototype-pollution key (`__proto__`/`constructor`/`prototype`) was present. */
   | 'FORBIDDEN_KEY'
-  /** A value was a function — an arbitrary executable expression. */
   | 'EXECUTABLE_VALUE'
-  /** A node object had no `kind` discriminant. */
   | 'MISSING_KIND'
-  /** The `kind` discriminant is not one of the seven approved node kinds. */
   | 'UNKNOWN_NODE_KIND'
-  /** A node carried a property outside its closed shape (e.g. `expression`). */
   | 'UNKNOWN_PROPERTY'
-  /** A required property was missing or had the wrong primitive type. */
   | 'INVALID_PROPERTY_TYPE'
-  /** A leaf value was not a `string`/`number`/`boolean` scalar. */
   | 'NON_SCALAR_VALUE'
-  /** A numeric value was not finite. */
   | 'INVALID_NUMBER'
-  /** A `counterCompare.op` value was not a supported operator. */
   | 'INVALID_OPERATOR'
-  /** A referenced field was not declared. */
   | 'UNDECLARED_FIELD'
-  /** A referenced event identity was not declared. */
   | 'UNDECLARED_EVENT'
-  /** A referenced field's declared type is incompatible with the node. */
   | 'FIELD_TYPE_MISMATCH'
-  /** The declaration passed to the compiler was itself malformed. */
   | 'INVALID_DECLARATION';
 
 /** A structured, path-annotated compile/import-time rejection. */
@@ -211,19 +161,15 @@ export type EdgeConditionCompileResult =
   | { readonly ok: true; readonly condition: CompiledEdgeCondition }
   | { readonly ok: false; readonly error: EdgeConditionCompileError };
 
-// ─── Exhaustiveness helper ───────────────────────────────────────────────────
-
 /**
- * Compile-time exhaustiveness guard. A missing switch arm makes `value`
- * non-`never`, so the whole module fails to typecheck — this is the `never`
- * check that keeps the AST closed.
+ * Compile-time exhaustiveness guard. A missing switch arm makes `value` non-`never`, so the module fails to typecheck.
+ * This `never` check keeps the AST closed.
  */
 export function assertNever(value: never): never {
   throw new Error(`Unexpected edge-condition variant: ${String(value)}`);
 }
 
-// ─── Internal validation primitives ──────────────────────────────────────────
-
+/** Prototype-pollution keys that compilation rejects. */
 const FORBIDDEN_KEYS: ReadonlySet<string> = new Set([
   '__proto__',
   'constructor',
@@ -371,8 +317,7 @@ function requireDeclaredField(
   return type;
 }
 
-// ─── Recursive node parser ───────────────────────────────────────────────────
-
+/** Parse one raw node and its children, and validate them against the declaration. */
 function parseNode(
   raw: unknown,
   path: string,
@@ -478,8 +423,7 @@ function parseNode(
   }
 }
 
-// ─── Declaration normalization ───────────────────────────────────────────────
-
+/** Validate the declaration and convert it to a field map and an event set. */
 function normalizeDeclaration(
   declaration: EdgeConditionDeclaration,
 ): NormalizedEdgeConditionDeclaration {
@@ -545,8 +489,6 @@ function normalizeDeclaration(
   return { fields, events };
 }
 
-// ─── Public compile API ──────────────────────────────────────────────────────
-
 /**
  * Compile (import-time validate) a raw, untrusted edge-condition value against
  * a declaration. Throws {@link EdgeConditionCompileError} on any structural
@@ -596,12 +538,9 @@ function deepFreezeNode(node: EdgeConditionNode): EdgeConditionNode {
   return Object.freeze(node);
 }
 
-// ─── Total serialization ─────────────────────────────────────────────────────
-
 /**
- * Serialize a compiled condition to canonical JSON. Serialization is total —
- * the closed AST holds only scalars, arrays, and plain objects, never a
- * function or command — so this never throws and never emits executable code.
+ * Serialize a compiled condition to canonical JSON.
+ * The closed AST holds only scalars, arrays, and plain objects, so this never throws and never emits executable code.
  */
 export function serializeEdgeCondition(condition: CompiledEdgeCondition): string {
   return JSON.stringify(condition.node);

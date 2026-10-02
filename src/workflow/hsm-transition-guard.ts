@@ -1,38 +1,16 @@
-// Wave 0 / Task D.8 — safety-semantics consumer contract.
-//
-// Design §2.4 commits that `annotations.safety` is consumed by this
-// primitive and by `computeNextActions`. At D.8 implementation time
-// the gating logic here keys off the per-transition `guard` attached
-// to the HSM edge (composite / registered / custom guard), NOT off
-// action.annotations.safety — these are different abstractions:
-// transition guards gate phase-edges; action safety classifies the
-// per-action side-effect profile. No refactor needed today.
-//
-// If a future requirement (e.g. "destructive actions cannot run in
-// guarded read-only phases") arrives, the consumer here MUST read
-// `findActionInRegistry(toolName, actionName)?.annotations.safety`
-// from `../registry.js` — the registry is the single source of
-// truth (DIM-1 Topology). Do NOT hand-code the safety enum or
-// duplicate the §2.4 table in this primitive's prose. The smoke
-// test `D.8 — annotations.safety is queryable from registry` in
-// `next-actions-computer.test.ts` pins that contract.
-
-// ─── HSMTransitionGuard.fail_closed (Primitive 3 — closes #1225) ─────────
-//
-// Single decision point for guarded HSM phase transitions. `workflow.set`
-// in `tools.ts` delegates every `phase` update through `attempt`, which
-// evaluates the composite guard and either appends `workflow.transition`
-// (on guard pass) OR `workflow.guard-failed` (on guard fail) — never both
-// for the same target in the same attempt. Non-phase updates remain on
-// the existing `handleSet` field-only path; this primitive owns the
-// dispatch contract for phase transitions only.
-//
-// Guard composition logic itself lives in `workflow/guards.ts`; this
-// primitive reuses it via `executeTransition` rather than re-implementing
-// it. The contract under #1259 is a strict-mode flag — once that lands,
-// strict mode is the only mode and `workflow.set({ phase })` is removed.
-// Until then, the routing here is the strict mode.
-
+/**
+ * The guarded HSM transition primitive, the single decision point for phase transitions.
+ *
+ * `handleSet` routes each `phase` update of `workflow.set` through `attempt`. A guard pass
+ * appends `workflow.transition`, and a guard failure appends `workflow.guard-failed`,
+ * never both for one attempt. The guard composition lives in `workflow/guards.ts`, and
+ * this primitive reuses it through `executeTransition`.
+ *
+ * Transition guards gate phase edges and do not read `annotations.safety`. A future
+ * safety check here must read `findActionInRegistry(toolName, actionName)?.annotations.safety`,
+ * because the registry is the single source of truth. A test in
+ * `next-actions-computer.test.ts` pins that the registry exposes this field.
+ */
 import type { EventStore } from '../events/store.js';
 import type { GuardFailure } from './guards.js';
 import {
@@ -57,20 +35,6 @@ import {
 } from './admission/requirement-context.js';
 import { readFrozenGateSequence } from './admission/freeze-requirements.js';
 
-// ─── HSM emission boundary — schema-checked data shaping (#1339) ───────────
-//
-// The HSM walk emits internal events (`transition`, `compound-entry`,
-// `compound-exit`, `fix-cycle`, `guard-failed`, `circuit-open`, `cancel`,
-// `cleanup`) with a uniform `{ from, to, trigger, metadata }` shape. The
-// persisted-event boundary requires per-type `data` that conforms to
-// `EVENT_DATA_SCHEMAS` (e.g. `fix-cycle` needs `count`, not `from/to/trigger`;
-// `compound-entry` needs `compoundStateId`). Pre-#1339 these events were
-// appended via the legacy `EventStore.append` path, which validates only the
-// envelope and skips `EVENT_DATA_SCHEMAS`, laundering schema-invalid data onto
-// the log. `buildHsmEventData` maps each internal event to its canonical
-// external `data` shape so emission can route through `buildValidatedEvent`
-// (which DOES run `EVENT_DATA_SCHEMAS`), closing the laundering hole.
-
 interface HsmInternalEvent {
   readonly type: string;
   readonly from: string;
@@ -80,11 +44,15 @@ interface HsmInternalEvent {
 }
 
 /**
- * Build the canonical external `data` payload for an HSM-emitted event so it
- * validates against `EVENT_DATA_SCHEMAS`. `fixCycleOrdinal` supplies the
- * required `count` for `fix-cycle` events (the 1-based occurrence index).
- * `guardId` is folded in for `guard-failed` events to match the existing
- * event-store contract.
+ * Build the external `data` payload for an HSM event, so it validates against
+ * `EVENT_DATA_SCHEMAS` in `buildValidatedEvent`. Each persisted type needs its own
+ * fields. The ordinals give the 1-based `count`, and `guardId` goes into `guard-failed`.
+ *
+ * The function omits an absent `compoundStateId`, `riskTier`, or `boundaryTouching`, and
+ * never writes `undefined` for them. A non-boolean `allRequiredGatesPassed` stays
+ * `undefined`, so the schema rejects it and does not store `false`. The `phase.entered`
+ * payload holds only the obligation, with no `featureId`. `phase.blocked` gets its
+ * canonical shape here, so it validates as `phase.blocked`.
  */
 export function buildHsmEventData(
   evt: HsmInternalEvent,
@@ -96,9 +64,6 @@ export function buildHsmEventData(
 
   switch (evt.type) {
     case 'fix-cycle':
-      // WorkflowFixCycleData: { compoundStateId?, count, featureId }.
-      // `compoundStateId` is optional (post-T-02) — omit when absent rather
-      // than emitting it as `undefined`.
       return {
         ...(typeof compoundStateId === 'string'
           ? { compoundStateId }
@@ -107,10 +72,6 @@ export function buildHsmEventData(
         featureId,
       };
     case 'plan-revision':
-      // WorkflowPlanRevisionData: { compoundStateId?, count, featureId } (DR-1).
-      // Identical shaping to fix-cycle — the count is the 1-based revise-cycle
-      // ordinal supplied by the emission boundary; `compoundStateId` is omitted
-      // when absent (plan-review is a top-level atomic phase).
       return {
         ...(typeof compoundStateId === 'string'
           ? { compoundStateId }
@@ -119,13 +80,11 @@ export function buildHsmEventData(
         featureId,
       };
     case 'compound-entry':
-      // WorkflowCompoundEntryData: { compoundStateId, featureId }.
       return {
         compoundStateId,
         featureId,
       };
     case 'compound-exit':
-      // WorkflowCompoundExitData: { compoundStateId, featureId, from?, to?, trigger? }.
       return {
         compoundStateId: compoundStateId ?? evt.from,
         featureId,
@@ -134,7 +93,6 @@ export function buildHsmEventData(
         trigger: evt.trigger,
       };
     case 'circuit-open':
-      // WorkflowCircuitOpenData: { featureId, compoundId, fixCycleCount?, maxFixCycles? }.
       return {
         featureId,
         compoundId:
@@ -150,7 +108,6 @@ export function buildHsmEventData(
           : {}),
       };
     case 'guard-failed':
-      // WorkflowGuardFailedData: { guard, from, to, featureId }.
       return {
         guard: opts.guardId ?? 'unknown',
         from: evt.from,
@@ -158,9 +115,6 @@ export function buildHsmEventData(
         featureId,
       };
     case 'phase.entered':
-      // PhaseEnteredData (DR-13): the resolve-then-freeze obligation, carried
-      // verbatim in the HSM event's metadata. featureId is intentionally NOT
-      // added — the schema is the obligation only (no from/to/trigger laundering).
       return {
         phase: metadata.phase ?? evt.to,
         kind: metadata.kind,
@@ -169,28 +123,17 @@ export function buildHsmEventData(
         policySource: metadata.policySource ?? 'builtin',
         mode: metadata.mode ?? 'enforce',
         posture: metadata.posture,
-        // DR-10 (T-15): the frozen danger coordinate travels with the gate-set
-        // it produced. Spread only when the walk supplied it, so the shaping
-        // stays byte-identical for any producer that does not (and the field
-        // is never minted as `undefined` on the durable log).
         ...(metadata.riskTier !== undefined ? { riskTier: metadata.riskTier } : {}),
         ...(typeof metadata.boundaryTouching === 'boolean'
           ? { boundaryTouching: metadata.boundaryTouching }
           : {}),
       };
     case 'phase.blocked': {
-      // PhaseBlockedData (DR-7): the transition-boundary fail-closed record. The
-      // state machine emits only { kind, reason } in metadata (state-machine.ts);
-      // shape it into the canonical schema HERE so the resolver-fault event
-      // round-trips as `phase.blocked` AND validates — never the unregistered
-      // `workflow.phase.blocked` the `workflow.${type}` fallback would mint.
       const rawReason =
         typeof metadata.reason === 'string' && metadata.reason.length > 0
           ? metadata.reason
           : 'gate-set resolution failed';
       return {
-        // The dispatch was blocked from ENTERING the target phase (evt.to),
-        // whose kind's obligation faulted — keep `phase` and `kind` consistent.
         phase: typeof metadata.phase === 'string' ? metadata.phase : evt.to,
         kind: metadata.kind,
         reason: `phase transition blocked: ${String(metadata.kind)} gate-set resolution failed — ${rawReason}`,
@@ -198,10 +141,6 @@ export function buildHsmEventData(
       };
     }
     case 'phase.exited':
-      // PhaseExitedData (DR-13): aggregate gate status on advance. Do NOT
-      // `Boolean(...)`-coerce — a missing or non-boolean value must surface as
-      // `undefined` so the required-boolean schema REJECTS it at the emission
-      // boundary (a loud regression) instead of silently persisting `false`.
       return {
         phase: metadata.phase ?? evt.from,
         allRequiredGatesPassed:
@@ -209,8 +148,6 @@ export function buildHsmEventData(
             ? metadata.allRequiredGatesPassed
             : undefined,
       };
-    // transition / cancel / cleanup all share { from, to, trigger, featureId }
-    // (cancel additionally allows an optional `reason`, preserved from metadata).
     default:
       return {
         from: evt.from,
@@ -247,11 +184,9 @@ async function nextFixCycleOrdinal(
 }
 
 /**
- * Count prior `workflow.plan-revision` events on the stream so the next
- * plan-revision event can carry a 1-based `count` that satisfies
- * `WorkflowPlanRevisionData` (DR-1). The plan-review revise loop is bounded by a
- * single workflow-level count, so — unlike fix cycles — the ordinal is NOT
- * scoped by `compoundStateId`; every prior plan-revision on the stream counts.
+ * Count prior `workflow.plan-revision` events, so the next one carries a 1-based
+ * `count`. Unlike fix cycles, the count is not scoped by `compoundStateId`, because
+ * one workflow-level count bounds the revise loop.
  */
 async function nextPlanRevisionOrdinal(
   eventStore: EventStore,
@@ -262,8 +197,6 @@ async function nextPlanRevisionOrdinal(
   });
   return prior.length + 1;
 }
-
-// ─── Public types ────────────────────────────────────────────────────────
 
 /** Event payload appended on a successful attempt. */
 export interface WorkflowTransitionEvent {
@@ -291,16 +224,13 @@ export interface GuardContext {
   /** Idempotency key suffix to deduplicate retried event appends. */
   readonly idempotencyKeySuffix?: string;
   /**
-   * Event store the primitive writes to. Pure-evaluation callers can pass
-   * `null` to skip emission and only learn the would-be outcome — useful
-   * for the v3 substrate (#1259) where evaluation and emission split.
+   * The event store for emission. With `null`, the primitive emits nothing and only
+   * returns the outcome.
    */
   readonly eventStore: EventStore | null;
   /**
-   * Phase-kind gate-set resolver (DR-10), forwarded to `executeTransition`.
-   * Defaults to the real resolver when omitted; injectable so the fail-closed
-   * `PHASE_BLOCKED` branch — unreachable through the real resolver for valid
-   * inputs — is exercisable through the guard's full emission path.
+   * The phase-kind gate-set resolver for `executeTransition`. It defaults to the real
+   * resolver. A test can inject one to reach the fail-closed `PHASE_BLOCKED` branch.
    */
   readonly resolveGatesFn?: (
     kind: PhaseKind,
@@ -319,40 +249,17 @@ export interface GuardContext {
     eventStore: EventStore | null,
   ) => unknown;
   /**
-   * DR-7 (INV-9) — admit the HSM's UNIVERSAL final-state edges.
-   *
-   * `cancelled` and `completed` are reachable from EVERY non-final phase
-   * without an explicit edge in the HSM definition: `executeTransition`
-   * special-cases them (`isCancel` / `isCleanup`) BEFORE its `findTransition`
-   * lookup. This primitive's Step-1 lookup does not, which is precisely why
-   * `cleanup.ts` and `cancel.ts` historically bypassed it and called
-   * `executeTransition` directly — the bypass DR-7 closes.
-   *
-   * Opt-in rather than unconditional so the `exarchos_workflow transition`
-   * path stays byte-identical: `workflow.set({ phase: 'cancelled' })` must
-   * keep returning `no-transition-defined` instead of silently gaining the
-   * ability to cancel a workflow without going through `handleCancel`. Only
-   * the cleanup and cancel handlers set it, and they are the only two callers
-   * that mutate a phase onto a universal final state.
+   * Admit the universal final edges, `cancelled` and `completed`. They have no explicit
+   * HSM edge, and `executeTransition` resolves them itself. Only the cleanup and cancel
+   * handlers set this flag. Without it, `workflow.set({ phase: 'cancelled' })` returns
+   * `no-transition-defined`, so a workflow cannot cancel without `handleCancel`.
    */
   readonly allowUniversalFinalTransition?: boolean;
   /**
-   * DR-10 (T-15) — the workflow state as it was BEFORE this call's field
-   * updates were applied.
-   *
-   * `handleSet` applies `updates` to a clone and then evaluates the transition
-   * against that POST-update copy (so phase guards see the new state). For the
-   * danger coordinate that ordering is unsound: a call shaped
-   * `{ phase: 'review', updates: { riskTier: 'low' } }` would evaluate — and
-   * FREEZE — the transition at a tier the workflow did not have when the call
-   * began, i.e. a same-call stamp could weaken the very transition it
-   * accompanies.
-   *
-   * Supplying the pre-update state lets the primitive floor the coordinate
-   * monotonically: the stamp still lands and governs every later call, it just
-   * cannot lower the bar it is currently being measured against. OPTIONAL and
-   * defaulted-off — omitting it reproduces the previous behaviour exactly (no
-   * floor is applied), so pure-evaluation callers are unaffected.
+   * The workflow state before the field updates of this call. `handleSet` evaluates the
+   * transition against the updated copy. Without a floor, a `riskTier` stamp in the same
+   * call can lower the obligation of the transition that it comes with. This state gives
+   * a monotonic floor. When it is omitted, only a frozen floor from the log can apply.
    */
   readonly priorState?: Record<string, unknown> | undefined;
 }
@@ -362,13 +269,11 @@ export type TransitionResult =
       readonly ok: true;
       readonly transitionEvent: WorkflowTransitionEvent;
       /**
-       * Whether this attempt was a no-op because the workflow was already
-       * in `targetPhase`. The HSM treats this as a successful transition
-       * (idempotent), but no events are emitted and no state mutation
-       * is required.
+       * Whether the workflow was already in `targetPhase`. This is a success that
+       * emits no events and needs no state change.
        */
       readonly idempotent: boolean;
-      /** Resolved phase after the transition (may equal currentPhase on idempotent). */
+      /** The phase after the transition. It equals `currentPhase` on an idempotent attempt. */
       readonly newPhase: string;
       /**
        * History updates the HSM walk produced (compound exit recording).
@@ -427,8 +332,6 @@ export interface HSMTransitionGuard {
   ): Promise<TransitionResult>;
 }
 
-// ─── Implementation ──────────────────────────────────────────────────────
-
 function resolveHSM(
   workflowType: string,
   skipPhases?: readonly string[],
@@ -439,35 +342,11 @@ function resolveHSM(
 }
 
 /**
- * Default `HSMTransitionGuard` implementation. Owns the entire dispatch
- * contract for guarded phase transitions:
- *
- *   1. Look up the transition definition (may be undefined for invalid
- *      target phases — returns `no-transition-defined`).
- *   2. Run any registered async/custom guards before the synchronous
- *      `executeTransition` call. A failure here emits
- *      `workflow.guard-failed` and returns `guard-failed` — the
- *      transition event is NEVER appended.
- *   3. Run `executeTransition` for the synchronous guard composition
- *      path. On guard fail, emit ONLY `workflow.guard-failed`. On
- *      success, emit ONLY `workflow.transition` (plus any compound
- *      entry/exit / fix-cycle siblings produced by the HSM walk).
- *
- * Atomicity guarantees:
- *   - Binary outcome atomicity: at most one of `workflow.transition` /
- *     `workflow.guard-failed` is appended per attempt outcome. The
- *     idempotency key on the event store dedups CAS retries.
- *   - Compound entry/exit events in the success path are NOT all-or-none:
- *     they are sequenced through `EventStore.append` independently, so a
- *     mid-loop throw can leave a partial trail. Stronger atomicity
- *     arrives in #1259's substrate refactor.
- */
-/**
  * Call the shadow observer, if one is set, and wait for any promise it returns.
  * Every legacy decision site goes through this one function. It forwards
- * `context.eventStore` so that the observer can make its evidence durable. A
- * throw or a rejection is ignored: shadow observation never decides a
- * transition.
+ * `context.eventStore`, so the observer can make its evidence durable.
+ * `live-shadow-observer.test.ts` fails if the store is not forwarded. A throw or
+ * a rejection is ignored, because shadow observation never decides a transition.
  */
 async function notifyShadowObserver(
   context: GuardContext,
@@ -477,19 +356,13 @@ async function notifyShadowObserver(
   try {
     await context.shadowObserver(observation, context.eventStore);
   } catch {
-    // Intentionally swallowed — shadow observation is never authoritative.
   }
 }
 
 /**
- * DR-7 — is `targetPhase` one of the HSM's UNIVERSAL final-state edges?
- *
- * Mirrors `executeTransition`'s own `isCancel` / `isCleanup` predicates
- * (state-machine.ts) exactly, so the primitive admits precisely the edge set
- * the HSM walk can actually resolve without an explicit `findTransition` hit.
- * Duplicating the predicate rather than exporting it keeps the walk's contract
- * the single authority on what those edges MEAN; this only decides whether the
- * Step-1 lookup may be skipped.
+ * Tell if `targetPhase` is a universal final edge. It mirrors the `isCancel` and
+ * `isCleanup` predicates of `executeTransition`. It only decides if the edge lookup can
+ * be skipped, and the walk keeps the authority on the meaning of the edge.
  */
 function isUniversalFinalTarget(hsm: HSMDefinition, targetPhase: string): boolean {
   return (
@@ -497,22 +370,6 @@ function isUniversalFinalTarget(hsm: HSMDefinition, targetPhase: string): boolea
     hsm.states[targetPhase]?.type === 'final'
   );
 }
-
-// ─── DR-10 (T-15): the monotone obligation floor ─────────────────────────────
-//
-// Two sources may hold a stronger claim about this transition than the
-// post-update state the walk is about to be evaluated against:
-//
-//   1. the PRE-update state — the claim in force when the call began, which a
-//      same-call `updates: { riskTier: … }` must not be able to lower;
-//   2. the `phase.entered` record a PRIOR attempt at this SAME phase froze —
-//      the authority a later attempt is supposed to read back rather than
-//      re-resolve from whatever state says now.
-//
-// Both are passed to `executeTransition` as a floor, never written back onto
-// the state: the floor raises the OBLIGATION for this transition only. It is
-// deliberately NOT ratcheted across phases — pinning a coordinate feature-wide
-// would make one untiered transition permanently escalate every later one.
 
 /** The `(risk, boundary)` claim a state object carries, or `null` if it makes none. */
 function statedCoordinate(
@@ -527,14 +384,9 @@ function statedCoordinate(
 }
 
 /**
- * Read the obligation a prior `phase.entered` froze for THIS target phase.
- *
- * This is the literal "read the frozen record back as authority" step: both the
- * coordinate and the gate sequence come off the durable log, never from a
- * re-resolution of current state. The most recent matching record wins (it is
- * itself the join of everything before it). Pre-T-15 records carry no
- * coordinate and contribute only their gates; an unreadable gate list
- * contributes no gates at all (fail-closed — see `readFrozenGateSequence`).
+ * Read the obligation that the last `phase.entered` for the target phase froze. The
+ * coordinate and the gates come from the durable log, not from current state. A record
+ * without a coordinate gives only its gates. An unreadable gate list gives no gates.
  */
 async function readFrozenFloorForPhase(
   eventStore: EventStore,
@@ -569,7 +421,12 @@ async function readFrozenFloorForPhase(
   };
 }
 
-/** Merge floor contributions; both members are pure lower bounds, so union. */
+/**
+ * Merge floor parts as a union, because each part is a lower bound. The floor raises
+ * the obligation of this transition only. It is not written to state and does not
+ * carry across phases, because a feature-wide floor makes one untiered transition
+ * escalate every later transition.
+ */
 function mergeFloors(
   parts: readonly (TransitionObligationFloor | null)[],
 ): TransitionObligationFloor | undefined {
@@ -593,12 +450,27 @@ function mergeFloors(
   };
 }
 
+/**
+ * The default `HSMTransitionGuard`. It looks up the edge, runs registered custom guards,
+ * then runs the synchronous `executeTransition` walk. An undefined edge returns
+ * `no-transition-defined` and emits no event, also when the walk rejects a universal
+ * final edge. A `guard-failed` event for an edge that does not exist corrupts projections.
+ *
+ * A failed custom guard appends one `workflow.guard-failed`, and a failed walk appends its
+ * diagnostic events. No failure appends `workflow.transition`. A success appends the walk
+ * events one at a time, so a throw in the loop can leave a partial trail.
+ */
 export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
   /**
-   * Decide a request `target` against the HSM definition. ActionId admission
-   * does not name or invent this edge — `workflow.transition` stays one
-   * ActionId whose contract abstains from edge obligations, and this primitive
-   * remains the only authority on whether `currentPhase → targetPhase` is legal.
+   * Decide a request `target` against the HSM definition. ActionId admission does not
+   * name this edge, so this primitive is the only authority on its legality.
+   *
+   * An unregistered custom guard fails closed without a `guard-failed` event, because it
+   * is a config error. The obligation floor comes from `priorState` and the last
+   * `phase.entered` for the target phase. `CIRCUIT_OPEN` and `PHASE_BLOCKED` keep their
+   * codes, so a resolver fault does not look like a guard failure. The returned sequence is
+   * the highest sequence of the lifecycle and phase events, so `_eventSequence` does not
+   * trail the log and cause a false reconcile.
    */
   async attempt(
     featureId: string,
@@ -608,11 +480,6 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
   ): Promise<TransitionResult> {
     const hsm = resolveHSM(context.workflowType, context.skipPhases);
 
-    // ─── Idempotency check ────────────────────────────────────────────
-    // A no-op self-transition is a valid success case — no events, no
-    // state mutation. Mirrors `executeTransition`'s behavior so callers
-    // see a stable contract regardless of whether they reach the HSM
-    // walk or short-circuit here.
     if (currentPhase === targetPhase) {
       return {
         ok: true,
@@ -631,25 +498,12 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
       };
     }
 
-    // ─── Step 1: Lookup transition ────────────────────────────────────
     const transition = findTransition(hsm, currentPhase, targetPhase);
-    // DR-7 — the universal `cancelled` / `completed` edges carry no explicit
-    // definition; the HSM walk resolves them itself. Opt-in callers (cleanup /
-    // cancel) skip the Step-1 short-circuit so their phase mutation runs
-    // through THIS primitive instead of calling `executeTransition` directly.
     const universalFinal =
       transition === undefined &&
       context.allowUniversalFinalTransition === true &&
       isUniversalFinalTarget(hsm, targetPhase);
     if (!transition && !universalFinal) {
-      // No definition for this target. The HSM is the source of truth on
-      // valid edges — surface `no-transition-defined` so the caller can
-      // surface a structured error. We do NOT emit any event here: this
-      // is a programming error, not a guard failure, and emitting a
-      // guard-failed for a non-existent edge would corrupt projections.
-      // Enriched targets (phase + guard metadata) come from
-      // `getValidTransitions` so callers can render actionable MCP
-      // error responses.
       return {
         ok: false,
         reason: 'no-transition-defined',
@@ -659,11 +513,6 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
       };
     }
 
-    // ─── Step 2: Custom (async) guard pre-check ───────────────────────
-    // Built-in guards remain inline in `executeTransition`. Custom guards
-    // are async (shell-out) and registered via the project config; if
-    // present, they must pass before the HSM walk runs. A failed custom
-    // guard emits `workflow.guard-failed` and returns immediately.
     if (transition?.guard) {
       const registeredGuard = getRegisteredGuard(
         `${context.workflowType}:${transition.guard.id}`,
@@ -679,9 +528,6 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
             context,
           );
           const message = `Custom guard '${transition.guard.id}' failed: ${customResult.error ?? 'command exited non-zero'}`;
-          // P07-02: extend the shadow seam to the custom-guard early-return deny
-          // path — the legacy decision here is an authoritative `deny`, so the
-          // observer must see it for coverage parity with the composite walk.
           await notifyShadowObserver(context, {
             workflowType: context.workflowType,
             fromPhase: currentPhase,
@@ -706,16 +552,6 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
           };
         }
       } else if (transition.guard.custom) {
-        // Fail-closed: a config-declared custom guard with no registry
-        // entry is an unsatisfiable dependency. Treat it as a guard
-        // failure (DIM-2 — explicit rejection, no silent drop). Note
-        // we do NOT emit `workflow.guard-failed` here — this is a
-        // configuration error, not a runtime guard failure, and
-        // matches the pre-refactor `handleSet` behavior at #1225's
-        // closure point.
-        // P07-02: extend the shadow seam to the unregistered-custom-guard
-        // fail-closed deny path as well (documented out-of-scope seam) — the
-        // legacy decision is an authoritative `deny`.
         await notifyShadowObserver(context, {
           workflowType: context.workflowType,
           fromPhase: currentPhase,
@@ -739,13 +575,6 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
       }
     }
 
-    // ─── Step 3: Synchronous HSM walk (composite guard) ───────────────
-    // DR-10 (T-15): the walk resolves AND freezes the phase obligation, so the
-    // floor must be assembled BEFORE it runs — from the pre-update claim this
-    // call may be trying to lower, and from the `phase.entered` an earlier
-    // attempt at this same phase already froze. There is still exactly one
-    // resolution per attempt; the frozen record is its lower bound rather than
-    // its competitor.
     const priorCoordinate = statedCoordinate(context.priorState);
     const floor = mergeFloors([
       priorCoordinate === null ? null : { coordinates: [priorCoordinate] },
@@ -761,11 +590,6 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
       floor,
     );
 
-    // ─── P07-01: non-invasive shadow observation (Transition tasks 027/051) ──
-    // Surface the AUTHORITATIVE legacy allow/deny to an injected observer for
-    // side-by-side shadow comparison. Passive and error-isolated: it reads the
-    // already-computed `result`, cannot alter it, and can never throw into this
-    // path. Absent in every production caller, so behaviour is unchanged.
     await notifyShadowObserver(context, {
       workflowType: context.workflowType,
       fromPhase: currentPhase,
@@ -775,13 +599,6 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
     });
 
     if (!result.success) {
-      // DR-7 — on the universal-final path the walk itself owns the
-      // route-legality verdict: if `mergeVerified` does not hold there may
-      // still be no legal edge to `completed`, and `executeTransition`
-      // reports that as INVALID_TRANSITION. Surface it as
-      // `no-transition-defined` so the caller sees the same structured shape
-      // (and the same `validTargets`) the Step-1 short-circuit produces,
-      // rather than a guard failure for an edge that does not exist.
       if (universalFinal && result.errorCode === 'INVALID_TRANSITION') {
         return {
           ok: false,
@@ -793,18 +610,8 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
             `No transition from '${currentPhase}' to '${targetPhase}'`,
         };
       }
-      // Emit any diagnostic events `executeTransition` produced
-      // (typically a single `guard-failed`, possibly `circuit-open`).
-      // We deliberately do NOT also append a `workflow.transition` —
-      // this is the atomicity invariant the primitive enforces.
       if (context.eventStore) {
         for (const evt of result.events) {
-          // #1339 (defense-in-depth, follows #1325 α-10): route HSM-emitted
-          // events through `buildValidatedEvent` so `EVENT_DATA_SCHEMAS` runs
-          // at the emission boundary. `buildHsmEventData` shapes the per-type
-          // `data` (e.g. `compound-exit` carries `compoundStateId`,
-          // `guard-failed` carries the offending guard id) so a schema-invalid
-          // payload can never be laundered onto the log via the legacy path.
           const data = buildHsmEventData(evt, featureId, {
             ...(transition?.guard ? { guardId: transition.guard.id } : {}),
           });
@@ -831,12 +638,6 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
         },
       ];
 
-      // CIRCUIT_OPEN and PHASE_BLOCKED are surfaced under the same
-      // `guard-failed` reason — from the dispatcher's perspective it's still
-      // "transition not permitted" — but the distinct `errorCode` is PRESERVED,
-      // not collapsed to GUARD_FAILED. PHASE_BLOCKED is the fail-closed
-      // gate-set-resolution semantic (state-machine.ts); flattening it here
-      // would hide a substrate-integrity failure behind a generic guard fault.
       const errorCode =
         result.errorCode === 'PHASE_BLOCKED'
           ? 'PHASE_BLOCKED'
@@ -854,24 +655,12 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
       };
     }
 
-    // ─── Step 4: Success path — emit transition (+ siblings) ──────────
-    // executeTransition returns one or more events on success: the
-    // primary `transition` plus optional compound-entry/-exit and
-    // fix-cycle events from the HSM walk. All of them belong to this
-    // single attempt; the atomicity invariant is per-attempt, not
-    // per-event-type.
     let transitionSequence = -1;
     if (context.eventStore) {
       for (const evt of result.events) {
         const idempotencyKey = context.idempotencyKeySuffix
           ? `${featureId}:${evt.type}:${evt.from}:${evt.to}:${context.idempotencyKeySuffix}`
           : undefined;
-        // #1339 (defense-in-depth, follows #1325 α-10): route the success-path
-        // emission (transition + compound-entry/-exit + fix-cycle siblings)
-        // through `buildValidatedEvent` so `EVENT_DATA_SCHEMAS` runs at the
-        // boundary. `fix-cycle` events need a `count` the HSM walk doesn't
-        // carry; `nextFixCycleOrdinal` derives the 1-based occurrence index
-        // from the store so the persisted `data` satisfies the schema.
         const fixCycleOrdinal =
           evt.type === 'fix-cycle'
             ? await nextFixCycleOrdinal(
@@ -880,9 +669,6 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
                 evt.metadata?.compoundStateId,
               )
             : undefined;
-        // DR-1 — plan-revision carries a 1-based ordinal `count` the HSM walk
-        // doesn't supply, derived from prior plan-revision events on the stream
-        // (the revise-loop analog of `fixCycleOrdinal`).
         const planRevisionOrdinal =
           evt.type === 'plan-revision'
             ? await nextPlanRevisionOrdinal(context.eventStore, featureId)
@@ -903,15 +689,6 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
           validatedEvent,
           idempotencyKey ? { idempotencyKey } : undefined,
         );
-        // The state machine emits one primary lifecycle event per attempt:
-        // 'transition' for normal phase moves, 'cancel' for user-cancel,
-        // 'cleanup' for the universal mergeVerified→completed transition
-        // (state-machine.ts:532, :578, :752). Capture the sequence on any of
-        // these so the caller's _eventSequence projection cursor advances on
-        // cancel/cleanup paths too. The DR-13 `phase.entered` freeze is appended
-        // AFTER the transition (a higher sequence); advance the cursor to cover
-        // it too (Math.max) so _eventSequence does not trail the log and trigger
-        // a spurious reconcile of the just-frozen obligation.
         if (
           evt.type === 'transition' ||
           evt.type === 'cancel' ||
@@ -962,9 +739,6 @@ async function emitGuardFailed(
 ): Promise<void> {
   if (!context.eventStore) return;
   try {
-    // Route through buildValidatedEvent for defense-in-depth Zod
-    // validation (#1325). Sequence is a placeholder; the appender
-    // assigns the authoritative value.
     const validatedEvent = buildValidatedEvent(featureId, 1, {
       type: 'workflow.guard-failed',
       correlationId: featureId,
@@ -978,17 +752,11 @@ async function emitGuardFailed(
     });
     await context.eventStore.appendValidated(featureId, validatedEvent);
   } catch {
-    // Diagnostic emission is best-effort. The structured failure in the
-    // returned `TransitionResult` is the source of truth for the caller.
   }
 }
 
-// ─── Module-level singleton ──────────────────────────────────────────────
-//
-// One instance per process — the primitive is stateless beyond its
-// dependencies, which arrive via `GuardContext`. Co-located with the
-// implementation so callers don't have to manage construction. Tests
-// can construct fresh `DefaultHSMTransitionGuard` instances if they
-// need isolation.
-
+/**
+ * The process-wide instance. The primitive has no state beyond `GuardContext`. Tests
+ * can construct a fresh `DefaultHSMTransitionGuard` for isolation.
+ */
 export const hsmTransitionGuard: HSMTransitionGuard = new DefaultHSMTransitionGuard();

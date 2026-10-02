@@ -1,22 +1,12 @@
-// ─── P06-07 / Transition task 050 — event-sourced requirement generations ────
-//
-// Shared substrate for bootstrap (`bootstrap-attempts.ts`) and reassessment
-// (`reassessment.ts`). Both establish a *frozen requirement generation* for a
-// phase attempt by APPENDING `admission.requirement-resolved` facts — never by
-// rewriting a past event or retro-stamping a `.state.json`. This module owns the
-// projection from a {@link FrozenRequirementSetProjection} (produced by P06-05's
-// `freezeRequirements`) into the append-only event payloads, plus the stream
-// fold that reconstructs prior attempt state.
-//
-// Determinism is load-bearing: the same frozen set + the same generation
-// provenance always projects to BYTE-IDENTICAL events (ids are content-derived,
-// never a clock or counter). So appending the same generation twice yields
-// duplicate-but-identical `admission.requirement-resolved` facts, which the
-// P01-04 fold legitimately collapses — a re-bootstrap can never fork an attempt
-// into two generations.
-//
-// Pure: no I/O, no clock, no config reads. The trusted `resolvedAt` instant is
-// a caller input, never `Date.now()`.
+/**
+ * Event-sourced requirement generations, shared by bootstrap (`bootstrap-attempts.ts`) and reassessment (`reassessment.ts`).
+ * Both freeze a requirement generation for a phase attempt by appending `admission.requirement-resolved` facts.
+ * Neither rewrites a past event or stamps a `.state.json`.
+ *
+ * The same inputs always give byte-identical events, because every id comes from content.
+ * The fold collapses a repeated append, so a second bootstrap cannot fork an attempt into two generations.
+ * The module is pure. The caller supplies the trusted `resolvedAt` instant.
+ */
 
 import { createHash } from 'node:crypto';
 
@@ -39,8 +29,7 @@ import {
 } from './types.js';
 import type { FrozenRequirementSetProjection } from './freeze-requirements.js';
 
-// ─── Canonical serialization (sorted keys, JSON leaves only) ─────────────────
-
+/** A JSON value that `canonicalJson` serializes with sorted keys. */
 type CanonicalJson =
   | null
   | boolean
@@ -68,13 +57,9 @@ function subjectIdentity(subject: EvidenceSubjectV1): CanonicalJson {
   return subject as unknown as CanonicalJson;
 }
 
-// ─── Generation provenance ───────────────────────────────────────────────────
-
 /**
- * The immutable policy identity a requirement generation is frozen under. Every
- * `admission.requirement-resolved` fact in one generation carries the same
- * values, so the P01-04 fold sees one consistent generation provenance (a
- * disagreement would contest the attempt).
+ * The policy identity that a requirement generation is frozen under.
+ * Every fact in one generation carries the same values. A disagreement makes the fold contest the attempt.
  */
 export interface GenerationProvenance {
   readonly operationId: OperationId;
@@ -86,11 +71,7 @@ export interface GenerationProvenance {
   readonly resolvedAt: string;
 }
 
-/**
- * The deterministic input-digest naming a frozen generation's resolution
- * inputs. Derived purely from the frozen set identity, its binding, and the
- * policy it was resolved under, so re-deriving it for the same inputs is stable.
- */
+/** The deterministic digest of the resolution inputs of a generation: the frozen set, its binding, and its policy. */
 export function generationInputDigest(
   frozen: FrozenRequirementSetProjection,
   phaseAttemptId: PhaseAttemptId,
@@ -111,13 +92,8 @@ export function generationInputDigest(
 }
 
 /**
- * Project a frozen requirement set into the append-only
- * `admission.requirement-resolved` events that establish one generation.
- *
- * One event per requirement, all sharing the generation's `requirementSetDigest`
- * and `inputDigest` (so the fold groups them into a single generation). Every id
- * is content-derived, so the projection is deterministic and a re-append is a
- * byte-identical no-op the fold collapses.
+ * Project a frozen requirement set into the `admission.requirement-resolved` events of one generation.
+ * Each requirement gets one event. All events share `requirementSetDigest` and `inputDigest`, so the fold groups them.
  */
 export function buildRequirementResolvedEvents(
   frozen: FrozenRequirementSetProjection,
@@ -159,12 +135,9 @@ export function buildRequirementResolvedEvents(
   });
 }
 
-// ─── Stream fold (P01-04) ─────────────────────────────────────────────────────
-
 /**
- * Fold the admission facts on a stream snapshot into per-attempt frozen state,
- * reusing the P01-04 fold verbatim. Total: a malformed historical fact degrades
- * integrity to `'contested'`, it never throws.
+ * Fold the admission facts of a stream into per-attempt frozen state with `foldPhaseAttemptAdmission`.
+ * A malformed historical fact sets integrity to `'contested'`. The fold does not throw.
  */
 export function foldAdmissionStream(
   events: readonly DecideOnceStoredEvent[],
@@ -194,7 +167,7 @@ export function foldAdmissionStream(
   });
 }
 
-/** Stable key for a content digest, matching the P01-04 fold's `digestKey`. */
+/** Stable key for a content digest, the same key that the attempt fold uses. */
 export function digestKey(digest: ContentDigestV1): string {
   return `${digest.algorithm}:${digest.value}`;
 }

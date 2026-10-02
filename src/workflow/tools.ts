@@ -1,19 +1,7 @@
-// ─── The workflow composite-tool surface — published module path ────────────
-//
-// One handler per action, each in its own module under `handlers/`. This file
-// is the path every consumer already imports, so it stays the surface's
-// published identity and the split is invisible to callers.
-//
-// Nothing is handled here. A new workflow action gets a module under
-// `handlers/` and a line below; a handler body written in this file is the one
-// thing this arrangement exists to prevent, because it is how a 2,062-line
-// module grew the last time.
+// The published module path of the workflow handlers.
+// This file holds no handler body. A new workflow action gets its own module and a re-export line here.
 
 export { CURRENT_ES_VERSION, isEventSourced } from './handlers/shared.js';
-
-// Two handlers already lived in their own modules and were re-exported from
-// here. They keep that arrangement — this file is the surface, wherever a
-// handler's body happens to sit.
 export { handleCancel } from './cancel.js';
 export { handleSummary, handleReconcile, handleTransitions } from './query.js';
 export { handleInit } from './handlers/init.js';

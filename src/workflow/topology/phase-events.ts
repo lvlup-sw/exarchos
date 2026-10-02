@@ -1,43 +1,26 @@
-// ─── Phase event contract — the one declaration of what a phase emits ────────
+// This module declares the events that a workflow phase expects from the model. It also declares
+// the events that the runtime emits for the model during that phase. The `check-event-emissions`
+// gate, the phase playbooks, and the skill prose comparator in `tests/architecture/` derive from it.
+// A playbook never tells the model to emit a runtime-owned event such as `gate.executed`.
 //
-// Which model-emitted events a workflow phase expects, and which events the
-// runtime emits on the model's behalf while that phase runs. Every surface
-// that used to hold its own copy of that fact now derives from this table:
-//
-//   - the `check-event-emissions` gate (`PHASE_EXPECTED_EVENTS`, the hint text)
-//   - the phase playbooks (`events`, `autoEmittedEvents`)
-//   - the skill prose comparator in `tests/architecture/`
-//
-// Before this module there were four copies — two literal lists in the
-// rehydration reducer that called themselves a registry, four literal rows in
-// the gate, per-phase arrays in the playbooks, and the skill prose — and they
-// disagreed: the review playbook instructed `review.completed`, which nothing
-// emitted and the gate never checked; four playbooks instructed the model to
-// emit `gate.executed`, `shepherd.*` and `merge.*`, all runtime-owned. One
-// declaration cannot disagree with itself.
-//
-// The rows are DECLARED, not derived: which phase expects which model event
-// is a workflow fact the event catalog does not hold. What the catalog does
-// hold is checked at load — every expected event is registered and
-// `model`-sourced, every runtime emission is `auto`-sourced — and the phase
-// keys are checked against the built-in HSM states where those live
-// (`state-machine.ts`), so a phase renamed or retired in the HSM throws
-// instead of leaving a dead row. This module imports only the event catalog
-// so it can sit below every consumer without a cycle.
+// The rows are declared, not derived, because the event catalog does not hold the phase of an event.
+// A load-time check makes sure that each expected event is registered and `model`-sourced, and that
+// each runtime emission is `auto`-sourced. `state-machine.ts` checks the phase keys against the
+// built-in HSM states, so a renamed or retired phase throws. This module imports only the event
+// catalog, so it sits below every consumer without a cycle.
 
 import type { EventType } from '../../events/schemas.js';
 import { EVENT_EMISSION_REGISTRY } from '../../events/schemas.js';
 
 /**
- * A model-emitted event the gate demands and the playbook instructs. Generic
- * over the event-name type so a seeded table in a test needs no cast; the live
- * table is `PhaseEventRow`, whose names the catalog's union checks.
+ * A model-emitted event that the gate demands and the playbook instructs.
+ * The type is generic over the event name, so a seeded test table needs no cast.
  */
 export interface PhaseEventRowOf<T extends string> {
   readonly type: T;
   /** When the model emits it — one sentence, playbook and hint share it. */
   readonly when: string;
-  /** Payload fields the instruction calls out; the schema stays authoritative. */
+  /** Payload fields that the instruction names. The schema stays authoritative. */
   readonly fields?: readonly string[];
   /** Who emits it in a team dispatch. Absent means the orchestrating agent. */
   readonly emitter?: 'orchestrator' | 'subagent';
@@ -53,7 +36,7 @@ export interface PhaseRuntimeEmissionRowOf<T extends string> {
 }
 
 export interface PhaseEventContractOf<T extends string> {
-  /** In emission order; the gate reports a missing one in this order. */
+  /** In emission order. The gate reports missing events in this order. */
   readonly expects: readonly PhaseEventRowOf<T>[];
   readonly runtimeEmits: readonly PhaseRuntimeEmissionRowOf<T>[];
 }
@@ -112,8 +95,7 @@ const REVIEW_GATE_EXECUTED: PhaseRuntimeEmissionRow = {
   fields: ['gateName', 'layer', 'passed'],
 };
 
-// `task.assigned` left this list when the runtime took its append — see
-// TASK_ASSIGNED_BY_RUNTIME.
+/** The team events of the delegate phases. The runtime appends `task.assigned`, so that event is in `TASK_ASSIGNED_BY_RUNTIME` and not here. */
 const DELEGATE_EXPECTS: readonly PhaseEventRow[] = [
   TEAM_SPAWNED,
   TEAM_TASK_PLANNED,
@@ -122,11 +104,9 @@ const DELEGATE_EXPECTS: readonly PhaseEventRow[] = [
 ];
 
 /**
- * The contract, keyed by phase name. A phase absent here expects nothing and
- * discloses nothing; the gate reports it complete and the playbook lists no
- * events. Presence with an empty `expects` is legitimate for a phase the
- * runtime drives (`merge-pending`); a row declaring nothing at all is refused
- * at load, because it would read as a decision nobody made.
+ * The contract, keyed by phase name. A phase absent here expects nothing and discloses nothing.
+ * A phase that the runtime drives (`merge-pending`) can have an empty `expects`.
+ * A row that declares nothing fails at load, because it reads as a decision that nobody made.
  */
 export const PHASE_EVENT_CONTRACTS: Readonly<Record<string, PhaseEventContract>> = Object.freeze({
   delegate: {
@@ -140,7 +120,7 @@ export const PHASE_EVENT_CONTRACTS: Readonly<Record<string, PhaseEventContract>>
     ],
     runtimeEmits: [TASK_ASSIGNED_BY_RUNTIME, TASK_COMPLETED_BY_RUNTIME, TASK_FAILED_BY_RUNTIME],
   },
-  // The refactor track's delegation does not run TDD, so no progression beats.
+  /** The delegation of the refactor track does not run TDD, so it has no progression events. */
   'overhaul-delegate': {
     expects: DELEGATE_EXPECTS,
     runtimeEmits: [TASK_ASSIGNED_BY_RUNTIME, TASK_COMPLETED_BY_RUNTIME, TASK_FAILED_BY_RUNTIME],
@@ -164,9 +144,7 @@ export const PHASE_EVENT_CONTRACTS: Readonly<Record<string, PhaseEventContract>>
       },
     ],
     runtimeEmits: [
-      // One row per phase, so the four synthesize playbooks share this wording;
-      // the debug/refactor/oneshot ones used to say "After synthesis validation
-      // scripts" and "After pre-synthesis-check.sh runs" for the same gate.
+      /** The synthesize playbooks share this wording. */
       {
         type: 'gate.executed',
         when: 'After pre-synthesis-check.sh and validate-pr-stack.sh',
@@ -252,16 +230,11 @@ const LIVE_EMISSION_SOURCES: ReadonlyMap<string, string> = new Map(
 );
 
 /**
- * Event-side refusals over a contract table. Every `expects` row must name a
- * registered, `model`-sourced event: a `retired` one is emitted by nobody, so
- * the expectation could never be met; an `auto` one is emitted by the runtime,
- * so the model would be nagged for what it cannot do. Every `runtimeEmits` row
- * must be `auto`-sourced for the mirror reason. A type may appear once per
- * phase, a row must declare something, and a type expected by several phases
- * carries one `when` — the gate's hint is one sentence per event, so two
- * phrasings would leave one of them silently unused. The registry is
- * injectable so each throw path is provable with a seeded map rather than
- * believed about the live one.
+ * Event-side refusals over a contract table.
+ * Each `expects` row must name a registered, `model`-sourced event, and each `runtimeEmits` row an `auto`-sourced one.
+ * A type appears once in a phase, and a row must declare something.
+ * A type that several phases expect has one `when`, because the gate hint is one sentence for each event.
+ * The `registry` parameter lets a test prove each throw with a seeded map.
  */
 export function assertPhaseEventContracts<T extends string>(
   contracts: PhaseEventContracts<T>,
@@ -338,10 +311,8 @@ export function assertPhaseEventContracts<T extends string>(
 assertPhaseEventContracts(PHASE_EVENT_CONTRACTS);
 
 /**
- * Phase-side refusal: every key names a phase some built-in HSM registers.
- * Called from `state-machine.ts` at load with the union of its registry's
- * states — this module cannot import the HSM definitions without a cycle, and
- * the check belongs where the phase set is authoritative anyway.
+ * Phase-side refusal: each key must name a phase that a built-in HSM registers.
+ * `state-machine.ts` calls it at load with the states of its registry, because this module cannot import the HSM definitions without a cycle.
  */
 export function assertContractPhasesAreRegistered<T extends string>(
   contracts: PhaseEventContracts<T>,
@@ -358,8 +329,6 @@ export function assertContractPhasesAreRegistered<T extends string>(
   }
 }
 
-// ─── Derivations ─────────────────────────────────────────────────────────────
-
 /** The gate's expectation table: phase → expected model events, in order. */
 export function expectedEventsByPhase<T extends string>(
   contracts: PhaseEventContracts<T>,
@@ -374,9 +343,8 @@ export function expectedEventsByPhase<T extends string>(
 }
 
 /**
- * The gate's hint for a missing event: the instruction, phrased from `when`.
- * One sentence per event; `assertPhaseEventContracts` refuses a table that
- * phrases one type two ways, so the first row seen is the only phrasing.
+ * The gate hint for a missing event, phrased from `when`.
+ * `assertPhaseEventContracts` refuses two phrasings of one type, so the first row is the only phrasing.
  */
 export function hintDescriptions<T extends string>(
   contracts: PhaseEventContracts<T>,
@@ -420,9 +388,8 @@ export function eventInstructionsFor<T extends string>(
 }
 
 /**
- * The playbook's `autoEmittedEvents` rows for a phase of `contracts`, or
- * `undefined` when the phase discloses nothing — the serialized playbook omits
- * the field in that case, as it always has.
+ * The playbook `autoEmittedEvents` rows for a phase, or `undefined` when the phase discloses nothing.
+ * The serialized playbook then omits the field.
  */
 export function runtimeEmissionsFor<T extends string>(
   contracts: PhaseEventContracts<T>,

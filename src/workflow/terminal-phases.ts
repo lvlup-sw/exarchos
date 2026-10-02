@@ -1,15 +1,9 @@
 /**
- * Terminal phases shared across workflow types.
+ * The terminal phases of every workflow type.
  *
- * A workflow in a terminal phase is complete — no further transitions are
- * expected — and is excluded from pipeline views and pruning candidates.
- * Every built-in workflow type ends in one of these phases via the
- * universal cancel transition or its type-specific completion guard.
- *
- * This constant is the single source of truth; consumers MUST import from
- * here rather than redeclare the tuple locally. Adding a new terminal phase
- * requires updating every phase schema in `schemas.ts` AND this constant in
- * lockstep.
+ * A workflow in a terminal phase is complete. Pipeline views and pruning ignore it.
+ * Consumers must import this tuple and not declare a local copy.
+ * A new terminal phase needs a change to every phase schema in `schemas.ts` and to this tuple.
  */
 export const TERMINAL_PHASES = ['completed', 'cancelled'] as const;
 

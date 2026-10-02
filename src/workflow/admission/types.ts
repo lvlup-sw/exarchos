@@ -3,20 +3,21 @@ import { z } from 'zod';
 /**
  * Internal, append-only admission proof contract.
  *
- * This version identifies persisted runtime records; it is not a public
- * transition response and does not define workflow topology or policy.
- * Compatible fields may be added in later runtime contract versions while
- * historical V1 records remain replayable.
+ * This version identifies persisted runtime records. It is not a public
+ * transition response, and it does not define workflow topology or policy.
+ * Later contract versions can add compatible fields, and V1 records stay
+ * replayable.
  */
 export const ADMISSION_RUNTIME_CONTRACT_VERSION = '1.0' as const;
 export const AdmissionRuntimeContractVersionSchema = z.literal(
   ADMISSION_RUNTIME_CONTRACT_VERSION,
 );
 
-// Stable IDs deliberately accept opaque, provider-neutral tokens while
-// rejecting blanks, path-like values, and values whose identity changes under
-// trimming. Calling `.parse()` is the only supported way to construct a
-// branded ID from untrusted text.
+/**
+ * Stable IDs accept opaque, provider-neutral tokens. They reject blanks,
+ * path-like values, and values that change under trimming. `.parse()` is the
+ * only supported way to build a branded ID from untrusted text.
+ */
 const StableIdValueSchema = z
   .string()
   .min(1)
@@ -106,8 +107,6 @@ export const ContentDigestV1Schema = z
   .readonly();
 export type ContentDigestV1 = z.infer<typeof ContentDigestV1Schema>;
 
-// ─── Immutable evidence subjects ────────────────────────────────────────────
-
 const WorkflowSubjectV1Schema = z
   .object({
     kind: z.literal('workflow'),
@@ -183,13 +182,11 @@ export const EvidenceSubjectV1Schema = z.discriminatedUnion('kind', [
 export type EvidenceSubjectV1 = z.infer<typeof EvidenceSubjectV1Schema>;
 
 /**
- * A reference to an evidence artifact blob, carried on an evidence row so a
- * later reader can find what the row's content digest was computed over. The
- * subject is typed as the real artifact-subject object (not a `.refine` over
- * the general union): a `.refine` erases to nothing in JSON Schema, so a
- * sampler that walks the union's branches would never exercise the artifact
- * shape and a real artifact reference would look unparseable to any tooling
- * that only ever sees the sampled shape.
+ * A reference to an evidence artifact blob. An evidence row carries it, so a
+ * later reader can find the blob that the content digest of the row covers. The subject
+ * is the real artifact-subject object, not a `.refine` over the union. A
+ * `.refine` is absent from JSON Schema, so a schema sampler never sees the
+ * artifact shape.
  */
 export const EvidenceArtifactReferenceV1Schema = z
   .object({
@@ -203,8 +200,6 @@ export const EvidenceArtifactReferenceV1Schema = z
 export type EvidenceArtifactReferenceV1 = z.infer<
   typeof EvidenceArtifactReferenceV1Schema
 >;
-
-// ─── Attributable identity and authorization snapshots ─────────────────────
 
 const PrincipalFields = {
   principalId: PrincipalIdSchema,
@@ -244,8 +239,6 @@ export const AuthorizationSnapshotV1Schema = z
 export type AuthorizationSnapshotV1 = z.infer<
   typeof AuthorizationSnapshotV1Schema
 >;
-
-// ─── Requirements ───────────────────────────────────────────────────────────
 
 const RequirementFields = {
   contractVersion: AdmissionRuntimeContractVersionSchema,
@@ -294,8 +287,6 @@ export const AdmissionRequirementV1Schema = z.discriminatedUnion('kind', [
 ]);
 export type AdmissionRequirementV1 = z.infer<typeof AdmissionRequirementV1Schema>;
 
-// ─── Evidence ───────────────────────────────────────────────────────────────
-
 export const EvidenceProducerV1Schema = z
   .object({
     producerId: PrincipalIdSchema,
@@ -319,17 +310,13 @@ const EvidenceFields = {
   contentDigest: ContentDigestV1Schema,
   createdAt: TimestampSchema,
   /**
-   * Artifact blobs this evidence's content was digested over. Carried on the
-   * row because the reference is otherwise recoverable from nothing: it is
-   * folded into `contentDigest` and lives nowhere a reader can reach.
-   * Optional and additive — a row that names no blob is complete evidence,
-   * and rows written before this field existed stay valid.
+   * Artifact blobs that the content digest of this evidence covers. The row
+   * carries them because `contentDigest` hides them from a reader. A row that
+   * names no blob is complete evidence.
    *
-   * A presence pointer, not an authenticated binding: nothing cross-checks
-   * a reference here against the `contentDigest` sealed on the same row, so
-   * this field only proves that SOME blob matching the reference's own
-   * digest resolves under the evidence root — not that it is the blob this
-   * particular row's content was computed from.
+   * This is a presence pointer, not an authenticated binding. Nothing checks a
+   * reference against the `contentDigest` of the same row. It proves only that
+   * a blob with the digest of the reference exists under the evidence root.
    */
   artifactRefs: z.array(EvidenceArtifactReferenceV1Schema).readonly().optional(),
 } as const;
@@ -358,8 +345,6 @@ export const AdmissionEvidenceV1Schema = z.discriminatedUnion('kind', [
   ApprovalEvidenceV1Schema,
 ]);
 export type AdmissionEvidenceV1 = z.infer<typeof AdmissionEvidenceV1Schema>;
-
-// ─── Typed remediation ──────────────────────────────────────────────────────
 
 const RunGateRemediationV1Schema = z
   .object({
@@ -422,8 +407,6 @@ export const RemediationActionV1Schema = z.discriminatedUnion('action', [
 ]);
 export type RemediationActionV1 = z.infer<typeof RemediationActionV1Schema>;
 
-// ─── Internal decision records ──────────────────────────────────────────────
-
 export const UnsatisfiedRequirementReasonSchema = z.enum([
   'missing',
   'failed',
@@ -431,11 +414,11 @@ export const UnsatisfiedRequirementReasonSchema = z.enum([
   'malformed',
   'contradictory',
   'waiver-expired',
-  // Additive (P06-05 / Transition task 024): a requirement whose only evidence
-  // is issued by a principal the trusted `PolicyAuthority` does not authorize is
-  // denied for the sound reason `unauthorized` — matching `evaluatePolicy`'s
-  // `PolicyDenyReason`. Historical V1 deny records that never carried this
-  // member remain replayable; the freeze/decision projection can now persist it.
+  /**
+   * The only evidence comes from a principal that the trusted `PolicyAuthority`
+   * does not authorize. It matches the `PolicyDenyReason` of `evaluatePolicy`.
+   * V1 deny records without this member stay replayable.
+   */
   'unauthorized',
 ]);
 export type UnsatisfiedRequirementReason = z.infer<
@@ -551,8 +534,6 @@ export function isAdmissionDecisionRecordV1(
   return AdmissionDecisionRecordV1Schema.safeParse(input).success;
 }
 
-// ─── Attributable waiver provenance ─────────────────────────────────────────
-
 const WorkflowWaiverScopeV1Schema = z
   .object({
     kind: z.literal('workflow'),
@@ -627,8 +608,8 @@ const SupersededWaiverProvenanceV1Schema = z
   .readonly();
 
 /**
- * Append-only waiver lifecycle facts. Every arm freezes the actor and resolved
- * authorization snapshot used for that operation; replay never consults
+ * Append-only waiver lifecycle facts. Every arm freezes the actor and the
+ * resolved authorization snapshot of that operation. Replay never reads the
  * current identity or capability state.
  */
 export const WaiverProvenanceV1Schema = z.discriminatedUnion('event', [
@@ -637,8 +618,6 @@ export const WaiverProvenanceV1Schema = z.discriminatedUnion('event', [
   SupersededWaiverProvenanceV1Schema,
 ]);
 export type WaiverProvenanceV1 = z.infer<typeof WaiverProvenanceV1Schema>;
-
-// ─── Contradiction records ──────────────────────────────────────────────────
 
 export const ContradictionStatementSchema = z.enum([
   'satisfied',
@@ -677,9 +656,9 @@ const DownstreamEventContradictionV1Schema = z
   .readonly();
 
 /**
- * Immutable contradiction record. Active-evidence contradictions arise from
- * conflicting verdicts within the same scope; downstream-event contradictions
- * reference a persisted detection event.
+ * Immutable contradiction record. An active-evidence contradiction comes from
+ * conflicting verdicts in the same scope. A downstream-event contradiction
+ * references a persisted detection event.
  */
 export const ContradictionRecordV1Schema = z.discriminatedUnion('source', [
   ActiveEvidenceContradictionV1Schema,
@@ -687,11 +666,9 @@ export const ContradictionRecordV1Schema = z.discriminatedUnion('source', [
 ]);
 export type ContradictionRecordV1 = z.infer<typeof ContradictionRecordV1Schema>;
 
-// ─── Reassessment records ───────────────────────────────────────────────────
-
 /**
  * Authorized intent to reconsider a prior immutable decision under a policy.
- * Persisted as an append-only fact; the prior decision is never mutated.
+ * It persists as an append-only fact, and the prior decision never changes.
  */
 export const ReassessmentRequestV1Schema = z
   .object({
@@ -715,9 +692,9 @@ export const ReassessmentRequestV1Schema = z
 export type ReassessmentRequestV1 = z.infer<typeof ReassessmentRequestV1Schema>;
 
 /**
- * Reassessment result preserving both the prior and replacement decisions.
- * The replacement decision carries its own outcome, evidence, and waivers;
- * the prior decision is referenced but never overwritten.
+ * Reassessment result that keeps both the prior and the replacement decisions.
+ * The replacement carries its own outcome, evidence, and waivers. The result
+ * references the prior decision and never overwrites it.
  */
 export const ReassessmentOutcomeV1Schema = z
   .object({
@@ -733,8 +710,6 @@ export const ReassessmentOutcomeV1Schema = z
   .strict()
   .readonly();
 export type ReassessmentOutcomeV1 = z.infer<typeof ReassessmentOutcomeV1Schema>;
-
-// ─── Admission event type vocabulary ────────────────────────────────────────
 
 /**
  * Exhaustive admission event type discriminants. Each constant corresponds to
@@ -765,11 +740,9 @@ export const ADMISSION_EVENT_TYPE_VALUES: readonly AdmissionEventType[] =
     Object.values(ADMISSION_EVENT_TYPES),
   ) as readonly AdmissionEventType[];
 
-// ─── Action-admission snapshots ─────────────────────────────────────────────
-
 /**
- * Registry ActionId token captured on an admission snapshot. This identifies
- * the declared action; it is not a freeze-time requirement token.
+ * Registry ActionId token captured on an admission snapshot. It identifies the
+ * declared action. It is not a freeze-time requirement token.
  */
 export const ActionAdmissionActionIdSchema =
   StableIdValueSchema.brand<'AdmissionActionId'>();
@@ -790,8 +763,8 @@ export type ActionAdmissionSubjectV1 = z.infer<
 >;
 
 /**
- * Persisted HSM facts that admission may read. Current phase and the optional
- * phase-attempt identity belong here; request `target` does not.
+ * Persisted HSM facts that admission can read: the current phase and the
+ * optional phase-attempt identity. The request `target` is not one of them.
  */
 export const ActionAdmissionHsmFactsV1Schema = z
   .object({

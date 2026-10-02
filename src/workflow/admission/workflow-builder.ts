@@ -1,46 +1,16 @@
-// ─── P07-03 / Transition tasks 033, 034 — Builder combinators + lowering ─────
-//
 // RESERVED(issue: #1590, owner: exarchos, expires: 2027-01-31) — production
-// authoring API awaiting the legacy HSM cutover, same staging as
-// `built-in-workflow-ir.ts`'s consumers. The builder is the ERGONOMIC surface a
-// workflow author uses to declare edges; nothing produces workflow IR through
-// it in production until P07-05 removes the legacy guard path and the built-in
-// definitions are re-expressed through this API. What is true NOW is that the
-// builder lowers to EXACTLY the shared IR (`built-in-workflow-ir.ts`) shapes the
-// translation already consumes, and that the closure property survives it.
+// authoring API that waits for the legacy HSM cutover. No production code builds
+// workflow IR through it yet. The built-in definitions move to it when the legacy
+// guard path goes away.
 //
-// ## What this is
+// The combinators build the closed edge-condition AST and the admission obligations.
+// Then they lower them to the shared {@link WorkflowEdgeIR} from `built-in-workflow-ir.ts`,
+// which `legacy-state-translation.ts` and `adjudicateEdge` accept.
 //
-// A small, typed set of combinators that build up the closed P06-02
-// edge-condition AST and the P07-02 admission obligations, then LOWER them to
-// the shared {@link WorkflowEdgeIR} that `legacy-state-translation.ts` and
-// `adjudicateEdge` already accept. The builder is a *thin, honest* authoring
-// layer: it does not invent a second condition language, it composes the SAME
-// seven closed nodes and lowers through the SAME `compileEdgeCondition`
-// validator.
-//
-// ## The closure property survives the builder (the load-bearing invariant)
-//
-// It is IMPOSSIBLE to author an escape hatch through this API:
-//
-//   1. Type level — the combinators only accept a {@link ConditionSpec} (for
-//      connectives / obligations) or a primitive `string` / `number` /
-//      `boolean` / {@link EdgeCompareOp} (for leaves). There is NO combinator
-//      that accepts a raw AST node, a `string` expression, a closure, or an
-//      arbitrary predicate. `ConditionSpec` is a PHANTOM-branded type whose
-//      brand symbol is not exported, so the only way to obtain one is to call a
-//      combinator — a raw object literal is not assignable to it.
-//   2. Runtime level — every lowering (`lowerCondition`, `lowerObligation`,
-//      `buildEdge`) routes through {@link compileEdgeCondition}, which rejects
-//      unknown node kinds, unknown properties (the string-expression escape
-//      hatch), executable values, and prototype pollution AT COMPILE TIME. So
-//      even a caller who defeats the type system with a double cast
-//      (`x as unknown as ConditionSpec`) has their escape hatch rejected the
-//      moment it is lowered — the branded type is a convenience, the compiler is
-//      the guarantee.
-//
-// Pure: no I/O, no clock, no config reads. The builder is a total function of
-// its inputs and the (data-only) fact declaration.
+// No caller can author an escape hatch. A spec carries a brand that this module does not
+// export, so only a combinator makes one. Every lowering goes through {@link compileEdgeCondition}.
+// It rejects unknown nodes, unknown properties, executable values and prototype pollution,
+// so a double cast also fails. The builder is pure: no I/O, no clock, no configuration reads.
 
 import {
   compileEdgeCondition,
@@ -58,14 +28,10 @@ import {
 } from './built-in-workflow-ir.js';
 import type { PhaseKind } from '../phase-kind.js';
 
-// ─── Branded authoring specs ────────────────────────────────────────────────
-//
-// A `ConditionSpec` / `ObligationSpec` is, at runtime, exactly the plain,
-// inert node/obligation object the combinators assemble. The brand exists ONLY
-// in the type system: it makes the spec unconstructable outside this module's
-// combinators (the brand symbol is never exported), so a raw object literal — a
-// would-be escape hatch — is not assignable where a spec is required.
-
+/**
+ * The brand of a `ConditionSpec`. It exists only in the type system.
+ * At runtime a spec is the plain node object that a combinator assembles.
+ */
 declare const conditionSpecBrand: unique symbol;
 
 /** An opaque, closed edge-condition authored through the combinators. */
@@ -90,12 +56,7 @@ function nodeOf(spec: ConditionSpec): unknown {
   return spec as unknown;
 }
 
-// ─── Leaf combinators ───────────────────────────────────────────────────────
-
-/**
- * An observed-event identity test. Absence is a definite `false`. Accepts only
- * the event name — never a closure or expression.
- */
+/** Tests whether an event with this name occurred. Absence is a definite `false`. */
 export function event(name: string): ConditionSpec {
   return toConditionSpec({ kind: 'eventObserved', event: name });
 }
@@ -105,11 +66,7 @@ export function present(field: string): ConditionSpec {
   return toConditionSpec({ kind: 'factPresent', field });
 }
 
-/**
- * Tests whether a present fact equals a declared scalar. The value is
- * constrained to {@link FactScalar} (`string | number | boolean`) — a function
- * or object is a type error, so no executable escape hatch can be smuggled in.
- */
+/** Tests whether a present fact equals a scalar. A function or an object value is a type error. */
 export function equals(field: string, value: FactScalar): ConditionSpec {
   return toConditionSpec({ kind: 'factEquals', field, value });
 }
@@ -123,18 +80,12 @@ export function compare(
   return toConditionSpec({ kind: 'counterCompare', field, op, value });
 }
 
-// ─── Connectives ────────────────────────────────────────────────────────────
-
-/**
- * Conjunction. Empty operands is the always-legal constant (`true`). Operands
- * must themselves be {@link ConditionSpec}s, so the tree stays closed — there is
- * no leaf a raw predicate could occupy.
- */
+/** Conjunction. With no operands, it is the always-legal constant (`true`). */
 export function all(...operands: readonly ConditionSpec[]): ConditionSpec {
   return toConditionSpec({ kind: 'all', operands: operands.map(nodeOf) });
 }
 
-/** Disjunction. Empty operands is the never-legal constant (`false`). */
+/** Disjunction. With no operands, it is the never-legal constant (`false`). */
 export function any(...operands: readonly ConditionSpec[]): ConditionSpec {
   return toConditionSpec({ kind: 'any', operands: operands.map(nodeOf) });
 }
@@ -144,17 +95,15 @@ export function not(operand: ConditionSpec): ConditionSpec {
   return toConditionSpec({ kind: 'not', operand: nodeOf(operand) });
 }
 
-/** The always-legal route (structural `true`; an empty conjunction). */
+/** The always-legal route: an empty conjunction. */
 export function always(): ConditionSpec {
   return all();
 }
 
-/** The never-legal route (structural `false`; an empty disjunction). */
+/** The never-legal route: an empty disjunction. */
 export function never(): ConditionSpec {
   return any();
 }
-
-// ─── Obligation combinators ─────────────────────────────────────────────────
 
 /** Mint an obligation spec from an assembled obligation object. */
 function toObligationSpec(raw: Record<string, unknown>): ObligationSpec {
@@ -179,18 +128,12 @@ function rawObligationOf(spec: ObligationSpec): RawObligation {
 /** A pure routing / bounded-loop / universal edge: no evidence obligation. */
 export const noObligation: ObligationSpec = toObligationSpec({ kind: 'none' });
 
-/**
- * A gate-evidence obligation. `presence` is a closed condition deciding whether
- * the certifying fact is genuinely present in projected state.
- */
+/** A gate-evidence obligation. `presence` decides whether the certifying fact is in the projected state. */
 export function gate(gateId: string, presence: ConditionSpec): ObligationSpec {
   return toObligationSpec({ kind: 'gate', gateId, presence: nodeOf(presence) });
 }
 
-/**
- * A typed approval obligation. `presence` decides whether the approval signal
- * is present; `minimumApprovals` defaults to one.
- */
+/** A typed approval obligation. `presence` decides whether the approval signal is present. */
 export function approval(
   approvalClass: string,
   presence: ConditionSpec,
@@ -203,8 +146,6 @@ export function approval(
     presence: nodeOf(presence),
   });
 }
-
-// ─── Edge authoring spec ────────────────────────────────────────────────────
 
 /** The ergonomic authoring shape for one built-in-workflow edge. */
 export interface WorkflowEdgeSpec {
@@ -220,14 +161,9 @@ export interface WorkflowEdgeSpec {
   readonly obligation: ObligationSpec;
 }
 
-// ─── Lowering to shared IR ──────────────────────────────────────────────────
-
 /**
- * Lower a condition spec to a validated {@link CompiledEdgeCondition} against a
- * fact declaration (defaults to the shared {@link FACT_DECLARATION} every
- * built-in route and presence probe is declared over). This is the runtime
- * closure-enforcement point: {@link compileEdgeCondition} rejects any escape
- * hatch that defeated the type system.
+ * Compiles a condition spec against a fact declaration, by default the shared {@link FACT_DECLARATION}.
+ * This is the runtime check: {@link compileEdgeCondition} rejects an escape hatch that got past the types.
  */
 export function lowerCondition(
   spec: ConditionSpec,
@@ -236,10 +172,7 @@ export function lowerCondition(
   return compileEdgeCondition(nodeOf(spec), declaration);
 }
 
-/**
- * Lower an obligation spec to the shared {@link EdgeObligation}, compiling its
- * presence probe. A `none` obligation lowers to `{ kind: 'none' }`.
- */
+/** Lowers an obligation spec to the shared {@link EdgeObligation} and compiles its presence probe. */
 export function lowerObligation(
   spec: ObligationSpec,
   declaration: EdgeConditionDeclaration = FACT_DECLARATION,
@@ -271,10 +204,8 @@ export function lowerObligation(
 }
 
 /**
- * Build one shared-IR {@link WorkflowEdgeIR} from an authoring spec. The
- * resulting edge is byte-for-byte the same shape `built-in-workflow-ir.ts`
- * produces by hand, so `adjudicateEdge` / `translateEdgeAdmission` accept it
- * unchanged.
+ * Builds one {@link WorkflowEdgeIR} from an authoring spec.
+ * The edge has the same shape as a hand-written edge in `built-in-workflow-ir.ts`.
  */
 export function buildEdge(
   spec: WorkflowEdgeSpec,

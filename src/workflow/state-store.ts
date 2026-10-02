@@ -1,9 +1,13 @@
+/**
+ * The workflow state store. It reads, writes, and lists workflow state through
+ * the module-level storage backend, or through `.state.json` files when no
+ * backend is set. It re-exports the state-mutation primitives of the leaf module
+ * `state-mutation.js`, and `resolveStateDir` for backward compatibility. The
+ * primitives live in the leaf module, so the workflow-state projection can use
+ * them without an import cycle through this module.
+ */
 import { WorkflowStateSchema, ErrorCode } from './schemas.js';
 import { getInitialPhase } from './state-machine.js';
-// State-mutation primitives (DR-4, task 009). Extracted to a leaf module so the
-// projection can share them WITHOUT re-entering state-store — breaking the
-// state-store ↔ workflow-state-projection runtime import cycle. Re-exported below
-// so every existing `state-store.js` importer is unaffected.
 import {
   StateStoreError,
   isPlainObject,
@@ -27,10 +31,6 @@ import { mapExternalToInternalType } from './events.js';
 import type { WorkflowState, WorkflowType } from './types.js';
 import type { EventStore } from '../events/store.js';
 import type { WorkflowEvent } from '../events/schemas.js';
-// Canonical workflow-state fold (#1554). Imported for its `apply` at call time
-// only (inside reconcileFromEvents) — the state-store ↔ workflow-state-projection
-// edge is a call-time-only ESM cycle (the projection imports isPlainObject/
-// applyDotPath from here, also call-time), which live bindings resolve safely.
 import { workflowStateProjection, type WorkflowStateView } from '../projections/views/workflow-state-projection.js';
 import type { StorageBackend } from '../storage/backend.js';
 import { mergeSidecarEvents } from '../storage/sidecar-merger.js';
@@ -40,55 +40,22 @@ import { logger } from '../logger.js';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
-// ─── Temp-File Naming (collision-free, sweep-safe) ────────────────────────────
-//
-// A temp path of `<stateFile>.<kind>.<pid>` is unique across *processes* but NOT
-// within one: two concurrent in-process writers to the same stateFile derive the
-// identical path, then race — one writer truncates the temp file the other is
-// still filling, and whichever renames first can publish a half-written payload
-// (or the loser's rename fails ENOENT). A process-lifetime-monotonic counter
-// makes the path unique per writer, restoring write/rename atomicity.
-//
-// WHERE the counter goes is load-bearing. The orphan sweep in `listStateFiles`
-// reclaims temp files by extracting a PID and testing liveness. It reads the
-// SECOND capture group of {@link TEMP_FILE_PATTERN}, whose PID group is anchored
-// to `$`. So the counter is placed BEFORE the pid — `.tmp.<counter>.<pid>` — and
-// matched by a NON-capturing optional group. Two properties fall out by
-// construction:
-//
-//   1. The pid is always the trailing segment, so the end-anchored `(\d+)$`
-//      group — i.e. `match[2]` — can only ever land on the pid.
-//   2. Group numbering is unaffected by the counter, so the sweep's extraction
-//      index does not shift.
-//
-// The naive alternative, `.tmp.<pid>.<counter>`, inverts this: the end-anchored
-// group captures the COUNTER, so liveness is tested against a counter value
-// rather than the writer. Whenever that value collides with a live pid, the
-// sweep concludes the orphan is "still being written" and never reaps it — a
-// silent, permanent temp-file leak. Counters are small and dense, so collisions
-// are routine rather than exotic. Keeping the pid last makes the whole class
-// unrepresentable instead of merely unlikely.
-//
-// The counter segment is OPTIONAL in the pattern so temp files written by an
-// older version (`.tmp.<pid>`, no counter) remain reapable after upgrade.
-
 /**
- * Matches an orphaned temp state file, capturing the writer's pid.
+ * Matches an orphaned temp state file. Group 1 is the temp kind: `tmp` for an
+ * update, `init` for a creation. Group 2 is the writer pid, at the end.
  *
- * - group 1 — the temp kind (`tmp` for updates, `init` for creation).
- * - group 2 — the writer's **pid**, anchored to end-of-string.
- *
- * The optional `(?:\d+\.)?` in between absorbs the in-process counter without
- * capturing, so `match[2]` is the pid for both `.tmp.<counter>.<pid>` (current)
- * and `.tmp.<pid>` (legacy, pre-counter) filenames.
+ * The optional `(?:\d+\.)?` absorbs the in-process counter without a capture.
+ * Thus `match[2]` is the pid for `.tmp.<counter>.<pid>` and for the older
+ * `.tmp.<pid>` names. The pid must stay last. If the counter comes last, the
+ * sweep tests liveness against the counter. Then an orphan whose counter equals
+ * a live pid stays on disk forever.
  */
 export const TEMP_FILE_PATTERN = /\.(tmp|init)\.(?:\d+\.)?(\d+)$/;
 
 /**
- * Extract the writing process's pid from a temp state filename, or `null` if the
- * name is not a temp file / carries no parseable pid. The sweep gates deletion on
- * this pid's liveness, so returning a counter here would strand temp files
- * forever — see {@link TEMP_FILE_PATTERN}.
+ * Extract the writer pid from a temp state filename, or `null` when the name is
+ * not a temp file or has no pid. The sweep deletes a file only when this pid is
+ * dead, so a counter returned here strands temp files.
  */
 export function extractTempFilePid(filename: string): number | null {
   const match = filename.match(TEMP_FILE_PATTERN);
@@ -98,22 +65,20 @@ export function extractTempFilePid(filename: string): number | null {
 }
 
 /**
- * Process-lifetime-monotonic counter. Never reset — resetting would reintroduce
- * the collision this exists to prevent (a second writer reusing a live writer's
- * suffix). Node executes JS on one thread, so `++` is atomic here and every
- * caller observes a distinct value even under concurrent async writers.
+ * Monotonic counter for the life of the process. Without it, two in-process
+ * writers to one state file derive the same temp path and race. Never reset it.
+ * Node runs JS on one thread, so `++` gives each caller a distinct value.
  */
 let _tempFileCounter = 0;
 
 /**
- * The temp-path format itself, as a pure function — the single place the segment
- * ORDER is decided. `counter` before `pid` keeps the pid trailing, which is what
- * makes {@link TEMP_FILE_PATTERN}'s end-anchored group land on the pid.
+ * The temp-path format, the one place that decides the segment order. The
+ * counter comes before the pid, so the end-anchored group of
+ * {@link TEMP_FILE_PATTERN} lands on the pid.
  *
- * Exported so the writer/sweep round trip can be tested at arbitrary
- * counter/pid combinations — notably the adversarial case where a counter's
- * value collides with a live pid, which is unreachable through
- * {@link nextTempPath} alone (its counter starts at 1 and only ever climbs).
+ * It is exported so a test can try any counter and pid, also a counter equal to
+ * a live pid. {@link nextTempPath} cannot choose those values, because its
+ * counter starts at 1 and only climbs.
  */
 export function formatTempPath(
   stateFile: string,
@@ -125,15 +90,13 @@ export function formatTempPath(
 }
 
 /**
- * Build a collision-free temp path for `stateFile`. Unique per writer (counter)
- * and per process (pid), with the pid last so the orphan sweep still reads it —
- * see {@link TEMP_FILE_PATTERN}.
+ * Build a collision-free temp path for `stateFile`. The counter makes it unique
+ * for each writer, and the pid for each process. The pid comes last, so the
+ * orphan sweep reads it.
  */
 export function nextTempPath(stateFile: string, kind: 'tmp' | 'init'): string {
   return formatTempPath(stateFile, kind, ++_tempFileCounter, process.pid);
 }
-
-// ─── Module-Level StorageBackend ──────────────────────────────────────────────
 
 /** Module-level storage backend. When set, state operations delegate here. */
 let _stateStoreBackend: StorageBackend | undefined;
@@ -149,7 +112,7 @@ export function configureStateStoreBackend(backend: StorageBackend | undefined):
 /** Safe pattern for feature IDs: alphanumeric, dots, underscores, and hyphens. */
 const SAFE_FEATURE_ID_PATTERN = /^[a-zA-Z0-9._-]+$/;
 
-/** Extract featureId from a state file path (e.g., "/dir/my-feature.state.json" -> "my-feature"). */
+/** Extract featureId from a state file path: "/dir/my-feature.state.json" gives "my-feature". */
 function extractFeatureIdFromPath(stateFile: string): string {
   const basename = path.basename(stateFile);
   const featureId = basename.replace('.state.json', '');
@@ -164,16 +127,7 @@ function extractFeatureIdFromPath(stateFile: string): string {
   return featureId;
 }
 
-// ─── Initial Phase by Workflow Type ────────────────────────────────────────
-// Now delegated to state-machine.ts getInitialPhase() for built-in + custom types
-
-// ─── State Store Error ─────────────────────────────────────────────────────
-// `StateStoreError`, `ReservedFieldErrorData`, and `resolveAlternateWritePath`
-// now live in `./state-mutation.js` (imported + re-exported above) so the
-// workflow-state projection can share them without the runtime import cycle.
-// `VersionConflictError` stays here — it is the CAS-conflict specialization the
-// store raises, and nothing at the leaf needs it.
-
+/** The compare-and-swap conflict error that the store raises. */
 export class VersionConflictError extends StateStoreError {
   constructor(expected: number, actual: number) {
     super('VERSION_CONFLICT', `Version conflict: expected ${expected}, actual ${actual}`);
@@ -181,8 +135,16 @@ export class VersionConflictError extends StateStoreError {
   }
 }
 
-// ─── Initialize a New State File ───────────────────────────────────────────
-
+/**
+ * Create the state for a new workflow, and fail when it already exists.
+ *
+ * With a backend, `setState` with expected version 0 gives exclusive-create
+ * semantics. The backend is authoritative, so the function writes no
+ * `.state.json`, and the returned `stateFile` is only a stable path identifier.
+ * Without a backend, the state goes to a temp file, and `link()` publishes it.
+ * `link()` fails with EEXIST when the file exists. A crash before `link()`
+ * leaves only the temp file.
+ */
 export async function initStateFile(
   stateDir: string,
   featureId: string,
@@ -237,10 +199,7 @@ export async function initStateFile(
 
   const state = parseResult.data;
 
-  // Delegate to backend if available
   if (_stateStoreBackend) {
-    // Use version 0 as expectedVersion for exclusive-create semantics:
-    // setState with expectedVersion=0 only succeeds if no state exists yet
     try {
       _stateStoreBackend.setState(featureId, state, 0);
     } catch (err) {
@@ -253,20 +212,11 @@ export async function initStateFile(
       throw err;
     }
 
-    // #1504 — the SQLite backend is the authoritative store; no `.state.json`
-    // crash-backup is written. A derived file on disk would go stale and could
-    // shadow the projection (the bug #1504 fixes); the no-read/write gate
-    // (1504-4) forbids `.state.json` I/O in production. `stateFile` is returned
-    // as a stable path identifier only — callers must not assume it exists.
     return { stateFile, state };
   }
 
-  // Ensure directory exists
   await fs.mkdir(stateDir, { recursive: true });
 
-  // Write via temp file + atomic link for crash safety.
-  // link() fails with EEXIST if target exists, preserving exclusive-create semantics.
-  // On crash before link(), only the temp file remains — no corrupt state file.
   const tmpPath = nextTempPath(stateFile, 'init');
   try {
     await fs.writeFile(tmpPath, JSON.stringify(state, null, 2), 'utf-8');
@@ -290,17 +240,19 @@ export async function initStateFile(
       `Failed to create state file: ${stateFile} — ${(err as Error).message}`,
     );
   } finally {
-    // Always clean up temp file (link created a second hard link to same inode)
     await fs.unlink(tmpPath).catch(() => {});
   }
 
   return { stateFile, state };
 }
 
-// ─── Read and Validate a State File (with Migration) ───────────────────────
-
+/**
+ * Read and validate workflow state, with migration. A backend read checks only
+ * the required fields, because the schema format rules can differ from the
+ * backend. A file read backs up the file first when its `version` is not the
+ * current version.
+ */
 export async function readStateFile(stateFile: string): Promise<WorkflowState> {
-  // Delegate to backend if available
   if (_stateStoreBackend) {
     const featureId = extractFeatureIdFromPath(stateFile);
     const state = _stateStoreBackend.getState(featureId);
@@ -310,7 +262,6 @@ export async function readStateFile(stateFile: string): Promise<WorkflowState> {
         `State not found in backend for featureId: ${featureId}`,
       );
     }
-    // Structural validation: ensure required fields exist (schema format rules may differ from backend)
     if (!state.featureId || !state.phase || !state.workflowType) {
       throw new StateStoreError(
         ErrorCode.STATE_CORRUPT,
@@ -347,13 +298,11 @@ export async function readStateFile(stateFile: string): Promise<WorkflowState> {
     );
   }
 
-  // Backup state file before migration if version differs
   const parsedObj = parsed as Record<string, unknown>;
   if (parsedObj.version && parsedObj.version !== CURRENT_VERSION) {
     await backupStateFile(stateFile);
   }
 
-  // Run migration if needed
   let migrated: unknown;
   try {
     migrated = migrateState(parsed);
@@ -364,7 +313,6 @@ export async function readStateFile(stateFile: string): Promise<WorkflowState> {
     );
   }
 
-  // Validate against schema
   const result = WorkflowStateSchema.safeParse(migrated);
   if (!result.success) {
     throw new StateStoreError(
@@ -376,49 +324,17 @@ export async function readStateFile(stateFile: string): Promise<WorkflowState> {
   return result.data;
 }
 
-// ─── Version Helper ─────────────────────────────────────────────────────────
-
 /** Extract the CAS version from a workflow state, defaulting to 1 for legacy files. */
 function getStateVersion(state: WorkflowState): number {
   return (state as Record<string, unknown>)._version as number ?? 1;
 }
 
-// ─── Write State File Atomically ───────────────────────────────────────────
-
-
 /**
- * Write a workflow state file atomically using tmp+rename.
+ * The write-time schema check, exported for callers other than the write path.
  *
- * When `expectedVersion` is provided, performs a Compare-And-Swap (CAS) check:
- * reads the current file's `_version` and compares it to `expectedVersion`.
- * If they don't match, throws `VersionConflictError`.
- *
- * **TOCTOU Note:** The CAS check has a time-of-check-to-time-of-use window
- * between the version read and the atomic write (tmp+rename). This is acceptable
- * because the MCP server runs as a single process with async serialization —
- * concurrent writes only arise from interleaved async operations within the same
- * event loop, not from separate processes. The atomic tmp+rename prevents file
- * corruption, and the CAS version check prevents lost updates from concurrent
- * async operations. For multi-process scenarios, file-level locking (e.g., `flock`)
- * would be needed.
- */
-
-/**
- * The write-time schema check, as a function the write path is not the only
- * caller of.
- *
- * `handleSet` records a `state.patched` event BEFORE it writes — the event-first
- * contract, so a mutation cannot be applied without being recorded. The
- * converse was never enforced: a patch the schema rejected had already been
- * appended, so the log kept a mutation the state layer refused. That stayed
- * invisible while `workflow get` read the file, and became visible the moment
- * the read folded the log — a boolean written to `artifacts.plan`, rejected at
- * the write with `INVALID_INPUT`, and then served by `get` as though it had
- * taken.
- *
- * Exported so the emission boundary can ask the same question the write will
- * ask, with the same schema and the same `_version` bump, rather than
- * approximating it.
+ * `handleSet` records a `state.patched` event before it writes. It calls this
+ * check before the append, with the same schema and `_version` bump as the
+ * write. Thus the log does not keep a patch that the write then rejects.
  */
 export function validateStateForWrite(state: WorkflowState): string | undefined {
   const stateWithVersion = {
@@ -429,22 +345,29 @@ export function validateStateForWrite(state: WorkflowState): string | undefined 
   return validation.success ? undefined : `Write-time validation failed: ${validation.error.message}`;
 }
 
+/**
+ * Write workflow state atomically through a temp file and a rename.
+ *
+ * With `expectedVersion`, a compare-and-swap check reads the current `_version`
+ * and throws `VersionConflictError` on a mismatch. Invalid JSON gives
+ * `STATE_CORRUPT`, and a missing file counts as version 1. The check has a
+ * window before the write. That is safe while one process serializes the
+ * writes. With a backend, the backend is authoritative, and the function writes
+ * no `.state.json`.
+ */
 export async function writeStateFile(
   stateFile: string,
   state: WorkflowState,
   options?: { expectedVersion?: number; skipValidation?: boolean },
 ): Promise<void> {
-  // Delegate to backend if available
   if (_stateStoreBackend) {
     const featureId = extractFeatureIdFromPath(stateFile);
 
-    // Auto-increment _version before writing
     const stateWithVersion = {
       ...state,
       _version: getStateVersion(state) + 1,
     } as WorkflowState;
 
-    // Validate before writing
     if (!options?.skipValidation) {
       const invalid = validateStateForWrite(state);
       if (invalid !== undefined) throw new StateStoreError(ErrorCode.INVALID_INPUT, invalid);
@@ -453,10 +376,8 @@ export async function writeStateFile(
     try {
       _stateStoreBackend.setState(featureId, stateWithVersion, options?.expectedVersion);
     } catch (err) {
-      // Re-throw backend version conflicts as state-store VersionConflictErrors
       if (err instanceof Error && err.name === 'VersionConflictError') {
         const message = err.message;
-        // Parse expected and actual from the error message
         const match = message.match(/expected (\d+), actual (\d+)/);
         if (match) {
           throw new VersionConflictError(parseInt(match[1] ?? '0', 10), parseInt(match[2] ?? '0', 10));
@@ -469,13 +390,9 @@ export async function writeStateFile(
       throw err;
     }
 
-    // #1504 — backend is the authoritative store; no `.state.json`
-    // write-through. The derived file is never written in backend mode so it
-    // cannot go stale or shadow the projection.
     return;
   }
 
-  // CAS check: if expectedVersion is provided, verify it matches the current file
   if (options?.expectedVersion !== undefined) {
     let currentVersion = 1;
     try {
@@ -484,16 +401,14 @@ export async function writeStateFile(
         const parsed = JSON.parse(raw) as Record<string, unknown>;
         currentVersion = typeof parsed._version === 'number' ? parsed._version : 1;
       } catch {
-        // File exists but has invalid JSON — surface corruption instead of masking it
         throw new StateStoreError(
           ErrorCode.STATE_CORRUPT,
           `Cannot perform CAS check — state file has invalid JSON: ${stateFile}`,
         );
       }
     } catch (err) {
-      if (err instanceof StateStoreError) throw err; // re-throw STATE_CORRUPT
+      if (err instanceof StateStoreError) throw err;
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-        // File doesn't exist — version 1 is correct for first write
         currentVersion = 1;
       } else {
         throw new StateStoreError(
@@ -508,13 +423,11 @@ export async function writeStateFile(
     }
   }
 
-  // Auto-increment _version before writing
   const stateWithVersion = {
     ...state,
     _version: getStateVersion(state) + 1,
   } as WorkflowState;
 
-  // Validate before writing to catch schema violations at write time (not deferred to read)
   if (!options?.skipValidation) {
     const invalid = validateStateForWrite(state);
     if (invalid !== undefined) throw new StateStoreError(ErrorCode.INVALID_INPUT, invalid);
@@ -525,11 +438,9 @@ export async function writeStateFile(
     await fs.writeFile(tmpPath, JSON.stringify(stateWithVersion, null, 2), 'utf-8');
     await publishTempFile(tmpPath, stateFile);
   } catch (err) {
-    // Clean up temp file if rename failed
     try {
       await fs.unlink(tmpPath);
     } catch {
-      // Ignore cleanup errors
     }
     throw new StateStoreError(
       ErrorCode.FILE_IO_ERROR,
@@ -538,24 +449,18 @@ export async function writeStateFile(
   }
 }
 
-// ─── Apply Dot-Path Update ─────────────────────────────────────────────────
-// `isPlainObject`, `deepMerge`, and `applyDotPath` (with the private `parsePath`
-// / `assertArrayBounds` helpers) now live in `./state-mutation.js` (imported +
-// re-exported above). The projection folds `state.patched` with the SAME
-// `applyDotPath` the on-disk write uses, so `fold ≡ write` (#1504/#1554) holds
-// across the extraction — the primitives are byte-identical, only relocated.
-
-// ─── List State Files ──────────────────────────────────────────────────────
-
 export interface ListStateFilesResult {
   valid: Array<{ featureId: string; stateFile: string; state: WorkflowState }>;
   corrupt: Array<{ featureId: string; stateFile: string; error: string }>;
 }
 
+/**
+ * List the workflow states as valid or corrupt. Without a backend, it first
+ * deletes the orphaned temp files whose writer pid is dead.
+ */
 export async function listStateFiles(
   stateDir: string,
 ): Promise<ListStateFilesResult> {
-  // Delegate to backend if available
   if (_stateStoreBackend) {
     const states = _stateStoreBackend.listStates();
     const valid: Array<{ featureId: string; stateFile: string; state: WorkflowState }> = [];
@@ -585,9 +490,6 @@ export async function listStateFiles(
 
   const stateFiles = entries.filter((f) => f.endsWith('.state.json'));
 
-  // Clean up orphaned temp files from crashed writes. The pid — never the
-  // in-process counter — gates deletion; see TEMP_FILE_PATTERN for why the
-  // filename puts the pid last to guarantee that.
   for (const tmpFile of entries) {
     const pid = extractTempFilePid(tmpFile);
     if (pid !== null && !isPidAlive(pid)) {
@@ -616,29 +518,14 @@ export async function listStateFiles(
   return { valid, corrupt };
 }
 
-// ─── Apply Event to State ───────────────────────────────────────────────────
-// The former in-place `applyEventToState` fold was deleted in #1554: it was the
-// last duplicate of the canonical workflow-state fold (a parallel
-// `switch (event.type)` over WorkflowEvent that derived a WorkflowStateView).
-// `reconcileFromEvents` now folds through `workflowStateProjection.apply` — the
-// single registered `workflow-state@v1` reducer — so reconcile and
-// `resolveWorkflowState` can never diverge (its `state.patched` deepMerge vs the
-// canonical applyDotPath was the last dual-mutation gap). The single-fold CI
-// gate (`tools/audit/gates/check-single-workflow-fold.mjs`) keeps it that way.
-
-// ─── Hydrate Events from Store ──────────────────────────────────────────────
-
 /**
- * Query all events for a feature from the event store and map them to
- * the internal format used by guards and the `_events` materialized view.
+ * Query all events for a feature and map them to the internal format of the
+ * guards and the `_events` view.
  *
- * Maps external types (e.g. `workflow.transition`) to internal types
- * (e.g. `transition`) via `mapExternalToInternalType`, spreads all
- * `e.data` fields at the top level, and preserves `metadata: e.data`
- * for backward compatibility.
- *
- * Callers decide catch semantics: `handleSet` falls back to an empty
- * array on failure, while `reconcileFromEvents` logs a warning.
+ * `mapExternalToInternalType` maps each type, such as `workflow.transition` to
+ * `transition`. The `e.data` fields go to the top level, and `metadata` keeps
+ * `e.data` for backward compatibility. Callers handle a failure. `handleSet`
+ * keeps its existing `_events`, and `reconcileFromEvents` logs a warning.
  */
 export async function hydrateEventsFromStore(
   featureId: string,
@@ -653,8 +540,6 @@ export async function hydrateEventsFromStore(
   }));
 }
 
-// ─── Task status on the state document ──────────────────────────────────────
-
 /** How marking tasks complete on the state document came out. */
 export type TaskStatusSyncOutcome =
   | { readonly kind: 'synced'; readonly updated: readonly string[]; readonly missing: readonly string[] }
@@ -667,23 +552,16 @@ export type TaskStatusSyncOutcome =
   | { readonly kind: 'failed'; readonly attempts: number; readonly error: string };
 
 /**
- * Mark tasks `complete` on the workflow's state document.
+ * Mark tasks `complete` on the state document of the workflow.
  *
- * The transition guards read `state.tasks[].status` off the document — the
- * backend row or the `.state.json` file — not off the event log, so a
- * completion fact on the stream admits nothing until the document says the
- * same. Every writer of a completion fact syncs the document through this one
- * loop: compare-and-swap on `_version`, re-read and retried under a conflict,
- * so two writers completing different tasks in parallel cannot lose each
- * other's update.
+ * The transition guards read `state.tasks[].status` from the document, not from
+ * the event log. Thus a completion fact admits nothing until the document
+ * agrees. The loop uses compare-and-swap on `_version` and retries a conflict,
+ * so two parallel writers cannot lose an update.
  *
- * A task the document does not list is reported, not invented; a document
- * whose `tasks` is not an array is left alone; a workflow with no document
- * has nothing to bring level — the document is the planner's stamp, and a
- * tracked workflow may have none — and is `skipped` the same way. A read or
- * write that fails — a corrupt document, a conflict that outlasts the
- * retries — is `failed`, and the caller decides how loudly to say so. A
- * document already showing every task complete is not rewritten.
+ * A task that the document does not list goes into `missing`. The outcome is
+ * `skipped` when `tasks` is not an array, no task is found, or there is no
+ * document. A corrupt document or a conflict past the retries gives `failed`.
  */
 export async function markTasksCompleteInStateDocument(
   stateFile: string,
@@ -732,28 +610,22 @@ export async function markTasksCompleteInStateDocument(
   return { kind: 'failed', attempts: maxAttempts, error: lastError };
 }
 
-// ─── Reconcile State from Events ────────────────────────────────────────────
-
 /**
- * Rebuild a workflow state file from events in the JSONL event store.
+ * Rebuild workflow state from the event store.
  *
- * If no state file exists and the first event is `workflow.started`, creates
- * the state file via `initStateFile`. Then replays all events with sequence
- * numbers greater than the state's `_eventSequence` (defaulting to 0).
- *
- * This function is idempotent — running it twice with no new events produces
- * the same state and returns `{ reconciled: false, eventsApplied: 0 }`.
+ * It merges the hook-event sidecar files first. With no state, it creates the
+ * state from a `workflow.started` event, if one exists, with its time. Then it
+ * folds the events after `_eventSequence` through
+ * `workflowStateProjection.apply`. It takes the phase from the last transition
+ * event and hydrates `_events` for the guards. The backend version
+ * can drift from `_version`. Thus a version conflict retries with the fresh
+ * version and then writes without CAS, because reconcile is the recovery path.
  */
 export async function reconcileFromEvents(
   stateDir: string,
   featureId: string,
   eventStore: EventStore,
 ): Promise<{ reconciled: boolean; eventsApplied: number }> {
-  // Merge hook-event sidecar files written by CLI hook subprocesses before
-  // querying, so reconcile sees the complete event stream. The previous
-  // `!eventStore.inSidecarMode` gate is gone — sidecar fallback in the
-  // EventStore was deleted in v2.11 (#1082); this merger now exclusively
-  // reconciles hook-subprocess writes.
   await mergeSidecarEvents(stateDir, eventStore).catch((err) => {
     logger.warn(
       { err: err instanceof Error ? err.message : String(err) },
@@ -763,7 +635,6 @@ export async function reconcileFromEvents(
 
   const stateFile = path.join(stateDir, `${featureId}.state.json`);
 
-  // Read existing state or create from workflow.started event
   let state: WorkflowState;
   let currentSeq = 0;
   try {
@@ -774,7 +645,6 @@ export async function reconcileFromEvents(
     if (!(err instanceof StateStoreError && err.code === ErrorCode.STATE_NOT_FOUND)) {
       throw err;
     }
-    // If no state file, query all events to find workflow.started
     const allEvents = await eventStore.query(featureId);
     if (allEvents.length === 0) {
       return { reconciled: false, eventsApplied: 0 };
@@ -787,7 +657,6 @@ export async function reconcileFromEvents(
     const workflowType = data.workflowType as WorkflowType;
     const result = await initStateFile(stateDir, featureId, workflowType);
     state = result.state;
-    // Fix 1: Preserve original event timestamp instead of "now"
     const startedAt = startedEvent.timestamp;
     const stateRecord = state as unknown as Record<string, unknown>;
     stateRecord.createdAt = startedAt;
@@ -799,10 +668,8 @@ export async function reconcileFromEvents(
     }
   }
 
-  // Fix 2: Capture CAS version before applying events
   const initialVersion = getStateVersion(state);
 
-  // Query only new events using sinceSequence for efficiency (Fix 3)
   const newEvents = currentSeq > 0
     ? await eventStore.query(featureId, { sinceSequence: currentSeq })
     : (await eventStore.query(featureId)).filter((e) => e.sequence > currentSeq);
@@ -811,15 +678,6 @@ export async function reconcileFromEvents(
     return { reconciled: false, eventsApplied: 0 };
   }
 
-  // Fold new events through the single canonical workflow-state reducer
-  // (#1554) instead of the former duplicate `applyEventToState` (deleted). This
-  // retires the last dual-mutation divergence: `applyEventToState`'s
-  // `state.patched` used `deepMerge` (whole-array clobber), whereas the
-  // canonical fold uses `applyDotPath` (the #1504 array-index in-place fix), so
-  // reconcile and resolveWorkflowState now agree byte-for-byte. `eventsApplied`
-  // counts events the fold acted on (reference-changed result) — for the
-  // mutating events reconcile callers exercise (started/transition/checkpoint/
-  // state.patched/merge.*) this preserves the pre-#1554 count contract.
   let folded = state as unknown as WorkflowStateView;
   let eventsApplied = 0;
   let maxSequence = currentSeq;
@@ -839,28 +697,19 @@ export async function reconcileFromEvents(
     }
   }
 
-  // Carry the folded result forward as the state to reconcile + persist.
   state = folded as unknown as WorkflowState;
   const stateRecord = state as unknown as Record<string, unknown>;
 
-  // Update _eventSequence
   stateRecord._eventSequence = maxSequence;
 
-  // Phase reconciliation: compare state.phase against last workflow.transition
-  // event from the delta. applyEventToState already sets the phase during the
-  // scan loop, so this is a consistency check using the tracked transition
-  // rather than issuing a redundant full-stream query.
   if (lastTransition?.data) {
     const eventPhase = (lastTransition.data as Record<string, unknown>).to as string | undefined;
     if (eventPhase && stateRecord.phase !== eventPhase) {
       stateRecord.phase = eventPhase;
-      if (!eventsApplied) eventsApplied = 1; // Mark as reconciled even if only phase was fixed
+      if (!eventsApplied) eventsApplied = 1;
     }
   }
 
-  // Hydrate _events from full event stream for guard evaluation.
-  // This ensures guards (e.g. teamDisbandedEmitted) can evaluate from
-  // the materialized _events view after reconciliation.
   try {
     stateRecord._events = await hydrateEventsFromStore(featureId, eventStore);
   } catch (err) {
@@ -870,22 +719,16 @@ export async function reconcileFromEvents(
     );
   }
 
-  // Write updated state with CAS guard, retrying on version conflict.
-  // The backend's version counter can desync from state._version (e.g., after
-  // DB self-healing or mixed JSONL-only/backend usage). Reconcile is a recovery
-  // operation, so retry by re-reading the current backend version.
   try {
     await writeStateFile(stateFile, state, { expectedVersion: initialVersion });
   } catch (err) {
     if (err instanceof VersionConflictError) {
-      // Re-read to get the backend's actual version, then force-write
       try {
         const freshState = await readStateFile(stateFile);
         const freshVersion = getStateVersion(freshState);
         await writeStateFile(stateFile, state, { expectedVersion: freshVersion });
       } catch (retryErr) {
         if (retryErr instanceof VersionConflictError) {
-          // Last resort: write without CAS — reconcile IS the recovery mechanism
           await writeStateFile(stateFile, state);
         } else {
           throw retryErr;
@@ -899,7 +742,4 @@ export async function reconcileFromEvents(
   return { reconciled: eventsApplied > 0, eventsApplied };
 }
 
-// ─── Resolve State Directory ───────────────────────────────────────────────
-
-// Re-export centralized resolver for backward compatibility
 export { resolveStateDir } from '../utils/paths.js';

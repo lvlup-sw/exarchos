@@ -1,26 +1,14 @@
-// ─── Design-Depth Proposal (DR-3, epic #1581) ───────────────────────────────
-//
-// Proposes a `designDepth` from coarse brief signals so the author opens the
-// PLAN phase with a sensible default already filled in — the depth-axis analog
-// of how a planner stamps `riskTier` per task. This module is PURE: it reads
-// only the signals it is handed (no I/O, no config, no event store) and returns
-// a recommendation. The resolve-then-freeze single source (state-machine.ts,
-// task 005) does the actual freezing; this module only feeds the *resolve* half
-// by recommending a value the author can accept or override.
-//
-// ── Two load-bearing invariants (DR-3) ──────────────────────────────────────
-//  1. CONSERVATIVE DEFAULT — absent any strong signal the proposal is
-//     `'standard'`, the behavior-neutral rung. A sparse / unknown brief never
-//     pushes a feature off the default path.
-//  2. NO SILENT ESCALATION TO `'deep'` — strong signals may *propose* `'deep'`
-//     (the DR-7 divergent-loop rung), but a deep proposal is flagged
-//     `requiresAuthorConfirmation` and is NEVER frozen without an explicit
-//     author override. `resolveFrozenDepth` falls back to `'standard'` for an
-//     unconfirmed deep proposal — the escalation cost (a discover bridge +
-//     brainstorming loop) is opt-in, never automatic.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Proposes a `designDepth` from coarse brief signals, so the PLAN phase opens with a default.
+ * The module is pure: it reads only its arguments. The state machine freezes the depth.
+ *
+ * Two invariants apply:
+ *  1. A sparse or unknown brief proposes `'standard'`, the behavior-neutral rung.
+ *  2. A `'deep'` proposal needs an explicit author override before it freezes.
+ *     The cost of the deep rung (a discover bridge and a brainstorm loop) is opt-in.
+ */
 
-// RESERVED(issue: #1581, owner: exarchos, expires: 2027-01-31) — reserved dead stub; deletion at expiry if unadopted (DR-7 module-intent gate)
+// RESERVED(issue: #1581, owner: exarchos, expires: 2027-01-31) — dead stub, deleted at expiry if no caller adopts it.
 
 import type { DesignDepth } from './plan-depth-policy.js';
 
@@ -28,9 +16,8 @@ import type { DesignDepth } from './plan-depth-policy.js';
 export type SignalLevel = 'low' | 'medium' | 'high';
 
 /**
- * The brief signals the proposal reads. All optional — an absent signal is
- * treated as its lowest magnitude, so a sparse brief degrades to the
- * conservative `'standard'`/`'thin'` end rather than over-proposing depth.
+ * The brief signals that the proposal reads.
+ * An absent signal counts as its lowest level, so a sparse brief does not propose more depth.
  */
 export interface DepthSignals {
   /** How under-specified / open-ended the brief is. */
@@ -47,11 +34,7 @@ export interface DepthProposal {
   readonly proposed: DesignDepth;
   /** Human-readable reason, surfaced alongside the proposal. */
   readonly rationale: string;
-  /**
-   * True iff freezing `proposed` requires an explicit author decision — set
-   * ONLY for a `'deep'` proposal (invariant 2). `'thin'`/`'standard'` are
-   * non-escalating and may be frozen directly.
-   */
+  /** True only for a `'deep'` proposal, which needs an explicit author decision before it freezes. */
   readonly requiresAuthorConfirmation: boolean;
 }
 
@@ -104,12 +87,10 @@ export function proposeDesignDepth(signals: DepthSignals): DepthProposal {
 }
 
 /**
- * Resolve the depth to FREEZE at PLAN entry from the author override and the
- * proposal. The author's explicit choice always wins (it IS the confirmation);
- * absent an override, a `'deep'` proposal is NOT frozen — it degrades to the
- * conservative `'standard'` (invariant 2). `'thin'`/`'standard'` proposals
- * freeze directly. This is the value the planner patches onto `state.designDepth`
- * for the task-005 freeze to read.
+ * Resolve the depth to freeze at PLAN entry.
+ * An explicit author choice always wins, because it is the confirmation.
+ * Without an override, an unconfirmed `'deep'` proposal freezes as `'standard'`.
+ * The result is the value for `state.designDepth`, which the state machine freezes.
  *
  * @param authorOverride the author's explicit depth choice, if any
  * @param proposal       the auto-proposal surfaced to the author
@@ -123,7 +104,6 @@ export function resolveFrozenDepth(
     return authorOverride;
   }
   if (proposal.proposed === 'deep') {
-    // No silent escalation: an unconfirmed deep proposal freezes 'standard'.
     return 'standard';
   }
   return proposal.proposed;
