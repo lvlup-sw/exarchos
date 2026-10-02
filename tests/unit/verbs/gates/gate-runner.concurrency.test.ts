@@ -1,17 +1,8 @@
-// ─── EFF-003: equivalent concurrent gate executions ──────────────────────────
-//
-// The runner keys idempotency on `evidenceId`, which derives from the caller's
-// `operationId`. Two executions of the SAME logical gate — identical
-// (requirementId, phaseAttemptId, providerRef, subject) — arriving under
-// distinct operationIds therefore mint distinct evidenceIds, read history before
-// either has appended, and both append with no predecessor.
-//
-// Left alone that produces two competing active evidence records for one scope:
-// the "competing active-predecessor evidence chains" the audit named. The
-// admission contract is that equivalent concurrent operations converge on ONE
-// canonical active result, while genuinely CONTRADICTORY concurrent results stay
-// visible as a contradiction (they must deny admission, not silently pick one).
-// ─────────────────────────────────────────────────────────────────────────────
+// Tests for equivalent concurrent gate executions in the gate runner.
+// The runner keys idempotency on `evidenceId`, which derives from the caller's `operationId`.
+// Two runs of the same logical gate under distinct operationIds both append with no predecessor.
+// Evidence selection must converge on one canonical active result for equivalent runs.
+// Contradictory concurrent results must stay visible as a contradiction, so admission fails closed.
 
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -46,13 +37,6 @@ import {
   type GateRunnerDependencies,
 } from '../../../../src/verbs/gates/gate-runner.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
-
-
-// Tests for equivalent concurrent gate executions in the gate runner.
-// The runner keys idempotency on `evidenceId`, which derives from the caller's `operationId`.
-// Two runs of the same logical gate under distinct operationIds both append with no predecessor.
-// Evidence selection must converge on one canonical active result for equivalent runs.
-// Contradictory concurrent results must stay visible as a contradiction, so admission fails closed.
 
 const FIXED_TIME = '2026-07-21T22:30:00.000Z';
 const POLICY_DIGEST: ContentDigestV1 = {

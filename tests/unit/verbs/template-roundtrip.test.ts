@@ -1,24 +1,9 @@
-// ─── Template → Gate Round-Trip Contract Shield (#1299) ──────────────────────
-//
-// This test loads the SHIPPED authoring templates from disk, DERIVES a minimal
-// valid document from each template's fenced ```markdown example block(s) (by
-// substituting bracketed [placeholders] with concrete values), and then runs
-// every authoring gate's pure / markdown path against the derived fixture.
-//
-// Because each fixture is DERIVED FROM the live template text — not an inline
-// hand-copy — editing a template changes this test's INPUT. If a future edit
-// drifts a template away from what its gate parser expects, the matching
-// assertion fails in CI immediately. This is the durable recurrence shield for
-// the two Wave-1 drifts:
-//   1. design-completeness — the template's standalone bold `**Acceptance
-//      criteria:**` header and Given/When/Then continuation form.
-//   2. task-decomposition — the template's brief-description-in-heading shape
-//      (`### Task [N]: [Brief Description]` opening directly with `**Phase:**`).
-//
-// ADD-ONLY: this test touches no gate source and no template. If it surfaces a
-// NEW drift beyond Wave-1, the offending assertion is `.skip`-ped with a
-// `TODO(#1299)` note rather than weakening a gate — see the task brief.
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * These tests run the gates on fixtures from the shipped authoring templates.
+ * Each fixture comes from the fenced markdown blocks of a template, with
+ * concrete values in place of the bracketed placeholders. A template edit
+ * changes the fixture, so a template that drifts from its gate parser fails.
+ */
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { readFileSync, mkdtempSync, writeFileSync } from 'node:fs';
@@ -51,19 +36,6 @@ import {
 } from '../../../src/verbs/tasks/task-decomposition.js';
 import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
-// ─── Repo-root resolution (ESM-safe) ─────────────────────────────────────────
-//
-// Mirror src/verbs/sidecar-backfill.test.ts:
-// `__dirname` is undefined under NodeNext/ESM, so resolve REPO_ROOT from this
-// test file's location via import.meta.url. This file lives at
-// src/verbs/<this> → ../../../../ is the repo root.
-
-/**
- * These tests run the gates on fixtures from the shipped authoring templates.
- * Each fixture comes from the fenced markdown blocks of a template, with
- * concrete values in place of the bracketed placeholders. A template edit
- * changes the fixture, so a template that drifts from its gate parser fails.
- */
 /**
  * The repo root, three levels up from `tests/unit/verbs`. The path comes from
  * `import.meta.url`, because `__dirname` is not defined under ESM.
