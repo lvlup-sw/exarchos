@@ -142,8 +142,8 @@ describe('seeded-defect corpus', () => {
   });
 
   /**
-   * `tsconfig.json` excludes the fixtures tree and ESLint ignores it. The exclusion matters: the tree holds no
-   * TypeScript source, and a static-analysis defect carries broken source that fails CI when compiled.
+   * `tsconfig.json` excludes the fixtures tree, and ESLint ignores it. The tree holds no `.ts` or `.tsx` file.
+   * At least one static-analysis defect carries broken source that fails CI if a step compiles it.
    */
   it('SeededCorpus_FixtureAssets_ExcludedFromTypecheckAndLint', async () => {
     const tsconfig = JSON.parse(fs.readFileSync(path.join(MCP_ROOT, 'tsconfig.json'), 'utf-8')) as {

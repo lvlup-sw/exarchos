@@ -96,7 +96,7 @@ function countUnorderedMatches(
 /**
  * Counts the patterns that match in order. A pattern with `min` matches when the trace has at least
  * `min` matching events, and order does not apply to it. For the other patterns, a greedy scan
- * counts the longest prefix of the pattern list that occurs in trace order.
+ * counts the longest prefix of those patterns, in list order, that occurs in trace order.
  */
 function countOrderedMatches(
   trace: TraceEvent[],

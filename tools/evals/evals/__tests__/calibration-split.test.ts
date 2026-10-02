@@ -111,8 +111,8 @@ describe('Property-Based Tests', () => {
   });
 
   /**
-   * The bounds are inclusive, with a tolerance of 10 points for random strings. The fixed seed keeps
-   * the inputs the same on every run. Without it, fast-check can find an input exactly on a bound.
+   * The bounds are inclusive, with a tolerance of 10 points for random strings, so a ratio exactly on
+   * a bound passes. The fixed seed keeps the inputs and the result the same on every run.
    */
   it('Distribution_ManyRandomIds_Approximates20_40_40', () => {
     fc.assert(

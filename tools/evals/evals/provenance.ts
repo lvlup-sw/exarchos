@@ -1,9 +1,9 @@
 /**
- * Shared eval provenance and fail-honest helpers. Each experiment writes its raw-data artifacts
+ * Shared eval provenance and fail-honest helpers. The experiments write their raw-data artifacts
  * through this module, so a reader can reproduce or reject a published number.
  *
  * - {@link stampProvenance} attaches `{ binaryTag, gitSha, modelIds, date }` to a record. It
- *   throws when a field is missing.
+ *   throws when a field is missing or empty.
  * - {@link assertMeasured} rejects a record that is not flagged `measured`.
  *
  * Limit: this is a convention backstop, not a proof of authenticity. It cannot detect a

@@ -11,9 +11,9 @@
 module.exports = {
   forbidden: [
     /**
-     * Runtime import cycles. The severity is `warn` on purpose. `runBoundaryLint` fails
-     * on any non-zero exit, and `depcruise --validate` exits non-zero only for `error`
-     * violations. The blocking ratchet is tools/audit/cycle-gate.ts.
+     * Runtime import cycles. The severity is `warn`, so the rule names cycles and the gate
+     * stays green. `runBoundaryLint` fails on any non-zero exit, and `depcruise --validate`
+     * exits non-zero only for `error` violations. The blocking ratchet is tools/audit/cycle-gate.ts.
      * With the default `tsPreCompilationDeps: false`, depcruise drops `import type`
      * edges and keeps dynamic `import()` edges.
      */

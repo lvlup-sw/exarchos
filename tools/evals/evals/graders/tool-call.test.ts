@@ -125,7 +125,7 @@ describe('ToolCallGrader', () => {
     expect(result.score).toBe(1.0);
   });
 
-  /** Ordered grading counts the longest common subsequence. Here that is `[b.second, c.third]`, 2 of 3. */
+  /** Ordered grading counts the longest common subsequence. Here it holds 2 of 3 calls, for example `[b.second, c.third]`. */
   it('Grade_OrderedIncorrect_ReducesScore', async () => {
     const result = await grader.grade(
       {},

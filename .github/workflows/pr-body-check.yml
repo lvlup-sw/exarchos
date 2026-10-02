@@ -83,7 +83,8 @@ jobs:
 
       # If the PR changes a file under tests/core/fixtures/load-bearing/, the PR
       # body must carry a `GOLDEN-FIXTURE-UPDATE: <reason>` line. The check lives
-      # here, not in ci.yml, because it needs the PR body.
+      # here, not in ci.yml, because it needs the PR body. This job installs no
+      # packages, so the script must import only Node built-ins.
       - name: Golden-fixture marker check (DR-15)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

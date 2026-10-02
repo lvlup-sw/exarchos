@@ -63,7 +63,7 @@ function hasToolEvents(events: WorkflowEvent[]): boolean {
 }
 
 /**
- * Scores the similarity of two records from 0 to 1, as the mean over the keys of both.
+ * Scores the similarity of two records from 0 to 1, as the mean over all keys in either record.
  * A key scores 1 when both values match as strings, 0.5 when the values differ, and 0
  * when one record lacks it. Two empty records score 1.
  */
@@ -93,8 +93,8 @@ function structuralSimilarity(
 }
 
 /**
- * Returns true when the mean similarity of `input` and `expected` reaches `threshold`
- * for any existing case.
+ * Returns true when, for any existing case, the mean of the `input` similarity and the
+ * `expected` similarity reaches `threshold`.
  */
 function isDuplicate(
   captured: EvalCase,
