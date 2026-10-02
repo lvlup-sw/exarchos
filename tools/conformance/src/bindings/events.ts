@@ -1,16 +1,13 @@
-// RESERVED(issue: #1473, owner: exarchos, expires: 2027-02-28) — the composition root for
-// DR-3's event-name grammar census and G3's report-coupling ratchet. It inherits their
-// disposition: no production importer by design, because it binds instruments that govern the
-// event registry rather than participating in it. Its consumers are those censuses' own suites
-// and the CI guards that run them. Deleted when both censuses are.
-//
+// RESERVED(issue: #1473, owner: exarchos, expires: 2027-02-28) — the composition root for the
+// event-name grammar census and the report-coupling ratchet. It has no production importer by
+// design, because it binds instruments that govern the event registry. Its consumers are the
+// suites of those censuses and the CI guards that run them. Delete it with both censuses.
 /**
- * Bindings lifted from the event subsystem — the registry, the name grammar and
- * the emission-source tables.
+ * Bindings lifted from the event subsystem: the registry, the name grammar and the
+ * emission-source tables.
  *
- * `events/schemas.ts` is a DR-1 declaration STORE, so this module must not
- * import a contract module (`contract/declaration.ts`,
- * `contract/declaration-seam.ts`). See `./README.md`.
+ * `events/schemas.ts` is a declaration store, so this module must not import a contract
+ * module (`contract/declaration.ts`, `contract/declaration-seam.ts`).
  */
 import {
   EVENT_EMISSION_REGISTRY,
@@ -60,9 +57,8 @@ export const LIVE_EVENT_NAME_PATTERN: RegExp = EVENT_NAME_PATTERN;
 /**
  * The event-name grammar census over the live registry.
  *
- * The three leading parameters keep their live defaults so a caller can vary one
- * axis — an emptied subject, a repaired pattern, a narrowed separator set —
- * without restating the others.
+ * Each parameter defaults to its live value. A caller can vary one axis, such as a
+ * repaired pattern, and keep the others live.
  */
 export function censusLiveEventNameGrammar(
   names: readonly string[] = getValidEventTypes(),
@@ -81,9 +77,8 @@ export const REPORT_COUPLING_PORTS: ReportCouplingPorts = Object.freeze({
 /**
  * The report-coupling census over the live registry.
  *
- * The three leading parameters keep their live defaults so the co-located vitest can vary one
- * axis — an emptied subject, a seeded report-coupled type, a seeded tier/source disagreement —
- * without mutating the real registry.
+ * Each parameter defaults to its live value. A test can vary one axis, such as a seeded
+ * tier/source disagreement, and leave the real registry unchanged.
  */
 export function censusLiveReportCoupling(
   registeredTypes: readonly string[] = EventTypes,

@@ -1,15 +1,8 @@
 /**
- * Contract-seam lint (DR-10).
- *
- * Every top-level exported Zod schema in `invariant-schema.ts` is the
- * hand-written stand-in for a future `Strategos.Contracts` TypeSpec model.
- * To keep the "hand-written now, generated later" seam honest, each such
- * export must carry a `// contract-shaped: <ModelName>` comment on the line
- * immediately above it.
- *
- * This lint reads the schema source and returns a finding for any exported
- * schema missing its seam comment. It introduces NO runtime dependency on
- * Strategos.Contracts — it is a pure source-text check.
+ * Contract-seam lint. Each top-level exported Zod schema in `invariant-schema.ts` stands in for a
+ * future `Strategos.Contracts` TypeSpec model. So each such export must carry a
+ * `// contract-shaped: <ModelName>` comment on the line above it. This lint is a source-text
+ * check, with no runtime dependency on Strategos.Contracts.
  */
 import fs from 'node:fs';
 import type { PluginFinding } from '../../../src/review/check-catalog.js';
@@ -43,7 +36,6 @@ export function lintSeamComments(
     if (!match) continue;
     const schemaName = match[1];
 
-    // Walk back over blank lines to the nearest non-blank line.
     let j = i - 1;
     while (j >= 0 && lines[j]?.trim() === '') j--;
     const hasSeam = j >= 0 && SEAM_COMMENT_RE.test(lines[j] ?? '');

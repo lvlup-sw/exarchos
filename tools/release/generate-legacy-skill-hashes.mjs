@@ -1,61 +1,18 @@
 #!/usr/bin/env node
 /**
- * Multi-release legacy-render hash manifest generator (Task 023, DR-8).
+ * Generates the manifest of legacy skill render hashes across releases.
  *
- * WHY THIS EXISTS
- * ---------------
- * Later tasks in the harness conform-and-shrink bundle delete stale
- * per-runtime *procedural* skill renders from consumer installs. Deleting a
- * consumer's on-disk `skills/<runtime>/<skill>/SKILL.md` is only safe when we
- * can prove the file provably came from us — i.e. its content hash matches a
- * render we once shipped. An install created from an OLD release hashed
- * against that OLD release's render content, so a single current-tree hash is
- * insufficient: we need the newline-normalized content hash of every
- * per-runtime skill render *across every historical release*.
+ * The migration deletes a stale per-runtime `SKILL.md` from a consumer install only when its hash
+ * matches a render that a release shipped. An old install holds the renders of its own release.
+ * The manifest thus holds the hash of every render at every release tag in the legacy window.
  *
- * This manifest is derived from GIT HISTORY at the release tags, and is
- * deliberately INDEPENDENT of the current working tree. That independence is
- * load-bearing: a later `cleanStaleFiles` deletion pass runs during skills
- * regeneration, and if this generator read the worktree it could hash a
- * half-deleted tree and orphan a legitimately-installed file. Reading git
- * objects (`git ls-tree` + `git cat-file --batch`) sidesteps that entirely.
+ * The generator reads git objects at the release tags, never the working tree. A deletion pass can
+ * run during skills regeneration, and a hash of a half-deleted tree can orphan a valid file. It
+ * hashes every render, not only the procedural ones, because a superset can only add matches. It
+ * enumerates only release tags, never `HEAD`, and the output has no timestamp. A second run on the
+ * same tags thus gives the same bytes.
  *
- * SCOPE — ALL renders (superset), not procedural-only.
- * ----------------------------------------------------
- * The spec permits hashing every `skills/<runtime>/<skill>/SKILL.md` render at
- * each ref as a safe superset for provenance matching, and prefers it when a
- * clean procedural-vs-orchestration split is not readily derivable at a
- * historical ref. It is not: the procedural/orchestration classification lives
- * in `content/` metadata that has moved across releases, and reconstructing
- * it per-tag is fragile. Hashing every render is provenance-safe (a superset
- * can only make a consumer file *more* likely to match a known-good render,
- * never less), so this generator hashes ALL renders. The only directory
- * excluded is `skills/test-fixtures/`, which is repo-internal test scaffolding
- * that never ships to a consumer install.
- *
- * RELEASE ENUMERATION
- * -------------------
- * Release tags are discovered with `git tag --list 'v2.*'` and filtered to
- * those whose numeric (major, minor, patch) is >= (2, 9, 0). A pre-release
- * tag whose base version qualifies (e.g. `v2.9.0-rc.1`, `v2.10.0-preview.2`)
- * is INCLUDED — installs were published from those pre-releases, and covering
- * them is the same provenance-safe superset.
- *
- * The manifest enumerates ONLY immutable release tags — never a `HEAD`
- * pseudo-release. A HEAD entry drifts on every tree change (each commit
- * re-hashes the working renders), which makes the committed manifest churn on
- * unrelated changes and false-fails coverage assertions. No install is ever
- * published from an un-tagged HEAD, so the release being cut is covered once
- * its tag exists — regenerate the manifest as part of the release, not before.
- *
- * DETERMINISM
- * -----------
- * The emitted JSON contains no timestamps or resolved HEAD sha, so
- * regenerating on the same tree is byte-idempotent (no spurious git churn).
- * Entries are sorted by (release order, path).
- *
- * Usage:
- *   node tools/release/generate-legacy-skill-hashes.mjs [--out <path>] [--print]
+ * Usage: node tools/release/generate-legacy-skill-hashes.mjs [--out <path>] [--print]
  */
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -77,14 +34,10 @@ export const MANIFEST_PATH = path.join(
 export const MIN_RELEASE = [2, 9, 0];
 
 /**
- * First release line NOT covered by the manifest (exclusive upper bound) — the
- * rename release (`v2.12.0`) and everything after it. The manifest is a *legacy*
- * record of the PRE-RENAME per-runtime renders (the old-name `skills/<runtime>/…`
- * trees) so pre-rename installs hash-match during migration; releases from the
- * rename onward no longer carry those renders. An UNBOUNDED set would also make
- * the committed manifest diverge from a fresh `buildManifest()` the instant a new
- * `v2.12.x` tag exists — reddening every CI/release run of the DR-8 test — so the
- * legacy window is frozen at `[MIN_RELEASE, MAX_RELEASE_EXCLUSIVE)`.
+ * The first release line that the manifest does not cover. The manifest records the per-runtime
+ * renders before the skill rename in `v2.12.0`, so a pre-rename install can match. The bound also
+ * keeps a new `v2.12.x` tag from changing a fresh `buildManifest()` result, which then differs
+ * from the committed manifest and fails its test.
  */
 export const MAX_RELEASE_EXCLUSIVE = [2, 12, 0];
 
@@ -147,10 +100,10 @@ function compareBase(a, b) {
 }
 
 /**
- * Semver-style comparison for release tags (base triple first, then a
- * pre-release is ordered *before* its release, then identifier-by-identifier
- * with numeric identifiers compared numerically and ranked below alphanumeric
- * ones). Deterministic and independent of git's own version-sort quirks.
+ * Semver-style comparison of release tags, independent of the git version sort. The base triple
+ * compares first, and a pre-release ranks before its release. Pre-release identifiers then compare
+ * one by one. Numbers compare as numbers and rank below text. When the shared identifiers are
+ * equal, the shorter list ranks lower.
  *
  * @param {string} tagA
  * @param {string} tagB
@@ -162,7 +115,6 @@ export function compareVersionTags(tagA, tagB) {
   if (!a || !b) return tagA < tagB ? -1 : tagA > tagB ? 1 : 0;
   const baseCmp = compareBase(a.base, b.base);
   if (baseCmp !== 0) return baseCmp;
-  // Equal base: no-prerelease outranks any prerelease.
   if (a.pre.length === 0 && b.pre.length === 0) return 0;
   if (a.pre.length === 0) return 1;
   if (b.pre.length === 0) return -1;
@@ -170,7 +122,7 @@ export function compareVersionTags(tagA, tagB) {
   for (let i = 0; i < len; i++) {
     const ai = a.pre[i];
     const bi = b.pre[i];
-    if (ai === undefined) return -1; // shorter prerelease ranks lower
+    if (ai === undefined) return -1;
     if (bi === undefined) return 1;
     const aNum = /^\d+$/u.test(ai);
     const bNum = /^\d+$/u.test(bi);
@@ -178,7 +130,7 @@ export function compareVersionTags(tagA, tagB) {
       const d = Number(ai) - Number(bi);
       if (d !== 0) return d;
     } else if (aNum !== bNum) {
-      return aNum ? -1 : 1; // numeric identifiers rank below alphanumeric
+      return aNum ? -1 : 1;
     } else if (ai !== bi) {
       return ai < bi ? -1 : 1;
     }
@@ -187,15 +139,9 @@ export function compareVersionTags(tagA, tagB) {
 }
 
 /**
- * Enumerate the release refs the manifest covers: every `v2.*` tag whose base
- * version is in the frozen legacy window `[MIN_RELEASE, MAX_RELEASE_EXCLUSIVE)`
- * (pre-releases of a qualifying base included), sorted ascending. Only immutable
- * release tags are enumerated — the current HEAD is deliberately NOT appended,
- * so the manifest is stable across working-tree changes. The window is bounded
- * ABOVE as well as below (see {@link MAX_RELEASE_EXCLUSIVE}): a fresh
- * `buildManifest()` must equal the committed manifest regardless of which future
- * release tags exist in the checkout, so a `v2.12.x`+ tag (from this rename
- * onward) is excluded rather than silently added.
+ * Lists the release tags that the manifest covers, in ascending order. These are the `v2.*` tags
+ * whose base version is in `[MIN_RELEASE, MAX_RELEASE_EXCLUSIVE)`, with their pre-releases. `HEAD`
+ * is not in the list, so a change to the working tree does not change the manifest.
  *
  * @param {{ cwd?: string }} [opts]
  * @returns {string[]}
@@ -219,9 +165,8 @@ export function enumerateReleaseRefs(opts = {}) {
 }
 
 /**
- * List the per-runtime skill render paths (`skills/<runtime>/<skill>/SKILL.md`)
- * that exist in the committed tree at `ref`, excluding non-shipping fixture
- * directories. Reads the git tree object — never the working directory.
+ * Lists the render paths `skills/<runtime>/<skill>/SKILL.md` in the git tree at `ref`, without
+ * the fixture directories. It reads the tree object, never the working directory.
  *
  * @param {string} ref
  * @param {{ cwd?: string }} [opts]
@@ -236,10 +181,6 @@ export function listSkillRenderPaths(ref, opts = {}) {
     .filter(Boolean)
     .filter((p) => {
       const parts = p.split('/');
-      // This manifest is built from HISTORICAL release tags, so both layouts
-      // are live: `skills/<runtime>/<skill>/SKILL.md` before the rendered tree
-      // was introduced, and `rendered/skills/...` after. Accepting only the
-      // current shape silently yields an empty manifest for every past release.
       const rel = parts[0] === 'rendered' ? parts.slice(1) : parts;
       return (
         rel.length === 4 &&
@@ -252,9 +193,8 @@ export function listSkillRenderPaths(ref, opts = {}) {
 }
 
 /**
- * Newline-normalize (CRLF -> LF) then sha256-hash content. Accepts a string
- * or Buffer; SKILL.md renders are UTF-8 text. This normalization is the reason
- * a consumer file that only differs by line endings still hash-matches.
+ * Converts CRLF to LF, then returns the sha256 digest of the UTF-8 content. A consumer file that
+ * differs only in line endings thus still matches.
  *
  * @param {string | Buffer} content
  * @returns {string} sha256 hex digest
@@ -268,9 +208,9 @@ export function normalizeAndHash(content) {
 }
 
 /**
- * Read many git blobs in a single `git cat-file --batch` process. Input specs
- * are `<ref>:<path>` object names; output is a Map keyed by the same spec with
- * the raw blob Buffer as value. Missing objects are omitted from the map.
+ * Reads many git blobs in one `git cat-file --batch` process. Each spec is a `<ref>:<path>` object
+ * name. The result maps each spec to its raw blob, and a missing object is not in the map. Git
+ * writes a header `<sha> <type> <size>` or `<name> missing` for each spec, and a LF after a blob.
  *
  * @param {string[]} specs
  * @param {{ cwd?: string }} [opts]
@@ -303,7 +243,6 @@ export function readBlobsBatch(specs, opts = {}) {
     }
     const header = buf.toString('utf8', cursor, nl);
     cursor = nl + 1;
-    // Header is either `<sha> <type> <size>` or `<name> missing`.
     if (/ missing$/u.test(header)) {
       continue;
     }
@@ -313,15 +252,14 @@ export function readBlobsBatch(specs, opts = {}) {
       throw new Error(`git cat-file --batch: bad header for ${spec}: ${header}`);
     }
     const content = buf.subarray(cursor, cursor + size);
-    cursor += size + 1; // skip trailing LF after content
+    cursor += size + 1;
     out.set(spec, Buffer.from(content));
   }
   return out;
 }
 
 /**
- * Build the manifest object from git history. Pure with respect to the working
- * tree: it only consults git objects at the enumerated refs.
+ * Builds the manifest from the git objects at the release refs. Entries sort by release, then path.
  *
  * @param {{ refs?: string[], cwd?: string }} [opts]
  * @returns {{
@@ -338,7 +276,6 @@ export function buildManifest(opts = {}) {
   const cwd = opts.cwd ?? REPO_ROOT;
   const refs = opts.refs ?? enumerateReleaseRefs({ cwd });
 
-  // Gather (ref, path) pairs, dropping refs that carry no renders.
   const releases = [];
   /** @type {{ release: string, path: string, spec: string }[]} */
   const items = [];
@@ -371,7 +308,6 @@ export function buildManifest(opts = {}) {
     };
   });
 
-  // Deterministic order: release enumeration order, then path.
   const releaseRank = new Map(releases.map((r, idx) => [r, idx]));
   entries.sort((a, b) => {
     const ra = releaseRank.get(a.release) ?? 0;
@@ -437,7 +373,6 @@ function main() {
   );
 }
 
-// Run main() only when executed directly (not when imported by tests).
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   main();
 }

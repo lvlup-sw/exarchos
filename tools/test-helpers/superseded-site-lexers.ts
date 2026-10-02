@@ -1,43 +1,28 @@
-// ─── The three RETIRED site lexers, kept only so the gap can be measured ─────
-//
-// Task 065 replaced the effect ledger's hand-rolled walks with a real parse and
-// named three survivors. Task 072 retired those three. Until then they lived in
-// shipped `src/`:
-//
-//   • `architecture/vcs-ownership.stripComments`
-//   • `workflow/admission/remediation-purity.extractImportSpecifiers`
-//   • `architecture/delivery-safety.maskLiteralsAndComments`
-//
-// They are reproduced here VERBATIM — same control flow, same conservative
-// regex-versus-division rule, same line-bounded quotes, same absence of one —
-// for exactly one purpose: each site's kill fixture asserts what THIS answers
-// and what the real parse answers on the same input, so the size and the
-// DIRECTION of each defect is pinned in the tree rather than described in a
-// commit message. A port that is never shown to differ from what it replaced has
-// not been shown to be needed.
-//
-// Same discipline as `superseded-source-lexer.ts`, for the same reason: nothing
-// here is typed as any site's port, so driving a real census through a retired
-// walk takes a deliberate, named act, and a test pins that no shipped module
-// imports this file. Retiring a defect and leaving it casually callable is how
-// it comes back.
-//
-// Do not fix bugs in this file. Its value is being wrong in precisely the way
-// the shipped tree used to be wrong.
+/**
+ * Three retired site lexers, kept only so that the gap to the real parse can be measured:
+ *
+ * - `architecture/vcs-ownership.stripComments`
+ * - `workflow/admission/remediation-purity.extractImportSpecifiers`
+ * - `architecture/delivery-safety.maskLiteralsAndComments`
+ *
+ * Each copy is verbatim. Each kill fixture asserts what a copy answers and what the real parse
+ * answers on the same input. This pins the size and the direction of each defect in the tree.
+ *
+ * Nothing here is typed as the port of a site, so a census runs on a retired walk only by a
+ * deliberate act. A test pins that no shipped module imports this file.
+ *
+ * Do not fix bugs in this file. Its value is that it is wrong in the same way as the retired code.
+ */
 
-// ─── 1. `architecture/vcs-ownership.stripComments` ──────────────────────────
-//
-// Strips `//` and block comments while preserving string/template content. Its
-// own header claimed the `/`-in-operand-position rule was "deliberately
-// CONSERVATIVE: when in doubt it treats `/` as division, which merely falls back
-// to the old behaviour instead of swallowing real code (a false negative in a
-// ratchet is the dangerous direction, so the ambiguity is resolved away from
-// it)". That is false in the other direction: scoring the head of a real regex
-// literal as division lets a BACKTICK inside that regex open a phantom template
-// literal, and a template is not line-bounded — so every subsequent `//` reads
-// as string body, comment prose survives the strip, and the detector charges a
-// module with a `git worktree add` that only its documentation performs.
-
+/**
+ * The retired `architecture/vcs-ownership.stripComments`. It strips `//` and block comments and
+ * keeps string and template content.
+ *
+ * After an identifier character, a `)` or a `]`, it reads `/` as division. So it misses a regex
+ * after a keyword such as `return`, and a backtick inside that regex opens a phantom template.
+ * A template is not line-bounded, so every later `//` reads as string body. The detector then
+ * charges a module with a `git worktree add` that only its documentation performs.
+ */
 export function supersededStripComments(source: string): string {
   let out = '';
   const n = source.length;
@@ -136,20 +121,17 @@ export function supersededStripComments(source: string): string {
   return out;
 }
 
-// ─── 2. `workflow/admission/remediation-purity.extractImportSpecifiers` ──────
-//
-// Extracts every VALUE-import specifier at code position. Its own header claimed
-// it walked "comment/string-aware so a specifier inside a string literal or a
-// doc comment is not mistaken for a real import", and the module's header called
-// the re-implementation deliberate: "this detector deliberately re-implements
-// only the minimal specifier extraction it needs". It has no regex-literal state
-// at all — weaker than the two walks task 065 retired — so it is wrong in both
-// directions AND miscounts `import('p').T` type queries as value imports.
-
 const IDENT = /[A-Za-z0-9_$]/;
 const isIdent = (c: string | undefined): boolean => c !== undefined && IDENT.test(c);
 const isWs = (c: string | undefined): boolean => c !== undefined && /\s/.test(c);
 
+/**
+ * The retired `workflow/admission/remediation-purity.extractImportSpecifiers`. It extracts each
+ * value-import specifier at code position, and skips comments and strings.
+ *
+ * It has no regex-literal state, so it is wrong in both directions. It also counts
+ * `import('p').T` type queries as value imports.
+ */
 export function supersededExtractImportSpecifiers(source: string): string[] {
   const specs: string[] = [];
   const n = source.length;
@@ -273,15 +255,15 @@ export function supersededExtractImportSpecifiers(source: string): string[] {
   return specs;
 }
 
-// ─── 3. `architecture/delivery-safety.maskLiteralsAndComments` ───────────────
-//
-// Blanks every string, template and comment span so structural matching sees
-// only real code. Like the walk above it has NO regex-literal state, so a regex
-// holding a quote or a backtick desyncs it — and it masks a template literal
-// whole, which un-masks the body of a template nested inside a `${…}`
-// substitution. Both directions are live for a silent-swallow gate: it invents a
-// `catch {}` that is only template text, and it misses a real one.
-
+/**
+ * The retired `architecture/delivery-safety.maskLiteralsAndComments`. It blanks each string,
+ * template and comment span, so structural matching sees only real code.
+ *
+ * It has no regex-literal state, so a regex that holds a quote or a backtick desyncs it. It masks
+ * a template literal whole, which unmasks the body of a template nested inside a `${…}`
+ * substitution. For a silent-swallow gate, it invents a `catch {}` that is only template text,
+ * and it misses a real one.
+ */
 export function supersededMaskLiteralsAndComments(source: string): string {
   const out: string[] = [];
   let quote: string | null = null;

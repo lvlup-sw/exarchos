@@ -12,10 +12,9 @@ import { auditLiveDescriptionBudgets } from './bindings/index.js';
 import type { CompositeTool, ToolAction } from '../../../src/registry.js';
 
 /**
- * Minimal valid action used to assemble synthetic tools for the planted-bloat
- * cases. Only the fields the budget audit reads (`name`, `description`,
- * `schema`) carry meaning; the rest satisfy the `ToolAction` contract so the
- * audit walks the same code paths it does for the real registry.
+ * A minimal valid action for the synthetic tools of the planted-bloat cases. Only `name`,
+ * `description` and `schema` carry meaning. The other fields satisfy the `ToolAction` contract, so
+ * the audit walks the same code paths as for the real registry.
  */
 function makeAction(name: string, description: string): ToolAction {
   return {
@@ -46,16 +45,16 @@ function makeTool(partial: Partial<CompositeTool> & { name: string }): Composite
 describe('estimateTokens', () => {
   it('approximates one token per four characters, rounding up', () => {
     expect(estimateTokens('')).toBe(0);
-    expect(estimateTokens('a')).toBe(1); // ceil(1/4)
-    expect(estimateTokens('abcd')).toBe(1); // exactly 4 chars
-    expect(estimateTokens('abcde')).toBe(2); // ceil(5/4)
+    expect(estimateTokens('a')).toBe(1);
+    expect(estimateTokens('abcd')).toBe(1);
+    expect(estimateTokens('abcde')).toBe(2);
     expect(estimateTokens('x'.repeat(800))).toBe(200);
   });
 });
 
 describe('auditDescriptionBudgets — planted over-budget descriptions', () => {
   it('FAILS when an action description exceeds the action budget', () => {
-    const overBy = DESCRIPTION_BUDGETS['action']! * 4 + 4; // > budget tokens
+    const overBy = DESCRIPTION_BUDGETS['action']! * 4 + 4;
     const tool = makeTool({
       name: 'exarchos_planted',
       actions: [makeAction('bloated', 'z'.repeat(overBy))],
@@ -99,10 +98,11 @@ describe('auditDescriptionBudgets — planted over-budget descriptions', () => {
     expect(report.offenders.some((e) => e.kind === 'tool.base')).toBe(true);
   });
 
+  /**
+   * Many short actions fold into a large `tool.full` string. Each description is in budget, so the
+   * tool must pass, because `tool.full` has no budget.
+   */
   it('does NOT enforce the derived tool.full string (measured-only)', () => {
-    // A tool whose action signatures fold into a multi-thousand-token
-    // `tool.full` string but whose individual descriptions are all in budget
-    // must still pass — tool.full has no budget by design.
     const actions = Array.from({ length: 40 }, (_, i) =>
       makeAction(`a${i}`, 'short action description well under budget'),
     );
@@ -119,15 +119,17 @@ describe('auditDescriptionBudgets — planted over-budget descriptions', () => {
 });
 
 describe('auditDescriptionBudgets — live registry surface', () => {
+  /**
+   * If this fails, a description grew past its budget. Read the report, then trim the description,
+   * or move the budget in `DESCRIPTION_BUDGETS` with a reason.
+   */
   it('PASSES on the current TOOL_REGISTRY (budgets are green today)', () => {
     const report = auditLiveDescriptionBudgets();
-    // If this fails, a description grew past its budget — read the report and
-    // either trim the description or move the budget in DESCRIPTION_BUDGETS
-    // with rationale. Never silently raise it.
     expect(report.offenders, formatBudgetReport(report)).toEqual([]);
     expect(report.pass).toBe(true);
   });
 
+  /** The audit gives one action entry for each registered action. */
   it('measures every enforced kind against the live surface', () => {
     const report = auditLiveDescriptionBudgets();
     const kinds = new Set(report.entries.map((e) => e.kind));
@@ -135,16 +137,13 @@ describe('auditDescriptionBudgets — live registry surface', () => {
     expect(kinds.has('tool.base')).toBe(true);
     expect(kinds.has('tool.slim')).toBe(true);
     expect(kinds.has('tool.full')).toBe(true);
-    // One action entry per registered action across all tools.
     const actionEntries = report.entries.filter((e) => e.kind === 'action');
     const totalActions = TOOL_REGISTRY.reduce((n, t) => n + t.actions.length, 0);
     expect(actionEntries).toHaveLength(totalActions);
   });
 
+  /** The ratchet tightens toward the target, and the live ceiling must not drop below it. */
   it('keeps the action budget at or above the R-E ratchet target', () => {
-    // The ratchet only ever tightens toward R-E's 200; the live ceiling must
-    // never drop below it (that would be over-tightening past the documented
-    // target) nor is the target itself the live budget yet.
     expect(DESCRIPTION_BUDGETS['action']!).toBeGreaterThanOrEqual(ACTION_BUDGET_RATCHET_TARGET);
   });
 });

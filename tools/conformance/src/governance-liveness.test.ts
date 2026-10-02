@@ -1,19 +1,15 @@
-// ─── Governance and packaging liveness ───────────────────────────────────────
+// Governance and packaging liveness.
 //
-// Every register checked here FAILS OPEN, which is what makes a liveness census
-// the right instrument: a stale entry produces no error anywhere, so the only
-// way to see one is to go and count what it matches.
+// Every register checked here fails open: a stale entry produces no error. The only way to see
+// one is to count what it matches.
 //
-// The seeded-violation case at the bottom is not decoration. A census that
-// reports "all live" is indistinguishable from a census that scanned nothing,
-// and this workflow has repeatedly found guards in the second state. Pinning a
-// known-dead input proves the reporting path can produce a finding at all.
+// A census that reports "all live" looks the same as a census that scanned nothing. Thus the
+// seeded stale-pattern case proves that the finding path can produce a finding.
 //
 // @oracle-sources: ../../../.github/CODEOWNERS, ../../../package.json, ../../../manifest.json, ../../../tools/audit/protected-suites.json, live-git-tracked-file-listing
 //
-// Co-located with its subject under `src/` because that is the directory the
-// `conformance` vitest project collects. A sibling `tests/` directory here is
-// matched by no project, so a suite placed there passes by never running.
+// This suite lives under `src/` because the `conformance` vitest project collects that directory.
+// No project collects a sibling `tests/` directory here.
 
 import { describe, it, expect } from 'vitest';
 
@@ -28,17 +24,17 @@ import {
 const result = auditGovernanceLiveness();
 
 describe('governance liveness', () => {
+  /** The denominator. Most checks in this suite pass on an empty scan. */
   it('the census scanned a real tree', () => {
-    // The denominator. Every assertion below is satisfied by an empty scan.
     expect(result.trackedFiles).toBeGreaterThan(500);
     expect(result.surfaces.length).toBeGreaterThan(10);
   });
 
+  /**
+   * Per-register denominators. CODEOWNERS alone satisfies the whole-census count. A register that
+   * the reader returns nothing for drops out of the audit, and its checks pass with no input.
+   */
   it('every register contributed surfaces', () => {
-    // Per-register denominators. The whole-census count above is satisfied by
-    // CODEOWNERS alone, so a register whose file was renamed — or whose shape
-    // changed enough that the reader returns nothing — would drop out of the
-    // audit entirely and every check below it would pass by having no input.
     const counted = new Map<string, number>();
     for (const surface of result.surfaces) {
       counted.set(surface.register, (counted.get(surface.register) ?? 0) + 1);
@@ -51,10 +47,12 @@ describe('governance liveness', () => {
     }
   });
 
+  /**
+   * The test first asserts that it reads patterns. CODEOWNERS has no extension, so a scan that
+   * filters by extension cannot see it.
+   */
   it('Codeowners_EveryPattern_MatchesAtLeastOneTrackedFile', () => {
     const patterns = codeownersPatterns();
-    // CODEOWNERS is EXTENSIONLESS, so an extension-filtered scan cannot see it
-    // at all — reading zero patterns is the failure this asserts against.
     expect(patterns.length, 'CODEOWNERS declares no patterns — was it renamed?').toBeGreaterThan(1);
 
     const dead = result.dead.filter((s) => s.register === 'codeowners');
@@ -73,11 +71,12 @@ describe('governance liveness', () => {
     ).toEqual([]);
   });
 
+  /**
+   * `dist/bin` and `dist/release-verify.js` are bun compile outputs. The census records them, but
+   * a clean checkout must not report them dead. CI runs `test:run` and `test:conformance` before
+   * `build:binary`.
+   */
   it('FilesArray_BuildOutputs_AreExcludedFromDeadOnACleanTree', () => {
-    // `dist/bin` and `dist/release-verify.js` are bun compile outputs. They
-    // are recorded so the census can see them, but a clean checkout (and CI
-    // `test:run` / `test:conformance`, which run before `build:binary`) must
-    // not report the tarball dead.
     const buildOutputs = result.surfaces.filter((s) => s.register === 'files' && s.buildOutput);
     expect(
       buildOutputs.map((s) => s.pattern).sort(),
@@ -106,9 +105,11 @@ describe('governance liveness', () => {
     ).toEqual([]);
   });
 
+  /**
+   * GitHub applies the last rule that matches. A trailing `*` thus overrides every specific rule.
+   * The default must be first, and it must appear once.
+   */
   it('Codeowners_StarIsTheFirstRuleAndIsNotRepeated', () => {
-    // GitHub is last-match-wins. A trailing `*` collapses every more-specific
-    // rule. The default must be first, and it must appear once.
     const patterns = codeownersPatterns();
     expect(patterns.length, 'CODEOWNERS declares no patterns').toBeGreaterThan(1);
     expect(patterns[0], 'the default rule is not first').toBe('*');
@@ -140,10 +141,12 @@ describe('governance liveness', () => {
     }
   });
 
+  /**
+   * Proves that the finding path fires. A pattern for a deleted tree matches nothing, and live
+   * patterns still match, so the matcher works. Unsupported gitignore forms such as `**` match
+   * nothing, so a hole reports dead and not live.
+   */
   it('GovernanceLiveness_StalePattern_FailsClosed', () => {
-    // Teeth. The matcher is exercised directly against a pattern naming a tree
-    // this repository deleted, so the finding path is proven to fire rather
-    // than assumed to.
     const tracked = trackedFiles();
     const stale = 'servers/exarchos-mcp/';
     expect(
@@ -151,23 +154,18 @@ describe('governance liveness', () => {
       'the seeded stale pattern matches real files — pick one that is genuinely gone',
     ).toEqual([]);
 
-    // …and a live one still matches, so the matcher is not simply broken.
     expect(tracked.filter((rel) => codeownersMatches('src/', rel)).length).toBeGreaterThan(0);
     expect(tracked.filter((rel) => codeownersMatches('/src/', rel)).length).toBeGreaterThan(0);
     expect(tracked.filter((rel) => codeownersMatches('/src/', rel)).length).toBe(
       tracked.filter((rel) => codeownersMatches('src/', rel)).length,
     );
     expect(tracked.filter((rel) => codeownersMatches('*', rel)).length).toBe(tracked.length);
-    // Unsupported gitignore forms match nothing so a hole reports dead
-    // rather than assumed live. `**` is the form that would otherwise
-    // look live on every path.
     expect(tracked.filter((rel) => codeownersMatches('**', rel))).toEqual([]);
     expect(tracked.filter((rel) => codeownersMatches('src/**', rel))).toEqual([]);
   });
 
+  /** On a failure, the message is the whole product, so the test checks it. */
   it('the report names every dead surface it found', () => {
-    // The message is the whole product on a failure, so it is checked rather
-    // than trusted.
     const rendered = formatGovernanceLiveness({
       ok: false,
       surfaces: [],

@@ -1,18 +1,9 @@
-// Opt-in eval surface (DR-3).
+// Opt-in eval package. It owns the eval-only `promptfoo` dependency, so the default install does not pull it.
+// This package is not a workspace of the repo root. Install it only when you run the evals.
 //
-// This package exists solely to own the heavy, eval-only `promptfoo` dependency
-// OUTSIDE the default MCP-server install, so a plain `npm install` in
-// servers/exarchos-mcp/ no longer pulls promptfoo (and its large transitive
-// tree). It is intentionally NOT a workspace of the server or the repo root —
-// making it a standalone, install-on-demand package is the mechanism that keeps
-// the default closure slim.
-//
-// The llm-rubric / llm-similarity graders live in ../src/evals/graders and
-// resolve promptfoo's `assertions` surface from THIS package's node_modules at
-// runtime via ../src/evals/graders/promptfoo-loader.ts. This module re-exports
-// that surface so the eval package's own tsconfig typechecks the promptfoo
-// contract the graders depend on — a compile-time canary that fires here (only
-// when the eval package is installed), never in the default server typecheck.
+// The llm-rubric and llm-similarity graders in `tools/evals/evals/graders` load promptfoo from the
+// `node_modules` of this package through `promptfoo-loader.ts`. This module re-exports the
+// `assertions` surface, so the typecheck of this package checks the contract that the graders use.
 import { assertions } from 'promptfoo';
 
 export const promptfooAssertions = assertions;

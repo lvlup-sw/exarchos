@@ -1,30 +1,16 @@
 /**
- * Governance and packaging liveness — do the registers that govern this repo
- * still point at anything?
+ * A liveness census of the registers that govern this repo. Each register decides
+ * who reviews a change or what ships:
  *
- * Four registers decide who reviews a change and what ships:
+ * - `.github/CODEOWNERS`: who must review a path.
+ * - `package.json` `files[]`: what goes in the npm tarball.
+ * - `manifest.json`: what the plugin installer copies.
+ * - `protected-suites.json`: which suites a change must not weaken.
  *
- *   `.github/CODEOWNERS`      who must review a path
- *   `package.json` `files[]`  what goes in the npm tarball
- *   `manifest.json`           what the plugin installer copies
- *   `protected-suites.json`   which suites may not be weakened
- *
- * All four FAIL OPEN. A CODEOWNERS pattern that matches nothing does not error;
- * ownership silently collapses to the `*` fallback and every review gate on
- * those paths disappears. A `files[]` entry naming a directory that no longer
- * exists does not error; npm just ships less. The failure is invisible in
- * exactly the way that matters — nothing turns red, and the register keeps
- * reading like it is doing its job.
- *
- * That is why this is a census over the LIVE tree rather than a schema check.
- * Every finding here is of one shape: a declared pattern with an empty match
- * set. The audit reports the count it matched alongside each verdict, so a
- * reader can tell "this pattern owns nothing" from "this census scanned
- * nothing" — the second failure mode being the one a liveness check is most
- * likely to die of.
- *
- * CODEOWNERS is extensionless, so any scan filtered by file extension cannot
- * see it. It is read by name.
+ * All four fail open. A pattern that matches nothing raises no error, so review
+ * ownership or the shipped set shrinks silently. Each finding is a declared pattern
+ * with an empty match set. The result also reports the tracked-file count, so a
+ * reader can tell an empty pattern from an empty scan.
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
@@ -41,9 +27,9 @@ export interface GovernanceSurface {
   /** Tracked files it matches. Zero is the finding. */
   readonly matched: number;
   /**
-   * A `files[]` entry naming a compile output (`dist/…`). These are not
-   * tracked and are absent before `npm run build`; they are recorded so the
-   * census can see them, but they are not `dead` on a clean checkout.
+   * True for a `files[]` entry that names a compile output (`dist/…`). Git does not
+   * track these, and they are absent before `npm run build`. The census records them
+   * but does not report them as dead.
    */
   readonly buildOutput?: boolean;
 }
@@ -51,7 +37,7 @@ export interface GovernanceSurface {
 export interface GovernanceLivenessResult {
   readonly ok: boolean;
   readonly surfaces: readonly GovernanceSurface[];
-  /** Declared patterns matching nothing — the whole point of the census. */
+  /** Declared patterns that match nothing. */
   readonly dead: readonly GovernanceSurface[];
   /** Tracked files scanned. A zero here means the census itself is broken. */
   readonly trackedFiles: number;
@@ -68,8 +54,8 @@ export function trackedFiles(repoRoot: string = REPO_ROOT): string[] {
 }
 
 /**
- * Parse CODEOWNERS into its patterns. Comments and blank lines are skipped; a
- * rule is `<pattern> <owner>…`, so the pattern is the first field.
+ * Parses CODEOWNERS into its patterns. It skips comments and blank lines. The
+ * pattern is the first field of a `<pattern> <owner>…` rule.
  */
 export function codeownersPatterns(repoRoot: string = REPO_ROOT): string[] {
   const file = path.join(repoRoot, '.github/CODEOWNERS');
@@ -82,14 +68,13 @@ export function codeownersPatterns(repoRoot: string = REPO_ROOT): string[] {
     .filter((pattern) => pattern.length > 0);
 }
 
-/**
- * Does a CODEOWNERS pattern match a path? Supports the forms this repo uses —
- * `*` (everything), a `dir/` prefix, and a literal path. Deliberately not a
- * full gitignore engine: an unsupported form is reported as matching nothing
- * rather than assumed live, so the census fails toward reporting a hole.
- */
 import { codeownersMatches as matchCodeownersPattern } from '../../../tools/audit/lib/codeowners-match.mjs';
 
+/**
+ * Tells if a CODEOWNERS pattern matches a path. It supports `*`, a `dir/` prefix and
+ * a literal path. An unsupported form matches nothing, so the census reports a hole
+ * and does not assume the pattern is live.
+ */
 export const codeownersMatches: (pattern: string, rel: string) => boolean = matchCodeownersPattern;
 
 interface PackageManifest {
@@ -115,12 +100,13 @@ function readJson<T>(file: string): T | undefined {
 }
 
 /**
- * Run the census.
+ * Runs the census. A `files[]` entry or a manifest `source` names a path, not a glob.
+ * Its match count is the number of tracked files at or under that path, as for a
+ * CODEOWNERS prefix.
  *
- * A `files[]` entry or a manifest `source` names a path rather than a glob, so
- * "matched" for those is the count of tracked files at or under it. Both are
- * counted the same way as a CODEOWNERS prefix so one reading of "dead" covers
- * every register.
+ * A `files[]` entry under `dist/` names a build output that git does not track. The
+ * census counts it by disk existence and marks it `buildOutput`, so a clean checkout
+ * does not report the tarball as dead.
  */
 export function auditGovernanceLiveness(repoRoot: string = REPO_ROOT): GovernanceLivenessResult {
   const tracked = trackedFiles(repoRoot);
@@ -136,10 +122,6 @@ export function auditGovernanceLiveness(repoRoot: string = REPO_ROOT): Governanc
 
   const pkg = readJson<PackageManifest>(path.join(repoRoot, 'package.json'));
   for (const entry of pkg?.files ?? []) {
-    // A `files[]` entry may name a BUILD OUTPUT (`dist/…`) that is not tracked
-    // and legitimately absent before a build. Count those by disk existence
-    // and mark them `buildOutput` so a clean checkout does not report the
-    // tarball dead. Source-tree entries are still counted from `git ls-files`.
     const buildOutput = entry.startsWith('dist/');
     const matched = buildOutput
       ? existsSync(path.join(repoRoot, entry))

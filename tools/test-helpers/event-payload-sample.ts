@@ -1,38 +1,25 @@
-// ─── Realistic event payloads, DERIVED from the shipped data schemas ─────────
+// Realistic event payloads, derived from the shipped data schemas.
 //
-// A differential fold whose corpus carries `data: {}` proves almost nothing. A
-// reducer arm that reads a field before it mutates cannot fire on an empty bag,
-// so "dropping this event changes no state" and "this event's arm never got a
-// chance to run" produce the same green. Measured on this tree, an empty-payload
-// corpus made 168 of 178 catalog types indistinguishable from a no-op, and the
-// eight types the canonical fold mutates on under a real payload — `state.patched`
-// and `task.assigned` among them — were among the invisible ones.
+// A differential fold over `data: {}` proves almost nothing. A reducer arm that reads a field
+// before it mutates cannot fire on an empty bag. A dropped event and an arm that never ran then
+// give the same green result.
 //
-// So the corpus payload is GENERATED from each type's own `EVENT_DATA_SCHEMAS`
-// entry rather than hand-written. Two properties follow, and both matter:
+// The sampler thus generates each payload from the `EVENT_DATA_SCHEMAS` entry of its type. A new
+// event type joins the corpus with no table edit, and the payload always agrees with the schema.
+// It fills every property, optional ones included, because a missing field leaves an arm unused.
 //
-//   • a new event type joins the corpus with a realistic payload and nobody
-//     edits a table, so the corpus cannot rot into emptiness one type at a time;
-//   • the payload cannot disagree with the schema, because it is a reading of
-//     the schema.
-//
-// Every property is filled, optional ones included: the goal is the RICHEST
-// admissible payload, since a field left out is a reducer arm left unexercised.
-//
-// `z.toJSONSchema` is the public projection of a zod schema. Walking
-// `_zod.def` directly would couple this helper to zod's internals for no gain —
-// JSON Schema already carries every discriminant the sampler needs.
+// The sampler walks the output of `z.toJSONSchema`, the public projection of a zod schema, not
+// the zod internals.
 
 import { z } from 'zod';
 
 /** A JSON-Schema node, as far as the sampler reads one. */
 type SchemaNode = Readonly<Record<string, unknown>> | boolean;
 
-// A recursion guard against runaway or cyclic schemas, not a cap on
-// legitimate nesting: an evidence row's artifact reference nests
-// evidence -> artifactRefs -> item -> subject -> digest -> property, seven
-// levels deep, and every one of those levels is real schema shape a sample
-// needs to walk through, not a loop.
+/**
+ * A recursion guard against runaway or cyclic schemas, not a limit on real nesting. The artifact
+ * reference of an evidence row nests seven levels deep.
+ */
 const MAX_DEPTH = 10;
 
 function isObjectNode(node: SchemaNode): node is Readonly<Record<string, unknown>> {
@@ -53,7 +40,7 @@ function asNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
-/** Resolve a local `$ref` against the document root; unresolvable refs sample as a string. */
+/** Resolves a local `$ref` against the document root, or returns `undefined`. */
 function resolveRef(ref: string, root: Readonly<Record<string, unknown>>): SchemaNode | undefined {
   if (!ref.startsWith('#/')) return undefined;
   let current: unknown = root;
@@ -68,14 +55,9 @@ function resolveRef(ref: string, root: Readonly<Record<string, unknown>>): Schem
 }
 
 /**
- * A string the node's own constraints admit.
- *
- * The plain `sample-<name>` string satisfies a bare `type: string`, and nothing
- * else: a timestamp field rejects it, a digest field rejects it, a URL field
- * rejects it, and the fold arm behind any of those never runs. Formats come
- * from the JSON Schema `format` keyword; the digest shape comes from its
- * `pattern`; an absolute-path requirement is a refinement the JSON Schema
- * cannot express, so it is read off the property name.
+ * A string that the constraints of the node admit. The JSON Schema `format` keyword gives the
+ * format, and a hex `pattern` gives the digest shape. JSON Schema cannot express an absolute-path
+ * refinement, so the property name decides it.
  */
 function sampleString(node: Readonly<Record<string, unknown>>, propertyName: string): string {
   const format = node['format'];
@@ -108,10 +90,11 @@ function sampleString(node: Readonly<Record<string, unknown>>, propertyName: str
 }
 
 /**
- * One deterministic value admitted by `node`.
+ * One deterministic value that `node` admits, so two runs of a corpus fold to the same state.
  *
- * Deterministic on purpose: two runs of the same corpus must fold to the same
- * state, or every differential comparison becomes a coin flip.
+ * A union samples its first non-null branch, because a `null` exercises no arm. A number takes
+ * its `minimum` or 1, clamped to `maximum`. A tuple samples every position. An array gets
+ * `minItems` items, at least one, and each item carries its own ordinal for a uniqueness rule.
  */
 function sampleNode(
   node: SchemaNode,
@@ -139,8 +122,6 @@ function sampleNode(
   for (const branchKey of ['anyOf', 'oneOf', 'allOf'] as const) {
     const branches = asArray(node[branchKey]);
     if (branches === undefined || branches.length === 0) continue;
-    // The first non-null branch: a nullable field sampled as `null` exercises
-    // nothing, and the point of the corpus is to exercise arms.
     for (const branch of branches) {
       const candidate = asRecord(branch);
       if (candidate === undefined) continue;
@@ -162,8 +143,6 @@ function sampleNode(
       const minimum = asNumber(node['minimum']);
       const maximum = asNumber(node['maximum']);
       const candidate = minimum ?? 1;
-      // A schema-wide `maximum` of `Number.MAX_SAFE_INTEGER` is zod's encoding of
-      // "a JS number", not a real bound, so clamping is enough — no scaling.
       return maximum !== undefined && candidate > maximum ? maximum : candidate;
     }
     case 'boolean':
@@ -171,8 +150,6 @@ function sampleNode(
     case 'null':
       return null;
     case 'array': {
-      // A tuple names each position's schema; sample every position, because
-      // a two-element `lineRange` with one entry is not a line range.
       const positions = asArray(node['prefixItems']);
       if (positions !== undefined && positions.length > 0) {
         return positions.map((position, index) => {
@@ -186,10 +163,6 @@ function sampleNode(
       if (items === undefined) return [];
       const itemNode = asRecord(items);
       if (itemNode === undefined) return [];
-      // A schema that demands a floor gets the floor: one item under a
-      // `minItems: 2` is a payload the schema itself rejects, and a fold arm
-      // that only runs on a valid payload would stay inert under it. Each item
-      // carries its own ordinal so a uniqueness constraint is honored too.
       const floor = asNumber(node['minItems']) ?? 1;
       const count = Math.max(1, Math.trunc(floor));
       return Array.from({ length: count }, (_, index) =>
@@ -223,13 +196,9 @@ function sampleNode(
 }
 
 /**
- * The richest payload the schema admits, or `undefined` when the type declares
- * no data schema.
- *
- * `undefined` is deliberately distinguishable from `{}`: "this type has no
- * schema to sample" and "this type's schema admits an empty bag" are different
- * facts, and a caller asserting corpus richness has to be able to tell them
- * apart.
+ * The richest payload that the schema admits. It returns `undefined`, not `{}`, when the type has
+ * no data schema or `z.toJSONSchema` cannot express the schema. A caller that asserts corpus
+ * richness can thus tell "no schema" from "the schema admits an empty bag".
  */
 export function sampleEventData(
   schema: z.ZodType | undefined,
@@ -242,8 +211,6 @@ export function sampleEventData(
     if (record === undefined) return undefined;
     jsonSchema = record;
   } catch {
-    // A schema JSON Schema cannot express samples as nothing rather than as an
-    // empty bag, so the caller's richness assertion names the type.
     return undefined;
   }
   const sampled = sampleNode(jsonSchema, jsonSchema, 'value', 0);

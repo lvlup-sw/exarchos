@@ -1,22 +1,12 @@
 /**
- * Verb registration snapshot (DR-2, DR-9, task 015).
+ * Verb registration snapshot.
  *
- * Task 015 regroups 82 flat files out of `orchestrate/` into capability
- * directories. The failure mode that move can cause is invisible to every other
- * gate: a handler that stops being registered, or an action registered with no
- * dispatch branch behind it, **compiles cleanly**. Typecheck is happy, the
- * import graph is happy, and the action simply answers UNKNOWN_ACTION at
- * runtime — which no unit test covering that handler in isolation will notice.
+ * A file move can drop a handler from the registry, or register an action with no dispatch
+ * branch. Both compile cleanly, and the action answers UNKNOWN_ACTION at runtime. A unit test of
+ * the handler alone does not see this.
  *
- * So the snapshot is the gate, and it covers BOTH halves, because they fail
- * independently: the registry can list an action the composite cannot route
- * (the known UNKNOWN_ACTION trap), and the composite can route one the registry
- * never advertises.
- *
- * Authored in the MCP workspace rather than the plan's `tests/architecture/`
- * path because it IMPORTS the live registry — the root project excludes this
- * workspace and does not carry its `bun:sqlite` alias, so the import would not
- * resolve there.
+ * The two halves fail independently, so the suite checks both. The snapshot catches a lost
+ * registration, and the orphan check catches an action with no case branch.
  *
  * @oracle-sources: ../../../src/registry.ts, live-composite-dispatch-sources
  */
@@ -71,10 +61,11 @@ describe('VerbRegistration_AfterRegrouping_EveryActionStillRegisters', () => {
     expect(ids.length).toBe(new Set(ids).size);
   });
 
+  /**
+   * Regenerate the snapshot with `node tools/audit/measure-verb-registration.mjs` only when an
+   * action is added or removed. A regrouping must not change it.
+   */
   it('matches the checked-in snapshot exactly', () => {
-    // Regenerate deliberately with `node tools/audit/measure-verb-registration.mjs`
-    // when an action is genuinely added or removed. A regrouping must NOT change
-    // this file — that is the whole point.
     expect(existsSync(BASELINE), `snapshot missing at ${BASELINE}`).toBe(true);
     const snapshot = JSON.parse(readFileSync(BASELINE, 'utf8')) as { actionIds: string[] };
     expect(
@@ -91,16 +82,19 @@ describe('VerbRegistration_AfterRegrouping_EveryActionStillRegisters', () => {
     }
   });
 
+  /**
+   * The orphan check: an action that is registered but cannot be routed. Several composites
+   * handle `describe` generically, so it is exempt by name. A composite with no `case` branch
+   * is skipped.
+   */
   it('every registered action has a dispatch branch in its composite', () => {
-    // The other half of the trap: registered but unroutable. `describe` is
-    // handled generically by several composites, so it is exempt by name.
     const GENERIC = new Set(['describe']);
     const orphaned: string[] = [];
     for (const tool of TOOL_REGISTRY) {
       const rel = COMPOSITES[tool.name];
       if (!rel) continue;
       const routed = routedActionNames(rel);
-      if (routed.size === 0) continue; // composite does not use a switch — skip
+      if (routed.size === 0) continue;
       for (const action of tool.actions) {
         if (GENERIC.has(action.name)) continue;
         if (!routed.has(action.name)) orphaned.push(`${tool.name}.${action.name}`);
@@ -114,9 +108,11 @@ describe('VerbRegistration_AfterRegrouping_EveryActionStillRegisters', () => {
   });
 });
 
+/**
+ * Kill probe for the snapshot. A snapshot that nobody proved can fail can one day be
+ * regenerated to match a regression.
+ */
 describe('VerbRegistration_DroppedHandler_FailsTheSnapshot', () => {
-  // A snapshot nobody has proved can fail is a snapshot that will one day be
-  // regenerated to match a regression. These tests are its kill probe.
   const ids = registeredActionIds();
 
   it('dropping one action from the observed set fails the comparison', () => {
@@ -131,18 +127,20 @@ describe('VerbRegistration_DroppedHandler_FailsTheSnapshot', () => {
     expect(renamed).not.toEqual(ids);
   });
 
+  /** Seeds the exact defect: an action name that no composite routes. */
   it('the orphan check really detects an unroutable action', () => {
-    // Seed the exact defect: an action name no composite routes.
     const routed = routedActionNames(COMPOSITES.exarchos_workflow as string);
     expect(routed.size).toBeGreaterThan(0);
     expect(routed.has('an_action_no_composite_routes')).toBe(false);
   });
 
+  /**
+   * Positive control: a known workflow action is routed. Negative control: an action of a
+   * different tool is not.
+   */
   it('the composite scan is reading real switch branches, not matching everything', () => {
     const routed = routedActionNames(COMPOSITES.exarchos_workflow as string);
-    // Positive control: a known workflow action IS routed.
     expect(routed.has('rehydrate')).toBe(true);
-    // Negative control: an action belonging to a DIFFERENT tool is not.
     expect(routed.has('task_claim')).toBe(false);
   });
 });

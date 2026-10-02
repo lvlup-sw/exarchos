@@ -1,21 +1,15 @@
-// ─── Packaged-proof coverage engine + ratchet — unit tests (P05-02) ──────────
-//
-// The PURE half of the packaged action/CLI proof. These tests pin:
-//   • denominators are derived from the LIVE registries (exit-proof a) — a
-//     seeded/extra registered action grows the denominator, it is not a static
-//     list; and the `actions` denominator equals the compiled contract's action
-//     set (`compile().proofFixtures`).
-//   • the ratchet FAILS on a seeded, unexercised registered action (exit-proof
-//     b) and on de-exercising an existing item, but tolerates removals.
-//   • the error-family → stable-exit-code mapping the compiled-process proof
-//     asserts against (exit-proof c, contract half).
-//   • the checked-in baseline tracks the live denominators (a new action forces
-//     a baseline update — a fast, binary-free ratchet signal).
-//
-// The compiled-process numerator (does the SHIPPED BINARY actually exercise
-// each item) is proven separately in `test/process/packaged-proof.test.ts`.
-// ────────────────────────────────────────────────────────────────────────────
-
+/**
+ * Unit tests for the pure half of the packaged action and CLI proof. They pin these facts:
+ *
+ * - The denominators come from the live registries. A seeded action grows the `actions`
+ *   denominator, and that denominator equals the action set of `compile().proofFixtures`.
+ * - The ratchet fails on a seeded unexercised action and on a de-exercised item. It accepts a
+ *   removal.
+ * - Each error family maps to a stable exit code.
+ * - The checked-in baseline tracks the live denominators.
+ *
+ * `tests/core/process/packaged-proof.test.ts` proves the numerator against the shipped binary.
+ */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -46,8 +40,6 @@ import {
   type DimensionSets,
   type CoverageBaseline,
 } from './packaged-proof.js';
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /** Clone the live registry, appending one extra (differently-named) action to
  *  `toolName`. Structural — it reuses the source action's schemas, so
@@ -95,32 +87,32 @@ const EMPTY_LEDGER: DimensionSets = {
   cancellationPaths: [],
 };
 
-// ─── Denominators are LIVE, not a static list (exit-proof a) ─────────────────
-
 describe('packaged-proof denominators are derived from the live registry', () => {
+  /**
+   * The `actions` denominator is every registered action. The error families are the failure
+   * layers, and the effect families are the three effect-ledger classes. Each dimension is
+   * non-empty, because an empty dimension reads as full coverage and hides a gap.
+   */
   it('Denominators_MatchLiveRegistryCounts', () => {
     const d = derivePackagedDenominators();
     const meta = deriveMetaModel();
 
-    // actions denominator == every registered action (no omission possible).
     expect(d.actions).toEqual([...meta.actions.map((a) => a.actionId)].sort());
 
-    // error families are exactly the six P03-02 failure layers.
     expect([...d.errorFamilies].sort()).toEqual([...FAILURE_LAYERS].sort());
 
-    // effect families are the three effect-ledger classes (P04-01).
     expect(d.effectFamilies).toEqual(['filesystem', 'network', 'process']);
 
-    // every dimension is non-empty (a dimension collapsing to zero would make
-    // its coverage trivially "100%" and hide a real gap).
     for (const dim of COVERAGE_DIMENSIONS) {
       expect(d[dim].length, `dimension ${dim} must be non-empty`).toBeGreaterThan(0);
     }
   });
 
+  /**
+   * The compiled contract is the authority. The `actions` denominator equals its proof-fixture
+   * action set, not only the meta-model.
+   */
   it('Denominators_ActionsEqualCompiledContractProofFixtures', () => {
-    // Ties the `actions` denominator to the COMPILED CONTRACT (not just the
-    // meta-model): the compiler's proof-fixture action set is the authority.
     const outcome = compile(deriveMetaModel());
     expect(outcome.ok, 'compile() must succeed to cross-check the denominator').toBe(true);
     if (!outcome.ok) return;
@@ -128,6 +120,10 @@ describe('packaged-proof denominators are derived from the live registry', () =>
     expect(derivePackagedDenominators().actions).toEqual(fixtureActionIds);
   });
 
+  /**
+   * A hand-kept static list does not grow. So the last assertion proves that the denominator comes
+   * from the registry.
+   */
   it('Denominators_GrowWhenARegisteredActionIsAdded', () => {
     const base = derivePackagedDenominators();
     const seeded = derivePackagedDenominators(
@@ -135,27 +131,24 @@ describe('packaged-proof denominators are derived from the live registry', () =>
     );
     expect(seeded.actions.length).toBe(base.actions.length + 1);
     expect(seeded.actions).toContain('exarchos_event.proof_seeded_probe');
-    // A hand-maintained static list would NOT have grown — this is the
-    // discriminating assertion that the denominator is registry-derived.
     expect(base.actions).not.toContain('exarchos_event.proof_seeded_probe');
   });
 
+  /**
+   * `get` is the `status` alias on tool `wf`, `pipeline` is `ls`, and `ps` is a top-level verb. An
+   * action without an alias keeps its own name as the subcommand.
+   */
   it('CliPlan_ResolvesAliasAndTopLevelSubcommandNames', () => {
     const plan = derivePackagedCliPlan();
     const byId = new Map(plan.map((p) => [p.actionId, p]));
 
-    // `get` is exposed on the CLI under its alias `status` on tool `wf`.
     expect(byId.get('exarchos_workflow.get')?.actionCliName).toBe('status');
     expect(byId.get('exarchos_workflow.get')?.toolCliName).toBe('wf');
-    // `pipeline` under alias `ls`; `ps` promoted to a top-level verb.
     expect(byId.get('exarchos_view.pipeline')?.actionCliName).toBe('ls');
     expect(byId.get('exarchos_view.ps')?.topLevel).toBe('ps');
-    // an alias-less action keeps its own name as the subcommand.
     expect(byId.get('exarchos_orchestrate.doctor')?.actionCliName).toBe('doctor');
   });
 });
-
-// ─── Coverage computation ────────────────────────────────────────────────────
 
 describe('computeCoverage', () => {
   it('Coverage_FullLedgerYields100Percent', () => {
@@ -178,9 +171,9 @@ describe('computeCoverage', () => {
     expect([...actions.missing].sort()).toEqual([...d.actions].sort());
   });
 
+  /** A ledger entry outside the denominator does not raise coverage past the denominator. */
   it('Coverage_IgnoresLedgerItemsOutsideTheDenominator', () => {
     const d = derivePackagedDenominators();
-    // A stale/bogus ledger entry must not inflate coverage past the denominator.
     const ledger: DimensionSets = { ...fullLedger(d), actions: [...d.actions, 'ghost.action'] };
     const actions = coverageFor(computeCoverage(d, ledger), 'actions');
     expect(actions.covered).toBe(actions.total);
@@ -197,8 +190,6 @@ describe('computeCoverage', () => {
   });
 });
 
-// ─── The ratchet (exit-proof b) ──────────────────────────────────────────────
-
 describe('checkRatchet', () => {
   it('Ratchet_PassesWhenCoverageMatchesBaseline', () => {
     const d = derivePackagedDenominators();
@@ -209,16 +200,18 @@ describe('checkRatchet', () => {
     expect(result.regressions).toEqual([]);
   });
 
+  /**
+   * The baseline covers the live registry. Then a new action is registered, but the ledger covers
+   * only the old set. So the ratchet reports a new gap.
+   */
   it('Ratchet_FailsOnASeededUnexercisedRegisteredAction', () => {
-    // Baseline: everything covered against the live registry.
     const baselineDen = derivePackagedDenominators();
     const baseline = reportToBaseline(computeCoverage(baselineDen, fullLedger(baselineDen)));
 
-    // Now a new action is REGISTERED but the exercise ledger does NOT cover it.
     const grownDen = derivePackagedDenominators(
       withSeededAction('exarchos_event', 'proof_seeded_probe'),
     );
-    const ledgerMissingSeed = fullLedger(baselineDen); // covers only the OLD set
+    const ledgerMissingSeed = fullLedger(baselineDen);
     const report = computeCoverage(grownDen, ledgerMissingSeed);
 
     const actions = coverageFor(report, 'actions');
@@ -245,24 +238,26 @@ describe('checkRatchet', () => {
     ).toBe(true);
   });
 
+  /**
+   * The baseline accepts `network` as an effect-family gap, because the compiled proof cannot make
+   * a hermetic network call. A run with the same accepted gap stays green.
+   */
   it('Ratchet_ToleratesAcceptedGapsRecordedInTheBaseline', () => {
-    // Baseline accepts `network` as an effect-family gap (the compiled proof
-    // cannot hermetically make a network call).
     const d = derivePackagedDenominators();
     const ledger = ledgerWithout(d, { effectFamilies: ['network'] });
     const report = computeCoverage(d, ledger);
     const baseline = reportToBaseline(report);
-    // Re-running with the SAME accepted gap must stay green.
     expect(checkRatchet(report, baseline).ok).toBe(true);
   });
 
+  /**
+   * An action removed from the registry shrinks the denominator. The covered count drops, but a
+   * deletion is not a regression.
+   */
   it('Ratchet_ToleratesRemovingARegisteredItem', () => {
-    // Baseline covers the full live set…
     const full = derivePackagedDenominators();
     const baseline = reportToBaseline(computeCoverage(full, fullLedger(full)));
 
-    // …then an action is REMOVED from the registry (denominator shrinks). The
-    // covered count drops by one, but that is a deletion, not a regression.
     const shrunkRegistry = TOOL_REGISTRY.map((t) =>
       t.name === 'exarchos_event' ? { ...t, actions: t.actions.slice(1) } : t,
     );
@@ -272,8 +267,6 @@ describe('checkRatchet', () => {
     expect(result.ok, JSON.stringify(result.regressions)).toBe(true);
   });
 });
-
-// ─── Error-family → stable-exit-code mapping (exit-proof c, contract half) ───
 
 describe('error family exit-code mapping', () => {
   it('EveryStableCode_MapsToItsRegisteredExitCode', () => {
@@ -306,8 +299,6 @@ describe('error family exit-code mapping', () => {
   });
 });
 
-// ─── Baseline parsing (fail-closed) ──────────────────────────────────────────
-
 describe('parseCoverageBaseline', () => {
   it('Parse_RoundTripsAReportBaseline', () => {
     const d = derivePackagedDenominators();
@@ -338,14 +329,11 @@ describe('parseCoverageBaseline', () => {
   });
 });
 
-// ─── The checked-in baseline tracks the live denominators ────────────────────
-//
-// A fast, binary-free ratchet signal: if a registered action (alias / host
-// command / …) is added but the baseline is not regenerated, the baseline's
-// denominator `total` no longer matches the live surface and this test fails —
-// forcing the author to regenerate the baseline (which the compiled-process
-// test then holds to a real numerator).
-
+/**
+ * A fast ratchet that needs no binary. If an action, alias or host command is added and the
+ * baseline is not regenerated, a baseline `total` differs from the live surface. Then this suite
+ * fails.
+ */
 describe('checked-in packaged-proof baseline', () => {
   const baseline: CoverageBaseline = parseCoverageBaseline(
     JSON.parse(
@@ -376,8 +364,8 @@ describe('checked-in packaged-proof baseline', () => {
     }
   });
 
+  /** It guards the alias-id contract that the compiled-process ledger keys on. */
   it('Baseline_PresentationAliasesUseTheCanonicalAliasId', () => {
-    // Guards the alias-id contract the compiled-process ledger keys against.
     expect(den.presentationAliases).toContain(aliasId('exarchos_workflow.get', 'status'));
     expect(den.presentationAliases).toContain(aliasId('exarchos_view.pipeline', 'ls'));
   });

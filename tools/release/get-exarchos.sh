@@ -124,7 +124,7 @@ err()   { printf '[exarchos] ERROR: %s\n' "$*" >&2; }
 die()   { err "$*"; exit 1; }
 
 # ------------------------------------------------------------------
-# Release manifest verification (P05-01 / DR-20)
+# Release manifest verification
 # ------------------------------------------------------------------
 # The fail-closed gate that runs on the REAL install path (see
 # `verify_release_or_die`, called from the download block below) before any
@@ -726,7 +726,7 @@ fi
 log "sha512 checksum verified"
 
 # ------------------------------------------------------------------
-# Signed release manifest verification (DR-20) — MANDATORY
+# Signed release manifest verification — MANDATORY
 # ------------------------------------------------------------------
 # The sidecar above only proves the bytes survived transport: it is served
 # from the same origin as the binary, so anyone who can replace one can

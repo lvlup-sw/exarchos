@@ -1,24 +1,16 @@
-// ─── P07-04 / Transition task 038 — admission decision path (isolated) ───────
-//
-// The P06 admission chokepoint (`runTransitionCommand`) does five things and
-// then appends: (1) selects the legal ROUTE, (2) RESOLVES the requirement
-// lattice, (3) FREEZES it into content-addressed records, (4) EVALUATES the
-// three-valued policy verdict, and only then (5) APPENDS the decision +
-// lifecycle events in one atomic transaction.
-//
-// The P07-04 exit proof bounds the DECISION itself — "admission p99 under 15 ms
-// EXCLUDING gate execution and report generation." Gate execution is upstream
-// (evidence is supplied here, already produced), and report generation / the
-// atomic append are downstream. So the thing to measure is steps (1)–(4) in
-// isolation: `selectEdge` → `resolveRequirements` → `freezeRequirements` →
-// `evaluatePolicy`. This module composes exactly those four pure functions —
-// the SAME ones the real chokepoint calls before it opens its transaction — and
-// nothing else. No event store, no clock, no gate runner, no decision-record
-// persistence.
-//
-// It is pure and deterministic, which is also what the cross-runtime and replay
-// suites lean on: identical inputs yield a byte-identical {@link
-// AdmissionDecisionOutcome} and digest under any runtime.
+/**
+ * The admission decision path, in isolation.
+ *
+ * Before it opens its atomic transaction, the admission chokepoint
+ * (`runTransitionCommand`) calls four pure functions: `selectEdge`,
+ * `resolveRequirements`, `freezeRequirements` and `evaluatePolicy`. This module
+ * composes only those four. It uses no event store, no clock, no gate runner and no
+ * decision-record persistence.
+ *
+ * The admission latency bound excludes gate execution and report generation. Thus
+ * the benchmark measures these four steps only, without the append. Identical inputs
+ * give a byte-identical {@link AdmissionDecisionOutcome} and digest under any runtime.
+ */
 
 import { createHash } from 'node:crypto';
 
@@ -44,17 +36,16 @@ import type {
   WaiverProvenanceV1,
 } from '../../../../../src/workflow/admission/types.js';
 
-// ─── Scenario input — everything a decision folds over ───────────────────────
-
+/** The inputs that one admission decision folds over. */
 export interface AdmissionScenario {
   /** Stable identifier used in reports and digests. */
   readonly name: string;
-  /** Topology candidates + facts for route selection (P06-02). */
+  /** Topology candidates and facts for route selection. */
   readonly route: {
     readonly candidates: readonly EdgeCandidate[];
     readonly facts: EdgeConditionFacts;
   };
-  /** Normalized requirement-resolution context (P06-03). */
+  /** Normalized requirement-resolution context. */
   readonly requirementContext: RequirementContext;
   readonly phaseAttemptId: PhaseAttemptId;
   readonly subject: EvidenceSubjectV1;
@@ -106,24 +97,20 @@ const EMPTY_OUTCOME = (
 });
 
 /**
- * Run the admission DECISION path for one scenario — route → resolve → freeze →
- * evaluate — and return the observable decision. This is the exact work the
- * P06-05 chokepoint performs BEFORE opening its atomic transaction; the append,
- * the persisted decision record, and any remediation report are deliberately
- * out of scope (the P07-04 exit-proof exclusions).
+ * Runs the decision path for one scenario (route, resolve, freeze, evaluate) and
+ * returns the observable decision. The chokepoint does the same work before it opens
+ * its transaction. The append, the persisted record and any remediation report are
+ * out of scope.
  */
 export function decideAdmission(
   scenario: AdmissionScenario,
 ): AdmissionDecisionOutcome {
-  // 1. Route legality (P06-02).
   const route = selectEdge(scenario.route.candidates, scenario.route.facts);
   if (route.outcome === 'no-match') return EMPTY_OUTCOME('no-match');
   if (route.outcome === 'blocked') return EMPTY_OUTCOME('blocked');
 
-  // 2. Resolve the obligation lattice (P06-03).
   const resolved = resolveRequirements(scenario.requirementContext);
 
-  // 3. Freeze it into content-addressed records (P06-05).
   const frozen = freezeRequirements({
     resolved,
     phaseAttemptId: scenario.phaseAttemptId,
@@ -133,7 +120,6 @@ export function decideAdmission(
       : {}),
   });
 
-  // 4. Evaluate the three-valued policy verdict (P06-04).
   const evaluation = evaluatePolicy({
     requirements: frozen.requirements,
     obligations: resolved,
@@ -181,8 +167,6 @@ export function decideAdmission(
   };
 }
 
-// ─── Content-addressed digest of an outcome (cross-runtime / replay compare) ──
-
 type CanonicalJson =
   | null
   | boolean
@@ -225,8 +209,7 @@ export function corpusDigest(scenarios: readonly AdmissionScenario[]): string {
     .digest('hex');
 }
 
-// ─── Percentile measurement ──────────────────────────────────────────────────
-
+/** Latency percentiles over a sample of millisecond timings. */
 export interface PercentileStats {
   readonly count: number;
   readonly minMs: number;
@@ -238,8 +221,9 @@ export interface PercentileStats {
 }
 
 /**
- * Nearest-rank percentile over a sample of millisecond timings. `p` is in
- * `[0, 100]`. Empty input yields all-zero stats (a caller-visible degenerate).
+ * Computes nearest-rank percentiles over a sample of millisecond timings. The rank
+ * for percentile `p` is `ceil(p / 100 * n)`, clamped to `[1, n]`. An empty sample
+ * gives all-zero stats.
  */
 export function computePercentiles(samplesMs: readonly number[]): PercentileStats {
   if (samplesMs.length === 0) {
@@ -248,7 +232,6 @@ export function computePercentiles(samplesMs: readonly number[]): PercentileStat
   const sorted = [...samplesMs].sort((a, b) => a - b);
   const n = sorted.length;
   const at = (p: number): number => {
-    // Nearest-rank: rank = ceil(p/100 * n), clamped to [1, n].
     const rank = Math.min(n, Math.max(1, Math.ceil((p / 100) * n)));
     return sorted[rank - 1] ?? 0;
   };
@@ -278,14 +261,13 @@ export interface MeasurementResult {
 }
 
 /**
- * Time the admission decision path over the whole corpus, `iterations` times,
- * after `warmup` unmeasured passes. Each measured sample is the mean per-decision
- * latency of one full corpus pass (so a large, diverse corpus is amortized into
- * a representative per-decision time, and the p99 is over per-pass means). To
- * pin the WORST single-decision path instead, pass a one-scenario corpus.
+ * Times the decision path over the whole corpus `iterations` times, after `warmup`
+ * unmeasured passes. Each sample is the mean per-decision latency of one corpus pass,
+ * so the p99 is over per-pass means. To measure the worst single decision, pass a
+ * one-scenario corpus.
  *
- * The returned `sink` accumulator is intentionally observed via the outcome
- * counts so a dead-code-eliminating runtime cannot elide the work.
+ * Each pass adds outcome counts to a `sink` value that the loop checks. Thus a
+ * runtime that removes dead code cannot remove the work.
  */
 export function measureAdmissionDecisionPath(
   scenarios: readonly AdmissionScenario[],
@@ -295,9 +277,8 @@ export function measureAdmissionDecisionPath(
     let sink = 0;
     for (const scenario of scenarios) {
       const outcome = decideAdmission(scenario);
-      // Touch the result so the call cannot be optimized away.
       sink += outcome.requirementIds.length + outcome.satisfiedCount;
-      if (outcome.verdict === undefined) sink += 1; // never true; keeps `sink` live
+      if (outcome.verdict === undefined) sink += 1;
     }
     return sink;
   };
@@ -321,9 +302,9 @@ export function measureAdmissionDecisionPath(
 }
 
 /**
- * Time a SINGLE scenario's decision path, one decision per measured sample —
- * the strict "worst single-decision p99" the exit proof bounds. `warmup`
- * samples are discarded first.
+ * Times the decision path of one scenario, with one decision per sample. This is the
+ * strict single-decision p99. The first `warmup` decisions are not measured. The loop
+ * reads each outcome, so a runtime cannot remove the decision.
  */
 export function measureSingleDecision(
   scenario: AdmissionScenario,
@@ -335,7 +316,6 @@ export function measureSingleDecision(
     const start = performance.now();
     const outcome = decideAdmission(scenario);
     const elapsed = performance.now() - start;
-    // Observe the outcome so the decision cannot be elided.
     if (outcome.requirementIds.length < 0) throw new Error('unreachable');
     samples.push(elapsed);
   }

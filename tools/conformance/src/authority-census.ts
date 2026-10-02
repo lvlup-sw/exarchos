@@ -1,88 +1,17 @@
-// ─── The authority census (DR-6, gate G5) ────────────────────────────────────
+// The authority census evaluates closure over the boundary rows of `authority-topology.ts`.
+// Each declared boundary names exactly one authority, and each other representation names what
+// binds it. An unbound representation, or more than one authority, fails closure, even when the
+// copies agree today.
 //
-// G5's policy, stated once: **every declared boundary names exactly one
-// authority; every other representation names what binds it. An unbound
-// representation, or more than one authority, fails closure.** More than one
-// AUTHORITATIVE representation is a finding *regardless of whether the copies
-// currently agree*.
+// The census is a pure evaluation over data, with no scanner, parser or filesystem access. Its
+// finding kinds are the `ClosureDiagnostic['kind']` of `contract/reachability/graph.ts`, so it adds
+// no error code. A `bound` claim must name an authority of its own boundary. An empty denominator fails.
 //
-// `architecture/authority-topology.ts` (task 024) is the MODEL — the eight
-// boundary rows plus the table's own well-formedness check. It deliberately
-// stopped short of the verdict, because a data model that also judged itself
-// would be one authority pretending to be two. This module is that verdict.
-//
-// ## Not a new instrument — the same census, one level up
-//
-// The program's rule is *no new enforcement instrument*. This module introduces
-// no scanner, no parser and no filesystem access; it is a pure evaluation over
-// data, assembled from three shipped idioms:
-//
-//   • `contract/reachability/graph.ts` (P05-05) is the shape. Its
-//     `evaluateClosure` resolves each subject along ordered HOPS, counts the
-//     resolvers at each, and fails on `missing` (0) or `ambiguous` (>1); a
-//     governed exemption that does not actually hold is `stale-exception`. G5 is
-//     that rule lifted from per-action hops to per-boundary authorities, so this
-//     module reuses the hop vocabulary rather than minting one — and its finding
-//     kinds are literally {@link ClosureDiagnostic}['kind'], an IMPORTED type, so
-//     "no novel error codes" is a compile-time fact and not a test's promise.
-//   • `architecture/adapter-ownership-seam.ts` / `effect-port-seam.ts` supply the
-//     TWO-WAY RATCHET: a declaration that over-claims is as much a finding as one
-//     that under-claims (`STALE_ADAPTER_OWNER`, `STALE_EFFECT_PORT`). Here that is
-//     a `bound` representation whose `boundTo` does not name its boundary's
-//     authority — a binding claim pointing somewhere else is cover, not
-//     derivation, and without this tooth `bound` degrades into a label anyone can
-//     apply.
-//   • `architecture/layer-boundaries-seam.ts` supplies the empty-denominator
-//     posture (`EMPTY_SEAM_DENOMINATOR`): a census whose population is empty
-//     reports no findings and passes, which is the instrument silently dying
-//     green. Both denominators are checked here, not just the row count.
-//
-// ## Per-row enforcement, never wholesale
-//
-// Every row carries an `enforceFrom`, and a row's findings BLOCK only from the
-// wave that remediates it. G5's own kill fixtures are rows whose authority is not
-// remediated until Waves 2–5 (the CLI-surface row reaches one authority only at
-// DR-19, the event catalog at DR-20, effect↔event at DR-7, capability at DR-14),
-// so flipping everything at Wave 1 exit would red-line CI for four waves against
-// subjects that do not exist yet. Findings are therefore always REPORTED and
-// separately marked `blocking`; `atWave` decides which ones count.
-//
-// The one arm that blocks at every wave is `already-enforced`, because it is a
-// claim about TODAY: "this boundary's single-authority rule is mechanically
-// enforced right now, by the named instrument." A claim about today cannot be
-// deferred to a later wave — it is either true now or it is stale now.
-//
-// ## What this census can and cannot see (stated, not smoothed over)
-//
-// The `authority` and `binding` hops resolve against the ROW's declaration. A row
-// is a committed human measurement of the tree, not a live read, so those two hops
-// are only as good as that measurement — which is precisely why task 026 exists
-// (live proof on the CLI-surface and event-catalog rows) and why
-// {@link BOUNDARY_HOP_EVIDENCE} records the evidence class of each hop as DATA
-// rather than leaving the limitation in prose. The `enforcement` hop is the one
-// resolved against an independent shipped module, and it is the hop that carries
-// the sharpest finding on the live table.
-//
-// That evidence field is keyed by (hop, ROW), not by hop — see its own doc
-// comment for why the hop-level shape task 025 shipped could not record what task
-// 026 proved, and how the per-row shape makes an inherited evidence class
-// unrepresentable rather than merely discouraged.
-//
-// A worked example of why "a check exists" is not a binding, and why this census
-// must never accept one as such: `PHASE_EXPECTED_EVENTS`
-// (`verbs/gates/check-event-emissions.ts`) is 2-of-6 derived and 4-of-6
-// hand-written literals, and its module-load loop validates that every event it
-// LISTS exists and is `model`-sourced. That loop can never see an event that
-// should be listed and is not. Validation of the entries present is not a binding
-// over the population — the same defect one level up is exactly what the
-// `enforcement` hop's direction check below is for.
-//
-// ## No `as const`, deliberately
-//
-// The repo's census counts type assertions and `as const` is counted, so every
-// tuple here carries an explicit `readonly [...]` annotation instead — the
-// cast-free idiom `authority-topology.ts` and `contract/declaration.ts` use.
-// ─────────────────────────────────────────────────────────────────────────────
+// Each finding is reported, and it blocks only from the `enforceFrom` wave of its row.
+// `already-enforced` blocks at every wave, because it is a claim about today. The `authority` and
+// `binding` hops resolve against the committed row, so {@link BOUNDARY_HOP_EVIDENCE} records the
+// evidence class of each hop of each row. Tuples carry explicit `readonly [...]` types, not
+// `as const`, because the cast census counts `as const`.
 
 import type { ClosureDiagnostic, HopStatus } from '../../../src/contract/reachability/graph.js';
 import { BOUNDARY_DERIVATIONS } from './bindings/index.js';
@@ -100,21 +29,11 @@ import {
   type TotalityReport,
 } from './authority-topology.js';
 
-// ─── Hops ────────────────────────────────────────────────────────────────────
-
 /**
- * The ordered hops a boundary is resolved along. G5 has exactly two clauses and
- * one claim-about-today, and each is a hop:
- *
- *   • `authority`   — "every declared boundary names exactly one authority".
- *                     `none` resolves 0 (missing); `contested` resolves ≥2
- *                     (ambiguous). The two arms of G5's second half.
- *   • `binding`     — "every other representation names what binds it". Resolved
- *                     once PER non-authoritative representation, so the finding
- *                     names the representation and not just the boundary.
- *   • `enforcement` — applicable only to a row claiming `already-enforced`: does
- *                     the named instrument exist, and does what it checks
- *                     actually discharge G5?
+ * The ordered hops that resolve a boundary.
+ * `authority`: the boundary names exactly one authority. `none` resolves 0 (missing), and `contested` resolves 2 or more (ambiguous).
+ * `binding`: each non-authoritative representation names what binds it. The hop resolves once for each representation.
+ * `enforcement`: for an `already-enforced` row only, the named instrument exists and its direction covers the population.
  */
 export const CENSUS_HOPS: readonly ['authority', 'binding', 'enforcement'] = [
   'authority',
@@ -125,7 +44,7 @@ export const CENSUS_HOPS: readonly ['authority', 'binding', 'enforcement'] = [
 /** One of the hops in {@link CENSUS_HOPS}. */
 export type CensusHop = (typeof CENSUS_HOPS)[number];
 
-/** The evidence classes a (hop, row) may carry. */
+/** The evidence classes that a (hop, row) entry can carry. */
 export const EVIDENCE_CLASSES: readonly [
   'declared-row',
   'registered-instrument',
@@ -151,12 +70,9 @@ export function isEvidenceClass(value: unknown): value is EvidenceClass {
 }
 
 /**
- * The witness a `live-measurement` claim must carry.
- *
- * Named parts rather than a free-text sentence, because each part is checkable:
- * the co-located live-proof test resolves `module`, asserts `entrypoint` is an
- * exported function of it, and compares `subjects` against the oracle's OWN
- * source list — so a row cannot claim a live measurement by describing one.
+ * The witness that a `live-measurement` claim must carry.
+ * The live-proof test resolves `module`, asserts that `entrypoint` is an exported function of it,
+ * and compares `subjects` with the source list of the oracle. A row cannot claim a live measurement by describing one.
  */
 export interface LiveOracle {
   /** The shipped module that performs the measurement, repo-relative. */
@@ -168,12 +84,8 @@ export interface LiveOracle {
 }
 
 /**
- * One (hop, row) evidence entry, parameterised by the key it is filed under.
- *
- * `B` and `H` are the load-bearing parameters: an entry states its own boundary
- * and hop as LITERAL types, so the compiler rejects any entry sitting in a slot
- * it does not name. That is what makes an inherited evidence class
- * unrepresentable rather than merely discouraged.
+ * One (hop, row) evidence entry, with its key as type parameters.
+ * The entry states its boundary `B` and hop `H` as literal types. The compiler then rejects an entry in a slot that it does not name.
  */
 export type RowHopEvidence<B extends ContractBoundaryId, H extends CensusHop> =
   | {
@@ -187,7 +99,7 @@ export type RowHopEvidence<B extends ContractBoundaryId, H extends CensusHop> =
       readonly boundary: B;
       readonly hop: H;
       readonly evidence: 'registered-instrument';
-      /** An `id` of {@link ENFORCEMENT_INSTRUMENTS}; an unregistered one is a finding. */
+      /** An `id` of {@link ENFORCEMENT_INSTRUMENTS}. An unregistered id is a finding. */
       readonly instrument: string;
       readonly why: string;
     }
@@ -207,9 +119,8 @@ export type RowHopEvidence<B extends ContractBoundaryId, H extends CensusHop> =
     };
 
 /**
- * An entry read back with its key widened. The READ side only: writes go through
- * {@link BoundaryHopEvidence}, where every slot still pins its own key, so this
- * alias cannot be used to file one row's evidence under another.
+ * An entry read back with its key widened, for the read side only.
+ * Writes go through {@link BoundaryHopEvidence}, where each slot pins its own key.
  */
 export type AnyRowHopEvidence = RowHopEvidence<ContractBoundaryId, CensusHop>;
 
@@ -227,12 +138,8 @@ export type BoundaryHopEvidence = {
 };
 
 /**
- * Which evidence class resolves each hop of each boundary.
- *
- * Two rows carry `live-measurement` on `authority` and `binding` — the upgrade
- * task 026 earned and could not record. The other six carry `declared-row` there
- * and are not touched: they have no oracle, and this table has no way to lend
- * them one.
+ * The evidence class that resolves each hop of each boundary.
+ * A row with a live oracle carries `live-measurement` on `authority` and `binding`. The other rows carry `declared-row` there.
  */
 export const BOUNDARY_HOP_EVIDENCE: BoundaryHopEvidence = Object.freeze({
   'action-contract': Object.freeze({
@@ -358,11 +265,7 @@ export const BOUNDARY_HOP_EVIDENCE: BoundaryHopEvidence = Object.freeze({
         entrypoint: 'measureEventCatalog',
         subjects: Object.freeze([
           'src/events/schemas.ts',
-          // Added when task 011 landed. It derived `EVENT_EMISSION_REGISTRY` from the DR-2 tier
-          // instead of hand-writing 170 values, so parsing `schemas.ts` for string-valued entries
-          // measures a literal that no longer exists. The oracle now reads the tier/lifecycle facts
-          // where they are DECLARED, and this subject list follows it — which is the whole point of
-          // deriving the list from the oracle's own sources rather than restating it.
+          /** `EVENT_EMISSION_REGISTRY` derives from the tier, so the oracle reads the tier facts where they are declared. */
           'src/events/event-annotations.ts',
           'src/registry/actions',
           'src/workflow/topology/phase-events.ts',
@@ -380,11 +283,7 @@ export const BOUNDARY_HOP_EVIDENCE: BoundaryHopEvidence = Object.freeze({
         entrypoint: 'measureEventCatalog',
         subjects: Object.freeze([
           'src/events/schemas.ts',
-          // Added when task 011 landed. It derived `EVENT_EMISSION_REGISTRY` from the DR-2 tier
-          // instead of hand-writing 170 values, so parsing `schemas.ts` for string-valued entries
-          // measures a literal that no longer exists. The oracle now reads the tier/lifecycle facts
-          // where they are DECLARED, and this subject list follows it — which is the whole point of
-          // deriving the list from the oracle's own sources rather than restating it.
+          /** `EVENT_EMISSION_REGISTRY` derives from the tier, so the oracle reads the tier facts where they are declared. */
           'src/events/event-annotations.ts',
           'src/registry/actions',
           'src/workflow/topology/phase-events.ts',
@@ -508,9 +407,8 @@ export const BOUNDARY_HOP_EVIDENCE: BoundaryHopEvidence = Object.freeze({
 });
 
 /**
- * Every hop's evidence for one boundary. TOTAL: the parameter is the boundary
- * union and the table is a mapped type over it, so this lookup cannot miss and
- * has no default to fall back to.
+ * Returns the evidence of each hop for one boundary.
+ * The table is a mapped type over the boundary union, so this lookup cannot miss.
  */
 export function rowEvidence(boundary: ContractBoundaryId): RowEvidence {
   return BOUNDARY_HOP_EVIDENCE[boundary];
@@ -525,17 +423,13 @@ export function liveMeasuredBoundaries(): readonly ContractBoundaryId[] {
   );
 }
 /**
- * A census finding's class.
- *
- * IMPORTED from the P05-05 census rather than declared, so this module cannot
- * introduce a novel error code even by accident: adding one would require
- * changing the reachability census's own vocabulary, which its co-located tests
- * pin. `missing` is G5's `none` arm and its unbound arm, `ambiguous` is the
- * `contested` arm, `stale-exception` is a governed claim that does not hold.
+ * The class of a census finding. It is imported from the reachability census, so this module cannot add an error code.
+ * `missing` is the `none` arm and the unbound arm. `ambiguous` is the `contested` arm.
+ * `stale-exception` is a governed claim that does not hold.
  */
 export type CensusFindingKind = ClosureDiagnostic['kind'];
 
-/** One hop's resolution for one subject, mirroring P05-05's `HopResolution`. */
+/** The resolution of one hop for one subject, like `HopResolution` in the reachability census. */
 export interface CensusHopResolution {
   readonly hop: CensusHop;
   /** The boundary (row-level hops) or the representation id (`binding`). */
@@ -551,41 +445,26 @@ export interface CensusFinding {
   readonly hop: CensusHop;
   readonly kind: CensusFindingKind;
   readonly subject: string;
-  /** True when this row's `enforceFrom` has been reached at the census's wave. */
+  /** True when the census wave reaches the `enforceFrom` of this row. */
   readonly blocking: boolean;
   readonly message: string;
 }
 
-// ─── Enforcement instruments (the `already-enforced` corroboration) ──────────
-
 /**
- * What DIRECTION an enforcement instrument actually checks.
- *
- * This is the load-bearing distinction, and it is the reason the arm is
- * falsifiable rather than decorative. G5 is a claim about a POPULATION — *every*
- * other representation names what binds it. An instrument that walks from the
- * authority outward proves that each authority entry resolves to exactly one
- * representation per hop; it can never see a representation that exists and is
- * bound to nothing, because such a representation is not in its denominator.
- *
- * That is the same shape as `PHASE_EXPECTED_EVENTS`' module-load loop one level
- * up: validation of the entries present is not a binding over the population.
- * So only `representation-to-authority` (or `both`) discharges G5.
+ * The direction that an enforcement instrument checks.
+ * G5 is a claim about a population: each other representation names what binds it.
+ * `authority-to-representation` walks from the authority outward, so it cannot see an orphan representation.
+ * `representation-to-authority` can see one, so only it or `both` discharges G5.
  */
 export type EnforcementDirection =
-  /** Walks authority → representation. Cannot see an orphan representation. */
   | 'authority-to-representation'
-  /** Walks representation → authority. Sees an orphan; this is what G5 needs. */
   | 'representation-to-authority'
   | 'both';
 
 /**
- * A shipped instrument a row may name in its `already-enforced` claim.
- *
- * Registration is deliberately narrow: `marker` must appear in the row's `by`
- * text, so a claim naming nothing registered resolves to ZERO and fails at the
- * `enforcement` hop. "There is no blanket allowlist" is enforced by the registry
- * being a table of positive, checkable claims rather than a list of exemptions.
+ * A shipped instrument that a row can name in its `already-enforced` claim.
+ * The `by` text of the row must contain the `marker`. A claim that names no registered instrument
+ * resolves to zero and fails at the `enforcement` hop.
  */
 export interface EnforcementInstrument {
   readonly id: string;
@@ -599,22 +478,11 @@ export interface EnforcementInstrument {
 }
 
 /**
- * Every instrument a row may currently name.
- *
- * Two entries, and they are not interchangeable. The reachability census stays
- * registered for the wiring walk: `evaluateClosure` iterates `inputs.actions`
- * — the contract compiler's action list, i.e. the AUTHORITY — and `resolveHops`
- * filters every representation list BY the action it is resolving. A route,
- * handler, artifact or fixture entry belonging to no action in that denominator
- * is never looked at, so it can never be reported. That direction is
- * `authority-to-representation` as a matter of construction, not opinion, and
- * the co-located test PROVES it by running the shipped `evaluateClosure` over
- * inputs carrying an orphan representation and observing `ok === true`.
- *
- * The action-contract row does not name that walk. It names the ActionId-scoped
- * closure instrument, which walks each subject's projections, advertised copy,
- * and executed copy back to the declared contract. An omitted dimension or
- * orphan projection is visible there; a wiring-closed path is not a substitute.
+ * The instruments that a row can name. They are not interchangeable.
+ * The reachability census walks from each action in `inputs.actions` to its representations.
+ * It never sees a representation that belongs to no action, so its direction is `authority-to-representation`.
+ * The action-contract row names the ActionId-scoped closure instrument instead. That instrument walks
+ * the projections, advertised copy and executed copy of each subject back to the declared contract.
  */
 export const ENFORCEMENT_INSTRUMENTS: readonly EnforcementInstrument[] = Object.freeze([
   Object.freeze({
@@ -649,14 +517,12 @@ export function coversPopulation(direction: EnforcementDirection): boolean {
   return direction === 'representation-to-authority' || direction === 'both';
 }
 
-// ─── Report ──────────────────────────────────────────────────────────────────
-
 /** One boundary's closure verdict. */
 export interface BoundaryClosure {
   readonly boundary: ContractBoundaryId;
   /** Exactly one authority, nothing unbound, no stale claim. */
   readonly closed: boolean;
-  /** True when this row's `enforceFrom` has been reached at the census's wave. */
+  /** True when the census wave reaches the `enforceFrom` of this row. */
   readonly enforced: boolean;
   readonly hops: readonly CensusHopResolution[];
   readonly findings: readonly CensusFinding[];
@@ -691,8 +557,7 @@ export interface AuthorityCensusReport {
   readonly findings: readonly CensusFinding[];
   /** The subset whose row has reached its `enforceFrom`. */
   readonly blocking: readonly CensusFinding[];
-  /** The table's own well-formedness, run first — a census over a malformed table
-   *  would report findings about the table rather than about the tree. */
+  /** The well-formedness of the table, checked first. On a malformed table, the census reports on the table, not the tree. */
   readonly totality: TotalityReport;
 }
 
@@ -703,9 +568,7 @@ export interface AuthorityCensusOptions {
   readonly instruments?: readonly EnforcementInstrument[];
 }
 
-// ─── Wave ordering ───────────────────────────────────────────────────────────
-
-/** Position of a wave in {@link ENFORCEMENT_WAVES}; -1 for an unknown wave. */
+/** Position of a wave in {@link ENFORCEMENT_WAVES}, or -1 for an unknown wave. */
 export function waveIndex(wave: EnforcementWave): number {
   return ENFORCEMENT_WAVES.indexOf(wave);
 }
@@ -720,8 +583,6 @@ export function isEnforcedAt(row: AuthorityTopologyRow, atWave: EnforcementWave)
   if (row.enforceFrom.kind === 'already-enforced') return true;
   return waveIndex(row.enforceFrom.wave) <= waveIndex(atWave);
 }
-
-// ─── Hop resolution ──────────────────────────────────────────────────────────
 
 function statusFor(applicable: boolean, count: number): HopStatus {
   if (!applicable) return 'not-applicable';
@@ -761,8 +622,6 @@ export function matchingInstruments(
 ): readonly EnforcementInstrument[] {
   return instruments.filter((i) => claim.includes(i.marker));
 }
-
-// ─── The census ──────────────────────────────────────────────────────────────
 
 const byString = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
@@ -887,15 +746,9 @@ function enforcementFinding(
 }
 
 /**
- * The cross-row tooth: one representation, two boundaries, two different binding
- * claims.
- *
- * `PHASE_EXPECTED_EVENTS` is carried by BOTH the event-catalog and the
- * phase-sequencing rows, so relabelling it on one row and not the other would
- * quietly launder a finding out of half the table while leaving every per-row
- * count intact. A representation that is `unbound` here and `bound` there
- * resolves to two incompatible answers — which is the `ambiguous` arm, at the
- * representation level instead of the boundary level.
+ * Finds a representation that more than one boundary carries with different binding claims.
+ * A relabel on one row only removes a finding from part of the table and keeps each per-row count.
+ * Two incompatible answers for one representation are the `ambiguous` arm.
  */
 function crossRowFindings(rows: readonly AuthorityTopologyRow[]): readonly CensusFinding[] {
   const claimsById = new Map<string, Map<string, ContractBoundaryId[]>>();
@@ -989,25 +842,12 @@ function hopsFor(
 }
 
 /**
- * Evaluate G5 closure over the boundary rows. Pure, total and FAIL-CLOSED on an
- * empty subject.
+ * Evaluates G5 closure over the boundary rows. It is pure and total, and fails closed on an empty subject.
+ * `ok` needs non-empty row, representation and `binding` populations, and each input row well-formed.
+ * It also needs a well-formed table (`checkTopologyTotality`) and zero blocking findings at `atWave`.
+ * Findings before the `enforceFrom` of their row are still reported.
  *
- * `ok` requires ALL of:
- *   • a non-empty row denominator — zero rows is the instrument dying green;
- *   • a non-empty representation denominator, AND a non-empty `binding`-hop
- *     population, because a hop that ranges over nothing proves nothing by
- *     staying silent;
- *   • every input row narrowing to a well-formed row, so a malformed row cannot
- *     be silently dropped from the denominator;
- *   • a well-formed table (`checkTopologyTotality`); and
- *   • zero BLOCKING findings at `atWave`.
- *
- * Findings before their row's `enforceFrom` are still reported — observe-only is
- * a recorded state, not silence.
- *
- * @param rows - `unknown[]` so a row the TYPE forbids (no `enforceFrom`, no
- *   representations) can be fed in from a store, a fixture or a JSON round trip.
- *   Mirrors `checkTopologyTotality`.
+ * @param rows - `unknown[]`, so a row that the type forbids can come from a store, a fixture or a JSON round trip.
  */
 export function runAuthorityCensus(
   rows: readonly unknown[] = topologyRows(),
@@ -1088,14 +928,9 @@ export function runAuthorityCensus(
 }
 
 /**
- * A finding about the EVIDENCE TABLE rather than about the tree.
- *
- * Separate from {@link CensusFinding}, and deliberately not folded into
- * `runAuthorityCensus`'s finding list: those findings are the G5 verdict on the
- * boundaries, and mixing "this boundary is unbound" with "this table's evidence
- * is filed under the wrong key" would make the census's own count answer two
- * questions at once. `boundary`/`hop` are `string` because a corrupt table may
- * name a boundary or a hop that does not exist.
+ * A finding about the evidence table, not about the tree.
+ * It stays out of the finding list of `runAuthorityCensus`, so that count answers one question only.
+ * `boundary` and `hop` are `string`, because a corrupt table can name a boundary or hop that does not exist.
  */
 export interface EvidenceFinding {
   readonly boundary: string;
@@ -1117,7 +952,7 @@ export interface RowEvidenceReport {
   readonly byClass: Readonly<Record<EvidenceClass, number>>;
   /** Boundaries with at least one `live-measurement` hop. */
   readonly liveMeasured: readonly string[];
-  /** Boundaries with none — the six that must stay visibly weaker. */
+  /** Boundaries with no `live-measurement` hop. */
   readonly declaredOnly: readonly string[];
   readonly findings: readonly EvidenceFinding[];
 }
@@ -1148,6 +983,10 @@ function applicableHops(row: AuthorityTopologyRow): Readonly<Record<CensusHop, b
   };
 }
 
+/**
+ * Returns the findings for one evidence cell.
+ * An entry must name the boundary and hop of its own slot, so no row inherits the evidence of another.
+ */
 function evidenceCellFindings(
   boundary: string,
   hop: string,
@@ -1169,7 +1008,6 @@ function evidenceCellFindings(
     ];
   }
 
-  // The inheritance tooth, at runtime: an entry must NAME the slot it sits in.
   if (cell['boundary'] !== boundary) {
     findings.push({
       boundary,
@@ -1254,12 +1092,10 @@ function evidenceCellFindings(
 }
 
 /**
- * Audit an evidence table against the boundary rows. Pure, total and FAIL-CLOSED
- * on an empty subject.
- *
- * `ok` requires ALL of: a non-empty boundary denominator; a non-empty (hop, row)
- * entry denominator; a non-empty ROW denominator for the applicability
- * cross-check; and zero findings.
+ * Audits an evidence table against the boundary rows. It is pure and total, and fails closed on an empty subject.
+ * `ok` needs non-empty boundary, entry and row populations, and zero findings.
+ * The applicability check is two-way. A hop that resolves nothing must claim `not-applicable`,
+ * and a hop that claims it must resolve nothing.
  *
  * @param table - `unknown` so a table the TYPE forbids can be fed in from a
  *   fixture or a JSON round trip, exactly as `checkTopologyTotality` takes rows.
@@ -1358,9 +1194,6 @@ export function auditRowEvidence(
     (live ? liveMeasured : declaredOnly).push(boundary);
   }
 
-  // ── The applicability cross-check: `not-applicable` is checked, not trusted ──
-  // Two-way, like STALE_ADAPTER_OWNER: a hop that resolves nothing must say so,
-  // and a hop that says so must actually resolve nothing.
   let checkedRows = 0;
   for (const value of rows) {
     if (!isAuthorityTopologyRow(value)) continue;
@@ -1434,11 +1267,8 @@ type Assignable<A, B> = [A] extends [B] ? true : false;
 type NotAssignable<A, B> = [A] extends [B] ? false : true;
 
 /**
- * **The no-novel-error-codes proof.** This census's finding kinds are exactly the
- * P05-05 census's diagnostic kinds, in both directions — so it cannot widen the
- * vocabulary, and cannot silently stop using part of it either. The spec's
- * `Census_ErrorVocabulary_MatchesExistingSeams` requirement, discharged by the
- * compiler rather than by a test that a future edit could delete.
+ * The census finding kinds equal the reachability diagnostic kinds, in both directions.
+ * The compiler, not a test, holds the `Census_ErrorVocabulary_MatchesExistingSeams` requirement.
  * @proof
  */
 export type _CensusKindsAreReachabilityKinds = Expect<
@@ -1454,7 +1284,7 @@ export type _ReachabilityKindsAreCensusKinds = Expect<
 >;
 
 /**
- * Hop statuses are P05-05's, not a parallel union.
+ * The hop statuses are those of the reachability census, not a parallel union.
  * @proof
  */
 export type _CensusHopStatusIsReachabilityHopStatus = Expect<
@@ -1479,11 +1309,7 @@ export type _EvidenceAddsNoBoundaries = Expect<
   Assignable<keyof typeof BOUNDARY_HOP_EVIDENCE, ContractBoundaryId>
 >;
 /**
- * **The evidence-class proof**, on the second axis. Every hop of every row is
- * stated, so a fourth hop is a COMPILE error until its evidence class is given
- * for each boundary. The analogue of P05-05's `HOP_AUTHORITIES` totality — a hop
- * cannot join the census without declaring what resolves it — lifted by task 066
- * from per-hop to per-(hop, row).
+ * Every hop of every row is stated, so a new hop is a compile error until each boundary gives its evidence class.
  * @proof
  */
 export type _EveryHopDeclaresItsEvidence = Expect<
@@ -1499,13 +1325,8 @@ export type _EvidenceAddsNoHops = Expect<
 >;
 
 /**
- * **The inheritance proof — the kill fixture, discharged by the compiler.**
- *
- * The exact move task 066 exists to prevent: take the entry that DOES have a live
- * measurement (`cli-surface`/`authority`, upgraded by task 026) and file it under
- * a row that has none. It is rejected, because the entry's `boundary` is part of
- * its type and the slot's type pins that literal. No spread, no copy-paste and no
- * shared hop-level constant can move an evidence class from one row to another.
+ * The `cli-surface` `authority` entry has a live measurement. Filed under a row without one, it does not compile.
+ * The `boundary` of an entry is part of its type, and the slot type pins that literal.
  @proof
  * */
 export type _InheritedEvidence_FailsCompile = Expect<
@@ -1522,10 +1343,8 @@ export type _InheritedEvidence_FailsCompile = Expect<
 >;
 
 /**
- * The POSITIVE CONTROL for the proof above. Without it,
- * `_InheritedEvidence_FailsCompile` would also hold if `RowHopEvidence` were
- * mistyped such that NOTHING satisfies it — a rejection that proves nothing. The
- * same entry, filed under its own row, compiles.
+ * The positive control for the proof above. An entry filed under its own row compiles.
+ * Without this control, a mistyped `RowHopEvidence` that nothing satisfies also passes the proof above.
  @proof
  * */
 export type _OwnRowEvidence_Compiles = Expect<
@@ -1555,9 +1374,8 @@ export type _InheritedHopEvidence_FailsCompile = Expect<
 >;
 
 /**
- * A `live-measurement` claim without its witness does not typecheck. The class is
- * not a label a row may simply assert — it costs a module, an entrypoint and the
- * paths the measurement reads.
+ * A `live-measurement` claim without its witness does not typecheck.
+ * The class costs a module, an entrypoint and the paths that the measurement reads.
  @proof
  * */
 export type _LiveMeasurementWithoutOracle_FailsCompile = Expect<
@@ -1579,9 +1397,8 @@ export type _InstrumentWithoutDirection_FailsCompile = Expect<
 >;
 
 /**
- * A finding must state its blocking status. Making the field optional would let
- * a finding default to non-blocking, which is exactly how per-row enforcement
- * degrades into no enforcement.
+ * A finding must state its blocking status. An optional field lets a finding default to non-blocking,
+ * and per-row enforcement then becomes no enforcement.
  * @proof
  */
 export type _FindingWithoutBlocking_FailsCompile = Expect<

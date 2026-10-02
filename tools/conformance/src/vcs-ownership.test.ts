@@ -105,9 +105,9 @@ describe('runVcsOwnershipCensus — verdict logic', () => {
 });
 
 describe('EXIT PROOF — live VCS-ownership census', () => {
+  /** It asserts the diagnostics array first, so a regression describes itself. */
   it('(a) the live shipped source has ZERO direct bypasses and no stale owner', async () => {
     const result = await auditVcsOwnership(SRC_ROOT, lexModule);
-    // Surfacing the diagnostics array makes any regression self-describing.
     expect(result.diagnostics).toEqual([]);
     expect(result.ok).toBe(true);
     expect(result.siteCount).toBeGreaterThan(0);
@@ -132,42 +132,25 @@ describe('EXIT PROOF — live VCS-ownership census', () => {
     ).toBe(true);
   });
 
+  /** Each declared owner has a live mutation site, or `STALE_VCS_OWNER` trips in the live audit. */
   it('every declared owner corresponds to a real module path present in the scan root', async () => {
     const sites = await scanVcsMutationSites(SRC_ROOT, lexModule);
     const liveModules = new Set(sites.map((s) => s.module));
-    // Each declared owner must have at least one live mutation site — otherwise
-    // the STALE_VCS_OWNER ratchet would (correctly) trip in the live audit.
     for (const owner of VCS_MUTATION_OWNERS) {
       expect(liveModules.has(owner)).toBe(true);
     }
   });
 });
 
-// ─── DR-8 / task 079 — the scan root is part of the claim ────────────────────
-//
-// This census is cited for a property about git mutation in THIS REPOSITORY, but
-// it walks one subtree. Previously the gap lived only in prose: the module header
-// said "the shipped source" and every caller passed `servers/exarchos-mcp/src`,
-// so a `git worktree add` shelled from root `src/` was not exempt — it was
-// invisible, and the census reported a clean tree.
-//
-// The gap is closed by measuring the complement rather than by widening the walk.
-// Widening is the wrong instrument here: VCS_MUTATION_OWNERS's entries are
-// root-relative module paths, so a repo-wide walk renames every module and
-// strands every owner rule. Measuring the complement proves the same property
-// over the union — governed subtree ∪ everything else — while leaving the owner
-// vocabulary intact.
-
 /**
- * Modules outside the governed root that mutate git, recorded rather than hidden.
+ * Modules outside the governed root that mutate git, recorded and not hidden.
  *
- * The alternative was silence — before this sweep existed these modules were not
- * exempt, they were INVISIBLE, and the census's repo-wide claim was simply false
- * outside the subtree it measured. An exemption is a debt with an owner and a
- * reason; an unmeasured complement is a debt nobody can see.
+ * The census walks one subtree, but it is cited for git mutation in the whole repository. This
+ * suite measures the complement, and does not widen the walk. The `VCS_MUTATION_OWNERS` entries
+ * are relative to the governed root, so a repo-wide walk renames each module and strands each
+ * owner rule.
  *
- * Entries are held to the same no-phantom-cover ratchet as VCS_MUTATION_OWNERS:
- * an entry naming no live site fails, so the list cannot rot into a rubber stamp.
+ * An entry that names no live site fails, the same ratchet as for `VCS_MUTATION_OWNERS`.
  */
 const COMPLEMENT_EXEMPTIONS: readonly { module: string; owner: string; rationale: string }[] =
   Object.freeze([
@@ -188,10 +171,13 @@ describe('DR-8 — the governed root is declared, and its complement is measured
     expect(resolve(REPO_ROOT, GOVERNED_SOURCE_ROOT)).toBe(resolve(SRC_ROOT));
   });
 
+  /**
+   * It partitions each tracked module into governed and ungoverned. `git ls-files` gives the
+   * population, so it does not inherit the blind spot of the census scan root. Both partitions must
+   * be non-empty. The census detector then runs on the ungoverned modules. An exemption that names
+   * no live site fails, because it pre-authorizes a future mutation on that path.
+   */
   it('VcsOwnership_EveryFirstPartyTreeIsEitherGovernedOrProvenFree', async () => {
-    // Every module the repository tracks, partitioned into governed / not. The
-    // population comes from `git ls-files` — it knows nothing about the census's
-    // scan root, so it cannot inherit the census's blind spot.
     const tracked = await listTrackedFiles(REPO_ROOT, {
       exclude: (path) => {
         const segments = path.split('/');
@@ -203,7 +189,6 @@ describe('DR-8 — the governed root is declared, and its complement is measured
     });
     const ungoverned = tracked.filter((path) => !path.startsWith(`${GOVERNED_SOURCE_ROOT}/`));
 
-    // Both partitions must be real, or the partition proves nothing.
     expect(tracked.length).toBeGreaterThan(0);
     expect(
       ungoverned.length,
@@ -211,7 +196,6 @@ describe('DR-8 — the governed root is declared, and its complement is measured
         'collapsed to one package, or this walk is not seeing the tree',
     ).toBeGreaterThan(0);
 
-    // The census's own detector, applied to the tree the census does NOT walk.
     const complementSites: VcsMutationSite[] = [];
     for (const path of ungoverned) {
       complementSites.push(
@@ -232,9 +216,6 @@ describe('DR-8 — the governed root is declared, and its complement is measured
         'COMPLEMENT_EXEMPTIONS with an owner and a rationale.',
     ).toEqual([]);
 
-    // NO PHANTOM COVER — the same ratchet VCS_MUTATION_OWNERS carries. An
-    // exemption that names no live site is stale cover pre-authorizing a future
-    // mutation on that exact path, so it fails rather than lingering.
     const live = new Set(complementSites.map((site) => site.module));
     expect(
       COMPLEMENT_EXEMPTIONS.filter((entry) => !live.has(entry.module)).map((e) => e.module),
@@ -242,10 +223,11 @@ describe('DR-8 — the governed root is declared, and its complement is measured
     ).toEqual([]);
   });
 
+  /**
+   * The kill fixture for the complement sweep. The sweep uses the census detector, so this case
+   * proves that the detector finds a mutation outside the governed root.
+   */
   it('VcsOwnership_ComplementSweepFiresOnAPlantedMutation', async () => {
-    // KILL FIXTURE for the sweep above. A complement that is clean today says
-    // nothing unless the instrument that found it clean can find a dirty one —
-    // and the sweep reuses the census's own detector precisely so this holds.
     const sites = detectVcsMutationSites(
       'src/rogue-cli.ts',
       `await run(['worktree', 'add', target, branch]);`,
@@ -254,12 +236,12 @@ describe('DR-8 — the governed root is declared, and its complement is measured
     expect(sites.map((s) => s.mutation)).toEqual(['worktree.add']);
   });
 
+  /**
+   * A root with no scannable module yields no sites, the same as a clean tree, so the census must
+   * fail on it. The empty owner list removes the `STALE_VCS_OWNER` ratchet, so this check stands
+   * alone. The live root reports a real population, so the check rejects only emptiness.
+   */
   it('VcsOwnership_WalkVisitingZeroModules_FailsRatherThanReportingACleanTree', async () => {
-    // NON-EMPTY DENOMINATOR. A root that resolves to a tree with no scannable
-    // module yields no sites — and "no sites" is what a clean tree yields too.
-    // Passing an EMPTY owner list removes the STALE_VCS_OWNER ratchet, which is
-    // what catches this today only incidentally; the tooth under test has to
-    // stand on its own.
     const root = await mkdtemp(join(tmpdir(), 'exarchos-vcs-empty-'));
     try {
       const result = await auditVcsOwnership(root, lexModule, []);
@@ -270,8 +252,6 @@ describe('DR-8 — the governed root is declared, and its complement is measured
       await rmrfAsync(root);
     }
 
-    // The live root, by contrast, reports a real population — so the tooth above
-    // rejects emptiness rather than rejecting everything.
     const live = await scanVcsTree(SRC_ROOT, lexModule);
     expect(live.moduleCount).toBeGreaterThan(0);
     expect((await auditVcsOwnership(SRC_ROOT, lexModule)).moduleCount).toBe(live.moduleCount);
