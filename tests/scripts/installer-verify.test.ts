@@ -33,7 +33,7 @@ import { createServer, type Server } from 'node:http';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createReadStream, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { delimiter, dirname, join, resolve } from 'node:path';
+import { basename, delimiter, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 
@@ -250,8 +250,10 @@ interface InstallerRun {
   readonly home: string;
   /** Omit to exercise the installer's own verifier discovery. */
   readonly verifier?: string;
-  /** Omit to exercise the (unpinned) trust root fail-closed path. */
+  /** Omit to use the trust root pinned in the installer that runs. */
   readonly trustRootPem?: string | undefined;
+  /** Runs this copy of the installer instead of the shipped one. */
+  readonly script?: string;
   readonly allowModifiedSource?: boolean;
   /** Tag the installer is asked for; defaults to the fixture's own tag. */
   readonly requestTag?: string;
@@ -326,7 +328,7 @@ function runShInstaller(run: InstallerRun): Promise<RunResult> {
 
   const env: NodeJS.ProcessEnv = {
     ...process.env,
-    EXARCHOS_SCRIPT: toShellPath(SH_INSTALLER),
+    EXARCHOS_SCRIPT: toShellPath(run.script ?? SH_INSTALLER),
     EXARCHOS_RELEASE_BASE_URL: run.baseUrl,
     EXARCHOS_LATEST_VERSION: run.requestTag ?? run.fixture.tag,
     EXARCHOS_INSTALL_DIR: toShellPath(run.installDir),
@@ -365,7 +367,7 @@ function runPs1Installer(run: InstallerRun): Promise<RunResult> {
 
   if (run.piped === true) {
     const pwsh = onPath(PWSH);
-    env['EXARCHOS_SCRIPT'] = PS1_INSTALLER;
+    env['EXARCHOS_SCRIPT'] = run.script ?? PS1_INSTALLER;
     withPath(env, run.path ?? pathWithout('exarchos-release-verify'));
     return runAsync(
       pwsh,
@@ -374,7 +376,7 @@ function runPs1Installer(run: InstallerRun): Promise<RunResult> {
     );
   }
 
-  const args = ['-NoProfile', '-NonInteractive', '-File', PS1_INSTALLER];
+  const args = ['-NoProfile', '-NonInteractive', '-File', run.script ?? PS1_INSTALLER];
   if (run.allowModifiedSource === true) args.push('-AllowModifiedSource');
 
   return runAsync(PWSH, args, env);
@@ -434,6 +436,22 @@ function freshTarget(name: string): { installDir: string; home: string } {
   mkdirSync(installDir, { recursive: true });
   mkdirSync(home, { recursive: true });
   return { installDir, home };
+}
+
+const UNPINNED_SENTINEL = '__EXARCHOS_PUBLISHER_TRUST_ROOT_PEM_UNPINNED__';
+
+/** A copy of an installer whose trust-root assignment holds the unpinned sentinel again. */
+function unpinnedCopyOf(installer: string, name: string): string {
+  const assignment = installer.endsWith('.ps1')
+    ? { pattern: /^\$script:PinnedTrustRootPem = '[^']*'$/gm, value: `$script:PinnedTrustRootPem = '${UNPINNED_SENTINEL}'` }
+    : { pattern: /^PINNED_TRUST_ROOT_PEM="[^"]*"$/gm, value: `PINNED_TRUST_ROOT_PEM="${UNPINNED_SENTINEL}"` };
+  const text = readFileSync(installer, 'utf8');
+  expect(text.match(assignment.pattern), `${installer} must hold exactly one trust-root assignment`).toHaveLength(1);
+  const dir = join(scratch, 'unpinned', name);
+  mkdirSync(dir, { recursive: true });
+  const copy = join(dir, basename(installer));
+  writeFileSync(copy, text.replace(assignment.pattern, () => assignment.value), 'utf8');
+  return copy;
 }
 
 function installedNames(installDir: string): string[] {
@@ -699,6 +717,7 @@ describe('DR-20 — the installers consume the signed release manifest', () => {
         baseUrl: origin.baseUrl,
         ...target,
         trustRootPem: undefined,
+        script: unpinnedCopyOf(SH_INSTALLER, 'sh-nokey'),
       });
       expect(result.status, result.output).not.toBe(0);
       expect(result.output).toContain('trust-root');
@@ -926,6 +945,7 @@ describe('DR-20 — the installers consume the signed release manifest', () => {
         baseUrl: origin.baseUrl,
         ...target,
         trustRootPem: undefined,
+        script: unpinnedCopyOf(PS1_INSTALLER, 'ps-nokey'),
       });
       expect(result.status, result.output).not.toBe(0);
       expect(result.output).toContain('trust-root');

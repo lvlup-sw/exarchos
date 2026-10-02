@@ -622,6 +622,8 @@ fi
 teardown
 
 # --- no trust root at all → fail closed, never skip --------------------------
+# The shipped installer pins the publisher key, so this case runs a copy whose
+# trust-root assignment holds the unpinned sentinel again.
 setup
 FIXTURES="$TMPDIR_ROOT/fixtures"
 mkdir -p "$FIXTURES"
@@ -630,19 +632,79 @@ mock_uname "Linux" "x86_64"
 mock_curl "$FIXTURES"
 mock_verifier 0
 
+UNPINNED_SCRIPT="$TMPDIR_ROOT/get-exarchos.unpinned.sh"
+awk '
+    /^PINNED_TRUST_ROOT_PEM="/ {
+        print "PINNED_TRUST_ROOT_PEM=\"__EXARCHOS_PUBLISHER_TRUST_ROOT_PEM_UNPINNED__\""
+        skip = ($0 !~ /"$/)
+        next
+    }
+    skip { if ($0 ~ /"$/) skip = 0; next }
+    { print }
+' "$SCRIPT_UNDER_TEST" > "$UNPINNED_SCRIPT"
+SEEDED_COUNT="$(grep -c '^PINNED_TRUST_ROOT_PEM=' "$UNPINNED_SCRIPT" || true)"
+
 OUTPUT="$(
     HOME="$TEST_HOME" EXARCHOS_INSTALL_DIR="$TEST_INSTALL" \
     EXARCHOS_LATEST_VERSION="v2.9.0" \
     EXARCHOS_RELEASE_VERIFIER="$VERIFIER_ENV_VERIFIER" \
     PATH="$FAKE_BIN:$PATH" \
-    bash "$SCRIPT_UNDER_TEST" 2>&1
+    bash "$UNPINNED_SCRIPT" 2>&1
 )" && EXIT_CODE=$? || EXIT_CODE=$?
 
-if [[ $EXIT_CODE -ne 0 ]] && [[ ! -e "$TEST_INSTALL/exarchos" ]] && \
+if [[ "$SEEDED_COUNT" -eq 1 ]] && \
+   grep -qx 'PINNED_TRUST_ROOT_PEM="__EXARCHOS_PUBLISHER_TRUST_ROOT_PEM_UNPINNED__"' "$UNPINNED_SCRIPT" && \
+   [[ $EXIT_CODE -ne 0 ]] && [[ ! -e "$TEST_INSTALL/exarchos" ]] && \
    grep -q "trust-root" <<<"$OUTPUT"; then
     pass "GetExarchos_NoTrustRoot_FailsClosed"
 else
-    fail "GetExarchos_NoTrustRoot_FailsClosed (exit=$EXIT_CODE)"
+    fail "GetExarchos_NoTrustRoot_FailsClosed (exit=$EXIT_CODE, seeded assignments=$SEEDED_COUNT)"
+    echo "  Output: $OUTPUT"
+fi
+teardown
+
+# --- no override → the key pinned in the installer is the trust root ---------
+setup
+FIXTURES="$TMPDIR_ROOT/fixtures"
+mkdir -p "$FIXTURES"
+stage_release_fixture "$FIXTURES" "exarchos-linux-x64" "2.9.0"
+mock_uname "Linux" "x86_64"
+mock_curl "$FIXTURES"
+
+SEEN_ROOT="$TMPDIR_ROOT/seen-trust-root"
+cat > "$FAKE_BIN/recording-release-verify" <<EOF
+#!/usr/bin/env bash
+while [ \$# -gt 0 ]; do
+    if [ "\$1" = "--trust-root" ]; then
+        printf '%s\n' "\${2%%=*}" > "$SEEN_ROOT.keyid"
+        cat "\${2#*=}" > "$SEEN_ROOT.pem"
+    fi
+    shift
+done
+exit 0
+EOF
+chmod +x "$FAKE_BIN/recording-release-verify"
+
+PINNED_PEM="$(awk '
+    /^PINNED_TRUST_ROOT_PEM="/ { on = 1; sub(/^PINNED_TRUST_ROOT_PEM="/, "") }
+    on { if (sub(/"$/, "")) { print; exit } print }
+' "$SCRIPT_UNDER_TEST")"
+
+OUTPUT="$(
+    HOME="$TEST_HOME" EXARCHOS_INSTALL_DIR="$TEST_INSTALL" \
+    EXARCHOS_LATEST_VERSION="v2.9.0" \
+    EXARCHOS_RELEASE_VERIFIER="$FAKE_BIN/recording-release-verify" \
+    PATH="$FAKE_BIN:$PATH" \
+    bash "$SCRIPT_UNDER_TEST" 2>&1
+)" && EXIT_CODE=$? || EXIT_CODE=$?
+
+if [[ $EXIT_CODE -eq 0 ]] && [[ -x "$TEST_INSTALL/exarchos" ]] && \
+   [[ "$PINNED_PEM" == *"BEGIN PUBLIC KEY"* ]] && \
+   [[ "$(cat "$SEEN_ROOT.keyid" 2>/dev/null)" == "exarchos.release.v1" ]] && \
+   [[ "$(cat "$SEEN_ROOT.pem" 2>/dev/null)" == "$PINNED_PEM" ]]; then
+    pass "GetExarchos_PinnedTrustRoot_IsTheDefault"
+else
+    fail "GetExarchos_PinnedTrustRoot_IsTheDefault (exit=$EXIT_CODE)"
     echo "  Output: $OUTPUT"
 fi
 teardown

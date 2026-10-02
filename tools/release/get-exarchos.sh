@@ -110,7 +110,9 @@ readonly BUILD_IDENTITY_MARKER="exarchos-build-identity/v2"
 # `EXARCHOS_RELEASE_SIGNING_KEY` in .github/workflows/release.yml — pin the
 # SPKI PEM of its public half).
 readonly PINNED_TRUST_ROOT_KEY_ID="exarchos.release.v1"
-PINNED_TRUST_ROOT_PEM="__EXARCHOS_PUBLISHER_TRUST_ROOT_PEM_UNPINNED__"
+PINNED_TRUST_ROOT_PEM="-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEAf6wzAwWoFRan3mHtds/LkDQiJi8nKPUeV/g8LI7rW+g=
+-----END PUBLIC KEY-----"
 
 
 # ------------------------------------------------------------------
