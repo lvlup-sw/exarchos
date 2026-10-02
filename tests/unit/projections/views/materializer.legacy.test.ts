@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
-import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { ViewMaterializer } from '../../../../src/projections/views/materializer.js';
 import { SnapshotStore } from '../../../../src/projections/views/snapshot-store.js';
 import type { ViewProjection } from '../../../../src/projections/views/materializer.js';
 import type { WorkflowEvent } from '../../../../src/events/schemas.js';
+import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 // ─── Test View: simple counter ─────────────────────────────────────────────
 
@@ -315,7 +316,7 @@ describe('SnapshotStore', () => {
   });
 
   afterEach(async () => {
-    await rm(tempDir, { recursive: true, force: true });
+    await rmrfAsync(tempDir);
   });
 
   it('should save and load a snapshot', async () => {
@@ -357,7 +358,7 @@ describe('ViewMaterializer with Snapshots', () => {
   });
 
   afterEach(async () => {
-    await rm(tempDir, { recursive: true, force: true });
+    await rmrfAsync(tempDir);
   });
 
   describe('After50Events_CreatesSnapshot', () => {

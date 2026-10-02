@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { Outbox } from '../../../src/sync/outbox.js';
 import type { EventSender, ExarchosEventDto } from '../../../src/sync/types.js';
 import type { WorkflowEvent } from '../../../src/events/schemas.js';
 import { InMemoryBackend } from '../../../src/storage/memory-backend.js';
+import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 function makeEvent(overrides?: Partial<WorkflowEvent>): WorkflowEvent {
   return {
@@ -28,7 +29,7 @@ describe('Outbox drain idempotencyKey propagation', () => {
   });
 
   afterEach(async () => {
-    await rm(tempDir, { recursive: true, force: true });
+    await rmrfAsync(tempDir);
   });
 
   it('should propagate idempotencyKey to remote client when draining', async () => {
@@ -92,7 +93,7 @@ describe('Outbox drain batch I/O', () => {
   });
 
   afterEach(async () => {
-    await rm(tempDir, { recursive: true, force: true });
+    await rmrfAsync(tempDir);
   });
 
   it('drain_BatchOfN_LoadsEntriesOnce', async () => {
@@ -146,7 +147,7 @@ describe('Outbox StorageBackend Integration', () => {
   });
 
   afterEach(async () => {
-    await rm(tempDir, { recursive: true, force: true });
+    await rmrfAsync(tempDir);
   });
 
   it('Outbox_addEntry_WithBackend_DelegatesToBackend', async () => {

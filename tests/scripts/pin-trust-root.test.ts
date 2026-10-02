@@ -9,12 +9,13 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { createHash, createPublicKey, generateKeyPairSync } from 'node:crypto';
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import yaml from 'js-yaml';
+import { rmrf } from '../../tools/test-helpers/temp-dir.js';
 
 import { spawnAsync } from '../../tools/test-helpers/spawn.js';
 
@@ -29,7 +30,7 @@ const IS_CI = !['', '0', 'false'].includes((process.env['CI'] ?? '').toLowerCase
 const scratchDirs: string[] = [];
 
 afterEach(() => {
-  for (const dir of scratchDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  for (const dir of scratchDirs.splice(0)) rmrf(dir);
 });
 
 function scratch(): string {

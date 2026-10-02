@@ -17,14 +17,7 @@
  *      legitimately-installed render.
  */
 import { describe, it, expect } from 'vitest';
-import {
-  readFileSync,
-  writeFileSync,
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-  existsSync,
-} from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -43,6 +36,7 @@ import {
   // No declarations for the plain-JS generator; `allowJs` infers them.
 } from '../../tools/release/generate-legacy-skill-hashes.mjs';
 import { execFileAsync } from '../../tools/test-helpers/spawn.js';
+import { rmrf } from '../../tools/test-helpers/temp-dir.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../..');
@@ -171,7 +165,7 @@ describe('generate-legacy-skill-hashes (Task 023, DR-8)', () => {
     } finally {
       // Restore the worktree to its exact prior bytes / layout.
       writeFileSync(tracked, original);
-      rmSync(probeDir, { recursive: true, force: true });
+      rmrf(probeDir);
     }
 
     // Belt-and-suspenders: the restored tracked file matches the committed
@@ -211,7 +205,7 @@ describe('generate-legacy-skill-hashes (Task 023, DR-8)', () => {
       expect(refs).not.toContain('v2.12.0-preview.1');
       expect(refs).not.toContain('v2.13.5');
     } finally {
-      rmSync(repo, { recursive: true, force: true });
+      rmrf(repo);
     }
   });
 

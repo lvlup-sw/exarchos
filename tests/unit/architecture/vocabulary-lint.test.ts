@@ -14,6 +14,7 @@ import {
   type RegistryToolLike,
 } from '../../../src/architecture/vocabulary-lint.js';
 import { ARTIFACT_DIRS } from '../../../tools/conformance/src/bindings/index.js';
+import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../..');
@@ -38,7 +39,7 @@ describe('vocabulary-lint', () => {
   });
 
   afterAll(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    rmrf(tmpDir);
   });
 
   it('VocabularyLint_UnknownInvariantReference_Fails', () => {
@@ -399,7 +400,7 @@ describe('scanRepoDefaults / DATED_RECORD_TREES archival-invariance (DR-18, task
       // Exactly the four live-surface tokens — no archived-tree token leaks in.
       expect(tokens).toEqual(['INV-9001', 'INV-9002', 'INV-9003', 'INV-9004']);
     } finally {
-      fs.rmSync(root, { recursive: true, force: true });
+      rmrf(root);
     }
 
     // ── Bind to the live constant + function: the archived trees are members of

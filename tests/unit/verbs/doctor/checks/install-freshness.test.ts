@@ -12,6 +12,7 @@ import {
   CACHE_DESCRIPTOR_FILENAME,
 } from '../../../../../src/install/collect-identity.js';
 import type { DoctorProbes } from '../../../../../src/verbs/doctor/probes.js';
+import { rmrf } from '../../../../../tools/test-helpers/temp-dir.js';
 
 let base: string;
 let root: string;
@@ -67,7 +68,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  fs.rmSync(base, { recursive: true, force: true });
+  rmrf(base);
 });
 
 describe('doctor install-freshness check', () => {

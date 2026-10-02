@@ -56,6 +56,7 @@ import {
   type DocumentLegConfig,
 } from '../../../../src/verbs/team/prepare-synthesis.js';
 import type { ResolvedProjectConfig } from '../../../../src/config/resolve.js';
+import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 // ─── Test Helpers ──────────────────────────────────────────────────────────
 
@@ -172,7 +173,7 @@ describe('handlePrepareSynthesis', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+    await rmrfAsync(tmpDir).catch(() => {});
   });
 
   // ─── Test 1: Missing featureId ────────────────────────────────────────────

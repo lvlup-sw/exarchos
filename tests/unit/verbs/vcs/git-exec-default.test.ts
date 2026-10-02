@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { defaultGitExec } from '../../../../src/verbs/vcs/git-exec-default.js';
 import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
+import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 // #1311 — scoped coverage for the shared merge-orchestrator git executor.
 // The canonical (120s, stderr-capturing) `defaultGitExec` extracted from the
@@ -48,7 +49,7 @@ describe('git-exec-default — DR-1 index.lock retry composition', () => {
 
   afterEach(() => {
     for (const repo of createdRepos.splice(0)) {
-      rmSync(repo, { recursive: true, force: true });
+      rmrf(repo);
     }
   });
 

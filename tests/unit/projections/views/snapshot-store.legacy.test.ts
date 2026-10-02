@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
-import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
+import { mkdtemp, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { SnapshotStore } from '../../../../src/projections/views/snapshot-store.js';
 import type { SnapshotData } from '../../../../src/projections/views/snapshot-store.js';
 import { EVENT_SCHEMA_VERSION } from '../../../../src/events/event-migration.js';
+import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 // ─── Snapshot Store Tests ──────────────────────────────────────────────────
 
@@ -18,7 +19,7 @@ describe('SnapshotStore', () => {
   });
 
   afterEach(async () => {
-    await rm(tempDir, { recursive: true, force: true });
+    await rmrfAsync(tempDir);
   });
 
   // ─── 1. save_ValidData_WritesJsonFile ──────────────────────────────────

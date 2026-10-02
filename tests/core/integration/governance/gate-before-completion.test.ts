@@ -24,6 +24,7 @@ import {
   type DispatchObservation,
 } from '../_harness.js';
 import { deriveLocalOperatorIdentity } from '../../../../src/dispatch/caller-identity.js';
+import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 type Rec = Record<string, unknown>;
 
@@ -80,7 +81,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await harness?.dispose();
   for (const dir of scratchDirs) {
-    await fs.rm(dir, { recursive: true, force: true }).catch(() => undefined);
+    await rmrfAsync(dir).catch(() => undefined);
   }
 });
 

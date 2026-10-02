@@ -1,15 +1,16 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { resolveTaskRunner } from '../../../src/config/task-runners.js';
+import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 let dir: string;
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'task-runners-'));
 });
 afterEach(() => {
-  rmSync(dir, { recursive: true, force: true });
+  rmrf(dir);
 });
 function write(name: string, content: string): void {
   writeFileSync(join(dir, name), content, 'utf8');

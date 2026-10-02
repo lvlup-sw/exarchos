@@ -36,6 +36,7 @@ import {
   DEFAULT_POLICY_PATH,
 } from '../../tools/audit/gates/validate-plugin.mjs';
 import { spawnAsync } from '../../tools/test-helpers/spawn.js';
+import { rmrf } from '../../tools/test-helpers/temp-dir.js';
 
 const SCRIPTS_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPTS_DIR, '../..');
@@ -504,7 +505,7 @@ describe('validate-plugin — CLI (task 064, DR-24)', () => {
       expect(failedIds).toContain('dir.rendered/skills');
       expect(failedIds).toContain('forbidden-file..mcp.json');
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      rmrf(dir);
     }
   }, 20000);
 

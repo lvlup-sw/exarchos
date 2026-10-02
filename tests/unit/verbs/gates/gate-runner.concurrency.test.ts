@@ -13,7 +13,7 @@
 // visible as a contradiction (they must deny admission, not silently pick one).
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -45,6 +45,7 @@ import {
   type GateRunRequest,
   type GateRunnerDependencies,
 } from '../../../../src/verbs/gates/gate-runner.js';
+import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 const FIXED_TIME = '2026-07-21T22:30:00.000Z';
 const POLICY_DIGEST: ContentDigestV1 = {
@@ -110,7 +111,7 @@ describe('equivalent concurrent gate executions (EFF-003)', () => {
 
   afterEach(async () => {
     eventStore.close();
-    await rm(root, { recursive: true, force: true });
+    await rmrfAsync(root);
   });
 
   /**

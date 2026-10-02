@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -8,6 +8,7 @@ import { datedRecordTrees } from '../../../src/architecture/vocabulary-lint.js';
 import { ARTIFACT_DIRS } from '../../../tools/conformance/src/bindings/index.js';
 import { handleVerifyDocLinks } from '../../../src/verbs/gates/verify-doc-links.js';
 import { getPlaybook } from '../../../src/workflow/playbooks.js';
+import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '../../..');
@@ -49,7 +50,7 @@ describe('doc scanners include docs/specs/ (DR-9, task 019)', () => {
       expect(serialized).toContain('nope.md');
       expect(data).toBeDefined();
     } finally {
-      rmSync(tmp, { recursive: true, force: true });
+      rmrf(tmp);
     }
   });
 

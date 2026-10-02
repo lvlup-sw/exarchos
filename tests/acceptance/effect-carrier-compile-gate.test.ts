@@ -41,6 +41,7 @@ import {
   materializeCarrier,
   type Relaxation,
 } from '../helpers/carrier-compile-harness.js';
+import { rmrf } from '../../tools/test-helpers/temp-dir.js';
 
 /**
  * The single relaxation this suite needs: the emission declaration becomes
@@ -87,7 +88,7 @@ describe('omission fails the build, not the run', () => {
 
   afterEach(() => {
     // Removed on BOTH paths: a throwing assertion must not leave a tree behind.
-    fs.rmSync(dir, { recursive: true, force: true });
+    rmrf(dir);
   });
 
   it('CompileFail_EffectWithoutCommittedEvent_FailsTypecheck', async () => {

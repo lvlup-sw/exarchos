@@ -17,6 +17,7 @@ import {
   getRequiredComponents,
 } from '../../../../src/install/manifest/loader.js';
 import type { WizardSelections } from '../../../../src/install/operations/config.js';
+import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 // ─── A1: Type definition tests ───────────────────────────────────────────────
 
@@ -154,7 +155,7 @@ describe('Manifest Loader (A2)', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    rmrf(tmpDir);
   });
 
   /** Helper: write a manifest JSON file and return its path. */

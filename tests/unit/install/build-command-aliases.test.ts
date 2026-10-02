@@ -17,18 +17,11 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { buildCommandAliases, emitCommandAliases } from '../../../src/install/build-command-aliases.js';
 import { COMMAND_TO_SKILL } from '../../../src/install/config/canonical-skills.js';
 import { loadRuntime } from '../../../src/install/runtimes/load.js';
-import {
-  mkdtempSync,
-  rmSync,
-  readFileSync,
-  existsSync,
-  readdirSync,
-  writeFileSync,
-  mkdirSync,
-} from 'node:fs';
+import { mkdtempSync, readFileSync, existsSync, readdirSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -48,7 +41,7 @@ afterEach(() => {
   while (tempDirs.length > 0) {
     const dir = tempDirs.pop()!;
     try {
-      rmSync(dir, { recursive: true, force: true });
+      rmrf(dir);
     } catch {
       /* best-effort */
     }

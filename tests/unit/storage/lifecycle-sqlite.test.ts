@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, readdirSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { WorkflowEvent } from '../../../src/events/schemas.js';
@@ -8,6 +8,7 @@ import { SqliteBackend } from '../../../src/storage/sqlite-backend.js';
 import { compactWorkflow, rotateTelemetry } from '../../../src/storage/lifecycle.js';
 import type { LifecyclePolicy } from '../../../src/storage/lifecycle.js';
 import { TELEMETRY_STREAM } from '../../../src/projections/telemetry/constants.js';
+import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -88,7 +89,7 @@ describe('Lifecycle with SqliteBackend', () => {
       // already closed
     }
     if (tempDir) {
-      rmSync(tempDir, { recursive: true });
+      rmrf(tempDir);
     }
   });
 

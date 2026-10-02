@@ -1,8 +1,9 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, it, expect } from 'vitest';
 import { FileVersionLedger, InMemoryVersionLedger } from '../../../../src/runtime/extensions/version-ledger.js';
+import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 describe('InMemoryVersionLedger (P03-08 anti-rollback)', () => {
   it('Ledger_RecordsAndReadsHighestVersion', async () => {
@@ -30,7 +31,7 @@ describe('FileVersionLedger (P03-08 durable anti-rollback)', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, { recursive: true, force: true });
+    await rmrfAsync(dir);
   });
 
   it('Ledger_MissingFile_ReturnsUndefined', async () => {

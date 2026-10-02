@@ -9,6 +9,7 @@ import {
   writePluginManifest,
   type PluginManifest,
 } from '../../../../src/runtime/agents/plugin-manifest.js';
+import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -79,7 +80,7 @@ describe('readPluginManifest', () => {
     while (tmpDirs.length > 0) {
       const dir = tmpDirs.pop();
       if (dir !== undefined) {
-        fs.rmSync(dir, { recursive: true, force: true });
+        rmrf(dir);
       }
     }
   });
@@ -146,7 +147,7 @@ describe('writePluginManifest', () => {
     while (createdDirs.length > 0) {
       const dir = createdDirs.pop();
       if (dir !== undefined) {
-        fs.rmSync(dir, { recursive: true, force: true });
+        rmrf(dir);
       }
     }
   });

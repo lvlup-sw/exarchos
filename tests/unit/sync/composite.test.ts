@@ -5,6 +5,7 @@ import * as os from 'node:os';
 import { handleSyncNow } from '../../../src/sync/sync-handler.js';
 import type { WorkflowEvent } from '../../../src/events/schemas.js';
 import type { EventSender } from '../../../src/sync/types.js';
+import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
@@ -42,7 +43,7 @@ describe('handleSyncNow', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   it('handleSyncNow_DiscoverStreams_ReturnsStreamList', async () => {

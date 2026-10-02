@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -22,6 +22,7 @@ import {
   mintDispatchContext,
   runWithDispatchContext,
 } from '../../../src/dispatch/dispatch-context.js';
+import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 const mockedExecFile = vi.mocked(execFile);
 
@@ -82,7 +83,7 @@ describe('v2.12 cancellation process manager (DR-7)', () => {
 
   afterEach(async () => {
     store.close();
-    await rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
     vi.restoreAllMocks();
   });
 

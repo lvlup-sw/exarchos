@@ -2,8 +2,9 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { migrateState, CURRENT_VERSION } from '../../../src/workflow/migration.js';
 import { readStateFile } from '../../../src/workflow/state-store.js';
 import * as path from 'node:path';
-import { mkdtemp, rm, writeFile, readFile, access } from 'node:fs/promises';
+import { mkdtemp, writeFile, readFile, access } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 // Helper: minimal v1.0 state (no _history, _checkpoint)
 function makeV1_0State() {
@@ -161,7 +162,7 @@ describe('readStateFile backup integration', () => {
   });
 
   afterEach(async () => {
-    await rm(tempDir, { recursive: true, force: true });
+    await rmrfAsync(tempDir);
   });
 
   it('ReadStateFile_V1_0State_CreatesBackupBeforeMigration', async () => {

@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 /**
  * Run `fn` with `process.env.HOME` redirected to a fresh tmpdir. The tmpdir
@@ -17,7 +18,7 @@ export async function withTmpHome<T>(fn: (home: string) => Promise<T>): Promise<
     if (priorHome === undefined) delete process.env.HOME;
     else process.env.HOME = priorHome;
     try {
-      fs.rmSync(tmp, { recursive: true, force: true });
+      rmrf(tmp);
     } catch (error) {
       process.stderr.write(
         `[withTmpHome] rmSync failed for ${tmp}: ${(error as Error).message}\n`,

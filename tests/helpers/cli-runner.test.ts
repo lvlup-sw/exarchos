@@ -1,9 +1,10 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { mkdtempSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runCli } from './cli-runner.js';
 import { listAlive, clear, killAll } from './process-tracker.js';
+import { rmrf } from '../../tools/test-helpers/temp-dir.js';
 
 /**
  * Tests for the target-agnostic CLI invoker `runCli`.
@@ -134,7 +135,7 @@ describe('runCli', () => {
       expect(realpathSync(result.stdout)).toBe(realpathSync(tmp));
       expect(result.exitCode).toBe(0);
     } finally {
-      rmSync(tmp, { recursive: true, force: true });
+      rmrf(tmp);
     }
   });
 
@@ -169,7 +170,7 @@ describe('runCli', () => {
         }),
       ).rejects.toThrow(/exarchos/);
     } finally {
-      rmSync(isolatedPath, { recursive: true, force: true });
+      rmrf(isolatedPath);
     }
   });
 

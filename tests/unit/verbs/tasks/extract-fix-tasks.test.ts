@@ -19,6 +19,7 @@ import { tmpdir } from 'node:os';
 import * as nodePath from 'node:path';
 import { handleExtractFixTasks } from '../../../../src/verbs/tasks/extract-fix-tasks.js';
 import { EventStore } from '../../../../src/events/store.js';
+import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 const mockExistsSync = vi.mocked(existsSync);
 const mockReadFileSync = vi.mocked(readFileSync);
@@ -309,7 +310,7 @@ describe('handleExtractFixTasks', () => {
     const result = await handleExtractFixTasks({ featureId, eventStore });
 
     eventStore.close();
-    await fsPromises.rm(eventStoreDir, { recursive: true, force: true });
+    await rmrfAsync(eventStoreDir);
 
     // Must NOT fail with FILE_NOT_FOUND / PARSE_ERROR.
     expect(result.success).toBe(true);
@@ -348,7 +349,7 @@ describe('handleExtractFixTasks', () => {
     });
 
     eventStore.close();
-    await fsPromises.rm(eventStoreDir, { recursive: true, force: true });
+    await rmrfAsync(eventStoreDir);
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('PARSE_ERROR');
@@ -393,7 +394,7 @@ describe('handleExtractFixTasks', () => {
     });
 
     eventStore.close();
-    await fsPromises.rm(eventStoreDir, { recursive: true, force: true });
+    await rmrfAsync(eventStoreDir);
 
     expect(result.success).toBe(true);
     const data = result.data as { count: number; tasks: Array<{ file: string }> };

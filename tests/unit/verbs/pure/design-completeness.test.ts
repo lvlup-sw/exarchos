@@ -7,7 +7,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -19,6 +19,7 @@ import {
   checkAcceptanceCriteria,
   handleDesignCompleteness,
 } from '../../../../src/verbs/pure/design-completeness.js';
+import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -29,7 +30,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  rmSync(tmpDir, { recursive: true, force: true });
+  rmrf(tmpDir);
 });
 
 /** Complete design document with all 7 required sections, 3 options, and acceptance criteria. */

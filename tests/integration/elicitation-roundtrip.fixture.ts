@@ -50,6 +50,7 @@ import { createMcpServer } from '../../src/adapters/mcp/mcp.js';
 import { createInMemoryResolver } from '../../src/workflow/capabilities/resolver.js';
 import type { DispatchContext } from '../../src/dispatch/core/dispatch.js';
 import { EventStore } from '../../src/events/store.js';
+import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 
 // ─── Public surface ────────────────────────────────────────────────────────
 
@@ -253,7 +254,7 @@ export async function createElicitationTestPair(
     // idempotent; the `:memory:`-mode gap the header notes is moot once the
     // handle is closed.
     eventStore.close();
-    await fs.rm(tmpDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    await rmrfAsync(tmpDir);
   };
 
   return {

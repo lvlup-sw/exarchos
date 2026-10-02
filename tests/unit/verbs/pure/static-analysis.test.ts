@@ -8,6 +8,7 @@ import {
   FAIL_DETAIL_MAX_FILES,
 } from '../../../../src/verbs/pure/static-analysis.js';
 import type { StaticAnalysisResult, RunCommandFn } from '../../../../src/verbs/pure/static-analysis.js';
+import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 describe('runStaticAnalysis', () => {
   let tmpDir: string;
@@ -17,7 +18,7 @@ describe('runStaticAnalysis', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    rmrf(tmpDir);
   });
 
   // ============================================================

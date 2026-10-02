@@ -8,7 +8,7 @@
 //   * the disposition fold pairs each durable disagreement with its LATEST
 //     `admission.disagreement-disposition` row, defaulting to `unexplained`.
 
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -30,6 +30,7 @@ import {
 } from '../../../../src/workflow/admission/evidence-reader.js';
 import { ADMISSION_EVENT_TYPES } from '../../../../src/workflow/admission/types.js';
 import type { LiveShadowHealth } from '../../../../src/workflow/admission/live-shadow-observer.js';
+import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -260,7 +261,7 @@ describe('EvidenceReader — empty store semantics', () => {
 
   afterEach(async () => {
     eventStore.close();
-    await rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   it('EvidenceReader_EmptyStore_ReportsNoEvidenceNotCleanEvidence', async () => {

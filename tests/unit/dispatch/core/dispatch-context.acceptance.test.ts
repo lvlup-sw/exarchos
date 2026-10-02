@@ -27,6 +27,7 @@ import { EventStore } from '../../../../src/events/store.js';
 import { InMemoryBackend } from '../../../../src/storage/memory-backend.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
 import type { StorageBackend } from '../../../../src/storage/backend.js';
+import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -99,7 +100,7 @@ describe('DR-2 acceptance — storage handle DI through DispatchContext', () => 
   });
 
   afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    await rmrfAsync(tmpDir);
   });
 
   it('DispatchContext_StorageHandle_InjectedNotAmbient', () => {

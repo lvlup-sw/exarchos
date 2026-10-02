@@ -38,7 +38,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { spawn } from 'node:child_process';
-import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -48,6 +47,7 @@ import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { needsWindowsShell } from '../../../src/utils/process.js';
+import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -103,7 +103,7 @@ async function makeStoreDir(): Promise<string> {
 afterEach(async () => {
   while (tempDirs.length > 0) {
     const dir = tempDirs.pop()!;
-    await fsp.rm(dir, { recursive: true, force: true }).catch(() => undefined);
+    await rmrfAsync(dir).catch(() => undefined);
   }
 });
 

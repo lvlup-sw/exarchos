@@ -47,6 +47,7 @@ import type { SdkGeneration } from '../../../../src/contract/sdk/brand.js';
 import { parseModuleSpecifiers } from '../../../../tools/test-helpers/module-specifier-parser.js';
 import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 import { listTrackedFiles, trackedFilesMissedBy } from '../../../../tools/test-helpers/tracked-population.js';
+import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // src/sdk → servers/exarchos-mcp
@@ -337,7 +338,7 @@ describe('DR-26 — owned SDK seam, generation-branded handles', () => {
           `crossing that compiles is a hole in the rung-2 guarantee.\n${run.output}`,
       ).toBeGreaterThanOrEqual(crossingCountOf(CROSS_GENERATION_FIXTURE));
     } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      rmrf(tmpDir);
     }
   }, 180_000);
 

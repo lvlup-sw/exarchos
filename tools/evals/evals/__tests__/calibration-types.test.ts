@@ -9,6 +9,7 @@ import {
   CalibrateInputSchema,
   loadGoldStandard,
 } from '../calibration-types.js';
+import { rmrfAsync } from '../../../test-helpers/temp-dir.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -41,7 +42,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tmpDir, { recursive: true, force: true });
+  await rmrfAsync(tmpDir);
 });
 
 // ─── HumanGradedCaseSchema Unit Tests ───────────────────────────────────────

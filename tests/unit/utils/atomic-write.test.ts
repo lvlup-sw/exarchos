@@ -28,6 +28,7 @@ import {
   type PromotionIo,
 } from '../../../src/install/atomic-promotion.js';
 import { digestTree, type DigestEntry } from '../../../src/install/install-identity.js';
+import { rmrf, rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 /**
  * Testing strategy only — for the race itself, see `publishTempFile`.
@@ -432,7 +433,7 @@ describe('atomicReplace', () => {
   const dirs: string[] = [];
 
   afterEach(async () => {
-    await Promise.all(dirs.splice(0).map((d) => fsp.rm(d, { recursive: true, force: true })));
+    await Promise.all(dirs.splice(0).map((d) => rmrfAsync(d)));
   });
 
   async function scratchDir(): Promise<string> {
@@ -609,7 +610,7 @@ afterEach(() => {
     const dir = tempRoots.pop();
     if (dir === undefined) continue;
     try {
-      fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+      rmrf(dir);
     } catch {
       /* best-effort temp cleanup */
     }

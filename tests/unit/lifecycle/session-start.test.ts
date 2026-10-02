@@ -4,6 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { handleSessionStart } from '../../../src/lifecycle/session-start.js';
 import { readManifestEntries } from '../../../src/projections/session/manifest.js';
+import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 // ─── session-start (#1485) ────────────────────────────────────────────────────
 //
@@ -24,7 +25,7 @@ describe('session-start command', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   it('handleSessionStart_MissingSessionId_FailOpenNoError', async () => {

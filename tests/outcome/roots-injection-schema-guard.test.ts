@@ -31,6 +31,7 @@ import { EventStore } from '../../src/events/store.js';
 import { handleInit } from '../../src/workflow/tools.js';
 import { createInMemoryResolver } from '../../src/workflow/capabilities/resolver.js';
 import type { RootsClient } from '../../src/runtime/workspace/discovery.js';
+import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 
 /** Temp workspaces created by this suite, removed on teardown. */
 const created: string[] = [];
@@ -44,7 +45,7 @@ async function mkWorkspace(label: string): Promise<string> {
 afterEach(async () => {
   while (created.length > 0) {
     const dir = created.pop();
-    if (dir !== undefined) await fs.rm(dir, { recursive: true, force: true });
+    if (dir !== undefined) await rmrfAsync(dir);
   }
 });
 

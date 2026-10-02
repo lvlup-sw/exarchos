@@ -3,6 +3,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { handleVersionCheck } from '../../../src/lifecycle/version.js';
+import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 // ─── Test Suite ─────────────────────────────────────────────────────────────
 
@@ -20,7 +21,7 @@ describe('version subcommand', () => {
   afterEach(async () => {
     stderrSpy.mockRestore();
     stdoutSpy.mockRestore();
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   async function writePluginJson(root: string, body: unknown): Promise<void> {

@@ -12,7 +12,7 @@
 // turn a reverted guard red.
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -34,6 +34,7 @@ import {
   type CompensationActionState,
   type FoldableCancelEvent,
 } from '../../../src/workflow/cancel-process-manager.js';
+import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -515,7 +516,7 @@ describe('cancellation process-manager exit proofs (against a real EventStore)',
 
   afterEach(async () => {
     store.close();
-    await rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   const policy: CancelRetryPolicy = { maxAttempts: 3 };

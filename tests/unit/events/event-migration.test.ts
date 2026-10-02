@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { Database } from 'bun:sqlite';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
@@ -13,6 +13,7 @@ import {
 } from '../../../src/events/event-migration.js';
 import { SqliteBackend } from '../../../src/storage/sqlite-backend.js';
 import type { WorkflowEvent } from '../../../src/events/schemas.js';
+import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 describe('Event Migration', () => {
   it('EVENT_SCHEMA_VERSION_Exported_Is1_0', () => {
@@ -200,7 +201,7 @@ describe('Event Migration', () => {
       backends.length = 0;
 
       if (tempDir) {
-        rmSync(tempDir, { recursive: true });
+        rmrf(tempDir);
         tempDir = undefined;
       }
     });
@@ -345,7 +346,7 @@ describe('Event Migration', () => {
       backends.length = 0;
 
       if (tempDir) {
-        rmSync(tempDir, { recursive: true });
+        rmrf(tempDir);
         tempDir = undefined;
       }
     });

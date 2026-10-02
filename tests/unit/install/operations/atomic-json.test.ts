@@ -23,6 +23,7 @@ import {
 } from '../../../../src/install/operations/atomic-json.js';
 import { readConfig, writeConfig } from '../../../../src/install/operations/config.js';
 import { readMcpConfig, writeMcpConfig } from '../../../../src/install/operations/mcp.js';
+import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 describe('atomic JSON configuration I/O (EFF-008)', () => {
   let dir: string;
@@ -34,7 +35,7 @@ describe('atomic JSON configuration I/O (EFF-008)', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(dir, { recursive: true, force: true });
+    rmrf(dir);
   });
 
   function realFs(): AtomicJsonFs {
@@ -213,7 +214,7 @@ describe('config writers route through the atomic primitive (EFF-008)', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(dir, { recursive: true, force: true });
+    rmrf(dir);
   });
 
   it('WriteConfig_CreatesParentsAndRoundTrips', () => {

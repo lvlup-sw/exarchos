@@ -30,14 +30,7 @@
 // ─────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect } from 'vitest';
-import {
-  copyFileSync,
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -52,6 +45,7 @@ import {
   MAX_MUTATE_FILES,
 } from '../../../tools/audit/core/stryker-adapter.mjs';
 import { execFileAsync, spawnAsync } from '../../../tools/test-helpers/spawn.js';
+import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 // Task 019 dissolved the nested server package, so the package root and the
 // repository root are now the same directory and the adapter moved under
@@ -149,7 +143,7 @@ describe('resolveVerificationRuntime mutation-field provenance (DR-7)', () => {
       // `npx stryker run` (toolchains.ts) — the config-tier value must win.
       expect(runtime.mutation).toBe('node tools/audit/core/stryker-adapter.mjs');
     } finally {
-      rmSync(tmp, { recursive: true, force: true });
+      rmrf(tmp);
     }
   });
 });
@@ -192,7 +186,7 @@ describe.skipIf(process.platform === 'win32')('stryker-adapter composed path —
       const parsed = parseMutationReport(result.stdout);
       expect(parsed.ok).toBe(false);
     } finally {
-      rmSync(tmpRoot, { recursive: true, force: true });
+      rmrf(tmpRoot);
     }
   });
 });
@@ -304,7 +298,7 @@ describe.skipIf(process.platform === 'win32')('stryker-adapter composed path —
         expect(parsed.carrier.killed).toBeGreaterThan(0);
       }
     } finally {
-      rmSync(tmpRoot, { recursive: true, force: true });
+      rmrf(tmpRoot);
     }
   }, 60_000);
 });

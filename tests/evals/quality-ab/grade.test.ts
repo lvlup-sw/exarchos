@@ -20,6 +20,7 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { gradeAdequacy, gradeRun, type ProbeFn } from './grade.js';
+import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const QAB = __dirname; // tests/evals/quality-ab
@@ -74,7 +75,7 @@ describe.skipIf(WIN32)('gradeAdequacy — mechanical diff-scoped kill-probe (DR-
   });
 
   afterAll(() => {
-    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+    rmrf(fixtureRoot);
   });
 
   it(
@@ -160,7 +161,7 @@ describe.skipIf(WIN32)('gradeRun — characterization: adequacy is additive, exi
   });
 
   afterAll(() => {
-    fs.rmSync(workRoot, { recursive: true, force: true });
+    rmrf(workRoot);
   });
 
   for (const run of ['csv-line__E__r1', 'csv-line__N__r1']) {

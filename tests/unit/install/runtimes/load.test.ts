@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { readFileSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadRuntime, loadAllRuntimes } from '../../../../src/install/runtimes/load.js';
+import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -92,7 +93,7 @@ describe('loadAllRuntimes', () => {
   });
 
   afterEach(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
+    rmrf(tmpDir);
   });
 
   it('LoadAllRuntimes_SixFilesPresent_ReturnsArrayOfSix', () => {

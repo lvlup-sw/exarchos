@@ -45,7 +45,7 @@
  * to that claim against the same census.
  */
 
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -66,6 +66,7 @@ import {
 import { GOVERNANCE_WITNESSES } from '../../src/events/partition/witnesses.js';
 import { scanEventReaders as compilerBackedScanner } from '../../tools/test-helpers/event-reader-scanner.js';
 import { listTrackedFiles } from '../../tools/test-helpers/tracked-population.js';
+import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const SOURCE_DIR = path.join(REPO_ROOT, 'src');
@@ -178,7 +179,7 @@ describe('RawReaderCensus — no fold-external reader depends on a telemetry eve
       expect(messages).toContain('src/seeded-reader.ts');
       expect(messages).toContain(telemetryType ?? '');
     } finally {
-      await rm(root, { recursive: true, force: true });
+      await rmrfAsync(root);
     }
   });
 

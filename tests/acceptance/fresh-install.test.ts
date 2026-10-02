@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { installSkills } from '../../src/install/install-skills.js';
 import { loadAllRuntimes } from '../../src/install/runtimes/load.js';
 import { execFileAsync, spawnAsyncBuffer } from '../../tools/test-helpers/spawn.js';
+import { rmrf } from '../../tools/test-helpers/temp-dir.js';
 
 /**
  * Repinning `plugin.json` at the `rendered/` tree is a sanctioned clean break,
@@ -61,7 +62,7 @@ beforeAll(async () => {
 }, 120_000);
 
 afterAll(() => {
-  if (scratch) rmSync(scratch, { recursive: true, force: true });
+  if (scratch) rmrf(scratch);
 });
 
 describe('FreshInstall', () => {

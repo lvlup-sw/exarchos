@@ -42,6 +42,7 @@ import {
 } from '../../tools/audit/gates/run-validate.mjs';
 import { EXIT_GAPS } from '../../tools/audit/gates/check-measured-premises.mjs';
 import { spawnAsync } from '../../tools/test-helpers/spawn.js';
+import { rmrf } from '../../tools/test-helpers/temp-dir.js';
 
 const SCRIPTS_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPTS_DIR, '../..');
@@ -86,7 +87,7 @@ function seedManifest(steps: unknown[]): { manifestPath: string; cleanup: () => 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'run-validate-fixture-'));
   const file = path.join(dir, 'validate-manifest.json');
   fs.writeFileSync(file, JSON.stringify({ steps }, null, 2));
-  return { manifestPath: file, cleanup: () => fs.rmSync(dir, { recursive: true, force: true }) };
+  return { manifestPath: file, cleanup: () => rmrf(dir) };
 }
 
 async function runCli(args: string[]): Promise<{ status: number | null; stdout: string; stderr: string }> {

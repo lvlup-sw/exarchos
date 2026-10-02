@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, chmodSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { loadExarchosConfig } from '../../../src/config/load-exarchos-config.js';
 import { readInvariantsConfig } from '../../../src/architecture/invariants-loader.js';
+import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 describe('loadExarchosConfig', () => {
   let tmpRoot: string;
@@ -14,7 +15,7 @@ describe('loadExarchosConfig', () => {
 
   afterEach(() => {
     try {
-      rmSync(tmpRoot, { recursive: true, force: true });
+      rmrf(tmpRoot);
     } catch {
       // best effort
     }

@@ -74,10 +74,18 @@ process.env['EXARCHOS_TEST_RUN_ID'] ??= `${Date.now().toString(36)}${randomBytes
  */
 const YIELD_BETWEEN_TESTS = './tests/helpers/yield-between-tests.ts';
 
+/**
+ * The global setup that gives each run one temp root and removes it at the end.
+ * It is declared on the root config, which vitest runs for every project, so
+ * every worker of every project inherits the root through TMPDIR, TEMP and TMP.
+ */
+export const TEMP_RUN_ROOT_SETUP = './tools/test-helpers/temp-run-root.ts';
+
 export default defineConfig({
   test: {
     globals: false,
     environment: 'node',
+    globalSetup: [TEMP_RUN_ROOT_SETUP],
     // ROOT level, not inside the `core` project. Vitest reads coverage only
     // here — a `coverage` block on a project entry is silently ignored, which
     // is what had been happening: `npm run test:coverage` fell back to the

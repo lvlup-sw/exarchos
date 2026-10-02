@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { detectLanguage, compile, execute, runSolution } from './compiler.js';
 import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
+import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 const TEST_DIR = join(dirname(fileURLToPath(import.meta.url)), '.test-fixtures');
 
@@ -28,7 +29,7 @@ beforeAll(() => {
 
 afterAll(() => {
   if (existsSync(TEST_DIR)) {
-    rmSync(TEST_DIR, { recursive: true });
+    rmrf(TEST_DIR);
   }
 });
 

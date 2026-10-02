@@ -9,7 +9,7 @@
 // repair cannot be reverted one file at a time without something naming it.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -36,6 +36,7 @@ import {
   type GateRunnerDependencies,
 } from '../../../../src/verbs/gates/gate-runner.js';
 import { requireGateEvent } from '../../../../src/verbs/gates/gate-utils.js';
+import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 const FIXED_TIME = '2026-08-28T00:00:00.000Z';
 const POLICY_DIGEST: ContentDigestV1 = { algorithm: 'sha256', value: '2'.repeat(64) };
@@ -52,7 +53,7 @@ describe('gate.executed append failure — durable evidence honesty', () => {
 
   afterEach(async () => {
     eventStore.close();
-    await rm(root, { recursive: true, force: true });
+    await rmrfAsync(root);
   });
 
   it('GateEventUnrecorded_UnderTheSharedRunner_RecordsAnIndeterminateVerdict', async () => {

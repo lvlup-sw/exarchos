@@ -21,7 +21,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, afterEach } from 'vitest';
-import { readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { readFileSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { dirname, resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
@@ -49,6 +49,7 @@ import {
   type DagTask,
   type ParallelTask,
 } from '../../../src/verbs/tasks/task-decomposition.js';
+import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 // ─── Repo-root resolution (ESM-safe) ─────────────────────────────────────────
 //
@@ -300,7 +301,7 @@ let tmpDir: string | undefined;
 
 afterEach(() => {
   if (tmpDir) {
-    rmSync(tmpDir, { recursive: true, force: true });
+    rmrf(tmpDir);
     tmpDir = undefined;
   }
 });

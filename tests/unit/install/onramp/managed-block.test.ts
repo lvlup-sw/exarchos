@@ -12,6 +12,7 @@ import {
   insertManagedBlock,
   type InsertManagedBlockDeps,
 } from '../../../../src/install/onramp/managed-block.js';
+import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 // ─── Fixtures / helpers ───────────────────────────────────────────────────────
 
@@ -23,7 +24,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  fs.rmSync(tmpDir, { recursive: true, force: true });
+  rmrf(tmpDir);
 });
 
 /** A fresh, unique file path inside the per-test tmp dir (not yet created). */

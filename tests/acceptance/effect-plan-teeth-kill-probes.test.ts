@@ -59,6 +59,7 @@ import {
   type Relaxation,
 } from '../helpers/carrier-compile-harness.js';
 import { execFileAsync } from '../../tools/test-helpers/spawn.js';
+import { rmrf } from '../../tools/test-helpers/temp-dir.js';
 
 /**
  * The control arm: the REAL carrier must reject the fixture, and must reject it
@@ -208,7 +209,7 @@ describe('kill probes: every gate is shown to fail', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(dir, { recursive: true, force: true });
+    rmrf(dir);
   });
 
   it('KillProbe_RequiredEmissionsRelaxed_TypecheckStopsFailing', async () => {

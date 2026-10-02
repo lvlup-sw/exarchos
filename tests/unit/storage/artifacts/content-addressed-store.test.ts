@@ -1,15 +1,5 @@
 import { createHash } from 'node:crypto';
-import {
-  mkdir,
-  mkdtemp,
-  open,
-  readdir,
-  readFile,
-  rm,
-  stat,
-  unlink,
-  writeFile,
-} from 'node:fs/promises';
+import { mkdir, mkdtemp, open, readdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -19,6 +9,7 @@ import {
   ContentAddressedStoreError,
   type ContentAddressedStoreIo,
 } from '../../../../src/storage/artifacts/content-addressed-store.js';
+import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 function sha256Hex(bytes: Buffer): string {
   return createHash('sha256').update(bytes).digest('hex');
@@ -75,7 +66,7 @@ describe('ContentAddressedStore', () => {
   });
 
   afterEach(async () => {
-    await rm(root, { recursive: true, force: true });
+    await rmrfAsync(root);
   });
 
   it('ContentAddressedStore_RoundTrip_ReturnsExactBytes', async () => {

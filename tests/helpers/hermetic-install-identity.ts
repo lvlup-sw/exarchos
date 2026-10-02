@@ -3,6 +3,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { isMainThread } from 'node:worker_threads';
 
+import { sweepOrphanScratchDirs } from '../../tools/test-helpers/scratch-sweep.js';
+
 /**
  * Keep the install-identity TOFU lock out of the developer's real home.
  *
@@ -58,8 +60,6 @@ export function scratchNameFor(hostPid: number, runId: string): string {
   return `${INSTALL_IDENTITY_SCRATCH_PREFIX}${hostPid}-${runId}`;
 }
 
-const SCRATCH_NAME_SUFFIX = /^([1-9]\d*)(?:-[A-Za-z0-9]+)?$/;
-
 export function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -87,29 +87,7 @@ export function sweepOrphanInstallIdentityDirs(
   hostPid: number,
   isAlive: (pid: number) => boolean = isProcessAlive,
 ): string[] {
-  let entries: string[];
-  try {
-    entries = fs.readdirSync(tmp);
-  } catch {
-    return [];
-  }
-  const removed: string[] = [];
-  for (const entry of entries) {
-    if (!entry.startsWith(INSTALL_IDENTITY_SCRATCH_PREFIX) || entry === keep) continue;
-    // Only `<pid>` or `<pid>-<run id>` names a run; anything else (an older
-    // layout's random suffix, a stray file) is not this module's to remove.
-    const match = SCRATCH_NAME_SUFFIX.exec(entry.slice(INSTALL_IDENTITY_SCRATCH_PREFIX.length));
-    if (match?.[1] === undefined) continue;
-    const pid = Number.parseInt(match[1], 10);
-    if (pid !== hostPid && isAlive(pid)) continue;
-    try {
-      fs.rmSync(path.join(tmp, entry), { recursive: true, force: true });
-      removed.push(entry);
-    } catch {
-      // Left for the next run.
-    }
-  }
-  return removed;
+  return sweepOrphanScratchDirs(tmp, INSTALL_IDENTITY_SCRATCH_PREFIX, keep, hostPid, isAlive);
 }
 
 const TMP = os.tmpdir();

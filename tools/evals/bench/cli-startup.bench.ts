@@ -5,6 +5,7 @@ import * as fsp from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 // ─── Task 021: CLI Cold-Start Benchmark (DR-5) ────────────────────────────────
 //
@@ -175,7 +176,7 @@ async function runBench(opts: BenchOptions): Promise<readonly number[]> {
     samples.sort((a, b) => a - b);
     return samples;
   } finally {
-    await fsp.rm(stateDir, { recursive: true, force: true }).catch(() => undefined);
+    await rmrfAsync(stateDir);
   }
 }
 

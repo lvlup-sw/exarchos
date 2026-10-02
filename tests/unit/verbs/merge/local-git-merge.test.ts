@@ -12,7 +12,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
@@ -22,6 +22,7 @@ import {
 } from '../../../../src/verbs/merge/local-git-merge.js';
 import type { GitExec } from '../../../../src/verbs/pure/execute-merge.js';
 import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
+import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 // ─── helpers ───────────────────────────────────────────────────────────────
 
@@ -116,7 +117,7 @@ describe('buildLocalGitMergeAdapter', () => {
 
   afterEach(() => {
     for (const dir of cleanup) {
-      rmSync(dir, { recursive: true, force: true });
+      rmrf(dir);
     }
   });
 

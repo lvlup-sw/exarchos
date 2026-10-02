@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -36,6 +36,7 @@ import { handlePlanCoverage } from '../../../src/verbs/gates/plan-coverage.js';
 import { handlePrepareSynthesis } from '../../../src/verbs/team/prepare-synthesis.js';
 import { handleProvenanceChain } from '../../../src/verbs/gates/provenance-chain.js';
 import { handleReviewVerdict } from '../../../src/verbs/review/review-verdict.js';
+import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 const PHASE_ATTEMPT_ID = 'phase-attempt:task-009';
 
@@ -141,7 +142,7 @@ describe('migrated phase gate durable evidence', () => {
   });
 
   afterEach(async () => {
-    await rm(root, { recursive: true, force: true });
+    await rmrfAsync(root);
   });
 
   it('PlanCoverage_CompatibleCarrier_AddsPlanSpecEvidence', async () => {

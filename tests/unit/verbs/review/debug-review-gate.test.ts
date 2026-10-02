@@ -1,7 +1,7 @@
 // ─── Debug Review Gate Tests ─────────────────────────────────────────────────
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -22,6 +22,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { handleDebugReviewGate } from '../../../../src/verbs/review/debug-review-gate.js';
 import type { EventStore } from '../../../../src/events/store.js';
+import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 // The gate now records durable evidence through the shared phase-gate runner
 // before any success carrier escapes. These cases are about the PROVIDER's
 // verdict, so the runner is stubbed down to its provider call — the same seam
@@ -88,7 +89,7 @@ describe('handleDebugReviewGate', () => {
   });
 
   afterEach(() => {
-    for (const dir of fixtureDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+    for (const dir of fixtureDirs.splice(0)) rmrf(dir);
   });
 
   // ─── Test 1: Test files found + tests pass → passed: true ───────────────

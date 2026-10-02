@@ -36,6 +36,7 @@ import {
   type PromotionIo,
 } from '../../../../../src/install/atomic-promotion.js';
 import { fsyncDir, type DirectorySyncOutcome } from '../../../../../src/utils/atomic-write.js';
+import { rmrf } from '../../../../../tools/test-helpers/temp-dir.js';
 
 // ─── Temp-dir plumbing ──────────────────────────────────────────────────────
 
@@ -51,7 +52,7 @@ afterEach(() => {
   while (tempRoots.length > 0) {
     const dir = tempRoots.pop();
     if (dir !== undefined) {
-      fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+      rmrf(dir);
     }
   }
 });

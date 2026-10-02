@@ -14,13 +14,14 @@
 // path is covered by the win32-safe unit seam + the `test-windows` lane).
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { clearHelpProbeCache, resolveInjectionChannel } from '../../../../src/runtime/launcher/lifecycle-core.js';
 import { applyOrientationChannel } from '../../../../src/runtime/launcher/injection-seam.js';
 import { spawnHarnessChild, type AsyncSpawnRequest } from '../../../../src/utils/process.js';
 import { HARNESS_DESCRIPTORS } from '../../../../src/runtime/launcher/harness-registry.js';
+import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 const CLAUDE_CANDIDATES = HARNESS_DESCRIPTORS['claude-code'].injection;
 const FILE_FLAG = '--append-system-prompt-file';
@@ -63,7 +64,7 @@ describe.skipIf(process.platform === 'win32')(
     });
 
     afterEach(() => {
-      rmSync(workDir, { recursive: true, force: true });
+      rmrf(workDir);
     });
 
     /**

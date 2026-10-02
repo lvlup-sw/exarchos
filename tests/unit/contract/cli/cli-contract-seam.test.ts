@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -30,6 +30,7 @@ import {
   type CliClassification,
 } from '../../../../src/contract/cli/cli-contract-seam.js';
 import { exitCodeForError, STABLE_ERROR_REGISTRY, CONTRACT_EXIT_CODES } from '../../../../src/contract/error-families.js';
+import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 // ─── Generated CLI surface: byte-stable drift guard (exit-proof c) ───────────
 
@@ -126,7 +127,7 @@ describe('Dispatch-seam containment census', () => {
         const sites = await scanDispatchSites(path.join(pkg, 'src'));
         return sites.map((s) => s.module);
       } finally {
-        await rm(pkg, { recursive: true, force: true });
+        await rmrfAsync(pkg);
       }
     };
 
@@ -203,7 +204,7 @@ describe('Dispatch-seam containment census', () => {
           /declares no `exclude` array/,
         );
       } finally {
-        await rm(pkg, { recursive: true, force: true });
+        await rmrfAsync(pkg);
       }
     });
 
@@ -224,7 +225,7 @@ describe('Dispatch-seam containment census', () => {
           await writeFile(path.join(pkg, 'tsconfig.json'), contents, 'utf8');
           expect(() => resolveEmitBoundary(path.join(pkg, 'src'))).not.toThrow();
         } finally {
-          await rm(pkg, { recursive: true, force: true });
+          await rmrfAsync(pkg);
         }
       }
     });
@@ -245,7 +246,7 @@ describe('Dispatch-seam containment census', () => {
         expect(String((thrown as Error).message)).toContain('tsconfig.json');
         expect((thrown as { cause?: unknown }).cause).toBeInstanceOf(Error);
       } finally {
-        await rm(pkg, { recursive: true, force: true });
+        await rmrfAsync(pkg);
       }
     });
   });

@@ -3,6 +3,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { SessionEvent, SessionSummaryEvent } from '../../../src/projections/session/types.js';
+import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 // ─── Mocks ──────────────────────────────────────────────────────────────────
 
@@ -46,7 +47,7 @@ describe('session-end command', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true });
+    await rmrfAsync(tmpDir);
   });
 
   describe('input validation', () => {

@@ -7,6 +7,7 @@ import {
   writeConfig,
 } from '../../../../src/install/operations/config.js';
 import type { ExarchosConfig, WizardSelections } from '../../../../src/install/operations/config.js';
+import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 describe('ExarchosConfig I/O (A3)', () => {
   let tmpDir: string;
@@ -16,7 +17,7 @@ describe('ExarchosConfig I/O (A3)', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    rmrf(tmpDir);
   });
 
   /** Helper: create a valid config object for testing. */

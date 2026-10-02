@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -19,6 +19,7 @@ import {
   EXIT_USAGE,
   EXIT_FINDING,
 } from '../../../tools/audit/consolidate-suite.mjs';
+import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 // The tool resolves relative import specifiers against a file's ABSOLUTE
 // directory, so pure tests use synthetic dirs that mirror the real layout
@@ -170,7 +171,7 @@ describe('enumeratePairs', () => {
     srcRoot = path.join(root, 'src');
     mkdirSync(srcRoot, { recursive: true });
   });
-  afterEach(() => rmSync(root, { recursive: true, force: true }));
+  afterEach(() => rmrf(root));
 
   it('reports a pair only when BOTH legacy and co-located copies exist', () => {
     writeFile('__tests__/workflow/both.test.ts', 'it("x", () => {});');
@@ -222,7 +223,7 @@ describe('computeEmit', () => {
     srcRoot = path.join(root, 'src');
     mkdirSync(srcRoot, { recursive: true });
   });
-  afterEach(() => rmSync(root, { recursive: true, force: true }));
+  afterEach(() => rmrf(root));
 
   it('merge: dedups a textually-identical case and appends the distinct one; deletes legacy', () => {
     const canon = `import { describe, it, expect } from 'vitest';
@@ -425,7 +426,7 @@ describe('run (CLI dispatch)', () => {
     out = [];
     err = [];
   });
-  afterEach(() => rmSync(root, { recursive: true, force: true }));
+  afterEach(() => rmrf(root));
 
   it('--enumerate prints one id per pair and a count footer', () => {
     writeFile('__tests__/workflow/a.test.ts', 'it("x", () => {});');

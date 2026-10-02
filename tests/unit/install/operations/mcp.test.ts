@@ -10,6 +10,7 @@ import {
   generateMcpEntry,
   removeMcpServers,
 } from '../../../../src/install/operations/mcp.js';
+import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 describe('MCP Config Management (C2)', () => {
   let tmpDir: string;
@@ -19,7 +20,7 @@ describe('MCP Config Management (C2)', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    rmrf(tmpDir);
   });
 
   /** Helper: create a bundled McpServerComponent. */

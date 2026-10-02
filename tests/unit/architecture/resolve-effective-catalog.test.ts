@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { resolveEffectiveCatalog } from '../../../src/architecture/resolve-effective-catalog.js';
 import type { ExarchosConfig } from '../../../src/config/exarchos-config-schema.js';
+import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 /**
  * The fixture's dev catalog, expressed the way DR-31 requires: an ORDINARY
@@ -89,7 +90,7 @@ function makeRepoFixture(): {
   return {
     repoRoot,
     userCatalogPath,
-    cleanup: () => fs.rmSync(repoRoot, { recursive: true, force: true }),
+    cleanup: () => rmrf(repoRoot),
   };
 }
 

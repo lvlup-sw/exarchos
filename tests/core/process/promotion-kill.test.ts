@@ -83,6 +83,7 @@ import {
   CrashInjectionRejectedError,
   deliverCrash,
 } from './_helpers.js';
+import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DRIVER = path.join(__dirname, 'promotion-kill.driver.mjs');
@@ -165,7 +166,7 @@ afterEach(async () => {
   }
   while (tempDirs.length > 0) {
     const dir = tempDirs.pop()!;
-    await fsp.rm(dir, { recursive: true, force: true }).catch(() => undefined);
+    await rmrfAsync(dir).catch(() => undefined);
   }
 });
 

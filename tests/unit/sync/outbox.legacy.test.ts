@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { Outbox } from '../../../src/sync/outbox.js';
 import type { EventSender } from '../../../src/sync/types.js';
 import type { WorkflowEvent } from '../../../src/events/schemas.js';
+import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 function makeEvent(overrides?: Partial<WorkflowEvent>): WorkflowEvent {
   return {
@@ -27,7 +28,7 @@ describe('Outbox', () => {
   });
 
   afterEach(async () => {
-    await rm(tempDir, { recursive: true, force: true });
+    await rmrfAsync(tempDir);
   });
 
   // ─── addEntry ──────────────────────────────────────────────────────────

@@ -14,6 +14,7 @@ import {
   type SmartCopyResult,
   type SmartCopyDirectoryResult,
 } from '../../../../src/install/operations/copy.js';
+import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 describe('Content Hash Utilities (A4)', () => {
   let tmpDir: string;
@@ -23,7 +24,7 @@ describe('Content Hash Utilities (A4)', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    rmrf(tmpDir);
   });
 
   describe('computeFileHash', () => {
@@ -131,7 +132,7 @@ describe('copyFile (B1)', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    rmrf(tmpDir);
   });
 
   it('copyFile_SourceExists_CopiesAndReturnsHash', () => {
@@ -193,7 +194,7 @@ describe('copyDirectory (B2)', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    rmrf(tmpDir);
   });
 
   it('copyDirectory_FlatDir_CopiesAllFiles', () => {
@@ -287,7 +288,7 @@ describe('smartCopy (B3)', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    rmrf(tmpDir);
   });
 
   it('smartCopy_NewFile_CopiesFile', () => {
@@ -353,7 +354,7 @@ describe('smartCopyDirectory (B3)', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    rmrf(tmpDir);
   });
 
   it('smartCopyDirectory_MixedChanges_ReturnsUpdateSummary', () => {

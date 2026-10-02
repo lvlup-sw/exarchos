@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
-import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
+import { mkdtemp, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { backupStateFile, migrateState, CURRENT_VERSION } from '../../../src/workflow/migration.js';
+import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 describe('backupStateFile', () => {
   let tempDir: string;
@@ -12,7 +13,7 @@ describe('backupStateFile', () => {
   });
 
   afterEach(async () => {
-    await rm(tempDir, { recursive: true, force: true });
+    await rmrfAsync(tempDir);
   });
 
   it('BackupStateFile_ExistingFile_CreatesBackCopy', async () => {

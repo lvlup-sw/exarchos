@@ -36,6 +36,7 @@ import {
   type ModelRunResult,
 } from './run-underspec.js';
 import type { Provenance } from '../../../tools/evals/evals/provenance.js';
+import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 const SUBPROCESS_TIMEOUT = 120_000;
 // The grading path spawns `tsx`/`git` subprocesses (oracle run + diff-scoped
@@ -138,7 +139,7 @@ describe('dispatchCell — materialize a run dir from an injected model result',
     fs.writeFileSync(path.join(tasksDir, 'parse-duration', 'SPEC.underspec.md'), '# spec');
     fs.writeFileSync(path.join(tasksDir, 'parse-duration', 'impl.stub.ts'), 'export const stub = 1;');
   });
-  afterAll(() => fs.rmSync(base, { recursive: true, force: true }));
+  afterAll(() => rmrf(base));
 
   const cell: CellId = { model: 'opus', task: PARSE_DURATION, arm: 'E', rep: 1 };
 
@@ -233,7 +234,7 @@ describe.skipIf(WIN32)('captureCell — mechanical per-cell aggregation (oracle 
     fs.writeFileSync(path.join(tasksDir, 'add', 'impl.stub.ts'), ADD_STUB);
     fs.writeFileSync(path.join(tasksDir, 'add', 'oracle.ts'), ADD_ORACLE);
   });
-  afterAll(() => fs.rmSync(fixtureRoot, { recursive: true, force: true }));
+  afterAll(() => rmrf(fixtureRoot));
 
   it(
     'GENUINE E cell: oracle full-pass, tsc ok, durable tests, mutation KILLED (score 1)',

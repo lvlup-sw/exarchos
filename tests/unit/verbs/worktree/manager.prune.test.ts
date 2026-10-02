@@ -25,13 +25,13 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
-import { readFileSync, realpathSync, rmSync, utimesSync } from 'node:fs';
+import { readFileSync, realpathSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
 import { EventStore } from '../../../../src/events/store.js';
 import type { WorkflowEvent } from '../../../../src/events/schemas.js';
-import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
+import { rmrfAsync, rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 import {
   WorktreeManager,
@@ -133,7 +133,7 @@ function orphanWorktree(wtPath: string): void {
   const dotGit = readFileSync(path.join(wtPath, '.git'), 'utf8');
   const match = dotGit.match(/^gitdir:\s*(.+)$/m);
   if (!match) throw new Error(`no gitdir pointer in ${wtPath}/.git`);
-  rmSync(match[1].trim(), { recursive: true, force: true });
+  rmrf(match[1].trim());
 }
 
 // ─── Suite ──────────────────────────────────────────────────────────────────

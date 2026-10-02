@@ -58,6 +58,7 @@ import * as path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { ensureBinaryBuilt, hostBinaryPath, withBuildLock } from './_helpers.js';
+import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -74,7 +75,7 @@ async function makeTempDir(prefix: string): Promise<string> {
 afterEach(async () => {
   while (tempDirs.length > 0) {
     const dir = tempDirs.pop()!;
-    await fsp.rm(dir, { recursive: true, force: true }).catch(() => undefined);
+    await rmrfAsync(dir).catch(() => undefined);
   }
 });
 

@@ -19,7 +19,7 @@
 //
 // @oracle-sources: ../../../src/registry.ts, ../../../tools/conformance/src/output-schema-seed-pin.ts
 
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -70,6 +70,7 @@ import {
   handleCutoverReadiness,
   type CutoverVerbDeps,
 } from '../../../src/verbs/gates/cutover-readiness.js';
+import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 const READINESS_ID = 'exarchos_orchestrate.cutover_readiness';
 const DECIDE_ID = 'exarchos_orchestrate.cutover_decide';
@@ -319,7 +320,7 @@ describe('Task 083 — the declared contracts match the real emissions', () => {
 
   afterEach(async () => {
     eventStore.close();
-    await rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   function operatorContext() {

@@ -8,9 +8,10 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { main } from '../../../src/install/build-skills.js';
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 const tempDirs: string[] = [];
 function makeTempDir(): string {
@@ -22,7 +23,7 @@ afterEach(() => {
   while (tempDirs.length > 0) {
     const d = tempDirs.pop()!;
     try {
-      rmSync(d, { recursive: true, force: true });
+      rmrf(d);
     } catch {
       /* best-effort */
     }

@@ -4,6 +4,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { promisify } from 'node:util';
+import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -123,7 +124,7 @@ export async function withHermeticEnv<T>(
       // must always release, but tests must not be made flaky by best-effort
       // cleanup racing with OS-level file locks.
       try {
-        await fs.rm(tmpRoot, { recursive: true, force: true, maxRetries: 3 });
+        await rmrfAsync(tmpRoot);
       } catch (err) {
         // eslint-disable-next-line no-console
         console.warn(

@@ -11,9 +11,10 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { buildAllHooks, oneLineDirective, MAX_DIRECTIVE_BYTES } from '../../../src/install/build-hooks.js';
-import { mkdtempSync, rmSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 const REPO_ROOT = resolve(__dirname, '../../..');
 const HOOKS_SRC = join(REPO_ROOT, 'content/harness/hooks');
@@ -49,7 +50,7 @@ function directiveOf(command: string): string {
 }
 
 afterEach(() => {
-  while (tempDirs.length) rmSync(tempDirs.pop()!, { recursive: true, force: true });
+  while (tempDirs.length) rmrf(tempDirs.pop()!);
 });
 
 describe('content/harness/hooks/hooks.json source (#1485 T5; shrink DR-7)', () => {

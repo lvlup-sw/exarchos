@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
-import { mkdtemp, rm, readFile, writeFile, mkdir } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 // Track writeFile calls and allow simulating rename failures
 const writeFileCalls: { path: string; data: string }[] = [];
@@ -115,7 +116,7 @@ describe('Atomic Archive Writes', () => {
   });
 
   afterEach(async () => {
-    await rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   it('compactWorkflow_ArchiveWrite_IsAtomic', async () => {

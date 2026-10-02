@@ -30,6 +30,7 @@ import {
   handleInit,
   handleUpdate,
 } from '../../src/workflow/tools.js';
+import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 
 interface TelemetryToolEntry {
   readonly tool: string;
@@ -106,7 +107,7 @@ describe('telemetry action/transport split outcome (#1364)', () => {
       expect(entry!.actionErrors).toBeGreaterThanOrEqual(1);
       expect(entry!.errors).toBe(0);
     } finally {
-      await fs.rm(stateDir, { recursive: true, force: true });
+      await rmrfAsync(stateDir);
     }
   });
 
@@ -155,7 +156,7 @@ describe('telemetry action/transport split outcome (#1364)', () => {
       expect(entry!.actionErrorBreakdown).toBeDefined();
       expect(entry!.actionErrorBreakdown['RESERVED_FIELD']).toBeGreaterThanOrEqual(1);
     } finally {
-      await fs.rm(stateDir, { recursive: true, force: true });
+      await rmrfAsync(stateDir);
     }
   });
 
@@ -194,7 +195,7 @@ describe('telemetry action/transport split outcome (#1364)', () => {
       expect(entry!.errors).toBeGreaterThanOrEqual(1);
       expect(entry!.actionErrors).toBe(0);
     } finally {
-      await fs.rm(stateDir, { recursive: true, force: true });
+      await rmrfAsync(stateDir);
     }
   });
 });

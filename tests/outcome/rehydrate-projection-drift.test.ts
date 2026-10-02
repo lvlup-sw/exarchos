@@ -24,6 +24,7 @@ import { handleViewPipeline } from '../../src/projections/views/tools.js';
 // Side-effect import — registers the rehydration reducer with the
 // process-wide default registry. Mirrors rehydrate.test.ts.
 import '../../src/projections/rehydration/index.js';
+import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 
 interface TaskProgressEntry {
   readonly id: string;
@@ -124,7 +125,7 @@ describe('rehydrate projection drift outcome (#1359)', () => {
         ).length;
         expect(ourPipeline!.completedCount).toBe(expectedCompleted);
       } finally {
-        await fs.rm(stateDir, { recursive: true, force: true });
+        await rmrfAsync(stateDir);
       }
     },
   );

@@ -12,7 +12,7 @@
 //     onto the stored row (T-49: nothing clock- or random-derived).
 
 import { existsSync, readFileSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -33,6 +33,7 @@ import {
 } from '../../../../src/workflow/admission/cutover-auto-export.js';
 import type { ShadowEvidenceSource } from '../../../../src/workflow/admission/evidence-reader.js';
 import type { LiveShadowHealth } from '../../../../src/workflow/admission/live-shadow-observer.js';
+import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -129,7 +130,7 @@ describe('CutoverAutoExport (#1739)', () => {
   afterEach(async () => {
     configureCutoverAutoExport(undefined);
     eventStore.close();
-    await rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   async function seedSatisfiableDurableEvidence(): Promise<void> {

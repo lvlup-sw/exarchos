@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1297,
-    "parsedFiles": 1252,
+    "testFiles": 1300,
+    "parsedFiles": 1255,
     "shellFiles": 45,
-    "cases": 14328,
-    "dynamicTitles": 160,
+    "cases": 14353,
+    "dynamicTitles": 162,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -6729,6 +6729,37 @@
         }
       ]
     },
+    "tests/architecture/temp-dir-removal.test.ts": {
+      "file": "tests/architecture/temp-dir-removal.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "test-code temp-dir removal guard (#2027)",
+          "name": "TestCode_RecursiveDeletes_GoThroughTheTempDirHelpers",
+          "dynamic": false
+        },
+        {
+          "suite": "test-code temp-dir removal guard (#2027)",
+          "name": "VitestIncludeGlobs_EachStartInsideAScannedRoot",
+          "dynamic": false
+        },
+        {
+          "suite": "test-code temp-dir removal guard (#2027)",
+          "name": "RecursiveDeleteGuard_SeededViolations_AreEachNamed",
+          "dynamic": false
+        },
+        {
+          "suite": "test-code temp-dir removal guard (#2027)",
+          "name": "RecursiveDeleteGuard_CleanTwin_IsIgnored",
+          "dynamic": false
+        },
+        {
+          "suite": "test-code temp-dir removal guard (#2027)",
+          "name": "RecursiveDeleteGuard_SeededToolsTree_IsScannedByNameAndByCollection",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/architecture/test-inventory.test.ts": {
       "file": "tests/architecture/test-inventory.test.ts",
       "runner": "vitest:root",
@@ -8268,6 +8299,87 @@
         }
       ]
     },
+    "tests/core/test-helpers/temp-dir.test.ts": {
+      "file": "tests/core/test-helpers/temp-dir.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "rmrf leak check (#2027)",
+          "name": "Rmrf_HandleThatCannotClose_FailsNamingThePathAndTheCloseError",
+          "dynamic": false
+        },
+        {
+          "suite": "rmrf leak check (#2027)",
+          "name": "Rmrf_BackendWhoseCloseFails_FailsNamingThePath",
+          "dynamic": false
+        },
+        {
+          "suite": "rmrf leak check (#2027)",
+          "name": "RmrfAsync_HandleThatCannotClose_RejectsNamingThePath",
+          "dynamic": false
+        },
+        {
+          "suite": "rmrf leak check (#2027)",
+          "name": "Rmrf_LeakedHandleThatCanClose_IsClosedAndTheTreeRemoved",
+          "dynamic": false
+        },
+        {
+          "suite": "rmrf leak check (#2027)",
+          "name": "Rmrf_HandleOutsideTheDirectory_IsLeftOpen",
+          "dynamic": false
+        },
+        {
+          "suite": "rmrf refused delete (#2027)",
+          "name": "Rmrf_%sInsideTheRunRoot_LeavesTheTreeForTheSweep",
+          "dynamic": false
+        },
+        {
+          "suite": "rmrf refused delete (#2027)",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "rmrf refused delete (#2027)",
+          "name": "RmrfAsync_%sInsideTheRunRoot_Resolves",
+          "dynamic": false
+        },
+        {
+          "suite": "rmrf refused delete (#2027)",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "rmrf refused delete (#2027)",
+          "name": "Rmrf_RefusedDeleteOutsideTheRunRoot_Throws",
+          "dynamic": false
+        },
+        {
+          "suite": "rmrf refused delete (#2027)",
+          "name": "RmrfAsync_RefusedDeleteOutsideTheRunRoot_Rejects",
+          "dynamic": false
+        },
+        {
+          "suite": "rmrf refused delete (#2027)",
+          "name": "Rmrf_RefusedDeleteWithNoRunRoot_Throws",
+          "dynamic": false
+        },
+        {
+          "suite": "rmrf refused delete (#2027)",
+          "name": "Rmrf_OtherErrorInsideTheRunRoot_Throws",
+          "dynamic": false
+        },
+        {
+          "suite": "rmrf refused delete (#2027)",
+          "name": "Rmrf_InsideTheRunRoot_DeletesOnceWithoutRetries",
+          "dynamic": false
+        },
+        {
+          "suite": "run root in a core worker (#2027)",
+          "name": "TempRunRoot_CoreWorker_TmpdirIsInsideTheRunRoot",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/e2e/fresh-install-bootstrap.test.ts": {
       "file": "tests/e2e/fresh-install-bootstrap.test.ts",
       "runner": "vitest:root",
@@ -9101,6 +9213,37 @@
         {
           "suite": "driveSaga",
           "name": "driveSaga_callThrows_haltsAndIncludesErrorInTranscript",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/helpers/temp-run-root.test.ts": {
+      "file": "tests/helpers/temp-run-root.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "temp run root (#2027)",
+          "name": "TempRunRoot_UnitWorker_TmpdirIsInsideTheRunRoot",
+          "dynamic": false
+        },
+        {
+          "suite": "temp run root (#2027)",
+          "name": "CreateRunRoot_PointsEveryTempVariableAtOneCanonicalRoot",
+          "dynamic": false
+        },
+        {
+          "suite": "temp run root (#2027)",
+          "name": "SweepRunRoot_RemovesTheRootAndReportsNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "temp run root (#2027)",
+          "name": "SweepRunRoot_RefusedRemove_ReportsTheLeftoversInOneLine",
+          "dynamic": false
+        },
+        {
+          "suite": "temp run root (#2027)",
+          "name": "SetupTempRunRoot_TeardownRestoresTheVariablesAndRemovesTheRoot",
           "dynamic": false
         }
       ]

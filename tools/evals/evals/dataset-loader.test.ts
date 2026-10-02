@@ -6,6 +6,7 @@ import * as os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { loadDataset } from './dataset-loader.js';
 import type { EvalCase } from './types.js';
+import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -37,7 +38,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tmpDir, { recursive: true, force: true });
+  await rmrfAsync(tmpDir);
 });
 
 // ─── Unit Tests ─────────────────────────────────────────────────────────────

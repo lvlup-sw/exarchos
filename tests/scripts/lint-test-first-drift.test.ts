@@ -8,9 +8,10 @@
 // 'unit' project's `scripts/**/*.test.ts` include picks it up.)
 
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { rmrf } from '../../tools/test-helpers/temp-dir.js';
 
 import { spawnAsync } from '../../tools/test-helpers/spawn.js';
 
@@ -54,7 +55,7 @@ describe('test-first drift guard (#1591)', () => {
       expect(rules).toContain('unconditional-rgr-template');
       expect(code).toBe(1);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmrf(dir);
     }
   });
 
@@ -77,7 +78,7 @@ describe('test-first drift guard (#1591)', () => {
       expect(findings.map((f) => f.rule)).toContain('unconditional-rgr-template');
       expect(code).toBe(1);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmrf(dir);
     }
   });
 
@@ -108,7 +109,7 @@ describe('test-first drift guard (#1591)', () => {
       expect(findings, JSON.stringify(findings, null, 2)).toHaveLength(0);
       expect(code).toBe(0);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmrf(dir);
     }
   });
 });

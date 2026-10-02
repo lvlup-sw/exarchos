@@ -43,6 +43,7 @@ import { normalize } from '../helpers/normalizers.js';
 import { PARITY_CONTRACT, assertParity } from '../helpers/parity-contract.js';
 import { extractEnvelope } from '../helpers/mcp-envelope.js';
 import { snapshotEventStream, replayInto } from '../helpers/event-replay.js';
+import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 
 // Pin the spawned MCP server and CLI to THIS worktree's freshly built
 // binary. The npm-linked `exarchos` on PATH points at whatever checkout
@@ -309,7 +310,7 @@ describe('parity: exarchos workflow rehydrate — CLI ↔ MCP', () => {
       // Best-effort tmp tree cleanup; cleanup failures must not flake
       // the test outcome (axiom DIM-7 — same policy as withHermeticEnv).
       try {
-        await fs.rm(tmpRoot, { recursive: true, force: true, maxRetries: 3 });
+        await rmrfAsync(tmpRoot);
       } catch (err) {
         // eslint-disable-next-line no-console
         console.warn(

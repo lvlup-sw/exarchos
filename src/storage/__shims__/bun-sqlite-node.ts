@@ -21,6 +21,8 @@
 
 import BetterSqlite3, { type Statement as BetterSqlite3Statement } from 'better-sqlite3';
 
+import { trackedDatabases } from './open-database-registry.js';
+
 type SqliteDb = InstanceType<typeof BetterSqlite3> & {
   query: (sql: string) => BetterSqlite3Statement;
 };
@@ -34,20 +36,13 @@ if (proto && typeof proto.query !== 'function') {
   };
 }
 
-// Node 24 tears down the isolate before better-sqlite3 finalizes statements,
-// which aborts the worker (`Assertion failed: (env) != nullptr`). Track every
-// opened handle and close it before the isolate dies.
-//
-// The set lives on globalThis so every evaluated copy of this module (the
-// `bun:sqlite` alias points at the `.ts` source; setupFiles import the `.js`
-// specifier) shares one registry. A per-module Set would leave the handles
-// the tests opened invisible to `closeOpenDatabases()`.
-const OPEN_DATABASES_KEY = '__exarchosOpenSqliteDatabases' as const;
-type SqliteRegistry = typeof globalThis & {
-  [OPEN_DATABASES_KEY]?: Set<InstanceType<typeof BetterSqlite3>>;
-};
-const openDatabases = ((globalThis as SqliteRegistry)[OPEN_DATABASES_KEY] ??=
-  new Set<InstanceType<typeof BetterSqlite3>>());
+/**
+ * Every open connection. Node 24 tears down the isolate before better-sqlite3
+ * finalizes statements, which aborts the worker, so each tracked handle is
+ * closed before the isolate dies. The registry is shared by every evaluated
+ * copy of this module, and the temp-dir helper reads it to find leaks.
+ */
+const openDatabases = trackedDatabases();
 
 export function closeOpenDatabases(): void {
   for (const db of openDatabases) {
@@ -135,9 +130,11 @@ export const Database = class TrackingDatabase extends BetterSqlite3 {
     if (meter !== undefined) meterPrepare(this, meter);
   }
 
+  /** Deregisters only after the driver closes, so a refused close stays visible. */
   override close(): this {
+    super.close();
     openDatabases.delete(this);
-    return super.close();
+    return this;
   }
 } as unknown as new (path: string) => SqliteDb;
 

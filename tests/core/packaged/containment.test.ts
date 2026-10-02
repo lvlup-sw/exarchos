@@ -63,6 +63,7 @@ import {
   type RequiredProjection,
 } from '../../../src/install/projection-containment.js';
 import { spawnAsync } from '../../../tools/test-helpers/spawn.js';
+import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 // ─── Repo-root discovery ─────────────────────────────────────────────────────
 
@@ -179,7 +180,7 @@ function firstOfKind(kind: ProjectionKind): RequiredProjection {
 /** Copy the pristine unpacked package into a fresh scratch tree. */
 function scratchCopy(label: string): string {
   const dest = path.join(workDir, `scratch-${label}`, 'package');
-  fs.rmSync(path.dirname(dest), { recursive: true, force: true });
+  rmrf(path.dirname(dest));
   fs.cpSync(pristinePackageDir, dest, { recursive: true });
   return dest;
 }
@@ -209,7 +210,7 @@ beforeAll(async () => {
 }, PACK_HOOK_TIMEOUT_MS);
 
 afterAll(() => {
-  if (workDir !== '') fs.rmSync(workDir, { recursive: true, force: true });
+  if (workDir !== '') rmrf(workDir);
 });
 
 // ─── The headline proof, over real packed bytes ──────────────────────────────
@@ -397,7 +398,7 @@ describe('seeded packed-artifact defects', () => {
    */
   it('an empty packed tree fails loudly instead of proving nothing', () => {
     const empty = path.join(workDir, 'empty-package');
-    fs.rmSync(empty, { recursive: true, force: true });
+    rmrf(empty);
     fs.mkdirSync(empty, { recursive: true });
     expect(() => readPackedProjectionLayer(empty)).toThrow(/ZERO projection files/);
     expect(() =>

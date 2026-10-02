@@ -22,18 +22,13 @@
  * by `prose-lint.test.ts`.
  */
 import { describe, it, expect } from 'vitest';
-import {
-  mkdtempSync,
-  rmSync,
-  writeFileSync,
-  readFileSync,
-  existsSync,
-} from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validateManifestCommands } from '../../tools/audit/gates/test-utils.js';
 import { spawnAsync } from '../../tools/test-helpers/spawn.js';
+import { rmrf } from '../../tools/test-helpers/temp-dir.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../..');
@@ -114,7 +109,7 @@ describe('check-prose-lint CLI (T049, DR-13)', () => {
       expect(stderr).toMatch(/tapestry/i);
       expect(stderr).toMatch(/moreover/i);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmrf(dir);
     }
   });
 

@@ -10,6 +10,7 @@ import { readStateFile } from '../../../src/workflow/state-store.js';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 describe('Idempotency', () => {
   let stateDir: string;
@@ -19,7 +20,7 @@ describe('Idempotency', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   // ─── Test 1: Phase Transition Twice ──────────────────────────────────────

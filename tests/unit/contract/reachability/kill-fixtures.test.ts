@@ -25,6 +25,7 @@ import { EVENT_ANNOTATIONS } from '../../../../src/events/event-annotations.js';
 import { TOOL_REGISTRY, contractEmissionsOf } from '../../../../src/registry.js';
 import { PROOF_FIXTURES_FILE } from '../../../../src/contract/compiler/generate.js';
 import { CLI_SURFACE_FILE } from '../../../../src/contract/cli/cli-contract-seam.js';
+import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 // ─── KILL FIXTURES — proof that the census can actually FALL ─────────────────
 //
@@ -134,7 +135,7 @@ beforeAll(() => {
 
 afterAll(() => {
   try {
-    fs.rmSync(TMP, { recursive: true, force: true });
+    rmrf(TMP);
   } catch {
     // Best effort — a Windows handle lag must not fail the suite.
   }

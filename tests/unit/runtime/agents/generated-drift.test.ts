@@ -13,6 +13,7 @@ import * as os from 'node:os';
 import { parse as parseYaml } from 'yaml';
 import { claudeAdapter, deriveClaudeToolsFromCapabilities } from '../../../../src/runtime/agents/adapters/claude.js';
 import { ALL_AGENT_SPECS } from '../../../../src/runtime/agents/definitions.js';
+import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 // ─── Helper: Parse YAML Frontmatter ─────────────────────────────────────────
 //
@@ -45,7 +46,7 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-  fs.rmSync(tmpDir, { recursive: true, force: true });
+  rmrf(tmpDir);
 });
 
 // ─── Task 8: Generated File Drift Tests ─────────────────────────────────────

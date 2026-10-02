@@ -20,6 +20,7 @@ import type { Capability } from '../../../../src/runtime/agents/capabilities.js'
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
 import { dispatch, stubCompositeHandler } from '../../../../src/dispatch/core/dispatch.js';
 import { EventStore } from '../../../../src/events/store.js';
+import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 describe('Capability_PostureSpec_ResolverDerivesEffectiveCapabilities (DR-6)', () => {
   it('derives effective capabilities from posture unioned with handshake declarations', () => {
@@ -75,7 +76,7 @@ describe('Resolver_ReadOnlyCaller_RejectedBeforeMergeHandler (#1305 T14)', () =>
   });
 
   afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   it('rejects a read-only caller at the resolver gate without entering the merge handler', async () => {

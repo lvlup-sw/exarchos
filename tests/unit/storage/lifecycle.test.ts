@@ -10,6 +10,7 @@ import {
   DEFAULT_LIFECYCLE_POLICY,
   type LifecyclePolicy,
 } from '../../../src/storage/lifecycle.js';
+import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -97,7 +98,7 @@ describe('Workflow Compaction', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   it('compactWorkflow_CompletedAndOlderThanRetention_ArchivesAndDeletes', async () => {
@@ -389,7 +390,7 @@ describe('Telemetry Rotation', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   it('rotateTelemetry_PrunesOldSQLiteRows', async () => {
@@ -615,7 +616,7 @@ describe('compactWorkflow Backend Interface', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   it('compactWorkflow_WithBackend_CallsDeleteStreamAndDeleteState', async () => {

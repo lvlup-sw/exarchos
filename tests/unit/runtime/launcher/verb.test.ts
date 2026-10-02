@@ -15,6 +15,7 @@ import {
 } from '../../../../src/runtime/launcher/verb.js';
 import { TIER1_HARNESSES } from '../../../../src/runtime/launcher/harness-registry.js';
 import { deriveWorktreePath } from '../../../../src/runtime/launcher/topology.js';
+import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 // A POSIX base whose parent is deterministic, so derived sibling paths are
 // stable across hosts for the pure-derivation assertions.
@@ -71,7 +72,7 @@ describe('exarchos <harness> launcher verb (DR-1)', () => {
       // NO worktree creation: the derived sibling path does not exist on disk.
       expect(fs.existsSync(plan.worktreePath)).toBe(false);
     } finally {
-      fs.rmSync(base, { recursive: true, force: true });
+      rmrf(base);
     }
   });
 

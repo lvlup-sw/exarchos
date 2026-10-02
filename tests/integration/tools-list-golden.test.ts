@@ -347,6 +347,7 @@ import {
 import { createMcpServer } from '../../src/adapters/mcp/mcp.js';
 import { EventStore } from '../../src/events/store.js';
 import type { DispatchContext } from '../../src/dispatch/core/dispatch.js';
+import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const goldenPath = path.join(here, '__goldens__', 'tools-list.golden.json');
@@ -400,7 +401,7 @@ describe('DR-0 — tools/list wire golden', () => {
     } catch {
       /* ignore */
     }
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   it('ToolsList_AfterV2Migration_ByteIdenticalToGolden', async () => {

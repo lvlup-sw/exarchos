@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdtemp, readdir, rm } from 'node:fs/promises';
+import { mkdtemp, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 // consumer would — this proves the shipped entry point exposes and enforces the
 // same containment/digest/atomic guarantees as the in-source module.
 import * as artifacts from '../../../../src/storage/artifacts/index.js';
+import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 function sha256Hex(bytes: Buffer): string {
   return createHash('sha256').update(bytes).digest('hex');
@@ -52,7 +53,7 @@ describe('artifacts packaged entry point', () => {
       // Only the one canonical artifact was ever persisted.
       expect(await countFiles(root)).toBe(1);
     } finally {
-      await rm(root, { recursive: true, force: true });
+      await rmrfAsync(root);
     }
   });
 

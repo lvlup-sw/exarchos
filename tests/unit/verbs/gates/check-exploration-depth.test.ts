@@ -7,7 +7,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { handleOrchestrate } from '../../../../src/verbs/composite.js';
@@ -24,6 +24,7 @@ import {
   runAsTrustedCaller,
   seedActivePhaseAttempt,
 } from '../../../../tools/test-helpers/trusted-context.js';
+import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 const FEATURE_ID = 'exploration-feature';
 
@@ -102,7 +103,7 @@ describe('check_exploration_depth gate (DR-4)', () => {
     // open `exarchos.db` handle blocks `fs.rm` with EBUSY (store.ts close()
     // contract). POSIX tolerates unlinking an open file, so this is Windows-only.
     eventStore.close();
-    await rm(base, { recursive: true, force: true });
+    await rmrfAsync(base);
   });
 
   // ── Dispatch wiring: the action must route end-to-end ──────────────────────

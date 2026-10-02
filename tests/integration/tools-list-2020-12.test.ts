@@ -82,6 +82,7 @@ import { EventStore } from '../../src/events/store.js';
 import { TOOL_REGISTRY } from '../../src/registry.js';
 import { EnvelopeSchema } from '../../src/contract/schemas/envelope.js';
 import type { DispatchContext } from '../../src/dispatch/core/dispatch.js';
+import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 
 const DRAFT_2020_12 = 'https://json-schema.org/draft/2020-12/schema';
 
@@ -208,7 +209,7 @@ describe('tools/list schema conformance — v1 production adapter', () => {
     } catch {
       /* ignore */
     }
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   async function listTools(): Promise<ToolEntry[]> {

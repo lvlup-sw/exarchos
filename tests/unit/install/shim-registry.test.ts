@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,6 +23,7 @@ import {
   type DiscoveredShim,
   type ShimDiscoveryFs,
 } from '../../../src/install/shim-registry.js';
+import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 
@@ -353,7 +354,7 @@ function withTempRepo(
     }
     body(root);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    rmrf(root);
   }
 }
 
