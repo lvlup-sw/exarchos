@@ -7,13 +7,9 @@ import type { StorageBackend } from '../storage/backend.js';
 import { validateStreamId } from '../contract/shared/validation.js';
 import { atomicReplace } from '../utils/atomic-write.js';
 
-// ─── Outbox Options ─────────────────────────────────────────────────────────
-
 export interface OutboxOptions {
   backend?: StorageBackend;
 }
-
-// ─── Outbox ──────────────────────────────────────────────────────────────────
 
 export class Outbox {
   private readonly locks = new Map<string, Promise<void>>();
@@ -22,8 +18,6 @@ export class Outbox {
   constructor(private readonly stateDir: string, options?: OutboxOptions) {
     this.backend = options?.backend;
   }
-
-  // ─── Per-Stream Locking ─────────────────────────────────────────────────
 
   private async withLock<T>(streamId: string, fn: () => Promise<T>): Promise<T> {
     const prev = this.locks.get(streamId) ?? Promise.resolve();
@@ -41,15 +35,12 @@ export class Outbox {
     }
   }
 
-  // ─── File Path ──────────────────────────────────────────────────────────
-
   private getFilePath(streamId: string): string {
     validateStreamId(streamId);
     return path.join(this.stateDir, `${streamId}.outbox.json`);
   }
 
-  // ─── Add Entry ──────────────────────────────────────────────────────────
-
+  /** Adds a pending entry. With a backend, the backend stores it. Without one, the JSON file stores it. */
   async addEntry(
     streamId: string,
     event: WorkflowEvent,
@@ -60,7 +51,6 @@ export class Outbox {
       );
     }
 
-    // Delegate to backend if available
     if (this.backend) {
       const id = this.backend.addOutboxEntry(streamId, event);
       return {
@@ -99,8 +89,6 @@ export class Outbox {
     return entry;
   }
 
-  // ─── Load Entries ───────────────────────────────────────────────────────
-
   async loadEntries(streamId: string): Promise<OutboxEntry[]> {
     const filePath = this.getFilePath(streamId);
     try {
@@ -116,8 +104,6 @@ export class Outbox {
       throw err;
     }
   }
-
-  // ─── Update Entry ──────────────────────────────────────────────────────
 
   async updateEntry(
     streamId: string,
@@ -141,8 +127,6 @@ export class Outbox {
     }
   }
 
-  // ─── Remove Entry ─────────────────────────────────────────────────────
-
   async removeEntry(streamId: string, entryId: string): Promise<void> {
     await this.withLock(streamId, async () => {
       const entries = await this.loadEntries(streamId);
@@ -151,14 +135,15 @@ export class Outbox {
     });
   }
 
-  // ─── Drain (send pending entries) ──────────────────────────────────────
-
+  /**
+   * Sends up to `batchSize` pending entries whose retry time has passed. After 10 failed
+   * attempts, an entry becomes `dead-letter`. With a backend, the backend drains.
+   */
   async drain(
     client: EventSender,
     streamId: string,
     batchSize: number = 50,
   ): Promise<{ sent: number; failed: number }> {
-    // Delegate to backend if available
     if (this.backend) {
       const result = await this.backend.drainOutbox(streamId, client, batchSize);
       return { sent: result.sent, failed: result.failed };
@@ -241,14 +226,11 @@ export class Outbox {
     });
   }
 
-  // ─── Retry Backoff ─────────────────────────────────────────────────────
-
+  /** Exponential backoff that starts at 1 second, with a cap of 60 seconds. */
   calculateNextRetry(attempts: number): string {
     const delayMs = Math.min(Math.pow(2, attempts - 1) * 1000, 60_000);
     return new Date(Date.now() + delayMs).toISOString();
   }
-
-  // ─── Dead Letter ───────────────────────────────────────────────────────
 
   async markDeadLetter(
     streamId: string,
@@ -262,8 +244,7 @@ export class Outbox {
     }));
   }
 
-  // ─── Dead Letter Recovery ──────────────────────────────────────────────
-
+  /** Resets each dead-letter entry to pending and returns the count. */
   async replayDeadLetters(streamId: string): Promise<number> {
     return this.withLock(streamId, async () => {
       const entries = await this.loadEntries(streamId);
@@ -288,8 +269,7 @@ export class Outbox {
     });
   }
 
-  // ─── Cleanup ───────────────────────────────────────────────────────────
-
+  /** Removes confirmed entries older than `maxAge` milliseconds. All other entries stay. */
   async cleanup(
     streamId: string,
     maxAge: number = 86400000,
@@ -307,7 +287,6 @@ export class Outbox {
             return false;
           }
         }
-        // Preserve dead-letter entries
         return true;
       });
 
@@ -318,8 +297,6 @@ export class Outbox {
       return removed;
     });
   }
-
-  // ─── Persistence ───────────────────────────────────────────────────────
 
   private async saveEntries(
     streamId: string,

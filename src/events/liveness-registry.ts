@@ -1,75 +1,40 @@
 /**
- * Liveness descriptor registry (DR-2, task 004).
+ * Liveness descriptor registry.
  *
- * The four INV-10 liveness surfaces — merge / launch / mutation / prune — each
- * emit a `<surface>.executing_started` CLAIM paired with one or more TERMINAL
- * event types. Tasks 003 (this task's prerequisite, merged) retrofitted a
- * canonical `instanceId` onto every payload so a uniform liveness view can
- * correlate a START with its TERMINAL without per-surface field knowledge.
- * This module is that uniform view: ONE registry entry per surface, declaring
- * the whole contract a consumer needs — which event starts the instance, which
- * event(s) terminate it, which stream it lives on, and how to derive its
- * instance key from a raw event payload.
+ * Four liveness surfaces (merge, launch, mutation, prune) each emit a
+ * `<surface>.executing_started` claim and one or more terminal events. Each
+ * registry entry declares the whole contract for one surface: the start event,
+ * the terminal events, the stream, and the instance key. Consumers such as `ps`
+ * and `wait --operation` read this registry, so a new surface adds one entry here.
  *
- * Downstream consumers (`ps`, `wait --operation` — tasks 006/010) read this
- * registry rather than re-deriving per-surface knowledge, so a fifth liveness
- * surface only has to add ONE entry here (and the conformance test below
- * fails loudly if it doesn't).
- *
- * ## Canonical keys (mirrors task 003's real emitters exactly)
- *
- *   • merge    → `data.instanceId ?? data.taskId ?? \`${sourceBranch}→${targetBranch}\``
- *   • launch   → `data.instanceId ?? data.worktreeId`
- *   • mutation → `data.instanceId ?? data.operationId ?? MUTATION_LEGACY_SINGLETON_KEY`
- *     (the live emitter — `verbs/gates/mutation-adequacy.ts` — stamps
- *     `instanceId`; the `operationId` fallback is defensive, and a truly
- *     keyless legacy row resolves to the DR-2 singleton instance so it still
- *     pairs rather than being dropped)
- *   • prune    → `data.instanceId ?? data.operationId`
- *
- * `instanceKeyOf` is intentionally permissive about its input: any pre-
- * retrofit row (no `instanceId`) or partially-shaped row still resolves via
- * the fallback chain when possible, and returns `undefined` (never throws)
- * when no key can be derived at all — an unresolvable row cannot be paired,
- * but it must not crash a `ps`/`wait` scan.
- *
- * ## `startedAt`
- *
- * Rather than reading a surface-specific data field (only `merge` carries its
- * own `data.startedAt`; the other three do not), {@link livenessStartedAt}
- * derives the instant uniformly from the event ENVELOPE's `timestamp` — the
- * one field every persisted event carries regardless of surface.
+ * Each `instanceKeyOf` reads `data.instanceId` first and then a legacy fallback.
+ * It returns `undefined` when it cannot derive a key, and it never throws.
+ * {@link livenessStartedAt} reads the envelope `timestamp`, because only `merge`
+ * carries its own `data.startedAt`.
  */
 
 import type { EventType } from './schemas.js';
 import { EventTypes } from './schemas.js';
 
-// ─── Types ───────────────────────────────────────────────────────────────────
-
-/** The four INV-10 liveness surfaces this registry describes. */
+/** The four liveness surfaces that this registry describes. */
 export type LivenessSurface = 'merge' | 'launch' | 'mutation' | 'prune';
 
 /**
- * Which stream family a surface's liveness pair rides on. `'feature'` means
- * the workflow's own feature stream (a different stream id per workflow, so
- * the registry does not — and cannot — pin a literal stream name); `'worktrees'`
- * means the fixed singleton `worktrees` stream shared across every workflow.
+ * The stream family of a surface. `'feature'` is the feature stream of each
+ * workflow, so the registry cannot pin a literal stream name. `'worktrees'` is
+ * the one `worktrees` stream that all workflows share.
  */
 export type LivenessStreamScope = 'feature' | 'worktrees';
 
-/** A minimal event shape the pairing helper operates on — real `WorkflowEvent`
- * rows satisfy this, as do hand-built fixtures in tests. */
+/** The minimal event shape for pairing. `WorkflowEvent` rows and test fixtures satisfy it. */
 export interface LivenessEventLike {
   readonly type: string;
   readonly data?: Record<string, unknown> | undefined;
   /**
-   * The stream this event was persisted on. Load-bearing for the DR-2 "same
-   * stream" pairing relation: two `feature`-scoped workflows whose merge
-   * `instanceKey` collides (recurring `taskId`s, a shared branch pair) must NOT
-   * cross-contaminate — a terminal on workflow B's stream may only clear an
-   * in-flight START on B's stream, never A's. Real `WorkflowEvent` rows carry it;
-   * fixtures should set it for `feature`-scoped surfaces. Absent → treated as the
-   * empty stream (the degenerate single-namespace fallback).
+   * The stream that holds this event. `feature`-scoped surfaces pair per stream,
+   * so two workflows with the same merge `instanceKey` cannot clear each other.
+   * Fixtures for `feature`-scoped surfaces need it. When it is absent, pairing
+   * uses the empty stream.
    */
   readonly streamId?: string | undefined;
 }
@@ -80,31 +45,26 @@ export interface LivenessDescriptor {
   readonly surface: LivenessSurface;
   /** The `<surface>.executing_started` CLAIM event type. */
   readonly startType: EventType;
-  /** The paired TERMINAL event type(s) — one or more; e.g. merge has two
-   * (`merge.executed` success path, `merge.recovered` rollback path). */
+  /**
+   * The paired terminal event types. Merge has two: `merge.executed` for success
+   * and `merge.recovered` for rollback.
+   */
   readonly terminalTypes: readonly EventType[];
   /** Which stream family the pair rides on. */
   readonly streamScope: LivenessStreamScope;
   /**
-   * Whether this surface has a LEGACY key fallback — a way to derive an instance
-   * key from rows emitted BEFORE the canonical `instanceId` retrofit (task 003).
-   * All four shipped surfaces do (merge → `taskId`/branch-pair, launch →
-   * `worktreeId`, mutation → `operationId`/singleton, prune → `operationId`), so
-   * their start schemas may leave `instanceId` optional and still pair legacy
-   * rows. A NEW surface has no legacy rows to accommodate, so it carries
-   * `hasLegacyFallback: false` and MUST require a non-optional `instanceId` in
-   * its start schema — the DR-2 new-surface rule the conformance test enforces.
+   * True when the surface can derive a key from legacy rows without `instanceId`.
+   * All four shipped surfaces can. A new surface has no legacy rows, so it sets
+   * `false` and its start schema must require `instanceId`. The conformance test
+   * enforces this rule.
    */
   readonly hasLegacyFallback: boolean;
   /**
-   * Derive the canonical per-instance liveness key from a raw event `data`
-   * payload. Returns `undefined` when no key can be derived (e.g. `data` is
-   * absent or missing every fallback field) — never throws.
+   * Derive the per-instance liveness key from a raw event `data` payload.
+   * Returns `undefined` when no key is available, and never throws.
    */
   readonly instanceKeyOf: (data: Record<string, unknown> | undefined) => string | undefined;
 }
-
-// ─── Field-reading helpers ───────────────────────────────────────────────────
 
 /** Read a non-empty string field off a raw event payload, or `undefined`. */
 function readStringField(
@@ -115,8 +75,6 @@ function readStringField(
   const value = data[key];
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
-
-// ─── Per-surface instanceKeyOf derivations ──────────────────────────────────
 
 function mergeInstanceKeyOf(data: Record<string, unknown> | undefined): string | undefined {
   const instanceId = readStringField(data, 'instanceId');
@@ -136,22 +94,14 @@ function launchInstanceKeyOf(data: Record<string, unknown> | undefined): string 
 }
 
 /**
- * DR-2 singleton fallback key for a keyless legacy `mutation` row. The
- * pre-retrofit `verbs/gates/mutation-adequacy.ts` liveness path stamped neither
- * `instanceId` nor `operationId`, so such a start would resolve to `undefined`
- * and be SKIPPED by the pairing fold — leaving a stuck mutation invisible to
- * `ps` / un-waitable, which contradicts DR-2's "keyless mutation → singleton
- * instance" AC. Resolving a constant key instead lets a keyless START pair with
- * its keyless TERMINAL (per stream, since `mutation` is `feature`-scoped). The
- * value is namespaced so it can never collide with a real emitter-minted key.
+ * Fallback key for a legacy `mutation` row that has neither `instanceId` nor
+ * `operationId`. Without it, the pairing fold skips such a start, and `ps` and
+ * `wait` cannot see a stuck mutation. A keyless start pairs with its keyless
+ * terminal on the same stream. The prefix keeps it apart from real keys.
  */
 export const MUTATION_LEGACY_SINGLETON_KEY = 'mutation:legacy-singleton';
 
 function mutationInstanceKeyOf(data: Record<string, unknown> | undefined): string | undefined {
-  // Canonical key (post-retrofit) → the emitter-minted `instanceId`. Defensive
-  // fallback for any row carrying a bare `operationId`. A truly keyless legacy
-  // row (neither field) resolves to the DR-2 singleton so it still pairs rather
-  // than being silently dropped.
   return (
     readStringField(data, 'instanceId') ??
     readStringField(data, 'operationId') ??
@@ -163,14 +113,10 @@ function pruneInstanceKeyOf(data: Record<string, unknown> | undefined): string |
   return readStringField(data, 'instanceId') ?? readStringField(data, 'operationId');
 }
 
-// ─── Envelope-derived startedAt ──────────────────────────────────────────────
-
 /**
- * Derive the instant a liveness instance started from the event ENVELOPE
- * (`timestamp`) rather than a surface-specific data field — the one field
- * every persisted event carries uniformly, regardless of surface. Returns
- * `undefined` when the envelope carries no usable timestamp (defensive; real
- * `WorkflowEvent` rows always have one via the schema's default).
+ * Derive the start instant of a liveness instance from the envelope `timestamp`,
+ * which every persisted event carries. Returns `undefined` when the envelope has
+ * no usable timestamp.
  */
 export function livenessStartedAt(event: { readonly timestamp?: string }): string | undefined {
   return typeof event.timestamp === 'string' && event.timestamp.length > 0
@@ -178,23 +124,15 @@ export function livenessStartedAt(event: { readonly timestamp?: string }): strin
     : undefined;
 }
 
-// ─── The registry ────────────────────────────────────────────────────────────
-
 /**
- * One entry per INV-10 liveness surface. See the module doc for the full
- * canonical-key contract each `instanceKeyOf` mirrors from task 003's real
- * emitters (`verbs/pure/execute-merge.ts`, `launcher/liveness.ts`,
- * `verbs/gates/mutation-adequacy.ts`, `verbs/worktree/manager.ts`).
+ * One entry per liveness surface. Each `instanceKeyOf` matches the keys that the
+ * real emitters write: `verbs/pure/execute-merge.ts`, `runtime/launcher/liveness.ts`,
+ * `verbs/gates/mutation-adequacy.ts`, and `verbs/worktree/manager.ts`.
  */
 export const LIVENESS_REGISTRY: Readonly<Record<LivenessSurface, LivenessDescriptor>> = {
   merge: {
     surface: 'merge',
     startType: 'merge.executing_started',
-    // The INV-10 `<surface>.executing_started` + paired terminal pattern for
-    // merge: `merge.executed` (success path) / `merge.recovered` (INV-14
-    // recovery-ladder path) — per the `merge.executing_started` schema doc and
-    // the `workflow-state-projection.ts` fold comment ("the terminal
-    // merge.executed / merge.recovered events drive the phase").
     terminalTypes: ['merge.executed', 'merge.recovered'],
     streamScope: 'feature',
     hasLegacyFallback: true,
@@ -251,8 +189,6 @@ export function everyExecutingStartedType(): readonly string[] {
   return EventTypes.filter((t): t is EventType => t.endsWith('.executing_started'));
 }
 
-// ─── Pairing helper ──────────────────────────────────────────────────────────
-
 /** One surviving in-flight instance: its resolved key, the stream it rides, and
  *  the START event that opened it (for envelope-derived `startedAt`). */
 export interface InFlightInstance {
@@ -265,19 +201,17 @@ export interface InFlightInstance {
   readonly startEvent: LivenessEventLike;
 }
 
-/** NUL separator for the composite `(streamId, instanceKey)` pairing key — a
- *  byte neither a stream id nor an instance key ever contains, so the composite
- *  is unambiguous (`(streamId='a', key='b→c')` never collides with
- *  `(streamId='a→b', key='c')`). */
+/**
+ * NUL separator for the composite `(streamId, instanceKey)` pairing key. Neither
+ * a stream id nor an instance key contains NUL, so the composite is unambiguous.
+ */
 const PAIRING_KEY_SEP = String.fromCharCode(0);
 
 /**
- * The DR-2 pairing key. `feature`-scoped surfaces pair PER STREAM — the same
- * `instanceKey` on two different feature streams is two DISTINCT instances, so a
- * terminal on one stream can never clear the other (the S-6 cross-stream
- * mis-pairing this feature exists to prevent). The singleton `worktrees` stream
- * pairs by `instanceKey` alone: concurrent launches/prunes on that one shared
- * stream are the NORMAL case, so cross-instance concurrency there is expected.
+ * The pairing key. `feature`-scoped surfaces pair per stream, so one `instanceKey`
+ * on two feature streams is two distinct instances. A terminal on one stream never
+ * clears the other. The shared `worktrees` stream pairs by `instanceKey` alone,
+ * because concurrent launches and prunes on that stream are normal.
  */
 function pairingKey(
   descriptor: LivenessDescriptor,
@@ -290,28 +224,13 @@ function pairingKey(
 }
 
 /**
- * Fold an ordered event list into the set of liveness instances still IN
- * FLIGHT for one surface: a START with no paired TERMINAL (yet) after it in
- * the given order. For `feature`-scoped surfaces the pairing is keyed by
- * `(streamId, instanceKey)` so events from different workflow streams never
- * cross-contaminate; for the singleton `worktrees` scope it is keyed by
- * `instanceKey` alone (see {@link pairingKey}).
+ * Fold an ordered event list into the instances of one surface that are still in
+ * flight: a start with no paired terminal after it. Keys follow {@link pairingKey}.
  *
- * Semantics, applied left-to-right over `events`:
- *   - a START event whose key resolves is recorded as in-flight (re-starting
- *     an already in-flight `(stream,key)` overwrites — the latest START wins,
- *     matching an idempotent-retry re-emission of the same key);
- *   - a TERMINAL event (any of `descriptor.terminalTypes`) whose key resolves
- *     clears that `(stream,key)` from the in-flight set (a terminal for an
- *     unknown/already-cleared key is a no-op, never a throw);
- *   - events whose key cannot be derived (`instanceKeyOf` returns `undefined`)
- *     are skipped — an unresolvable row can never be paired.
- *
- * Returns a map keyed by the internal pairing key; each value is the surviving
- * {@link InFlightInstance} (resolved `instanceKey`, `streamId`, and the START
- * event) so a caller can report the true key, "which workflow is stuck?", and
- * `startedAt` (via {@link livenessStartedAt}). `.size` is the count of distinct
- * in-flight instances — the `wait --operation` predicate reads exactly this.
+ * A start records its key, and a later start with the same key replaces it.
+ * A terminal removes its key, and a terminal for an unknown key does nothing.
+ * The fold skips events with no derivable key. The map size is the count of
+ * in-flight instances, which `wait --operation` reads.
  */
 export function computeInFlightInstances(
   descriptor: LivenessDescriptor,

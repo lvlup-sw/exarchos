@@ -20,8 +20,9 @@ export interface EventInput {
 export type UntrustedEventInput = Omit<EventInput, 'type'> & { type: string };
 
 /**
- * Build a WorkflowEvent with Zod validation. Use at system boundaries
- * (MCP tool handlers, external input) where input is untrusted.
+ * Build a WorkflowEvent with Zod validation. Use it at system boundaries
+ * (MCP tool handlers, external input) where input is untrusted. `batch_append`
+ * uses the same data check, so the two write paths agree on a valid payload.
  */
 export function buildValidatedEvent(
   streamId: string,
@@ -35,9 +36,6 @@ export function buildValidatedEvent(
     timestamp: input.timestamp ?? new Date().toISOString(),
   });
 
-  // Type-specific data validation. DR-1: this check lives in exactly one
-  // place, shared with `batch_append`, so the two write paths cannot disagree
-  // on whether a payload is valid.
   validateEventData(event.type as EventType, event.data);
 
   return event;

@@ -1,22 +1,12 @@
 /**
- * Is every declared consumer a consumer that exists?
+ * Checks that every declared consumer exists.
  *
- * `CapabilityRegistration.consumedBy` and `HarnessRegistration.consumedBy` are
- * open references: `ConsumerId` stayed `string` because its population is
- * `ProjectionReducer.id` plus the view-projection names, and enumerating those
- * FROM this layer means importing every projection — a layering inversion
- * `event-registration.ts` records and refuses. The non-empty tuple stops an
- * EMPTY consumer list from compiling; nothing stops a consumer list from
- * naming a reducer that was deleted. A registration like that still boots, and
- * its `consumedBy` reads as a live fold while pointing at nothing — the same
- * stale-cover shape the emitter-closure audit refuses on the emission side.
+ * The `consumedBy` field of a capability or harness registration is an open
+ * `string` reference. This layer cannot import every projection to enumerate the
+ * real names, so a `consumedBy` entry can name a deleted reducer.
  *
- * So the check is a pure function over an INJECTED population. The annotation
- * table is read here, where it lives; the live consumer names are supplied by
- * the caller, which can sit in a layer that is allowed to import the
- * projections. The function never guesses at the population — an empty one is
- * reported as its own fault, because "checked every row against nothing" and
- * "every row resolves" are different answers.
+ * The check is a pure function over a population that the caller injects. The
+ * caller sits in a layer that can import the projections.
  */
 
 import { EVENT_ANNOTATIONS } from './event-annotations.js';
@@ -45,11 +35,10 @@ export interface ConsumerClosureResult {
 
 /**
  * Reconcile every declared `consumedBy` against the live consumer population.
- * Pure and total: returns a verdict, never throws.
+ * It returns a verdict and never throws.
  *
- * An empty `liveConsumers` fails every referenced row rather than none —
- * fail-closed, because an audit handed no population has measured nothing and
- * must not say the tree is clean.
+ * An empty `liveConsumers` fails every referenced row. An audit with no
+ * population measured nothing, so it must not report a clean tree.
  */
 export function auditConsumerClosure(
   liveConsumers: ReadonlySet<string>,

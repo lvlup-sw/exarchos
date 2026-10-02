@@ -1,16 +1,10 @@
 /**
- * Public R-2 primitive surface for the event-store layer (Wave 3, #1314).
+ * Public primitive surface of the event-store layer: the appender, its typed
+ * errors, the store, and the subscription registry.
  *
- * Wave 4 consumers (`merge-orchestrate.ts`, `execute-merge.ts`, etc.)
- * import the new typed errors + class via this barrel. The `decide`,
- * `withSession`, and `aggregateStream` primitives are methods on
- * {@link AtomicAppender} — Wave 4 obtains the appender via the same
- * `EventStore.getAppender()` accessor production code uses today.
- *
- * This barrel exists per the Wave-3 task prompt requirement to give
- * Wave 4 a single canonical import site for the new types. It is
- * intentionally minimal — every name re-exported here is exported by
- * its own module too, so there is no circular-dependency hazard.
+ * The `decide`, `withSession`, and `aggregateStream` primitives are methods on
+ * {@link AtomicAppender}. Get the appender from `EventStore.getAppender()`.
+ * Every name here is also exported by its own module.
  */
 
 export {

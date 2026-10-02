@@ -1,39 +1,18 @@
 /**
  * Every promotion of a non-`auto` event type to governance, with its evidence.
  *
- * A row here says: the tier alone would file this event as telemetry, and that
- * is wrong, for THIS reason. The only other hand-written input to the partition
- * is the demotion table beside this one (`demotions.ts`), which overrides the
- * tier in the opposite direction and only on a charter act — so the two tables
- * together are the complete list of places where a human judgment overrides a
- * derivation, which is what makes them reviewable.
+ * A row says that the tier files this event as telemetry, and gives the reason
+ * that this is wrong. This table and `demotions.ts` are the only places where a
+ * human judgment overrides the derivation.
  *
- * EVERY arm is re-measured by an oracle. The arm is self-declared, so an arm
- * nothing checks would let a mislabel buy a permanent exemption — and that is
- * not hypothetical: `task.assigned` was filed here as a charter pin claiming no
- * fold named it while the canonical projection had a mutating arm for it, and
- * neither of the two loops that re-measure the table looked at charter-pin rows.
+ * An oracle measures every arm again:
+ *   • `projection-fold`: the governance-filtered fold diverges without the type.
+ *   • `raw-reader`: the named module still reads the type, or the row is stale.
+ *   • `gate-expectation`: the emission gate still lists the type. No live row uses it,
+ *     but it stays, because a source scan cannot see that read shape.
+ *   • `charter-pin`: the decision record pins the family. A row that gains real evidence must move.
  *
- *   • `projection-fold` — the differential fold proves the promotion is load
- *     bearing: dropping it makes the governance-filtered fold diverge.
- *   • `raw-reader` — the fold-external reader census proves the named module
- *     still reads the named type. A witness whose module stopped reading it is
- *     reported as stale, so this table cannot outlive the code it cites.
- *   • `gate-expectation` — the emission gate's expectation table still lists the
- *     type, measured from the table itself. No live row uses this arm today:
- *     `stack.submitted` was its one member until the charter flip deleted the
- *     expectation and description rows that were its whole basis. The arm
- *     stays because the read shape it names is real and invisible to a source
- *     scan, and its oracle is kept non-vacuous from a seeded stale row.
- *   • `charter-pin` — the ratified authority decision pins a whole family
- *     governance, and these rows are the family members whose tier disagrees.
- *     The claim such a row makes is NEGATIVE — no fold, no reader, no
- *     expectation row — and that claim is measured too: a charter-pin row that
- *     acquires real evidence is named and has to move to the arm that now
- *     carries it.
- *
- * Adding a row for a type whose tier already derives `auto` is refused at load:
- * a witness that changes no answer is cover nothing can check.
+ * The load refuses a row for a type whose tier already derives `auto`.
  */
 
 import type { EventType } from '../schemas.js';
@@ -42,11 +21,9 @@ import type { AuthorityWitness } from './authority.js';
 const CHARTER = 'lvlup-sw/exarchos#1876 ratified event-authority decision record';
 
 /**
- * Keyed by `EventType` at the literal (`satisfies`) so a row for a renamed or
- * misspelled type fails to compile, while the exported type stays the string
- * map the derivation and its oracles iterate. The `satisfies` is load-bearing:
- * a plain freeze assigned to the annotation skips the excess-key check once
- * one key overlaps.
+ * The `satisfies` keys each row by `EventType`, so a misspelled type fails to
+ * compile. The exported type stays a string map for the derivation and its
+ * oracles. A plain annotation skips the excess-key check once one key overlaps.
  */
 export const GOVERNANCE_WITNESSES: Readonly<Record<string, AuthorityWitness>> = Object.freeze({
   'team.spawned': {
@@ -121,10 +98,6 @@ export const GOVERNANCE_WITNESSES: Readonly<Record<string, AuthorityWitness>> = 
       'an escalation bound from it, so the reader must be retired or re-sourced first.',
   },
 
-  // `task.assigned` carried a projection-fold witness here while it was
-  // model-emitted. Its tier is `capability` now — `prepare` and
-  // `prepare_delegation` append it — so the tier makes it governance and a
-  // witness would be dead cover.
   'task.progressed': {
     arm: 'raw-reader',
     evidence: ['src/events/schemas.ts'],

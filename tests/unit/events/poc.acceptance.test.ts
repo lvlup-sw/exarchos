@@ -36,16 +36,10 @@ const EXPECTED_CONSUMERS = [
   'src/events/atomic-appender.ts',
   'src/events/index.ts',
   'src/events/store.ts',
-  'src/events/tools.ts',
-  // Sorted order: the regroup moved these from `orchestrate/` to `verbs/`, which
-  // now sorts AFTER `storage/` rather than before it.
-  'src/storage/sqlite-backend.ts',
-  // The five below are not new consumers. They are the declarations that were
-  // in `sqlite-backend.ts` and now sit beside it — the wire types the appender
-  // exchanges, the DDL, the prepared-statement shape, the error family and the
-  // retry constants. The backend is still ONE consumer; the census counts files
-  // and the file count went up, which is the whole difference.
-  'src/storage/sqlite/constants.ts',
+  /**
+   * The four SQLite files hold the declarations that the appender shares with the database. They are the
+   * error family, the DDL, the prepared statements and the wire types.
+   */
   'src/storage/sqlite/errors.ts',
   'src/storage/sqlite/schema.ts',
   'src/storage/sqlite/statements.ts',

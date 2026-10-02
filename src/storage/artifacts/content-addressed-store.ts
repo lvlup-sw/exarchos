@@ -31,16 +31,16 @@ export class ContentAddressedStoreError extends Error {
 }
 
 /**
- * Filesystem seam for the store. Every path passed to these functions has
- * already been proven contained by {@link resolveContainedArtifactPath}, so an
- * implementation never needs to re-validate keys. Injectable so tests can force
- * a mid-publish failure without mocking the whole `node:fs/promises` module.
+ * Filesystem seam for the store. {@link resolveContainedArtifactPath} proves
+ * every path contained before the store calls these functions, so an
+ * implementation does not validate keys again. Tests inject it to force a failure
+ * in the middle of a publish.
  */
 export interface ContentAddressedStoreIo {
   mkdir(directory: string, options: { readonly recursive: true }): Promise<unknown>;
   writeFile(file: string, data: Buffer): Promise<void>;
   /**
-   * `signal` cancels a read that is still pending; the default forwards it to
+   * A cancelled `signal` stops a pending read. The default passes it to
    * `fs.readFile`, which rejects with an `AbortError`.
    */
   readFile(file: string, signal?: AbortSignal): Promise<Buffer>;
@@ -49,10 +49,9 @@ export interface ContentAddressedStoreIo {
 }
 
 /**
- * Default IO. The staged write goes through an explicit open/fsync/close so the
- * bytes are durable before the rename publishes them — a crash after the rename
- * cannot expose a target whose contents were never flushed. Publish and cleanup
- * reuse the repository's atomic-publish primitive.
+ * Default IO. The staged write does open, fsync, and close, so the bytes are
+ * durable before the rename publishes them. Publish uses the atomic-publish
+ * primitive of the repository.
  */
 const DEFAULT_IO: ContentAddressedStoreIo = {
   mkdir: (directory, options) => fs.mkdir(directory, options),
@@ -110,15 +109,12 @@ function digestsMatch(left: ContentDigestV1, right: ContentDigestV1): boolean {
 }
 
 /**
- * Filesystem-backed repository artifact store.
+ * Filesystem-backed repository artifact store at `<root>/sha256/<first-two-hex>/<remaining-hex>`.
  *
- * Content is addressed at `<root>/sha256/<first-two-hex>/<remaining-hex>`.
- * Writes stage to a per-call temp file and publish it with the repository's
- * atomic rename primitive, so a consumer reading the digest path sees either
- * the prior complete artifact or the new complete artifact — never a partial
- * one. Reads always hash the persisted bytes before returning them, and every
- * digest-derived path is proven contained by the store root before any
- * filesystem access.
+ * A write stages a temp file and publishes it with an atomic rename. A reader
+ * sees the old or the new complete artifact, never a partial one. A read hashes
+ * the persisted bytes before it returns them. The store proves every digest path
+ * contained before any filesystem access.
  */
 export class ContentAddressedStore {
   private readonly rootDirectory: string;
@@ -147,10 +143,11 @@ export class ContentAddressedStore {
   }
 
   /**
-   * Persist `content` and return its digest. When `expectedDigest` is supplied
-   * the store rejects — before writing anything — if the content does not hash
-   * to it, so a caller-declared digest that disagrees with the bytes never
-   * reaches disk.
+   * Persist `content` and return its digest. If the content does not hash to
+   * `expectedDigest`, the store throws before it writes anything.
+   *
+   * If the write or the publish fails, the store tries to unlink the staged temp
+   * file. A cleanup failure never hides the original error.
    */
   async put(
     content: Uint8Array,
@@ -177,14 +174,9 @@ export class ContentAddressedStore {
       await this.io.writeFile(temporary, bytes);
       await this.io.publish(temporary, target);
     } catch (error) {
-      // The staged temp is garbage the moment the publish fails; drop it so a
-      // failed write never orphans a `*.tmp` beside the target. Best-effort —
-      // the atomic-publish primitive already unlinks on its own failure path,
-      // and cleanup must never mask the original error.
       try {
         await this.io.unlink(temporary);
       } catch {
-        /* best-effort */
       }
       throw error;
     }

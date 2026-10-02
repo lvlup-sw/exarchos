@@ -1,18 +1,12 @@
-// ─── Sidecar Event Merger ───────────────────────────────────────────────────
-//
-// Merges hook-event sidecar files (`{streamId}.hook-events.jsonl`) into the
-// main EventStore. Called during startup/hydration to reconcile events written
-// by CLI hook subprocesses.
-//
-// Each sidecar line is appended to the EventStore with idempotency protection.
-// After successful merge, the sidecar file is deleted.
+/**
+ * Merges hook-event sidecar files (`{streamId}.hook-events.jsonl`) into the main
+ * EventStore at startup. CLI hook subprocesses write these files.
+ */
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { EventStore } from '../events/store.js';
 import type { WorkflowEvent } from '../events/schemas.js';
-
-// ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface MergeResult {
   readonly merged: number;
@@ -20,11 +14,7 @@ export interface MergeResult {
   readonly errors: number;
 }
 
-// ─── Sidecar File Pattern ──────────────────────────────────────────────────
-
 const SIDECAR_SUFFIX = '.hook-events.jsonl';
-
-// ─── Merger ─────────────────────────────────────────────────────────────────
 
 /**
  * Scan stateDir for `*.hook-events.jsonl` files and merge each into the
@@ -69,15 +59,16 @@ export async function mergeSidecarEvents(
     totalSkipped += skipped;
     totalErrors += errors;
 
-    // Delete sidecar after processing (even if some lines were corrupt)
     await fs.unlink(filePath).catch(() => {});
   }
 
   return { merged: totalMerged, skipped: totalSkipped, errors: totalErrors };
 }
 
-// ─── Single File Merger ─────────────────────────────────────────────────────
-
+/**
+ * Append each line of one sidecar file to the EventStore. A line counts as merged
+ * when the stream grows, and as skipped when idempotency drops it.
+ */
 async function mergeOneSidecar(
   filePath: string,
   streamId: string,
@@ -100,7 +91,6 @@ async function mergeOneSidecar(
   let errors = 0;
 
   for (const line of lines) {
-    // Parse the JSON line
     let parsed: Record<string, unknown>;
     try {
       parsed = JSON.parse(line) as Record<string, unknown>;
@@ -109,7 +99,6 @@ async function mergeOneSidecar(
       continue;
     }
 
-    // Extract event fields
     const type = parsed.type as string;
     const data = (parsed.data as Record<string, unknown>) ?? {};
     const timestamp = parsed.timestamp as string | undefined;
@@ -120,7 +109,6 @@ async function mergeOneSidecar(
       continue;
     }
 
-    // Append to EventStore with idempotency protection
     try {
       const beforeSeq = await getStreamSequence(eventStore, streamId);
       await eventStore.append(
@@ -142,8 +130,6 @@ async function mergeOneSidecar(
 
   return { merged, skipped, errors };
 }
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
 
 async function getStreamSequence(
   eventStore: EventStore,
