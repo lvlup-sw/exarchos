@@ -6,7 +6,7 @@
 // components (Tarjan), and asserts no runtime cycle outside `tools/audit/cycle-baseline.json`.
 //
 // The run uses `spawnCommandSync`, which resolves the `npx` shim on win32. A depcruise test skips
-// only when the local binary is absent. Thus it does not fail falsely, and in CI it runs.
+// when the local binary is absent, when the spawn fails, or when depcruise prints nothing.
 import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -27,18 +27,8 @@ import {
   type ForbiddenEdgeRule,
 } from './import-cycles.js';
 
-import { spawnCommandSync } from '../../../src/utils/process.js';
-
-// Runtime import-cycle gate.
-//
-// dependency-cruiser is the only acceptance instrument. With the default
-// and a dynamic `import()` counts. The gate runs depcruise over `src`, finds strongly connected
-// components (Tarjan), and asserts no runtime cycle outside `tools/audit/cycle-baseline.json`.
-//
-// The run uses `spawnCommandSync`, which resolves the `npx` shim on win32. A depcruise test skips
-// when the local binary is absent, when the spawn fails, or when depcruise prints nothing.
-
 /** depcruise runs from the subject package, so its graph paths stay `src/…`. */
+
 const MCP_PACKAGE_ROOT = SUBJECT_PACKAGE_ROOT;
 const DEPCRUISE_CONFIG = path.join(REPO_ROOT, '.dependency-cruiser.cjs');
 const CYCLE_BASELINE_PATH = path.join(REPO_ROOT, 'tools', 'audit', 'cycle-baseline.json');
