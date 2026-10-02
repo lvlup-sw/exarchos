@@ -1,8 +1,7 @@
 /**
- * plugin-skill-hash-sync — surfaces the content → skills drift
- * condition that `npm run skills:guard` enforces in CI, as a lightweight
- * diagnostic. The probe performs the detection (mtime heuristic by
- * default); this check only projects the result into a CheckResult.
+ * plugin-skill-hash-sync: reports drift between `content/` and the rendered
+ * skills. The probe detects the drift with an mtime heuristic. This check maps
+ * the probe result to a CheckResult.
  */
 
 import type { CheckFn } from './__shared__/make-stub-probes.js';

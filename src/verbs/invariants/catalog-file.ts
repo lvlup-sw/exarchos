@@ -1,71 +1,42 @@
 /**
- * Catalog-file primitives shared by every invariant WRITE verb
- * (`invariants_add`, `invariants_amend`).
- *
- * These live in one module rather than being re-implemented per verb because
- * they encode two facts that must not drift between writers:
- *
- *  1. **The file shape.** A catalog is EITHER markdown-with-frontmatter (the
- *     dev catalog, which carries a prose body a naive whole-file round-trip
- *     would destroy) OR bare YAML. Every writer has to split, mutate only the
- *     frontmatter document, and reassemble.
- *  2. **The denominator.** "Which ids are already in use" is the input to the
- *     primary-key check. Resolving it must fail LOUDLY when the entry list
- *     cannot be read, or a moved/renamed catalog reads as "no collisions"
- *     (task 068 / DR-24).
- *  3. **The write is a SPLICE, not a round-trip.** An edit to one entry must
- *     leave every other entry's bytes alone (DR-3) — see
- *     {@link locateCatalogEntry}.
+ * Catalog-file primitives shared by the invariant write verbs, `invariants_add` and `invariants_amend`.
+ * They live in one module because three facts must not drift between writers:
+ * 1. The file shape. A catalog is markdown with YAML frontmatter, or bare YAML.
+ *    A writer changes only the frontmatter and keeps the markdown body.
+ * 2. The set of ids in use. The read must fail loudly when the entry list cannot be read.
+ *    Otherwise a moved or renamed catalog reads as "no collisions".
+ * 3. The write is a splice, not a round-trip. An edit to one entry keeps the bytes of every other entry.
  */
 import { parseDocument, stringify as stringifyYaml, isSeq, isMap } from 'yaml';
 
 import type { ToolResult } from '../../format.js';
 
 /**
- * Is `value` a plain (non-array, non-null) object?
- *
- * A real type predicate rather than an `as Record<string, unknown>` cast: the
- * narrowing is then something the compiler CHECKED, not something the author
- * asserted. Shared by every catalog reader that has to look at a projected
- * YAML entry's fields.
+ * True when `value` is an object that is not an array and not null.
+ * It is a type predicate, so the compiler checks the narrowing. A cast only asserts it.
  */
 export function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 /**
- * Split a catalog file into its YAML frontmatter and (optional) markdown body.
- *
- * Catalog files are EITHER markdown-with-frontmatter (`---\n<yaml>\n---\n<body>`
- * — the dev catalog) OR bare YAML (no fences, no body — a user could register a
- * `.yml`). We do the split ourselves rather than via gray-matter's `.matter`
- * field: gray-matter v4 caches by input string and only populates `.matter` on
- * the FIRST parse of a given string, returning `undefined` for it on a cache
- * hit. Several call sites parse the same file contents, so depending on
- * `.matter` is a latent crash. A direct fence scan is deterministic and
- * cache-free.
- *
- * Returns `{ frontmatter, body }` where `body` is `undefined` for the bare-YAML
- * shape (no fences) and the verbatim post-fence text (including its leading
- * newline) for the fenced shape.
+ * Splits a catalog file into its YAML frontmatter and its optional markdown body.
+ * In a fenced file (`---\n<yaml>\n---\n<body>`), the opening fence is the first line, and `body` is the text after the closing fence line.
+ * Bare YAML gives `body: undefined`.
+ * The function scans the fences itself and does not use the `.matter` field of gray-matter.
+ * Gray-matter v4 caches by input string and sets `.matter` only on the first parse of a string.
  */
 export function splitCatalog(contents: string): {
   frontmatter: string;
   body: string | undefined;
   /**
-   * Absolute offset of `frontmatter` within `contents`.
-   *
-   * Callers that REBUILD the document from `frontmatter` + `body` cannot round
-   * trip it: this pattern drops trailing whitespace on the closing fence
-   * (`[ \t]*`) and cannot distinguish "no final newline" from "empty body",
-   * so a rebuild silently normalises both. Splicing at this offset instead
-   * carries every byte outside the replaced span through verbatim, which is
-   * what DR-3 promises — the digest moves for the amendment and nothing else.
+   * Absolute offset of `frontmatter` in `contents`.
+   * A rebuild from `frontmatter` and `body` is lossy. It drops trailing whitespace on the closing fence line.
+   * It also cannot tell a missing final newline from an empty body.
+   * A splice at this offset keeps every byte outside the replaced span.
    */
   frontmatterStart: number;
 } {
-  // Frontmatter must open at the very start with a `---` line. Match the
-  // opening fence, the frontmatter block, the closing `---` line, then the rest.
   const match = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n([\s\S]*))?$/.exec(
     contents,
   );
@@ -81,34 +52,20 @@ export function splitCatalog(contents: string): {
 }
 
 /**
- * Outcome of scanning a catalog for the ids already in use.
- *
- * The discriminant is the point. The previous `readExistingIds` returned a bare
- * `string[]` and collapsed EVERY failure — absent `invariants:` key, a renamed
- * key, a null/map/scalar node, an entry with no readable id — into `[]`. An
- * empty id list is indistinguishable from "no collisions", so a moved or
- * renamed catalog read as a clean uniqueness check and every id looked free.
- * That is a vacuous denominator, and a uniqueness guard resting on one proves
- * nothing (task 068 / DR-24).
- *
- * `resolved: true` with `ids: []` is a DIFFERENT and legitimate state: a
- * freshly scaffolded catalog really is `invariants: []`. The tooth is
- * resolvability, not cardinality — making zero entries fatal outright would
- * make it impossible to author a catalog's first entry. Verbs for which an
- * empty catalog IS vacuous (`invariants_amend` — there is nothing to amend)
- * impose that check themselves, on a denominator they have proven resolved.
+ * Outcome of a scan for the ids in use in a catalog.
+ * The discriminant matters. A bare `string[]` turns every read failure into `[]`, and `[]` reads as "no collisions".
+ * `resolved: true` with `ids: []` is a valid state, because a new catalog holds `invariants: []`.
+ * The check is resolvability, not count, so that a writer can add the first entry.
+ * A verb for which an empty catalog is an error, such as `invariants_amend`, adds that check itself.
  */
 export type CatalogIdScan =
   | { readonly resolved: true; readonly ids: readonly string[] }
   | { readonly resolved: false; readonly reason: string };
 
 /**
- * Read the ids already in use in a catalog file's `invariants:` list.
- *
- * Fail-closed: resolves ONLY when the frontmatter parses, `invariants` is
- * present AND is a sequence, and every element carries a non-empty string
- * `id`. Anything else is unresolved — we cannot prove an id is free against
- * entries we could not read.
+ * Reads the ids in use in the `invariants:` list of a catalog file. It fails closed.
+ * It resolves only when the frontmatter parses, `invariants` is a sequence, and every element has a non-empty string `id`.
+ * An id cannot be proven free against entries that the scan cannot read.
  */
 export function readCatalogIds(catalogContents: string): CatalogIdScan {
   const { frontmatter } = splitCatalog(catalogContents);
@@ -178,8 +135,6 @@ export function readCatalogIds(catalogContents: string): CatalogIdScan {
   return { resolved: true, ids };
 }
 
-// ─── Entry splice (DR-3) ────────────────────────────────────────────────────
-
 /**
  * The result of rewriting a catalog with ONE entry's lines replaced.
  */
@@ -191,9 +146,8 @@ export interface CatalogSplice {
 }
 
 /**
- * One entry, found in a catalog's text, with everything a caller needs to amend
- * it: what it currently says, the bytes it currently occupies, and a splice
- * closed over the exact text it was measured against.
+ * One entry found in the catalog text, with what a caller needs to amend it.
+ * It holds the current fields, the current bytes, and a splice bound to the exact text that the locator measured.
  */
 export interface CatalogEntryLocation {
   /**
@@ -212,13 +166,9 @@ export interface CatalogEntryLocation {
 }
 
 /**
- * Outcome of locating one entry in a catalog.
- *
- * Discriminated for the same reason `CatalogIdScan` is. The alternative — hand
- * back a best-effort string and silently fall back to re-serializing the whole
- * document when the entry cannot be found — would reintroduce the very reflow
- * the splice exists to prevent, invisibly. A locate that matches nothing is a
- * REFUSAL, not a downgrade.
+ * Outcome of a search for one entry in a catalog. It is discriminated for the same reason as `CatalogIdScan`.
+ * A fallback to a whole-document rewrite brings back the reflow that the splice prevents.
+ * A search that matches nothing is a refusal.
  */
 export type CatalogEntryScan =
   | { readonly located: true; readonly entry: CatalogEntryLocation }
@@ -241,45 +191,16 @@ function reindentBlock(text: string, indent: number): string {
 }
 
 /**
- * Locate the entry with `id` in a catalog's text, so a caller can amend it
- * without rewriting anything else (DR-3).
+ * Locates the entry with `id` in the catalog text, so that a caller can amend it and change nothing else.
+ * A document round-trip re-folds every folded scalar at the line width of `yaml`, so a one-field edit re-wraps other entries.
+ * The contract digest covers the raw catalog text, so such a re-wrap moves the digest and requires a contract re-approval.
+ * The function thus parses only to find the node range. It serializes only the amended entry and splices it into the original text.
+ * The span ends at `range[1]`, the end of the entry content, before any byte of the next item.
  *
- * ## Why a splice rather than a document round-trip
- *
- * The obvious implementation of an amendment — parse the frontmatter,
- * `seq.set(index, entry)`, `doc.toString()` — is semantically correct and
- * produces a diff nobody can review. `yaml`'s serializer re-folds EVERY folded
- * scalar in the document at its own line width, so a one-field amendment to one
- * entry re-wraps entries it never named. Task 019's single-field edit to INV-17
- * came out as 69 inserts / 34 deletes, ~35 lines of which were cosmetic re-wrap
- * of INV-2 and INV-11.
- *
- * That is not merely noisy. The catalog is a frozen contract authority whose
- * digest is taken over its RAW TEXT (`contract/authority-digest.ts`), so a
- * collateral re-wrap moves that digest exactly as much as the real edit does,
- * and drags a contract re-approval along with every one-field correction. The
- * sanctioned path becomes the expensive one, which is the opposite of what
- * DR-23 built it for.
- *
- * So: parse only to LOCATE (the parser's node ranges are offsets into the
- * source text), then serialize only the amended entry and splice those bytes
- * into the original string. Untouched entries are never re-serialized, so they
- * cannot be re-wrapped, and the markdown body and the frontmatter's comments
- * survive for free — they are never rewritten at all.
- *
- * ## Non-empty denominator
- *
- * Refuses — rather than falling back to a whole-document rewrite — when the
- * frontmatter does not parse, `invariants:` is not a sequence, the sequence is
- * EMPTY, no item carries the id, or the located span covers zero characters.
- * The last three are the teeth: each is a case where the splice would match
- * nothing, write the file back unchanged, and report success.
- *
- * The id walk is deliberately NARROWER than `readCatalogIds`, which projects
- * the whole sequence with `toJSON()` and therefore resolves aliases. An aliased
- * entry (`- *base`) has a readable id but no map node of its own to rewrite, so
- * the id scan can resolve an id this locator cannot place. That divergence is
- * exactly what the refusal is for.
+ * It refuses, and never rewrites the whole document, when the frontmatter does not parse or `invariants:` is not a sequence.
+ * It also refuses when the sequence is empty, when no map item has the id, or when the span is empty.
+ * The id search is narrower than `readCatalogIds`. An aliased entry (`- *base`) has a readable id but no map node to rewrite.
+ * The splice keeps the line ending of the file and the trailing-newline shape of the replaced span.
  */
 export function locateCatalogEntry(contents: string, id: string): CatalogEntryScan {
   const { frontmatter, body, frontmatterStart } = splitCatalog(contents);
@@ -318,8 +239,6 @@ export function locateCatalogEntry(contents: string, id: string): CatalogEntrySc
     };
   }
 
-  // `isSeq` / `isMap` / `isPlainRecord` are type PREDICATES, so every narrowing
-  // here is compiler-checked rather than asserted with a cast.
   let found:
     | { current: Record<string, unknown>; start: number; end: number; indent: number }
     | undefined;
@@ -334,9 +253,6 @@ export function locateCatalogEntry(contents: string, id: string): CatalogEntrySc
         reason: `entry '${id}' carries no source range, so its lines cannot be placed in the file`,
       };
     }
-    // `range` is [nodeStart, valueEnd, nodeEnd]. `valueEnd` is just past the
-    // entry's own content (including its trailing newline) and before anything
-    // belonging to the next item, so every byte outside it is somebody else's.
     const lineStart = frontmatter.lastIndexOf('\n', range[0] - 1) + 1;
     found = {
       current: projected,
@@ -366,9 +282,6 @@ export function locateCatalogEntry(contents: string, id: string): CatalogEntrySc
     };
   }
 
-  // The catalog may be a CRLF working-tree checkout (this repo is authored on
-  // Windows). Emit the line ending the file already uses, or the splice would
-  // leave one LF entry inside an otherwise-CRLF file.
   const eol = /\r\n/.test(contents) ? '\r\n' : '\n';
   const span = found;
 
@@ -378,12 +291,7 @@ export function locateCatalogEntry(contents: string, id: string): CatalogEntrySc
       current: span.current,
       currentText,
       splice: (entry: unknown): CatalogSplice => {
-        // Serialize ONLY this entry, then re-indent it to the column the
-        // sequence item's keys already sit at.
         let entryText = reindentBlock(stringifyYaml(entry), span.indent);
-        // Match the replaced span's trailing shape exactly: the last entry of a
-        // frontmatter block has no trailing newline inside the fences, and
-        // adding one would insert a blank line nobody asked for.
         if (currentText.endsWith('\n')) {
           if (!entryText.endsWith('\n')) entryText += '\n';
         } else if (entryText.endsWith('\n')) {
@@ -391,16 +299,6 @@ export function locateCatalogEntry(contents: string, id: string): CatalogEntrySc
         }
         if (eol === '\r\n') entryText = entryText.replace(/\n/g, '\r\n');
 
-        // Splice into `contents` at an ABSOLUTE offset rather than rebuilding
-        // the fences. Reconstruction had to re-emit the opening fence, the
-        // closing fence and the body separator from scratch, and `splitCatalog`
-        // does not preserve enough to do that losslessly: it discards trailing
-        // whitespace on the closing fence line, and a file ending at `---` with
-        // no final newline is indistinguishable from one with an empty body. So
-        // an amendment silently rewrote bytes it never named — invisible to the
-        // suite, because the one fixture shape in use is the shape that happens
-        // to survive the round trip. Slicing the original keeps every byte
-        // outside the entry's span exactly as it was found.
         const entryStart = frontmatterStart + span.start;
         const entryEnd = frontmatterStart + span.end;
         return {
@@ -413,9 +311,8 @@ export function locateCatalogEntry(contents: string, id: string): CatalogEntrySc
 }
 
 /**
- * INV-5b carrier-shape refusal for a catalog whose id list did not RESOLVE.
- * Shared by `invariants_add` and `invariants_amend`: neither may proceed on a
- * denominator it could not read (task 068 / DR-24).
+ * Refusal for a catalog whose id list did not resolve. The error carries the expected shape and a suggested fix.
+ * `invariants_add` and `invariants_amend` share it, because neither can write against an entry list that it cannot read.
  */
 export function catalogUnreadableResult(
   relCatalog: string,

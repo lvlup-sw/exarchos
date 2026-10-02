@@ -1,13 +1,9 @@
-// ─── Integration Suite Gate (#1329) ──────────────────────────────────────────
-//
-// Runs the FULL vitest suite against the integration tip (worktree-aware
-// repoRoot, #1330 resolver) and folds file-LOAD failures into the failure
-// count. A file that fails at IMPORT is counted by vitest as "1 failed suite /
-// 0 failed tests" — invisible to per-task gates that only inspect failed
-// tests. This gate makes a load cascade a hard FAIL.
-//
-// Wiring into a runbook is T-07's job; this task only registers the action.
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * check_integration_suite: runs the vitest suite against the integration tip
+ * and adds file load failures to the failure count. Vitest counts a file that
+ * fails at import as one failed suite with zero failed tests. A gate that reads
+ * only failed tests misses it, so this gate fails on a load failure.
+ */
 
 import { runCommandSync } from '../../utils/process.js';
 import type { ToolResult } from '../../format.js';
@@ -17,22 +13,18 @@ import { runGatePreflight } from '../pure/gate-preflight.js';
 import { runIntegrationSuite } from '../pure/integration-suite.js';
 import type { RunCommandFn, CommandResult } from '../pure/static-analysis.js';
 
-// ─── Argument & Result Types ─────────────────────────────────────────────────
-
 interface CheckIntegrationSuiteArgs {
   readonly featureId: string;
   /**
-   * Repository root to run the suite against. A literal path is used verbatim;
-   * the special value `'auto'` resolves to the calling delegation's agent
-   * worktree (#1330, reusing the T-04 resolver); omitting it falls back to
-   * `process.cwd()` for non-delegation callers. For the post-merge use this
-   * should point at the integration tip's worktree.
+   * The repository root for the suite. The gate uses a literal path as given.
+   * `'auto'` resolves to the agent worktree of the calling delegation. When
+   * absent, the gate uses `process.cwd()`. After a merge, it must point at the
+   * worktree of the integration tip.
    */
   readonly repoRoot?: string;
   /**
-   * Explicit worktree path. Preferred resolver seam for `repoRoot:'auto'`.
-   * When absent, `'auto'` falls back to the latest `worktree.created` event
-   * for `taskId`.
+   * The explicit worktree path, which `repoRoot:'auto'` uses first. When it is
+   * absent, `'auto'` uses the latest `worktree.created` event for `taskId`.
    */
   readonly worktreePath?: string;
   readonly taskId?: string;
@@ -46,50 +38,45 @@ interface CheckIntegrationSuiteResult {
   readonly passed: boolean;
   /** failedTests + loadFailures — the load cascade can never read as 0. */
   readonly failCount: number;
-  /** Suites that failed before collecting any test (the #1329 cohort). */
+  /** Suites that failed before they collected a test. */
   readonly loadFailures: number;
   readonly failedTests: number;
   readonly failedSuites: number;
   readonly totalTests: number;
   readonly report: string;
   /**
-   * True when the runner produced no parseable vitest JSON. The gate fails
-   * closed in this case (passed=false, failCount>=1); the flag tells callers
-   * the failure stems from unparseable output rather than authoritative counts.
+   * True when the runner gave no vitest JSON that the gate can parse. The gate
+   * then fails closed with `passed=false` and `failCount>=1`. The flag tells
+   * callers that the counts are not authoritative.
    */
   readonly parseError: boolean;
   /**
-   * When `parseError`, WHY: `'spawn-failure'` (the test command could not run)
-   * vs `'shape-mismatch'` (ran, output unparseable) — #1537. Unset on clean parse.
+   * The cause of a `parseError`. `'spawn-failure'` means that the test command
+   * did not start. `'shape-mismatch'` means that it ran, but the gate cannot
+   * parse the output. Unset on a clean parse.
    */
   readonly parseFailureKind?: 'spawn-failure' | 'shape-mismatch';
 }
 
-// ─── Command Runner Adapter ─────────────────────────────────────────────────
-
 /**
- * OS-level errno codes that mean the child was NEVER created — a true spawn
- * failure (the test command is missing or unrunnable). Restricting the
- * classification to this set keeps a process that DID run from being mislabeled:
- * a non-zero exit carries a numeric `status`, and an output overflow surfaces as
- * `ERR_CHILD_PROCESS_STDIO_MAXBUFFER` (a string `code` with no `status`) even
- * though the suite ran to completion. Both must stay `shape-mismatch`, not
- * `spawn-failure` (#1537 follow-up). Set membership — not "any string code" — is
- * the discriminant.
+ * OS errno codes that mean the child process did not start: `ENOENT` (no such
+ * file), `EACCES` and `EPERM` (no permission), `ENOTDIR` (a path part is not a
+ * directory), and `ENOMEM` (no memory to fork). A process that ran stays a
+ * `shape-mismatch`. This includes an output overflow, which gives the string
+ * code `ERR_CHILD_PROCESS_STDIO_MAXBUFFER` and no `status`.
  */
 const SPAWN_ERROR_CODES: ReadonlySet<string> = new Set([
-  'ENOENT', // command / file does not exist
-  'EACCES', // not permitted to execute the file
-  'EPERM', // operation not permitted
-  'ENOTDIR', // a path component is not a directory
-  'ENOMEM', // could not allocate to fork the child
+  'ENOENT',
+  'EACCES',
+  'EPERM',
+  'ENOTDIR',
+  'ENOMEM',
 ]);
 
 /**
- * True only for an execFileSync error that means the process never started:
- * no numeric exit `status` AND a recognized OS-level spawn errno (above).
- * Exported so the classification is unit-testable without spawning a real
- * process.
+ * True only for an execFileSync error that means the process did not start:
+ * no numeric exit `status` and a code in {@link SPAWN_ERROR_CODES}. Exported
+ * for unit tests.
  */
 export function isSpawnFailure(err: { status?: number; code?: string }): boolean {
   return (
@@ -100,12 +87,14 @@ export function isSpawnFailure(err: { status?: number; code?: string }): boolean
 }
 
 /**
- * Wraps execFileSync to match the RunCommandFn signature. A non-zero exit
- * (the suite failed) is returned as a CommandResult, not thrown — vitest's
- * JSON summary is still on stdout in that case.
+ * Wraps `runCommandSync` to match the RunCommandFn signature. It returns a non-zero
+ * exit as a CommandResult and does not throw, because the vitest JSON summary
+ * is still on stdout. A spawn failure sets `spawnError`, so the gate can tell
+ * a missing test command apart from a process that ran. The 64 MiB `maxBuffer`
+ * holds the output of a large suite.
  *
- * @internal Exported so WFQ-003 can prove the real spawn → parse chain without
- * executing the repository's own suite.
+ * @internal Exported so a test can run the real spawn and parse chain without
+ * the suite of this repository.
  */
 export const execCommandRunner: RunCommandFn = (
   cmd: string,
@@ -117,18 +106,11 @@ export const execCommandRunner: RunCommandFn = (
       encoding: 'utf-8',
       cwd: options?.cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
-      // The integration suite is large; allow generous output + time.
       maxBuffer: 64 * 1024 * 1024,
     }) as string;
     return { exitCode: 0, stdout: output, stderr: '' };
   } catch (err: unknown) {
     const execErr = err as { status?: number; code?: string; stdout?: string; stderr?: string };
-    // A spawn failure (ENOENT/EACCES/…) has no numeric exit `status` AND carries
-    // a recognized OS-level errno — the process never ran. Surface it as
-    // `spawnError` so the gate can tell a missing/unrunnable test command apart
-    // from a process that ran but whose output we can't trust — a non-zero exit
-    // or an `ERR_CHILD_PROCESS_STDIO_MAXBUFFER` overflow stay JSON-shape
-    // mismatches, never spawn failures (#1537).
     const spawnFailed = isSpawnFailure(execErr);
     return {
       exitCode: execErr.status ?? (spawnFailed ? 127 : 1),
@@ -139,11 +121,12 @@ export const execCommandRunner: RunCommandFn = (
   }
 };
 
-// ─── Handler ─────────────────────────────────────────────────────────────────
-
 /**
- * @param runCommand - Injected runner seam (defaults to execFileSync). Tests
- *   pass a stub so the gate is exercisable without running the real suite.
+ * Runs the shared gate preflight, then runs the suite inside the durable gate
+ * producer. The preflight rejects a miswired event store and an absent
+ * `featureId`, and resolves `repoRoot`. `taskId` is optional for this gate.
+ *
+ * @param runCommand - The runner, {@link execCommandRunner} by default. Tests pass a stub.
  */
 export async function handleCheckIntegrationSuite(
   args: CheckIntegrationSuiteArgs,
@@ -151,10 +134,6 @@ export async function handleCheckIntegrationSuite(
   eventStore: EventStore,
   runCommand: RunCommandFn = execCommandRunner,
 ): Promise<ToolResult> {
-  // Preflight (DR-10): fail-fast on a miswired DispatchContext / absent
-  // featureId (a missing eventStore is a wiring bug, not a transient error) and
-  // resolve the worktree-aware 'auto' repoRoot (#1330, T-04 resolver). taskId is
-  // optional for this post-merge gate, so it is not required here.
   const pre = await runGatePreflight(
     {
       featureId: args.featureId,
@@ -180,7 +159,6 @@ export async function handleCheckIntegrationSuite(
       eventStore,
     },
     async () => {
-      // Run the full suite and fold load-failures into the failure count.
       const suite = runIntegrationSuite({
         repoRoot,
         runCommand,

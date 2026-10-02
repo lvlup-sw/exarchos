@@ -1,15 +1,7 @@
 /**
- * Doctor output contract — single source of truth for CheckResult and
- * DoctorOutput shapes. Both the CLI adapter and the MCP adapter project
- * through this schema; types are derived via `z.infer` so schema and
- * TypeScript cannot drift (DIM-3/T-3.3).
- *
- * Refinements enforce the two invariants the handler cannot express at
- * the field level:
- *   - status === 'Skipped' requires a non-empty `reason` (DIM-2 — no
- *     silent skips)
- *   - DoctorOutput.summary tally must equal checks.length (DIM-3 — the
- *     handler validates through parse() before returning)
+ * Doctor output contract: the schemas for `CheckResult` and `DoctorOutput`.
+ * The CLI adapter and the MCP adapter both use these schemas. The types come
+ * from `z.infer`, so the schemas and the types cannot drift.
  */
 
 import { z } from 'zod';
@@ -25,19 +17,15 @@ export const CheckCategorySchema = z.enum([
   'env',
   'remote',
   'invariants',
-  // `verification` — the verification-toolchain check (13th, design §4.6):
-  // does the verification ladder's runtime resolve, and what is each policy
-  // cell's provenance. Read-only visibility, never a fix surface.
+  /** Category of the verification-toolchain check. */
   'verification',
 ]);
 
 /**
- * One resolved verification-policy cell — a `(riskTier, boundaryTouching)`
- * profile plus whether its gate sequence came from the frozen built-in table
- * or a `.exarchos.yml` override. Carried (read-only) on a verification-toolchain
- * CheckResult so callers can see policy provenance without re-resolving. The
- * `source` vocabulary mirrors `VerificationPolicySource` in
- * `workflow/verification-policy-resolver.ts` (the single source of truth).
+ * One resolved verification-policy cell: a `(riskTier, boundaryTouching)`
+ * profile and the source of its gate sequence. `builtin` is the frozen
+ * built-in table, and `config` is a `.exarchos.yml` override. The values
+ * mirror `VerificationPolicySource` in `workflow/verification-policy-resolver.ts`.
  */
 export const VerificationPolicyCellSchema = z.object({
   riskTier: z.enum(['low', 'medium', 'high']),
@@ -45,6 +33,10 @@ export const VerificationPolicyCellSchema = z.object({
   source: z.enum(['builtin', 'config']),
 });
 
+/**
+ * One check result. The refinements require `reason` when the status is
+ * `Skipped`, and `fix` when the status is `Warning` or `Fail`.
+ */
 export const CheckResultSchema = z
   .object({
     category: CheckCategorySchema,
@@ -54,13 +46,12 @@ export const CheckResultSchema = z
     fix: z.string().min(1).optional(),
     reason: z.string().min(1).optional(),
     durationMs: z.number().int().nonnegative(),
-    // Read-only detail carried EXCLUSIVELY by the verification-toolchain check:
-    // the six resolved policy cells with their builtin/config provenance. The
-    // length is fixed at 6 — the (riskTier × boundaryTouching) cross-product —
-    // so a malformed provenance payload fails fast at the schema boundary rather
-    // than reaching MCP/CLI adapters as a silently-truncated contract (INV-5b).
-    // The superRefine below makes the field REQUIRED for verification-toolchain
-    // and FORBIDDEN elsewhere.
+    /**
+     * The six resolved policy cells, one for each `(riskTier, boundaryTouching)`
+     * pair. The fixed length makes a truncated payload fail at the schema. The
+     * refinement requires this field on the verification-toolchain check and
+     * rejects it on all other checks.
+     */
     policyCells: z.array(VerificationPolicyCellSchema).length(6).optional(),
   })
   .superRefine((r, ctx) => {
@@ -101,6 +92,7 @@ export const DoctorSummarySchema = z.object({
   skipped: z.number().int().nonnegative(),
 });
 
+/** The full doctor output. The refinement requires the summary tally to equal `checks.length`. */
 export const DoctorOutputSchema = z
   .object({
     checks: z.array(CheckResultSchema),

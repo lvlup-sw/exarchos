@@ -1,19 +1,14 @@
 /**
- * WriterDeps — the injectable dependency bundle passed to every
- * RuntimeConfigWriter. Mirrors the DoctorProbes pattern: real bindings
- * via `buildWriterDeps()`, in-memory stubs via `makeStubWriterDeps()`
- * for tests.
- *
- * All side effects (fs, home, cwd, env) are injected so unit tests can
- * exercise writers without touching disk. Stubs throw by default on
- * every fs method so accidental dependencies on un-stubbed probes
- * surface as loud failures.
+ * WriterDeps: the injected dependencies of each RuntimeConfigWriter. The fs,
+ * home, cwd, and env are injected, so unit tests do not touch the disk.
+ * `buildWriterDeps()` gives the real bindings. `makeStubWriterDeps()` gives
+ * stubs whose fs methods throw, so a test that uses a method it did not
+ * override fails.
  */
 
 import { promises as nodeFs } from 'node:fs';
 
-/** Narrow filesystem surface for writers. Async throughout so
- * implementations can be in-memory maps for testing. */
+/** The filesystem methods for writers. They are async, so a test can use an in-memory map. */
 export interface WriterFs {
   readFile(p: string): Promise<string>;
   writeFile(p: string, content: string): Promise<void>;
@@ -58,10 +53,7 @@ export function makeStubWriterDeps(overrides?: Partial<WriterDeps>): WriterDeps 
   return { ...base, ...overrides };
 }
 
-/**
- * Build a real WriterDeps bundle from node:fs and process globals.
- * Production callers use this; tests use makeStubWriterDeps.
- */
+/** Builds the real WriterDeps from node:fs and the process globals. */
 export function buildWriterDeps(): WriterDeps {
   return {
     fs: {

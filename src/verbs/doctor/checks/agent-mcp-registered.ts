@@ -1,10 +1,8 @@
 /**
- * agent-mcp-registered — is exarchos listed in `mcpServers` for every
- * detected runtime config? Only runtimes with `configPresent` AND
- * `configValid` are eligible; malformed configs are the other check's
- * concern. Pass when all registered, Warning naming runtimes missing
- * exarchos with a runtime-targeted `exarchos init` fix, Skipped when no
- * eligible envs exist.
+ * Doctor check: does each detected runtime config list exarchos in `mcpServers`?
+ * Only configs that are present and valid count. Another check reports malformed configs.
+ * The check gives Pass when all list exarchos. It gives Warning with an `exarchos init` fix
+ * when some do not. It gives Skipped when no config is present or all are malformed.
  */
 
 import type { CheckFn } from './__shared__/make-stub-probes.js';

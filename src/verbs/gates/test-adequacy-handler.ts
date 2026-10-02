@@ -1,20 +1,14 @@
-// ─── check_test_adequacy handler (task 014) ──────────────────────────────────
-//
-// Orchestrate action that runs the kill probe (mutation-testing-at-N=1) for a
-// task's diff and persists canonical subject-bound evidence. The probe composition itself
-// lives in the pure-ish `test-adequacy.ts` (split/snapshot/revert/run/restore);
-// this handler wires the production seams:
-//   • resolve repoRoot (supports the worktree-aware 'auto' mode, #1330)
-//   • resolve the merge base of the task's base and HEAD once, as a SHA, and
-//     use it for both the changed-file diff and the revert
-//   • resolve the test command via resolveTestRuntime and shell it out,
-//     scoped to the changed test files
-//   • persist evidence with trusted-operation idempotency (INV-8)
-//
-// The result is an INV-5b advisory carrier: success:true with data.passed
-// reflecting the probe verdict, never an error envelope for a vacuous-test
-// finding (a failed probe is a finding, not a tool error).
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * The `check_test_adequacy` handler. It runs the kill probe (mutation testing at N=1) over the diff of a task and persists subject-bound evidence.
+ * `test-adequacy.ts` holds the probe itself. This handler wires the production seams.
+ *
+ * It resolves `repoRoot`, with the worktree-aware `auto` mode. It resolves the merge base of the task base and the head once, as a SHA.
+ * The changed-file diff and the revert both use that SHA.
+ * It resolves the test command with `resolveTestRuntime` and runs it on the changed test files.
+ *
+ * Evidence persistence is idempotent on the trusted operation id.
+ * The result is an advisory carrier: `success: true`, with `data.passed` set from the probe verdict. A failed probe is a finding, not a tool error.
+ */
 
 import { runCommandSync } from '../../utils/process.js';
 import type { ToolResult } from '../../format.js';
@@ -40,22 +34,19 @@ import {
 import { assertNever } from '../../contract/error-families.js';
 import { CapsuleBaseRefSchema } from '../../contract/capsule/exarchos-capsule.js';
 
-// ─── Args / Result ───────────────────────────────────────────────────────────
-
 export interface TestAdequacyArgs {
   readonly featureId: string;
   readonly taskId: string;
   /** The task branch (HEAD side of the diff). Defaults to the current branch. */
   readonly branch?: string;
   /**
-   * The branch the task forked from; its diff is measured from the merge base
-   * of this ref and the task's head. There is no default: a guessed base
-   * judges other work, so without one the gate blocks with `base-missing`.
+   * The branch that the task forked from. The diff starts at the merge base of this ref and the task head.
+   * There is no default, because a guessed base judges other work. Without a base, the gate blocks with `base-missing`.
    */
   readonly baseBranch?: string;
   /**
-   * Repo to probe. A literal path is used verbatim; `'auto'` resolves the
-   * calling delegation's agent worktree (#1330); omitting it → process.cwd().
+   * The repo to probe. A literal path is used as given. `'auto'` resolves the agent worktree of the calling delegation.
+   * When absent, the handler uses `process.cwd()`.
    */
   readonly repoRoot?: string;
   /** Explicit agent worktree path — preferred resolver seam for 'auto'. */
@@ -72,7 +63,6 @@ export interface TestAdequacyArgs {
    */
   readonly phase?: string;
 
-  // ── Verification-ladder routing stamp (FIX-1a) ───────────────────────────
   /**
    * The task's stamped risk tier. When provided together with
    * {@link boundaryTouching}, the handler self-skips when the resolved
@@ -83,41 +73,31 @@ export interface TestAdequacyArgs {
   /** The task's stamped boundary-touching flag. See {@link riskTier}. */
   readonly boundaryTouching?: boolean;
   /**
-   * The resolved project config (task 004). Threaded by the dispatch adapter so
-   * the self-skip routing consumes the SAME config-resolved policy the
-   * delegation stamp uses — a `.exarchos.yml` `verification:` cell that excludes
-   * this gate makes the stamp drop it AND this handler skip it (they can never
-   * disagree). Omitted → the resolver falls through to the built-in table.
+   * The resolved project config. The dispatch adapter passes it, so the self-skip reads the same policy as the delegation stamp.
+   * A `verification:` cell in `.exarchos.yml` that excludes this gate makes the stamp drop it and this handler skip it.
+   * When absent, the resolver uses the built-in table.
    */
   readonly projectConfig?: ResolvedProjectConfig;
-
-  // ── Test seams (DI; production defaults below) ───────────────────────────
   /** Git executor. Defaults to a 30s-ceiling shell-out. */
   readonly gitExec?: GitExec;
   /** Test runner. Defaults to the resolveTestRuntime-backed shell-out. */
   readonly runTests?: TestRunFn;
 }
 
-// ─── Production seams ──────────────────────────────────────────────────────
-//
-// `defaultGitExec` is shared from gate-utils (FIX-4 dedupe) — it was byte-
-// identical across the three per-task gate handlers.
-
 /**
- * Build the production test runner from the resolved test command. The command
- * string (e.g. `npm run test:run`) is tokenized with the shared `splitCommand`
- * (FIX-5: quoted-arg-aware, NOT a naive whitespace split) and run with the
- * scoped test files appended after a `--` separator so the runner targets only
- * the new/changed tests where it supports path args (vitest, jest, node --test,
- * pytest all accept this).
+ * Builds the production test runner from the resolved test command.
+ * `splitCommand` tokenizes the command with quoted arguments, and the runner appends the scoped test files after `--`.
+ * vitest, jest, `node --test`, and pytest accept path arguments in this form.
+ *
+ * A missing, blank, or unparseable command counts as a passing run, so the probe reports `redObserved: false` and never a false kill.
+ * The runner uses `runCommandSync`, not `execFileSync`. On Windows, `execFile` refuses a `.cmd` shim with EINVAL.
+ * With `execFile`, the catch reads that error as a red test and falsely passes the kill probe.
  */
 function buildDefaultRunTests(repoRoot: string): TestRunFn {
   const resolved = resolveTestRuntime(repoRoot);
   const testCmd = resolved.test;
   return async ({ testFiles }) => {
     if (!testCmd) {
-      // No resolvable test command — treat as a passing run so the probe
-      // reports `redObserved:false` (inconclusive, never a false kill).
       return { passed: true, output: 'no resolvable test command' };
     }
     let bin: string;
@@ -133,17 +113,10 @@ function buildDefaultRunTests(repoRoot: string): TestRunFn {
       };
     }
     if (!bin) {
-      // Whitespace-only command tokenizes to an empty binary — same inconclusive
-      // (never a false kill) degrade as an unresolvable command.
       return { passed: true, output: 'no resolvable test command' };
     }
     const args = [...rest, '--', ...testFiles];
     try {
-      // runCommandSync (not raw execFileSync): on Windows the resolved test
-      // command is a package-manager shim (`npm run test:run`) whose `.cmd`
-      // launcher execFile refuses to start since CVE-2024-27980 (Node
-      // >= 20.12.2) — it would throw EINVAL, which the catch below misreads as a
-      // failing (red) test and FALSELY passes the kill probe. (#1623)
       const output = runCommandSync(bin, args, {
         cwd: repoRoot,
         timeout: 120_000,
@@ -161,21 +134,17 @@ function buildDefaultRunTests(repoRoot: string): TestRunFn {
   };
 }
 
-/**
- * Compute the repo-relative files changed by the task diff.
- *
- * The HEAD side is the task `branch` when the caller names one, falling back to
- * the checked-out `HEAD`. Diffing `HEAD` unconditionally silently probed the
- * wrong tree whenever `repoRoot` was not the task worktree (e.g. an orchestrator
- * calling from the main worktree), yielding an empty diff and a vacuous pass.
- *
- * Returns a discriminated result so a git failure is distinguishable from a
- * genuinely empty diff: the former must fail the gate, not skip it (WFQ-005).
- */
+/** The changed files, or the detail of a git failure. */
 export type ChangedFilesResult =
   | { readonly ok: true; readonly files: string[] }
   | { readonly ok: false; readonly detail: string };
 
+/**
+ * Computes the repo-relative files that the task diff changes.
+ * The HEAD side is the task `branch` when the caller names one, and the checked-out `HEAD` otherwise.
+ * A fixed `HEAD` probes the wrong tree when `repoRoot` is not the task worktree, and gives an empty diff and a vacuous pass.
+ * A git failure returns `ok: false`, so the gate fails instead of skipping on an empty diff.
+ */
 export function changedFilesFor(
   gitExec: GitExec,
   repoRoot: string,
@@ -199,17 +168,16 @@ export function changedFilesFor(
   };
 }
 
-/** The merge base a task's diff is measured from, or why it could not be resolved. */
+/** The merge base that the task diff is measured from, or the reason that git did not resolve it. */
 export type MergeBaseResult =
   | { readonly ok: true; readonly sha: string }
   | { readonly ok: false; readonly detail: string };
 
 /**
- * Resolve the merge base of the task's base and its head ONCE, as a commit SHA.
- * The changed-file diff and the revert both read this one SHA, so the files
- * the probe reverts are measured against the same commit it reverts them to.
- * A base outside the capsule's safe ref pattern, or a head that starts with a
- * dash, is refused before git sees it, because git would read it as an option.
+ * Resolves the merge base of the task base and its head once, as a commit SHA.
+ * The changed-file diff and the revert both read this SHA, so the probe reverts the files to the commit that measured them.
+ * It refuses a base outside the safe ref pattern of the capsule, or a head that starts with a dash, before git sees it.
+ * Git reads such a value as an option.
  */
 export function resolveMergeBase(
   gitExec: GitExec,
@@ -232,21 +200,23 @@ export function resolveMergeBase(
   return { ok: true, sha };
 }
 
-/** What the gate reports when no base was named, as the probe's own detail. */
+/** The probe detail when the caller names no base. */
 const BASE_MISSING_DETAIL =
   'no base was supplied (`baseBranch`), so the task diff has nothing to be measured from. ' +
   'Pass the branch the task forked from: settle reads it from the capsule, and the primitive ' +
   "path takes it from prepare_delegation's `baseBranch`";
 
-// ─── Handler ──────────────────────────────────────────────────────────────
-
+/**
+ * Runs the preflight, then the kill probe inside the durable gate producer.
+ * The preflight validates the dispatch context and the inputs, and resolves the worktree-aware `auto` repo root.
+ * A policy skip returns a labelled advisory skip, not proof, because the ladder routed the gate out of the sequence.
+ * The test globs of the toolchain add to the co-located `*.test.*` conventions and do not replace them.
+ */
 export async function handleTestAdequacy(
   args: TestAdequacyArgs,
   stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
-  // Preflight (DR-10): validate the DispatchContext + inputs and resolve the
-  // worktree-aware 'auto' repoRoot (#1330). Byte-preserves the prior envelopes.
   const pre = await runGatePreflight(
     {
       featureId: args.featureId,
@@ -285,8 +255,6 @@ export async function handleTestAdequacy(
           success: true,
           data: {
             passed: true,
-            // An explicitly-labelled SKIP, never proof: the ladder policy
-            // routed this gate out of the sequence, so nothing was verified.
             skipped: true,
             disposition: 'advisory-skip',
             redObserved: false,
@@ -312,11 +280,6 @@ export async function handleTestAdequacy(
         ? changedFilesFor(gitExec, repoRoot, mergeBase.sha, args.branch)
         : { ok: false, detail: mergeBase.detail };
       const toolchain = detectToolchain(repoRoot);
-      // SUBJECT FIX: the toolchain's prescribed layout AUGMENTS the co-located
-      // conventions instead of replacing them. Replacing them made every
-      // `*.test.*` file invisible in any repo whose root marker resolved to a
-      // layout-prescribing toolchain — an empty test set, i.e. the gate probing
-      // the wrong subject. See `resolveProbeTestGlobs`.
       const testGlobs = resolveProbeTestGlobs(
         toolchain ? testGlobsForToolchain(toolchain.id) : null,
       );
@@ -332,12 +295,6 @@ export async function handleTestAdequacy(
         testGlobs,
       });
 
-      // INV-5b advisory carrier — success:true with data.passed reflecting the
-      // probe verdict, NOT an error envelope.
-      //
-      // The carrier is built by EXHAUSTIVE consumption of `probe.verdict` (the
-      // single authority). A future verdict variant cannot be silently folded
-      // into a pass: `assertNever` fails the build first.
       return {
         success: true,
         data: buildAdequacyCarrier(probe, args.riskTier),
@@ -359,19 +316,13 @@ interface AdequacyCarrier {
 }
 
 /**
- * Translate a {@link ProbeResult} into the gate's advisory carrier by switching
- * EXHAUSTIVELY on the authoritative verdict union.
- *
- * The point of the switch is that "the probe could not run" (`indeterminate`)
- * has to be handled explicitly at this boundary — it can no longer fall through
- * a `passed` boolean and arrive dressed as success. An indeterminate verdict is
- * always stamped `skipped:true` when it degraded to an advisory skip, so a
- * consumer reading the carrier can always tell a SKIPPED check from a PASSED
- * one without re-deriving policy.
+ * Translates a {@link ProbeResult} into the advisory carrier with an exhaustive switch on the verdict union.
+ * An `indeterminate` verdict (the probe cannot run) must be handled here, so it cannot arrive as a success.
+ * An indeterminate verdict that degrades to an advisory skip carries `skipped: true`, so a reader can tell a skip from a pass.
+ * `verdictOf` uses the stamped union, or rebuilds one fail-closed, so a legacy-shaped result is judged by the union too.
+ * A new verdict variant fails the build at `assertNever`.
  */
 function buildAdequacyCarrier(probe: ProbeResult, riskTier?: RiskTier): AdequacyCarrier {
-  // `verdictOf` prefers the stamped union and otherwise reconstructs one
-  // fail-closed, so even a legacy-shaped carrier is judged by the union.
   const verdict = verdictOf(probe);
   const interpretation = interpretProbeVerdict(verdict, riskTier);
 

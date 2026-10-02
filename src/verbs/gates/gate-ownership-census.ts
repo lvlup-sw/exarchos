@@ -1,3 +1,12 @@
+/**
+ * Ownership census for admission evidence. The durable gate runner must be the only module that
+ * appends it. The census fails on an alternate emitter, on a gate with no registered provider,
+ * and on a runner success without a durable evidence append. It also fails on an unresolved append
+ * site in an unacknowledged module, and on a stale acknowledgement. It checks the real system: a
+ * source scan, the live registry, and a probe of the real runner. The scan resolves constants,
+ * aliased imports, and hoisted event objects.
+ */
+
 import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
@@ -21,29 +30,6 @@ import { runGate } from './gate-runner.js';
 import type { GateProviderRegistry } from './gate-provider-registry.js';
 import { BUILTIN_GATE_PROVIDER_REGISTRY } from './gate-provider-registry.js';
 
-/**
- * P01-05 — canonical evidence-production ownership census.
- *
- * Durable admission evidence must be minted by exactly one owner: the durable
- * gate runner. This module is the structural conformance harness that fails
- * closed on the three ways that ownership can be subverted:
- *
- *   1. an alternate direct emitter appends evidence outside the canonical runner;
- *   2. an enforceable gate has no provider in the single registry;
- *   3. the runner can return success without a durable evidence append.
- *
- * The census is deliberately over the *real* system — a source scan, the live
- * registry, and a behavioural probe of the real runner — so a regression trips
- * it rather than a hand-maintained mirror.
- *
- * The source scan asks what an append MEANS, not how it is spelled. It reads
- * through the exported `ADMISSION_EVENT_TYPES` constant, through an aliased
- * import of it, and through an event object hoisted into a `const` — the forms
- * this codebase actually writes emitters in. Matching the raw string literal
- * alone, as it once did, made the idiomatic emitter the one shape the detector
- * could not see.
- */
-
 /** Repo-relative module that is permitted to append admission evidence. */
 export const CANONICAL_EVIDENCE_EMITTER_MODULE = 'verbs/gates/gate-runner.ts';
 
@@ -57,13 +43,9 @@ export interface EvidenceEmitterSite {
 }
 
 /**
- * One `.append(...)` call site, with its event discriminant already RESOLVED.
- *
- * `discriminant` is the value the `type:` property evaluates to — after aliases,
- * imported constant members and hoisted event bindings have been followed, not
- * the characters that happen to appear at the call. `undefined` means a `type:`
- * was present but did not reduce to a string, which is a reportable gap rather
- * than a "no".
+ * One `.append(...)` call site with its resolved event discriminant. The scanner follows
+ * aliases, constant members, and hoisted event bindings to the value of the `type:` property.
+ * `undefined` means that `type:` did not reduce to a string, which is a reportable gap.
  */
 export interface EvidenceAppendSite {
   /** 1-based line of the `.append(` call in the scanned source. */
@@ -74,34 +56,26 @@ export interface EvidenceAppendSite {
 
 /** Inputs a scanner needs beyond the source text. */
 export interface EvidenceScanOptions {
-  /** Reported in parse diagnostics only; never affects the answer. */
+  /** Appears only in parse diagnostics. It does not change the answer. */
   readonly fileName?: string;
   /**
-   * Dotted access paths (`ADMISSION_EVENT_TYPES.EVIDENCE_RECORDED`) mapped to
-   * their compile-time value, so a discriminant written as the exported constant
-   * resolves to the same answer as the raw literal.
+   * Dotted access paths, such as `ADMISSION_EVENT_TYPES.EVIDENCE_RECORDED`, mapped to their values.
+   * Thus a discriminant written as a constant resolves like the raw literal.
    */
   readonly knownConstants: ReadonlyMap<string, string>;
 }
 
 /**
- * The append-site scanner port.
- *
- * Required, not defaulted, for the reason `architecture/effect-ledger.ts` states
- * for its own lexer port: only the compiler can be trusted about TypeScript's
- * grammar, and `typescript` is a devDependency while this is shipped `src/`. The
- * implementation lives in `test-helpers/evidence-emission-scanner.ts`.
+ * The append-site scanner port. It is required, not defaulted, because only the TypeScript
+ * compiler parses the grammar correctly, and `typescript` is a devDependency. The
+ * implementation is in `tools/test-helpers/evidence-emission-scanner.ts`.
  */
 export type EvidenceEmissionScanner = (
   source: string,
   options: EvidenceScanOptions,
 ) => readonly EvidenceAppendSite[];
 
-/**
- * The discriminant vocabulary a scanner may need to resolve, DERIVED from the
- * live constant table rather than transcribed. Adding an admission event type
- * extends this automatically.
- */
+/** The discriminant vocabulary for a scanner, derived from the live constant table. */
 export const EVIDENCE_DISCRIMINANT_CONSTANTS: ReadonlyMap<string, string> = Object.freeze(
   new Map(
     Object.entries(ADMISSION_EVENT_TYPES).map(
@@ -111,31 +85,11 @@ export const EVIDENCE_DISCRIMINANT_CONSTANTS: ReadonlyMap<string, string> = Obje
 );
 
 /**
- * Modules that append an event whose discriminant is a RUNTIME value — a
- * parameter, a widening cast, a property of an argument — so no static scan can
- * say which event they produce.
- *
- * They are acknowledged rather than skipped: "the census could not read this"
- * and "this is not an emitter" are different answers, and collapsing them is the
- * defect this detector was repaired for. Each of these appends a caller-supplied
- * type into a non-admission stream, so none is a live evidence emitter today —
- * but that is a fact about the callers, which is exactly why it is written down
- * instead of assumed.
- *
- * SHRINK-ONLY, and mechanically so: a member that becomes resolvable is a
- * `STALE_UNRESOLVED_ACKNOWLEDGEMENT`, so the set cannot outlive the gap it
- * covers. Narrow the emitted `type` to a literal union and delete the row.
- *
- * It grew ONCE, in the other direction, and only because the scanner had been
- * under-reporting: an append whose event object or `type` could not be read was
- * DROPPED rather than recorded unresolved, and `findProperty` never implemented
- * the spread following its own doc-comment promised. So
- * `append(id, buildEvent(r))` and `append(id, { ...base, data })` — both
- * ordinary — made a module look like it appended nothing at all. The six
- * additions below are emitters this set could not previously see, not new debt;
- * none of them references the admission evidence type. The shrink-only rule
- * governs the set from here, and a widened DENOMINATOR is the one thing it was
- * never protecting against.
+ * Modules that append an event with a runtime discriminant, such as a parameter or a cast.
+ * No static scan can name that event. They are acknowledged, not skipped, because "unreadable"
+ * and "not an emitter" are different answers. Each appends a caller-supplied type to a
+ * non-admission stream. The set is shrink-only: a module whose appends all resolve is a
+ * `STALE_UNRESOLVED_ACKNOWLEDGEMENT`. To remove a row, narrow the emitted `type` to a literal union.
  */
 export const ACKNOWLEDGED_UNRESOLVED_MODULES: ReadonlySet<string> = Object.freeze(
   new Set([
@@ -170,7 +124,7 @@ export interface DurabilityWitness {
   readonly successCarriesDurableEvidence: boolean;
 }
 
-/** An `.append(...)` site the scan could not read, located for a human. */
+/** The location of an `.append(...)` site that the scan did not resolve. */
 export interface UnresolvedDiscriminantSite {
   readonly module: string;
   readonly line: number;
@@ -191,6 +145,12 @@ export interface OwnershipCensusModel {
   readonly acknowledgedUnresolvedModules?: ReadonlySet<string>;
 }
 
+/**
+ * One census finding. `UNRESOLVED_EVIDENCE_DISCRIMINANT` marks an append site, in a module that
+ * is not acknowledged, whose discriminant does not reduce to a string. An unreadable emitter can
+ * append evidence, so the census reports it. `STALE_UNRESOLVED_ACKNOWLEDGEMENT` marks an
+ * acknowledged module whose appends now all resolve, so its row must go.
+ */
 export type OwnershipCensusDiagnostic =
   | {
       readonly code: 'ALTERNATE_EVIDENCE_EMITTER';
@@ -207,20 +167,12 @@ export type OwnershipCensusDiagnostic =
       readonly code: 'SUCCESS_WITHOUT_DURABLE_EVIDENCE';
       readonly message: string;
     }
-  /**
-   * An `.append(...)` site whose event discriminant the scan could not reduce to
-   * a string, in a module that has not acknowledged the gap. Reported rather
-   * than skipped: an unreadable emitter is exactly the one that could be
-   * appending evidence, so silence here would be the census being green about
-   * what it cannot see.
-   */
   | {
       readonly code: 'UNRESOLVED_EVIDENCE_DISCRIMINANT';
       readonly module: string;
       readonly line: number;
       readonly message: string;
     }
-  /** An acknowledged module whose appends now all resolve — delete the row. */
   | {
       readonly code: 'STALE_UNRESOLVED_ACKNOWLEDGEMENT';
       readonly module: string;
@@ -233,10 +185,9 @@ export interface OwnershipCensusResult {
 }
 
 /**
- * Pure ownership verdict over an already-collected model.
- *
- * The three checks are independent and each contributes its own diagnostic, so
- * reverting any one of them leaves the corresponding violation undetected.
+ * Pure ownership verdict over a collected model. Each check adds its own diagnostic, so the
+ * removal of one check leaves its violation undetected. The stale-acknowledgement check runs
+ * only when the model carries scan results, because an absent scan is not evidence of a shrink.
  */
 export function runOwnershipCensus(
   model: OwnershipCensusModel,
@@ -299,9 +250,6 @@ export function runOwnershipCensus(
     });
   }
 
-  // The other half of the two-way conformance: an acknowledgement that covers
-  // nothing is a claim the tree no longer supports, and keeping it would let the
-  // set survive the gap it was written for.
   if (model.unresolvedDiscriminants !== undefined) {
     const stillUnresolved = new Set(unresolved.map((site) => site.module));
     for (const module of acknowledged) {
@@ -320,22 +268,10 @@ export function runOwnershipCensus(
   return Object.freeze({ ok: diagnostics.length === 0, diagnostics });
 }
 
-// ─── Static collector: evidence emission sites ──────────────────────────────
-
 /**
- * True when any `.append(...)` in `source` constructs an event whose RESOLVED
- * discriminant is the admission-evidence type.
- *
- * The question this asks is what the emitted event MEANS, not how the emitter
- * spelled it. `type: 'admission.evidence-recorded'`, `type:
- * ADMISSION_EVENT_TYPES.EVIDENCE_RECORDED` (the idiom every other admission
- * consumer uses), an aliased import of that table, and an event object hoisted
- * into a `const` above the call all resolve to the same answer — the earlier
- * text match saw only the first, so an emitter written the ordinary way was
- * invisible to the census policing it.
- *
- * A `.query(...)` filter that merely references the type is not an append, so it
- * is excluded by construction rather than by a second filter.
+ * True when an `.append(...)` in `source` builds an event whose resolved discriminant is the
+ * admission-evidence type. The literal, the `ADMISSION_EVENT_TYPES` member, an aliased import,
+ * and a hoisted event object all resolve the same. A `.query(...)` filter is not an append.
  */
 export function sourceEmitsEvidence(
   source: string,
@@ -358,6 +294,10 @@ function scanAppendSites(
   });
 }
 
+/**
+ * Lists the `.ts` files under `root`, without `node_modules`, `.test.ts`, `.bench.ts`, and `.d.ts`
+ * files. The build does not emit those files, so they cannot be shipped emitters.
+ */
 async function collectTypeScriptSources(root: string): Promise<string[]> {
   const files: string[] = [];
   const walk = async (dir: string): Promise<void> => {
@@ -370,9 +310,6 @@ async function collectTypeScriptSources(root: string): Promise<string[]> {
       } else if (
         entry.isFile() &&
         entry.name.endsWith('.ts') &&
-        // The suffixes `tsconfig.json` itself excludes from the emit, plus
-        // declarations. A file the build never emits cannot be a shipped
-        // emitter, so this is a build property rather than a named subtree.
         !entry.name.endsWith('.test.ts') &&
         !entry.name.endsWith('.bench.ts') &&
         !entry.name.endsWith('.d.ts')
@@ -392,10 +329,9 @@ export interface EmitterScanResult {
 }
 
 /**
- * Scan every non-test TypeScript module under `sourceRoot`, enumerating the
- * modules that directly append admission evidence and the append sites whose
- * discriminant could not be resolved. Exactly one emitter — the canonical
- * durable runner — is expected; anything else is an alternate emitter.
+ * Scans the non-test TypeScript modules under `sourceRoot`. It returns the modules that append
+ * admission evidence, and the append sites with an unresolved discriminant. The canonical
+ * durable runner is the only expected emitter.
  */
 export async function scanEvidenceEmitters(
   sourceRoot: string,
@@ -437,8 +373,6 @@ export async function scanEvidenceEmitterSites(
   return (await scanEvidenceEmitters(sourceRoot, scan)).sites;
 }
 
-// ─── Static collector: enforceable gates ────────────────────────────────────
-
 /**
  * Every orchestrate action that declares a shared mechanical `gateClass` is an
  * enforceable gate and must resolve to a registered provider.
@@ -457,8 +391,6 @@ export function collectEnforceableGates(): readonly EnforceableGate[] {
   }
   return Object.freeze(gates);
 }
-
-// ─── Behavioural collector: durable runner witness ──────────────────────────
 
 const WITNESS_TIME = '2026-08-03T00:00:00.000Z';
 
@@ -560,8 +492,6 @@ export async function witnessRunnerDurability(): Promise<DurabilityWitness> {
     await rm(root, { recursive: true, force: true });
   }
 }
-
-// ─── Composed census over the real system ───────────────────────────────────
 
 /**
  * Collect the full ownership model from the live system and return the verdict.

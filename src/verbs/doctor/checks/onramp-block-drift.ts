@@ -1,20 +1,10 @@
 /**
- * onramp-block-drift — the roster adapter for the Task 013 on-ramp block drift
- * finding (DR-5).
+ * onramp-block-drift: the doctor roster adapter for {@link checkBlockDrift}.
  *
- * The behavior lives in `verbs/onboard/block-drift.ts`
- * ({@link checkBlockDrift}) — implemented + tested there but left UNREGISTERED in
- * the doctor roster, so DR-5's drift finding never fired in production. This thin
- * {@link CheckFn} adapter registers it: `checkBlockDrift` is a synchronous
- * `(projectRoot) => CheckResult`, so we resolve the consumer project root from
- * `process.cwd()` (the AGENTS.md on-ramp block is a consumer-project artifact,
- * mirroring the invariants-catalog / verification-toolchain checks' cwd anchor —
- * in plugin mode the module lives in the plugin cache) and hand it straight
- * through. No probe surface is needed; the drift check owns its own `fs` reads.
- *
- * The check's stable `name` is `onramp-block-drift` (BLOCK_DRIFT_CHECK_NAME),
- * which CHECK_CLASSIFICATION maps to the `generate` on-ramp-block-write step —
- * ordered BEFORE the retired-hooks removal step by the reconciler.
+ * The AGENTS.md on-ramp block belongs to the consumer project, so the check
+ * reads it from `process.cwd()`. In plugin mode the module lives in the plugin
+ * cache, so a path relative to the module does not find the project. The check
+ * name maps to a `generate` step in the onboarding reconciler.
  */
 
 import type { CheckFn } from './__shared__/make-stub-probes.js';

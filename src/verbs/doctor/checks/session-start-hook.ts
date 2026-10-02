@@ -1,32 +1,15 @@
 /**
- * session-start-hook — the default-on binding-install trigger (DR-8, #1485;
- * repurposed under DR-7). Historically this probed for the SessionStart
- * binding and re-added it whenever absent. DR-7 retires the onboard-installed
- * SessionStart directive (and SessionEnd observer) — the launcher is now the
- * lifecycle authority — while `SubagentStop` (the token-attribution seam, see
- * `subagent.tokens_used`) is explicitly RETAINED. Re-triggering an install on
- * SessionStart's absence would fight `retired-hooks-present`'s removal every
- * other doctor run (an infinite install↔remove toggle — the DR-8 idempotency
- * regression this fix closes), so this check now probes `SubagentStop`
- * instead: the one binding of `installBindings`'s three-binding bundle this
- * PR still wants installed and kept installed.
+ * Doctor check for the `SubagentStop` token-attribution binding in the agent-host settings.
+ * It probes `SubagentStop`, not `SessionStart`, because `retired-hooks-present` removes
+ * `SessionStart`. A probe for `SessionStart` makes the two checks install and remove it on
+ * alternate runs. `installHook` writes all three bindings in one pass, and the next doctor run
+ * removes the two retired bindings.
  *
- * `installHook` (`verbs/onboard/hooks.ts`) writes all three bindings in
- * one idempotent pass when triggered, so a fresh consumer still gets
- * SessionStart+SessionEnd once on first onboard — `retired-hooks-present`
- * removes them on the very next doctor pass and this check never asks for them
- * again once SubagentStop exists, so the system converges instead of
- * oscillating.
+ * - `SubagentStop` present: Pass.
+ * - Home unresolved, settings unreadable or not JSON, or `SubagentStop` absent: Warning with a `fix`.
  *
- *   - SubagentStop present         ⇒ Pass
- *   - settings/home unresolvable,
- *     or SubagentStop absent       ⇒ Warning + `fix` (routes to `installHook`
- *                                     via `CHECK_CLASSIFICATION`'s `kind:'hook'`)
- *
- * CRITICAL: the `name` MUST stay exactly `'session-start-hook'` — that string
- * is pinned in `doctor-roster.characterization.test.ts` and is the key
- * `CHECK_CLASSIFICATION` maps to the `hook` PlanStep kind; changing it silently
- * drops the default-on binding-install trigger.
+ * The `name` must stay `'session-start-hook'`. `CHECK_CLASSIFICATION` maps that key to the
+ * `hook` step kind, and a roster test pins it.
  */
 
 import { join } from 'node:path';

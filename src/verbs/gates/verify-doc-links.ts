@@ -1,16 +1,12 @@
-// ─── Verify Doc Links Orchestrate Handler ────────────────────────────────────
-//
-// Checks that internal markdown links resolve to existing files.
-// Accepts either a single file (docFile) or a directory (docsDir) for
-// recursive checking. Port of scripts/verify-doc-links.sh.
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Checks that internal markdown links resolve to existing files.
+ * It reads one file from `docFile`, or every `.md` file under `docsDir`.
+ */
 
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { toPosix } from '../../utils/paths.js';
 import type { ToolResult } from '../../format.js';
-
-// ─── Argument & Result Types ─────────────────────────────────────────────────
 
 interface VerifyDocLinksArgs {
   readonly docFile?: string;
@@ -34,8 +30,6 @@ interface VerifyDocLinksResult {
   readonly brokenLinks: readonly BrokenLink[];
 }
 
-// ─── File Collection ─────────────────────────────────────────────────────────
-
 /** Recursively collect all .md files under a directory. */
 function collectMarkdownFiles(dir: string): readonly string[] {
   const results: string[] = [];
@@ -52,10 +46,14 @@ function collectMarkdownFiles(dir: string): readonly string[] {
   return results.sort();
 }
 
-// ─── Link Extraction & Checking ──────────────────────────────────────────────
-
 const LINK_REGEX = /\[([^\]]*)\]\(([^)]+)\)/g;
 
+/**
+ * Checks every `[text](target)` link in one file and records each broken link.
+ * It skips `http://` and `https://` URLs and anchor-only links, and removes a `#section` suffix before the check.
+ * A target that starts with `/` is an absolute path. Other targets resolve from the directory of the file.
+ * The resolved path is in POSIX form, because `join` gives backslashes on Windows.
+ */
 function checkFile(
   filePath: string,
   brokenLinks: BrokenLink[],
@@ -68,29 +66,24 @@ function checkFile(
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] ?? '';
     let match: RegExpExecArray | null;
-    // Reset regex state for each line
     LINK_REGEX.lastIndex = 0;
 
     while ((match = LINK_REGEX.exec(line)) !== null) {
       const target = match[2];
       if (target === undefined) continue;
 
-      // Skip external URLs
       if (target.startsWith('http://') || target.startsWith('https://')) {
         counters.skipped++;
         continue;
       }
 
-      // Skip anchor-only links
       if (target.startsWith('#')) {
         counters.skipped++;
         continue;
       }
 
-      // Strip anchor from target (file.md#section → file.md)
       const fileTarget = target.split('#')[0];
 
-      // Skip if empty after stripping anchor
       if (!fileTarget) {
         counters.skipped++;
         continue;
@@ -98,9 +91,6 @@ function checkFile(
 
       counters.checked++;
 
-      // Resolve: absolute paths as-is, relative paths from file's directory.
-      // POSIX-normalize so the existence check is separator-agnostic (join
-      // emits backslashes on Windows). (#1620)
       const resolvedPath = fileTarget.startsWith('/')
         ? fileTarget
         : toPosix(join(fileDir, fileTarget));
@@ -116,8 +106,6 @@ function checkFile(
     }
   }
 }
-
-// ─── Report Builder ──────────────────────────────────────────────────────────
 
 function buildReport(
   filesChecked: number,
@@ -154,10 +142,7 @@ function buildReport(
   return lines.join('\n');
 }
 
-// ─── Handler ─────────────────────────────────────────────────────────────────
-
 export function handleVerifyDocLinks(args: VerifyDocLinksArgs): ToolResult {
-  // Input validation: need at least one of docFile or docsDir
   if (!args.docFile && !args.docsDir) {
     return {
       success: false,
@@ -168,7 +153,6 @@ export function handleVerifyDocLinks(args: VerifyDocLinksArgs): ToolResult {
     };
   }
 
-  // Collect files to check
   let filesToCheck: readonly string[];
 
   if (args.docFile) {
@@ -196,7 +180,6 @@ export function handleVerifyDocLinks(args: VerifyDocLinksArgs): ToolResult {
     filesToCheck = collectMarkdownFiles(dir);
   }
 
-  // Check all files
   const brokenLinks: BrokenLink[] = [];
   const counters = { checked: 0, skipped: 0 };
 
@@ -204,7 +187,6 @@ export function handleVerifyDocLinks(args: VerifyDocLinksArgs): ToolResult {
     checkFile(file, brokenLinks, counters);
   }
 
-  // Build report
   const report = buildReport(
     filesToCheck.length,
     counters.checked,

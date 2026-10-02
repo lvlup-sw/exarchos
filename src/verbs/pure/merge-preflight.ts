@@ -1,21 +1,8 @@
 /**
- * Merge Preflight — pure helpers for the autonomous merge orchestrator.
- *
- * Implements pieces of DR-MO-1 (topology preflight) and DR-MO-4 (drift
- * detection). This module is split across multiple TDD tasks:
- *
- *   T04 — detectDrift clean-tree path
- *   T05 — detectDrift dirty-tree / stale-index / detached-HEAD extensions
- *   T06 — composed mergePreflight entry point (this commit; happy path only)
- *   T07 — mergePreflight failure-path coverage (next)
- *
- * The `GitExec` injection point keeps the module unit-testable: callers
- * supply a function that runs `git` with a repo root and arg array and
- * returns the captured `{ stdout, exitCode }`. T05 needs `exitCode` to
- * distinguish detached HEAD from other failures, which is why this
- * contract is richer than the bare-string `gitExec` used by
- * `setup-worktree.ts` / `dispatch-guard.ts`. `mergePreflight` adapts
- * between the two shapes internally.
+ * Pure preflight helpers for the autonomous merge orchestrator: topology checks and drift
+ * detection. Callers inject a `GitExec` that returns `{ stdout, exitCode }`. The exit code
+ * separates a detached HEAD from other failures, so this contract is richer than the
+ * bare-string `gitExec` of `dispatch-guard.ts`. `mergePreflight` adapts between the two shapes.
  */
 
 import {
@@ -29,18 +16,11 @@ import {
   type GitExec as DispatchGuardGitExec,
 } from '../team/dispatch-guard.js';
 
-// ─── Types ──────────────────────────────────────────────────────────────────
-
 export interface GitExecResult {
   readonly stdout: string;
   /**
-   * Captured stderr from the underlying git invocation. Optional: adapters
-   * that cannot separate stderr from stdout (e.g., a subprocess wrapper that
-   * merges descriptors) may omit it, in which case consumers should treat
-   * the absence as "not separately captured" rather than "definitely empty".
-   * The production `defaultGitExec` in merge-orchestrate.ts captures stderr
-   * separately on failure so phase-1 diagnostics can distinguish git's
-   * error output from any partial stdout.
+   * Captured stderr. It is optional, because an adapter that merges the descriptors cannot
+   * separate it. An absent value means "not captured separately", not "empty".
    */
   readonly stderr?: string;
   readonly exitCode: number;
@@ -57,24 +37,16 @@ export interface DriftResult {
   readonly clean: boolean;
   /** Files reported by `git status --porcelain`. */
   readonly uncommittedFiles: readonly string[];
-  /** True when `git diff --cached --quiet` reports staged-but-uncommitted
-   * changes (exit code != 0). */
+  /** True when `git diff --cached --quiet` exits non-zero: staged changes, or a failed command. */
   readonly indexStale: boolean;
-  /** True when HEAD is detached (i.e., `git rev-parse --abbrev-ref HEAD`
-   * returns the literal string "HEAD"). */
+  /** True when `git rev-parse --abbrev-ref HEAD` returns `HEAD`, or fails. */
   readonly detachedHead: boolean;
 }
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
 /**
- * Parse `git status --porcelain` output into a list of paths.
- *
- * Each non-empty line has the form `XY <path>` where XY is two status
- * characters followed by a space. We slice from index 3 to extract the
- * path. Renames (`R  old -> new`) are reported via the full segment as a
- * v1 minimal-handling decision; callers only care that the working tree
- * is dirty, not the exact file accounting.
+ * Parses `git status --porcelain` output into paths. Each line is `XY <path>`, so the path
+ * starts at index 3. A rename keeps the full `old -> new` segment, because callers only need to
+ * know that the tree is dirty.
  */
 function parsePorcelainPaths(stdout: string): readonly string[] {
   return stdout
@@ -83,41 +55,25 @@ function parsePorcelainPaths(stdout: string): readonly string[] {
     .map((line) => line.slice(3));
 }
 
-// ─── detectDrift ────────────────────────────────────────────────────────────
-
 /**
- * Detect working-tree drift relative to HEAD.
- *
- * Reports three independent drift signals:
- *   1. `uncommittedFiles` — paths from `git status --porcelain`.
- *   2. `indexStale` — `git diff --cached --quiet` exited non-zero (staged
- *      changes present that aren't yet committed).
- *   3. `detachedHead` — `git rev-parse --abbrev-ref HEAD` returned `HEAD`.
- *
- * `clean` is true only when all three signals are absent. Per DR-MO-4,
- * this is fail-only — no auto-recovery is attempted here.
+ * Detects working-tree drift relative to HEAD with three signals: `uncommittedFiles`,
+ * `indexStale`, and `detachedHead`. `clean` is true only when all three are absent. It fails
+ * closed: a failed `git status` adds a placeholder path, and a failed `git diff` or
+ * `git rev-parse` counts as drift. It reports drift and does not recover.
  */
 export function detectDrift(
   gitExec: GitExec,
   repoRoot: string = process.cwd(),
 ): DriftResult {
-  // Fail closed: a non-zero exit from `git status` or `git rev-parse` means
-  // the working state is unknown — treat it as drift rather than as
-  // "no files / not detached", which would let a broken repo or bad
-  // `repoRoot` slip through preflight.
   const status = gitExec(repoRoot, ['status', '--porcelain']);
   const uncommittedFiles = status.exitCode === 0
     ? parsePorcelainPaths(status.stdout)
     : ['<git status failed>'];
 
-  // For `git diff --cached --quiet`, exit code is the signal: 0=clean, 1=dirty.
-  // Any other non-zero code means the command itself failed — treat as stale.
   const cached = gitExec(repoRoot, ['diff', '--cached', '--quiet']);
   const indexStale = cached.exitCode !== 0;
 
   const head = gitExec(repoRoot, ['rev-parse', '--abbrev-ref', 'HEAD']);
-  // Treat a failed rev-parse as detached (unknown HEAD state) so preflight
-  // refuses to merge into an indeterminate target.
   const detachedHead = head.exitCode !== 0 || head.stdout.trim() === 'HEAD';
 
   const clean =
@@ -125,8 +81,6 @@ export function detectDrift(
 
   return { clean, uncommittedFiles, indexStale, detachedHead };
 }
-
-// ─── mergePreflight ─────────────────────────────────────────────────────────
 
 export interface MergePreflightArgs {
   readonly sourceBranch: string;
@@ -142,27 +96,13 @@ export interface MergePreflightResult {
   readonly currentBranchProtection: CurrentBranchProtectionResult;
   readonly worktree: WorktreeAssertionResult;
   readonly drift: DriftResult;
-  /**
-   * Optional debug payload populated only when `EXARCHOS_PREFLIGHT_DEBUG=1`
-   * is set AND ancestry fails. Phase-1 Windows ancestry-mismatch
-   * instrumentation (#1362). Failure-only gating is deliberate (DIM-8 /
-   * event-store growth — verbose sub-modes will land separately via
-   * `EXARCHOS_PREFLIGHT_DEBUG=2` if/when phase 2 needs them).
-   */
+  /** Debug payload, set only when `EXARCHOS_PREFLIGHT_DEBUG=1` and ancestry fails. */
   readonly debug?: PreflightDebug;
 }
 
 /**
- * Structured diagnostic payload for the Phase-1 Windows ancestry-mismatch
- * investigation (#1362). All fields are best-effort: individual git call
- * failures degrade gracefully to empty strings / default values rather than
- * throwing. Reasoning: a debug helper that throws inside an already-failed
- * preflight would mask the underlying ancestry failure the operator is
- * trying to diagnose.
- *
- * Field order is the canonical reading order for an operator inspecting an
- * issue report — git version → repo root → worktree layout → ref state →
- * the actual ancestry invocation that failed.
+ * Diagnostic payload for an ancestry failure. Each field is best-effort, so the helper cannot throw
+ * and hide the ancestry failure. The field order is the reading order for an operator.
  */
 export interface PreflightDebug {
   /** Output of `git --version`, stripped of trailing newlines. */
@@ -182,30 +122,15 @@ export interface PreflightDebug {
   readonly mergeBaseExitCode: number;
   /** Stdout captured from the `merge-base --is-ancestor` invocation. */
   readonly mergeBaseStdout: string;
-  /** Stderr captured from the `merge-base --is-ancestor` invocation. The
-   * default `GitExec` shape collapses stderr into `stdout` on failure — this
-   * field is currently a duplicate of `mergeBaseStdout` for Windows-specific
-   * gitExec implementations that may split the streams. */
+  /** Stderr of the `merge-base --is-ancestor` call, or empty when the adapter does not capture it. */
   readonly mergeBaseStderr: string;
 }
 
-// ─── gatherPreflightDebug (#1362 phase 1) ───────────────────────────────────
-
 /**
- * Collect the Phase-1 Windows ancestry-debug payload.
- *
- * Every git invocation goes through the injected `gitExec` so the helper
- * stays pure and unit-testable. Each call is wrapped in fail-closed
- * semantics — a non-zero exit (or thrown error from a misbehaving gitExec)
- * collapses to an empty string / default value for that field, never
- * throws. The on-failure debug attachment is best-effort by design.
- *
- * The `for-each-ref` ref inspection is structured as
- * `{ sha, packed }` because a Windows-host investigation needs to
- * distinguish "ref does not exist" from "ref exists but is packed and
- * unreadable by some downstream tool." Phase-1 reports `packed: false`
- * universally; phase-2 may upgrade the helper to use `git pack-refs
- * --print` for genuine packed-ref discrimination.
+ * Collects the ancestry debug payload through the injected `gitExec`, and does not throw. A throw
+ * from `gitExec` counts as exit 1 with empty output. A non-zero exit gives an empty string for the
+ * version, root, worktree, and ref fields. The `merge-base` fields keep the raw exit code and
+ * output. `packed` is always `false`, and an empty `sha` marks a failed ref lookup.
  */
 export function gatherPreflightDebug(
   gitExec: GitExec,
@@ -243,10 +168,6 @@ export function gatherPreflightDebug(
     ]);
     const sha =
       refRes.exitCode === 0 ? refRes.stdout.trim().split(/\s+/)[0] ?? '' : '';
-    // Phase-1: `cat-file -e <sha>` confirms the SHA is reachable; we treat a
-    // success as `packed: false` (the typical loose-ref case). Phase-2 will
-    // distinguish loose vs packed via `pack-refs --print`. If the ref lookup
-    // failed outright, leave `packed: false` and let `sha === ''` signal it.
     if (sha !== '') {
       safe(['cat-file', '-e', sha]);
     }
@@ -264,11 +185,6 @@ export function gatherPreflightDebug(
     source,
   ];
   const mbRes = safe(['merge-base', '--is-ancestor', target, source]);
-  // `mergeBaseStderr` reflects only what the adapter actually captured.
-  // Adapters that merge descriptors (so stderr lands in stdout) leave the
-  // field empty here; the canonical `defaultGitExec` in merge-orchestrate.ts
-  // captures stderr separately on failure so phase-2 diagnostics can
-  // distinguish merge-base's error output from any partial stdout.
   return {
     gitVersion,
     repoRoot: reportedRoot,
@@ -283,11 +199,9 @@ export function gatherPreflightDebug(
 }
 
 /**
- * Adapt the rich merge-preflight `GitExec` shape into the bare-string
- * `GitExec` consumed by dispatch-guard helpers. The dispatch-guard
- * convention is "throw on failure with `.status` set to the git exit
- * code"; we reproduce that here so `validateBranchAncestry` can
- * distinguish ancestry-missing (exit 1) from genuine git errors.
+ * Adapts the rich `GitExec` to the bare-string `GitExec` of dispatch-guard. On a non-zero exit
+ * it throws with `.status` set to the exit code, so `validateBranchAncestry` can separate a
+ * missing ancestry (exit 1) from a git error.
  */
 function adaptToDispatchGuardExec(
   gitExec: GitExec,
@@ -307,31 +221,14 @@ function adaptToDispatchGuardExec(
 }
 
 /**
- * Build the operator-facing remediation hint for an ancestry-failed merge
- * preflight (T-15 / DR-6, #1212). The hint must be self-contained so the
- * operator can recover without consulting external docs:
- *
- *   1. The exact `git rebase` command, with both branch names interpolated
- *      so it is copy-pasteable.
- *   2. A link to the runbook section in the delegate skill that
- *      documents the manual rebase + rollback procedure. The anchor
- *      `#when-integration-advances-mid-wave` is the slugified heading
- *      added in `content/delivery/skills/delegate/SKILL.md` under task T-15.
- *
- * No auto-rebase is invoked here; per the plan, automation is deferred
- * to issue #1119.
+ * Builds the operator hint for an ancestry failure: the `git rebase` command and the delegate
+ * runbook anchor. The command omits the source branch, because `git rebase <target> <source>`
+ * checks out the source, and that fails when another worktree holds it. It does not rebase.
  */
 function formatAncestryRemediation(
   sourceBranch: string,
   targetBranch: string,
 ): string {
-  // CodeRabbit #1213/#6: omit the source-branch arg from the rebase hint.
-  // `git rebase <target> <source>` checks `<source>` out, which fails when
-  // the same branch is checked out in another worktree (the common case
-  // here — operator runs from the feature worktree). The two-arg form
-  // also forces a hard branch checkout instead of using the operator's
-  // current HEAD, which is rarely what they want. Run from the feature
-  // worktree with `git rebase <target>`.
   return (
     `source branch ${sourceBranch} is not a descendant of ${targetBranch}. ` +
     `Rebase manually with: git rebase ${targetBranch} (run from the ${sourceBranch} worktree). ` +
@@ -340,15 +237,14 @@ function formatAncestryRemediation(
 }
 
 /**
- * Compose all four preflight guards into a single result. DR-MO-1
- * (topology preflight) requires that ancestry, current-branch
- * protection, main-worktree assertion, and working-tree drift all
- * pass before a merge is attempted.
+ * Composes the four preflight guards: ancestry, current-branch protection, main worktree, and
+ * drift. All four must pass before a merge.
  *
- * T06 covers only the happy path; T07 exercises each failure
- * branch independently. T-15 (#1212, DR-6) added the ancestry-failure
- * remediation hint so operators can recover without consulting
- * external docs.
+ * The ancestry check passes `sourceBranch` as the integration branch and `targetBranch` as the
+ * upstream, so the target must be an ancestor of the source. An `ancestry` failure gets the
+ * remediation hint here, because only this caller knows the runbook target. The debug payload
+ * attaches only on an ancestry failure with the debug flag set, so a passing preflight adds no
+ * event-store growth.
  */
 export async function mergePreflight(
   args: MergePreflightArgs,
@@ -356,25 +252,12 @@ export async function mergePreflight(
   const repoRoot = args.cwd ?? process.cwd();
   const adapter = adaptToDispatchGuardExec(args.gitExec, repoRoot);
 
-  // Merge-preflight intent: source must be up-to-date with target (i.e.,
-  // target IS an ancestor of source). `validateBranchAncestry(integration,
-  // [upstream...])` checks each upstream is an ancestor of integration, so
-  // the merge preflight passes `sourceBranch` as the integration arg and
-  // `[targetBranch]` as the required upstream. The synthesis-flow caller
-  // uses the opposite direction (target=main, upstream=feature-branches)
-  // because there the assertion is "all features have landed in main."
   const ancestryRaw = await validateBranchAncestry(
     args.sourceBranch,
     [args.targetBranch],
     adapter,
   );
 
-  // T-15: when ancestry fails because the source has diverged from the
-  // target (`reason: 'ancestry'`), enrich the result with a remediation
-  // hint that names the manual rebase command and links to the runbook.
-  // We do this here rather than inside `validateBranchAncestry` because
-  // only the merge-preflight caller knows the appropriate runbook target —
-  // other callers (synthesis-flow) need different remediation copy.
   const ancestry: AncestryResult =
     ancestryRaw.reason === 'ancestry'
       ? {
@@ -397,12 +280,6 @@ export async function mergePreflight(
     worktree.isMain &&
     drift.clean;
 
-  // Phase-1 Windows ancestry-debug instrumentation (#1362). Failure-only
-  // gating: only attach a debug block when the env var is explicitly set
-  // AND ancestry failed. DIM-8 sustainability — we do NOT pay event-store
-  // growth for passing preflights even when an operator turns the flag on.
-  // Verbose sub-modes (passing-preflight diagnostics) belong on a
-  // separate `EXARCHOS_PREFLIGHT_DEBUG=2` channel and are out of scope.
   let debug: PreflightDebug | undefined;
   if (
     process.env.EXARCHOS_PREFLIGHT_DEBUG === '1' &&

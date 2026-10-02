@@ -1,9 +1,6 @@
 /**
- * RuntimeConfigWriter — contract for per-runtime config deployment.
- *
- * Each supported agent runtime (Claude Code, Cursor, Codex, etc.)
- * implements this interface. The init compositor dispatches to writers
- * based on detected or requested runtimes.
+ * Contract for a writer that deploys the configuration of one agent runtime.
+ * The reconciler GENERATE stage runs each writer in the `getAllWriters` list.
  */
 
 import type { AgentRuntimeName } from '../../../runtime/agent-environment-detector.js';

@@ -1,29 +1,22 @@
-// ─── Typed output schema for the bounded action executor ───────────────────
-//
-// `execute_intent` returns the `IntentReceipt` shape (`types.ts`) verbatim on
-// both the committed and the failed path. This module mirrors that shape as a
-// Zod schema so the registration carries a SUBSTANTIVE `outputSchema` rather
-// than a vacuity waiver — the receipt is the whole point of the action, so a
-// schema that could not describe it would be describing nothing.
-//
-// Derivation discipline (do NOT over-constrain, `stack/schemas.ts` precedent):
-// the MCP adapter `safeParse`s the REAL handler output against this schema and,
-// on a miss, REPLACES the result with an INTERNAL_ERROR. Every object below is
-// `.passthrough()` rather than `.strict()` so a field the handler adds later
-// does not turn a working response into a production outage.
+/**
+ * The output schema for `execute_intent`. The action returns the
+ * `IntentReceipt` shape from `types.ts` on both the committed and the failed
+ * path. This module mirrors that shape as a Zod schema.
+ *
+ * The MCP adapter parses the real handler output against this schema. On a
+ * mismatch it replaces the result with an INTERNAL_ERROR. Every object is
+ * `.passthrough()`, not `.strict()`, so a new handler field does not break a
+ * working response.
+ */
 
 import { z } from 'zod';
 import { EnvelopeSchema } from '../../contract/schemas/envelope.js';
 
 /**
- * The receipt's bundle reference, as this surface describes it: a passthrough
- * mirror of the ledger's strict `BundleRefV1`, for the reason the header
- * states. The ledger schema refuses an unknown key because an oracle must not
- * count a reference it does not fully understand; the response schema must
- * not, because a receipt replayed from a claim written by a later build — one
- * that added a key to the reference — is still the caller's receipt, and
- * turning it into an INTERNAL_ERROR at the adapter would be the outage this
- * file exists to prevent.
+ * A passthrough mirror of the strict ledger schema `BundleRefV1`. The ledger
+ * refuses an unknown key, because an oracle must not count a reference that it
+ * does not fully understand. A receipt replayed from a claim of a later build
+ * can carry a new key, and it is still a valid receipt for the caller.
  */
 const ReceiptBundleRefSchema = z
   .object({
@@ -35,10 +28,10 @@ const ReceiptBundleRefSchema = z
 const ReceiptEventSchema = z
   .object({
     type: z.string().min(1),
-    // The sequence's stream. Required, because a sequence without the stream it
-    // numbers is not resolvable: a leaf that journals onto a shared
-    // infrastructure stream reports positions from there alongside a tail from
-    // the subject's.
+    /**
+     * The stream of the sequence. It is required because a leaf can journal onto
+     * a shared infrastructure stream, so a sequence alone does not identify an event.
+     */
     streamId: z.string().min(1),
     sequence: z.number().int().nonnegative(),
   })
@@ -78,10 +71,9 @@ const ReceiptInteractionSchema = z
   .passthrough();
 
 /**
- * The `IntentReceipt` (`types.ts`) as a Zod shape. Kept in step with that
- * interface by hand — the two are read side by side at every leaf field, and a
- * kill probe over a real `handleExecuteIntent` response is what actually
- * proves they agree (`tests/unit/verbs/execute/`).
+ * The `IntentReceipt` from `types.ts` as a Zod shape. It is kept in step with
+ * that interface by hand. The tests under `tests/unit/verbs/execute/` parse a
+ * real `handleExecuteIntent` response to prove that the two agree.
  */
 const IntentReceiptData = z
   .object({
@@ -95,11 +87,11 @@ const IntentReceiptData = z
     steering: ReceiptSteeringSchema.optional(),
     failure: ReceiptFailureSchema.optional(),
     interaction: ReceiptInteractionSchema,
-    // Optional here even though every fresh commit stamps it: a replay returns
-    // the receipt persisted in the operation claim, and a claim recorded before
-    // run-bundle custody existed carries none. Requiring it would turn that
-    // replay into an INTERNAL_ERROR at the adapter boundary. Non-empty when
-    // present, matching the receipt type.
+    /**
+     * Optional, although each fresh commit sets it. A replay returns the receipt
+     * from the operation claim, and a claim from before run-bundle custody has
+     * no bundle references. When present, the array is not empty.
+     */
     bundleRefs: z.array(ReceiptBundleRefSchema).min(1).optional(),
   })
   .passthrough();

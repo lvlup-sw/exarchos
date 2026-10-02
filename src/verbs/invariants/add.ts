@@ -1,22 +1,13 @@
 /**
- * `invariants_add` handler (P2, T8/T9/T11).
+ * The `invariants_add` handler. It validates one authored entry against `InvariantEntryV3Schema`, which includes the sandbox-safe `.strict()` enforcement DSL.
+ *   - `dryRun` (the default) renders the entry as YAML and a file diff, and writes nothing.
+ *   - `dryRun: false` assigns the next free id in the namespace (`U-N` for user, `INV-N` for dev), unless the caller gives an id.
+ *     It appends the entry to the catalog, registers the catalog in `.exarchos.yml` when needed, and emits `invariant.authored`.
+ *     A first registration also emits `catalog.registered`.
  *
- * Validates one authored entry against `InvariantEntryV3Schema` (including the
- * sandbox-safe `.strict()` enforcement DSL — INV-4), then either:
- *
- *   - `dryRun` (DEFAULT, INV-5c): renders the entry as YAML + a file diff and
- *     writes NOTHING; or
- *   - `dryRun:false`: auto-assigns the next free id in the target namespace
- *     (`U-N` for user tier, `INV-N` for dev), appends the entry to the target
- *     catalog's `invariants:` list, wires the catalog into `.exarchos.yml` if
- *     unregistered, and emits `invariant.authored` (+ `catalog.registered` on
- *     first registration — INV-1).
- *
- * A ZodError (or the `UnknownCheckKindError` thrown by the combinator-DSL
- * preprocess) is mapped to the INV-5b carrier shape
- * `{ validTargets, expectedShape, suggestedFix }` so the agent can self-correct.
- *
- * Pure-by-default: fs side effects flow through injected `ScaffoldDeps`.
+ * A `ZodError` or an `UnknownCheckKindError` maps to the carrier `{ validTargets, expectedShape, suggestedFix }`, so the agent can correct itself.
+ * File system effects go through the injected `ScaffoldDeps`.
+ * The catalog file shape and the id scan are shared with `invariants_amend`, so the two writers agree.
  */
 import * as path from 'node:path';
 import { toPosix } from '../../utils/paths.js';
@@ -30,14 +21,10 @@ import {
   InvariantEntryV3Schema,
   UnknownCheckKindError,
 } from '../../architecture/invariant-schema.js';
-// DR-6 — the catalog's primary-key rule has ONE authority, in the loader. The
-// write path enforces the reader's predicate rather than a second copy of it.
 import {
   findDuplicateInvariantId,
   duplicateInvariantIdMessage,
 } from '../../architecture/invariants-loader.js';
-// Catalog file shape + the resolvable-denominator id scan, shared with
-// `invariants_amend` so the two writers cannot disagree about either.
 import {
   splitCatalog,
   readCatalogIds,
@@ -61,7 +48,7 @@ export interface HandleAddArgs {
   readonly tier?: 'dev' | 'user' | undefined;
   /** Explicit id override (rare — normally auto-assigned). */
   readonly id?: string | undefined;
-  /** Dry-run (default true, INV-5c): render + diff, write nothing. */
+  /** Dry-run (default true): render and diff, and write nothing. */
   readonly dryRun?: boolean;
   /**
    * Opt-in to author into exarchos's reserved `dev` namespace from a non-exarchos
@@ -98,26 +85,12 @@ export function allocateNextId(existingIds: readonly string[], prefix: string): 
   return `${prefix}-${max + 1}`;
 }
 
-
 /**
- * Append a validated entry to a catalog file's `invariants:` sequence,
- * preserving BOTH the markdown body AND the frontmatter's YAML comments.
- *
- * Catalog files come in two shapes:
- *
- *   (a) **markdown-with-frontmatter** — the dev catalog (`.exarchos/invariants.md`):
- *       `---\n<frontmatter>\n---\n<markdown body>`. Running `parseDocument` on
- *       the WHOLE file and `.toString()`-ing it throws ("Document with errors
- *       cannot be stringified") and would silently destroy the prose body, so
- *       we split off the frontmatter, mutate ONLY that document, then reassemble
- *       `---\n${doc}---\n${body}` with the body byte-for-byte unchanged.
- *
- *   (b) **bare-YAML** — a user could register a `.yml` catalog with no fences
- *       and no body. Here `parseDocument(contents).toString()` is correct (no
- *       body to lose), so we keep the original round-trip.
- *
- * Both shapes preserve comments by mutating a CST-backed `Document` rather than
- * going through `parse` + `stringify` (which discards comments).
+ * Appends a validated entry to the `invariants:` sequence of a catalog file, and keeps the markdown body and the frontmatter comments.
+ * A markdown catalog (`---\n<frontmatter>\n---\n<body>`) cannot go through `parseDocument` as a whole file, because `toString()` throws and the body is lost.
+ * So the function changes only the frontmatter document and puts the body back byte for byte.
+ * A bare-YAML catalog has no body, so a `parseDocument` and `toString()` round trip is correct.
+ * Both paths change a CST-backed `Document`, because `parse` and `stringify` discard comments.
  */
 export function appendEntryToCatalog(
   contents: string,
@@ -126,38 +99,24 @@ export function appendEntryToCatalog(
   const { frontmatter, body } = splitCatalog(contents);
 
   if (body !== undefined) {
-    // Fenced markdown-with-frontmatter: mutate ONLY the frontmatter document
-    // (the text BETWEEN the fences). This is the whole reason we use the
-    // Document API rather than js-yaml — it preserves the frontmatter's
-    // comments.
     const fmDoc = parseDocument(frontmatter);
     appendToInvariantsSeq(fmDoc, validated);
-    // `fmDoc.toString()` already ends with a trailing newline, so the closing
-    // fence lands on its own line. `body` is the verbatim post-fence text, so
-    // we reproduce the original separation exactly (no added/dropped blanks).
     return `---\n${fmDoc.toString()}---\n${body}`;
   }
 
-  // Bare-YAML catalog (no fences, no body) — the original parseDocument +
-  // toString round-trip is correct here (nothing to lose).
   const doc = parseDocument(frontmatter);
   appendToInvariantsSeq(doc, validated);
   return doc.toString();
 }
 
 /**
- * Append `validated` to the `invariants:` sequence of `doc`, normalizing a
- * missing/null/non-sequence `invariants` node to an empty `YAMLSeq` first:
- * calling `.add` on a scalar/map node (e.g. a malformed `invariants: {}` or
- * `invariants: foo`) would throw a raw TypeError. Reset such a node to an empty
- * sequence so the append always lands on a real list (robustness — #1487
- * review).
+ * Appends `validated` to the `invariants:` sequence of `doc`.
+ * A missing, null, or non-sequence node (for example `invariants: {}`) becomes an empty `YAMLSeq` first, because `.add` on a scalar or map throws a `TypeError`.
+ * `createNode` gives a real `YAMLSeq`. A plain array from `doc.set` has no `.add`.
  */
 function appendToInvariantsSeq(doc: ReturnType<typeof parseDocument>, validated: unknown): void {
   let list = doc.get('invariants', true) as unknown;
   if (!isSeq(list)) {
-    // `doc.set('invariants', [])` would store a plain JS array (no `.add`);
-    // `createNode` yields a real YAMLSeq the append can land on.
     const seq = doc.createNode([]);
     doc.set('invariants', seq);
     list = doc.get('invariants', true) as unknown;
@@ -166,10 +125,9 @@ function appendToInvariantsSeq(doc: ReturnType<typeof parseDocument>, validated:
 }
 
 /**
- * INV-5b carrier-shape refusal for a primary-key collision. Names the offending
- * id, the ids already in use, and points the agent at `invariants_amend` — the
- * verb that actually does what a caller re-using an existing id is usually
- * trying to do (task 068).
+ * The carrier refusal for a primary-key collision. It names the offending id and the count of entries in the catalog.
+ * It points the agent at `invariants_amend`, which is usually what a caller who reuses an id wants.
+ * The message starts with the loader's own sentence, so the read path and the write path refuse with the same text.
  */
 function duplicateIdResult(
   id: string,
@@ -181,8 +139,6 @@ function duplicateIdResult(
     success: false,
     error: {
       code: 'DUPLICATE_INVARIANT_ID',
-      // The loader's own sentence — one message regardless of which path
-      // (read or write) refused.
       message:
         `${duplicateInvariantIdMessage(id)}. Catalog '${relCatalog}' resolved ` +
         `${existingIds.length} existing entr${existingIds.length === 1 ? 'y' : 'ies'} ` +
@@ -211,13 +167,10 @@ function duplicateIdResult(
 }
 
 /**
- * Map a validation failure (ZodError or UnknownCheckKindError) to the INV-5b
- * carrier shape so the agent can self-correct rather than re-guess.
+ * Maps a validation failure (`ZodError` or `UnknownCheckKindError`) to the carrier shape, so the agent can correct itself and not guess again.
  *
- * Shared with `invariants_amend`: an amendment is re-validated against the
- * SAME `InvariantEntryV3Schema`, so it must fail with the same carrier shape.
- * `action` is echoed into `suggestedFix.params.action` so the offered fix is
- * re-invokable against the verb the caller actually used.
+ * `invariants_amend` shares it, because an amendment is validated again against the same `InvariantEntryV3Schema`.
+ * `action` goes into `suggestedFix.params.action`, so the offered fix targets the verb that the caller used.
  */
 export function validationErrorResult(
   err: unknown,
@@ -290,7 +243,10 @@ export function validationErrorResult(
 }
 
 /**
- * `invariants_add` handler. See module header for the dry-run/commit contract.
+ * The `invariants_add` handler. It refuses a `dev` tier entry from a consumer repo first, even in a dry run, so a preview never renders one.
+ * The target catalog must exist. An unresolvable id list is refused, because it is the denominator of the uniqueness check.
+ * The duplicate check uses the loader's own predicate on the id list that the write makes, so the reader and the writer agree.
+ * Event emission is best-effort and never fails the write, which already landed.
  */
 export async function handleAdd(
   args: HandleAddArgs,
@@ -299,9 +255,6 @@ export async function handleAdd(
 ): Promise<ToolResult> {
   const tier = args.tier ?? 'user';
 
-  // Reject authoring into exarchos's reserved `dev` namespace from a consumer
-  // repo BEFORE reading/validating anything, and regardless of dryRun — so a
-  // dry-run preview never even renders a dev-tier entry (#1489).
   const reserved = assertDevTierAllowed(
     {
       tier,
@@ -317,7 +270,6 @@ export async function handleAdd(
   const catalogAbs = toPosix(path.join(args.repoRoot, relCatalog));
   const dryRun = args.dryRun === undefined ? true : args.dryRun;
 
-  // Read the target catalog (must exist — scaffold first if not).
   if (!deps.exists(catalogAbs)) {
     return {
       success: false,
@@ -333,25 +285,14 @@ export async function handleAdd(
   }
   const catalogContents = deps.read(catalogAbs);
 
-  // Resolve the ids already in use. This is the DENOMINATOR of the uniqueness
-  // check below, so an unresolvable list is refused rather than treated as
-  // "zero ids in use, therefore no collisions" (task 068 / DR-24).
   const scan = readCatalogIds(catalogContents);
   if (!scan.resolved) {
     return catalogUnreadableResult(relCatalog, tier, scan.reason);
   }
   const existingIds = scan.ids;
 
-  // Allocate the id (or honor an explicit override) and validate the entry.
   const id = args.id ?? allocateNextId(existingIds, NAMESPACE_PREFIX[tier]);
 
-  // Write-time primary-key enforcement, at least as strong as read-time.
-  // `args.id` was previously honored with no membership test, so authoring an
-  // id already in the catalog returned success and produced a file the loader
-  // then refused to read. The predicate is the LOADER's own
-  // (`findDuplicateInvariantId`), applied to the id list this write WOULD
-  // produce — literally "would the reader reject the document I am about to
-  // author?" — so reader and writer cannot disagree.
   const collision = findDuplicateInvariantId([...existingIds, id]);
   if (collision !== undefined) {
     return duplicateIdResult(collision, relCatalog, tier, existingIds);
@@ -364,7 +305,6 @@ export async function handleAdd(
     return validationErrorResult(err);
   }
 
-  // Render the validated entry as a YAML list fragment (one entry).
   const renderedEntry = stringifyYaml([validated]);
 
   if (dryRun) {
@@ -383,16 +323,8 @@ export async function handleAdd(
     };
   }
 
-  // ── Commit path ──
-  // Append the validated entry to the catalog's `invariants:` list. The catalog
-  // may be a markdown-with-frontmatter file (the dev catalog has a prose body
-  // that a naive whole-file parseDocument round-trip would destroy) or a bare
-  // YAML file; `appendEntryToCatalog` handles both shapes while preserving the
-  // body AND the frontmatter's YAML comments (#1487 review — HIGH).
   deps.write(catalogAbs, appendEntryToCatalog(catalogContents, validated));
 
-  // Wire the catalog into `.exarchos.yml` if unregistered (INV-1 first-time
-  // registration emits catalog.registered).
   const ymlPath = toPosix(path.join(args.repoRoot, CONFIG_FILENAME));
   const registration = wireCatalogRegistration(
     ymlPath,
@@ -400,7 +332,6 @@ export async function handleAdd(
     deps,
   );
 
-  // Emit events (best-effort telemetry — never fail the authored write).
   const emitted: string[] = [];
   try {
     await ctx.eventStore.append(`invariants/${tier}`, {
@@ -423,7 +354,6 @@ export async function handleAdd(
       emitted.push('catalog.registered');
     }
   } catch {
-    /* best-effort: the authored write already landed */
   }
 
   return {

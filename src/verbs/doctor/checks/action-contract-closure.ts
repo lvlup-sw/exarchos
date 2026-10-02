@@ -1,23 +1,11 @@
 /**
- * action-contract-closure — does every registered ActionId's contract still
- * hold together in THIS build?
+ * Doctor check: does the contract of each registered action still hold together in this build?
  *
- * The closure evaluator asks one question per action: is the declared contract
- * total (every dimension present or reasoned-absent), are its references live,
- * have its recovery edges not expired, and do the shipped projections still
- * agree with the declaration? A build whose describe surface has drifted from
- * the registry answers that question wrongly at runtime, and nothing else the
- * binary does would notice.
+ * The closure evaluator asks four questions per action. Is the contract total, with each
+ * dimension present or reasoned-absent? Are its references live? Are its recovery edges not expired?
+ * Do the shipped projections agree with the declaration?
  *
- * It runs here because a diagnostic instrument with no caller is a claim, not
- * a control: the evaluator was previously reachable only from its own tests,
- * so a total failure over the live tree was invisible to everything that
- * ships. Doctor is the surface that already answers "is this installation
- * coherent", and it reaches both the CLI and the MCP server.
- *
- * Read-only: it folds the in-process registry and touches nothing. There is no
- * `--fix` for a drifted contract — the declaration and its projection have to
- * be reconciled in source.
+ * The check is read-only. It has no `--fix`, because a drifted contract needs a source change.
  */
 
 import {
@@ -29,6 +17,7 @@ import type { CheckFn } from './__shared__/make-stub-probes.js';
 /** Findings named individually before the message falls back to a count. */
 const NAMED_FINDING_LIMIT = 3;
 
+/** An empty registry gives Warning, not Pass, because zero subjects close vacuously. */
 export const actionContractClosure: CheckFn = async (_probes, _signal) => {
   const start = Date.now();
   const base = { category: 'invariants' as const, name: 'action-contract-closure' };
@@ -58,9 +47,6 @@ export const actionContractClosure: CheckFn = async (_probes, _signal) => {
     };
   }
 
-  // An empty denominator is the failure this check exists to avoid reporting as
-  // health: zero subjects would close vacuously, so it is named rather than
-  // passed.
   if (subjectCount === 0) {
     return {
       ...base,

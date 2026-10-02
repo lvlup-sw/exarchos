@@ -1,24 +1,8 @@
 /**
- * DoctorProbes — the probe bundle passed to every per-check function.
- *
- * Each check receives a single `DoctorProbes` argument rather than
- * reaching into `process.*` or module-scope state, so unit tests can
- * build checks with plain object overrides (DIM-4/T-4.2: ≤3 mocks per
- * test). Defaults bind to real runtime surfaces; the composer wires
- * them via `buildProbes(ctx)` at dispatch time, never at module init.
- *
- * Probe fields:
- *   - `fs`       — narrow filesystem surface (readFile / stat / access)
- *   - `env`      — process env snapshot
- *   - `git`      — narrow git surface (which, isRepo)
- *   - `sqlite`   — lazy handle getter for sqlite integrity probing; may
- *                  be null when no backend is attached (jsonl-only mode)
- *   - `detector` — AgentEnvironmentDetector callable
- *   - `eventStore` — the context's EventStore, forwarded by reference
- *   - `runtime`  — observable runtime metadata (node version), injected
- *                  rather than read via `process.*` inside checks
- *   - `stateDir` — resolved state directory path (forwarded from
- *                  DispatchContext)
+ * The probe bundle that the doctor composer passes to each check.
+ * A check reads runtime facts from this bundle, so a unit test can build a check
+ * with plain object overrides. `buildProbes(ctx)` binds the real defaults at
+ * dispatch time, not at module load.
  */
 
 import { promises as nodeFs, constants as fsConstants } from 'node:fs';
@@ -46,9 +30,7 @@ import type { RiskTier } from '../../workflow/verification-policy.js';
 
 const execFileAsync = promisify(execFile);
 
-/** Widened fs surface for doctor checks: readFile/stat from DetectorFs
- * plus an `access` probe for writability checks. Optional so tests can
- * omit it when irrelevant. */
+/** The `DetectorFs` surface plus an optional `access` probe for writability checks. */
 export interface DoctorFs extends DetectorFs {
   access?(path: string, mode?: number): Promise<void>;
 }
@@ -56,20 +38,12 @@ export interface DoctorFs extends DetectorFs {
 export interface DoctorGit {
   which(cmd: string): Promise<string | null>;
   isRepo(cwd: string): Promise<boolean>;
-  /** Returns the `git --version` short string (e.g. "2.43.0") or null
-   * when the binary is unavailable or emits unrecognized output. Used by
-   * vcs-git-available for the Pass message. */
+  /** Returns the version token of `git --version`, for example "2.43.0", or null when git is absent or the output is unknown. */
   version(): Promise<string | null>;
 }
 
 export interface DoctorSqlite {
-  /**
-   * Run a bounded backend integrity probe via the EventStore's narrow
-   * accessor. The EventStore itself enforces the timeout and abort
-   * contract (DIM-7); this probe is a thin forwarder. The returned
-   * IntegrityResult is a discriminated union — callers pattern-match
-   * on `ok` without type assertions (DIM-3).
-   */
+  /** Runs the backend integrity probe of the EventStore. The store enforces the timeout and the abort. */
   runIntegrityCheck(opts?: {
     signal?: AbortSignal;
     timeoutMs?: number;
@@ -78,12 +52,9 @@ export interface DoctorSqlite {
 
 export interface DoctorBundles {
   /**
-   * Run the run-bundle resolvability sweep through the EventStore's own
-   * accessor: every artifact digest a ledger event references must resolve
-   * in the bundle store, and a settled stream must reference something. The
-   * store enforces the timeout and abort contract; this probe is a thin
-   * forwarder. The result is a discriminated union — callers pattern-match
-   * on `ok` without type assertions.
+   * Runs the run-bundle sweep of the EventStore. Each artifact digest that a ledger event
+   * references must resolve in the bundle store. A settled stream must reference an artifact.
+   * The store enforces the timeout and the abort.
    */
   runIntegrityCheck(opts?: {
     signal?: AbortSignal;
@@ -92,60 +63,44 @@ export interface DoctorBundles {
 }
 
 export interface DoctorRuntime {
-  /** Node.js version string (e.g. "v20.11.0") — injected so checks
-   * don't read `process.version` directly (DIM-4). */
+  /** The Node.js version string, for example "v20.11.0". */
   readonly nodeVersion: string;
 }
 
 export interface DoctorSkills {
-  /** Cheap drift detection over the content → skills pipeline. Returns
-   * `{inSync:true}` when generated output matches source, otherwise
-   * `{inSync:false, driftedPaths}` listing representative drifted files.
-   * Must honor `signal` (AbortController) and stay within 2000ms
-   * (DIM-7). */
+  /**
+   * Detects drift between authored skills and rendered skills, and lists drifted files.
+   * Must honor `signal` and finish within the probe budget.
+   */
   guardStatus(signal?: AbortSignal): Promise<{ inSync: boolean; driftedPaths?: string[] }>;
 }
 
 export interface DoctorPlugin {
-  /** Version string from the installed plugin's package.json (Claude
-   * Code plugin cache), or null when the plugin is not installed
-   * locally. Compute per call — DIM-1 forbids module-global caching. */
+  /** The version in the `package.json` of the installed plugin in the Claude Code plugin cache, or null. Computed per call. */
   installedVersion(): Promise<string | null>;
-  /** Version string from the repo-root package.json (the version this
-   * MCP server was built from), or null when unreadable. */
+  /** The version in the nearest ancestor `package.json` of this module, or null when unreadable. */
   runningVersion(): Promise<string | null>;
 }
 
 export interface DoctorInvariantsCatalog {
   /**
-   * Resolve the effective invariant catalog from `.exarchos.yml` and report
-   * whether any user-validatable catalog is `configured`, plus any
-   * merge/load/reserved-namespace warnings folded by `resolveEffectiveCatalog`
-   * (DR-9). The check turns a non-empty `warnings` list into a doctor Warning,
-   * naming the offending catalog/id. `configured` is `false` only when the dev
-   * catalog is disabled/absent AND no user catalogs are configured (the SDLC
-   * baseline is compiled-in and build-validated, so it does not count). It is
-   * phase-independent — a configured catalog whose entries do not project to a
-   * given phase still counts as configured. Must honor `signal` and stay
-   * within the 2000ms probe budget (DIM-7). */
+   * Resolves the invariant catalog from `.exarchos.yml`. `configured` is true when a catalog
+   * source is registered, for any phase. The built-in baseline does not count. One or more
+   * warnings make the check give one doctor Warning. Must honor `signal` and finish within the
+   * probe budget.
+   */
   resolve(signal?: AbortSignal): Promise<{ configured: boolean; warnings: string[] }>;
 }
 
 /**
- * The resolved verification ladder the doctor check reports on (design §4.6):
- * which runtime commands the per-field layered resolver returned, whether any
- * toolchain was detectable at all, and the provenance of all six verification-
- * policy cells.
- *
- * The probe does ALL the disk work (config load + per-field resolution + the
- * six policy resolutions); the check stays disk-blind and only maps this shape
- * to a Pass/Warning/Skipped CheckResult. This is read-only visibility — nothing
- * here writes; the fix path remains the reconciler's.
+ * The verification ladder that the doctor check reports: the resolved runtime commands,
+ * toolchain detection, and the source of each policy cell. The probe does the disk reads.
+ * The check only maps this shape to a result.
  */
 export interface VerificationToolchainResolution {
-  /** Whether ANY project toolchain was detected (false ⇒ empty/unmarked repo). */
+  /** False when the repository has no project markers. */
   readonly detected: boolean;
-  /** The resolved verification-runtime commands; `null` per field = unresolved. */
+  /** The resolved commands. A `null` field is unresolved. */
   readonly runtime: {
     readonly test: string | null;
     readonly typecheck: string | null;
@@ -153,11 +108,7 @@ export interface VerificationToolchainResolution {
     readonly mutation: string | null;
     readonly lint: string | null;
   };
-  /**
-   * All six `(riskTier × boundaryTouching)` policy cells with their resolved
-   * provenance — `builtin` (frozen base table) vs `config` (.exarchos.yml
-   * override). Read-only: the check NEVER mutates policy.
-   */
+  /** Each `(riskTier, boundaryTouching)` cell with its source: the `builtin` table or a `config` override. */
   readonly policyCells: ReadonlyArray<{
     readonly riskTier: 'low' | 'medium' | 'high';
     readonly boundaryTouching: boolean;
@@ -167,31 +118,19 @@ export interface VerificationToolchainResolution {
 
 export interface DoctorVerificationToolchain {
   /**
-   * Resolve the verification ladder's runtime + policy provenance from the
-   * consumer's project root. Reads `.exarchos.yml` and probes project markers
-   * via the shared `resolveVerificationRuntime` / `resolveVerificationPolicy`
-   * resolvers (the single sources of truth) and folds the result into a
-   * {@link VerificationToolchainResolution}. Must honor `signal` and stay
-   * within the 2000ms probe budget (DIM-7). Read-only — emits/writes nothing.
+   * Resolves the runtime commands and policy sources from the project root of the consumer.
+   * Must honor `signal` and finish within the probe budget.
    */
   resolve(signal?: AbortSignal): Promise<VerificationToolchainResolution>;
 }
 
-/**
- * The per-check wall-clock budget the composer will race each check against.
- * The composer's own default; a caller may widen it (`doctor --timeout-ms`),
- * and whatever value is in force is what the probe bundle carries, so a check
- * that runs a bounded sweep can size that bound under the ceiling it is
- * actually racing rather than under a copy of the default.
- */
+/** The default per-check time budget of the composer. A caller can pass a different `timeoutMs`. */
 export const DEFAULT_CHECK_BUDGET_MS = 2000;
 
 export interface DoctorProbes {
   /**
-   * The composer's per-check budget for THIS run, in milliseconds. A check
-   * whose work is itself time-bounded derives its bound from here so its own
-   * honest "did not finish" verdict wins the composer's race instead of the
-   * composer's generic timeout.
+   * The per-check budget for this run, in milliseconds. A check with a bounded sweep sizes
+   * the sweep from this value, so that its own verdict arrives before the composer timeout.
    */
   readonly checkBudgetMs: number;
   readonly fs: DoctorFs;
@@ -217,7 +156,6 @@ const DEFAULT_FS: DoctorFs = {
 
 const DEFAULT_GIT: DoctorGit = {
   which: async (cmd) => {
-    // 'which' is POSIX-only; use 'where' on Windows
     const whichCmd = process.platform === 'win32' ? 'where' : 'which';
     try {
       const { stdout } = await execFileAsync(whichCmd, [cmd]);
@@ -238,9 +176,6 @@ const DEFAULT_GIT: DoctorGit = {
   version: async () => {
     try {
       const { stdout } = await execFileAsync('git', ['--version']);
-      // `git --version` prints "git version 2.43.0" (with optional
-      // trailing suffix). Extract the semver-ish token; null if the
-      // output shape is unrecognized.
       const match = stdout.match(/\d+\.\d+(?:\.\d+)?/);
       return match ? match[0] : null;
     } catch {
@@ -249,16 +184,13 @@ const DEFAULT_GIT: DoctorGit = {
   },
 };
 
-/** Resolve a root by walking up from `startDir` until `marker` is found.
- *
- * `startDir` defaults to this module's directory — correct for locating the
- * plugin's OWN artifacts (its `package.json`, its `content/`). For a
- * USER-project artifact (e.g. `.exarchos.yml`) callers MUST pass
- * `process.cwd()`: in plugin mode the module lives under the plugin cache
- * (`~/.claude/plugins/...`), which has no `.exarchos.yml` ancestor, so a
- * module-relative walk would never find the consumer's config (#1482 review).
- *
- * Computed per call (DIM-1 forbids module-global caching). */
+/**
+ * Returns the first directory, from `startDir` upward, that holds `marker`. It checks at most
+ * eight directories, `startDir` included. `startDir` defaults to this module directory, which
+ * finds the artifacts of the plugin. For a consumer artifact such as `.exarchos.yml`, pass
+ * `process.cwd()`. In plugin mode the module is in the plugin cache, which has no consumer
+ * ancestor.
+ */
 async function findRepoRoot(
   marker: string,
   startDir: string = dirname(fileURLToPath(import.meta.url)),
@@ -269,7 +201,6 @@ async function findRepoRoot(
       await nodeFs.access(join(dir, marker), fsConstants.F_OK);
       return dir;
     } catch {
-      // keep walking
     }
     const parent = resolve(dir, '..');
     if (parent === dir) return null;
@@ -278,21 +209,18 @@ async function findRepoRoot(
   return null;
 }
 
-/** Lightweight drift heuristic: for each authored
- * `content/<domain>/skills/<name>/SKILL.md`, if any matching
- * `rendered/skills/<runtime>/<name>/SKILL.md` has an older mtime, treat that
- * skill as drifted. Fast, and avoids spawning `npm run skills:guard` (which
- * re-renders everything and would exceed the 2000ms probe budget).
- *
- * Sources sit one level deeper than the flat name they render to, so the
- * domain has to be walked rather than assumed away. Reading the domain as if
- * it were the skill finds no SKILL.md at all, and a probe that stats nothing
- * reports perfect sync. */
+/**
+ * Marks a skill as drifted when a `rendered/skills/<runtime>/<name>/SKILL.md` is older than
+ * its `content/<domain>/skills/<name>/SKILL.md`. An mtime compare fits the probe budget,
+ * and a full re-render does not. The walk must include the domain level. A walk that skips
+ * it finds no source file and reports sync. A missing tree, or a runtime that does not render
+ * a skill, counts as in sync.
+ */
 async function defaultSkillsGuardStatus(
   signal?: AbortSignal,
 ): Promise<{ inSync: boolean; driftedPaths?: string[] }> {
   const root = await findRepoRoot('content');
-  if (root === null) return { inSync: true }; // nothing to check
+  if (root === null) return { inSync: true };
   const srcRoot = join(root, 'content');
   const outRoot = join(root, 'rendered', 'skills');
   let srcSkills: Array<{ name: string; path: string }>;
@@ -308,7 +236,7 @@ async function defaultSkillsGuardStatus(
           .filter((d) => d.isDirectory())
           .map((d) => d.name);
       } catch {
-        continue; // a domain need not carry skills
+        continue;
       }
       for (const name of names) {
         srcSkills.push({ name, path: join(srcRoot, domain, 'skills', name, 'SKILL.md') });
@@ -347,7 +275,6 @@ async function defaultSkillsGuardStatus(
           drifted.push(`rendered/skills/${runtime}/${skill.name}/SKILL.md`);
         }
       } catch {
-        // runtime may not render every skill; skip missing entries
       }
     }
   }
@@ -365,8 +292,10 @@ async function readPackageVersion(path: string): Promise<string | null> {
   }
 }
 
-/** Find the installed plugin's package.json by scanning the Claude Code
- * plugin cache. DIM-1: computed per call, no caching. */
+/**
+ * Reads the plugin-cache version directories in descending numeric name order. Returns the first
+ * string `version` from a `package.json`, or null.
+ */
 async function defaultInstalledPluginVersion(): Promise<string | null> {
   const home = process.env.HOME ?? process.env.USERPROFILE;
   if (!home) return null;
@@ -396,20 +325,15 @@ async function defaultRunningVersion(): Promise<string | null> {
 }
 
 /**
- * Resolve the effective invariant catalog from the project's `.exarchos.yml`
- * and report entry count + DR-9 warnings (malformed/missing user catalogs,
- * reserved-namespace ids). A representative `ideate`/`feature` projection key
- * surfaces every merge/load warning regardless of phase narrowing. DIM-1:
- * computed per call, no caching. A failure to load config degrades to an empty
- * resolution rather than throwing — the check decides Pass/Warning/Skip.
+ * Resolves the invariant catalog from the `.exarchos.yml` above `process.cwd()`.
+ * `configured` is true when `resolveCatalogSources` finds a registered source, for any phase.
+ * Deprecated config keys and resolver warnings come back as `warnings`. A config load failure
+ * returns a warning, not a throw.
  *
- * P1 T5: the `resolve` argument is injected (defaults to the real
- * `resolveEffectiveCatalog`) purely so the defense-in-depth catch below is
- * testable. Catalog resolution already folds DR-9 degradations (malformed /
- * missing / reserved-namespace user sources) into `warnings`, but a
- * `ReservedNamespaceError` thrown by a built-in-layer regression that escapes
- * the resolver's own pre-filter must NOT crash the doctor probe — it is folded
- * into a named advisory naming the offending id. Exported for testing. */
+ * The resolver folds warnings before phase projection, so the `plan` phase key is arbitrary.
+ * A `ReservedNamespaceError` becomes a warning, because `doctor` must not throw on a bad
+ * catalog. The `resolve` seam exists for tests.
+ */
 export async function resolveInvariantsCatalog(
   signal?: AbortSignal,
   resolve: typeof resolveEffectiveCatalog = resolveEffectiveCatalog,
@@ -418,9 +342,6 @@ export async function resolveInvariantsCatalog(
   warnings: string[];
 }> {
   if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-  // Resolve from the USER's cwd, NOT this module's location — `.exarchos.yml`
-  // is a consumer-project artifact and the module lives in the plugin cache in
-  // plugin mode (#1482 review). Mirrors the vcs-git-available check's cwd use.
   const root = await findRepoRoot('.exarchos.yml', process.cwd());
   if (root === null) return { configured: false, warnings: [] };
   if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
@@ -437,45 +358,10 @@ export async function resolveInvariantsCatalog(
       warnings: [`Failed to load .exarchos.yml at '${root}': ${reason}`],
     };
   }
-  // `configured` is the phase-INDEPENDENT Skip signal: **is any catalog
-  // REGISTERED?** (DR-31 / T-43.) It used to be two disjoint questions — "is
-  // the `invariants.devCatalog` boolean enabled AND does the privileged path
-  // exist on disk?" OR'd with "is `invariants.catalogs` non-empty?" — which
-  // made this probe the fifth live reader of a boolean DR-31 retires, and gave
-  // the doctor a repo-only notion of "configured" no consumer could reproduce.
-  //
-  // Now there is ONE question, asked through the single discovery authority
-  // `resolveCatalogSources`: a `tier: dev` registration and a `tier: user`
-  // registration count identically, and the retired boolean reaches this line
-  // only after the config schema has desugared it into an ordinary
-  // registration. The dev-tier disk-existence probe is gone with the branch: a
-  // registered-but-missing file is a DR-9 degradation the resolver already
-  // folds into `warnings` below, which is a Warning the operator should SEE,
-  // not a silent Skip.
-  //
-  // The built-in SDLC baseline is compiled-in and build-validated, so it is
-  // never a runtime validation target and does not count. The older signal —
-  // entry count after projecting to `ideate` — misreported a configured
-  // catalog whose entries are all non-`ideate` (e.g. `phase-affinity:
-  // ['review']`) as "nothing configured", making the Pass branch unreachable
-  // for such catalogs (#1482 review).
   const configured = resolveCatalogSources(config).length > 0;
 
-  // Deprecated `.exarchos.yml` keys surface as operator-facing warnings so a
-  // consumer carrying a retired key learns the replacement edit from `doctor`
-  // rather than discovering it when the alias is finally dropped.
   const deprecationWarnings = deprecations.map((d) => `${d.key}: ${d.message}`);
 
-  // Phase key is arbitrary here: DR-9 warnings are folded pre-projection, so
-  // any phase surfaces every merge/load warning. We discard the projected
-  // entries and decide Skip-vs-validate on `configured` instead.
-  //
-  // Defense-in-depth (P1 T5): the resolver already folds reserved-namespace
-  // user-source ids into `warnings` via its DR-9 pre-filter, so this catch is
-  // not on the common path. But a `ReservedNamespaceError` from a built-in
-  // layer that escapes the pre-filter must degrade to a named advisory rather
-  // than crashing the doctor probe — `doctor` is the operator's diagnostic of
-  // last resort and must never itself throw on a malformed catalog.
   try {
     const { warnings } = resolve({
       repoRoot: root,
@@ -510,21 +396,15 @@ const POLICY_CELLS: ReadonlyArray<{ riskTier: RiskTier; boundaryTouching: boolea
 ];
 
 /**
- * Resolve the verification ladder's runtime + policy provenance from the USER's
- * project root for the verification-toolchain doctor check (design §4.6).
+ * Resolves the verification ladder for the verification-toolchain doctor check.
+ * It anchors at the nearest `.exarchos.yml` from `process.cwd()` upward. Without one, it uses the
+ * nearest `.git`, then `process.cwd()`. Thus the runtime resolver and the config load use the
+ * same root from a nested directory.
  *
- * Reads from `process.cwd()` (a consumer-project artifact, mirroring the
- * invariants probe's cwd reasoning — the module lives in the plugin cache in
- * plugin mode). The per-field commands come from `resolveVerificationRuntime`
- * (the single source of truth for runtime resolution); each of the six policy
- * cells is resolved via `resolveVerificationPolicy` over the resolved project
- * config (or the frozen built-ins when no config / a malformed config). This is
- * a READ-ONLY probe — it never emits a `command.resolved` event (no eventStore
- * is passed) and never writes. DIM-1: computed per call, no caching.
- *
- * The `resolveRuntime`/`loadConfig`/`resolvePolicy` seams are injected (defaults
- * are the real resolvers) purely so the probe is unit-testable. Exported for
- * testing. */
+ * `detected` is false when the source is `unresolved` and each command is null. A missing or
+ * bad config gives the built-in policy table. The probe passes no event store, so it emits no
+ * event. The `deps` seams exist for tests.
+ */
 export async function resolveVerificationToolchain(
   signal?: AbortSignal,
   deps: {
@@ -538,24 +418,12 @@ export async function resolveVerificationToolchain(
   const loadConfig = deps.loadConfig ?? loadExarchosConfig;
   const resolvePolicy = deps.resolvePolicy ?? resolveVerificationPolicy;
 
-  // Normalize to the actual project root before resolving runtime/config. The
-  // `.exarchos.yml` (then `.git`) ancestor walk mirrors resolveInvariantsCatalog
-  // and load-exarchos-config's own fallback: when `doctor` runs from a nested
-  // directory, anchoring BOTH the runtime resolver and config load to the same
-  // repo root keeps a configured repo from misclassifying as Skipped/Warning
-  // with all-builtin provenance. Resolve from the USER's cwd, NOT this module's
-  // location (#1482 — in plugin mode the module lives in the plugin cache).
   const cwd = process.cwd();
   const repoRoot =
     (await findRepoRoot('.exarchos.yml', cwd)) ?? (await findRepoRoot('.git', cwd)) ?? cwd;
 
-  // Per-field runtime resolution (test/typecheck/install/mutation/lint).
   const runtime = resolveRuntime(repoRoot);
 
-  // A resolution with an `unresolved` aggregate source AND every legacy field
-  // null is the "no project markers detected" signal — nothing the resolver
-  // could anchor on. Treat that as not-detected so the check Skips rather than
-  // Warns on a genuinely empty repo.
   const detected = !(
     runtime.source === 'unresolved' &&
     runtime.test === null &&
@@ -567,8 +435,6 @@ export async function resolveVerificationToolchain(
 
   if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
 
-  // Resolve project config for policy provenance. A missing/malformed config
-  // degrades to the frozen built-in table (INV-4) — never a hard failure.
   let config: ResolvedProjectConfig | undefined;
   try {
     const loaded = loadConfig(repoRoot, { findRepoRoot: () => repoRoot });
@@ -596,10 +462,9 @@ export async function resolveVerificationToolchain(
 }
 
 /**
- * Build a DoctorProbes bundle from a DispatchContext. Each probe field
- * binds to a real runtime surface; tests bypass this factory entirely
- * by constructing a DoctorProbes literal with just the fields under
- * test.
+ * Builds the real probe bundle from a dispatch context. The `sqlite` and `bundles` probes
+ * forward to the event store. The store owns the timeout and the abort. It also returns a skip
+ * when the backend does not support the probe.
  */
 export function buildProbes(ctx: DispatchContext): DoctorProbes {
   return {
@@ -607,15 +472,9 @@ export function buildProbes(ctx: DispatchContext): DoctorProbes {
     fs: DEFAULT_FS,
     env: process.env,
     git: DEFAULT_GIT,
-    // Thin forwarder to the EventStore's narrow integrity accessor.
-    // The EventStore enforces timeout + abort internally (DIM-7) and
-    // reports skipped when no applicable backend is attached, so this
-    // probe never needs to reach for a raw sqlite handle (DIM-6).
     sqlite: {
       runIntegrityCheck: (opts) => ctx.eventStore.runIntegrityCheck(opts),
     },
-    // The same shape for run-bundle custody: the store owns the sweep, its
-    // timeout and its abort; the probe only forwards.
     bundles: {
       runIntegrityCheck: (opts) => ctx.eventStore.runBundleIntegrityCheck(opts),
     },

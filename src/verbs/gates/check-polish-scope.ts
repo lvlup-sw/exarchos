@@ -1,22 +1,18 @@
-// ─── Check Polish Scope ──────────────────────────────────────────────────────
-//
-// Checks if a polish refactor scope has expanded beyond limits by examining
-// git diff against a base branch. Port of scripts/check-polish-scope.sh to a
-// TypeScript orchestrate handler.
-//
-// Triggers:
-//   1. File count > 5
-//   2. Module boundaries crossed (>2 top-level dirs)
-//   3. New test files needed (impl .ts files without .test.ts counterpart)
-//   4. Architectural docs needed (structural files across >1 module)
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Checks whether a polish refactor has grown past its scope limits, from the git diff against a
+ * base branch. Four triggers expand the scope:
+ *
+ * 1. More than 5 modified files.
+ * 2. More than 2 top-level directories.
+ * 3. An implementation `.ts` file without a sibling `.test.ts` file.
+ * 4. A structural file (`index.ts`, `types.ts`, a path with `interface`) in a diff that spans
+ *    more than one top-level directory.
+ */
 
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ToolResult } from '../../format.js';
-
-// ─── Types ─────────────────────────────────────────────────────────────────
 
 export interface CheckPolishScopeArgs {
   readonly repoRoot: string;
@@ -37,8 +33,6 @@ export interface CheckPolishScopeResult {
   readonly checks: readonly ScopeCheck[];
   readonly triggers: readonly string[];
 }
-
-// ─── Helpers ───────────────────────────────────────────────────────────────
 
 function getModifiedFiles(repoRoot: string, baseBranch: string): readonly string[] | null {
   let output = '';
@@ -88,10 +82,7 @@ function isStructuralFile(filePath: string): boolean {
   );
 }
 
-// ─── Handler ───────────────────────────────────────────────────────────────
-
 export function handleCheckPolishScope(args: CheckPolishScopeArgs): ToolResult {
-  // Validate required repoRoot
   if (!args.repoRoot) {
     return {
       success: false,
@@ -121,8 +112,6 @@ export function handleCheckPolishScope(args: CheckPolishScopeArgs): ToolResult {
   const checks: ScopeCheck[] = [];
   const triggers: string[] = [];
 
-  // ── Trigger 1: File count > 5 ──────────────────────────────────────────
-
   if (fileCount <= 5) {
     checks.push({ name: 'File count within limit', passed: true, detail: `${fileCount} <= 5` });
   } else {
@@ -133,8 +122,6 @@ export function handleCheckPolishScope(args: CheckPolishScopeArgs): ToolResult {
     });
     triggers.push(`File count (${fileCount}) exceeds limit of 5`);
   }
-
-  // ── Trigger 2: Module boundaries crossed (>2 top-level dirs) ──────────
 
   if (moduleCount <= 2) {
     checks.push({
@@ -150,8 +137,6 @@ export function handleCheckPolishScope(args: CheckPolishScopeArgs): ToolResult {
     });
     triggers.push(`Module boundaries crossed (${moduleCount} dirs: ${modules.join(', ')})`);
   }
-
-  // ── Trigger 3: New test files needed ──────────────────────────────────
 
   const missingTests: string[] = [];
   for (const f of modifiedFiles) {
@@ -178,8 +163,6 @@ export function handleCheckPolishScope(args: CheckPolishScopeArgs): ToolResult {
     triggers.push(`New test files needed for ${missingTests.length} files`);
   }
 
-  // ── Trigger 4: Architectural docs needed ──────────────────────────────
-
   let needsArchDocs = false;
   if (moduleCount > 1) {
     for (const f of modifiedFiles) {
@@ -200,8 +183,6 @@ export function handleCheckPolishScope(args: CheckPolishScopeArgs): ToolResult {
     });
     triggers.push('Architectural documentation needed');
   }
-
-  // ── Build report ──────────────────────────────────────────────────────
 
   const scopeOk = triggers.length === 0;
   const moduleNames = modules.length > 0 ? modules.join(', ') : 'none';

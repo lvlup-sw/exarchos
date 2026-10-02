@@ -1,18 +1,13 @@
-// ─── The intent compiler ────────────────────────────────────────────────────
-//
-// Runbooks stay pure data. This module is the only thing that reads one as
-// something to EXECUTE, and it refuses anything it cannot close over: a step
-// naming an agent-side tool, a decision point the model owes an answer to, an
-// action no registry declares, one whose authority is not local, or one the
-// caller's own handler table has no way to invoke.
-//
-// Every refusal here happens before the first effect. That ordering is the
-// whole point of separating compilation from execution — a segment that cannot
-// finish is one that never starts.
-//
-// The registry is reached through the published root module rather than the
-// declaration directory: the verb layer is allowed the shared root surface and
-// not the registry's internals, and the seam census reads the difference.
+/**
+ * The intent compiler. Runbooks stay pure data, and this module reads one as a segment to execute.
+ *
+ * It refuses each step that it cannot close over. Examples are a decision point, an agent-side
+ * tool, an unregistered action, an action without local authority, and a missing handler. Each
+ * refusal happens before the first effect, so a segment that cannot finish never starts.
+ *
+ * The verb layer can use the shared root surface but not the internals of the registry. This
+ * module thus imports the registry from the root module, and the seam census reads the difference.
+ */
 
 import type { z } from 'zod';
 
@@ -29,27 +24,15 @@ export interface CompileDeps {
   readonly findAction: (tool: string, action: string) => ToolAction | undefined;
   readonly argSchemas: IntentArgSchemas;
   /**
-   * The table the leaves will be invoked through, keyed by bare action name.
-   * Optional so a caller compiling to INSPECT a segment need not own one; when
-   * it is present, a step naming an action the table cannot invoke is refused
-   * here rather than discovered at that leaf's turn — after every leaf before
-   * it has already run.
-   *
-   * Typed as an opaque record because this module only asks whether a key is
-   * present. The executor's own handler type narrows it.
+   * The table that invokes the leaves, keyed by bare action name. A caller that only inspects a
+   * segment needs no table. When the table is present, compilation refuses a step that the table
+   * cannot invoke, before any leaf runs. This module only reads which keys are present.
    */
   readonly handlers?: Readonly<Record<string, unknown>>;
   /**
-   * The tool `handlers` belongs to. A table keyed by bare action name cannot
-   * say which tool minted its keys, so a step on a DIFFERENT tool whose
-   * action name happens to collide with one in the table would resolve a
-   * declaration from its own tool here and then, at that leaf's turn, run the
-   * other tool's handler under the wrong contract. Naming the owner turns
-   * that collision into a refusal before any effect, instead of a silent
-   * misroute discovered only by what ran.
-   *
-   * Optional for the same reason `handlers` is: a caller compiling only to
-   * INSPECT a segment owns no table and names no owner for one.
+   * The tool that owns `handlers`. Bare action-name keys cannot show which tool minted them.
+   * Without an owner, a step on another tool with a colliding action name runs the wrong handler
+   * under the wrong contract. It must be present when `handlers` is present.
    */
   readonly handlerTool?: string;
 }
@@ -83,19 +66,14 @@ type ResolvedParams =
   | { readonly ok: false; readonly unbound: UnboundVar };
 
 /**
- * Resolve a step's static params against the validated intent arguments.
+ * Resolves the static params of a step against the validated intent arguments.
  *
- * A `<var>` placeholder becomes the TYPED value the intent schema produced, so
- * a boolean stays a boolean rather than arriving at the leaf as the string it
- * was spelled with in the runbook. Every other literal — `'auto'` above all —
- * passes through untouched, because the runbook meant it.
+ * A `<var>` placeholder becomes the typed value from the intent schema, so a boolean stays a
+ * boolean. Every other literal, `'auto'` included, passes through unchanged.
  *
- * A placeholder with nothing to bind to is REFUSED rather than dropped.
- * Dropping it silently made the runbook's own reference to a variable
- * unenforceable: the gate whose routing depends on the risk tier was
- * dispatched with no tier at all, ran tierless, and reported an advisory skip
- * as if adequacy had been assessed. A runbook that names a variable in a step
- * is a runbook that requires it, and the refusal happens before any effect.
+ * A placeholder with no bound value is refused, not dropped, because a runbook that names a
+ * variable in a step requires it. A dropped value lets a gate that routes on the risk tier run
+ * without a tier.
  */
 function resolveParams(
   params: Readonly<Record<string, unknown>> | undefined,
@@ -106,8 +84,6 @@ function resolveParams(
     if (typeof value === 'string') {
       const match = PLACEHOLDER.exec(value);
       if (match !== null) {
-        // The pattern is anchored at both ends, so the whole param value IS the
-        // placeholder and the name is what sits inside the angle brackets.
         const variable = value.slice(1, -1);
         const bound = args[variable];
         if (bound === undefined) return { ok: false, unbound: { param: key, variable } };
@@ -121,13 +97,14 @@ function resolveParams(
 }
 
 /**
- * Build one leaf's arguments and hand them to the leaf's OWN registered schema.
+ * Builds the arguments of one leaf and validates them with the registered schema of that leaf.
  *
- * Runbook params are partial by design — `task_complete`'s step carries none at
- * all while its schema needs a task and a stream — so the candidate is
- * assembled from three sources and then validated by the action itself. Running
- * the action's schema here is what restores the validation chokepoint the
- * dispatch layer would otherwise be the only holder of.
+ * Runbook params are partial by design. The `task_complete` step has no params, but its schema
+ * needs a task and a stream. The candidate thus merges the intent arguments that the leaf schema
+ * declares, the resolved step params, and the subject identity, in that order.
+ *
+ * The subject identity goes in last, so it overrides a step param or argument with the same name.
+ * Otherwise the leaf can commit to one stream while the emission check watches another.
  */
 function buildLeafArgs(
   step: RunbookStep,
@@ -149,11 +126,6 @@ function buildLeafArgs(
   if (!resolved.ok) return { ok: false, unbound: resolved.unbound };
   Object.assign(candidate, resolved.params);
 
-  // Subject identity is written LAST, so it is authoritative over anything a
-  // runbook step or an intent argument spells the same way. Written earlier, a
-  // step param named `streamId`/`featureId` would overwrite it and the leaf
-  // would commit to one stream while the emission check watched another — the
-  // exact misdirection the two-spellings refusal upstream exists to prevent.
   if (declaredKeys.has('featureId')) candidate.featureId = subject.streamId;
   if (declaredKeys.has('streamId')) candidate.streamId = subject.streamId;
 
@@ -172,7 +144,12 @@ function contractOf(declaration: ToolAction): ActionContract | undefined {
 }
 
 /**
- * Compile a named intent into an executable segment, or refuse.
+ * Compiles a named intent into an executable segment, or refuses.
+ *
+ * A registered local action is not always invokable. When `handlers` is present, compilation
+ * fails closed unless `handlerTool` names the owner and matches the tool of the step. Each leaf
+ * resolves its observation stream with the same function as the dispatch path. The fallback is
+ * the subject stream.
  *
  * @param intent      Runbook id the caller named.
  * @param subject     The stream every leaf addresses.
@@ -264,17 +241,6 @@ export function compileIntent(
       });
     }
 
-    // Registered and local is not the same as invokable. The leaves run through
-    // ONE table — the orchestrate composite's — so a step on another composite
-    // tool resolves a declaration here and then finds no handler at its turn.
-    // For a segment whose earlier leaves reach a remote, that discovery arrives
-    // after an effect it cannot take back.
-    //
-    // A table's keys alone cannot say which tool minted them, so this asks
-    // FIRST whether the table names an owner at all, and fails closed if it
-    // does not: an optional owner that a caller could simply omit would leave
-    // the fence below silently inert in exactly the callers that must exercise
-    // it, rather than refusing to compile.
     if (deps.handlers !== undefined) {
       if (deps.handlerTool === undefined) {
         return refuse({
@@ -339,13 +305,6 @@ export function compileIntent(
       action: step.action,
       onFail: step.onFail,
       args: built.args,
-      // Resolved through the SAME function the dispatch path resolves its
-      // observation stream with, so a leaf run here and the same action
-      // dispatched directly are never checked against different streams. The
-      // fallback is the segment's subject: an action that declares no
-      // infrastructure stream and carries no subject argument is still a leaf
-      // of this segment, and the segment's stream is where its records would
-      // have to be.
       observationStreamId: observationStreamId(built.args, contract) ?? subject.streamId,
       declaration,
       contract,

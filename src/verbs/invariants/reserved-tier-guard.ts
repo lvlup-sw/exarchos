@@ -1,22 +1,12 @@
 /**
- * reserved-tier-guard — keep consumers out of exarchos's reserved namespace (#1489).
+ * Keeps consumers out of the reserved `dev` invariant tier of exarchos.
+ * The `dev` tier is for the `INV-N` catalog that the exarchos repo keeps for itself. A consumer
+ * `dev` catalog takes ids from that reserved namespace. The doctor `invariants-catalog` check does
+ * not report it, because the check flags `INV-*` ids only in user-tier catalogs.
  *
- * `dev`/`INV-N` is exarchos's OWN substrate catalog. Its built-in `INV-1..6`
- * ship inside the tool and merge into every `invariants_effective` projection.
- * A consumer who authors into `tier: dev` allocates `INV-N` ids that collide
- * with those built-ins — a SILENT namespace clash, not a validation error: the
- * `doctor` `invariants-catalog` check only flags `INV-*` ids in a catalog
- * registered as USER tier, so a self-declared dev catalog evades it entirely.
- *
- * The tier choice is not "which maintainer" — it is "exarchos-substrate vs
- * project-authored". Outside the exarchos repo, `dev` is almost always a
- * mistake. This guard makes that loud at authoring time: it rejects `tier: dev`
- * in any repo whose `package.json` name is not exarchos's, returning an INV-5b
- * carrier-shape error that redirects to `tier: user`. The rare legitimate case
- * (a maintainer working in an exarchos fork) opts in via `allowReservedTier`.
- *
- * Pure-by-default: the `package.json` read flows through the injected
- * `ScaffoldDeps` hooks, so the guard is exercisable without touching disk.
+ * Thus this guard rejects `tier: dev` in a repo whose `package.json` name is not the exarchos
+ * name, and points to `tier: user`. An exarchos fork opts in with `allowReservedTier`. The
+ * `package.json` read goes through the injected `ScaffoldDeps`.
  */
 import * as path from 'node:path';
 import { toPosix } from '../../utils/paths.js';
@@ -28,11 +18,9 @@ import type { ScaffoldDeps } from './scaffold.js';
 export const EXARCHOS_PACKAGE_NAME = '@lvlup-sw/exarchos';
 
 /**
- * Is `repoRoot` the exarchos repo itself? True iff its `package.json` parses and
- * declares `name === EXARCHOS_PACKAGE_NAME`. A missing, unreadable, or
- * unparseable `package.json` — or any other name — yields `false`: we treat an
- * unidentifiable repo as "not exarchos", because authoring into the reserved
- * `dev` tier there is almost always a mistake.
+ * True when the `package.json` of `repoRoot` parses and its `name` is `EXARCHOS_PACKAGE_NAME`.
+ * A missing or bad `package.json` gives `false`, because a `dev` tier in an unknown repo is
+ * almost always a mistake.
  */
 export function isExarchosRepo(repoRoot: string, deps: ScaffoldDeps): boolean {
   const pkgPath = toPosix(path.join(repoRoot, 'package.json'));
@@ -53,19 +41,15 @@ export interface DevTierGuardArgs {
   /** Explicit opt-in for a genuine exarchos fork — bypasses the guard. */
   readonly allowReservedTier?: boolean | undefined;
   /**
-   * The orchestrate action this guard is protecting. Echoed into
-   * `suggestedFix.params.action` so the carrier-shape fix is directly
-   * re-invokable (the guard is shared across both verbs, so the caller names
-   * its own action).
+   * The orchestrate action under guard. The error copies it into `suggestedFix.params.action`,
+   * so the caller can run the fix directly.
    */
   readonly action: 'invariants_scaffold' | 'invariants_add' | 'invariants_amend';
 }
 
 /**
- * Returns `null` when the call may proceed, or a `RESERVED_TIER` error
- * `ToolResult` when a consumer is authoring into exarchos's reserved `dev`
- * namespace. The guard fires only when ALL hold: `tier === 'dev'`, no
- * `allowReservedTier` override, and the repo is not exarchos itself.
+ * Returns a `RESERVED_TIER` error when `tier` is `dev`, `allowReservedTier` is not set, and the
+ * repo is not exarchos. Otherwise it returns `null`.
  */
 export function assertDevTierAllowed(
   args: DevTierGuardArgs,

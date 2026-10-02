@@ -1,15 +1,14 @@
-// ─── Pre-Synthesis Readiness Check Handler ──────────────────────────────────
-//
-// Validates all readiness conditions before synthesis phase. Ports the logic
-// from scripts/pre-synthesis-check.sh into a TypeScript handler with 7 checks:
-//   1. State file exists and is valid JSON
-//   2. Phase readiness (workflow-type-specific transition paths)
-//   3. All tasks complete
-//   4. Reviews passed (flat, nested, legacy shapes)
-//   5. No outstanding fix requests
-//   6. PR stack exists (skippable)
-//   7. Tests pass (skippable)
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * pre_synthesis_check: checks that a workflow is ready for synthesis.
+ *   1. The state resolves and has a valid shape.
+ *   2. The phase is ready for synthesis.
+ *   3. All tasks are complete.
+ *   4. The reviews passed.
+ *   5. No task needs fixes.
+ *   6. A PR stack exists (skippable).
+ *   7. The tests pass (skippable).
+ * Checks 2 to 5 run only when check 1 passes.
+ */
 
 import { execFileSync } from 'node:child_process';
 import { runCommandSync } from '../../utils/process.js';
@@ -24,14 +23,11 @@ import { createEvidenceSubject } from '../../workflow/admission/evidence-subject
 import { runPhaseGateWithEvidence } from './gate-runner.js';
 import { emitGateEvent, sameOperationGateKey } from './gate-utils.js';
 
-// ─── Types ──────────────────────────────────────────────────────────────────
-
 export interface PreSynthesisCheckArgs {
   /**
-   * Explicit state-file path. OPTIONAL — when omitted (MCP-only workflows
-   * that never wrote a `.state.json` stamp), the handler materializes state
-   * from the event store via `featureId` + `eventStore`. INV-1: the event
-   * store is the sole source of truth; the file is a derived stamp.
+   * Explicit state-file path. If omitted, the handler reads the state from the
+   * event store through `featureId` and `eventStore`. The event store is the
+   * source of truth, and the file is a derived stamp.
    */
   readonly stateFile?: string;
   /** The stream the gate's durable evidence is recorded against. */
@@ -55,11 +51,8 @@ interface CheckContext {
   readonly counters: CheckCounters;
 }
 
-// ─── Passing status patterns ────────────────────────────────────────────────
-
+/** Review statuses that count as a pass. */
 const PASSING_STATUS = /^(pass|passed|approved)$/;
-
-// ─── Check helpers ──────────────────────────────────────────────────────────
 
 function checkPass(ctx: CheckContext, name: string): void {
   ctx.results.push(`- **PASS**: ${name}`);
@@ -77,19 +70,16 @@ function checkSkip(ctx: CheckContext, name: string): void {
   ctx.counters.skip++;
 }
 
-// ─── Check 1: State resolves and has a valid shape ──────────────────────────
-//
-// State is resolved via the shared `resolveWorkflowState` resolver (file →
-// event-store fallback). This helper runs the same field-shape validation the
-// inline file-reader previously did, against the already-resolved object, and
-// records the Check-1 PASS/FAIL into the report.
-
+/**
+ * Check 1: makes sure that the resolved state has the field shapes that the
+ * later checks read. When present, `tasks` must be an array, and `reviews`
+ * must be an object.
+ */
 function validateResolvedState(
   ctx: CheckContext,
   obj: Record<string, unknown>,
   source: string,
 ): Record<string, unknown> | null {
-  // Validate expected field shapes before downstream checks consume them
   if ('tasks' in obj && !Array.isArray(obj['tasks'])) {
     checkFail(ctx, 'State file exists', `Invalid state shape: "tasks" must be an array in ${source}`);
     return null;
@@ -107,8 +97,10 @@ function validateResolvedState(
   return obj;
 }
 
-// ─── Check 2: Phase readiness ───────────────────────────────────────────────
-
+/**
+ * Check 2: passes when the phase is `synthesize`. Otherwise it fails and, for
+ * a known path, lists the transitions that remain.
+ */
 function checkPhaseReadiness(
   ctx: CheckContext,
   state: Record<string, unknown>,
@@ -239,13 +231,12 @@ function checkPhaseReadiness(
   }
 }
 
-// ─── Check 3: All tasks complete ────────────────────────────────────────────
-
 interface Task {
   readonly id: string;
   readonly status: string;
 }
 
+/** Check 3: fails when the state has no tasks or a task is not `complete`. */
 function checkAllTasksComplete(
   ctx: CheckContext,
   state: Record<string, unknown>,
@@ -267,8 +258,11 @@ function checkAllTasksComplete(
   checkPass(ctx, `All tasks complete (${tasks.length}/${tasks.length})`);
 }
 
-// ─── Check 4: Reviews passed ────────────────────────────────────────────────
-
+/**
+ * Check 4: fails when there is no review entry or an entry does not pass. An
+ * entry can have a flat `status`, a nested `specReview` and `qualityReview`,
+ * or a legacy `passed` boolean.
+ */
 function checkReviewsPassed(
   ctx: CheckContext,
   state: Record<string, unknown>,
@@ -288,12 +282,10 @@ function checkReviewsPassed(
     if (entry === undefined) continue;
 
     if (typeof entry['status'] === 'string') {
-      // Flat shape
       if (!PASSING_STATUS.test(entry['status'] as string)) {
         failures.push(`${key} (status: ${entry['status']})`);
       }
     } else if (entry['specReview'] || entry['qualityReview']) {
-      // Nested shape
       const spec = entry['specReview'] as Record<string, unknown> | undefined;
       const quality = entry['qualityReview'] as Record<string, unknown> | undefined;
 
@@ -304,7 +296,6 @@ function checkReviewsPassed(
         failures.push(`${key}.qualityReview (status: ${quality['status']})`);
       }
     } else if (entry['passed'] === true) {
-      // Legacy shape — passing
     } else if (entry['passed'] === false) {
       failures.push(`${key} (passed: false)`);
     } else {
@@ -320,8 +311,7 @@ function checkReviewsPassed(
   checkPass(ctx, `Reviews passed (${keys.length} review entries, all passing)`);
 }
 
-// ─── Check 5: No outstanding fix requests ───────────────────────────────────
-
+/** Check 5: fails when a task has the status `needs_fixes`. */
 function checkNoFixRequests(
   ctx: CheckContext,
   state: Record<string, unknown>,
@@ -338,8 +328,10 @@ function checkNoFixRequests(
   checkPass(ctx, 'No outstanding fix requests');
 }
 
-// ─── Check 6: PR stack exists ───────────────────────────────────────────────
-
+/**
+ * Check 6: passes when the current branch has an open PR. It is skipped with
+ * `skipStack`, or when the provider is not GitHub.
+ */
 async function checkPrStack(
   ctx: CheckContext,
   repoRoot: string,
@@ -387,8 +379,14 @@ async function checkPrStack(
   }
 }
 
-// ─── Check 7: Tests pass ───────────────────────────────────────────────────
-
+/**
+ * Check 7: runs the test command, then the typecheck command, from
+ * `resolveTestRuntime`. If the runtime is unresolved or has no test command,
+ * the check is skipped. So the check never runs a guessed `npm` command in a
+ * pnpm or yarn repo. The commands run through `runCommandSync`, because
+ * `execFile` refuses to start a `.cmd` package-manager shim on Windows since
+ * CVE-2024-27980.
+ */
 function checkTestsPass(
   ctx: CheckContext,
   repoRoot: string,
@@ -400,10 +398,6 @@ function checkTestsPass(
     return;
   }
 
-  // Use the resolver directly — the canonical resolveTestRuntime path (#1109
-  // MCP-parity; consumers see identical resolver output). Graceful skip on
-  // `unresolved` matches the #1174 contract: missing/ambiguous project config
-  // produces SKIP with remediation, never npm-against-pnpm-or-yarn.
   let resolved: ReturnType<typeof resolveTestRuntime>;
   try {
     resolved = resolveTestRuntime(
@@ -428,16 +422,12 @@ function checkTestsPass(
     return;
   }
 
-  // Quote-aware tokenizer (config/override commands may contain quoted args).
   try {
     const { cmd: testProg, args: testArgs } = splitCommand(cmds.test);
     if (testProg === '') {
       checkFail(ctx, 'Tests pass', 'empty test command');
       return;
     }
-    // runCommandSync (not raw execFileSync): the resolved test command is a
-    // package-manager shim (`npm run test:run`) whose `.cmd` launcher execFile
-    // refuses to start on Windows since CVE-2024-27980 (Node >= 20.12.2). (#1623)
     runCommandSync(testProg, testArgs as string[], {
       cwd: repoRoot,
       timeout: 120_000,
@@ -455,8 +445,6 @@ function checkTestsPass(
         checkFail(ctx, 'Tests pass', 'empty typecheck command');
         return;
       }
-      // runCommandSync (not raw execFileSync): a resolved `npm run typecheck`
-      // shim won't launch via execFile on Windows since CVE-2024-27980. (#1623)
       runCommandSync(tcProg, tcArgs as string[], {
         cwd: repoRoot,
         timeout: 60_000,
@@ -471,8 +459,10 @@ function checkTestsPass(
   checkPass(ctx, 'Tests pass');
 }
 
-// ─── Handler ────────────────────────────────────────────────────────────────
-
+/**
+ * Runs the readiness checks through `runPhaseGateWithEvidence`. The runner
+ * records durable gate evidence before a success result returns.
+ */
 export async function handlePreSynthesisCheck(
   args: PreSynthesisCheckArgs,
   provider?: VcsProvider,
@@ -494,11 +484,6 @@ export async function handlePreSynthesisCheck(
     };
   }
 
-  // The gate declares BOTH durable gate evidence and an unconditional
-  // `gate.executed` emission, and honored neither. The shared phase-gate runner
-  // records the evidence before any success carrier escapes; the declared
-  // signal is minted by the provider closure, keyed so a same-operation retry
-  // collapses onto one row.
   return runPhaseGateWithEvidence({
     streamId: args.featureId,
     gateClass: 'pre-synthesis',
@@ -515,6 +500,13 @@ export async function handlePreSynthesisCheck(
   });
 }
 
+/**
+ * Runs the seven checks and appends the `gate.executed` event. The state comes
+ * from `resolveWorkflowState`, with the event store as fallback. A malformed
+ * explicit `stateFile` fails check 1 at once, because the resolver otherwise
+ * hides the parse error behind the fallback. The gate event uses a
+ * same-operation key, so a retry of one run does not append a second row.
+ */
 async function executePreSynthesisCheck(
   args: PreSynthesisCheckArgs,
   store: EventStore,
@@ -528,28 +520,14 @@ async function executePreSynthesisCheck(
     counters: { pass: 0, fail: 0, skip: 0 },
   };
 
-  // Resolve state via the canonical resolver (file → event-store fallback).
-  // INV-1: the event store is the sole source of truth; the `.state.json`
-  // file is a derived stamp that may be absent for MCP-only workflows.
-  //
-  // A *malformed* explicit stateFile is a configuration error we must NOT mask
-  // behind the event-store fallback: resolveWorkflowState catches the JSON
-  // error and silently resolves from the store, so we classify the file first
-  // and record the Check-1 FAIL the file-based report contract expects. A
-  // *missing* file still falls back to the event store (the stamp is optional).
   const fileStatus = classifyStateFile(stateFile);
 
-  // Check 1: State resolves + valid shape — all other state-dependent checks
-  // depend on this.
   let state: Record<string, unknown> | null = null;
   if (fileStatus === 'malformed') {
     checkFail(ctx, 'State file exists', `Invalid JSON: ${stateFile}`);
   } else {
     const resolved = await resolveWorkflowState({ stateFile, featureId, eventStore });
     if ('error' in resolved) {
-      // An exists-and-parseable file resolves successfully, so a `stateFile`
-      // reaching the error branch is missing (with no event-store fallback);
-      // otherwise it is the genuine no-source case.
       const detail = stateFile
         ? `File not found: ${stateFile}`
         : resolved.error.error?.message ??
@@ -562,26 +540,16 @@ async function executePreSynthesisCheck(
   }
 
   if (state !== null) {
-    // Check 2: Phase readiness
     checkPhaseReadiness(ctx, state);
-
-    // Check 3: All tasks complete
     checkAllTasksComplete(ctx, state);
-
-    // Check 4: Reviews passed
     checkReviewsPassed(ctx, state);
-
-    // Check 5: No outstanding fix requests
     checkNoFixRequests(ctx, state);
   }
 
-  // Check 6: PR stack (independent of state file)
   await checkPrStack(ctx, repoRoot, skipStack, vcs);
 
-  // Check 7: Tests (independent of state file)
   checkTestsPass(ctx, repoRoot, skipTests, testCommand);
 
-  // Build report
   const total = ctx.counters.pass + ctx.counters.fail;
   const passed = ctx.counters.fail === 0;
 
@@ -600,10 +568,6 @@ async function executePreSynthesisCheck(
       : `**Result: FAIL** (${ctx.counters.fail}/${total} checks failed)`,
   ];
 
-  // The `gate.executed` row the action declares unconditionally. Keyed on the
-  // operation identity a retry deliberately reuses: the runner re-executes this
-  // provider before it can discover the operation already produced evidence,
-  // and an unkeyed append would leave two rows describing one gate run.
   await emitGateEvent(
     store,
     featureId,
