@@ -105,6 +105,23 @@ describe('loadPolicy', () => {
     expect(() => loadPolicy(file)).toThrow(/not in the rules roster/);
   });
 
+  it('LoadPolicy_PlacementInRoster_RequiresEveryPlacementCheck', () => {
+    const checks = ['banner', 'trailing', 'in-body', 'non-jsdoc', 'detached', 'floating'].map((id) => ({ id, enabled: true, message: 'm' }));
+    const datum = (placement: unknown) => validDatum({ rules: ['comment-content', 'comment-placement'], placement });
+
+    expect(loadPolicy(writeTempPolicy(datum({ testCallees: ['it'], checks }))).placement?.checks.size).toBe(6);
+    expect(() => loadPolicy(writeTempPolicy(datum({ testCallees: ['it'], checks: checks.slice(1) })))).toThrow(/does not declare: banner/);
+    expect(() => loadPolicy(writeTempPolicy(datum({ testCallees: ['it'], checks: [...checks, { id: 'nope', enabled: true, message: 'm' }] })))).toThrow(
+      /not a placement check/,
+    );
+    expect(() => loadPolicy(writeTempPolicy(datum({ testCallees: ['it'], checks: [{ id: 'banner', message: 'm' }] })))).toThrow(/explicit boolean/);
+    expect(() => loadPolicy(writeTempPolicy(datum(undefined)))).toThrow(/placement must be an object/);
+  });
+
+  it('LoadPolicy_PlacementOutsideRoster_IsAbsent', () => {
+    expect(loadPolicy(writeTempPolicy(validDatum())).placement).toBeUndefined();
+  });
+
   it('LoadPolicy_EmptyForbiddenOrdinals_Fails', () => {
     expect(() => loadPolicy(writeTempPolicy(validDatum({ forbiddenOrdinals: [] })))).toThrow(
       /forbids nothing/,

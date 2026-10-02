@@ -151,6 +151,11 @@ describe('Documentation_EveryStatedRule_IsOneThatIsEnforced', () => {
       enforcer: { eslintRule: 'comments/comment-content' },
       where: 'CLAUDE.md',
     },
+    {
+      claim: /Comments are a file header or a `\/\*\* \*\/` description/,
+      enforcer: { eslintRule: 'comments/comment-placement' },
+      where: 'CLAUDE.md',
+    },
   ];
 
   it('every rule the instructions state has a live enforcer', async () => {

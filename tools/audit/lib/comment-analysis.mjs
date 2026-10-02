@@ -9,6 +9,7 @@
 import { isExempt } from './comment-policy.mjs';
 import { classifyText } from './comment-classifier.mjs';
 import { withOccurrences, isSuppressed } from './comment-baseline.mjs';
+import { classifyPlacements, PLACEMENT_RULE } from './comment-placement.mjs';
 
 /** The roster name of the content rule. */
 export const CONTENT_RULE = 'comment-content';
@@ -30,6 +31,8 @@ export const CONTENT_RULE = 'comment-content';
  * @property {string} hash
  * @property {number} occurrence Index among the file's blocks with the same hash.
  * @property {BlockFinding[]} findings Every finding from every non-exempt rule.
+ * @property {import('./comment-placement.mjs').Placement | undefined} placement Absent when the
+ *   placement rule does not apply: no syntax tree, or an exempt path.
  * @property {boolean} suppressed True when the baseline covers this block. The baseline count
  *   covers the first violating blocks of a hash, in file order.
  */
@@ -59,6 +62,45 @@ function contentFindings(block, policy) {
 }
 
 /**
+ * The parsed form of a JavaScript or TypeScript file. The placement rule needs it.
+ *
+ * @typedef {object} FileSyntax
+ * @property {import('./comment-placement.mjs').EsNode} ast
+ * @property {readonly import('./comment-placement.mjs').RawComment[]} comments Directives included.
+ * @property {string} text
+ */
+
+/**
+ * The placement of each block, or `undefined` per block when the rule does not apply.
+ *
+ * @param {string} relPath
+ * @param {readonly import('./comment-baseline.mjs').CommentBlock[]} blocks
+ * @param {ReturnType<typeof import('./comment-policy.mjs').loadPolicy>} policy
+ * @param {FileSyntax | undefined} syntax
+ * @returns {(import('./comment-placement.mjs').Placement | undefined)[]}
+ */
+function placementsFor(relPath, blocks, policy, syntax) {
+  if (syntax === undefined || policy.placement === undefined || isExempt(policy, relPath, PLACEMENT_RULE)) {
+    return blocks.map(() => undefined);
+  }
+  return classifyPlacements({ ...syntax, blocks, testCallees: policy.placement.testCallees });
+}
+
+/**
+ * The finding for a placement, when the placement breaks an enabled check.
+ *
+ * @param {import('./comment-placement.mjs').Placement | undefined} placement
+ * @param {ReturnType<typeof import('./comment-policy.mjs').loadPolicy>} policy
+ * @returns {BlockFinding[]}
+ */
+function placementFindings(placement, policy) {
+  if (placement === undefined || placement.allowed) return [];
+  const check = policy.placement?.checks.get(placement.checkId);
+  if (check === undefined || !check.enabled) return [];
+  return [{ rule: PLACEMENT_RULE, checkId: placement.checkId, message: check.message }];
+}
+
+/**
  * Analyze one file's blocks against every rule and the file's baseline entries.
  *
  * @param {object} input
@@ -66,14 +108,17 @@ function contentFindings(block, policy) {
  * @param {readonly import('./comment-baseline.mjs').CommentBlock[]} input.blocks
  * @param {ReturnType<typeof import('./comment-policy.mjs').loadPolicy>} input.policy
  * @param {ReadonlyMap<string, number> | undefined} input.entries The file's baseline entries.
+ * @param {FileSyntax} [input.syntax] Present for JavaScript and TypeScript files.
  * @returns {{ analyzed: AnalyzedBlock[], stale: StaleEntry[] }}
  */
-export function analyzeFile({ relPath, blocks, policy, entries }) {
+export function analyzeFile({ relPath, blocks, policy, entries, syntax }) {
   const contentApplies = !isExempt(policy, relPath, CONTENT_RULE);
+  const placements = placementsFor(relPath, blocks, policy, syntax);
   /** @type {Map<string, number>} */
   const live = new Map();
-  const analyzed = withOccurrences(blocks).map(({ block, hash, occurrence }) => {
-    const findings = contentApplies ? contentFindings(block, policy) : [];
+  const analyzed = withOccurrences(blocks).map(({ block, hash, occurrence }, index) => {
+    const placement = placements[index];
+    const findings = [...(contentApplies ? contentFindings(block, policy) : []), ...placementFindings(placement, policy)];
     const violating = live.get(hash) ?? 0;
     if (findings.length > 0) live.set(hash, violating + 1);
     return {
@@ -81,6 +126,7 @@ export function analyzeFile({ relPath, blocks, policy, entries }) {
       hash,
       occurrence,
       findings,
+      placement,
       suppressed: findings.length > 0 && isSuppressed(entries, hash, violating),
     };
   });
