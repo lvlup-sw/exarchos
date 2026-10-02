@@ -17,8 +17,8 @@
 packet:
   id: exarchos-semantic-plane
   version: 2
-  as_of: 2026-10-01
-  main_at: 9defc8a36
+  as_of: 2026-10-02
+  main_at: 90ab4c88e
   owner_issue: 1875            # the decision record and build-order log
   roadmap_issue: 1599
   epic_issue: 1856
@@ -372,6 +372,9 @@ decisions:
   - date: "2026-10-01"
     source: "#1925, coordinator"
     decision: "The task-completion intent argument is baseRef, not baseBranch. The intent compiler hands an argument to every leaf whose schema declares that key, so baseBranch would also reach check_contract_drift, check_mock_boundary and check_static_analysis. Only the kill-probe step binds it (baseBranch: '<baseRef>'); the other gates keep their defaults while verification-base stays open. prepare_delegation returns the base as baseBranch, the name of the branch on the primitive path."
+  - date: "2026-10-02"
+    source: "Reed, release session"
+    decision: "v2.12.0's npm publish failed because the repo .npmrc maps the @lvlup-sw scope to GitHub Packages, and a scope registry outranks publishConfig.registry. Cut v2.12.1 with the fix rather than hand-publish 2.12.0, so npm latest is a CI build with provenance. v2.12.0 stays a GitHub-only release."
 # ─── build order (reconciled 2026-09-30) ─────────────────────────────────────
 
 build_order:
@@ -414,7 +417,7 @@ build_order:
       status: "in progress"
       refs: "#1898 (reopened 2026-10-01), #1779, #1825"
     - leg: "distribution (plugin primary, launcher retired, installer pinned, a release that carries the plane)"
-      status: "in progress: installers carry a built-in verifier and the release gate refuses an unpinned key (#1939); the publisher key is pinned and v2.12.0 is the first release with a signed manifest (#1737); the stranded bundle is archived (#1931); the launcher is not retired (#1877)"
+      status: "in progress: installers carry a built-in verifier and the release gate refuses an unpinned key (#1939); the publisher key is pinned and v2.12.0 is the first release with a signed manifest (#1737); v2.12.0 reached GitHub Releases but not npm, so v2.12.1 is the first GA on npm; the stranded bundle is archived (#1931); the launcher is not retired (#1877)"
       refs: "#1877, #1737, #1690, #1931 (stranded-bundle GA ports)"
     - leg: "transport (prepare/settle on the 2026-07-28 stateless MCP spec; long-running settle)"
       status: "not started"
@@ -544,7 +547,7 @@ milestones:
   v2.12.0:
     outcome: GA of what shipped. Safe to install; correct verdicts on the paths it ships (prepare/settle as the interim delegate path).
     scope: [1737, 1925, 1656, 1641, 1545, 1716]
-    status: "landed: 1925, 1656, 1545, 1716 and 1641 item 1, plus two blockers found during closeout, 1941 and 1943. 1737 lands with the release PR that pins the publisher key and bumps the version to 2.12.0; the GA tag is cut from its merge."
+    status: "shipped 2026-10-02. Landed: 1925, 1656, 1545, 1716 and 1641 item 1, plus two blockers found during closeout, 1941 and 1943; 1737 landed with the release PR (#2075). The v2.12.0 tag published the signed GitHub Release, but its npm publish went to GitHub Packages and failed. v2.12.1 carries the fix and is the first GA on npm."
     release: no interim preview; GA when the six land.
   v3.0.0:
     outcome: The semantic plane end to end. One prepare and one settle per normal workflow; the runtime does all the work, including Git.
@@ -608,4 +611,5 @@ traps:
   - A re-charter block at the top of an issue does not cancel contradicting sections below it. The description is the source of truth; strike the stale sections.
   - The state document is not an existence signal (rehydrate/get _meta.workflowExists is), yet transition guards read it. Both are true until it retires.
   - Issues that say "closes via the feat/v2-12-bundle PR" are not closed by anything; that branch cannot merge.
+  - A scope registry in .npmrc outranks publishConfig.registry. Publishing a scoped package needs the scope key in publishConfig too; tests/scripts/npm-publish-target.test.ts holds it.
   - "The static census counts what skills prescribe, not what agents do. The observed half of #1687 needs transcripts recorded after the skill rewrite."
