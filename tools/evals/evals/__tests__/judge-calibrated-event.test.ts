@@ -9,8 +9,6 @@ import {
 } from '../../../../src/projections/views/eval-results-view.js';
 import type { WorkflowEvent } from '../../../../src/events/schemas.js';
 
-// ─── Helper ─────────────────────────────────────────────────────────────────
-
 function makeEvent(
   sequence: number,
   type: string,
@@ -26,11 +24,8 @@ function makeEvent(
   };
 }
 
-// ─── Schema Tests ───────────────────────────────────────────────────────────
-
 describe('JudgeCalibratedDataSchema', () => {
   it('JudgeCalibratedDataSchema_ValidData_ParsesSuccessfully', () => {
-    // Arrange
     const validData = {
       skill: 'code-review',
       rubricName: 'correctness',
@@ -44,10 +39,8 @@ describe('JudgeCalibratedDataSchema', () => {
       rubricVersion: '1.2.0',
     };
 
-    // Act
     const parsed = JudgeCalibratedDataSchema.parse(validData);
 
-    // Assert
     expect(parsed.skill).toBe('code-review');
     expect(parsed.rubricName).toBe('correctness');
     expect(parsed.split).toBe('validation');
@@ -60,7 +53,6 @@ describe('JudgeCalibratedDataSchema', () => {
   });
 
   it('JudgeCalibratedDataSchema_TestSplit_ParsesSuccessfully', () => {
-    // Arrange
     const validData = {
       skill: 'debugging',
       rubricName: 'root-cause',
@@ -74,20 +66,16 @@ describe('JudgeCalibratedDataSchema', () => {
       rubricVersion: '2.0.0',
     };
 
-    // Act
     const parsed = JudgeCalibratedDataSchema.parse(validData);
 
-    // Assert
     expect(parsed.split).toBe('test');
   });
 
   it('JudgeCalibratedDataSchema_MissingTPR_ThrowsValidationError', () => {
-    // Arrange
     const invalidData = {
       skill: 'code-review',
       rubricName: 'correctness',
       split: 'validation',
-      // tpr is missing
       tnr: 0.88,
       accuracy: 0.90,
       f1: 0.91,
@@ -95,16 +83,14 @@ describe('JudgeCalibratedDataSchema', () => {
       rubricVersion: '1.0.0',
     };
 
-    // Act & Assert
     expect(() => JudgeCalibratedDataSchema.parse(invalidData)).toThrow();
   });
 
   it('JudgeCalibratedDataSchema_InvalidSplit_ThrowsValidationError', () => {
-    // Arrange
     const invalidData = {
       skill: 'code-review',
       rubricName: 'correctness',
-      split: 'training',  // invalid — must be 'validation' or 'test'
+      split: 'training',
       tpr: 0.92,
       tnr: 0.88,
       accuracy: 0.90,
@@ -113,7 +99,6 @@ describe('JudgeCalibratedDataSchema', () => {
       rubricVersion: '1.0.0',
     };
 
-    // Act & Assert
     expect(() => JudgeCalibratedDataSchema.parse(invalidData)).toThrow();
   });
 });
@@ -124,11 +109,8 @@ describe('EventTypes — eval.judge.calibrated', () => {
   });
 });
 
-// ─── View Tests ─────────────────────────────────────────────────────────────
-
 describe('EvalResultsView — eval.judge.calibrated handler', () => {
   it('EvalResultsView_JudgeCalibratedEvent_TracksCalibrationHistory', () => {
-    // Arrange
     const init = evalResultsProjection.init();
     const event = makeEvent(1, 'eval.judge.calibrated', {
       skill: 'code-review',
@@ -143,10 +125,8 @@ describe('EvalResultsView — eval.judge.calibrated handler', () => {
       rubricVersion: '1.0.0',
     });
 
-    // Act
     const result = evalResultsProjection.apply(init, event);
 
-    // Assert
     expect(result.calibrations).toHaveLength(1);
     expect(result.calibrations[0].skill).toBe('code-review');
     expect(result.calibrations[0].rubricName).toBe('correctness');
@@ -159,7 +139,6 @@ describe('EvalResultsView — eval.judge.calibrated handler', () => {
   });
 
   it('EvalResultsView_JudgeCalibratedEvent_UpdatesLatestCalibration', () => {
-    // Arrange
     const init = evalResultsProjection.init();
     const event1 = makeEvent(1, 'eval.judge.calibrated', {
       skill: 'code-review',
@@ -186,11 +165,9 @@ describe('EvalResultsView — eval.judge.calibrated handler', () => {
       rubricVersion: '1.1.0',
     });
 
-    // Act
     const state1 = evalResultsProjection.apply(init, event1);
     const state2 = evalResultsProjection.apply(state1, event2);
 
-    // Assert — latest calibration is the most recent one appended
     expect(state2.calibrations).toHaveLength(2);
     const latest = state2.calibrations[state2.calibrations.length - 1];
     expect(latest.tpr).toBe(0.92);
@@ -198,7 +175,6 @@ describe('EvalResultsView — eval.judge.calibrated handler', () => {
   });
 
   it('EvalResultsView_MultipleCalibrations_KeepsHistory', () => {
-    // Arrange
     const init = evalResultsProjection.init();
     const events = [
       makeEvent(1, 'eval.judge.calibrated', {
@@ -239,13 +215,11 @@ describe('EvalResultsView — eval.judge.calibrated handler', () => {
       }),
     ];
 
-    // Act
     let state: EvalResultsViewState = init;
     for (const event of events) {
       state = evalResultsProjection.apply(state, event);
     }
 
-    // Assert — all three calibrations are preserved in order
     expect(state.calibrations).toHaveLength(3);
     expect(state.calibrations[0].skill).toBe('code-review');
     expect(state.calibrations[0].tpr).toBe(0.80);
@@ -256,7 +230,6 @@ describe('EvalResultsView — eval.judge.calibrated handler', () => {
   });
 
   it('EvalResultsView_JudgeCalibratedEvent_NoData_ReturnsUnchanged', () => {
-    // Arrange
     const init = evalResultsProjection.init();
     const event: WorkflowEvent = {
       streamId: 'test-stream',
@@ -264,13 +237,10 @@ describe('EvalResultsView — eval.judge.calibrated handler', () => {
       timestamp: '2025-06-01T10:00:00.000Z',
       type: 'eval.judge.calibrated' as WorkflowEvent['type'],
       schemaVersion: '1.0',
-      // no data
     };
 
-    // Act
     const result = evalResultsProjection.apply(init, event);
 
-    // Assert — calibrations should remain empty
     expect(result.calibrations).toHaveLength(0);
   });
 });

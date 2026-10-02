@@ -10,8 +10,6 @@ describe('ExactMatchGrader', () => {
     expect(grader.type).toBe('exact-match');
   });
 
-  // ─── Full match ─────────────────────────────────────────────────────
-
   it('Grade_FullMatch_ReturnsScoreOne', async () => {
     const result = await grader.grade(
       {},
@@ -22,20 +20,16 @@ describe('ExactMatchGrader', () => {
     expect(result.passed).toBe(true);
   });
 
-  // ─── Partial match ──────────────────────────────────────────────────
-
+  /** Two of three fields match. The default threshold is 1.0, so the grade fails. */
   it('Grade_PartialMatch_ReturnsProportionalScore', async () => {
     const result = await grader.grade(
       {},
       { a: 1, b: 'wrong', c: 3 },
       { a: 1, b: 'hello', c: 3 }
     );
-    // 2 out of 3 match
     expect(result.score).toBeCloseTo(2 / 3);
-    expect(result.passed).toBe(false); // default threshold is 1.0
+    expect(result.passed).toBe(false);
   });
-
-  // ─── No match ──────────────────────────────────────────────────────
 
   it('Grade_NoMatch_ReturnsScoreZero', async () => {
     const result = await grader.grade(
@@ -46,8 +40,6 @@ describe('ExactMatchGrader', () => {
     expect(result.score).toBe(0.0);
     expect(result.passed).toBe(false);
   });
-
-  // ─── Nested objects ─────────────────────────────────────────────────
 
   it('Grade_NestedObjects_DeepEquals', async () => {
     const result = await grader.grade(
@@ -69,8 +61,6 @@ describe('ExactMatchGrader', () => {
     expect(result.passed).toBe(false);
   });
 
-  // ─── Arrays ─────────────────────────────────────────────────────────
-
   it('Grade_MatchingArrays_ReturnsScoreOne', async () => {
     const result = await grader.grade(
       {},
@@ -89,8 +79,6 @@ describe('ExactMatchGrader', () => {
     expect(result.score).toBe(0.0);
   });
 
-  // ─── Type mismatch ─────────────────────────────────────────────────
-
   it('Grade_TypeMismatch_ReturnsScoreZero', async () => {
     const result = await grader.grade(
       {},
@@ -99,8 +87,6 @@ describe('ExactMatchGrader', () => {
     );
     expect(result.score).toBe(0.0);
   });
-
-  // ─── Field selection ────────────────────────────────────────────────
 
   it('Grade_FieldSelection_OnlyChecksSelectedFields', async () => {
     const result = await grader.grade(
@@ -113,8 +99,6 @@ describe('ExactMatchGrader', () => {
     expect(result.passed).toBe(true);
   });
 
-  // ─── Threshold behavior ─────────────────────────────────────────────
-
   it('Grade_ScoreAboveThreshold_Passes', async () => {
     const result = await grader.grade(
       {},
@@ -122,7 +106,6 @@ describe('ExactMatchGrader', () => {
       { a: 1, b: 'hello', c: 3 },
       { threshold: 0.5 }
     );
-    // 2/3 = 0.67 >= 0.5
     expect(result.passed).toBe(true);
   });
 
@@ -133,11 +116,8 @@ describe('ExactMatchGrader', () => {
       { a: 1, b: 'hello', c: 3 },
       { threshold: 0.5 }
     );
-    // 1/3 = 0.33 < 0.5
     expect(result.passed).toBe(false);
   });
-
-  // ─── Empty expected ─────────────────────────────────────────────────
 
   it('Grade_EmptyExpected_ReturnsScoreOne', async () => {
     const result = await grader.grade(
@@ -149,8 +129,6 @@ describe('ExactMatchGrader', () => {
     expect(result.passed).toBe(true);
   });
 
-  // ─── Missing field in output ────────────────────────────────────────
-
   it('Grade_MissingFieldInOutput_CountsAsMismatch', async () => {
     const result = await grader.grade(
       {},
@@ -159,8 +137,6 @@ describe('ExactMatchGrader', () => {
     );
     expect(result.score).toBe(0.5);
   });
-
-  // ─── Property tests ────────────────────────────────────────────────
 
   describe('Property Tests', () => {
     const arbRecord = fc.dictionary(

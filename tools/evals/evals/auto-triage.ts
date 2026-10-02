@@ -2,8 +2,6 @@ import type { WorkflowEvent } from '../../../src/events/schemas.js';
 import type { EvalCase } from './types.js';
 import { captureTrace } from './trace-capture.js';
 
-// ─── Types ──────────────────────────────────────────────────────────────────
-
 export interface TriageResult {
   readonly regressionCandidates: EvalCase[];
   readonly capabilityCandidates: EvalCase[];
@@ -15,9 +13,7 @@ export interface TriageOptions {
   readonly deduplicationThreshold?: number;
 }
 
-// ─── Event Classification Constants ─────────────────────────────────────────
-
-/** Events indicating the workflow reached a terminal (completed) state. */
+/** Events that show the workflow reached a terminal state: cleanup or cancel. */
 const COMPLETION_EVENT_TYPES = new Set([
   'workflow.cleanup',
   'workflow.cancel',
@@ -32,14 +28,12 @@ const RETRY_EVENT_TYPES = new Set([
   'tool.errored',
 ]);
 
-/** Events indicating novel tool usage patterns. */
+/** Tool events. The triage treats any one of them as a novel tool pattern. */
 const TOOL_EVENT_TYPES = new Set([
   'tool.invoked',
   'tool.completed',
   'tool.errored',
 ]);
-
-// ─── Predicates ─────────────────────────────────────────────────────────────
 
 /** Returns true if the trace is too short to be meaningful (< 3 events). */
 function isTriviallyShort(events: WorkflowEvent[]): boolean {
@@ -69,10 +63,9 @@ function hasToolEvents(events: WorkflowEvent[]): boolean {
 }
 
 /**
- * Compute a structural similarity score between two input records.
- *
- * Compares the set of top-level keys and the string-coerced values. Returns
- * a value between 0 (completely different) and 1 (identical structure and values).
+ * Scores the similarity of two records from 0 to 1, as the mean over the keys of both.
+ * A key scores 1 when both values match as strings, 0.5 when the values differ, and 0
+ * when one record lacks it. Two empty records score 1.
  */
 function structuralSimilarity(
   a: Record<string, unknown>,
@@ -91,17 +84,17 @@ function structuralSimilarity(
       if (String(a[key]) === String(b[key])) {
         matches += 1;
       } else {
-        matches += 0.5; // same key, different value
+        matches += 0.5;
       }
     }
-    // key in only one object: 0 contribution
   }
 
   return matches / allKeys.size;
 }
 
 /**
- * Check if any captured eval case is a near-duplicate of existing dataset cases.
+ * Returns true when the mean similarity of `input` and `expected` reaches `threshold`
+ * for any existing case.
  */
 function isDuplicate(
   captured: EvalCase,
@@ -119,18 +112,14 @@ function isDuplicate(
   return false;
 }
 
-// ─── Core Triage Logic ──────────────────────────────────────────────────────
-
 /**
- * Classify workflow trace events into regression candidates, capability
- * candidates, and discarded traces.
- *
- * Triage rules:
- * 1. Empty input or trivially short traces (< 3 events) → discard
- * 2. Incomplete workflows (no completion event) → discard
- * 3. Duplicates of existing dataset cases → discard
- * 4. Completed workflows with retries/self-corrections or novel tool patterns → capability
- * 5. Completed clean workflows with all gates passed → regression
+ * Sorts one workflow trace into regression candidates, capability candidates, or a discard.
+ * An empty trace gives an empty result with `discarded: 0`. The rules apply in this order:
+ * 1. A trace with fewer than 3 events, no completion event, or no captured case is a discard.
+ * 2. A trace is a discard when every captured case duplicates an existing case.
+ * 3. A retry event or any tool event makes the cases capability candidates.
+ * 4. If every `gate.executed` event passed, the cases are regression candidates.
+ * 5. Otherwise, the cases are capability candidates.
  */
 export function triageTrace(
   traceEvents: WorkflowEvent[],
@@ -143,27 +132,22 @@ export function triageTrace(
     discarded: 0,
   };
 
-  // Guard: empty input
   if (traceEvents.length === 0) return empty;
 
-  // Rule 1: trivially short traces
   if (isTriviallyShort(traceEvents)) {
     return { ...empty, discarded: 1 };
   }
 
-  // Rule 2: incomplete workflows
   if (!isWorkflowComplete(traceEvents)) {
     return { ...empty, discarded: 1 };
   }
 
-  // Capture eval cases from the trace
   const captured = captureTrace(traceEvents, { skill: options.skill });
 
   if (captured.length === 0) {
     return { ...empty, discarded: 1 };
   }
 
-  // Rule 3: deduplication against existing datasets
   const threshold = options.deduplicationThreshold ?? 0.9;
   const relevantExisting = resolveExistingCases(existingDatasets, options.skill);
 
@@ -176,7 +160,6 @@ export function triageTrace(
     }
   }
 
-  // Rule 4: retries or novel patterns → capability
   const hasRetries = hasRetryPatterns(traceEvents);
   const hasNovel = hasToolEvents(traceEvents);
 
@@ -194,7 +177,6 @@ export function triageTrace(
     };
   }
 
-  // Rule 5: clean completed workflow with all gates passed → regression
   if (allGatesPassed(traceEvents)) {
     const regressionCases = captured.map((c) => ({
       ...c,
@@ -209,7 +191,6 @@ export function triageTrace(
     };
   }
 
-  // Fallback: completed but gates failed — capability
   const fallbackCases = captured.map((c) => ({
     ...c,
     layer: 'capability' as const,
@@ -223,11 +204,9 @@ export function triageTrace(
   };
 }
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
 /**
- * Resolve existing eval cases relevant for deduplication. If a skill is
- * specified, only return cases from that dataset; otherwise merge all.
+ * Returns the existing cases for deduplication. With a skill, it returns that dataset only.
+ * Without a skill, it merges all datasets.
  */
 function resolveExistingCases(
   datasets: Map<string, EvalCase[]>,

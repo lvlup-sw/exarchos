@@ -14,7 +14,8 @@ export interface DiscoveredSuite {
 }
 
 /**
- * Discover eval suites by scanning for suite.json files in subdirectories.
+ * Discovers the eval suites in the subdirectories of `evalsDir` that hold a `suite.json`.
+ * It skips a subdirectory without one, and throws on an invalid one.
  */
 export async function discoverSuites(
   evalsDir: string,
@@ -33,7 +34,7 @@ export async function discoverSuites(
       content = await fs.readFile(suiteJsonPath, 'utf-8');
     } catch (err: unknown) {
       if (err && typeof err === 'object' && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT') {
-        continue; // No suite.json in this directory
+        continue;
       }
       throw err;
     }
@@ -64,8 +65,8 @@ export async function discoverSuites(
 }
 
 /**
- * Duck-typed event store interface to avoid circular dependencies.
- * Requires append for event emission and query for regression detection.
+ * The event store surface that the harness uses, declared here to avoid a circular import.
+ * Without `query`, regression detection finds no regressions.
  */
 export interface EvalEventStore {
   append(streamId: string, event: Record<string, unknown>): Promise<void>;
@@ -82,11 +83,7 @@ export interface RunSuiteOptions {
   layer?: 'regression' | 'capability' | 'reliability';
 }
 
-/**
- * Detect regressions by comparing current results against the most recent
- * previous run for the same suite. A regression is a case that previously
- * passed but now fails.
- */
+/** Returns the IDs of the cases that passed in the last completed run of the suite and fail now. */
 async function detectRegressions(
   suiteId: string,
   currentResults: EvalResult[],
@@ -98,7 +95,6 @@ async function detectRegressions(
   const stream = streamId ?? 'default';
   const events = await eventStore.query(stream);
 
-  // Find the most recent eval.run.completed for this suite to get its runId
   const runCompletedEvents = events.filter(
     (e) => e.type === 'eval.run.completed' && e.data?.['suiteId'] === suiteId,
   );
@@ -110,7 +106,6 @@ async function detectRegressions(
 
   if (!lastRunId) return [];
 
-  // Find all case results from the previous run
   const previousCaseEvents = events.filter(
     (e) =>
       e.type === 'eval.case.completed' &&
@@ -118,7 +113,6 @@ async function detectRegressions(
       e.data?.['suiteId'] === suiteId,
   );
 
-  // Build a map of caseId -> passed for the previous run
   const previousResults = new Map<string, boolean>();
   for (const event of previousCaseEvents) {
     const caseId = event.data?.['caseId'] as string | undefined;
@@ -128,7 +122,6 @@ async function detectRegressions(
     }
   }
 
-  // Detect regressions: previously passed, now failed
   const regressions: string[] = [];
   for (const result of currentResults) {
     const wasPassing = previousResults.get(result.caseId);
@@ -141,7 +134,12 @@ async function detectRegressions(
 }
 
 /**
- * Run all cases in a suite against the registered graders.
+ * Runs the cases of a suite against the registered graders. When `options.layer` is set, only cases of
+ * that layer run. Each grader gets the case input as the output too, because the cases hold recorded traces.
+ *
+ * With an event store, it appends `eval.run.started`, one `eval.case.completed` per case, an
+ * `eval.judge.calibrated` per assertion with scored results, and `eval.run.completed`.
+ * Calibration takes `expected` on an assertion result as the gold label, and `true` when it is absent.
  */
 export async function runSuite(
   suite: EvalSuiteConfig,
@@ -157,7 +155,6 @@ export async function runSuite(
   const streamId = options?.streamId ?? 'default';
   const trigger = options?.trigger ?? 'local';
 
-  // Count total cases across all datasets for the started event
   let totalCaseCount = 0;
   const datasetEntries = Object.entries(suite.datasets);
   const loadedDatasets: Array<{ datasetRef: { path: string; description: string }; cases: Awaited<ReturnType<typeof loadDataset>> }> = [];
@@ -168,7 +165,6 @@ export async function runSuite(
     const datasetPath = path.resolve(suiteDir, datasetRef.path);
     let cases = await loadDataset(datasetPath);
 
-    // Filter cases by layer when a layer filter is provided
     if (layerFilter) {
       cases = cases.filter((c) => c.layer === layerFilter);
     }
@@ -177,7 +173,6 @@ export async function runSuite(
     loadedDatasets.push({ datasetRef, cases });
   }
 
-  // Emit eval.run.started
   if (eventStore) {
     await eventStore.append(streamId, {
       type: 'eval.run.started',
@@ -199,7 +194,7 @@ export async function runSuite(
         const grader = graderRegistry.resolve(assertion.type);
         const gradeResult = await grader.grade(
           evalCase.input,
-          evalCase.input, // Phase 1: output = input (recorded traces)
+          evalCase.input,
           evalCase.expected,
           assertion.config,
         );
@@ -234,7 +229,6 @@ export async function runSuite(
         duration: caseDuration,
       });
 
-      // Emit eval.case.completed
       if (eventStore) {
         await eventStore.append(streamId, {
           type: 'eval.case.completed',
@@ -280,10 +274,8 @@ export async function runSuite(
     results: allResults,
   };
 
-  // Emit eval.judge.calibrated per assertion type
   if (eventStore && allResults.length > 0) {
     for (const assertion of suite.assertions) {
-      // Gather per-assertion outcomes across all cases
       let tp = 0;
       let fp = 0;
       let tn = 0;
@@ -293,9 +285,6 @@ export async function runSuite(
         const ar = result.assertions.find((a) => a.name === assertion.name);
         if (!ar || ar.skipped) continue;
 
-        // Gold standard: per-assertion expected outcome. Uses explicit
-        // ar.expected when set (for negative test cases), otherwise defaults
-        // to true — assertions are expected to pass on valid input.
         const goldPositive = (ar as Record<string, unknown>).expected !== undefined
           ? Boolean((ar as Record<string, unknown>).expected)
           : true;
@@ -342,7 +331,6 @@ export async function runSuite(
     }
   }
 
-  // Detect regressions by comparing with previous run
   const regressions = await detectRegressions(
     suite.metadata.skill,
     allResults,
@@ -350,7 +338,6 @@ export async function runSuite(
     streamId,
   );
 
-  // Emit eval.run.completed
   if (eventStore) {
     await eventStore.append(streamId, {
       type: 'eval.run.completed',
@@ -370,9 +357,7 @@ export async function runSuite(
   return summary;
 }
 
-/**
- * Discover and run all suites, with optional filtering.
- */
+/** Discovers the suites, filtered by `options.skill` when set, and runs each one. */
 export async function runAll(
   evalsDir: string,
   options?: { skill?: string; dataset?: string; layer?: 'regression' | 'capability' | 'reliability' } & RunSuiteOptions,

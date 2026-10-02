@@ -24,8 +24,6 @@
 #     continuity but no first-class resume primitive Exarchos can bind to)
 #   - unsupported (omitted by contract): `subagent:completion-signal`,
 #     `subagent:start-signal`, `team:agent-teams` — Claude-only primitives
-#
-# Implements: DR-4, DR-5 (cursor), DR-6, OQ-4
 name: cursor
 # preferredFacade: mcp — Cursor has first-class MCP client support via
 # `~/.cursor/mcp.json`, so MCP tool calls are the native invocation path.
@@ -49,7 +47,7 @@ supportedCapabilities:
   subagent:spawn: native
   mcp:exarchos: native
   mcp:exarchos:readonly: native
-  # isolation:worktree — launcher-managed lifecycle (DR-1/DR-3): `exarchos
+  # isolation:worktree — launcher-managed lifecycle: `exarchos
   # <harness>` owns this harness process and its top-level worktree lifecycle
   # (create → place → observe → teardown). A lifecycle relationship, not a
   # filesystem write guarantee — the launcher composes with whatever isolation

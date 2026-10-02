@@ -2,8 +2,6 @@ import { describe, it, expect } from 'vitest';
 import { captureTrace } from './trace-capture.js';
 import type { WorkflowEvent } from '../../../src/events/schemas.js';
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
 function makeEvent(
   overrides: Partial<WorkflowEvent> & { type: string },
   sequence: number = 1,
@@ -17,11 +15,8 @@ function makeEvent(
   } as WorkflowEvent;
 }
 
-// ─── Tests ──────────────────────────────────────────────────────────────────
-
 describe('captureTrace', () => {
   it('captureTrace_ValidStream_ExtractsInputOutputPairs', () => {
-    // Arrange — workflow started → transition in → transition out
     const events: WorkflowEvent[] = [
       makeEvent({
         type: 'workflow.started',
@@ -37,10 +32,8 @@ describe('captureTrace', () => {
       }, 3),
     ];
 
-    // Act
     const cases = captureTrace(events);
 
-    // Assert
     expect(cases.length).toBeGreaterThan(0);
     for (const evalCase of cases) {
       expect(evalCase.id).toBeTruthy();
@@ -52,7 +45,6 @@ describe('captureTrace', () => {
   });
 
   it('captureTrace_FilterBySkill_OnlyIncludesMatchingEvents', () => {
-    // Arrange — events from different skills/sources
     const events: WorkflowEvent[] = [
       makeEvent({
         type: 'workflow.started',
@@ -76,10 +68,8 @@ describe('captureTrace', () => {
       }, 4),
     ];
 
-    // Act
     const cases = captureTrace(events, { skill: 'delegation' });
 
-    // Assert — only delegation events should be captured
     expect(cases.length).toBeGreaterThan(0);
     for (const evalCase of cases) {
       expect(evalCase.description).toContain('delegation');
@@ -87,7 +77,6 @@ describe('captureTrace', () => {
   });
 
   it('captureTrace_OutputFormat_ValidEvalCaseJSONL', () => {
-    // Arrange
     const events: WorkflowEvent[] = [
       makeEvent({
         type: 'workflow.started',
@@ -99,10 +88,8 @@ describe('captureTrace', () => {
       }, 2),
     ];
 
-    // Act
     const cases = captureTrace(events);
 
-    // Assert — each case should have the required EvalCase fields
     for (const evalCase of cases) {
       expect(typeof evalCase.id).toBe('string');
       expect(evalCase.id.length).toBeGreaterThan(0);
@@ -113,15 +100,14 @@ describe('captureTrace', () => {
       expect(Array.isArray(evalCase.tags)).toBe(true);
       expect(evalCase.tags).toContain('captured');
 
-      // Should be valid JSON (for JSONL output)
       const json = JSON.stringify(evalCase);
       const parsed = JSON.parse(json);
       expect(parsed.id).toBe(evalCase.id);
     }
   });
 
+  /** A matched pair and then an input with no output give two cases: the pair and the unmatched input. */
   it('captureTrace_TrailingInputAfterPairs_CapturesUnmatched', () => {
-    // Arrange — a matched pair followed by a trailing unmatched input
     const events: WorkflowEvent[] = [
       makeEvent({
         type: 'workflow.started',
@@ -137,10 +123,8 @@ describe('captureTrace', () => {
       }, 3),
     ];
 
-    // Act
     const cases = captureTrace(events);
 
-    // Assert — should capture both the pair AND the trailing unmatched input
     expect(cases).toHaveLength(2);
     expect(cases[0].id).toBe('trace-1-2');
     expect(cases[1].id).toBe('trace-3-unmatched');
@@ -148,13 +132,10 @@ describe('captureTrace', () => {
   });
 
   it('captureTrace_EmptyStream_ReturnsEmptyArray', () => {
-    // Arrange — empty events array
     const events: WorkflowEvent[] = [];
 
-    // Act
     const cases = captureTrace(events);
 
-    // Assert
     expect(cases).toEqual([]);
   });
 });

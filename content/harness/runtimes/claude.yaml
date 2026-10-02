@@ -15,12 +15,10 @@
 #
 # Placeholder contract:
 #   - `SPAWN_AGENT_CALL` uses the `Task` tool with `run_in_background: true`
-#     so the caller may fan out. `{{description}}` and `{{prompt}}` are
-#     rendered by the renderer pass (task 007 / 008 — Lane A).
+#     so the caller can fan out. The renderer fills `{{description}}` and
+#     `{{prompt}}`.
 #   - `CHAIN` uses the `Skill` tool with `exarchos:{{next}}` as the
-#     invocation target; `{{args}}` is a JSON-encoded args blob.
-#
-# Implements: DR-4, DR-5 (claude branch)
+#     invocation target. `{{args}}` is a JSON-encoded args blob.
 name: claude
 # preferredFacade: mcp — Claude Code natively dispatches MCP tool_use blocks,
 # so MCP is the lower-friction default for skill invocations.
@@ -54,7 +52,7 @@ supportedCapabilities:
   subagent:start-signal: native
   mcp:exarchos: native
   mcp:exarchos:readonly: native
-  # isolation:worktree — launcher-managed lifecycle (DR-1/DR-3): `exarchos
+  # isolation:worktree — launcher-managed lifecycle: `exarchos
   # <harness>` owns this harness process and its top-level worktree lifecycle
   # (create → place → observe → teardown). A lifecycle relationship, not a
   # filesystem write guarantee — the launcher composes with whatever isolation
@@ -81,7 +79,6 @@ placeholders:
       description: "{{description}}",
       prompt: "{{prompt}}"
     })
-  # Wave A (P4 prose layer) — see docs/plans/2026-04-25-delegation-runtime-parity.md.
   # `SUBAGENT_COMPLETION_HOOK` names the runtime primitive that signals
   # a subagent has finished work. Claude has the first-class `TeammateIdle`
   # hook; other runtimes expose a poll-based completion signal.

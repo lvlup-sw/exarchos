@@ -3,8 +3,6 @@ import { triageTrace } from './auto-triage.js';
 import type { WorkflowEvent } from '../../../src/events/schemas.js';
 import type { EvalCase } from './types.js';
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
 function makeEvent(
   overrides: Partial<WorkflowEvent> & { type: string },
   sequence: number = 1,
@@ -159,18 +157,13 @@ function makeNovelPatternTrace(): WorkflowEvent[] {
   ];
 }
 
-// ─── Tests ──────────────────────────────────────────────────────────────────
-
 describe('triageTrace', () => {
   it('TriageTrace_EmptyEvents_ReturnsEmptyResult', () => {
-    // Arrange
     const events: WorkflowEvent[] = [];
     const existingDatasets = new Map<string, EvalCase[]>();
 
-    // Act
     const result = triageTrace(events, existingDatasets, {});
 
-    // Assert
     expect(result).toEqual({
       regressionCandidates: [],
       capabilityCandidates: [],
@@ -179,42 +172,33 @@ describe('triageTrace', () => {
   });
 
   it('TriageTrace_ShortTrace_Discards', () => {
-    // Arrange — fewer than 3 events
     const events = makeShortTrace();
     const existingDatasets = new Map<string, EvalCase[]>();
 
-    // Act
     const result = triageTrace(events, existingDatasets, {});
 
-    // Assert
     expect(result.regressionCandidates).toHaveLength(0);
     expect(result.capabilityCandidates).toHaveLength(0);
     expect(result.discarded).toBe(1);
   });
 
   it('TriageTrace_IncompleteWorkflow_Discards', () => {
-    // Arrange — workflow without completion/cleanup terminal event
     const events = makeIncompleteTrace();
     const existingDatasets = new Map<string, EvalCase[]>();
 
-    // Act
     const result = triageTrace(events, existingDatasets, {});
 
-    // Assert
     expect(result.regressionCandidates).toHaveLength(0);
     expect(result.capabilityCandidates).toHaveLength(0);
     expect(result.discarded).toBe(1);
   });
 
   it('TriageTrace_SuccessfulWorkflow_ClassifiesAsRegression', () => {
-    // Arrange — completed workflow, all gates passed, known skill
     const events = makeSuccessfulWorkflowTrace('delegation');
     const existingDatasets = new Map<string, EvalCase[]>();
 
-    // Act
     const result = triageTrace(events, existingDatasets, { skill: 'delegation' });
 
-    // Assert
     expect(result.regressionCandidates.length).toBeGreaterThan(0);
     expect(result.capabilityCandidates).toHaveLength(0);
     expect(result.discarded).toBe(0);
@@ -225,14 +209,11 @@ describe('triageTrace', () => {
   });
 
   it('TriageTrace_WorkflowWithRetries_ClassifiesAsCapability', () => {
-    // Arrange — completed workflow with self-corrections / retries
     const events = makeWorkflowWithRetries('delegation');
     const existingDatasets = new Map<string, EvalCase[]>();
 
-    // Act
     const result = triageTrace(events, existingDatasets, { skill: 'delegation' });
 
-    // Assert
     expect(result.capabilityCandidates.length).toBeGreaterThan(0);
     expect(result.regressionCandidates).toHaveLength(0);
     expect(result.discarded).toBe(0);
@@ -242,11 +223,12 @@ describe('triageTrace', () => {
     }
   });
 
+  /**
+   * The existing case mirrors what `captureTrace` makes from the same events. Its input is the
+   * `workflow.transition` event, which replaces `workflow.started`, and its output is `task.completed`.
+   */
   it('TriageTrace_DuplicateOfExisting_Discards', () => {
-    // Arrange — events that are a near-duplicate of an existing dataset case
     const events = makeSuccessfulWorkflowTrace('delegation');
-    // Existing case mirrors what captureTrace produces from same events:
-    // input event is workflow.transition (overwrites workflow.started), output is task.completed
     const existingCase: EvalCase = {
       id: 'existing-case-1',
       type: 'trace',
@@ -270,27 +252,23 @@ describe('triageTrace', () => {
       ['delegation', [existingCase]],
     ]);
 
-    // Act
     const result = triageTrace(events, existingDatasets, {
       skill: 'delegation',
       deduplicationThreshold: 0.9,
     });
 
-    // Assert — should be discarded as duplicate
     expect(result.regressionCandidates).toHaveLength(0);
     expect(result.capabilityCandidates).toHaveLength(0);
     expect(result.discarded).toBeGreaterThan(0);
   });
 
+  /** A tool event marks a novel pattern, so the trace goes to capability. */
   it('TriageTrace_NovelPattern_ClassifiesAsCapability', () => {
-    // Arrange — completed workflow with novel tool patterns not in existing datasets
     const events = makeNovelPatternTrace();
     const existingDatasets = new Map<string, EvalCase[]>();
 
-    // Act
     const result = triageTrace(events, existingDatasets, {});
 
-    // Assert — novel patterns go to capability for human review
     expect(result.capabilityCandidates.length).toBeGreaterThan(0);
     expect(result.discarded).toBe(0);
     for (const candidate of result.capabilityCandidates) {
@@ -298,12 +276,8 @@ describe('triageTrace', () => {
     }
   });
 
+  /** `triageTrace` takes one trace, so the test checks that each trace gets exactly one classification. */
   it('TriageTrace_AllCategories_SumEqualsInput', () => {
-    // Arrange — a mix of traces in one call cannot be tested directly since
-    // triageTrace operates on a single trace. Instead, we verify that for any
-    // single trace, the count is conserved: regression + capability + discarded = 1
-    // (each trace produces exactly one classification).
-
     const successEvents = makeSuccessfulWorkflowTrace();
     const retryEvents = makeWorkflowWithRetries();
     const shortEvents = makeShortTrace();
@@ -311,13 +285,11 @@ describe('triageTrace', () => {
 
     const existingDatasets = new Map<string, EvalCase[]>();
 
-    // Act
     const successResult = triageTrace(successEvents, existingDatasets, {});
     const retryResult = triageTrace(retryEvents, existingDatasets, {});
     const shortResult = triageTrace(shortEvents, existingDatasets, {});
     const incompleteResult = triageTrace(incompleteEvents, existingDatasets, {});
 
-    // Assert — conservation: each input produces exactly 1 classification
     for (const result of [successResult, retryResult, shortResult, incompleteResult]) {
       const total =
         result.regressionCandidates.length +
@@ -328,16 +300,13 @@ describe('triageTrace', () => {
   });
 
   it('TriageTrace_Determinism_SameInputSameOutput', () => {
-    // Arrange
     const events = makeSuccessfulWorkflowTrace();
     const existingDatasets = new Map<string, EvalCase[]>();
     const options = { skill: 'delegation' };
 
-    // Act
     const result1 = triageTrace(events, existingDatasets, options);
     const result2 = triageTrace(events, existingDatasets, options);
 
-    // Assert — same input produces identical output
     expect(result1).toEqual(result2);
   });
 });

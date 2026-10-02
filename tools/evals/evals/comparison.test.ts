@@ -2,8 +2,6 @@ import { describe, it, expect } from 'vitest';
 import { compareRuns, type ComparisonReport } from './comparison.js';
 import type { RunSummary, EvalResult } from './types.js';
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
 function makeResult(
   caseId: string,
   passed: boolean,
@@ -52,11 +50,8 @@ function makeSummary(
   };
 }
 
-// ─── Tests ──────────────────────────────────────────────────────────────────
-
 describe('compareRuns', () => {
   it('compareRuns_Regression_IdentifiesPassedToFailed', () => {
-    // Arrange — baseline: c-1 passes; candidate: c-1 fails
     const baseline = makeSummary('run-1', [
       makeResult('c-1', true, 1.0),
       makeResult('c-2', true, 1.0),
@@ -66,17 +61,14 @@ describe('compareRuns', () => {
       makeResult('c-2', true, 1.0),
     ]);
 
-    // Act
     const report = compareRuns(baseline, candidate);
 
-    // Assert
     expect(report.regressions).toHaveLength(1);
     expect(report.regressions[0].caseId).toBe('c-1');
     expect(report.verdict).toBe('regressions-detected');
   });
 
   it('compareRuns_Improvement_IdentifiesFailedToPassed', () => {
-    // Arrange — baseline: c-1 fails; candidate: c-1 passes
     const baseline = makeSummary('run-1', [
       makeResult('c-1', false, 0.0),
       makeResult('c-2', true, 1.0),
@@ -86,17 +78,14 @@ describe('compareRuns', () => {
       makeResult('c-2', true, 1.0),
     ]);
 
-    // Act
     const report = compareRuns(baseline, candidate);
 
-    // Assert
     expect(report.improvements).toHaveLength(1);
     expect(report.improvements[0].caseId).toBe('c-1');
     expect(report.verdict).toBe('safe');
   });
 
   it('compareRuns_ScoreDelta_CalculatesCorrectly', () => {
-    // Arrange — both pass but with different scores
     const baseline = makeSummary('run-1', [
       makeResult('c-1', true, 0.8),
       makeResult('c-2', true, 0.6),
@@ -106,10 +95,8 @@ describe('compareRuns', () => {
       makeResult('c-2', true, 0.4),
     ]);
 
-    // Act
     const report = compareRuns(baseline, candidate);
 
-    // Assert
     expect(report.scoreDeltas).toHaveLength(2);
     const c1Delta = report.scoreDeltas.find((d) => d.caseId === 'c-1');
     const c2Delta = report.scoreDeltas.find((d) => d.caseId === 'c-2');
@@ -120,7 +107,6 @@ describe('compareRuns', () => {
   });
 
   it('compareRuns_NewCases_MarkedAsNew', () => {
-    // Arrange — candidate has a case that baseline does not
     const baseline = makeSummary('run-1', [
       makeResult('c-1', true, 1.0),
     ]);
@@ -129,16 +115,13 @@ describe('compareRuns', () => {
       makeResult('c-new', true, 1.0),
     ]);
 
-    // Act
     const report = compareRuns(baseline, candidate);
 
-    // Assert
     expect(report.newCases).toHaveLength(1);
     expect(report.newCases[0].caseId).toBe('c-new');
   });
 
   it('compareRuns_RemovedCases_MarkedAsRemoved', () => {
-    // Arrange — baseline has a case that candidate does not
     const baseline = makeSummary('run-1', [
       makeResult('c-1', true, 1.0),
       makeResult('c-removed', true, 1.0),
@@ -147,10 +130,8 @@ describe('compareRuns', () => {
       makeResult('c-1', true, 1.0),
     ]);
 
-    // Act
     const report = compareRuns(baseline, candidate);
 
-    // Assert
     expect(report.removedCases).toHaveLength(1);
     expect(report.removedCases[0].caseId).toBe('c-removed');
   });

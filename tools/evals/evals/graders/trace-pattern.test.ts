@@ -10,8 +10,6 @@ describe('TracePatternGrader', () => {
     expect(grader.type).toBe('trace-pattern');
   });
 
-  // ─── Exact sequence ─────────────────────────────────────────────────
-
   it('Grade_ExactSequence_ReturnsScoreOne', async () => {
     const result = await grader.grade(
       {},
@@ -33,8 +31,6 @@ describe('TracePatternGrader', () => {
     expect(result.score).toBe(1.0);
     expect(result.passed).toBe(true);
   });
-
-  // ─── Wildcards ──────────────────────────────────────────────────────
 
   it('Grade_WildcardStar_MatchesAnything', async () => {
     const result = await grader.grade(
@@ -80,8 +76,6 @@ describe('TracePatternGrader', () => {
     expect(result.score).toBe(0.0);
   });
 
-  // ─── Count constraints ─────────────────────────────────────────────
-
   it('Grade_CountConstraint_MeetsMinimum_Passes', async () => {
     const result = await grader.grade(
       {},
@@ -115,8 +109,6 @@ describe('TracePatternGrader', () => {
     expect(result.score).toBe(0.0);
   });
 
-  // ─── Missing pattern ───────────────────────────────────────────────
-
   it('Grade_MissingPattern_ProportionalScore', async () => {
     const result = await grader.grade(
       {},
@@ -137,8 +129,6 @@ describe('TracePatternGrader', () => {
     expect(result.score).toBeCloseTo(2 / 3);
   });
 
-  // ─── Empty trace ───────────────────────────────────────────────────
-
   it('Grade_EmptyTrace_ReturnsScoreZero', async () => {
     const result = await grader.grade(
       {},
@@ -147,8 +137,6 @@ describe('TracePatternGrader', () => {
     );
     expect(result.score).toBe(0.0);
   });
-
-  // ─── Empty patterns ────────────────────────────────────────────────
 
   it('Grade_EmptyPatterns_ReturnsScoreOne', async () => {
     const result = await grader.grade(
@@ -159,8 +147,6 @@ describe('TracePatternGrader', () => {
     expect(result.score).toBe(1.0);
     expect(result.passed).toBe(true);
   });
-
-  // ─── Ordered sequence correct ──────────────────────────────────────
 
   it('Grade_OrderedSequenceCorrect_ReturnsScoreOne', async () => {
     const result = await grader.grade(
@@ -181,8 +167,7 @@ describe('TracePatternGrader', () => {
     expect(result.score).toBe(1.0);
   });
 
-  // ─── Ordered sequence incorrect ────────────────────────────────────
-
+  /** The longest ordered subsequence of `c, a, b` is `a, b`, so the score is 2/3. */
   it('Grade_OrderedSequenceIncorrect_ReducesScore', async () => {
     const result = await grader.grade(
       {},
@@ -198,11 +183,8 @@ describe('TracePatternGrader', () => {
       },
       { ordered: true }
     );
-    // Longest ordered subsequence is [a, b] = 2/3
     expect(result.score).toBeCloseTo(2 / 3);
   });
-
-  // ─── Partial match proportional ────────────────────────────────────
 
   it('Grade_PartialMatch_ProportionalScore', async () => {
     const result = await grader.grade(
@@ -222,8 +204,6 @@ describe('TracePatternGrader', () => {
     expect(result.score).toBe(0.5);
   });
 
-  // ─── No trace in output ────────────────────────────────────────────
-
   it('Grade_NoTraceInOutput_ReturnsScoreZero', async () => {
     const result = await grader.grade(
       {},
@@ -233,10 +213,7 @@ describe('TracePatternGrader', () => {
     expect(result.score).toBe(0.0);
   });
 
-  // ─── Field name: trace_events ─────────────────────────────────────
-
   it('Grade_ReadsTraceEventsField_NotTraceField', async () => {
-    // Output has events under "trace" (wrong field) — should score 0
     const wrongField = await grader.grade(
       {},
       { trace: [{ type: 'task.started' }] },
@@ -244,7 +221,6 @@ describe('TracePatternGrader', () => {
     );
     expect(wrongField.score).toBe(0.0);
 
-    // Output has events under "trace_events" (correct field) — should score 1
     const correctField = await grader.grade(
       {},
       { trace_events: [{ type: 'task.started' }] },
@@ -252,8 +228,6 @@ describe('TracePatternGrader', () => {
     );
     expect(correctField.score).toBe(1.0);
   });
-
-  // ─── Property tests ────────────────────────────────────────────────
 
   describe('Property Tests', () => {
     const arbEventType = fc.stringMatching(/^[a-z]+(\.[a-z]+)?$/);
@@ -279,7 +253,7 @@ describe('TracePatternGrader', () => {
     it('WildcardSubsumption_StarMatchesAll', () => {
       fc.assert(
         fc.asyncProperty(arbTrace, async (trace) => {
-          if (trace.length === 0) return; // skip empty trace
+          if (trace.length === 0) return;
           const result = await grader.grade(
             {},
             { trace_events: trace },

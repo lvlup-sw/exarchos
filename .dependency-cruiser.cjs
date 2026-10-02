@@ -1,45 +1,23 @@
-// dependency-cruiser config — SIV-3 Layer A import-boundary rules.
+// dependency-cruiser configuration for the import-boundary rules.
 //
-// This is the worked example for the boundary-lint leg that rides the Exarchos
-// static-analysis gate (src/verbs/pure/static-analysis.ts,
-// `runBoundaryLint`). The gate detects this file at the repo root and runs
-// `npx depcruise --validate` over the configured source dirs, folding the
-// PASS/FAIL into the gate's report and counts. Absent this file, the leg SKIPs
-// (advisory) — never a hard failure (INV-4 degrade discipline).
+// The static-analysis gate (`runBoundaryLint` in src/verbs/pure/static-analysis.ts)
+// finds this file at the repo root and runs `npx depcruise --validate`. A non-zero
+// exit fails the gate. Without this file, the leg reports SKIP and does not block.
 //
-// Authors add architectural boundaries by extending the `forbidden` array
-// below. Each rule names a `from` (the constrained module set) and a `to` (the
-// module set it must not reach), expressed as path regexes relative to this
-// repo root.
-//
-// The seeded rule encodes the real domain-core / IO-facade split inside the
-// MCP server: the events and workflow domain cores must not import from
-// the `adapters/` IO facade (CLI / MCP / hooks surfaces). That separation
-// keeps the event-sourced core free of transport concerns. The rule is scoped
-// to non-test sources — test fixtures legitimately import adapter exports to
-// exercise them (e.g. events/schemas.test.ts pulls json-schema), so the
-// `from` path excludes `*.test.ts`.
+// A boundary rule names a `from` path and a `to` path that `from` must not import.
+// Both are regexes relative to the repo root.
 
 /** @type {import('dependency-cruiser').IConfiguration} */
 module.exports = {
   forbidden: [
+    /**
+     * Runtime import cycles. The severity is `warn` on purpose. `runBoundaryLint` fails
+     * on any non-zero exit, and `depcruise --validate` exits non-zero only for `error`
+     * violations. The blocking ratchet is tools/audit/cycle-gate.ts.
+     * With the default `tsPreCompilationDeps: false`, depcruise drops `import type`
+     * edges and keeps dynamic `import()` edges.
+     */
     {
-      // Runtime import cycles (DR-4). Severity is `warn`, NOT `error`, ON PURPOSE:
-      // the dogfooded static-analysis gate (static-analysis.ts `runBoundaryLint`)
-      // runs bare `depcruise --validate` and folds ANY non-zero exit into a
-      // check_static_analysis FAIL. `depcruise --validate` only returns non-zero
-      // for ERROR-severity violations, so a `warn` here surfaces cycles in the
-      // advisory output WITHOUT turning the dogfooded gate permanently red.
-      //
-      // Blocking enforcement lives ELSEWHERE — tools/audit/cycle-gate.ts runs
-      // over the `--output-type json` graph, computes the runtime cycles itself
-      // (Tarjan, via architecture/import-cycles.ts), and fails CLOSED in CI on any
-      // unbaselined cycle / expired-or-phantom baseline entry. This rule's job is
-      // only to name the cycle in the shared config; the ratchet is the gate.
-      //
-      // Runtime semantics match DR-4's pinned instrument: with the default
-      // `tsPreCompilationDeps: false`, `import type` edges are elided (type-only
-      // excluded) while dynamic `import()` survives compilation (counted).
       name: 'no-circular',
       comment:
         'Runtime import cycles are forbidden (DR-4). `warn` here so the dogfooded ' +
@@ -58,10 +36,10 @@ module.exports = {
         '(adapters/). Route transport/CLI/MCP concerns through the orchestrate ' +
         'handlers instead of reaching into adapters from the core.',
       severity: 'error',
-      // No `pathNot` for tests: task 030 lifted every co-located suite out of
-      // `src/`, so nothing under this `from` path is a test file any more and
-      // the exclusion had stopped excluding anything. `DepcruiseRule_FromSet_`
-      // `HoldsNoTestFile` keeps that true rather than assuming it.
+      /**
+       * The `from` path has no `pathNot` for tests, because no test file matches it.
+       * The test `DepcruiseRule_FromSet_HoldsNoTestFile` asserts this.
+       */
       from: {
         path: '^src/(events|workflow)/',
       },
@@ -71,19 +49,13 @@ module.exports = {
     },
   ],
   options: {
-    // Only walk the MCP server source tree this rule governs. Keeps the
-    // validation fast and scoped to first-party code (see the `ownership`
-    // manifest in .exarchos.yml, task 024).
     doNotFollow: {
       path: 'node_modules',
     },
-    // The codebase is ESM/NodeNext with `.js` import specifiers that resolve to
-    // `.ts` sources. dependency-cruiser's built-in TS-aware resolver maps the
-    // `.js` specifier to the sibling `.ts` file via these extensions, so the
-    // boundary rule matches against the real source modules. A `tsConfig`
-    // reference is intentionally omitted: it would be resolved relative to the
-    // gate's CWD (the repo root) rather than the MCP package, breaking the
-    // tsconfig's package-relative `include` globs.
+    /**
+     * Imports use `.js` specifiers that resolve to `.ts` sources. These extensions let
+     * the resolver map each specifier to its `.ts` file, so the rules match real modules.
+     */
     enhancedResolveOptions: {
       extensions: ['.ts', '.cts', '.mts', '.js', '.cjs', '.mjs', '.json'],
       exportsFields: ['exports'],

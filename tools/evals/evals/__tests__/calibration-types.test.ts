@@ -35,8 +35,6 @@ function toJsonl(cases: Array<Record<string, unknown>>): string {
   return cases.map((c) => JSON.stringify(c)).join('\n');
 }
 
-// ─── Setup/Teardown ─────────────────────────────────────────────────────────
-
 beforeEach(async () => {
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'calibration-'));
 });
@@ -45,17 +43,12 @@ afterEach(async () => {
   await rmrfAsync(tmpDir);
 });
 
-// ─── HumanGradedCaseSchema Unit Tests ───────────────────────────────────────
-
 describe('HumanGradedCaseSchema', () => {
   it('HumanGradedCaseSchema_ValidCase_ParsesSuccessfully', () => {
-    // Arrange
     const input = makeValidCase();
 
-    // Act
     const result = HumanGradedCaseSchema.parse(input);
 
-    // Assert
     expect(result.caseId).toBe('case-001');
     expect(result.skill).toBe('brainstorming');
     expect(result.rubricName).toBe('completeness');
@@ -66,16 +59,13 @@ describe('HumanGradedCaseSchema', () => {
   });
 
   it('HumanGradedCaseSchema_MissingSkill_ThrowsValidationError', () => {
-    // Arrange
     const input = makeValidCase();
     delete (input as Record<string, unknown>).skill;
 
-    // Act & Assert
     expect(() => HumanGradedCaseSchema.parse(input)).toThrow();
   });
 
   it('HumanGradedCaseSchema_ScoreOutOfRange_ThrowsValidationError', () => {
-    // Arrange & Act & Assert
     expect(() =>
       HumanGradedCaseSchema.parse(makeValidCase({ humanScore: -0.1 }))
     ).toThrow();
@@ -85,7 +75,6 @@ describe('HumanGradedCaseSchema', () => {
   });
 
   it('HumanGradedCaseSchema_WithGraderOutput_ParsesSuccessfully', () => {
-    // Arrange
     const input = makeValidCase({
       graderOutput: {
         passed: true,
@@ -94,10 +83,8 @@ describe('HumanGradedCaseSchema', () => {
       },
     });
 
-    // Act
     const result = HumanGradedCaseSchema.parse(input);
 
-    // Assert
     expect(result.graderOutput).toBeDefined();
     expect(result.graderOutput!.passed).toBe(true);
     expect(result.graderOutput!.score).toBe(0.85);
@@ -105,53 +92,43 @@ describe('HumanGradedCaseSchema', () => {
   });
 
   it('HumanGradedCaseSchema_MissingCaseId_ThrowsValidationError', () => {
-    // Arrange
     const input = makeValidCase();
     delete (input as Record<string, unknown>).caseId;
 
-    // Act & Assert
     expect(() => HumanGradedCaseSchema.parse(input)).toThrow();
   });
 
   it('HumanGradedCaseSchema_EmptyCaseId_ThrowsValidationError', () => {
-    // Act & Assert
     expect(() =>
       HumanGradedCaseSchema.parse(makeValidCase({ caseId: '' }))
     ).toThrow();
   });
 
   it('HumanGradedCaseSchema_EmptySkill_ThrowsValidationError', () => {
-    // Act & Assert
     expect(() =>
       HumanGradedCaseSchema.parse(makeValidCase({ skill: '' }))
     ).toThrow();
   });
 
   it('HumanGradedCaseSchema_EmptyRubricName_ThrowsValidationError', () => {
-    // Act & Assert
     expect(() =>
       HumanGradedCaseSchema.parse(makeValidCase({ rubricName: '' }))
     ).toThrow();
   });
 
   it('HumanGradedCaseSchema_ScoreBoundaries_ParsesSuccessfully', () => {
-    // Score of exactly 0 should pass
     expect(() =>
       HumanGradedCaseSchema.parse(makeValidCase({ humanScore: 0 }))
     ).not.toThrow();
 
-    // Score of exactly 1 should pass
     expect(() =>
       HumanGradedCaseSchema.parse(makeValidCase({ humanScore: 1 }))
     ).not.toThrow();
   });
 });
 
-// ─── CalibrationReportSchema Unit Tests ─────────────────────────────────────
-
 describe('CalibrationReportSchema', () => {
   it('CalibrationReportSchema_ValidReport_ParsesSuccessfully', () => {
-    // Arrange
     const input = {
       skill: 'brainstorming',
       rubricName: 'completeness',
@@ -168,17 +145,14 @@ describe('CalibrationReportSchema', () => {
       disagreements: [],
     };
 
-    // Act
     const result = CalibrationReportSchema.parse(input);
 
-    // Assert
     expect(result.skill).toBe('brainstorming');
     expect(result.split).toBe('validation');
     expect(result.totalCases).toBe(10);
   });
 
   it('CalibrationReportSchema_InvalidSplit_ThrowsValidationError', () => {
-    // Act & Assert
     expect(() =>
       CalibrationReportSchema.parse({
         skill: 'brainstorming',
@@ -199,7 +173,6 @@ describe('CalibrationReportSchema', () => {
   });
 
   it('CalibrationReportSchema_WithDisagreements_ParsesSuccessfully', () => {
-    // Arrange
     const input = {
       skill: 'debug',
       rubricName: 'root-cause',
@@ -224,51 +197,40 @@ describe('CalibrationReportSchema', () => {
       ],
     };
 
-    // Act
     const result = CalibrationReportSchema.parse(input);
 
-    // Assert
     expect(result.disagreements).toHaveLength(1);
     expect(result.disagreements[0].caseId).toBe('case-003');
   });
 });
 
-// ─── CalibrateInputSchema Unit Tests ────────────────────────────────────────
-
 describe('CalibrateInputSchema', () => {
   it('CalibrateInputSchema_ValidInput_ParsesSuccessfully', () => {
-    // Arrange
     const input = {
       goldStandardPath: '/path/to/gold.jsonl',
       split: 'validation',
     };
 
-    // Act
     const result = CalibrateInputSchema.parse(input);
 
-    // Assert
     expect(result.goldStandardPath).toBe('/path/to/gold.jsonl');
     expect(result.split).toBe('validation');
     expect(result.skill).toBeUndefined();
   });
 
   it('CalibrateInputSchema_WithOptionalSkill_ParsesSuccessfully', () => {
-    // Arrange
     const input = {
       goldStandardPath: '/path/to/gold.jsonl',
       split: 'test',
       skill: 'brainstorming',
     };
 
-    // Act
     const result = CalibrateInputSchema.parse(input);
 
-    // Assert
     expect(result.skill).toBe('brainstorming');
   });
 
   it('CalibrateInputSchema_InvalidSplit_ThrowsValidationError', () => {
-    // Act & Assert
     expect(() =>
       CalibrateInputSchema.parse({
         goldStandardPath: '/path/to/gold.jsonl',
@@ -278,21 +240,16 @@ describe('CalibrateInputSchema', () => {
   });
 });
 
-// ─── loadGoldStandard Unit Tests ────────────────────────────────────────────
-
 describe('loadGoldStandard', () => {
   it('LoadGoldStandard_ValidJSONL_ReturnsTypedArray', async () => {
-    // Arrange
     const cases = [
       makeValidCase({ caseId: 'c-1' }),
       makeValidCase({ caseId: 'c-2', humanVerdict: false, humanScore: 0.1 }),
     ];
     await fs.writeFile(tmpFile('gold.jsonl'), toJsonl(cases));
 
-    // Act
     const result = await loadGoldStandard(tmpFile('gold.jsonl'));
 
-    // Assert
     expect(result).toHaveLength(2);
     expect(result[0].caseId).toBe('c-1');
     expect(result[1].caseId).toBe('c-2');
@@ -301,30 +258,25 @@ describe('loadGoldStandard', () => {
   });
 
   it('LoadGoldStandard_EmptyFile_ReturnsEmptyArray', async () => {
-    // Arrange
     await fs.writeFile(tmpFile('empty.jsonl'), '');
 
-    // Act
     const result = await loadGoldStandard(tmpFile('empty.jsonl'));
 
-    // Assert
     expect(result).toEqual([]);
   });
 
   it('LoadGoldStandard_InvalidLine_ThrowsWithLineNumber', async () => {
-    // Arrange
     const lines = [
       JSON.stringify(makeValidCase({ caseId: 'c-1' })),
       '{ this is not valid json }',
     ];
     await fs.writeFile(tmpFile('bad.jsonl'), lines.join('\n'));
 
-    // Act & Assert
     await expect(loadGoldStandard(tmpFile('bad.jsonl'))).rejects.toThrow(/line 2/i);
   });
 
+  /** The fixture line has no `skill` field, which the schema requires. */
   it('LoadGoldStandard_SchemaViolation_ThrowsWithLineNumber', async () => {
-    // Arrange — missing required 'skill' field
     const lines = [
       JSON.stringify({
         caseId: 'c-1',
@@ -336,33 +288,26 @@ describe('loadGoldStandard', () => {
     ];
     await fs.writeFile(tmpFile('schema-bad.jsonl'), lines.join('\n'));
 
-    // Act & Assert
     await expect(loadGoldStandard(tmpFile('schema-bad.jsonl'))).rejects.toThrow(/line 1/i);
   });
 
   it('LoadGoldStandard_BlankLines_SkipsGracefully', async () => {
-    // Arrange
     const case1 = JSON.stringify(makeValidCase({ caseId: 'c-1' }));
     const case2 = JSON.stringify(makeValidCase({ caseId: 'c-2' }));
     const content = `${case1}\n\n   \n${case2}\n\n`;
     await fs.writeFile(tmpFile('blanks.jsonl'), content);
 
-    // Act
     const result = await loadGoldStandard(tmpFile('blanks.jsonl'));
 
-    // Assert
     expect(result).toHaveLength(2);
     expect(result[0].caseId).toBe('c-1');
     expect(result[1].caseId).toBe('c-2');
   });
 
   it('LoadGoldStandard_FileNotFound_ThrowsError', async () => {
-    // Act & Assert
     await expect(loadGoldStandard(tmpFile('nonexistent.jsonl'))).rejects.toThrow();
   });
 });
-
-// ─── Property Tests ─────────────────────────────────────────────────────────
 
 describe('HumanGradedCase Property Tests', () => {
   const validCaseArb = fc.record({

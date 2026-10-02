@@ -1,9 +1,10 @@
+/**
+ * The mock loader acts as if the opt-in eval package is not installed, and rejects with the install hint.
+ * The graders must relay that hint as the grade reason. They must not swallow it or crash with module-not-found.
+ */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { PROMPTFOO_INSTALL_HINT } from './promptfoo-loader.js';
 
-// Simulate the opt-in eval package NOT being installed: the loader rejects with
-// the actionable install hint. The graders must relay that as a clear grade
-// reason — NOT swallow it or surface an opaque module-not-found crash (DR-3).
 vi.mock('./promptfoo-loader.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./promptfoo-loader.js')>();
   return {
@@ -15,12 +16,11 @@ vi.mock('./promptfoo-loader.js', async (importOriginal) => {
 import { LlmRubricGrader } from './llm-rubric.js';
 import { LlmSimilarityGrader } from './llm-similarity.js';
 
+/** Each test sets an API key, so that the grader passes its no-key skip and tries to load promptfoo. */
 describe('llm graders — promptfoo (eval package) not installed', () => {
   const originalApiKey = process.env['ANTHROPIC_API_KEY'];
 
   beforeEach(() => {
-    // API key must be present so the grader gets past the "skipped: no key"
-    // short-circuit and actually attempts to load promptfoo.
     process.env['ANTHROPIC_API_KEY'] = 'test-key';
   });
 
@@ -68,7 +68,6 @@ describe('llm graders — promptfoo (eval package) not installed', () => {
       {},
       { rubric: 'is it valid?', outputPath: 'text' },
     );
-    // The grader relays the loader's hint text, not a generic substitute.
     expect(result.reason).toContain(PROMPTFOO_INSTALL_HINT);
   });
 });

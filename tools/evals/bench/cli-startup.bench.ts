@@ -1,3 +1,12 @@
+/**
+ * Cold-start benchmark for the CLI. It measures the full boot time of one CLI process against a p95 budget.
+ *
+ * Each test spawns `node dist/index.js wf status -f <nonexistent> --json` 50 times after two discarded warmup runs.
+ * Each spawn pays the Node start, the module load, the dispatch and the exit cost.
+ * The telemetry-off test holds the hard budget. The telemetry-on test holds a soft ceiling for the production configuration.
+ * The subprocess uses an isolated temporary `WORKFLOW_STATE_DIR`, so it does not touch the real state.
+ * The tests skip when `dist/index.js` is missing.
+ */
 import { describe, it, expect } from 'vitest';
 import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
@@ -7,74 +16,30 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
-// ─── Task 021: CLI Cold-Start Benchmark (DR-5) ────────────────────────────────
-//
-// Measures end-to-end process boot time for the CLI adapter so that the CLI
-// rendering path (used by the generic/opencode/copilot runtimes per DR-1)
-// does not add prohibitive latency versus the in-process MCP path.
-//
-// Two assertions live in this file (F-021-1):
-//
-//   1. CliColdStart_TelemetryOff_50Runs_P95Under250ms — measures pure
-//      adapter/dispatcher cold-start with telemetry short-circuited. This is
-//      the DR-5 hard budget and the number we optimize against when trimming
-//      the module graph.
-//
-//   2. CliColdStart_TelemetryOn_50Runs_P95Under350ms — measures production
-//      configuration (telemetry default ON). This SOFT CEILING reflects the
-//      current hot-path cost: every CLI invocation pays ~150ms of TraceWriter
-//      fsync overhead on top of bare cold-start. Tracking issue for
-//      telemetry-path optimization to follow; once the telemetry writer is
-//      batched/async, this budget will tighten.
-//
-// Both tests run sequentially (F-021-2 — via `.sequential` describe modifier)
-// so that vitest's parallel worker contention does not compress headroom on
-// shared CI runners. Strict assertions additionally gate on CI / BENCH_STRICT
-// so local `npm run test:run` on a busy dev laptop does not flake the suite.
-//
-// Strategy:
-// - `spawn()` a fresh `node dist/index.js wf status -f <nonexistent> --json`
-//   subprocess 50 times. Each spawn pays the full Node startup + ESM module
-//   graph + commander/zod/registry load + dispatch + exit cost. That is the
-//   cost we care about — not the in-process Commander parse latency that the
-//   DR-3 parity tests already cover.
-// - Point `WORKFLOW_STATE_DIR` at an isolated tmp dir so the subprocess does
-//   not touch the developer's real state, cannot race against their event
-//   log, and does not pay disk-seek cost on a large production DB.
-// - Discard two warmup samples to avoid skew from file-system cache priming.
-// - Report p50 / p95 / p99 and assert p95 < budget.
-//
-// The tests auto-skip when `dist/index.js` is missing so `npm run test:run`
-// does not hang in unbuilt worktrees. CI's `npm run build` step ensures the
-// benchmark runs in its intended environment.
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-/** Absolute path to the compiled CLI entry (tsc emits dist/index.js from src/index.ts). */
+/** Absolute path to the compiled CLI entry, `dist/index.js`. */
 const CLI_BIN = path.resolve(__dirname, '../../../dist/index.js');
 
-/** Number of timed samples. Task spec requires 50. */
 const SAMPLE_COUNT = 50;
 
-/** Warmup samples discarded from statistics — FS cache priming, JIT warmup. */
+/** Warmup samples that the statistics ignore. They prime the file-system cache and the JIT. */
 const WARMUP_COUNT = 2;
 
-/** p95 budget (ms) for the telemetry-off path — DR-5 hard acceptance. */
+/** The hard p95 budget in ms for the telemetry-off path. */
 const P95_BUDGET_TELEMETRY_OFF_MS = 250;
 
-/** p95 soft ceiling (ms) for telemetry-on path — see header. */
+/** The soft p95 ceiling in ms for the telemetry-on path. */
 const P95_BUDGET_TELEMETRY_ON_MS = 350;
 
-/** Per-process hard cap — if one sample exceeds this, something is very wrong. */
+/** The time limit for one process. When a sample passes it, the bench kills the process and fails. */
 const PER_SAMPLE_TIMEOUT_MS = 10_000;
 
 /**
- * Gate strict `expect(p95).toBeLessThan(...)` assertions to CI or an explicit
- * opt-in (`BENCH_STRICT=1`). Under full `npm run test:run` on a busy dev
- * laptop, parallel vitest worker contention compresses bench headroom enough
- * to flake the suite; locally we still log the measurements for visibility.
- * (F-021-2)
+ * Strict mode turns on the p95 assertions. It is on when `CI` or `BENCH_STRICT` is `1`.
+ * Without it, a test logs the measurements and warns over budget, but does not fail.
+ * Parallel workers on a busy laptop compress the headroom too much for a hard assertion.
  */
 const STRICT = process.env.CI === '1' || process.env.BENCH_STRICT === '1';
 
@@ -88,22 +53,15 @@ interface BenchOptions {
 }
 
 /**
- * Spawn one CLI invocation and measure wall-clock time from spawn() until the
- * child's `close` event. We intentionally consume stdout/stderr via 'ignore'
- * so pipe draining is not on the critical path; we are measuring startup,
- * not output-handling throughput.
- *
- * When `telemetry` is false, sets EXARCHOS_TELEMETRY=false which short-circuits
- * the telemetry middleware in dispatch(). When true, the parent-process env
- * is passed through unchanged — reflecting production config.
+ * Spawns one CLI process and measures the wall-clock time until its `close` event.
+ * The child ignores stdout and stderr, so pipe draining stays out of the measurement.
+ * The parent value of `EXARCHOS_TELEMETRY` is removed so that it cannot change the variant.
+ * The telemetry-off variant sets it to `false`, which turns telemetry off. The telemetry-on variant leaves it unset, so the default applies.
  */
 function spawnOnce(stateDir: string, opts: BenchOptions): Promise<SpawnTiming> {
   return new Promise((resolve, reject) => {
     const t0 = performance.now();
 
-    // Strip EXARCHOS_TELEMETRY from the base env so the parent shell's value
-    // doesn't override the per-bench intent. We then set it explicitly only
-    // for the telemetry-off variant.
     const { EXARCHOS_TELEMETRY: _stripped, ...baseEnv } = process.env;
     const env: NodeJS.ProcessEnv = {
       ...baseEnv,
@@ -138,11 +96,7 @@ function spawnOnce(stateDir: string, opts: BenchOptions): Promise<SpawnTiming> {
   });
 }
 
-/**
- * Return the sample at the given percentile of a sorted-ascending array.
- * Uses `Math.ceil(p * n) - 1` (nearest-rank), which matches what tasks 002/014
- * parity tests and the rest of the benchmarks directory use for comparability.
- */
+/** Returns the sample at percentile `p` of an ascending array, with the nearest-rank index `Math.ceil(p * n) - 1`. */
 function percentile(sortedAsc: readonly number[], p: number): number {
   if (sortedAsc.length === 0) throw new Error('percentile: empty sample set');
   const idx = Math.max(0, Math.ceil(p * sortedAsc.length) - 1);
@@ -150,25 +104,19 @@ function percentile(sortedAsc: readonly number[], p: number): number {
 }
 
 /**
- * Run the 50-sample bench once and return the sorted timings array.
- * Shared between the two test variants; the only distinguishing axis is the
- * spawn env (telemetry on/off).
+ * Runs the warmup and the timed samples in a temporary state directory, and returns the timings in ascending order.
+ * Any exit code is accepted, because only the boot time counts. A sample without an exit code fails the test.
  */
 async function runBench(opts: BenchOptions): Promise<readonly number[]> {
   const stateDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'exarchos-cold-bench-'));
   try {
-    // ─── Warmup (discarded) ───────────────────────────────────────────
     for (let i = 0; i < WARMUP_COUNT; i++) {
       await spawnOnce(stateDir, opts);
     }
 
-    // ─── Timed samples ────────────────────────────────────────────────
     const samples: number[] = [];
     for (let i = 0; i < SAMPLE_COUNT; i++) {
       const { elapsedMs, exitCode } = await spawnOnce(stateDir, opts);
-      // Any exit code is acceptable for timing purposes — we're measuring
-      // boot latency. But we do want the process to actually exit (not a
-      // hang masked as a fast sample) so sanity-check that exitCode is set.
       expect(exitCode).not.toBeNull();
       samples.push(elapsedMs);
     }
@@ -182,9 +130,7 @@ async function runBench(opts: BenchOptions): Promise<readonly number[]> {
 
 const cliBinExists = fs.existsSync(CLI_BIN);
 
-// `.sequential` prevents vitest from running these tests in parallel with
-// the rest of the suite (F-021-2). Two back-to-back 50-sample spawns would
-// otherwise compete with other workers for the CPU, compressing p95 headroom.
+/** `.sequential` keeps the two 50-sample runs from running at the same time, so they do not compete for the CPU. */
 describe.sequential('cli-cold-start benchmark', () => {
   it.skipIf(!cliBinExists)(
     'CliColdStart_TelemetryOff_50Runs_P95Under250ms',
@@ -194,7 +140,6 @@ describe.sequential('cli-cold-start benchmark', () => {
       const p95 = percentile(samples, 0.95);
       const p99 = percentile(samples, 0.99);
 
-      // Emit for CI log / benchmark harness to capture.
       // eslint-disable-next-line no-console
       console.log(
         `[cli-cold-start telemetry=off] n=${samples.length} ` +
@@ -206,7 +151,6 @@ describe.sequential('cli-cold-start benchmark', () => {
       if (STRICT) {
         expect(p95).toBeLessThan(P95_BUDGET_TELEMETRY_OFF_MS);
       } else {
-        // Local / non-strict: log if over budget but don't fail the suite.
         if (p95 >= P95_BUDGET_TELEMETRY_OFF_MS) {
           // eslint-disable-next-line no-console
           console.warn(
@@ -216,7 +160,7 @@ describe.sequential('cli-cold-start benchmark', () => {
         }
       }
     },
-    /* timeout: */ 120_000,
+    120_000,
   );
 
   it.skipIf(!cliBinExists)(
@@ -247,6 +191,6 @@ describe.sequential('cli-cold-start benchmark', () => {
         }
       }
     },
-    /* timeout: */ 120_000,
+    120_000,
   );
 });

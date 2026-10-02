@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { LlmSimilarityGrader } from './llm-similarity.js';
 
-// promptfoo is an opt-in eval-only dependency (DR-3) and is NOT installed in the
-// default test closure, so it cannot be mocked by bare specifier. Instead mock
-// the loader seam the grader depends on — `loadPromptfooAssertions()` — which is
-// exactly where the grader now obtains the promptfoo `assertions` surface.
+/**
+ * The default test install does not include promptfoo, so the test cannot mock it by
+ * its bare specifier. The test mocks the `loadPromptfooAssertions` seam instead.
+ */
 const mockMatchesSimilarity = vi.fn();
 
 vi.mock('./promptfoo-loader.js', async (importOriginal) => {
@@ -93,7 +93,6 @@ describe('LlmSimilarityGrader', () => {
       { outputPath: 'text', expectedPath: 'text', threshold: 0.6 },
     );
 
-    // matchesSimilarity(expected, output, threshold, inverse?, grading?)
     expect(mockMatchesSimilarity).toHaveBeenCalledWith(
       'expected text',
       'output text',

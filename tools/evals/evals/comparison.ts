@@ -1,7 +1,5 @@
 import type { RunSummary } from './types.js';
 
-// ─── Types ──────────────────────────────────────────────────────────────────
-
 export interface RegressionEntry {
   readonly caseId: string;
   readonly baselineScore: number;
@@ -42,24 +40,19 @@ export interface ComparisonReport {
   readonly verdict: 'safe' | 'regressions-detected';
 }
 
-// ─── Comparison Logic ───────────────────────────────────────────────────────
-
 /**
- * Compare two eval run summaries and produce a comparison report.
- *
- * Identifies regressions (passed->failed), improvements (failed->passed),
- * new cases, removed cases, and score deltas between baseline and candidate.
+ * Compares a baseline run with a candidate run. A regression is a case that passed in the baseline
+ * and fails in the candidate. An improvement is the reverse. Any regression sets the verdict to
+ * `regressions-detected`.
  */
 export function compareRuns(
   baseline: RunSummary,
   candidate: RunSummary,
 ): ComparisonReport {
-  // Index baseline results by caseId
   const baselineMap = new Map(
     baseline.results.map((r) => [r.caseId, r]),
   );
 
-  // Index candidate results by caseId
   const candidateMap = new Map(
     candidate.results.map((r) => [r.caseId, r]),
   );
@@ -70,12 +63,10 @@ export function compareRuns(
   const newCases: NewCaseEntry[] = [];
   const removedCases: RemovedCaseEntry[] = [];
 
-  // Compare cases present in both runs
   for (const [caseId, candidateResult] of candidateMap) {
     const baselineResult = baselineMap.get(caseId);
 
     if (!baselineResult) {
-      // Case only in candidate -- new case
       newCases.push({
         caseId,
         score: candidateResult.score,
@@ -84,7 +75,6 @@ export function compareRuns(
       continue;
     }
 
-    // Detect regressions: was passing, now failing
     if (baselineResult.passed && !candidateResult.passed) {
       regressions.push({
         caseId,
@@ -93,7 +83,6 @@ export function compareRuns(
       });
     }
 
-    // Detect improvements: was failing, now passing
     if (!baselineResult.passed && candidateResult.passed) {
       improvements.push({
         caseId,
@@ -102,7 +91,6 @@ export function compareRuns(
       });
     }
 
-    // Calculate score delta
     scoreDeltas.push({
       caseId,
       baselineScore: baselineResult.score,
@@ -111,7 +99,6 @@ export function compareRuns(
     });
   }
 
-  // Find removed cases (in baseline but not in candidate)
   for (const [caseId, baselineResult] of baselineMap) {
     if (!candidateMap.has(caseId)) {
       removedCases.push({

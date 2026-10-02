@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { GradeResult } from '../types.js';
 
-// We'll need to mock process.env and promptfoo
 const originalEnv = process.env;
 
 describe('callLlmAssertion', () => {

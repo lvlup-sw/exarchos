@@ -1,30 +1,14 @@
-// ─── Gate catch-rate driver + measured cost columns (#1675, task 004) ─────────
-//
-// Drives the FIVE real mechanical gate HANDLERS over the DR-2 seeded-defect
-// corpus and measures, per gate: true-positive catch rate on seeded defects and
-// false-positive rate on matched controls — the enforcement-floor measurement
-// #1670 left open. Per fixture × gate it also records the DR-5 cost columns:
-// wall-clock milliseconds and gate-result payload tokens (the Pareto plane the
-// gate-policy replay consumes).
-//
-// ── Method integrity (DR-8) ──────────────────────────────────────────────────
-//  • REAL handlers, no self-reported verdicts: each fixture is materialized into
-//    a DISPOSABLE git worktree and its class's production handler is called
-//    directly (`handleTestAdequacy` / `handleStaticAnalysis` / …). Calling the
-//    handler directly — not through the dispatch severity wrapper — yields the
-//    RAW detection verdict, which is exactly what a catch rate must measure (the
-//    workflow-severity adaptation is a dispatch-phase concern, not a gate's
-//    detection power).
-//  • EPHEMERAL event store only: the driver's `gate.executed` emissions land in a
-//    throwaway store under the OS temp dir — NEVER the project event store.
-//  • Block-diagonal fixture×gate matrix: the corpus is class-partitioned by
-//    target gate, so each fixture is driven through its OWN class's gate (running
-//    a mock-boundary gate over a contract fixture would be noise, not signal).
-//    The dropped-edge-case class has NO gate — it is recorded as `ungated`
-//    pass-through with its hidden-oracle verdict, feeding task 006's escape math.
-//  • Fail-honest: a handler crash / non-success envelope yields an explicit
-//    `invalid` record for that cell — never a fabricated verdict.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * The gate catch-rate driver. It runs the five mechanical gate handlers over the seeded-defect corpus.
+ *
+ * For each gate it measures the catch rate on seeded defects and the false-positive rate on controls. For
+ * each fixture it records the wall-clock time and an estimated token count of the gate result.
+ *
+ * Each fixture gets a disposable git worktree, and the driver calls the handler of its class directly. A
+ * direct call gives the raw detection verdict, without the severity wrapper of dispatch. The
+ * `dropped-edge-case` class has no gate, so the hidden oracle grades it. Events go to a temporary event
+ * store, never to the project store. A handler crash or a non-success result gives an `invalid` cell.
+ */
 
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -65,8 +49,6 @@ import {
   type SeededFixture,
 } from './corpus.js';
 
-// ─── Verdict + record shapes ──────────────────────────────────────────────────
-
 /** The verdict a gate returned on a fixture cell. */
 export type CellVerdict = 'fail' | 'pass' | 'invalid' | 'ungated';
 
@@ -77,7 +59,7 @@ export interface CatchRateRow {
   readonly kind: 'defect' | 'control';
   /** The gate action driven (or `none` for the ungated dropped-edge-case class). */
   readonly gate: string;
-  /** The verdict a correct gate should return (`fail`/`pass`/`ungated`). */
+  /** The verdict that a correct gate returns (`fail`, `pass`, or `ungated`). */
   readonly expectedVerdict: string;
   /** The verdict the REAL gate actually returned. */
   readonly verdict: CellVerdict;
@@ -93,9 +75,9 @@ export interface CatchRateRow {
   readonly riskTier: string;
   /** Classifier-derived boundary flag (from the manifest). */
   readonly boundaryTouching: boolean;
-  /** Hidden-oracle verdict for dropped-edge-case rows; blank for gated rows. */
+  /** The hidden-oracle verdict for a `dropped-edge-case` row. It is blank for a gated row and when the oracle throws. */
   readonly oracleDetected: boolean | '';
-  /** Discriminant / crash note when non-nominal (e.g. `invalid`, gate skip). */
+  /** A short note on the cell: the gate discriminant, the finding count, or the reason for an `invalid` cell. */
   readonly note: string;
 }
 
@@ -123,8 +105,6 @@ export interface CatchRateReport {
   readonly eventStoreDir: string;
 }
 
-// ─── Handler map (block-diagonal: one gate per class) ─────────────────────────
-
 /** A production gate handler: `(args, stateDir, eventStore) => ToolResult`. */
 export type GateHandler = (
   args: Record<string, unknown>,
@@ -132,10 +112,10 @@ export type GateHandler = (
   eventStore: EventStore,
 ) => Promise<ToolResult>;
 
-// Each production handler takes a narrowly-typed args object; the driver hands a
-// generic record (built from the fixture), so wrap each in a thin adapter that
-// casts at the single call boundary — the handlers validate their required
-// fields (featureId/taskId) at runtime.
+/**
+ * Maps each class to its production handler. Each handler takes a narrow args type, so each adapter casts
+ * the generic record from the fixture at this one boundary.
+ */
 const GATE_HANDLERS: Readonly<Record<GateClass, GateHandler | null>> = {
   'test-adequacy': (a, sd, es) => handleTestAdequacy(a as unknown as Parameters<typeof handleTestAdequacy>[0], sd, es),
   'static-analysis': (a, sd, es) => handleStaticAnalysis(a as unknown as Parameters<typeof handleStaticAnalysis>[0], sd, es),
@@ -144,8 +124,6 @@ const GATE_HANDLERS: Readonly<Record<GateClass, GateHandler | null>> = {
   'integration-suite': (a, sd, es) => handleCheckIntegrationSuite(a as unknown as Parameters<typeof handleCheckIntegrationSuite>[0], sd, es),
   'dropped-edge-case': null,
 };
-
-// ─── Verdict extraction (gate-aware) ──────────────────────────────────────────
 
 /** ≈token estimate: a deterministic transform of the MEASURED payload length. */
 export function estimateTokens(payloadChars: number): number {
@@ -175,8 +153,6 @@ export function verdictFromResult(gateClass: GateClass, result: ToolResult): {
     return { verdict: findings.length > 0 ? 'fail' : 'pass', note: `findings=${findings.length}` };
   }
 
-  // Inconclusive verdicts are NOT a real pass/fail — record them as invalid so a
-  // "no toolchain" skip or an unparseable suite never masquerades as a verdict.
   if (d.skipped === true) return { verdict: 'invalid', note: 'gate-skipped' };
   if (d.parseError === true) {
     return { verdict: 'invalid', note: `parse-error:${String(d.parseFailureKind ?? 'unknown')}` };
@@ -187,8 +163,7 @@ export function verdictFromResult(gateClass: GateClass, result: ToolResult): {
   return { verdict: d.passed ? 'pass' : 'fail', note };
 }
 
-// ─── Real git executor (total: exit code is a value, never a throw) ───────────
-
+/** Runs git and returns the exit code as a value. It never throws. */
 const realGit: GitRun = (repoRoot, args) => {
   try {
     const stdout = execFileSync('git', [...args], {
@@ -207,8 +182,6 @@ const realGit: GitRun = (repoRoot, args) => {
   }
 };
 
-// ─── Dispatch seam ────────────────────────────────────────────────────────────
-
 /** Args passed to a gate handler for a materialized fixture. */
 export interface GateArgs {
   readonly featureId: string;
@@ -219,9 +192,8 @@ export interface GateArgs {
 }
 
 /**
- * The gate-dispatch seam: run a fixture's class handler over its materialized
- * worktree. Injected in tests to simulate a crash (throws → the driver records
- * an `invalid` cell). Default calls the real handler directly.
+ * Runs the class handler of a fixture over its materialized worktree. Tests inject a seam that throws to
+ * simulate a crash, and the driver then records an `invalid` cell.
  */
 export type GateDispatch = (
   fixture: SeededFixture,
@@ -230,6 +202,11 @@ export type GateDispatch = (
   eventStore: EventStore,
 ) => Promise<ToolResult>;
 
+/**
+ * Calls the real handler, and supplies what a transport supplies: a caller authorization in the dispatch
+ * scope and an active phase attempt. Without both, every cell fails closed as `invalid`. The phase-attempt
+ * id replaces each `/` of the fixture id with `-`, because the identity schema rejects `/`.
+ */
 const defaultDispatch: GateDispatch = async (fixture, args, stateDir, eventStore) => {
   const handler = GATE_HANDLERS[fixture.gateClass];
   if (!handler) {
@@ -239,13 +216,6 @@ const defaultDispatch: GateDispatch = async (fixture, args, stateDir, eventStore
     };
   }
 
-  // The driver IS the transport for these handlers, so it must supply what a
-  // transport supplies. The canonical gate runner reads caller authorization
-  // from the ambient dispatch scope and binds evidence to an active phase
-  // attempt; without both, every cell fails closed and the driver honestly
-  // records `invalid` — which measures the harness, not the gate's detection
-  // power. Uses the same primitives `dispatch/core/dispatch.ts` does so this cannot
-  // drift from production plumbing.
   const featureId =
     typeof (args as { featureId?: unknown }).featureId === 'string'
       ? (args as { featureId: string }).featureId
@@ -259,9 +229,6 @@ const defaultDispatch: GateDispatch = async (fixture, args, stateDir, eventStore
           featureId,
           workflowType: 'feature',
           phase: 'delegate',
-          // Corpus fixture ids are PATHS (`test-adequacy/defect-01`), but a
-          // phase-attempt id is a schema-validated identity — an unflattened
-          // `/` makes it malformed and the gate rejects the whole scope.
           phaseAttemptId: `phase-attempt:${featureId.replace(/\//g, '-')}`,
         },
       });
@@ -276,8 +243,6 @@ const defaultDispatch: GateDispatch = async (fixture, args, stateDir, eventStore
     handler({ ...args, action: fixture.manifest.gate }, stateDir, eventStore),
   );
 };
-
-// ─── Injectable dependencies ──────────────────────────────────────────────────
 
 export interface CatchRateDeps {
   /** The corpus to drive (default: the full seeded corpus). */
@@ -294,14 +259,10 @@ export interface CatchRateDeps {
   readonly now?: () => number;
 }
 
-// ─── Driver ───────────────────────────────────────────────────────────────────
-
 /**
- * Drive the corpus through the real gates and return the per-cell rows +
- * per-gate aggregates. Creates ONE ephemeral event store under `tmpRoot` (never
- * the project store); each fixture is materialized into its own disposable
- * worktree that is torn down as soon as its gate runs. The event-store dir is
- * left in place for the caller to inspect/clean (it is always ephemeral).
+ * Runs the corpus through the real gates and returns the rows and the per-gate aggregates. It makes one
+ * temporary event store under `tmpRoot`, never the project store. Each fixture gets its own worktree, which
+ * the driver removes after the gate runs. The event-store directory stays for the caller to read or remove.
  */
 export async function runCatchRate(deps: CatchRateDeps = {}): Promise<CatchRateReport> {
   const corpus = deps.corpus ?? loadSeededCorpus();
@@ -338,6 +299,11 @@ interface CellDeps {
   readonly eventStoreDir: string;
 }
 
+/**
+ * Measures one fixture. The hidden oracle grades a `dropped-edge-case` fixture, because no production gate
+ * targets it. A failed git setup gives an `invalid` cell, never a verdict from a partial worktree. The
+ * `taskId` replaces each `/` of the fixture id with `-`, because the gate rejects `/` with `INVALID_GATE_SCOPE`.
+ */
 async function measureCell(fixture: SeededFixture, deps: CellDeps): Promise<CatchRateRow> {
   const { manifest } = fixture;
   const common = {
@@ -350,8 +316,6 @@ async function measureCell(fixture: SeededFixture, deps: CellDeps): Promise<Catc
     boundaryTouching: manifest.boundaryTouching,
   } as const;
 
-  // Dropped-edge-case: NO production gate targets it — pass-through, graded by
-  // the hidden oracle (feeds task 006's escape computation).
   if (fixture.gateClass === 'dropped-edge-case') {
     const t0 = deps.now();
     let detected = false;
@@ -374,15 +338,12 @@ async function measureCell(fixture: SeededFixture, deps: CellDeps): Promise<Catc
     };
   }
 
-  // Mechanical gate cell: materialize → dispatch the real handler → measure.
   const worktree = fs.mkdtempSync(path.join(deps.tmpRoot, `cr-${fixture.gateClass}-`));
   try {
     let mat: MaterializedFixture;
     try {
       mat = materializeFixture(fixture, worktree, deps.git);
     } catch (err) {
-      // A git setup failure → an explicit invalid cell, never a verdict off a
-      // partial worktree (DR-8). Kept distinct from the handler-threw path.
       const msg = err instanceof Error ? err.message : String(err);
       return {
         ...common,
@@ -397,10 +358,6 @@ async function measureCell(fixture: SeededFixture, deps: CellDeps): Promise<Catc
     }
     const args: GateArgs = {
       featureId: fixture.id,
-      // Evidence subjects are schema-validated identities, and a corpus fixture
-      // id is a PATH (`test-adequacy/defect-01`) — the `/` makes it malformed as
-      // a taskId, which the gate rejects with INVALID_GATE_SCOPE. Flatten the
-      // separator; the mapping stays injective, so cells remain distinguishable.
       taskId: fixture.id.replace(/\//g, '-'),
       branch: mat.branch,
       baseBranch: mat.baseBranch,
@@ -446,13 +403,14 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-// ─── Aggregation ──────────────────────────────────────────────────────────────
-
 function mean(xs: number[]): number {
   return xs.length === 0 ? 0 : round2(xs.reduce((a, b) => a + b, 0) / xs.length);
 }
 
-/** Aggregate the per-cell rows into a per-gate catch-rate + cost summary. */
+/**
+ * Aggregates the rows into a per-gate catch rate and cost summary. The rates count only conclusive cells,
+ * so an `invalid` cell is not in a denominator.
+ */
 export function aggregate(rows: readonly CatchRateRow[]): GateAggregate[] {
   const out: GateAggregate[] = [];
   for (const gateClass of MECHANICAL_GATE_CLASSES) {
@@ -462,7 +420,6 @@ export function aggregate(rows: readonly CatchRateRow[]): GateAggregate[] {
     const defectsCaught = defects.filter((r) => r.verdict === 'fail').length;
     const falsePositives = controls.filter((r) => r.verdict === 'fail').length;
     const invalidCells = cls.filter((r) => r.verdict === 'invalid').length;
-    // Rates are over the CONCLUSIVE cells (invalid cells never inflate a rate).
     const conclDefects = defects.filter((r) => r.verdict !== 'invalid').length;
     const conclControls = controls.filter((r) => r.verdict !== 'invalid').length;
     out.push({
@@ -481,8 +438,6 @@ export function aggregate(rows: readonly CatchRateRow[]): GateAggregate[] {
   }
   return out;
 }
-
-// ─── CSV serialization (provenance-stamped) ───────────────────────────────────
 
 const CSV_COLUMNS: readonly (keyof CatchRateRow)[] = [
   'gateClass',
@@ -507,11 +462,9 @@ function csvField(v: unknown): string {
 }
 
 /**
- * Serialize the report to CSV, provenance-stamped (DR-8). The stamp is validated
- * via {@link stampProvenance} (throws on incomplete provenance) and asserted
- * `measured` via {@link assertMeasured}, then written as `#`-comment header lines
- * (which the chart generator skips) so the committed CSV carries `{ binaryTag,
- * gitSha, modelIds, date }` + `source: measured` inline.
+ * Serializes the report to CSV with a provenance stamp. {@link stampProvenance} throws on incomplete
+ * provenance, and {@link assertMeasured} requires `source: measured`. The stamp goes into `#` lines at the
+ * top, which the chart generator skips.
  */
 export function toCsv(report: CatchRateReport, provenance: Provenance): string {
   const stamped: ProvenanceStamped<{ source: 'measured'; benchmark: string }> = stampProvenance(
@@ -537,12 +490,14 @@ export function toCsv(report: CatchRateReport, provenance: Provenance): string {
   return lines.join('\n') + '\n';
 }
 
-// ─── Script entry point (guarded — import-safe) ───────────────────────────────
-
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, '../../../../..');
 const CSV_OUT = path.join(REPO_ROOT, 'tests/evals/data/2026-07-10/gate-catch-rate.csv');
 
+/**
+ * Builds the provenance stamp. The date is fixed, not read from the clock, so the provenance lines of the
+ * committed CSV stay the same across runs.
+ */
 function resolveProvenance(): Provenance {
   const git = realGit(REPO_ROOT, ['rev-parse', 'HEAD']);
   const gitSha = git.exitCode === 0 ? git.stdout.trim() : 'unknown';
@@ -553,11 +508,7 @@ function resolveProvenance(): Provenance {
     ) as { version?: string };
     if (pkg.version) binaryTag = `v${pkg.version}`;
   } catch {
-    /* leave unknown */
   }
-  // Fixed benchmark date (no ambient clock) so the committed CSV's provenance
-  // header is stable across re-runs; the wall-clock ms columns carry the
-  // machine-dependent snapshot instead.
   return { binaryTag, gitSha, modelIds: ['none'], date: '2026-07-10' };
 }
 
@@ -580,8 +531,7 @@ async function main(): Promise<void> {
   process.stdout.write(`\n[written] ${path.relative(REPO_ROOT, CSV_OUT)} (${report.rows.length} rows)\n`);
 }
 
-// Only run when invoked directly (`tsx catch-rate-driver.ts`); importing (tests)
-// must not run main or write the CSV.
+/** True when the file runs directly (`tsx catch-rate-driver.ts`). An import from a test does not run `main`. */
 const invokedDirectly =
   process.argv[1] !== undefined &&
   path.resolve(process.argv[1]) === path.resolve(HERE, 'catch-rate-driver.ts');
