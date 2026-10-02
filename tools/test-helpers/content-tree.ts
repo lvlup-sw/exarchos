@@ -1,16 +1,12 @@
+/**
+ * Resolves authored content by skill name, not by path.
+ *
+ * A skill lives at `content/<domain>/skills/<name>/`. These helpers search every domain. A
+ * caller that knows only the skill name does not break when the skill moves to another domain.
+ */
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-
-/**
- * Resolves authored content by name rather than by path.
- *
- * Sources are grouped by capability domain, so a skill's location is
- * `content/<domain>/skills/<name>/`. A caller that joins its own path has to
- * know the domain, which makes every such call site a thing that breaks when a
- * skill is regrouped. These helpers search the domains instead, so regrouping
- * is invisible to anything that only knows a skill's name.
- */
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 

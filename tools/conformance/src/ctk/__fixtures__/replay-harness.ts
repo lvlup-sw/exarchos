@@ -1,30 +1,21 @@
-// ─── P07-04 exit-proof (c) — admission replay harness ────────────────────────
+// The admission replay harness.
 //
-// Replay is the P01-04 / P06-07 guarantee that a phase attempt's admission
-// state is reconstructable from persisted facts ALONE — no live policy, no
-// clock, no store handle. `foldPhaseAttemptAdmission` is that reconstruction.
-// This harness builds well-formed admission event streams two ways:
+// Replay guarantees that the admission state of a phase attempt can be rebuilt from persisted
+// facts alone, with no live policy, clock or store handle. `foldPhaseAttemptAdmission` does that
+// rebuild. This harness builds well-formed admission event streams in two ways:
 //
-//   1. `handBuiltIntactHistory` — a multi-attempt history hand-authored against
-//      the persisted schemas (the shape `phase-attempt-state.test.ts` proves
-//      folds to `integrity: 'intact'`);
-//   2. `historyFromScenario` — a history DERIVED from the live admission
-//      contract: it freezes a real corpus scenario (`resolveRequirements` →
-//      `freezeRequirements`) and persists those exact frozen requirement records
-//      + the scenario's evidence + a matching decision. This ties the replay
-//      proof to the same freeze the benchmark and CTK exercise, so a drift in
-//      the frozen-record shape breaks replay too.
+//   1. `handBuiltIntactHistory`: a multi-attempt history written by hand against the persisted
+//      schemas.
+//   2. `historyFromScenario`: a history derived from the live admission freeze of a corpus
+//      scenario. A drift in the frozen-record shape thus also breaks replay.
 //
-// Everything here is a pure function of its inputs — the property the replay
-// suite asserts.
+// Every function here is a pure function of its inputs.
 
 import { resolveRequirements } from '../../../../../src/workflow/admission/requirement-resolution.js';
 import { freezeRequirements } from '../../../../../src/workflow/admission/freeze-requirements.js';
 import { ADMISSION_RUNTIME_CONTRACT_VERSION } from '../../../../../src/workflow/admission/types.js';
 import type { PhaseAttemptAdmissionFoldInput } from '../../../../../src/workflow/admission/phase-attempt-state.js';
 import type { AdmissionScenario } from './admission-decision-path.js';
-
-// ─── Shared persisted-envelope constants ─────────────────────────────────────
 
 const AT = '2026-07-21T19:00:00.000Z';
 const hex = (seed: string): string => seed.repeat(64).slice(0, 64);
@@ -52,8 +43,6 @@ const AUTHORIZATION = {
 } as const;
 
 const SUBJECT = { kind: 'task' as const, taskId: 'task.1', digest: digest('d') };
-
-// ─── Hand-built persisted payloads (mirror the proven recipe) ────────────────
 
 interface RequirementOptions {
   readonly phaseAttemptId?: string;
@@ -185,14 +174,11 @@ export function handBuiltIntactHistory(): PhaseAttemptAdmissionFoldInput {
   };
 }
 
-// ─── History derived from the LIVE admission freeze ──────────────────────────
-
 /**
- * Build a persisted admission history from a real corpus scenario by freezing
- * its resolved requirement lattice and persisting those exact frozen records,
- * the scenario's supplied evidence, and a matching `allow` decision. The frozen
- * requirement set digest and requirement records come straight from
- * `freezeRequirements`, so the replay proof is bound to the live freeze.
+ * Builds a persisted admission history from a corpus scenario. It freezes the resolved
+ * requirements and persists the frozen records, the scenario evidence and a matching `allow`
+ * decision. The digest and the records come from `freezeRequirements`, so replay uses the live
+ * freeze.
  */
 export function historyFromScenario(
   scenario: AdmissionScenario,
@@ -260,8 +246,6 @@ export function historyFromScenario(
   return { requirementEvents, evidenceEvents, decisionEvents };
 }
 
-// ─── Serialization + permutation utilities for the replay properties ─────────
-
 /** Round-trip a history through JSON — the persisted-stream boundary. */
 export function serializeHistory(history: PhaseAttemptAdmissionFoldInput): string {
   return JSON.stringify(history);
@@ -300,9 +284,9 @@ export function reorderStreams(
 }
 
 /**
- * Tamper with the first decision's requirement-set digest. A faithful replay
- * MUST refuse to attribute this decision to the frozen set — it is the negative
- * control that proves the intact assertions are not vacuous.
+ * Changes the requirement-set digest of the first decision. A faithful replay must not attribute
+ * this decision to the frozen set. This negative control proves that the intact assertions can
+ * fail.
  */
 export function tamperDecisionDigest(
   history: PhaseAttemptAdmissionFoldInput,

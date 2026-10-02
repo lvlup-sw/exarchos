@@ -4,7 +4,9 @@
  * `rmrf` and `rmrfAsync` first close every tracked SQLite handle under the
  * directory. If a handle stays open, they throw an error that names the
  * database path and the close error. That check does not depend on the
- * operating system. Then they delete the directory once. Windows can refuse a
+ * operating system. Then they delete the directory once.
+ *
+ * Windows can refuse a
  * delete while a process that the test does not control (an antivirus or the
  * search indexer) holds a file. Inside the run root that the vitest global
  * setup creates, a refused delete is left for the end-of-run sweep and the
@@ -19,9 +21,9 @@ import { trackedDatabases } from '../../src/storage/__shims__/open-database-regi
 import { TEST_TMP_ROOT_ENV } from './temp-run-root.js';
 
 /**
- * The real `node:fs`. A test file can mock `node:fs`, but teardown must still
- * act on the real tree, so this module loads it through `require`, which a
- * vitest mock does not replace.
+ * The real `node:fs`. A test file can mock `node:fs`, but teardown must still act
+ * on the real tree. So this module loads it through `require`, which a vitest
+ * mock does not replace.
  */
 const fs: typeof import('node:fs') = createRequire(import.meta.url)('node:fs');
 
@@ -185,8 +187,8 @@ function isWithin(root: string, candidate: string): boolean {
 }
 
 /**
- * The long, real form of a path. A Windows 8.3 short name or a symlink would
- * otherwise make a contained path look outside. If the path does not exist,
+ * The long, real form of a path. Without it, a Windows 8.3 short name or a
+ * symlink makes a contained path look outside. If the path does not exist,
  * the parent is resolved and the leaf is added back.
  */
 function canonicalPath(p: string): string {

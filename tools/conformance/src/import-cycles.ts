@@ -1,22 +1,12 @@
-// ─── Runtime Import-Cycle Detection (DR-4, debloat task 009) ─────────────────
+// Finds runtime import cycles in a dependency-cruiser JSON graph.
 //
-// Pure graph analysis over a dependency-cruiser JSON graph. dependency-cruiser
-// is the SOLE acceptance instrument for the import surface: it counts RUNTIME
-// edges only. With the repo config's default `tsPreCompilationDeps: false`, the
-// TypeScript emit ELIDES `import type` statements, so they never appear as
-// edges (type-only excluded); dynamic `import()` survives compilation and IS
-// counted. This module treats depcruise's edge classification as ground truth
-// and adds only the graph theory (Tarjan SCC) needed to name the cycles.
+// dependency-cruiser is the acceptance instrument for the import surface, and it counts runtime
+// edges only. With the default `tsPreCompilationDeps: false`, an `import type` is not an edge, and
+// a dynamic `import()` is an edge. This module trusts that classification and adds Tarjan SCC.
 //
-// The detector is deliberately pure — it takes the depcruise JSON *text*, not a
-// live depcruise run — so it is unit-testable without shelling the tool. The
-// co-located test shells the real depcruise and feeds the output here.
-//
-// NON-EMPTY DENOMINATOR (DR-8, task 079). The detector reports the first-party
-// node count it resolved and FAILS CLOSED on zero. Cycle detection has no
-// natural tooth of its own: "no cycle" is the healthy answer, so it is also the
-// answer a scan that resolved nothing gives — and `srcPrefix` matching nothing
-// is an easy, silent way to get there. See `EmptyCycleGraphError`.
+// The detector takes the depcruise JSON text, not a live run, so a unit test needs no tool.
+// It reports the first-party node count and fails closed on zero, because a scan that resolved
+// nothing also reports no cycle. See `EmptyCycleGraphError`.
 
 /** A dependency-cruiser dependency edge (the subset we consume). */
 interface DepcruiseDependency {
@@ -62,16 +52,9 @@ function toPosix(p: string): string {
 }
 
 /**
- * "Is this module inside `srcPrefix`", anchored on a path boundary.
- *
- * A bare `startsWith` also matches a SIBLING whose name merely begins with the
- * prefix — with `servers/exarchos-mcp/src`, a `…/src-legacy/` or `…/src.bak/`
- * directory joins the graph and contributes cycles that do not exist in the
- * tree being governed. Trailing separators are stripped so either spelling of
- * the prefix behaves the same.
- *
- * One definition, because this predicate had drifted into two identical copies
- * and a fix applied to one of them would have been invisible in the other.
+ * Returns a test for "inside `srcPrefix`", anchored on a path boundary.
+ * A bare `startsWith('src')` also matches a sibling such as `src-legacy/`, which adds cycles from outside the tree.
+ * Trailing separators are stripped, so both spellings of the prefix behave the same.
  */
 function localToPrefix(srcPrefix: string): (candidate: string) => boolean {
   const prefix = toPosix(srcPrefix).replace(/\/+$/, '');
@@ -82,13 +65,9 @@ function localToPrefix(srcPrefix: string): (candidate: string) => boolean {
 }
 
 /**
- * Build the first-party runtime adjacency from a depcruise graph.
- *
- * - Only modules whose `source` is under `srcPrefix` are nodes (first-party).
- * - An edge is kept only when its `resolved` target is also under `srcPrefix`
- *   AND the edge is not tagged `type-only`. The `type-only` guard is defensive:
- *   with `tsPreCompilationDeps: false` such edges are already absent, but the
- *   filter keeps the runtime-only semantics explicit and robust to config drift.
+ * Builds the first-party runtime adjacency from a depcruise graph.
+ * Nodes are the modules under `srcPrefix`. An edge stays when its target is under `srcPrefix` and it is not `type-only`.
+ * With `tsPreCompilationDeps: false`, no edge is `type-only`. The filter keeps the result runtime-only if the config changes.
  */
 function buildAdjacency(
   output: DepcruiseOutput,
@@ -112,17 +91,10 @@ function buildAdjacency(
 }
 
 /**
- * Thrown when the graph resolves ZERO first-party nodes under `srcPrefix`.
- *
- * Distinct from "acyclic" on purpose (DR-8, task 079). `buildAdjacency` keeps
- * only modules whose `source` starts with `srcPrefix`, so a prefix that matches
- * nothing — a relocated tree, a renamed package directory, a depcruise run
- * scoped to the wrong path, a leading-`./` mismatch — produces an empty
- * adjacency and therefore an empty cycle list. That is the exact value a clean
- * tree produces, and the blocking CI consumer printed `OK: 0 runtime cycle(s)`
- * and exited 0 on it. The baseline's phantom tooth does not cover the gap
- * either: it only fires against baselined entries, and the baseline is
- * (correctly) empty.
+ * Thrown when the graph resolves zero first-party nodes under `srcPrefix`.
+ * A prefix that matches nothing gives an empty cycle list, the same value as a clean tree.
+ * A moved tree, a renamed directory, a wrong depcruise scope, or a leading `./` can cause it.
+ * The phantom check of the baseline does not cover this case, because it reads only baselined entries.
  */
 export class EmptyCycleGraphError extends Error {
   constructor(
@@ -150,12 +122,8 @@ export interface RuntimeCycleScan {
 }
 
 /**
- * Detect the runtime import cycles in a dependency-cruiser JSON graph AND report
- * the population they were detected in.
- *
- * The counts are returned rather than derived later because this is the only
- * place that sees the graph. Downstream, an empty cycle array cannot be told
- * apart from a scan that resolved no nodes at all.
+ * Detects the runtime import cycles in a dependency-cruiser JSON graph, and reports the population of the scan.
+ * This function returns the counts because downstream, an empty cycle array does not show a scan with no nodes.
  *
  * @throws {EmptyCycleGraphError} when no first-party node resolves.
  */
@@ -178,14 +146,13 @@ export function scanRuntimeCycleGraph(
 }
 
 /**
- * Detect every runtime import cycle in a dependency-cruiser JSON graph.
+ * Detects every runtime import cycle in a dependency-cruiser JSON graph.
  *
  * @param depcruiseJson The raw `depcruise --output-type json` stdout.
- * @param srcPrefix     Repo-relative source root (default: the MCP server src).
+ * @param srcPrefix     Repo-relative source root (default: `src`).
  * @returns One {@link RuntimeCycle} per strongly-connected component with a
  *   cycle (SCCs of size > 1, plus self-loops). Empty when the graph is acyclic.
- * @throws {EmptyCycleGraphError} when no first-party node resolves under
- *   `srcPrefix` — an empty population is a broken scan, not a clean tree.
+ * @throws {EmptyCycleGraphError} when no first-party node resolves under `srcPrefix`.
  */
 export function detectRuntimeCycles(
   depcruiseJson: string,
@@ -194,10 +161,8 @@ export function detectRuntimeCycles(
   return [...scanRuntimeCycleGraph(depcruiseJson, srcPrefix).cycles];
 }
 
-/** Tarjan SCC over an already-built first-party adjacency. */
+/** Tarjan SCC over a built first-party adjacency. The recursion is safe, because the module graph is far less deep than the stack limit. */
 function detectCyclesIn(adj: Map<string, Set<string>>): RuntimeCycle[] {
-  // Tarjan's strongly-connected-components algorithm (iterative-safe recursion
-  // is fine here: the module graph depth is well under the stack limit).
   let index = 0;
   const idx = new Map<string, number>();
   const low = new Map<string, number>();
@@ -255,7 +220,7 @@ function detectCyclesIn(adj: Map<string, Set<string>>): RuntimeCycle[] {
 
 /**
  * Whether a specific runtime edge `from -> to` exists in the depcruise graph.
- * Used to pin a single seam (e.g. "the projection must NOT import the store").
+ * A test uses it to pin one seam, for example "the projection must NOT import the store".
  * Paths are matched repo-relative and forward-slashed.
  */
 export function runtimeEdgeExists(
@@ -269,12 +234,9 @@ export function runtimeEdgeExists(
   return adj.get(toPosix(from))?.has(toPosix(to)) ?? false;
 }
 
-/**
- * A baselined (accepted, tracked) runtime cycle edge. Task 010 finalizes this
- * shape and its validating schema; the fields here are the DRAFT contract.
- */
+/** A baselined (accepted, tracked) runtime cycle edge. */
 export interface CycleBaselineEntry {
-  /** The depcruise rule that flagged the edge (e.g. `no-circular`). */
+  /** The depcruise rule that flagged the edge (for example `no-circular`). */
   readonly rule: string;
   /** Repo-relative source of the back-edge. */
   readonly from: string;
@@ -288,20 +250,15 @@ export interface CycleBaselineEntry {
   readonly issue: string;
   /**
    * ISO date the waiver lapses, XOR `permanent`.
-   *
-   * `| undefined` deliberately: `cycle-gate.ts` feeds this interface entries
-   * produced by `z.infer`, whose `.optional()` fields are `T | undefined` under
-   * `exactOptionalPropertyTypes`. `cycle-gate.ts`'s own header already claimed
-   * its validated entry type "flows unchanged" into these helpers — a claim no
-   * typechecker had ever read, because `scripts/` was compiled by nothing until
-   * task 066. It does now.
+   * The type includes `undefined`, because `cycle-gate.ts` passes entries from `z.infer`.
+   * Under `exactOptionalPropertyTypes`, those `.optional()` fields are `T | undefined`.
    */
   readonly expires?: string | undefined;
   /** `true` when the edge is an accepted permanent exception (no expiry). */
   readonly permanent?: boolean | undefined;
 }
 
-/** The `cycle-baseline.json` document shape (DRAFT — task 010 finalizes). */
+/** The `cycle-baseline.json` document shape. */
 export interface CycleBaseline {
   readonly entries: readonly CycleBaselineEntry[];
 }
@@ -341,13 +298,9 @@ function liveCycleEdgeKeys(cycles: readonly RuntimeCycle[]): Set<string> {
 }
 
 /**
- * PHANTOM baseline entries: the ones whose `from -> to` edge matches NO current
- * runtime cycle edge. The symmetric partner to {@link unbaselinedCycleEdges}, and
- * the sharpest tooth of the ratchet (DR-4 no-mask): a baselined edge that no live
- * cycle exercises is stale cover — it silently pre-authorizes a future cycle on
- * that exact seam, so the gate must fail on it rather than let it linger. (Unlike
- * knip's `stale`, which is a mere hygiene warning, a phantom cycle-baseline entry
- * is a hard failure.)
+ * Returns the phantom baseline entries: those whose `from -> to` edge matches no live runtime cycle edge.
+ * This is the partner of {@link unbaselinedCycleEdges}. A phantom entry pre-authorizes a future cycle on
+ * that edge, so the gate fails on it.
  */
 export function phantomBaselineEntries(
   cycles: readonly RuntimeCycle[],
@@ -359,26 +312,16 @@ export function phantomBaselineEntries(
   );
 }
 
-// ─── Forbidden Runtime Back-Edge Registry (P07-06) ───────────────────────────
-//
-// The baseline machinery above ACCEPTS existing cycles; this registry PREVENTS
-// specific cycle-closing back-edges from ever forming. The debloat gate already
-// pins one such seam by hand in the co-located test (the projection MUST NOT
-// runtime-import the store, or the mutual cycle re-forms). P07-06 generalizes
-// that ad-hoc pin into a declared, ratcheted set so new forbidden seams are a
-// one-line entry rather than a bespoke test — extending the detector's
-// *enforcement*, not just its detection. Like every gate on this ladder it is a
-// two-way ratchet: a present forbidden edge fails, AND a rule whose endpoints are
-// not both real modules in the graph fails as stale cover (a phantom guard could
-// silently pass while the module it names was renamed away).
-
-/** A declared runtime edge that must never exist (a cycle-closing back-edge). */
+/**
+ * A declared runtime edge that must never exist, because it closes a cycle.
+ * The baseline accepts existing cycles. These rules stop specific back-edges from forming.
+ */
 export interface ForbiddenEdgeRule {
   /** Source module (scan-root-relative, forward-slashed, matching `srcPrefix`). */
   readonly from: string;
   /** Target module the source must not runtime-import. */
   readonly to: string;
-  /** Why this seam must stay one-way (usually: it would re-form a cycle). */
+  /** Why this seam must stay one-way. Usually the edge re-forms a cycle. */
   readonly reason: string;
 }
 
@@ -419,9 +362,8 @@ function nodesFromOutput(output: DepcruiseOutput, srcPrefix: string): Set<string
 }
 
 /**
- * The set of first-party module paths present in the graph — as an import source
- * OR a resolved local target. Used to validate that a forbidden-edge rule names
- * real modules; a rule whose endpoints are absent is phantom cover.
+ * Returns the first-party module paths in the graph, as an import source or a resolved local target.
+ * A forbidden-edge rule whose endpoints are absent is phantom cover.
  */
 export function firstPartyModules(
   depcruiseJson: string,
@@ -431,10 +373,9 @@ export function firstPartyModules(
 }
 
 /**
- * The two-way forbidden-edge verdict over a depcruise graph:
- *   - FORBIDDEN_RUNTIME_EDGE — a declared forbidden edge that actually exists;
- *   - STALE_FORBIDDEN_EDGE   — a rule whose `from`/`to` is not a real graph node
- *                              (phantom guard), so the pin protects nothing.
+ * Returns the two-way forbidden-edge verdict over a depcruise graph.
+ * `FORBIDDEN_RUNTIME_EDGE` marks a declared forbidden edge that exists.
+ * `STALE_FORBIDDEN_EDGE` marks a rule whose `from` or `to` is not a graph node, so the rule protects nothing.
  */
 export function runForbiddenEdgeCensus(
   depcruiseJson: string,

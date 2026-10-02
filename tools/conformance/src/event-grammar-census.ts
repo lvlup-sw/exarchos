@@ -1,83 +1,18 @@
-// RESERVED(issue: #1473, owner: exarchos, expires: 2027-02-28) — the DR-3 event-name grammar
-// census and its two-way ratchet. Its verdict is stated by the co-located vitest, which `ci.yml`
-// runs on the UNFILTERED `grep-gates` deps tail; it has no production importer by design, because
-// it governs the event catalog rather than participating in it. Deleted when the concession table
-// reaches zero (see {@link EVENT_GRAMMAR_CONCESSIONS}), not before.
-//
 /**
- * The DR-3 event-name grammar census and its two-way ratchet (task 015).
+ * RESERVED(issue: #1473, owner: exarchos, expires: 2027-02-28)
  *
- * ── What this measures, and why it cannot be done at compile time ───────────
- * Task 014 shipped the grammar (`events/event-name.ts`): a template-literal type that decides
- * well-formedness at compile time, and a clause-for-clause runtime twin, {@link classifyEventName},
- * that returns WHICH clause a name breaks. Its compile-time proof
- * `_EventName_EveryRegisteredType_IsWellFormed` already quantifies over the whole `EventType`
- * union, so the BUILT-IN catalog is checked by `tsc` with no help from this module.
+ * The event-name grammar census and its two-way ratchet. The co-located vitest states the
+ * verdict. No production code imports this module, because it governs the event catalog. Delete
+ * it when {@link EVENT_GRAMMAR_CONCESSIONS} has no entries, not before.
  *
- * What `tsc` structurally cannot see is the rest of the live registry. `registerEventType` accepts
- * CUSTOM event names at runtime — from `ExarchosConfig.events`, from a string that arrived over
- * stdio — and a value that does not exist in any type cannot be quantified over by a type. So the
- * enumeration has to happen at runtime, against {@link getValidEventTypes}, which is the union of
- * the built-ins and whatever has been registered. That is the whole reason this census exists in
- * `architecture/` rather than as another proof alias in `event-name.ts`, and it is why task 014
- * kept every import in that module `import type`: the grammar must not depend on the catalog
- * booting, and this module is where the boot happens.
+ * `tsc` checks the built-in catalog against the grammar type. It cannot check the custom names
+ * that `registerEventType` accepts at runtime, so this census enumerates `getValidEventTypes` at
+ * runtime. The names arrive as values, and the verdict comes from the shipped classifier and the
+ * `EVENT_NAME_PATTERN` regex object, not from a text scan.
  *
- * The custom half is not hypothetical. Until task 075 it was STRICTLY the more permissive surface:
- * `registerEventType` validated a custom name against a hand-written `EVENT_NAME_PATTERN` that
- * admitted digits and multi-word namespaces the DR-3 grammar refuses, so
- * `registerEventType('my-app.started2', …)` succeeded and landed a name in the live registry that
- * the grammar rejected. DR-5 closed that: the seam now calls `assertWellFormedEventName`, so the
- * two surfaces agree and {@link MALFORMED_EVENT_NAME}'s remaining live subject is the BUILT-IN
- * literal array, which the seam never sees. The tooth is unchanged and still fires — see the
- * co-located test, which measures both directions of that change rather than describing it.
- *
- * ── Why the verdict is STRUCTURAL, not textual ──────────────────────────────
- * Nothing here is scanned as text. The names come from the registry as VALUES, the verdict comes
- * from task 014's decision procedure, and the shipped runtime validator is read as the regex
- * OBJECT `EVENT_NAME_PATTERN` rather than transcribed. This wave has eight recorded occurrences of
- * a raw-text scanner standing in for a real read, and the temptation here was concrete: the
- * divergence measured below could have been produced by grepping `schemas.ts` for underscores.
- * That would have measured the source file's punctuation, not the validator's verdict — and the
- * two answer different questions the moment either the pattern or the catalog moves.
- *
- * ── The two directions ──────────────────────────────────────────────────────
- * DR-3 asks for a TWO-WAY ratchet, which means the instrument must be able to fail from both
- * sides, and both sides must have a live subject:
- *
- *   FORWARD  — a registered name the grammar rejects is {@link MALFORMED_EVENT_NAME}, carrying the
- *              clause it broke as task 014's own {@link EventNameDefect}. Zero today; the kill
- *              fixture injects a malformed name into the enumerated list to prove the tooth bites.
- *              It used to REGISTER one, which the seam accepted until task 075 closed that door.
- *   STALE    — a recorded CONCESSION that no live name exercises is {@link STALE_SEED_ENTRY}.
- *              A grammar wider than the corpus it describes is cover: it declines to reject a
- *              class nothing uses, and nobody notices, because a rule that never fires looks
- *              exactly like a rule that is satisfied.
- *
- * A ratchet whose stale half has an empty table proves nothing, so the concession table is not an
- * empty stub awaiting a future population: it holds the two live word separators, measured at 29
- * (`-`) and 25 (`_`) names on the landing branch. See {@link EVENT_GRAMMAR_CONCESSIONS}.
- *
- * ── The vocabulary is REUSED, not reinvented ────────────────────────────────
- * Every code below already exists in this directory: `EMPTY_CENSUS`, `UNTRUSTWORTHY_CENSUS`,
- * `EMPTY_ALLOWLIST`, `UNREADABLE_CLOCK`, `STALE_SEED_ENTRY` and `EXPIRED_SEED_ENTRY` are taken
- * verbatim from `report-coupling-census.ts` (G3) and `output-schema-census.ts` (G2); the growth
- * code follows their `UNSEEDED_*` form and the malformed codes their `MALFORMED_*` form. Coining a
- * second name for a failure class this directory already names is itself the multiple-authority
- * defect DR-6 detects, so the per-name defect code is not re-encoded either — it is task 014's
- * {@link EventNameDefect}, passed through.
- *
- * ── Why the counts are DERIVED ──────────────────────────────────────────────
- * No cardinality appears in any expression, any policy datum or any assertion — only in prose,
- * where a figure is a record of what was measured and cannot be mistaken for a threshold. Every
- * number this module reports is computed from the enumerated names on each call, and the
- * concession table is a MEMBERSHIP list rather than a count. That distinction is what four broken
- * assertions in this wave were made of: a guard's own self-test hard-coded the number it measures,
- * and a CORRECT change elsewhere falsified it.
- *
- * The complementary teeth are {@link EMPTY_CENSUS} and `EMPTY_ALLOWLIST`: enumerating zero names,
- * or resolving zero concessions, is a FAILURE and never a clean run — without them the instrument
- * reads green precisely when it has stopped working.
+ * The forward direction reports a registered name that the grammar rejects. The stale direction
+ * reports a recorded concession that no live name exercises. The concession table imports nothing,
+ * so it stays independent of the live catalog. An empty census or an empty table is a failure.
  */
 import type {
   EventNameDefect,
@@ -91,12 +26,10 @@ import {
 import { isIsoDay, isoDayUtc } from './waiver-ledger.js';
 
 /**
- * The two grammar authorities this census decides names under.
- *
- * They arrive as ports rather than imports: this module is conformance code and
- * must not reach into the tree it inspects. `events/schemas.ts` is also a DR-1
- * declaration store, which a census may not read directly. The composition root
- * binds the shipped `classifyEventName` and `isBuiltInEventType`.
+ * The two grammar authorities that this census decides names under. They arrive as ports,
+ * because conformance code must not import the tree that it inspects, and `events/schemas.ts`
+ * is a declaration store. The composition root binds the shipped `classifyEventName` and
+ * `isBuiltInEventType`.
  */
 export interface EventGrammarPorts {
   /** The shipped grammar's verdict on a name. */
@@ -107,19 +40,14 @@ export interface EventGrammarPorts {
 
 export { EVENT_GRAMMAR_CONCESSIONS, type GrammarConcessionEntry };
 
-// ─── The census ─────────────────────────────────────────────────────────────
-
 /** Where a registered name came from. Custom names are invisible to every compile-time proof. */
 export type EventNameOrigin = 'built-in' | 'custom';
 
 /**
- * A grammar CONCESSION: a clause the DR-3 grammar admits only because live names force it.
- *
- * Today there is exactly one family — the word separator. Task 014's header records why: the
- * catalog is not unanimous about which one to use, and picking a winner would reject live,
- * emitted, replayable names, which INV-1 makes a log-compatibility break rather than a tidy-up.
- * The id is DERIVED from {@link WORD_SEPARATORS}, so the concession surface cannot drift away from
- * the grammar it concedes: widen that tuple and a new clause appears here on the next run.
+ * A grammar concession: a clause that the grammar admits only because live names force it. The
+ * only family is the word separator, because the catalog uses both `-` and `_`. A rename of an
+ * emitted event name breaks log replay. The id derives from `WORD_SEPARATORS`, so a new separator
+ * adds a clause on the next run.
  */
 export type ConcessionClause = `word-separator:${WordSeparator}`;
 
@@ -127,17 +55,16 @@ export type ConcessionClause = `word-separator:${WordSeparator}`;
 export interface EventNameRecord {
   readonly name: string;
   readonly origin: EventNameOrigin;
-  /** True when the DR-3 grammar (task 014) accepts it. */
+  /** True when the grammar accepts the name. */
   readonly wellFormed: boolean;
-  /** The clause it breaks, in task 014's vocabulary. Absent when {@link wellFormed}. */
+  /** The clause that the name breaks, in the grammar's vocabulary. Absent when {@link wellFormed}. */
   readonly defect?: EventNameDefect;
-  /** The offending segment, when task 014's classifier could localise the defect. */
+  /** The bad segment, when the classifier can locate the defect. */
   readonly segment?: string;
   /**
-   * True when the SHIPPED runtime validator (`EVENT_NAME_PATTERN`) accepts it.
-   *
-   * Read from the exported regex object, never re-derived. `false` on a name the grammar accepts
-   * is the divergence the ratchet governs; see {@link EventGrammarCensusReport.divergent}.
+   * True when the shipped runtime validator (`EVENT_NAME_PATTERN`) accepts the name. The census
+   * reads the exported regex object. A `false` on a name that the grammar accepts is a divergence,
+   * see {@link EventGrammarCensusReport.divergent}.
    */
   readonly shippedPatternAccepts: boolean;
   /** Concession clauses this name exercises, sorted. Derived from the name, never declared. */
@@ -145,12 +72,9 @@ export interface EventNameRecord {
 }
 
 /**
- * A condition that makes the census itself untrustworthy.
- *
- * Note what is NOT here: a malformed name, or a name the two authorities disagree about. Those are
- * the MEASUREMENT, not a fault in the instrument — policy over the measurement belongs to the
- * ratchet below. Same split as `report-coupling-census.ts`, and it is what lets the ratchet treat
- * `!report.ok` as `UNTRUSTWORTHY_CENSUS` without the live divergence poisoning every run.
+ * A condition that makes the census itself untrustworthy. A malformed name or a divergence is a
+ * measurement, not a fault in the census. Thus the ratchet can treat `!report.ok` as
+ * `UNTRUSTWORTHY_CENSUS` while a live divergence exists.
  */
 export type EventGrammarDiagnostic = { readonly code: 'EMPTY_CENSUS'; readonly message: string };
 
@@ -161,37 +85,28 @@ export interface EventGrammarCensusReport {
   readonly total: number;
   /** Every enumerated name, sorted. */
   readonly records: readonly EventNameRecord[];
-  /** Sorted names the DR-3 grammar rejects. Derived; the forward tooth's subject. */
+  /** Sorted names that the grammar rejects. This is the subject of the forward direction. */
   readonly malformed: readonly string[];
   /**
-   * Sorted names the two forms of the grammar disagree about — accepted by one, refused by the
-   * other.
-   *
-   * This carried task 014's FINDING, which was real, live and 25 names wide when task 015 first
-   * measured it on the runtime path. It reads ZERO since task 075 derived `EVENT_NAME_PATTERN` from
-   * the grammar. It stays a measurement rather than a diagnostic for the reason it always was: a
-   * live disagreement must not make the census untrustworthy and the ratchet unreadable. What it
-   * guards now is the repair — re-author the pattern by hand and this goes non-zero again, which
-   * the ratchet's growth tooth turns into `UNSEEDED_GRAMMAR_CONCESSION`.
+   * Sorted names that the grammar and `EVENT_NAME_PATTERN` disagree about. The pattern derives from
+   * the grammar, so this list is empty on the live tree. It is a measurement, not a diagnostic, so a
+   * live disagreement does not make the census untrustworthy. The growth check reports a divergent
+   * name under a concession recorded as not divergent.
    */
   readonly divergent: readonly string[];
   /**
-   * Live names exercising each concession clause, sorted. The stale tooth's denominator.
-   *
-   * Keyed by `string`, not by {@link ConcessionClause}: the concession TABLE is keyed by whatever
-   * a human wrote down, and the stale tooth exists precisely to find a recorded clause the grammar
-   * no longer derives. A map that could only be probed with a live clause id could not be asked
-   * that question, and answering it with a type assertion would trade the finding for a cast.
+   * Live names that exercise each concession clause, sorted. This is the denominator of the stale
+   * check. The key is `string`, not {@link ConcessionClause}, because the stale check looks up
+   * recorded clauses that the grammar does not derive any more.
    */
   readonly concessionUsage: ReadonlyMap<string, readonly string[]>;
   readonly diagnostics: readonly EventGrammarDiagnostic[];
 }
 
 /**
- * The concession clauses the grammar currently makes, derived from task 014's data.
- *
- * The separator set is explicit — it belongs to the shipped grammar, which this
- * module may not import. `LIVE_SEPARATORS` in the composition root is the bound value.
+ * The concession clauses that the grammar makes, derived from its separator set. The set is a
+ * parameter because this module must not import the shipped grammar. The composition root binds
+ * `LIVE_SEPARATORS`.
  */
 export function concessionClauses(
   separators: readonly WordSeparator[],
@@ -200,11 +115,9 @@ export function concessionClauses(
 }
 
 /**
- * Which concession clauses `name` exercises.
- *
- * Only the segments AFTER the namespace are inspected: `IsNamespace` is a bare word, so a
- * separator in the first segment is a DEFECT (`NAMESPACE_NOT_SINGLE_WORD`), not an exercise of the
- * concession. Counting it as usage would let a malformed name keep a concession alive.
+ * The concession clauses that `name` exercises. Only the segments after the namespace count. A
+ * separator in the namespace is the defect `NAMESPACE_NOT_SINGLE_WORD`, and a malformed name must
+ * not keep a concession alive.
  */
 function concessionsExercisedBy(
   name: string,
@@ -218,19 +131,14 @@ function concessionsExercisedBy(
 }
 
 /**
- * Enumerate the LIVE registry and decide every name under both authorities.
+ * Enumerates the live registry and decides each name under both authorities. Every input is a
+ * parameter. Thus the co-located vitest can drive an empty subject, a changed pattern or a new
+ * separator, and the real registry stays unchanged. The live wrapper is
+ * `censusLiveEventNameGrammar` in the composition root.
  *
- * Every input is explicit; the live-bound convenience wrapper is
- * `censusLiveEventNameGrammar` in the composition root. They are injectable seams for the
- * same reason `censusReportCoupling` takes `registeredTypes`: the co-located vitest has to
- * drive compositions the live tree cannot produce — an emptied subject, a repaired
- * `EVENT_NAME_PATTERN`, a grammar that gained a third separator — without mutating the real
- * registry or the real regex.
- *
- * `names` comes from {@link getValidEventTypes}, NOT from `EventTypes`. That direction is the
- * point of the whole module: `EventTypes` is the compile-time union task 014 already proves, and
- * enumerating it here would make this census a slower restatement of a proof that already holds.
- * The custom registrations are the population only a runtime enumeration can see.
+ * `names` comes from `getValidEventTypes`, not from `EventTypes`, because only a runtime
+ * enumeration sees custom registrations. An empty subject raises `EMPTY_CENSUS`. A record omits
+ * an absent optional field, because `exactOptionalPropertyTypes` is on.
  */
 export function censusEventNameGrammar(
   names: readonly string[],
@@ -245,8 +153,6 @@ export function censusEventNameGrammar(
     const shippedPatternAccepts = shippedPattern.test(name);
     const concessions = concessionsExercisedBy(name, separators);
     const origin: EventNameOrigin = ports.isBuiltIn(name) ? 'built-in' : 'custom';
-    // Built conditionally rather than with explicit `undefined`: `exactOptionalPropertyTypes` is
-    // on, and the same three-way shape is how task 014's own `reject` helper builds its verdict.
     records.push(
       verdict.ok
         ? { name, origin, wellFormed: true, shippedPatternAccepts, concessions }
@@ -280,9 +186,6 @@ export function censusEventNameGrammar(
   }
 
   const diagnostics: EventGrammarDiagnostic[] = [];
-  // Non-empty-denominator guard. A census over an empty subject is not a clean run — it is a
-  // census that lost its subject (a moved module, a broken import, an emptied catalog). Without
-  // this tooth the instrument reads green exactly when it has stopped working.
   if (records.length === 0) {
     diagnostics.push({
       code: 'EMPTY_CENSUS',
@@ -307,16 +210,6 @@ export function censusEventNameGrammar(
   });
 }
 
-// ─── The concession table lives elsewhere, deliberately ────────────────────
-//
-// `EVENT_GRAMMAR_CONCESSIONS` is the stale tooth's denominator and one of the two authorities the
-// co-located suite compares. It lives in `event-grammar-concessions.ts`, which imports NOTHING, so
-// it cannot reach the live catalog (the other authority) in the static import graph — the same
-// independence rule `report-coupling-seed-pin.ts` states, and the one DR-30's
-// `oracle-sources-derived` detector enforces. Re-exported here so consumers have one entry point.
-
-// ─── The two-way ratchet ────────────────────────────────────────────────────
-
 /** A condition that makes the grammar, the concession table and the live registry disagree. */
 export type EventGrammarFinding =
   | { readonly code: 'EMPTY_CENSUS'; readonly message: string }
@@ -326,7 +219,7 @@ export type EventGrammarFinding =
   | {
       readonly code: 'MALFORMED_EVENT_NAME';
       readonly name: string;
-      /** Task 014's clause code, passed through — never a second encoding of the same fact. */
+      /** The clause code of the grammar, passed through unchanged. */
       readonly defect: EventNameDefect;
       readonly message: string;
     }
@@ -363,48 +256,16 @@ export interface EventGrammarRatchetVerdict {
   readonly findings: readonly EventGrammarFinding[];
 }
 
-/**
- * The day rule. Re-exported, not re-stated (DR-6).
- *
- * This module used to carry its own copy, for a reason it wrote down: the only other definition
- * lived in `output-schema-census.ts`, which reaches `TOOL_REGISTRY` at load, and a grammar census
- * must not boot the tool registry to read a date. `waiver-ledger.ts` imports NOTHING, so the reason
- * is gone and the fourth copy with it.
- */
 export { isIsoDay, isoDayUtc };
 
 /**
- * The DR-3 two-way ratchet: the live registry against the grammar, and the concession table
- * against the live registry.
+ * The two-way ratchet: the live registry against the grammar, and the concession table against
+ * the live registry. `today` has no default, because this module reads no wall clock. The caller
+ * that blocks the merge reads the clock. Dates compare as ISO `YYYY-MM-DD` strings, so the verdict
+ * has no timezone dependency. An invalid `today` gives `UNREADABLE_CLOCK`.
  *
- * `today` is REQUIRED and has no default. Nothing in this module reads the wall clock: a library
- * that does turns "the debt came due" into "the test suite stopped working", and a developer who
- * cannot run tests fixes the CLOCK rather than the debt. The single clock read lives at the call
- * site that blocks the merge. Dates are compared as ISO `YYYY-MM-DD` STRINGS, never as `Date`
- * values — lexicographic order on that format IS calendar order, so the verdict has no timezone,
- * no DST and no millisecond component to flip on.
- *
- * Every other input defaults to the live artifact, so the production call is
- * `auditEventGrammarRatchet(isoDayUtc(new Date()))`.
- *
- * Six teeth:
- *   1. NON-EMPTY DENOMINATOR (`EMPTY_CENSUS`). A census over zero names proves nothing; it is what
- *      a moved module or a broken import looks like. It FAILS rather than reporting clean.
- *   2. NON-EMPTY TABLE (`EMPTY_ALLOWLIST`). The same rule applied to the stale tooth's own
- *      denominator: with no recorded concessions, "no stale concession" is trivially true and the
- *      whole second direction of the ratchet is decoration.
- *   3. FORWARD (`MALFORMED_EVENT_NAME`). A registered name the DR-3 grammar rejects, reported with
- *      task 014's clause code. This is the tooth `tsc` cannot grow: it fires on custom names,
- *      which no type can quantify over.
- *   4. GROWTH (`UNSEEDED_GRAMMAR_CONCESSION`). A concession the corpus exercises with no recorded
- *      entry — or an entry that understates the divergence its clause now causes. The grammar got
- *      wider, or the shipped validator drifted further from it, and nobody wrote it down.
- *   5. STALE (`STALE_SEED_ENTRY`). A recorded concession no live name exercises, an entry for a
- *      clause the grammar no longer makes, or an entry still claiming a divergence that has been
- *      repaired. All three are the same failure: cover for a population that is gone.
- *   6. EXPIRY (`EXPIRED_SEED_ENTRY`) + well-formedness (`MALFORMED_SEED_ENTRY`). An entry past its
- *      ISO date fails; so does an unowned entry or an unparseable date. An expiry that lapses
- *      quietly is a decoration, not a deadline.
+ * An empty census or an empty table fails. Other findings are a malformed registered name, an
+ * unrecorded or understated concession, a stale or expired entry, and a malformed entry.
  */
 export function auditEventGrammarRatchet(
   today: string,
@@ -481,7 +342,7 @@ export function auditEventGrammarRatchet(
   for (const clause of clauses) {
     const exercisedBy = report.concessionUsage.get(clause) ?? [];
     const entry = concessions[clause];
-    if (exercisedBy.length === 0) continue; // the stale direction is handled below, per entry.
+    if (exercisedBy.length === 0) continue;
     if (entry === undefined) {
       unseeded.push(clause);
       findings.push({
@@ -599,11 +460,8 @@ export function auditEventGrammarRatchet(
 }
 
 /**
- * Render the whole DR-3 verdict — census, both ratchet directions, and the two-authority
- * divergence — for a human or an agent.
- *
- * Every proportion is reported WITH its denominator: a count without the population it was
- * measured against is the rubber stamp this module exists to remove.
+ * Renders the census, both ratchet directions and the divergence for a human or an agent. Each
+ * count appears with its denominator.
  */
 export function formatEventGrammarRatchet(
   verdict: EventGrammarRatchetVerdict,
@@ -641,13 +499,10 @@ export function formatEventGrammarRatchet(
   return lines.join('\n');
 }
 
-// ─── Compile-time proofs (verified by `npm run typecheck`) ──────────────────
-//
-// `tsconfig.json` excludes `*.test.ts`, so a type-level assertion in the co-located test would NOT
-// be checked by the build's `tsc` and would be decoration. These aliases live in the shipped source
-// for the same reason task 014's `_EventName_*` proofs do, and carry the same `_Name_Predicate`
-// naming convention.
-
+/**
+ * A compile-time assertion. The proofs below live in source because `tsconfig.json` excludes
+ * `*.test.ts`, so `npm run typecheck` checks them only here.
+ */
 type Expect<T extends true> = T;
 /** Set equality for unions of literals: mutual assignability, wrapped so neither side splits. */
 type MutuallyAssignable<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
@@ -655,18 +510,12 @@ type MutuallyAssignable<A, B> = [A] extends [B] ? ([B] extends [A] ? true : fals
 /**
  * `EventGrammarCensus_ConcessionKeys_MatchTheGrammar`.
  *
- * The concession table's key set is EXACTLY the clause set the grammar derives from task 014's
- * `WORD_SEPARATORS`. This is the growth and stale teeth restated at rung 2: adding a separator to
- * the grammar without recording the concession fails `tsc` rather than waiting for the census to
- * run, and so does keeping an entry for a separator the grammar dropped.
- *
- * It is a real proof and not a tautology on two counts. {@link EVENT_GRAMMAR_CONCESSIONS} is
- * declared with `satisfies`, so its key literals survive inference and `keyof` is the two ids
- * actually written down rather than an annotation's union restated. And the two sides are authored
- * in modules that cannot see each other — `event-grammar-concessions.ts` imports nothing, so it
- * cannot have derived its keys from `WORD_SEPARATORS`.
- @proof
- * */
+ * The key set of the concession table equals the clause set that the grammar derives from
+ * `WORD_SEPARATORS`. A new separator with no recorded concession fails `tsc`, and so does an entry
+ * for a dropped separator. The table uses `satisfies`, so `keyof` gives the keys as written. The
+ * table imports nothing, so it cannot derive its keys from the grammar.
+ * @proof
+ */
 export type _EventGrammarCensus_ConcessionKeys_MatchTheGrammar = Expect<
   MutuallyAssignable<keyof typeof EVENT_GRAMMAR_CONCESSIONS, ConcessionClause>
 >;
@@ -674,11 +523,9 @@ export type _EventGrammarCensus_ConcessionKeys_MatchTheGrammar = Expect<
 /**
  * `EventGrammarCensus_ConcessionTable_IsNonEmpty`.
  *
- * The non-empty-denominator rule for the stale tooth, at the type level. `EMPTY_ALLOWLIST` states
- * it at runtime; this states it one rung up, where an emptied table is a compile error rather than
- * a finding somebody has to run the census to see.
- @proof
- * */
+ * The type-level form of `EMPTY_ALLOWLIST`: an empty concession table is a compile error.
+ * @proof
+ */
 export type _EventGrammarCensus_ConcessionTable_IsNonEmpty = Expect<
   [keyof typeof EVENT_GRAMMAR_CONCESSIONS] extends [never] ? false : true
 >;

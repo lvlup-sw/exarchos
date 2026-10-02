@@ -3,7 +3,7 @@
 Pester tests for tools/release/get-exarchos.ps1 — Windows bootstrap installer.
 
 .DESCRIPTION
-Mirrors the test coverage of tools/release/get-exarchos.sh (task 2.5). The tests
+Mirrors the test coverage of tools/release/get-exarchos.sh. The tests
 exercise the installer's surface area without ever performing a real HTTP
 download: the script is sourced in "library mode" (-LoadOnly) so its
 internal functions can be unit-tested directly.

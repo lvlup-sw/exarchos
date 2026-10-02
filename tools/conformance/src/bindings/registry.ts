@@ -1,9 +1,9 @@
 /**
- * Bindings lifted from `registry` — the composite-tool registry.
+ * Bindings from `registry`, the composite-tool registry.
  *
- * `registry.ts` is a DR-1 declaration STORE, so this module must not import a
- * contract module (`contract/declaration.ts`, `contract/declaration-seam.ts`).
- * See `./README.md`.
+ * `registry.ts` is a declaration store. A file that imports a store must not also
+ * import a contract module, so this module does not import `contract/declaration.ts`
+ * or `contract/declaration-seam.ts`.
  */
 import { TOOL_REGISTRY, buildToolDescription } from '../../../../src/registry.js';
 import type { CompositeTool } from '../../../../src/registry.js';

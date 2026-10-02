@@ -1,13 +1,12 @@
-// ────────────────────────────────────────────────────────────────────────────
-// DR-30: this file's assertions compare two populations that cannot observe
-// each other. `tracked-population` asks git what the repository contains; the
-// walks it corroborates ask the filesystem. A guard that walks its own tree and
-// then judges itself by that walk agrees with itself by construction — which is
-// how a `> 50` floor survived against a real population of 1549. git is the
-// second authority precisely because it is not the walker.
-// @oracle-sources: ./tracked-population.ts, the filesystem walks it is compared against
-// ────────────────────────────────────────────────────────────────────────────
-
+/**
+ * These assertions compare two populations that cannot observe each other. `tracked-population`
+ * asks git what the repository contains. The walks it corroborates ask the filesystem.
+ *
+ * A guard that judges itself by its own walk agrees with itself by construction. Git is the
+ * second authority because it is not the walker.
+ *
+ * @oracle-sources: ./tracked-population.ts, the filesystem walks it is compared against
+ */
 import { describe, it, expect } from 'vitest';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -22,7 +21,6 @@ describe('tracked-population — the second authority is itself checked', () => 
   it('TrackedPopulation_ListsRootRelativeForwardSlashedPaths', async () => {
     const files = await listTrackedFiles(SRC_ROOT);
     expect(files.length).toBeGreaterThan(0);
-    // Root-relative (no leading `servers/`), forward-slashed on every platform.
     expect(files).toContain('test-helpers/tracked-population.ts');
     expect(files.every((f) => !f.includes('\\'))).toBe(true);
     expect(files.every((f) => !f.startsWith('/'))).toBe(true);
@@ -34,15 +32,16 @@ describe('tracked-population — the second authority is itself checked', () => 
     expect(new Set(files).size).toBe(files.length);
   });
 
+  /**
+   * A repo-root query is the case that matters. `dist/` holds real build output and
+   * `.claude/worktrees/` holds full sibling checkouts. A walk into either counts the same
+   * modules many times. The last assertion proves that the query resolved a real repository.
+   */
   it('TrackedPopulation_ExcludesBuildOutputAndDotDirsByProperty', async () => {
-    // A repo-root query is the case that matters: `dist/` is real build output
-    // and `.claude/worktrees/` holds complete sibling checkouts, so a walk that
-    // recursed into either would count the same modules many times over.
     const files = await listTrackedFiles(REPO_ROOT);
     expect(files.filter((f) => f.split('/').includes('dist'))).toEqual([]);
     expect(files.filter((f) => f.split('/').includes('node_modules'))).toEqual([]);
     expect(files.filter((f) => f.split('/').some((s) => s.startsWith('.')))).toEqual([]);
-    // …and the query still resolved a real repository.
     expect(files).toContain('tools/test-helpers/tracked-population.ts');
   });
 
@@ -62,27 +61,25 @@ describe('tracked-population — the second authority is itself checked', () => 
     expect(markdown.every((f) => f.endsWith('.md'))).toBe(true);
   });
 
-  // ── The tooth on the tooth ────────────────────────────────────────────────
-  // An authority that answers zero corroborates nothing. If it returned `[]`
-  // instead of throwing, every `expect(missed).toEqual([])` built on it would
-  // pass vacuously — the exact defect this module exists to catch, reproduced
-  // inside the detector.
+  /**
+   * An authority that answers zero corroborates nothing. If it returns `[]`, every
+   * `expect(missed).toEqual([])` built on it passes vacuously. An exclusion that rejects every
+   * file must throw too, because an over-wide exclusion hides files as a moved root does.
+   */
   it('TrackedPopulation_EmptyResult_ThrowsRatherThanCorroboratingNothing', async () => {
     await expect(listTrackedFiles(SRC_ROOT, { extensions: ['.no-such-extension'] })).rejects.toThrow(
       /second authority is empty/,
     );
-    // Same tooth via an exclusion that rejects everything — an over-wide mirror
-    // of a scanner's exclusions is as blinding as a moved root.
     await expect(listTrackedFiles(SRC_ROOT, { exclude: () => true })).rejects.toThrow(
       /second authority is empty/,
     );
   });
 
+  /** Extra files in the walk are not a finding. Only a shortfall is a finding. */
   it('TrackedPopulation_MissedFiles_NamesWhatAWalkDidNotReach', () => {
     const tracked = ['a.ts', 'b.ts', 'c.ts'];
     expect(trackedFilesMissedBy(['a.ts', 'b.ts', 'c.ts'], tracked)).toEqual([]);
     expect(trackedFilesMissedBy(['a.ts'], tracked)).toEqual(['b.ts', 'c.ts']);
-    // Extra modules in the walk are benign; only a shortfall is a finding.
     expect(trackedFilesMissedBy(['a.ts', 'b.ts', 'c.ts', 'scratch.ts'], tracked)).toEqual([]);
   });
 

@@ -1,62 +1,19 @@
 #!/usr/bin/env bun
 /**
- * Compile the Exarchos CLI + MCP server into a single self-contained native
- * binary via `bun build --compile`.
+ * Compiles the Exarchos CLI and MCP server into one self-contained native binary with
+ * `bun build --compile`. The binary is the only distribution artifact.
  *
- * ── Entry-point choice ──────────────────────────────────────────────────
- * Uses `src/index.ts` — the single process entry
- * point — rather than introducing a parallel `cli-entry.ts`. That file
- * already implements unified mode dispatch:
+ * The entry is `src/index.ts`, which dispatches the MCP server, the hook commands and the CLI.
+ * Usage: `bun run tools/release/build-binary.ts [--all | --target <os-arch>] [--outdir <dir>]`.
+ * With no flag it builds the host target. CI passes `--target`, and a test passes `--outdir`.
+ * The build runs only when this file is the entry point, so an import does not start a build.
  *
- *   - `isMcpServerInvocation(argv)` → MCP stdio server mode.
- *   - Observer hook commands (session-end, subagent-stop) → short-lived
- *     subprocess mode via `adapters/hooks.ts`.
- *   - Everything else → Commander CLI via `adapters/cli.ts`.
+ * Each artifact embeds the git commit, the source-tree digest and the contract-authority digest.
+ * The signed release manifest uses the same collectors. So an installer can reject a signed
+ * manifest that describes a different source or contract than the binary.
  *
- * One entry, one distribution variant (the compiled binary): honours the
- * axiom:distill principle of single-responsibility entry surfaces. The v29
- * install-rewrite design explicitly calls this out — a second entry would
- * fracture the mode-dispatch invariants documented in DR-5 / F-022-2.
- *
- * Historical note: task 3.6 removed the companion `scripts/build-bundle.ts`
- * + `dist/exarchos.js` emission path; the binary is the sole distribution
- * artifact now.
- *
- * ── Usage ───────────────────────────────────────────────────────────────
- *   bun run tools/release/build-binary.ts                         # host-only (default)
- *   bun run tools/release/build-binary.ts --all                   # all cross-compile targets
- *   bun run tools/release/build-binary.ts --target linux-x64      # single target by os-arch name
- *   bun run tools/release/build-binary.ts --outdir /tmp/x         # emit elsewhere than dist/bin
- *
- * The `--target <os-arch>` form is used by the CI binary-matrix job so
- * each runner builds exactly one artifact. `--outdir` exists so a test can
- * build a real artifact into a scratch directory without racing the
- * canonical `dist/bin` output that other suites read.
- *
- * ── Embedded source + contract identity (DR-20) ─────────────────────────
- * Every artifact carries, IN ITS OWN BYTES, the git commit + source-tree
- * digest it was built from and the P03-01 frozen contract-authority digest
- * it was built against. The record is rendered by
- * `tools/release/build-release-manifest.ts:buildIdentityBanner` and injected with
- * `bun build --banner`, which prepends it to the bundled JS *after*
- * minification — so the bytes survive verbatim into the compiled executable
- * and are recoverable with `extractEmbeddedBuildIdentity(<artifact bytes>)`.
- *
- * The SAME collectors produce the signed release manifest, so the manifest's
- * `source`/`contract` and the binary's embedded `source`/`contract` are
- * identical by construction — which is exactly what lets an installer reject
- * a validly-signed manifest that describes a different source or contract
- * than the binary it is about to install.
- *
- * ── Integration test (task 1.6) ────────────────────────────────────────
- * The artifact produced by this script — specifically the host-target
- * output at `dist/bin/exarchos-<os>-<arch>` — is the subject-under-test
- * for `tests/core/process/compiled-binary-mcp.test.ts`.
- * That test spawns the binary with `mcp` subcommand and performs a real
- * MCP handshake + `exarchos_workflow init` round-trip to prove the
- * compiled output behaves identically to the JS bundle. If you change
- * the output path or target matrix, update the path resolver in that
- * test file in the same commit.
+ * `tests/core/process/compiled-binary-mcp.test.ts` runs the host artifact. If the output path or
+ * the target matrix changes, update that test.
  */
 import { $ } from 'bun';
 import { mkdirSync, readFileSync } from 'node:fs';
@@ -75,11 +32,8 @@ import {
 export const DEFAULT_OUTDIR = 'dist/bin';
 
 /**
- * Read the canonical version from root `package.json`. Inlined into the
- * compiled binary via `--define` so `--version` and the `version` subcommand
- * survive `bun build --compile` (the compiled bundle has no on-disk
- * `package.json` to walk up to). See `adapters/cli.ts:resolvePackageVersion`
- * for the runtime fallback.
+ * Reads the version from the root `package.json`. `--define` inlines it into the binary, which
+ * has no `package.json` on disk. See `adapters/cli/cli.ts:resolvePackageVersion`.
  */
 function readBuildVersion(): string {
   const here = dirname(fileURLToPath(import.meta.url));
@@ -93,14 +47,15 @@ function readBuildVersion(): string {
   return pkg.version;
 }
 
-// Re-export so existing importers of `./build-binary.js` keep working.
 export { TARGETS };
 export type { Target };
 
+/**
+ * Returns the target of the host. An unknown host throws, and does not fall back to a supported
+ * target. A Linux binary built on such a host cannot run there, and it hides the configuration
+ * error.
+ */
 function getHostTarget(): Target {
-  // Refuse to coerce unknown hosts into supported targets — silently
-  // building a Linux binary on, say, OpenBSD would produce something that
-  // can't run locally and obscures the configuration error.
   let os: Target['os'];
   if (process.platform === 'darwin') {
     os = 'darwin';
@@ -127,15 +82,10 @@ function getHostTarget(): Target {
 }
 
 /**
- * Codegen `src/install/runtimes/embedded.ts` BEFORE every `bun build --compile`
- * call so the bundled artifact always embeds an up-to-date runtimes
- * module. The compiled binary is the primary install path for
- * `install-skills` (#1213, #1214) — the YAML files don't ship inside
- * the bundle, so the bridge MUST resolve runtimes from the embedded
- * import. Re-running codegen here makes the binary self-consistent
- * even when a developer skipped `npm run codegen:runtimes` before
- * hitting `npm run build:binary`. CI's `runtimes:guard` separately
- * enforces drift on the checked-in copy.
+ * Generates `src/install/runtimes/embedded.ts` before each `bun build --compile`. The runtime
+ * YAML files do not ship inside the binary, so `install-skills` resolves runtimes from this
+ * embedded module. Generation here keeps the binary correct when a developer skipped
+ * `npm run codegen:runtimes`. `runtimes:guard` checks the committed copy for drift.
  */
 function codegenEmbeddedRuntimes(): void {
   const here = dirname(fileURLToPath(import.meta.url));
@@ -147,19 +97,13 @@ function codegenEmbeddedRuntimes(): void {
 }
 
 /**
- * Render the `--banner` payload that stamps source + contract identity into
- * every compiled artifact (DR-20). Collected ONCE per process and cached: the
- * collectors shell out to git and digest ~2k tracked source files, and a
- * `--all` run must produce five artifacts that agree on a single identity
- * (five separate collections could straddle a mid-build edit and emit
- * divergent digests).
+ * The `--banner` payload that stamps source and contract identity into each artifact. It is
+ * collected once per process, because the collectors run git and digest the tracked source.
+ * The artifacts of a `--all` run then share one identity, even if a file changes mid-build.
  *
- * The identity also carries `sourceState`, so an artifact compiled from a
- * modified working tree cannot claim clean-HEAD provenance. That is RECORDED,
- * never fail-closed — `codegenEmbeddedRuntimes()` above rewrites a tracked
- * file on every single build, so aborting on a dirty tree would abort every
- * real release. The state is echoed here so the condition is visible in the
- * build log and not only in the artifact's bytes.
+ * `sourceState` records a modified working tree, and the build does not fail on it.
+ * `codegenEmbeddedRuntimes()` rewrites a tracked file on each build, so a dirty-tree failure
+ * stops every release. The state is also printed to the build log.
  */
 let cachedIdentityBanner: string | undefined;
 function identityBanner(): string {
@@ -177,22 +121,18 @@ function identityBanner(): string {
   return cachedIdentityBanner;
 }
 
+/**
+ * Builds one target. It generates the embedded runtimes module first, so the binary cannot ship a
+ * stale copy. `--target` selects the Bun runtime to embed, `--define` inlines the version, and
+ * `--banner` stamps the build identity into the artifact.
+ */
 async function buildOne(target: Target, outdir: string = DEFAULT_OUTDIR): Promise<void> {
-  // Regenerate the embedded runtimes module before bundling so that
-  // the produced binary cannot ship a stale embedded array. See the
-  // helper's docstring for the full rationale.
   codegenEmbeddedRuntimes();
 
   const ext = target.os === 'windows' ? '.exe' : '';
   const outfile = join(outdir, `exarchos-${target.os}-${target.arch}${ext}`);
   mkdirSync(outdir, { recursive: true });
 
-  // `bun build --compile` produces a single executable that embeds the Bun
-  // runtime + the bundled JS graph. --target selects the host-OS bun
-  // runtime to embed (for cross-compilation). --define inlines the package
-  // version so `--version` works inside the bundled binary (no on-disk
-  // package.json to walk up to). --banner stamps the DR-20 source/contract
-  // identity into the artifact's bytes.
   const versionDefine = `EXARCHOS_BUILD_VERSION="${readBuildVersion()}"`;
   const banner = identityBanner();
   await $`bun build src/index.ts --compile --target=${target.bunTarget} --define ${versionDefine} --banner ${banner} --outfile ${outfile}`;
@@ -200,8 +140,8 @@ async function buildOne(target: Target, outdir: string = DEFAULT_OUTDIR): Promis
   console.log(`Built ${outfile}`);
 }
 
+/** Reads the value of a flag in the form `--flag value` or `--flag=value`. */
 function parseFlagValue(argv: readonly string[], flag: string): string | undefined {
-  // Support both `--flag value` and `--flag=value`.
   const eq = `${flag}=`;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -215,10 +155,11 @@ function parseTargetFlag(argv: readonly string[]): string | undefined {
   return parseFlagValue(argv, '--target');
 }
 
+/**
+ * Finds a target by its `os-arch` name. The `dist/bin/` file name and the CI matrix use the same
+ * name.
+ */
 function findTargetByName(name: string): Target {
-  // Accept `os-arch` form (e.g. `linux-x64`) matching the `dist/bin/`
-  // filename convention — this is the same identifier the CI matrix
-  // strategy declares, so it stays grep-able across the two files.
   const match = TARGETS.find((t) => `${t.os}-${t.arch}` === name);
   if (!match) {
     const known = TARGETS.map((t) => `${t.os}-${t.arch}`).join(', ');
@@ -227,20 +168,6 @@ function findTargetByName(name: string): Target {
   return match;
 }
 
-// Guard the side-effecting build invocation behind an entrypoint check so
-// `import { TARGETS } from './build-binary.js'` (e.g.
-// `scripts/ci-binary-matrix.test.ts`) doesn't kick off a real build.
-// `import.meta.main` is the bun-supplied "is this module the entry point"
-// signal — exactly what we need for a script that's also a library
-// surface for the contract test.
-//
-// Bun sets `import.meta.main = true` for the script invoked via
-// `bun run <file>`. When this module is imported as a library, the value
-// is `false` (or `undefined` under non-Bun runners like vitest's tsx),
-// so the dispatch below is skipped. The field is declared by `@types/node`
-// (`module.d.ts` → `interface ImportMeta { main: boolean }`), so the local
-// `declare global` augmentation this file used to carry is gone: keeping it
-// now collides with the upstream declaration (TS2687).
 if ((import.meta as ImportMeta & { readonly main?: boolean }).main === true) {
   const wantAll = process.argv.includes('--all');
   const wantTarget = parseTargetFlag(process.argv);

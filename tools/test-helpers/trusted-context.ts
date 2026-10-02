@@ -13,14 +13,9 @@ import {
 } from '../../src/dispatch/dispatch-context.js';
 
 /**
- * Stamp the local-operator identity a real transport would supply.
- *
- * `buildCli` derives `callerIdentity` from the transport rather than trusting
- * the caller to supply it — a caller cannot self-assert its own principal.
- *
- * Using the real deriver (rather than a hand-written identity literal) keeps the
- * stamp itself under test: a regression that dropped or altered the derived
- * identity still fails.
+ * Stamps the local-operator identity that a real transport supplies. `buildCli` derives
+ * `callerIdentity` from the transport, so a caller cannot assert its own principal. The real
+ * deriver keeps the stamp under test: a regression that drops or alters the identity fails.
  */
 export function withTrustedCaller(ctx: HandlerContext): HandlerContext {
   return { ...ctx, callerIdentity: deriveLocalOperatorIdentity(ctx.stateDir) };
@@ -37,23 +32,12 @@ export function expectedTrustedContext(ctx: HandlerContext): HandlerContext {
 }
 
 /**
- * Run `fn` inside the ambient trusted dispatch scope that `dispatch()` opens.
- *
- * Gates that produce durable evidence read their caller's authorization from
- * AsyncLocalStorage (`getDispatchContext().authorization`) rather than from an
- * argument, and fail closed with `TRUSTED_CALLER_REQUIRED` when it is absent —
- * the point being that a handler cannot be tricked into trusting a caller that
- * never crossed the dispatch boundary.
- *
- * Tests that invoke such a handler DIRECTLY (bypassing `dispatch`) must open the
- * same scope, or they exercise the fail-closed path instead of the behaviour
- * under test. This helper composes the exact primitives `dispatch/core/dispatch.ts` uses
- * — `snapshotCallerAuthorization` + `mintDispatchContext` +
- * `runWithDispatchContext` — so it cannot drift from production plumbing.
- *
- * Deliberately NOT a mock of `durable-gate-producer`: stubbing the producer
- * would also stub the durable-evidence append these gates are supposed to
- * perform.
+ * Runs `fn` inside the ambient trusted dispatch scope that `dispatch()` opens. Gates that produce
+ * durable evidence read the caller authorization from `getDispatchContext().authorization`. They
+ * fail closed with `TRUSTED_CALLER_REQUIRED` when it is absent. A test that calls such a handler
+ * directly must open the same scope. This helper composes the primitives of
+ * `dispatch/core/dispatch.ts`, so it cannot drift from production. It does not mock
+ * `durable-gate-producer`, because a stub also removes the durable-evidence append.
  */
 export function runAsTrustedCaller<T>(
   stateDir: string,
@@ -69,16 +53,10 @@ export function runAsTrustedCaller<T>(
 }
 
 /**
- * Seed the minimum workflow a durable-evidence gate can legally run inside.
- *
- * Evidence is bound to an immutable subject, and the subject's phase-attempt
- * identity comes from persisted lifecycle data — a gate outside any phase
- * attempt has nothing to bind to and fails closed with
- * `ACTIVE_PHASE_ATTEMPT_REQUIRED`. Tests that drive a gate against a bare event
- * store therefore have to start the workflow first, exactly as a real run would.
- *
- * Returns the allocated `phaseAttemptId` so a caller can assert evidence
- * carries it.
+ * Seeds the minimum workflow that a durable-evidence gate can run inside. Evidence binds to an
+ * immutable subject, and the phase-attempt identity of the subject comes from persisted lifecycle
+ * data. A gate outside a phase attempt fails closed with `ACTIVE_PHASE_ATTEMPT_REQUIRED`. So a
+ * test against a bare event store starts the workflow first. Returns the allocated `phaseAttemptId`.
  */
 export async function seedActivePhaseAttempt(
   eventStore: SeedableEventStore,
@@ -116,16 +94,11 @@ interface EvidenceSeedableEventStore {
 }
 
 /**
- * Seed passing gate evidence onto a stream — the PRIOR fact an action's
- * declared `requires` reads.
- *
- * An action whose requirement no step in its own segment produces needs the
- * fact to already be there, and seeding it by hand is how a test states the
- * precondition its caller owes. Built with the real evidence schema and keyed
- * the way the gate runner keys its own, so the admission evaluator accepts or
- * rejects it for the same reasons it would a shipped gate's.
- *
- * Returns the allocated evidence id.
+ * Seeds gate evidence, by default passing, onto a stream: the prior fact that the declared
+ * `requires` of an action reads. A test seeds it when no step in the segment of the action
+ * produces it. The record uses the real evidence schema and the key shape of the gate runner, so
+ * the admission evaluator judges it as shipped gate evidence. The id hashes the invocation, the
+ * producer and the phase attempt, so two attempts give two rows. Returns the evidence id.
  */
 export async function seedGateEvidence(
   eventStore: EvidenceSeedableEventStore,
@@ -139,12 +112,6 @@ export async function seedGateEvidence(
 ): Promise<string> {
   const producerRef = input.producerRef ?? 'check_review_verdict';
   const invocationId = `seed:${input.requirementId}`;
-  // The attempt is part of the identity because the real runner puts it there
-  // (`evidenceIdFor` hashes it alongside the operation, the provider and the
-  // requirement). Leaving it out made the key coarser than the thing it
-  // simulates: a second attempt on the same stream reused the first attempt's
-  // row, so a caller seeding two attempts got one — carrying the wrong
-  // `phaseAttemptId` — while an exact repeat still dedupes as it should.
   const evidenceId = `evidence:${createHash('sha256')
     .update([invocationId, producerRef, input.phaseAttemptId].join('\0'), 'utf8')
     .digest('hex')}`;

@@ -1,22 +1,15 @@
-// ─── P07-04 exit-proof (e) — admission decision-path performance ─────────────
-//
-// The exit proof: "admission p99 is under 15 ms EXCLUDING gate execution and
-// report generation." This suite measures the p99 of the isolated admission
-// DECISION path — route → resolve → freeze → evaluate (see
-// `admission-decision-path.ts`) — with evidence already supplied (gates ran
-// upstream) and no persisted decision record / remediation report (downstream).
-//
-// Two measurements are taken:
-//   1. the WORST single-decision path (the strongest lattice point: gate +
-//      approval + corroboration) timed one decision per sample — the strict
-//      reading of "admission p99";
-//   2. the mean per-decision latency across the whole diverse corpus.
-//
-// The measured p99 is ALWAYS logged (so the Windows dev box still reports a real
-// number), and the hard `< 15 ms` assertion is SKIPPED on win32 — the same
-// precedent as `poc.acceptance.test.ts`'s throughput bench (#1620): the
-// windows-latest runner's timer/allocation jitter would false-fail a wall-clock
-// bound that Linux CI enforces truthfully.
+/**
+ * Measures the p99 of the isolated admission decision path against a 15 ms budget.
+ * The budget excludes gate execution and report generation. The evidence is already
+ * present, and the path persists no decision record. The suite takes two
+ * measurements:
+ *
+ * 1. The worst single decision (gate, approval and corroboration), one per sample.
+ * 2. The mean per-decision latency across the whole corpus.
+ *
+ * The suite always logs the measured p99. On win32 it skips the hard 15 ms assertion
+ * because timer jitter on the runner causes false failures. Linux CI enforces it.
+ */
 
 import { describe, it, expect } from 'vitest';
 
@@ -33,9 +26,8 @@ import {
 
 const ADMISSION_P99_BUDGET_MS = 15;
 
+/** Logs one line that a grep can find, so every runner records the numbers, win32 included. */
 function report(label: string, stats: PercentileStats): void {
-  // A single, greppable line so the actual number is captured on every runner,
-  // including win32 where the hard assertion is skipped.
   // eslint-disable-next-line no-console
   console.log(
     `[P07-04 admission-perf] ${label} ` +
@@ -47,6 +39,11 @@ function report(label: string, stats: PercentileStats): void {
 }
 
 describe('admission decision-path performance (exit-proof e)', () => {
+  /**
+   * Checks that the measurement made real decisions. The 500 ms bound is safe on every
+   * runner, and it catches a catastrophic regression. The tests below enforce the
+   * 15 ms bound outside win32.
+   */
   it('AdmissionDecisionPath_MeasuresP99_AndAlwaysReportsTheNumber', () => {
     const single = measureSingleDecision(worstCaseScenario, {
       iterations: 3000,
@@ -60,12 +57,8 @@ describe('admission decision-path performance (exit-proof e)', () => {
     });
     report('corpus-per-decision', corpus.stats);
 
-    // Non-vacuous guard: the measurement actually ran real decisions.
     expect(single.count).toBe(3000);
     expect(corpus.decisionsPerIteration).toBe(admissionScenarioCorpus.length);
-    // A catastrophic-regression tripwire that is safe on every runner (three
-    // orders of magnitude above the real number) — the true 15 ms bound is
-    // enforced below on non-win32.
     expect(single.p99Ms).toBeLessThan(500);
   });
 
@@ -93,11 +86,11 @@ describe('admission decision-path performance (exit-proof e)', () => {
     },
   );
 
+  /**
+   * The measured path returns a decision and persists nothing. The outcome is a pure
+   * value with no stream sequence, so the measurement excludes the append.
+   */
   it('AdmissionDecisionPath_ExcludesTheAtomicAppend_ByConstruction', () => {
-    // The measured path returns a decision WITHOUT persisting it: no event
-    // store handle is touched. This is the structural reason the measurement
-    // excludes the append and report generation. Proven here by the outcome
-    // shape — a pure value, not a persisted record with a stream sequence.
     const outcome = decideAdmission(worstCaseScenario);
     expect(outcome).not.toHaveProperty('sequence');
     expect(outcome).not.toHaveProperty('streamId');

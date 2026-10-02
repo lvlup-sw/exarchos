@@ -1,72 +1,17 @@
-// RESERVED(issue: #1473, owner: exarchos, expires: 2027-02-28) — G3's policy data. Its production
-// importer is `architecture/report-coupling-census.ts`, which is itself gate machinery rather than
-// shipped behaviour, so nothing on the server's runtime path reaches this module. It is deleted
-// when the seed reaches its DR-20 floor (see below), not before.
+// RESERVED(issue: #1473, owner: exarchos, expires: 2027-02-28) — the G3 policy data. Its
+// production importer is `report-coupling-census.ts`, which is gate machinery, so no runtime path
+// reaches this module.
 //
-// GENERATED SEED — the DR-2 / G3 report-coupled ratchet (task 013).
+// Generated seed for the G3 report-coupled ratchet. Each key names a registered event type whose
+// coupling derives `'model'`: the model must remember a dedicated `exarchos_event.append`, so
+// context pressure drops it first. The seed came from `censusReportCoupling().reportCoupled`.
+// `report-coupling-census.test.ts` re-derives the population on each run, so a key with no real
+// report-coupled registration fails. `owner` derives from the weld of each registration.
 //
-// Every key below names a registered event type whose DR-2 coupling derives `'model'`: a dedicated
-// `exarchos_event.append` the MODEL must remember to make, which is therefore the first thing
-// dropped under context pressure. That is the class DR-2 exists to shrink.
-//
-// ── How this list was produced ──────────────────────────────────────────────
-// SEEDED from `censusReportCoupling().reportCoupled` — the census's own sorted id list — on
-// 2026-08-07, at the `feat/internal-mechanics-overhaul` tip. It was never transcribed by hand and
-// no cardinality is written down anywhere in this module: `report-coupling-census.test.ts`
-// re-derives the whole population from the live registry on every run, so a hand-edited key that
-// does not correspond to a real report-coupled registration turns the suite red.
-//
-// The measurement re-derived at introduction was **25 of 170** registered types, splitting
-// 7 `judgment` / 18 `workflow-local`. It reproduced the figure the spec's G3 table asserts and the
-// figure task 010 derived, from a third direction: the derived population and the population
-// `EVENT_EMISSION_REGISTRY` declares (`source: 'model'`) are the SAME 25 ids, not merely the same
-// count.
-//
-// `owner` is DERIVED from each registration's own weld, not assigned by hand — `judgment` entries
-// carry `gate:<gateClass>`, `workflow-local` entries carry `workflow:<workflowId>`. So the
-// accountable party is a consequence of the coupling claim rather than a second, independently
-// drifting authority.
-//
-// ── Why a membership list and not a count of 25 ─────────────────────────────
-// "No more than 25 report-coupled types" is satisfied by SWAPPING: pay one down, introduce another,
-// and the number never moves. Membership cannot be gamed that way — the newcomer is not in this
-// list, so it fails, and the paid-down entry goes stale the moment its coupling changes. The subset
-// rule also implies the count ceiling, so the ratchet the spec asks for ("permits only decrease")
-// is the weaker half of what is enforced here.
-//
-// ── The teeth ───────────────────────────────────────────────────────────────
-//   1. MEMBERSHIP. `auditReportCouplingSeed()` pins this list against the live census in BOTH
-//      directions: a report-coupled type with no seed entry fails (`UNSEEDED_REPORT_COUPLING` —
-//      the growth tooth), and a seed entry whose type is no longer report-coupled goes stale and
-//      must be MOVED to {@link REPORT_COUPLING_RETIRED}. There is no way to park a paid-down entry.
-//   2. EXPIRY. Every entry carries an ISO date, and `auditReportCouplingSeed()` FAILS on a lapsed
-//      one. The spec rejects "wave-scoped" labels precisely because they are not mechanically
-//      evaluable; a date is.
-//   3. KEY-SET INTEGRITY. Teeth 1 and 2 both compare this file against TODAY, so neither can see an
-//      IN-PLACE SWAP performed in the same edit. `auditReportCouplingSeedIntegrity()` pins
-//      `keys(SEED) ∪ keys(RETIRED)` against the frozen digest in `report-coupling-seed-pin.ts`.
-//      A paydown MOVES an entry between the two maps, so the union — and therefore the pin — is
-//      invariant under every legal edit.
-//
-// ── How to shrink it ────────────────────────────────────────────────────────
-// Re-couple the event so the model no longer has to remember it: give it a handler-owned append
-// and re-annotate its tier in `events/event-annotations.ts`. Then MOVE its line from
-// {@link REPORT_COUPLING_SEED} to {@link REPORT_COUPLING_RETIRED}, swapping `expires` for
-// `retiredAt: '<the date it stopped being report-coupled>'`. That is the only supported edit.
-// Entries are never ADDED to either map — an addition changes the seed key set, and the pinned
-// digest is what makes that a red build rather than a line a reviewer has to notice.
-//
-// One entry is NOT paid down that way. A type the event-authority charter has flipped to
-// telemetry (`src/events/partition/demotions.ts`; `stack.submitted`, by deleting its expectation
-// row) must not be re-tiered to an `auto` tier: the partition would file it governance again
-// with no witness, and its pinned charter backlog names that as a promotion against the charter.
-// The flip is that entry's paydown — nothing has to remember the append, because nothing checks.
-//
-// DR-20 records the Wave-5 exit condition — a floor of 2, `team.spawned` and `team.disbanded`,
-// which cannot be re-coupled until #1473 lands. That floor is an EXIT CONDITION, not this guard's
-// seed; the two were conflated in an earlier revision of the spec. The two entries carry
-// `blockedBy: '#1473'` so the exemption is recorded where it is enforced and cannot widen to a
-// third type unnoticed.
+// This is a membership list, not a count, so a swap of one type for another fails. The audit
+// fails on an unseeded report-coupled type, a stale entry, a lapsed `expires`, and a change to the
+// key set that `report-coupling-seed-pin.ts` pins. To shrink the seed, re-couple the event. Then
+// move its line to {@link REPORT_COUPLING_RETIRED}, with `retiredAt` in place of `expires`.
 
 /** One seeded report-coupled registration: who owns re-coupling it, and by when. */
 export interface ReportCouplingSeedEntry {
@@ -79,11 +24,9 @@ export interface ReportCouplingSeedEntry {
   /** ISO date (YYYY-MM-DD) after which the entry is expired and the audit FAILS. */
   readonly expires: string;
   /**
-   * The issue blocking this entry's paydown, when one exists.
-   *
-   * Present on exactly the two types DR-20 records as the Wave-5 floor. R-8 pins that exemption at
-   * two so it cannot widen: a third `blockedBy` entry is a visible, reviewable act rather than a
-   * silent broadening of the escape hatch.
+   * The issue that blocks the paydown of this entry, when one exists. Only `team.spawned` and
+   * `team.disbanded` carry it, because they cannot be re-coupled until #1473 lands. A test pins
+   * this exemption at the two team types, so a third `blockedBy` entry is a visible change.
    */
   readonly blockedBy?: string;
 }
@@ -97,11 +40,11 @@ export interface ReportCouplingRetiredEntry {
 }
 
 /**
- * The report-coupled population as measured at guard introduction.
- *
- * Annotated `Readonly<Record<string, ReportCouplingSeedEntry>>` rather than `as const`: the
- * annotation gives every value its contextual type, and this module spends nothing from the repo's
- * type-assertion budget.
+ * The report-coupled population as measured at guard introduction. The explicit type gives each
+ * value its contextual type with no `as const`, so it costs nothing from the type-assertion budget.
+ * A type that the event-authority charter flipped to telemetry (`src/events/partition/demotions.ts`)
+ * must not move to an `auto` tier. The partition then files it as governance again with no
+ * witness. The flip is its paydown.
  */
 export const REPORT_COUPLING_SEED: Readonly<Record<string, ReportCouplingSeedEntry>> = Object.freeze(
   {
@@ -133,20 +76,17 @@ export const REPORT_COUPLING_SEED: Readonly<Record<string, ReportCouplingSeedEnt
 );
 
 /**
- * Seed entries that have been paid down (the event is no longer report-coupled) or removed with
- * their event type.
- *
- * Empty at seeding time. It grows by exactly one entry for every entry the seed loses, which is
- * what keeps `keys(SEED) ∪ keys(RETIRED)` invariant and therefore makes the frozen digest in
- * `report-coupling-seed-pin.ts` a signal rather than a value someone regenerates. Deleting from
- * HERE is as illegal as adding: both change the union.
+ * Seed entries that left the seed: re-coupled, or removed with their event type. It gains one entry
+ * for each entry that the seed loses. So `keys(SEED) ∪ keys(RETIRED)` stays the same, and the
+ * frozen digest in `report-coupling-seed-pin.ts` is a signal. A deletion from this map is as
+ * illegal as an addition, because both change the union.
  */
 export const REPORT_COUPLING_RETIRED: Readonly<Record<string, ReportCouplingRetiredEntry>> =
   Object.freeze({
-    // Re-coupled: `prepare` appends it in the same commit as the prepared
-    // record, `prepare_delegation` ahead of the readiness fold, and the
-    // tier moved to `capability`. The delegate skill no longer prescribes
-    // the append.
+    /**
+     * Re-coupled: `prepare` appends it in the same commit as the prepared record, and
+     * `prepare_delegation` appends it before the readiness fold. Its tier is `capability`.
+     */
     'task.assigned': { owner: 'workflow:feature', retiredAt: '2026-09-14' },
   });
 

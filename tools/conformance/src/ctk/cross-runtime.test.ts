@@ -1,17 +1,8 @@
-// ─── P07-04 — cross-runtime + packaged parity of the admission decision ──────
-//
-// The admission decision path is a pure, deterministic fold. This suite proves
-// that determinism CROSSES the runtime boundary: the same corpus digest is
-// produced by Node (this vitest process) and by Bun (`bun run` on the standalone
-// CLI, which is also the runtime the packaged binary is built with — P05-02).
-//
-// Honest scope note (packaged): the shipped `exarchos` binary exposes no CLI
-// surface for the internal admission decision, so a *binary-invoked* admission
-// digest is not feasible here. Bun is the packaged runtime (the binary is a
-// `bun build --compile` artifact), so running the digest under Bun exercises the
-// same module resolution + stdlib the packaged binary uses — the closest
-// faithful packaged-parity proof available without a bespoke admission CLI
-// surface. See the final report for the follow-up.
+// The admission decision path is a pure fold. This suite proves that Node (this vitest
+// process) and Bun (`bun run` on the standalone CLI) produce the same corpus digest.
+// The shipped `exarchos` binary has no command for the admission decision, so the suite
+// cannot get a digest from the binary. The binary is a `bun build --compile` artifact,
+// so the Bun run uses the same module resolution and standard library as the binary.
 
 import { existsSync, statSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
@@ -38,11 +29,10 @@ function isFile(candidate: string): boolean {
 }
 
 /**
- * Resolve a REAL bun executable (never a `.cmd`/`.ps1` shim — Node ≥ 20 refuses
- * to `execFile` those without `shell:true`, and we want a hermetic no-shell
- * spawn). On Linux CI `bun` is a real PATH executable; on this Windows dev box
- * PATH only holds the npm-global `bun.cmd` shim, whose real binary lives at
- * `<shim-dir>/node_modules/bun/bin/bun.exe` (per the shim body).
+ * Returns a real bun executable, never a `.cmd` or `.ps1` shim.
+ * Node refuses to `execFile` a shim without `shell: true`, and this spawn uses no shell.
+ * On Windows, PATH can hold only the npm-global `bun.cmd` shim.
+ * Then the real binary is at `<shim-dir>/node_modules/bun/bin/bun.exe`.
  */
 async function resolveBunExecutable(): Promise<string | null> {
   const pathDirs = (process.env.PATH ?? '')
@@ -62,7 +52,6 @@ async function resolveBunExecutable(): Promise<string | null> {
       }
     }
   }
-  // Last resort: trust PATH resolution via a bare invocation (Linux).
   try {
     await execFileAsync(realName, ['--version']);
     return realName;
@@ -75,7 +64,6 @@ const BUN_EXECUTABLE = await resolveBunExecutable();
 
 async function runBunDigest(bun: string): Promise<string> {
   const stdout = await execFileAsync(bun, ['run', CLI_PATH], {
-    // Keep it hermetic and fast; the CLI does pure in-memory work.
     timeout: 60_000,
   });
   const match = /DIGEST=([a-f0-9]{64})/.exec(stdout);
@@ -93,17 +81,10 @@ describe('admission decision cross-runtime parity (exit-proof d, cross-runtime l
     expect(b).toBe(a);
   });
 
-  // DR-7 (task 078) — this test used to carry `skipIf(BUN_EXECUTABLE === null)`.
-  // It is the ONLY leg that crosses a runtime boundary, so skipping it left the
-  // file asserting nothing but `corpusDigest(x) === corpusDigest(x)` under Node,
-  // while the suite still reported success: a cross-runtime parity proof that
-  // had quietly stopped being cross-runtime.
-  //
-  // `bun` is not an optional convenience here. It is a documented build
-  // prerequisite (`npm run build`, `build:binary`, `build:release-verifier` all
-  // shell out to it) and every CI lane that runs this suite installs it via
-  // `oven-sh/setup-bun`. Its absence is therefore an ENVIRONMENT DEFECT, and
-  // the honest response is to say so — not to silently degrade the proof.
+  /**
+   * This test is the only leg that crosses a runtime boundary, so it does not skip without bun.
+   * The build needs bun, and CI installs it. A missing bun is an environment defect, so the test fails.
+   */
   it('CorpusDigest_MatchesAcrossNodeAndBun', async () => {
     expect(
       BUN_EXECUTABLE,
@@ -116,8 +97,6 @@ describe('admission decision cross-runtime parity (exit-proof d, cross-runtime l
     const nodeDigest = corpusDigest(admissionScenarioCorpus);
     const bunDigest = await runBunDigest(BUN_EXECUTABLE as string);
     expect(bunDigest).toBe(nodeDigest);
-    // Pin that the digest actually crossed the boundary rather than defaulting
-    // to something trivially equal on both sides.
     expect(bunDigest).toMatch(/^[a-f0-9]{64}$/);
   }, 120_000);
 });

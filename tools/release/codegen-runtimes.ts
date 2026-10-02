@@ -1,38 +1,16 @@
 #!/usr/bin/env bun
 /**
- * Codegen for the embedded runtimes module (#1213, #1214).
+ * Codegen for the embedded runtimes module. It reads `content/harness/runtimes/*.yaml` at build
+ * time, validates each entry against `RuntimeMapSchema`, and writes
+ * `src/install/runtimes/embedded.ts`, which exports a frozen `EMBEDDED_RUNTIMES` array. The
+ * install-skills bridge in the compiled binary reads that module, because the YAML files are not
+ * in the bundled artifact graph.
  *
- * Reads `content/harness/runtimes/*.yaml` at build time, validates every entry against
- * `RuntimeMapSchema`, and emits a typed TS module
- * `src/install/runtimes/embedded.ts` that exports a frozen `EMBEDDED_RUNTIMES`
- * array. The emitted module is the runtime-side source of truth used by
- * the install-skills bridge from inside the compiled binary, where the
- * `content/harness/runtimes/` directory is not on disk (the YAML files are not part of
- * the bundled artifact graph).
- *
- * ── Why a codegen step instead of a `Bun.embeddedFiles`-style trick ─────
- * The runtime YAML directory must remain the SINGLE source of truth so
- * authors edit one file. Embedding YAML *strings* into the binary would
- * still require a parse + Zod validation at user-runtime — including
- * `js-yaml` and `zod` in the hot path of every `install-skills`
- * invocation. Codegen sidesteps both: validation runs at build time and
- * the emitted module is plain JSON-shaped TypeScript, deeply frozen.
- *
- * ── Determinism contract ──────────────────────────────────────────────
- * The emitted file MUST be a pure function of `content/harness/runtimes/*.yaml` so
- * `runtimes:guard` (CI) can re-run codegen and `git diff --exit-code`
- * the result. We enforce determinism by:
- *
- *   1. Sorting runtimes in canonical order: `REQUIRED_RUNTIME_NAMES`
- *      first (in declaration order), then any extras alphabetically.
- *   2. Using `JSON.stringify(value, null, 2)` for the inlined object
- *      literal, which preserves insertion order of string keys per the
- *      ECMAScript spec — the same invariant that backs the skills:guard
- *      determinism contract.
- *
- * Implements: PR #1213 review-item #4 (CodeRabbit), #1109 §2 (MCP parity).
+ * The YAML directory stays the one source of truth. Validation runs at build time, so the binary
+ * does not parse or validate YAML at user runtime. The output must be a pure function of the YAML,
+ * so that `runtimes:guard` can re-run codegen and diff the result. So the runtimes sort in a
+ * canonical order, and `JSON.stringify(value, null, 2)` keeps the key order.
  */
-
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -40,11 +18,9 @@ import { loadAllRuntimes, REQUIRED_RUNTIME_NAMES } from '../../src/install/runti
 import type { RuntimeMap } from '../../src/install/runtimes/types.js';
 
 /**
- * Sort the loaded runtimes deterministically. `REQUIRED_RUNTIME_NAMES`
- * provides the canonical ordering for the well-known runtimes; any
- * extras (loaded with a warning by `loadAllRuntimes`) trail in
- * alphabetical order so the codegen output is total-ordered without
- * ever depending on filesystem iteration order.
+ * Sorts the loaded runtimes deterministically. The `REQUIRED_RUNTIME_NAMES` order comes first.
+ * Extras, which `loadAllRuntimes` loads with a warning, follow in alphabetical order. So the output
+ * never depends on the filesystem iteration order.
  */
 export function sortRuntimes(runtimes: readonly RuntimeMap[]): RuntimeMap[] {
   const requiredOrder = new Map<string, number>();
@@ -128,11 +104,8 @@ export function getEmbeddedRuntime(name: string): RuntimeMap | undefined {
 }
 
 /**
- * Resolve the repo root from this file's location. The codegen script
- * lives at `tools/release/codegen-runtimes.ts`, so the repo root is one
- * directory above. We use `import.meta.url` rather than `process.cwd()`
- * so the script is robust against being invoked from a sibling
- * directory.
+ * Resolves the repo root from `import.meta.url`, two directories above this file, and not from
+ * `process.cwd()`. So the script works from any working directory.
  */
 function repoRoot(): string {
   const here = dirname(fileURLToPath(import.meta.url));
@@ -140,11 +113,11 @@ function repoRoot(): string {
 }
 
 /**
- * Load every runtime YAML in `runtimesDir`, render the embedded module,
- * and write it to `outFile`. Exported so tests can drive the same code
- * path against a temp directory. A file that already holds the rendered
- * text is left alone: every build runs this against the tracked copy, and
- * a rewrite would expose a truncated file to a concurrent reader (#2030).
+ * Loads every runtime YAML in `runtimesDir`, renders the embedded module, and writes it to
+ * `outFile`. Tests drive the same code path against a temp directory. A file that already holds
+ * the rendered text stays as it is. Each build runs this against the tracked copy, and a rewrite
+ * exposes a truncated file to a concurrent reader. The module runs it on the real repo only when
+ * this file is the entry point, so a test import does not regenerate `src/install/runtimes/embedded.ts`.
  */
 export function generateEmbeddedRuntimesModule(opts: {
   runtimesDir: string;
@@ -156,9 +129,6 @@ export function generateEmbeddedRuntimesModule(opts: {
   writeFileSync(opts.outFile, source, 'utf8');
 }
 
-// Self-invocation guard: only run the side-effecting codegen when this
-// file is the entry point. Importing it from a test must NOT regenerate
-// `src/install/runtimes/embedded.ts` against the real repo.
 if (import.meta.main) {
   const root = repoRoot();
   generateEmbeddedRuntimesModule({

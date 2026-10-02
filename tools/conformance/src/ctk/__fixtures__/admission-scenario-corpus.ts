@@ -1,21 +1,14 @@
-// ─── P07-04 / Transition tasks 037-038 — shared admission-contract corpus ────
-//
-// A deterministic corpus of admission scenarios that exercises the runtime
-// admission contract across its DECLARED surface: the route-selection outcomes
-// (selected / blocked / no-match), the requirement-resolution danger lattice
-// (risk × boundary × reliability), every requirement kind the freezer can mint
-// (gate-evidence / approval / corroboration), and every policy verdict the
-// evaluator can return (allow / deny / indeterminate) — including the
-// distinguishing evidence pathologies (missing / failed / stale / unauthorized).
-//
-// This is BOTH the CTK corpus (the shared-contract compatibility test kit's
-// input) AND the benchmark corpus for the admission-performance suite. Every
-// scenario carries its expected route + verdict so the CTK can pin the contract,
-// and every input is built from the REAL admission constructors (evidence
-// subjects, capability authority, frozen requirement ids) so a scenario can
-// never drift out of contract silently.
-//
-// Pure and self-contained: no I/O, no clock, no config reads — just data.
+/**
+ * A deterministic corpus of admission scenarios. The CTK and the admission
+ * performance benchmark share it.
+ *
+ * The corpus covers the three route outcomes, the requirement-resolution lattice
+ * (risk, boundary, reliability), the three requirement kinds and the three policy
+ * verdicts. Each scenario carries its expected route and verdict. The inputs come from
+ * the real admission constructors, so a scenario cannot drift out of contract
+ * silently. The module is data only: it does no I/O and reads no clock or
+ * configuration.
+ */
 
 import {
   AdmissionEvidenceV1Schema,
@@ -51,12 +44,10 @@ import type { ResolvedGate } from '../../../../../src/workflow/phase-kind.js';
 
 import type { AdmissionScenario } from './admission-decision-path.js';
 
-// ─── Shared, trusted context ─────────────────────────────────────────────────
-
 const AT = '2026-08-03T12:00:00.000Z';
-/** One hour before AT — inside the freshness horizon used below. */
+/** Thirty minutes before AT, inside the freshness horizon. */
 const RECENT = '2026-08-03T11:30:00.000Z';
-/** Long before AT — outside any sane freshness horizon (stale). */
+/** Long before AT, outside the freshness horizon. */
 const ANCIENT = '2000-01-01T00:00:00.000Z';
 const FRESHNESS_HORIZON_MS = 3_600_000;
 
@@ -73,8 +64,10 @@ const subject: EvidenceSubjectV1 = createEvidenceSubject(
 const policyId = PolicyIdSchema.parse('policy-ctk-001');
 const approvalClass = ApprovalClassSchema.parse('admission.approval');
 
-// Trusted producers/approvers. The authority is the out-of-band trust oracle;
-// a record cannot widen its own authorization.
+/**
+ * A trusted gate producer. The authority is the out-of-band trust oracle, so a
+ * record cannot widen its own authorization.
+ */
 const GATE_PRODUCER_A = 'producer.gate-runner-a';
 const GATE_PRODUCER_B = 'producer.gate-runner-b';
 const GATE_PRODUCER_C = 'producer.gate-runner-c';
@@ -102,8 +95,6 @@ const trustAll: PolicyAuthority = createCapabilityAuthority([
   { principalId: APPROVER_A, capabilities: [POLICY_CAPABILITY.ISSUE_APPROVAL] },
   { principalId: APPROVER_B, capabilities: [POLICY_CAPABILITY.ISSUE_APPROVAL] },
 ]);
-
-// ─── Evidence constructors (real schema-validated records) ───────────────────
 
 let evidenceCounter = 0;
 function nextEvidenceId(prefix: string): string {
@@ -171,8 +162,6 @@ function approvalEvidence(
   });
 }
 
-// ─── Frozen-requirement introspection ────────────────────────────────────────
-
 /** Freeze the requirement set for a context so evidence can bind to real ids. */
 function frozenRequirements(
   contextInput: RequirementContextInput,
@@ -189,10 +178,10 @@ function frozenRequirements(
 }
 
 /**
- * Build satisfying evidence for a whole frozen requirement set: a passing gate
- * evidence per gate requirement, `minimumApprovals` distinct approvers per
- * approval requirement, and `minimumIndependentSources` distinct-producer
- * passing gate evidence per corroboration requirement.
+ * Builds satisfying evidence for a frozen requirement set. A gate requirement gets
+ * one passing gate evidence. An approval requirement gets `minimumApprovals`
+ * approvals that rotate over two approvers. A corroboration requirement gets
+ * `minimumIndependentSources` passing gate evidence that rotates over four producers.
  */
 function satisfyingEvidence(
   requirements: readonly AdmissionRequirementV1[],
@@ -239,8 +228,6 @@ function satisfyingEvidence(
   return evidence;
 }
 
-// ─── Route candidates ────────────────────────────────────────────────────────
-
 const routeDeclaration = {
   fields: { ready: 'boolean' },
 } as const satisfies EdgeConditionDeclaration;
@@ -256,8 +243,10 @@ const legalEdge: EdgeCandidate = {
 const legalFacts: EdgeConditionFacts = { fields: { ready: true }, events: [] };
 const illegalFacts: EdgeConditionFacts = { fields: { ready: false }, events: [] };
 
-// A candidate whose field is undeclared in facts evaluates to `indeterminate`,
-// which fails route selection closed (blocked).
+/**
+ * A candidate whose field is not in the facts evaluates to `indeterminate`. Route
+ * selection then fails closed as `blocked`.
+ */
 const indeterminateDeclaration = {
   fields: { missing: 'boolean' },
 } as const satisfies EdgeConditionDeclaration;
@@ -270,8 +259,6 @@ const indeterminateEdge: EdgeCandidate = {
   condition: indeterminateCondition,
 };
 const emptyFacts: EdgeConditionFacts = { fields: {}, events: [] };
-
-// ─── Scenario builder ────────────────────────────────────────────────────────
 
 interface ScenarioSpec {
   readonly name: string;
@@ -298,9 +285,11 @@ function scenario(spec: ScenarioSpec): AdmissionScenario {
   };
 }
 
-// A GATHER, low-risk, not-touching, reliable context with one declared ladder
-// gate: its sole obligation is a single gate-evidence requirement — the cleanest
-// controllable unit for allow/deny/indeterminate.
+/**
+ * The one declared gate of `gatherContext`, a low-risk, reliable GATHER context that
+ * touches no boundary. That context has one obligation, a gate-evidence requirement.
+ * This is the simplest unit for each verdict.
+ */
 const gatherGate: ResolvedGate = {
   family: 'ladder',
   gate: 'check_static_analysis',
@@ -316,8 +305,10 @@ const gatherContext: RequirementContextInput = {
 const gatherRequirements = frozenRequirements(gatherContext);
 const gatherRequirementId = gatherRequirements[0]?.requirementId ?? '';
 
-// A high-risk context: risk alone adds one approval obligation on top of the
-// gate. Fully satisfied ⇒ allow; approval missing ⇒ deny.
+/**
+ * A high-risk context. The risk adds one approval obligation to the gate. Full
+ * evidence gives `allow`, and a missing approval gives `deny`.
+ */
 const highRiskContext: RequirementContextInput = {
   phaseKind: 'GATHER',
   risk: 'high',
@@ -328,8 +319,10 @@ const highRiskContext: RequirementContextInput = {
 };
 const highRiskRequirements = frozenRequirements(highRiskContext);
 
-// An unknown-risk context: adds approval AND corroboration obligations — the
-// strongest lattice point. Fully satisfied ⇒ allow (exercises corroboration).
+/**
+ * An unknown-risk context, the strongest lattice point. It adds approval and
+ * corroboration obligations. Full evidence gives `allow`.
+ */
 const unknownRiskContext: RequirementContextInput = {
   phaseKind: 'GATHER',
   risk: 'unknown',
@@ -340,11 +333,8 @@ const unknownRiskContext: RequirementContextInput = {
 };
 const unknownRiskRequirements = frozenRequirements(unknownRiskContext);
 
-// ─── The corpus ──────────────────────────────────────────────────────────────
-
 export const admissionScenarioCorpus: readonly AdmissionScenario[] = Object.freeze([
-  // Gate-only: allow / deny (missing) / deny (failed) / indeterminate / stale /
-  // unauthorized.
+  /** Gate-only scenarios: passing, missing, failing, indeterminate, stale and unauthorized evidence. */
   scenario({
     name: 'gate/allow/passing-evidence',
     context: gatherContext,
@@ -383,7 +373,7 @@ export const admissionScenarioCorpus: readonly AdmissionScenario[] = Object.free
     expect: { route: 'selected', verdict: 'deny' },
   }),
 
-  // Danger lattice: high risk adds an approval obligation.
+  /** High risk adds an approval obligation. */
   scenario({
     name: 'high-risk/allow/gate+approval',
     context: highRiskContext,
@@ -399,8 +389,10 @@ export const admissionScenarioCorpus: readonly AdmissionScenario[] = Object.free
     expect: { route: 'selected', verdict: 'deny' },
   }),
 
-  // Strongest lattice point: unknown risk + indeterminate boundary + unknown
-  // reliability ⇒ gate + approval + corroboration. Fully satisfied ⇒ allow.
+  /**
+   * Unknown risk, an indeterminate boundary and unknown reliability require a gate,
+   * an approval and corroboration.
+   */
   scenario({
     name: 'unknown-risk/allow/gate+approval+corroboration',
     context: unknownRiskContext,
@@ -420,7 +412,7 @@ export const admissionScenarioCorpus: readonly AdmissionScenario[] = Object.free
     expect: { route: 'selected', verdict: 'deny' },
   }),
 
-  // Route topology: blocked (leading indeterminate candidate) and no-match.
+  /** Route topology: a leading indeterminate candidate blocks, and all-false facts give no match. */
   scenario({
     name: 'route/blocked/indeterminate-candidate',
     context: gatherContext,

@@ -1,13 +1,9 @@
-// ────────────────────────────────────────────────────────────────────────────
-// `seedGateEvidence` states a precondition its caller owes, and its whole value
-// is that the admission evaluator cannot tell a seeded row from a shipped one.
-// That only holds while the seed keys its evidence the way the real runner keys
-// its own — so the runner's `evidenceIdFor` is the authority here, and the rows
-// a real `EventStore` holds afterwards are the second. Neither is the helper
-// talking about itself: the identity is read back off the persisted event, not
-// off the id the helper returned.
+// `seedGateEvidence` states a precondition that its caller owes. Its value is that the admission
+// evaluator cannot tell a seeded row from a shipped row. That holds only while the seed keys its
+// evidence the way the real runner keys its own. So the key shape of `evidenceIdFor` in the runner
+// is one authority, and the rows of a real `EventStore` are the second. The tests read the
+// identity back from the persisted event, not from the id that the helper returned.
 // @oracle-sources: ../../src/verbs/gates/gate-runner.ts, the rows a real EventStore holds after the seed — read back from the store rather than from the id the helper handed out so a seed that never persisted cannot satisfy the comparison
-// ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
@@ -46,13 +42,11 @@ afterEach(async () => {
 });
 
 describe('seedGateEvidence keys its evidence the way the gate runner keys its own', () => {
+  /**
+   * The attempt is part of the evidence identity of the real runner. So two attempts must leave two
+   * rows in the store, each with its own attempt. A fresh id with no persisted row cannot pass.
+   */
   it('SeedGateEvidence_TwoPhaseAttempts_LeaveTwoRowsCarryingTheirOwnAttempt', async () => {
-    // The attempt is part of the real runner's evidence identity. While the
-    // seed left it out, the second attempt collided with the first on the
-    // (streamId, idempotencyKey) claim and was answered by the row already
-    // there — so a test seeding two attempts silently got one, carrying the
-    // FIRST attempt's id, and any admission decision that turned on the attempt
-    // was reading a fact about the wrong one.
     const first = await seedGateEvidence(store, {
       streamId: STREAM,
       requirementId: 'review',
@@ -68,9 +62,6 @@ describe('seedGateEvidence keys its evidence the way the gate runner keys its ow
 
     const rows = await persisted();
     expect(rows).toHaveLength(2);
-    // Read off the STORE: each attempt is present under its own identity, so a
-    // second call that merely returned a fresh id without persisting a row
-    // could not satisfy this.
     expect(rows.map((row) => row.phaseAttemptId).sort()).toEqual([
       'phase-attempt:one',
       'phase-attempt:two',
@@ -78,9 +69,8 @@ describe('seedGateEvidence keys its evidence the way the gate runner keys its ow
     expect(rows.map((row) => row.evidenceId).sort()).toEqual([first, second].sort());
   });
 
+  /** The wider identity must keep the dedupe that an exact repeat relies on. */
   it('SeedGateEvidence_SameAttemptSeededTwice_ReusesTheExistingRow', async () => {
-    // The other half of the same key: widening the identity must not cost the
-    // dedupe an exact repeat still relies on.
     const first = await seedGateEvidence(store, {
       streamId: STREAM,
       requirementId: 'review',
@@ -96,9 +86,8 @@ describe('seedGateEvidence keys its evidence the way the gate runner keys its ow
     expect(await persisted()).toHaveLength(1);
   });
 
+  /** The requirement stays part of the identity within one attempt. */
   it('SeedGateEvidence_DifferentRequirements_StayDistinctWithinOneAttempt', async () => {
-    // The requirement was already part of the identity; widening by the attempt
-    // must not have collapsed it.
     const review = await seedGateEvidence(store, {
       streamId: STREAM,
       requirementId: 'review',

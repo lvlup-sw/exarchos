@@ -1,16 +1,11 @@
-// ─── P07-04 exit-proof (a)/(b) — custom-workflow reference validation ────────
-//
-// Discriminating tests for `validateWorkflowReferences`:
-//   (a) an INVALID custom workflow — a dangling phase / guard / parent reference
-//       — fails with a diagnostic that NAMES the reference and where it came
-//       from; and
-//   (b) a VALID custom workflow (including one that inherits phases from a
-//       resolvable parent) passes with zero diagnostics.
-//
-// The suite pins each dangling-reference class independently and asserts the
-// diagnostic's `reference` / `workflow` / `location` fields, so a validator that
-// merely returns `ok: false` without localizing the fault would fail here.
-
+/**
+ * Tests for `validateWorkflowReferences`. An invalid custom workflow, with a dangling phase, guard
+ * or parent reference, fails with a diagnostic that names the reference and its origin. A valid
+ * custom workflow passes with zero diagnostics, also when it inherits phases from a parent.
+ *
+ * Each dangling-reference class has its own case. Each case asserts the `reference`, `workflow`
+ * and `location` fields, so a validator that returns `ok: false` without the location fails.
+ */
 import { describe, it, expect } from 'vitest';
 
 import type { WorkflowDefinition } from '../../../../src/config/define.js';
@@ -19,8 +14,6 @@ import {
   type WorkflowReferenceDiagnostic,
   type WorkflowReferenceDiagnosticCode,
 } from './__fixtures__/workflow-reference-validator.js';
-
-// ─── Fixtures ────────────────────────────────────────────────────────────────
 
 /** A fully valid, self-contained custom workflow with every reference resolved. */
 const validWorkflow: WorkflowDefinition = {
@@ -44,8 +37,6 @@ function only(
   return matches[0]!;
 }
 
-// ─── (b) valid references pass ───────────────────────────────────────────────
-
 describe('validateWorkflowReferences — valid references pass', () => {
   it('ValidWorkflow_AllReferencesResolve_OkWithNoDiagnostics', () => {
     const report = validateWorkflowReferences({ custom: validWorkflow });
@@ -60,10 +51,11 @@ describe('validateWorkflowReferences — valid references pass', () => {
     expect(report.ok).toBe(true);
   });
 
+  /**
+   * `to: 'review'` is not a phase of the child. It comes from the parent, whose phases are
+   * supplied, so the reference resolves.
+   */
   it('TransitionReferencingInheritedPhase_ResolvesViaKnownParentPhases_Ok', () => {
-    // `to: 'review'` is NOT in the child's own phases; it is inherited from the
-    // built-in parent whose phase set is supplied. With the parent phases known,
-    // the reference resolves and does NOT dangle.
     const child: WorkflowDefinition = {
       extends: 'feature',
       phases: ['intake'],
@@ -93,9 +85,11 @@ describe('validateWorkflowReferences — valid references pass', () => {
     expect(report.ok).toBe(true);
   });
 
+  /**
+   * The parent type is known, but its phases are not supplied. So a `to` that the validator cannot
+   * see is not reported as dangling.
+   */
   it('UnknownParentPhases_DoesNotFalselyFlagInheritedPhaseReference', () => {
-    // The parent type is accepted (known type) but its phases are NOT supplied,
-    // so a `to` that we cannot see must NOT be reported as dangling.
     const child: WorkflowDefinition = {
       extends: 'feature',
       phases: ['intake'],
@@ -106,8 +100,6 @@ describe('validateWorkflowReferences — valid references pass', () => {
     expect(report.ok).toBe(true);
   });
 });
-
-// ─── (a) invalid references fail with actionable diagnostics ─────────────────
 
 describe('validateWorkflowReferences — dangling references fail with diagnostics', () => {
   it('DanglingTransitionTo_NamesReferenceAndOrigin', () => {
@@ -212,6 +204,7 @@ describe('validateWorkflowReferences — dangling references fail with diagnosti
     expect(report.diagnostics.some((d) => d.code === 'EMPTY_PHASES')).toBe(true);
   });
 
+  /** The same input gives the same diagnostic order, and each diagnostic names the workflow. */
   it('MultipleFaults_AreAllReported_InDeterministicOrder', () => {
     const broken: WorkflowDefinition = {
       extends: 'ghost-parent',
@@ -225,7 +218,6 @@ describe('validateWorkflowReferences — dangling references fail with diagnosti
     const first = validateWorkflowReferences({ broken });
     const second = validateWorkflowReferences({ broken });
 
-    // Deterministic ordering — same input, same diagnostic sequence.
     expect(second.diagnostics).toEqual(first.diagnostics);
 
     const codes = first.diagnostics.map((d) => d.code);
@@ -234,7 +226,6 @@ describe('validateWorkflowReferences — dangling references fail with diagnosti
     expect(codes).toContain('DANGLING_TRANSITION_TO');
     expect(codes).toContain('DANGLING_TRANSITION_FROM');
     expect(codes).toContain('DANGLING_GUARD');
-    // Every diagnostic localizes to the offending workflow.
     expect(first.diagnostics.every((d) => d.workflow === 'broken')).toBe(true);
   });
 

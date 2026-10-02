@@ -1,47 +1,19 @@
+/**
+ * Gives a guard a second authority for its denominator: the files that `git ls-files` tracks.
+ *
+ * A structural guard that scans the wrong tree, or part of it, still reports no violations.
+ * `git ls-files` knows nothing about the recursion, exclusions or extension filter of a scanner.
+ * When a walk misses tracked files, the difference names the missing modules.
+ *
+ * Git reports committed or staged files, so an untracked new module is not in the list.
+ * The assertion is `tracked ⊆ walked`, so an untracked file can only make the walk larger.
+ * Prefer {@link listTrackedFiles} to {@link countTrackedFiles}, because a failure then names the modules.
+ */
 import { execFileAsync } from './spawn.js';
 
 /**
- * DR-8 — the SECOND AUTHORITY for a guard's denominator.
- *
- * A structural guard walks a tree and asserts something about what it found.
- * That assertion is only worth as much as the walk: a scan that lost 96% of the
- * tree, or was pointed at a subtree that moved, still reports "no violations".
- * The tooth that catches it has to know how big the tree really is — and it must
- * learn that from somewhere the walk cannot influence.
- *
- * `git ls-files` is that somewhere. It knows nothing about a scanner's recursion,
- * its exclusion set, or its extension filter; it reports what the repository
- * TRACKS. So when a guard's walk and this list agree, the agreement is evidence
- * the walk reached the tree. When they disagree, the disagreement names the
- * modules that went missing.
- *
- * This exists once, here, because a per-test copy of the same `execFileSync('git',
- * ['ls-files', …])` incantation is exactly the multiply-owned representation the
- * programme is closing: five copies drift, and the drift is invisible precisely
- * where the guard is meant to be loud.
- *
- * Two shapes are exported deliberately:
- *   • {@link listTrackedFiles} — the paths, so a shortfall can NAME what the walk
- *     missed rather than reporting a smaller integer;
- *   • {@link countTrackedFiles} — the count, for the band-style pins.
- *
- * Prefer the list. `expect(missed).toEqual([])` fails with the offending module
- * names; `expect(n).toBeGreaterThan(m)` fails with two numbers.
- *
- * TRACKED, not present: git reports what is committed or staged, so a brand-new
- * untracked module is invisible here. That is the safe direction for a
- * denominator — the assertion built on it is `tracked ⊆ walked`, so an untracked
- * scratch file makes the walk larger, never the authority smaller, and cannot
- * turn a real shortfall green.
- */
-
-/**
- * Path segments excluded BY PROPERTY, never by naming a subtree (DR-8):
- * dependency trees and build output are not first-party source, and no guard in
- * this repository governs them. Dot-directories are excluded by the same rule —
- * `.claude/worktrees/` holds complete sibling checkouts of this repository, so a
- * repo-root walk that recursed into them would count every module several times
- * over, with the multiple depending on how many agents happened to be running.
+ * Excludes path segments by property, not by subtree name: `node_modules`, `dist` and each dot-directory.
+ * `.claude/worktrees/` holds full sibling checkouts, so a walk into it counts each module many times.
  */
 const EXCLUDED_BY_PROPERTY = (segment: string): boolean =>
   segment === 'node_modules' || segment === 'dist' || segment.startsWith('.');
@@ -50,21 +22,15 @@ export interface TrackedPopulationQuery {
   /** File extensions that constitute the population. Default: `['.ts']`. */
   readonly extensions?: readonly string[];
   /**
-   * Additional rejection predicate over the `root`-relative, forward-slashed
-   * path — used to mirror a scanner's own exclusions (its harness directories,
-   * its `*.test.ts` filter) so the two sides describe the same population and a
-   * shortfall means a broken walk rather than a definitional mismatch.
+   * An extra rejection test over the `root`-relative, forward-slashed path.
+   * It mirrors the exclusions of a scanner, so a shortfall means a broken walk, not a different population.
    */
   readonly exclude?: (relativePath: string) => boolean;
 }
 
 /**
- * Every file `root` tracks, `root`-relative and forward-slashed, sorted.
- *
- * Rejects when the query resolves nothing: a second authority that answers zero
- * cannot corroborate anything, and a silent empty list would make every
- * containment assertion built on it vacuously true — the very failure mode this
- * module exists to detect, reproduced inside the detector.
+ * Returns the files that `root` tracks and the query admits, `root`-relative, forward-slashed and sorted.
+ * Rejects when the query resolves nothing, because an empty list makes each containment assertion pass.
  */
 export async function listTrackedFiles(root: string, query: TrackedPopulationQuery = {}): Promise<string[]> {
   const extensions = query.extensions ?? ['.ts'];
@@ -94,12 +60,8 @@ export async function countTrackedFiles(root: string, query: TrackedPopulationQu
 }
 
 /**
- * The tracked files a walk did NOT reach, capped for a legible failure message.
- *
- * The asymmetry is deliberate: EXTRA modules in the walk are benign (an untracked
- * scratch file in a working tree), while MISSING ones mean the walk did not cover
- * the population the guard claims to govern. Only the second direction is a
- * finding.
+ * Returns the tracked files that a walk did not reach, capped at `limit` for a legible message.
+ * Extra files in the walk are not a finding, because an untracked file in a working tree is benign.
  */
 export function trackedFilesMissedBy(
   walked: Iterable<string>,
