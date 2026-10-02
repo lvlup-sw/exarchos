@@ -1,11 +1,11 @@
-import * as fs from 'node:fs/promises';
-import * as os from 'node:os';
-import * as path from 'node:path';
-import type { EvalCase } from './types.js';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { fc } from '@fast-check/vitest';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import * as os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { loadDataset } from './dataset-loader.js';
+import type { EvalCase } from './types.js';
 import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 let tmpDir: string;
