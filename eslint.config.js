@@ -27,7 +27,7 @@ export default [
     },
     /**
      * With the typescript-eslint plugin, the `@typescript-eslint/*` disable directives name a known
-     * rule. None of its rules are on, so `linterOptions` does not report those directives as unused.
+     * rule. None of its rules are on, so `linterOptions` turns off the report of unused directives.
      */
     plugins: {
       '@typescript-eslint': tseslint.plugin,

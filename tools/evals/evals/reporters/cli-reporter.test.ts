@@ -33,6 +33,7 @@ function makeSummary(overrides: Partial<RunSummary> & { suiteId: string }): RunS
 }
 
 describe('formatRunSummary', () => {
+  /** The output holds the check mark U+2713 and not the X mark U+2717. */
   it('FormatRunSummary_AllPassed_ShowsCheckmarks', () => {
     const summary = makeSummary({
       suiteId: 'my-suite',

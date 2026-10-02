@@ -1,10 +1,10 @@
 /**
  * Vitest configuration for the root suite and its tier projects.
  *
- * The vitest host mints `EXARCHOS_TEST_RUN_ID` once, and every forked worker inherits it. A host
- * pid cannot name a run, because a later host can get the same pid and reuse stale per-run scratch
- * state. Tests in workers also import this file, so the assignment uses `??=` and the inherited
- * value wins.
+ * The vitest host mints `EXARCHOS_TEST_RUN_ID` once, and every forked worker inherits it.
+ * `tests/helpers/hermetic-install-identity.ts` names its per-run scratch state with it. A host pid
+ * cannot name a run, because a later host can get the same pid and reuse stale scratch state. Tests
+ * in workers also import this file, so the assignment uses `??=` and the inherited value wins.
  */
 import { defineConfig, configDefaults } from 'vitest/config';
 import { randomBytes } from 'node:crypto';
@@ -65,9 +65,9 @@ export default defineConfig({
     globals: false,
     environment: 'node',
     /**
-     * Coverage is configured at the root, because vitest ignores a `coverage` block on a project.
-     * `test:coverage` runs `--project core`. The blocking coverage ratchet in `ci.yml` reads the
-     * summary that this block writes.
+     * This file configures coverage at the root, because vitest ignores a `coverage` block on a
+     * project. `test:coverage` runs `--project core`. The blocking coverage ratchet in `ci.yml`
+     * reads the summary that this block writes.
      */
     globalSetup: [TEMP_RUN_ROOT_SETUP],
     coverage: {
@@ -79,7 +79,7 @@ export default defineConfig({
       reporter: ['text', 'json', 'json-summary', 'html'],
       /**
        * By default, vitest skips the coverage report when a test fails. This repo has known
-       * local-only red tests, so the report is always written. Then a missing summary means a
+       * local-only red tests, so vitest always writes the report. Then a missing summary means a
        * tooling failure.
        */
       reportOnFailure: true,
@@ -99,7 +99,7 @@ export default defineConfig({
           testTimeout: tierTimeout(5000),
           include: [
             'tests/scripts/**/*.test.ts',
-            /** Black-box tests that run the top-level git-hook samples with `sh`. */
+            /** Black-box tests that run the git-hook samples in `tools/git-hooks/` with `sh`. */
             'tools/git-hooks/**/*.test.ts',
             'tests/architecture/**/*.test.ts',
             /** Test-support modules and their self-tests. */
@@ -146,6 +146,8 @@ export default defineConfig({
             'src/**/*.test.ts',
             /**
              * `*.type-test.ts` files hold compile-time type assertions that `tsc --noEmit` checks.
+             * The name does not end in `.test.ts`, so the tsconfig exclude of test files does not
+             * apply and tsc reads them.
              * Vitest collects them so that an explicit run finds them.
              */
             'src/**/*.type-test.ts',
@@ -224,7 +226,8 @@ export default defineConfig({
           alias: {
             /**
              * The acceptance suites use `src/storage/sqlite-backend.ts`, which imports `bun:sqlite`.
-             * This lane runs under Node, so it uses the same shim alias as the other projects.
+             * This lane runs under Node, so it uses the same shim alias as the `core`, `outcome` and
+             * `conformance` projects.
              */
             'bun:sqlite': fileURLToPath(
               new URL('./src/storage/__shims__/bun-sqlite-node.ts', import.meta.url),
@@ -241,7 +244,10 @@ export default defineConfig({
           setupFiles: [FILE_BOUNDARY_RESET, HERMETIC_INSTALL_IDENTITY, CLOSE_SQLITE, YIELD_BETWEEN_TESTS],
           exclude: EXCLUDE,
           testTimeout: tierTimeout(120000),
-          /** Serial files keep the scratch HOME installs and the git archive steps apart. */
+          /**
+           * `singleFork` runs the files one at a time, so the scratch HOME installs and the git
+           * archive steps do not overlap.
+           */
           poolOptions: { forks: { singleFork: true } },
         },
       },

@@ -216,8 +216,8 @@ jobs:
       # conformance above: `npm run test:run` runs the `unit` project only.
       #
       # It copies the TRACKED content of HEAD into a scratch directory and runs the real
-      # installer over it. Only there are a gitignored payload, an unflattened skill
-      # tree, or a hook registered twice visible. Every other check reads the working
+      # installer over it. Only this view shows a gitignored payload, an unflattened
+      # skill tree, or a hook registered twice. Every other check reads the working
       # tree, where an untracked file resolves exactly like a shipped one.
       - run: npm run test:acceptance
 
@@ -328,9 +328,10 @@ jobs:
 
       # Eval lane: it runs the RUN_EVALS-gated eval tests (evals/harness.test.ts,
       # evals/graders/llm-rubric.test.ts) with RUN_EVALS=1, outside the coverage
-      # instrument. It fires when `needs.changes.outputs.prompts == 'true'`, the same
-      # predicate that sets the job-level RUN_EVALS. Host class: deps, filtered on
-      # `mcp`. See docs/guides/ci-gate-hosting.md.
+      # instrument. No other CI step runs these tests with RUN_EVALS set. It fires when
+      # `needs.changes.outputs.prompts == 'true'`, the same predicate that sets the
+      # job-level RUN_EVALS. Host class: deps, filtered on `mcp`.
+      # See docs/guides/ci-gate-hosting.md.
       - name: Eval lane (RUN_EVALS-gated, prompts-touching PRs only) (DR-5)
         # `!cancelled() &&` the SAME prompts predicate: the eval lane is the
         # preserved evidence surface for the RUN_EVALS-gated tests — a red
@@ -357,8 +358,10 @@ jobs:
       # Composed-path Stryker smoke test: resolver, handler, adapter, the real pinned
       # Stryker and the parser, on a small fixture scope. It runs in its OWN step,
       # outside the coverage instrument and outside the default suite glob (excluded in
-      # vitest.config.ts). EXARCHOS_SMOKE_ONLY=1 lifts that exclusion for this one run,
-      # because the vitest CLI --exclude is additive and cannot remove an exclusion.
+      # vitest.config.ts). This keeps it out of the coverage numbers and out of the
+      # Windows lane, which has a known spawn flake. EXARCHOS_SMOKE_ONLY=1 lifts that
+      # exclusion for this one run, because the vitest CLI --exclude is additive and
+      # cannot remove an exclusion.
       # test-mcp runs on ubuntu-latest, so this test is Linux-only.
       # Host class: deps, filtered on `mcp`. See docs/guides/ci-gate-hosting.md.
       - name: Composed-path Stryker smoke test (DR-7, task 012) — Linux-only
@@ -813,8 +816,8 @@ jobs:
       - name: Enforcer wiring gate (DR-5/DR-8, task 011)
         run: node tools/audit/gates/check-enforcer-wiring.mjs
 
-      # Fail-closed self-test. The `.test.ts` of the gate runs only in the path-filtered
-      # `test-root` job. This `.test.sh` re-asserts the tool-missing and
+      # Fail-closed self-test. The `.test.ts` of the gate runs only in the jobs filtered
+      # on `root`. This `.test.sh` re-asserts the tool-missing and
       # unparseable-output fail-closed paths on THIS unfiltered host, where they fire on
       # every PR. Pure node, no install.
       - name: Enforcer-wiring gate self-test (DR-8, task 015)
@@ -827,8 +830,8 @@ jobs:
       - name: Plugin-packaging gate (DR-24, task 064)
         run: bash tools/audit/gates/validate-plugin.sh
 
-      # Re-assert for the gate above. Its `.test.ts` runs only in the path-filtered
-      # `test-root` job. This `.test.sh` asserts the fail-closed and
+      # Re-assert for the gate above. Its `.test.ts` runs only in the jobs filtered on
+      # `root`. This `.test.sh` asserts the fail-closed and
       # non-empty-denominator paths on THIS unfiltered host.
       # See docs/guides/ci-gate-hosting.md.
       - name: Plugin-packaging gate self-test (DR-10, task 064)
@@ -948,9 +951,9 @@ jobs:
         run: npx --no-install vitest run --project unit tests/architecture/repo-local-skills.test.ts
 
       # Advisory and shim ratchets, hosted UNFILTERED. `advisory-registry` walks the gate
-      # scripts and `.github/workflows/**`, and the `root` filter does not cover all of
-      # that surface. This host makes each ratchet fire on every PR, whatever paths the
-      # PR touches.
+      # scripts and `.github/workflows/**`, and the `mcp` filter of their other hosts does
+      # not cover all of that surface. This host makes each ratchet fire on every PR,
+      # whatever paths the PR touches.
       - name: Advisory + shim ratchets (DR-15/DR-24, unfiltered)
         run: npx --no-install vitest run --project core tests/unit/install/advisory-registry.test.ts tests/unit/install/shim-registry.test.ts
 
@@ -1030,7 +1033,9 @@ jobs:
       #
       # The gate has THREE verdicts: pass (exit 0), fail (exit 1) and gaps (exit 3).
       # `--tolerate-gaps-until` maps gaps to exit 0 through that date and to exit 1 after
-      # it. Drift, an empty denominator and an unannotated rung row always fail.
+      # it. This lane tolerates gaps, because the unprobed obligation rungs are open work,
+      # not a broken gate. Drift, an empty denominator and an unannotated rung row always
+      # fail.
       - name: Measured-premise drift gate (DR-27)
         run: node tools/audit/gates/check-measured-premises.mjs --tolerate-gaps-until 2026-11-30
 
@@ -1053,7 +1058,7 @@ jobs:
         run: npx --no-install tsx tools/audit/cycle-gate.ts
 
       # Fail-closed self-tests for the two tsx-backed audit gates. Their `.test.ts` cases
-      # run only in the path-filtered `test-root` job. These `.test.sh` files re-assert
+      # run only in the jobs filtered on `root`. These `.test.sh` files re-assert
       # the tool-missing and unparseable-output fail-closed paths here. They drive the
       # REAL CLI through the EXARCHOS_{DEPCRUISE,KNIP}_BIN seam (a missing path or a stub
       # that emits garbage), so depcruise and knip do not need to resolve.
@@ -1066,15 +1071,15 @@ jobs:
       # Module-intent gate. It takes reachability from the vendored
       # tools/audit/refgraph.mjs detector, then requires each dead-in-prod module
       # (0 production importers) to declare intent: a RESERVED(issue, owner, expires)
-      # header with a future expiry, OR membership in a declared allowlist class. An
+      # header that has not expired, OR membership in a declared allowlist class. An
       # expired RESERVED header fails. The gate fails CLOSED (exit 2) on a scan crash,
       # unparseable detector output or an unreadable module. Zero-dependency node.
       # Self-tests: tests/scripts/check-module-intent.test.ts, in the root unit suite.
       - name: Module-intent gate (DR-7/DR-8, task 013)
         run: node tools/audit/gates/check-module-intent.mjs
 
-      # Fail-closed self-test. The `.test.ts` of the gate runs only in the path-filtered
-      # `test-root` job. This `.test.sh` re-asserts the tool-missing and
+      # Fail-closed self-test. The `.test.ts` of the gate runs only in the jobs filtered
+      # on `root`. This `.test.sh` re-asserts the tool-missing and
       # unparseable-output fail-closed paths here, through the `--refgraph` seam (a
       # missing detector or a stub that emits garbage). Pure node, no install.
       - name: Module-intent gate self-test (DR-8, task 015)
@@ -1123,9 +1128,8 @@ jobs:
       # horizon, and a blanket "bump every date in one commit" renewal. Both must fail.
       #
       # The census and its selftest are in `tools/conformance`, and the whole-suite step
-      # below hosts them. The ratchet guard test and the allowlist test stay with the
-      # subject, and this step names both. Both halves must stay hosted on this
-      # unfiltered job.
+      # below hosts them. This step names the ratchet guard test and the allowlist test.
+      # Both halves must stay hosted on this unfiltered job.
       - name: outputSchema ratchet self-tests re-assert (DR-4/DR-24, unfiltered)
         run: >-
           npx --no-install vitest run
@@ -1192,8 +1196,8 @@ jobs:
       # date" renewal and an emptied allowlist. A further proof splices the deleted
       # `merge-orchestrate` command back into the real composition root and re-runs the
       # guard, and a separate assertion pins that the LIVE tree does not carry it. Their
-      # only other host is the `mcp`-filtered `test-mcp`, which a workflow-only PR does
-      # not arm.
+      # other hosts, `test-mcp` and `test-windows`, are filtered on `mcp`, so a PR
+      # outside that filter skips them there.
       - name: CLI derivation guard + ratchet self-tests re-assert (DR-5/DR-24, unfiltered)
         run: >-
           npx --no-install vitest run

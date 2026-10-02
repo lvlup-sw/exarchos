@@ -6,8 +6,8 @@ import { loadPromptfooAssertions } from './promptfoo-loader.js';
 /**
  * LLM-based rubric grader that wraps the `matchesLlmRubric` assertion of Promptfoo.
  * It loads promptfoo lazily from the opt-in eval package, so the default MCP-server install does not ship it.
- * When the package is missing, the grade fails and its reason holds the install hint.
  * It returns a skipped result (passed=true, score=0) when `ANTHROPIC_API_KEY` is not set or `outputPath` matches nothing.
+ * Otherwise, a missing package fails the grade, and the reason holds the install hint.
  */
 export class LlmRubricGrader implements IGrader {
   readonly name = 'llm-rubric';

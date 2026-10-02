@@ -55,7 +55,7 @@ interface BenchOptions {
 /**
  * Spawns one CLI process and measures the wall-clock time until its `close` event.
  * The child ignores stdout and stderr, so pipe draining stays out of the measurement.
- * The parent value of `EXARCHOS_TELEMETRY` is removed so that it cannot change the variant.
+ * It removes the parent value of `EXARCHOS_TELEMETRY`, so that value cannot change the variant.
  * The telemetry-off variant sets it to `false`, which turns telemetry off. The telemetry-on variant leaves it unset, so the default applies.
  */
 function spawnOnce(stateDir: string, opts: BenchOptions): Promise<SpawnTiming> {
@@ -105,7 +105,7 @@ function percentile(sortedAsc: readonly number[], p: number): number {
 
 /**
  * Runs the warmup and the timed samples in a temporary state directory, and returns the timings in ascending order.
- * Any exit code is accepted, because only the boot time counts. A sample without an exit code fails the test.
+ * It accepts any exit code, because only the boot time counts. A sample without an exit code fails the test.
  */
 async function runBench(opts: BenchOptions): Promise<readonly number[]> {
   const stateDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'exarchos-cold-bench-'));

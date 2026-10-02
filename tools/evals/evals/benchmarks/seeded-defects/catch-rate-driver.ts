@@ -77,7 +77,7 @@ export interface CatchRateRow {
   readonly boundaryTouching: boolean;
   /** The hidden-oracle verdict for a `dropped-edge-case` row. It is blank for a gated row and when the oracle throws. */
   readonly oracleDetected: boolean | '';
-  /** A short note on the cell: the gate discriminant, the finding count, or the reason for an `invalid` cell. */
+  /** A short note: the gate discriminant, the finding count, the reason for an `invalid` cell, or the oracle status of an ungated row. */
   readonly note: string;
 }
 

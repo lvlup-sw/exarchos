@@ -23,8 +23,9 @@ const OUTPUT_EVENT_TYPES = new Set([
 ]);
 
 /**
- * Extracts regression trace cases from workflow events. Each output event pairs with the most
- * recent unpaired input event. A last input event with no output becomes an `unmatched` case.
+ * Extracts regression trace cases from workflow events. An output event pairs with the most recent
+ * unpaired input event. An output with no unpaired input gives no case. A last input event with no
+ * output becomes an `unmatched` case.
  */
 export function captureTrace(
   events: WorkflowEvent[],

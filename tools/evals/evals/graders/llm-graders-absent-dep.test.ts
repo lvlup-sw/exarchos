@@ -16,7 +16,7 @@ vi.mock('./promptfoo-loader.js', async (importOriginal) => {
 import { LlmRubricGrader } from './llm-rubric.js';
 import { LlmSimilarityGrader } from './llm-similarity.js';
 
-/** Each test sets an API key, so that the grader passes its no-key skip and tries to load promptfoo. */
+/** `beforeEach` sets an API key. The grader then does not skip for a missing key, and it tries to load promptfoo. */
 describe('llm graders — promptfoo (eval package) not installed', () => {
   const originalApiKey = process.env['ANTHROPIC_API_KEY'];
 
