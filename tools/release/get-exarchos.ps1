@@ -110,7 +110,9 @@ $script:BuildIdentityMarker = 'exarchos-build-identity/v2'
 # Replacing the sentinel is a release-engineering step (pin the SPKI PEM of the
 # public half of `EXARCHOS_RELEASE_SIGNING_KEY`).
 $script:PinnedTrustRootKeyId = 'exarchos.release.v1'
-$script:PinnedTrustRootPem = '__EXARCHOS_PUBLISHER_TRUST_ROOT_PEM_UNPINNED__'
+$script:PinnedTrustRootPem = '-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEAf6wzAwWoFRan3mHtds/LkDQiJi8nKPUeV/g8LI7rW+g=
+-----END PUBLIC KEY-----'
 
 # ---------------------------------------------------------------------------
 # Library: small, pure helpers.
