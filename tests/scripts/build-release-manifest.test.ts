@@ -65,6 +65,7 @@ import {
   TrustRootSet,
 } from '../../src/runtime/extensions/trust-root.js';
 import { spawnAsync, spawnAsyncBuffer } from '../../tools/test-helpers/spawn.js';
+import { makeRepoSandbox, type RepoSandbox } from '../../tools/test-helpers/repo-sandbox.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '../..');
@@ -76,24 +77,31 @@ const TEST_KEY_ID = 'test.publisher';
 
 /**
  * A tracked file inside `SOURCE_TREE_ROOTS` that is NOT on the build-generated
- * allowlist, is not owned by any concurrently-running agent, and whose content
- * is inert at test time (appending a trailing comment cannot change behaviour).
- * Planting here is what makes the "modified" arm a genuine working-tree edit
- * rather than a simulated one.
+ * allowlist and whose content is inert (a trailing comment changes nothing).
+ * The sourceState arms plant edits in a sandbox git copy of it, never in the
+ * live checkout, which sibling tests read at the same time (#2030).
  */
 const PLANT_TARGET = 'tools/release/build-binary-targets.ts';
 
 /** A tracked file that IS on the allowlist — the build regenerates it. */
 const GENERATED_TARGET = GENERATED_AT_BUILD_PATHS[0];
 
+/** A sandbox git repository whose one commit holds both probe targets. */
+function plantSandbox(): Promise<RepoSandbox> {
+  return makeRepoSandbox({ prefix: 'source-state', copy: [PLANT_TARGET, GENERATED_TARGET], git: true });
+}
+
 /**
- * Append an inert marker to each `relPaths` entry, run `fn`, then restore the
- * ORIGINAL BYTES unconditionally. Restoration is byte-exact (`Buffer` in,
- * `Buffer` out) so no encoding or line-ending normalization can leak an edit
- * back into the repository.
+ * Append an inert marker to each `relPaths` entry under `root`, run `fn`, then
+ * restore the original bytes. Restoration is byte-exact (`Buffer` in, `Buffer`
+ * out), so the clean arm that follows a plant still holds.
  */
-async function withPlantedEdits<T>(relPaths: readonly string[], fn: () => T | Promise<T>): Promise<T> {
-  const targets = relPaths.map((p) => ({ abs: join(REPO_ROOT, p), original: readFileSync(join(REPO_ROOT, p)) }));
+async function withPlantedEdits<T>(
+  root: string,
+  relPaths: readonly string[],
+  fn: () => T | Promise<T>,
+): Promise<T> {
+  const targets = relPaths.map((p) => ({ abs: join(root, p), original: readFileSync(join(root, p)) }));
   try {
     for (const t of targets) {
       writeFileSync(t.abs, Buffer.concat([t.original, Buffer.from('\n// t27 sourceState probe\n', 'utf8')]));
@@ -111,13 +119,13 @@ async function withPlantedEdits<T>(relPaths: readonly string[], fn: () => T | Pr
  * that stopped detecting dirtiness (or that widened its allowlist) disagrees
  * with this and goes red.
  */
-async function independentWorkingTreeVerdict(pathspecs: readonly string[]): Promise<{
+async function independentWorkingTreeVerdict(root: string, pathspecs: readonly string[]): Promise<{
   state: 'clean' | 'modified';
   paths: string[];
 }> {
   const r = await spawnAsync(
     'git',
-    ['-C', REPO_ROOT, 'status', '--porcelain', '--untracked-files=all', '--', ...pathspecs],
+    ['-C', root, 'status', '--porcelain', '--untracked-files=all', '--', ...pathspecs],
   );
   if (r.status !== 0) throw new Error(`git status failed: ${r.stderr}`);
   const generated = new Set<string>(GENERATED_AT_BUILD_PATHS);
@@ -506,67 +514,73 @@ describe('DR-20 release manifest producer', () => {
     expect(id.contract).toEqual(signed.manifest.contract);
   });
 
+  /**
+   * A genuine edit to a tracked file is reported as `modified` and named. The
+   * clean arm before the plant is load-bearing: an already-dirty file would
+   * make the modified arm prove nothing. Scoped to one file of a sandbox git
+   * repository, so the verdict does not depend on the live checkout.
+   */
   it('BuildIdentity_ModifiedWorkingTree_ReportsModifiedAndNamesPath', async () => {
-    // Scoped to a single file so the verdict is deterministic regardless of
-    // what else is dirty in this checkout.
     const scope = [PLANT_TARGET];
+    const sandbox = await plantSandbox();
+    try {
+      const before = collectSourceState(sandbox.root, scope);
+      expect(before.state, `${PLANT_TARGET} was already dirty — the modified arm would be vacuous`).toBe('clean');
+      expect(before.modifiedPaths).toEqual([]);
+      expect(before.modifiedCount).toBe(0);
+      expect((await independentWorkingTreeVerdict(sandbox.root, scope)).state).toBe('clean');
 
-    // CLEAN ARM — precondition and assertion in one. If this file were already
-    // dirty the "modified" arm below would prove nothing, so the clean arm is
-    // load-bearing rather than decorative.
-    const before = collectSourceState(REPO_ROOT, scope);
-    expect(before.state, `${PLANT_TARGET} was already dirty — the modified arm would be vacuous`).toBe('clean');
-    expect(before.modifiedPaths).toEqual([]);
-    expect(before.modifiedCount).toBe(0);
-    expect((await independentWorkingTreeVerdict(scope)).state).toBe('clean');
+      const during = await withPlantedEdits(sandbox.root, scope, async () => ({
+        producer: collectSourceState(sandbox.root, scope),
+        independent: await independentWorkingTreeVerdict(sandbox.root, scope),
+      }));
 
-    // MODIFIED ARM — a genuine edit to a real tracked file on disk.
-    const during = await withPlantedEdits(scope, async () => ({
-      producer: collectSourceState(REPO_ROOT, scope),
-      independent: await independentWorkingTreeVerdict(scope),
-    }));
+      expect(during.independent.state, 'the plant did not actually dirty the working tree').toBe('modified');
+      expect(during.producer.state).toBe('modified');
+      expect(during.producer.modifiedPaths).toContain(PLANT_TARGET);
+      expect(during.producer.modifiedCount).toBe(1);
+      expect([...during.producer.modifiedPaths]).toEqual(during.independent.paths);
 
-    expect(during.independent.state, 'the plant did not actually dirty the working tree').toBe('modified');
-    expect(during.producer.state).toBe('modified');
-    // The path must be NAMED, not merely counted.
-    expect(during.producer.modifiedPaths).toContain(PLANT_TARGET);
-    expect(during.producer.modifiedCount).toBe(1);
-    expect([...during.producer.modifiedPaths]).toEqual(during.independent.paths);
-
-    // Restoration is byte-exact, so the verdict returns to clean.
-    const after = collectSourceState(REPO_ROOT, scope);
-    expect(after.state, `${PLANT_TARGET} was not restored byte-for-byte`).toBe('clean');
+      const after = collectSourceState(sandbox.root, scope);
+      expect(after.state, `${PLANT_TARGET} was not restored byte-for-byte`).toBe('clean');
+    } finally {
+      sandbox.remove();
+    }
   });
 
+  /**
+   * The allowlist excludes the file the build regenerates, and only that file:
+   * dirtying it alone reads clean although `git status` shows it, and a second,
+   * non-allowlisted edit still reads modified. Run on a sandbox git repository.
+   */
   it('BuildIdentity_GeneratedPathAllowlist_IsNotABlanketEscape', async () => {
     const scope = [GENERATED_TARGET, PLANT_TARGET];
-    expect(collectSourceState(REPO_ROOT, scope).state, 'probe scope was already dirty').toBe('clean');
+    const sandbox = await plantSandbox();
+    try {
+      expect(collectSourceState(sandbox.root, scope).state, 'probe scope was already dirty').toBe('clean');
 
-    // ARM A — the allowlist does its job: the build regenerates this file on
-    // every compile, so dirtying it alone must NOT flag the source.
-    const generatedOnly = await withPlantedEdits([GENERATED_TARGET], () =>
-      collectSourceState(REPO_ROOT, scope),
-    );
-    expect(generatedOnly.state).toBe('clean');
-    expect(generatedOnly.modifiedCount).toBe(0);
-    // …and it really was dirty on disk — the exclusion is the reason it reads
-    // clean, not an absence of change.
-    const generatedOnlyRaw = await withPlantedEdits([GENERATED_TARGET], async () =>
-      (await spawnAsync('git', ['-C', REPO_ROOT, 'status', '--porcelain', '--', GENERATED_TARGET])).stdout.trim(),
-    );
-    expect(generatedOnlyRaw).toContain(GENERATED_TARGET);
+      const generatedOnly = await withPlantedEdits(sandbox.root, [GENERATED_TARGET], () =>
+        collectSourceState(sandbox.root, scope),
+      );
+      expect(generatedOnly.state).toBe('clean');
+      expect(generatedOnly.modifiedCount).toBe(0);
+      const generatedOnlyRaw = await withPlantedEdits(sandbox.root, [GENERATED_TARGET], async () =>
+        (await spawnAsync('git', ['-C', sandbox.root, 'status', '--porcelain', '--', GENERATED_TARGET])).stdout.trim(),
+      );
+      expect(generatedOnlyRaw).toContain(GENERATED_TARGET);
 
-    // ARM B — the allowlist is NOT a blanket escape: a non-allowlisted edit
-    // still reddens even while an allowlisted file is simultaneously dirty.
-    const both = await withPlantedEdits([GENERATED_TARGET, PLANT_TARGET], () =>
-      collectSourceState(REPO_ROOT, scope),
-    );
-    expect(both.state).toBe('modified');
-    expect(both.modifiedPaths).toContain(PLANT_TARGET);
-    expect(both.modifiedPaths).not.toContain(GENERATED_TARGET);
-    expect(both.modifiedCount).toBe(1);
+      const both = await withPlantedEdits(sandbox.root, [GENERATED_TARGET, PLANT_TARGET], () =>
+        collectSourceState(sandbox.root, scope),
+      );
+      expect(both.state).toBe('modified');
+      expect(both.modifiedPaths).toContain(PLANT_TARGET);
+      expect(both.modifiedPaths).not.toContain(GENERATED_TARGET);
+      expect(both.modifiedCount).toBe(1);
 
-    expect(collectSourceState(REPO_ROOT, scope).state, 'probe files were not restored').toBe('clean');
+      expect(collectSourceState(sandbox.root, scope).state, 'probe files were not restored').toBe('clean');
+    } finally {
+      sandbox.remove();
+    }
   });
 
   it('BuildBinary_EmbedsSourceState_AgreeingWithIndependentGitVerdict', async () => {
@@ -578,7 +592,7 @@ describe('DR-20 release manifest producer', () => {
     // Environment-agnostic on purpose: a clean CI checkout must come out
     // 'clean' and this (permanently dirty) working copy must come out
     // 'modified' — the assertion never hardcodes either.
-    const independent = await independentWorkingTreeVerdict(SOURCE_TREE_ROOTS);
+    const independent = await independentWorkingTreeVerdict(REPO_ROOT, SOURCE_TREE_ROOTS);
     expect(id.sourceState).toBe(independent.state);
 
     if (id.sourceState === 'clean') {

@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1300,
-    "parsedFiles": 1255,
+    "testFiles": 1303,
+    "parsedFiles": 1258,
     "shellFiles": 45,
-    "cases": 14353,
+    "cases": 14370,
     "dynamicTitles": 162,
     "unparseableFiles": 0
   },
@@ -6322,6 +6322,42 @@
         }
       ]
     },
+    "tests/architecture/no-live-checkout-writes.test.ts": {
+      "file": "tests/architecture/no-live-checkout-writes.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "no test writes into the live checkout (#2030)",
+          "name": "NoLiveCheckoutWrites_ScansTheWholeTestPopulation",
+          "dynamic": false
+        },
+        {
+          "suite": "no test writes into the live checkout (#2030)",
+          "name": "NoLiveCheckoutWrites_TestCodeWritesOnlyOutsideTheCheckout",
+          "dynamic": false
+        },
+        {
+          "suite": "no test writes into the live checkout (#2030)",
+          "name": "NoLiveCheckoutWrites_EveryAllowanceStillMatchesAWrite",
+          "dynamic": false
+        },
+        {
+          "suite": "no test writes into the live checkout (#2030)",
+          "name": "NoLiveCheckoutWrites_Matcher_NamesSeededWrites",
+          "dynamic": false
+        },
+        {
+          "suite": "no test writes into the live checkout (#2030)",
+          "name": "NoLiveCheckoutWrites_Matcher_PassesCleanTwins",
+          "dynamic": false
+        },
+        {
+          "suite": "no test writes into the live checkout (#2030)",
+          "name": "NoLiveCheckoutWrites_Matcher_FollowsAnImportedHelper",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/architecture/package-scripts.test.ts": {
       "file": "tests/architecture/package-scripts.test.ts",
       "runner": "vitest:root",
@@ -6955,6 +6991,21 @@
         {
           "suite": "vitest.config",
           "name": "VitestConfig_CoreProject_DeclaresBenchInclude",
+          "dynamic": false
+        },
+        {
+          "suite": "vitest.config",
+          "name": "VitestConfig_EveryProject_ResetsSharedStateAtEveryFileBoundary",
+          "dynamic": false
+        },
+        {
+          "suite": "vitest.config",
+          "name": "VitestConfig_ProjectsThatShareAProcess_AreTheOnesTheSqliteRuleCovers",
+          "dynamic": false
+        },
+        {
+          "suite": "vitest.config",
+          "name": "VitestConfig_FileBoundaryRule_NamesASeededProjectAndPassesItsTwin",
           "dynamic": false
         }
       ]
@@ -9151,6 +9202,22 @@
         {
           "suite": "assertExarchosVersion",
           "name": "AssertExarchosVersion_PrereleaseSuffix_DoesNotThrow",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/helpers/process-state.test.ts": {
+      "file": "tests/helpers/process-state.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "process-state reset (#2030)",
+          "name": "RestoreEnv_MakesTheTargetEqualTheSnapshot",
+          "dynamic": false
+        },
+        {
+          "suite": "process-state reset (#2030)",
+          "name": "ResetSetupFile_TwoFilesInOneWorker_SecondFileStartsClean",
           "dynamic": false
         }
       ]
@@ -11984,6 +12051,11 @@
         {
           "suite": "codegen-runtimes",
           "name": "renderEmbeddedRuntimesModule_EmitsHeaderAndExports",
+          "dynamic": false
+        },
+        {
+          "suite": "codegen-runtimes",
+          "name": "EmbeddedRuntimes_UpToDateFile_IsNotRewritten",
           "dynamic": false
         }
       ]
@@ -83451,6 +83523,37 @@
         {
           "suite": "isQuotedMention",
           "name": "QuotedMention_ClosedQuoteEarlierInTheSentenceDoesNotCarryOver",
+          "dynamic": false
+        }
+      ]
+    },
+    "tools/test-helpers/repo-sandbox.test.ts": {
+      "file": "tools/test-helpers/repo-sandbox.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "repo-sandbox",
+          "name": "MakeRepoSandbox_CopiesLivePathsExactly_UnderTheTempDirectory",
+          "dynamic": false
+        },
+        {
+          "suite": "repo-sandbox",
+          "name": "MakeRepoSandbox_WriteToCopy_LeavesTheLiveFileUnchanged",
+          "dynamic": false
+        },
+        {
+          "suite": "repo-sandbox",
+          "name": "MakeRepoSandbox_EscapingPath_Throws",
+          "dynamic": false
+        },
+        {
+          "suite": "repo-sandbox",
+          "name": "MakeRepoSandbox_Git_CommitsEveryFileAndStartsClean",
+          "dynamic": false
+        },
+        {
+          "suite": "repo-sandbox",
+          "name": "MakeRepoSandbox_RemoveWithAHeldHandle_FailsNamingTheFile",
           "dynamic": false
         }
       ]

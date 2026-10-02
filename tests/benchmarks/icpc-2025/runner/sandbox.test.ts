@@ -1,14 +1,15 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { runInSandbox } from './sandbox.js';
 import { compile } from './compiler.js';
 import { WIN32_SPAWN_HEADROOM } from '../../../../vitest.config.js';
 import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
-import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
+import { makeRepoSandbox, type RepoSandbox } from '../../../../tools/test-helpers/repo-sandbox.js';
 
-const TEST_DIR = join(dirname(fileURLToPath(import.meta.url)), '.test-sandbox-fixtures');
+/** Fixtures and their build output live in a temp sandbox, never beside this file (#2030). */
+let fixtures: RepoSandbox | undefined;
+let TEST_DIR = '';
 
 async function hasGpp(): Promise<boolean> {
   // `which g++` is not enough: windows-latest runners ship a g++ shim that
@@ -44,14 +45,13 @@ const describeWithGpp = (await hasGpp()) ? describe : describe.skip;
 const COMPILE_BEARING_TIMEOUT_MS = 30_000 * WIN32_SPAWN_HEADROOM;
 
 describeWithGpp('runInSandbox', () => {
-  beforeAll(() => {
-    mkdirSync(TEST_DIR, { recursive: true });
+  beforeAll(async () => {
+    fixtures = await makeRepoSandbox({ prefix: 'icpc-sandbox' });
+    TEST_DIR = fixtures.root;
   });
 
   afterAll(() => {
-    if (existsSync(TEST_DIR)) {
-      rmrf(TEST_DIR);
-    }
+    fixtures?.remove();
   });
 
   it('sandbox_NormalExecution_CompletesSuccessfully', async () => {

@@ -2,7 +2,7 @@
  * Integration tests for `tools/release/build-binary.ts`.
  *
  * These tests exercise the end-to-end compile path:
- *   1. Spawn `bun run tools/release/build-binary.ts` (no args → host-only build).
+ *   1. Spawn `bun run tools/release/build-binary.ts --outdir <sandbox>` (host-only build).
  *   2. Assert the platform-specific output binary exists and is executable.
  *   3. Spawn the compiled binary with `--version` and verify it responds
  *      with the version string from root `package.json`.
@@ -11,10 +11,11 @@
  * timeouts. Tests are always part of `npm run test:run` so that drift in
  * the compile pipeline is caught on every CI run.
  */
-import { describe, it, expect, beforeAll } from 'vitest';
-import { existsSync, statSync, readFileSync, mkdirSync } from 'node:fs';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { existsSync, statSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { makeRepoSandbox, type RepoSandbox } from '../../tools/test-helpers/repo-sandbox.js';
 
 import { spawnAsync } from '../../tools/test-helpers/spawn.js';
 
@@ -25,7 +26,14 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const REPO_ROOT = resolve(__dirname, '../..');
 const BUILD_SCRIPT = join(REPO_ROOT, 'tools', 'release', 'build-binary.ts');
-const DIST_BIN_DIR = join(REPO_ROOT, 'dist', 'bin');
+
+/**
+ * The build writes into an empty sandbox through `--outdir`, never into the
+ * live `dist/bin` that other suites read (#2030). An empty directory also
+ * means the binary found afterwards is the one this build made.
+ */
+let output: RepoSandbox | undefined;
+let DIST_BIN_DIR = '';
 
 function hostOs(): 'linux' | 'darwin' | 'windows' {
   if (process.platform === 'darwin') return 'darwin';
@@ -48,9 +56,8 @@ describe('tools/release/build-binary.ts', () => {
   let builtBinary: string;
 
   beforeAll(async () => {
-    // Ensure dist/bin exists so the existence check below reliably asserts
-    // the build itself created the file.
-    mkdirSync(DIST_BIN_DIR, { recursive: true });
+    output = await makeRepoSandbox({ prefix: 'build-binary' });
+    DIST_BIN_DIR = output.path('dist/bin');
 
     if (!existsSync(BUILD_SCRIPT)) {
       throw new Error(
@@ -59,7 +66,7 @@ describe('tools/release/build-binary.ts', () => {
       );
     }
 
-    const result = await spawnAsync('bun', ['run', BUILD_SCRIPT], {
+    const result = await spawnAsync('bun', ['run', BUILD_SCRIPT, '--outdir', DIST_BIN_DIR], {
       cwd: REPO_ROOT,
       env: process.env,
       // 3 minute timeout for cold cache; typical run is ~30s.
@@ -76,6 +83,10 @@ describe('tools/release/build-binary.ts', () => {
 
     builtBinary = expectedBinaryPath();
   }, 200_000);
+
+  afterAll(() => {
+    output?.remove();
+  });
 
   it('BuildBinary_HostTarget_ProducesExecutable', () => {
     expect(existsSync(builtBinary)).toBe(true);

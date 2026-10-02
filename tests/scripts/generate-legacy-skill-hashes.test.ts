@@ -17,10 +17,10 @@
  *      legitimately-installed render.
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync } from 'node:fs';
+import { readFileSync, mkdtempSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { makeRepoSandbox } from '../../tools/test-helpers/repo-sandbox.js';
 import {
   buildManifest,
   enumerateReleaseRefs,
@@ -37,9 +37,6 @@ import {
 } from '../../tools/release/generate-legacy-skill-hashes.mjs';
 import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 import { rmrf } from '../../tools/test-helpers/temp-dir.js';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = path.resolve(__dirname, '../..');
 
 /** Numeric compare of `[maj,min,patch]` against MIN_RELEASE. */
 function baseAtLeastMin(tag: string): boolean {
@@ -131,46 +128,34 @@ describe('generate-legacy-skill-hashes (Task 023, DR-8)', () => {
     expect(normalizeAndHash(lf)).toMatch(/^[0-9a-f]{64}$/u);
   });
 
-  it('legacyHashGenerator_WorktreeStateIrrelevant_SameOutput', () => {
-    // Scope to HEAD only to keep the double-build fast; the property under
-    // test (reads git objects, not the worktree) is identical for any ref.
-    const before = serializeManifest(buildManifest({ refs: ['HEAD'] }));
-
-    // Choose a real tracked render that IS in the HEAD manifest, capture its
-    // on-disk bytes, then corrupt the worktree in two ways: overwrite the
-    // tracked file with garbage AND drop in an untracked probe render.
-    const tracked = path.join(
-      REPO_ROOT,
-      'rendered',
-      'skills',
-      'claude',
-      'ideate',
-      'SKILL.md',
-    );
-    const original = readFileSync(tracked);
-    const probeDir = path.join(REPO_ROOT, 'rendered', 'skills', 'claude', '__wt_probe__');
-    const probeFile = path.join(probeDir, 'SKILL.md');
-
+  /**
+   * The generator reads git objects, never the working tree. A sandbox git
+   * repository holds one committed render in the layout the generator lists.
+   * The test overwrites that file and adds an untracked render beside it, and
+   * the manifest must not change (#2030). The manifest must name the render
+   * first, so the comparison cannot pass on two empty manifests.
+   */
+  it('legacyHashGenerator_WorktreeStateIrrelevant_SameOutput', async () => {
+    const render = 'skills/claude/ideate/SKILL.md';
+    const sandbox = await makeRepoSandbox({
+      prefix: 'legacy-hash-worktree',
+      files: { [render]: '# ideate\n\ncommitted render\n' },
+      git: true,
+    });
     try {
-      writeFileSync(tracked, 'GARBAGE — worktree mutated by test\n', 'utf8');
-      mkdirSync(probeDir, { recursive: true });
-      writeFileSync(probeFile, 'untracked probe render\n', 'utf8');
+      const before = serializeManifest(buildManifest({ refs: ['HEAD'], cwd: sandbox.root }));
+      expect(before).toContain(render);
 
-      const after = serializeManifest(buildManifest({ refs: ['HEAD'] }));
+      sandbox.write(render, 'GARBAGE — worktree mutated by test\n');
+      sandbox.write('skills/claude/__wt_probe__/SKILL.md', 'untracked probe render\n');
+      expect(await sandbox.git('status', '--porcelain', '--untracked-files=all')).toContain('__wt_probe__');
 
-      // Output is byte-identical: the generator ignored the corrupted tracked
-      // file and never saw the untracked probe (git-tree, not worktree).
+      const after = serializeManifest(buildManifest({ refs: ['HEAD'], cwd: sandbox.root }));
       expect(after).toBe(before);
       expect(after).not.toContain('__wt_probe__');
     } finally {
-      // Restore the worktree to its exact prior bytes / layout.
-      writeFileSync(tracked, original);
-      rmrf(probeDir);
+      sandbox.remove();
     }
-
-    // Belt-and-suspenders: the restored tracked file matches the committed
-    // blob, proving the finally block left the tree clean.
-    expect(readFileSync(tracked).equals(original)).toBe(true);
   });
 
   it('legacyHashManifest_ExcludesReleasesAtOrAboveMaxBound', async () => {

@@ -47,7 +47,7 @@ import type { SdkGeneration } from '../../../../src/contract/sdk/brand.js';
 import { parseModuleSpecifiers } from '../../../../tools/test-helpers/module-specifier-parser.js';
 import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 import { listTrackedFiles, trackedFilesMissedBy } from '../../../../tools/test-helpers/tracked-population.js';
-import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
+import { makeRepoSandbox, type RepoSandbox } from '../../../../tools/test-helpers/repo-sandbox.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // src/sdk → servers/exarchos-mcp
@@ -267,6 +267,21 @@ function crossingCountOf(fixture: string): number {
   return [...fixture.matchAll(/^export (?:async )?function /gm)].length;
 }
 
+/**
+ * Writes both fixtures into a temp sandbox, never into the checkout (#2030).
+ * They import the live seam module by absolute path, and a `package.json`
+ * with `"type": "module"` keeps NodeNext reading them as ES modules.
+ */
+function writeBrandFixtures(sandbox: RepoSandbox): { samePath: string; crossPath: string } {
+  const seam = path.join(srcRoot, 'contract', 'sdk', 'seam.js').split(path.sep).join('/');
+  const retarget = (fixture: string): string => fixture.replaceAll("'../src/contract/sdk/seam.js'", `'${seam}'`);
+  sandbox.write('package.json', '{ "type": "module" }\n');
+  return {
+    samePath: sandbox.write('same-generation.ts', retarget(SAME_GENERATION_FIXTURE)),
+    crossPath: sandbox.write('cross-generation.ts', retarget(CROSS_GENERATION_FIXTURE)),
+  };
+}
+
 describe('DR-26 — owned SDK seam, generation-branded handles', () => {
   it('SdkSeam_HandleFromOtherGeneration_FailsCompile', async () => {
     // BLOCKING ARM — a handle drawn from one generation, passed where the other
@@ -280,12 +295,9 @@ describe('DR-26 — owned SDK seam, generation-branded handles', () => {
     // a wrong constructor signature, a missing dependency)". Both files share
     // every flag, both import the same module, and only one of them errors —
     // so the rejection is attributable to the brand and to nothing else.
-    const tmpDir = fs.mkdtempSync(path.join(packageRoot, '.tmp-sdk-brand-'));
-    const samePath = path.join(tmpDir, 'same-generation.ts');
-    const crossPath = path.join(tmpDir, 'cross-generation.ts');
+    const fixtures = await makeRepoSandbox({ prefix: 'sdk-brand' });
     try {
-      fs.writeFileSync(samePath, SAME_GENERATION_FIXTURE, 'utf8');
-      fs.writeFileSync(crossPath, CROSS_GENERATION_FIXTURE, 'utf8');
+      const { samePath, crossPath } = writeBrandFixtures(fixtures);
 
       const run = await runTsc([samePath, crossPath]);
 
@@ -338,7 +350,7 @@ describe('DR-26 — owned SDK seam, generation-branded handles', () => {
           `crossing that compiles is a hole in the rung-2 guarantee.\n${run.output}`,
       ).toBeGreaterThanOrEqual(crossingCountOf(CROSS_GENERATION_FIXTURE));
     } finally {
-      rmrf(tmpDir);
+      fixtures.remove();
     }
   }, 180_000);
 

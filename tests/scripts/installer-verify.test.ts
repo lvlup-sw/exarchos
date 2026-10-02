@@ -45,12 +45,30 @@ import {
   type ReleaseFixtureOptions,
 } from '../../tools/audit/test-fixtures/release-fixture.js';
 import { rmrf } from '../../tools/test-helpers/temp-dir.js';
+import { makeRepoSandbox, type RepoSandbox } from '../../tools/test-helpers/repo-sandbox.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, '../..');
 const SH_INSTALLER = join(REPO_ROOT, 'tools', 'release', 'get-exarchos.sh');
 const PS1_INSTALLER = join(REPO_ROOT, 'tools', 'release', 'get-exarchos.ps1');
-const SHIPPED_VERIFIER = join(REPO_ROOT, 'dist', 'release-verify.js');
+
+/** The repo-relative path that package.json builds the verifier to and ships. */
+const SHIPPED_VERIFIER_PATH = 'dist/release-verify.js';
+
+/**
+ * The package as `npm pack` sees it: package.json, the shipped roots of
+ * `files[]`, and the verifier that package.json's own build script writes
+ * into it. It is a sandbox copy, so the build and the pack never write to
+ * the live checkout (#2030).
+ */
+let packageCopy: RepoSandbox | undefined;
+let SHIPPED_VERIFIER = '';
+
+/** The package copy's root; throws rather than let a pack fall back to the live tree. */
+function packageCopyRoot(): string {
+  if (packageCopy === undefined) throw new Error('the package copy was not built');
+  return packageCopy.root;
+}
 
 const LINUX_ASSET = 'exarchos-linux-x64';
 const WINDOWS_ASSET = 'exarchos-windows-x64.exe';
@@ -425,21 +443,24 @@ function installedNames(installDir: string): string[] {
 beforeAll(async () => {
   scratch = mkdtempSync(join(tmpdir(), 'exarchos-installer-dr20-'));
 
-  // Build the SHIPPED verifier by running package.json's own script, so the
-  // packaging change (`build:release-verifier` + files[] + bin) is executed
-  // here rather than merely asserted.
   const pkg = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8')) as {
     scripts: Record<string, string>;
+    files?: string[];
   };
   const script = pkg.scripts['build:release-verifier'];
   if (script === undefined) throw new Error('package.json lost the build:release-verifier script');
   const argv = (script.match(/"[^"]*"|\S+/g) ?? []).map((t) => t.replace(/^"|"$/g, ''));
   expect(argv[0]).toBe('bun');
-  // Remove any artifact from a previous run: otherwise a `build:release-verifier`
-  // that no longer emits the shipped path would still leave every installer test
-  // green against a stale file.
-  rmSync(SHIPPED_VERIFIER, { force: true });
-  const build = await spawnAsync(resolveBunExecutable(), argv.slice(1), {
+  const outfileFlag = argv.indexOf('--outfile');
+  expect(argv[outfileFlag + 1], 'build:release-verifier must write the shipped verifier path').toBe(
+    SHIPPED_VERIFIER_PATH,
+  );
+
+  const shippedRoots = (pkg.files ?? []).filter((entry) => !entry.startsWith('dist/') && existsSync(join(REPO_ROOT, entry)));
+  packageCopy = await makeRepoSandbox({ prefix: 'installer-verify-package', copy: ['package.json', ...shippedRoots] });
+  SHIPPED_VERIFIER = packageCopy.path(SHIPPED_VERIFIER_PATH);
+  const buildArgs = argv.slice(1).map((arg, index) => (index === outfileFlag ? SHIPPED_VERIFIER : arg));
+  const build = await spawnAsync(resolveBunExecutable(), buildArgs, {
     cwd: REPO_ROOT,
     timeout: 180_000,
   });
@@ -459,6 +480,7 @@ afterAll(async () => {
   for (const origin of origins) await origin.close();
   origins = [];
   if (scratch !== undefined) rmrf(scratch);
+  packageCopy?.remove();
 });
 
 // ─── Suite ───────────────────────────────────────────────────────────────────
@@ -542,7 +564,7 @@ describe('DR-20 — the installers consume the signed release manifest', () => {
     const packed = await spawnAsync(
       isWin ? 'npm.cmd' : 'npm',
       ['pack', '--dry-run', '--json', '--ignore-scripts'],
-      { cwd: REPO_ROOT, timeout: 300_000, shell: isWin },
+      { cwd: packageCopyRoot(), timeout: 300_000, shell: isWin },
     );
     expect(packed.status, `${String(packed.error)}\n${packed.stderr}`).toBe(0);
     const files = (

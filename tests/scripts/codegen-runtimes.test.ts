@@ -14,7 +14,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, copyFileSync, readdirSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, copyFileSync, readdirSync, statSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -106,5 +106,25 @@ describe('codegen-runtimes', () => {
     expect(source).toContain('GENERATED FILE');
     expect(source).toContain('export const EMBEDDED_RUNTIMES');
     expect(source).toContain('export function getEmbeddedRuntime');
+  });
+
+  /**
+   * Every build regenerates the tracked module, so an up-to-date file must not
+   * be rewritten (#2030). The file's mtime is set to the past first: a rewrite
+   * would move it to now. A stale file is still rewritten.
+   */
+  it('EmbeddedRuntimes_UpToDateFile_IsNotRewritten', () => {
+    const fixture = makeRuntimesFixture();
+    const outFile = join(mkdtempSync(join(tmpdir(), 'codegen-out-same-')), 'embedded.ts');
+    generateEmbeddedRuntimesModule({ runtimesDir: fixture, outFile });
+    const past = new Date('2001-01-01T00:00:00Z');
+    utimesSync(outFile, past, past);
+
+    generateEmbeddedRuntimesModule({ runtimesDir: fixture, outFile });
+    expect(statSync(outFile).mtimeMs).toBe(past.getTime());
+
+    writeFileSync(outFile, 'stale\n', 'utf8');
+    generateEmbeddedRuntimesModule({ runtimesDir: fixture, outFile });
+    expect(readFileSync(outFile, 'utf8')).toContain('export const EMBEDDED_RUNTIMES');
   });
 });
