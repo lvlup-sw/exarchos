@@ -1,17 +1,15 @@
-// ─── P07-04 exit-proof (c) — admission replay reconstructs identical state ───
-//
-// P01-04 / P06-07 guarantee that a phase attempt's admission state is a pure
-// fold of persisted facts. This suite proves that guarantee AS A SUITE across
-// the properties a trustworthy replay must hold:
-//
-//   • determinism           — folding the same stream twice is byte-identical;
-//   • serialization fidelity — a JSON round-trip of the stream folds identically;
-//   • stream independence    — the fold privileges no stream's presentation order;
-//   • reconstruction fidelity — frozen set, evidence, and decision come back
-//                               intact, both for hand-built AND live-freeze
-//                               derived histories;
-//   • tamper sensitivity      — a doctored decision digest is refused (the
-//                               negative control that keeps the above non-vacuous).
+/**
+ * The admission state of a phase attempt is a pure fold of persisted facts. This
+ * suite proves the properties that a replay must hold:
+ *
+ * - Determinism: two folds of the same stream are byte-identical.
+ * - Serialization: a JSON round trip of the stream folds identically.
+ * - Stream independence: the fold does not depend on stream presentation order.
+ * - Reconstruction: the frozen set, evidence and decision come back intact, for
+ *   hand-built and live-freeze histories.
+ * - Tamper detection: the fold refuses a changed decision digest. This negative
+ *   control keeps the other checks meaningful.
+ */
 
 import { describe, it, expect } from 'vitest';
 
@@ -29,13 +27,13 @@ import {
 } from './__fixtures__/replay-harness.js';
 
 describe('admission replay reconstructs identical state (exit-proof c)', () => {
+  /** The integrity and attempt-count checks prove that the fold reconstructs real state. */
   it('ReplayFold_IsDeterministic_FoldingTwiceIsByteIdentical', () => {
     const history = handBuiltIntactHistory();
     const first = foldPhaseAttemptAdmission(history);
     const second = foldPhaseAttemptAdmission(history);
 
     expect(second).toEqual(first);
-    // Non-vacuous: it actually reconstructed two intact attempts.
     expect(first.integrity).toBe('intact');
     expect(first.attempts).toHaveLength(2);
   });
@@ -81,6 +79,11 @@ describe('admission replay reconstructs identical state (exit-proof c)', () => {
     expect(attempt?.decision?.decisionId).toBe('decision.1');
   });
 
+  /**
+   * For each clean scenario, the replayed frozen ids agree with the frozen
+   * requirements. All evidence binds to the frozen set, so the fold quarantines no
+   * evidence, and the fold attributes a decision.
+   */
   it('ReplayFold_FromLiveFreeze_ReconstructsIntactState_ForEveryCleanScenario', () => {
     expect(cleanAllowScenarios.length).toBeGreaterThan(0);
 
@@ -96,17 +99,14 @@ describe('admission replay reconstructs identical state (exit-proof c)', () => {
 
       const attempt = fold.attempts[0];
       expect(attempt?.phaseAttemptId).toBe(scenario.phaseAttemptId);
-      // The frozen requirement ids replayed match the live freeze exactly.
       expect(attempt?.frozenRequirementSet?.requirementIds).toEqual(
         attempt?.frozenRequirementSet?.requirements.map((r) => r.requirementId),
       );
       expect(
         attempt?.frozenRequirementSet?.requirementIds.length ?? 0,
       ).toBeGreaterThan(0);
-      // All of the scenario's evidence bound to the frozen set (none quarantined).
       expect(attempt?.unattributedEvidence).toEqual([]);
       expect(attempt?.evidence.length).toBe(scenario.activeEvidence.length);
-      // The decision was attributed to the frozen generation.
       expect(attempt?.decision).not.toBeNull();
     }
   });
@@ -122,6 +122,7 @@ describe('admission replay reconstructs identical state (exit-proof c)', () => {
     }
   });
 
+  /** The fold marks a tampered decision as contested and does not attribute it. */
   it('ReplayFold_DetectsTamperedDecisionDigest_AndRefusesAttribution', () => {
     const clean = foldPhaseAttemptAdmission(handBuiltIntactHistory());
     expect(clean.integrity).toBe('intact');
@@ -137,7 +138,6 @@ describe('admission replay reconstructs identical state (exit-proof c)', () => {
       ),
       'a decision-mismatch diagnostic is raised',
     ).toBe(true);
-    // The tampered decision is NOT silently trusted.
     const attemptOne = tampered.attempts.find(
       (a) => a.phaseAttemptId === 'phase-attempt.plan.1',
     );

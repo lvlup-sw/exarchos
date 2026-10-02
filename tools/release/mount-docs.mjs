@@ -1,34 +1,19 @@
 // @ts-check
 /**
- * Mount relocated document subtrees back into this checkout as symlinks.
+ * Mounts relocated document subtrees back into this checkout as symlinks.
  *
- * Documents that left this repository live in an external documents
- * repository. Nothing here needs them — the build, the tests and the shipped
- * package are all indifferent — but a reader following an old link, or an
- * agent asked about a past decision, benefits from having them resolve
- * locally.
+ * The documents live in an external documents repository. The build, the tests and the shipped
+ * package do not need them. The links let an old link or a question about a past decision
+ * resolve locally.
  *
- * ── WHY THE SYMLINKS ARE NOT COMMITTED ──────────────────────────────────────
- * A committed symlink stores its TARGET as file content, so it hard-codes one
- * machine's directory layout into everyone's checkout. It would resolve for
- * whoever created it and dangle for everyone else, and a dangling symlink is
- * worse than an absent directory: tooling that walks the tree sees an entry
- * and fails on read rather than skipping it cleanly.
+ * The links are not committed. A committed symlink stores the directory layout of one machine,
+ * and it dangles on every other machine. Tooling that walks the tree then fails on read. So git
+ * ignores the links, and each machine creates them on demand.
  *
- * So the links are IGNORED and created on demand. The repository stays
- * portable, and the mount is a local convenience that each machine opts into.
+ * It does not replace a real directory at `docs/<name>`. That directory holds a subtree that is
+ * not relocated yet, or local work.
  *
- * ── WHAT IT REFUSES TO DO ───────────────────────────────────────────────────
- * It will not overwrite a real directory. If `docs/<name>` exists and is not
- * already a symlink, that is either a subtree that has not been relocated yet
- * or a local edit someone has not pushed, and silently replacing it with a
- * link to somewhere else would destroy it.
- *
- * Usage:
- *   node tools/release/mount-docs.mjs [--docs-repo <path>] [--unmount]
- *
- * The destination defaults to a sibling checkout (`../docs`), which is how the
- * lvlup-sw repositories are normally laid out.
+ * Usage: node tools/release/mount-docs.mjs [--docs-repo <path>] [--unmount]
  */
 import { existsSync, lstatSync, readdirSync, readlinkSync, symlinkSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
@@ -50,15 +35,12 @@ function parseArgs(argv) {
 }
 
 /**
- * Where the documents repository is checked out. A sibling by default —
- * `<workspace>/exarchos` and `<workspace>/docs` — resolved from the REPO ROOT
- * rather than from this file, so a git worktree (which nests several levels
- * deeper) still finds the same sibling.
+ * Where the documents repository is checked out. The default is a sibling of the main checkout:
+ * `<workspace>/exarchos` and `<workspace>/docs`. A git worktree lives at
+ * `<repo>/.claude/worktrees/<name>`, so the walk goes up to the main checkout first.
  */
 function resolveDocsRepo(explicit) {
   if (explicit !== undefined) return path.resolve(explicit);
-  // A worktree lives at `<repo>/.claude/worktrees/<name>`, so walk up to the
-  // real repository before stepping sideways.
   const marker = `${path.sep}.claude${path.sep}worktrees${path.sep}`;
   const idx = REPO_ROOT.indexOf(marker);
   const mainCheckout = idx === -1 ? REPO_ROOT : REPO_ROOT.slice(0, idx);
@@ -106,7 +88,6 @@ function main() {
     }
 
     if (existing && !isLink) {
-      // A real directory. Not ours to replace.
       console.warn(
         `[docs:mount] SKIP docs/${name} — a real directory exists there. It has either not been ` +
           `relocated yet or holds local work; refusing to replace it with a link.`,
@@ -117,7 +98,7 @@ function main() {
 
     if (isLink) {
       if (path.resolve(path.dirname(linkPath), readlinkSync(linkPath)) === target) continue;
-      unlinkSync(linkPath); // repoint a link aimed somewhere else
+      unlinkSync(linkPath);
     }
 
     symlinkSync(path.relative(path.dirname(linkPath), target), linkPath, 'dir');

@@ -1,76 +1,17 @@
-// DR-4 / G2 (task 018): the SELF-TEST proper — guard-execution failure must not
-// pass as success.
+// Self-test for the output-schema ratchet guard: a guard that fails to execute must not pass as
+// success.
 //
-// ── What is already proven, and is deliberately NOT re-proved here ──────────
-// Task 018's original headline was "a new vacuous action fails CI". That is
-// discharged, at a STRONGER rung than the one it asked for, and re-asserting it
-// would be duplication:
+// Other suites call `runGuard()` in this process and read its return value. This file runs the
+// shipped guard as a separate process. It proves five facts:
+//   1. The shipped entrypoint runs and states its denominator.
+//   2. The guard runs under any file name, so a rename does not make it a silent no-op.
+//   3. A finding makes the process exit non-zero.
+//   4. An empty census makes the process fail, not only the library.
+//   5. An import of the module does not run the guard.
 //
-//   • TASK 055 made vacuity UNCONSTRUCTIBLE. `BuiltinToolAction.outputSchema`
-//     takes `DeclaredOutputSchema`, and the only escape, `vacuityWaiver(id)`,
-//     types `id` as `VacuityWaiverId` — the literal union of the SEEDED ids. A
-//     new action cannot acquire a waiver at all, so a new vacuous declaration is
-//     a COMPILE ERROR, not a CI finding. Pinned by
-//     `OutputSchema_NewActionDeclaringVacuous_FailsCompile` plus the
-//     `_OutputSchema*` `Expect<>` aliases that `npm run typecheck` checks.
-//   • TASK 060 closed the two residuals: the out-of-registry escape mints a
-//     different brand (`OutputSchema_RegistryActionUsingExtensionEscape_
-//     FailsCompile`), and an in-place allowlist swap fails the frozen seed
-//     digest (`OutputSchema_AllowlistIdSwappedInPlace_FailsTheShrinkOnlyCheck`).
-//   • TASK 017 made the expiry enforced rather than advisory and carried the
-//     kill fixtures against the real data file, including the emptied allowlist
-//     and the emptied census — all through `runGuard`'s injected seams.
-//   • TASK 069 paid the first entry off the allowlist, proving the ratchet's
-//     legal direction is reachable.
-//   • TASKS 063/070 prove, from `tools/audit/gates/guard-inventory.ts`, that the guard is
-//     REACHABLE from an unfiltered CI job and that its exit is not swallowed.
-//
-// ── What none of that reaches — this file's whole subject ───────────────────
-// Every assertion above calls `runGuard()` (or an `auditVacuity*` function)
-// DIRECTLY and reads its RETURN VALUE. Nothing has ever executed DR-4's guard as
-// a PROCESS. The two lines that turn a verdict into a merge block —
-//
-//     const isDirectRun = … ;
-//     if (isDirectRun) process.exitCode = runGuard();
-//
-// — were, until this file, covered by nothing at all. That is not a theoretical
-// gap. Measured on the landing branch, the predicate was
-// `process.argv[1].endsWith('output-schema-ratchet-guard.ts')`, which couples
-// self-execution to the FILE'S NAME: a byte-identical copy under any other name
-// printed 0 bytes and exited 0. Rename the guard, update the `run:` step in
-// ci.yml to match — the ordinary meaning of "rename a file" — and CI keeps a
-// step that exists, runs, resolves and enforces NOTHING. `guard-inventory`
-// cannot see it (the step is still there, still direct, still unfiltered); the
-// 017 suite cannot see it (it never spawns anything). The fix and this file
-// landed together; the legacy predicate is reproduced below as a mutation, so
-// the probe is shown capable of reporting the failure it claims to detect.
-//
-// So the property under test is EXECUTION, not detection:
-//   1. the shipped entrypoint really runs and really states its denominator;
-//   2. it runs under any name — self-execution is not filename-coupled;
-//   3. a finding really makes the PROCESS exit non-zero (`process.exit` is
-//      wired to `runGuard`'s return value, not to a constant);
-//   4. an emptied census reddens the PROCESS, not just the library;
-//   5. importing the module does NOT run the guard — without which (1) and (2)
-//      would be satisfied by an unconditional `process.exit(runGuard())` and
-//      would prove nothing about the predicate.
-//
-// ── TWO AUTHORITIES ────────────────────────────────────────────────────────
-// Authority A is the generated data file `../output-schema-vacuity-allowlist.ts`
-// plus the census over the live registry, read IN THIS PROCESS. Authority B is
-// the stdout/stderr/exit status of a SEPARATE OS PROCESS running the shipped
-// guard. Neither can observe the other — the child has no channel back into the
-// test — so their agreement on the denominator is evidence rather than a
-// tautology.
-//
-// ── NO WALL-CLOCK VERDICT ──────────────────────────────────────────────────
-// The live guard's exit status is a function of the date by design (DR-4's
-// expiry is enforced), so this file never asserts that the live run is GREEN.
-// It asserts that the run produced a VERDICT — a report on stdout with exit 0,
-// or findings on stderr with exit 1 — which is true on both sides of
-// VACUITY_EXPIRY_HORIZON. Pinning the green arm would turn "the debt came due"
-// into "the self-test broke", which is the lesson 017 was careful not to teach.
-// The mutation probes below are structural and therefore date-independent.
+// Authority A is the allowlist data file and the live census, read in this process. Authority B
+// is the output and exit status of the child process. The live exit status depends on the date,
+// so the file asserts a verdict, not a green run.
 //
 // @oracle-sources: ../../../src/output-schema-vacuity-allowlist.ts, the exit status and stdout/stderr of a separate OS process running the shipped guard entrypoint under tsx
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -85,44 +26,36 @@ import { spawnAsync } from '../../test-helpers/spawn.js';
 import { rmrf } from '../../test-helpers/temp-dir.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-/** `servers/exarchos-mcp` — the subject package, which is no longer this one. */
+/** The subject package root. */
 const MCP_ROOT = SUBJECT_PACKAGE_ROOT;
-/** The artifact ci.yml invokes. Its reachability is guard-inventory's claim; its EXECUTION is this file's. */
-// Task 019 moved the dissolved package's scripts under `tools/audit/core/`.
+/** The guard file that ci.yml runs. `guard-inventory` proves that CI reaches it, and this file proves that it executes. */
 const GUARD_PATH = join(MCP_ROOT, 'tools', 'audit', 'core', 'output-schema-ratchet-guard.ts');
 
 /**
- * The expression the shipped entrypoint uses to decide it is the process
- * entrypoint, and the legacy one it replaced.
+ * The expression that the shipped entrypoint uses to decide that it is the process entrypoint,
+ * and the legacy filename match.
  *
- * The legacy form is kept as DATA, not as prose: {@link MUTATIONS} substitutes
- * it back into a copy to produce the failure this file exists to detect. A guard
- * probe with no demonstrated failing subject has not been shown to work, and
- * "renaming used to break it" is a claim about git history, not a test.
+ * The legacy form is data, not prose: {@link MUTATIONS} puts it back into a copy to produce the
+ * failure that this file detects. A probe with no failing subject does not prove that it works.
  */
 const SHIPPED_PREDICATE =
   'canonicalPath(process.argv[1]) === canonicalPath(fileURLToPath(import.meta.url))';
 const LEGACY_FILENAME_PREDICATE = "process.argv[1].endsWith('output-schema-ratchet-guard.ts')";
 
 /**
- * The exit plumbing that turns a finding into a failed lane. Named once here
- * because it is asserted in more than one place and it has already drifted: the
- * guards moved off `process.exit(runGuard())` so their diagnostics survive a
- * severed pipe, and a second copy of the old literal would have gone on
- * describing a spelling the tree no longer contains.
+ * The exit plumbing that turns a finding into a failed lane. It is named once because more than one
+ * assertion uses it. The guard sets `process.exitCode` and does not call `process.exit`, so its
+ * output can drain before the process ends.
  */
 const SHIPPED_EXIT = 'process.exitCode = runGuard()';
-/** Relative module specifiers in the guard's source, e.g. `../src/output-schema-seed-pin.js`. */
+/** Relative module specifiers in the guard source, such as `../../conformance/src/output-schema-seed-pin.js`. */
 const RELATIVE_SPECIFIER = /from '(\.\.\/[^']+\.js)'/g;
 
-// ─── tsx, resolved rather than assumed ──────────────────────────────────────
-//
-// FAIL, never skip. A self-test that quietly skips because its runner could not
-// be found reports "0 failures" for exactly the reason this file exists to
-// reject. The MCP package is preferred so the Windows MCP lane (which installs
-// both trees) uses its own copy; the root install is the fallback for the
-// unfiltered grep-gates host.
-
+/**
+ * Returns the tsx CLI path. It looks in the subject package first and then in the repo root. It
+ * throws when tsx is absent, because a self-test that skips without a runner reports no failures
+ * for the wrong reason.
+ */
 function resolveTsxCli(): string {
   const candidates = [
     join(MCP_ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs'),
@@ -164,15 +97,8 @@ function withoutDays(text: string): string {
 }
 
 /**
- * The CODE lines of a source file — comment lines dropped.
- *
- * Required, not decorative. The guard's own header now DOCUMENTS the legacy
- * predicate (that is where the finding is recorded), so a raw
- * `not.toContain(LEGACY_FILENAME_PREDICATE)` over the whole text reports the
- * explanation as the defect. This assertion did exactly that on its first run —
- * the measure-a-text-proxy failure this wave keeps meeting, met again inside the
- * self-test written to police it. Same idiom the 017 suite already applies to
- * `output-schema-seed-pin.ts`.
+ * The code lines of a source file, with comment lines dropped. A comment that quotes the legacy
+ * predicate must not count as a use of it.
  */
 function codeOf(source: string): string {
   return source
@@ -181,24 +107,18 @@ function codeOf(source: string): string {
     .join('\n');
 }
 
-// ─── Copying the guard out of its own directory ─────────────────────────────
-//
-// Every probe below runs a COPY of the shipped source under a different name, in
-// a per-run temp directory. The copy's relative imports are rewritten to
-// absolute `file://` URLs pointing at the REAL modules, so what is exercised is
-// the shipped guard against the shipped census, allowlist and pin — only the
-// FILENAME changes. The specifier list is PARSED from the source rather than
-// written down: if the guard's imports move, the parse changes with them, and
-// {@link rewrittenGuardSource} fails loudly on an empty parse instead of
-// silently producing a copy that cannot resolve.
-
 interface SpecifierRewrite {
-  /** The specifier as written in the guard, e.g. `../src/output-schema-seed-pin.js`. */
+  /** The specifier as written in the guard, such as `../../conformance/src/output-schema-seed-pin.js`. */
   readonly specifier: string;
   /** Absolute `file://` URL of the real `.ts` module it names. */
   readonly realUrl: string;
 }
 
+/**
+ * Parses the relative import specifiers of the guard source, each with the `file://` URL of the
+ * real module. Every probe runs a copy of the shipped guard under a new name in a temp directory.
+ * The copy imports the real modules, so only the file name changes.
+ */
 function guardSpecifiers(source: string): readonly SpecifierRewrite[] {
   const out: SpecifierRewrite[] = [];
   RELATIVE_SPECIFIER.lastIndex = 0;
@@ -256,13 +176,6 @@ function specifierFor(source: string, moduleName: string): string {
   return only.specifier;
 }
 
-// ─── The mutation table (POLICY IS DATA) ────────────────────────────────────
-//
-// Each entry names a way DR-4's mechanism can be broken, the edit that breaks it
-// — applied to a COPY, never to the shipped tree — and the verdict the shipped
-// entrypoint must then produce. Two must be RED and one must be SILENTLY GREEN;
-// that last one is the kill fixture for the probe itself.
-
 type Verdict = 'red' | 'silent-green';
 
 interface Mutation {
@@ -279,7 +192,16 @@ interface Mutation {
   readonly expectFinding: string;
 }
 
+/**
+ * Ways to break the mechanism of the guard. Each entry gives the edit, applied to a copy and never
+ * to the shipped tree, and the verdict that the copy must produce. Two entries must be red. One
+ * must be silently green: it is the kill fixture for the probe itself.
+ */
 const MUTATIONS: readonly Mutation[] = Object.freeze([
+  /**
+   * The sidecar re-exports the real pin with `export *` and shadows only the digest. A named list
+   * fails to link when the pin gains a constant.
+   */
   {
     id: 'seed-pin-drift',
     why:
@@ -296,10 +218,6 @@ const MUTATIONS: readonly Mutation[] = Object.freeze([
         [
           'pin-with-a-drifted-digest.ts',
           [
-            // `export *` rather than a named list: the pin's export surface is
-            // not this fixture's business, and enumerating it made adding a
-            // constant to the pin a link-time crash here (task 093 added two).
-            // A local export shadows the star, so only the digest is mutated.
             `export * from '${pinUrl}';`,
             `export const VACUITY_SEED_KEY_SET_DIGEST = '${'0'.repeat(64)}';`,
             '',
@@ -324,13 +242,11 @@ const MUTATIONS: readonly Mutation[] = Object.freeze([
       'an emptied registry. "No unwaived vacuity" becomes true for the worst ' +
       'possible reason, and the PROCESS must exit non-zero rather than report clean.',
     verdict: 'red',
-    // The stub shadows the BINDING, not the census module. Task 018a inverted
-    // the census's subjects into ports, so the guard no longer calls
-    // `censusOutputSchemas` directly — it calls `censusLiveOutputSchemas`, which
-    // supplies the live registry. A stub still aimed at the census module would
-    // resolve, load, and shadow a function the guard never calls: the probe
-    // would go VACUOUS rather than red, which is precisely the failure this
-    // case exists to detect.
+    /**
+     * The stub shadows the binding `censusLiveOutputSchemas`, not the census module, because the
+     * guard calls the binding. A stub aimed at the census module shadows a function that the guard
+     * does not call, and the probe goes vacuous instead of red.
+     */
     sidecars: (source) => {
       const bindingUrl = new Map(
         guardSpecifiers(source).map((s) => [s.specifier, s.realUrl]),
@@ -386,8 +302,6 @@ const MUTATIONS: readonly Mutation[] = Object.freeze([
   },
 ]);
 
-// ─── Fixture wiring ─────────────────────────────────────────────────────────
-
 let scratchDir = '';
 let guardSource = '';
 let liveRun: ProcessRun = { code: null, stdout: '', stderr: '' };
@@ -418,37 +332,25 @@ afterAll(() => {
 });
 
 describe('DR-4 / G2 self-test: guard-execution failure cannot pass as success', () => {
+  /**
+   * The guard file, the runner and the governed populations must exist first, so a moved artifact
+   * is red, not absent. The denominator comes from the live artifacts, never from a literal. The
+   * test does not pin the wall clock: the expiry is enforced, so the live guard goes red after
+   * `VACUITY_EXPIRY_HORIZON`. On both sides of the horizon, the process must state a verdict in the
+   * correct channel. The child must also print the denominator that this process measured.
+   */
   it('OutputSchemaRatchetGuard_ShippedEntrypoint_ProducesAVerdictOverANonEmptySubject', () => {
-    // (1) THE SUBJECT EXISTS. A self-test whose artifact has moved must be red,
-    // not absent — so the file, the runner and the populations it governs are
-    // each asserted before anything is concluded from the run.
     expect(existsSync(GUARD_PATH), `${GUARD_PATH} is missing`).toBe(true);
-    // `resolveTsxCli` THROWS rather than returning a sentinel, so binding it is
-    // the assertion: there is no arm on which this file runs zero subprocesses
-    // and still reports zero failures.
     expect(resolveTsxCli().endsWith('cli.mjs')).toBe(true);
 
-    // NON-EMPTY DENOMINATOR, read in THIS process from the live artifacts —
-    // derived on both sides, never written as a literal. Task 068 grew the
-    // denominator and task 069 shrank the numerator during this very wave, each
-    // reading as a guard failure where a count had been hard-coded.
     const liveTotal = censusLiveOutputSchemas().total;
     const liveWaived = VACUITY_ALLOWLIST_IDS.length;
     expect(liveWaived).toBeGreaterThan(0);
     expect(liveTotal).toBeGreaterThan(liveWaived);
 
-    // (2) THE TAIL EXECUTED. Before task 018 nothing asserted this: every
-    // existing assertion calls `runGuard()` in-process, so a guard whose
-    // entrypoint never fires looked identical to one that passes.
     expect(liveRun.code).not.toBeNull();
     expect(liveRun.stdout.length + liveRun.stderr.length).toBeGreaterThan(0);
 
-    // (3) THE VERDICT, without pinning the wall clock. DR-4's expiry is enforced,
-    // so the live guard is designed to go red of its own accord after
-    // VACUITY_EXPIRY_HORIZON. Asserting `code === 0` here would convert that
-    // deadline into a broken test suite — the failure 017 explicitly designed
-    // around. What must hold on BOTH sides of the horizon is that the process
-    // stated a verdict and stated it in the right channel.
     const combined = `${liveRun.stdout}${liveRun.stderr}`;
     if (liveRun.code === 0) {
       expect(liveRun.stdout).toContain('outputSchema:ratchet — OK as of');
@@ -459,29 +361,19 @@ describe('DR-4 / G2 self-test: guard-execution failure cannot pass as success', 
       expect(liveRun.stderr).toContain('finding(s) as of');
     }
 
-    // (4) THE TWO AUTHORITIES AGREE. The denominator the CHILD PROCESS printed
-    // is the denominator this process measured. The child cannot see this
-    // process's reads and vice versa, so this is a comparison and not a
-    // restatement. Both report shapes state it — `N waived of T declaration(s)`
-    // when green, `N waived, V vacuous of T declarations` when red — so the
-    // assertion holds across the horizon too.
     expect(combined).toContain(`of ${liveTotal} declaration`);
     expect(combined).toContain(`${liveWaived} waived`);
   });
 
+  /**
+   * The rename check. A rename moves the file and updates the `run:` step in ci.yml. A guard that
+   * matches its own file name then runs, prints nothing and exits 0. The copy keeps the shipped
+   * tail verbatim: only import specifiers change, and the check reads code lines only.
+   *
+   * @kill-seam: the entrypoint predicate. The `legacy-filename-coupled-predicate` mutation
+   * restores the filename match, and the same copy goes silently green.
+   */
   it('OutputSchemaRatchetGuard_SameSourceUnderADifferentName_StillEnforces', async () => {
-    // THE RENAME TOOTH, and the reason this task was real.
-    //
-    // A rename is an ordinary, reviewable edit: move the file, update the `run:`
-    // step in ci.yml. Under the legacy predicate that combination left a CI step
-    // that existed, ran, resolved and enforced nothing — measured as 0 bytes of
-    // output and exit 0. `guard-inventory` still saw a direct, unfiltered host;
-    // the 017 suite still passed, because it never spawns anything. Nothing in
-    // the repository could observe the difference.
-    //
-    // @kill-seam: the entrypoint predicate — the `legacy-filename-coupled-predicate`
-    // mutation below restores the filename match and shows the same copy going
-    // silently green, which is what makes this arm evidence rather than assertion.
     const renamed = await runCopy('a-name-the-predicate-cannot-know.ts', undefined);
 
     expect(renamed.code).toBe(liveRun.code);
@@ -489,25 +381,20 @@ describe('DR-4 / G2 self-test: guard-execution failure cannot pass as success', 
     expect(withoutDays(renamed.stderr)).toBe(withoutDays(liveRun.stderr));
     expect(renamed.stdout.length + renamed.stderr.length).toBeGreaterThan(0);
 
-    // …and the copy is the SHIPPED tail, not a rewritten one. Only import
-    // specifiers were substituted; the lines that decide and act are verbatim.
-    // Read from the CODE lines, so the header prose that RECORDS the legacy
-    // predicate is not mistaken for a use of it.
     const rewritten = codeOf(rewrittenGuardSource(guardSource));
     expect(rewritten).toContain(SHIPPED_PREDICATE);
     expect(rewritten).toContain(SHIPPED_EXIT);
     expect(rewritten).not.toContain(LEGACY_FILENAME_PREDICATE);
   });
 
+  /**
+   * `process.exitCode = runGuard()` makes a finding block a merge. If a bare `runGuard();` or a fixed
+   * exit code takes its place, the in-process assertions still pass and CI stays green. The two red
+   * mutations break different checks, the seed pin and the census denominator. Thus the exit status
+   * tracks the verdict. The report goes to stderr with an empty stdout, so a CI log scraper cannot
+   * read a failed run as the success line.
+   */
   it('OutputSchemaRatchetGuard_BrokenMechanism_RedensTheProcessNotJustTheLibrary', async () => {
-    // `process.exitCode = runGuard()` is the plumbing that makes a finding block
-    // a merge, and no test had ever run it. Replace it with a bare `runGuard();`,
-    // or pin the code to 0, and every assertion task 017 shipped still passes
-    // while CI goes permanently, silently green.
-    //
-    // The two red mutations below break DIFFERENT teeth — the frozen seed pin and
-    // the census denominator — so what is shown is that the exit status TRACKS
-    // THE VERDICT, not that this particular copy happens to be red.
     const red = MUTATIONS.filter((m) => m.verdict === 'red');
     expect(red.length).toBeGreaterThan(1);
 
@@ -515,21 +402,17 @@ describe('DR-4 / G2 self-test: guard-execution failure cannot pass as success', 
       const run = await runCopy(`${mutation.id}-guard.ts`, mutation);
       expect(run.code, `${mutation.id}: ${mutation.why}`).toBe(1);
       expect(run.stderr, mutation.id).toContain(mutation.expectFinding);
-      // The report goes to stderr and stdout stays empty, so a CI log scraper
-      // cannot read a failing run's output as the success line.
       expect(run.stdout, mutation.id).toBe('');
     }
   });
 
+  /**
+   * The kill fixture. Without it, an unconditional `process.exit(runGuard())` satisfies the two
+   * probes above, because a predicate that is always true also runs under any name. The legacy
+   * predicate under a new name must exit 0 with no output. The same source under the original name
+   * must still report, so the fixture proves filename coupling and not a broken module.
+   */
   it('OutputSchemaRatchetGuard_LegacyFilenamePredicate_GoesSilentlyGreen', async () => {
-    // THE KILL FIXTURE. Without it the two probes above would be satisfied by an
-    // unconditional `process.exit(runGuard())` — a predicate that is always true
-    // also runs under any name — and would prove nothing about the predicate.
-    //
-    // This arm restores the pre-018 predicate into a copy and runs it under a
-    // different name. It must produce the exact silent-green signature: exit 0,
-    // nothing on stdout, nothing on stderr. That is guard-execution failure
-    // passing as success, reproduced on demand.
     const mutation = MUTATIONS.find((m) => m.id === 'legacy-filename-coupled-predicate');
     expect(mutation).toBeDefined();
     if (mutation === undefined) return;
@@ -539,23 +422,18 @@ describe('DR-4 / G2 self-test: guard-execution failure cannot pass as success', 
     expect(silent.stdout).toBe('');
     expect(silent.stderr).toBe('');
 
-    // …and the mutation is filename-coupled rather than simply broken: the SAME
-    // mutated source under the ORIGINAL name still runs and still reports. Without
-    // this control the fixture would be indistinguishable from "the edit broke the
-    // module", and it would prove the wrong thing.
     const underOriginalName = await runCopy('output-schema-ratchet-guard.ts', mutation);
     expect(underOriginalName.stdout.length + underOriginalName.stderr.length).toBeGreaterThan(0);
     expect(withoutDays(underOriginalName.stdout)).toBe(withoutDays(liveRun.stdout));
     expect(underOriginalName.code).toBe(liveRun.code);
   });
 
+  /**
+   * A guard that runs on import satisfies every arm above. It also sets the exit code of every
+   * process that imports it. The test imports the module, checks the exports, and asserts that
+   * control comes back with no verdict in the output.
+   */
   it('OutputSchemaRatchetGuard_ImportedRatherThanInvoked_DoesNotSelfExecute', async () => {
-    // The other half of the predicate's contract, and the anti-vacuity tooth for
-    // every arm above: a guard that ran on IMPORT would satisfy all of them and
-    // would also `process.exit` inside its own test runner, inside the census, and
-    // inside anything else that reads `runGuard`. So the negative case is pinned
-    // explicitly — the module is imported, the export is real, and control
-    // returns to the importer.
     const dir = mkdtempSync(join(scratchDir, 'import-'));
     const marker = 'IMPORTED-WITHOUT-RUNNING';
     const entry = join(dir, 'imports-the-guard-without-running-it.ts');
@@ -575,7 +453,6 @@ describe('DR-4 / G2 self-test: guard-execution failure cannot pass as success', 
     expect(imported.code).toBe(0);
     expect(imported.stdout).toBe(marker);
     expect(imported.stderr).toBe('');
-    // Specifically: no verdict of any kind leaked out of the import.
     expect(imported.stdout).not.toContain('outputSchema:ratchet');
   });
 });

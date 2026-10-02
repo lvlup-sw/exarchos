@@ -1,18 +1,9 @@
-// ────────────────────────────────────────────────────────────────────────────
-// DR-2 / task 072 — the kill fixture for THIS site's lexer port.
-//
-// `stripComments` was a hand-rolled character walk until task 072. A port that
-// is never shown to DIFFER from what it replaced has not been shown to be
-// needed, so the retired walk is kept verbatim in
-// `test-helpers/superseded-site-lexers.ts`, assembled here into a lexer, and
-// both instruments are run over the SAME inputs with BOTH answers asserted.
-//
-// The inputs are task 065's, read from the one shared table
-// (`test-helpers/adversarial-lexer-inputs.ts`) — DR-2 forbids a fourth. Only the
-// PAYLOAD is this site's: a census that hunts `git worktree add` cannot be
-// killed by a hidden `node:fs` import.
+// Kill fixture for the lexer port of `stripComments` in `vcs-ownership.ts`.
+// The retired character walk stays in `tools/test-helpers/superseded-site-lexers.ts`. This file runs
+// it and the port over the same inputs and asserts both answers, so the port is shown to differ.
+// The inputs come from the shared table in `tools/test-helpers/adversarial-lexer-inputs.ts`.
+// Only the payload belongs to this site, because this census looks for `git worktree add`.
 // @oracle-sources: ./vcs-ownership.ts, ../../test-helpers/superseded-site-lexers.ts
-// ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -33,24 +24,16 @@ import { listTrackedFiles, trackedFilesMissedBy } from '../../test-helpers/track
 const SRC_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 /**
- * The census as it behaved BEFORE task 072: the same detection rules, driven by
- * the retired walk.
- *
- * Assembled here rather than exported from the helper. Its only use is measuring
- * the gap; nothing may drive a real census through it.
+ * The census detection rules, driven by the retired walk.
+ * It exists to measure the difference. A real census must not use it.
  */
 const SUPERSEDED_LEXER: CommentLexer = (source: string) => ({
   commentMaskedSource: supersededStripComments(source),
 });
 
 /**
- * The payload this site looks for, placed by each construct where its defect can
- * act on it.
- *
- * A `git worktree add` written in a COMMENT, followed by real code. The correct
- * answer is "no mutation site" whenever the comment is genuinely a comment —
- * this module's whole reason for stripping comments is that documentation must
- * not be charged as a call.
+ * A `git worktree add` in a comment, followed by real code. Each construct places it where its defect acts.
+ * When the comment is a real comment, the correct answer is "no mutation site", because documentation is not a call.
  */
 const PAYLOAD = ["// doc: run(['worktree', 'add', path])", 'export const after = 1;'].join('\n');
 
@@ -68,22 +51,20 @@ const EXPECTATIONS: readonly {
   },
   { name: "a regex literal containing a ' quote, in operand position", parse: [], heuristic: [] },
   {
-    // KILL — the census INVENTING a mutation. The heuristic scores the `/` as
-    // division, the backtick inside the regex opens a phantom template, and a
-    // template is not line-bounded — so the `//` below never reads as a comment
-    // opener. Comment prose survives the strip and this module reports a
-    // `git worktree add` that only the documentation performs.
+    /**
+     * Kill: the heuristic invents a mutation. It scores the `/` as division, so the backtick opens a phantom template.
+     * The `//` after it then does not read as a comment opener, and the comment prose survives the strip.
+     */
     name: 'a regex literal containing a BACKTICK, in operand position',
     parse: [],
     heuristic: ['worktree.add'],
   },
   {
-    // KILL — the other direction. The payload sits inside a template nested in a
-    // `${…}` substitution, so it is STRING CONTENT, and string content is
-    // exactly what this census matches on (`['worktree', 'add']` is an argv
-    // literal). The heuristic toggled on the nested backtick, read the body as
-    // code, and stripped the vector as if it were a comment. The parse keeps
-    // literals verbatim and sees it.
+    /**
+     * Kill in the other direction: the payload is string content in a template nested in a `${…}` substitution.
+     * This census matches string content. The heuristic read the nested body as code and stripped the payload as a comment.
+     * The parse keeps literals as written and finds the payload.
+     */
     name: 'a nested template literal inside a `${…}` substitution',
     parse: ['worktree.add'],
     heuristic: [],
@@ -94,10 +75,11 @@ const mutationsUnder = (lex: CommentLexer, source: string): string[] =>
   detectVcsMutationSites('x/y.ts', source, lex).map((site) => site.mutation);
 
 describe('DR-2 kill fixture — vcs-ownership.stripComments, both instruments', () => {
+  /**
+   * Checks the expectation table against the shared input table, so a dropped row on either side fails.
+   * The two instruments must disagree on some rows, or the port changed nothing here.
+   */
   it('VcsOwnership_AdversarialSet_ParseAndHeuristicAnswersAreBothPinned', () => {
-    // NON-EMPTY, DERIVED DENOMINATOR. The expectation table is checked against
-    // the SHARED input table rather than trusted: a row silently dropped from
-    // either side would shrink the scan without shrinking the claim.
     expect(ADVERSARIAL_INPUTS.length).toBeGreaterThan(0);
     expect(EXPECTATIONS.map((row) => row.name)).toEqual(
       ADVERSARIAL_INPUTS.map((input) => input.name),
@@ -115,19 +97,17 @@ describe('DR-2 kill fixture — vcs-ownership.stripComments, both instruments', 
       if (JSON.stringify(parsed) !== JSON.stringify(heuristic)) disagreeing.push(row.name);
     }
 
-    // The kill fixture's own vacuity guard. A table on which the two instruments
-    // never differ would prove the port changed nothing here.
     expect(disagreeing).toEqual([
       'a regex literal containing a BACKTICK, in operand position',
       'a nested template literal inside a `${…}` substitution',
     ]);
   });
 
+  /**
+   * Under the heuristic, a module with no git mutation reads as one. `VCS_MUTATION_OWNERS` then needs
+   * cover for a call that does not exist, or the census fails on documentation.
+   */
   it('VcsOwnership_RegexHoldingABacktick_MakesTheHeuristicChargeCommentProse', () => {
-    // Carried to the verdict, in the direction that matters most for an
-    // ownership ratchet: a module that performs NO git mutation is reported as
-    // performing one, so `VCS_MUTATION_OWNERS` must grow cover for a call that
-    // does not exist — or the census goes red over documentation.
     const source = ADVERSARIAL_INPUTS[3]?.withPayload(PAYLOAD) ?? '';
     expect(source, 'the shared table no longer holds the backtick construct').toContain('isTick');
 
@@ -138,10 +118,8 @@ describe('DR-2 kill fixture — vcs-ownership.stripComments, both instruments', 
     expect(mutationsUnder(lexModule, source)).toEqual([]);
   });
 
+  /** `stripComments` must remove comments and keep literals. On a nested template, the heuristic does the opposite. */
   it('VcsOwnership_NestedTemplateSubstitution_MadeTheHeuristicStripRealLiteralContent', () => {
-    // The complementary direction. `stripComments` exists to remove COMMENTS and
-    // keep LITERALS — the argv tokens it matches are literals. On a nested
-    // template the heuristic did the opposite.
     const source = ADVERSARIAL_INPUTS[4]?.withPayload(PAYLOAD) ?? '';
     expect(source, 'the shared table no longer holds the nested-template construct').toContain(
       '${',
@@ -154,13 +132,11 @@ describe('DR-2 kill fixture — vcs-ownership.stripComments, both instruments', 
     expect(mutationsUnder(lexModule, source)).toEqual(['worktree.add']);
   });
 
+  /**
+   * An `import('p').T` type query cannot be miscounted here, because this site extracts no imports.
+   * Its subject is argv literals. The strip keeps the type query as written.
+   */
   it('VcsOwnership_ImportTypeQuery_IsNotACountedSurfaceHere', () => {
-    // Task 065 flagged `import('p').T` miscounting as likely present in all
-    // three surviving sites. It is NOT present here, and the reason is
-    // structural rather than lucky: this site extracts no imports at all — its
-    // subject is argv literals — so there is no import count to get wrong.
-    // Asserted rather than asserted-in-prose: both instruments answer the same,
-    // and the module's exported surface holds no specifier accessor.
     const source = [
       "export type H = import('node:fs').Stats;",
       "// historical: run(['merge', '--no-ff'])",
@@ -170,26 +146,21 @@ describe('DR-2 kill fixture — vcs-ownership.stripComments, both instruments', 
     expect(mutationsUnder(SUPERSEDED_LEXER, source)).toEqual([]);
     expect(mutationsUnder(lexModule, source)).toEqual([]);
 
-    // The type query is not code this census can match, and it is preserved
-    // verbatim by the strip — it is a literal-bearing expression, not a comment.
     expect(stripComments(source, lexModule)).toContain("import('node:fs')");
   });
 
+  /** A partial tree loses literal spans, so a module with lost argv vectors reads as mutation-free. */
   it('VcsOwnership_RecoveredParse_IsRefusedRatherThanSilentlyStripped', () => {
-    // Inherited from the port and load-bearing here too: a partial tree loses
-    // literal spans, so a module whose argv vectors vanished reads as
-    // mutation-free and PASSES the ownership census.
     const broken = "run(['worktree', 'add', p])\nexport const x = {{{;";
     expect(() => stripComments(broken, lexModule)).toThrow(/did not parse cleanly/);
   });
 
+  /**
+   * The retired walks exist for the measurement above, so a shipped module must not import them.
+   * `git ls-files` over the same scope is the second authority for the denominator of the filesystem walk.
+   * The check reads imports, not mentions, because a header can name a retired walk.
+   */
   it('VcsOwnership_NoShippedModuleImportsTheSupersededSiteLexers', async () => {
-    // The retired walks are retained ONLY as the other half of the measurement
-    // above. If shipped source imports them again, the defect is back.
-    //
-    // The sweep is a filesystem walk; `git ls-files` narrowed to the SAME scope
-    // is the independent second authority for its denominator. Comparing the
-    // walk with itself would be a comparison that cannot disagree (DR-8).
     const walked: string[] = [];
     const walk = (dir: string): void => {
       for (const entry of readdirSync(join(SRC_ROOT, dir), { withFileTypes: true })) {
@@ -221,8 +192,6 @@ describe('DR-2 kill fixture — vcs-ownership.stripComments, both instruments', 
         'scope — a shipped import of a retired walk could sit in the gap',
     ).toEqual([]);
 
-    // An IMPORT, not a mention. Naming the retired walk in a header is how the
-    // measurement stays findable; importing it is how the defect comes back.
     const offenders = walked.filter((module) =>
       lexModule(readFileSync(join(SRC_ROOT, module), 'utf8'), module).imports.some((ref) =>
         ref.specifier.includes('superseded-site-lexers'),

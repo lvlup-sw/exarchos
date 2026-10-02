@@ -1,29 +1,15 @@
-// ─── Every value-level use of the evidence ContentAddressedStore class ─────
-//
-// A `ContentAddressedStore` reference carries a digest and no root. That means
-// a producer and a reader that construct the store over two different roots
-// are, from the reference's point of view, indistinguishable from a producer
-// whose blob was never written at all — exactly the split the gate-evidence
-// producers used to disagree on before this pass gave them one shared
-// constructor (`evidenceArtifactStore`, in `src/workflow/admission/
-// evidence-artifact.ts`).
-//
-// This walks a source tree with the TypeScript parser and reports every module
-// that binds the class as a VALUE and uses that binding — a `new`, a subclass,
-// a class handed somewhere as an argument — so a second door to a store
-// introduced later is named rather than silently re-splitting the root.
-//
-// Why a parser and not a line pattern: a pattern over lines cannot see an
-// aliased import (`import { ContentAddressedStore as Store }` followed by
-// `new Store(`), a constructor split across lines, or the difference between
-// code and the same text inside a string. The binding is resolved through the
-// import graph — the class module itself and any barrel that re-exports it —
-// so what is reported is what the compiler would bind, not what the text
-// looks like. Type-only imports and type positions are not uses: they cannot
-// construct anything.
-//
-// `typescript` is a devDependency; this module lives under tools/ and is
-// imported by tests only, never by shipped src/.
+/**
+ * A census of every value-level use of the evidence `ContentAddressedStore` class. A store
+ * reference carries a digest and no root. A producer and a reader that build the store over two
+ * roots then look the same as a producer that never wrote the blob. The gate-evidence producers
+ * share one constructor, `evidenceArtifactStore` in `src/workflow/admission/evidence-artifact.ts`.
+ *
+ * The census walks a source tree with the TypeScript parser. It reports each module that binds the
+ * class as a value and uses the binding: a `new`, a subclass, or the class as an argument. It
+ * resolves aliased imports and barrel re-exports, so it reports what the compiler binds. Type-only
+ * imports and type positions construct nothing, so they do not count. Tests import this module,
+ * and shipped `src/` code does not.
+ */
 
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
@@ -33,10 +19,12 @@ import ts from 'typescript';
 const CLASS_MODULE = 'storage/artifacts/content-addressed-store.ts';
 const CLASS_NAME = 'ContentAddressedStore';
 
+/**
+ * The kind of a use: `construct` for a direct `new <binding>(...)`, and `reference` for any other
+ * value use, such as `extends`, an argument or a call.
+ */
 export type EvidenceStoreUseKind =
-  /** `new <binding>(...)` — a direct construction. */
   | 'construct'
-  /** Any other value use of the binding: `extends`, an argument, a call. */
   | 'reference';
 
 export interface EvidenceStoreConstructionSite {
@@ -49,18 +37,10 @@ export interface EvidenceStoreConstructionSite {
 export interface EvidenceStoreConstructionCensus {
   readonly scannedModuleCount: number;
   /**
-   * Modules the walk listed and the read could not open.
-   *
-   * A directory walk followed by per-file reads is time-of-check to
-   * time-of-use by construction, and this census runs in a vitest project whose
-   * members deliberately create and delete files under the live `src/` to prove
-   * that gates reach it (`tests/scripts/check-module-intent.test.ts` writes
-   * `src/dr9-root-src-probe.ts` and removes it again). A module that existed at
-   * walk time and is gone at read time was never TRACKED, so it is not part of
-   * the population this census is about — but it is counted rather than
-   * discarded, because "one file vanished under a sibling test" and "the tree
-   * is disappearing" are different facts and a silent skip cannot tell them
-   * apart.
+   * Modules that the walk listed and the read did not find. A walk followed by per-file reads is a
+   * time-of-check to time-of-use race, and sibling tests create and delete files under the live
+   * `src/`. The census counts a vanished module and does not skip it silently. Thus "one file
+   * vanished" and "the tree is disappearing" stay different facts.
    */
   readonly vanishedModuleCount: number;
   readonly sites: readonly EvidenceStoreConstructionSite[];
@@ -72,17 +52,17 @@ function isDiagnosticArray(value: unknown): value is readonly ts.Diagnostic[] {
 }
 
 /**
- * Parse one module, refusing a RECOVERED parse. `ts.createSourceFile` never
- * throws; handed broken input it returns a partial tree with nodes silently
- * missing, and a construction that vanished from the tree reads as a module
- * that constructs nothing — the direction this census must not fail in.
+ * Parses one module and refuses a recovered parse. `ts.createSourceFile` never throws: on broken
+ * input it returns a partial tree with missing nodes. A lost construction reads as a module that
+ * constructs nothing, which is the unsafe direction. The parse sets parent nodes, because
+ * `isNamePosition` reads `node.parent`.
  */
 function parseOrThrow(source: string, fileName: string): ts.SourceFile {
   const sourceFile = ts.createSourceFile(
     fileName,
     source,
     ts.ScriptTarget.Latest,
-    /* setParentNodes */ true,
+    true,
     ts.ScriptKind.TS,
   );
   const raw: unknown = Reflect.get(sourceFile, 'parseDiagnostics');
@@ -112,9 +92,9 @@ function walk(dir: string, out: string[]): void {
 }
 
 /**
- * Turn a relative module specifier into the `.ts` file it names, or
- * `undefined` for a bare (package) specifier or a target that does not exist.
- * NodeNext specifiers name `.js`; the source on disk is `.ts`.
+ * Turns a relative module specifier into the `.ts` file that it names. It returns `undefined` for a
+ * bare package specifier or a missing target. NodeNext specifiers name `.js`, and the source on disk
+ * is `.ts`.
  */
 function resolveSpecifier(fromFile: string, specifier: string): string | undefined {
   if (!specifier.startsWith('.')) return undefined;
@@ -144,17 +124,10 @@ function parsedModule(modulePath: string, resolution: Resolution): ts.SourceFile
 }
 
 /**
- * Whether importing `importedName` from `modulePath` binds the store class.
- * Follows every re-export shape a barrel can take — `export { X } from`,
- * `export * from`, and `import { X }` followed by a local `export { X }` — so
- * a barrel is a door to the same class, not a different name.
- *
- * The search is exhaustive over the re-export graph and cut only by a
- * per-query visited set, so a `false` has walked every node reachable from
- * its start and is a true negative — which is what makes it safe to memoise.
- * A depth bound was the previous cycle guard; its answer depended on how much
- * depth was left when a node was first reached, and memoised, on which module
- * the walk happened to visit first.
+ * Tells if an import of `importedName` from `modulePath` binds the store class. It follows each
+ * barrel re-export shape: `export { X } from`, `export * from`, and `import { X }` with a local
+ * `export { X }`. The search covers the whole re-export graph, with a visited set per query to stop
+ * cycles. Thus a `false` is a true negative, and the memo can record it.
  */
 function bindsClass(
   sourceDir: string,
@@ -170,6 +143,11 @@ function bindsClass(
   return answer;
 }
 
+/**
+ * The search behind {@link bindsClass}. An `export { X }` with no source follows the import that
+ * binds `X` locally. An `export * from` passes the name through. An `export * as ns from` binds a
+ * namespace object, not the class, so {@link namespaceExportTarget} follows it instead.
+ */
 function reachesClass(
   sourceDir: string,
   modulePath: string,
@@ -193,8 +171,6 @@ function reachesClass(
     if (!ts.isExportDeclaration(statement) || statement.isTypeOnly) continue;
     const specifier = statement.moduleSpecifier;
     if (specifier === undefined) {
-      // `export { X }` / `export { X as Y }` with no source: X is bound in
-      // this module, and the binding this census follows is an import.
       if (statement.exportClause === undefined || !ts.isNamedExports(statement.exportClause)) continue;
       for (const element of statement.exportClause.elements) {
         if (element.isTypeOnly || element.name.text !== name) continue;
@@ -208,14 +184,9 @@ function reachesClass(
     const target = resolveSpecifier(modulePath, specifier.text);
     if (target === undefined) continue;
     if (statement.exportClause === undefined) {
-      // `export * from '...'` — the name passes through unchanged.
       if (follow(target, name)) return true;
       continue;
     }
-    // `export * as ns from '...'` binds a NAMESPACE OBJECT under `ns`, never
-    // the class itself, so it is not an answer to this question. It is still a
-    // door — `new ns.ContentAddressedStore()` through a named import of `ns` —
-    // and `namespaceExportTarget` below is the query that follows it.
     if (!ts.isNamedExports(statement.exportClause)) continue;
     for (const element of statement.exportClause.elements) {
       if (element.isTypeOnly || element.name.text !== name) continue;
@@ -254,7 +225,6 @@ function namespaceExportTarget(
     if (target === undefined) continue;
     const clause = statement.exportClause;
     if (clause === undefined) {
-      // `export * from '...'` — the name passes through unchanged.
       const found = namespaceExportTarget(target, name, resolution, visited);
       if (found !== undefined) return found;
       continue;
@@ -300,17 +270,17 @@ interface ClassBindings {
   /** Local names that ARE the class (`import { ContentAddressedStore as X }`). */
   readonly direct: ReadonlySet<string>;
   /**
-   * Local namespace names, each mapped to the module whose namespace it is.
-   *
-   * The MEMBER is resolved at the use site rather than here: the class can be
-   * re-exported from that module under any name, so `<ns>.ContentAddressedStore`
-   * is one door among many and `<ns>.Store` is the same door under an alias.
-   * Asking per member is also what lets this hold a namespace whose module
-   * turns out to export the class under no name at all — it simply answers no.
+   * Local namespace names, each mapped to the module whose namespace it is. The member resolves at
+   * the use site, because the module can re-export the class under any name. A namespace whose
+   * module does not export the class gives no match.
    */
   readonly namespaces: ReadonlyMap<string, string>;
 }
 
+/**
+ * Collects the local names in `sourceFile` that bind the class directly or through a namespace. A
+ * named import that is not the class can still be a re-exported namespace that holds the class.
+ */
 function collectClassBindings(
   sourceDir: string,
   filePath: string,
@@ -339,8 +309,6 @@ function collectClassBindings(
         direct.add(element.name.text);
         continue;
       }
-      // Not the class under this name — but it may be a namespace the target
-      // re-exported, and the class may sit inside it.
       const namespaceModule = namespaceExportTarget(target, imported, resolution, new Set());
       if (namespaceModule !== undefined) namespaces.set(element.name.text, namespaceModule);
     }
@@ -365,9 +333,9 @@ function isClassExpression(
 }
 
 /**
- * An identifier that is the NAME of something rather than a reference to the
- * binding: a property key, a member name, a declaration name, an import or
- * export specifier. None of these can construct a store.
+ * True for an identifier that names something and does not reference the binding. Such a name is a
+ * property key, a member name, a declaration name, or an import or export specifier. None of these
+ * can build a store.
  */
 function isNamePosition(node: ts.Identifier): boolean {
   const parent: ts.Node | undefined = node.parent;
@@ -391,13 +359,13 @@ function isNamePosition(node: ts.Identifier): boolean {
 }
 
 /**
- * Every value-level use of the store class under `sourceDir`, `root`-relative
- * and forward-slashed, plus the subset outside `owners`.
+ * Every value-level use of the store class under `sourceDir`, `root`-relative and forward-slashed,
+ * plus the subset outside `owners`. An `owners` path matches the reported `file` field exactly.
  *
- * A file path in `owners` is matched exactly against the reported `file`
- * field — the same `root`-relative, forward-slashed spelling this function
- * produces — so a caller states the allowlist the way the census reports
- * violations, with nothing to translate between the two.
+ * Every module is parsed, because a barrel alias leaves a caller that spells neither the class name
+ * nor its directory. A file from the walk that is missing at read time counts as vanished, but a
+ * missing import target still throws. A class `extends` is a value use. An interface `extends` and
+ * an `implements` are type positions. A `new` reports one use, not a second use for its class.
  */
 export function scanEvidenceStoreConstructions(
   root: string,
@@ -410,16 +378,8 @@ export function scanEvidenceStoreConstructions(
   const owners = new Set(options.owners);
   const sites: EvidenceStoreConstructionSite[] = [];
 
-  // Every module is parsed. A text test on the class name or its directory
-  // was tried as a prefilter and is unsound: a barrel that re-exports the
-  // class under an alias leaves a caller spelling neither, and the census
-  // would have skipped exactly the door it exists to find.
   let vanishedModuleCount = 0;
   for (const modulePath of modules) {
-    // ENOENT is tolerated HERE and nowhere else. At this level the path came
-    // from the walk, so a missing file means it was removed since; through
-    // `collectClassBindings` the path came from an import, and a missing import
-    // target is a real finding that must still throw.
     let sourceFile: ts.SourceFile;
     try {
       sourceFile = parsedModule(modulePath, resolution);
@@ -442,11 +402,6 @@ export function scanEvidenceStoreConstructions(
     };
 
     const visit = (node: ts.Node): void => {
-      // `class X extends <binding>` is a value use — the subclass is a second
-      // constructor for the same store — but the parser files the heritage
-      // expression under the type nodes. Look through it before the type
-      // guard below; an interface's `extends` and a class's `implements` stay
-      // type positions.
       if (ts.isExpressionWithTypeArguments(node)) {
         const clause: ts.Node | undefined = node.parent;
         if (
@@ -459,15 +414,12 @@ export function scanEvidenceStoreConstructions(
         }
         return;
       }
-      // A type position never constructs anything; the import statements
-      // are the bindings themselves, not uses of them.
       if (ts.isTypeNode(node) || ts.isImportDeclaration(node)) return;
       if (
         ts.isNewExpression(node) &&
         isClassExpression(node.expression, bindings, options.sourceDir, resolution)
       ) {
         record(node, 'construct');
-        // The class expression inside is this same use; do not report it twice.
         node.arguments?.forEach(visit);
         return;
       }

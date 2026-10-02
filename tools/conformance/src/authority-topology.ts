@@ -1,86 +1,14 @@
-// ─── The authority topology as data (DR-6, gate G5) ──────────────────────────
+// The authority topology as data, for gate G5. Every declared boundary names exactly one
+// authority, and every other representation names what binds it. More than one authoritative
+// representation is a finding, even when the copies agree today.
 //
-// G5, stated once: **every declared boundary names exactly one authority; every
-// other representation names what binds it.** An unbound representation, or more
-// than one authority, fails closure. More than one AUTHORITATIVE representation
-// is a finding *regardless of whether the copies currently agree* — "they happen
-// to match today" is not a binding, it is a coincidence with a maintenance bill.
+// This module holds the boundary rows and the totality check of the rows. It does not judge
+// closure: `authority-census.ts` does that. A model that also judged itself is one authority
+// that acts as two.
 //
-// ## What this module is, and is not
-//
-// It is the **model**: the boundary rows, their authorities, their bound and
-// unbound representations, and the wave from which each boundary's
-// single-authority rule is mechanically enforced. It also carries the rows'
-// own **totality check** — the well-formedness invariant on the data itself.
-//
-// It is NOT the closure census. Evaluating closure over these rows (and failing
-// it) is task 025; proving that failure fires live on the CLI-surface and
-// event-catalog rows is task 026. The split matters: a data model that also
-// judged itself would be a single authority pretending to be two, which is the
-// Class B defect DR-30 exists to forbid.
-//
-// ## Why this shape and not a new instrument
-//
-// The program's rule is *no new enforcement instrument* — extend the shipped
-// idiom. So this module is deliberately the composition of three shipped ones:
-//
-//   • `contract/reachability/graph.ts` (P05-05) resolves each public action
-//     along seven hops and fails on `missing` (0 resolvers) or `ambiguous`
-//     (>1). G5 is the SAME rule lifted from per-action hops to per-boundary
-//     authorities: `none` is the missing arm, `contested` is the ambiguous arm.
-//     `HOP_AUTHORITIES` also supplies the precedent for the totality shape used
-//     below — a `Readonly<Record<Domain, …>>` over a union, so a domain member
-//     without an entry is a COMPILE error rather than a silent gap.
-//   • `contract/declaration.ts` (DR-1, task 005) already defines
-//     {@link AuthorityId} as "the *Authoritative* column of the spec's
-//     authority-topology table" and {@link RepresentationId} as a representation
-//     mechanically bound to it. This module is that table; it imports the
-//     vocabulary rather than minting a parallel one.
-//   • `architecture/effect-port-seam.ts` / `adapter-ownership-seam.ts` supply
-//     the **two-way ratchet**: a declaration that over-claims is as much a
-//     finding as one that under-claims. Here that is `STALE_DERIVED_PROVENANCE`
-//     (a row claiming it was derived when no derivation produces it) and
-//     `UNJUSTIFIED_DECLARED_ROW` (a hand-maintained row that never says why it
-//     could not be derived). Without both teeth the provenance field would rot
-//     into a rubber stamp within one wave.
-//
-// ## The derivation rule, and why it is the load-bearing part
-//
-// An earlier revision of this table was MISSING the SDK-generation boundary
-// entirely, and on the strength of that omission asserted a compile-time
-// guarantee over a boundary it had never modelled. That is the failure mode this
-// module is shaped against, and it generalises:
-//
-//   **A boundary absent from the topology is the one place an unbound
-//   representation can hide from the census designed to find it.**
-//
-// A census can only range over rows that exist. So wherever a boundary's
-// existence is implied by a domain some OTHER module already owns, this module
-// must not restate it — it must be forced to carry it. That is
-// {@link BOUNDARY_DERIVATIONS}: each bridge names an upstream domain and the
-// boundaries that domain REQUIRES. Both teeth are live:
-//
-//   • compile-time — a bridge is a `Readonly<Record<UpstreamUnion, …>>` whose
-//     values are typed {@link ContractBoundaryId}. Grow the upstream union and
-//     this module stops compiling until the boundary is named; delete a boundary
-//     id from {@link CONTRACT_BOUNDARIES} and the bridge stops compiling.
-//   • run-time — `checkTopologyTotality` fails when a bridge requires a boundary
-//     no row covers, so a row deleted from the table (rather than from the id
-//     union) is caught too.
-//
-// Four of the eight rows are derived this way. **Four are not, and that is stated
-// per row rather than smoothed over** — see `whyNotDerivable` on each `declared`
-// row, and the "What is NOT derivable today" note above
-// {@link AUTHORITY_TOPOLOGY}. Claiming derivation this module does not have would
-// reproduce the exact defect described above, one level up.
-//
-// ## No `as const`, deliberately
-//
-// The repo's census counts type assertions and `as const` is counted, so every
-// tuple here carries an explicit `readonly [...]` annotation instead — the
-// cast-free idiom `contract/declaration.ts` established for `DECLARATION_KINDS`.
-// The annotation form yields the same literal element types.
-// ─────────────────────────────────────────────────────────────────────────────
+// A boundary that is absent from the topology can hide an unbound representation from the
+// census. So {@link boundaryDerivations} forces a row for each boundary that an upstream domain
+// requires. Tuples carry an explicit `readonly [...]` type, because the cast census counts `as const`.
 
 import type {
   AuthorityId,
@@ -89,16 +17,10 @@ import type {
 } from '../../../src/contract/declaration.js';
 import type { SdkGeneration } from '../../../src/architecture/sdk-generation-seam.js';
 
-// ─── The boundary domain ─────────────────────────────────────────────────────
-
 /**
- * Every contract boundary G5 governs. Sorted alphabetically so the tuple is a
- * stable, diff-friendly enumeration; iteration order is not semantic.
- *
- * This tuple is the census DENOMINATOR. It is not free to shrink: four of these
- * ids are referenced by a {@link BoundaryDerivation}, so deleting one fails the
- * compile at the bridge rather than quietly narrowing what the census ranges
- * over.
+ * Every contract boundary that G5 governs, in alphabetical order for a stable diff. The order has
+ * no meaning. This tuple is the census denominator. The derivation bridges name four of these
+ * ids, so the deletion of one of them breaks the compile at the bridge.
  */
 export const CONTRACT_BOUNDARIES: readonly [
   'action-contract',
@@ -122,10 +44,8 @@ export const CONTRACT_BOUNDARIES: readonly [
   'sdk-generation',
 ];
 
-/** One of the eight boundaries in {@link CONTRACT_BOUNDARIES}. */
+/** One boundary in {@link CONTRACT_BOUNDARIES}. */
 export type ContractBoundaryId = (typeof CONTRACT_BOUNDARIES)[number];
-
-// ─── Enforcement point ───────────────────────────────────────────────────────
 
 /** The overhaul waves that mechanically enforce a boundary's single authority. */
 export const ENFORCEMENT_WAVES: readonly ['wave-1', 'wave-2', 'wave-3', 'wave-4', 'wave-5'] = [
@@ -140,21 +60,16 @@ export const ENFORCEMENT_WAVES: readonly ['wave-1', 'wave-2', 'wave-3', 'wave-4'
 export type EnforcementWave = (typeof ENFORCEMENT_WAVES)[number];
 
 /**
- * When a boundary's single-authority rule starts being MECHANICALLY enforced.
- *
- * Required on every row — a row without one fails
- * {@link checkTopologyTotality}. **There is no blanket allowlist**, and the
- * `already-enforced` arm is not one: it is a positive, falsifiable claim that
- * must NAME the shipped instrument doing the enforcing, and a row making it is
- * held to the stricter standard (task 025 requires exactly one authoritative
- * representation and zero unbound ones). An exemption would be a row that says
- * nothing; this arm says something a reviewer can go and check.
+ * The point from which the mechanical enforcement of the single-authority rule of a boundary starts.
+ * Every row must have one, or {@link checkTopologyTotality} fails. There is no blanket allowlist.
+ * The `already-enforced` arm is not an exemption. It names the shipped instrument, so a reviewer
+ * can check the claim.
  */
 export type EnforcementPoint =
   | {
       readonly kind: 'wave';
       readonly wave: EnforcementWave;
-      /** The DR that lands the enforcement, so the wave claim is checkable. */
+      /** The change that lands the enforcement, so a reviewer can check the wave claim. */
       readonly driver: string;
     }
   | {
@@ -163,16 +78,10 @@ export type EnforcementPoint =
       readonly by: string;
     };
 
-// ─── Authority ───────────────────────────────────────────────────────────────
-
 /**
- * A boundary's authority, in exactly one of three states.
- *
- * The `single` arm carries ONE {@link AuthorityId}, never an array, mirroring
- * `contract/declaration.ts`'s `_DeclarationPluralAuthority_FailsCompile`: the
- * G5 "two authorities" defect is not expressible as a well-formed `single` row.
- * It can only be recorded as `contested`, which is precisely the point — the
- * defect has to be *declared* to be carried, so it cannot ride along unnamed.
+ * The authority of a boundary, in one of three states. The `single` arm carries one
+ * {@link AuthorityId}, never an array. So a row with two authorities must declare `contested`,
+ * and the defect cannot stay unnamed.
  */
 export type BoundaryAuthority =
   | { readonly kind: 'single'; readonly authority: AuthorityId }
@@ -183,24 +92,16 @@ export type BoundaryAuthority =
     }
   | { readonly kind: 'none'; readonly why: string };
 
-// ─── Representations ─────────────────────────────────────────────────────────
-
 /**
- * How a representation relates to its boundary's authority.
- *
- * `bound` MEANS mechanically derived — regenerate the authority and the
- * representation follows, so it cannot drift. A representation that merely
- * *agrees* with the authority today, or that is only spot-VALIDATED against it,
- * is `unbound`: validation catches a wrong entry but never a missing one, and G5
- * is a claim about the whole population, not about the entries that happen to be
- * present. Several rows below turn on exactly that distinction.
+ * How a representation relates to the authority of its boundary. `authoritative` is the
+ * authority, and two on one row is the G5 finding. `bound` is mechanically derived from
+ * `boundTo`, and `how` names the derivation. `unbound` has no derivation, and `why` states the gap.
+ * A representation that only agrees with the authority, or only gets validation against it, is
+ * `unbound`. Validation catches a wrong entry, but not a missing entry.
  */
 export type RepresentationBinding =
-  /** This representation IS the authority. Two of these on one row is the G5 finding. */
   | { readonly kind: 'authoritative' }
-  /** Mechanically derived from `boundTo`; `how` names the derivation. */
   | { readonly kind: 'bound'; readonly boundTo: AuthorityId; readonly how: string }
-  /** Nothing derives it. The finding G5 exists to surface; `why` states the gap. */
   | { readonly kind: 'unbound'; readonly why: string };
 
 /** One representation of a boundary, and what (if anything) binds it. */
@@ -208,8 +109,6 @@ export interface BoundaryRepresentation {
   readonly id: RepresentationId;
   readonly binding: RepresentationBinding;
 }
-
-// ─── Provenance ──────────────────────────────────────────────────────────────
 
 /** The derivation bridges that force boundaries to exist. */
 export const DERIVATION_IDS: readonly ['declaration-kinds', 'sdk-generations'] = [
@@ -221,13 +120,9 @@ export const DERIVATION_IDS: readonly ['declaration-kinds', 'sdk-generations'] =
 export type DerivationId = (typeof DERIVATION_IDS)[number];
 
 /**
- * Where a row came from — the anti-rubber-stamp field.
- *
- * Both arms are policed by {@link checkTopologyTotality}: a `derived` row whose
- * bridge does not actually require it is `STALE_DERIVED_PROVENANCE`, and a
- * `declared` row with no rationale is `UNJUSTIFIED_DECLARED_ROW`. So neither
- * "claim derivation you do not have" nor "hand-maintain without saying why"
- * survives review by default.
+ * The origin of a row. {@link checkTopologyTotality} checks both arms. A `derived` row that its
+ * bridge does not require is `STALE_DERIVED_PROVENANCE`. A `declared` row with no reason is
+ * `UNJUSTIFIED_DECLARED_ROW`.
  */
 export type RowProvenance =
   | { readonly kind: 'derived'; readonly from: DerivationId }
@@ -237,14 +132,10 @@ export type RowProvenance =
       readonly whyNotDerivable: string;
     };
 
-// ─── The row ─────────────────────────────────────────────────────────────────
-
 /**
- * One boundary's authority topology. The unit task 025's census ranges over.
- *
- * Shaped so 025 consumes it without reshaping: closure is a pure function of
- * `authority` + `representations`, and `enforceFrom` says whether a break is
- * enforced now or scheduled. No field requires reading the filesystem.
+ * The authority topology of one boundary, and the unit that the census ranges over. Closure is
+ * a pure function of `authority` and `representations`. `enforceFrom` tells if the census
+ * enforces a break now or later. No field needs a filesystem read.
  */
 export interface AuthorityTopologyRow {
   readonly boundary: ContractBoundaryId;
@@ -257,11 +148,9 @@ export interface AuthorityTopologyRow {
   readonly measured: string;
 }
 
-// ─── Derivation bridges ──────────────────────────────────────────────────────
-
 /**
- * A boundary domain owned by ANOTHER module, and the boundaries it forces this
- * table to carry. The mechanism that stops a boundary going missing.
+ * A boundary domain that another module owns, and the boundaries that it forces this table to
+ * carry. This bridge stops a boundary from going missing.
  */
 export interface BoundaryDerivation {
   readonly id: DerivationId;
@@ -277,14 +166,9 @@ export interface BoundaryDerivation {
 }
 
 /**
- * DR-1 declaration kind → the boundary that kind's declarations cross.
- *
- * Total by construction: `Readonly<Record<DeclarationKind, ContractBoundaryId>>`
- * means a fourth {@link DeclarationKind} landing upstream (task 009's
- * `EventRegistration` work, DR-10, DR-19) is a COMPILE error here until its
- * boundary is named. That is the whole derivation: the three declaration
- * boundaries cannot go missing from this table the way the SDK one did, because
- * their existence is not this module's opinion.
+ * Each declaration kind, mapped to the boundary that its declarations cross. The map is total
+ * over {@link DeclarationKind}, so a new kind upstream is a compile error here until its boundary
+ * has a name.
  */
 export const DECLARATION_KIND_BOUNDARIES: Readonly<Record<DeclarationKind, ContractBoundaryId>> =
   Object.freeze({
@@ -294,16 +178,10 @@ export const DECLARATION_KIND_BOUNDARIES: Readonly<Record<DeclarationKind, Contr
   });
 
 /**
- * MCP SDK generation → the representation that generation contributes.
- *
- * Total over {@link SdkGeneration}, the union `architecture/sdk-generation-seam.ts`
- * uses to classify every SDK import. Two consequences, both intended:
- *
- *   • a third generation upstream is a compile error here;
- *   • the sdk-generation row's authority is COMPUTED from this map's size, not
- *     written down. More than one generation IS the contest. So when the DR-26
- *     migration finishes and the seam collapses to one generation, the row stops
- *     reporting `contested` on its own — nobody has to remember to edit it.
+ * Each MCP SDK generation, mapped to the representation that it contributes. The map is total
+ * over {@link SdkGeneration}, so a third generation upstream is a compile error here.
+ * The sdk-generation row computes its authority from the size of this map. When one generation
+ * remains, the row stops reporting `contested` with no edit.
  */
 export const SDK_GENERATION_REPRESENTATIONS: Readonly<Record<SdkGeneration, RepresentationId>> =
   Object.freeze({
@@ -320,13 +198,10 @@ const DECLARATION_KIND_REQUIRED: readonly ContractBoundaryId[] = Object.freeze(
 const SDK_GENERATION_REQUIRED: readonly ContractBoundaryId[] = Object.freeze(['sdk-generation']);
 
 /**
- * Every declared derivation bridge.
- *
- * The declaration kinds arrive as a parameter rather than as an import: this
- * module is conformance code and must not reach into the tree it inspects, so
- * the composition root supplies the real `DECLARATION_KINDS`. Reading the local
- * {@link DECLARATION_KIND_BOUNDARIES} keys instead would make the bridge
- * self-referential — the census would be asserting the table covers itself.
+ * Every declared derivation bridge. The declaration kinds arrive as a parameter, because
+ * conformance code must not reach into the tree that it inspects. The composition root supplies the
+ * real `DECLARATION_KINDS`. The keys of {@link DECLARATION_KIND_BOUNDARIES} are not a substitute,
+ * because then the table checks itself.
  */
 export function boundaryDerivations(
   declarationKinds: readonly DeclarationKind[],
@@ -357,8 +232,6 @@ export function boundaryDerivations(
   ]);
 }
 
-// ─── Helpers for the row table ───────────────────────────────────────────────
-
 const authoritative = (id: RepresentationId): BoundaryRepresentation =>
   Object.freeze({ id, binding: Object.freeze({ kind: 'authoritative' }) });
 
@@ -369,20 +242,18 @@ const unbound = (id: RepresentationId, why: string): BoundaryRepresentation =>
   Object.freeze({ id, binding: Object.freeze({ kind: 'unbound', why }) });
 
 /**
- * The sdk-generation row's representations, read from the derivation bridge.
- *
- * Every generation is `authoritative`: each package root declares its own
- * `Transport`/protocol values and NEITHER is derived from the other. That is not
- * a stylistic call — the seam measured that TypeScript accepts every mixing
- * direction between them, so there is no compile-level binding to appeal to.
+ * The representations of the sdk-generation row, read from the derivation bridge. Every
+ * generation is `authoritative`. Each package root declares its own `Transport` and protocol
+ * values, and neither derives from the other. The seam measured that TypeScript accepts every
+ * mix of the two, so no compile-level binding exists.
  */
 const sdkRepresentations: readonly BoundaryRepresentation[] = Object.freeze(
   Object.values(SDK_GENERATION_REPRESENTATIONS).map(authoritative),
 );
 
 /**
- * The sdk-generation row's authority, computed rather than written: more than
- * one generation is a contest, exactly one is a resolved authority.
+ * The authority of the sdk-generation row, computed and not written. More than one generation is
+ * a contest. Exactly one generation is a resolved authority.
  */
 function sdkAuthority(): BoundaryAuthority {
   const generations: readonly RepresentationId[] = Object.values(SDK_GENERATION_REPRESENTATIONS);
@@ -393,36 +264,14 @@ function sdkAuthority(): BoundaryAuthority {
   return Object.freeze({ kind: 'contested', candidates: Object.freeze([...generations]) });
 }
 
-// ─── The rows ────────────────────────────────────────────────────────────────
-//
-// The spec's authority-topology table, transcribed as data. Measured counts are
-// the ones re-measured against the live tree on 2026-08-07; where a measurement
-// disagreed with the spec's table, the row records what the tree actually says
-// and the `measured` field names the difference.
-//
-// ## What is NOT derivable today, and why (the honest half)
-//
-// Four rows are `declared`, not `derived`. Each carries its own
-// `whyNotDerivable`, but the shared reason is structural: a derivation bridge
-// needs an upstream module that owns an ENUMERABLE domain whose members map onto
-// boundaries or representations. Three of the four boundaries have no such
-// domain — their representations are a handful of heterogeneous artifacts (a Zod
-// schema field, a TypeScript wrapper type, a YAML file, an invariants-catalog
-// paragraph, skill prose) with nothing enumerating them. The fourth,
-// phase-sequencing, has a phase set but it is `ReadonlySet<string>` /
-// `Record<string, …>` — keyed by bare `string`, so there is no union to be total
-// over and no compile-time tooth to hang a bridge on.
-//
-// There is also a hard structural limit on how far this module may go: the DR-1
-// declaration-seam census in `layer-boundaries-seam.ts` FAILS any module that
-// imports the declaration contract and a declaration STORAGE module together.
-// This module imports the contract, so it may never import `registry.ts` — the
-// store that would let it enumerate action descriptors, CLI verbs or event rows
-// directly. Enumerating those live is correctly task 025's job (a source scan,
-// not an import), and this table names the representation CLASS instead of
-// re-listing members it cannot legally read.
-
-/** Every boundary row, keyed by boundary. Total over {@link ContractBoundaryId}. */
+/**
+ * Every boundary row, keyed by boundary. Total over {@link ContractBoundaryId}. When a live
+ * measurement disagrees with the spec table, the row records the tree, and `measured` names the
+ * difference. A `declared` row has no upstream domain whose members map onto its
+ * representations, and `whyNotDerivable` says why. This module imports the declaration contract,
+ * so the declaration-seam census forbids an import of `registry.ts`. So a row names a
+ * representation class, not the members that this module cannot read.
+ */
 export const AUTHORITY_TOPOLOGY: Readonly<Record<ContractBoundaryId, AuthorityTopologyRow>> =
   Object.freeze({
     'action-contract': Object.freeze({
@@ -606,17 +455,13 @@ export const AUTHORITY_TOPOLOGY: Readonly<Record<ContractBoundaryId, AuthorityTo
 
     'effect-event': Object.freeze({
       boundary: 'effect-event',
-      // The plan’s declared emission set is the authority because the carrier
-      // makes it one: a plan that declares an emission is refused the effect
-      // outright without a sink, and reaches a committed value only on one
-      // minted receipt per declared emission. The field is not a description of
-      // what the owner intends to record — it is the precondition of the effect
-      // happening at all, which is what an authority is.
-      //
-      // The TYPE on `EffectEmission.event` is deliberately NOT the reason. It
-      // guarantees a plan cannot name an unregistered event, and that guarantee
-      // belongs to the catalog and cannot fail here; resting the authority on it
-      // would close the row on something no change to this boundary can falsify.
+      /**
+       * The declared emission set is the authority, because the carrier makes it one. The carrier
+       * refuses the effect to a plan that declares an emission and has no sink. The plan commits
+       * only with one minted receipt for each declared emission. The type on
+       * `EffectEmission.event` is not the reason: that guarantee belongs to the catalog and
+       * cannot fail at this boundary.
+       */
       authority: Object.freeze({ kind: 'single', authority: 'EffectPlan.emits' }),
       representations: Object.freeze([
         authoritative('EffectPlan `emits` (`dispatch/core/effect-carrier.ts`)'),
@@ -760,7 +605,7 @@ export const AUTHORITY_TOPOLOGY: Readonly<Record<ContractBoundaryId, AuthorityTo
     }),
   });
 
-/** Every row, ordered by boundary id. The list form task 025's census ranges over. */
+/** Every row, in the order of {@link CONTRACT_BOUNDARIES}. The census ranges over this list. */
 export function topologyRows(): readonly AuthorityTopologyRow[] {
   return Object.freeze(CONTRACT_BOUNDARIES.map((boundary) => AUTHORITY_TOPOLOGY[boundary]));
 }
@@ -779,45 +624,25 @@ export function unboundRepresentations(
   return row.representations.filter((r) => r.binding.kind === 'unbound');
 }
 
-// ─── Totality (the data's own well-formedness check) ─────────────────────────
-//
-// NOT the closure census — that is task 025. This is the narrower claim that the
-// TABLE is well-formed: every row is structurally complete, every row carries an
-// `enforceFrom`, every derivation bridge's requirement is covered, and no row's
-// provenance over-claims. A census over a malformed table would report findings
-// about the table rather than about the tree.
-//
-// It takes `readonly unknown[]` on purpose, mirroring `contract/declaration.ts`'s
-// `isDeclaration`: the type already makes a row without `enforceFrom`
-// unrepresentable in typed code, and the compile-time proofs at the bottom of
-// this file pin that. But a compile-time-only guarantee evaporates the moment the
-// data crosses an `unknown` boundary — which is exactly what happens when task
-// 025 loads rows from a relocated store or a JSON round-trip. Both halves have to
-// hold, so the runtime half is checked here.
-
-/** A totality failure class. */
+/**
+ * A totality failure class. Most names state the fault. `EMPTY_TOPOLOGY` fails closed on zero rows.
+ *
+ * `AUTHORITY_REPRESENTATION_DISAGREEMENT`: the authority arm does not match the count of
+ * authoritative representations. `MISSING_DERIVED_BOUNDARY`: a bridge requires a boundary that no
+ * row covers. `STALE_DERIVED_PROVENANCE`: a row claims `derived`, but its bridge does not require
+ * it. `UNJUSTIFIED_DECLARED_ROW`: the row has no usable provenance.
+ */
 export type TotalityCode =
-  /** Zero rows. The instrument dying green is not a clean bill of health. */
   | 'EMPTY_TOPOLOGY'
-  /** The value is not a structurally complete row. */
   | 'MALFORMED_ROW'
-  /** `boundary` is not one of {@link CONTRACT_BOUNDARIES}. */
   | 'UNKNOWN_BOUNDARY'
-  /** Two rows claim the same boundary. */
   | 'DUPLICATE_BOUNDARY'
-  /** No (or ill-formed) `enforceFrom`. The rule with no blanket allowlist. */
   | 'MISSING_ENFORCE_FROM'
-  /** `authority` absent, or `single` with no id, or `contested` with < 2 candidates. */
   | 'MALFORMED_AUTHORITY'
-  /** No representations, or a representation with no id / no binding. */
   | 'MALFORMED_REPRESENTATIONS'
-  /** The row's authority arm disagrees with its count of authoritative representations. */
   | 'AUTHORITY_REPRESENTATION_DISAGREEMENT'
-  /** A derivation bridge requires a boundary no row covers — the missing-row tooth. */
   | 'MISSING_DERIVED_BOUNDARY'
-  /** A row claims `derived` but no bridge requires it — stale cover. */
   | 'STALE_DERIVED_PROVENANCE'
-  /** A hand-maintained row that never says why it could not be derived. */
   | 'UNJUSTIFIED_DECLARED_ROW';
 
 export interface TotalityDiagnostic {
@@ -897,9 +722,8 @@ function isProvenance(value: unknown): value is RowProvenance {
 }
 
 /**
- * Structural guard for a row arriving from untyped input. Checks every field;
- * the payload semantics (does the wave claim hold? is the authority right?) are
- * the census's business, not the envelope's.
+ * Structural guard for a row from untyped input. It checks every field. The census, not this
+ * guard, judges if the wave claim holds or the authority is right.
  */
 export function isAuthorityTopologyRow(value: unknown): value is AuthorityTopologyRow {
   if (!isRecord(value)) return false;
@@ -922,26 +746,15 @@ function impliedAuthorityKind(count: number): BoundaryAuthority['kind'] {
 }
 
 /**
- * Check the topology's own well-formedness. Pure, total, and FAIL-CLOSED on an
- * empty subject.
+ * Checks that the topology table is well-formed. Pure, total, and fail-closed on an empty subject.
+ * The authority arm of a row must match its count of authoritative representations, whether or
+ * not the copies agree. The check reads `enforceFrom` before the whole-row guard, so the
+ * diagnostic names the missing field.
  *
- * The `AUTHORITY_REPRESENTATION_DISAGREEMENT` tooth is the one that carries G5's
- * sharpest clause into the data model: a row may not record `single` while
- * listing two authoritative representations. "More than one authoritative
- * representation is a finding regardless of whether the copies currently agree"
- * — so whether the copies agree never enters this computation. Only the count
- * does.
- *
- * Both parameters are required. `derivations` cannot default to the live bridge
- * table any more — that table now needs the upstream declaration kinds, which
- * only the composition root can supply — and defaulting `rows` alone while its
- * neighbour is required is not expressible. Making both explicit is the better
- * shape regardless: a census whose denominator arrives by default is one edit
- * away from silently ranging over nothing.
- *
- * @param rows - the rows to check. `unknown[]` so a row missing `enforceFrom`
- *   (unrepresentable in typed code) can still be fed in from a store or fixture.
- * @param derivations - the bridges whose required boundaries must be covered.
+ * @param rows - the rows to check. `unknown[]`, so a store or a fixture can supply a row with no
+ *   `enforceFrom`, which typed code cannot represent.
+ * @param derivations - the bridges whose required boundaries must have a row. It has no default,
+ *   so the census denominator never arrives by default.
  */
 export function checkTopologyTotality(
   rows: readonly unknown[],
@@ -966,9 +779,6 @@ export function checkTopologyTotality(
       ? value['boundary']
       : `row[${index}]`;
 
-    // `enforceFrom` is checked BEFORE the whole-row guard so a row that is
-    // otherwise well-formed reports the specific missing field rather than a
-    // generic malformation. There is no allowlist that skips this.
     if (!isRecord(value) || !isEnforcementPoint(value['enforceFrom'])) {
       diagnostics.push({
         code: 'MISSING_ENFORCE_FROM',
@@ -1097,17 +907,11 @@ export function checkTopologyTotality(
   });
 }
 
-// ─── Compile-time proofs (the real gate is `tsc --noEmit`) ───────────────────
-//
-// Exported type aliases in a NON-TEST source file, per the `_Pola*` idiom in
-// `capabilities/resolver.ts` and the proofs at the bottom of
-// `contract/declaration.ts`: `tsconfig.json` excludes `**/*.test.ts`, so an
-// assertion written in the test file would never be checked by the build.
-//
-// `[A] extends [B]` is tuple-wrapped throughout to suppress distribution over
-// union members — without it a union `A` is checked member-by-member and a proof
-// can report `true` for the wrong reason.
-
+/**
+ * The compile-time proofs below. `tsc --noEmit` is the real gate, and the tsconfig excludes test
+ * files, so the proofs live in this source file. `[A] extends [B]` wraps both sides in a tuple to
+ * stop distribution over a union, which can report `true` for the wrong reason.
+ */
 type Expect<T extends true> = T;
 type Assignable<A, B> = [A] extends [B] ? true : false;
 type NotAssignable<A, B> = [A] extends [B] ? false : true;
@@ -1129,10 +933,8 @@ type WellFormedRow = {
 export type _RowWellFormed_Compiles = Expect<Assignable<WellFormedRow, AuthorityTopologyRow>>;
 
 /**
- * **The load-bearing proof.** A row without `enforceFrom` is NOT a row. Making
- * the field optional flips this to `false` and fails `tsc`, so "every boundary
- * names a wave" is a compiler guarantee, not a reviewer's promise. The runtime
- * half is `MISSING_ENFORCE_FROM` above; both are required.
+ * A row without `enforceFrom` is not a row. If the field becomes optional, this proof fails `tsc`.
+ * `MISSING_ENFORCE_FROM` is the runtime half, and both halves are necessary.
  * @proof
  */
 export type _RowMissingEnforceFrom_FailsCompile = Expect<
@@ -1156,10 +958,8 @@ export type _RowMissingRepresentations_FailsCompile = Expect<
 >;
 
 /**
- * Authority is SINGULAR in the `single` arm. A row naming an ARRAY of
- * authorities does not typecheck, so the G5 "two authorities on one boundary"
- * defect cannot be smuggled into a resolved row — it must be declared
- * `contested`. Mirrors `_DeclarationPluralAuthority_FailsCompile`.
+ * The `single` arm holds one authority. An array of authorities does not typecheck, so a row with
+ * two authorities must declare `contested`.
  * @proof
  */
 export type _AuthorityPluralInSingleArm_FailsCompile = Expect<
@@ -1183,10 +983,8 @@ export type _BoundRepresentationWithoutTarget_FailsCompile = Expect<
 >;
 
 /**
- * **The missing-boundary proof.** Every {@link DeclarationKind} maps to a
- * {@link ContractBoundaryId}, so the declaration-kind boundaries cannot be
- * dropped from {@link CONTRACT_BOUNDARIES} without breaking the compile. This is
- * the type-level half of the guarantee whose runtime half is
+ * Every {@link DeclarationKind} maps to a {@link ContractBoundaryId}. So a declaration-kind
+ * boundary cannot leave {@link CONTRACT_BOUNDARIES} without a compile error. The runtime half is
  * `MISSING_DERIVED_BOUNDARY`.
  * @proof
  */

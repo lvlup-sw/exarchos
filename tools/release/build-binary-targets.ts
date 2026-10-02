@@ -1,21 +1,12 @@
 /**
- * Cross-compile target matrix for the v2.9 install rewrite.
+ * Lists the cross-compile targets of the release binary.
  *
- * Lifted out of `tools/release/build-binary.ts` so `scripts/ci-binary-matrix.test.ts`
- * (and any other contract gate) can import the canonical TARGETS tuple
- * without dragging in the `bun` SDK or the script's top-level build
- * dispatch — vitest's tsx loader can't resolve `import { $ } from 'bun'`,
- * so the test would fail at module-evaluation time before reaching any
- * assertion.
+ * The tuple is in its own file so that tests can import it without the `bun` SDK.
+ * The vitest loader cannot resolve `import { $ } from 'bun'` in `tools/release/build-binary.ts`.
  *
- * Single source of truth for:
- *   1. `tools/release/build-binary.ts` — the `bun build --compile` invoker.
- *   2. `.github/workflows/ci.yml` `binary-matrix.strategy.matrix.target`.
- *   3. `.github/workflows/release.yml` `binary-matrix.strategy.matrix.target`.
- *   4. `scripts/ci-binary-matrix.test.ts` — drift gate.
- *
- * Editing this tuple without updating items 2 and 3 will fail the contract
- * tests (`scripts/ci-binary-matrix.test.ts`, `scripts/release-workflow.test.ts`).
+ * `tools/release/build-binary.ts` reads this tuple. The `matrix.target` lists in
+ * `.github/workflows/ci.yml` and `.github/workflows/release.yml` must match it.
+ * `tests/scripts/ci-binary-matrix.test.ts` and `tests/scripts/release-workflow.test.ts` fail on drift.
  */
 
 export interface Target {

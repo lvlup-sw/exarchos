@@ -1,18 +1,11 @@
 #!/usr/bin/env node
 /**
- * CLI wrapper for the MCP description token-budget guard (issue #1321, R-E).
- * Wired into the root `package.json` as `npm run desc:budget-guard` and run in
- * CI (sibling to the other structural guards). Exits 1 if any enforced
- * description exceeds its budget, 0 otherwise.
+ * CLI for the MCP description token-budget guard. CI runs it as `npm run desc:budget-guard`.
+ * It exits 1 when an enforced description is over its budget, and 0 otherwise.
  *
- * Uses `process.stdout.write` rather than `console.log` so the
- * NoConsoleInProduction guard (`src/logger.test.ts`) stays clean — CLI entry
- * points are production code under that scan — and `process.exitCode = N`
- * rather than `process.exit(N)` so buffered stdout flushes before exit (a
- * piped consumer can otherwise truncate the report). Mirrors
- * `vocabulary-lint-cli.ts`.
- */
-import { formatBudgetReport } from './description-budget.js';
+ * It sets `process.exitCode`, not `process.exit(N)`, so that buffered stdout flushes before
+ * exit. Without this, a piped consumer can get a truncated report.
+ */import { formatBudgetReport } from './description-budget.js';
 import { auditLiveDescriptionBudgets } from './bindings/index.js';
 
 const report = auditLiveDescriptionBudgets();

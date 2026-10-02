@@ -1,19 +1,13 @@
-// ─── P07-04 exit-proof (d) — shared admission-contract CTK ───────────────────
-//
-// The compatibility test kit exercises the runtime admission contract across
-// its declared surface using the shared scenario corpus, and PINS each
-// scenario's declared route + verdict against the real decision path. It also
-// pins the contract-level properties the cross-runtime and replay suites depend
-// on:
-//   • every scenario's outcome matches its declared expectation;
-//   • the decision path is a pure function of its inputs (repeat = identical);
-//   • the corpus spans every route outcome, every requirement kind, and every
-//     policy verdict (a shrinking corpus that stopped covering the surface
-//     would fail here);
-//   • the frozen requirement digest is content-addressed and stable.
-//
-// The corpus lives under `__fixtures__/`, so a reverted `decideAdmission`
-// implementation makes these expectations go red — the kill-probe's contract.
+/**
+ * The admission CTK pins the declared route and verdict of each corpus scenario
+ * against the real decision path. It also pins the properties that the
+ * cross-runtime and replay suites need:
+ *
+ * - The decision path is a pure function of its inputs.
+ * - The corpus spans every route outcome, requirement kind and policy verdict. A
+ *   corpus that stops covering this surface fails here.
+ * - The frozen requirement digest is content-addressed.
+ */
 
 import { describe, it, expect } from 'vitest';
 
@@ -68,17 +62,18 @@ describe('admission CTK — contract-level properties', () => {
     expect([...verdicts].sort()).toEqual(['allow', 'deny', 'indeterminate']);
   });
 
+  /**
+   * The unknown-risk allow scenario freezes the widest requirement set: a gate, one
+   * or more approvals and corroboration. Its `allow` proves that all three kinds are
+   * satisfied, not only resolved.
+   */
   it('Corpus_ExercisesEveryRequirementKind', () => {
-    // The unknown-risk allow scenario freezes gate + approval + corroboration —
-    // the widest requirement set the freezer mints. Its allow proves all three
-    // requirement kinds were satisfied, not merely resolved.
     const widest = admissionScenarioCorpus.find(
       (s) => s.name === 'unknown-risk/allow/gate+approval+corroboration',
     );
     expect(widest, 'widest scenario present').toBeDefined();
     const outcome = decideAdmission(widest!);
     expect(outcome.verdict).toBe('allow');
-    // gate(1) + approval(>=1) + corroboration(1) ⇒ at least three requirements.
     expect(outcome.requirementIds.length).toBeGreaterThanOrEqual(3);
     expect(outcome.satisfiedCount).toBe(outcome.requirementIds.length);
   });

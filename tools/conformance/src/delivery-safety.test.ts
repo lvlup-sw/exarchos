@@ -1,13 +1,8 @@
-// ────────────────────────────────────────────────────────────────────────────
-// DR-30: the delivery population is derived from the import graph — the modules
-// holding a one-hop edge to `channel/delivery.ts` — and checked against the
-// audit's own verdict over that population. The two are independent: the import
-// graph does not know what the audit requires, and the audit does not choose
-// its own subjects. Task 079 replaced a transcribed two-element constant whose
-// test asserted that the constant contained what the constant declared, which
-// is a comparison with itself and cannot fail.
+// The import graph derives the delivery population: the contract module plus each module with a
+// one-hop import edge to it. These tests check the audit verdict over that population. The two
+// stay independent: the graph does not know what the audit requires, and the audit does not
+// pick its own subjects.
 // @oracle-sources: ./delivery-safety.ts, the one-hop import graph resolved from source
-// ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect } from 'vitest';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
@@ -103,50 +98,44 @@ describe('maskLiteralsAndComments', () => {
 });
 
 describe('auditDeliverySafety — live required-delivery modules', () => {
+  /** The verdict must range over a real population, not an empty one. */
   it('the real required-delivery modules contain zero silent swallows', async () => {
     const result = await auditDeliverySafety(SUBJECT_SRC_ROOT, lexModule);
     expect(result.findings).toEqual([]);
     expect(result.ok).toBe(true);
-    // The verdict ranged over a real population, not an empty one.
     expect(result.modules.length).toBeGreaterThan(0);
   });
 
+  /**
+   * The population is the contract module plus each module that imports it. It includes
+   * `events/composite.ts`. It excludes a channel module with no import edge to the contract.
+   * The audit reads exactly the derived modules.
+   */
   it('DeliveryPopulation_IsDerivedFromTheImportGraph_NotTranscribed', async () => {
-    // The superseded assertion here read `expect(REQUIRED_DELIVERY_MODULES)
-    // .toContain('channel/delivery.ts')` — the constant asserted to contain what
-    // the constant declared. A comparison with itself can never disagree, so it
-    // could not detect the thing it existed to detect: a stale list.
-    //
-    // The population is now DERIVED, so this checks a real property instead — the
-    // contract module plus everything that imports it.
     const modules = await resolveRequiredDeliveryModules(SUBJECT_SRC_ROOT, lexModule);
 
     expect(modules, 'the module declaring the contract is always on the path').toContain(
       DELIVERY_CONTRACT_MODULE,
     );
 
-    // The derivation is strictly WIDER than the list it replaced: this importer
-    // was on a required delivery path the whole time and was never scanned.
     expect(
       modules,
       'events/composite.ts calls `deliver` and the transcribed list missed it',
     ).toContain('events/composite.ts');
     expect(modules).toContain('adapters/channel/emitter.ts');
 
-    // …and narrower than "everything under channel/": the discriminant is the
-    // import edge, so channel modules that carry no delivery contract stay out.
     expect(modules).not.toContain('events/channel/priority.ts');
     expect(modules).not.toContain('adapters/channel/formatter.ts');
 
-    // Every derived module is a module the audit actually reads.
     const result = await auditDeliverySafety(SUBJECT_SRC_ROOT, lexModule);
     expect([...result.modules].sort()).toEqual([...modules].sort());
   });
 
+  /**
+   * A module that starts to import the contract joins the population with no list edit, and a
+   * swallow in it fails the audit. A synthetic tree keeps the proof free of the live tree shape.
+   */
   it('DeliveryPopulation_TracksANewImporterWithoutAnEdit', async () => {
-    // The whole point of deriving: a module that starts delivering is covered the
-    // day it lands, not the day someone remembers to widen an array. Proven on a
-    // synthetic tree so the claim does not depend on the live tree's shape.
     const root = await mkdtemp(join(tmpdir(), 'exarchos-delivery-pop-'));
     try {
       await mkdir(join(root, 'events', 'channel'), { recursive: true });
@@ -155,7 +144,6 @@ describe('auditDeliverySafety — live required-delivery modules', () => {
       await writeFile(join(root, 'newcomer/pusher.ts'), '');
       expect(await resolveRequiredDeliveryModules(root, lexModule)).toEqual([DELIVERY_CONTRACT_MODULE]);
 
-      // The newcomer starts importing the contract — no edit to any list.
       await writeFile(
         join(root, 'newcomer/pusher.ts'),
         `import { deliver } from '../events/channel/delivery.js';\nexport const push = () => deliver();\n`,
@@ -165,8 +153,6 @@ describe('auditDeliverySafety — live required-delivery modules', () => {
         'newcomer/pusher.ts',
       ]);
 
-      // …and it is judged, not merely listed: a swallow planted in the newcomer
-      // fails the audit.
       await writeFile(
         join(root, 'newcomer/pusher.ts'),
         `import { deliver } from '../events/channel/delivery.js';\n` +
@@ -181,10 +167,11 @@ describe('auditDeliverySafety — live required-delivery modules', () => {
     }
   });
 
+  /**
+   * The discriminant is an import edge, not the spelling of a path. A module that only names the
+   * contract in a comment is not on the delivery path.
+   */
   it('DeliveryPopulation_ImportInACommentDoesNotEnlistAModule', async () => {
-    // The discriminant is an import EDGE, not the spelling of a path. A module
-    // that merely mentions the contract in prose is not on the delivery path,
-    // and enlisting it would make the population grow by documentation.
     const root = await mkdtemp(join(tmpdir(), 'exarchos-delivery-cmt-'));
     try {
       await mkdir(join(root, 'events', 'channel'), { recursive: true });
@@ -199,34 +186,27 @@ describe('auditDeliverySafety — live required-delivery modules', () => {
     }
   });
 
+  /** "Nothing to check" and "checked, nothing wrong" must not give the same answer. */
   it('DeliverySafety_EmptyPopulation_FailsRatherThanReportingACleanPath', async () => {
-    // NON-EMPTY DENOMINATOR. An empty module list used to produce `ok: true`
-    // with zero findings — the same verdict a clean delivery path produces.
-    // "Nothing to check" and "checked, nothing wrong" must not be the same
-    // answer.
     const result = await auditDeliverySafety(SUBJECT_SRC_ROOT, lexModule, []);
     expect(result.ok).toBe(false);
     expect(result.findings).toEqual([]);
     expect(result.diagnostics.map((d) => d.code)).toEqual(['EMPTY_POPULATION']);
   });
 
+  /**
+   * The empty-population failure, reached through the derivation and not through an explicit `[]`.
+   * If the contract module is absent, the sweep must return the `EMPTY_POPULATION` diagnostic, not
+   * an `ENOENT` throw from `readFile`.
+   */
   it('DeliverySafety_ContractModuleMoved_FailsClosed', async () => {
-    // The same tooth reached through the DERIVATION rather than by passing `[]`:
-    // if the contract module is not where it is declared to be, the population
-    // collapses and the sweep must fail instead of reporting a clean path.
     const root = await mkdtemp(join(tmpdir(), 'exarchos-delivery-gone-'));
     try {
       await writeFile(join(root, 'unrelated.ts'), 'export const x = 1;\n');
-      // No explicit population: this must reach EMPTY_POPULATION through
-      // `resolveRequiredDeliveryModules` itself. Passing `[]` here only restated
-      // the test above it and left the derivation path unexercised — which is
-      // how an unconditional seed made the empty case unreachable in production
-      // while both tests stayed green.
       const result = await auditDeliverySafety(root, lexModule);
       expect(result.ok).toBe(false);
       expect(result.diagnostics[0]?.code).toBe('EMPTY_POPULATION');
       expect(result.diagnostics[0]?.message).toContain(DELIVERY_CONTRACT_MODULE);
-      // …and it is a DIAGNOSTIC, not an ENOENT escaping from `readFile`.
       expect(result.modules).toEqual([]);
     } finally {
       await rmrfAsync(root);
@@ -234,7 +214,6 @@ describe('auditDeliverySafety — live required-delivery modules', () => {
   });
 
   it('FAILS when a required module is replaced by one that silently swallows', async () => {
-    // Point the audit at a fixture module planted with a silent swallow.
     const result = await auditDeliverySafety(FIXTURE_ROOT, lexModule, ['swallows.fixture.ts']);
     expect(result.ok).toBe(false);
     expect(result.findings.length).toBeGreaterThan(0);

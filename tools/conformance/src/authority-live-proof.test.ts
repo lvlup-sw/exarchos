@@ -1,31 +1,18 @@
-// ─── The authority census, proved LIVE against the tree (DR-6, G5, task 026) ─
+// The authority census, proved live against the tree.
 //
-// Task 025's census resolves its `authority` and `binding` hops against task
-// 024's committed rows, and says so as data: the evidence table marks both as
-// `declared-row` — "a committed measurement, not independent evidence about the
-// tree". So the shipped census proves the TABLE is inconsistent. These tests
-// prove the TREE is, by rebuilding the two rows task 026 names FROM SOURCE and
-// running the same unmodified census over them. Since task 066 re-keyed that
-// table by (hop, ROW), these two rows — and only these two — now carry
-// `live-measurement`, with a witness this file resolves against the oracle.
+// The shipped census resolves its `authority` and `binding` hops against committed rows. Its
+// evidence table marks them `declared-row`: a committed measurement, not evidence about the tree.
+// These tests rebuild the measured rows from source and run the same census over them. The
+// measured rows carry `live-measurement`, with a witness that this file resolves against the
+// oracle.
 //
-// Nothing here remediates anything, and nothing here judges: the verdict is
-// `runAuthorityCensus`, with its own finding kinds, its own closure rule and its
-// own per-row `blocking` schedule. Only the evidence class of its input changes.
+// Nothing here remediates or judges. `runAuthorityCensus` gives the verdict, with its own finding
+// kinds, closure rule and per-row `blocking` schedule. Only the evidence class of its input changes.
 //
 // @oracle-sources: ../../audit/core/authority-live-proof.ts, ./authority-topology.ts
 //
-// The two authorities are independent in both senses DR-30 asks about. STATIC:
-// `authority-live-proof.ts` imports only `node:*`, `typescript` and task 020's
-// `cli-derivation-guard.ts` — nothing from `src/`, not even a type — so its
-// transitive module closure and `authority-topology.ts`'s ({contract/
-// declaration.ts, architecture/sdk-generation-seam.ts, review/check-catalog.ts,
-// sdk/brand.ts}) are disjoint in both directions. SEMANTIC: one is a committed
-// human measurement of the tree, written down in a table; the other is an
-// executable measurement that reads the tree now. Those are exactly the two
-// things task 026 exists to compare, and either can disagree with the other —
-// the `PHASE_EXPECTED_EVENTS` partial-binding assertions below are precisely
-// where a drift between them would surface.
+// The two authorities differ in kind. One is a committed human measurement in a table. The other
+// reads the tree now. Either can disagree with the other.
 import { describe, it, expect } from 'vitest';
 import { readFileSync, mkdtempSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -46,9 +33,6 @@ import {
   GOVERNED_SOURCES,
   REPO_ROOT,
 } from '../../audit/core/cli-derivation-guard.js';
-// The namespace import is what lets the evidence table's `oracle.entrypoint`
-// be resolved BY NAME against the oracle's real exports (below) rather than
-// compared against a string another list also restates.
 import * as liveProof from '../../audit/core/authority-live-proof.js';
 import {
   EFFECT_EVENT_REPRESENTATION_IDS,
@@ -85,18 +69,14 @@ import {
   readPhaseEventsSources,
 } from '../../audit/core/authority-live-proof.js';
 
-/** The live composition root task 020's guard governs. */
+/** The live composition root that the CLI derivation guard governs. */
 function governedSourcePath(): string {
   const rel = GOVERNED_SOURCES[0];
   if (rel === undefined) throw new Error('GOVERNED_SOURCES is empty');
   return path.join(REPO_ROOT, rel);
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// Harness — substitute a MEASURED row into the committed topology
-// ════════════════════════════════════════════════════════════════════════════
-
-/** A finding as a comparable tuple, in task 025's own format. */
+/** A finding as a comparable tuple, in the census format. */
 const tupleOf = (f: CensusFinding): string => `${f.boundary} | ${f.hop} | ${f.kind} | ${f.subject}`;
 const tuplesFor = (report: AuthorityCensusReport, boundary: string): readonly string[] =>
   report.findings.filter((f) => f.boundary === boundary).map(tupleOf);
@@ -108,15 +88,13 @@ function committedRow(boundary: string): AuthorityTopologyRow {
 }
 
 /**
- * The live topology: task 024's eight rows, with the two rows under proof
- * replaced by their measured counterparts.
+ * The live topology: the committed rows, with each row under proof replaced by its measured
+ * counterpart.
  *
- * Substitution rather than a two-row subject, deliberately. Running the census
- * over two rows alone would trip `MISSING_DERIVED_BOUNDARY` for the six absent
- * ones and report findings about the subject instead of about the tree; and the
- * six untouched rows are what keeps the cross-row `ambiguous` tooth live, which
- * is the tooth that catches `PHASE_EXPECTED_EVENTS` being relabelled on one of
- * its two carriers and not the other.
+ * A subject with only the measured rows trips `MISSING_DERIVED_BOUNDARY` for the absent rows. The
+ * findings are then about the subject, not the tree. The untouched rows also keep the cross-row
+ * `ambiguous` check live. That check catches a relabel of `PHASE_EXPECTED_EVENTS` on only one of
+ * its two carriers.
  */
 function liveTopology(measured: readonly MeasuredBoundary[]): readonly unknown[] {
   const byBoundary = new Map(measured.map((m) => [m.boundary, m]));
@@ -127,13 +105,12 @@ function liveTopology(measured: readonly MeasuredBoundary[]): readonly unknown[]
 }
 
 /**
- * Give the OTHER carrier of a shared representation the measured binding.
+ * Gives the other carrier of a shared representation the measured binding.
  *
- * `PHASE_EXPECTED_EVENTS` belongs to two boundaries. A counterfactual applied
- * to one of them leaves the other's committed claim behind, which task 025's
- * cross-row arm correctly reports as `ambiguous` — so a fully closed boundary
- * is only reachable when both carriers say what the tree says. Used ONLY to
- * complete that control; nothing here edits a committed row.
+ * `PHASE_EXPECTED_EVENTS` belongs to two boundaries. A counterfactual on one of them leaves the
+ * committed claim of the other, and the cross-row arm reports `ambiguous`. A boundary closes fully
+ * only when both carriers say what the tree says. This function only completes that control. It
+ * does not edit a committed row.
  */
 function alignCarrier(row: unknown, measured: MeasuredBoundary): unknown {
   if (typeof row !== 'object' || row === null) return row;
@@ -165,27 +142,19 @@ function representation(m: MeasuredBoundary, id: string): MeasuredRepresentation
   return rep;
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// The CLI-surface row
-// ════════════════════════════════════════════════════════════════════════════
-
 describe('authority census — the CLI-surface row, live', () => {
+  /**
+   * The CLI derivation guard reads the tree now. A literal bakes a command name into the
+   * composition root, and a computed expression takes it from the registry. The built Commander
+   * tree cannot show this difference, so the guard measures source.
+   *
+   * The totals come from the name list, so a correct paydown moves them together. The test builds
+   * the row from the measurement, compares it with the committed row, and runs the census over it.
+   * The sensitivity control rewrites every literal in memory. The row must then close, and the
+   * other rows must not change.
+   */
   it('AuthorityCensus_CliSurfaceRow_FailsLiveAgainstTheTree', () => {
-    // ── 1. The tree, read now ────────────────────────────────────────────────
-    // Task 020's guard, reused unchanged: it reads `adapters/cli/cli.ts` off disk,
-    // parses it, and classifies each `.command(` argument. A string literal
-    // bakes the name into the composition root; a computed expression takes it
-    // from a registry declaration. That distinction is invisible in the built
-    // Commander tree — `program.command('doctor')` and `program.command(cliName)`
-    // produce byte-identical nodes — which is why this is measured in SOURCE.
     const scan = scanGovernedSources();
-    // The names are the claim; the counts follow from them. `merge-orchestrate`
-    // left this list in task 076, which deleted its hand-written promotion and
-    // moved it onto the registry's `cli.topLevel` hint — so the population is
-    // ten, and the row below says ten. The totals are DERIVED from the name list
-    // rather than written beside it, because a correct paydown moves them all
-    // together and a transcribed total would redden on exactly the change this
-    // census exists to encourage.
     const expectedLiterals = [
       'doctor',
       'emissions',
@@ -204,10 +173,6 @@ describe('authority census — the CLI-surface row, live', () => {
     expect(scan.indeterminate).toHaveLength(0);
     expect(scan.sites).toHaveLength(scan.literals.length + scan.derived.length);
 
-    // ── 2. The row, BUILT from that measurement ──────────────────────────────
-    // The authority arm is computed from the count of authoritative
-    // representations (the `sdkAuthority()` idiom), never written down. There
-    // is no branch that can report `single` while two are present.
     const cli = measureCliSurface(scan);
     expect(cli.authority).toEqual({
       kind: 'contested',
@@ -219,32 +184,17 @@ describe('authority census — the CLI-surface row, live', () => {
       'registry action descriptor (TOOL_REGISTRY)',
       "the 10 hand-written `.command('…')` literals in `adapters/cli/cli.ts`",
     ]);
-    // The derived loops are NOT reported as a second authority — they are bound
-    // to the registry, which is what makes the finding narrow rather than a
-    // blanket complaint about the file.
     expect(representation(cli, 'the registry-derived command tree').binding.kind).toBe('bound');
     expect(derivedSites(representation(cli, 'the registry-derived command tree'))).toHaveLength(3);
 
-    // ── 3. The two authorities agree — which is the corroboration ────────────
-    // The measured representation id reproduces the COMMITTED row's id string,
-    // count included. Task 024 wrote "the 11 hand-written …" from a human read
-    // of the tree; the parser arrives at the same 11 independently. A drift in
-    // the live count changes the id, which changes the census tuple, rather than
-    // hiding inside a number nothing compares.
     const committed = committedRow('cli-surface');
     expect(cli.representations.map((r) => r.id).sort()).toEqual(
       committed.representations.map((r) => r.id).sort(),
     );
     expect(cli.authority).toEqual(committed.authority);
 
-    // ── 4. The census, run over the measured row ─────────────────────────────
     const live = runAuthorityCensus(liveTopology([cli]));
     expect(live.totality.ok).toBe(true);
-    // Every measured row narrowed through `isAuthorityTopologyRow`. Without
-    // this the census would silently drop a malformed measurement and report a
-    // smaller, cleaner tree. `topologyRows().length` (not a transcribed
-    // count) is the independent population `liveTopology` maps over — see
-    // `liveTopology`'s definition below.
     expect(live.evaluatedRows).toBe(live.rowCount);
     expect(live.evaluatedRows).toBe(topologyRows().length);
 
@@ -253,18 +203,11 @@ describe('authority census — the CLI-surface row, live', () => {
     expect(live.openBoundaries).toContain('cli-surface');
     expect(live.closedBoundaries).not.toContain('cli-surface');
 
-    // ── 5. SENSITIVITY CONTROL — the proof goes green when the fact changes ──
-    // The counterfactual is applied to the LIVE source in memory: every baked
-    // `.command('name')` is rewritten to take its name from the registry. If the
-    // proof merely asserted failure it would stay red here.
     const cliSource = readFileSync(governedSourcePath(), 'utf8');
     const derivedEverywhere = cliSource.replace(/\.command\(\s*'[^']*'/g, '.command(cliName');
     expect(derivedEverywhere).not.toBe(cliSource);
 
     const afterScan = scanSourceForCommandSites(derivedEverywhere, GOVERNED_SOURCES[0] ?? 'cli.ts');
-    // The counterfactual PRESERVES the site count and moves every one of them
-    // from `literal` to `derived` — stated against the live scan rather than a
-    // transcribed total, so paying a literal down does not redden the control.
     expect(afterScan.sites).toHaveLength(scan.sites.length);
     expect(afterScan.literals).toHaveLength(0);
     expect(afterScan.derived).toHaveLength(scan.sites.length);
@@ -275,29 +218,27 @@ describe('authority census — the CLI-surface row, live', () => {
     expect(tuplesFor(green, 'cli-surface')).toEqual([]);
     expect(green.closedBoundaries).toContain('cli-surface');
 
-    // The control is specific, not a global amnesty: every OTHER row's findings
-    // are untouched, so the green above is the cli-surface fact moving and
-    // nothing else.
     expect(green.findings.filter((f) => f.boundary !== 'cli-surface').map(tupleOf)).toEqual(
       live.findings.filter((f) => f.boundary !== 'cli-surface').map(tupleOf),
     );
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// The event-catalog row
-// ════════════════════════════════════════════════════════════════════════════
-
 describe('authority census — the event-catalog row, live', () => {
+  /**
+   * The parsed events must be contained in the live registry, because `registerEventType` can add
+   * types at runtime. Every `PHASE_EVENT_CONTRACTS` row and emission row names its event as a
+   * literal, so both representations are unbound. Skill prose is unbound by structure.
+   *
+   * `PHASE_EXPECTED_EVENTS` must stay unbound on both carriers, so a relabel on one row cannot hide
+   * the finding. If all literals but one are derived, the row stays open. The full remediation
+   * closes the row only when both carriers align. The phase-sequencing row then reports
+   * `stale-exception`, because the event registry is not its HSM-guard authority.
+   */
   it('AuthorityCensus_EventCatalogRow_FailsLiveAgainstTheTree', () => {
     const sources = readEventCatalogSources();
     const catalog = measureEventCatalog(sources);
 
-    // ── 1. The authority, read from its own declaration ──────────────────────
-    // Cross-checked against the LIVE imported registry. The parse is a static
-    // under-approximation (`registerEventType` can add custom types at runtime),
-    // so the claim is containment, not equality — stated rather than smoothed
-    // over. A parse that lost entries would break this immediately.
     const liveEvents: ReadonlyMap<string, string> = new Map(
       Object.entries(EVENT_EMISSION_REGISTRY),
     );
@@ -308,19 +249,6 @@ describe('authority census — the event-catalog row, live', () => {
     }
     expect(catalog.modelEvents.size).toBeGreaterThan(0);
 
-    // ── 2. `PHASE_EXPECTED_EVENTS` — the partial-binding trap, MEASURED ──────
-    // 2 of 6 entries derive; 4 are hand-written literal arrays. The module-load
-    // loop validates that every event the table LISTS is registered and
-    // `model`-sourced, and can never see an event that should be listed and is
-    // not. Partial derivation is therefore not a binding, and the measurement
-    // records the split rather than collapsing it to a verdict.
-    // ── 2. `PHASE_EVENT_CONTRACTS` — declared rows, MEASURED ─────────────────
-    // The contract declares which phase expects which event. Every row names its
-    // event as a literal: the fact is authored here and validated against the
-    // registry at load, never computed from it — so the representation is
-    // unbound by the census's rule, and honestly so. The old half-derived gate
-    // table this section used to measure is now a projection of these rows and
-    // is measured by the `phase-events` row below.
     const phase = representation(catalog, EVENT_CATALOG_REPRESENTATION_IDS.phaseExpectedEvents);
     expect(phase.sites.length).toBeGreaterThan(10);
     expect(derivedSites(phase)).toHaveLength(0);
@@ -336,7 +264,6 @@ describe('authority census — the event-catalog row, live', () => {
     expect(literalSites(emissionRows)).toHaveLength(emissionRows.sites.length);
     expect(emissionRows.binding.kind).toBe('unbound');
 
-    // ── 4. Skill prose — unbound structurally, not by measurement outcome ────
     const prose = representation(catalog, EVENT_CATALOG_REPRESENTATION_IDS.prose);
     expect(prose.sites.length).toBeGreaterThan(0);
     expect(new Set(prose.sites.map((s) => s.file)).size).toBeGreaterThan(1);
@@ -347,12 +274,8 @@ describe('authority census — the event-catalog row, live', () => {
     }
     expect(prose.binding.kind).toBe('unbound');
 
-    // ── 5. The census, run over the measured row ─────────────────────────────
     const live = runAuthorityCensus(liveTopology([catalog]));
     expect(live.totality.ok).toBe(true);
-    // Derived against the same independent population as the cli-surface
-    // proof above — `liveTopology` maps over every row `topologyRows()`
-    // returns.
     expect(live.evaluatedRows).toBe(topologyRows().length);
     expect(tuplesFor(live, 'event-catalog')).toEqual([
       `event-catalog | binding | missing | ${EVENT_CATALOG_REPRESENTATION_IDS.prose}`,
@@ -361,12 +284,6 @@ describe('authority census — the event-catalog row, live', () => {
     ]);
     expect(live.ok).toBe(false);
 
-    // ── 6. The cross-row tooth is NOT undone ─────────────────────────────────
-    // `PHASE_EXPECTED_EVENTS` is carried by BOTH the event-catalog and the
-    // phase-sequencing rows. The measured row must keep claiming `unbound` for
-    // it, because relabelling it here and not there would launder the finding
-    // out of half the table while every per-row count stayed put — which task
-    // 025 added the cross-row `ambiguous` arm to catch.
     const carriers = live.findings.filter(
       (f) => f.subject === EVENT_CATALOG_REPRESENTATION_IDS.phaseExpectedEvents,
     );
@@ -374,13 +291,6 @@ describe('authority census — the event-catalog row, live', () => {
     expect(carriers.map((f) => f.kind)).toEqual(['missing', 'missing']);
     expect(live.findings.filter((f) => f.hop === 'binding' && f.kind === 'ambiguous')).toEqual([]);
 
-    // ── 7. SENSITIVITY CONTROL A — the partial-binding trap itself ───────────
-    // Derive FIVE of the six entries and leave one literal. If the proof
-    // measured "a derivation exists" it would go green here; it must not,
-    // because G5 is a claim about the population. This is the control that
-    // separates measuring the fact from measuring the presence of a check.
-    // All but one row computed must NOT close the row — partial derivation is
-    // not a binding over the population.
     const onlyOneLeft = spliceSites(
       sources.phaseExpectedEvents,
       literalSites(phase).slice(0, -1),
@@ -419,9 +329,6 @@ describe('authority census — the event-catalog row, live', () => {
 
     const remediated = measureEventCatalog({
       authority: sources.authority,
-      // The per-event tier/lifecycle declarations the emission source is derived from (task 011);
-      // unmodified here, because this counterfactual remediates the REPRESENTATIONS, not the
-      // authority.
       annotations: sources.annotations,
       emissions: emissionsDerived,
       phaseExpectedEvents: allDerived,
@@ -433,9 +340,6 @@ describe('authority census — the event-catalog row, live', () => {
     expect(representation(remediated, EVENT_CATALOG_REPRESENTATION_IDS.emissions).binding.kind).toBe(
       'bound',
     );
-    // The prose representation does not become "bound" — it ceases to exist.
-    // Markdown has no expression that could derive it, so the only way for it to
-    // stop being a finding is for it to stop being a representation.
     expect(remediated.representations.map((r) => r.id)).not.toContain(
       EVENT_CATALOG_REPRESENTATION_IDS.prose,
     );
@@ -443,27 +347,12 @@ describe('authority census — the event-catalog row, live', () => {
     const green = runAuthorityCensus(liveTopology([remediated]));
     expect(green.totality.ok).toBe(true);
 
-    // All three of the row's OWN findings are gone — the fact moved, and the
-    // proof followed it.
     expect(tuplesFor(green, 'event-catalog').filter((t) => t.includes('| missing |'))).toEqual([]);
 
-    // What is left is trap #2, live. `PHASE_EXPECTED_EVENTS` is carried by two
-    // rows; the counterfactual derives it for the event-catalog row and leaves
-    // the phase-sequencing row's committed claim saying `unbound`. Task 025's
-    // cross-row arm reports that disagreement on BOTH carriers rather than
-    // letting half the table go quiet — which is exactly the laundering it was
-    // added to catch, and this is the first time it has fired against a real
-    // change rather than a fixture. Task 026 does not undo it.
     const stale = `binding | ambiguous | ${EVENT_CATALOG_REPRESENTATION_IDS.phaseExpectedEvents}`;
     expect(tuplesFor(green, 'event-catalog')).toEqual([`event-catalog | ${stale}`]);
     expect(tuplesFor(green, 'phase-sequencing')).toContain(`phase-sequencing | ${stale}`);
 
-    // And the genuinely-closed state, to complete the control: the boundary
-    // closes clean once BOTH carriers of the representation record what the
-    // (counterfactual) tree says. Carried here as a fixture only — task 026
-    // measures the event-catalog row and does not move the phase-sequencing
-    // row, whose other representation (the phase playbooks) stays unbound
-    // either way.
     const closed = runAuthorityCensus(
       liveTopology([remediated]).map((row) => alignCarrier(row, remediated)),
     );
@@ -472,15 +361,6 @@ describe('authority census — the event-catalog row, live', () => {
     expect(closed.closedBoundaries).toContain('event-catalog');
     expect(closed.openBoundaries).toContain('phase-sequencing');
 
-    // And a finding worth stating plainly, surfaced by running the control
-    // rather than by reasoning about it: binding `PHASE_EXPECTED_EVENTS` to the
-    // EVENT registry does not bind it to the HSM guard. The phase-sequencing
-    // row's authority is `HSM guard (INV-9)`, so the aligned claim points
-    // somewhere that row does not declare, and task 025's two-way ratchet
-    // reports it as `stale-exception` instead of accepting the label. ONE
-    // representation carried by two boundaries needs a binding per boundary —
-    // deriving the event names says nothing about whether the phase KEYS track
-    // the HSM phase set, which is the gap the phase-sequencing row records.
     expect(tuplesFor(closed, 'phase-sequencing')).toEqual([
       `phase-sequencing | binding | stale-exception | ${EVENT_CATALOG_REPRESENTATION_IDS.phaseExpectedEvents}`,
       'phase-sequencing | binding | missing | the phase playbooks',
@@ -488,18 +368,18 @@ describe('authority census — the event-catalog row, live', () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// The empty-denominator posture
-// ════════════════════════════════════════════════════════════════════════════
-
 describe('authority census — the live proof fails closed', () => {
+  /**
+   * Every scan fails closed on an empty population. An empty registry, a renamed phase table and an
+   * unknown property each throw. So do an empty emission-row scan, an empty prose corpus, an empty
+   * CLI scan and a missing tree. A recovered parse is fatal and names this module.
+   *
+   * The emission-row scan counts only emission rows, not every `event:` key. A prose corpus with no
+   * match is a valid empty report. The census itself still refuses an empty subject.
+   */
   it('AuthorityCensus_LiveProof_ZeroSubjectsResolved_FailsClosed', () => {
     const sources = readEventCatalogSources();
 
-    // ── The authority ────────────────────────────────────────────────────────
-    // A registry that parses cleanly and declares nothing. Without this tooth
-    // the model-event set is empty, no prose mention can match, and the prose
-    // representation quietly disappears from the boundary.
     expect(() =>
       measureStringValuedEntries(
         'export const EVENT_EMISSION_REGISTRY = {};\n',
@@ -511,9 +391,6 @@ describe('authority census — the live proof fails closed', () => {
       measureStringValuedEntries('export const somethingElse = 1;\n', 'fixture.ts', 'EVENT_EMISSION_REGISTRY'),
     ).toThrow(/ZERO string-valued entries/);
 
-    // ── The phase table ──────────────────────────────────────────────────────
-    // A renamed or moved constant must fail, not report a bound representation
-    // because it found no unbound entries.
     expect(() =>
       measureObjectLiteralEntries(
         sources.phaseExpectedEvents,
@@ -522,26 +399,14 @@ describe('authority census — the live proof fails closed', () => {
       ),
     ).toThrow(/resolved ZERO sites/);
 
-    // ── The emission-row population ──────────────────────────────────────────
-    // The generic helper, on a property name nothing declares.
     expect(() =>
       measurePropertyAssignments(sources.emissions, EVENT_CATALOG_SOURCES.emissions, 'autoEmitz'),
     ).toThrow(/resolved ZERO sites/);
 
-    // The row scan itself. These rows have already moved once — they were a
-    // sibling `autoEmits:` array before the action contract absorbed them, and
-    // the scan that went looking for the old name resolved zero sites. It threw
-    // instead of reporting a catalog with nothing unbound in it, which is the
-    // only reason the move was visible at all. The tooth stays.
     expect(() => measureActionEmissions('export const nothing = 1;\n', 'fixture.ts')).toThrow(
       /resolved ZERO sites/,
     );
 
-    // …and it must stay SPECIFIC to emission rows. `event:` on its own also
-    // appears on the postcondition rows and in the request schemas; counting
-    // those would inflate the denominator with sites that say nothing about
-    // this representation, and would keep the scan alive on a tree where every
-    // real emission row had been deleted.
     expect(() =>
       measureActionEmissions(
         "const x = { source: 'event-append', when: 'success', event: 'export.executed' };\n",
@@ -554,11 +419,6 @@ describe('authority census — the live proof fails closed', () => {
     );
     expect(oneRow.map((s) => [s.subject, s.kind])).toEqual([['workflow.started', 'literal']]);
 
-    // ── The prose corpus ─────────────────────────────────────────────────────
-    // The tooth is on the CORPUS, not on the result: an empty corpus is a broken
-    // scan and throws; a non-empty corpus in which nothing matches is the honest
-    // report that the representation is absent (control B above depends on being
-    // able to tell those apart).
     expect(() => measureProseEventMentions([], new Set(['team.spawned']))).toThrow(/corpus is EMPTY/);
     expect(() => measureProseEventMentions(sources.docs, new Set())).toThrow(
       /event set is EMPTY/,
@@ -567,10 +427,6 @@ describe('authority census — the live proof fails closed', () => {
       measureProseEventMentions([{ file: 'x.md', text: 'no events here' }], new Set(['team.spawned'])),
     ).toEqual([]);
 
-    // ── The CLI scan ─────────────────────────────────────────────────────────
-    // A composition root that registers nothing is a broken scan, not a
-    // boundary with one authority. Task 020's guard fails closed first; the
-    // measurement fails closed too when handed a scan it did not produce.
     expect(() => measureCliSurface({ sites: [], literals: [], derived: [], indeterminate: [] })).toThrow(
       /ZERO `\.command\(` sites/,
     );
@@ -581,31 +437,29 @@ describe('authority census — the live proof fails closed', () => {
       /does not exist/,
     );
 
-    // ── Reading the tree ─────────────────────────────────────────────────────
     expect(() => readEventCatalogSources(mkdtempSync(path.join(tmpdir(), 'imo-026-')))).toThrow(
       /is not a directory/,
     );
 
-    // ── A recovered parse is fatal, and carries THIS module's name ───────────
     expect(() => measureObjectLiteralEntries('const x = (;', 'broken.ts', 'X')).toThrow(
       /authority-live-proof: broken\.ts did not parse cleanly/,
     );
 
-    // ── And the census itself still refuses an empty subject ─────────────────
-    // The proof cannot pass by handing the shipped census nothing to range over.
     const empty = runAuthorityCensus([]);
     expect(empty.ok).toBe(false);
     expect(empty.bindingSubjectCount).toBe(0);
   });
 
+  /**
+   * The evidence is keyed by hop and row, so only the measured rows carry `live-measurement`. The
+   * other rows stay weaker on both hops. Each witness names a module, an exported entrypoint and the
+   * tree paths that it reads. The test resolves each part against the oracle exports, through the
+   * namespace import. The witness paths must equal the source lists of the oracle.
+   *
+   * The live report must match the committed report over the whole table, finding for finding.
+   * `bindingFor` gives `bound` only when every site is derived.
+   */
   it('AuthorityCensus_LiveProof_UpgradesEvidenceForTheMeasuredRowsOnly', () => {
-    // What the oracle did and did NOT earn, stated where CI can see it.
-    //
-    // The evidence field is keyed by (hop, ROW) precisely so this cannot be an
-    // all-or-nothing flip: moving `authority`/`binding` away from `declared-row`
-    // wholesale would claim live evidence for all eight rows when only the
-    // measured ones have any. These rows, and only these, have a measurement
-    // that reads the tree.
     const LIVE = ['cli-surface', 'effect-event', 'event-catalog', 'phase-events'];
     expect([...liveMeasuredBoundaries()].sort()).toEqual(LIVE);
     for (const boundary of topologyRows().map((r) => r.boundary)) {
@@ -613,7 +467,6 @@ describe('authority census — the live proof fails closed', () => {
       expect(rowEvidence(boundary).authority.evidence).toBe('live-measurement');
       expect(rowEvidence(boundary).binding.evidence).toBe('live-measurement');
     }
-    // The rest earned nothing and stay strictly weaker on both row-resolved hops.
     const declaredOnly = topologyRows()
       .map((r) => r.boundary)
       .filter((b) => !LIVE.includes(b));
@@ -623,11 +476,6 @@ describe('authority census — the live proof fails closed', () => {
       expect(rowEvidence(boundary).binding.evidence).not.toBe('live-measurement');
     }
 
-    // ── The witness is checked, not described ────────────────────────────────
-    // Every `live-measurement` entry names a module, an exported entrypoint and
-    // the tree paths the measurement reads. Here — the one place that can import
-    // BOTH the evidence table and the oracle — each part is resolved against the
-    // oracle itself, so a row cannot claim a live measurement by describing one.
     const oracleExports: Record<string, unknown> = { ...liveProof };
     const declaredSubjects = new Set<string>();
     for (const boundary of liveMeasuredBoundaries()) {
@@ -644,10 +492,6 @@ describe('authority census — the live proof fails closed', () => {
         }
       }
     }
-    // …and the declared subject set is exactly what the oracle's own source
-    // lists say it reads — DERIVED from `GOVERNED_SOURCES` +
-    // `EVENT_CATALOG_SOURCES`, never restated here. A source added to either
-    // list without reaching the evidence table fails this.
     expect([...declaredSubjects].sort()).toEqual(
       [
         ...new Set([
@@ -672,11 +516,6 @@ describe('authority census — the live proof fails closed', () => {
       'phase-events',
     ]);
 
-    // The live report and the committed report agree, finding for finding, over
-    // the WHOLE table. That is the corroboration this proof exists to produce:
-    // the measured rows for these boundaries were not merely plausible, they
-    // are what the tree says. The action-contract row names the closure
-    // instrument and is closed; it does not report an enforcement stale-exception.
     const committedReport = runAuthorityCensus();
     const liveReport = runAuthorityCensus(liveTopology(measured));
     expect(liveReport.findings.map(tupleOf)).toEqual(committedReport.findings.map(tupleOf));
@@ -692,8 +531,6 @@ describe('authority census — the live proof fails closed', () => {
       ),
     ).toBe(false);
 
-    // `bindingFor` is total over the two outcomes, and the rule is the one thing
-    // this module decides: all-derived is bound, anything else is not.
     const derived: MeasuredSite = {
       file: 'f.ts',
       line: 1,
@@ -717,10 +554,14 @@ describe('authority census — the live proof fails closed', () => {
     expect(bindingFor([literal], 'A', 'how', 'why').kind).toBe('unbound');
   });
 
+  /**
+   * The witness on the row resolves to `measureEffectEvent`. The ledger owner names the event that
+   * it appends from the emission that it gets. The promoter discards the emission and hands a typed
+   * record to a destination that its caller owns. Both mint a receipt, so only this measurement can
+   * tell them apart. A sink rewritten to ignore the emission must be unbound, and the unmutated
+   * sinks must still bind. A deleted commit gate must remove the authority claim.
+   */
   it('AuthorityLiveProof_EffectEventRow_NamesItsOracleModule', () => {
-    // The witness on the row resolves: the module exists, the entrypoint is a
-    // real exported function of it, and both hops name the same one. A row can
-    // otherwise claim a live measurement by describing one.
     for (const hop of ['authority', 'binding'] as const) {
       const cell = rowEvidence('effect-event')[hop];
       expect(cell.evidence).toBe('live-measurement');
@@ -734,22 +575,12 @@ describe('authority census — the live proof fails closed', () => {
     const sources = readEffectEventSources();
     const measured = measureEffectEvent(sources);
 
-    // What the tree says, stated as the split it actually is. The ledger owner
-    // names the event it appends off the emission it was handed; the promoter
-    // discards the emission and hands a typed record to a destination its caller
-    // owns. Both mint a receipt, so the carrier's commit gate cannot tell them
-    // apart — this measurement is the only thing that can.
     expect(measured.authority).toEqual({ kind: 'single', authority: EFFECT_PLAN_AUTHORITY });
     const bindingById = new Map(measured.representations.map((r) => [r.id, r.binding.kind]));
     expect(bindingById.get(EFFECT_EVENT_REPRESENTATION_IDS.plan)).toBe('authoritative');
     expect(bindingById.get(EFFECT_EVENT_REPRESENTATION_IDS.vcsLedger)).toBe('bound');
     expect(bindingById.get(EFFECT_EVENT_REPRESENTATION_IDS.promotion)).toBe('unbound');
 
-    // The COUNTERFACTUAL, applied to the exact span the measurement classified.
-    // Rewrite the ledger owner's sink into one that ignores the emission and the
-    // representation must stop being bound — otherwise `bound` here is a
-    // property of the code being present, not of it deriving anything, and the
-    // row would close on a sink that had quietly stopped following the plan.
     const vcsSinks = measureEmissionSinks(sources.vcsLedger, EFFECT_EVENT_SOURCES.vcsLedger);
     expect(vcsSinks.length).toBeGreaterThan(0);
     expect(literalSites({ id: 'x', binding: { kind: 'authoritative' }, sites: vcsSinks })).toEqual(
@@ -763,13 +594,8 @@ describe('authority census — the live proof fails closed', () => {
     const blindedSinks = measureEmissionSinks(blinded, EFFECT_EVENT_SOURCES.vcsLedger);
     expect(blindedSinks.every((s) => s.kind === 'literal')).toBe(true);
     expect(bindingFor(blindedSinks, EFFECT_PLAN_AUTHORITY, 'how', 'why').kind).toBe('unbound');
-    // CONTROL: the unmutated sinks still bind, so the flip above is attributable
-    // to the splice and not to the re-measurement being broken.
     expect(bindingFor(vcsSinks, EFFECT_PLAN_AUTHORITY, 'how', 'why').kind).toBe('bound');
 
-    // Deleting the commit gate must take the authority claim with it. Without
-    // this the `single` authority above would survive the field becoming a
-    // comment, which is the whole difference between a declaration and a rule.
     const gutted = sources.carrier.split('throw new UnrecordedEmissionError').join('void 0; //');
     expect(() => measureEffectEvent({ ...sources, carrier: gutted })).toThrow(
       /ZERO .*UnrecordedEmissionError/,
@@ -778,34 +604,33 @@ describe('authority census — the live proof fails closed', () => {
 });
 
 describe('authority census — the phase-events row, live', () => {
+  /**
+   * Every declared row names its event as a literal. The gate tables and the playbook rows are
+   * computed from the contract, so they bind. The prose is authored and unbound. The row starts to
+   * block at a later `atWave`, so at the default the prose finding does not block.
+   */
   it('AuthorityCensus_PhaseEventsRow_DerivedSurfacesAreBoundAndProseIsNot', () => {
     const sources = readPhaseEventsSources();
     const measured = measurePhaseEvents(sources);
 
-    // The authority: every declared row names its event as a literal.
     const authority = representation(measured, PHASE_EVENTS_REPRESENTATION_IDS.authority);
     expect(authority.sites.length).toBeGreaterThan(10);
     expect(derivedSites(authority)).toHaveLength(0);
 
-    // The gate tables: both computed from the contract.
     const gate = representation(measured, PHASE_EVENTS_REPRESENTATION_IDS.gate);
     expect(gate.sites.map((s) => s.subject).sort()).toEqual([...GATE_TABLES].sort());
     expect(literalSites(gate)).toHaveLength(0);
     expect(gate.binding.kind).toBe('bound');
 
-    // The playbooks: every `events` / `autoEmittedEvents` row computed.
     const playbooks = representation(measured, PHASE_EVENTS_REPRESENTATION_IDS.playbooks);
     expect(playbooks.sites.length).toBeGreaterThan(30);
     expect(literalSites(playbooks)).toHaveLength(0);
     expect(playbooks.binding.kind).toBe('bound');
 
-    // The prose: authored, counted, unbound.
     const prose = representation(measured, PHASE_EVENTS_REPRESENTATION_IDS.prose);
     expect(prose.sites.length).toBeGreaterThan(0);
     expect(prose.binding.kind).toBe('unbound');
 
-    // The census over the live row: open on the prose alone. The row enforces
-    // from wave-5, so at the default wave the finding is reported, not blocking.
     const live = runAuthorityCensus(liveTopology([measured]));
     expect(live.totality.ok).toBe(true);
     expect(tuplesFor(live, 'phase-events')).toEqual([
@@ -819,13 +644,16 @@ describe('authority census — the phase-events row, live', () => {
     ).toEqual([]);
   });
 
+  /**
+   * A playbook row or a gate table written back as a literal reopens the binding. A renamed gate
+   * table fails closed and does not measure nothing.
+   */
   it('AuthorityCensus_PhaseEventsRow_ASeededBakedRowIsNamed', () => {
     const sources = readPhaseEventsSources();
     const measured = measurePhaseEvents(sources);
     const playbooks = representation(measured, PHASE_EVENTS_REPRESENTATION_IDS.playbooks);
     const gate = representation(measured, PHASE_EVENTS_REPRESENTATION_IDS.gate);
 
-    // One playbook row written back as a literal array reopens the binding.
     const [firstRow] = playbooks.sites;
     expect(firstRow).toBeDefined();
     if (firstRow === undefined) return;
@@ -842,7 +670,6 @@ describe('authority census — the phase-events row, live', () => {
       `phase-events | binding | missing | ${PHASE_EVENTS_REPRESENTATION_IDS.playbooks}`,
     );
 
-    // A gate table written back as a literal reopens the binding.
     const [gateSite] = gate.sites;
     expect(gateSite).toBeDefined();
     if (gateSite === undefined) return;
@@ -854,7 +681,6 @@ describe('authority census — the phase-events row, live', () => {
       ).binding.kind,
     ).toBe('unbound');
 
-    // A renamed gate table fails closed rather than measuring nothing.
     expect(() =>
       measurePhaseEvents({
         ...sources,
@@ -863,11 +689,13 @@ describe('authority census — the phase-events row, live', () => {
     ).toThrow(/exports no constant named PHASE_EXPECTED_EVENTS/);
   });
 
+  /**
+   * A site that is not a literal is not bound for that reason. A conditional with a baked name, an
+   * unrelated helper, or the correct projection from the wrong module each compute a value without
+   * the contract. Each reads `opaque` and reopens the binding. With the wrong import, only the
+   * serializer copies of a row still bind.
+   */
   it('AuthorityCensus_PhaseEventsRow_ADerivedSiteNotComputedFromTheContractIsNamed', () => {
-    // "Not a literal" is not "bound": a conditional carrying a baked name, an
-    // unrelated helper, or the right projection imported from the wrong module
-    // each compute a value without reaching the contract. Each reads `opaque`
-    // and reopens the binding.
     const sources = readPhaseEventsSources();
     const measured = measurePhaseEvents(sources);
     const [gateSite] = representation(measured, PHASE_EVENTS_REPRESENTATION_IDS.gate).sites;
@@ -913,19 +741,19 @@ describe('authority census — the phase-events row, live', () => {
       measurePhaseEvents({ ...sources, playbooks: elsewhere }),
       PHASE_EVENTS_REPRESENTATION_IDS.playbooks,
     );
-    // Every projection call is opaque now; only the serializer's copies of a row still bind.
     expect(importedElsewhere.sites.filter((s) => s.kind === 'derived').length).toBeLessThan(4);
     expect(importedElsewhere.sites.filter((s) => s.kind === 'opaque').length).toBeGreaterThan(60);
     expect(importedElsewhere.binding.kind).toBe('unbound');
   });
 
+  /**
+   * The binder reads the whole initializer, not its two ends. A projection call in a chain, a
+   * spread or a fallback carries what the wrapper adds. A same-named property on anything but a
+   * `PhasePlaybook` parameter is a second table. Each such site reads `opaque`, and the serializer
+   * copies stay `derived`. A named callback resolves to its declaration, so a callback that
+   * rewrites a field is not a clone. The test declares it on the same line, so no site line moves.
+   */
   it('AuthorityCensus_PhaseEventsRow_AWrappedProjectionOrAForeignCopyIsOpaque', () => {
-    // The binder reads the WHOLE initializer, not its two ends. A projection
-    // call wrapped in a chain, a spread or a fallback carries whatever the
-    // wrapper adds; a same-named property read off anything but a playbook is
-    // a second table. Each such site reads `opaque` and reopens the binding,
-    // while the serializer's live copies — read off a `PhasePlaybook`
-    // parameter — stay `derived`.
     const sources = readPhaseEventsSources();
     const measured = measurePhaseEvents(sources);
     const playbooks = representation(measured, PHASE_EVENTS_REPRESENTATION_IDS.playbooks);
@@ -968,7 +796,6 @@ describe('authority census — the phase-events row, live', () => {
       expect(rows.binding.kind, foreign).toBe('unbound');
     }
 
-    // The receiver IS a parameter, declared with another type: still not a measured row.
     const retyped = sources.playbooks.replace(
       '  playbook: PhasePlaybook,\n): SerializedPhasePlaybook {',
       '  playbook: SerializedPhasePlaybook,\n): SerializedPhasePlaybook {',
@@ -976,10 +803,6 @@ describe('authority census — the phase-events row, live', () => {
     expect(retyped).not.toBe(sources.playbooks);
     expect([...opaqueLines(playbookRowsOf(retyped))].sort()).toEqual(copySites.map((s) => s.line).sort());
 
-    // A NAMED callback is resolved to its declaration and read: one that
-    // rewrites a field is not a clone, however clone-shaped its call site is.
-    // Declared on the SAME line so no site's line number shifts, and spliced
-    // from the original offsets before the declaration is inserted.
     const rewriter = spliceSites(
       sources.playbooks,
       [copySite],
@@ -1006,12 +829,12 @@ describe('authority census — the phase-events row, live', () => {
     expect(gateRows.binding.kind).toBe('unbound');
   });
 
+  /**
+   * `events` instructs the model, and `autoEmittedEvents` discloses what the runtime fires. A row
+   * that calls the projection of the other property swaps these semantics. Thus each property binds
+   * only through its own projection.
+   */
   it('AuthorityCensus_PhaseEventsRow_APlaybookRowCallingTheOtherPropertysProjectionIsOpaque', () => {
-    // `events` instructs the model; `autoEmittedEvents` discloses what the
-    // runtime fires. A row that calls the other property's projection has
-    // swapped model-owned for runtime-owned semantics — the exact
-    // disagreement the contract ends — so each property binds through its own
-    // projection alone, not through a shared pool of both.
     const sources = readPhaseEventsSources();
     const playbooks = representation(
       measurePhaseEvents(sources),

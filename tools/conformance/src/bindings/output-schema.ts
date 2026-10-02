@@ -1,24 +1,16 @@
-// RESERVED(issue: #1473, owner: exarchos, expires: 2027-02-28) — the composition root for DR-4's
-// outputSchema vacuity census. No production importer by design: it binds an instrument that
-// governs the tool registry rather than participating in it, and its consumers are that census's
-// suite plus the `output-schema-ratchet-guard` CI entrypoint. Deleted when the census is.
-//
+// RESERVED(issue: #1473, owner: exarchos, expires: 2027-02-28) — the composition root for the
+// `outputSchema` vacuity census. It has no production importer by design, because it binds an
+// instrument that governs the tool registry. Its consumers are tests and audit tools, such as the
+// `output-schema-ratchet-guard` CI entrypoint. Delete it with the census.
 /**
- * Bindings for the `outputSchema` vacuity census (DR-4).
+ * Bindings for the `outputSchema` vacuity census. Its five subjects are the tool registry, the
+ * envelope walker, the totality predicate, the vacuity allowlist and the frozen pin.
  *
- * Five subjects, which is why this census was the heaviest to invert: the tool
- * registry, the envelope walker, the totality predicate, the vacuity allowlist
- * and its frozen pin.
+ * The allowlist stays in `src/`, because production types import `VacuityWaiverId` from it. The
+ * census thus takes its data as parameters, and this module binds the live data.
  *
- * The plan expected the two `output-schema-*` data files to migrate WITH the
- * conformance package. They cannot: `registry.ts` and `output-schema-declaration.ts`
- * both import `VacuityWaiverId` from the allowlist, so it is pinned to `src/` by
- * production types. Parameterising the census and binding the data here is the
- * shape the tree actually permits.
- *
- * `registry.ts` is a DR-1 declaration STORE, so this module must not import a
- * contract module (`contract/declaration.ts`, `contract/declaration-seam.ts`).
- * See `./README.md`.
+ * `registry.ts` is a declaration store, so this module must not import a contract module
+ * (`contract/declaration.ts`, `contract/declaration-seam.ts`).
  */
 import { TOOL_REGISTRY } from '../../../../src/registry.js';
 import { extractEnvelopeDataSchema } from '../../../../src/verbs/worktree/schemas.js';
@@ -104,7 +96,7 @@ export function auditLiveVacuityRatchet(
   return auditVacuityRatchet(membership, seed);
 }
 
-/** DR-4's ratchet whole, as of a named day. This is what the CI guard runs. */
+/** The whole ratchet as of a named day. The CI guard computes the same verdict. */
 export function auditLiveVacuityRatchetAsOf(
   today: string,
   membership: VacuityAllowlistAudit = auditLiveVacuityAllowlist(),

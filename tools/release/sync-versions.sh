@@ -1,25 +1,21 @@
 #!/usr/bin/env bash
-# sync-versions.sh — propagate `package.json` version to every derived call
-# site. `package.json` is the single source of truth (DIM-1: topology); every
-# other site is a mechanical projection of it.
+# sync-versions.sh — propagate the `package.json` version to every derived call
+# site. `package.json` is the single source of truth. Every other site is a
+# mechanical projection of it.
 #
 # Sinks:
 #   JSON:
 #     .claude-plugin/plugin.json   .version
 #                                  .metadata.compat.minBinaryVersion
 #     manifest.json                .version
-#     (the nested server manifest was dissolved by task 019)
-#       package.json
+#     the --mcp-package file       .version (no default)
 #
 #   TypeScript string literals (under <mcp-src-dir>/):
 #     index.ts                          export const SERVER_VERSION = '…'
-#     adapters/mcp.ts                   const SERVER_VERSION = '…'
+#     adapters/mcp/mcp.ts               const SERVER_VERSION = '…'
 #
-#   Note: adapters/cli.ts used to be a sink (.version('…') + binaryVersion: '…')
-#   but since #1219 it reads the version at runtime via resolvePackageVersion()
-#   and is no longer a literal sink. The former cli-commands/session-start sink
-#   was likewise removed when P5 of the rehydration-machinery refactor deleted
-#   that file wholesale. Both are intentionally absent from this list.
+#   adapters/cli/cli.ts is not a sink. It reads the version at runtime through
+#   resolvePackageVersion().
 #
 # Modes:
 #   default            patch every sink
@@ -44,10 +40,9 @@ fi
 PLUGIN_JSON="${REPO_ROOT}/.claude-plugin/plugin.json"
 MANIFEST_JSON="${REPO_ROOT}/manifest.json"
 PACKAGE_JSON="${REPO_ROOT}/package.json"
-# Task 019 dissolved the nested server manifest, so there is no second
-# manifest sink in this repo any more. Left empty (the -f guards below skip
-# it) rather than pointed at package.json, which would make the check compare
-# the source of truth against itself and always pass.
+# The repo has no second manifest sink, so this is empty and the -f guards
+# below skip it. It does not point at package.json, because then the check
+# compares the source of truth against itself and always passes.
 MCP_PACKAGE_JSON=""
 MCP_SRC_DIR="${REPO_ROOT}/src"
 CHECK_MODE=false

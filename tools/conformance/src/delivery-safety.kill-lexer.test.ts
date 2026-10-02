@@ -1,18 +1,14 @@
-// ────────────────────────────────────────────────────────────────────────────
-// DR-2 / task 072 — the kill fixture for THIS site's lexer port.
+// Kill fixture for the lexer port of this site.
 //
-// `maskLiteralsAndComments` was a hand-rolled character walk until task 072. A
-// port that is never shown to DIFFER from what it replaced has not been shown to
-// be needed, so the retired walk is kept verbatim in
-// `test-helpers/superseded-site-lexers.ts`, assembled here into a lexer, and
-// both instruments are run over the SAME inputs with BOTH answers asserted.
+// `maskLiteralsAndComments` reads its masked source from a module lexer. The retired character
+// walk stays verbatim in `test-helpers/superseded-site-lexers.ts`, and this file wraps it as a
+// lexer. A port that never differs from the walk is not shown to be necessary. Thus this file runs
+// both instruments over the same inputs and asserts both answers.
 //
-// The inputs are task 065's, read from the one shared table
-// (`test-helpers/adversarial-lexer-inputs.ts`) — DR-2 forbids a fourth. Only the
-// PAYLOAD is this site's: a gate that hunts silent swallows cannot be killed by
-// a hidden `node:fs` import.
+// The inputs come from the shared table in `test-helpers/adversarial-lexer-inputs.ts`, and a site
+// must not add its own table. Only the payload is specific to this site: a hidden `node:fs`
+// import cannot kill a gate that finds silent swallows.
 // @oracle-sources: ./delivery-safety.ts, ../../test-helpers/superseded-site-lexers.ts
-// ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect } from 'vitest';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
@@ -31,12 +27,10 @@ import { ADVERSARIAL_INPUTS } from '../../test-helpers/adversarial-lexer-inputs.
 import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 /**
- * The gate as it behaved BEFORE task 072: the same swallow rules, driven by the
- * retired mask.
+ * The gate with the retired mask: the same swallow rules, driven by the retired walk.
  *
- * `imports` is empty because the retired walk answered no such question — the
- * population derivation used a SECOND instrument, a raw-source regex, which is
- * the drift the port removes. Nothing in this file reads it.
+ * `imports` is empty because the retired walk did not answer that question. The population
+ * derivation used a separate raw-source regex. Nothing in this file reads `imports`.
  */
 const SUPERSEDED_LEXER: ModuleLexer = (source: string) => ({
   imports: [],
@@ -65,26 +59,31 @@ const EXPECTATIONS: readonly {
     parse: ['empty-catch'],
     heuristic: ['empty-catch'],
   },
+  /**
+   * Kill, in the dangerous direction for a delivery gate. The walk has no regex-literal state, so
+   * the lone `'` in `/['"]/` opens a string that does not close on its line. The mask then blanks
+   * the real `catch {}` below it, and a module that discards a delivery failure scans clean.
+   */
   {
-    // KILL — the dangerous direction for a delivery gate. This walk has no
-    // regex-literal state, so the lone `'` inside `/['"]/` opens a string that
-    // never closes on its line and the mask blanks the real `catch {}` below it.
-    // A module that discards a required-delivery failure scans CLEAN.
     name: "a regex literal containing a ' quote, in operand position",
     parse: ['empty-catch'],
     heuristic: [],
   },
+  /**
+   * Kill, in the same direction by a different route. The backtick in the regex opens a phantom
+   * template that runs to the end of the file.
+   */
   {
-    // KILL — same direction, different route: the backtick inside the regex
-    // opens a phantom template that runs to EOF.
     name: 'a regex literal containing a BACKTICK, in operand position',
     parse: ['empty-catch'],
     heuristic: [],
   },
+  /**
+   * Kill, in the other direction. The walk masked a template literal whole, so its state inverted
+   * on the nested template and unmasked its body. The reported `catch {}` exists only as template
+   * text.
+   */
   {
-    // KILL — the other direction. The walk masked a template literal whole,
-    // which inverted its state on the nested one and un-masked its body. The
-    // `catch {}` reported here exists only as template TEXT.
     name: 'a nested template literal inside a `${…}` substitution',
     parse: [],
     heuristic: ['empty-catch'],
@@ -95,10 +94,12 @@ const kindsUnder = (lex: ModuleLexer, source: string): string[] =>
   findSilentSwallows(source, lex).map((finding) => finding.kind);
 
 describe('DR-2 kill fixture — delivery-safety.maskLiteralsAndComments, both instruments', () => {
+  /**
+   * The expectation table must match the shared input table, so a row dropped from either side
+   * fails. The test also asserts which rows disagree. If the two instruments never differ, the
+   * port changed nothing here.
+   */
   it('DeliverySafety_AdversarialSet_ParseAndHeuristicAnswersAreBothPinned', () => {
-    // NON-EMPTY, DERIVED DENOMINATOR. The expectation table is checked against
-    // the SHARED input table rather than trusted: a row silently dropped from
-    // either side would shrink the scan without shrinking the claim.
     expect(ADVERSARIAL_INPUTS.length).toBeGreaterThan(0);
     expect(EXPECTATIONS.map((row) => row.name)).toEqual(
       ADVERSARIAL_INPUTS.map((input) => input.name),
@@ -116,8 +117,6 @@ describe('DR-2 kill fixture — delivery-safety.maskLiteralsAndComments, both in
       if (JSON.stringify(parsed) !== JSON.stringify(heuristic)) disagreeing.push(row.name);
     }
 
-    // The kill fixture's own vacuity guard. A table on which the two instruments
-    // never differ would prove the port changed nothing here.
     expect(disagreeing).toEqual([
       "a regex literal containing a ' quote, in operand position",
       'a regex literal containing a BACKTICK, in operand position',
@@ -125,9 +124,11 @@ describe('DR-2 kill fixture — delivery-safety.maskLiteralsAndComments, both in
     ]);
   });
 
+  /**
+   * The false negative, which is the direction that matters. The module discards a delivery
+   * failure, and the retired mask blanks the evidence.
+   */
   it('DeliverySafety_RegexHoldingABacktick_HidesARealSilentSwallow', () => {
-    // The FALSE NEGATIVE, which is the direction that matters: the module really
-    // does discard a delivery failure, and the retired mask blanked the evidence.
     const source = ADVERSARIAL_INPUTS[3]?.withPayload(PAYLOAD) ?? '';
     expect(source, 'the shared table no longer holds the backtick construct').toContain('isTick');
 
@@ -138,9 +139,11 @@ describe('DR-2 kill fixture — delivery-safety.maskLiteralsAndComments, both in
     expect(kindsUnder(lexModule, source)).toEqual(['empty-catch']);
   });
 
+  /**
+   * The false positive. The module holds no `catch` statement. The text sits inside a template
+   * nested in a `${…}` substitution.
+   */
   it('DeliverySafety_NestedTemplateSubstitution_InventsASwallowFromTemplateText', () => {
-    // The FALSE POSITIVE. The module contains no `catch` statement at all; the
-    // text sits inside a template nested in a `${…}` substitution.
     const source = ADVERSARIAL_INPUTS[4]?.withPayload(PAYLOAD) ?? '';
     expect(source, 'the shared table no longer holds the nested-template construct').toContain(
       '${',
@@ -153,45 +156,46 @@ describe('DR-2 kill fixture — delivery-safety.maskLiteralsAndComments, both in
     expect(kindsUnder(lexModule, source)).toEqual([]);
   });
 
+  /**
+   * The other deliberate difference of the port, which is a widening. A `${…}` substitution is
+   * code. The retired walk masked the whole template, so it did not see a swallow in a substitution.
+   */
   it('DeliverySafety_SwallowInsideASubstitution_IsNowSeenRatherThanMaskedWithTheTemplate', () => {
-    // The port's other deliberate difference, and it is a widening: a `${…}`
-    // substitution IS code. The retired walk masked the whole template, so a
-    // real swallow written inside a substitution was invisible.
     const source = 'export const doc = `outer ${ (() => { try { s(); } catch {} })() } end`;';
     expect(kindsUnder(SUPERSEDED_LEXER, source)).toEqual([]);
     expect(kindsUnder(lexModule, source)).toEqual(['empty-catch']);
   });
 
+  /**
+   * An `import('p').T` type query splits in two. The swallow scan counts no imports, so both
+   * instruments agree. The population derivation used a raw-source regex that requires `import`
+   * at line start and a `from`. A type query has neither, so that regex did not enlist a module
+   * whose only edge to the contract is a type query. The port reports the edge and enlists the
+   * module, so the sweep gets wider and not narrower.
+   */
   it('DeliverySafety_ImportTypeQuery_DoesNotAffectTheSwallowScanButDoesEnlistAModule', () => {
-    // Task 065 flagged `import('p').T` miscounting as likely present in all three
-    // surviving sites. Measured here it splits in two:
-    //
-    //   • the SWALLOW scan counts no imports at all, so the miscount cannot
-    //     arise — both instruments agree;
-    //   • the POPULATION derivation did count imports, with a raw-source regex
-    //     requiring `import` at line start and a `from`. A type query has
-    //     neither, so a module whose only edge to the contract is a type query
-    //     was never enlisted and never scanned.
-    //
-    // The port reports the edge, so it is now enlisted. That is the fail-closed
-    // direction: the sweep gets wider, never narrower.
     const swallow = ["export type H = import('node:fs').Stats;", PAYLOAD].join('\n');
     expect(kindsUnder(SUPERSEDED_LEXER, swallow)).toEqual(['empty-catch']);
     expect(kindsUnder(lexModule, swallow)).toEqual(['empty-catch']);
   });
 
+  /**
+   * A partial tree loses literal spans. A module whose `catch {}` fell out of the tree then reads
+   * as clean, so the scan refuses a recovered parse.
+   */
   it('DeliverySafety_RecoveredParse_IsRefusedRatherThanScannedClean', () => {
-    // Inherited from the port. A partial tree loses literal spans, so a module
-    // whose `catch {}` fell out of the tree reads as clean and PASSES.
     const broken = 'try { s(); } catch {}\nexport const x = {{{;';
     expect(() => findSilentSwallows(broken, lexModule)).toThrow(/did not parse cleanly/);
   });
 });
 
 describe('DR-2 — the population derivation reads the SAME parse', () => {
+  /**
+   * The population half of the type-query finding, on a synthetic tree. The claim thus does not
+   * depend on the shape of the live tree. The length check proves that the derivation resolved a
+   * real population.
+   */
   it('DeliveryPopulation_TypeQueryEdge_IsEnlistedByTheParseAndWasMissedByTheRegex', async () => {
-    // The population half of the `import('p').T` finding, on a synthetic tree so
-    // the claim does not depend on the live tree's shape.
     const root = await mkdtemp(join(tmpdir(), 'exarchos-delivery-typequery-'));
     try {
       await mkdir(join(root, dirname(DELIVERY_CONTRACT_MODULE)), { recursive: true });
@@ -204,8 +208,6 @@ describe('DR-2 — the population derivation reads the SAME parse', () => {
       const modules = await resolveRequiredDeliveryModules(root, lexModule);
       expect(modules).toEqual([DELIVERY_CONTRACT_MODULE, 'typequery.ts']);
 
-      // NON-EMPTY DENOMINATOR: the derivation resolved a real population, so the
-      // membership claim above is not an artefact of an empty sweep.
       expect(modules.length).toBeGreaterThan(0);
     } finally {
       await rmrfAsync(root);
