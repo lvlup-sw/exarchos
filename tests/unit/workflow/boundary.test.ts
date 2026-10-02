@@ -17,11 +17,8 @@ import type { EventType as ExternalEventType } from '../../../src/events/schemas
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 /**
- * Cross-module boundary integration tests (Gap 2 from audit).
- *
- * These tests exercise real module boundaries — no mocks at boundaries.
- * Each test validates that data written through one module is correctly
- * read and interpreted by another module.
+ * Cross-module boundary tests with no mocks at the boundaries.
+ * Each test writes data through one module and reads it through another.
  */
 describe('Cross-Module Boundary Tests', () => {
   let stateDir: string;
@@ -33,8 +30,6 @@ describe('Cross-Module Boundary Tests', () => {
   afterEach(async () => {
     await rmrfAsync(stateDir);
   });
-
-  // ─── Helpers ──────────────────────────────────────────────────────────────
 
   async function readRawState(featureId: string): Promise<Record<string, unknown>> {
     const stateFile = path.join(stateDir, `${featureId}.state.json`);
@@ -79,7 +74,6 @@ describe('Cross-Module Boundary Tests', () => {
         events = appended.events;
         eventSequence = appended.eventSequence;
 
-        // Also emit to external event store for handleSummary compatibility
         if (eventStore) {
           await eventStore.append(featureId, {
             type: mapInternalToExternalType(te.type) as ExternalEventType,
@@ -117,7 +111,6 @@ describe('Cross-Module Boundary Tests', () => {
     return { success: true };
   }
 
-  /** Advance feature workflow: ideate → plan → plan-review → delegate */
   async function advanceToDelegate(featureId: string, eventStore?: EventStore): Promise<void> {
     const es = eventStore ?? null;
     await handleSet(
@@ -140,8 +133,6 @@ describe('Cross-Module Boundary Tests', () => {
     await handleSet({ featureId, phase: 'delegate' }, stateDir, es);
   }
 
-  // ─── Test 1: handleSet → handleGet round-trip ─────────────────────────────
-
   it('HandleSet_ThenHandleGet_RoundTrip — write then read artifact via dot-path', async () => {
     await handleInit({ featureId: 'round-trip', workflowType: 'feature' }, stateDir, null);
 
@@ -160,8 +151,6 @@ describe('Cross-Module Boundary Tests', () => {
     expect(result.success).toBe(true);
     expect(result.data).toBe('docs/design.md');
   });
-
-  // ─── Test 2: Nested object updates preserve siblings ──────────────────────
 
   it('HandleSet_NestedObjectUpdate_PreservesSiblings — sequential updates dont clobber', async () => {
     await handleInit({ featureId: 'siblings', workflowType: 'feature' }, stateDir, null);
@@ -186,12 +175,10 @@ describe('Cross-Module Boundary Tests', () => {
     expect(artifacts.plan).toBe('b');
   });
 
-  // ─── Test 3: Phase transition with dynamic guard field ────────────────────
-
+  /** The guard on the plan-review to delegate transition reads `planReview.approved`. */
   it('HandleSet_PhaseTransition_WithDynamicGuardField — dynamic fields survive read for guard eval', async () => {
     await handleInit({ featureId: 'guard-dynamic', workflowType: 'feature' }, stateDir, null);
 
-    // Advance to plan-review
     await handleSet(
       { featureId: 'guard-dynamic', updates: { 'artifacts.design': 'design.md' } },
       stateDir,
@@ -205,14 +192,12 @@ describe('Cross-Module Boundary Tests', () => {
     );
     await handleSet({ featureId: 'guard-dynamic', phase: 'plan-review' }, stateDir, null);
 
-    // Set dynamic field via handleSet
     await handleSet(
       { featureId: 'guard-dynamic', updates: { planReview: { approved: true } } },
       stateDir,
       null,
     );
 
-    // Transition to delegate — guard reads planReview.approved (dynamic field)
     const result = await handleSet(
       { featureId: 'guard-dynamic', phase: 'delegate' },
       stateDir,
@@ -223,8 +208,6 @@ describe('Cross-Module Boundary Tests', () => {
     const data = result.data as Record<string, unknown>;
     expect(data.phase).toBe('delegate');
   });
-
-  // ─── Test 4: Init → Set → Get preserves all default fields ───────────────
 
   it('HandleInit_ThenHandleSet_ArtifactUpdate_FullStatePreserved — all defaults intact', async () => {
     await handleInit({ featureId: 'full-state', workflowType: 'feature' }, stateDir, null);
@@ -246,45 +229,39 @@ describe('Cross-Module Boundary Tests', () => {
     expect(state.worktrees).toEqual({});
     expect(state.reviews).toEqual({});
     expect(state.synthesis).toBeDefined();
-    // _events and _eventSequence removed from schema — events now in external JSONL store
     expect(state._checkpoint).toBeDefined();
-    // Event summary no longer in _meta — use handleSummary for event info
     const meta = result._meta as Record<string, unknown>;
     expect(meta).toBeDefined();
   });
 
-  // ─── Test 5: Circuit breaker end-to-end with real events ──────────────────
-
+  /**
+   * Each fix cycle moves review back to delegate through `transitionRaw`.
+   * That helper also appends the transition events to the event store, because `handleSummary` reads them there.
+   */
   describe('HandleSummary_CircuitBreakerState_MatchesRealEvents', () => {
     it('should report correct fixCycleCount from real state-machine events', async () => {
       const eventStore = new EventStore(stateDir);
       await handleInit({ featureId: 'cb-e2e', workflowType: 'feature' }, stateDir, eventStore);
 
-      // Advance to delegate (pass eventStore so transitions are recorded)
       await advanceToDelegate('cb-e2e', eventStore);
 
-      // Perform 2 fix cycles: delegate → review (fail) → delegate
       for (let i = 0; i < 2; i++) {
-        // delegate → review: append team.disbanded event to event store
         await eventStore.append('cb-e2e', {
           type: 'team.disbanded',
           data: { totalDurationMs: 5000, tasksCompleted: 1, tasksFailed: 0 },
         });
         await handleSet({ featureId: 'cb-e2e', phase: 'review' }, stateDir, eventStore);
 
-        // Set review as failed
         await handleSet(
           { featureId: 'cb-e2e', updates: { 'reviews.spec': { status: 'fail' } } },
           stateDir,
           eventStore,
         );
 
-        // review → delegate (fix cycle) — reviews is in Zod schema, so handleSet works
         const fixResult = await transitionRaw('cb-e2e', 'delegate', eventStore);
         expect(fixResult.success).toBe(true);
       }
 
-      // Verify circuit breaker state via handleSummary
       const summaryResult = await handleSummary({ featureId: 'cb-e2e' }, stateDir, eventStore);
       expect(summaryResult.success).toBe(true);
 
@@ -296,29 +273,26 @@ describe('Cross-Module Boundary Tests', () => {
       expect(circuitBreaker.maxFixCycles).toBe(3);
     });
 
+    /** Three fix cycles reach the limit for the implementation compound state. */
     it('should show circuit breaker open after max fix cycles', async () => {
       const eventStore = new EventStore(stateDir);
       await handleInit({ featureId: 'cb-open', workflowType: 'feature' }, stateDir, eventStore);
 
       await advanceToDelegate('cb-open', eventStore);
 
-      // Perform 3 fix cycles (max for implementation compound): delegate → review (fail) → delegate
       for (let i = 0; i < 3; i++) {
-        // delegate → review: append team.disbanded event to event store
         await eventStore.append('cb-open', {
           type: 'team.disbanded',
           data: { totalDurationMs: 5000, tasksCompleted: 1, tasksFailed: 0 },
         });
         await handleSet({ featureId: 'cb-open', phase: 'review' }, stateDir, eventStore);
 
-        // Set review as failed
         await handleSet(
           { featureId: 'cb-open', updates: { 'reviews.spec': { status: 'fail' } } },
           stateDir,
           eventStore,
         );
 
-        // review → delegate (fix cycle)
         const fixResult = await transitionRaw('cb-open', 'delegate', eventStore);
         expect(fixResult.success).toBe(true);
       }
@@ -334,14 +308,13 @@ describe('Cross-Module Boundary Tests', () => {
     });
   });
 
-  // ─── Test 6: executeTransition events → getFixCycleCount consistency ──────
-
+  /**
+   * The events start with a `compound-entry` for `implementation`.
+   * `getFixCycleCount` counts only the fix-cycle events after the last such entry.
+   */
   it('CircuitBreaker_EndToEnd_StateMachineFixCycleEventsMatchReaderKey', () => {
     const hsm = getHSMDefinition('feature');
 
-    // Simulate: at review phase with a failed review.
-    // Must include compound-entry for 'implementation' because getFixCycleCount
-    // only counts fix-cycle events AFTER the last compound-entry anchor.
     const compoundEntry: Event = {
       sequence: 1,
       version: '1.0',
@@ -360,11 +333,9 @@ describe('Cross-Module Boundary Tests', () => {
       _history: {},
     };
 
-    // Execute fix-cycle transition: review → delegate
     const result = executeTransition(hsm, state, 'delegate');
     expect(result.success).toBe(true);
 
-    // Build event array starting with the compound-entry anchor
     let events: Event[] = [compoundEntry];
     let seq = 1;
     for (const te of result.events) {
@@ -379,7 +350,6 @@ describe('Cross-Module Boundary Tests', () => {
       seq = appended.eventSequence;
     }
 
-    // getFixCycleCount (from events.ts) should find the fix-cycle event
     const count = getFixCycleCount(events, 'implementation');
     expect(count).toBe(1);
   });

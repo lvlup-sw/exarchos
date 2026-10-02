@@ -1,3 +1,8 @@
+/**
+ * Characterization tests that lock the `kind` tag of each HSM state.
+ * Only atomic states carry a `kind`. Compound and final states carry none.
+ */
+
 import { describe, it, expect } from 'vitest';
 import {
   createFeatureHSM,
@@ -8,13 +13,6 @@ import {
 } from '../../../src/workflow/hsm-definitions.js';
 import type { HSMDefinition, State } from '../../../src/workflow/state-machine.js';
 import type { PhaseKind } from '../../../src/workflow/phase-kind.js';
-
-// ─── Task 003 (DR-2): characterization of the kind-tag classification ────────
-//
-// These tests LOCK the current state → kind classification before any behavior
-// change (Feathers-style). The `kind` tag lives on the obligation layer; the
-// state names/transitions remain bespoke (INV-6 variation layer). Compound and
-// final states are exempt — only `type === 'atomic'` states carry a `kind`.
 
 const ALL_KINDS: readonly PhaseKind[] = ['IMPLEMENT', 'PLAN', 'REVIEW', 'SYNTHESIZE', 'MERGE', 'GATHER'];
 
@@ -31,11 +29,10 @@ function kindOf(state: State): string | undefined {
   return (state as { kind?: string }).kind;
 }
 
-// The complete, locked state-id → kind classification per HSM (compound + final
-// states are intentionally absent — they carry no kind).
+/** The expected kind of each atomic state, per HSM. Compound and final states carry no kind, so they are absent. */
 const LOCKED_CLASSIFICATION: Record<string, Record<string, PhaseKind>> = {
   feature: {
-    // DR-4 (#1581): ideate (GATHER) removed — plan is initial.
+    /** The feature HSM has no ideate state. `plan` is its initial state. */
     plan: 'PLAN',
     'plan-review': 'PLAN',
     delegate: 'IMPLEMENT',
@@ -82,8 +79,7 @@ const LOCKED_CLASSIFICATION: Record<string, Record<string, PhaseKind>> = {
   },
 };
 
-// The six implement snowflakes (DR-2): each lives in a different HSM/track but
-// all must resolve to the single IMPLEMENT kind so S2 reaches every one.
+/** The implement state of each HSM track. Each one must have the kind IMPLEMENT. */
 const IMPLEMENT_SNOWFLAKES: ReadonlyArray<{ hsm: string; state: string }> = [
   { hsm: 'feature', state: 'delegate' },
   { hsm: 'refactor', state: 'overhaul-delegate' },

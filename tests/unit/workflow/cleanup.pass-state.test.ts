@@ -1,48 +1,14 @@
-// ─── DR-8 — the cleanup pass-state fix is retired ────────────────────────────
+// Cleanup satisfies its merge guard only from evidence in the state.
+// The retired `pass-state-fix` wrote the guard inputs and then asked the guard for permission.
 //
-// ## Characterization (captured against the pre-DR-8 `cleanup.ts`)
+// `state.reviews` is read-only evidence, and cleanup does not set a review to approved.
+// `_cleanup.mergeVerified` is the verdict of `collectCleanupEvidence`.
+// That verdict needs every existing review status to be `approved`, and a merge artifact reference.
+// A reference is `synthesis.prUrl`, `artifacts.pr`, or `synthesis.mergedBranches`.
+// The `state.patched` backfill does not carry `reviews`.
 //
-// `handleCleanup` used to run, immediately before the guarded transition that
-// evaluates `guards.mergeVerified`:
-//
-//     for (const [, value] of Object.entries(reviews)) {
-//       ... entry.status = 'approved';           // and nested sub-reviews
-//     }
-//     mutableState._cleanup = { mergeVerified: true };
-//
-// Measured on the real handler with
-//   reviews = { 't1': { status: 'needs_fixes' },
-//               't2': { specReview: { status: 'fail' } } }
-// and NO merge artifact anywhere in state:
-//   • result.success ............. true
-//   • persisted phase ............ 'completed'
-//   • persisted t1.status ........ 'approved'   (rewritten)
-//   • persisted t2.specReview .... 'approved'   (rewritten)
-//
-// The guard could not fail: production code wrote the guard's own inputs and
-// then asked the guard for permission. That is the `pass-state-fix` class
-// `retirement/retirement-safety.ts` declares as an `AuthorityKind`.
-//
-// ## What changed
-//
-//   1. The force-approval loop is gone. `state.reviews` is READ-ONLY evidence.
-//   2. `_cleanup.mergeVerified` is no longer stamped `true`; it is the verdict
-//      of `collectCleanupEvidence`, which requires
-//        (a) every review status that exists to already read 'approved', and
-//        (b) a typed merge artifact reference (synthesis.prUrl / artifacts.pr /
-//            synthesis.mergedBranches).
-//      Absent evidence ⇒ `mergeVerified: false` ⇒ the guarded primitive REJECTS
-//      the transition. Cleanup fails honestly instead of manufacturing a pass.
-//   3. The `state.patched` backfill no longer carries `reviews` — there is no
-//      review mutation left to patch.
-//
-// ## Why the structural assertion below exists
-//
-// Behavioural tests prove the fix is gone today; they do not stop it coming
-// back through a different line of code. `RETIRED_AUTHORITIES` in
-// `retirement/retirement-safety.ts` carries the forbidden source patterns and
-// `scanRetiredAuthorityReintroduction` runs them over the REAL production tree
-// (tests excluded), so a reintroduction goes red mechanically.
+// Behavior tests do not stop the retired pattern from coming back in other code.
+// Thus `scanRetiredAuthorityReintroduction` runs the forbidden patterns over the production tree, with tests excluded.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -62,10 +28,8 @@ import {
 } from '../../../src/workflow/retirement/retirement-safety.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
-// ─── Real production-source loader (mirrors retirement-safety.test.ts) ───────
-
 const HERE = dirname(fileURLToPath(import.meta.url));
-const SRC_ROOT = resolve(HERE, '../../../src'); // …/src
+const SRC_ROOT = resolve(HERE, '../../../src');
 
 const TEST_PATH_RE = /\.(test|spec|bench)\.[cm]?[jt]sx?$/;
 const TEST_DIR_RE =
@@ -75,6 +39,7 @@ function isTestPath(rel: string): boolean {
   return TEST_PATH_RE.test(rel) || TEST_DIR_RE.test(rel);
 }
 
+/** Loads every TypeScript module under `root`, skips `node_modules` and `dist`, and marks test paths. */
 function collectSourceModules(root: string): readonly SourceModule[] {
   const modules: SourceModule[] = [];
   const walk = (dir: string): void => {
@@ -96,8 +61,6 @@ function collectSourceModules(root: string): readonly SourceModule[] {
 }
 
 const REAL_MODULES = collectSourceModules(SRC_ROOT);
-
-// ─── Behavioural fixtures ────────────────────────────────────────────────────
 
 let tmpDir: string;
 
@@ -126,10 +89,11 @@ async function writeRawState(
 }
 
 describe('DR-8 — cleanup satisfies its guard by evidence', () => {
+  /**
+   * A merge artifact is already in the state, so the only missing evidence is the review approvals.
+   * The guard fails, and cleanup changes no review.
+   */
   it('Cleanup_UnapprovedReviews_DoesNotForceApprove', async () => {
-    // Arrange — the EXACT characterized fixture, plus a real merge artifact
-    // ALREADY IN STATE (T-12: caller-supplied prUrl is post-guard metadata, not
-    // evidence) so the ONLY missing evidence is the review approvals.
     await handleInit({ featureId: 'ps-unapproved', workflowType: 'feature' }, tmpDir, null);
     const raw = await readRawState('ps-unapproved');
     raw.phase = 'review';
@@ -143,7 +107,6 @@ describe('DR-8 — cleanup satisfies its guard by evidence', () => {
     };
     await writeRawState('ps-unapproved', raw);
 
-    // Act
     const result = await handleCleanup(
       {
         featureId: 'ps-unapproved',
@@ -155,14 +118,12 @@ describe('DR-8 — cleanup satisfies its guard by evidence', () => {
       null,
     );
 
-    // Assert — the guard FAILS on the evidence …
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('GUARD_FAILED');
     expect(result.error?.message).toContain('reviews are not approved');
     expect(result.error?.message).toContain('t1');
     expect(result.error?.message).toContain('t2.specReview');
 
-    // … and NOTHING was rewritten. This is the characterized behaviour inverted.
     const after = await readRawState('ps-unapproved');
     const reviews = after.reviews as Record<string, Record<string, unknown>>;
     expect(reviews['t1'].status).toBe('needs_fixes');
@@ -171,25 +132,23 @@ describe('DR-8 — cleanup satisfies its guard by evidence', () => {
     expect(after._cleanup).toBeUndefined();
   });
 
+  /**
+   * The reviews are approved, but the state holds no merge record and the caller supplies none.
+   * The `mergeVerified: true` input is an assertion, not evidence, so it is not enough.
+   */
   it('Cleanup_MergeUnverified_FailsGuardByEvidence', async () => {
-    // Arrange — reviews are genuinely approved, but NO merge was ever recorded:
-    // no synthesis.prUrl, no artifacts.pr, no mergedBranches, and the caller
-    // supplies none. The caller's `mergeVerified: true` is an assertion, not
-    // evidence, and must no longer be enough on its own.
     await handleInit({ featureId: 'ps-nomerge', workflowType: 'feature' }, tmpDir, null);
     const raw = await readRawState('ps-nomerge');
     raw.phase = 'review';
     raw.reviews = { 't1': { status: 'approved' } };
     await writeRawState('ps-nomerge', raw);
 
-    // Act
     const result = await handleCleanup(
       { featureId: 'ps-nomerge', mergeVerified: true },
       tmpDir,
       null,
     );
 
-    // Assert
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('GUARD_FAILED');
     expect(result.error?.message).toContain('no merge artifact reference recorded');
@@ -198,16 +157,12 @@ describe('DR-8 — cleanup satisfies its guard by evidence', () => {
     expect(after.phase).toBe('review');
   });
 
+  /**
+   * The caller supplies a `prUrl`, but the state holds no merge record.
+   * Cleanup collects the evidence before it backfills the input, so the guard fails.
+   * Init leaves both references null, and the failed call does not write the input values.
+   */
   it('Cleanup_CallerMintedPrUrlOnly_FailsGuardByEvidence', async () => {
-    // T-12 / DR-8 — the complement of Cleanup_MergeUnverified_FailsGuardByEvidence:
-    // reviews are genuinely approved and the CALLER supplies a prUrl, but NO
-    // merge record pre-exists anywhere in state. Before this fix, cleanup
-    // backfilled `synthesis.prUrl` / `artifacts.pr` from the input and then
-    // read exactly those fields back as the merge-artifact evidence — a
-    // caller-minted `cleanup({ mergeVerified: true, prUrl: 'anything' })`
-    // satisfied the merge arm with an unverified same-call assertion. The
-    // evidence must now be collected from the PRE-backfill state, so this call
-    // fails the guard.
     await handleInit({ featureId: 'ps-caller-minted', workflowType: 'feature' }, tmpDir, null);
     const raw = await readRawState('ps-caller-minted');
     raw.phase = 'review';
@@ -229,18 +184,14 @@ describe('DR-8 — cleanup satisfies its guard by evidence', () => {
     expect(result.error?.code).toBe('GUARD_FAILED');
     expect(result.error?.message).toContain('no merge artifact reference recorded');
 
-    // Nothing was persisted: not the phase, and not the caller-minted metadata
-    // (init leaves both references null; they must NOT hold the input values).
     const after = await readRawState('ps-caller-minted');
     expect(after.phase).toBe('review');
     expect((after.synthesis as Record<string, unknown> | undefined)?.prUrl ?? null).toBeNull();
     expect((after.artifacts as Record<string, unknown> | undefined)?.pr ?? null).toBeNull();
   });
 
+  /** With real evidence, cleanup completes and leaves the reviews as it found them. */
   it('Cleanup_RealEvidence_SatisfiesGuardWithoutRewritingAnything', async () => {
-    // The retirement must not be a blanket denial: with REAL evidence present,
-    // cleanup still completes — and still leaves the reviews exactly as it
-    // found them.
     await handleInit({ featureId: 'ps-evidence', workflowType: 'feature' }, tmpDir, null);
     const raw = await readRawState('ps-evidence');
     raw.phase = 'review';
@@ -269,7 +220,6 @@ describe('DR-8 — cleanup satisfies its guard by evidence', () => {
   });
 
   it('CollectCleanupEvidence_NeverMutatesTheStateItReads', () => {
-    // The collector replaced a mutating loop; prove it is read-only.
     const state = {
       reviews: { 't1': { status: 'needs_fixes' }, 't2': { specReview: { status: 'fail' } } },
       synthesis: {},
@@ -285,8 +235,8 @@ describe('DR-8 — cleanup satisfies its guard by evidence', () => {
     expect(evidence.mergeArtifact).toBeNull();
   });
 
+  /** A reference that holds only whitespace is not evidence. The collector trims a real reference. */
   it('CollectCleanupEvidence_BlankArtifactReference_IsNotEvidence', () => {
-    // A whitespace-only PR reference is not a typed artifact reference (DR-5).
     const evidence = collectCleanupEvidence({
       synthesis: { prUrl: '   ', mergedBranches: [] },
       artifacts: { pr: '' },
@@ -302,11 +252,9 @@ describe('DR-8 — cleanup satisfies its guard by evidence', () => {
   });
 });
 
-// ─── The structural criterion ────────────────────────────────────────────────
-
 describe('DR-8 — no production path writes the guard inputs', () => {
+  /** The first two checks prove that the scan reads the real production modules. */
   it('PassStateFix_NoProductionSourceWritesReviewStatusOrMergeVerified', () => {
-    // Sanity: the scan is actually looking at real production modules.
     expect(REAL_MODULES.some((m) => m.path === 'workflow/cleanup.ts' && !m.isTest)).toBe(true);
     expect(REAL_MODULES.filter((m) => !m.isTest).length).toBeGreaterThan(50);
 
@@ -323,10 +271,11 @@ describe('DR-8 — no production path writes the guard inputs', () => {
     ).toEqual([]);
   });
 
+  /**
+   * The scan must catch each retired pattern that the test plants in a production module.
+   * Without this test, the zero-violation test can pass vacuously.
+   */
   it('PassStateFix_ReintroductionInProductionSource_FailsMechanically', () => {
-    // The teeth of the criterion above: plant each retired pattern back into a
-    // production module and assert the scan catches every one. Without this the
-    // "zero violations" assertion could be vacuous.
     const planted: readonly SourceModule[] = [
       {
         path: 'workflow/cleanup.ts',
@@ -353,9 +302,8 @@ describe('DR-8 — no production path writes the guard inputs', () => {
     expect(violations.every((v) => v.authorityId === 'cleanup-pass-state-fix')).toBe(true);
   });
 
+  /** A test module can still describe the retired pattern. The scan checks only production source. */
   it('PassStateFix_TestModulesAreExempt_SoCharacterizationStaysWritable', () => {
-    // Characterization fixtures must remain able to DESCRIBE the retired
-    // behaviour; only production source is governed.
     const asTest: readonly SourceModule[] = [
       {
         path: 'workflow/cleanup.test.ts',
@@ -377,10 +325,11 @@ describe('DR-8 — no production path writes the guard inputs', () => {
     expect(scanRetiredAuthorityReintroduction(commented)).toEqual([]);
   });
 
+  /**
+   * Text in a string that names the pattern, such as an error message, is not a violation.
+   * Otherwise the scan flags the descriptions in its own registry.
+   */
   it('PassStateFix_PatternNamedInsideAStringLiteral_IsNotAViolation', () => {
-    // Prose that NAMES the retired pattern (an error message, this registry's
-    // own descriptions) must not count as reinstating it — otherwise the scan
-    // flags itself and has to be defanged to go green.
     const prose: readonly SourceModule[] = [
       {
         path: 'workflow/cleanup.ts',
@@ -395,9 +344,8 @@ describe('DR-8 — no production path writes the guard inputs', () => {
     expect(scanRetiredAuthorityReintroduction(prose)).toEqual([]);
   });
 
+  /** The scan forbids a hard-coded pass, not the write of the verdict that cleanup derives from evidence. */
   it('PassStateFix_DerivedMergeVerifiedVerdict_IsNotAViolation', () => {
-    // The retirement forbids a HARD-CODED pass, not the evidence-derived write
-    // cleanup now performs. If this went red the criterion would be unsatisfiable.
     const derived: readonly SourceModule[] = [
       {
         path: 'workflow/cleanup.ts',
@@ -409,13 +357,9 @@ describe('DR-8 — no production path writes the guard inputs', () => {
   });
 });
 
-// ─── Registry consistency (requirement 2) ────────────────────────────────────
-
 describe('DR-8 — retirement-safety registry reflects the retirement', () => {
+  /** `pass-state-fix` is a declared authority kind, and exactly one retired authority carries it. */
   it('RetirementSafety_PassStateFixKind_IsAccountedForAsRetired', () => {
-    // Before DR-8 `pass-state-fix` was a declared AuthorityKind with NO member
-    // on either registry — a class nothing was accountable for. It must now be
-    // named exactly once, as RETIRED.
     expect(AUTHORITY_KINDS).toContain('pass-state-fix');
 
     const retired = RETIRED_AUTHORITIES.filter((a) => a.kind === 'pass-state-fix');
@@ -424,14 +368,13 @@ describe('DR-8 — retirement-safety registry reflects the retirement', () => {
     expect(retired[0].forbiddenPatterns.length).toBeGreaterThan(0);
   });
 
+  /** No retired authority is also a legacy authority, and no legacy authority has a retired kind. */
   it('RetirementSafety_RetiredAndLegacyRegistries_DoNotOverlap', async () => {
-    // The registry must not claim a retired fix is still awaiting retirement.
     const { LEGACY_AUTHORITIES } = await import('../../../src/workflow/retirement/retirement-safety.js');
     const legacyIds = new Set(LEGACY_AUTHORITIES.map((a) => a.id));
     for (const retired of RETIRED_AUTHORITIES) {
       expect(legacyIds.has(retired.id)).toBe(false);
     }
-    // …and no LEGACY authority may still be filed under a retired kind.
     const retiredKinds = new Set(RETIRED_AUTHORITIES.map((a) => a.kind));
     for (const legacy of LEGACY_AUTHORITIES) {
       expect(retiredKinds.has(legacy.kind)).toBe(false);

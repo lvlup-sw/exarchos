@@ -12,8 +12,6 @@ import {
 } from '../../../src/workflow/schemas.js';
 import { z } from 'zod';
 
-// ─── TaskStatusSchema alias tests ─────────────────────────────────────────
-
 describe('TaskStatusSchema', () => {
   it('TaskStatusSchema_CompletedAlias_NormalizesToComplete', () => {
     const result = TaskStatusSchema.safeParse('completed');
@@ -36,8 +34,6 @@ describe('TaskStatusSchema', () => {
     expect(result.success).toBe(false);
   });
 });
-
-// ─── Schema Passthrough Tests ──────────────────────────────────────────────
 
 describe('ArtifactsSchema passthrough', () => {
   it('ArtifactsSchema_UnknownFields_PreservedThroughParse', () => {
@@ -87,7 +83,6 @@ describe('SynthesisSchema passthrough', () => {
   });
 });
 
-// T1: TestingStrategySchema and PerformanceSLASchema tests
 describe('PerformanceSLASchema', () => {
   it('PerformanceSLASchema_Valid_Parses', async () => {
     const { PerformanceSLASchema } = await import('../../../src/workflow/schemas.js');
@@ -147,7 +142,6 @@ describe('TestingStrategySchema', () => {
   });
 });
 
-// T2: TaskSchema with testingStrategy tests
 describe('TaskSchema with testingStrategy', () => {
   it('TaskSchema_WithTestingStrategy_Parses', async () => {
     const { TaskSchema } = await import('../../../src/workflow/schemas.js');
@@ -177,6 +171,7 @@ describe('TaskSchema with testingStrategy', () => {
     expect(result.success).toBe(true);
   });
 
+  /** The strategy omits `exampleTests`, which is required. */
   it('TaskSchema_InvalidTestingStrategy_Rejects', async () => {
     const { TaskSchema } = await import('../../../src/workflow/schemas.js');
     const input = {
@@ -185,15 +180,12 @@ describe('TaskSchema with testingStrategy', () => {
       status: 'pending',
       testingStrategy: {
         propertyTests: true,
-        // missing exampleTests (required)
       },
     };
     const result = TaskSchema.safeParse(input);
     expect(result.success).toBe(false);
   });
 });
-
-// ─── _esVersion field tests ───────────────────────────────────────────────
 
 describe('WorkflowStateSchema _esVersion field', () => {
   it('WorkflowStateSchema_EsVersionField_AcceptsVersion2', async () => {
@@ -310,8 +302,6 @@ describe('WorkflowStateSchema _esVersion field', () => {
   });
 });
 
-// ─── TaskSchema Agent Tracking Fields ─────────────────────────────────────
-
 describe('TaskSchema agent tracking fields', () => {
   it('TaskSchema_AgentId_AcceptsOptionalString', async () => {
     const { TaskSchema } = await import('../../../src/workflow/schemas.js');
@@ -375,7 +365,6 @@ describe('TaskSchema agent tracking fields', () => {
   });
 });
 
-// T6: oneshot workflow type + schema
 describe('Oneshot workflow type and schema', () => {
   const baseOneshotFixture = {
     version: '1.1',
@@ -478,6 +467,7 @@ describe('Oneshot workflow type and schema', () => {
     expect(OneshotPhaseSchema.safeParse('ideate').success).toBe(false);
   });
 
+  /** `CustomWorkflowStateSchema` rejects the built-in `oneshot` type, and the oneshot schema rejects an unknown phase. */
   it('oneshotStateSchema_rejectsUnknownPhaseValue', async () => {
     const { WorkflowStateSchema } = await import('../../../src/workflow/schemas.js');
     const input = {
@@ -485,14 +475,10 @@ describe('Oneshot workflow type and schema', () => {
       phase: 'bogus-phase',
     };
     const result = WorkflowStateSchema.safeParse(input);
-    // Even with union fallback to CustomWorkflowStateSchema, `oneshot` is a
-    // built-in type so CustomWorkflowStateSchema explicitly rejects it, and
-    // OneshotWorkflowStateSchema rejects unknown phase values.
     expect(result.success).toBe(false);
   });
 });
 
-// T3: WorkflowState integration validation
 describe('WorkflowState integration', () => {
   it('WorkflowState_TasksWithTestingStrategy_Parses', async () => {
     const { WorkflowStateSchema } = await import('../../../src/workflow/schemas.js');
@@ -542,15 +528,11 @@ describe('WorkflowState integration', () => {
   });
 });
 
-// ─── Discovery Workflow Type Schema Tests (#1080) ──────────────────────────
-
 describe('Discovery workflow type schema', () => {
   it('WorkflowTypeSchema_Discovery_Accepted', () => {
     expect(WorkflowTypeSchema.safeParse('discovery').success).toBe(true);
   });
 });
-
-// ─── MergeOrchestratorStateSchema Tests (DR-MO-1 / DR-MO-2) ────────────────
 
 describe('MergeOrchestratorStateSchema', () => {
   it('MergeOrchestratorStateSchema_ValidPendingState_Parses', () => {
@@ -589,8 +571,6 @@ describe('MergeOrchestratorStateSchema', () => {
     expect(withPreflight.success).toBe(true);
   });
 });
-
-// ─── FeatureWorkflowState mergeOrchestrator field (DR-MO-1 / DR-MO-2) ──────
 
 describe('FeatureWorkflowStateSchema mergeOrchestrator field', () => {
   const baseFeatureFixture = {
@@ -652,13 +632,7 @@ describe('FeatureWorkflowStateSchema mergeOrchestrator field', () => {
   });
 });
 
-// ─── T26: FeaturePhaseSchema includes merge-pending substate ──────────────
-//
-// T17 added 'merge-pending' as an HSM substate of 'implementation' (sibling
-// of 'delegate' / 'review'). The disk schema must accept it so workflow
-// state files can persist that phase value end-to-end (e.g. via the HSM's
-// merge-pending entry transition).
-
+/** `merge-pending` is a substate of `implementation`, so the disk schema must accept it as a phase. */
 describe('FeaturePhaseSchema (T26)', () => {
   it('FeaturePhaseSchema_MergePending_Parses', () => {
     expect(FeaturePhaseSchema.safeParse('merge-pending').success).toBe(true);
@@ -670,13 +644,10 @@ describe('FeaturePhaseSchema (T26)', () => {
   });
 });
 
-// ─── #1360 — Reserved-fields descriptor (PR 2 / T2) ────────────────────────
-//
-// Single source of truth for the keys that `applyDotPath` / `handleSet`
-// reject with `ErrorCode.RESERVED_FIELD`. Surfaced through
-// `exarchos_workflow.describe({actions:['update']})` (T4) and embedded in
-// `RESERVED_FIELD` error data (T3). Listing the top-level immutable set in
-// one constant keeps the doc surface and the runtime guard from drifting.
+/**
+ * The descriptor lists the keys that a state update rejects with `RESERVED_FIELD`.
+ * The `describe` output and the update guard both read it, so they cannot drift apart.
+ */
 describe('RESERVED_FIELDS_DESCRIPTOR (#1360)', () => {
   it('ReservedFieldsDescriptor_TopLevelImmutable_ListsAllFiveKeys', async () => {
     const { RESERVED_FIELDS_DESCRIPTOR } = await import('../../../src/workflow/schemas.js');
@@ -703,16 +674,7 @@ describe('RESERVED_FIELDS_DESCRIPTOR (#1360)', () => {
   });
 });
 
-// ─── T6 (#1555) — `asOf` bounded-fold param on `get` ────────────────────────
-//
-// `asOf` is an optional, mutually-exclusive `{ untilSequence } | { untilTimestamp }`
-// bound on the existing `get` action. Exclusion is enforced at the schema
-// (a single shared `AsOfSchema` refinement) so both the CLI and MCP carriers
-// reject a both-bounds value identically before reaching the dispatch core.
-// The `untilSequence`/`untilTimestamp` field shape mirrors `AsOfBound` from
-// `projections/cursor.ts` — see Task 7 for the wiring that folds events
-// through `boundEvents`.
-
+/** `asOf` is an optional bound on `get`: `untilSequence` or `untilTimestamp`. The schema rejects a value with both bounds. */
 describe('AsOfSchema (T6, #1555)', () => {
   it('AsOfSchema_untilSequenceOnly_parses', () => {
     const result = AsOfSchema.safeParse({ untilSequence: 5 });

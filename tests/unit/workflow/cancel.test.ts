@@ -20,18 +20,13 @@ afterEach(async () => {
   await rmrfAsync(tmpDir);
 });
 
-/**
- * Read the raw state JSON from disk, bypassing Zod validation.
- * This preserves non-schema fields that Zod might strip.
- */
+/** Reads the raw state JSON from disk without Zod validation, so fields outside the schema stay. */
 async function readRawState(featureId: string): Promise<Record<string, unknown>> {
   const stateFile = path.join(tmpDir, `${featureId}.state.json`);
   return JSON.parse(await fs.readFile(stateFile, 'utf-8')) as Record<string, unknown>;
 }
 
-/**
- * Write the raw state JSON to disk, bypassing Zod validation.
- */
+/** Writes the raw state JSON to disk without Zod validation. */
 async function writeRawState(
   featureId: string,
   state: Record<string, unknown>,
@@ -43,16 +38,13 @@ async function writeRawState(
 describe('handleCancel', () => {
   describe('compensation checkpoint persistence', () => {
     it('should persist compensation checkpoint on partial failure', async () => {
-      // Arrange: create a workflow in delegate phase
       await handleInit({ featureId: 'ckpt-partial', workflowType: 'feature' }, tmpDir, null);
 
-      // Advance to delegate phase by writing raw state
       const rawState = await readRawState('ckpt-partial');
       rawState.phase = 'delegate';
       rawState._history = { feature: 'delegate' };
       await writeRawState('ckpt-partial', rawState);
 
-      // Mock executeCompensation to simulate partial failure
       const compensationModule = await import('../../../src/workflow/compensation.js');
       const mockResult: CompensationResult = {
         actions: [
@@ -72,14 +64,11 @@ describe('handleCancel', () => {
       };
       vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue(mockResult);
 
-      // Act
       const result = await handleCancel({ featureId: 'ckpt-partial' }, tmpDir, null);
 
-      // Assert: cancel should report partial failure
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('COMPENSATION_PARTIAL');
 
-      // Assert: state file should contain _compensationCheckpoint
       const stateAfter = await readRawState('ckpt-partial');
       expect(stateAfter._compensationCheckpoint).toBeDefined();
       const checkpoint = stateAfter._compensationCheckpoint as { completedActions: string[] };
@@ -88,7 +77,6 @@ describe('handleCancel', () => {
     });
 
     it('should pass existing checkpoint to compensation on retry', async () => {
-      // Arrange: create a workflow with an existing _compensationCheckpoint
       await handleInit({ featureId: 'ckpt-retry', workflowType: 'feature' }, tmpDir, null);
 
       const rawState = await readRawState('ckpt-retry');
@@ -99,7 +87,6 @@ describe('handleCancel', () => {
       };
       await writeRawState('ckpt-retry', rawState);
 
-      // Mock executeCompensation to capture the checkpoint parameter
       const compensationModule = await import('../../../src/workflow/compensation.js');
       let capturedOptions: unknown = null;
       vi.spyOn(compensationModule, 'executeCompensation').mockImplementation(
@@ -117,10 +104,8 @@ describe('handleCancel', () => {
         },
       );
 
-      // Act
       await handleCancel({ featureId: 'ckpt-retry' }, tmpDir, null);
 
-      // Assert: existing checkpoint was passed to executeCompensation
       expect(capturedOptions).toBeDefined();
       const opts = capturedOptions as { checkpoint?: { completedActions: readonly string[] } };
       expect(opts.checkpoint).toBeDefined();
@@ -129,7 +114,6 @@ describe('handleCancel', () => {
     });
 
     it('should clear checkpoint after successful cancellation', async () => {
-      // Arrange: create a workflow with an existing _compensationCheckpoint
       await handleInit({ featureId: 'ckpt-clear', workflowType: 'feature' }, tmpDir, null);
 
       const rawState = await readRawState('ckpt-clear');
@@ -140,7 +124,6 @@ describe('handleCancel', () => {
       };
       await writeRawState('ckpt-clear', rawState);
 
-      // Mock executeCompensation to return success (null checkpoint)
       const compensationModule = await import('../../../src/workflow/compensation.js');
       vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue(processManaged({
         actions: [
@@ -151,21 +134,15 @@ describe('handleCancel', () => {
         checkpoint: null,
       }));
 
-      // Act
       const result = await handleCancel({ featureId: 'ckpt-clear' }, tmpDir, null);
 
-      // Assert: cancel should succeed
       expect(result.success).toBe(true);
 
-      // Assert: state file should NOT contain _compensationCheckpoint
       const stateAfter = await readRawState('ckpt-clear');
       expect(stateAfter._compensationCheckpoint).toBeUndefined();
     });
 
-    // ─── T5: Clean _compensationCheckpoint from state after cancel (ARCH-5) ──
-
     it('should set _compensationCheckpoint to null in state on successful compensation', async () => {
-      // Arrange: create a workflow with _compensationCheckpoint from a prior partial failure
       await handleInit({ featureId: 'ckpt-null', workflowType: 'feature' }, tmpDir, null);
 
       const rawState = await readRawState('ckpt-null');
@@ -176,7 +153,6 @@ describe('handleCancel', () => {
       };
       await writeRawState('ckpt-null', rawState);
 
-      // Mock executeCompensation to return success
       const compensationModule = await import('../../../src/workflow/compensation.js');
       vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue(processManaged({
         actions: [
@@ -187,35 +163,28 @@ describe('handleCancel', () => {
         checkpoint: null,
       }));
 
-      // Act
       const result = await handleCancel({ featureId: 'ckpt-null' }, tmpDir, null);
 
-      // Assert: cancel should succeed
       expect(result.success).toBe(true);
 
-      // Assert: the raw state on disk should not have _compensationCheckpoint
       const stateAfter = await readRawState('ckpt-null');
       expect(stateAfter).not.toHaveProperty('_compensationCheckpoint');
     });
   });
 
-  // ─── F-CANCEL-1: Event-first violation — error propagation ────────────────
-
   describe('event-first error propagation (v2)', () => {
+    /** The whole cancellation trail commits in one `appendTrailAtomically` transaction, so the storage failure goes there. */
     it('handleCancel_EventAppendFails_ReturnsErrorNotMutatesState', async () => {
-      // Arrange: create a v2 (event-sourced) workflow in delegate phase
       const eventStore = new EventStore(tmpDir);
 
       await handleInit({ featureId: 'cancel-efail', workflowType: 'feature' }, tmpDir, eventStore);
 
-      // Set up as v2 event-sourced workflow in delegate phase
       const rawState = await readRawState('cancel-efail');
       rawState.phase = 'delegate';
       rawState._history = { feature: 'delegate' };
       rawState._esVersion = 2;
       await writeRawState('cancel-efail', rawState);
 
-      // Mock compensation to succeed (no partial failure)
       const compensationModule = await import('../../../src/workflow/compensation.js');
       vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue(processManaged({
         actions: [],
@@ -224,33 +193,28 @@ describe('handleCancel', () => {
         checkpoint: null,
       }));
 
-      // Mock the atomic phase-mutation trail append to throw (simulating a
-      // storage failure). DR-7 routes the whole cancellation trail through
-      // `appendTrailAtomically` — one transaction — so that is the seam a
-      // storage failure surfaces at.
       vi.spyOn(eventStore, 'appendTrailAtomically').mockRejectedValue(
         new Error('Disk full'),
       );
 
-      // Act
       const result = await handleCancel({ featureId: 'cancel-efail' }, tmpDir, eventStore);
 
-      // Assert: should return error, NOT succeed
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('EVENT_APPEND_FAILED');
       expect(result.error?.message).toContain('Disk full');
 
-      // Assert: state should NOT be mutated to 'cancelled'
       const stateAfter = await readRawState('cancel-efail');
       expect(stateAfter.phase).toBe('delegate');
     });
   });
 
-  // ─── F-CANCEL-2: Idempotency keys on cancel events ────────────────────────
-
   describe('cancel event idempotency keys', () => {
+    /**
+     * The test does not mock `executeCompensation`, because the process manager emits the compensation facts and their keys.
+     * `AtomicAppender.decideOnce` stamps each key on the event, so the test reads the persisted stream.
+     * Two compensation outcomes must not share a key, or they merge into one durable fact.
+     */
     it('handleCancel_CompensationEvents_HaveIdempotencyKeys', async () => {
-      // Arrange: create a v2 workflow with compensation events
       const eventStore = new EventStore(tmpDir);
 
       await handleInit({ featureId: 'cancel-comp-keys', workflowType: 'feature' }, tmpDir, eventStore);
@@ -261,26 +225,8 @@ describe('handleCancel', () => {
       rawState._esVersion = 2;
       await writeRawState('cancel-comp-keys', rawState);
 
-      // Deliberately NOT mocking executeCompensation: the cancellation process
-      // manager now OWNS compensation-fact emission, so stubbing it out would
-      // stub the very keys under assertion. The old
-      // `<featureId>:cancel:compensation:<type>:<action>` scheme was replaced by
-      // a digest key scoped to (featureId, cancelId, action) — collision-free
-      // across concurrent cancels of the same feature.
-      //
-      // Seam note: cancel writes now go through the fenced atomic append
-      // (`AtomicAppender.decideOnce`), which stamps the idempotency key onto the
-      // event itself rather than passing it as an `append` option. Asserting
-      // against the persisted stream is therefore strictly stronger than the
-      // previous `append`/`appendValidated` option spy — it proves the key is
-      // durable, not merely requested.
-
-      // Act
       await handleCancel({ featureId: 'cancel-comp-keys' }, tmpDir, eventStore);
 
-      // Assert: every compensation fact carries an idempotency key — that key is
-      // what makes a resumed or retried cancellation converge instead of
-      // repeating completed compensation.
       const persisted = await eventStore.query('cancel-comp-keys');
       const compensationEvents = persisted.filter((e) =>
         e.type.startsWith('cancel.compensation-'),
@@ -290,14 +236,15 @@ describe('handleCancel', () => {
         expect(event.idempotencyKey, `${event.type} must be idempotency-keyed`).toBeDefined();
         expect(event.idempotencyKey).toMatch(/^cancel:[0-9a-f]{64}$/);
       }
-      // Keys are distinct per (action, phase) — a shared key would collapse two
-      // different compensation outcomes into one durable fact.
       const keys = compensationEvents.map((e) => e.idempotencyKey);
       expect(new Set(keys).size).toBe(keys.length);
     });
 
+    /**
+     * The cancellation trail commits in one atomic transaction, and the persisted key dedups a retry.
+     * Thus the test reads the durable stream, not the `append` spy.
+     */
     it('handleCancel_TransitionEvents_HaveIdempotencyKeys', async () => {
-      // Arrange: create a v2 workflow
       const eventStore = new EventStore(tmpDir);
 
       await handleInit({ featureId: 'cancel-trans-keys', workflowType: 'feature' }, tmpDir, eventStore);
@@ -308,7 +255,6 @@ describe('handleCancel', () => {
       rawState._esVersion = 2;
       await writeRawState('cancel-trans-keys', rawState);
 
-      // Mock compensation to succeed with no events
       const compensationModule = await import('../../../src/workflow/compensation.js');
       vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue(processManaged({
         actions: [],
@@ -317,7 +263,6 @@ describe('handleCancel', () => {
         checkpoint: null,
       }));
 
-      // Spy on append to capture idempotency keys
       const appendCalls: Array<{ type: string; idempotencyKey?: string }> = [];
       const originalAppend = eventStore.append.bind(eventStore);
       vi.spyOn(eventStore, 'append').mockImplementation(async (streamId, event, options) => {
@@ -325,23 +270,17 @@ describe('handleCancel', () => {
         return originalAppend(streamId, event, options);
       });
 
-      // Act
       await handleCancel({ featureId: 'cancel-trans-keys' }, tmpDir, eventStore);
 
-      // Assert: transition events have idempotency keys.
-      // DR-7 — read the DURABLE stream rather than an `append` spy: the
-      // cancellation trail now commits through one atomic transaction, and the
-      // persisted key is the contract that actually dedups a retry.
       const transKeys = (await eventStore.query('cancel-trans-keys'))
         .map((e) => e.idempotencyKey)
         .filter((k): k is string => k !== undefined && k.includes('transition'));
       expect(transKeys.length).toBeGreaterThanOrEqual(1);
-      // The transition key should match the pattern: ${featureId}:cancel:transition:${type}:${from}:cancelled
       expect(transKeys[0]).toMatch(/^cancel-trans-keys:cancel:transition:[\w.-]+:delegate:cancelled$/);
     });
 
+    /** The test reads the durable stream for the same reason as the transition-key test. */
     it('handleCancel_CancelEvent_HasIdempotencyKey', async () => {
-      // Arrange: create a v2 workflow
       const eventStore = new EventStore(tmpDir);
 
       await handleInit({ featureId: 'cancel-event-key', workflowType: 'feature' }, tmpDir, eventStore);
@@ -352,7 +291,6 @@ describe('handleCancel', () => {
       rawState._esVersion = 2;
       await writeRawState('cancel-event-key', rawState);
 
-      // Mock compensation to succeed
       const compensationModule = await import('../../../src/workflow/compensation.js');
       vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue(processManaged({
         actions: [],
@@ -361,7 +299,6 @@ describe('handleCancel', () => {
         checkpoint: null,
       }));
 
-      // Spy on append to capture idempotency keys
       const appendCalls: Array<{ type: string; idempotencyKey?: string }> = [];
       const originalAppend = eventStore.append.bind(eventStore);
       vi.spyOn(eventStore, 'append').mockImplementation(async (streamId, event, options) => {
@@ -369,12 +306,8 @@ describe('handleCancel', () => {
         return originalAppend(streamId, event, options);
       });
 
-      // Act
       await handleCancel({ featureId: 'cancel-event-key' }, tmpDir, eventStore);
 
-      // Assert: the cancel completion event has an idempotency key.
-      // DR-7 — asserted against the durable stream (see the transition-key
-      // test above for why the `append` spy is no longer the seam).
       const cancelKey = (await eventStore.query('cancel-event-key'))
         .map((e) => e.idempotencyKey)
         .filter((k): k is string => k !== undefined && k.includes('cancel:complete'));
@@ -383,22 +316,22 @@ describe('handleCancel', () => {
     });
   });
 
-  // ─── Property test: retry after failure produces no duplicate events ────────
-
   describe('cancel retry idempotency (property)', () => {
+    /**
+     * In each run, the first attempt fails the atomic trail append and leaves the state unchanged.
+     * The retry succeeds, and the stream holds no duplicate events.
+     */
     it('handleCancel_RetryAfterFailure_NoDuplicateEvents', async () => {
       await fc.assert(
         fc.asyncProperty(
           fc.constantFrom('ideate', 'plan', 'delegate', 'review', 'synthesize'),
           async (phase) => {
-            // Use a unique dir per property run
             const propDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wf-cancel-pbt-'));
             try {
               const eventStore = new EventStore(propDir);
 
               await handleInit({ featureId: 'cancel-pbt', workflowType: 'feature' }, propDir, eventStore);
 
-              // Read/write raw state using propDir directly
               const stateFile = path.join(propDir, 'cancel-pbt.state.json');
               const rawState = JSON.parse(await fs.readFile(stateFile, 'utf-8')) as Record<string, unknown>;
               rawState.phase = phase;
@@ -406,7 +339,6 @@ describe('handleCancel', () => {
               rawState._esVersion = 2;
               await fs.writeFile(stateFile, JSON.stringify(rawState, null, 2), 'utf-8');
 
-              // Mock compensation
               const compensationModule = await import('../../../src/workflow/compensation.js');
               vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue(processManaged({
                 actions: [],
@@ -415,9 +347,6 @@ describe('handleCancel', () => {
                 checkpoint: null,
               }));
 
-              // First attempt: fail the atomic cancellation-trail append.
-              // DR-7 — the trail is one transaction, so this is the single
-              // seam a transient storage failure surfaces at.
               let trailCalls = 0;
               const originalTrail = eventStore.appendTrailAtomically.bind(eventStore);
               vi.spyOn(eventStore, 'appendTrailAtomically').mockImplementation(
@@ -430,15 +359,12 @@ describe('handleCancel', () => {
                 },
               );
 
-              // First cancel attempt should fail
               const result1 = await handleCancel({ featureId: 'cancel-pbt' }, propDir, eventStore);
               expect(result1.success).toBe(false);
 
-              // Retry cancel — state should not have been mutated by first attempt
               const result2 = await handleCancel({ featureId: 'cancel-pbt' }, propDir, eventStore);
               expect(result2.success).toBe(true);
 
-              // Verify no duplicate events in stream
               const allEvents = await eventStore.query('cancel-pbt');
               const eventKeys = allEvents
                 .map((e) => `${e.type}:${JSON.stringify(e.data)}`)
@@ -458,15 +384,8 @@ describe('handleCancel', () => {
 });
 
 /**
- * Shape a mocked `executeCompensation` result the way the process-managed path
- * really returns it.
- *
- * Cancellation readiness requires a DURABLE outcome for every compensation
- * action — a result without `durableOutcomes` means compensation ran outside the
- * process manager, which must fail closed as COMPENSATION_PARTIAL. Mocks that
- * omit it therefore exercise the fail-closed path rather than the behaviour
- * under test. Deriving the outcomes from the mocked actions keeps the two in
- * lockstep so this cannot drift again.
+ * Adds `durableOutcomes` to a mocked `executeCompensation` result, in the shape of the process-managed path.
+ * The outcomes come from the mocked actions, so the two always agree.
  */
 function processManaged<T extends { actions: readonly { actionId: string }[] }>(
   result: T,

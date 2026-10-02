@@ -6,6 +6,7 @@ import { handleInit, handleSet } from '../../../src/workflow/tools.js';
 import { EventStore } from '../../../src/events/store.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
+/** `initAndAdvanceToPlan` starts a feature workflow, which begins at `plan`, and sets the plan artifact. */
 describe('handleSet — phase skip wiring (R5)', () => {
   let tmpDir: string;
   let eventStore: EventStore;
@@ -20,22 +21,15 @@ describe('handleSet — phase skip wiring (R5)', () => {
     await rmrfAsync(tmpDir);
   });
 
-  /**
-   * Helper: Initialize a feature workflow and advance to 'plan' phase.
-   * Satisfies the designArtifactExists guard (ideate->plan) and
-   * planArtifactExists guard (plan->plan-review) by setting artifacts.
-   */
   async function initAndAdvanceToPlan(featureId: string): Promise<void> {
     await handleInit({ featureId, workflowType: 'feature' }, tmpDir, eventStore);
 
-    // Set design artifact to satisfy ideate->plan guard
     await handleSet(
       { featureId, updates: { 'artifacts.design': 'design.md' } },
       tmpDir,
       eventStore,
     );
 
-    // Transition ideate -> plan
     const toPlan = await handleSet(
       { featureId, phase: 'plan' },
       tmpDir,
@@ -44,7 +38,6 @@ describe('handleSet — phase skip wiring (R5)', () => {
     expect(toPlan.success).toBe(true);
     expect((toPlan.data as Record<string, unknown>).phase).toBe('plan');
 
-    // Set plan artifact to satisfy plan->plan-review guard
     await handleSet(
       { featureId, updates: { 'artifacts.plan': 'plan.md' } },
       tmpDir,
@@ -52,16 +45,13 @@ describe('handleSet — phase skip wiring (R5)', () => {
     );
   }
 
+  /**
+   * The skip reroutes `plan` to `delegate`, and the new edge takes the guard of the skipped edge.
+   * That guard checks `planReview.approved`, so the test sets it.
+   */
   it('handleSet_WithSkipPlanReview_PlanGoesDirectlyToDelegate', async () => {
     await initAndAdvanceToPlan('test-skip');
 
-    // With plan-review skipped, plan -> delegate should work because
-    // plan-review is bypassed. The guard from plan-review's outgoing
-    // transition (planReviewComplete) is inherited by the rerouted
-    // predecessor transition (plan -> delegate).
-    //
-    // The planReviewComplete guard (inherited from the skipped plan-review
-    // outgoing transition) checks for state.planReview.approved === true.
     await handleSet(
       { featureId: 'test-skip', updates: { 'planReview.approved': true } },
       tmpDir,
@@ -82,8 +72,6 @@ describe('handleSet — phase skip wiring (R5)', () => {
   it('handleSet_WithoutSkipPhases_PlanCannotSkipToDelegate', async () => {
     await initAndAdvanceToPlan('test-normal');
 
-    // Without skipPhases, plan -> delegate is not a valid transition
-    // (plan -> plan-review is the only valid transition from plan)
     const toDelegate = await handleSet(
       { featureId: 'test-normal', phase: 'delegate' },
       tmpDir,
@@ -97,7 +85,6 @@ describe('handleSet — phase skip wiring (R5)', () => {
   it('handleSet_EmptySkipPhases_BehavesLikeNoSkipPhases', async () => {
     await initAndAdvanceToPlan('test-empty');
 
-    // Empty skipPhases should behave the same as no skipPhases
     const toDelegate = await handleSet(
       { featureId: 'test-empty', phase: 'delegate' },
       tmpDir,

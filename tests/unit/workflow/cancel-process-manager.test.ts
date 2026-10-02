@@ -128,13 +128,12 @@ describe('v2.12 cancellation process manager (DR-7)', () => {
       .toBe(processFacts.length);
   });
 
+  /**
+   * Compensation outcomes go through the fenced `AtomicAppender.decideOnce`, so the crash goes there.
+   * It fires after the first completion is durable and before the second, and the retry must not repeat the first.
+   * The `operationId` holds the action, attempt, and kind, so the match is exact.
+   */
   it('CancelRetry_CompletedCompensation_IsNotRepeated', async () => {
-    // P04-02 wiring: compensation outcomes are now recorded through the ATOMIC
-    // fenced append (`AtomicAppender.decideOnce`), not `store.appendValidated`.
-    // Re-point the crash-injection at that seam. The INTENT is unchanged: crash
-    // AFTER the first compensation's durable completion lands but BEFORE the
-    // second's, so the retry must NOT repeat the already-completed compensation.
-    // `operationId` encodes {action, attempt, kind} for a precise, robust match.
     const appender = store.getAppender();
     const originalDecideOnce = appender.decideOnce.bind(appender);
     let crashOnce = true;
@@ -267,6 +266,10 @@ describe('v2.12 cancellation process manager (DR-7)', () => {
     });
   });
 
+  /**
+   * The final cancellation transition trail commits in one `appendTrailAtomically` transaction.
+   * Thus a simulated crash on the final transition must interrupt that call.
+   */
   it('CancelReplay_AfterRestartResumesAfterReadyThroughLegacyFinalPath', async () => {
     const identity = deriveMcpCallerIdentity({ sessionId: 'cancel-replay-session' });
     const resolver = createInMemoryResolver([
@@ -283,9 +286,6 @@ describe('v2.12 cancellation process manager (DR-7)', () => {
       ),
       () => handleCancel({ featureId }, stateDir, store),
     );
-    // DR-7 — the final cancellation transition trail commits through ONE
-    // atomic `appendTrailAtomically` transaction, so that is the seam a
-    // simulated crash on the final transition has to interrupt.
     const originalTrail = store.appendTrailAtomically.bind(store);
     let failTransitionOnce = true;
     vi.spyOn(store, 'appendTrailAtomically').mockImplementation(async (...args) => {

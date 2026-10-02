@@ -1,16 +1,7 @@
-// ─── HSMTransitionGuard.fail_closed (Commit C7, closes #1225) ─────────────
-//
-// `workflow.set({ phase })` must route every phase update through
-// `HSMTransitionGuard.attempt`, which is the single decision point for
-// guarded phase transitions. The atomicity invariant: a guarded transition
-// either appends `workflow.transition` (on guard pass) OR
-// `workflow.guard-failed` (on guard fail) — NEVER both for the same target
-// phase in the same attempt.
-//
-// Tests treat `handleSet` as the entry point: each test exercises the full
-// composed path that `workflow.set` will follow once routed through the
-// guard primitive. Test 3 pins non-phase updates so they remain on the
-// existing field-only path with no guard involvement.
+/**
+ * Tests that `handleSet` sends each phase update through `HSMTransitionGuard.attempt`.
+ * A guarded transition appends `workflow.transition` on a pass or `workflow.guard-failed` on a fail, never both.
+ */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -157,13 +148,12 @@ async function countEvents(
 }
 
 describe('HSMTransitionGuard.fail_closed (C7, closes #1225)', () => {
+  /** An incomplete task fails the `delegate` to `review` guard, so no `workflow.transition` to `review` lands. */
   it('workflowSet_phaseUpdateWithFailedGuard_doesNotEmitTransition', async () => {
     const eventStore = new EventStore(tmpDir);
     await eventStore.initialize();
 
     await handleInit({ featureId, workflowType: 'feature' }, tmpDir, eventStore);
-    // Force phase=delegate with an INCOMPLETE task. allTasksComplete must
-    // fail; the composite delegate→review guard must therefore fail.
     await patchStateForDelegatePhase({
       tasks: [{ id: 't1', title: 'task one', status: 'in_progress' }],
     });
@@ -174,11 +164,8 @@ describe('HSMTransitionGuard.fail_closed (C7, closes #1225)', () => {
       eventStore,
     );
 
-    // The set returns ok:false (success:false in ToolResult terms).
     expect(result.success).toBe(false);
 
-    // Atomicity invariant: ZERO workflow.transition events with to:'review'.
-    // The bug being closed (#1225) shows both events landing ~6s apart.
     const transitionsToReview = await countEvents(
       eventStore,
       'workflow.transition',
@@ -203,7 +190,6 @@ describe('HSMTransitionGuard.fail_closed (C7, closes #1225)', () => {
     );
     expect(result.success).toBe(false);
 
-    // Atomicity invariant: exactly ONE guard-failed for the attempted target.
     const guardFailures = await countEvents(
       eventStore,
       'workflow.guard-failed',
@@ -211,7 +197,6 @@ describe('HSMTransitionGuard.fail_closed (C7, closes #1225)', () => {
     );
     expect(guardFailures).toBe(1);
 
-    // And ZERO transitions for the same target.
     const transitions = await countEvents(
       eventStore,
       'workflow.transition',
@@ -220,15 +205,13 @@ describe('HSMTransitionGuard.fail_closed (C7, closes #1225)', () => {
     expect(transitions).toBe(0);
   });
 
+  /** An update without a `phase` key must not run the guard, so it appends no transition and no guard-failed event. */
   it('workflowSet_nonPhaseUpdates_passThroughUnchanged', async () => {
     const eventStore = new EventStore(tmpDir);
     await eventStore.initialize();
 
     await handleInit({ featureId, workflowType: 'feature' }, tmpDir, eventStore);
 
-    // Pin: a field-only update (no `phase` key) does NOT invoke guard logic
-    // and does NOT emit transition or guard-failed events. Prevents
-    // regression where the phase-routing wrapper fires for any update.
     const result = await handleSet(
       { featureId, updates: { 'artifacts.design': 'docs/design.md' } },
       tmpDir,
@@ -243,14 +226,16 @@ describe('HSMTransitionGuard.fail_closed (C7, closes #1225)', () => {
     expect(guardFailures).toBe(0);
   });
 
+  /**
+   * An empty task list passes `allTasksComplete`.
+   * A log without `team.spawned` passes `teamDisbandedEmitted`.
+   * So the `delegate` to `review` guard passes.
+   */
   it('workflowSet_phaseUpdateWithPassingGuard_emitsSingleTransition', async () => {
     const eventStore = new EventStore(tmpDir);
     await eventStore.initialize();
 
     await handleInit({ featureId, workflowType: 'feature' }, tmpDir, eventStore);
-    // Empty tasks ⇒ allTasksComplete passes (vacuously). No team.spawned in
-    // event log ⇒ teamDisbandedEmitted passes. The composite guard
-    // therefore returns true, so delegate → review transitions cleanly.
     await patchStateForDelegatePhase({ tasks: [] });
 
     const result = await handleSet(
@@ -263,7 +248,6 @@ describe('HSMTransitionGuard.fail_closed (C7, closes #1225)', () => {
     const data = result.data as Record<string, unknown>;
     expect(data.phase).toBe('review');
 
-    // Exactly one workflow.transition for to:'review'.
     const transitions = await countEvents(
       eventStore,
       'workflow.transition',
@@ -271,7 +255,6 @@ describe('HSMTransitionGuard.fail_closed (C7, closes #1225)', () => {
     );
     expect(transitions).toBe(1);
 
-    // Zero guard-failed events for the same target.
     const guardFailures = await countEvents(
       eventStore,
       'workflow.guard-failed',
@@ -281,32 +264,27 @@ describe('HSMTransitionGuard.fail_closed (C7, closes #1225)', () => {
   });
 });
 
-// ─── Resolve-then-freeze persists phase.entered end-to-end (DR-13, #1546) ────
-//
-// The unit test in state-machine.test.ts proves executeTransition RETURNS a
-// phase.entered. This proves it actually PERSISTS through the guard's emission
-// boundary: mapped to the canonical `phase.entered` type (not laundered to
-// `workflow.phase.entered` by the fallback) with a schema-valid obligation.
+/**
+ * A passing transition persists one `phase.entered` event with a schema-valid frozen obligation.
+ * The event keeps its canonical type and does not get the `workflow.` prefix of the `mapInternalToExternalType` fallback.
+ */
 describe('HSMTransitionGuard phase.entered freeze (DR-13)', () => {
   it('passingTransition_PersistsOnePhaseEnteredWithFrozenObligation', async () => {
     const eventStore = new EventStore(tmpDir);
     await eventStore.initialize();
 
     await handleInit({ featureId, workflowType: 'feature' }, tmpDir, eventStore);
-    // Empty tasks ⇒ delegate → review transitions cleanly (kind REVIEW).
     await patchStateForDelegatePhase({ tasks: [] });
 
     const result = await handleSet({ featureId, phase: 'review' }, tmpDir, eventStore);
     expect(result.success).toBe(true);
 
-    // Exactly one phase.entered for the entered phase lands on the durable log.
     const entered = await eventStore.query(featureId, { type: 'phase.entered' as never });
     const toReview = entered.filter(
       (e) => (e.data as Record<string, unknown>).phase === 'review',
     );
     expect(toReview).toHaveLength(1);
 
-    // It carries the frozen REVIEW obligation and validates against the schema.
     const data = toReview[0].data as Record<string, unknown>;
     expect(data.kind).toBe('REVIEW');
     expect(data.resolver).toBe('review-contract');
@@ -316,30 +294,23 @@ describe('HSMTransitionGuard phase.entered freeze (DR-13)', () => {
     const schema = EVENT_DATA_SCHEMAS['phase.entered'];
     expect(schema?.safeParse(data).success).toBe(true);
 
-    // Regression: NOT laundered into the non-existent `workflow.phase.entered`
-    // by the mapInternalToExternalType fallback.
     const mangled = await countEvents(eventStore, 'workflow.phase.entered');
     expect(mangled).toBe(0);
   });
 });
 
-// ─── Resolve-then-freeze fail-closed path persists phase.blocked (DR-7, #1546) ─
-//
-// The FAILURE mirror of the phase.entered freeze test. When the gate-set
-// resolver faults, `executeTransition` returns PHASE_BLOCKED + a `phase.blocked`
-// event. This proves the guard (1) PRESERVES the PHASE_BLOCKED errorCode rather
-// than collapsing it to GUARD_FAILED, and (2) PERSISTS the event as the
-// canonical `phase.blocked` type with a schema-valid PhaseBlockedData payload —
-// not the unregistered `workflow.phase.blocked` the `workflow.${type}` fallback
-// would mint (which `WorkflowEventBase`'s unknown-type refine would reject).
+/**
+ * A faulting gate-set resolver makes `executeTransition` return `PHASE_BLOCKED` and a `phase.blocked` event.
+ * The guard must keep the `PHASE_BLOCKED` code and must not change it to `GUARD_FAILED`.
+ * It must persist one schema-valid event of the canonical `phase.blocked` type.
+ */
 describe('HSMTransitionGuard phase.blocked fail-closed (DR-7)', () => {
+  /** The real resolver does not throw for valid input, so the test injects a faulting `resolveGatesFn`. */
   it('blockedTransition_PreservesPhaseBlockedCode_PersistsCanonicalSchemaValidEvent', async () => {
     const eventStore = new EventStore(tmpDir);
     await eventStore.initialize();
 
     await handleInit({ featureId, workflowType: 'feature' }, tmpDir, eventStore);
-    // Empty tasks ⇒ the delegate → review composite guard passes, so the attempt
-    // reaches the gate-set resolution boundary (REVIEW kind).
     await patchStateForDelegatePhase({ tasks: [] });
     const stateFile = path.join(tmpDir, `${featureId}.state.json`);
     const state = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
@@ -349,39 +320,28 @@ describe('HSMTransitionGuard phase.blocked fail-closed (DR-7)', () => {
       state,
       workflowType: 'feature',
       eventStore,
-      // Inject a faulting resolver so the gate-set boundary fails CLOSED — the
-      // real resolver never throws for valid inputs, so injection is the only
-      // way to exercise the PHASE_BLOCKED branch through the guard's full path.
       resolveGatesFn: () => {
         throw new Error('resolver boom');
       },
     });
 
-    // (1) Finding F4: the fail-closed code is PRESERVED across the guard
-    // boundary, not flattened to GUARD_FAILED.
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.errorCode).toBe('PHASE_BLOCKED');
     }
 
-    // (2) Finding F2: exactly one canonical phase.blocked lands on the log...
     const blocked = await eventStore.query(featureId, {
       type: 'phase.blocked' as never,
     });
     expect(blocked).toHaveLength(1);
 
-    // ...with a schema-valid PhaseBlockedData payload (would THROW at the
-    // emission boundary pre-fix, since buildHsmEventData had no phase.blocked
-    // case and the default shape is missing `phase`/`error`).
     const data = blocked[0].data as Record<string, unknown>;
     expect(EVENT_DATA_SCHEMAS['phase.blocked']?.safeParse(data).success).toBe(true);
     expect(data.kind).toBe('REVIEW');
     expect(data.phase).toBe('review');
 
-    // ...and is NOT laundered into the unregistered `workflow.phase.blocked`.
     expect(await countEvents(eventStore, 'workflow.phase.blocked')).toBe(0);
 
-    // The transition is refused — no phase.entered for the blocked target.
     const enteredReview = await countEvents(
       eventStore,
       'phase.entered',
@@ -391,13 +351,11 @@ describe('HSMTransitionGuard phase.blocked fail-closed (DR-7)', () => {
   });
 });
 
-// ─── phase.exited gate status is not silently coerced (DR-13, #1546, F-CR3) ───
-//
-// `allRequiredGatesPassed` is a REQUIRED boolean on PhaseExitedData. The
-// emission boundary must NOT `Boolean(...)`-coerce a missing/non-boolean value
-// into `false` — that silently records wrong exit status and masks a boundary
-// regression. It surfaces `undefined`, which the required-boolean schema rejects
-// loudly at `buildValidatedEvent`.
+/**
+ * `allRequiredGatesPassed` is a required boolean of `PhaseExitedData`.
+ * `buildHsmEventData` must not coerce a missing or non-boolean value to `false`, because that records a wrong exit status.
+ * It returns `undefined`, and the schema rejects that value.
+ */
 describe('buildHsmEventData phase.exited gate-status integrity (DR-13)', () => {
   const exitEvt = (allRequiredGatesPassed: unknown) => ({
     type: 'phase.exited',
@@ -415,36 +373,24 @@ describe('buildHsmEventData phase.exited gate-status integrity (DR-13)', () => {
   it('surfaces undefined (NOT false) for a missing/non-boolean gate status, failing the schema', () => {
     for (const bad of [undefined, 'true', 1, null]) {
       const data = buildHsmEventData(exitEvt(bad), featureId, {});
-      // Not silently coerced to a persisted `false`...
       expect(data.allRequiredGatesPassed).toBeUndefined();
-      // ...and the required-boolean schema rejects it at the emission boundary.
       expect(EVENT_DATA_SCHEMAS['phase.exited']?.safeParse(data).success).toBe(false);
     }
   });
 });
 
-// ─── HSM emission boundary routes through EVENT_DATA_SCHEMAS (T-03, #1339) ──
-//
-// Defense-in-depth follow-up to T-02. Even with the fix-cycle shape fixed,
-// the legacy `EventStore.append` path validates only the envelope
-// (`WorkflowEventBase`) and skips `EVENT_DATA_SCHEMAS`. The fix-cycle event
-// emitted by the HSM walk carries `data: { from, to, trigger, featureId }`,
-// which is MISSING the required `count: z.number().int()` that
-// `WorkflowFixCycleData` mandates. Via the legacy path this schema-invalid
-// data is laundered straight onto the log. T-03 makes the emission boundary
-// route through `buildValidatedEvent` so a schema-invalid `data` can NEVER
-// reach the log.
+/**
+ * `EventStore.append` checks only the envelope and skips `EVENT_DATA_SCHEMAS`.
+ * The HSM emission boundary must check event data against `EVENT_DATA_SCHEMAS`, so invalid data never reaches the log.
+ */
 describe('HSM emission boundary schema-validates event data (T-03, #1339)', () => {
+  /** In the feature HSM, `review` to `delegate` is a fix cycle. A failed review makes the `anyReviewFailed` guard pass. */
   it('LegacyAppendPath_SchemaInvalidWorkflowEvent_IsRejected', async () => {
     const eventStore = new EventStore(tmpDir);
     await eventStore.initialize();
 
     await handleInit({ featureId, workflowType: 'feature' }, tmpDir, eventStore);
 
-    // Drive a real fix-cycle: review → delegate (isFixCycle in the feature
-    // HSM). `anyReviewFailed` passes when state.reviews has a failed entry.
-    // review and delegate are both top-level phases, so getParentCompound
-    // returns undefined and the fix-cycle event carries no compoundStateId.
     const stateFile = path.join(tmpDir, `${featureId}.state.json`);
     const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
     raw.phase = 'review';
@@ -458,17 +404,11 @@ describe('HSM emission boundary schema-validates event data (T-03, #1339)', () =
     );
     expect(result.success).toBe(true);
 
-    // A fix-cycle event must have been appended for this transition.
     const fixCycleEvents = await eventStore.query(featureId, {
       type: 'workflow.fix-cycle' as never,
     });
     expect(fixCycleEvents.length).toBeGreaterThanOrEqual(1);
 
-    // The emission boundary must guarantee that any persisted fix-cycle
-    // event's `data` satisfies EVENT_DATA_SCHEMAS — i.e. the same validation
-    // `buildValidatedEvent` runs. Pre-T-03 this fails: the legacy append path
-    // wrote `data` missing the required `count` field, laundering invalid
-    // data onto the log.
     const fixCycleSchema = EVENT_DATA_SCHEMAS['workflow.fix-cycle'];
     expect(fixCycleSchema).toBeDefined();
     for (const evt of fixCycleEvents) {

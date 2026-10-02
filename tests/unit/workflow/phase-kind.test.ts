@@ -53,8 +53,6 @@ describe('resolveGateSet', () => {
   const BOUNDARY_VALUES: readonly boolean[] = [false, true];
 
   it('ResolveGateSet_Implement_MatchesVerificationPolicy', () => {
-    // No config → builtin path; the IMPLEMENT cell must be behavior-identical to
-    // the verification policy resolver across all six (riskTier × boundary) cells.
     for (const riskTier of RISK_TIERS) {
       for (const boundaryTouching of BOUNDARY_VALUES) {
         expect(ladderGateNames(resolveGateSet('IMPLEMENT', { riskTier, boundaryTouching }))).toEqual(
@@ -69,8 +67,6 @@ describe('resolveGateSet', () => {
   });
 
   it('ResolveGateSet_EveryGatedKind_IsWiredNoLongerThrows', () => {
-    // S3 complete: no resolver is inert. Every gated kind resolves without the
-    // 'not wired' throw (GATHER has no gates and is covered separately).
     for (const kind of ['IMPLEMENT', 'PLAN', 'REVIEW', 'SYNTHESIZE'] as const) {
       expect(() =>
         resolveGateSet(kind, { riskTier: 'low', boundaryTouching: false, workflowType: 'feature' }),
@@ -78,18 +74,15 @@ describe('resolveGateSet', () => {
     }
   });
 
-  // DR-7: the fail-closed guard must distinguish a genuine resolver error from
-  // the ordinary "no config supplied" path. With NO `config` in ctx, the
-  // IMPLEMENT resolver MUST fall through to the frozen built-in table and
-  // resolve cleanly across every (riskTier × boundary) cell — it must NOT
-  // throw. Only a real resolver fault is allowed to fail the dispatch closed.
+  /**
+   * With no `config` in the context, the IMPLEMENT resolver uses the built-in table and does not throw.
+   * Only a real resolver fault can fail the dispatch closed.
+   */
   it('ResolveGateSet_NoConfigOverride_FallsBackToBaseTable', () => {
     for (const riskTier of RISK_TIERS) {
       for (const boundaryTouching of BOUNDARY_VALUES) {
-        // No `config` field at all in ctx — the absent-config path.
         const ctx = { riskTier, boundaryTouching };
         expect(() => resolveGateSet('IMPLEMENT', ctx)).not.toThrow();
-        // The resolved sequence is the byte-identical built-in table cell.
         expect(ladderGateNames(resolveGateSet('IMPLEMENT', ctx))).toEqual(
           resolveVerificationPolicy(riskTier, boundaryTouching).sequence,
         );
@@ -98,7 +91,6 @@ describe('resolveGateSet', () => {
   });
 });
 
-// ─── DR-8: discriminated ResolvedGate union ─────────────────────────────────
 describe('ResolvedGate (DR-8)', () => {
   it('ResolveGateSet_Implement_ReturnsLadderFamilyResolvedGates', () => {
     const resolved: readonly ResolvedGate[] = resolveGateSet('IMPLEMENT', {
@@ -109,7 +101,6 @@ describe('ResolvedGate (DR-8)', () => {
     for (const g of resolved) {
       expect(g.family).toBe('ladder');
     }
-    // The underlying gate names equal the verification-policy sequence verbatim.
     expect(resolved.map((g) => g.gate)).toEqual(
       resolveVerificationPolicy('high', true).sequence,
     );
@@ -126,7 +117,6 @@ describe('ResolvedGate (DR-8)', () => {
   });
 });
 
-// ─── DR-9: plan-structure resolver ──────────────────────────────────────────
 describe('plan-structure resolver (DR-9)', () => {
   const ctx = { riskTier: 'low', boundaryTouching: false } as const;
 
@@ -142,10 +132,8 @@ describe('plan-structure resolver (DR-9)', () => {
     ]);
   });
 
+  /** The resolver gate set must equal the registry actions bound to the plan phases, so the gate list has one source. */
   it('ResolveGateSet_PlanKind_MatchesRegistryPlanPhasesBinding', () => {
-    // SoT cross-check: the resolver's required gate set must equal exactly the
-    // registry actions bound to the PLAN_PHASES set — no new list minted, no
-    // drift from the registry binding.
     const registryPlanGates = new Set(
       TOOL_REGISTRY.flatMap((t) => t.actions)
         .filter((a) => setEqualsNames(a.phases, PLAN_PHASE_NAMES))
@@ -155,14 +143,8 @@ describe('plan-structure resolver (DR-9)', () => {
     expect(resolverPlanGates).toEqual(registryPlanGates);
   });
 
+  /** `designDepth` is optional. A context without it resolves to the same five gates as an explicit `standard`. */
   it('ResolveGateSetCtx_DesignDepthAbsent_DefaultsStandardNoThrow', () => {
-    // DR-1 (task 002): `designDepth` is an OPTIONAL carrier on the resolution
-    // ctx. Adding it must be behavior-neutral for every pre-existing call site:
-    // a ctx that omits `designDepth` resolves without throwing and yields
-    // exactly today's static `'standard'` 5-gate binding (the resolver is not
-    // graduated to read it until task 003). Supplying `designDepth: 'standard'`
-    // explicitly must be indistinguishable from omitting it — pinning that the
-    // default IS standard.
     const standardGates = [
       'check_task_decomposition',
       'check_plan_coverage',
@@ -183,12 +165,8 @@ describe('plan-structure resolver (DR-9)', () => {
     expect(resolveGateSet('PLAN', explicitStandard).map((g) => g.gate)).toEqual(standardGates);
   });
 
+  /** With an explicit `designDepth: 'standard'`, the resolver reads the context and must still match the registry binding. */
   it('PlanStructureResolver_StandardDepth_MatchesRegistryPlanPhasesBinding', () => {
-    // DR-2 (task 003): graduating the resolver to read `ctx.designDepth` must
-    // leave the `'standard'` rung == the registry `PLAN_PHASES`-bound action set
-    // (the behavior-neutral pin). Same SoT cross-check as the default-ctx
-    // binding test, but with `designDepth: 'standard'` supplied explicitly so
-    // the ctx-reading path — not the absent-default — is what's pinned.
     const registryPlanGates = new Set(
       TOOL_REGISTRY.flatMap((t) => t.actions)
         .filter((a) => setEqualsNames(a.phases, PLAN_PHASE_NAMES))
@@ -203,17 +181,14 @@ describe('plan-structure resolver (DR-9)', () => {
     expect(new Set(resolved.map((g) => g.gate))).toEqual(registryPlanGates);
   });
 
+  /**
+   * No resolved gate set holds `check_design_completeness`. `check_plan_coverage` reports its acceptance-criteria finding.
+   * It stays only as a deprecated registry action that is not bound to the plan phases.
+   */
   it('GateChains_DesignCompletenessExcised_AbsentFromSpecReviewChain', () => {
-    // DR-6 (#1581 task 014): the design+plan collapse excises the standalone
-    // check_design_completeness gate from the live gate chains — its
-    // acceptance-criteria finding now rides in check_plan_coverage (task 011).
-    // It survives ONLY as a deprecated callable alias (task 013), never as a
-    // member of a resolved phase gate set.
     const isDesignCompleteness = (gate: string): boolean =>
       gate === 'check_design_completeness' || gate.includes('design-completeness');
 
-    // (1) The spec-review chain (REVIEW kind resolves verbatim from the
-    // review-contract dimensions) never lists the design-completeness gate.
     const reviewChain = resolveGateSet('REVIEW', {
       riskTier: 'low',
       boundaryTouching: false,
@@ -221,7 +196,6 @@ describe('plan-structure resolver (DR-9)', () => {
     }).map((g) => g.gate);
     expect(reviewChain.some(isDesignCompleteness)).toBe(false);
 
-    // (2) Nor does the PLAN plan-structure chain.
     const planChain = resolveGateSet('PLAN', {
       riskTier: 'low',
       boundaryTouching: false,
@@ -233,17 +207,12 @@ describe('plan-structure resolver (DR-9)', () => {
       (a) => a.name === 'check_design_completeness',
     );
     expect(entry).toBeDefined();
-    // (3) It is NOT a PLAN_PHASE_NAMES-bound plan gate, so it cannot slip back
-    // into the plan-structure binding (the binding pin above).
     expect(setEqualsNames(entry!.phases, PLAN_PHASE_NAMES)).toBe(false);
-    // (4) And it survives only as a deprecated alias.
     expect(entry!.deprecated).toBe(true);
   });
 
+  /** The `deep` rung adds `check_exploration_depth` after the five gates of `standard`. */
   it('PlanStructureResolver_DeepDepth_AddsExplorationObligation', () => {
-    // DR-2/DR-7: the `'deep'` rung is a strict superset of `'standard'` — the
-    // same five plan-structure gates plus the `check_exploration_depth`
-    // divergent-loop obligation, appended last in resolution order.
     const standardCtx: ResolveGateSetCtx = {
       riskTier: 'low',
       boundaryTouching: false,
@@ -262,7 +231,6 @@ describe('plan-structure resolver (DR-9)', () => {
   });
 });
 
-// ─── DR-9: review-contract resolver ─────────────────────────────────────────
 describe('review-contract resolver (DR-9)', () => {
   it('ResolveGateSet_ReviewKindFeatureLowTier_ReturnsBaseDimensions', () => {
     const resolved = resolveGateSet('REVIEW', {
@@ -286,12 +254,11 @@ describe('review-contract resolver (DR-9)', () => {
     ]);
   });
 
+  /**
+   * The resolver must equal `getRequiredReviews`, so `review-contract.ts` owns the dimension names.
+   * The set handler builds `_requiredReviews` through `resolveGateSet('REVIEW')`.
+   */
   it('ResolveGateSet_ReviewKind_MatchesReviewContractSoT', () => {
-    // SoT cross-check: the resolver must equal getRequiredReviews verbatim — the
-    // dimension vocabulary stays owned by review-contract.ts, never re-listed.
-    // This is the DR-7 parity guarantee: `workflow/tools.ts` now routes its
-    // `_requiredReviews` injection through `resolveGateSet('REVIEW')` instead of
-    // calling `getRequiredReviews` directly, so the injected roster is byte-identical.
     for (const riskTier of ['low', 'medium', 'high'] as const) {
       const resolved = resolveGateSet('REVIEW', {
         riskTier,
@@ -302,10 +269,8 @@ describe('review-contract resolver (DR-9)', () => {
     }
   });
 
+  /** An absent or unknown `workflowType` resolves to the base roster and does not throw. */
   it('ResolveGateSet_ReviewKind_AbsentWorkflowType_FallsBackToBase_NeverThrows_DR7', () => {
-    // DR-7 ctx shim: an absent/unrecognised workflowType resolves to the base
-    // roster (never throws) — the routing's degrade path when state carries no
-    // recognizable workflow type.
     expect(() =>
       resolveGateSet('REVIEW', { riskTier: 'high', boundaryTouching: false }),
     ).not.toThrow();
@@ -318,7 +283,6 @@ describe('review-contract resolver (DR-9)', () => {
   });
 });
 
-// ─── DR-10: fail-closed phase-boundary resolution ──────────────────────────
 describe('resolveGateSetFailClosed (DR-10)', () => {
   it('ResolveGateSetFailClosed_ValidKind_ReturnsOkGates', () => {
     const outcome = resolveGateSetFailClosed('PLAN', { riskTier: 'low', boundaryTouching: false });
@@ -338,14 +302,11 @@ describe('resolveGateSetFailClosed (DR-10)', () => {
     if (!outcome.ok) expect(outcome.reason).toMatch(/boom/);
   });
 
+  /**
+   * A `designDepth` outside thin, standard and deep must fail the PLAN resolution closed through the real resolver.
+   * Then the caller appends `phase.blocked`. The reason names the bad depth.
+   */
   it('ResolveGateSet_MalformedDesignDepth_FailsClosedBlocked', () => {
-    // DR-9 (task 021): a malformed `designDepth` (a value outside the frozen
-    // thin/standard/deep ladder — e.g. a corrupt frozen state or a typo'd
-    // config override that survives to resolution) MUST fail the PLAN gate-set
-    // resolution CLOSED through the REAL resolver path (no injected thrower):
-    // `resolveGateSetFailClosed` returns `{ ok: false }` so the caller appends
-    // `phase.blocked`, never a silent OPEN transition. The reason names the bad
-    // depth so the block is diagnosable.
     const malformed = { riskTier: 'low', boundaryTouching: false, designDepth: 'shallow' } as unknown as ResolveGateSetCtx;
     const outcome = resolveGateSetFailClosed('PLAN', malformed);
     expect(outcome.ok).toBe(false);
@@ -353,16 +314,11 @@ describe('resolveGateSetFailClosed (DR-10)', () => {
       expect(outcome.reason).toMatch(/designDepth/);
       expect(outcome.reason).toMatch(/shallow/);
     }
-    // The raw resolver throws on the same input — the fault is real, not an
-    // artifact of the fail-closed wrapper masking a valid resolution.
     expect(() => resolveGateSet('PLAN', malformed)).toThrow(/shallow/);
   });
 
+  /** An absent `designDepth` is not a fault. It resolves to `standard`, so fail-closed fires only on a malformed depth. */
   it('ResolveGateSet_AbsentDesignDepth_ResolvesOpenNotBlocked', () => {
-    // DR-9 (task 021) — the OTHER half of fail-closed: an ABSENT `designDepth`
-    // is NOT a fault. It normalises to `'standard'` and resolves OPEN (ok),
-    // pinning that fail-closed fires only on a genuinely malformed depth, never
-    // on the ordinary predates-planning-depth call site.
     const outcome = resolveGateSetFailClosed('PLAN', { riskTier: 'low', boundaryTouching: false });
     expect(outcome.ok).toBe(true);
     if (outcome.ok) {
@@ -377,7 +333,6 @@ describe('resolveGateSetFailClosed (DR-10)', () => {
   });
 });
 
-// ─── DR-9: synthesis-readiness resolver ─────────────────────────────────────
 describe('synthesis-readiness resolver (DR-9)', () => {
   it('ResolveGateSet_SynthesizeKind_ReturnsReadinessLegs', () => {
     const resolved = resolveGateSet('SYNTHESIZE', { riskTier: 'low', boundaryTouching: false });
@@ -391,10 +346,10 @@ describe('synthesis-readiness resolver (DR-9)', () => {
     ]);
   });
 
-  // DR-2 (#1594): the `document` leg is pinned to sit immediately after
-  // `typecheck` and before `stack` — a docs gap surfaces alongside the build
-  // legs, not after them. This is the resolver-roster SoT pin; the leg's
-  // evaluation lives in prepare-synthesis.ts.
+  /**
+   * The `document` leg sits directly after `typecheck` and before `stack`, so a docs gap shows with the build legs.
+   * `prepare-synthesis.ts` evaluates the leg.
+   */
   it('SynthesisReadinessResolver_Roster_PinsDocumentAfterTypecheck', () => {
     const legs = resolveGateSet('SYNTHESIZE', { riskTier: 'low', boundaryTouching: false }).map(
       (g) => g.gate,
@@ -407,7 +362,7 @@ describe('synthesis-readiness resolver (DR-9)', () => {
   });
 });
 
-// ─── DR-9: INV-6 cross-workflow-type acceptance (the central win) ────────────
+/** Gate sets bind to the phase kind, not to the workflow type and phase name. */
 describe('INV-6 cross-workflow-type acceptance', () => {
   const ALL_HSMS = [
     createFeatureHSM(),
@@ -418,8 +373,6 @@ describe('INV-6 cross-workflow-type acceptance', () => {
   ];
 
   it('PlanKind_DebugRcaAndFeaturePlanReview_ResolveIdenticalGateSet', () => {
-    // Binding is by KIND, not by (workflowType:phase): a debug `rca` phase and a
-    // feature `plan-review` phase are both kind PLAN and MUST resolve the same set.
     expect((createFeatureHSM().states['plan-review'] as { kind: PhaseKind }).kind).toBe('PLAN');
     expect((createDebugHSM().states['rca'] as { kind: PhaseKind }).kind).toBe('PLAN');
     const featurePlan = resolveGateSet('PLAN', {
@@ -436,8 +389,6 @@ describe('INV-6 cross-workflow-type acceptance', () => {
   });
 
   it('EveryAtomicPhase_AcrossAllWorkflowTypes_ResolvesWithoutThrowing', () => {
-    // Reachability: every kind-tagged phase across every workflow type resolves
-    // its obligation — no inert resolver remains on any reachable phase.
     for (const hsm of ALL_HSMS) {
       for (const state of Object.values(hsm.states)) {
         if (state.type === 'atomic') {

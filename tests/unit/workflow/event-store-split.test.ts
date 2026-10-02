@@ -1,15 +1,7 @@
 /**
- * Regression test for GitHub #1009: _events hydration fails silently
- * when the event tools module creates a separate EventStore instance
- * from the workflow tools module.
- *
- * Original root cause: event-store/tools.ts:getStore() lazily created a new
- * EventStore without the StorageBackend, while workflow/tools.ts used
- * a pre-configured instance with the backend.
- *
- * Fix (PR #1021): EventStore is threaded via function parameters — no
- * module-level injection. All handlers receive the same EventStore instance
- * through DispatchContext, making the split-store bug architecturally impossible.
+ * Regression test for lvlup-sw/exarchos#1009. Events that `handleEventAppend` writes must be
+ * visible to workflow hydration. Every handler receives the `EventStore` through its parameters,
+ * so the workflow and event tools share one store.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -24,8 +16,6 @@ import { EventStore } from '../../../src/events/store.js';
 import { InMemoryBackend } from '../../../src/storage/memory-backend.js';
 import { configureStateStoreBackend } from '../../../src/workflow/state-store.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
-
-// ─── Valid event data matching type-specific schemas ─────────────────────────
 
 const TEAM_SPAWNED_DATA = {
   featureId: 'test',
@@ -46,17 +36,13 @@ describe('EventStoreSplit_Regression_GH1009', () => {
   let backend: InMemoryBackend;
   let sharedEventStore: EventStore;
 
+  /**
+   * The `EventStore` gets no `backend` option. An injected backend replaces the SQLite read path
+   * of the appender, and the queries then see no events.
+   */
   beforeEach(async () => {
     stateDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wf-split-store-'));
     backend = new InMemoryBackend();
-    // v2.11 substrate-cut: the legacy `{ backend }` constructor option
-    // was a JSONL-era dual-write read-delegate. Phase 2 removed the
-    // write-side replication, so injecting an InMemoryBackend as the
-    // read source would shadow the appender's SQLite handle and yield
-    // an empty view. The shared-store visibility invariant under test
-    // here only cares that writes and reads land on the SAME
-    // `EventStore`, which is true with no `backend` option (the read
-    // path resolves to the appender's SQLite handle).
     sharedEventStore = new EventStore(stateDir);
     configureStateStoreBackend(backend);
   });
@@ -66,10 +52,6 @@ describe('EventStoreSplit_Regression_GH1009', () => {
     await rmrfAsync(stateDir);
   });
 
-  /**
-   * Set up a feature workflow at delegate phase with tasks complete.
-   * EventStore is threaded explicitly via function parameters.
-   */
   async function setupAtDelegate(featureId: string): Promise<void> {
     await handleInit({ featureId, workflowType: 'feature' }, stateDir, sharedEventStore);
     await handleSet(
@@ -131,50 +113,38 @@ describe('EventStoreSplit_Regression_GH1009', () => {
     expect(result.success).toBe(true);
   }
 
+  /**
+   * Events that `handleEventAppend` writes must be visible to the `delegate` to `review`
+   * transition through the same `EventStore`. The test queries the store, not the injected
+   * backend, because writes and reads go through the SQLite backend of the store.
+   */
   it('GH1009_WithSharedStore_EventsVisibleToWorkflowHydration', async () => {
-    // In #1021's architecture, EventStore is always threaded via parameters.
-    // This verifies that events appended via handleEventAppend are visible
-    // to workflow hydration when using the same EventStore instance.
-    //
-    // v2.11 substrate-cut: the legacy "dual-write into the injected
-    // StorageBackend" path is gone (`replicateBackend` was removed in
-    // Phase 2). The shared-store visibility invariant now holds because
-    // both writes and reads go through the AtomicAppender's SQLite
-    // backend on the same `EventStore` instance — we verify by querying
-    // the store directly rather than the injected `backend` mock.
     await setupAtDelegate('shared-test');
 
-    // Append events via handleEventAppend (the event tools path)
     await appendTeamSpawned('shared-test');
     await appendTeamDisbanded('shared-test');
 
-    // Verify: events ARE visible via the shared EventStore.
     const events = await sharedEventStore.query('shared-test');
     expect(events.some((e) => e.type === 'team.spawned')).toBe(true);
     expect(events.some((e) => e.type === 'team.disbanded')).toBe(true);
 
-    // Act: Transition delegate -> review
     const result = await handleSet(
       { featureId: 'shared-test', phase: 'review' },
       stateDir,
       sharedEventStore,
     );
 
-    // Assert: Transition succeeds (events visible via shared backend)
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
     expect(data.phase).toBe('review');
   });
 
+  /**
+   * Two `EventStore` instances on the same `stateDir` use the same SQLite file. An event that one
+   * instance writes is visible to queries on the other. The unit of isolation is `stateDir`, not
+   * the `EventStore` instance.
+   */
   it('GH1009_SplitStoreImpossible_SqliteSubstrateMakesEventStoresShareStorage', async () => {
-    // In PR #1021's architecture, EventStore is threaded explicitly via
-    // function parameters — there is no module-level instance that could
-    // diverge. v2.11's substrate cut adds a stronger second invariant:
-    // even if two EventStore instances ARE constructed at the same
-    // stateDir, they both resolve to the same `events.db` SQLite handle,
-    // so writes via one are visible via queries on the other. The
-    // split-store divergence GH #1009 caught is now architecturally
-    // doubly-impossible.
     const separateStore = new EventStore(stateDir);
 
     await setupAtDelegate('split-test');
@@ -194,10 +164,6 @@ describe('EventStoreSplit_Regression_GH1009', () => {
     );
     expect(appendResult.success).toBe(true);
 
-    // The event written via `separateStore` is visible to `sharedEventStore`
-    // because both back onto the same SQLite file. This pins the new
-    // post-substrate-cut invariant: stateDir is the unit of isolation,
-    // not the EventStore instance.
     const sharedEvents = await sharedEventStore.query('split-test');
     expect(sharedEvents.some((e) => e.type === 'team.spawned')).toBe(true);
   });

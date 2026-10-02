@@ -34,7 +34,7 @@ import {
 import { EventTypes } from '../../../src/events/schemas.js';
 import { TOOL_REGISTRY } from '../../../src/registry.js';
 
-// Helper to create a minimal valid checkpoint state
+/** Builds a minimal valid checkpoint state. */
 function makeCheckpointState() {
   return {
     timestamp: '2025-01-15T10:00:00Z',
@@ -47,7 +47,7 @@ function makeCheckpointState() {
   };
 }
 
-// Helper to create a minimal valid feature workflow state
+/** Builds a minimal valid feature workflow state with the historical `ideate` phase. */
 function makeValidFeatureState() {
   return {
     version: '1.1',
@@ -78,6 +78,7 @@ function makeValidFeatureState() {
 
 describe('Workflow State Schemas', () => {
   describe('WorkflowStateSchema — Valid Feature State Parses', () => {
+    /** The schema reads the historical `ideate` phase as `plan`. */
     it('should parse a valid feature state object with all required fields', () => {
       const state = makeValidFeatureState();
       const result = FeatureWorkflowStateSchema.safeParse(state);
@@ -85,7 +86,6 @@ describe('Workflow State Schemas', () => {
       expect(result.success).toBe(true);
       if (result.success) {
         expect(result.data.featureId).toBe('my-feature-123');
-        // legacy 'ideate' (pre-#1581) coerces to 'plan' on read (back-compat)
         expect(result.data.phase).toBe('plan');
         expect(result.data.workflowType).toBe('feature');
       }
@@ -93,7 +93,6 @@ describe('Workflow State Schemas', () => {
 
     it('should apply defaults for version and _history', () => {
       const state = makeValidFeatureState();
-      // Remove fields that have defaults
       const { version, _history, ...rest } = state;
       const result = FeatureWorkflowStateSchema.safeParse(rest);
 
@@ -156,7 +155,7 @@ describe('Workflow State Schemas', () => {
       const state = {
         ...makeValidFeatureState(),
         workflowType: 'debug' as const,
-        phase: 'ideate', // not a valid debug phase
+        phase: 'ideate',
       };
       const result = DebugWorkflowStateSchema.safeParse(state);
 
@@ -167,7 +166,7 @@ describe('Workflow State Schemas', () => {
       const state = {
         ...makeValidFeatureState(),
         workflowType: 'refactor' as const,
-        phase: 'triage', // not a valid refactor phase
+        phase: 'triage',
       };
       const result = RefactorWorkflowStateSchema.safeParse(state);
 
@@ -893,8 +892,6 @@ describe('Workflow State Schemas', () => {
   });
 });
 
-// ─── Task 3: CleanupInputSchema and workflow.cleanup event type ────────────────
-
 describe('CleanupInputSchema', () => {
   it('should accept valid cleanup input', () => {
     const input = {
@@ -944,8 +941,6 @@ describe('workflow.cleanup event type', () => {
   });
 });
 
-// ─── Task 6: cleanup action registration ────────────────────────────────────
-
 describe('cleanup action registration', () => {
   it('should include cleanup in exarchos_workflow actions', () => {
     const workflowTool = TOOL_REGISTRY.find(t => t.name === 'exarchos_workflow');
@@ -955,8 +950,6 @@ describe('cleanup action registration', () => {
     expect(cleanupAction!.schema).toBeDefined();
   });
 });
-
-// ─── reconcile action registration (#738) ────────────────────────────────
 
 describe('reconcile action registration', () => {
   it('should include reconcile in exarchos_workflow actions', () => {
@@ -975,8 +968,6 @@ describe('reconcile action registration', () => {
   });
 });
 
-// ─── Task 20: Dynamic WorkflowType Enum Extension ───────────────────────────
-
 describe('Dynamic WorkflowType Enum Extension', () => {
   const CUSTOM_TYPE = 'custom-pipeline';
 
@@ -985,14 +976,11 @@ describe('Dynamic WorkflowType Enum Extension', () => {
   });
 
   it('ExtendWorkflowTypeEnum_AddsCustomType', () => {
-    // Before extension, custom type should fail
     const beforeResult = WorkflowTypeSchema.safeParse(CUSTOM_TYPE);
     expect(beforeResult.success).toBe(false);
 
-    // Extend
     extendWorkflowTypeEnum(CUSTOM_TYPE);
 
-    // After extension, custom type should pass
     const afterResult = WorkflowTypeSchema.safeParse(CUSTOM_TYPE);
     expect(afterResult.success).toBe(true);
   });
@@ -1000,12 +988,10 @@ describe('Dynamic WorkflowType Enum Extension', () => {
   it('ExtendWorkflowTypeEnum_BuiltInsPreserved', () => {
     extendWorkflowTypeEnum(CUSTOM_TYPE);
 
-    // Built-in types must still work
     expect(WorkflowTypeSchema.safeParse('feature').success).toBe(true);
     expect(WorkflowTypeSchema.safeParse('debug').success).toBe(true);
     expect(WorkflowTypeSchema.safeParse('refactor').success).toBe(true);
 
-    // Invalid types still rejected
     expect(WorkflowTypeSchema.safeParse('nonexistent').success).toBe(false);
   });
 

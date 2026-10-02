@@ -1,3 +1,5 @@
+// The `child_process` mock holds only `execFile`.
+
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Event } from '../../../src/workflow/types.js';
 import type {
@@ -9,7 +11,6 @@ import type {
 } from '../../../src/workflow/compensation.js';
 import { executeCompensation } from '../../../src/workflow/compensation.js';
 
-// Mock child_process so no real shell commands run
 vi.mock('child_process', () => ({
   execFile: vi.fn(),
 }));
@@ -18,7 +19,7 @@ import { execFile } from 'child_process';
 
 const mockedExecFile = vi.mocked(execFile);
 
-// Helper to create a minimal workflow state for testing
+/** Builds a minimal feature workflow state in the delegate phase, with the given overrides. */
 function makeState(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     featureId: 'test-feature',
@@ -58,15 +59,13 @@ function makeEvents(count: number): Event[] {
 }
 
 describe('Compensation', () => {
+  /** By default, the `execFile` mock calls its callback with no error, with or without an options argument. */
   beforeEach(() => {
     vi.clearAllMocks();
-    // By default, execFile succeeds (calls callback with no error)
     mockedExecFile.mockImplementation((_cmd: unknown, _args: unknown, _opts: unknown, cb?: unknown) => {
       if (typeof _opts === 'function') {
-        // When called as execFile(cmd, args, cb)
         (_opts as (err: null, stdout: string, stderr: string) => void)(null, '', '');
       } else if (typeof cb === 'function') {
-        // When called as execFile(cmd, args, opts, cb)
         (cb as (err: null, stdout: string, stderr: string) => void)(null, '', '');
       }
       return undefined as never;
@@ -75,32 +74,25 @@ describe('Compensation', () => {
 
   describe('ExecuteCompensation_AllPhases_RunsReverseOrder', () => {
     it('should run compensation actions in reverse phase order from current phase', async () => {
-      // When current phase is "synthesize", actions should run:
-      // synthesize (close-pr) -> delegate (delete-integration-branch, cleanup, delete-branches)
       const state = makeState({ phase: 'synthesize' });
       const events = makeEvents(3);
 
       const result = await executeCompensation(state, 'synthesize', events, 3, { dryRun: false });
 
-      // Extract the phases from the action results in order
       const actionIds = result.actions.map((a) => a.actionId);
 
-      // synthesize actions should come before delegate actions (reverse phase order)
       const synthesizeIdx = actionIds.findIndex((id) => id.startsWith('synthesize:'));
       const delegateIdx = actionIds.findIndex((id) => id.startsWith('delegate:'));
 
-      // Both phase groups should be present
       expect(synthesizeIdx).toBeGreaterThanOrEqual(0);
       expect(delegateIdx).toBeGreaterThanOrEqual(0);
 
-      // Reverse order: synthesize before delegate
       expect(synthesizeIdx).toBeLessThan(delegateIdx);
     });
   });
 
   describe('ExecuteCompensation_AlreadyCleaned_SkipsWithNoOp', () => {
     it('should skip actions with no-op when resources do not exist', async () => {
-      // State with no PR and no integration branch and no worktrees
       const state = makeState({
         phase: 'delegate',
         synthesis: {
@@ -117,18 +109,14 @@ describe('Compensation', () => {
 
       const result = await executeCompensation(state, 'delegate', events, 1, { dryRun: false });
 
-      // Should still produce action entries (they just get skipped)
       expect(result.actions.length).toBeGreaterThan(0);
 
-      // All actions should be skipped
       for (const action of result.actions) {
         expect(action.status).toBe('skipped');
       }
 
-      // No shell commands should have been executed
       expect(mockedExecFile).not.toHaveBeenCalled();
 
-      // Overall should still succeed
       expect(result.success).toBe(true);
     });
   });
@@ -138,7 +126,6 @@ describe('Compensation', () => {
       const state = makeState({ phase: 'synthesize' });
       const events = makeEvents(2);
 
-      // Make the close-pr command fail, but let other commands succeed
       mockedExecFile.mockImplementation((cmd: unknown, args: unknown, opts: unknown, cb?: unknown) => {
         const callback = typeof opts === 'function' ? opts : cb;
         if (cmd === 'gh' && Array.isArray(args) && args.includes('close')) {
@@ -151,18 +138,14 @@ describe('Compensation', () => {
 
       const result = await executeCompensation(state, 'synthesize', events, 2, { dryRun: false });
 
-      // Should have a failed action
       const failedActions = result.actions.filter((a) => a.status === 'failed');
       expect(failedActions.length).toBeGreaterThanOrEqual(1);
 
-      // Should also have non-failed actions (executed or skipped)
       const otherActions = result.actions.filter((a) => a.status !== 'failed');
       expect(otherActions.length).toBeGreaterThanOrEqual(1);
 
-      // Overall success should be false
       expect(result.success).toBe(false);
 
-      // Should report partial failure error code
       expect(result.errorCode).toBe('COMPENSATION_PARTIAL');
     });
   });
@@ -174,25 +157,24 @@ describe('Compensation', () => {
 
       const result = await executeCompensation(state, 'synthesize', events, 2, { dryRun: true });
 
-      // All actions should have dry-run status
       for (const action of result.actions) {
         expect(action.status).toBe('dry-run');
       }
 
-      // No shell commands should have been executed
       expect(mockedExecFile).not.toHaveBeenCalled();
 
-      // Should still be considered successful
       expect(result.success).toBe(true);
 
-      // Should have actions listed (not empty)
       expect(result.actions.length).toBeGreaterThan(0);
     });
   });
 
   describe('ExecuteCompensation_CommandInjection_PreventsShellInterpolation', () => {
+    /**
+     * The branch name is a shell command substitution.
+     * `execFile` must get it as one literal argument, not as part of a command string.
+     */
     it('should pass branch names as separate arguments to prevent command injection', async () => {
-      // Use a malicious branch name that would cause command injection if interpolated
       const maliciousBranch = '$(rm -rf /)';
       const state = makeState({
         phase: 'delegate',
@@ -212,29 +194,23 @@ describe('Compensation', () => {
 
       await executeCompensation(state, 'delegate', events, 1, { dryRun: false });
 
-      // Verify execFile was called with arguments as separate array elements
-      // This ensures the malicious string is treated as a literal, not interpreted
       const calls = mockedExecFile.mock.calls;
 
-      // Find calls that include the malicious branch
       const callsWithMaliciousBranch = calls.filter((call) => {
         const args = call[1] as string[] | undefined;
         return args?.some((arg: string) => arg === maliciousBranch);
       });
 
-      // At least one call should have the malicious branch as a literal argument
       expect(callsWithMaliciousBranch.length).toBeGreaterThan(0);
 
-      // The branch should be passed as a separate argument, not part of a command string
       for (const call of callsWithMaliciousBranch) {
         const args = call[1] as string[];
-        // The malicious string should be an exact match to one argument
-        // (not embedded in a larger string with shell operators)
         const branchArg = args.find((arg: string) => arg.includes(maliciousBranch));
         expect(branchArg).toBe(maliciousBranch);
       }
     });
 
+    /** In the delegate phase with an integration branch, the delete action runs a command. */
     it('should use cwd from options.stateDir when provided', async () => {
       const state = makeState({
         phase: 'delegate',
@@ -251,10 +227,8 @@ describe('Compensation', () => {
       const events = makeEvents(1);
       const stateDir = '/custom/state/dir';
 
-      // Run from delegate phase so the integration branch deletion action executes
       await executeCompensation(state, 'delegate', events, 1, { dryRun: false, stateDir });
 
-      // Verify execFile was called with the correct cwd
       const calls = mockedExecFile.mock.calls;
       expect(calls.length).toBeGreaterThan(0);
 
@@ -264,6 +238,7 @@ describe('Compensation', () => {
       }
     });
 
+    /** In the delegate phase with an integration branch, the delete action runs a command. */
     it('should include timeout option in command execution', async () => {
       const state = makeState({
         phase: 'delegate',
@@ -279,10 +254,8 @@ describe('Compensation', () => {
       });
       const events = makeEvents(1);
 
-      // Run from delegate phase so the integration branch deletion action executes
       await executeCompensation(state, 'delegate', events, 1, { dryRun: false });
 
-      // Verify execFile was called with a timeout
       const calls = mockedExecFile.mock.calls;
       expect(calls.length).toBeGreaterThan(0);
 
@@ -293,6 +266,7 @@ describe('Compensation', () => {
     });
   });
 
+  /** For a phase outside `PHASE_ORDER`, `getPhasesInReverseOrder` returns every phase in reverse order. */
   describe('ExecuteCompensation_UnknownPhase_RunsAllActions', () => {
     it('should run all compensation actions when phase is not in PHASE_ORDER', async () => {
       const state = makeState({ phase: 'unknown-phase' });
@@ -300,16 +274,12 @@ describe('Compensation', () => {
 
       const result = await executeCompensation(state, 'unknown-phase', events, 1, { dryRun: true });
 
-      // Should have actions from all phase groups since all phases are included
       expect(result.actions.length).toBeGreaterThan(0);
 
-      // All actions should be dry-run
       for (const action of result.actions) {
         expect(action.status).toBe('dry-run');
       }
 
-      // Should include actions from synthesize AND delegate phases
-      // since an unknown phase causes getPhasesInReverseOrder to return ALL phases
       const actionIds = result.actions.map((a) => a.actionId);
       const hasSynthesize = actionIds.some((id) => id.startsWith('synthesize:'));
       const hasDelegate = actionIds.some((id) => id.startsWith('delegate:'));
@@ -317,7 +287,6 @@ describe('Compensation', () => {
       expect(hasSynthesize).toBe(true);
       expect(hasDelegate).toBe(true);
 
-      // Reverse order: synthesize before delegate
       const synthesizeIdx = actionIds.findIndex((id) => id.startsWith('synthesize:'));
       const delegateIdx = actionIds.findIndex((id) => id.startsWith('delegate:'));
 
@@ -332,10 +301,8 @@ describe('Compensation', () => {
 
       const result = await executeCompensation(state, 'unknown-phase', events, 1, { dryRun: false });
 
-      // Should have actions from all phase groups
       expect(result.actions.length).toBeGreaterThan(0);
 
-      // Should include actions from both registered phases (synthesize and delegate)
       const actionIds = result.actions.map((a) => a.actionId);
       expect(actionIds.some((id) => id.startsWith('synthesize:'))).toBe(true);
       expect(actionIds.some((id) => id.startsWith('delegate:'))).toBe(true);
@@ -343,8 +310,8 @@ describe('Compensation', () => {
   });
 
   describe('ExecuteCompensation_IdeatePhase_OnlyEarlyActions', () => {
+    /** `plan` is the first phase in `PHASE_ORDER`, and it registers no compensation action. */
     it('should only include actions up to ideate phase (no actions since ideate has none)', async () => {
-      // State at ideate phase with no resources created yet
       const state = makeState({
         phase: 'ideate',
         synthesis: {
@@ -361,8 +328,6 @@ describe('Compensation', () => {
 
       const result = await executeCompensation(state, 'plan', events, 1, { dryRun: false });
 
-      // plan is the first feature phase (#1581: ideate removed), so no prior
-      // phase has registered compensation actions — result should be empty
       expect(result.actions.length).toBe(0);
       expect(result.events.length).toBe(0);
       expect(result.success).toBe(true);
@@ -387,7 +352,6 @@ describe('Compensation', () => {
 
       const result = await executeCompensation(state, 'synthesize', events, 1, { dryRun: false });
 
-      // Find the close-pr action
       const closePrAction = result.actions.find((a) => a.actionId === 'synthesize:close-pr');
       expect(closePrAction).toBeDefined();
       expect(closePrAction!.status).toBe('skipped');
@@ -436,7 +400,6 @@ describe('Compensation', () => {
 
       const deleteAction = result.actions.find((a) => a.actionId === 'delegate:delete-feature-branches');
       expect(deleteAction).toBeDefined();
-      // Should execute (not skip) since at least one task has a branch
       expect(deleteAction!.status).toBe('executed');
       expect(deleteAction!.message).toContain('1 feature branch');
     });
@@ -493,13 +456,11 @@ describe('Compensation', () => {
       expect(cleanupAction).toBeDefined();
       expect(cleanupAction!.status).toBe('executed');
 
-      // Only the worktree with a path should have triggered a git command
       const worktreeRemoveCalls = mockedExecFile.mock.calls.filter((call) => {
         const args = call[1] as string[] | undefined;
         return args?.includes('worktree') && args?.includes('remove');
       });
 
-      // Should only have 1 remove call (for task-2 which has a path)
       expect(worktreeRemoveCalls.length).toBe(1);
       const removeArgs = worktreeRemoveCalls[0][1] as string[];
       expect(removeArgs).toContain('/tmp/worktree-2');
@@ -507,6 +468,7 @@ describe('Compensation', () => {
   });
 
   describe('ExecuteCompensation_PlanPhase_OnlyDelegateAndEarlier', () => {
+    /** `plan` comes before `delegate` in `PHASE_ORDER`, and it registers no compensation action. */
     it('should not include synthesize or delegate actions when phase is plan', async () => {
       const state = makeState({ phase: 'plan' });
       const events = makeEvents(1);
@@ -515,8 +477,6 @@ describe('Compensation', () => {
 
       const actionIds = result.actions.map((a) => a.actionId);
 
-      // plan is before delegate in PHASE_ORDER, so only ideate and plan phases included
-      // Neither has registered actions, so there should be no actions
       expect(actionIds.every((id) => !id.startsWith('synthesize:'))).toBe(true);
       expect(actionIds.every((id) => !id.startsWith('delegate:'))).toBe(true);
       expect(result.actions.length).toBe(0);
@@ -533,10 +493,8 @@ describe('Compensation', () => {
 
       const actionIds = result.actions.map((a) => a.actionId);
 
-      // delegate phase should have delegate actions
       expect(actionIds.some((id) => id.startsWith('delegate:'))).toBe(true);
 
-      // Should NOT have synthesize actions
       expect(actionIds.every((id) => !id.startsWith('synthesize:'))).toBe(true);
     });
   });
@@ -600,10 +558,11 @@ describe('Compensation', () => {
   });
 
   describe('CleanupWorktrees_OuterCatch_ReturnsFailed', () => {
+    /**
+     * The read of `worktree.path` is outside the inner try block of the loop.
+     * Thus a getter that throws reaches the outer catch, which reports the action as failed.
+     */
     it('should trigger outer catch when worktree property access throws', async () => {
-      // The outer catch (lines 189-196) wraps the entire for-loop body.
-      // Lines 176-177 (worktree.path access and the continue check) are OUTSIDE
-      // the inner try/catch. A throwing getter on .path triggers the outer catch.
       const poisonedWorktree = {
         branch: 'feature/poison',
         taskId: 'task-poison',
@@ -674,29 +633,18 @@ describe('Compensation', () => {
   });
 
   describe('DeleteFeatureBranches_OuterCatch_ViaCorruptedIteration', () => {
+    /**
+     * Inner catches wrap each delete in the loop body, so only the loop itself can reach the outer catch.
+     * The test patches `Array.prototype.filter` so that the filtered array of branch names throws when the loop iterates it.
+     * The `finally` block restores all mocks and sets the default `execFile` mock again, because `restoreAllMocks` clears it.
+     */
     it('should trigger outer catch when branches array iteration throws unexpectedly', async () => {
-      // The outer catch (lines 248-255) wraps the for-loop for branches.
-      // The for-loop body is: inner try (local delete) + inner try (remote delete).
-      // Everything in the for-loop body is wrapped by inner catches.
-      // However, we can trigger the outer catch by corrupting the branches array
-      // after it's created but before iteration completes.
-      // We achieve this by using a Proxy on the tasks array that produces
-      // a branches array with a corrupted Symbol.iterator.
-
-      // Override Array.prototype.filter to return an array with a throwing iterator
-      // only for the specific call in deleteFeatureBranches
       const originalFilter = Array.prototype.filter;
 
-      // We need to intercept the specific filter call that creates the branches array.
-      // The code does: tasks.map(t => t.branch).filter(b => !!b)
-      // The filter is called on the mapped array.
       vi.spyOn(Array.prototype, 'filter').mockImplementation(function (this: unknown[], ...args: unknown[]) {
         const result = originalFilter.apply(this, args as Parameters<typeof originalFilter>);
 
-        // The deleteFeatureBranches filter happens on the mapped branches array
-        // Check if this looks like the branches filter (array of strings/undefined)
         if (result.length > 0 && typeof result[0] === 'string' && result[0].startsWith('feature/outer-catch')) {
-          // Return a proxy that throws during for-of iteration
           const throwingArray = [...result];
           const originalIterator = throwingArray[Symbol.iterator].bind(throwingArray);
           let iterCount = 0;
@@ -736,9 +684,7 @@ describe('Compensation', () => {
       try {
         result = await executeCompensation(state, 'delegate', events, 1, { dryRun: false });
       } finally {
-        // Guarantee restore even if the test throws, preventing mock leakage
         vi.restoreAllMocks();
-        // Re-establish the execFile mock since restoreAllMocks clears it
         mockedExecFile.mockImplementation((_cmd: unknown, _args: unknown, _opts: unknown, cb?: unknown) => {
           if (typeof _opts === 'function') {
             (_opts as (err: null, stdout: string, stderr: string) => void)(null, '', '');
@@ -773,7 +719,6 @@ describe('Compensation', () => {
       });
       const events = makeEvents(1);
 
-      // Make remote delete (push --delete) fail
       mockedExecFile.mockImplementation((cmd: unknown, args: unknown, opts: unknown, cb?: unknown) => {
         const callback = typeof opts === 'function' ? opts : cb;
         const argList = args as string[];
@@ -789,7 +734,6 @@ describe('Compensation', () => {
 
       const deleteAction = result.actions.find((a) => a.actionId === 'delegate:delete-integration-branch');
       expect(deleteAction).toBeDefined();
-      // Still succeeds because inner catch swallows remote delete failure
       expect(deleteAction!.status).toBe('executed');
       expect(deleteAction!.message).toContain('Deleted integration branch');
     });
@@ -813,7 +757,6 @@ describe('Compensation', () => {
       });
       const events = makeEvents(1);
 
-      // Make worktree remove fail
       mockedExecFile.mockImplementation((cmd: unknown, args: unknown, opts: unknown, cb?: unknown) => {
         const callback = typeof opts === 'function' ? opts : cb;
         const argList = args as string[];
@@ -829,13 +772,16 @@ describe('Compensation', () => {
 
       const cleanupAction = result.actions.find((a) => a.actionId === 'delegate:cleanup-worktrees');
       expect(cleanupAction).toBeDefined();
-      // Still succeeds because inner catch swallows the worktree remove failure
       expect(cleanupAction!.status).toBe('executed');
       expect(cleanupAction!.message).toContain('Cleaned up 1 worktree');
     });
   });
 
   describe('DeleteIntegrationBranch_Executed_ReturnsSuccess', () => {
+    /**
+     * Under the default mock, `rev-parse --verify` succeeds, so the local branch exists and is deleted.
+     * `ls-remote` returns empty output, so compensation finds no remote branch and sends no `push --delete`.
+     */
     it('should delete the local branch it finds and leave an absent remote alone', async () => {
       const state = makeState({
         phase: 'delegate',
@@ -867,16 +813,11 @@ describe('Compensation', () => {
         return args?.includes('push') && args?.includes('--delete');
       });
 
-      // `rev-parse --verify` succeeds under the default mock, so the local
-      // branch exists and is deleted.
       expect(branchDeleteCalls.length).toBeGreaterThanOrEqual(1);
-      // `ls-remote` returns empty stdout — no such remote branch — so
-      // compensation does NOT issue a push --delete for a branch that is not
-      // there. Probing before mutating is the point: the old code fired the
-      // delete unconditionally and swallowed the failure.
       expect(remotePushCalls.length).toBe(0);
     });
 
+    /** `branch -D` fails and `rev-parse --verify` still finds the branch, so the action reports failed, not executed. */
     it('should report failed when the delete errors and the branch still exists', async () => {
       const state = makeState({
         phase: 'delegate',
@@ -892,7 +833,6 @@ describe('Compensation', () => {
       });
       const events = makeEvents(1);
 
-      // Make local branch delete fail, but remote succeeds
       mockedExecFile.mockImplementation((cmd: unknown, args: unknown, opts: unknown, cb?: unknown) => {
         const callback = typeof opts === 'function' ? opts : cb;
         const argList = args as string[];
@@ -908,14 +848,13 @@ describe('Compensation', () => {
 
       const deleteAction = result.actions.find((a) => a.actionId === 'delegate:delete-integration-branch');
       expect(deleteAction).toBeDefined();
-      // Verify-then-decide: `branch -D` errored AND `rev-parse --verify` still
-      // resolves the branch, so the branch is demonstrably still there.
-      // Reporting `executed` here would be a compensation that lies about
-      // having cleaned up — the prior behaviour, which swallowed every delete
-      // failure unconditionally.
       expect(deleteAction!.status).toBe('failed');
     });
 
+    /**
+     * The first `rev-parse` finds the branch, so compensation tries the delete, and `branch -D` fails.
+     * The check after the delete finds no branch, so a delete that lost a race is not a failure.
+     */
     it('should report executed when the delete errors but the branch is gone', async () => {
       const state = makeState({
         phase: 'delegate',
@@ -931,18 +870,12 @@ describe('Compensation', () => {
       });
       const events = makeEvents(1);
 
-      // The other half of verify-then-decide: a concurrent cleanup already
-      // removed the branch, so `branch -D` errors but the post-check finds
-      // nothing. The outcome we care about — branch absent — was achieved, so
-      // a raced delete must NOT be reported as a compensation failure.
       let revParseCalls = 0;
       mockedExecFile.mockImplementation((cmd: unknown, args: unknown, opts: unknown, cb?: unknown) => {
         const callback = typeof opts === 'function' ? opts : cb;
         const argList = args as string[];
         if (argList?.includes('rev-parse')) {
           revParseCalls += 1;
-          // Present on the first probe (so the delete is attempted), absent on
-          // the post-delete re-check.
           if (revParseCalls === 1) {
             (callback as (err: null, stdout: string, stderr: string) => void)(null, '', '');
           } else {
@@ -984,7 +917,6 @@ describe('Compensation', () => {
       });
       const events = makeEvents(1);
 
-      // Make remote delete fail for all branches
       mockedExecFile.mockImplementation((cmd: unknown, args: unknown, opts: unknown, cb?: unknown) => {
         const callback = typeof opts === 'function' ? opts : cb;
         const argList = args as string[];
@@ -1000,7 +932,6 @@ describe('Compensation', () => {
 
       const deleteAction = result.actions.find((a) => a.actionId === 'delegate:delete-feature-branches');
       expect(deleteAction).toBeDefined();
-      // Still succeeds because inner catch swallows the remote delete failure
       expect(deleteAction!.status).toBe('executed');
       expect(deleteAction!.message).toContain('Deleted 1 feature branch');
     });
@@ -1023,7 +954,6 @@ describe('Compensation', () => {
       });
       const events = makeEvents(1);
 
-      // Make all git commands fail
       mockedExecFile.mockImplementation((cmd: unknown, args: unknown, opts: unknown, cb?: unknown) => {
         const callback = typeof opts === 'function' ? opts : cb;
         (callback as (err: Error) => void)(new Error('command failed'));
@@ -1034,7 +964,6 @@ describe('Compensation', () => {
 
       const deleteAction = result.actions.find((a) => a.actionId === 'delegate:delete-feature-branches');
       expect(deleteAction).toBeDefined();
-      // Still 'executed' because inner catches swallow individual failures
       expect(deleteAction!.status).toBe('executed');
       expect(deleteAction!.message).toContain('Deleted 2 feature branch');
     });
@@ -1047,19 +976,15 @@ describe('Compensation', () => {
 
       const result = await executeCompensation(state, 'delegate', events, 1, { dryRun: false });
 
-      // Should have compensation events
       expect(result.events.length).toBeGreaterThan(0);
 
-      // Each event should be of type 'compensation'
       for (const event of result.events) {
         expect(event.type).toBe('compensation');
       }
 
-      // Number of events should match number of actions that were executed or skipped (not dry-run)
       const actionCount = result.actions.length;
       expect(result.events.length).toBe(actionCount);
 
-      // Events should have incrementing sequence numbers
       for (let i = 1; i < result.events.length; i++) {
         expect(result.events[i].sequence).toBeGreaterThan(result.events[i - 1].sequence);
       }
@@ -1071,7 +996,6 @@ describe('Compensation', () => {
       const state = makeState({ phase: 'synthesize' });
       const events = makeEvents(2);
 
-      // Provide a checkpoint indicating 'synthesize:close-pr' already completed
       const checkpoint: CompensationCheckpoint = {
         completedActions: ['synthesize:close-pr'],
       };
@@ -1081,21 +1005,17 @@ describe('Compensation', () => {
         checkpoint,
       });
 
-      // The close-pr action should be skipped with checkpoint message
       const closePrAction = result.actions.find((a) => a.actionId === 'synthesize:close-pr');
       expect(closePrAction).toBeDefined();
       expect(closePrAction!.status).toBe('skipped');
       expect(closePrAction!.message).toContain('Already completed (checkpoint)');
 
-      // Other actions (delegate phase) should still execute normally
       const delegateActions = result.actions.filter((a) => a.actionId.startsWith('delegate:'));
       expect(delegateActions.length).toBeGreaterThan(0);
       for (const action of delegateActions) {
-        // Delegate actions should be executed or skipped-by-condition (not checkpoint-skipped)
         expect(action.message).not.toContain('Already completed (checkpoint)');
       }
 
-      // The gh close command should NOT have been called since close-pr was checkpointed
       const ghCloseCalls = mockedExecFile.mock.calls.filter((call) => {
         const args = call[1] as string[] | undefined;
         return call[0] === 'gh' && args?.includes('close');
@@ -1111,7 +1031,6 @@ describe('Compensation', () => {
 
       const result = await executeCompensation(state, 'delegate', events, 1, { dryRun: false });
 
-      // All actions succeed — checkpoint should be null (cleanup signal)
       expect(result.success).toBe(true);
       expect(result.checkpoint).toBeNull();
     });
@@ -1120,7 +1039,6 @@ describe('Compensation', () => {
       const state = makeState({ phase: 'synthesize' });
       const events = makeEvents(2);
 
-      // Make the close-pr command fail so we get a partial failure
       mockedExecFile.mockImplementation((cmd: unknown, args: unknown, opts: unknown, cb?: unknown) => {
         const callback = typeof opts === 'function' ? opts : cb;
         if (cmd === 'gh' && Array.isArray(args) && args.includes('close')) {
@@ -1133,19 +1051,16 @@ describe('Compensation', () => {
 
       const result = await executeCompensation(state, 'synthesize', events, 2, { dryRun: false });
 
-      // Partial failure — checkpoint should be returned
       expect(result.success).toBe(false);
       expect(result.checkpoint).not.toBeNull();
       expect(Array.isArray(result.checkpoint!.completedActions)).toBe(true);
 
-      // All actions that were executed or skipped should appear in checkpoint
       for (const action of result.actions) {
         if (action.status === 'executed' || action.status === 'skipped') {
           expect(result.checkpoint!.completedActions).toContain(action.actionId);
         }
       }
 
-      // Failed actions should NOT appear in checkpoint
       const failedActions = result.actions.filter((a) => a.status === 'failed');
       for (const action of failedActions) {
         expect(result.checkpoint!.completedActions).not.toContain(action.actionId);
@@ -1158,7 +1073,6 @@ describe('Compensation', () => {
       const state = makeState({ phase: 'synthesize' });
       const events = makeEvents(2);
 
-      // Empty checkpoint — no previously completed actions
       const checkpoint: CompensationCheckpoint = {
         completedActions: [],
       };
@@ -1168,15 +1082,12 @@ describe('Compensation', () => {
         checkpoint,
       });
 
-      // No actions should be checkpoint-skipped
       for (const action of result.actions) {
         expect(action.message).not.toContain('Already completed (checkpoint)');
       }
 
-      // Actions should still execute or be condition-skipped as normal
       expect(result.actions.length).toBeGreaterThan(0);
 
-      // All actions succeeded — checkpoint should be null (cleanup signal)
       expect(result.checkpoint).toBeNull();
     });
   });
@@ -1186,38 +1097,29 @@ describe('Compensation', () => {
       const state = makeState({ phase: 'synthesize' });
       const events = makeEvents(2);
 
-      // No checkpoint in options at all (backward compatibility)
       const result = await executeCompensation(state, 'synthesize', events, 2, { dryRun: false });
 
-      // No actions should be checkpoint-skipped
       for (const action of result.actions) {
         expect(action.message).not.toContain('Already completed (checkpoint)');
       }
 
-      // Actions should still execute or be condition-skipped as normal
       expect(result.actions.length).toBeGreaterThan(0);
 
-      // All actions succeeded — checkpoint should be null (cleanup signal)
       expect(result.checkpoint).toBeNull();
     });
   });
 
-  // ─── T4: Compensation checkpoint cleanup (ARCH-5) ──────────────────────────
-
   describe('ExecuteCompensation_AllActionsSucceed_ReturnsNullCheckpoint', () => {
     it('should return null checkpoint when all actions succeed', async () => {
-      // State with all resources present so actions actually execute (not just skip)
       const state = makeState({ phase: 'synthesize' });
       const events = makeEvents(2);
 
       const result = await executeCompensation(state, 'synthesize', events, 2, { dryRun: false });
 
-      // All actions should succeed (executed or skipped — no failures)
       expect(result.success).toBe(true);
       const failedActions = result.actions.filter((a) => a.status === 'failed');
       expect(failedActions.length).toBe(0);
 
-      // When all actions succeed, checkpoint should be null (cleanup signal)
       expect(result.checkpoint).toBeNull();
     });
   });

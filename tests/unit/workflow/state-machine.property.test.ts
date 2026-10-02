@@ -7,8 +7,6 @@ import {
   type HSMDefinition,
 } from '../../../src/workflow/state-machine.js';
 
-// ─── Shared Generators ────────────────────────────────────────────────────
-
 const WORKFLOW_TYPES = ['feature', 'debug', 'refactor'] as const;
 
 /** Generate a random workflow type. */
@@ -21,9 +19,8 @@ function arbPhaseForHSM(hsm: HSMDefinition): fc.Arbitrary<string> {
 }
 
 /**
- * Generate valid (phase, target) transition pairs for a given HSM.
- * Collects all non-final phases and their valid transition targets,
- * returning pairs that should succeed (ignoring guarded transitions).
+ * Generate (phase, target) pairs from the targets that `getValidTransitions` returns.
+ * Guarded targets are in the set, so a pair can fail its guard.
  */
 function arbValidTransitionPair(
   hsm: HSMDefinition,
@@ -38,7 +35,6 @@ function arbValidTransitionPair(
   }
 
   if (pairs.length === 0) {
-    // Fallback: should not happen with well-defined HSMs
     return fc.constant({ fromPhase: 'ideate', targetPhase: 'plan' });
   }
 
@@ -46,7 +42,8 @@ function arbValidTransitionPair(
 }
 
 /**
- * Generate invalid (phase, target) pairs -- targets NOT in valid transitions.
+ * Generate (phase, target) pairs where the target is not a valid transition.
+ * Self-transitions are excluded because they are idempotent, not invalid.
  */
 function arbInvalidTransitionPair(
   hsm: HSMDefinition,
@@ -58,7 +55,6 @@ function arbInvalidTransitionPair(
     const validTargets = new Set(
       getValidTransitions(hsm, phase).map((t) => t.phase),
     );
-    // Also exclude self-transitions (which are idempotent, not invalid)
     validTargets.add(phase);
 
     for (const target of allPhases) {
@@ -69,27 +65,21 @@ function arbInvalidTransitionPair(
   }
 
   if (pairs.length === 0) {
-    // Fallback for fully connected HSMs (unlikely)
     return fc.constant({ fromPhase: '__nonexistent__', targetPhase: '__nonexistent__' });
   }
 
   return fc.constantFrom(...pairs);
 }
 
-// ─── Helper: Build minimal state that satisfies all guards ──────────────
-
 /**
- * Builds a workflow state object for a given phase that attempts to satisfy
- * guard conditions. This is a best-effort approach -- guards that check
- * complex nested state may still fail, which is acceptable for property
- * testing since we're testing structural invariants, not guard logic.
+ * Build a state for a phase that satisfies the common guard conditions.
+ * Some guards can still fail. The properties test structure, not guard logic.
  */
 function buildStateForPhase(phase: string): Record<string, unknown> {
   return {
     phase,
     _events: [],
     _history: {},
-    // Satisfy common guard conditions
     artifacts: {
       design: '/path/to/design.md',
       plan: '/path/to/plan.md',
@@ -115,26 +105,22 @@ function buildStateForPhase(phase: string): Record<string, unknown> {
   };
 }
 
-// ─── Property Tests ─────────────────────────────────────────────────────
-
 describe('State Machine Property Tests', () => {
   describe.each(WORKFLOW_TYPES)('HSM type: %s', (workflowType) => {
     const hsm = getHSMDefinition(workflowType);
 
     describe('executeTransition_ValidPair_ProducesPhaseInHSMDefinition', () => {
+      /** A failure can come from a guard, an open circuit breaker, or a fault in the gate-set resolver. */
       it('for any valid (phase, target) pair, newPhase is a key in hsm.states or result fails due to guard', () => {
         fc.assert(
           fc.property(arbValidTransitionPair(hsm), ({ fromPhase, targetPhase }) => {
             const state = buildStateForPhase(fromPhase);
             const result = executeTransition(hsm, state, targetPhase);
 
-            // If successful, newPhase must be a valid state in the HSM
             if (result.success) {
               expect(result.newPhase).toBeDefined();
               expect(hsm.states).toHaveProperty(result.newPhase!);
             }
-            // If it failed, it should have an error code (guard, circuit
-            // breaker, or the fail-closed gate-set boundary).
             if (!result.success) {
               expect(result.errorCode).toBeDefined();
               expect([
