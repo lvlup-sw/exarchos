@@ -1,31 +1,15 @@
 /**
- * CLI↔MCP parity tests for the `merge_orchestrate` action (T22, DR-MO-1).
+ * CLI and MCP parity tests for the `merge_orchestrate` action. The MCP call
+ * `exarchos_orchestrate { action: 'merge_orchestrate' }` and the CLI command
+ * `exarchos merge-orchestrate` dispatch through the same composite. Both must
+ * give the same `ToolResult`, apart from the wall-clock fields of the envelope.
  *
- * `merge_orchestrate` has two user-visible facades:
- *   1. MCP — `exarchos_orchestrate { action: 'merge_orchestrate' }` over the
- *      MCP SDK.
- *   2. CLI — the promoted top-level `exarchos merge-orchestrate` surface
- *      (T21, cli.ts:572). The CLI dispatches through the same
- *      `exarchos_orchestrate` composite the MCP path uses, so both paths
- *      MUST project identical ToolResult payloads modulo wall-clock fields
- *      injected by the envelope wrapper.
- *
- * Strategy (mirrors doctor.parity.test.ts):
- *   - Stub the `exarchos_orchestrate` composite via `stubCompositeHandler`.
- *     The stub forwards `merge_orchestrate` invocations to the real
- *     `handleMergeOrchestrate`, supplying deterministic DI overrides for
- *     the preflight composer, the executor, and the persist callback so
- *     the test never shells out to git or hits the workflow state file.
- *   - Two arms (CLI + MCP) run against isolated tmp state dirs and their
- *     outputs are normalized (timestamps / `_perf`) before a deep-equal
- *     check.
- *   - Two cases — success (executor returns `phase: 'completed'`) and
- *     rollback (executor returns `code: 'MERGE_ROLLED_BACK'`) — exercise
- *     both happy and failure branches across both surfaces. The
- *     preflight-fail / abort branch is intentionally not the focus here:
- *     the rollback branch exercises the post-preflight failure pathway,
- *     where the surfaces are most likely to diverge in their error
- *     projection.
+ * A `stubCompositeHandler` stub sends `merge_orchestrate` to the real
+ * `handleMergeOrchestrate` with a fixed preflight, executor, persist callback,
+ * and git stub. Each arm runs in its own tmp state dir, and the test normalizes
+ * the outputs before a deep-equal check. The cases are success and rollback.
+ * The rollback case covers the failure path after preflight, where the error
+ * projections can diverge.
  */
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
@@ -49,8 +33,6 @@ import { handleMergeOrchestrate } from '../../../../src/verbs/merge/merge-orches
 import type { GitExec, MergePreflightResult } from '../../../../src/verbs/pure/merge-preflight.js';
 import type { HandleExecuteMergeInput } from '../../../../src/verbs/merge/execute-merge.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
-
-// ─── Fixtures ──────────────────────────────────────────────────────────────
 
 const MERGE_SHA = 'a'.repeat(40);
 const ROLLBACK_SHA = 'b'.repeat(40);
@@ -77,10 +59,9 @@ const PARITY_ARGS = {
 };
 
 /**
- * Topology probe that never sees the developer's sibling worktrees.
- * `handleMergeOrchestrate` runs `git worktree list` before the injectable
- * preflight; without this, a local checkout of `main` in another worktree
- * aborts the stubbed success path.
+ * A topology probe that never sees the sibling worktrees of the developer.
+ * `handleMergeOrchestrate` runs `git worktree list` before the injected preflight.
+ * Without this stub, a local checkout of `main` in another worktree stops the success path.
  */
 function makeGitExec(): GitExec {
   return vi.fn().mockImplementation((_repo: string, args: readonly string[]) => {
@@ -96,8 +77,6 @@ function makeGitExec(): GitExec {
     return { stdout: '', exitCode: 0 };
   });
 }
-
-// ─── Arm helpers ───────────────────────────────────────────────────────────
 
 interface ArmContext {
   readonly stateDir: string;
@@ -117,14 +96,10 @@ async function createArm(prefix: string): Promise<ArmContext> {
 }
 
 /**
- * Build a composite stub whose `merge_orchestrate` action calls the real
- * `handleMergeOrchestrate` with deterministic DI for preflight, executor,
- * and persistState. All three injectables are stable across invocations
- * so two arms against the same stub produce byte-equal outputs.
- *
- * `executor` decides the success vs rollback case via its
- * `mode: 'success' | 'rollback'` parameter — both modes return a fully
- * formed ToolResult (no DI bypass of the failure projection).
+ * Builds a composite stub whose `merge_orchestrate` action calls the real `handleMergeOrchestrate`.
+ * The preflight, executor, and `persistState` injections are fixed, so two arms give byte-equal outputs.
+ * The `mode` picks the success result or the rollback result. Both modes return a complete `ToolResult`.
+ * The `persistState` stub does nothing, because the default writes to the filesystem.
  */
 function buildMergeOrchestrateCompositeStub(
   mode: 'success' | 'rollback',
@@ -157,7 +132,6 @@ function buildMergeOrchestrateCompositeStub(
           },
         };
       }
-      // Rollback path: simulate executor reporting MERGE_ROLLED_BACK.
       return {
         success: false,
         error: {
@@ -172,8 +146,6 @@ function buildMergeOrchestrateCompositeStub(
       };
     };
 
-    // Bypass workflow-state persistence — the abort branch is not exercised
-    // in this suite, but the default persistState would touch the filesystem.
     const persistState = async (): Promise<void> => {};
 
     return handleMergeOrchestrate(
@@ -203,8 +175,6 @@ function normalize(value: unknown): unknown {
   });
 }
 
-// ─── Tests ─────────────────────────────────────────────────────────────────
-
 describe('exarchos merge-orchestrate CLI↔MCP parity (T22, DR-MO-1)', () => {
   let arms: ArmContext[] = [];
   let restoreStub: (() => void) | null = null;
@@ -219,11 +189,13 @@ describe('exarchos merge-orchestrate CLI↔MCP parity (T22, DR-MO-1)', () => {
     vi.restoreAllMocks();
   });
 
+  /**
+   * The CLI arm uses the generated `exarchos orch merge_orchestrate` command, which dispatches through the
+   * same composite as the top-level command. The `<tool> <action>` argv shape of the harness resolves to it.
+   * The CLI maps a handler failure to exit code 2. MCP has no exit code.
+   * Errors skip `envelopeWrap`, so on the rollback path both arms give the same raw shape.
+   */
   it('mergeOrchestrate_CliAndMcpAdapters_ProduceIdenticalToolResult', async () => {
-    // ─── Success path ────────────────────────────────────────────────────
-    //
-    // Arrange — install a deterministic stub on the orchestrate composite
-    // that returns a passing preflight + completed executor result.
     restoreStub = stubCompositeHandler(
       'exarchos_orchestrate',
       buildMergeOrchestrateCompositeStub('success'),
@@ -234,15 +206,6 @@ describe('exarchos merge-orchestrate CLI↔MCP parity (T22, DR-MO-1)', () => {
     const mcpArm = await createArm('merge-orch-parity-mcp-');
     arms.push(mcpArm);
 
-    // Act (CLI arm) — exercise the registry-auto-generated
-    // `exarchos orch merge_orchestrate` surface. The promoted top-level
-    // `exarchos merge-orchestrate` command (T21, cli.ts:572) and this
-    // auto-generated surface both dispatch through the same
-    // `dispatch('exarchos_orchestrate', { action: 'merge_orchestrate', ... },
-    // ctx)` call (cli.ts:599 vs the auto-generated action callback at
-    // cli.ts:164). We exercise the auto-gen path because the harness's
-    // `node exarchos <toolAlias> <action> ...` argv shape natively resolves
-    // to the `<tool> <action>` Commander tree.
     const { result: cliResult, exitCode: cliExitCode } = await harnessCallCli(
       cliArm.ctx,
       'orch',
@@ -250,18 +213,15 @@ describe('exarchos merge-orchestrate CLI↔MCP parity (T22, DR-MO-1)', () => {
       PARITY_ARGS,
     );
 
-    // Act (MCP arm) — direct dispatch entry point with the canonical shape.
     const mcpResult = await harnessCallMcp(mcpArm.ctx, 'exarchos_orchestrate', {
       action: 'merge_orchestrate',
       ...PARITY_ARGS,
     });
 
-    // Assert — both surfaces report success.
     expect(cliResult.success).toBe(true);
     expect(mcpResult.success).toBe(true);
     expect(cliExitCode).toBe(0);
 
-    // Assert — payload shape matches the DR-MO-1 contract.
     const cliData = cliResult.data as {
       phase: string;
       mergeSha: string;
@@ -273,18 +233,11 @@ describe('exarchos merge-orchestrate CLI↔MCP parity (T22, DR-MO-1)', () => {
     expect(cliData.recoveryPointSha).toBe(ROLLBACK_SHA);
     expect(cliData.preflight).toEqual(PASSING_PREFLIGHT);
 
-    // Assert — both surfaces project byte-equal ToolResult after stripping
-    // wall-clock fields. This is the parity invariant T22 enforces.
     const normalizedCli = normalize(cliResult);
     const normalizedMcp = normalize(mcpResult);
     expect(normalizedCli).toEqual(normalizedMcp);
     expect(JSON.stringify(normalizedCli)).toEqual(JSON.stringify(normalizedMcp));
 
-    // ─── Rollback path ───────────────────────────────────────────────────
-    //
-    // Re-stub with the rollback executor and re-run both arms against
-    // fresh tmp state dirs. Each arm sees the same MERGE_ROLLED_BACK
-    // ToolResult shape; after normalization they must compare equal.
     restoreStub();
     restoreStub = stubCompositeHandler(
       'exarchos_orchestrate',
@@ -307,36 +260,25 @@ describe('exarchos merge-orchestrate CLI↔MCP parity (T22, DR-MO-1)', () => {
       ...PARITY_ARGS,
     });
 
-    // Assert — both surfaces report the rollback failure.
     expect(cliRollback.success).toBe(false);
     expect(mcpRollback.success).toBe(false);
     expect(cliRollback.error?.code).toBe('MERGE_ROLLED_BACK');
     expect(mcpRollback.error?.code).toBe('MERGE_ROLLED_BACK');
 
-    // CLI maps any handler-reported failure to HANDLER_ERROR (exit 2);
-    // MCP is transport-agnostic and has no exit code. We pin the CLI
-    // contract here so a future adapter change cannot silently downgrade.
     expect(cliRollbackExitCode).toBe(2);
 
-    // Assert — byte-equal ToolResult across surfaces on the failure path.
-    // Errors do not pass through `envelopeWrap` (it short-circuits on
-    // `!result.success`), so the two arms project the same raw shape.
     expect(normalize(cliRollback)).toEqual(normalize(mcpRollback));
     expect(JSON.stringify(normalize(cliRollback))).toEqual(
       JSON.stringify(normalize(mcpRollback)),
     );
   });
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Top-level `exarchos merge-orchestrate` parity (#1109 §2 verification)
-  //
-  // The auto-generated `exarchos orch merge_orchestrate` and the promoted
-  // top-level `exarchos merge-orchestrate` command both dispatch through
-  // the same composite, but only the auto-generated path was previously
-  // exercised. Commander registration + top-level exit-code mapping for
-  // the promoted surface need their own parity assertion or they can
-  // regress silently.
-  // ─────────────────────────────────────────────────────────────────────────
+  /**
+   * The top-level `exarchos merge-orchestrate` command needs its own parity check. Its Commander registration
+   * and its exit-code mapping can break while the generated command still passes.
+   * The test builds its own argv, so the shared `callCli` signature stays the same.
+   * `emitResult` writes pretty-printed JSON over many lines, so the test parses from the first `{` to the end of stdout.
+   */
   it('mergeOrchestrate_TopLevelCli_MatchesMcpToolResult', async () => {
     restoreStub = stubCompositeHandler(
       'exarchos_orchestrate',
@@ -348,10 +290,6 @@ describe('exarchos merge-orchestrate CLI↔MCP parity (T22, DR-MO-1)', () => {
     const mcpArm = await createArm('merge-orch-parity-toplevel-mcp-');
     arms.push(mcpArm);
 
-    // Top-level CLI invocation: `exarchos merge-orchestrate <flags>` (no
-    // intermediate `orch` subcommand). Inline the harness's stdout/stderr
-    // mocking so we can construct the right argv shape without overloading
-    // the shared `callCli(toolAlias, action, ...)` signature.
     const program = buildCli(cliArm.ctx);
     applyExitOverrideRecursively(program);
     const capturedStdout: string[] = [];
@@ -392,11 +330,6 @@ describe('exarchos merge-orchestrate CLI↔MCP parity (T22, DR-MO-1)', () => {
     const stdoutText = capturedStdout.join('').trim();
     const firstBrace = stdoutText.indexOf('{');
     expect(firstBrace).toBeGreaterThanOrEqual(0);
-    // PR-B (#1368): post-W1 `emitResult` writes pretty-printed envelope
-    // JSON spanning multiple lines (`JSON.stringify(env, null, 2)`), so
-    // the prior newline-bound slice truncated the document at `{`. Parse
-    // from the first `{` through end-of-stdout — `JSON.parse` tolerates
-    // trailing whitespace and stops at the matching closing brace.
     const cliResult = JSON.parse(stdoutText.slice(firstBrace)) as ToolResult;
 
     const mcpResult = await harnessCallMcp(mcpArm.ctx, 'exarchos_orchestrate', {
@@ -410,8 +343,6 @@ describe('exarchos merge-orchestrate CLI↔MCP parity (T22, DR-MO-1)', () => {
     expect(cliData.phase).toBe('completed');
     expect(cliData.mergeSha).toBe(MERGE_SHA);
 
-    // Byte-equal parity invariant — the promoted CLI surface MUST project
-    // the same ToolResult shape as the MCP composite.
     expect(normalize(cliResult)).toEqual(normalize(mcpResult));
   });
 });

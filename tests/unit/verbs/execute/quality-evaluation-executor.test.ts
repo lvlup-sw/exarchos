@@ -1,25 +1,16 @@
 // @oracle-sources: ../../../../src/verbs/execute/executor.ts, the rows a real EventStore holds after the segment runs — queried back by each leaf's DERIVED operation id rather than read off the receipt, so a leaf that emitted nothing cannot borrow a predecessor's rows
 //
-// ─── Executing the review-closeout segment ──────────────────────────────────
+// Runs the live orchestrate handler table over the deterministic subset of the
+// shipped review runbook. The subset leaves out `check_static_analysis`, which
+// runs the project toolchain in a shell. The four other leaves decide in-process.
+// Their steps come unchanged from the shipped runbook, so the compiler builds the
+// shipped arguments.
 //
-// The LIVE orchestrate handler table over the DETERMINISTIC subset of the
-// shipped review runbook. `check_static_analysis` is excluded because it shells
-// out to the project's toolchain, which would make a unit verdict depend on the
-// machine; the four remaining leaves reach a decision in-process. Their STEPS
-// are lifted verbatim from the shipped runbook rather than rewritten, so the
-// arguments the compiler builds are the shipped ones.
-//
-// Two facts are load-bearing here and each has its own case:
-//
-//   The segment's stated PRECONDITION is real. `check_invariant_conformance`
-//   requires a resolved review gate, no leaf in the segment produces one, and
-//   the verdict leaf's own evidence does not satisfy it — so a stream carrying
-//   only an active phase attempt is refused at that leaf, by name.
-//
-//   The three gates repaired for this slice actually pay their declaration.
-//   Each holds BOTH its evidence row and its signal row under its own derived
-//   identity; the kill probe below reverts one to the bare-append shape it had
-//   and shows the executor refusing it.
+// `check_invariant_conformance` requires a resolved review gate, and no leaf in
+// the segment produces one. Thus a stream with only an active phase attempt
+// stops at that leaf. Each gate in `REPAIRED` holds its evidence row and its
+// signal row under its own derived identity. The kill probe reverts one gate to
+// a bare append and shows that the executor refuses it.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
@@ -62,7 +53,7 @@ const COVERED = [
   'check_review_verdict',
 ];
 
-/** The three gates whose durable-evidence declaration this slice repaired. */
+/** The three gates in the subset that declare `durable-evidence` in `ensures`. */
 const REPAIRED = ['check_security_scan', 'check_convergence', 'check_invariant_conformance'];
 
 const INTENT_ARGS = {
@@ -142,14 +133,18 @@ afterEach(async () => {
 });
 
 describe('quality-evaluation over the deterministic leaf subset', () => {
+  /**
+   * The two leaves before the halt run and pass, so the halt comes from the
+   * requirement, not from a segment that did not start. Admission runs in
+   * execution order, so the refusal comes after the effects of the earlier
+   * leaves. Their rows stay, and the operation record still commits.
+   */
   it('QualityEvaluation_WithoutTheReviewFloor_HaltsAtInvariantConformance', async () => {
     const result = await execute('op-quality-unadmitted');
     const receipt = receiptOf(result);
 
     expect(result.success).toBe(false);
     expect(receipt.outcome).toBe('failed');
-    // The two leaves ahead of it ran and passed — the halt is the REQUIREMENT,
-    // not a segment that never started.
     expect(receipt.leaves.map((leaf) => [leaf.action, leaf.status])).toEqual([
       ['check_security_scan', 'passed'],
       ['check_convergence', 'passed'],
@@ -158,9 +153,6 @@ describe('quality-evaluation over the deterministic leaf subset', () => {
     expect(receipt.failedLeaf).toBe('check_invariant_conformance');
     expect(receipt.failure?.message).toContain('was not admitted');
 
-    // Admission is evaluated in EXECUTION order, so the refusal happened after
-    // its predecessors' effects rather than at compile time. Both still hold
-    // their rows, and the operation record still committed.
     for (const [index, action] of [[0, 'check_security_scan'], [1, 'check_convergence']] as const) {
       const derived = derivedLeafOperationId('op-quality-unadmitted', index, action);
       expect((await rowsFor(derived)).length, action).toBeGreaterThan(0);
@@ -181,6 +173,7 @@ describe('quality-evaluation over the deterministic leaf subset', () => {
     expect(await store.query(STREAM, { type: INTENT_EXECUTED_EVENT })).toHaveLength(1);
   });
 
+  /** Each leaf holds both rows under its own derived operation id. */
   it('QualityEvaluation_EveryLeaf_HoldsItsEvidenceAndSignal', async () => {
     await seedReviewFloor();
     await execute('op-quality-rows');
@@ -188,8 +181,6 @@ describe('quality-evaluation over the deterministic leaf subset', () => {
     for (const [index, action] of COVERED.entries()) {
       const derived = derivedLeafOperationId('op-quality-rows', index, action);
       const types = (await rowsFor(derived)).map((row) => row.type).sort();
-      // Both rows under THIS leaf's identity. The evidence row is the one three
-      // of these four could not produce before this slice.
       expect(types, action).toEqual(['admission.evidence-recorded', 'gate.executed']);
     }
   });
@@ -208,15 +199,16 @@ describe('quality-evaluation over the deterministic leaf subset', () => {
     );
   });
 
+  /**
+   * The segment crashes before the commit, so no claim persists and the retry
+   * runs each leaf again from the first. These gates emit their own
+   * `gate.executed` inside the provider, and the retry runs the provider again.
+   * Each leaf must still hold exactly one row of each type, not a second
+   * `gate.executed` under the same identity.
+   */
   it('QualityEvaluation_CrashedMidSegmentThenRetried_LeavesOneRowPerLeaf', async () => {
     await seedReviewFloor();
 
-    // The crash the derived-identity design exists for: the segment dies before
-    // the commit, so no claim is persisted and the retry re-runs every leaf
-    // from the first. What must NOT happen is a second row for the leaves that
-    // already succeeded — and the evidence row was never the whole story, since
-    // these gates mint their OWN `gate.executed` from inside the provider and
-    // the runner re-runs the provider before it can discover the retry.
     const verdict = ACTION_HANDLERS.check_review_verdict;
     if (verdict === undefined) throw new Error('check_review_verdict has no handler');
     let crash = true;
@@ -238,23 +230,20 @@ describe('quality-evaluation over the deterministic leaf subset', () => {
     for (const [index, action] of COVERED.entries()) {
       const derived = derivedLeafOperationId('op-quality-crash', index, action);
       const types = (await rowsFor(derived)).map((row) => row.type).sort();
-      // Exactly one of each, not "at least one": the duplicate this guards
-      // against is a SECOND `gate.executed` under the very same identity.
       expect(types, action).toEqual(['admission.evidence-recorded', 'gate.executed']);
     }
   });
 
-  // ─── Kill probe for the durable-evidence repair ───────────────────────────
-
+  /**
+   * A kill probe. One leaf does a bare `gate.executed` append and returns a
+   * success carrier, with no durable evidence. The contract of the action still
+   * declares the evidence, so the executor refuses the leaf. The step has
+   * `onFail: 'continue'`, but a leaf that breaks its own postcondition halts
+   * the segment.
+   */
   it('QualityEvaluation_GateRevertedToABareAppend_IsRefusedByTheExecutor', async () => {
     await seedReviewFloor();
 
-    // One leaf reverted to what it did before the repair: a `gate.executed`
-    // append and a success carrier, with no durable evidence behind it. The
-    // action's own contract still declares the evidence, so the executor must
-    // refuse the leaf rather than accept a success that broke its postcondition.
-    // Reverting the real handler is what makes this a probe and not a
-    // restatement — remove the repair and this is what the shipped path does.
     const reverted: LeafHandlerTable = {
       ...ACTION_HANDLERS,
       check_convergence: async (args, _stateDir, ctx) => {
@@ -276,8 +265,6 @@ describe('quality-evaluation over the deterministic leaf subset', () => {
       "leaf 'check_convergence' returned success without the postconditions it declares",
     );
     expect(receipt.failure?.message).toContain('evidence gate');
-    // `onFail: 'continue'` on this step did NOT license it: a leaf that broke
-    // its own postcondition halts whatever the step's failure policy says.
     const step = subsetRunbook().steps.find((entry) => entry.action === 'check_convergence');
     expect(step?.onFail).toBe('continue');
     expect(receipt.leaves.map((leaf) => leaf.action)).toEqual([
@@ -286,10 +273,11 @@ describe('quality-evaluation over the deterministic leaf subset', () => {
     ]);
   });
 
+  /**
+   * The denominator of the kill probe. Each gate in `REPAIRED` declares the
+   * postcondition that the probe trips, so the probe samples a class of gates.
+   */
   it('QualityEvaluation_RepairedGates_AllThreeDeclareDurableEvidence', () => {
-    // The denominator for the probe above: the three repaired gates all declare
-    // the postcondition the probe trips, so the probe is a sample of a class
-    // rather than a one-off.
     for (const action of REPAIRED) {
       const declaration = findActionInRegistry('exarchos_orchestrate', action);
       expect(declaration, action).toBeDefined();

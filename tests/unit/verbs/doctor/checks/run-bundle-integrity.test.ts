@@ -1,15 +1,9 @@
 /**
- * run-bundle-integrity — the doctor projection of the run-bundle
- * resolvability oracle.
- *
- * The check is a mapper over `probes.bundles.runIntegrityCheck`. What these
- * cases pin is that every verdict the oracle can return lands on a distinct,
- * honest doctor status: a sweep that checked nothing says so rather than
- * reading as clear, an incomplete sweep is not reported with the zero counts
- * its abort verdict cannot even carry, a loss of referenced bytes gets a
- * different remedy from a writer that referenced nothing, and the sweep's own
- * budget is sized under the ceiling the composer is racing it against —
- * whatever that ceiling is for this run.
+ * Tests for the run-bundle-integrity doctor check. The check maps each verdict
+ * of `probes.bundles.runIntegrityCheck` to a distinct doctor status or message.
+ * A sweep that checked nothing says so. An incomplete sweep reports no zero
+ * counts. A lost blob and a writer defect get different fixes. The sweep budget
+ * stays under the check budget of the composer.
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -45,6 +39,10 @@ const CLEAR: BundleIntegrityResult = {
 };
 
 describe('run-bundle-integrity', () => {
+  /**
+   * The sweep gets the signal of the composer itself, so a cancel of the doctor
+   * run stops a ledger walk that is in progress.
+   */
   it('RunBundleIntegrity_EveryReferenceResolves_ReturnsPassNamingTheDenominator', async () => {
     const { probes, runIntegrityCheck } = probesReturning(CLEAR);
     const signal = new AbortController().signal;
@@ -58,17 +56,17 @@ describe('run-bundle-integrity', () => {
     expect(result.message).toContain('4 stream(s)');
     expect(result.message).not.toContain('predate');
     expect(result.durationMs).toBeGreaterThanOrEqual(0);
-    // The sweep is handed the composer's OWN signal — not merely some signal —
-    // so cancelling the doctor run stops a ledger walk already in flight.
     expect(runIntegrityCheck).toHaveBeenCalledTimes(1);
     expect(runIntegrityCheck.mock.calls[0]?.[0]?.signal).toBe(signal);
   });
 
+  /**
+   * The check reads the budget from the probe bundle, where the composer puts
+   * the budget that it races. The sweep budget stays under that budget at the
+   * default, at a wider value, and at a narrower value. A tiny budget does not
+   * starve the sweep to zero.
+   */
   it('RunBundleIntegrity_SweepBudget_IsDerivedFromTheBudgetInForceNotACopiedDefault', async () => {
-    // At the default the sweep runs under the composer's race; under a widened
-    // `doctor --timeout-ms` it widens with it; under a narrowed one it stays
-    // under the ceiling too. The check reads the budget off the probe bundle,
-    // which is where the composer puts the value it is actually racing.
     for (const checkBudgetMs of [DEFAULT_CHECK_BUDGET_MS, 10_000, 400]) {
       const { probes, runIntegrityCheck } = probesReturning(CLEAR, { checkBudgetMs });
       await runBundleIntegrity(probes, new AbortController().signal);
@@ -77,16 +75,21 @@ describe('run-bundle-integrity', () => {
       expect(asked).toBeLessThan(checkBudgetMs);
     }
     expect(SWEEP_SHARE_OF_CHECK_BUDGET).toBeLessThan(1);
-    // A tiny budget cannot starve the sweep to nothing.
     expect(sweepBudgetMs(1)).toBeGreaterThan(0);
   });
 
+  /**
+   * If the check overruns the race of the composer, the composer reports it
+   * under `meta`, not under the function name and a default category.
+   */
   it('RunBundleIntegrity_CarriesItsOwnIdentityForTheComposersTimeoutPath', () => {
-    // A check that overruns the composer's race is reported under `meta`, not
-    // under the function's binding name and a default category.
     expect(runBundleIntegrity.meta).toEqual({ category: 'storage', name: 'run-bundle-integrity' });
   });
 
+  /**
+   * The message is not the sentence of the clear verdict, so a reader can tell
+   * "nothing to check" from "everything resolved".
+   */
   it('RunBundleIntegrity_EmptyDenominator_PassesButSaysNothingWasChecked', async () => {
     const { probes } = probesReturning({
       ok: 'empty',
@@ -98,16 +101,15 @@ describe('run-bundle-integrity', () => {
     const result = await runBundleIntegrity(probes, new AbortController().signal);
 
     expect(result.status).toBe('Pass');
-    // Not the same sentence as the clear verdict: a reader must be able to
-    // tell "nothing to check" from "everything resolved".
     expect(result.message).toContain('nothing to check');
     expect(result.message).not.toContain('resolve to their bytes');
   });
 
+  /**
+   * A ledger where each settlement predates custody is a normal upgraded
+   * install. It passes, and the message counts those records as exempt.
+   */
   it('RunBundleIntegrity_PreCustodySettlements_AreCountedNotCondemned', async () => {
-    // A ledger whose settlements all predate custody is the ordinary upgraded
-    // install. It passes, and the message says those records were seen and
-    // exempt — not that nothing was there.
     const { probes } = probesReturning({
       ok: 'empty',
       scannedStreamCount: 12,
@@ -134,6 +136,7 @@ describe('run-bundle-integrity', () => {
     expect(result.reason).toBe('backend does not enumerate streams');
   });
 
+  /** The fix names the bundle directory, which comes from `RUN_BUNDLE_DIRNAME`. */
   it('RunBundleIntegrity_LostBytes_ReturnsWarningNamingWhereAndWhatUnderTheBundleRoot', async () => {
     const digest = `sha256:${'a'.repeat(64)}`;
     const { probes } = probesReturning(
@@ -157,16 +160,17 @@ describe('run-bundle-integrity', () => {
     expect(result.message).toContain('2 run-bundle violation(s)');
     expect(result.message).toContain(`blob-missing at feat-a#12 (${digest})`);
     expect(result.message).toContain(`unreadable-blob at feat-b#3 (${digest}): EACCES`);
-    // The directory is derived from the one constant that owns the name.
     expect(result.fix).toContain(path.join('/var/exarchos/state', RUN_BUNDLE_DIRNAME));
     expect(result.fix).toContain('cannot be recovered');
     expect(result.fix).not.toContain('defect in that writer');
   });
 
+  /**
+   * No bytes are missing: a settlement record under the custody contract
+   * referenced nothing. A fix that says bytes are gone sends the operator to
+   * look for a loss that did not occur.
+   */
   it('RunBundleIntegrity_SettlementWithoutReferences_IsAWriterDefectNotALoss', async () => {
-    // Nothing is missing from disk: a settlement record written under the
-    // custody contract referenced nothing. Telling the operator bytes are gone
-    // would send them looking for a loss that never happened.
     const { probes } = probesReturning({
       ok: false,
       scannedStreamCount: 1,
@@ -211,6 +215,10 @@ describe('run-bundle-integrity', () => {
     expect(result.message).toContain('and 2 more');
   });
 
+  /**
+   * The fix names a shipped flag that an operator can use. It also says that
+   * the counts are unknown, not zero.
+   */
   it('RunBundleIntegrity_TimedOutSweep_IsItsOwnWarningNamingTheOneKnobThatWidensIt', async () => {
     const { probes } = probesReturning({
       ok: false,
@@ -225,8 +233,6 @@ describe('run-bundle-integrity', () => {
     expect(result.message).toContain('did not complete');
     expect(result.message).toContain('timed out after 1500ms');
     expect(result.message).not.toContain('0 run-bundle violation');
-    // The remedy is something an operator can actually do from a shipped
-    // surface, and it says the counts are unknown rather than zero.
     expect(result.fix).toContain('exarchos doctor --timeout-ms');
     expect(result.fix).toContain('unknown, not zero');
   });

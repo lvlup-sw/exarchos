@@ -64,9 +64,8 @@ describe('parseTaskStamps', () => {
     ]);
   });
 
+  /** The value `low-priority` must not read as `low`. A malformed stamp falls through to heuristic derivation. */
   it('ParseTaskStamps_MalformedTierValue_FallsThroughToUndefined', () => {
-    // `low-priority` must NOT read as `low` — a malformed stamp should fall
-    // through to heuristic derivation, not silently misclassify.
     const md = ['#### Task 9: x', '**Risk Tier:** low-priority'].join('\n');
     expect(parseTaskStamps(md)[0].riskTier).toBeUndefined();
   });
@@ -83,8 +82,8 @@ describe('parseTaskStamps', () => {
     expect(tasks[0].riskTier).toBe('low');
   });
 
+  /** The `### Tasks` line has no id, so it is a section header and not a task. */
   it('ParseTaskStamps_TasksSectionHeader_NotParsedAsTask', () => {
-    // `### Tasks` (plural, no id) is a section header, not a task.
     const md = ['### Tasks', '#### Task 001: real', '**Risk Tier:** medium'].join('\n');
     const tasks = parseTaskStamps(md);
     expect(tasks).toHaveLength(1);

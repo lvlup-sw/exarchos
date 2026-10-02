@@ -1,24 +1,12 @@
 /**
- * verification-toolchain check — RED tests (design §4.6).
+ * Tests for the verification-toolchain doctor check.
  *
- * The 13th doctor check reports whether the verification ladder's commands
- * resolve at all, so unresolved toolchains stop degrading gates silently.
+ * - Pass: `test`, `typecheck`, and `mutation` resolve. The message also reports `lint`.
+ * - Warning: one of these three fields is unresolved. `fix` names `exarchos doctor --fix` and a declaration in `.exarchos.yml` or `toolchains:`.
+ * - Skipped: detection finds no toolchain. `reason` names what detection looked for.
  *
- * Status contract under test:
- *   - Pass    — test + typecheck + mutation all resolve (lint reported
- *               informationally either way).
- *   - Warning — any of that triple unresolved; `fix` MUST name BOTH remedies
- *               (`exarchos doctor --fix` AND declaring the field in
- *               `.exarchos.yml` / a `toolchains:` entry).
- *   - Skipped — nothing detectable at all (empty repo); `reason` names what
- *               detection looked for.
- *
- * The detail payload always carries the resolved-policy source per cell for
- * all six (riskTier × boundaryTouching) cells — read-only visibility, the
- * check NEVER writes anything.
- *
- * The probe is the disk seam: the check itself reaches for nothing but
- * `probes.verificationToolchain.resolve()`. Tests stub that probe.
+ * The result carries the source of each of the six policy cells.
+ * The tests stub `probes.verificationToolchain.resolve()`, which is the only probe that the check calls.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -54,6 +42,7 @@ function fullyResolved(): VerificationToolchainResolution {
 }
 
 describe('verificationToolchain', () => {
+  /** The Pass message also reports the `lint` command. */
   it('VerificationToolchain_AllTripleResolves_Pass', async () => {
     const probes = makeStubProbes({
       verificationToolchain: { resolve: async () => fullyResolved() },
@@ -65,10 +54,10 @@ describe('verificationToolchain', () => {
     expect(result.name).toBe('verification-toolchain');
     expect(result.status).toBe('Pass');
     expect(result.fix).toBeUndefined();
-    // lint is reported informationally in the Pass message.
     expect(result.message).toContain('eslint .');
   });
 
+  /** The message names the unresolved field, so the operator knows which field to declare. */
   it('VerificationToolchain_MutationUnresolved_WarningWithBothRemedies', async () => {
     const probes = makeStubProbes({
       verificationToolchain: {
@@ -78,7 +67,7 @@ describe('verificationToolchain', () => {
             test: 'npm run test:run',
             typecheck: 'tsc --noEmit',
             install: 'npm install',
-            mutation: null, // the triple is incomplete
+            mutation: null,
             lint: 'eslint .',
           },
           policyCells: ALL_SIX_CELLS,
@@ -90,12 +79,9 @@ describe('verificationToolchain', () => {
 
     expect(result.status).toBe('Warning');
     expect(result.fix).toBeDefined();
-    // BOTH remedies must be named: the reconciler fix path AND declaring the
-    // field where detection can't see it.
     expect(result.fix).toContain('exarchos doctor --fix');
     expect(result.fix).toContain('.exarchos.yml');
     expect(result.fix).toContain('toolchains:');
-    // The unresolved field is named so the operator knows what to declare.
     expect(result.message).toContain('mutation');
   });
 
@@ -121,12 +107,11 @@ describe('verificationToolchain', () => {
     expect(result.status).toBe('Skipped');
     expect(result.reason).toBeDefined();
     expect(result.reason!.length).toBeGreaterThan(0);
-    // The reason names what detection looked for (project markers / config).
     expect(result.reason).toMatch(/marker|\.exarchos\.yml|toolchain/i);
-    // No fix on a Skipped result.
     expect(result.fix).toBeUndefined();
   });
 
+  /** The message also reports the mix of sources, so the message alone shows the provenance. */
   it('VerificationToolchain_DetailPayload_CarriesPolicySourcePerCell', async () => {
     const mixedCells: VerificationToolchainResolution['policyCells'] = [
       { riskTier: 'low', boundaryTouching: false, source: 'builtin' },
@@ -147,10 +132,8 @@ describe('verificationToolchain', () => {
 
     const result = await verificationToolchain(probes, controller());
 
-    // All six cells are reported, each with its builtin/config provenance.
     expect(result.policyCells).toHaveLength(6);
     expect(result.policyCells).toEqual(mixedCells);
-    // The message surfaces the mixed provenance so the payload is self-describing.
     expect(result.message).toMatch(/builtin/i);
     expect(result.message).toMatch(/config/i);
   });

@@ -1,28 +1,12 @@
 // @oracle-sources: ../../../../src/verbs/execute/executor.ts, the by-hand primitive baseline this file drives — the same compiled leaves invoked one at a time through the orchestrate handler table against a SECOND event store with the runbook's stop policy applied by the loop rather than by the executor
 //
-// ─── Composition parity: driving the review leaves vs executing the intent ──
+// Composition parity for `quality-evaluation`. The executor changes who drives the runbook, not what the run does.
+// The baseline calls the registered handlers directly in runbook order, with the arguments that the compiler builds.
+// Each path runs on its own seeded store. The test compares event types, order, streams, and gate verdict payloads.
+// It excludes the derived per-leaf operation id, the values hashed over it, and wall-clock and store-allocated values.
 //
-// The executor's claim for `quality-evaluation` is the same claim it makes for
-// `task-completion`: it changes WHO drives the runbook, not WHAT running it
-// does. The comparison is against the same primitive baseline — the registered
-// handlers, invoked directly in runbook order, with the arguments the compiler
-// builds — because that is what an orchestrator following the runbook by hand
-// does today.
-//
-// Two identically seeded stores, one path each, then the facts are compared:
-// event types, their order, the stream each landed on, and the payload of the
-// gate verdicts.
-//
-// EXCLUDED FROM THE COMPARISON, and why each can never byte-match: the same set
-// the task-completion parity file names — the derived per-leaf operation id and
-// everything content-addressed over it, plus wall-clock and store-allocated
-// scaffolding. Everything else is compared verbatim.
-//
-// PARITY COVERS FOUR LEAVES, not five. `check_static_analysis` shells out to the
-// project's toolchain; running it here would make a unit test's verdict depend
-// on the machine it runs on. The four kept are the ones that reach a decision
-// without leaving the process. Their STEPS are lifted verbatim from the shipped
-// runbook, so the arguments the compiler builds for them are the shipped ones.
+// Parity covers four of the five leaves. `check_static_analysis` runs the project toolchain, so its verdict depends on the machine.
+// The four kept leaves decide without leaving the process. Their steps come unchanged from the shipped runbook.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
@@ -84,6 +68,7 @@ const INTENT_ARGS = {
   diffContent: '+export const answer = 42;\n',
 };
 
+/** Uses the live orchestrate handler table, which the composite also gives the executor, so both paths reach the same handlers. */
 function deps(): ExecuteIntentDeps {
   const schema = INTENT_ARG_SCHEMAS[SHIPPED_INTENT];
   if (schema === undefined) throw new Error(`no argument schema for ${SHIPPED_INTENT}`);
@@ -91,19 +76,12 @@ function deps(): ExecuteIntentDeps {
     runbookTable: [subsetRunbook()],
     findAction: findActionInRegistry,
     argSchemas: { [SUBSET_INTENT]: schema },
-    // The LIVE orchestrate table, not a fixture one — the composite hands the
-    // executor this same object, so both paths reach the same handlers.
     handlers: ACTION_HANDLERS,
     handlerTool: 'exarchos_orchestrate',
   };
 }
 
-// ─── Normalization ──────────────────────────────────────────────────────────
-
-/**
- * Keys dropped everywhere they appear, at any depth. Named in the header with
- * the reason each one cannot match across the two paths.
- */
+/** Keys dropped at any depth, because they cannot match across the two paths. */
 const EXCLUDED_KEYS = new Set([
   'operationId',
   'correlationId',
@@ -120,9 +98,7 @@ const EXCLUDED_KEYS = new Set([
   'createdAt',
   'updatedAt',
   'resolvedAt',
-  // The convergence gate stamps the wall-clock time it last saw each dimension
-  // into its own verdict payload — the same exclusion as `timestamp`, one layer
-  // down inside a gate's details.
+  /** The convergence gate writes the wall-clock time it last saw each dimension into its verdict payload. */
   'lastChecked',
   'eventId',
   'sequence',
@@ -131,12 +107,9 @@ const EXCLUDED_KEYS = new Set([
 ]);
 
 /**
- * Arrays whose ORDER is a function of the excluded keys rather than of what
- * happened. The admission projection sorts its active-evidence list by evidence
- * id, and an evidence id is a hash over the operation id — the one thing the
- * two paths cannot share by construction. Comparing the list as an ordered
- * sequence would fail on the mechanism under test; comparing it as a set still
- * catches a missing, extra or altered record.
+ * Arrays whose order comes from an excluded key, not from the run.
+ * The admission projection sorts `activeEvidence` by evidence id, which is a hash over the operation id.
+ * A set comparison still catches a missing, extra, or changed record.
  */
 const ORDER_BY_EXCLUDED_KEY = new Set(['activeEvidence']);
 
@@ -166,17 +139,17 @@ function leafFacts(events: readonly WorkflowEvent[]): unknown[] {
     .map((event) => normalize({ type: event.type, streamId: event.streamId, data: event.data }));
 }
 
-// ─── Two identically seeded stores ──────────────────────────────────────────
-
 let baselineDir: string;
 let executorDir: string;
 let baselineStore: EventStore;
 let executorStore: EventStore;
 
+/**
+ * Seeds the review gate evidence that the invariant leaf requires and no covered leaf produces.
+ * Both stores get it, so admission answers the same question on both paths.
+ */
 async function seed(store: EventStore): Promise<void> {
   const phaseAttemptId = await seedActivePhaseAttempt(store, STREAM, { phase: 'review' });
-  // The review gate the invariant leaf requires and no covered leaf produces.
-  // Seeded on BOTH stores, so admission answers the same question on both paths.
   await seedGateEvidence(store, { streamId: STREAM, requirementId: 'review', phaseAttemptId });
 }
 
@@ -204,7 +177,10 @@ interface BaselineLeafOutcome {
   readonly message?: string;
 }
 
-/** The primitive baseline: the registered handlers, called in runbook order. */
+/**
+ * The primitive baseline calls the registered handlers in runbook order.
+ * It applies the `stop` failure policy by hand, as an orchestrator that follows the runbook does.
+ */
 async function runPrimitiveBaseline(ctx: DispatchContext): Promise<BaselineLeafOutcome[]> {
   const compiled = compileIntent(SUBSET_INTENT, { streamId: STREAM }, INTENT_ARGS, deps());
   expect(compiled.ok).toBe(true);
@@ -219,14 +195,18 @@ async function runPrimitiveBaseline(ctx: DispatchContext): Promise<BaselineLeafO
       success: result?.success === true,
       ...(result?.error?.message !== undefined ? { message: result.error.message } : {}),
     });
-    // The runbook's failure policy, applied by hand: a `stop` leaf that failed
-    // would halt an orchestrator following the runbook here too.
     if (result?.success === false && leaf.onFail === 'stop') break;
   }
   return outcomes;
 }
 
 describe('quality-evaluation over the no-shell leaf subset', () => {
+  /**
+   * Both paths append the same events in the same order, on the same stream, with the same payload.
+   * Each covered leaf writes the two rows that a gate owes, so the comparison is not vacuous.
+   * The per-leaf verdicts must also match, because the event log alone does not show them.
+   * Only the executor writes its own operation record.
+   */
   it('ExecutorAndPrimitiveBaseline_ProduceTheSameFacts', async () => {
     const correlation = fixtureCorrelation();
 
@@ -251,11 +231,8 @@ describe('quality-evaluation over the no-shell leaf subset', () => {
     const baselineEvents = await baselineStore.query(STREAM);
     const executorEvents = await executorStore.query(STREAM);
 
-    // Same events, same order, same subject stream, same payload.
     expect(leafFacts(executorEvents)).toEqual(leafFacts(baselineEvents));
 
-    // Not vacuous: both paths appended well past the seeded prelude, and each
-    // covered leaf produced both of the rows a repaired gate owes.
     const types = baselineEvents.map((event) => event.type);
     expect(types.slice(0, 2)).toEqual(['workflow.started', 'admission.evidence-recorded']);
     expect(types.filter((type) => type === 'gate.executed')).toHaveLength(COVERED.length);
@@ -263,7 +240,6 @@ describe('quality-evaluation over the no-shell leaf subset', () => {
       COVERED.length + 1,
     );
 
-    // The per-leaf verdicts match too, which the event log alone does not say.
     const receipt = executed.data as { leaves: { action: string; status: string }[] };
     expect(baseline.map((leaf) => [leaf.action, leaf.success])).toEqual(
       COVERED.map((action) => [action, true]),
@@ -272,8 +248,6 @@ describe('quality-evaluation over the no-shell leaf subset', () => {
       COVERED.map((action) => [action, 'passed']),
     );
 
-    // The one fact only the executor produces: its own operation record. The
-    // baseline has no such row, which is exactly what the commit is FOR.
     expect(
       executorEvents.filter((event) => event.type === INTENT_EXECUTED_EVENT),
     ).toHaveLength(1);

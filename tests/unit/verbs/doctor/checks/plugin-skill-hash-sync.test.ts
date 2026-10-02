@@ -1,9 +1,7 @@
 /**
- * RED tests for plugin-skill-hash-sync. Exercises the two branches: (1)
- * probe reports in-sync → Pass, (2) probe reports drift with paths →
- * Warning naming the build:skills fix. Uses makeStubProbes so every
- * non-skills probe throws if accidentally touched (DIM-4/T-4.2: ≤3
- * overrides per test).
+ * Tests for the plugin-skill-hash-sync check. An in-sync probe gives Pass. A
+ * probe that reports drift gives a Warning that names the `build:skills` fix.
+ * `makeStubProbes` makes each probe that a test does not override throw.
  */
 
 import { describe, it, expect } from 'vitest';

@@ -1,14 +1,7 @@
-// ─── Finalize Oneshot Handler Tests (T12) ──────────────────────────────────
-//
-// Exercises handleFinalizeOneshot — the orchestrate action that resolves
-// the oneshot choice state at the end of `implementing`. Determines the
-// next phase from the synthesisOptedIn / synthesisOptedOut guards and
-// transitions via handleSet, delegating guard evaluation to the HSM.
-//
-// Tests use real tmpdir state + EventStore to drive the full HSM pipeline,
-// ensuring the handler interacts with state-store/event-store the same way
-// the production composite handler will.
-// ────────────────────────────────────────────────────────────────────────────
+// Tests for `handleFinalizeOneshot`, the orchestrate action that resolves the
+// oneshot choice state at the end of `implementing`. The handler reads the
+// `synthesisOptedIn` guard to pick the next phase, then calls `handleSet`.
+// The tests use a real tmpdir state and a real `EventStore`.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -19,8 +12,6 @@ import { handleInit, handleSet } from '../../../../src/workflow/tools.js';
 import { EventStore } from '../../../../src/events/store.js';
 import { handleFinalizeOneshot } from '../../../../src/verbs/tasks/finalize-oneshot.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
-
-// ─── Fixture helpers ────────────────────────────────────────────────────────
 
 let tmpDir: string;
 let eventStore: EventStore;
@@ -37,7 +28,7 @@ afterEach(async () => {
 
 /**
  * Initialize a oneshot workflow, set the plan, and advance to `implementing`.
- * Optionally set the synthesisPolicy via `oneshot.synthesisPolicy` updates.
+ * The plan artifact satisfies the `oneshotPlanSet` guard. When `synthesisPolicy` is given, it goes to `oneshot.synthesisPolicy`.
  */
 async function initOneshotInImplementing(
   featureId: string,
@@ -45,7 +36,6 @@ async function initOneshotInImplementing(
 ): Promise<void> {
   await handleInit({ featureId, workflowType: 'oneshot' }, tmpDir, eventStore);
 
-  // Set synthesisPolicy via top-level oneshot field if specified.
   if (synthesisPolicy !== undefined) {
     await handleSet(
       {
@@ -57,7 +47,6 @@ async function initOneshotInImplementing(
     );
   }
 
-  // Set the plan artifact to satisfy oneshotPlanSet guard
   await handleSet(
     {
       featureId,
@@ -67,7 +56,6 @@ async function initOneshotInImplementing(
     eventStore,
   );
 
-  // Transition plan -> implementing
   const result = await handleSet(
     { featureId, phase: 'implementing' },
     tmpDir,
@@ -96,8 +84,6 @@ async function readPhase(featureId: string): Promise<string> {
   const parsed = JSON.parse(raw) as { phase?: string };
   return parsed.phase ?? '';
 }
-
-// ─── Tests ──────────────────────────────────────────────────────────────────
 
 describe('handleFinalizeOneshot', () => {
   it('handleFinalizeOneshot_policyAlways_transitionsToSynthesize', async () => {
@@ -161,9 +147,8 @@ describe('handleFinalizeOneshot', () => {
     expect(await readPhase(featureId)).toBe('completed');
   });
 
+  /** With no `synthesisPolicy` and no `synthesize.requested` event, the handler takes the direct-commit path. */
   it('handleFinalizeOneshot_defaultsToOnRequestWhenPolicyMissing', async () => {
-    // No explicit synthesisPolicy set — should default to on-request behavior.
-    // Without a synthesize.requested event, the direct-commit path is taken.
     const featureId = 'oneshot-default-policy';
     await initOneshotInImplementing(featureId);
 
@@ -178,7 +163,6 @@ describe('handleFinalizeOneshot', () => {
 
   it('handleFinalizeOneshot_rejectsNonOneshotWorkflow', async () => {
     const featureId = 'feat-non-oneshot';
-    // Initialize as feature workflow, not oneshot
     await handleInit(
       { featureId, workflowType: 'feature' },
       tmpDir,
@@ -194,9 +178,9 @@ describe('handleFinalizeOneshot', () => {
     expect(result.error?.message).toMatch(/oneshot/);
   });
 
+  /** The workflow stays in `plan` and does not advance to `implementing`. */
   it('handleFinalizeOneshot_rejectsFromWrongPhase', async () => {
     const featureId = 'oneshot-wrong-phase';
-    // Init oneshot but stay in `plan` (do not advance to implementing)
     await handleInit(
       { featureId, workflowType: 'oneshot' },
       tmpDir,
@@ -231,7 +215,6 @@ describe('handleFinalizeOneshot', () => {
   });
 
   it('handleFinalizeOneshot_policyAlwaysOverridesEvent', async () => {
-    // Verifies that synthesisPolicy=always wins regardless of events.
     const featureId = 'oneshot-always-event';
     await initOneshotInImplementing(featureId, 'always');
     await appendSynthesizeRequested(featureId);
@@ -244,10 +227,8 @@ describe('handleFinalizeOneshot', () => {
     expect((result.data as { newPhase: string }).newPhase).toBe('synthesize');
   });
 
+  /** The `synthesize.requested` event stays in the log for audit, but the `never` policy decides the choice state. */
   it('handleFinalizeOneshot_policyNeverOverridesEvent', async () => {
-    // Verifies that synthesisPolicy=never wins even when synthesize.requested
-    // was emitted (the event is recorded for audit but the policy short-
-    // circuits the choice state).
     const featureId = 'oneshot-never-event';
     await initOneshotInImplementing(featureId, 'never');
     await appendSynthesizeRequested(featureId);

@@ -1,41 +1,14 @@
 // @oracle-sources: ../../../../src/verbs/execute/executor.ts, the by-hand primitive baseline this file drives — the same compiled task-completion leaves invoked one at a time through the orchestrate handler table, once per task, against a SECOND event store seeded identically, whose rows and state document are compared verbatim with what one settle call leaves
 //
-// ─── Composition parity: settling a batch vs completing each task by hand ───
+// Composition parity for `settle`: a settled batch leaves the same durable facts and state as completing each task by hand with the task-completion runbook.
+// Settlement has no verification of its own. It runs the executor segment, and the executor runs the registered leaves.
+// Each path runs on its own seeded store. The test compares the leaf rows, the folded workflow projection, and the task statuses on the state document.
 //
-// The claim under test is the plane's replay-equivalence gate stated for one
-// intent: a settled batch leaves the SAME durable facts, and the same state,
-// as an orchestrator following the task-completion runbook by hand for each
-// task. Not similar facts — the same rows, in the same order, on the same
-// stream, with the same payload — because settlement does not have a
-// verification of its own: it runs the executor's segment, and the executor
-// runs the registered leaves.
+// The comparison excludes the operation id, because settlement derives one per task from the batch.
+// It also excludes the ids and digests derived from it, and wall-clock, store-allocated, and correlation values.
 //
-// Two identically seeded stores, one path each, then the facts are compared:
-// every leaf row's type, order, stream and payload; the workflow projection
-// folded over both; and every task's status on the document the transition
-// guards read.
-//
-// EXCLUDED FROM THE COMPARISON, and why each can never byte-match:
-//   - `operationId` — settlement runs each task under an operation derived
-//     from the batch; the baseline runs each leaf under one ambient dispatch.
-//     That difference is the mechanism under test, not a divergence.
-//   - `evidenceId`, `artifactId` and `invocationId` — derived from the
-//     operation id, so they move with it by construction.
-//   - `contentDigest`, `policyDigest` and every `digest` — content addresses
-//     over payloads that include the ids above.
-//   - `timestamp`, `createdAt`, `updatedAt`, `eventId`, `sequence`,
-//     `idempotencyKey`, `correlationId`, `causationId`, `durationMs` —
-//     wall-clock, store-allocated, or correlation scaffolding.
-// Everything else is compared verbatim.
-//
-// PARITY COVERS TWO LEAVES, not five, for the reason the executor's own parity
-// suite gives: `check_test_adequacy`, `check_contract_drift` and
-// `check_static_analysis` shell out to git and the project's toolchain, and a
-// unit verdict must not depend on the machine. The two kept are the ones that
-// decide without leaving the process — `check_mock_boundary` and the terminal
-// `task_complete` — with their steps lifted verbatim from the shipped runbook.
-// The gate `task_complete` demands is seeded in BOTH stores, so the two
-// streams differ only by the path that completed the tasks.
+// Parity covers two of the five leaves: `check_mock_boundary` and `task_complete`. The other three run git and the project toolchain.
+// Both stores hold the `static-analysis` gate result that `task_complete` requires, so the two streams differ only by the path that completed the tasks.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
@@ -70,7 +43,7 @@ import { seedActivePhaseAttempt } from '../../../../tools/test-helpers/trusted-c
 const STREAM = 'feat-settlement-parity';
 const TASK_IDS = ['task-one', 'task-two'] as const;
 const WORKTREE = '/nonexistent-parity-worktree';
-/** The integration branch the plan's tasks fork from; prepare freezes it as each task's base. */
+/** The integration branch that the plan tasks fork from. `prepare` freezes it as the base of each task. */
 const INTEGRATION_BRANCH = 'feature/settlement-parity';
 /** Stamped on the plan so the one gate the cut runbook carries is IN the resolved sequence, not policy-skipped. */
 const STAMP = { riskTier: 'medium', boundaryTouching: true } as const;
@@ -93,8 +66,7 @@ const EXCLUDED_KEYS = new Set([
   'digest',
   'timestamp',
   'createdAt',
-  // The projection's own stamps, folded from each fact's timestamp — the
-  // same exclusion as `timestamp`, one layer up.
+  /** The projection folds this stamp and the next two from the timestamp of each fact. */
   'updatedAt',
   'completedAt',
   'resolvedAt',
@@ -116,12 +88,9 @@ function normalize(value: unknown): unknown {
 }
 
 /**
- * The same, with every array compared as a set. The projection keys its
- * evidence by evidence id — an operation-derived hash the comparison
- * excludes — so two paths that folded the same rows list them in an order
- * the excluded id decided. Row ORDER is proved by the leaf-facts case, which
- * compares the streams as sequences; here the folded state is compared as
- * content.
+ * Sorts each array, so that the comparison treats it as a set.
+ * The projection keys its evidence by evidence id, an excluded operation-derived hash, so that id decides the array order.
+ * The leaf-facts test proves the row order. This comparison checks the folded state as content.
  */
 function orderless(value: unknown): unknown {
   if (Array.isArray(value)) {
@@ -156,6 +125,7 @@ function noShellTaskCompletion(): RunbookDefinition {
   return { ...shipped, steps };
 }
 
+/** Uses the live orchestrate handler table, which the composite also gives `settle`, so both paths reach the same handlers. */
 function executeDeps(): ExecuteIntentDeps {
   const schema = INTENT_ARG_SCHEMAS['task-completion'];
   if (schema === undefined) throw new Error('no argument schema for task-completion');
@@ -163,8 +133,6 @@ function executeDeps(): ExecuteIntentDeps {
     runbookTable: [noShellTaskCompletion()],
     findAction: findActionInRegistry,
     argSchemas: { 'task-completion': schema },
-    // The LIVE orchestrate table — the composite hands settle this same
-    // object, so both paths reach the same handlers.
     handlers: ACTION_HANDLERS,
     handlerTool: 'exarchos_orchestrate',
   };
@@ -223,16 +191,12 @@ function correlation(): ReturnType<typeof mintDispatchContext> {
 }
 
 /**
- * The primitive baseline: the registered handlers, in runbook order, once per
- * task, with the arguments the compiler builds from what the capsule will
- * freeze — the way an orchestrator following the runbook by hand does it.
+ * The primitive baseline: the registered handlers in runbook order, once per task, as an orchestrator that follows the runbook does.
+ * The arguments are the ones that the compiler builds from what the capsule freezes.
+ * The baseline first appends one `task.assigned` row per task. The plane compilation leaves the same rows, so the comparison includes them.
  */
 async function completeByHand(): Promise<void> {
   const ctx = wiring(baselineDir, baselineStore);
-  // The primitive path announces its tasks before it dispatches — by hand
-  // once, by `prepare_delegation` now — one row per task; the plane's
-  // compilation leaves the same rows, in the same shape, ahead of its record.
-  // So the announcement is a leaf fact both sides leave, and it is compared.
   for (const taskId of TASK_IDS) {
     await baselineStore.append(STREAM, { type: 'task.assigned', data: { taskId, title: taskId } });
   }
@@ -287,6 +251,10 @@ async function taskStatuses(dir: string): Promise<[string, string][]> {
 }
 
 describe('settlement composition — parity with completing each task by hand', () => {
+  /**
+   * After the seeded prelude, both paths leave the gate evidence, the gate signal, and the completion, once per task, in that order.
+   * The settled store also holds the plane records: one segment record per task, and the settlement that reads them.
+   */
   it('SettlementParity_ASettledBatch_LeavesTheSameLeafFacts', async () => {
     await completeByHand();
     await settleTheBatch();
@@ -295,14 +263,10 @@ describe('settlement composition — parity with completing each task by hand', 
     const settled = leafFacts(await settleStore.query(STREAM));
     expect(settled).toEqual(baseline);
 
-    // Not vacuous: past the seeded prelude, both paths left the gate's proof,
-    // its signal and the completion, once per task, in that order.
     const types = (await baselineStore.query(STREAM)).map((event) => event.type);
     expect(types.slice(-3 * TASK_IDS.length)).toEqual(
       TASK_IDS.flatMap(() => ['admission.evidence-recorded', 'gate.executed', 'task.completed']),
     );
-    // And the settled store carries the plane's own records beside them: one
-    // segment record per task, and the settlement that read them.
     const plane = (await settleStore.query(STREAM)).filter((event) => PLANE_RECORDS.has(event.type)).map((e) => e.type);
     expect(plane).toEqual(['workflow.prepared', INTENT_EXECUTED_EVENT, INTENT_EXECUTED_EVENT, 'execution.settled']);
   });

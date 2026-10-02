@@ -1,17 +1,15 @@
-// ─── Debug Review Gate Tests ─────────────────────────────────────────────────
+// Tests the provider verdict of `handleDebugReviewGate`.
+// The gate records durable evidence through the shared phase-gate runner, and these tests stub that runner down to its provider call.
+// `unrunbooked-gate-evidence-dispatch.test.ts` proves the evidence over real dispatch.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-// ─── Mock node:child_process ────────────────────────────────────────────────
-
 vi.mock('node:child_process', () => ({
   execFileSync: vi.fn(),
 }));
-
-// ─── Mock node:fs ───────────────────────────────────────────────────────────
 
 vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>();
@@ -23,12 +21,6 @@ import { existsSync } from 'node:fs';
 import { handleDebugReviewGate } from '../../../../src/verbs/review/debug-review-gate.js';
 import type { EventStore } from '../../../../src/events/store.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
-// The gate now records durable evidence through the shared phase-gate runner
-// before any success carrier escapes. These cases are about the PROVIDER's
-// verdict, so the runner is stubbed down to its provider call — the same seam
-// every other migrated gate's unit test stubs. The evidence a caller actually
-// gets is proven over real dispatch in
-// `unrunbooked-gate-evidence-dispatch.test.ts`.
 vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
   runPhaseGateWithEvidence: vi.fn(async (request) => {
     try {
@@ -59,8 +51,6 @@ const eventStore = {
   query: vi.fn().mockResolvedValue([]),
 } as unknown as EventStore;
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
 /** Cast string to satisfy execFileSync overload return type. */
 function mockOutput(s: string): never {
   return s as never;
@@ -77,8 +67,6 @@ function fixtureRepo(files: Record<string, string>): string {
   return dir;
 }
 
-// ─── Tests ──────────────────────────────────────────────────────────────────
-
 describe('handleDebugReviewGate', () => {
   let repoRoot: string;
 
@@ -91,8 +79,6 @@ describe('handleDebugReviewGate', () => {
   afterEach(() => {
     for (const dir of fixtureDirs.splice(0)) rmrf(dir);
   });
-
-  // ─── Test 1: Test files found + tests pass → passed: true ───────────────
 
   it('returns passed when test files exist and tests pass', async () => {
     vi.mocked(execFileSync)
@@ -118,8 +104,6 @@ describe('handleDebugReviewGate', () => {
     expect(data.report).toContain('PASS');
   });
 
-  // ─── Test 2: No test files in diff → passed: false ─────────────────────
-
   it('returns failed when no test files in diff', async () => {
     vi.mocked(execFileSync)
       .mockReturnValueOnce(mockOutput('src/widget.ts\nsrc/utils.ts\n'))
@@ -142,8 +126,6 @@ describe('handleDebugReviewGate', () => {
     expect(data.report).toContain('FAIL');
   });
 
-  // ─── Test 3: No changed files → passed: false ──────────────────────────
-
   it('returns failed when no changed files found', async () => {
     vi.mocked(execFileSync).mockReturnValueOnce(mockOutput(''));
 
@@ -163,8 +145,6 @@ describe('handleDebugReviewGate', () => {
     expect(data.checks.fail).toBeGreaterThanOrEqual(1);
     expect(data.report).toContain('No changed files');
   });
-
-  // ─── Test 4: Tests fail → passed: false ─────────────────────────────────
 
   it('returns failed when the resolved test command fails', async () => {
     vi.mocked(execFileSync)
@@ -190,8 +170,7 @@ describe('handleDebugReviewGate', () => {
     expect(data.report).toContain('FAIL');
   });
 
-  // ─── Test 5: skipRun=true → skip test execution check ──────────────────
-
+  /** With `skipRun`, `execFileSync` runs once for `git diff` and not for the test command. */
   it('skips test execution when skipRun is true', async () => {
     vi.mocked(execFileSync).mockReturnValueOnce(
       mockOutput('src/widget.ts\nsrc/widget.test.ts\n'),
@@ -212,11 +191,8 @@ describe('handleDebugReviewGate', () => {
     };
     expect(data.passed).toBe(true);
     expect(data.checks.skip).toBe(1);
-    // execFileSync should only be called once (git diff), not for the test command
     expect(execFileSync).toHaveBeenCalledTimes(1);
   });
-
-  // ─── Test 6: repoRoot not found → error result ─────────────────────────
 
   it('returns error when repoRoot does not exist', async () => {
     vi.mocked(existsSync).mockReturnValue(false);
@@ -231,8 +207,6 @@ describe('handleDebugReviewGate', () => {
     expect(result.error?.code).toBe('INVALID_INPUT');
     expect(result.error?.message).toContain('/nonexistent');
   });
-
-  // ─── Test 7: Various test file extensions are detected ──────────────────
 
   it('detects all supported test file extensions', async () => {
     vi.mocked(execFileSync)
@@ -295,8 +269,6 @@ describe('handleDebugReviewGate', () => {
     expect(data.checks.skip).toBe(0);
     expect(data.report).toMatch(/- \*\*FAIL\*\*: Tests pass — no test command resolved: No project markers detected/);
   });
-
-  // ─── Test 8: Missing baseBranch → error ─────────────────────────────────
 
   it('returns error when baseBranch is empty', async () => {
     const result = await handleDebugReviewGate({

@@ -1,9 +1,7 @@
 /**
- * RED tests for vcs-git-available. Exercises the three branches of the
- * check: (1) binary + repo → Pass, (2) missing binary → Warning with
- * install fix, (3) binary present but not inside a repo → Warning with
- * git-init fix. Uses makeStubProbes so every non-git probe throws if
- * accidentally touched (DIM-4/T-4.2: ≤3 overrides per test).
+ * Tests for the `vcs-git-available` doctor check. Git in a repository gives Pass.
+ * A missing git binary gives Warning with an install fix. Git outside a repository
+ * gives Warning with a `git init` fix. Each probe that a test does not override throws.
  */
 
 import { describe, it, expect } from 'vitest';

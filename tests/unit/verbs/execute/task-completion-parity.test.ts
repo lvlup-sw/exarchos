@@ -1,45 +1,14 @@
 // @oracle-sources: ../../../../src/verbs/execute/executor.ts, the by-hand primitive baseline this file drives — the same compiled leaves invoked one at a time through the orchestrate handler table against a SECOND event store with the runbook's stop policy applied by the loop rather than by the executor
 //
-// ─── Composition parity: driving the leaves vs executing the intent ─────────
+// Parity test for the executor on the `task-completion` runbook. The executor changes who drives
+// the runbook, not what the runbook does. The baseline calls the same registered handlers in
+// runbook order, with the arguments that the compiler builds. Each path runs on its own store,
+// with the same seed. The test compares event types, order, streams, and payloads.
 //
-// The bounded executor's whole claim is that it changes WHO drives the
-// task-completion runbook, not WHAT running it does. That claim is only worth
-// anything if it is compared against something: the primitive baseline here is
-// the same registered handlers, invoked directly in runbook order, with the
-// arguments the compiler builds — what an orchestrator following the runbook
-// by hand does today.
-//
-// Two identically seeded stores, one path each, then the facts are compared:
-// event types, their order, the stream each landed on, and the payload of the
-// gate verdicts.
-//
-// EXCLUDED FROM THE COMPARISON, and why each can never byte-match:
-//   - `operationId` — the executor stamps a DERIVED per-leaf id; the baseline
-//     stamps the one ambient dispatch id. That difference is the mechanism
-//     under test, not a divergence.
-//   - `evidenceId`, `artifactId` and `invocationId` — all derived from the
-//     operation id, so they move with it by construction.
-//   - `contentDigest`, `policyDigest` and every `digest` — content addresses
-//     over payloads that include the ids above.
-//   - `timestamp`, `createdAt`, `eventId`, `sequence`, `idempotencyKey`,
-//     `correlationId`, `causationId` — wall-clock, store-allocated, or
-//     correlation scaffolding.
-// Everything else is compared verbatim.
-//
-// PARITY COVERS TWO LEAVES, not five. `check_test_adequacy`,
-// `check_contract_drift` and `check_static_analysis` shell out to git and the
-// project's toolchain; running them here would make a unit test's verdict
-// depend on the machine it runs on. The two leaves kept are the ones that
-// reach a decision without leaving the process on a bare fixture workspace:
-// `check_mock_boundary` (the runbook's one advisory leaf) and the terminal
-// `task_complete`. Their STEPS are lifted verbatim from the shipped
-// `task-completion` runbook rather than rewritten, so the arguments the
-// compiler builds for them are the shipped ones.
-//
-// On a bare fixture workspace the advisory gate passes and the terminal leaf
-// refuses, on both paths. A leaf refusing is not a problem for this test: what
-// is being compared is whether the two paths produce the same facts, not
-// whether the leaves are happy.
+// The test covers two of the five leaves. Three leaves call git and the project toolchain, so
+// their verdicts depend on the machine. The two kept leaves, `check_mock_boundary` and
+// `task_complete`, decide in the process on a bare fixture workspace. Their steps come unchanged
+// from the shipped runbook. On both paths, the advisory gate passes and the terminal leaf refuses.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
@@ -95,6 +64,7 @@ const INTENT_ARGS = {
   baseRef: 'feature/parity',
 };
 
+/** Builds the executor deps with the live orchestrate table, so both paths reach the same handlers. */
 function deps(): ExecuteIntentDeps {
   const schema = INTENT_ARG_SCHEMAS[SHIPPED_INTENT];
   if (schema === undefined) throw new Error(`no argument schema for ${SHIPPED_INTENT}`);
@@ -102,18 +72,16 @@ function deps(): ExecuteIntentDeps {
     runbookTable: [subsetRunbook()],
     findAction: findActionInRegistry,
     argSchemas: { [SUBSET_INTENT]: schema },
-    // The LIVE orchestrate table, not a fixture one — the composite hands the
-    // executor this same object, so both paths reach the same handlers.
     handlers: ACTION_HANDLERS,
     handlerTool: 'exarchos_orchestrate',
   };
 }
 
-// ─── Normalization ──────────────────────────────────────────────────────────
-
 /**
- * Keys dropped everywhere they appear, at any depth. Named in the header with
- * the reason each one cannot match across the two paths.
+ * Keys that `normalize` drops at any depth, because they cannot match across the two paths.
+ * The executor stamps a derived operation id for each leaf, and the baseline stamps the dispatch
+ * id. The evidence, artifact, and invocation ids and the digests come from that id. The other
+ * keys hold wall-clock stamps, store-allocated values, or correlation fields.
  */
 const EXCLUDED_KEYS = new Set([
   'operationId',
@@ -129,8 +97,7 @@ const EXCLUDED_KEYS = new Set([
   'digest',
   'timestamp',
   'createdAt',
-  // The projection's own wall-clock stamp, folded from the newest event's
-  // timestamp — the same exclusion as `timestamp`, one layer up.
+  /** The wall-clock stamp of the projection, from the timestamp of the newest event. */
   'updatedAt',
   'resolvedAt',
   'eventId',
@@ -156,8 +123,6 @@ function leafFacts(events: readonly WorkflowEvent[]): unknown[] {
     .filter((event) => event.type !== INTENT_EXECUTED_EVENT)
     .map((event) => normalize({ type: event.type, streamId: event.streamId, data: event.data }));
 }
-
-// ─── Two identically seeded stores ──────────────────────────────────────────
 
 let baselineDir: string;
 let executorDir: string;
@@ -196,7 +161,10 @@ interface BaselineLeafOutcome {
   readonly message?: string;
 }
 
-/** The primitive baseline: the registered handlers, called in runbook order. */
+/**
+ * The primitive baseline: the registered handlers, called in runbook order. The loop applies
+ * the `stop` policy of the runbook by hand.
+ */
 async function runPrimitiveBaseline(ctx: DispatchContext): Promise<BaselineLeafOutcome[]> {
   const compiled = compileIntent(SUBSET_INTENT, { streamId: STREAM }, INTENT_ARGS, deps());
   expect(compiled.ok).toBe(true);
@@ -211,14 +179,17 @@ async function runPrimitiveBaseline(ctx: DispatchContext): Promise<BaselineLeafO
       success: result?.success === true,
       ...(result?.error?.message !== undefined ? { message: result.error.message } : {}),
     });
-    // The runbook's failure policy, applied by hand: a `stop` leaf that failed
-    // would halt an orchestrator following the runbook here too.
     if (result?.success === false && leaf.onFail === 'stop') break;
   }
   return outcomes;
 }
 
 describe('task-completion over the no-shell leaf subset', () => {
+  /**
+   * Both paths append past the two seeded events, and the gate leaf reaches a real verdict.
+   * The leaf verdicts must also match, because the event log does not show them. Only the
+   * executor writes the operation record.
+   */
   it('ExecutorAndPrimitiveBaseline_ProduceTheSameFacts', async () => {
     const correlation = fixtureCorrelation();
 
@@ -243,11 +214,8 @@ describe('task-completion over the no-shell leaf subset', () => {
     const baselineEvents = await baselineStore.query(STREAM);
     const executorEvents = await executorStore.query(STREAM);
 
-    // Same events, same order, same subject stream, same payload.
     expect(leafFacts(executorEvents)).toEqual(leafFacts(baselineEvents));
 
-    // Not vacuous: both paths appended past the two-event seeded prelude, and
-    // the gate leaf reached a real verdict rather than erroring out early.
     const types = baselineEvents.map((event) => event.type);
     expect(types).toEqual([
       'workflow.started',
@@ -256,9 +224,6 @@ describe('task-completion over the no-shell leaf subset', () => {
       'gate.executed',
     ]);
 
-    // The per-leaf verdicts match too, which the event log alone does not say:
-    // the advisory gate passed on both paths and the terminal leaf refused on
-    // both, for the same stated reason.
     const receipt = executed.data as {
       leaves: { action: string; status: string }[];
       failedLeaf?: string;
@@ -276,8 +241,6 @@ describe('task-completion over the no-shell leaf subset', () => {
     expect(refusal).toBeTypeOf('string');
     expect(executed.error?.message).toContain(refusal ?? '<no refusal>');
 
-    // The one fact only the executor produces: its own operation record. The
-    // baseline has no such row, which is exactly what the commit is FOR.
     expect(
       executorEvents.filter((event) => event.type === INTENT_EXECUTED_EVENT),
     ).toHaveLength(1);

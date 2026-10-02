@@ -39,8 +39,8 @@ function memFs(seed: Record<string, string> = {}): {
 const CANON = 'Route Exarchos workflow operations through the exarchos MCP tools.';
 
 describe('checkBlockDrift (Task 013, DR-5)', () => {
+  /** The installed block has a body that differs from the canonical body. */
   it('doctor_BlockHashDrift_ReportsFinding', () => {
-    // Install a block whose body differs from the canonical body.
     const { store, deps } = memFs();
     writeAgentsMdBlock({ projectRoot: '/proj', canonicalBody: 'STALE orientation prose.' }, deps);
 
@@ -54,7 +54,6 @@ describe('checkBlockDrift (Task 013, DR-5)', () => {
     expect(finding.status).toBe('Warning');
     expect(finding.message).toMatch(/drifted/i);
     expect(finding.fix).toBeDefined();
-    // The finding is a schema-valid CheckResult.
     expect(() => CheckResultSchema.parse(finding)).not.toThrow();
   });
 

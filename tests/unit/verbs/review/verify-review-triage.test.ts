@@ -16,8 +16,6 @@ import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 const mockExistsSync = vi.mocked(existsSync);
 const mockReadFileSync = vi.mocked(readFileSync);
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
 function makeStateFile(prs: { number: number }[]): string {
   return JSON.stringify({ prs });
 }
@@ -35,13 +33,12 @@ function setupFiles(stateContent: string, eventContent: string): void {
   });
 }
 
-// ─── Tests ──────────────────────────────────────────────────────────────────
-
 describe('handleVerifyReviewTriage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
+  /** Each PR adds one check for its routed event and one for its self-hosted destination. */
   it('passes when all PRs have review.routed events with self-hosted destination', async () => {
     setupFiles(
       makeStateFile([{ number: 101 }, { number: 102 }]),
@@ -59,7 +56,7 @@ describe('handleVerifyReviewTriage', () => {
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; checksPassed: number; checksFailed: number };
     expect(data.passed).toBe(true);
-    expect(data.checksPassed).toBe(4); // 2 routed + 2 self-hosted
+    expect(data.checksPassed).toBe(4);
     expect(data.checksFailed).toBe(0);
   });
 
@@ -233,7 +230,6 @@ describe('handleVerifyReviewTriage', () => {
 
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean };
-    // The latest event has destination 'self-hosted', so it should pass
     expect(data.passed).toBe(true);
   });
 
@@ -258,15 +254,12 @@ describe('handleVerifyReviewTriage', () => {
     expect(data.report).toContain('**Passed:**');
   });
 
-  // ─── Fileless resolution: MCP-only workflow ────────────────────────────
-  //
-  // INV-1: the event store is the sole source of truth. An MCP-only workflow
-  // has no `.state.json` stamp and no `.events.jsonl` sidecar — the gate must
-  // resolve `prs` from the projected state and the `review.routed` events
-  // directly from the event store via featureId + eventStore.
-
+  /**
+   * An MCP-only workflow has no `.state.json` stamp and no `.events.jsonl` sidecar. The gate must
+   * read `prs` from the projected state and the `review.routed` events from the event store. A
+   * `state.patched` event puts the PRs on the projection, the same path as `exarchos_workflow update`.
+   */
   it('FilelessMcpOnly_ResolvesPrsAndRoutedEventsFromEventStore', async () => {
-    // No state file or event stream on disk.
     mockExistsSync.mockReturnValue(false);
 
     const eventStoreDir = await fsPromises.mkdtemp(
@@ -280,13 +273,10 @@ describe('handleVerifyReviewTriage', () => {
       type: 'workflow.started',
       data: { featureId, workflowType: 'feature' },
     });
-    // PRs land on the projection via state.patched (same path as
-    // `exarchos_workflow update`).
     await eventStore.append(featureId, {
       type: 'state.patched',
       data: { patch: { prs: [{ number: 101 }, { number: 102 }] } },
     });
-    // review.routed events are queried directly from the store.
     await eventStore.append(featureId, {
       type: 'review.routed',
       data: { pr: 101, riskScore: 0.1, factors: [], destination: 'self-hosted', velocityTier: 'normal', semanticAugmented: false },
@@ -301,11 +291,10 @@ describe('handleVerifyReviewTriage', () => {
     eventStore.close();
     await rmrfAsync(eventStoreDir);
 
-    // Must NOT fail with INVALID_INPUT / FILE_NOT_FOUND.
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; checksPassed: number; checksFailed: number };
     expect(data.passed).toBe(true);
-    expect(data.checksPassed).toBe(4); // 2 routed + 2 self-hosted
+    expect(data.checksPassed).toBe(4);
     expect(data.checksFailed).toBe(0);
   });
 });

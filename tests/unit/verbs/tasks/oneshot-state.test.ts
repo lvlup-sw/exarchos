@@ -1,10 +1,6 @@
-// ─── Shared oneshot-state resolver tests (DR-10) ────────────────────────────
-//
-// `resolveOneshotState` is the extracted-shared validation that
-// finalize-oneshot and request-synthesize both funnel through: resolver-error
-// translation, empty-projection "no workflow exists" sentinel, and the
-// oneshot workflow-type check. These tests pin that contract directly (the
-// handler suites exercise it end-to-end).
+// Tests for `resolveOneshotState`, the shared check behind `finalize-oneshot.ts` and `request-synthesize.ts`.
+// It translates resolver errors, treats an empty projection as no workflow, and checks the oneshot
+// workflow type. The handler suites cover it end to end.
 
 import { describe, it, expect, vi } from 'vitest';
 import type { EventStore } from '../../../../src/events/store.js';
@@ -24,12 +20,12 @@ function ev(type: string, data: Record<string, unknown>): WorkflowEvent {
   } as WorkflowEvent;
 }
 
-/** Event-store stub whose `query` folds the seeded events (event-store-first). */
+/** An event-store stub whose `query` returns the seeded events. */
 function storeReturning(events: WorkflowEvent[]): EventStore {
   return { query: vi.fn(async () => events) } as unknown as EventStore;
 }
 
-/** Event-store stub whose `query` throws — drives the EVENT_STORE_ERROR path. */
+/** An event-store stub whose `query` throws, for the `EVENT_STORE_ERROR` path. */
 function storeThrowing(): EventStore {
   return {
     query: vi.fn(async () => {
@@ -61,6 +57,7 @@ describe('resolveOneshotState (shared oneshot validation, DR-10)', () => {
     }
   });
 
+  /** The message carries the action label, so the error of each caller names its own verb. */
   it('ResolveOneshotState_NonOneshot_ReturnsInvalidWorkflowTypeWithActionLabel', async () => {
     const store = storeReturning([
       ev('workflow.started', { featureId: 'feat-full-1', workflowType: 'feature' }),
@@ -76,16 +73,16 @@ describe('resolveOneshotState (shared oneshot validation, DR-10)', () => {
     if (!result.ok) {
       expect(result.error.success).toBe(false);
       expect(result.error.error?.code).toBe('INVALID_WORKFLOW_TYPE');
-      // The action label is threaded into the message so each caller's error
-      // reads with its own verb.
       expect(result.error.error?.message).toContain('request_synthesize');
       expect(result.error.error?.message).toContain('workflowType=feature');
     }
   });
 
+  /**
+   * With no events, the resolver returns a zero-initialized projection with empty `featureId` and `createdAt`.
+   * The sentinel treats that projection as no workflow.
+   */
   it('ResolveOneshotState_EmptyProjection_ReturnsStateNotFound', async () => {
-    // No events → the resolver returns a zero-initialized projection
-    // (featureId: '', createdAt: '') which the sentinel treats as "no workflow".
     const store = storeReturning([]);
 
     const result = await resolveOneshotState({
@@ -103,6 +100,7 @@ describe('resolveOneshotState (shared oneshot validation, DR-10)', () => {
     }
   });
 
+  /** The resolver translates `EVENT_STORE_ERROR` into the `STATE_NOT_FOUND` code that the oneshot handlers expect. */
   it('ResolveOneshotState_EventStoreError_TranslatesToStateNotFound', async () => {
     const store = storeThrowing();
 
@@ -114,8 +112,6 @@ describe('resolveOneshotState (shared oneshot validation, DR-10)', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      // EVENT_STORE_ERROR is translated into the STATE_NOT_FOUND taxonomy the
-      // oneshot handlers expect.
       expect(result.error.error?.code).toBe('STATE_NOT_FOUND');
     }
   });

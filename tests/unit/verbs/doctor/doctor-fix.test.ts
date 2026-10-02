@@ -1,19 +1,11 @@
 /**
- * Tests for `doctor --fix` (DR-4 / task 013).
+ * Tests for `doctor --fix`. The fix path repairs drift through the reconciler
+ * `apply` that `onboard` uses, with `reconcileWithEvents` and
+ * `trigger: 'doctor-fix'`. Bare `doctor` stays read-only. It emits only
+ * `diagnostic.executed`, no `onboard.*` event, and no write through `apply`.
  *
- * `doctor --fix` must repair drift by routing through the SAME reconciler
- * `apply` that `onboard` uses — via `reconcileWithEvents` with
- * `trigger: 'doctor-fix'` — so the two converge by construction (DR-4
- * acceptance). Bare `doctor` (no `--fix`) stays read-only: it runs the checks
- * and emits ONLY `diagnostic.executed`, never an `onboard.*` event, never a
- * write through `apply`.
- *
- * These tests drive the public `handleDoctorWithChecks` seam with an injected
- * `fixDeps` bundle (a temp-dir-free, in-memory event store + a stateful
- * `runDoctorChecks` that flips from drift to clean after a config seed). The
- * convergence test then runs a `doctor-fix` reconcile followed by an
- * `onboard`-trigger reconcile over the SAME store + repo and asserts the second
- * is a no-op — exactly because both go through the one reconciler.
+ * The tests call `handleDoctorWithChecks` with an injected `fixDeps` bundle, an
+ * in-memory event store, and a check that passes after the config seed runs.
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -30,18 +22,16 @@ import {
 } from '../../../../src/dispatch/core/onboarding/reconcile.js';
 import type { WriterDeps } from '../../../../src/verbs/init/probes.js';
 
-// ─── In-memory event store double ──────────────────────────────────────────────
-
-/**
- * A minimal in-memory event store: records every append and replays them on
- * query. Shape-compatible with the slice of `EventStore` the doctor + reconcile
- * paths touch (`append` + `query`).
- */
 interface StoredEvent {
   readonly type: string;
   readonly data: unknown;
 }
 
+/**
+ * An in-memory event store. It records each append and returns the appends of
+ * a stream on `query`. It implements only `append` and `query`, which the
+ * doctor and reconcile paths use.
+ */
 function makeInMemoryStore(): {
   store: DispatchContext['eventStore'];
   appended: Array<{ streamId: string; event: StoredEvent }>;
@@ -68,14 +58,11 @@ function ctxWith(store: DispatchContext['eventStore']): DispatchContext {
   } as DispatchContext;
 }
 
-// ─── Drift fixture ─────────────────────────────────────────────────────────────
-
 /**
- * One remediable `config` check (`state-dir`) that flips to `Pass` once the
- * injected seed has run. Mirrors the real reconcile loop: the check reports
- * drift, the reconciler's `apply` seeds config, and the post-apply re-run is
- * clean — which is what makes the `doctor --fix` re-diff and the subsequent
- * `onboard` both converge to the empty plan.
+ * One remediable check (`state-dir`, a `config` plan step) that gives `Pass`
+ * after the injected seed runs. The check reports drift, `apply` seeds the
+ * config, and the next run is clean. Thus the `doctor --fix` re-diff and a
+ * later `onboard` both get the empty plan.
  */
 function makeDriftChecks(state: { seeded: boolean }): {
   checks: ReadonlyArray<CheckFn>;
@@ -106,10 +93,10 @@ function makeDriftChecks(state: { seeded: boolean }): {
 }
 
 /**
- * A `fixDeps` bundle whose `apply` seam seeds the fixture state (flipping the
- * drift check to Pass) and whose event seam appends through the dispatch
- * context's in-memory store. The `runDoctorChecks` is the SAME stateful probe
- * the bare-doctor check list reads, so the apply genuinely reconciles the drift.
+ * A `fixDeps` bundle. Its `seed` sets `state.seeded`, so the drift check gives
+ * Pass on the next run. `runDoctorChecks` reads the same state as the check
+ * list of bare doctor, so the apply really removes the drift. Detection uses
+ * stubs, so the test does not touch `$HOME`.
  */
 function makeFixDeps(
   state: { seeded: boolean },
@@ -124,8 +111,6 @@ function makeFixDeps(
     runDoctorChecks,
     writerDeps,
     writers: [],
-    // The config seeder is the side effect that reconciles `state-dir`: it
-    // flips the fixture's `seeded` flag so the post-apply re-run is clean.
     seed: (_repoRoot: string, _force: boolean) => {
       const wrote = !state.seeded;
       state.seeded = true;
@@ -137,23 +122,24 @@ function makeFixDeps(
             path: '/tmp/doctor-fix-repo/.exarchos.yml',
           };
     },
-    // Detection is stubbed off the filesystem so the test never touches $HOME.
     detectOptions: { vcs: 'git', detectRuntimes: async () => [] },
   };
 }
 
-// ─── DR-4 ───────────────────────────────────────────────────────────────────
-
 describe('doctor --fix (DR-4)', () => {
+  /**
+   * The fix path emits `onboard.requested` and `onboard.executed` with trigger
+   * `doctor-fix`, not `diagnostic.executed`. After the fix, each check passes.
+   * A later reconcile with trigger `onboard` over the same repo and store then
+   * has an empty plan and applies nothing, because both use one reconciler.
+   */
   it('DoctorFix_ReconcilableDrift_ConvergesWithOnboard', async () => {
-    // Arrange: a repo with one reconcilable drift (`state-dir` failing).
     const { store, appended } = makeInMemoryStore();
     const ctx = ctxWith(store);
     const state = { seeded: false };
     const { checks, runDoctorChecks } = makeDriftChecks(state);
     const fixDeps = makeFixDeps(state, runDoctorChecks);
 
-    // Act: doctor --fix repairs the drift through the shared reconciler.
     const result = await handleDoctorWithChecks(
       { fix: true },
       ctx,
@@ -162,12 +148,9 @@ describe('doctor --fix (DR-4)', () => {
       fixDeps,
     );
 
-    // Assert: the run succeeded and the side effect ran.
     expect(result.success).toBe(true);
     expect(state.seeded).toBe(true);
 
-    // The fix path emits the shared two-event split with trigger `doctor-fix`
-    // — NOT `diagnostic.executed`.
     const onboardEvents = appended.filter(
       (a) => a.event.type === 'onboard.requested' || a.event.type === 'onboard.executed',
     );
@@ -179,13 +162,9 @@ describe('doctor --fix (DR-4)', () => {
       expect((e.event.data as { trigger: string }).trigger).toBe('doctor-fix');
     }
 
-    // Convergence (DR-4): the post-fix re-diff is clean — every check Pass.
     const data = result.data as { checks: CheckResult[]; postFix?: { residual?: { steps: unknown[] } } };
     expect(data.checks.every((c) => c.status === 'Pass')).toBe(true);
 
-    // ...AND a subsequent `onboard`-trigger reconcile over the SAME repo +
-    // store is a no-op (empty plan, no apply side effect), because both go
-    // through the one reconciler. We drive it directly to prove convergence.
     const eventCtx: ReconcileEventCtx = {
       emit: async (event: EmittedEvent) => {
         appended.push({ streamId: 'exarchos-onboard', event });
@@ -209,19 +188,20 @@ describe('doctor --fix (DR-4)', () => {
       eventCtx,
       applyCtx,
     );
-    // The repo is already reconciled: the plan is empty (no remediable checks).
     expect(onboardOutcome.plan.steps).toHaveLength(0);
     expect(onboardOutcome.result?.applied ?? []).toHaveLength(0);
   });
 
+  /**
+   * Bare doctor reports the same drift but does not repair it. It emits one
+   * `diagnostic.executed` event and no `onboard.*` event.
+   */
   it('DoctorBare_NoFix_ReadOnlyEmitsDiagnosticOnly', async () => {
-    // Arrange: the same reconcilable drift, but bare doctor (no --fix).
     const { store, appended } = makeInMemoryStore();
     const ctx = ctxWith(store);
     const state = { seeded: false };
     const { checks } = makeDriftChecks(state);
 
-    // Act: bare doctor — read-only diagnosis.
     const result = await handleDoctorWithChecks(
       {},
       ctx,
@@ -229,13 +209,11 @@ describe('doctor --fix (DR-4)', () => {
       () => makeStubProbes(),
     );
 
-    // Assert: succeeds, reports the drift, but performs NO repair.
     expect(result.success).toBe(true);
     expect(state.seeded).toBe(false);
     const data = result.data as { checks: CheckResult[] };
     expect(data.checks.some((c) => c.status === 'Fail')).toBe(true);
 
-    // Exactly ONE diagnostic.executed event; NO onboard.* events, no apply.
     const types = appended.map((a) => a.event.type);
     expect(types).toEqual(['diagnostic.executed']);
     expect(types).not.toContain('onboard.requested');
