@@ -11,6 +11,7 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ESLint } from 'eslint';
 import {
   loadSeededCorpus,
   deriveManifestTiers,
@@ -152,7 +153,7 @@ describe('seeded-defect corpus', () => {
     expect(boundaries).toEqual(new Set([true, false]));
   });
 
-  it('SeededCorpus_FixtureAssets_ExcludedFromTypecheckAndLint', () => {
+  it('SeededCorpus_FixtureAssets_ExcludedFromTypecheckAndLint', async () => {
     // (1) tsconfig `exclude` names the fixtures tree, so `tsc --noEmit` never
     // reaches intentionally type-broken content.
     const tsconfig = JSON.parse(fs.readFileSync(path.join(MCP_ROOT, 'tsconfig.json'), 'utf-8')) as {
@@ -164,8 +165,9 @@ describe('seeded-defect corpus', () => {
     expect(excludesFixtures, 'tsconfig.exclude must cover seeded-defects/fixtures').toBe(true);
 
     // (2) the eslint config ignores the fixtures tree.
-    const eslintConfig = fs.readFileSync(path.join(REPO_ROOT, 'eslint.config.js'), 'utf-8');
-    expect(eslintConfig).toContain('seeded-defects/fixtures');
+    const eslint = new ESLint({ cwd: REPO_ROOT });
+    expect(await eslint.isPathIgnored(path.join(FIXTURES_DIR, 'probe.ts'))).toBe(true);
+    expect(await eslint.isPathIgnored(path.join(HERE, 'probe.ts'))).toBe(false);
 
     // (3) load-bearing check — the exclusion actually matters: the fixtures dir
     // holds NO compilable source (only JSON), AND at least one fixture carries

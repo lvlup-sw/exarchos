@@ -20,6 +20,9 @@
 
 import ts from 'typescript';
 import path from 'node:path';
+import { stripMarkers } from './comment-baseline.mjs';
+
+export { stripMarkers };
 
 /**
  * A half-open `[start, end)` source range that is a literal, not code.
@@ -153,27 +156,6 @@ function collectLiteralSpans(sourceFile) {
 }
 
 /**
- * Strip comment markers and join the lines into flowing prose.
- *
- * Lines are joined so a sentence wrapped across several comment lines reads as
- * one sentence: a qualifier must still govern a phrase that landed on the next
- * line, which is exactly the case a line-at-a-time reader gets wrong.
- *
- * @param {string} comment
- * @returns {string}
- */
-export function stripMarkers(comment) {
-  return comment
-    .replace(/^\/\*+/, '')
-    .replace(/\*+\/$/, '')
-    .split('\n')
-    .map((line) => line.replace(/^\s*(?:\/\/+|\*+)\s?/, '').trimEnd())
-    .join(' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-/**
  * Every comment in `source`, in source order, each with its position.
  *
  * @param {string} source
@@ -238,4 +220,64 @@ export function extractComments(source, fileName = 'module.ts') {
   }
 
   return comments;
+}
+
+/**
+ * Every comment in `source` as prose, one comment per line.
+ *
+ * @param {string} source
+ * @param {string} [fileName]
+ * @returns {string}
+ * @throws {CommentExtractionError} when the file does not parse cleanly.
+ */
+export function extractCommentProse(source, fileName = 'module.ts') {
+  return extractComments(source, fileName)
+    .map((comment) => comment.text)
+    .join('\n');
+}
+
+/**
+ * The offset where the sentence that holds `index` starts.
+ *
+ * @param {string} prose
+ * @param {number} index
+ * @returns {number}
+ */
+function sentenceStart(prose, index) {
+  return (
+    Math.max(
+      prose.lastIndexOf('.', index - 1),
+      prose.lastIndexOf('!', index - 1),
+      prose.lastIndexOf('?', index - 1),
+      prose.lastIndexOf('\n', index - 1),
+    ) + 1
+  );
+}
+
+/**
+ * The part of the sentence that comes before `index`.
+ *
+ * A qualifier such as "the retired" governs a phrase only inside its own sentence.
+ *
+ * @param {string} prose
+ * @param {number} index
+ * @returns {string}
+ */
+export function sentenceBefore(prose, index) {
+  return prose.slice(sentenceStart(prose, index), index);
+}
+
+/**
+ * Whether the phrase at `index` is inside a quotation, that is, mentioned and not used.
+ *
+ * Only `"` and backticks count as quote marks. A bare `'` is usually an apostrophe.
+ *
+ * @param {string} prose
+ * @param {number} index
+ * @returns {boolean}
+ */
+export function isQuotedMention(prose, index) {
+  const before = prose.slice(sentenceStart(prose, index), index);
+  const count = (/** @type {string} */ mark) => before.split(mark).length - 1;
+  return count('"') % 2 === 1 || count('`') % 2 === 1;
 }

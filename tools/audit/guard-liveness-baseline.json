@@ -1,6 +1,6 @@
 {
   "capturedAt": "2026-09-13",
-  "trackedFiles": 3136,
+  "trackedFiles": 3168,
   "surfaces": {
     "depcruise:no-domain-core-to-io-adapters:from": {
       "kind": "module-set",
@@ -107,9 +107,9 @@
     },
     "lint:eslint-cli-glob": {
       "kind": "lint-scope",
-      "matched": 2265,
+      "matched": 2363,
       "detail": {
-        "glob": "src/**/*.ts tools/**/*.ts tests/**/*.ts"
+        "glob": "{src,tools,tests}/**/*.{ts,mts,cts,js,mjs,cjs} *.{ts,mts,cts,js,mjs,cjs}"
       }
     },
     "lint:inv6": {
@@ -132,6 +132,10 @@
       "detail": {
         "glob": "src/**/*.ts tests/**/*.ts !tests/evals/**/runs/** tools/audit/**/*.ts tools/conformance/src/**/*.ts tools/evals/**/*.ts tools/evals-pkg/**/*.ts tools/git-hooks/**/*.ts tools/release/**/*.ts tools/test-helpers/**/*.ts docs/.vitepress/**/*.ts"
       }
+    },
+    "codeowners:.exarchos/": {
+      "kind": "ownership",
+      "matched": 3
     }
   }
 }

@@ -94,11 +94,9 @@ else
   fail=$((fail + 1))
 fi
 
-# ── config isolation: lint:windows (test-root, the FILTERED shared config)
-# neither loads the envelopes rule nor is silently converted to a type-aware
-# run over the same file the dedicated config targets. Uses `eslint
-# --print-config` with NO `--config` flag, so it resolves the DEFAULT
-# eslint.config.js exactly as `npm run lint:windows` does. ────────────────────
+# Config isolation: the shared eslint.config.js does not load the envelope rule, and it does not
+# run type-aware over the file that the dedicated config targets. `eslint --print-config` with no
+# `--config` flag resolves the default eslint.config.js, as the comment gate does.
 printed_config="$(npx --no-install eslint --print-config \
   src/verbs/composite.ts 2>"$SELFTEST_DIR/printconfig.err")"
 if echo "$printed_config" | grep -q 'no-handler-throw'; then
@@ -108,9 +106,8 @@ else
   echo "  ok: LintWindows_DoesNotLoadEnvelopesRule (shared config stays free of envelopes/no-handler-throw)"
   pass=$((pass + 1))
 fi
-# parserOptions.project is what makes a run type-aware (and #1721-class
-# expensive); the shared config's effective parserOptions must stay empty for
-# this file, proving lint:windows was not silently converted to type-aware.
+# `parserOptions.project` makes a run type-aware and slow. The shared configuration must keep
+# empty parserOptions for this file. That proves it stays a fast, syntax-only run.
 if echo "$printed_config" | grep -A2 '"parserOptions"' | grep -q '"project"'; then
   echo "  FAIL: LintWindows_StaysNonTypeAware (parserOptions.project leaked into the shared config)"
   fail=$((fail + 1))

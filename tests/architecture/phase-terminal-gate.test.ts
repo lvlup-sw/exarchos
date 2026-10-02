@@ -89,7 +89,7 @@ describe('Phase2_CiStillDeclaresTheJobsThatWouldFindOut', () => {
     expect(ciYaml, 'CI dropped the knip host').toMatch(/knip-diff|validate-no-legacy/);
     // `quality-check` itself is not a CI job. Its load-bearing legs are
     // `lint:invariants` (above) and `lint:test-first-drift` via `render:guard`.
-    expect(ciYaml, 'CI dropped the Windows lint host').toMatch(/npm run lint:windows/);
+    expect(ciYaml, 'CI dropped the shared ESLint host').toMatch(/npm run lint:comments/);
   });
 
   it('a comment that names a required script is not an invocation', () => {

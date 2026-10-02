@@ -33,7 +33,7 @@ import {
   extractCommentProse,
   isQuotedMention,
   sentenceBefore,
-} from '../../../tools/test-helpers/comment-prose.js';
+} from '../../../tools/audit/lib/comment-prose.mjs';
 import { defaultSourcePaths, loadAuthorityLock } from '../../../src/contract/authority-collector.js';
 import { digestText } from '../../../src/contract/authority-digest.js';
 import { CLI_CONTRACT_DEVIATIONS } from '../../../src/contract/cli/cli-contract-seam.js';

@@ -1,21 +1,15 @@
 // @ts-check
 /**
- * @fileoverview Loader for the comment policy — the single place the rules are
- * declared.
+ * @fileoverview Loader for the comment policy, the one place that declares the comment rules.
  *
- * Every consumer derives from this datum. Nothing restates a pattern, an
- * allowed-reference class or a threshold: a convention written down twice is
- * two conventions as soon as one copy is edited, which is the defect this
- * design exists to remove.
- *
- * The loader FAILS CLOSED. A missing file, malformed JSON, an expired waiver or
- * a structurally invalid entry throws rather than falling back to defaults. A
- * guard that quietly runs with an empty rule set reports a clean tree forever,
- * which is indistinguishable from success and strictly worse than an error.
+ * Every consumer reads this file. No consumer restates a pattern, a threshold or an exemption.
+ * The loader fails closed: a missing file, malformed JSON or an invalid entry throws. A guard
+ * that runs with an empty rule set reports a clean tree, and nobody can tell that from success.
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { globsMatch } from './lint-scope.mjs';
 
 /** Where the datum lives, relative to the repository root. */
 export const DEFAULT_POLICY_PATH = '.exarchos/comment-policy.json';
@@ -43,14 +37,7 @@ export class PolicyError extends Error {
  * @typedef {object} ExemptPath
  * @property {string} glob
  * @property {string} reason
- */
-
-/**
- * @typedef {object} Waiver
- * @property {string} glob
- * @property {string} owner
- * @property {string} expires ISO date; the waiver stops applying after it.
- * @property {string} reason
+ * @property {readonly string[]} rules The roster rules that this path is exempt from.
  */
 
 /**
@@ -146,69 +133,22 @@ export function compilePattern(entry) {
 }
 
 /**
- * Translate a path glob to an anchored regular expression.
+ * Whether a repository-relative path is exempt from one roster rule.
  *
- * Hand-rolled rather than taken from a glob library: the gates in this
- * directory run on plain Node with no runtime dependencies, and the shapes in
- * use here are `**`, `*` and literals. `**` crosses separators, `*` does not.
- *
- * @param {string} glob
- * @returns {RegExp}
- */
-function globToRegExp(glob) {
-  let out = '';
-  for (let i = 0; i < glob.length; i += 1) {
-    // `charAt`, not `[i]`: the index is in range by the loop condition, and this
-    // says so in the type instead of leaving a `string | undefined` to unwrap.
-    const ch = glob.charAt(i);
-    if (ch === '*') {
-      if (glob[i + 1] === '*') {
-        // `**/` should also match zero directories, so `a/**/b` matches `a/b`.
-        if (glob[i + 2] === '/') {
-          out += '(?:.*/)?';
-          i += 2;
-        } else {
-          out += '.*';
-          i += 1;
-        }
-      } else {
-        out += '[^/]*';
-      }
-      continue;
-    }
-    out += ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  }
-  return new RegExp(`^${out}$`);
-}
-
-/**
- * Whether a repository-relative path is structurally exempt.
- *
- * Structural exemptions are permanent and carry no expiry — they cover files
- * that must contain the forbidden text to do their job. They are a different
- * thing from a waiver, which is a dated concession to existing debt.
+ * Exemptions are permanent. They cover files that must contain the forbidden text to do their job.
  *
  * @param {ReturnType<typeof loadPolicy>} policy
  * @param {string} relPath POSIX-normalized, repository-relative.
+ * @param {string} rule A name from the policy's `rules` roster.
  * @returns {boolean}
  */
-export function isExempt(policy, relPath) {
+export function isExempt(policy, relPath, rule) {
+  if (!policy.rules.includes(rule)) {
+    throw new PolicyError(`isExempt was asked about "${rule}", which is not in the policy's rules roster.`);
+  }
   const normalized = relPath.split(path.sep).join('/');
-  return policy.exemptPaths.some((entry) => globToRegExp(entry.glob).test(normalized));
-}
-
-/**
- * Whether a waiver covers this path on the given date.
- *
- * @param {ReturnType<typeof loadPolicy>} policy
- * @param {string} relPath
- * @param {Date} [now]
- * @returns {boolean}
- */
-export function isWaived(policy, relPath, now = new Date()) {
-  const normalized = relPath.split(path.sep).join('/');
-  return policy.waivers.some(
-    (entry) => Date.parse(entry.expires) > now.getTime() && globToRegExp(entry.glob).test(normalized),
+  return policy.exemptPaths.some(
+    (entry) => entry.rules.includes(rule) && globsMatch([entry.glob], normalized),
   );
 }
 
@@ -216,11 +156,8 @@ export function isWaived(policy, relPath, now = new Date()) {
  * Read, validate and return the policy.
  *
  * @param {string} [policyPath]
- * @param {{ now?: Date }} [options]
  */
-export function loadPolicy(policyPath = DEFAULT_POLICY_PATH, options = {}) {
-  const now = options.now ?? new Date();
-
+export function loadPolicy(policyPath = DEFAULT_POLICY_PATH) {
   let raw;
   try {
     raw = fs.readFileSync(policyPath, 'utf8');
@@ -267,47 +204,48 @@ export function loadPolicy(policyPath = DEFAULT_POLICY_PATH, options = {}) {
     throw new PolicyError('forbiddenOrdinals is empty; a policy that forbids nothing is not a policy.');
   }
 
+  const rules = requireArray(doc.rules, 'rules').map((name, index) => {
+    if (typeof name !== 'string' || name.length === 0) {
+      throw new PolicyError(`rules[${index}] must be a non-empty rule name.`);
+    }
+    return name;
+  });
+  if (rules.length === 0) throw new PolicyError('rules is empty. A policy that no rule reads is not a policy.');
+
   const exemptPaths = requireArray(doc.exemptPaths, 'exemptPaths').map((raw2) => {
     const entry = requireObject(raw2, 'exemptPaths');
     const glob = requireString(entry, 'glob', 'exemptPaths');
     if ('expires' in entry) {
       throw new PolicyError(
-        `exemptPaths.${glob} carries an \`expires\`. Structural exemptions are permanent: they ` +
-          `cover files that must contain the forbidden text to do their job. Use \`waivers\` for a ` +
-          `dated concession to existing debt.`,
+        `exemptPaths.${glob} carries an \`expires\`. Exemptions are permanent: they cover files that ` +
+          `must contain the forbidden text to do their job.`,
       );
     }
-    return { glob, reason: requireString(entry, 'reason', `exemptPaths.${glob}`) };
-  });
-
-  const waivers = requireArray(doc.waivers, 'waivers').map((raw2) => {
-    const entry = requireObject(raw2, 'waivers');
-    const glob = requireString(entry, 'glob', 'waivers');
-    const owner = requireString(entry, 'owner', `waivers.${glob}`);
-    const expires = requireString(entry, 'expires', `waivers.${glob}`);
-    const parsedExpiry = Date.parse(expires);
-    if (Number.isNaN(parsedExpiry)) {
-      throw new PolicyError(`waivers.${glob} has an unparseable \`expires\`: ${expires}`);
+    const scoped = requireArray(entry.rules, `exemptPaths.${glob}.rules`);
+    if (scoped.length === 0) {
+      throw new PolicyError(`exemptPaths.${glob}.rules is empty. Name each rule that the path is exempt from.`);
     }
-    if (parsedExpiry <= now.getTime()) {
-      throw new PolicyError(
-        `waivers.${glob} expired on ${expires} (owner: ${owner}). An expired waiver fails the ` +
-          `gate: renew it deliberately or remove it, but it does not lapse into silence.`,
-      );
+    for (const name of scoped) {
+      if (typeof name !== 'string' || !rules.includes(name)) {
+        throw new PolicyError(`exemptPaths.${glob}.rules names "${String(name)}", which is not in the rules roster.`);
+      }
     }
-    return { glob, owner, expires, reason: requireString(entry, 'reason', `waivers.${glob}`) };
+    return {
+      glob,
+      reason: requireString(entry, 'reason', `exemptPaths.${glob}`),
+      rules: Object.freeze(/** @type {string[]} */ ([...scoped])),
+    };
   });
 
   return {
     version: typeof doc.version === 'number' ? doc.version : 0,
     rule: typeof doc.rule === 'string' ? doc.rule : '',
+    rules,
     forbiddenOrdinals,
     allowedReferences,
     changelogPatterns,
     notForbidden: Array.isArray(doc.notForbidden) ? doc.notForbidden : [],
     precisionFloor: requireObject(doc.precisionFloor ?? {}, 'precisionFloor'),
     exemptPaths,
-    waivers,
-    coverage: requireObject(doc.coverage ?? {}, 'coverage'),
   };
 }

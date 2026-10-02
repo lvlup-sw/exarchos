@@ -87,8 +87,9 @@ const EXEMPTIONS: Record<string, Exemption> = {
     reason:
       'One script or module per gate, same honest-breadth case as src/verbs/gates. The ' +
       'guard-inventory split moved a monolith into a subdirectory and left this level as the ' +
-      'index of every other gate. Pinned so adding a gate is deliberate.',
-    grantedAt: 40,
+      'index of every other gate. Pinned so adding a gate is deliberate. Raised to 41 for the ' +
+      'comment gate, which the enforcer-wiring checker can see only as a primary at this level.',
+    grantedAt: 41,
   },
   'src/install': {
     reason:
