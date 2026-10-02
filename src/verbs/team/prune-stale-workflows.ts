@@ -603,7 +603,8 @@ async function prunePruneCandidate(
  * `malformedHandling` is `report` (the default), `include` (malformed entries with a `featureId` become
  * candidates with infinite staleness), or `skip` (no diagnostics). The handler logs a warning for malformed
  * entries, because all-malformed output looks the same as nothing to prune. With no loaded topology,
- * it returns `{ aborted: true, reason: 'topology_not_loaded' }`. The diagnostics append is fire-and-forget.
+ * it returns `{ aborted: true, reason: 'topology_not_loaded' }`. The handler waits for the diagnostics append,
+ * and a failed append does not fail the prune.
  */
 export async function handlePruneStaleWorkflows(
   args: PruneHandlerArgs,
@@ -809,7 +810,6 @@ export async function handlePruneStaleWorkflows(
         },
       })
       .catch(() => {
-
       });
   }
 
