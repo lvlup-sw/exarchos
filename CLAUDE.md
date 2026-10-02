@@ -125,3 +125,10 @@ them locally.
 - Before claiming local repro needs new seeding/test accounts, check for existing demo admin
   credentials and wired databases (e.g., Turso).
 - For browser automation, default to `playwright-cli` — don't reach for the Chrome extension first.
+
+## Pull requests
+
+When you create or update a pull request, follow `.claude/skills/write-pr/SKILL.md`.
+Use only the five headings in `.github/PULL_REQUEST_TEMPLATE.md`.
+Write the body in Simple English.
+Keep the body short.
