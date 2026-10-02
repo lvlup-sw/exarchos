@@ -2,32 +2,32 @@
  * @fileoverview Tests for the git helpers that compare the working tree with a base branch.
  */
 import { describe, it, expect, beforeAll } from 'vitest';
-import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { GitBaseError, diffFromRef, readAtRef, resolveBase, revParse, trackedFiles } from '../../../tools/audit/lib/git-base.mjs';
+import { execFileAsync } from '../../../tools/test-helpers/spawn.js';
 
 let repo = '';
 
 /** Run git in the scratch repository. */
-function git(...args: string[]): string {
-  return execFileSync('git', args, { cwd: repo, encoding: 'utf8' });
+function git(...args: string[]): Promise<string> {
+  return execFileAsync('git', args, { cwd: repo });
 }
 
-beforeAll(() => {
+beforeAll(async () => {
   repo = fs.mkdtempSync(path.join(os.tmpdir(), 'git-base-'));
-  git('init', '-q', '-b', 'main');
-  git('config', 'user.email', 'test@example.com');
-  git('config', 'user.name', 'test');
+  await git('init', '-q', '-b', 'main');
+  await git('config', 'user.email', 'test@example.com');
+  await git('config', 'user.name', 'test');
   fs.writeFileSync(path.join(repo, 'keep.txt'), 'keep\n');
   fs.writeFileSync(path.join(repo, 'move.txt'), 'a file with enough text to be detected as a rename\n');
-  git('add', '.');
-  git('commit', '-q', '-m', 'base');
-  git('tag', 'base');
-  git('mv', 'move.txt', 'moved.txt');
+  await git('add', '.');
+  await git('commit', '-q', '-m', 'base');
+  await git('tag', 'base');
+  await git('mv', 'move.txt', 'moved.txt');
   fs.writeFileSync(path.join(repo, 'new.txt'), 'new\n');
-  git('add', '.');
+  await git('add', '.');
 });
 
 describe('readAtRef', () => {
