@@ -13,7 +13,7 @@
  *
  * Usage: `check-coverage-ratchet.mjs [--summary <path>] [--baseline <path>] [--observe]`.
  * Exit 0 is a pass, 1 is a regression, and 2 is a fail-closed or usage error.
- * `--observe` computes the same verdict, logs it, and always exits 0.
+ * With `--observe`, the gate logs a regression or a fail-closed verdict and exits 0.
  */
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';

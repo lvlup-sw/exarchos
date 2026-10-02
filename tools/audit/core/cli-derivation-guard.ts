@@ -150,8 +150,8 @@ export function parseOrThrow(
 }
 
 /**
- * True for `x.command(…)`, `x?.command(…)` and `x['command'](…)`. The
- * element-access form is an evasion of the property-access form.
+ * True for `x.command(…)`, `x?.command(…)` and `x['command'](…)`. A check of the
+ * property-access form alone misses the element-access form.
  */
 function isCommandCall(node: ts.CallExpression): boolean {
   const callee = node.expression;

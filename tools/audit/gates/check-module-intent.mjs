@@ -58,7 +58,8 @@ const OUT_OF_SUBJECT = ['install'];
  * `declared-gate-machinery` holds permanent gate infrastructure, so it has no expiry.
  * `declared-dormant-surface` holds product code with no live consumer. Each of its members
  * also has an `issue` and an `expires`, which {@link validateReserved} checks.
- * No filename rule grants an exemption, so each `-seam.ts` module is a named member.
+ * No class matches the `-seam.ts` suffix, so each `-seam.ts` module is a named member, and a
+ * new dead `-seam.ts` module fails until someone declares it.
  */
 const ALLOWLIST_CLASSES = [
   {

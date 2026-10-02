@@ -9,7 +9,7 @@
 // The fixture uses the layout of the GitHub Releases URL space (`download/<tag>/<asset>`).
 // It holds artifacts with a real build-identity banner, `.sha512` sidecars, an
 // Ed25519-signed `exarchos-release-manifest.json`, and the publisher key plus a wrong key.
-// Each option seeds one fault, so a rejection names exactly the check under test.
+// Each fault option seeds one fault, so a rejection names exactly the check under test.
 //
 // The `files` list of the root `package.json` does not include `tools/`, so none of this ships.
 // Shell harnesses run `tsx tools/audit/test-fixtures/release-fixture.ts --out <dir>`.
@@ -169,7 +169,7 @@ function flipBase64(value: string): string {
  * The artifact banner and the manifest share one collection of the real identities,
  * so they agree unless an option seeds a fault.
  * A v1 marker gets a real v1 banner with no `sourceState` or `modifiedPaths` fields.
- * A v2 shape with a v1 marker passes the `sourceState` check by accident.
+ * The fixture does not use a v2 shape with a v1 marker, because that shape passes the `sourceState` check by accident.
  */
 export function buildReleaseFixture(options: ReleaseFixtureOptions): ReleaseFixture {
   const repoRoot = fixtureRepoRoot();

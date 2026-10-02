@@ -3,7 +3,7 @@
  * check-protected.mjs: the inventory of keep-class protected files, and a pre-flight guard.
  *
  * Test-suite consolidation must never touch a keep-class suite (parity, race, property,
- * characterization or acceptance) or the shared `parity-harness.ts`. The file name decides
+ * characterization or acceptance) or the shared `parity-harness.ts`. The path decides
  * keep-class status. A file that only imports `fast-check` is not keep-class.
  *
  *   --regenerate   Walks the live tree under every protected root and rewrites the
@@ -24,8 +24,9 @@ export const PRIMARY_ROOT = 'tests/unit';
 
 /**
  * Every root walked for keep-class suites. A keep-class suite stays protected wherever it
- * lives, so each root that holds one must be in this list. The self-test
- * `PROTECTED_ROOTS_ALL_EXIST` fails when a root is missing or holds no keep-class suite.
+ * lives, so each root that holds one must be in this list. The walk skips a root that does
+ * not exist. The self-test `PROTECTED_ROOTS_ALL_EXIST` fails when a listed root does not exist
+ * or holds no keep-class suite.
  */
 export const PROTECTED_ROOTS = Object.freeze([PRIMARY_ROOT, 'tools/conformance/src']);
 

@@ -8,7 +8,8 @@
  *
  * Default target: `src/verbs/**\/*.ts`. The self-test uses the `--target` and `--config` flags.
  *
- * Exit 0: clean. Exit 1: ESLint reports errors. Exit 2: fail-closed, for a missing or failed eslint.
+ * Exit 0: clean. Exit 1: ESLint reports errors. Exit 2: fail-closed, when eslint is missing,
+ * cannot start, or exits with another status, for example for a missing `--config` path.
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';

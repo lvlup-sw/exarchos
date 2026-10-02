@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Reports the production import graph: circular dependencies (SCCs), mutual
 // two-node import pairs, and fan-in hubs. It resolves `.js` specifiers to `.ts`
-// sources with the same resolver as `refgraph.mjs`. It writes no files.
+// sources with a copy of the `refgraph.mjs` resolver. It writes no files.
+// The SCC search is an iterative Tarjan, so a deep graph does not overflow the stack.
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join, dirname, resolve, relative, sep } from 'node:path';
 const ROOT = process.argv[2] || '.';

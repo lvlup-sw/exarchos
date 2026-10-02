@@ -3,7 +3,8 @@
 // `auditCliAllowlistMembership` compares the allowlist with the live CLI parse in
 // both directions. It cannot see an in-place swap: a verb paid down and a new
 // hand-written verb added to the allowlist in one commit. Detection needs prior
-// state. This module holds it as one digest and one date, and it imports nothing.
+// state. This module holds it as one digest and one date. It imports nothing, so
+// it cannot observe the allowlist that it pins.
 //
 // The pin is not tamper-proof. A reviewer must catch an edit of this file.
 // DO NOT REGENERATE A VALUE HERE TO MAKE A BUILD GREEN. No script emits them.

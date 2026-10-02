@@ -5,6 +5,7 @@ export function describeHost(host: GuardHost): string {
   return `${host.job}${chain}${host.via === 'self-test' ? ' (via self-test)' : ''}`;
 }
 
+/** Renders the inventory as a Markdown table, with one row for each guard. */
 export function renderInventoryTable(inventory: GuardInventory): string {
   const rows = [
     '| Guard | CI job(s) | Path-filtered? | Blocks / observes | Prod caller? |',

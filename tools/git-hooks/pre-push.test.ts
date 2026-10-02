@@ -18,6 +18,14 @@ import { rmrf } from '../test-helpers/temp-dir.js';
 import { spawnAsync, type SpawnResult } from '../test-helpers/spawn.js';
 
 
+import { spawnSync } from 'node:child_process';
+
+// Black-box tests for the opt-in pre-push ship-gate hook. The suite runs
+// so the file mode does not matter. A test that needs the engine puts a fake `exarchos`
+// stub first on PATH. The stub output stands in for the `--json` ToolResult of the ship-path verb.
+// The tests assert the exit code of the hook and, where it matters, its stderr.
+
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const HOOK_PATH = path.join(__dirname, 'pre-push.ship-gate.sample');
 

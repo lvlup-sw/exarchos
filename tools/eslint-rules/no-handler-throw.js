@@ -328,9 +328,9 @@ function isFailLoudPreconditionGuard(throwNode, argsParamName, argsDerivedNames)
 }
 
 /**
- * Collects the local names bound from `args` in one step, as in `const id = args.id`
+ * Collects the local names whose initializer references `args`, as in `const id = args.id`
  * or `const { id } = args`. It does not enter nested functions. It follows one hop only,
- * because a deeper heuristic gives false exemptions.
+ * so a guard on a two-hop alias of `args` is exempt.
  */
 function collectArgsDerivedNames(body, argsParamName) {
   const names = new Set();

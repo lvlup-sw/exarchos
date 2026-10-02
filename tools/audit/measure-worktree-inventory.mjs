@@ -61,7 +61,7 @@ function unmergedCount(ref, base) {
 /**
  * Writes the inventory as JSON to the `--out` file or to stdout.
  * `capturedIn` names the worktree of the run. Thus the artifact alone shows that the
- * capturing session is in its own records, so a prune here is self-destructive.
+ * run is in its own records, and that a prune here is self-destructive.
  */
 function main() {
   const argv = process.argv.slice(2);

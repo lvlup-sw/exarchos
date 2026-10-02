@@ -4,11 +4,12 @@
  * 8 minutes. This gate runs in seconds and flags four known regressions:
  *
  *   1. Shell-shim spawn: a raw `execFile` or `spawn` call with a bare shim name as a literal.
- *   2. Non-portable module path: `new URL(import.meta.url).pathname`. Use `fileURLToPath`.
+ *   2. Non-portable module path: `new URL(import.meta.url).pathname`, which gives `/D:/…` on Windows.
+ *      Use `fileURLToPath`.
  *   3. Leaked SQLite handle: a test that uses an `EventStore` and a recursive `rm` with no safe teardown.
  *   4. Dynamic-bin spawn: a raw `execFile` or `spawn` call with a variable command.
  *
- * Route rules 1 and 4 through `runCommandSync`/`spawnCommandSync` in `src/utils/process.ts`.
+ * To correct a rule 1 or rule 4 hit, use `runCommandSync` or `spawnCommandSync` in `src/utils/process.ts`.
  * The default scan root is the repo root.
  *
  * Exit 0: clean. Exit 1: violations, as `path:line  excerpt` on stderr. Exit 2: usage or environment error.
@@ -116,7 +117,10 @@ function lineOf(content, index) {
   return content.slice(0, index).split('\n').length;
 }
 
-/** Yields each `.ts`, `.mts` and `.mjs` file under `dir`. It skips `node_modules`, `dist` and dot-directories, and no named source subtree. */
+/**
+ * Yields each `.ts`, `.mts` and `.mjs` file under `dir`. It skips `node_modules`, `dist` and
+ * each name that starts with a dot. It never skips a source subtree by its name.
+ */
 function* walk(dir) {
   let entries;
   try {
@@ -183,7 +187,7 @@ const SPAWN_HELPER_RE = /(?:utils[/\\]process|test-helpers[/\\]spawn)\.ts$/;
  */
 const CI_TOOLING_RE =
   /^(?:scripts[/\\]|tools[/\\]audit[/\\]|servers[/\\][^/\\]+[/\\]scripts[/\\])/;
-/** Harness files under `tests/` are not shipped runtime. They are not test files, so rule 4 skips them by this path. */
+/** Harness files under `tests/` are not shipped runtime. They are not `*.test.ts` files, so rule 4 skips them by this path. */
 const UNDER_TESTS_RE = /^tests[/\\]/;
 
 /**
@@ -192,8 +196,9 @@ const UNDER_TESTS_RE = /^tests[/\\]/;
  * skips the spawn helper, benches and the `tests/` tree. Rule 3 applies to test files only.
  *
  * `ciToolingRel` is the repo-relative path. A self-test fixture root is outside the repo,
- * so its files use the root-relative path. Only a leading `..` segment or an absolute
- * result puts a file outside the repo, because a first segment can start with dots.
+ * so its files use the root-relative path. A file is outside the repo only when the
+ * relative path is `..`, starts with a `..` segment, or is absolute. A first segment
+ * inside the repo can start with dots, so a bare `startsWith('..')` test is wrong.
  *
  * Rule 3 flags a recursive `rm` in a test that constructs an `EventStore` and calls a
  * store method, because the handle opens lazily. `rmrf`, `.close()` or `maxRetries` is safe.

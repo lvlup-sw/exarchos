@@ -3,8 +3,9 @@
 // It copies the registration shapes of composite.ts in miniature. The
 // `ACTION_HANDLERS` map holds `adapt(handleX)` values and a raw inline arrow.
 // The special actions use the branch
-// `if (action === '<verb>') return envelopeWrap(await handleX(...), startedAt);`. The rule derives the special-branch census from
-// the literal of each branch, so the dispatcher keeps that branch shape.
+// `if (action === '<verb>') return envelopeWrap(await handleX(...), startedAt);`.
+// The rule derives the special-branch census from the literal of each branch,
+// so the dispatcher keeps that branch shape.
 
 type ToolResult =
   | { success: true; data?: unknown }

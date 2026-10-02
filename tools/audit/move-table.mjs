@@ -1,6 +1,6 @@
 // The move table that dissolves `servers/exarchos-mcp` into the repo root.
 //
-// `move-tree.mjs` uses it to move files and rewrite import specifiers. The
+// `move-tree.mjs` uses it to move files and rewrite import specifiers. Five
 // `retarget-*.mjs` codemods use it to rewrite the repo-relative path strings
 // that `tsc` cannot see. One table keeps the two halves of a move in agreement.
 // Two copies can disagree, and then a config silently matches nothing.
@@ -70,9 +70,10 @@ export const FILE_ALIASES = [
 /**
  * Aliases for path arithmetic only, never for text substitution.
  *
- * As a resolved directory, `servers/exarchos-mcp` is the repo root. A walk into
- * `servers/` also aims at the root, because a too-short walk still lands on a
- * real directory. Applied to a string, the same mapping deletes the text.
+ * As a resolved directory, `servers/exarchos-mcp` is the repo root. `servers/` is
+ * gone, so a walk into it also aims at the root. Some of those walks were one level
+ * short before the move. A short walk still lands on a real directory, so nothing
+ * reported them. Applied to a string, the same mapping deletes the text.
  */
 export const PATH_ONLY_ALIASES = [
   ['servers/exarchos-mcp/', ''],

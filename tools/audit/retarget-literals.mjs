@@ -1,12 +1,12 @@
 // Rewrites the repo-relative path literals that the move of
 // `servers/exarchos-mcp` leaves stale. `tsc` cannot see these strings: a config
 // glob, a CI path filter, a `readFileSync` argument, a baseline key. The script
-// maps them through the `move-table.mjs` of the move, so a destination cannot drift.
+// maps them with `move-table.mjs`, the table of the move, so a destination cannot drift.
 //
 // `docs/**` and the captured eval traces stay out of scope. They record a tree
 // that existed under `servers/`, and a rewrite falsifies that record.
 //
-// The script prints each literal that the table cannot place, because it names
+// The script prints each literal that the table cannot place. Such a literal names
 // a path that the move does not cover. Without `--apply` it writes nothing.
 import fs from 'node:fs';
 import path from 'node:path';

@@ -197,8 +197,8 @@ export function resolvePairPaths(id, srcRootRel, repoRoot) {
 /**
  * Verifies one touched pair. It rebuilds both pre-images from `base`, reads the
  * PR-head result files from disk, and runs `verifyCases`. When a pre-image is
- * absent at the base, it returns `skipped`. Such an edit touches a lone test,
- * and the two-way check then falsely blocks a legitimate case deletion.
+ * absent at the base, the edit touches a lone test, and it returns `skipped`.
+ * On a lone test, the two-way check can falsely block a legitimate case deletion.
  * @param {PairPaths} pp @param {string} base
  * @param {{ repoRoot: string, git: GitRunner }} ctx
  * @returns {PairResult}

@@ -7,7 +7,9 @@
 // difference, so the module parses source with the TypeScript parser and
 // classifies each site. A representation is bound only when each site is
 // derived. A measurement throws when its denominator is empty, because an empty
-// measurement reads as a closed boundary.
+// measurement reads as a closed boundary. A conformance test compares the
+// source lists here with the oracle subjects of the evidence table, so a new
+// source must also reach that table.
 //
 // It lives in `tools/audit/` because it reads files and imports `typescript`, a
 // devDependency. It imports the shipped emission derivation, not a copy.
@@ -1133,9 +1135,9 @@ function typeNameOf(type: ts.TypeNode | undefined): string | undefined {
  * Measures the phase-events boundary from source. `PHASE_EVENT_CONTRACTS`
  * declares the events that each phase expects and that the runtime emits. The
  * gate tables and the playbook rows must be computed from the contract, through
- * a projection that the file imports from the contract module. The gate
- * projection must take the contract table itself. A test compares the skill
- * prose with the contract.
+ * a projection that the file imports from the contract module. A playbook row
+ * can also copy a measured row. The gate projection must take the contract table
+ * itself. A test compares the skill prose with the contract.
  */
 export function measurePhaseEvents(sources: PhaseEventsSources): MeasuredBoundary {
   const contractRows = measureDeclaredEventRows(sources.contract, PHASE_EVENTS_SOURCES.contract);
@@ -1443,8 +1445,8 @@ function requireCommitGate(source: string, file: string): number {
 /**
  * Measures the effect-event boundary from source. It asks whether the planned
  * effect and the event that records it agree. Two facts answer it, and each can
- * fail alone. The `emits` set of the plan controls whether a record happens, and
- * {@link requireCommitGate} is a precondition for that. Whether the record
+ * fail alone. The `emits` set of the plan controls whether a record happens, so
+ * the measurement first requires the commit gate ({@link requireCommitGate}). Whether the record
  * identity follows the plan is a fact for each owner. The type on
  * `EffectEmission.event` is not evidence, because a type cannot fail here.
  */

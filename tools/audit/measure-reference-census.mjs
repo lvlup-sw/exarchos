@@ -56,7 +56,7 @@ const NAMED_FILES = ['.github/CODEOWNERS', '.gitattributes', '.npmignore', '.exa
  * The report holds referrer paths as plain text in `sampleReferrers`.
  * Thus a later run reads it as a live `config` referrer of the subtrees that it measures.
  * A record of references is not a reference that a reader follows.
- * For the same reason, comments in this file must name no subtree path, because the scan reads this file too.
+ * The scan reads this file too, so the comments in this file must name no subtree path.
  */
 const SELF_OUTPUT = 'tools/audit/reference-census.json';
 
@@ -81,7 +81,8 @@ function trackedFiles() {
  * Writes the census as JSON to the `--out` file or to stdout.
  * A file inside a subtree that refers to the same subtree is not an external referrer.
  * A Markdown file outside `docs/` is a live referrer that a reader follows.
- * A Markdown file under `docs/` is a dated record. It stays out of scope, because a rewrite falsifies it.
+ * A Markdown file under `docs/` is a dated record, so it counts as `markdownArchival` and not as a
+ * live referrer. A rewrite of a dated record falsifies it.
  */
 function main() {
   const argv = process.argv.slice(2);

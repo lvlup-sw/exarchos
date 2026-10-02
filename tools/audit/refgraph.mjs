@@ -10,7 +10,7 @@ const TEST = /(\.(test|spec|bench)\.[cm]?[jt]sx?$)|([\\/](__tests__|__fixtures__
 function walk(d,a){let es;try{es=readdirSync(d,{withFileTypes:true})}catch{return a}for(const e of es){const p=join(d,e.name);if(e.isDirectory()){if(!SKIP.test(p+sep))walk(p,a)}else if(/\.(ts|tsx|mts|cts)$/.test(e.name))a.push(p)}return a}
 const files = walk(ROOT, []).map(f=>resolve(f));
 const isTest = f=>TEST.test(f);
-/** Entry points: `index.ts`, `*-cli.ts`, named build and install scripts, and `.d.ts` files. */
+/** Entry points: `index.ts`, `*-cli.ts`, a fixed list of script names, and `.d.ts` files. */
 const ENTRY = /([\\/]index\.ts$)|(-cli\.ts$)|([\\/](build-skills|install-skills|skills-guard|placeholder-lint|generate-agents|fingerprint-cli|prose-lint-cli)\.ts$)|(\.d\.ts$)/;
 const isEntry = f=>ENTRY.test(f);
 

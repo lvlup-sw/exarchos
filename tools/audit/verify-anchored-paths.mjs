@@ -2,7 +2,7 @@
 // It resolves each `resolve` or `join` call on a self-directory anchor, and on a root derived
 // from one, such as `const ROOT = resolve(HERE, '..')`. A root one level short still lands
 // inside the repo, so only the derived hop shows the error.
-// It strips comments first, and it skips a segment that holds `${`.
+// It strips comments first, and it skips a call with a segment that holds `${`.
 //
 //   MISSING - resolves to nothing.
 //   ESCAPED - resolves above the repo root. The path still names a real directory,

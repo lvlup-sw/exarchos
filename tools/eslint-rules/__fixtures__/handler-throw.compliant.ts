@@ -102,8 +102,8 @@ async function handleOnboard(args: { report?: string }): Promise<ToolResult> {
  * Copies the tail of `handleOrchestrate` in composite.ts: special branches, then the
  * `ACTION_HANDLERS` table dispatch through a local `handler` const. The map walk
  * covers that indirection, so the derived census must not report it.
- * The guarded table read matches the real tail, so the exemption works for the
- * wrapper that production uses.
+ * The table read has the same guard as the real tail, so the test runs the
+ * exemption through the wrapper that production uses.
  */
 async function dispatchSpecialBranch(
   action: string,

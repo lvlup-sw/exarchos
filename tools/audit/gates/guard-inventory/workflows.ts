@@ -3,7 +3,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { REPO_ROOT } from './paths.js';
 
-/** The aggregator job. Only a job that it needs can fail a PR. */
+/** The aggregator job. In the CI workflow, only a job that it needs can fail a PR. */
 export const AGGREGATOR_JOB = 'ci-gate';
 /** The workflow that hosts the aggregator. */
 export const CI_WORKFLOW = '.github/workflows/ci.yml';

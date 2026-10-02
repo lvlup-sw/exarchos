@@ -81,8 +81,9 @@ function readIfPresent(file) {
  * measure a stale copy. Both sides of the boundary rule are counted, because
  * the rule stops working when either set is empty. Protected-suite entries
  * resolve as written first, and count only when tracked. Catalog references
- * come from `references:` blocks only. Their anchors are stripped, and
- * `<owner>/<repo>:<path>` references to other repositories are not counted.
+ * come from `references:` blocks only. Their anchors are stripped. A
+ * `<owner>/<repo>:<path>` reference to another repository counts as `relocated`,
+ * not as declared.
  */
 function main() {
   const argv = process.argv.slice(2);
