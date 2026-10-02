@@ -7,7 +7,7 @@
     "testFiles": 1311,
     "parsedFiles": 1265,
     "shellFiles": 46,
-    "cases": 14468,
+    "cases": 14469,
     "dynamicTitles": 162,
     "unparseableFiles": 0
   },
@@ -12288,6 +12288,11 @@
         {
           "suite": "",
           "name": "ToJsdoc_MultiLineBlock_KeepsTheIndentation",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "ToJsdoc_TextThatHoldsACommentCloser_IsEscaped",
           "dynamic": false
         }
       ]

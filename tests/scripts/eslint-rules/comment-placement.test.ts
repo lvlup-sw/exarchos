@@ -78,3 +78,8 @@ it('ToJsdoc_MultiLineBlock_KeepsTheIndentation', () => {
   expect(toJsdoc('// one\n  // two', '  ')).toBe('/**\n   * one\n   * two\n   */');
   expect(toJsdoc('/* single */', '')).toBe('/** single */');
 });
+
+it('ToJsdoc_TextThatHoldsACommentCloser_IsEscaped', () => {
+  expect(toJsdoc('// matches src/**/*.ts', '')).toBe('/** matches src/**\\/*.ts */');
+  expect(toJsdoc('// a */ b\n// c', '')).toBe('/**\n * a *\\/ b\n * c\n */');
+});
