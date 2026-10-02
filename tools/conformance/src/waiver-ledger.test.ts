@@ -324,9 +324,10 @@ function walkImports(entry: string): ImportWalk {
  */
 describe('DR-6 waiver ledger: the properties the extraction rests on', () => {
   /**
-   * The ledger is dependency-free, because the existing census reaches `TOOL_REGISTRY` at load. The
-   * test reads the module from disk to prove that it has no imports, `import type` included. The
-   * same reader must find the imports of this test file, so the reader is not vacuous.
+   * The ledger is a separate module with no imports, because the existing census reaches
+   * `TOOL_REGISTRY` at load. The test reads the module from disk to prove that it has no imports,
+   * `import type` included. The same reader must find the imports of this test file, so the
+   * reader is not vacuous.
    */
   it('WaiverLedger_ImportsNothing_MeasuredNotAsserted', () => {
     const specifiers = referencedSpecifiers(readFileSync(LEDGER_SRC, 'utf8'));

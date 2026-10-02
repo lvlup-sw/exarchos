@@ -5,7 +5,8 @@
  *
  * This module is not under `src/`, because `typescript` is a devDependency. A shipped module that
  * imports it makes the compiler a runtime dependency, and the ledger classifies that import as an
- * unvetted network dependency.
+ * unvetted network dependency. Do not vet `typescript` as inert: `ts.sys` gives file system and
+ * process access.
  *
  * One parse gives three answers: the imports, the masked source and the comment-masked source. A
  * specifier in a comment, a string or a template is not an import node, so the parse excludes it.

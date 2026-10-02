@@ -1,8 +1,8 @@
 // Guard for the retired `axiom` plugin dependency (#1477).
 //
 // The guard fails when axiom comes back through a functional surface: a config read, a skill
-// invocation, a TS identifier, or a YAML field. It ignores mentions in comments, so a comment
-// that records the retirement does not fail it.
+// invocation, a TS identifier, or a YAML field. It skips comment lines, so a comment that
+// records the retirement does not fail it.
 
 import { describe, it, expect } from 'vitest';
 import { fileURLToPath } from 'node:url';

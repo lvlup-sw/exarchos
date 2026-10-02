@@ -11,7 +11,8 @@
  * The verdict reads the schema object, not the source text, because a grep misses the same
  * expression bound to a named constant. Each count is derived on each call, and an empty subject
  * is the `EMPTY_CENSUS` failure. The day rule, the expiry verdict and the key-set digest come from
- * the shared `waiver-ledger.ts`. This module re-exports the day rule and keeps its own nouns.
+ * the shared `waiver-ledger.ts` and `waiver-ledger-digest.ts`. This module re-exports the day rule
+ * and keeps its own nouns.
  */
 import { z } from 'zod';
 import type { VacuityWaiverEntry } from '../../../src/output-schema-vacuity-allowlist.js';
@@ -673,8 +674,8 @@ export function auditVacuityRatchet(
 
 /**
  * The whole ratchet: the two structural halves plus the expiry half, as of a named day. The CI
- * guard computes the same verdict. `today` is required, so the verdict is a pure function of the
- * arguments and can be reproduced from the report.
+ * guard `tools/audit/core/output-schema-ratchet-guard.ts` runs this function. `today` is required,
+ * so the verdict is a pure function of the arguments and can be reproduced from the report.
  */
 export function auditVacuityRatchetAsOf(
   today: string,

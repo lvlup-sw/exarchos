@@ -35,9 +35,9 @@ export const MIN_RELEASE = [2, 9, 0];
 
 /**
  * The first release line that the manifest does not cover. The manifest records the per-runtime
- * renders before the skill rename in `v2.12.0`, so a pre-rename install can match. The bound also
- * keeps a new `v2.12.x` tag from changing a fresh `buildManifest()` result, which then differs
- * from the committed manifest and fails its test.
+ * renders before the skill rename in `v2.12.0`, so a pre-rename install can match. Without this
+ * bound, a new `v2.12.x` tag changes the result of a fresh `buildManifest()`. That result then
+ * differs from the committed manifest, and the manifest test fails.
  */
 export const MAX_RELEASE_EXCLUSIVE = [2, 12, 0];
 

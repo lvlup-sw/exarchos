@@ -295,14 +295,13 @@ function seedLedgerSubject(
 }
 
 /**
- * Audits the shrink-only seed against the live census. It compares sets in both directions, so a
- * swap of one entry for another gives two findings at the same count. `today` has no default,
- * because this module reads no wall clock. The guard reads the clock and blocks the merge. Dates
- * compare as ISO `YYYY-MM-DD` strings.
+ * Audits the shrink-only seed against the live census. It compares sets in both directions. When
+ * the tree re-couples one seeded event and adds a new report-coupled event, the audit gives two
+ * findings at the same count. `today` has no default, because this module reads no wall clock.
+ * The guard reads the clock and blocks the merge. Dates compare as ISO `YYYY-MM-DD` strings.
  *
- * Ledger-wide findings come first and per-entry findings last, so the report reads membership
- * first. A new ledger finding code is a compile error at the `never` assignment, not a silent
- * drop.
+ * The findings come in this order: ledger-wide, census, membership, then per-entry. A new ledger
+ * finding code is a compile error at the `never` assignment, not a silent drop.
  */
 export function auditReportCouplingSeed(
   today: string,

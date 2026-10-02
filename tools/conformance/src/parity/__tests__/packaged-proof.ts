@@ -106,8 +106,8 @@ export function deriveEffectFamilies(): string[] {
 /**
  * Derives the denominator of every dimension from the live registries. The sources are the
  * compiled action set, the CLI aliases, the host commands, `FAILURE_LAYERS`, the effect classes of
- * `EFFECT_OWNERSHIP`, and the cancellable actions. A synthetic registry with an extra action grows the denominator.
- * This proves that coverage follows the live surface, not a frozen list.
+ * `EFFECT_OWNERSHIP`, and the cancellable actions. A synthetic registry with an extra action
+ * grows the denominator. This proves that coverage follows the live surface, not a frozen list.
  */
 export function derivePackagedDenominators(
   registry: readonly CompositeTool[] = TOOL_REGISTRY,

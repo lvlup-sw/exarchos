@@ -167,8 +167,8 @@ describe('DR-2 kill fixture — delivery-safety.maskLiteralsAndComments, both in
   });
 
   /**
-   * An `import('p').T` type query splits in two. The swallow scan counts no imports, so both
-   * instruments agree. The population derivation used a raw-source regex that requires `import`
+   * The swallow half of the `import('p').T` type-query finding. The swallow scan counts no imports,
+   * so both instruments agree. The population derivation used a raw-source regex that requires `import`
    * at line start and a `from`. A type query has neither, so that regex did not enlist a module
    * whose only edge to the contract is a type query. The port reports the edge and enlists the
    * module, so the sweep gets wider and not narrower.

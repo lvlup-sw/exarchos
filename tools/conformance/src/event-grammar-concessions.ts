@@ -8,7 +8,8 @@
  * catalog uses kebab and snake word separators, and a rename of an event type breaks log
  * compatibility. So the grammar admits both, and each has an entry with an owner and a deadline.
  *
- * The census suite compares this module with the live catalog, so this module imports nothing.
+ * The census suite compares this module with the live catalog. Two compared authorities must not
+ * reach each other through imports, so this module imports nothing, not even a type.
  * `_EventGrammarCensus_ConcessionKeys_MatchTheGrammar` proves that its keys equal the clauses of
  * `WORD_SEPARATORS`.
  *

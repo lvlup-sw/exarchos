@@ -149,7 +149,7 @@ describe('DR-2 kill fixture — vcs-ownership.stripComments, both instruments', 
     expect(stripComments(source, lexModule)).toContain("import('node:fs')");
   });
 
-  /** A partial tree loses literal spans, so a module with lost argv vectors reads as mutation-free. */
+  /** A partial tree loses literal spans, so a module with lost argv vectors reads as mutation-free. Thus `stripComments` throws on a recovered parse. */
   it('VcsOwnership_RecoveredParse_IsRefusedRatherThanSilentlyStripped', () => {
     const broken = "run(['worktree', 'add', p])\nexport const x = {{{;";
     expect(() => stripComments(broken, lexModule)).toThrow(/did not parse cleanly/);

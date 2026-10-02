@@ -7,8 +7,8 @@
  * The census walks a source tree with the TypeScript parser. It reports each module that binds the
  * class as a value and uses the binding: a `new`, a subclass, or the class as an argument. It
  * resolves aliased imports and barrel re-exports, so it reports what the compiler binds. Type-only
- * imports and type positions construct nothing, so they do not count. Tests import this module,
- * and shipped `src/` code does not.
+ * imports and type positions construct nothing, so they do not count. `typescript` is a
+ * devDependency, so tests import this module and shipped `src/` code must not.
  */
 
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
@@ -362,10 +362,11 @@ function isNamePosition(node: ts.Identifier): boolean {
  * Every value-level use of the store class under `sourceDir`, `root`-relative and forward-slashed,
  * plus the subset outside `owners`. An `owners` path matches the reported `file` field exactly.
  *
- * Every module is parsed, because a barrel alias leaves a caller that spells neither the class name
- * nor its directory. A file from the walk that is missing at read time counts as vanished, but a
- * missing import target still throws. A class `extends` is a value use. An interface `extends` and
- * an `implements` are type positions. A `new` reports one use, not a second use for its class.
+ * The census parses every module. A text prefilter is not safe, because a caller of a barrel alias
+ * spells neither the class name nor its directory. A file from the walk that is missing at read time
+ * counts as vanished, but a missing import target still throws. A class `extends` is a value use.
+ * An interface `extends` and an `implements` are type positions. A `new` expression gives one use,
+ * and its class expression gives no second use.
  */
 export function scanEvidenceStoreConstructions(
   root: string,

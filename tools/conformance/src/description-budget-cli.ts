@@ -5,7 +5,8 @@
  *
  * It sets `process.exitCode`, not `process.exit(N)`, so that buffered stdout flushes before
  * exit. Without this, a piped consumer can get a truncated report.
- */import { formatBudgetReport } from './description-budget.js';
+ */
+import { formatBudgetReport } from './description-budget.js';
 import { auditLiveDescriptionBudgets } from './bindings/index.js';
 
 const report = auditLiveDescriptionBudgets();

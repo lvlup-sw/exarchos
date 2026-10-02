@@ -1,6 +1,6 @@
 // RESERVED(issue: #1473, owner: exarchos, expires: 2027-02-28)
-// Frozen pin for the report-coupling seed ratchet. `report-coupling-census.ts` and its test import it.
-// It goes with `report-coupling-seed.ts` when the seed holds only the two types that wait on #1473.
+// Frozen pin for the report-coupling seed ratchet. The census, its test and the ratchet guard import
+// it. Delete it with `report-coupling-seed.ts` when #1473 lands and the seed reaches its floor.
 //
 // `auditReportCouplingSeed()` compares the seed with the tree today, in both directions. That check
 // cannot see an in-place swap: one commit removes a paid-down id and adds a new report-coupled id.
@@ -9,7 +9,8 @@
 // edit does not change the union. This file imports nothing, so it cannot observe the seed it pins.
 //
 // DO NOT REGENERATE THIS VALUE TO MAKE A BUILD GREEN. No script emits it. If
-// `auditReportCouplingSeedIntegrity()` fails, the seed key set changed. Additions are what this pin stops.
+// `auditReportCouplingSeedIntegrity()` fails, the seed key set changed. The pin exists to stop an
+// addition, and the retirement of the ratchet deletes this file. Thus no edit of the digest is legal.
 
 /**
  * The sha256 key-set digest of the 25 event types that `censusReportCoupling().reportCoupled` gave on 2026-08-07.

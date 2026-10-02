@@ -286,9 +286,9 @@ function scenario(spec: ScenarioSpec): AdmissionScenario {
 }
 
 /**
- * The ladder gate of a low-risk, reliable GATHER context that touches no boundary.
- * Its sole obligation is one gate-evidence requirement, the simplest unit for each
- * verdict.
+ * The one declared gate of `gatherContext`, a low-risk, reliable GATHER context that
+ * touches no boundary. That context has one obligation, a gate-evidence requirement.
+ * This is the simplest unit for each verdict.
  */
 const gatherGate: ResolvedGate = {
   family: 'ladder',

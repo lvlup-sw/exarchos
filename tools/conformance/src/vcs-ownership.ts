@@ -176,9 +176,9 @@ const CHECKOUT_CREATE_RE = /\[\s*(['"`])checkout\1\s*,\s*(['"`])-[bB]\2/;
 const SWITCH_CREATE_RE = /\[\s*(['"`])switch\1\s*,\s*(['"`])-[cC]\2/;
 
 /**
- * Enumerates the git worktree, branch and merge mutation sites in one module's source. Comments are
- * stripped first, so doc examples do not count. Each mutation kind occurs at most once per module,
- * because ownership is per module.
+ * Enumerates the git worktree, branch and merge mutation sites in one module's source. It strips
+ * comments first, so doc examples do not count. It reports each mutation kind at most once per
+ * module, because ownership is per module.
  */
 export function detectVcsMutationSites(
   module: string,
