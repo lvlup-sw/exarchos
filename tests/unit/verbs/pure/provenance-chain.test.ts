@@ -70,7 +70,8 @@ describe('verifyProvenanceChain', () => {
   /**
    * Design and plan are one file, so `designFile` and `planFile` are the same
    * path. The parser reads `DR-N` definitions only from the design region,
-   * before `## Decomposition`. So a task reference never counts as a definition.
+   * before the first `## Decomposition` heading or task header. As a result, a
+   * task reference never counts as a definition.
    */
   describe('unified single-artifact traceability (#1581 DR-6, task 012)', () => {
     function writeUnified(content: string): string {

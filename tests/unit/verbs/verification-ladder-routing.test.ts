@@ -46,9 +46,9 @@ import {
 const seededWorkflows = new Set<string>();
 
 /**
- * Calls the composite handler directly, so it recreates two things that `dispatch()` gives.
+ * Calls the composite handler directly, so it recreates two things that `dispatch()` and a real run give.
  * The first is the trusted dispatch scope. Without it, a gate returns `TRUSTED_CALLER_REQUIRED`.
- * The second is a started workflow with an active phase attempt. Without it, a gate returns `ACTIVE_PHASE_ATTEMPT_REQUIRED`.
+ * The second is a started workflow with an active phase attempt, which the gate evidence binds to.
  */
 async function orchestrate(
   args: Record<string, unknown>,

@@ -1,7 +1,8 @@
 // @oracle-sources: ../../../../src/dispatch/core/dispatch.ts, the post-dispatch postcondition observation — the store and the persisted-evidence reader, asked after the handler returned, rather than anything the handler said about itself
 //
-// Ten gate actions declare `durable-evidence` as a postcondition. Dispatch checks declared
-// postconditions after the handler returns, and the observer reads `admission.evidence-recorded`.
+// The ten gate actions in this file declare `durable-evidence` as a postcondition. Dispatch checks
+// declared postconditions after the handler returns. When the observer finds no
+// `admission.evidence-recorded` row, dispatch returns ENSURE_CONTRACT_VIOLATED.
 // A `gate.executed` row is a different record, so it does not pay the postcondition.
 // These cases stub nothing on the payment path: not the gate runner, the handler table, or the
 // registry. The sibling unit tests stub the runner to isolate a provider verdict.

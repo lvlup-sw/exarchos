@@ -3,7 +3,7 @@
  * The gate runs lint, typecheck, and quality-check through npm scripts. A missing script gives a SKIP.
  *
  * One case differs from the script on purpose. The script let a SKIP leave the result at PASS, so `PASS (2/2)` showed while checks did not run.
- * Now a SKIP counts, and the result degrades to `status: 'skip'`, `skipReason: 'constituent-skipped'`, and `**Result: DEGRADED**`.
+ * In the TS port, a SKIP counts, and the result degrades to `status: 'skip'`, `skipReason: 'constituent-skipped'`, and `**Result: DEGRADED**`.
  * The PASS case without a skip, the FAIL case, and the error case keep parity.
  *
  * The `node:fs` mock gives `readPackageJson` a `package.json` without disk access.

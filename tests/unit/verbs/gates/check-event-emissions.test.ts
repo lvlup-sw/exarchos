@@ -85,7 +85,10 @@ describe('PHASE_EXPECTED_EVENTS', () => {
     expect(data.hints.map((h) => h.eventType)).not.toContain('review.routed');
   });
 
-  /** `stack.submitted` is a telemetry event, so neither the synthesize row nor the hint table lists it. The literal list is pinned on purpose. */
+  /**
+   * `stack.submitted` is a telemetry event, so neither the synthesize row nor the hint table lists it.
+   * The literal list is pinned on purpose, because a row that lists the type makes it a dependency again.
+   */
   it('PhaseExpectedEvents_SynthesizePhase_ExpectsShepherdAndNoLongerStackSubmitted', () => {
     expect(PHASE_EXPECTED_EVENTS['synthesize']).toEqual([
       'team.spawned',

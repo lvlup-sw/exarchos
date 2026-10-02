@@ -442,7 +442,7 @@ describe('handleSpecCoverageCheck — plan-syntax phase (WFQ-010)', () => {
     expect(mockedExecFileSync).not.toHaveBeenCalled();
   });
 
-  /** The plan-time check must not probe the declared test paths. Only the plan file can be probed. */
+  /** The plan-time check must not probe the declared test paths. It can probe only the plan file. */
   it('planPhase_DoesNotProbeTestPathsOnDisk', async () => {
     const probed: string[] = [];
     mockedExistsSync.mockImplementation((p: unknown) => {

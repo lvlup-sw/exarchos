@@ -143,7 +143,7 @@ describe('resolveRepoRoot', () => {
 describe('normalizeGateVerdict — an explicit skip is never proof (DR-7)', () => {
   const carrier = (data: unknown): ToolResult => ({ success: true, data });
 
-  /** The carrier that `handleTestAdequacy` returns when `resolvePolicySkip` skips the gate. */
+  /** The input is the carrier that `handleTestAdequacy` returns when `resolvePolicySkip` skips the gate. */
   it('NormalizeGateVerdict_SkippedCarrierWithPassedTrue_IsIndeterminate', () => {
     const policySkip = carrier({
       passed: true,
@@ -168,7 +168,7 @@ describe('normalizeGateVerdict — an explicit skip is never proof (DR-7)', () =
     }
   });
 
-  /** A gate that ran keeps its verdict. Thus `indeterminate` for every input does not pass this suite. */
+  /** A gate that ran keeps its verdict. An implementation that returns `indeterminate` for each input fails this test. */
   it('NormalizeGateVerdict_RanToAVerdict_StillMapsPassAndFail', () => {
     expect(normalizeGateVerdict(carrier({ passed: true }))).toBe('pass');
     expect(normalizeGateVerdict(carrier({ passed: false }))).toBe('fail');
@@ -181,7 +181,8 @@ describe('normalizeGateVerdict — an explicit skip is never proof (DR-7)', () =
   });
 
   /**
-   * Other shapes are not skips. A predicate that claims too much makes each ordinary gate `indeterminate`.
+   * A skip carrier returns its discriminant and reason. Other shapes are not skips.
+   * A predicate that claims too much makes each ordinary gate `indeterminate`.
    * A skip without a discriminant is still a skip.
    */
   it('ReadGateSkipDescriptor_SkipCarrier_CarriesDiscriminantAndReason', () => {
@@ -371,7 +372,7 @@ describe('StampAndSkip consistency', () => {
 });
 
 describe('resolvePhaseMode', () => {
-  /** PLAN, REVIEW, and SYNTHESIZE gates block, so they bind to enforce. They stay enforce also under oneshot, where IMPLEMENT is audit. */
+  /** PLAN, REVIEW, and SYNTHESIZE gates block, so they bind to enforce. They stay enforce even under oneshot, where IMPLEMENT is audit. */
   it('migratedGates_PlanReviewSynthesis_BindEnforceNotAudit', () => {
     for (const kind of ['PLAN', 'REVIEW', 'SYNTHESIZE'] as const) {
       expect(resolvePhaseMode(kind, 'oneshot')).toBe('enforce');
@@ -393,7 +394,7 @@ describe('resolvePhaseMode', () => {
 
 /**
  * `repoWithDiffOfAtLeast` builds a throwaway repo whose `main...HEAD` diff exceeds `approxBytes`.
- * Each added line is inside the unified diff body.
+ * The new file holds only added lines, so each of its bytes is in the unified diff body.
  */
 describe('getDiff', () => {
   async function repoWithDiffOfAtLeast(approxBytes: number): Promise<string> {

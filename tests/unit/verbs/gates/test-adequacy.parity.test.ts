@@ -98,7 +98,8 @@ function buildTestAdequacyCompositeStub(): CompositeHandler {
 }
 
 /**
- * Drops `evidenceReferences`. Each arm has its own event store, so the content-addressed evidence id differs.
+ * Drops `_perf`, `_meta` and `evidenceReferences`. Each arm has its own event store, so the
+ * content-addressed evidence id differs.
  * The gate integration suites prove evidence persistence.
  */
 function normalize(value: unknown): unknown {

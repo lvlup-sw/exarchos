@@ -12,7 +12,7 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
-/** The drift core mock, so both arms compute the same result. */
+/** The mock of the drift core. Both arms get the same result from it. */
 const mockRunContractDrift = vi.fn();
 vi.mock('../../../../src/verbs/gates/contract-drift.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../../src/verbs/gates/contract-drift.js')>();
@@ -91,7 +91,7 @@ function buildContractDriftCompositeStub(): CompositeHandler {
 }
 
 /**
- * Drop `evidenceReferences` with `_perf` and `_meta`. Each arm owns a separate
+ * Drops `_perf`, `_meta` and `evidenceReferences`. Each arm owns a separate
  * event store, so the content-addressed evidence id differs per arm.
  */
 function normalize(value: unknown): unknown {

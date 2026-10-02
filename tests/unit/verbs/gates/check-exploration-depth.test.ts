@@ -72,8 +72,9 @@ describe('check_exploration_depth gate (DR-4)', () => {
   let ctx: DispatchContext;
 
   /**
-   * The gate binds its evidence to the active phase attempt and reads the caller authorization from the dispatch scope.
-   * The test opens both, or it exercises the fail-closed path.
+   * The gate binds its evidence to the active phase attempt, so this hook seeds one.
+   * The gate also reads the caller authorization from the dispatch scope, which `orchestrate` opens.
+   * Without both, the test exercises the fail-closed path.
    */
   beforeEach(async () => {
     base = await mkdtemp(path.join(tmpdir(), 'exploration-depth-'));

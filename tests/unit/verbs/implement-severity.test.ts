@@ -42,7 +42,7 @@ const BLOCKING_WORKFLOWS = ['debug', 'feature', 'refactor'] as const;
 describe('DR-6 implement-phase severity', () => {
   /**
    * The binding is in `enforce` mode, so only the oneshot severity can make the failure advisory.
-   * The result sets `data.passed`, which the orchestrator reads, to true and adds a warning.
+   * The result sets `data.passed` to true and adds a warning. The orchestrator reads `data.passed`.
    */
   it('ImplementSeverity_Oneshot_Advisory', () => {
     const result = applyLadderGateSeverity(
@@ -76,7 +76,7 @@ describe('DR-6 implement-phase severity', () => {
   });
 
   /**
-   * In `audit` mode, a failing ladder gate becomes advisory, also for a blocking workflow type.
+   * In `audit` mode, a failing ladder gate becomes advisory, even for a blocking workflow type.
    * A warning holds the finding. The result sets `data.passed` to true, so the orchestrator does not block.
    */
   it('ImplementMode_AuditMode_DoesNotBlock', () => {
@@ -98,7 +98,7 @@ describe('DR-6 implement-phase severity', () => {
 
   /**
    * The mode comes from the workflow type and not from the project config.
-   * Thus audit mode makes the failure advisory also when no project config is resolved.
+   * As a result, audit mode makes the failure advisory even when no project config resolves.
    */
   it('ImplementMode_AuditMode_NoConfig_StillDoesNotBlock', () => {
     for (const workflowType of [ONESHOT, 'debug'] as const) {

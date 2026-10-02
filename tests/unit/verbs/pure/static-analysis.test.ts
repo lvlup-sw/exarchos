@@ -80,8 +80,8 @@ describe('runStaticAnalysis', () => {
     });
 
     /**
-     * An undeclared script skips its check, and a skipped check stops a PASS.
-     * So the test declares all three scripts.
+     * An undeclared script skips its check, and one skipped check prevents a
+     * PASS result. For this reason, the test declares all three scripts.
      */
     it('output shows PASS markers for passing checks', () => {
       const repoRoot = createPackageJson({
@@ -177,8 +177,8 @@ describe('runStaticAnalysis', () => {
 
   describe('skip flags', () => {
     /**
-     * A check that did not run is not evidence of a pass. So with `skipLint`,
-     * lint does not run and the result is `skip`, not PASS.
+     * With `skipLint`, lint does not run, so the result is `skip` and not PASS.
+     * A check that did not run is not evidence of a pass.
      */
     it('--skip-lint skips lint check even if it would fail', () => {
       const repoRoot = createPackageJson({
@@ -622,8 +622,9 @@ describe('runStaticAnalysis', () => {
     });
 
     /**
-     * 30 files with two lines each pass the line cap. The breakdown lists only
-     * the first `FAIL_DETAIL_MAX_FILES` files and states how many it leaves out.
+     * 30 files with two lines each exceed the line cap. Without a file cap, the
+     * breakdown itself exceeds the output budget. The breakdown lists only the
+     * first `FAIL_DETAIL_MAX_FILES` files and states how many it leaves out.
      * The total file count stays correct.
      */
     it('checkStaticAnalysis_ManyFailingFiles_CapsBreakdownWithElidedCount', () => {

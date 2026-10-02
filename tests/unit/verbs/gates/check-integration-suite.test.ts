@@ -299,8 +299,8 @@ describe('parseVitestResult', () => {
   });
 
   /**
-   * Valid JSON with no vitest summary counters returns null. To read it as zero
-   * failures makes the gate fail open.
+   * Valid JSON with no vitest summary counters returns null. A zero-failure
+   * result for such input makes the gate fail open.
    */
   it('rejects malformed object/array payloads instead of reading them as green', () => {
     expect(parseVitestResult('{}')).toBeNull();
@@ -399,8 +399,8 @@ describe('check_integration_suite command resolution (#1537, DR-15)', () => {
   });
 
   /**
-   * A spawn failure and a JSON shape mismatch both fail closed. The report
-   * names a different failure kind for each.
+   * A spawn failure and a JSON shape mismatch both fail closed. Each result
+   * carries a different failure kind and a different report.
    */
   it('checkIntegrationSuite_RunnerSpawnFailure_DistinctFromJsonShapeMismatch', () => {
     const spawn = runIntegrationSuite({
@@ -434,9 +434,9 @@ describe('check_integration_suite command resolution (#1537, DR-15)', () => {
   });
 
   /**
-   * Resolves the command in the current working directory, which is this
-   * repository and a node toolchain. The test does not run the command,
-   * because a run starts vitest again inside vitest.
+   * Resolves the command in the current working directory. That directory is
+   * this repository, which uses the node toolchain. The test does not run the
+   * command, because a run starts vitest again inside vitest.
    */
   it('resolveIntegrationCommand_ThisRepo_ResolvesNodeVitestCommand', () => {
     const r = resolveIntegrationCommand(process.cwd(), undefined);

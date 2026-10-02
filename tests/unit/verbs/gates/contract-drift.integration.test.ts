@@ -163,7 +163,7 @@ describe('check_contract_drift acceptance (through handleOrchestrate)', () => {
     return result as { success: boolean; data: ContractDriftData };
   }
 
-  /** The gate is advisory: the tool call succeeds and the gate fails. */
+  /** A breaking diff fails the gate and fills `breaking`. The tool call itself succeeds. */
   it(
     'HandleOrchestrate_CheckContractDrift_BreakingSchemaDiff_Fails',
     async () => {

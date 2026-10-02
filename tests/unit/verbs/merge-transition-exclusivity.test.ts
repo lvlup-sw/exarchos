@@ -14,7 +14,10 @@ import { dirname, join } from 'node:path';
 
 const here = fileURLToPath(new URL('../../../src/verbs/', import.meta.url));
 
-/** Fragments of the forbidden literals. The code builds the patterns at runtime from these fragments. */
+/**
+ * Fragments of the forbidden literals. The code builds the patterns at runtime from these fragments.
+ * Thus no forbidden literal appears in this file, and a source scan cannot flag the guard itself.
+ */
 const setCall = 'set' + '({ ';
 const setCallTight = 'set' + '({';
 const phaseKey = 'phase';

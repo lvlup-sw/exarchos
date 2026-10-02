@@ -110,8 +110,9 @@ afterEach(async () => {
 });
 
 /**
- * A case asserts that the code is not ENSURE_CONTRACT_VIOLATED and also that
- * the call succeeds. The first assertion names the fault if a regression occurs.
+ * Most cases assert that the error code is not ENSURE_CONTRACT_VIOLATED and
+ * that the call succeeds. The first assertion names the fault when a regression
+ * occurs.
  */
 describe('review gates that declare durable evidence pay it on dispatch', () => {
   it('CheckSecurityScan_Dispatched_SucceedsAndRecordsEvidence', async () => {
@@ -261,8 +262,8 @@ describe('review gates that declare durable evidence pay it on dispatch', () => 
   });
 
   /**
-   * The gate result references the evidence that it recorded, so a caller can
-   * find the record without a query.
+   * The `check_security_scan` result carries one evidence reference, so a
+   * caller can find the record without a query. The test covers only this gate.
    */
   it('EachGate_AttachesTheEvidenceItRecorded_ToItsOwnCarrier', async () => {
     const result = await call({

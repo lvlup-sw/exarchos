@@ -14,7 +14,10 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
-/** The test reads the `repoRoot` of each call to this mock. */
+/**
+ * The test reads the `repoRoot` of each call to this mock, so a surface that
+ * drops `repoRoot` fails the test.
+ */
 const mockRunStaticAnalysis = vi.fn();
 vi.mock('../../../../src/verbs/pure/static-analysis.js', () => ({
   runStaticAnalysis: (...args: unknown[]) => mockRunStaticAnalysis(...args),

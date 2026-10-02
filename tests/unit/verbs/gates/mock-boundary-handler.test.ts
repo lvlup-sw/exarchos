@@ -50,8 +50,7 @@ describe('check_mock_boundary registration + dispatch + steer', () => {
 
   /**
    * The registry entry exists, declares an `outputSchema`, and marks the gate
-   * advisory. A same-name field with a different base type makes
-   * `buildRegistrationSchema` throw.
+   * advisory in dimension `D1`. The test does not call `buildRegistrationSchema`.
    */
   it('CheckMockBoundary_Registration_DoesNotThrow', () => {
     const action = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate')!.actions.find(

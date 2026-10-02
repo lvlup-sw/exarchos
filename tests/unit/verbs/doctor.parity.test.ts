@@ -2,7 +2,7 @@
  * CLI and MCP parity tests for the `doctor` action.
  *
  * The facades are `exarchos_orchestrate {action:'doctor'}` over MCP and `exarchos orch doctor` on the CLI.
- * Both must return the same ToolResult, apart from time fields.
+ * Both must return the same ToolResult, apart from times, UUIDs, `_perf`, and `_meta`.
  * The suite stubs the `exarchos_orchestrate` composite with `stubCompositeHandler`.
  * The stub sends `doctor` to `handleDoctorWithChecks` with a fixed check list and `makeStubProbes()`.
  * Thus the real handler, schema, and adapter projection run without real filesystem, git, or SQLite state.
@@ -35,7 +35,7 @@ import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 /**
  * Fixed checks with the statuses Pass, Fail, and Skipped.
- * Each check has a fixed message and `durationMs: 0`, so the output is the same on each run.
+ * Each check has a fixed message and `durationMs: 0`, so each check result is the same on each run.
  */
 const DETERMINISTIC_CHECKS: ReadonlyArray<CheckFn> = [
   async (): Promise<CheckResult> => ({

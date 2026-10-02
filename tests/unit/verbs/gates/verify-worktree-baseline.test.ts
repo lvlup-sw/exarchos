@@ -215,7 +215,7 @@ describe('handleVerifyWorktreeBaseline', () => {
   });
 
   /**
-   * With no detection markers, the test command from `.exarchos.yml` must still reach the handler.
+   * With no detection markers, the handler must still use the test command from `.exarchos.yml`.
    * `pytest` is in the built-in label set, so the project type is `Python`.
    * On Windows, `resolve()` adds a drive and backslashes to the config path, so the mock strips both.
    */

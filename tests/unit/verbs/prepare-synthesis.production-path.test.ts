@@ -1,9 +1,9 @@
 /**
  * Tests that `prepare_synthesis` gets `repoRoot` through the production path.
  *
- * `prepare-synthesis.test.ts` calls `handlePrepareSynthesis` directly, so it cannot see what `dispatch()` does to the args.
- * `dispatch()` strips a key that the action schema does not declare but a sibling action does, and reports no error.
- * Thus the action schema must declare `repoRoot`, or each production call arrives without it.
+ * `team/prepare-synthesis.test.ts` calls `handlePrepareSynthesis` directly, so it cannot see what `dispatch()` does to the args.
+ * `dispatch()` gives the handler only the keys that the parsed action schema keeps.
+ * Thus the action schema must declare `repoRoot`, or no production call reaches the handler with it.
  * Each case here runs through `dispatch()`. The mock stubs `execSync` and `execFileSync` and keeps the rest of `node:child_process` real.
  * Thus nothing spawns, and the tests check only the `cwd` of each leg.
  */
@@ -97,7 +97,7 @@ describe('prepare_synthesis production path (DR-8 / #1756)', () => {
   });
 
   /**
-   * Without the schema field, `dispatch()` strips `repoRoot`, the handler guard refuses, and no leg runs.
+   * Without the schema field, `repoRoot` does not reach the handler, and no leg runs.
    * The test checks each named leg by its command, so a missing leg cannot pass on the count alone.
    */
   it('ProductionPath_DispatchWithRepoRoot_EveryLegRunsAgainstThatRoot', async () => {
@@ -158,7 +158,7 @@ describe('prepare_synthesis production path (DR-8 / #1756)', () => {
     expect(evidence).toEqual([]);
   });
 
-  /** The kill-probe target. When `repoRoot` leaves the action schema, this test and the dispatch test above both fail. */
+  /** The kill-probe target. When `repoRoot` leaves the action schema, this test and the first dispatch test in this file both fail. */
   it('ActionSchema_DeclaresRepoRoot_AsRequiredString', () => {
     const orchestrate = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate');
     const action = orchestrate?.actions.find((a) => a.name === 'prepare_synthesis');

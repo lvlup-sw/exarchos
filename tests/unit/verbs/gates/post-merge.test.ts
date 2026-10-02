@@ -1,5 +1,5 @@
 /**
- * Tests for `handlePostMerge`. These cases test the provider verdict, so the phase-gate runner is stubbed down to its provider call.
+ * Tests for `handlePostMerge`. These cases test the provider verdict, so the file stubs the phase-gate runner down to its provider call.
  * `gate-runner.test.ts` covers the runner against a real store. `unrunbooked-gate-evidence-dispatch.test.ts` covers the evidence over real dispatch.
  */
 

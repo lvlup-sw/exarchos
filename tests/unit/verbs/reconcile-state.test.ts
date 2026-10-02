@@ -130,7 +130,7 @@ describe('handleReconcileState', () => {
     expect(data.report).toContain('feat/task-2');
   });
 
-  /** The mocked `git worktree list --porcelain` output lists only the first worktree. */
+  /** The mocked `git worktree list --porcelain` output and the `existsSync` mock both omit `worktree-2`. */
   it('MissingWorktrees_ReturnsNotPassed', async () => {
     const stateJson = makeState({
       worktrees: {

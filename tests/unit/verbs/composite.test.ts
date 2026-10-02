@@ -159,7 +159,7 @@ function successResult(data: unknown): ToolResult {
 
 /**
  * Asserts that the composite wraps a success in the envelope.
- * The result keeps the handler `data` and carries an empty `next_actions`, `_meta` and `_perf.ms`.
+ * The result keeps the handler `data` and carries `_meta`, `_perf.ms` and an empty `next_actions` array.
  * `wrap()` builds a new object, so a reference-equality check does not apply.
  */
 function expectEnvelopedSuccess(result: ToolResult, expected: ToolResult): void {
@@ -475,7 +475,7 @@ describe('handleOrchestrate', () => {
   });
 
   describe('describe routing', () => {
-    /** `describe` is not mocked. It reads the schemas from the live registry. */
+    /** The file does not mock `describe`. It reads the schemas from the live registry. */
     it('HandleOrchestrate_Describe_RoutesToDescribeHandler', async () => {
       const args = { action: 'describe', actions: ['task_claim'] };
 

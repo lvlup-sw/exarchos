@@ -36,7 +36,8 @@ async function initRepo(prefix: string): Promise<string> {
 
 /**
  * Commits a source module, a base test, and an optional `.exarchos.yml` on `main`.
- * The default first-party scope includes `src/**`, so a bare `axios` mock is unowned.
+ * The default first-party scope includes `src/**`. A bare `axios` mock is not a path
+ * in that scope, so it is unowned.
  */
 async function writeBaseProject(repoRoot: string, exarchosYml?: string): Promise<void> {
   mkdirSync(path.join(repoRoot, 'src'), { recursive: true });
@@ -202,8 +203,8 @@ describe('check_mock_boundary acceptance (through handleOrchestrate)', () => {
 
   /**
    * With the escape hatch, the gate passes and the carrier records the acknowledgement.
-   * The canonical gate runner also records `admission.evidence-recorded` with its observation source.
-   * An escape hatch without an audit trail is not acceptable, so the carrier references that record.
+   * An escape hatch needs an audit trail, so the gate runner also records
+   * `admission.evidence-recorded` with its observation source. The carrier references that record.
    */
   it(
     'GateEvent_EscapeHatch_LoggedInPayload',
@@ -266,14 +267,15 @@ describe('check_mock_boundary acceptance (through handleOrchestrate)', () => {
   );
 });
 
+/** The state dir and feature id pairs that `orchestrate` already seeded. */
+const seededWorkflows = new Set<string>();
+
 /**
- * These tests call the composite handler directly, without `dispatch()`.
- * Thus `orchestrate` opens the trusted dispatch scope and seeds an active phase attempt once for each workflow.
+ * Calls the composite handler directly, without `dispatch()`. For this reason, it opens the
+ * trusted dispatch scope and seeds an active phase attempt once for each workflow.
  * Without the scope, the gate fails with `TRUSTED_CALLER_REQUIRED`.
  * Without the attempt, it fails with `ACTIVE_PHASE_ATTEMPT_REQUIRED`.
  */
-const seededWorkflows = new Set<string>();
-
 async function orchestrate(
   args: Record<string, unknown>,
   ctx: DispatchContext,

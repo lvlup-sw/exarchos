@@ -2,7 +2,7 @@
  * Tests for `check_design_completeness`, a deprecated alias that delegates to `check_plan_coverage`.
  *
  * The handler sends the resolved artifact path as both `designPath` and `planPath`.
- * It returns the plan-coverage result unchanged, with a deprecation marker added.
+ * It adds a deprecation marker to a successful plan-coverage result and returns a failed result unchanged.
  * Without an explicit path, the handler resolves the path from the workflow-state artifacts.
  * `pure/design-completeness.test.ts` tests the pure checks.
  */

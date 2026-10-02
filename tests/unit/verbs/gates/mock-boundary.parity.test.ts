@@ -89,9 +89,9 @@ function buildMockBoundaryCompositeStub(): CompositeHandler {
 }
 
 /**
- * Drops `evidenceReferences`, because each arm has its own event store and the
- * gate runner mints a different evidence id in each. The gate integration
- * suites test evidence persistence.
+ * Drops `_perf`, `_meta` and `evidenceReferences`. Each arm has its own event
+ * store, so the gate runner mints a different evidence id in each. The gate
+ * integration suites test evidence persistence.
  */
 function normalize(value: unknown): unknown {
   return harnessNormalize(value, {

@@ -35,6 +35,21 @@ import {
 } from '../../../../src/verbs/gates/test-adequacy.js';
 
 
+import { execFileSync } from 'node:child_process';
+
+/**
+ * These tests run `check_test_adequacy` against a real git repo through the
+ * production path: `dispatch()`, `handleOrchestrate`, `handleTestAdequacy`, the
+ * durable gate producer, and `runProbe`. `test-adequacy.false-advisory.test.ts`
+ * calls `runProbe()` directly and does not cover this path.
+ *
+ * Two facts are central. The probe adds the toolchain test globs to the
+ * co-located defaults, so a co-located `*.test.ts` file is a test file. A
+ * skipped probe reports `skipped: true` and a `disposition`, so it never reads
+ * as proof of test adequacy.
+ */
+
+
 function git(repoRoot: string, args: readonly string[]): Promise<string> {
   return execFileAsync('git', args, { cwd: repoRoot, timeout: 30_000 });
 }
@@ -233,7 +248,7 @@ describe('check_test_adequacy production path', () => {
    * The root marker `pyproject.toml` selects python, but the task adds the
    * co-located test `src/calc.test.ts`. The probe must include that file. The
    * injected `runTests` reports red on the reverted source, so the disposition
-   * is `proved`.
+   * is `proved`. The test enters at `handleOrchestrate` to inject `runTests`.
    */
   it('ProductionPath_ColocatedTestsUnderLayoutToolchain_ResolvesNonEmptyProbedTests', async () => {
     const repoRoot = await initRepo('prodpath-subject-');
@@ -401,7 +416,10 @@ describe('ProbeVerdict algebra', () => {
     expect(interpretProbeVerdict(verdict, 'low').passed).toBe(false);
   });
 
-  /** With no toolchain layout, the result is the co-located defaults. */
+  /**
+   * The toolchain globs add to the co-located defaults and do not replace them.
+   * With no toolchain layout, the result is the co-located defaults.
+   */
   it('ResolveProbeTestGlobs_AugmentsRatherThanReplacesColocatedDefaults', () => {
     const merged = resolveProbeTestGlobs(['tests/**', '**/test_*.py']);
     for (const glob of DEFAULT_TEST_GLOBS) {
