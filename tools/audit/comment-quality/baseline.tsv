@@ -1162,7 +1162,6 @@ src/projections/views/lifecycle/export.ts	1967f3a1e54e	1
 src/projections/views/lifecycle/export.ts	1e112e7ad954	1
 src/projections/views/lifecycle/export.ts	3fe2d7b77d33	1
 src/projections/views/lifecycle/export.ts	5954e0a24162	1
-src/projections/views/lifecycle/export.ts	987cb4ed5320	1
 src/projections/views/lifecycle/export.ts	b3646ec6ee4e	1
 src/projections/views/lifecycle/export.ts	c9ce5d58efed	1
 src/projections/views/lifecycle/export.ts	d539461fcbd5	1
@@ -1567,11 +1566,8 @@ src/storage/sqlite/constants.ts	8c81dc49352a	1
 src/storage/sqlite/errors.ts	691df3577ce8	1
 src/storage/sqlite/errors.ts	a58f751f3843	1
 src/storage/sqlite/wire-types.ts	d6882555b5fc	1
-src/utils/atomic-write.ts	08d66f66a026	1
-src/utils/atomic-write.ts	20c70c27df22	1
 src/utils/atomic-write.ts	71bc191f7aea	1
 src/utils/atomic-write.ts	7c64402d327c	1
-src/utils/atomic-write.ts	c99160cbb5f7	1
 src/utils/paths.ts	08cf47ce8636	1
 src/utils/paths.ts	27c535323dc6	1
 src/utils/paths.ts	5fc116c83788	1
@@ -2501,9 +2497,7 @@ src/workflow/hsm-transition-guard.ts	399ac0d0ac6f	1
 src/workflow/hsm-transition-guard.ts	4adf7f98858b	1
 src/workflow/hsm-transition-guard.ts	5dfb6b9d703a	1
 src/workflow/hsm-transition-guard.ts	6a62fe5b7c71	1
-src/workflow/hsm-transition-guard.ts	710a66337ac3	1
 src/workflow/hsm-transition-guard.ts	8457e6e03e3d	1
-src/workflow/hsm-transition-guard.ts	9eb34c392f80	1
 src/workflow/hsm-transition-guard.ts	9f923d121664	1
 src/workflow/hsm-transition-guard.ts	a12ab4a837d0	1
 src/workflow/hsm-transition-guard.ts	b3807a035248	1
@@ -2824,7 +2818,6 @@ tests/integration/elicitation-roundtrip.test.ts	42c0e28fc059	1
 tests/integration/ideate-update-action.test.ts	24438190a4de	1
 tests/integration/ideate-update-action.test.ts	87ad5faa1937	1
 tests/integration/next-actions-round-trip.test.ts	51ea34c7180e	1
-tests/integration/perf-validation.test.ts	6cd386b261cc	1
 tests/integration/tools-call.test.ts	0906f4048839	1
 tests/integration/tools-list-2020-12.test.ts	5e80004a7cad	1
 tests/integration/tools-list-2020-12.test.ts	6fccdeae78f9	1
@@ -2897,7 +2890,6 @@ tests/scripts/check-measured-premises.test.ts	ab5fc2d7ec10	1
 tests/scripts/check-measured-premises.test.ts	c42847649eaa	1
 tests/scripts/check-measured-premises.test.ts	c9b4b7f1027f	1
 tests/scripts/check-module-intent.test.sh	efd3519b4bd0	1
-tests/scripts/check-module-intent.test.ts	1678186fa6a1	1
 tests/scripts/check-module-intent.test.ts	3fd13f5958e5	1
 tests/scripts/check-module-intent.test.ts	575f0bf26f73	1
 tests/scripts/check-module-intent.test.ts	5be7b752c650	1
@@ -3443,7 +3435,6 @@ tests/unit/events/multi-process.test.ts	c36aa9f32340	1
 tests/unit/events/parity.test.ts	6d64f1a107a6	1
 tests/unit/events/parity.test.ts	a1e9137635e5	1
 tests/unit/events/parity.test.ts	d2c80743146d	1
-tests/unit/events/poc.acceptance.test.ts	7158c2ebd726	1
 tests/unit/events/poc.acceptance.test.ts	d85161b0fea5	1
 tests/unit/events/registration-validate.boot.test.ts	1395aee2d3ba	1
 tests/unit/events/registration-validate.boot.test.ts	e027cdce3e37	1
@@ -4804,11 +4795,11 @@ tests/unit/workflow/cleanup.test.ts	7018b0778552	1
 tests/unit/workflow/compensation.legacy.test.ts	5306b2d46588	1
 tests/unit/workflow/compensation.test.ts	5539bee3b5f0	1
 tests/unit/workflow/compensation.test.ts	5d92f6f154bb	1
-tests/unit/workflow/compensation.test.ts	62a42f38d129	1
 tests/unit/workflow/compensation.test.ts	7d4c846a2160	1
 tests/unit/workflow/compensation.test.ts	7eb2d128c62d	1
 tests/unit/workflow/compensation.test.ts	8da8d23bcf7e	1
 tests/unit/workflow/compensation.test.ts	bdb2d0496ced	1
+tests/unit/workflow/compensation.test.ts	c205c53036e8	1
 tests/unit/workflow/compensation.test.ts	f0183b51b42e	1
 tests/unit/workflow/composite.next-actions.test.ts	026ea4645d3d	1
 tests/unit/workflow/composite.test.ts	22c27943b3a8	1
@@ -5350,7 +5341,7 @@ tools/conformance/src/event-grammar-concessions.ts	3b8802b0d977	1
 tools/conformance/src/event-grammar-concessions.ts	417d8685e216	1
 tools/conformance/src/event-grammar-concessions.ts	48f8cf40362b	1
 tools/conformance/src/import-cycles.test.ts	20ca1d743220	1
-tools/conformance/src/import-cycles.test.ts	4b0d57f9e7fa	1
+tools/conformance/src/import-cycles.test.ts	fe6c460c64f4	1
 tools/conformance/src/import-cycles.ts	0d4bb4010ff9	1
 tools/conformance/src/import-cycles.ts	26695974d693	1
 tools/conformance/src/import-cycles.ts	703e2ae34868	1
@@ -5516,7 +5507,7 @@ tools/evals/evals/graders/promptfoo-loader.ts	3b71c76171cc	1
 tools/evals/evals/graders/promptfoo-loader.ts	50e763aaef20	1
 tools/evals/evals/graders/promptfoo.d.ts	9790d5fbaad3	1
 tools/evals/evals/provenance.ts	02351786fc60	1
-tools/git-hooks/pre-push.test.ts	d5d2eea32aa0	1
+tools/git-hooks/pre-push.test.ts	779679855e35	1
 tools/release/build-binary.ts	c4a3d5b6182e	1
 tools/release/build-binary.ts	c71fed58711e	1
 tools/release/build-binary.ts	ca025437cd85	1
