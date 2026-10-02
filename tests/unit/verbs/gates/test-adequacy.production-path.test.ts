@@ -68,6 +68,7 @@ function dataOf(result: { readonly data?: unknown }): AdequacyData {
   return data as AdequacyData;
 }
 
+/** `sourceOnlyBranch` builds a task branch that changes only source, so the probe has nothing to kill. */
 describe('check_test_adequacy production path', () => {
   const cleanups: Array<() => void> = [];
 
@@ -93,7 +94,6 @@ describe('check_test_adequacy production path', () => {
     } as DispatchContext);
   }
 
-  /** A task branch that changes ONLY source — nothing for the probe to kill. */
   async function sourceOnlyBranch(prefix: string): Promise<string> {
     const repoRoot = await initRepo(prefix);
     cleanups.push(() => rmrf(repoRoot));
