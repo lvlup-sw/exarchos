@@ -2,6 +2,7 @@ import {
   execFileSync,
   spawn,
   spawnSync,
+  type ChildProcess,
   type ExecFileSyncOptions,
   type SpawnOptions,
   type SpawnSyncOptionsWithStringEncoding,
@@ -106,6 +107,40 @@ export function spawnCommandSync(
     return spawnSync(command, quoted, { ...options, shell: true });
   }
   return spawnSync(command, args as string[], options);
+}
+
+/** The `spawn` seam of {@link spawnCommand}. Tests inject a double that records the launch. */
+export type ChildSpawn = (command: string, args: readonly string[], options: SpawnOptions) => ChildProcess;
+
+/** The seams of {@link spawnCommand}. Both default to the host: `process.platform` and `child_process.spawn`. */
+export interface SpawnCommandDeps {
+  readonly platform?: NodeJS.Platform;
+  readonly spawn?: ChildSpawn;
+}
+
+/**
+ * `spawn` that launches Windows package-manager shims correctly. It is the async twin of
+ * {@link spawnCommandSync}, for a caller that streams the output of a child.
+ *
+ * The win32 rule is the same as in {@link runCommandSync}. A bare `npm`, `npx` or other shim runs
+ * through `cmd.exe` with `shell: true`, and an argument with whitespace is double-quoted. Every other
+ * command, and all of POSIX, gets a plain `spawn` with no shell.
+ *
+ * The arguments must be trusted. With `shell: true`, a shell metacharacter in an argument can inject a
+ * command.
+ */
+export function spawnCommand(
+  command: string,
+  args: readonly string[],
+  options: SpawnOptions = {},
+  deps: SpawnCommandDeps = {},
+): ChildProcess {
+  const launch: ChildSpawn = deps.spawn ?? ((file, argv, opts) => spawn(file, [...argv], opts));
+  if (needsWindowsShell(command, deps.platform)) {
+    const quoted = args.map((a) => (/\s/.test(a) ? `"${a}"` : a));
+    return launch(command, quoted, { ...options, shell: true });
+  }
+  return launch(command, args, options);
 }
 
 /**
