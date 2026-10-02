@@ -1,14 +1,10 @@
-// ─── Durable-gate-producer legacy-state backfill (upgrade-wedge fix) ─────────
-//
-// The migrated ladder gates all resolve their evidence binding through
-// `activePhaseAttemptId`. The attempt stamp is minted only at workflow init /
-// phase transition, so every workflow already in flight BEFORE the stamp
-// shipped projects NO `phaseAttemptId` — and the pre-fix hard
-// `ACTIVE_PHASE_ATTEMPT_REQUIRED` failure wedged such workflows out of EVERY
-// migrated gate (`task_complete` unreachable). These tests pin the backfill:
-// a legacy projection runs the gate successfully, bound to the deterministic
-// `legacy-version:` derivation `allocatePhaseAttemptId` documents for
-// pre-v2.12 states.
+/**
+ * Tests for the legacy-state backfill in `runDurableGateProducer`.
+ *
+ * The migrated ladder gates resolve their evidence binding through `activePhaseAttemptId`.
+ * Only workflow init and phase transitions mint the attempt stamp, so a workflow from before v2.12 projects no `phaseAttemptId`.
+ * For such a workflow, the gate still runs and binds to the `legacy-version:` attempt id from `allocatePhaseAttemptId`.
+ */
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync } from 'node:fs';
@@ -40,7 +36,6 @@ afterEach(() => {
     try {
       rmrf(dir);
     } catch {
-      /* best-effort */
     }
   }
 });
@@ -61,12 +56,11 @@ async function seedLegacyWorkflow(eventStore: EventStore, featureId: string): Pr
   });
 }
 
+/** The task subject keeps the proof target off `git rev-parse`, because the temporary directory holds no repo. */
 function makeScope(fixture: Fixture, featureId: string): DurableGateScope {
   return {
     gateClass: 'static-analysis',
     featureId,
-    // A task subject keeps the proof target off `git rev-parse` (no repo in
-    // the temp dir) — the per-task shape every ladder gate dispatch uses.
     taskId: 'task-legacy-1',
     repoRoot: fixture.stateDir,
     stateDir: fixture.stateDir,
@@ -90,6 +84,10 @@ async function stampedAttemptIds(eventStore: EventStore, featureId: string): Pro
 }
 
 describe('runDurableGateProducer — pre-v2.12 legacy-state backfill', () => {
+  /**
+   * The expected id uses the `legacy-version:` form over the projection version (`_version` = 1), with the current phase as both edge endpoints.
+   * For a built-in workflow type, the projection takes the initial phase from `getInitialPhase`, not from the start event.
+   */
   it('LegacyState_NoPhaseAttemptId_RunsGate_AndStampsDeterministicLegacyAttempt', async () => {
     const fixture = await makeFixture();
     await seedLegacyWorkflow(fixture.eventStore, FEATURE_ID);
@@ -98,16 +96,8 @@ describe('runDurableGateProducer — pre-v2.12 legacy-state backfill', () => {
       runDurableGateProducer(makeScope(fixture, FEATURE_ID), passingProvider),
     );
 
-    // Pre-fix this was `{ success: false, error: { code:
-    // 'ACTIVE_PHASE_ATTEMPT_REQUIRED' } }` — the upgrade wedge.
     expect(result.success, JSON.stringify(result.error ?? null)).toBe(true);
 
-    // The evidence is bound to the documented legacy derivation: the
-    // `legacy-version:` predecessor form over the projection's CAS version
-    // (`_version` = 1), with the current phase standing in for both edge
-    // endpoints (no transition edge exists at gate time). For a built-in
-    // workflow type the projection resolves the initial phase from the HSM
-    // (`getInitialPhase`), NOT from the start event's `phase` field.
     const initialPhase = getInitialPhase('feature');
     const expected = allocatePhaseAttemptId(FEATURE_ID, initialPhase, initialPhase, undefined, 1);
     const stamped = await stampedAttemptIds(fixture.eventStore, FEATURE_ID);
@@ -118,9 +108,11 @@ describe('runDurableGateProducer — pre-v2.12 legacy-state backfill', () => {
     }
   });
 
+  /**
+   * Two runs on one store and one run on a second store with the same legacy state all bind to one attempt id.
+   * The derivation depends only on the feature id, the phase, and the version.
+   */
   it('LegacyState_SameStateTwice_YieldsTheSameAttemptId', async () => {
-    // Same store, two independent gate runs (fresh dispatch context each):
-    // both must bind to ONE attempt — no per-run randomness.
     const fixture = await makeFixture();
     await seedLegacyWorkflow(fixture.eventStore, FEATURE_ID);
 
@@ -136,9 +128,6 @@ describe('runDurableGateProducer — pre-v2.12 legacy-state backfill', () => {
     const stamped = await stampedAttemptIds(fixture.eventStore, FEATURE_ID);
     expect(new Set(stamped).size).toBe(1);
 
-    // And a SEPARATE store seeded with the identical legacy state derives the
-    // identical id — the derivation is a pure function of (featureId, phase,
-    // version), never of the store instance or wall clock.
     const other = await makeFixture();
     await seedLegacyWorkflow(other.eventStore, FEATURE_ID);
     const third = await runAsTrustedCaller(other.stateDir, () =>
@@ -149,9 +138,8 @@ describe('runDurableGateProducer — pre-v2.12 legacy-state backfill', () => {
     expect(otherStamped[0]).toBe(stamped[0]);
   });
 
+  /** When the workflow has a persisted attempt stamp, the backfill does not replace it. */
   it('StampedState_PersistedAttemptWins_OverLegacyDerivation', async () => {
-    // Precedence guard: once a workflow carries a real attempt stamp, the
-    // backfill must never shadow it.
     const fixture = await makeFixture();
     const persisted = await seedActivePhaseAttempt(fixture.eventStore, FEATURE_ID);
 

@@ -38,6 +38,11 @@ import {
 import { requireGateEvent } from '../../../../src/verbs/gates/gate-utils.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
+
+// A gate that declares `gate.executed` must not return a success carrier when
+// the durable append did not land. This file pins two seams that the gates share:
+// how the shared runner records a provider failure carrier, and `requireGateEvent`.
+
 const FIXED_TIME = '2026-08-28T00:00:00.000Z';
 const POLICY_DIGEST: ContentDigestV1 = { algorithm: 'sha256', value: '2'.repeat(64) };
 
@@ -56,6 +61,11 @@ describe('gate.executed append failure — durable evidence honesty', () => {
     await rmrfAsync(root);
   });
 
+  /**
+   * The provider returns what a `requireGateEvent` handler returns when its
+   * append fails: a failure carrier that keeps the verdict on `data`. The runner
+   * must record `indeterminate`, not a fabricated `fail`.
+   */
   it('GateEventUnrecorded_UnderTheSharedRunner_RecordsAnIndeterminateVerdict', async () => {
     const artifactStore = new ContentAddressedStore(join(root, 'artifacts'));
     const request: GateRunRequest = {
@@ -71,9 +81,6 @@ describe('gate.executed append failure — durable evidence honesty', () => {
       policy: { policyId: 'verification-ladder', policyDigest: POLICY_DIGEST },
     };
 
-    // Mirrors what a `requireGateEvent`-guarded handler returns when its own
-    // `gate.executed` append failed: a failure carrier that still preserves
-    // the gate's verdict on `data`.
     const unrecordedProvider: GateProviderExecutor = async () => ({
       success: false,
       data: { passed: true, findingCount: 0 },
@@ -112,9 +119,6 @@ describe('gate.executed append failure — durable evidence honesty', () => {
     });
     expect(events).toHaveLength(1);
     const record = AdmissionEvidenceRecordedData.parse(events[0]!.data);
-    // An error envelope from the provider is indeterminate, never a
-    // fabricated `fail` — the gate did not produce trustworthy proof, but
-    // nothing observed a genuine failing verdict either.
     expect(record.evidence.verdict).toBe('indeterminate');
   });
 
@@ -174,8 +178,6 @@ describe('gate.executed append failure — durable evidence honesty', () => {
     );
 
     const rows = await eventStore.query(streamId, { type: 'gate.executed' });
-    // A same-operation retry collapses onto the first row instead of
-    // appending a duplicate.
     expect(rows).toHaveLength(1);
   });
 });

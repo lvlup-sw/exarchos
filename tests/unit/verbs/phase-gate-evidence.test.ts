@@ -38,6 +38,20 @@ import { handleProvenanceChain } from '../../../src/verbs/gates/provenance-chain
 import { handleReviewVerdict } from '../../../src/verbs/review/review-verdict.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
+
+// `prepare_synthesis` runs its test and typecheck legs through `npm run` in the
+// process cwd. Unstubbed, a case that passes the task-completion check starts the
+// whole vitest run inside a test and waits out both subprocess timeouts. The
+// `node:child_process` mock stops that, and the gate path stays real.
+vi.mock('node:child_process', () => ({
+  execSync: vi.fn((command: string, options?: { encoding?: string }) => {
+    const text = command.includes('symbolic-ref')
+      ? 'refs/remotes/origin/main'
+      : 'Tests: 1 passed, 0 failed';
+    return options?.encoding === 'utf-8' ? text : Buffer.from(text);
+  execFileSync: vi.fn(() => Buffer.from('')),
+}));
+
 const PHASE_ATTEMPT_ID = 'phase-attempt:task-009';
 
 function dispatchContext() {
@@ -62,7 +76,7 @@ function fakeStore(
   options: {
     failEvidence?: boolean;
     incompleteTask?: boolean;
-    /** Omit the v2.12 attempt stamp, i.e. a workflow that predates it. */
+    /** Omit the v2.12 attempt stamp, as a workflow that predates it does. */
     legacyNoPhaseAttempt?: boolean;
   } = {},
 ): EventStore {
@@ -161,13 +175,12 @@ describe('migrated phase gate durable evidence', () => {
     expect(evidenceReference(result).subject).toMatchObject({ kind: 'artifact' });
   });
 
+  /**
+   * A workflow from before v2.12 projects no `phaseAttemptId`. The phase-gate
+   * adapter must backfill a real evidence scope, not return
+   * `EVIDENCE_SCOPE_UNAVAILABLE`.
+   */
   it('PlanCoverage_WorkflowPredatingThePhaseAttemptStamp_StillRunsTheGate', async () => {
-    // The upgrade wedge. Every other case in this file hands the store a
-    // `phaseAttemptId`, so the stamp-less state a pre-v2.12 workflow actually
-    // projects was never exercised — and the phase-gate adapter answered
-    // EVIDENCE_SCOPE_UNAVAILABLE for it, locking such a workflow out of all four
-    // migrated gates while the sibling durable-gate adapter backfilled the same
-    // state happily.
     const result = await runWithDispatchContext(dispatchContext(), () =>
       handlePlanCoverage(
         { featureId: 'feature-009', designPath, planPath },
@@ -177,20 +190,17 @@ describe('migrated phase gate durable evidence', () => {
     );
 
     expect(result).toMatchObject({ success: true, data: { passed: true } });
-    // Evidence is still bound to an attempt — the backfill must produce a real
-    // scope, not merely dodge the error.
     expect(evidenceReference(result).subject).toMatchObject({ kind: 'artifact' });
   });
 
+  /**
+   * `prepare_synthesis` is the blocking gate, so a refusal here stops the
+   * synthesize phase. It needs an explicit `repoRoot`. The fixture passes `root`
+   * because `node:child_process` is mocked.
+   */
   it('PrepareSynthesis_WorkflowPredatingThePhaseAttemptStamp_IsNotWedged', async () => {
-    // `prepare_synthesis` is the BLOCKING member of the migrated four, so this is
-    // the case where the wedge cost the whole synthesize phase.
     const result = await runWithDispatchContext(dispatchContext(), () =>
       handlePrepareSynthesis(
-        // DR-8 (#1756): prepare_synthesis now requires an explicit repoRoot
-        // before it will run its subprocess legs — this fixture has zero
-        // tasks (so it reaches those legs) and reuses `root` as a stand-in
-        // repo since `node:child_process` is stubbed above.
         { featureId: 'feature-009', repoRoot: root },
         root,
         fakeStore('review', { legacyNoPhaseAttempt: true }),

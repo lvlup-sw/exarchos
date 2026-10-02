@@ -7,8 +7,6 @@ import type { WriteOptions } from '../../../../../src/verbs/init/writers/writer.
 const stubDeps = makeStubWriterDeps();
 const defaultOptions: WriteOptions = { projectRoot: '/project', nonInteractive: false, forceOverwrite: false };
 
-// ─── In-memory fs stub ─────────────────────────────────────────────────────
-
 interface FsStub {
   files: Map<string, string>;
   dirs: Set<string>;
@@ -68,7 +66,6 @@ describe('CopilotWriter', () => {
   });
 
   it('CopilotWriter_Write_CreatesVscodeMcpJson', async () => {
-    // .vscode dir exists but no mcp.json yet
     fs.dirs.add('/project/.vscode');
 
     const writer = new CopilotWriter({ fs });
@@ -78,7 +75,6 @@ describe('CopilotWriter', () => {
     expect(result.status).toBe('written');
     expect(result.componentsWritten).toContain('mcp-config');
 
-    // Verify the written file
     const written = fs.files.get('/project/.vscode/mcp.json');
     expect(written).toBeDefined();
     const parsed = JSON.parse(written!);
@@ -93,7 +89,6 @@ describe('CopilotWriter', () => {
   });
 
   it('CopilotWriter_Write_PreservesExistingServers', async () => {
-    // Existing mcp.json with another server
     const existing = JSON.stringify(
       {
         mcpServers: {
@@ -119,27 +114,22 @@ describe('CopilotWriter', () => {
     expect(written).toBeDefined();
     const parsed = JSON.parse(written!);
 
-    // Other server preserved
     expect(parsed.mcpServers['other-server']).toBeDefined();
     expect(parsed.mcpServers['other-server'].command).toBe('node');
 
-    // Exarchos added
     expect(parsed.mcpServers.exarchos).toBeDefined();
     expect(parsed.mcpServers.exarchos.command).toBe('npx');
   });
 
   it('CopilotWriter_Write_CreatesVscodeDir', async () => {
-    // No .vscode directory exists
     const writer = new CopilotWriter({ fs });
     const result = await writer.write(stubDeps, defaultOptions);
 
     expect(result.status).toBe('written');
     expect(result.componentsWritten).toContain('mcp-config');
 
-    // Directory should have been created
     expect(fs.dirs.has('/project/.vscode')).toBe(true);
 
-    // File should have been written
     const written = fs.files.get('/project/.vscode/mcp.json');
     expect(written).toBeDefined();
     const parsed = JSON.parse(written!);

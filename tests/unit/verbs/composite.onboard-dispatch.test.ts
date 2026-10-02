@@ -1,21 +1,11 @@
 /**
- * RF-1 regression guard (epic #1510 review): the `onboard` action MUST route
- * THROUGH `handleOrchestrate`, not just when `handleOnboard` is called directly.
+ * Regression guard: the `onboard` action must route through `handleOrchestrate`.
+ * The onboard unit tests call `handleOnboard` directly, so they stay green when the
+ * composite router has no `onboard` branch. Then `{ action: 'onboard' }` falls through to
+ * `UNKNOWN_ACTION` on both the CLI and the MCP paths.
  *
- * The bug this file guards against: `composite.ts` had a special `doctor`
- * dispatch branch but NO `onboard` branch, `handleOnboard` was not imported, and
- * `onboard` was absent from `ACTION_HANDLERS`. So `{ action: 'onboard' }`
- * dispatched through `handleOrchestrate` fell through to `UNKNOWN_ACTION` —
- * breaking BOTH `exarchos onboard` (cli.ts) and the MCP
- * `exarchos_orchestrate {action:'onboard'}` path at runtime — even though every
- * onboard UNIT test passed (they call `handleOnboard` directly, never through
- * the composite router).
- *
- * This test is deliberately NOT in `composite.test.ts`: that file mocks
- * `./onboard/index.js` and `./doctor/index.js`, which would defeat the purpose
- * — a mock would "route" regardless of whether the real branch exists. Here we
- * run the REAL `handleOnboard` through the REAL composite router over an
- * isolated on-disk EventStore, with `dryRun: true` so no side effects land.
+ * This file runs the real `handleOnboard` through the real composite router, so no mock can
+ * hide a missing branch. It uses an isolated on-disk EventStore and `dryRun: true`.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -34,9 +24,10 @@ interface Fixture {
   readonly ctx: DispatchContext;
 }
 
-/** A temp repo (Node toolchain marker so command resolution works) + an
- * isolated EventStore state dir, wired into a minimal DispatchContext whose
- * `cwd` points at the repo so `defaultOnboardDeps` targets it. */
+/**
+ * Creates a temp repo with a Node toolchain marker and an isolated EventStore state dir.
+ * The context `cwd` points at the repo, so `defaultOnboardDeps` targets it.
+ */
 async function createFixture(): Promise<Fixture> {
   const base = await mkdtemp(path.join(tmpdir(), 'onboard-dispatch-'));
   const repoRoot = path.join(base, 'repo');
@@ -75,21 +66,21 @@ describe('handleOrchestrate — onboard dispatch (RF-1 #1510)', () => {
     );
   });
 
+  /**
+   * The key check is that the action does not fall through to `UNKNOWN_ACTION`.
+   * The composite envelope keeps the dry-run plan in `data`.
+   */
   it('routes { action: onboard, dryRun } through the composite router (not UNKNOWN_ACTION)', async () => {
     const result = await handleOrchestrate(
       { action: 'onboard', dryRun: true, surface: 'cli' },
       fx.ctx,
     );
 
-    // The load-bearing assertion: the action ROUTED — it did NOT fall through to
-    // the UNKNOWN_ACTION branch (the symptom of the missing dispatch arm).
     if (result.success === false) {
       expect(result.error?.code).not.toBe('UNKNOWN_ACTION');
     }
     expect(result.success).toBe(true);
 
-    // A dry-run onboard returns the structured plan (greenfield:false, dryRun:true).
-    // The composite wraps successes in an envelope, preserving `data`.
     const data = result.data as { dryRun?: boolean; greenfield?: boolean } | undefined;
     expect(data?.dryRun).toBe(true);
     expect(data?.greenfield).toBe(false);

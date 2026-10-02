@@ -1,24 +1,13 @@
 // @oracle-sources: ../../../../src/dispatch/core/dispatch.ts, the post-dispatch postcondition observation — the store and the persisted-evidence reader, asked after the handler returned, rather than anything the handler said about itself
 //
-// ─── The remaining declared-but-unpaid gates, through the REAL dispatch path ──
+// Ten gate actions declare `durable-evidence` as a postcondition. Dispatch checks declared
+// postconditions after the handler returns, and the observer reads `admission.evidence-recorded`.
+// A `gate.executed` row is a different record, so it does not pay the postcondition.
+// These cases stub nothing on the payment path: not the gate runner, the handler table, or the
+// registry. The sibling unit tests stub the runner to isolate a provider verdict.
 //
-// Ten actions declared `durable-evidence` as a postcondition and paid it with
-// either a bare `gate.executed` append or with nothing at all. A `gate.executed`
-// row is a DIFFERENT record on a DIFFERENT axis: the observer reads
-// `admission.evidence-recorded`. Dispatch checks declared postconditions after
-// the handler returns, so every one of these answered
-// ENSURE_CONTRACT_VIOLATED — and inside a compiled segment a leaf that breaks
-// its own postcondition halts the segment whatever its failure policy says.
-//
-// Nothing on the payment path is stubbed here — not the gate runner, not the
-// handler table, not the registry. That is the whole point: the sibling unit
-// tests stub the runner to isolate a provider verdict, which is exactly the
-// seam that hid this defect. What these cases ask is what a caller gets.
-//
-// The two mocks below stand in for EXTERNAL WORK, never for the payment: the
-// post-merge regression check otherwise runs the repository's tests, and the VCS
-// factory otherwise reaches for `gh`. Both sit inside the provider closure, on
-// the far side of the seam under test.
+// The two mocks replace external work only. The post-merge check runs the repository tests, and the
+// VCS factory calls `gh`. Both sit inside the provider closure.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp, writeFile } from 'node:fs/promises';
@@ -100,12 +89,9 @@ async function evidenceCount(streamId: string): Promise<number> {
 }
 
 /**
- * Drive one gate and assert it paid what it declared.
- *
- * The verdict is deliberately NOT asserted: a gate that fails its own check
- * still owes the record, and the runner persists it either way. What is
- * asserted is that the carrier is not the contract refusal and that exactly one
- * new evidence row landed on the stream the call named.
+ * Dispatches one gate and asserts that it paid what it declared. The verdict is not asserted, because
+ * a gate that fails its own check still owes the record. The carrier must not be the contract refusal.
+ * Exactly one new evidence row must land on the stream that the call names.
  */
 async function expectsEvidence(
   streamId: string,
@@ -170,11 +156,10 @@ describe('gates that declare durable evidence pay it on dispatch', () => {
     expect(result.success).toBe(true);
   });
 
+  /** `HEAD...HEAD` is an empty diff, so the gate reaches its verdict without a test run. */
   it('DebugReviewGate_Dispatched_RecordsEvidence', async () => {
     const stream = await streamInPhase('wf-debug-review', 'debug-review');
 
-    // `HEAD...HEAD` is an empty diff, so the gate reaches its verdict without a
-    // test run — the subject here is the record, not the verdict.
     await expectsEvidence(stream, {
       action: 'debug_review_gate',
       featureId: stream,
@@ -184,6 +169,10 @@ describe('gates that declare durable evidence pay it on dispatch', () => {
     });
   });
 
+  /**
+   * The gate also declares an unconditional `gate.executed`, a separate postcondition that the test
+   * reads too.
+   */
   it('PostDelegationCheck_Dispatched_RecordsEvidence', async () => {
     const stream = await streamInPhase('wf-post-delegation', 'delegate');
     await store.append(stream, {
@@ -198,20 +187,19 @@ describe('gates that declare durable evidence pay it on dispatch', () => {
       skipTests: true,
     });
     expect(result.success).toBe(true);
-    // The gate also declares an unconditional `gate.executed`; it is a separate
-    // ensure on a separate axis and is observed the same way.
     const signal = await store.query(stream, { type: 'gate.executed' });
     expect(signal.map((row) => (row.data as { gateName?: string }).gateName)).toContain(
       'post-delegation',
     );
   });
 
+  /**
+   * The `requires` of the gate are five earlier synthesis facts. Without them the case reports an
+   * admission denial and does not reach the postcondition.
+   */
   it('PreSynthesisCheck_Dispatched_RecordsEvidence', async () => {
     const stream = 'wf-pre-synthesis';
     const phaseAttemptId = await seedActivePhaseAttempt(store, stream, { phase: 'synthesize' });
-    // The gate's own `requires` are five prior synthesis facts; without them the
-    // case would report an admission denial and say nothing about the
-    // postcondition it is here to check.
     for (const gate of ['task-completion', 'tests', 'typecheck', 'document', 'stack']) {
       await seedGateEvidence(store, { streamId: stream, requirementId: gate, phaseAttemptId });
     }
@@ -276,11 +264,10 @@ describe('gates that declare durable evidence pay it on dispatch', () => {
     expect(result.success).toBe(true);
   });
 
+  /** The self-skip looks most like "nothing happened", and a reader needs the record most on that path. */
   it('CheckExplorationDepth_Dispatched_RecordsEvidenceOnTheSkipPath', async () => {
     const stream = await streamInPhase('wf-exploration-depth', 'plan');
 
-    // The self-skip is the path that looked most like "nothing happened", and
-    // it is exactly the path a reader needs the record for.
     const result = await expectsEvidence(stream, {
       action: 'check_exploration_depth',
       featureId: stream,
@@ -290,9 +277,11 @@ describe('gates that declare durable evidence pay it on dispatch', () => {
     expect((result.data as { skipped?: boolean }).skipped).toBe(true);
   });
 
+  /**
+   * The `validate_pr_stack` carrier references its evidence, so a caller finds the record without a
+   * query.
+   */
   it('EachGate_AttachesTheEvidenceItRecorded_ToItsOwnCarrier', async () => {
-    // The evidence is not only in the log — the gate's carrier references it, so
-    // a caller reading the result can find the record without querying.
     const stream = await streamInPhase('wf-carrier-reference', 'synthesize');
 
     const result = await call({

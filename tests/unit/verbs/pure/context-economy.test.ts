@@ -5,10 +5,7 @@ import {
   type ContextEconomyFinding,
 } from '../../../../src/verbs/pure/context-economy.js';
 
-/**
- * Helper to build a minimal unified diff from file content.
- * Simulates `git diff` output with one file and all lines added.
- */
+/** Builds `git diff` output for one new file whose lines are all added. */
 function makeDiff(fileName: string, lines: string[]): string {
   const header = `diff --git a/${fileName} b/${fileName}
 --- /dev/null
@@ -18,9 +15,7 @@ function makeDiff(fileName: string, lines: string[]): string {
   return `${header}\n${body}`;
 }
 
-/**
- * Helper to build a unified diff with multiple files.
- */
+/** Builds `git diff` output for several new files. */
 function makeMultiFileDiff(
   files: Array<{ name: string; lines: string[] }>,
 ): string {
@@ -28,10 +23,6 @@ function makeMultiFileDiff(
 }
 
 describe('checkContextEconomy', () => {
-  // ----------------------------------------------------------
-  // Input validation
-  // ----------------------------------------------------------
-
   describe('input validation', () => {
     it('returns pass with empty diff', () => {
       const result = checkContextEconomy('');
@@ -45,10 +36,6 @@ describe('checkContextEconomy', () => {
       expect(result.findings).toHaveLength(0);
     });
   });
-
-  // ----------------------------------------------------------
-  // Check 1: Source file length (>400 added lines for .ts/.js)
-  // ----------------------------------------------------------
 
   describe('source file length', () => {
     it('passes when added lines are within budget (400 lines)', () => {
@@ -100,8 +87,8 @@ describe('checkContextEconomy', () => {
       expect(fileLengthFindings).toHaveLength(0);
     });
 
+    /** The diff has 700 lines, but only 200 of them are added lines. */
     it('counts only added lines (lines starting with +), not context or removed', () => {
-      // Build a diff where the raw added lines exceed 400 but the +lines don't
       const diffContent = `diff --git a/src/file.ts b/src/file.ts
 --- a/src/file.ts
 +++ b/src/file.ts
@@ -118,14 +105,9 @@ ${Array.from({ length: 300 }, (_, i) => ` const ctx${i} = ${i};`).join('\n')}`;
     });
   });
 
-  // ----------------------------------------------------------
-  // Check 2: Function/method length (>80 lines) - diff-mode skip
-  // ----------------------------------------------------------
-
   describe('function length', () => {
+    /** The function length check needs the files to count braces, so diff-only mode skips it. */
     it('skips function length check in diff-only mode (no repo root)', () => {
-      // In diff-only mode, function length checking is skipped
-      // because it requires access to actual files for brace analysis
       const lines = Array.from({ length: 100 }, (_, i) => `  console.log(${i});`);
       const allLines = [
         'export function bigFunction() {',
@@ -135,17 +117,12 @@ ${Array.from({ length: 300 }, (_, i) => ` const ctx${i} = ${i};`).join('\n')}`;
       const diff = makeDiff('src/file.ts', allLines);
       const result = checkContextEconomy(diff);
 
-      // Should not produce a function length finding in diff-only mode
       const funcFindings = result.findings.filter((f) =>
         f.message.includes('Function/method'),
       );
       expect(funcFindings).toHaveLength(0);
     });
   });
-
-  // ----------------------------------------------------------
-  // Check 3: Diff breadth (>30 files changed)
-  // ----------------------------------------------------------
 
   describe('diff breadth', () => {
     it('passes when 30 or fewer files changed', () => {
@@ -194,10 +171,6 @@ ${Array.from({ length: 300 }, (_, i) => ` const ctx${i} = ${i};`).join('\n')}`;
       expect(breadthFindings).toHaveLength(0);
     });
   });
-
-  // ----------------------------------------------------------
-  // Check 4: Large generated files (>1000 added lines with marker)
-  // ----------------------------------------------------------
 
   describe('large generated files', () => {
     it('flags files with >1000 added lines and auto-generated marker', () => {
@@ -273,10 +246,6 @@ ${Array.from({ length: 300 }, (_, i) => ` const ctx${i} = ${i};`).join('\n')}`;
     });
   });
 
-  // ----------------------------------------------------------
-  // File-level aggregation
-  // ----------------------------------------------------------
-
   describe('file-level aggregation', () => {
     it('aggregates findings across multiple files', () => {
       const files = [
@@ -302,10 +271,6 @@ ${Array.from({ length: 300 }, (_, i) => ` const ctx${i} = ${i};`).join('\n')}`;
       expect(fileLengthFindings).toHaveLength(2);
     });
   });
-
-  // ----------------------------------------------------------
-  // Result structure
-  // ----------------------------------------------------------
 
   describe('result structure', () => {
     it('returns checksRun and checksPassed counts', () => {

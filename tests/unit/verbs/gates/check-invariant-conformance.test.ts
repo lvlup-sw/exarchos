@@ -1,17 +1,13 @@
-// ─── check_invariant_conformance handler tests (DR-3, DR-4) ─────────────────
-//
-// The gate, at phase=review:
-//   1. load → merge → project the effective invariant catalog for
-//      (workflow-type, phase:'review', touched-files);
-//   2. evaluate every enforcement.mode === 'check' invariant's combinator tree
-//      against the diff → findings;
-//   3. render every applicable mode:'audit' invariant into a prompt;
-//   4. fold both into the check_review_verdict severity-merge path using each
-//      invariant's context-resolved severity.
-//
-// Tests inject the catalog directly via `loadInvariantsFn` so they need no
-// disk IO; the default loader reads `.exarchos/invariants.md`.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * These tests cover `check_invariant_conformance`. The gate evaluates each check-mode
+ * invariant against the diff and renders each audit-mode invariant into a
+ * prompt. It folds both into the review verdict. A test that passes
+ * `loadInvariantsFn` reads no catalog file.
+ *
+ * The tests stub the phase-gate runner down to its provider call, because they
+ * test the provider verdict. `gate-runner.test.ts` and
+ * `check-invariant-conformance.parity.test.ts` test the real runner.
+ */
 
 import { describe, it, expect, vi } from 'vitest';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
@@ -25,13 +21,6 @@ import { handleCheckInvariantConformance } from '../../../../src/verbs/gates/che
 import { CheckInvariantConformanceData } from '../../../../src/verbs/gates/check-invariant-conformance-schema.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
-// The gate now records durable evidence through the shared phase-gate runner
-// before any success carrier escapes. These cases are about the PROVIDER's
-// verdict — catalog resolution, check-mode findings, severity folding — so the
-// runner is stubbed down to its provider call, the same seam every other
-// migrated gate's unit test stubs. The runner's own guarantee is proven against
-// a real store in `gate-runner.test.ts`, and this gate's real-runner path in
-// `check-invariant-conformance.parity.test.ts`.
 vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
   runPhaseGateWithEvidence: vi.fn(async (request) => {
     try {
@@ -55,9 +44,7 @@ vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
   }),
 }));
 
-// ─── Fixtures ────────────────────────────────────────────────────────────────
-
-/** Build a minimal v3 InvariantEntry; callers override the shape they need. */
+/** Builds a minimal v3 `InvariantEntry`. A caller overrides the fields it needs. */
 function makeEntry(over: Partial<InvariantEntry> & { id: string }): InvariantEntry {
   return {
     dimension: 'Test',
@@ -88,11 +75,9 @@ async function gateEvents(eventStore: EventStore, featureId: string) {
 }
 
 /**
- * Build an isolated repo fixture with a built-in dev catalog at
- * `.exarchos/invariants.md` plus (optionally) a user-authored catalog
- * file. The gate is then driven through `config` + `repoRoot` with NO injected
- * loader, so it exercises the REAL `resolveEffectiveCatalog` production path
- * (user `catalogs`, `overrides`, DR-9 degradation).
+ * Writes a repo fixture with a dev catalog at `.exarchos/invariants.md` and an
+ * optional user catalog. A test that passes `config` and `repoRoot` with no
+ * injected loader runs the real `resolveEffectiveCatalog` path.
  */
 async function makeRepoFixture(opts: {
   /** Dev-catalog markdown body (frontmatter + body). */
@@ -102,7 +87,6 @@ async function makeRepoFixture(opts: {
   userCatalogName?: string;
 }): Promise<{ repoRoot: string; userCatalogPath?: string }> {
   const repoRoot = await mkdtemp(path.join(tmpdir(), 'inv-conf-repo-'));
-  // Dev catalog now lives at `.exarchos/invariants.md` (relocated in T19).
   const devCatalogDir = path.join(repoRoot, '.exarchos');
   await mkdir(devCatalogDir, { recursive: true });
   await writeFile(
@@ -123,20 +107,10 @@ async function makeRepoFixture(opts: {
 }
 
 /**
- * A dev catalog whose single invariant SDLC-3 is a blocking check-mode rule
- * that fires when `console.log` appears in a `.ts` diff. Used to prove that a
- * consumer override can flip its `enabled`/`severity` via config alone.
- *
- * NOTE: SDLC-3 lives in a reserved namespace (`SDLC-*`), so it is only valid
- * as a built-in (dev) catalog entry — never as a user-layer id. That makes it
- * the right vehicle for the override-by-config test: the override targets a
- * built-in invariant, which is the production scenario the gate must honor.
- *
- * integrity-class `sdlc` ⇒ resolveFloor = 'advisory': an `enabled:false`
- * override is CLAMPED to advisory (severity → advisory) rather than dropped,
- * so the finding falls from HIGH to MEDIUM and the verdict flips
- * NEEDS_FIXES → APPROVED. That clamp is the production override effect the
- * gate must honor.
+ * A dev catalog with one blocking check-mode invariant, SDLC-3, that fires on
+ * `console.log` in a `.ts` diff. An `SDLC-*` id is valid only in a built-in
+ * catalog. The `sdlc` integrity class has an advisory floor, so an
+ * `enabled: false` override clamps SDLC-3 to advisory and does not drop it.
  */
 const DEV_CATALOG_SDLC3_BLOCKING = [
   '---',
@@ -171,18 +145,12 @@ const CONSOLE_LOG_DIFF = [
   '+console.log("debug");',
 ].join('\n');
 
-// ─── Tests ───────────────────────────────────────────────────────────────────
-
 describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
   /**
-   * NON-EMPTY DENOMINATOR (DR-4, task 069). This case used to return
-   * `{ verdict: 'APPROVED', findings: [], auditPrompt: '' }` — byte-identical to
-   * a real, clean audit over a real catalog. The condition it actually describes
-   * is that the projection resolved NOTHING, so nothing was audited at all.
-   *
-   * It must still MERGE (an unregistered catalog is a legitimate state, and INV-1
-   * says a degradation is surfaced rather than fatal), so the verdict stays
-   * APPROVED and the advisory is LOW. What it must no longer do is read clean.
+   * An empty projection audits nothing, so the result must not look like a
+   * clean audit. The gate sets the projection to `no-subject` and adds one LOW
+   * advisory. The verdict stays APPROVED, because an unregistered catalog is a
+   * legal state. The gate still records `gate.executed`.
    */
   it('CheckInvariantConformance_EmptyCatalog_ReportsNoSubjectRatherThanCleanAudit', async () => {
     const arm = await createArm('inv-conformance-empty-');
@@ -211,24 +179,20 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
         applicableCount: number;
       };
 
-      // The lost subject is NAMED, not inferred from an empty string.
       expect(data.auditProjection).toBe('no-subject');
       expect(data.applicableCount).toBe(0);
       expect(data.auditPrompt).toBe('');
       expect(data.auditInvariantIds).toEqual([]);
 
-      // …and it is impossible to read as "audited, nothing found".
       const advisory = data.findings.filter((f) => f.source === 'invariant-audit');
       expect(advisory).toHaveLength(1);
       expect(advisory[0]?.severity).toBe('LOW');
       expect(advisory[0]?.message).toMatch(/No invariant was audited/);
 
-      // Still merges: LOW does not gate, and an unregistered catalog is legal.
       expect(data.verdict).toBe('APPROVED');
       expect(data.high).toBe(0);
       expect(data.low).toBe(1);
 
-      // STILL emits gate.executed even for an empty applicable catalog.
       const gates = await gateEvents(arm.eventStore, 'feat-empty');
       expect(gates.length).toBeGreaterThanOrEqual(1);
     } finally {
@@ -239,8 +203,6 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
   it('CheckInvariantConformance_BlockingViolation_FoldsToNeedsFixes', async () => {
     const arm = await createArm('inv-conformance-blocking-');
     try {
-      // A check-mode invariant that fires (a `console.log` appears in the diff),
-      // with context-resolved severity = blocking → HIGH → NEEDS_FIXES.
       const entry = makeEntry({
         id: 'USER-1',
         severity: { default: 'blocking' },
@@ -278,14 +240,15 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
     }
   });
 
-  // Legacy DI-seam degradation (kept for coverage of the loadUserInvariantsFn
-  // path). The CONFIG-DRIVEN equivalent
-  // (CheckInvariantConformance_MalformedUserCatalog_DegradesToShippedLayersAdvisory)
-  // below proves the REAL production path.
+  /**
+   * Covers the `loadUserInvariantsFn` seam. When the user-catalog loader
+   * throws, the gate still evaluates the shipped layers and adds a LOW advisory
+   * that names the failed catalog. A config-driven test below covers the
+   * production path.
+   */
   it('CheckInvariantConformance_MalformedUserCatalog_DegradesViaLegacyDISeam', async () => {
     const arm = await createArm('inv-conformance-malformed-di-');
     try {
-      // A valid SHIPPED-layer invariant that fires on the diff.
       const shipped = makeEntry({
         id: 'INV-9',
         severity: { default: 'blocking' },
@@ -302,10 +265,6 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
         '+console.log("debug");',
       ].join('\n');
 
-      // The user-catalog loader throws (malformed YAML / unknown kind /
-      // reserved-namespace id). The gate must DEGRADE to the shipped layers
-      // and surface an advisory finding naming the failed catalog — never
-      // abort, never silently swallow.
       const result = await handleCheckInvariantConformance(
         {
           featureId: 'feat-malformed',
@@ -327,11 +286,8 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
         findings: Array<{ severity: string; source: string; message: string }>;
       };
 
-      // Shipped layer still evaluated → its blocking violation folds to HIGH.
       expect(data.high).toBeGreaterThanOrEqual(1);
 
-      // The user-catalog load failure is surfaced as a non-fatal advisory
-      // finding that names the failed catalog source.
       const advisory = data.findings.find((f) =>
         /user.?catalog|invariants\.user\.yml/i.test(`${f.source} ${f.message}`),
       );
@@ -339,7 +295,6 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
       expect(advisory?.severity).toBe('LOW');
       expect(advisory?.message).toContain('invariants.user.yml');
 
-      // Gate still executed (degraded, not aborted).
       const gates = await gateEvents(arm.eventStore, 'feat-malformed');
       expect(gates.length).toBeGreaterThanOrEqual(1);
     } finally {
@@ -347,18 +302,18 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
     }
   });
 
+  /**
+   * The pattern `(` makes `new RegExp` throw in the evaluator. The gate records
+   * the throw as a LOW finding that names the invariant and does not abort.
+   */
   it('CheckInvariantConformance_LeafThrows_CapturedAsLowFinding', async () => {
     const arm = await createArm('inv-conformance-leaf-throws-');
     try {
-      // An invalid regex pattern makes the evaluator throw during evaluation.
-      // The throw must be captured as a LOW finding naming the invariant id,
-      // never propagated to abort the whole gate.
       const entry = makeEntry({
         id: 'USER-THROW',
         severity: { default: 'blocking' },
         enforcement: {
           mode: 'check',
-          // Unbalanced group → `new RegExp` throws inside the evaluator.
           check: { kind: 'grep', pattern: '(', fileGlob: '*.ts' },
         },
       });
@@ -390,6 +345,12 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
     }
   });
 
+  /**
+   * The result carries the prompt, the audit invariant ids, and a projection
+   * status. The report repeats the obligation text from
+   * `AUDIT_DELIVERY_OBLIGATIONS` for a consumer that calls the action without
+   * the review skill. The closure guard reads the same record.
+   */
   it('CheckInvariantConformance_AuditInvariant_RendersPromptInResult', async () => {
     const arm = await createArm('inv-conformance-audit-');
     try {
@@ -423,16 +384,9 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
       expect(data.auditPrompt).toContain('USER-AUDIT');
       expect(data.auditPrompt).toContain('Assess whether the public API reads ergonomically.');
 
-      // TASK 069 — the prompt now travels with its enumerable checklist and a
-      // status a consumer can branch on. Without the enumerator, "I read the
-      // prompt" and "I answered all of it" are indistinguishable.
       expect(data.auditProjection).toBe('rendered');
       expect([...data.auditInvariantIds]).toEqual(['USER-AUDIT']);
 
-      // …and the directive travels with the payload for a consumer that reached
-      // the action without the skill. Every noun in it is read from
-      // AUDIT_DELIVERY_OBLIGATIONS, so it cannot drift from what the closure
-      // guard checks `content/review/skills/review/SKILL.md` against.
       expect(data.report).toContain('USER-AUDIT');
       expect(data.report).toContain('auditPrompt');
       expect(data.report).toContain('check_review_verdict');
@@ -443,12 +397,10 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
   });
 
   /**
-   * The contract half of task 069, proven against the REAL emission rather than
-   * against a fixture: the schema the registry now advertises must be TOTAL over
-   * what the handler actually returns. If it is not, the MCP adapter's D.5
-   * validator replaces a correct response with an INTERNAL_ERROR — a typed
-   * schema that rejects its own producer is worse than the vacuous one it
-   * replaced.
+   * The declared output schema must accept the real handler payload. If it
+   * does not, the MCP adapter replaces a correct response with INTERNAL_ERROR.
+   * The schema must also reject a payload without `auditPrompt` and
+   * `auditInvariantIds`, so the first parse cannot pass for any object.
    */
   it('CheckInvariantConformance_DeclaredOutputSchema_AcceptsTheRealPayload', async () => {
     const arm = await createArm('inv-conformance-schema-');
@@ -484,9 +436,6 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
       expect(parsed.error?.message ?? 'ok').toBe('ok');
       expect(parsed.success).toBe(true);
 
-      // The schema is not vacuous — it REJECTS a payload missing the delivery
-      // pair. Without this, the parse above would pass for any object at all,
-      // which is exactly the state the waiver left the boundary in.
       const { auditPrompt: _p, auditInvariantIds: _i, ...stripped } =
         result.data as Record<string, unknown> & {
           auditPrompt: unknown;
@@ -499,20 +448,16 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
     }
   });
 
-  // ─── FIX-1: config-driven override (no injected loader) ─────────────────────
-  //
-  // Proves the gate runs the REAL resolveEffectiveCatalog pipeline: a consumer
-  // `overrides: { SDLC-3: { enabled:false } }` in config actually removes the
-  // invariant from the gate, flipping NEEDS_FIXES → APPROVED. No loader is
-  // injected, so this drives applyOverrides through production code.
+  /**
+   * Runs the real `resolveEffectiveCatalog` path with no injected loader. With
+   * the dev catalog registered, SDLC-3 fires and the verdict is NEEDS_FIXES. An
+   * `enabled: false` override clamps SDLC-3 to advisory, so the finding becomes
+   * MEDIUM and the verdict becomes APPROVED.
+   */
   it('CheckInvariantConformance_UserOverrideDisable_RespectedViaConfig', async () => {
     const arm = await createArm('inv-conformance-override-');
     const fixture = await makeRepoFixture({ devCatalog: DEV_CATALOG_SDLC3_BLOCKING });
     try {
-      // Baseline: dev catalog REGISTERED, no override → SDLC-3 fires →
-      // NEEDS_FIXES. (T-42: registration replaces the retired `devCatalog`
-      // boolean as the opt-in; the fixture writes the catalog to
-      // `<repoRoot>/.exarchos/invariants.md`.)
       const baseConfig: ExarchosConfig = {
         invariants: {
           catalogs: [{ path: '.exarchos/invariants.md', tier: 'dev' }],
@@ -534,7 +479,6 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
       expect(baseData.high).toBeGreaterThanOrEqual(1);
       expect(baseData.verdict).toBe('NEEDS_FIXES');
 
-      // With the disable override the invariant is dropped → APPROVED, 0 HIGH.
       const overrideConfig: ExarchosConfig = {
         invariants: {
           catalogs: [{ path: '.exarchos/invariants.md', tier: 'dev' }],
@@ -558,8 +502,6 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
         high: number;
         medium: number;
       };
-      // sdlc floor clamps the disable to advisory: the violation survives as
-      // MEDIUM (not dropped), but no longer drives a HIGH → verdict APPROVED.
       expect(overData.high).toBe(0);
       expect(overData.medium).toBeGreaterThanOrEqual(1);
       expect(overData.verdict).toBe('APPROVED');
@@ -569,18 +511,15 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
     }
   });
 
-  // ─── FIX-1 / DR-9: malformed user catalog degrades via the REAL config path ─
-  //
-  // A malformed user catalog (referenced from config.invariants.catalogs) must
-  // NOT abort the gate. The dev-layer blocking invariant still evaluates; the
-  // user-catalog load failure surfaces as a LOW advisory finding naming the
-  // failed file. No loader is injected — this exercises resolveEffectiveCatalog
-  // → its warnings → the gate's advisory findings end to end.
+  /**
+   * A user catalog in `config.invariants.catalogs` with an unknown check kind
+   * fails to load. The gate does not abort. The dev-layer invariant still
+   * fires, and a LOW advisory names the failed file. No loader is injected.
+   */
   it('CheckInvariantConformance_MalformedUserCatalog_DegradesToShippedLayersAdvisory', async () => {
     const arm = await createArm('inv-conformance-malformed-cfg-');
     const fixture = await makeRepoFixture({
       devCatalog: DEV_CATALOG_SDLC3_BLOCKING,
-      // Unknown check kind ⇒ loader throws UnknownCheckKindError at load.
       userCatalog: [
         '---',
         'schema-version: 3',
@@ -632,11 +571,8 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
         findings: Array<{ severity: string; source: string; message: string }>;
       };
 
-      // Dev layer still evaluated → its blocking violation folds to HIGH.
       expect(data.high).toBeGreaterThanOrEqual(1);
 
-      // The user-catalog load failure surfaces as a non-fatal LOW advisory
-      // naming the failed file.
       const advisory = data.findings.find((f) =>
         /invariants\.user\.yml/i.test(`${f.source} ${f.message}`),
       );
@@ -644,7 +580,6 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
       expect(advisory?.severity).toBe('LOW');
       expect(advisory?.message).toContain('invariants.user.yml');
 
-      // Gate still executed (degraded, not aborted).
       const gates = await gateEvents(arm.eventStore, 'feat-malformed-cfg');
       expect(gates.length).toBeGreaterThanOrEqual(1);
     } finally {
@@ -653,19 +588,15 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
     }
   });
 
-  // ─── FIX-1: config is loaded from .exarchos.yml on disk (no args.config) ────
-  //
-  // The registry action schema does NOT carry `config`, so in production the
-  // gate must load `.exarchos.yml` itself from `repoRoot`. This test writes a
-  // real `.exarchos.yml` with a disable override and passes ONLY `repoRoot`
-  // (no `config`, no loader) — proving the consumer's config reaches
-  // applyOverrides end to end.
+  /**
+   * The action schema has no `config` field, so the gate loads `.exarchos.yml`
+   * from `repoRoot`. The test passes only `repoRoot`, then rewrites the file
+   * with an `enabled: false` override.
+   */
   it('CheckInvariantConformance_DiskConfigOverride_RespectedWithoutArgsConfig', async () => {
     const arm = await createArm('inv-conformance-disk-cfg-');
     const fixture = await makeRepoFixture({ devCatalog: DEV_CATALOG_SDLC3_BLOCKING });
     try {
-      // Baseline (.exarchos.yml registers the dev catalog, no override) →
-      // NEEDS_FIXES.
       await writeFile(
         path.join(fixture.repoRoot, '.exarchos.yml'),
         [
@@ -689,8 +620,6 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
       expect(baseline.success).toBe(true);
       expect((baseline.data as { verdict: string }).verdict).toBe('NEEDS_FIXES');
 
-      // Rewrite .exarchos.yml with a disable override → clamps to advisory →
-      // no HIGH → APPROVED. Still no args.config: the gate loads it from disk.
       await writeFile(
         path.join(fixture.repoRoot, '.exarchos.yml'),
         [
@@ -724,11 +653,10 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
     }
   });
 
-  // ─── FIX-2: enforcement.review === 'advisory' does not gate ─────────────────
-  //
-  // A blocking invariant still fires (HIGH count preserved in the result), but
-  // with `enforcement.review: advisory` the verdict must NOT be driven to
-  // NEEDS_FIXES — advisory enforcement surfaces findings without gating.
+  /**
+   * With `enforcement.review: advisory`, a blocking invariant still counts as
+   * HIGH, but the verdict stays APPROVED.
+   */
   it('CheckInvariantConformance_EnforcementAdvisory_DoesNotBlockVerdict', async () => {
     const arm = await createArm('inv-conformance-advisory-');
     const fixture = await makeRepoFixture({ devCatalog: DEV_CATALOG_SDLC3_BLOCKING });
@@ -753,9 +681,7 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
 
       expect(result.success).toBe(true);
       const data = result.data as { verdict: string; high: number };
-      // The finding is still surfaced (HIGH count preserved) …
       expect(data.high).toBeGreaterThanOrEqual(1);
-      // … but advisory enforcement must NOT gate the verdict.
       expect(data.verdict).toBe('APPROVED');
     } finally {
       await rmrfAsync(arm.stateDir);
@@ -763,6 +689,11 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
     }
   });
 
+  /**
+   * `invariant-conformance` declares `gate.executed` without a condition. When
+   * the append fails, the gate withholds the success carrier and keeps its
+   * verdict on `data`.
+   */
   it('CheckInvariantConformance_GateEventAppendFails_WithholdsTheSuccessCarrier', async () => {
     const arm = await createArm('inv-conformance-append-fails-');
     try {
@@ -779,10 +710,6 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
         arm.eventStore,
       );
 
-      // `invariant-conformance` declares `gate.executed` unconditionally — a
-      // dropped append withholds the success carrier rather than returning
-      // one the log does not back. The gate's own verdict is still readable
-      // on `data`.
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('GATE_EVENT_UNRECORDED');
       const data = result.data as { verdict: string };

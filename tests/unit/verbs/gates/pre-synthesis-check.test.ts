@@ -1,9 +1,11 @@
-// ─── Pre-Synthesis Check Handler Tests ──────────────────────────────────────
+// Tests for `handlePreSynthesisCheck`. They test the verdict of the provider, so the phase-gate
+// runner is a stub that calls only the provider. `unrunbooked-gate-evidence-dispatch.test.ts` tests
+// the evidence over real dispatch. The VCS factory mock keeps `shell.ts` and `detector.ts` unloaded.
+// The cases call the handler below `dispatch()`. `gateWiring` supplies the feature id, the state
+// directory and the event store in place of dispatch.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { VcsProvider, PrSummary, PrFilter } from '../../../../src/vcs/provider.js';
-
-// ─── Mock node:fs ───────────────────────────────────────────────────────────
 
 vi.mock('node:fs', () => ({
   existsSync: vi.fn(),
@@ -11,21 +13,12 @@ vi.mock('node:fs', () => ({
   readdirSync: vi.fn(() => []),
 }));
 
-// ─── Mock node:child_process ────────────────────────────────────────────────
-// Still needed for git branch --show-current and test/typecheck commands
-
 vi.mock('node:child_process', () => ({
   execFileSync: vi.fn(),
   execSync: vi.fn(),
   execFile: vi.fn(),
 }));
 
-// The gate now records durable evidence through the shared phase-gate runner
-// before any success carrier escapes. These cases are about the PROVIDER's
-// verdict, so the runner is stubbed down to its provider call — the same seam
-// every other migrated gate's unit test stubs. The evidence a caller actually
-// gets is proven over real dispatch in
-// `unrunbooked-gate-evidence-dispatch.test.ts`.
 vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
   runPhaseGateWithEvidence: vi.fn(async (request) => {
     try {
@@ -49,8 +42,6 @@ vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
   }),
 }));
 
-// ─── Mock VCS factory to avoid loading shell.ts/detector.ts ────────────────
-
 vi.mock('../../../../src/vcs/factory.js', () => ({
   createVcsProvider: vi.fn(),
 }));
@@ -64,24 +55,19 @@ import { handlePreSynthesisCheck } from '../../../../src/verbs/gates/pre-synthes
 import { EventStore } from '../../../../src/events/store.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
-// ─── Dispatch wiring the gate needs to record its declared evidence ─────────
-//
-// The gate now names the stream its durable evidence records against, and takes
-// the event store and state directory from the dispatch context rather than the
-// caller. These cases drive the handler below `dispatch()`, so they supply the
-// same three — and because the event store is the authoritative state source
-// (the `.state.json` is a derived stamp), the state each case sets up is fed
-// through a store the projection can fold, not only through the file mock.
 const STATE_DIR = '/tmp/test-pre-synthesis-check';
 const FEATURE_ID = 'pre-synthesis-feature';
 
 let currentStore: EventStore;
 
+/**
+ * Builds a store whose events project to the given state. The event store is the authoritative state
+ * source, so each case feeds its state through a store and not only through the file mock.
+ * The projection skips `phase` and `workflowType` in a `state.patched` event, so they arrive as
+ * lifecycle events.
+ */
 function storeFrom(stateJson: string): EventStore {
   const { phase, workflowType, ...patch } = JSON.parse(stateJson) as Record<string, unknown>;
-  // `phase` and `workflowType` are lifecycle-owned in the projection — a
-  // `state.patched` naming them is ignored — so they arrive as the lifecycle
-  // events that actually set them.
   const events: { type: string; data: Record<string, unknown> }[] = [
     { type: 'workflow.started', data: { featureId: FEATURE_ID, workflowType: workflowType ?? 'feature' } },
   ];
@@ -107,8 +93,6 @@ function gateWiring(): { featureId: string; stateDir: string; eventStore: EventS
   return { featureId: FEATURE_ID, stateDir: STATE_DIR, eventStore: currentStore };
 }
 
-// ─── Test Helpers ───────────────────────────────────────────────────────────
-
 interface CheckReport {
   passed: boolean;
   report: string;
@@ -130,17 +114,15 @@ function makeState(overrides: Record<string, unknown> = {}): string {
   });
 }
 
+/**
+ * Reports `.exarchos.yml` as absent, so the toolchain resolver uses detection. Otherwise the shared
+ * `readFileSync` mock returns the state JSON as the config file, and the resolver rejects it.
+ */
 function setupValidState(stateJson: string): void {
-  // Test intent: no .exarchos.yml present — pure detection path. Without this
-  // discrimination the universal readFileSync mock returns the workflow state
-  // JSON for every path, which the resolver tries to validate as a config and
-  // (correctly) rejects.
   vi.mocked(existsSync).mockImplementation((p) => !String(p).endsWith('.exarchos.yml'));
   vi.mocked(readFileSync).mockReturnValue(stateJson);
   currentStore = storeFrom(stateJson);
 }
-
-// ─── Mock VcsProvider Helper ────────────────────────────────────────────────
 
 function createMockProvider(overrides: {
   listPrs?: PrSummary[];
@@ -163,19 +145,16 @@ function createMockProvider(overrides: {
   };
 }
 
-/**
- * Mock execFileSync for git branch --show-current (still uses git CLI, not VcsProvider).
- * Also used for test/typecheck commands.
- */
+/** Queues the `git branch --show-current` output on `execFileSync`. The branch lookup uses git. */
 function mockGitBranch(branch: string = 'feature-branch'): void {
   vi.mocked(execFileSync).mockReturnValueOnce(`${branch}\n` as unknown as Buffer);
 }
 
-/** Mock execSync for tests-only (test command + optional typecheck). */
+/** Queues the test command output and then the typecheck output on `execSync`. */
 function mockTestsOnly(): void {
   vi.mocked(execSync)
-    .mockReturnValueOnce(Buffer.from('Tests: 5 passed'))  // test command
-    .mockReturnValueOnce(Buffer.from(''));                  // typecheck command
+    .mockReturnValueOnce(Buffer.from('Tests: 5 passed'))
+    .mockReturnValueOnce(Buffer.from(''));
 }
 
 describe('handlePreSynthesisCheck', () => {
@@ -183,8 +162,6 @@ describe('handlePreSynthesisCheck', () => {
     vi.clearAllMocks();
     currentStore = unavailableStore();
   });
-
-  // ─── Test 1: All checks pass ────────────────────────────────────────────
 
   it('AllChecksPass_ReturnsPassed', async () => {
     setupValidState(makeState());
@@ -205,8 +182,6 @@ describe('handlePreSynthesisCheck', () => {
     expect(data.checks.pass).toBeGreaterThanOrEqual(5);
   });
 
-  // ─── Uses VcsProvider for PR stack ────────────────────────────────────
-
   it('UsesProviderListPrs_ForPrStackCheck', async () => {
     setupValidState(makeState());
     mockGitBranch('feat/my-branch');
@@ -223,8 +198,6 @@ describe('handlePreSynthesisCheck', () => {
     expect(provider.listPrs).toHaveBeenCalledWith({ state: 'open', head: 'feat/my-branch' });
   });
 
-  // ─── Test 2: State file not found ───────────────────────────────────────
-
   it('StateFileNotFound_ReturnsError', async () => {
     vi.mocked(existsSync).mockReturnValue(false);
 
@@ -237,8 +210,6 @@ describe('handlePreSynthesisCheck', () => {
     expect(data.checks.fail).toBeGreaterThanOrEqual(1);
     expect(data.report).toContain('not found');
   });
-
-  // ─── Test 3: Phase not synthesize ───────────────────────────────────────
 
   it('PhaseNotSynthesize_ReturnsFailWithGuidance', async () => {
     setupValidState(makeState({ phase: 'review' }));
@@ -258,8 +229,6 @@ describe('handlePreSynthesisCheck', () => {
     expect(data.checks.fail).toBeGreaterThanOrEqual(1);
     expect(data.report).toContain('allReviewsPassed');
   });
-
-  // ─── Test 4: Incomplete tasks ───────────────────────────────────────────
 
   it('IncompleteTasks_ReturnsFailWithDetails', async () => {
     setupValidState(makeState({
@@ -286,8 +255,6 @@ describe('handlePreSynthesisCheck', () => {
     expect(data.report).toContain('T3');
   });
 
-  // ─── Test 5: Reviews not passed ────────────────────────────────────────
-
   it('ReviewsNotPassed_ReturnsFailWithDetails', async () => {
     setupValidState(makeState({
       reviews: { overall: { status: 'rejected' } },
@@ -307,8 +274,6 @@ describe('handlePreSynthesisCheck', () => {
     expect(data.passed).toBe(false);
     expect(data.report).toContain('overall');
   });
-
-  // ─── Test 6: Tasks with needs_fixes ────────────────────────────────────
 
   it('TasksNeedsFixes_ReturnsFailWithDetails', async () => {
     setupValidState(makeState({
@@ -334,8 +299,6 @@ describe('handlePreSynthesisCheck', () => {
     expect(data.report).toContain('T2');
   });
 
-  // ─── Test 7: skipTests=true ────────────────────────────────────────────
-
   it('SkipTests_SkipsTestExecution', async () => {
     setupValidState(makeState());
     mockGitBranch();
@@ -358,8 +321,6 @@ describe('handlePreSynthesisCheck', () => {
     expect(vi.mocked(execSync)).not.toHaveBeenCalled();
   });
 
-  // ─── Test 8: skipStack=true ────────────────────────────────────────────
-
   it('SkipStack_SkipsPrStackCheck', async () => {
     setupValidState(makeState());
     mockTestsOnly();
@@ -376,8 +337,6 @@ describe('handlePreSynthesisCheck', () => {
     expect(data.checks.skip).toBeGreaterThanOrEqual(1);
     expect(data.report).toContain('SKIP');
   });
-
-  // ─── Test 9: Multiple review shapes ────────────────────────────────────
 
   it('MultipleReviewShapes_AllHandledCorrectly', async () => {
     setupValidState(makeState({
@@ -406,8 +365,6 @@ describe('handlePreSynthesisCheck', () => {
     expect(data.report).not.toContain('FAIL');
   });
 
-  // ─── Test 10: Nested review failure ────────────────────────────────────
-
   it('NestedReviewShape_FailingSubReview_Detected', async () => {
     setupValidState(makeState({
       reviews: {
@@ -433,8 +390,6 @@ describe('handlePreSynthesisCheck', () => {
     expect(data.report).toContain('qualityReview');
   });
 
-  // ─── Test 11: Legacy review passed=false ───────────────────────────────
-
   it('LegacyReviewShape_PassedFalse_Detected', async () => {
     setupValidState(makeState({
       reviews: { T1: { passed: false } },
@@ -455,8 +410,6 @@ describe('handlePreSynthesisCheck', () => {
     expect(data.report).toContain('T1');
   });
 
-  // ─── Test 12: Invalid JSON ────────────────────────────────────────────
-
   it('InvalidJson_ReturnsFailWithDetail', async () => {
     vi.mocked(existsSync).mockReturnValue(true);
     vi.mocked(readFileSync).mockReturnValue('{ invalid json }');
@@ -469,8 +422,6 @@ describe('handlePreSynthesisCheck', () => {
     expect(data.passed).toBe(false);
     expect(data.report).toContain('Invalid JSON');
   });
-
-  // ─── Test 13: No tasks ────────────────────────────────────────────────
 
   it('NoTasks_ReturnsFailWithDetail', async () => {
     setupValidState(makeState({ tasks: [] }));
@@ -490,8 +441,6 @@ describe('handlePreSynthesisCheck', () => {
     expect(data.report).toContain('No tasks found');
   });
 
-  // ─── Test 14: No reviews ──────────────────────────────────────────────
-
   it('NoReviews_ReturnsFailWithDetail', async () => {
     setupValidState(makeState({ reviews: {} }));
     mockGitBranch();
@@ -509,8 +458,6 @@ describe('handlePreSynthesisCheck', () => {
     expect(data.passed).toBe(false);
     expect(data.report).toContain('No review entries');
   });
-
-  // ─── Test 15: Refactor overhaul-update-docs ────────────────────────────
 
   it('RefactorOverhaulUpdateDocs_ShowsTransitionGuidance', async () => {
     setupValidState(makeState({
@@ -533,8 +480,6 @@ describe('handlePreSynthesisCheck', () => {
     expect(data.report).toContain('docsUpdated');
   });
 
-  // ─── Test 16: Debug review phase ──────────────────────────────────────
-
   it('DebugReviewPhase_ShowsTransitionGuidance', async () => {
     setupValidState(makeState({
       phase: 'debug-review',
@@ -555,8 +500,6 @@ describe('handlePreSynthesisCheck', () => {
     expect(data.passed).toBe(false);
     expect(data.report).toContain('reviewPassed');
   });
-
-  // ─── Test 17: Refactor polish track ────────────────────────────────────
 
   it('RefactorPolishTrack_NotSynthesisEligible', async () => {
     setupValidState(makeState({
@@ -579,8 +522,6 @@ describe('handlePreSynthesisCheck', () => {
     expect(data.report).toContain('polish track');
   });
 
-  // ─── PR Stack: No open PRs ────────────────────────────────────────────
-
   it('NoPrsForBranch_ReturnsFailForStack', async () => {
     setupValidState(makeState());
     mockGitBranch();
@@ -597,16 +538,11 @@ describe('handlePreSynthesisCheck', () => {
     expect(data.report).toContain('No open PRs');
   });
 
-  // ─── Fileless resolution: MCP-only workflow (no .state.json) ───────────
-  //
-  // INV-1: the event store is the sole source of truth. A workflow created
-  // purely through MCP tools may never write a `.state.json` stamp. The gate
-  // MUST materialize state from the event store via featureId + eventStore
-  // and run the planner-stamp checks against the projected view, NOT require
-  // a state file on disk.
-
+  /**
+   * A workflow that only MCP tools create can have no `.state.json` stamp. The gate must project the
+   * state from the event store and run the phase, task and review checks against that view.
+   */
   it('FilelessMcpOnly_ResolvesFromEventStore_NoStateFileRequired', async () => {
-    // No stateFile on disk — resolver must fall through to the event store.
     vi.mocked(existsSync).mockReturnValue(false);
 
     const eventStoreDir = await fsPromises.mkdtemp(
@@ -624,8 +560,6 @@ describe('handlePreSynthesisCheck', () => {
       type: 'workflow.transition',
       data: { to: 'synthesize' },
     });
-    // Planner-stamp fields (tasks/reviews) land on the projection via a
-    // state.patched event — the same path `exarchos_workflow update` uses.
     await eventStore.append(featureId, {
       type: 'state.patched',
       data: {
@@ -653,29 +587,20 @@ describe('handlePreSynthesisCheck', () => {
     eventStore.close();
     await rmrfAsync(eventStoreDir);
 
-    // Must NOT fail with INVALID_INPUT / FILE_NOT_FOUND / NO_STATE_SOURCE.
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
-    // The state-dependent checks (phase, tasks, reviews) all pass off the
-    // projected view — proving fileless resolution worked.
     expect(data.report).not.toContain('not found');
     expect(data.report).toContain('Phase is synthesize');
     expect(data.report).toContain('All tasks complete');
     expect(data.report).toContain('Reviews passed');
   });
 
-  // ─── Malformed stateFile is not masked by the event-store fallback ─────
-  //
-  // Regression: when an explicit stateFile is corrupt AND a featureId +
-  // eventStore fallback is available, resolveWorkflowState silently resolves
-  // from the store, so the corruption used to go undetected (the report would
-  // even claim the file as source). A corrupt explicit file must surface as the
-  // Check-1 "Invalid JSON" failure rather than being masked by the fallback.
-
+  /**
+   * The event-store fallback must not hide a corrupt explicit state file. The store holds a valid
+   * synthesize state, so a silent fallback passes the phase check. The report must show "Invalid JSON".
+   */
   it('MalformedStateFileWithEventStoreFallback_SurfacesInvalidJson', async () => {
     const BAD = '/tmp/corrupt.state.json';
-    // The file exists but is unparseable; the event store CAN resolve (valid
-    // synthesize state), so the old code would have silently used it.
     vi.mocked(existsSync).mockImplementation((p) => String(p) === BAD);
     vi.mocked(readFileSync).mockReturnValue('{ corrupt json');
 
@@ -717,9 +642,7 @@ describe('handlePreSynthesisCheck', () => {
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
     expect(data.passed).toBe(false);
-    // Corruption surfaced — NOT silently resolved off the event store.
     expect(data.report).toContain('Invalid JSON');
-    // And the downstream state checks did not run off the masked fallback.
     expect(data.report).not.toContain('Phase is synthesize');
   });
 });

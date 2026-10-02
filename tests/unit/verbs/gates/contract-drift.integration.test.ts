@@ -1,29 +1,13 @@
-// ─── check_contract_drift ACCEPTANCE — through handleOrchestrate ──────────────
-//
-// Verification-ladder slice 1, Bundle B3 (task 021). The end-to-end contract:
-// dispatch `check_contract_drift` through the composite `handleOrchestrate`
-// router against a real temp-dir git fixture repo with a schema artifact and
-// prove the gate distinguishes a breaking schema diff from a clean regen.
-//
-//   • Breaking diff — the schema artifact changed on the branch in a way the
-//     (stubbed) breaking-diff tool reports as breaking → drift, passed:false,
-//     breaking[] populated.
-//   • Clean regen + typecheck — codegen succeeds, typecheck succeeds, the
-//     breaking-diff reports no breakage → passed:true.
-//   • No tool resolves — neither codegen nor diff is configured/detected →
-//     skipped/advisory (passed:true, skipped:true), NEVER a hard fail (INV-4).
-//
-// This file is the acceptance gate: it stays RED until task 023 registers the
-// action + wires the dispatch branch. Per-leg/unit coverage of merge-base
-// baseline, failure legs, and breaking-array population lives in
-// contract-drift.test.ts.
-//
-// Stub codegen/diff: small shell scripts written into the fixture and wired via
-// `.exarchos.yml` `contract: { codegen, diff }` so tests never need a real
-// buf/oasdiff/openapi-typescript install. The breaking-diff stub exits non-zero
-// (and prints a breaking-change line) when a sentinel marker is present in the
-// current schema artifact, exit 0 otherwise.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * These tests run `check_contract_drift` through the composite
+ * `handleOrchestrate` router, against a temp git repo with an OpenAPI artifact.
+ * A breaking schema diff fails the gate. A clean regen with a passing
+ * typecheck passes. With no contract tool, the gate skips and passes as
+ * advisory. `contract-drift.test.ts` holds the unit tests.
+ *
+ * Shell stubs replace the real codegen and diff tools. `.exarchos.yml` wires
+ * them through `contract: { codegen, diff }`.
+ */
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync, writeFileSync, mkdirSync, chmodSync } from 'node:fs';
@@ -37,7 +21,6 @@ import { runAsTrustedCaller, seedActivePhaseAttempt, withTrustedCaller } from '.
 import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
-// ─── git fixture helpers ─────────────────────────────────────────────────────
 
 function git(repoRoot: string, args: readonly string[]): Promise<string> {
   return execFileAsync('git', args, { cwd: repoRoot, timeout: 30_000 });
@@ -99,10 +82,10 @@ const DIFF_STUB = [
 ].join('\n');
 
 /**
- * Scaffold a fixture repo on `main`: an OpenAPI artifact, stub codegen/diff
- * scripts, and an `.exarchos.yml` wiring `contract.codegen` / `contract.diff`
- * to those scripts. `typecheckPasses` controls whether a `typecheck` command is
- * wired (a no-op `true` when passing, `false` when failing).
+ * Commits a fixture project on `main`: an OpenAPI artifact, the stub scripts,
+ * and an `.exarchos.yml` with the given `typecheck` command. With
+ * `wireContract`, the file also wires `contract.codegen` and `contract.diff` to
+ * the stubs.
  */
 async function writeBaseProject(
   repoRoot: string,
@@ -145,8 +128,6 @@ interface ContractDriftData {
   skipped?: boolean;
 }
 
-// ─── tests ───────────────────────────────────────────────────────────────────
-
 describe('check_contract_drift acceptance (through handleOrchestrate)', () => {
   const cleanups: Array<() => void> = [];
 
@@ -155,7 +136,6 @@ describe('check_contract_drift acceptance (through handleOrchestrate)', () => {
       try {
         fn();
       } catch {
-        /* best-effort temp cleanup */
       }
     }
   });
@@ -183,6 +163,7 @@ describe('check_contract_drift acceptance (through handleOrchestrate)', () => {
     return result as { success: boolean; data: ContractDriftData };
   }
 
+  /** The gate is advisory: the tool call succeeds and the gate fails. */
   it(
     'HandleOrchestrate_CheckContractDrift_BreakingSchemaDiff_Fails',
     async () => {
@@ -190,7 +171,6 @@ describe('check_contract_drift acceptance (through handleOrchestrate)', () => {
       cleanups.push(() => rmrf(repoRoot));
       await writeBaseProject(repoRoot, { wireContract: true, typecheck: 'true' });
 
-      // Branch: edit the schema in a way the diff stub flags as breaking.
       await git(repoRoot, ['checkout', '-b', 'feature/breaking', '-q']);
       writeFileSync(
         path.join(repoRoot, 'openapi.yaml'),
@@ -201,7 +181,6 @@ describe('check_contract_drift acceptance (through handleOrchestrate)', () => {
 
       const { success, data } = await dispatch(repoRoot, 'feature/breaking');
 
-      // Advisory carrier: the tool call SUCCEEDS, the gate FAILS.
       expect(success).toBe(true);
       expect(data.passed).toBe(false);
       expect(data.drift).toBe(true);
@@ -218,7 +197,6 @@ describe('check_contract_drift acceptance (through handleOrchestrate)', () => {
       cleanups.push(() => rmrf(repoRoot));
       await writeBaseProject(repoRoot, { wireContract: true, typecheck: 'true' });
 
-      // Branch: a non-breaking schema edit (no sentinel marker).
       await git(repoRoot, ['checkout', '-b', 'feature/clean', '-q']);
       writeFileSync(
         path.join(repoRoot, 'openapi.yaml'),
@@ -242,7 +220,6 @@ describe('check_contract_drift acceptance (through handleOrchestrate)', () => {
     async () => {
       const repoRoot = await initRepo('contract-drift-skip-');
       cleanups.push(() => rmrf(repoRoot));
-      // No contract commands wired → the gate cannot resolve a tool.
       await writeBaseProject(repoRoot, { wireContract: false, typecheck: 'true' });
 
       await git(repoRoot, ['checkout', '-b', 'feature/notool', '-q']);
@@ -255,7 +232,6 @@ describe('check_contract_drift acceptance (through handleOrchestrate)', () => {
 
       const { success, data } = await dispatch(repoRoot, 'feature/notool');
 
-      // Degrade per INV-4: skipped/advisory, never a hard fail.
       expect(success).toBe(true);
       expect(data.passed).toBe(true);
       expect(data.skipped).toBe(true);
@@ -264,18 +240,15 @@ describe('check_contract_drift acceptance (through handleOrchestrate)', () => {
   );
 });
 
-/**
- * These tests invoke the composite handler DIRECTLY, bypassing `dispatch()`.
- *
- * Two things `dispatch()` and a real run would have provided must be recreated,
- * or every case exercises a fail-closed path instead of the behaviour under
- * test: the ambient trusted dispatch scope the durable-evidence gates read
- * their caller authorization from (`TRUSTED_CALLER_REQUIRED` without it), and a
- * started workflow with an active phase attempt for the gate's evidence to bind
- * to (`ACTIVE_PHASE_ATTEMPT_REQUIRED` without it).
- */
+/** The state dir and feature id pairs that `orchestrate` already seeded. */
 const seededWorkflows = new Set<string>();
 
+/**
+ * Calls the composite handler directly, without `dispatch()`, and recreates two
+ * things that a real run provides. Without the trusted dispatch scope, the gate
+ * returns `TRUSTED_CALLER_REQUIRED`. Without an active phase attempt for the
+ * evidence, it returns `ACTIVE_PHASE_ATTEMPT_REQUIRED`.
+ */
 async function orchestrate(
   args: Record<string, unknown>,
   ctx: DispatchContext,

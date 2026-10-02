@@ -1,26 +1,10 @@
 /**
- * CLI↔MCP parity tests for the `check_invariant_conformance` action
- * (DR-3 / T-15, INV-2).
+ * CLI and MCP parity for the `check_invariant_conformance` action.
  *
- * `check_invariant_conformance` has two user-visible facades:
- *   1. MCP — `exarchos_orchestrate { action: 'check_invariant_conformance' }`
- *      over the MCP SDK.
- *   2. CLI — the auto-generated `exarchos orch check_invariant_conformance`
- *      surface, emitted from the action's Zod schema in registry.ts.
- *
- * Both facades dispatch through the same `exarchos_orchestrate` composite, so
- * for the same DispatchContext + args they MUST project byte-identical
- * `ToolResult` payloads (modulo wall-clock fields the envelope wrapper
- * injects). This is INV-2.
- *
- * Strategy (mirrors static-analysis.parity.test.ts):
- *   - Stub the `exarchos_orchestrate` composite via `stubCompositeHandler`. The
- *     stub forwards `check_invariant_conformance` invocations to the real
- *     `handleCheckInvariantConformance`, injecting a deterministic in-memory
- *     catalog via `loadInvariantsFn` so the gate never reads disk and two arms
- *     produce byte-equal output.
- *   - Two arms (CLI + MCP) run against isolated tmp state dirs; their outputs
- *     are normalized (timestamps / `_perf` / `_meta`) before a deep-equal check.
+ * Both facades dispatch through the `exarchos_orchestrate` composite. For the
+ * same context and arguments, they must return byte-identical `ToolResult`
+ * payloads after normalization. The stub calls the real handler with an
+ * in-memory catalog, so the gate does not read the disk.
  */
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
@@ -43,8 +27,6 @@ import { handleCheckInvariantConformance } from '../../../../src/verbs/gates/che
 import { handleInit } from '../../../../src/workflow/handlers/init.js';
 import { ADMISSION_EVENT_TYPES } from '../../../../src/workflow/admission/types.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
-
-// ─── Fixtures ────────────────────────────────────────────────────────────────
 
 const PARITY_DIFF = [
   '--- a/foo.ts',
@@ -77,8 +59,6 @@ const PARITY_CATALOG: InvariantEntry[] = [
     },
   },
 ];
-
-// ─── Arm helpers ───────────────────────────────────────────────────────────
 
 interface ArmContext {
   readonly stateDir: string;
@@ -171,20 +151,14 @@ function buildConformanceCompositeStub(): CompositeHandler {
 }
 
 /**
- * Strip wall-clock / telemetry fields. `_perf.ms` and `_meta.timestamp` are
- * stamped at envelope-wrap time and drift between arms even when the
- * underlying ToolResult is identical.
+ * Drop `_perf` and `_meta`, which drift between arms. Placehold evidence ids and
+ * digests: each arm is a separate workflow, so they differ by construction. The
+ * placeholders keep the reference structure in the comparison.
  */
 function normalize(value: unknown): unknown {
   return harnessNormalize(value, {
     timestampPlaceholder: '<TS>',
     uuidPlaceholder: '<UUID>',
-    // The gate now returns durable evidence references. Their ids and content
-    // digests are derived from the arm's own phase-attempt identity, and the
-    // two arms are two separate workflows — so those values cannot match by
-    // construction and normalizing them is what keeps the comparison about the
-    // payload rather than about which arm minted which id. The reference
-    // STRUCTURE still has to match, so the fields are placeheld, not dropped.
     keyPlaceholders: {
       ms: '<MS>',
       evidenceId: '<EVIDENCE_ID>',
@@ -196,8 +170,6 @@ function normalize(value: unknown): unknown {
     dropKeys: new Set(['_perf', '_meta']),
   });
 }
-
-// ─── Tests ─────────────────────────────────────────────────────────────────
 
 describe('exarchos check_invariant_conformance CLI↔MCP parity (DR-3/T-15, INV-2)', () => {
   let arms: ArmContext[] = [];
@@ -246,7 +218,6 @@ describe('exarchos check_invariant_conformance CLI↔MCP parity (DR-3/T-15, INV-
     expect(cliData.verdict).toBe('NEEDS_FIXES');
     expect(cliData.high).toBeGreaterThanOrEqual(1);
 
-    // INV-2: byte-equal ToolResult across carriers after stripping wall-clock.
     const normalizedCli = normalize(cliResult);
     const normalizedMcp = normalize(mcpResult);
     expect(normalizedCli).toEqual(normalizedMcp);

@@ -1,9 +1,10 @@
+/**
+ * Behavior parity between `checkOperationalResilience` and the Bash script `check-operational-resilience.sh`.
+ * The TypeScript checker reads only the diff. So it runs the four pattern checks of the script, but not `npm audit`.
+ */
+
 import { describe, it, expect } from 'vitest';
 import { checkOperationalResilience } from '../../../../src/verbs/pure/operational-resilience.js';
-
-// ─── Fixtures ───────────────────────────────────────────────────────────────
-// Bash: 5 checks — empty catch, swallowed errors, console.log, npm audit, unbounded retries
-// TS port: same patterns, diff-only mode (no npm audit)
 
 const CLEAN_DIFF = `diff --git a/src/utils.ts b/src/utils.ts
 index abc1234..def5678 100644
@@ -72,8 +73,6 @@ index abc1234..def5678 100644
 +  return value;
 +}
  export function init() {}`;
-
-// ─── Tests ──────────────────────────────────────────────────────────────────
 
 describe('behavioral parity with check-operational-resilience.sh', () => {
   it('clean diff — passes with zero findings', () => {

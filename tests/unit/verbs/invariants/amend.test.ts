@@ -1,32 +1,17 @@
 /**
- * Task 068 / DR-23 — `invariants_amend` handler tests.
+ * Tests for the `invariants_amend` handler. An amendment changes an existing entry and does not scaffold a new one.
  *
- * The verb exists because every sanctioned surface for correcting a shipped
- * invariant was closed: `invariants_add` only appends, and the
- * `/exarchos:invariants` skill forbids hand-writing catalog YAML.
- *
- * The properties that make an amendment an AMENDMENT rather than a
- * re-scaffolding are what this file pins:
- *
- *  - id-targeted: the entry must already exist, and its identity survives;
- *  - field-scoped: fields the patch does not name survive VERBATIM;
- *  - other entries, the markdown body, and YAML comments survive;
- *  - dryRun-first, writing nothing, with a before/after diff;
- *  - a commit emits `invariant.amended` naming the changed fields;
- *  - ROUND TRIP: after an amendment the catalog still LOADS. That is the
- *    property the whole task is about — a writer must not be able to author a
- *    document its own reader rejects.
+ * - The id must exist, and the identity of the entry stays.
+ * - Fields that the patch does not name stay verbatim.
+ * - Other entries, the markdown body, and YAML comments stay.
+ * - A dry run is the default. It writes nothing and shows a diff.
+ * - A commit emits `invariant.amended` with the changed fields.
+ * - After an amendment, the catalog still loads. A writer must not write a document that its reader rejects.
  */
 // @oracle-sources: ../../../../src/architecture/invariants-loader.js, the hand-written FENCED_CATALOG fixture and per-field expectations in this file
 //
-// The round-trip assertion compares what the READER (`loadInvariants`) projects
-// off disk against expectations a human wrote here — the catalog fixture and
-// the field values it should still carry after an amendment. Those are two
-// independent authorities: the loader never sees the fixture's intent, and the
-// fixture is not derived from the loader. Deliberately NOT declaring
-// `./amend.js` alongside the loader: `amend.ts` imports the loader (it shares
-// the primary-key rule rather than restating it — DR-6), so the two are
-// statically reachable and would be one authority wearing two names.
+// The loader and the hand-written fixture are two independent authorities.
+// `amend.ts` imports the loader, so a declaration of `./amend.js` also gives one authority under two names.
 import { describe, it, expect } from 'vitest';
 
 import * as os from 'node:os';
@@ -42,8 +27,6 @@ import { EXARCHOS_PACKAGE_NAME } from '../../../../src/verbs/invariants/reserved
 import { loadInvariants } from '../../../../src/architecture/invariants-loader.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
-// ─── Harness ─────────────────────────────────────────────────────────────────
-
 const REPO_ROOT = '/repo';
 const CATALOG = '.exarchos/invariants.md';
 const CATALOG_ABS = `${REPO_ROOT}/${CATALOG}`;
@@ -54,9 +37,9 @@ interface FakeFs {
   writes: Array<{ path: string; contents: string }>;
 }
 
+/** A fake filesystem with an exarchos `package.json`, because the reserved-tier guard reads it for `tier: 'dev'` fixtures. */
 function makeFakeFs(seed: Record<string, string> = {}): FakeFs {
   const files = new Map<string, string>(Object.entries(seed));
-  // `tier: 'dev'` fixtures need the reserved-tier guard to see an exarchos repo.
   files.set(
     `${REPO_ROOT}/package.json`,
     JSON.stringify({ name: EXARCHOS_PACKAGE_NAME }),
@@ -146,8 +129,6 @@ invariants:
 Prose body that a whole-file YAML round-trip would destroy.
 `;
 
-// ─── dry-run ─────────────────────────────────────────────────────────────────
-
 describe('handleAmend — dryRun (INV-5c default)', () => {
   it('handleAmend_DryRun_RendersDiffAndWritesNothing', async () => {
     const fake = makeFakeFs({ [CATALOG_ABS]: FENCED_CATALOG });
@@ -179,12 +160,10 @@ describe('handleAmend — dryRun (INV-5c default)', () => {
     expect(data.id).toBe('U-1');
     expect(data.patchedFields).toEqual(['summary']);
     expect(data.renderedEntry).toMatch(/Corrected summary text\./);
-    // The diff shows the removal of the old value and the addition of the new.
     expect(data.diff).toMatch(/-\s*summary: Original summary text\./);
     expect(data.diff).toMatch(/\+\s*summary: Corrected summary text\./);
     expect(data.next_actions).toContain('doctor');
 
-    // Nothing written, nothing emitted.
     expect(fake.writes).toHaveLength(0);
     expect(appended).toHaveLength(0);
   });
@@ -200,7 +179,6 @@ describe('handleAmend — dryRun (INV-5c default)', () => {
         tier: 'user',
         id: 'U-1',
         patch: { summary: 'Corrected.' },
-        // dryRun omitted entirely
       },
       ctx,
       fake.deps,
@@ -211,8 +189,6 @@ describe('handleAmend — dryRun (INV-5c default)', () => {
     expect(fake.writes).toHaveLength(0);
   });
 });
-
-// ─── Amending is not re-scaffolding ──────────────────────────────────────────
 
 describe('handleAmend — identity and un-named fields survive', () => {
   it('handleAmend_Commit_UnnamedFieldsSurviveVerbatim', async () => {
@@ -225,7 +201,6 @@ describe('handleAmend — identity and un-named fields survive', () => {
         catalog: CATALOG,
         tier: 'user',
         id: 'U-1',
-        // Amend ONLY the summary.
         patch: { summary: 'Corrected summary text.' },
         dryRun: false,
       },
@@ -235,10 +210,8 @@ describe('handleAmend — identity and un-named fields survive', () => {
     expect(result.success).toBe(true);
 
     const written = fake.files.get(CATALOG_ABS)!;
-    // The amended field changed...
     expect(written).toMatch(/summary: Corrected summary text\./);
     expect(written).not.toMatch(/Original summary text/);
-    // ...and every field the patch did NOT name survived.
     expect(written).toMatch(/dimension: boundary-integrity/);
     expect(written).toMatch(/cost-of-load: reference-only/);
     expect(written).toMatch(/docs\/architecture\/original\.md/);
@@ -247,6 +220,7 @@ describe('handleAmend — identity and un-named fields survive', () => {
     expect(written).toMatch(/- plan/);
   });
 
+  /** The handler replaces the entry in place, so the catalog holds exactly one `U-1`. */
   it('handleAmend_Commit_IdentityIsPreserved', async () => {
     const fake = makeFakeFs({ [CATALOG_ABS]: FENCED_CATALOG });
     const { ctx } = makeCtx();
@@ -266,7 +240,6 @@ describe('handleAmend — identity and un-named fields survive', () => {
 
     const written = fake.files.get(CATALOG_ABS)!;
     expect(written).toMatch(/id: U-1/);
-    // Exactly one U-1 — replaced in place, not appended alongside the original.
     expect(written.match(/id: U-1/g)).toHaveLength(1);
   });
 
@@ -288,22 +261,16 @@ describe('handleAmend — identity and un-named fields survive', () => {
     );
 
     const written = fake.files.get(CATALOG_ABS)!;
-    // The sibling entry is untouched.
     expect(written).toMatch(/id: U-2/);
     expect(written).toMatch(/The second entry must be untouched\./);
-    // The prose body survives (a whole-file round-trip would destroy it).
     expect(written).toContain('Prose body that a whole-file YAML round-trip would destroy.');
     expect(written).toContain('# Invariants');
-    // The frontmatter's YAML comment survives.
     expect(written).toContain('# Catalog comment that must survive an amendment.');
-    // Exactly one pair of frontmatter fences.
     expect(written.match(/^---$/gm)?.length).toBe(2);
   });
 
+  /** A patch field replaces the whole top-level value and does not deep-merge into it. The test pins this granularity as a decision. */
   it('handleAmend_Commit_ReplacesNamedFieldWholesale', async () => {
-    // Field-scoped means top-level: naming `enforcement` swaps the whole
-    // enforcement block rather than deep-merging into it. Pinned so the
-    // granularity is a decision, not an accident.
     const fake = makeFakeFs({ [CATALOG_ABS]: FENCED_CATALOG });
     const { ctx } = makeCtx();
 
@@ -326,12 +293,9 @@ describe('handleAmend — identity and un-named fields survive', () => {
     const written = fake.files.get(CATALOG_ABS)!;
     expect(written).toMatch(/audit-prompt: Replacement prompt\./);
     expect(written).not.toMatch(/Original prompt/);
-    // Sibling top-level fields still survive.
     expect(written).toMatch(/summary: Original summary text\./);
   });
 });
-
-// ─── Audit trail ─────────────────────────────────────────────────────────────
 
 describe('handleAmend — the amendment is auditable', () => {
   it('handleAmend_Commit_EmitsInvariantAmendedNamingChangedFields', async () => {
@@ -367,14 +331,11 @@ describe('handleAmend — the amendment is auditable', () => {
     expect(event.data.id).toBe('U-1');
     expect(event.data.catalog).toBe(CATALOG);
     expect(event.data.tier).toBe('user');
-    // The audit record names WHICH fields changed, not merely that something did.
     expect(event.data.fields).toEqual(['summary', 'dimension']);
   });
 
+  /** Emission is best-effort. The amendment is already on disk, so an event store failure does not fail the write. */
   it('handleAmend_Commit_EventStoreFailure_DoesNotFailTheWrite', async () => {
-    // Emission is best-effort telemetry, mirroring invariants_add: the
-    // amendment already landed on disk, so a telemetry failure must not report
-    // the write as failed.
     const fake = makeFakeFs({ [CATALOG_ABS]: FENCED_CATALOG });
     const ctx = {
       stateDir: '/tmp/state',
@@ -405,9 +366,8 @@ describe('handleAmend — the amendment is auditable', () => {
   });
 });
 
-// ─── Refusals ────────────────────────────────────────────────────────────────
-
 describe('handleAmend — refusals', () => {
+  /** The refusal lists the ids that it resolved, so "not found" differs from "nothing to look at". */
   it('handleAmend_UnknownId_FailsWithResolvedTargets', async () => {
     const fake = makeFakeFs({ [CATALOG_ABS]: FENCED_CATALOG });
     const { ctx } = makeCtx();
@@ -427,18 +387,17 @@ describe('handleAmend — refusals', () => {
 
     expect(result.success).toBe(false);
     expect(errorOf(result).code).toBe('ENTRY_NOT_FOUND');
-    // Non-empty denominator evidence: the refusal names the ids it DID resolve,
-    // so "not found" is distinguishable from "found nothing to look at".
     const targets = (result as { error?: { validTargets?: string[] } }).error
       ?.validTargets;
     expect(targets).toEqual(['U-1', 'U-2']);
     expect(fake.writes).toHaveLength(0);
   });
 
+  /**
+   * The identity stays. A rename makes each reference to the old id stale, so the handler refuses an `id` in the patch.
+   * The catalog never gets the duplicate `U-2` that the rename causes.
+   */
   it('handleAmend_PatchCarriesId_FailsAsImmutable', async () => {
-    // Identity must survive an amendment. A rename is a different operation
-    // (every reference to the old id goes stale) and is refused explicitly
-    // rather than smuggled through the patch.
     const fake = makeFakeFs({ [CATALOG_ABS]: FENCED_CATALOG });
     const { ctx } = makeCtx();
 
@@ -458,8 +417,6 @@ describe('handleAmend — refusals', () => {
     expect(result.success).toBe(false);
     expect(errorOf(result).code).toBe('IMMUTABLE_FIELD');
     expect(fake.writes).toHaveLength(0);
-    // Critically: the collision the rename WOULD have caused never got a chance
-    // to be written.
     expect(fake.files.get(CATALOG_ABS)!.match(/id: U-2/g)).toHaveLength(1);
   });
 
@@ -485,9 +442,11 @@ describe('handleAmend — refusals', () => {
     expect(fake.writes).toHaveLength(0);
   });
 
+  /**
+   * The handler validates the full merged entry, so an amendment cannot make an entry that the schema rejects.
+   * The error carries a `suggestedFix` for `invariants_amend`.
+   */
   it('handleAmend_PatchViolatesSchema_FailsWithCarrierShape', async () => {
-    // The merged entry is re-validated in FULL, so an amendment cannot produce
-    // an entry the schema would have rejected at authoring time.
     const fake = makeFakeFs({ [CATALOG_ABS]: FENCED_CATALOG });
     const { ctx } = makeCtx();
 
@@ -506,7 +465,6 @@ describe('handleAmend — refusals', () => {
 
     expect(result.success).toBe(false);
     expect(errorOf(result).code).toBe('INVALID_INPUT');
-    // INV-5b carrier shape, re-invokable against the verb actually used.
     const fix = (
       result as { error?: { suggestedFix?: { params?: { action?: string } } } }
     ).error?.suggestedFix;
@@ -514,9 +472,8 @@ describe('handleAmend — refusals', () => {
     expect(fake.writes).toHaveLength(0);
   });
 
+  /** The enforcement DSL is declarative only. An amendment cannot bypass the `.strict()` boundary that `invariants_add` enforces. */
   it('handleAmend_EnforcementDslRejectsExecutableEscape', async () => {
-    // INV-4: the enforcement DSL is declarative-only. An amendment must not be
-    // a way around the `.strict()` boundary `invariants_add` enforces.
     const fake = makeFakeFs({ [CATALOG_ABS]: FENCED_CATALOG });
     const { ctx } = makeCtx();
 
@@ -560,9 +517,8 @@ describe('handleAmend — refusals', () => {
     expect(errorOf(result).code).toBe('CATALOG_NOT_FOUND');
   });
 
+  /** The reserved-tier guard of `invariants_add` also guards the amend path. */
   it('handleAmend_DevTierOutsideExarchos_FailsReservedTier', async () => {
-    // #1489 parity with invariants_add: the reserved INV-N namespace is
-    // guarded on the amend path too, or the guard would have a hole.
     const files = new Map<string, string>([
       [CATALOG_ABS, FENCED_CATALOG],
       [`${REPO_ROOT}/package.json`, JSON.stringify({ name: 'some-consumer' })],
@@ -597,13 +553,12 @@ describe('handleAmend — refusals', () => {
   });
 });
 
-// ─── Non-empty denominator ───────────────────────────────────────────────────
-
 describe('handleAmend — non-empty denominator (DR-24)', () => {
+  /**
+   * "U-1 is not here" is true of an empty list, and does not tell the caller if the catalog is correct.
+   * Thus the handler refuses with `CATALOG_EMPTY`, not `ENTRY_NOT_FOUND`.
+   */
   it('handleAmend_ZeroResolvedEntries_FailsRatherThanReportingNotFound', async () => {
-    // An amend against a resolvable-but-EMPTY catalog is vacuous: "U-1 is not
-    // here" is trivially true of an empty list and tells the caller nothing
-    // about whether they targeted the right catalog. Refuse instead.
     const fake = makeFakeFs({
       [CATALOG_ABS]: '---\nschema-version: 3\ninvariants: []\n---\n',
     });
@@ -624,13 +579,12 @@ describe('handleAmend — non-empty denominator (DR-24)', () => {
 
     expect(result.success).toBe(false);
     expect(errorOf(result).code).toBe('CATALOG_EMPTY');
-    // Specifically NOT the not-found answer, which would read as a clean check.
     expect(errorOf(result).code).not.toBe('ENTRY_NOT_FOUND');
     expect(fake.writes).toHaveLength(0);
   });
 
+  /** An entry list that the handler cannot resolve must not read as a missing entry. */
   it('handleAmend_UnresolvableEntryList_Refuses', async () => {
-    // A moved or renamed catalog must not read as "the entry simply isn't here".
     const fake = makeFakeFs({
       [CATALOG_ABS]: '---\nschema-version: 3\ninvariant_list:\n  - id: U-1\n---\n',
     });
@@ -654,12 +608,11 @@ describe('handleAmend — non-empty denominator (DR-24)', () => {
     expect(fake.writes).toHaveLength(0);
   });
 
+  /**
+   * `exists` and `read` are two syscalls, so the path can change between them.
+   * A raw `ENOENT`, `EISDIR`, or `EACCES` must not escape to dispatch as a generic `INTERNAL_ERROR`.
+   */
   it('Amend_CatalogVanishesBetweenExistsAndRead_ReturnsCodedEnvelope', async () => {
-    // `exists` and `read` are two syscalls and the envelope claim is TOTAL. The
-    // path can be removed, replaced by a directory, or lose read permission in
-    // between, and the raw ENOENT / EISDIR / EACCES would escape to dispatch and
-    // flatten into a generic INTERNAL_ERROR — the one outcome the header says
-    // cannot happen. Each error below is what a real kernel would raise.
     for (const failure of [
       Object.assign(new Error('ENOENT: no such file or directory'), { code: 'ENOENT' }),
       Object.assign(new Error('EISDIR: illegal operation on a directory'), { code: 'EISDIR' }),
@@ -693,14 +646,12 @@ describe('handleAmend — non-empty denominator (DR-24)', () => {
   });
 });
 
-// ─── The commit path is TOTAL in its envelope (task 082 / DR-1) ──────────────
-
 describe('handleAmend — the catalog write returns an envelope, never throws', () => {
+  /**
+   * `deps.write` throws on a filesystem failure. Dispatch turns an escaped throw into a generic `INTERNAL_ERROR`, and the caller loses the code.
+   * The cause stays in the message, and a failed write emits no audit event.
+   */
   it('handleAmend_CatalogWriteThrows_ReturnsCodedEnvelope', async () => {
-    // The commit path calls `deps.write`, which throws on any fs failure. An
-    // escaping throw is caught by dispatch's outer safety net and flattened to
-    // a generic INTERNAL_ERROR, so the caller loses the code it branches on —
-    // precisely the fidelity loss this handler avoids on every other path.
     const fake = makeFakeFs({ [CATALOG_ABS]: FENCED_CATALOG });
     fake.deps.write = () => {
       throw new Error('EACCES: permission denied');
@@ -722,18 +673,12 @@ describe('handleAmend — the catalog write returns an envelope, never throws', 
 
     expect(result.success).toBe(false);
     expect(errorOf(result).code).toBe('CATALOG_WRITE_FAILED');
-    // The underlying cause survives into the envelope rather than being
-    // replaced by a bare "internal error".
     expect(errorOf(result).message).toContain('EACCES: permission denied');
-    // A write that never landed must not be audited as one that did.
     expect(appended).toHaveLength(0);
   });
 
+  /** `handleAmend` must settle and not reject. A test that reads only the resolved value passes vacuously when the call rejects first. */
   it('handleAmend_CatalogWriteThrows_DoesNotReject', async () => {
-    // Stated as its own case because it is the property the envelope exists
-    // for: `handleAmend` must SETTLE, not reject. A test that only inspects
-    // the resolved value would pass vacuously if the call rejected before the
-    // assertion ran, so assert the settlement directly.
     const fake = makeFakeFs({ [CATALOG_ABS]: FENCED_CATALOG });
     fake.deps.write = () => {
       throw new Error('ENOSPC: no space left on device');
@@ -759,14 +704,13 @@ describe('handleAmend — the catalog write returns an envelope, never throws', 
   });
 });
 
-// ─── ROUND TRIP: the amended catalog still loads ─────────────────────────────
-
 describe('handleAmend — round-trip: the reader accepts what the writer wrote', () => {
+  /**
+   * `loadInvariants` is the real reader, which throws `Duplicate invariant ID` on a bad catalog. It must accept the amended file from a real disk.
+   * The catalog also loads before the amendment, so a pass does not come from a loader that ignores the file.
+   * The un-named fields stay in the loaded entry, not only in the text on disk.
+   */
   it('handleAmend_Commit_AmendedCatalogStillLoadsThroughTheLoader', async () => {
-    // This is the property the whole task is about. `loadInvariants` is the
-    // real reader — the same path that throws `Duplicate invariant ID` on a
-    // catalog the old writer could produce. It must accept the amended file
-    // off a REAL disk, not a fake fs.
     const tmp = await fsp.mkdtemp(
       nodePath.join(os.tmpdir(), 'imo-068-amend-roundtrip-'),
     );
@@ -787,8 +731,6 @@ describe('handleAmend — round-trip: the reader accepts what the writer wrote',
       };
       const { ctx } = makeCtx();
 
-      // Sanity: the catalog loads BEFORE the amendment, so a green result
-      // after cannot be an artifact of the loader ignoring the file.
       const before = loadInvariants(catalogAbs);
       expect(before.map((e) => e.id).sort()).toEqual(['U-1', 'U-2']);
 
@@ -812,7 +754,6 @@ describe('handleAmend — round-trip: the reader accepts what the writer wrote',
       );
       expect(result.success).toBe(true);
 
-      // ── The reader accepts the amended file ──
       const after = loadInvariants(catalogAbs);
       expect(after.map((e) => e.id).sort()).toEqual(['U-1', 'U-2']);
 
@@ -822,13 +763,10 @@ describe('handleAmend — round-trip: the reader accepts what the writer wrote',
         mode: 'audit',
         'audit-prompt': 'Corrected prompt.',
       });
-      // Un-named fields survived the round trip through the READER too, not
-      // just as text on disk.
       expect(amended.dimension).toBe('boundary-integrity');
       expect(amended.appliesTo).toEqual(['src/**/*.ts']);
       expect(amended.references).toEqual(['docs/architecture/original.md']);
 
-      // The sibling entry is byte-for-byte semantically unchanged.
       const sibling = after.find((e) => e.id === 'U-2')!;
       expect(sibling.summary).toBe('The second entry must be untouched.');
     } finally {

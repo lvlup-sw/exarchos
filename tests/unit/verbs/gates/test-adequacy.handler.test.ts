@@ -1,21 +1,14 @@
-// ─── check_test_adequacy handler: routing + idempotency (task 014) ────────────
-//
-// These tests dispatch THROUGH the composite `handleOrchestrate` router (a
-// registered action with no dispatch branch returns UNKNOWN_ACTION — a
-// handler-direct test cannot catch that, so we route through the composite).
-// The pure `runProbe` is mocked so the handler is deterministic and never
-// shells out; the focus here is the wiring contract:
-//   • the action ROUTES to handleTestAdequacy (no UNKNOWN_ACTION)
-//   • gate.executed is emitted, and re-running with the same operationId
-//     idempotency-collapses to a single row (INV-8)
-// ────────────────────────────────────────────────────────────────────────────
+// Tests for the `check_test_adequacy` handler. The tests dispatch through the composite
+// `handleOrchestrate` router. A registered action without a dispatch branch returns UNKNOWN_ACTION,
+// and a direct handler test cannot see that.
+// The pure `runProbe` is a mock, so the probe runs no real test command. The durable gate producer is
+// a stub that calls only the provider.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-// Mock the probe so the handler never touches git or a real test command.
 const mockRunProbe = vi.fn();
 vi.mock('../../../../src/verbs/gates/test-adequacy.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../../src/verbs/gates/test-adequacy.js')>();
@@ -60,7 +53,6 @@ describe('check_test_adequacy routing + idempotency (task 014)', () => {
       try {
         rmrf(d);
       } catch {
-        /* best-effort */
       }
     }
   });
@@ -87,20 +79,18 @@ describe('check_test_adequacy routing + idempotency (task 014)', () => {
       ctx,
     );
 
-    // Routed (not UNKNOWN_ACTION).
     expect(result.success).toBe(true);
     expect(result.error?.code).not.toBe('UNKNOWN_ACTION');
     const data = result.data as { passed: boolean };
     expect(data.passed).toBe(true);
-    // The probe was actually invoked through the wired handler.
     expect(mockRunProbe).toHaveBeenCalledOnce();
   });
 
+  /**
+   * The orchestrate registration must not throw at MCP startup. A field collision, the same name with a
+   * different base type, makes `buildRegistrationSchema` throw.
+   */
   it('CheckTestAdequacy_Registration_DoesNotThrow', async () => {
-    // Registering the orchestrate actions (which now include check_test_adequacy)
-    // MUST NOT throw at MCP startup. A field collision (same name, different base
-    // type) makes buildRegistrationSchema throw — this guards against that and
-    // confirms the action is present in the registry.
     const { TOOL_REGISTRY, buildRegistrationSchema } = await import('../../../../src/registry.js');
     const orchestrate = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate');
     expect(orchestrate).toBeDefined();
@@ -108,11 +98,11 @@ describe('check_test_adequacy routing + idempotency (task 014)', () => {
     expect(() => buildRegistrationSchema(orchestrate!.actions)).not.toThrow();
   });
 
+  /**
+   * When the probe finds no new or changed tests, it returns an advisory pass with the no-new-tests
+   * discriminant. The handler must show that verdict and its report, not a blocking `passed: false`.
+   */
   it('CheckTestAdequacy_NoNewTests_SkippedAdvisory_PassedTrue', async () => {
-    // FIX-1b: when the probe finds no new/changed tests, it returns the
-    // no-new-tests discriminant as a SKIPPED/advisory PASS (passed:true) with a
-    // self-explanatory report. The handler must surface that verdict + report,
-    // NOT a blocking passed:false.
     const ctx = await makeCtx();
     mockRunProbe.mockResolvedValue({
       passed: true,
@@ -141,23 +131,19 @@ describe('check_test_adequacy routing + idempotency (task 014)', () => {
     expect(data.report).toContain('nothing to probe');
   });
 
+  /**
+   * A failing ladder gate in a oneshot workflow resolves to a warning that does not block. Dispatch reads
+   * `workflowType` from the event store, and `projectConfig` turns on the config-aware severity.
+   * The test checks the gate name and success, not the reason text, which depends on severity and mode.
+   */
   it('HandleOrchestrate_OneshotTestAdequacyFailure_ResolvesAdvisory', async () => {
-    // An oneshot workflow's FAILING ladder gate (advisory carrier: success:true,
-    // data.passed:false) resolves to a NON-blocking advisory (success:true with a
-    // warning), threading the ACTUAL workflowType from workflow state. Since DR-6
-    // oneshot:implementing is in audit mode, so the non-blocking reason is now
-    // attributed to audit mode rather than warning-severity; the invariant under
-    // test is the non-blocking advisory outcome, asserted by gate-name + success.
     const ctx = await makeCtx();
 
-    // Seed an oneshot workflow into the event store so the dispatch resolver
-    // reads workflowType='oneshot' for this featureId.
     await ctx.eventStore.append('feat-oneshot', {
       type: 'workflow.started',
       data: { featureId: 'feat-oneshot', workflowType: 'oneshot' },
     });
 
-    // The probe reports a FAILED verdict (a real kill).
     mockRunProbe.mockResolvedValue({
       passed: false,
       probedTests: ['src/calc.test.js'],
@@ -174,13 +160,9 @@ describe('check_test_adequacy routing + idempotency (task 014)', () => {
         repoRoot: '/fake/repo',
         baseBranch: 'main',
       },
-      // Provide projectConfig so config-aware severity resolution engages.
       { ...ctx, projectConfig: DEFAULTS } as DispatchContext,
     );
 
-    // Advisory resolution: NOT blocked — surfaced as success-with-warning.
-    // Assert the robust invariant (gate-failure surfaced, non-blocking) rather
-    // than the exact downgrade-reason phrasing, which is severity/mode-dependent.
     expect(result.success).toBe(true);
     expect(result.warnings).toEqual(
       expect.arrayContaining([
@@ -189,6 +171,7 @@ describe('check_test_adequacy routing + idempotency (task 014)', () => {
     );
   });
 
+  /** The durable runner owns idempotency, so the provider path appends no `gate.executed` row of its own. */
   it('GateEvent_MigratedPath_DoesNotEmitLegacyGateEvent', async () => {
     const ctx = await makeCtx();
 
@@ -205,8 +188,6 @@ describe('check_test_adequacy routing + idempotency (task 014)', () => {
     await handleOrchestrate({ ...args }, ctx);
     await handleOrchestrate({ ...args }, ctx);
 
-    // Idempotency is owned by the durable runner; the provider path no longer
-    // emits a parallel gate.executed row.
     const events = await ctx.eventStore.query('feat-idem');
     const gateEvents = events.filter(
       (e) =>

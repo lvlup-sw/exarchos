@@ -1,9 +1,9 @@
-// ─── Provenance Chain Action Tests ──────────────────────────────────────────
+// Tests for `handleProvenanceChain`. The `gate-utils` mock must export
+// `sameOperationGateKey`. Without it, the call throws a TypeError, and the emit
+// site reports a gate failure, not an incomplete double.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { EventStore } from '../../../../src/events/store.js';
-
-// ─── Mock pure TS provenance-chain module ───────────────────────────────────
 
 vi.mock('../../../../src/verbs/pure/provenance-chain.js', () => ({
   verifyProvenanceChain: vi.fn(),
@@ -13,9 +13,6 @@ vi.mock('node:fs/promises', () => ({
   readFile: vi.fn(async (path: string) => `fixture:${path}`),
 }));
 
-// The key has to come with the emitter it is passed to: a stub module missing
-// it turns a call into a TypeError, which the emit site would report as the
-// gate failing rather than as an incomplete double.
 vi.mock('../../../../src/verbs/gates/gate-utils.js', () => ({
   emitGateEvent: vi.fn(async () => {}),
   sameOperationGateKey: vi.fn((gateName: string) => `gate.executed:${gateName}:op-fixture`),
@@ -56,8 +53,6 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-// ─── Tests ─────────────────────────────────────────────────────────────────
-
 describe('handleProvenanceChain', () => {
   const stateDir = '/tmp/test-state';
 
@@ -95,7 +90,6 @@ describe('handleProvenanceChain', () => {
   });
 
   it('should return passed:true when provenance chain passes', async () => {
-    // Arrange
     mockedVerify.mockReturnValueOnce({
       status: 'pass',
       output: '## Provenance Chain Report\n### Summary\n- Requirements: 3\n- Covered: 3\n- Gaps: 0\n- Orphan refs: 0\n**Result: PASS**',
@@ -127,7 +121,6 @@ describe('handleProvenanceChain', () => {
   });
 
   it('should return passed:false when gaps are found', async () => {
-    // Arrange
     mockedVerify.mockReturnValueOnce({
       status: 'fail',
       output: '## Provenance Chain Report\n### Summary\n- Requirements: 3\n- Covered: 2\n- Gaps: 1\n- Orphan refs: 0\n**Result: FAIL**',
@@ -158,7 +151,6 @@ describe('handleProvenanceChain', () => {
   });
 
   it('should return error when provenance check has error status', async () => {
-    // Arrange — error status (e.g. missing file, no DR-N identifiers)
     mockedVerify.mockReturnValueOnce({
       status: 'error',
       output: '',
@@ -183,7 +175,6 @@ describe('handleProvenanceChain', () => {
   });
 
   it('should emit gate.executed event with dimension D1', async () => {
-    // Arrange
     mockedVerify.mockReturnValueOnce({
       status: 'pass',
       output: '## Provenance Chain Report\n### Summary\n- Requirements: 2\n- Covered: 2\n- Gaps: 0\n- Orphan refs: 0\n**Result: PASS**',
@@ -219,7 +210,6 @@ describe('handleProvenanceChain', () => {
   });
 
   it('handleProvenanceChain_EmitsGateEvent_IncludesPhasePlanInDetails', async () => {
-    // Arrange
     mockedVerify.mockReturnValueOnce({
       status: 'pass',
       output: '## Provenance Chain Report\n### Summary\n- Requirements: 2\n- Covered: 2\n- Gaps: 0\n- Orphan refs: 0\n**Result: PASS**',
@@ -231,14 +221,12 @@ describe('handleProvenanceChain', () => {
       orphanDetails: [],
     });
 
-    // Act
     await handleProvenanceChain(
       { featureId: 'test-feat', designPath: '/tmp/design.md', planPath: '/tmp/plan.md' },
       stateDir,
       mockStore,
     );
 
-    // Assert
     expect(mockedEmitGateEvent).toHaveBeenCalledWith(
       expect.anything(),
       'test-feat',
@@ -253,7 +241,6 @@ describe('handleProvenanceChain', () => {
   });
 
   it('should return a structured failure when shadow gate emission fails', async () => {
-    // Arrange
     mockedVerify.mockReturnValueOnce({
       status: 'pass',
       output: '## Provenance Chain Report\n### Summary\n- Requirements: 1\n- Covered: 1\n- Gaps: 0\n- Orphan refs: 0\n**Result: PASS**',
@@ -279,7 +266,6 @@ describe('handleProvenanceChain', () => {
   });
 
   it('should report orphan refs from the TS result', async () => {
-    // Arrange
     mockedVerify.mockReturnValueOnce({
       status: 'fail',
       output: '## Provenance Chain Report\n### Summary\n- Requirements: 2\n- Covered: 2\n- Gaps: 0\n- Orphan refs: 3\n**Result: FAIL**',

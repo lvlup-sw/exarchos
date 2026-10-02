@@ -54,13 +54,12 @@ function input(overrides: Partial<CompileCapsuleInput> = {}): CompileCapsuleInpu
 }
 
 describe('delegation capsule compilation', () => {
+  /** The test checks the schema and the references itself, so a compiler that skips its own validation still fails here. */
   it('Compile_ARealBatch_ParsesAndResolvesAgainstThePinnedDefinition', () => {
     const outcome = compileDelegationCapsule(input());
     expect(outcome.ok, JSON.stringify(outcome)).toBe(true);
     if (!outcome.ok) return;
     const { capsule } = outcome;
-    // Asserted independently of the compiler's own validation, so a compiler
-    // that skipped it would still be caught here.
     expect(ExarchosCapsuleV1Schema.safeParse(capsule).success).toBe(true);
     expect(resolveCapsuleReferences(capsule, { definition: featureDefinition().definition }).ok).toBe(true);
     expect(capsule.identity.definitionVersion).toBe(featureDefinition().definitionVersion);
@@ -80,11 +79,12 @@ describe('delegation capsule compilation', () => {
     expect(fields).not.toContain('team.disbandedOk');
   });
 
+  /**
+   * A runtime returns where it worked and what it produced, but no evidence and no verified flag.
+   * Settlement derives both from the task verification against that worktree, so a result cannot certify itself.
+   * The evidence kinds are the ladder gate classes from the registry.
+   */
   it('Compile_EveryTaskResult_RequiresTheWorktree_AndCarriesNoEvidence', () => {
-    // A runtime returns where it worked and what it produced. It does not
-    // return evidence or a verified flag: settlement derives both by running
-    // the task's verification against that worktree, and a result shape that
-    // admitted them would let the work certify itself.
     const outcome = compileDelegationCapsule(input());
     if (!outcome.ok) throw new Error(outcome.refusal.message);
     const results = outcome.capsule.contracts.taskResults;
@@ -104,11 +104,8 @@ describe('delegation capsule compilation', () => {
       expect(names).not.toContain('taskId');
       expect(names).not.toContain('evidence');
       expect(names).not.toContain('verified');
-      // The record's own provenance fields ride along, optional as they are there.
       expect(names).toEqual(expect.arrayContaining(['artifacts', 'files', 'tests', 'implements', 'duration']));
     }
-    // Evidence is cited by reference to a recorded ladder row, so the kinds
-    // are the ladder's gate classes — read off the registry, not restated.
     expect(outcome.capsule.contracts.evidenceKinds).toEqual([
       'static-analysis',
       'test-adequacy',
@@ -118,11 +115,11 @@ describe('delegation capsule compilation', () => {
     ]);
   });
 
+  /**
+   * The planner stamp wins. Otherwise the file-and-layer heuristic decides, and a task with no signal is medium and not boundary-touching.
+   * The terms live in the settlement contract and not on the graph node. The tier chooses the gates, so a runtime must not choose its own.
+   */
   it('Compile_EveryTask_CarriesTheVerificationTermsThePlanResolves', () => {
-    // The planner's stamp wins; the file-and-layer heuristic decides otherwise;
-    // a task with nothing to go on is medium and not boundary-touching. Frozen
-    // into the capsule, because the tier chooses the gates and a runtime must
-    // not choose its own.
     const outcome = compileDelegationCapsule(
       input({
         batch: batchOf([
@@ -138,25 +135,21 @@ describe('delegation capsule compilation', () => {
       'T-2': { riskTier: 'medium', boundaryTouching: false, baseRef: 'feature/prepare-unit' },
       'T-3': { riskTier: 'medium', boundaryTouching: true, baseRef: 'feature/prepare-unit' },
     });
-    // And the graph task stays the graph task: the terms live in the
-    // settlement contract, not smuggled onto the node.
     expect(outcome.capsule.graph.tasks[0]).toEqual({ taskId: 'T-1', title: 'stamped', stepId: 'delegate' });
   });
 
+  /** An empty profile says nothing, so the compiler omits the optional section. */
   it('Compile_TheExecutionProfile_IsAttachedAsHandedIn_AndOmittedWhenEmpty', () => {
     const outcome = compileDelegationCapsule(input());
     if (!outcome.ok) throw new Error(outcome.refusal.message);
     expect(outcome.capsule.executionProfile).toEqual({ capabilities: ['fs:read', 'shell:exec'] });
     const bare = compileDelegationCapsule(input({ executionProfile: { capabilities: [] } }));
     if (!bare.ok) throw new Error(bare.refusal.message);
-    // The contract keeps the section optional, and an empty profile would be
-    // a section that says nothing: it is left off rather than attached empty.
     expect(bare.capsule.executionProfile).toBeUndefined();
   });
 
+  /** One statement for each distinct profile in the batch, in profile order, from the policy resolver. */
   it('Compile_TheBoundKnowledge_NamesTheGatesEachTierIsVerifiedBy', () => {
-    // One statement per distinct profile in the batch, in profile order, read
-    // off the policy resolver — what a dispatching harness tells each worker.
     const outcome = compileDelegationCapsule(
       input({
         batch: batchOf([
@@ -173,10 +166,11 @@ describe('delegation capsule compilation', () => {
     ]);
   });
 
+  /**
+   * This case is the denominator for the refusal cases below.
+   * A compiler that emits terms that cannot settle passes the structural tests in this file.
+   */
   it('Compile_ACompiledCapsule_IsOneTheRealAdjudicatorCanSettle', () => {
-    // The denominator for every refusal below: a capsule this compiler emits
-    // can actually be settled. A compiler that produced unsatisfiable terms
-    // would pass every structural test in this file.
     const outcome = compileDelegationCapsule(input());
     if (!outcome.ok) throw new Error(outcome.refusal.message);
     const claims = ['T-1', 'T-3'].map((taskId) => ({
@@ -214,10 +208,8 @@ describe('delegation capsule compilation', () => {
     }
   });
 
+  /** Tasks name the step `delegate`, so a pinned definition without that step cannot be the one they ran under. */
   it('Compile_ADefinitionWithoutTheDelegationStep_IsRefusedAsUnsound', () => {
-    // The pinned definition is consulted, not assumed: tasks name the step
-    // `delegate`, and a definition that lacks it cannot be the one they ran
-    // under.
     const lowered = featureDefinition();
     const withoutDelegate = {
       ...lowered,

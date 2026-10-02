@@ -1,12 +1,10 @@
-import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from 'vitest';
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { checkPostMerge } from '../../../../src/verbs/pure/post-merge.js';
 import type { VcsProvider, CiStatus, CiCheck } from '../../../../src/vcs/provider.js';
+import { checkPostMerge } from '../../../../src/verbs/pure/post-merge.js';
+import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from 'vitest';
+import { join } from 'node:path';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
-
-// ─── Mock VcsProvider Helper ────────────────────────────────────────────────
+import { tmpdir } from 'node:os';
 
 function createMockProvider(overrides: {
   checkCi?: CiStatus;
@@ -31,9 +29,7 @@ function createMockProvider(overrides: {
   };
 }
 
-/**
- * Type for the command runner dependency injection (for test suite only).
- */
+/** The result of the injected command runner. */
 type CommandResult = { exitCode: number; stdout: string; stderr: string };
 
 function createCommandRunner(results: Record<string, CommandResult>): (
@@ -61,8 +57,8 @@ function fixtureRepo(files: Record<string, string>): string {
   return dir;
 }
 
+/** `nodeRepo` is a node project, so the toolchain resolver resolves `npm run test:run` for it. */
 describe('checkPostMerge', () => {
-  /** A node project: the toolchain resolver resolves `npm run test:run`. */
   let nodeRepo: string;
 
   beforeAll(() => {
@@ -76,8 +72,6 @@ describe('checkPostMerge', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
   });
-
-  // ─── VcsProvider integration ──────────────────────────────────────────
 
   it('clean merge (all checks pass via provider) returns pass', async () => {
     const provider = createMockProvider({

@@ -1,20 +1,9 @@
-// ─── mutation-adequacy PIN — review-dimension + action rosters ──────────────
-//
-// Per Michael Feathers, "Working Effectively with Legacy Code": these tests
-// pin the CURRENT (pre-slice-3) shape of two cross-surface rosters so the R5
-// reshape can be proven to land deliberately and nowhere else:
-//
-//   1. the required-review dimension roster (`getRequiredReviews` per workflow
-//      type) — R5 adds the `mutation-adequacy` review dimension (task 007);
-//   2. the `exarchos_orchestrate` action roster (names + count) — R5 adds the
-//      `mutation-adequacy` action (task 003).
-//
-// Both assertions MUST PASS on unmodified HEAD. When tasks 003 / 007 land they
-// will FAIL by exactly one entry; the agent landing them updates the pinned
-// expectations in the same change (the deliberate-update protocol — a roster
-// drift that is NOT the slice-3 addition is then a real regression, caught
-// here). Do not "fix" anything observed below — this is a regression backstop.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * These characterization tests pin two rosters: the required reviews for each
+ * workflow type and risk tier, and the `exarchos_orchestrate` action set. A change to a
+ * roster must update these pins in the same change. Any other drift is a
+ * regression.
+ */
 
 import { describe, it, expect } from 'vitest';
 
@@ -22,13 +11,10 @@ import { getRequiredReviews } from '../../../../src/workflow/review-contract.js'
 import { TOOL_REGISTRY } from '../../../../src/registry.js';
 
 describe('mutation-adequacy roster characterization (PIN)', () => {
-  // ── Review-dimension roster ──────────────────────────────────────────────
-  //
-  // `getRequiredReviews` is keyed by WORKFLOW TYPE (not risk tier). R5's
-  // `mutation-adequacy` dimension is wired for the HIGH tier at the /review
-  // boundary (task 007) — that wiring will change this pinned output. Today
-  // only the `feature` workflow declares required reviews; every other
-  // workflow type (and any unknown type) yields the empty contract.
+  /**
+   * `getRequiredReviews` is keyed by workflow type. Only the `feature` workflow
+   * declares required reviews. The HIGH risk tier adds `mutation-adequacy`.
+   */
   describe('ReviewDimensionRoster_CurrentBuild_StablePerWorkflowType', () => {
     it('feature workflow requires exactly review', () => {
       expect(getRequiredReviews('feature')).toEqual(['review']);
@@ -40,12 +26,6 @@ describe('mutation-adequacy roster characterization (PIN)', () => {
       }
     });
 
-    // R5 (task 007) made the contract tier-aware: the HIGH risk tier adds the
-    // `mutation-adequacy` adequacy backstop at the /review boundary. This pin
-    // was updated DELIBERATELY when task 007 landed (the deliberate-update
-    // protocol). The no-tier per-workflow-type assertions above are unchanged
-    // (backward-compat); a drift in EITHER set that is not this single tier
-    // addition is a real regression, caught here.
     it('feature workflow at the HIGH tier adds exactly mutation-adequacy', () => {
       expect(getRequiredReviews('feature', 'high')).toEqual([
         'review',
@@ -59,14 +39,10 @@ describe('mutation-adequacy roster characterization (PIN)', () => {
     });
   });
 
-  // ── exarchos_orchestrate action roster ───────────────────────────────────
-  //
-  // Derived from the registry SoT (`TOOL_REGISTRY`), not re-declared, so the
-  // pin tracks the live surface. R5's `mutation-adequacy` ACTION (INV-5d — an
-  // action, never a 5th tool) landed on this tool (task 003), taking the count
-  // from 71 → 72 and adding the name. This pin was updated DELIBERATELY when
-  // task 003 landed (the deliberate-update protocol) — a roster drift that is
-  // NOT this single addition is a real regression, caught here.
+  /**
+   * The roster comes from `TOOL_REGISTRY`, so the pin tracks the live surface.
+   * `mutation-adequacy` is an action on this tool, not a separate tool.
+   */
   describe('OrchestrateActionRoster_CurrentBuild_PinnedActionSet', () => {
     const orchestrate = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate');
     const actionNames = (orchestrate?.actions ?? []).map((a) => a.name);

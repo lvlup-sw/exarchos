@@ -52,10 +52,11 @@ index abc1234..def5678 100644
 ${lines.join('\n')}`;
 }
 
+/**
+ * The bash script ran four checks. The TS port runs three, because it skips the
+ * function-length check in diff-only mode.
+ */
 describe('behavioral parity with check-context-economy.sh', () => {
-  // Bash: 4 checks — source file length, function length, diff breadth, generated files
-  // TS port: same 4 checks, function length always passes (diff-only mode)
-
   it('clean diff — passes all 4 checks with zero findings', () => {
     expect(checkContextEconomy(makeCleanDiff())).toEqual({
       pass: true,
@@ -111,11 +112,11 @@ describe('behavioral parity with check-context-economy.sh', () => {
     });
   });
 
+  /**
+   * The bash script counted four checks for an empty input. The TS port runs no
+   * checks when the diff has no files. Both pass with zero findings.
+   */
   it('empty diff — passes with zero checks (bash: 4/4 hardcoded, TS: 0/0 no files)', () => {
-    // Known behavioral difference: bash always counted 4 checks even for empty input.
-    // The TS implementation returns 0 checks when there are no files to analyze
-    // (3 checks when there are files — function-length is skipped in diff-only mode).
-    // Both agree on the logical conclusion: pass with zero findings.
     expect(checkContextEconomy('')).toEqual({
       pass: true,
       checksRun: 0,

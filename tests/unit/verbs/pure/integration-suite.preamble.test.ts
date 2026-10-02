@@ -1,13 +1,7 @@
-// ─── WFQ-003: script-runner preamble tolerance ───────────────────────────────
-//
-// The gate invokes the suite through a script runner (`npm run test:run --
-// --reporter=json`). npm writes its own preamble to the SAME stream the vitest
-// JSON reporter writes to, so `JSON.parse(stdout)` threw and the gate failed
-// closed with `parseError: true` on a GREEN suite (#1537).
-//
-// These tests pin the tolerance both at the pure-parser boundary and through a
-// REAL spawned process, so a regression cannot hide behind a stubbed runner.
-// ─────────────────────────────────────────────────────────────────────────────
+// The gate runs the suite through `npm run test:run -- --reporter=json`. npm
+// writes its preamble to the same stream as the vitest JSON reporter, so the
+// parser must find the report inside runner noise. These tests pin that at the
+// pure parser and through a real spawned process.
 
 import { describe, it, expect } from 'vitest';
 
@@ -87,8 +81,7 @@ describe('parseVitestResult preamble tolerance (WFQ-003)', () => {
     expect(parseVitestResult(raw)?.passed).toBe(true);
   });
 
-  // Fail-closed semantics must survive the tolerance: an unrecognizable stream
-  // is still a shape-mismatch, never a false green.
+  /** An unrecognizable stream still fails closed as a shape mismatch, never a false green. */
   it.each([
     ['bare array', '[]'],
     ['empty object', '{}'],
@@ -101,9 +94,11 @@ describe('parseVitestResult preamble tolerance (WFQ-003)', () => {
 });
 
 describe('runIntegrationSuite through a real spawned runner (WFQ-003)', () => {
+  /**
+   * The production runner spawns a real child process whose stdout mixes banner
+   * lines with the reporter output.
+   */
   it('IntegrationSuite_RealProcessWithPreamble_ReportsParseErrorFalse', () => {
-    // A genuine child process that reproduces the npm-wrapped stream: banner
-    // lines and the reporter blob interleaved on one stdout.
     const script =
       'process.stdout.write("\\n> pkg@1.0.0 test:run\\n> vitest run --reporter=json\\n\\n");' +
       `process.stdout.write(${JSON.stringify(RED_REPORT)});` +
@@ -112,8 +107,6 @@ describe('runIntegrationSuite through a real spawned runner (WFQ-003)', () => {
 
     const result = runIntegrationSuite({
       repoRoot: process.cwd(),
-      // The PRODUCTION runner, spawning a real child process whose stdout
-      // interleaves banner lines with the reporter blob.
       runCommand: (_cmd, _args, options) =>
         execCommandRunner(process.execPath, ['-e', script], options),
       testScript: 'test:run',

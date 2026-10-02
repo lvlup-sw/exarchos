@@ -121,6 +121,10 @@ describe('ownership census verdict', () => {
   });
 });
 
+/**
+ * The `EmissionDetector_*_IsAnEmitter` cases write the evidence append in the forms that this codebase uses.
+ * A raw-literal match on the `type` value does not see these forms, so the census must resolve the discriminant.
+ */
 describe('evidence emission detection', () => {
   it('flags a direct append of an admission-evidence event', () => {
     const source = `
@@ -150,14 +154,7 @@ describe('evidence emission detection', () => {
     expect(emits(source)).toBe(false);
   });
 
-  // ─── Kill fixtures: the forms the raw-literal matcher could not see ────────
-  //
-  // Each of these emits exactly the same event as the literal fixture above,
-  // written the way this codebase writes emitters. Under the superseded
-  // `type\s*:\s*['"\`]admission\.evidence-recorded['"\`]` match every one of
-  // them scanned CLEAN — the census was blind to the idiom of the very thing it
-  // polices. They are the discriminating cases for the repair.
-
+  /** The source does not contain the evidence type string, so only a resolved discriminant can detect it. */
   it('EmissionDetector_AppendViaExportedConstant_IsAnEmitter', () => {
     const source = `
       import { ADMISSION_EVENT_TYPES } from '../workflow/admission/types.js';
@@ -168,8 +165,6 @@ describe('evidence emission detection', () => {
         });
       }`;
     expect(emits(source)).toBe(true);
-    // The characters the retired detector looked for are absent, so this case
-    // is only green because the discriminant is RESOLVED rather than matched.
     expect(source).not.toContain(EVIDENCE_TYPE);
   });
 
@@ -204,9 +199,8 @@ describe('evidence emission detection', () => {
     expect(emits(source)).toBe(true);
   });
 
+  /** A different member of the same constant table must not count as evidence. */
   it('EmissionDetector_ConstantSiblingMember_IsNotAnEmitter', () => {
-    // Resolution has to be a discriminating instrument, not a looser one: a
-    // DIFFERENT member of the same constant table must still read as not-evidence.
     const source = `
       import { ADMISSION_EVENT_TYPES } from '../workflow/admission/types.js';
       async function waiver(store, streamId, record) {
@@ -227,10 +221,11 @@ describe('evidence emission detection', () => {
     expect(emits(source)).toBe(false);
   });
 
+  /**
+   * A partial parse drops nodes, and a dropped append reads as a module that emits nothing.
+   * Thus a parse with recovery is fatal.
+   */
   it('EmissionDetector_RecoveredParse_ThrowsRatherThanReadingAsClean', () => {
-    // A partial parse silently drops nodes, and a dropped append reads as a
-    // module that emits nothing — the dangerous direction for an ownership
-    // census, so it is fatal rather than averaged in.
     expect(() => emits('function broken( {')).toThrow(/did not parse cleanly/);
   });
 });
@@ -290,9 +285,8 @@ describe('unresolvable discriminants are reported, not assumed benign', () => {
     );
   });
 
+  /** The check works in both directions: each acknowledged module still has an unreadable append, and no other module has one. */
   it('AcknowledgementSet_MatchesTheLiveTreeExactly', async () => {
-    // Two-way: every acknowledged module still has an unreadable append, and no
-    // unacknowledged module has one. Whichever way the tree moves, this reds.
     const { unresolvedDiscriminants } = await scanEvidenceEmitters(
       SRC_ROOT,
       scanEvidenceEmission,
@@ -314,10 +308,11 @@ describe('discriminant precedence follows source order', () => {
     return sites[0]?.discriminant;
   };
 
+  /**
+   * JavaScript evaluates `{ type: 'old', ...{ type: 'new' } }` to `'new'`.
+   * A wrong answer here lets a rogue emitter pass the census under another name.
+   */
   it('Discriminant_SpreadAfterOwnProperty_TakesTheSpread', () => {
-    // JS evaluates `{ type: 'old', ...{ type: 'new' } }` to 'new'. Returning on
-    // the first own hit reported 'old' — a confident wrong answer, which lets a
-    // rogue emitter pass the census under a borrowed name.
     expect(discriminantOf("{ type: 'old', ...{ type: 'new' } }")).toBe('new');
   });
 
@@ -335,10 +330,8 @@ describe('discriminant precedence follows source order', () => {
     expect(discriminantOf("{ type: 'keep', ...{ data: 1 } }")).toBe('keep');
   });
 
+  /** The call can overwrite `type`, and static analysis cannot tell. Thus the census does not return the earlier value as certain. */
   it('Discriminant_UnreadableSpreadAfterOwn_IsUnresolved', () => {
-    // The call MIGHT overwrite `type` and there is no way to tell statically.
-    // Under-reporting is the direction this census refuses to fail in, so the
-    // superseded value must not be handed back as if it were certain.
     expect(discriminantOf("{ type: 'maybe-stale', ...makeBase() }")).toBeUndefined();
   });
 });
@@ -389,11 +382,8 @@ describe('real evidence emitter scan', () => {
     }
   });
 
+  /** Runs the real tree walk over a rogue emitter on disk, written the way the admission consumers in this package write one. */
   it('EmitterScan_IdiomaticRogueEmitterPlantedOnDisk_IsCaught', async () => {
-    // The kill fixture for the whole repair, run through the REAL tree walk
-    // rather than the string helper: a rogue emitter written exactly the way
-    // every admission consumer in this package writes one. Under the retired
-    // raw-literal match this directory scanned clean.
     const root = await mkdtemp(join(tmpdir(), 'exarchos-census-idiom-'));
     try {
       await writeFile(

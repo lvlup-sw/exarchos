@@ -8,9 +8,8 @@ vi.mock('node:fs');
 const mockedFs = vi.mocked(fs);
 
 /**
- * Minimal EventStore stub for fileless resolution. `node:fs` is auto-mocked
- * here (which breaks the SQLite-backed real EventStore), so we stub the only
- * method `resolveWorkflowState` calls — `query` — to return seeded events.
+ * Stubs `query`, the one EventStore method that `resolveWorkflowState` calls.
+ * The `node:fs` auto-mock breaks the real EventStore, which uses SQLite.
  */
 function makeStubEventStore(events: WorkflowEvent[]): EventStore {
   return {
@@ -100,11 +99,10 @@ describe('Assess Refactor Scope', () => {
     expect(data.filesCount).toBe(2);
   });
 
-  // ─── Fileless resolution: MCP-only workflow ────────────────────────────
-  //
-  // INV-1: the event store is the sole source of truth. An MCP-only refactor
-  // workflow has no `.state.json` stamp; explore.scopeAssessment.filesAffected
-  // must resolve from the event-store projection via featureId + eventStore.
+  /**
+   * The event store is the authoritative record. An MCP-only refactor workflow has no `.state.json` stamp.
+   * So `explore.scopeAssessment.filesAffected` must resolve from the event-store projection.
+   */
   it('FilelessMcpOnly_ResolvesFilesFromEventStore', async () => {
     const { handleAssessRefactorScope } = await import('../../../../src/verbs/gates/assess-refactor-scope.js');
 

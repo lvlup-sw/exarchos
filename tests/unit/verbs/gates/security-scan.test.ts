@@ -1,13 +1,9 @@
-// ─── Security Scan Action Tests ─────────────────────────────────────────────
-//
-// Tests for the pure TypeScript security scan implementation.
-// No bash script dependency — scans diff content directly in TypeScript.
-// ────────────────────────────────────────────────────────────────────────────
+// Tests for the pure `scanDiffContent` and the `handleSecurityScan` handler. The scan reads the diff
+// text directly. The phase-gate runner is a stub that calls only the provider, and
+// `gate-runner.test.ts` tests the runner against a real store.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { EventStore } from '../../../../src/events/store.js';
-
-// ─── Mock event store ────────────────────────────────────────────────────────
 
 const mockStore = {
   append: vi.fn().mockResolvedValue(undefined),
@@ -18,11 +14,6 @@ vi.mock('../../../../src/projections/views/tools.js', () => ({
   getOrCreateMaterializer: () => ({}),
 }));
 
-// The gate now records durable evidence through the shared phase-gate runner
-// before any success carrier escapes. These cases are about the PROVIDER's
-// verdict, so the runner is stubbed down to its provider call — the same seam
-// every other migrated gate's unit test stubs. What the runner itself
-// guarantees is proven against a real store in `gate-runner.test.ts`.
 vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
   runPhaseGateWithEvidence: vi.fn(async (request) => {
     try {
@@ -50,8 +41,6 @@ import { handleSecurityScan, scanDiffContent } from '../../../../src/verbs/gates
 import type { SecurityFinding } from '../../../../src/verbs/gates/security-scan.js';
 
 const STATE_DIR = '/tmp/test-security-scan';
-
-// ─── Diff Fixture Helpers ───────────────────────────────────────────────────
 
 function makeCleanDiff(): string {
   return [
@@ -161,8 +150,6 @@ function makeMultiIssueDiff(): string {
   ].join('\n');
 }
 
-// ─── Tests: scanDiffContent (pure function) ─────────────────────────────────
-
 describe('scanDiffContent', () => {
   it('scanDiffContent_CleanDiff_ReturnsNoFindings', () => {
     const findings = scanDiffContent(makeCleanDiff());
@@ -213,7 +200,6 @@ describe('scanDiffContent', () => {
 
   it('scanDiffContent_MultipleIssues_DetectsAllPatterns', () => {
     const findings = scanDiffContent(makeMultiIssueDiff());
-    // Should detect at least: PASSWORD credential, eval(), innerHTML, SQL concat
     expect(findings.length).toBeGreaterThanOrEqual(4);
     const patterns = findings.map((f: SecurityFinding) => f.pattern);
     expect(patterns).toContain('Hardcoded secret/credential');
@@ -293,16 +279,12 @@ describe('scanDiffContent', () => {
   });
 });
 
-// ─── Tests: handleSecurityScan (handler integration) ────────────────────────
-
 describe('handleSecurityScan', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockStore.append.mockResolvedValue(undefined);
     mockStore.query.mockResolvedValue([]);
   });
-
-  // ─── Validation ──────────────────────────────────────────────────────────
 
   describe('input validation', () => {
     it('handleSecurityScan_MissingFeatureId_ReturnsError', async () => {
@@ -321,8 +303,6 @@ describe('handleSecurityScan', () => {
       expect(result.error?.message).toContain('diffContent');
     });
   });
-
-  // ─── No Findings ────────────────────────────────────────────────────────
 
   describe('no findings', () => {
     it('handleSecurityScan_CleanDiff_ReturnsPassed', async () => {
@@ -356,8 +336,6 @@ describe('handleSecurityScan', () => {
     });
   });
 
-  // ─── Findings Detected ─────────────────────────────────────────────────
-
   describe('findings detected', () => {
     it('handleSecurityScan_FindingsDetected_ReturnsFailWithCount', async () => {
       const args = { featureId: 'feat-1', diffContent: makeApiKeyDiff() };
@@ -390,8 +368,6 @@ describe('handleSecurityScan', () => {
       expect(data.findingCount).toBeGreaterThanOrEqual(4);
     });
   });
-
-  // ─── Gate Event Emission ──────────────────────────────────────────────────
 
   describe('gate event emission', () => {
     it('handleSecurityScan_CleanDiff_EmitsGatePassedEvent', async () => {
@@ -439,8 +415,6 @@ describe('handleSecurityScan', () => {
     });
   });
 
-  // ─── Phase in Gate Event Details ──────────────────────────────────────────
-
   describe('phase in gate event details', () => {
     it('handleSecurityScan_EmitsGateEvent_IncludesPhaseInDetails', async () => {
       const args = { featureId: 'feat-1', diffContent: makeCleanDiff() };
@@ -455,8 +429,6 @@ describe('handleSecurityScan', () => {
       expect(event.data.details.phase).toBe('review');
     });
   });
-
-  // ─── Report Format ──────────────────────────────────────────────────────
 
   describe('report format', () => {
     it('handleSecurityScan_CleanReport_ContainsMarkdownHeading', async () => {

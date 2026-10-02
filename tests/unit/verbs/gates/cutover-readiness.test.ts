@@ -46,6 +46,17 @@ import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
+
+/**
+ * Tests for the cutover verbs.
+ *
+ * `cutover_readiness` names each unmet condition and reports ready only when all six hold. It appends nothing.
+ *
+ * `cutover_decide` requires the operator role. It denies a delegated agent or a contextless caller before any append.
+ * An unsatisfied gate records a `continue-shadow` rollout decision and refuses the enablement fact with a typed error.
+ * A satisfied gate appends `admission.rollout-decision` and then `admission.enforcement-enabled`, linked by `rolloutDecisionId`.
+ */
+
 const AT = '2026-07-21T20:00:00.000Z';
 const SHA_A = 'a'.repeat(64);
 const digest = () => ({ algorithm: 'sha256' as const, value: SHA_A });
@@ -151,8 +162,6 @@ const ALL_CONDITIONS: readonly GateConditionId[] = [
   'live-observer-health',
 ];
 
-// ─── Suite ────────────────────────────────────────────────────────────────────
-
 describe('CutoverReadiness / CutoverDecide (#1739)', () => {
   let stateDir: string;
   let eventStore: EventStore;
@@ -199,8 +208,10 @@ describe('CutoverReadiness / CutoverDecide (#1739)', () => {
     );
   }
 
-  // ── cutover_readiness ──────────────────────────────────────────────────────
-
+  /**
+   * On a cold store, the corpus condition holds vacuously, because an empty disposition fold has no unexplained disagreements.
+   * `live-disagreement-class` needs durable evidence, so it refuses the empty store. The report appends nothing.
+   */
   it('CutoverReadiness_UnmetConditions_NamedIndividually', async () => {
     const result = await handleCutoverReadiness({}, stateDir, eventStore, EMPTY_DEPS);
     expect(result.success).toBe(true);
@@ -213,16 +224,10 @@ describe('CutoverReadiness / CutoverDecide (#1739)', () => {
     }).report;
 
     expect(report.satisfied).toBe(false);
-    // Every condition is present in the report, individually named and
-    // carrying a non-empty diagnostic detail.
     expect(report.conditions.map((c) => c.id)).toEqual(ALL_CONDITIONS);
     for (const condition of report.conditions) {
       expect(condition.detail.length).toBeGreaterThan(0);
     }
-    // On a cold store with no live activity, exactly these five are unmet
-    // (an EMPTY disposition fold has zero unexplained disagreements, so the
-    // corpus condition is met vacuously — the durable-evidence condition is
-    // what refuses the empty store).
     expect(report.unmet).toEqual([
       'live-attempt-threshold',
       'phase-kind-coverage',
@@ -231,7 +236,6 @@ describe('CutoverReadiness / CutoverDecide (#1739)', () => {
       'live-observer-health',
     ]);
 
-    // Read-only: assembling the report appended nothing.
     expect(await eventStore.query(ADMISSION_STREAM_ID)).toEqual([]);
   });
 
@@ -254,10 +258,11 @@ describe('CutoverReadiness / CutoverDecide (#1739)', () => {
     expect(data.durableEvidence.attemptCount).toBe(1);
   });
 
-  // ── cutover_decide ─────────────────────────────────────────────────────────
-
+  /**
+   * A caller with no dispatch context fails closed. A delegated agent with a mutating posture is also denied, because the check is the operator role.
+   * Neither denial appends an event.
+   */
   it('CutoverDecide_NonOperatorCaller_Denied', async () => {
-    // No dispatch context at all: fails closed.
     const contextless = await handleCutoverDecide(
       {},
       stateDir,
@@ -269,8 +274,6 @@ describe('CutoverReadiness / CutoverDecide (#1739)', () => {
       error: { code: 'CAPABILITY_DENIED', action: 'cutover_decide' },
     });
 
-    // A delegated agent (role 'agent') with a MUTATING posture is still
-    // denied: the bar is the operator ROLE, not the posture alone.
     const asAgent = await runWithDispatchContext(agentContext(), () =>
       handleCutoverDecide({}, stateDir, eventStore, SATISFIED_DEPS),
     );
@@ -279,10 +282,10 @@ describe('CutoverReadiness / CutoverDecide (#1739)', () => {
       error: { code: 'CAPABILITY_DENIED' },
     });
 
-    // Neither denial appended anything.
     expect(await eventStore.query(ADMISSION_STREAM_ID)).toEqual([]);
   });
 
+  /** The refusal names the unmet conditions. The handler records the `continue-shadow` rollout decision, but not the enablement fact. */
   it('CutoverDecide_GateUnsatisfied_RefusesEnablementFact', async () => {
     const result = await runWithDispatchContext(operatorContext(), () =>
       handleCutoverDecide({}, stateDir, eventStore, EMPTY_DEPS),
@@ -290,7 +293,6 @@ describe('CutoverReadiness / CutoverDecide (#1739)', () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toMatchObject({ code: 'CUTOVER_GATE_NOT_SATISFIED' });
-    // The refusal NAMES the unmet conditions.
     expect(result.error?.unmetGates).toEqual([
       'live-attempt-threshold',
       'phase-kind-coverage',
@@ -299,8 +301,6 @@ describe('CutoverReadiness / CutoverDecide (#1739)', () => {
       'live-observer-health',
     ]);
 
-    // The rollout decision (continue-shadow) IS recorded; the enablement
-    // fact is NOT.
     const rollouts = await eventStore.query(ADMISSION_STREAM_ID, {
       type: 'admission.rollout-decision',
     });
@@ -313,6 +313,7 @@ describe('CutoverReadiness / CutoverDecide (#1739)', () => {
     ).toEqual([]);
   });
 
+  /** The enablement fact links through `rolloutDecisionId` to the rollout decision that approved it. */
   it('CutoverDecide_GateSatisfied_AppendsRolloutDecisionThenEnablement', async () => {
     await seedSatisfiableDurableEvidence();
     const result = await runWithDispatchContext(operatorContext(), () =>
@@ -337,22 +338,19 @@ describe('CutoverReadiness / CutoverDecide (#1739)', () => {
       rolloutDecisionId: data.rolloutDecisionId,
       caller: { principalKind: 'operator' },
     });
-    // The enablement fact is LINKED to the rollout decision that approved it.
     expect(events[1]?.data).toMatchObject({
       enablementId: data.enablementId,
       rolloutDecisionId: data.rolloutDecisionId,
     });
   });
 
+  /** A retry in the same dispatch has the same operationId and evidence. It derives the same natural-identity keys, so it collapses onto the stored rows. */
   it('CutoverDecide_SameOperationRetry_DoesNotDuplicateFacts', async () => {
     await seedSatisfiableDurableEvidence();
     const context = operatorContext();
     await runWithDispatchContext(context, () =>
       handleCutoverDecide({}, stateDir, eventStore, SATISFIED_DEPS),
     );
-    // A retry within the SAME dispatch (same operationId, same evidence)
-    // derives the same natural-identity keys and collapses onto the stored
-    // rows (INV-8 / T-49).
     await runWithDispatchContext(context, () =>
       handleCutoverDecide({}, stateDir, eventStore, SATISFIED_DEPS),
     );

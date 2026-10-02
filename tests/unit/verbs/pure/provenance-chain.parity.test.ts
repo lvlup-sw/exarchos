@@ -1,18 +1,13 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { verifyProvenanceChain } from '../../../../src/verbs/pure/provenance-chain.js';
+/**
+ * Parity tests for `verifyProvenanceChain` against the behavior of the retired `verify-provenance-chain.sh` script.
+ * A full trace passes with "3/3 requirements traced". A gap fails with "1/3 requirements unmapped, 0 orphan references".
+ */
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
-
-/**
- * Behavioral parity tests for provenance-chain.ts against the original
- * scripts/verify-provenance-chain.sh bash script.
- *
- * Bash script behavior:
- *   - exit 0 → all DR-N requirements traced → PASS (3/3 requirements traced)
- *   - exit 1 → gaps found → FAIL (1/3 requirements unmapped, 0 orphan references)
- */
+import { verifyProvenanceChain } from '../../../../src/verbs/pure/provenance-chain.js';
 
 const DESIGN_FIXTURE = `# Feature Design
 ## Technical Design

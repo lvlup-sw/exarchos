@@ -1,14 +1,19 @@
-// ─── Operational Resilience Action Tests ────────────────────────────────────
+// Tests for `handleOperationalResilience`. They test the verdict of the provider, so the
+// phase-gate runner is a stub that calls only the provider. `gate-runner.test.ts` tests the runner
+// against a real store. `unrunbooked-gate-evidence-dispatch.test.ts` tests the evidence over real
+// dispatch.
+// The `requireGateEvent` stub appends through the mocked `emitGateEvent` and withholds the carrier
+// when the append throws, like the real helper.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { EventStore } from '../../../../src/events/store.js';
 
-// ─── Mock gate-utils (getDiff + emitGateEvent) ─────────────────────────────
-
 const mockGetDiff = vi.fn<(repoRoot: string, baseBranch: string) => string | null>();
 const mockEmitGateEvent = vi.fn().mockResolvedValue(undefined);
-// Outside a dispatch scope there is no operation for a retry to collapse onto,
-// so the real helper answers `undefined` — the mock says the same thing.
+/**
+ * Outside a dispatch scope a retry has no operation to collapse onto, so the real helper returns
+ * `undefined`.
+ */
 const mockSameOperationGateKey = vi.fn<(gateName: string) => string | undefined>(
   () => undefined,
 );
@@ -17,10 +22,6 @@ vi.mock('../../../../src/verbs/gates/gate-utils.js', () => ({
   getDiff: (...args: [string, string]) => mockGetDiff(...args),
   emitGateEvent: (...args: unknown[]) => mockEmitGateEvent(...args),
   sameOperationGateKey: (gateName: string) => mockSameOperationGateKey(gateName),
-  // The handler now calls `requireGateEvent`, not `emitGateEvent`, directly.
-  // This stub mirrors the real helper's semantics — append via the same
-  // mocked `emitGateEvent`, withhold the carrier when the append throws — so
-  // a test controls the failure through `mockEmitGateEvent` exactly as before.
   requireGateEvent: async (
     store: unknown,
     streamId: string,
@@ -47,13 +48,6 @@ vi.mock('../../../../src/verbs/gates/gate-utils.js', () => ({
   },
 }));
 
-// The gate now records durable evidence through the shared phase-gate runner
-// before any success carrier escapes. These cases are about the PROVIDER's
-// verdict, so the runner is stubbed down to its provider call — the same seam
-// every other migrated gate's unit test stubs. What the runner itself
-// guarantees is proven against a real store in `gate-runner.test.ts`, and the
-// evidence a caller actually gets is proven over real dispatch in
-// `unrunbooked-gate-evidence-dispatch.test.ts`.
 vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
   runPhaseGateWithEvidence: vi.fn(async (request) => {
     try {
@@ -77,13 +71,9 @@ vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
   }),
 }));
 
-// ─── Mock pure TS operational-resilience module ─────────────────────────────
-
 vi.mock('../../../../src/verbs/pure/operational-resilience.js', () => ({
   checkOperationalResilience: vi.fn(),
 }));
-
-// ─── Mock event store ────────────────────────────────────────────────────────
 
 const mockStore = {
   append: vi.fn().mockResolvedValue(undefined),
@@ -99,16 +89,12 @@ import { handleOperationalResilience } from '../../../../src/verbs/gates/operati
 
 const STATE_DIR = '/tmp/test-operational-resilience';
 
-// ─── Tests ───────────────────────────────────────────────────────────────────
-
 describe('handleOperationalResilience', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockStore.append.mockResolvedValue(undefined);
     mockStore.query.mockResolvedValue([]);
   });
-
-  // ─── Validation ──────────────────────────────────────────────────────────
 
   describe('input validation', () => {
     it('handleOperationalResilience_MissingFeatureId_ReturnsError', async () => {
@@ -119,8 +105,6 @@ describe('handleOperationalResilience', () => {
       expect(result.error?.message).toContain('featureId');
     });
   });
-
-  // ─── Clean Code ────────────────────────────────────────────────────────
 
   describe('clean code', () => {
     it('handleOperationalResilience_CleanCode_ReturnsPassed', async () => {
@@ -141,8 +125,6 @@ describe('handleOperationalResilience', () => {
       expect(data.report).toContain('Result: PASS');
     });
   });
-
-  // ─── Findings Detected ─────────────────────────────────────────────────
 
   describe('findings detected', () => {
     it('handleOperationalResilience_Findings_ReturnsFailWithCount', async () => {
@@ -167,8 +149,6 @@ describe('handleOperationalResilience', () => {
       expect(data.report).toContain('FINDINGS');
     });
   });
-
-  // ─── Gate Event Emission ──────────────────────────────────────────────────
 
   describe('gate event emission', () => {
     it('handleOperationalResilience_EmitsGateEvent_WithD4Dimension', async () => {
@@ -195,8 +175,6 @@ describe('handleOperationalResilience', () => {
     });
   });
 
-  // ─── Git Diff Failure (fail-closed) ───────────────────────────────────────
-
   describe('git diff failure', () => {
     it('handleOperationalResilience_GitDiffFails_ReturnsError', async () => {
       mockGetDiff.mockReturnValue(null);
@@ -209,8 +187,6 @@ describe('handleOperationalResilience', () => {
       expect(checkOperationalResilience).not.toHaveBeenCalled();
     });
   });
-
-  // ─── Gate Event Append Failure ─────────────────────────────────────────────
 
   describe('gate event append failure', () => {
     it('OperationalResilience_GateEventAppendFails_WithholdsTheSuccessCarrier', async () => {
