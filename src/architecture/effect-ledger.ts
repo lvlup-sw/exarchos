@@ -1,176 +1,20 @@
+/**
+ * Effect ownership ledger. It scans the shipped source under
+ * {@link GOVERNED_SOURCE_ROOT} and maps each effect occurrence to one typed
+ * owner in {@link EFFECT_OWNERSHIP}. Each owner also states an idempotency
+ * contract and a compensation contract.
+ *
+ * An occurrence that no rule claims fails as `INDETERMINATE_OWNER`. A rule that
+ * claims no occurrence fails as `STALE_OWNERSHIP`. The census detects three
+ * effect classes: `filesystem`, `process` and `network`. VCS and install effects
+ * are process owners, not separate classes.
+ *
+ * The lexer is a required port ({@link ModuleLexer}). Only the TypeScript
+ * compiler parses TypeScript soundly, but an import of `typescript` here needs an
+ * effect owner, because `ts.sys` gives filesystem and process access.
+ */
 import { readdir, readFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
-
-/**
- * P04-01 — effect ownership ledger (structural census).
- *
- * The unified remediation plan (PROGRAM-04) mandates that **every effect has one
- * typed owner, idempotency boundary, and repair or compensation contract**. This
- * module is the structural-conformance harness for that mandate: a string-aware
- * static scan of the shipped source that enumerates every *effect occurrence*
- * and maps it to a declared typed owner via {@link EFFECT_OWNERSHIP}. Any
- * occurrence that no ownership rule claims is an `INDETERMINATE_OWNER` and fails
- * the census; any ownership rule that claims no live occurrence is a
- * `STALE_OWNERSHIP` phantom and also fails (no stale cover — the same "no-mask"
- * ratchet as `architecture/import-cycles.ts`).
- *
- * It follows the established `verbs/gates/gate-ownership-census.ts` pattern: a
- * string-aware source scan producing a typed verdict over the *real* tree, so a
- * regression (a new unowned effect site) trips it rather than a hand-maintained
- * mirror.
- *
- * ── Effect classes ──────────────────────────────────────────────────────────
- * The scan classifies the three effect *primitives* that are statically
- * detectable from a module's import surface: `filesystem` (`node:fs`), `process`
- * (`node:child_process`), and `network` (see {@link classifySpecifier} for the
- * widened network subject). The plan's other named effects — `vcs` and
- * `install` — are process *owners*, not separate primitives: a `process`
- * occurrence under `vcs/**` is owned by the VCS effect owner, one under an
- * install module by the install owner. Ownership is therefore where `vcs` /
- * `install` are named (see {@link EFFECT_OWNERSHIP}).
- *
- * ── Scope ───────────────────────────────────────────────────────────────────
- * The census governs {@link GOVERNED_SOURCE_ROOT} — the MCP package's shipped
- * source, and NOT the repository. That distinction used to live only in the
- * caller: this header said "the shipped source" while every live caller passed
- * `servers/exarchos-mcp/src`, so the module claimed a repository-wide property
- * it never measured (DR-8, task 079). The root is now a declared constant the
- * live audit derives its argument FROM, so the claim and the walk cannot drift
- * apart again — and {@link EFFECT_OWNERSHIP}'s rule paths are relative to it,
- * which is what makes the boundary load-bearing rather than incidental.
- *
- * Within that root, "shipped source" excludes test, fixture, benchmark and
- * evaluation harnesses (see {@link EXCLUDED_DIRS} / {@link isScannableFile});
- * those are not shipped and carry their own effect surface. Filesystem
- * persistence is pervasive, so its ownership is declared at layer granularity;
- * process and network are declared at the crisp module/owner granularity their
- * "one typed owner" mandate warrants.
- *
- * ── DR-13: effect detection is not evadable by import shape ─────────────────
- * The pre-DR-13 detector keyed off an exact specifier list
- * (`node:http|https|net|tls|dgram`, `undici`) plus a bare `fetch(` regex. That
- * is trivially evaded: `node:http2`, `axios`/`got`/`ws`/`node-fetch`, a private
- * `@scope/transport` package and an aliased global were all invisible, so a
- * module could perform network I/O and the census would stay green. The
- * widening replaces the denylist with a CLOSED-WORLD subject:
- *
- *   1. the full set of network-capable runtime builtins
- *      (`http`/`https`/`http2`/`net`/`tls`/`dgram`/`dns`, `node:`- or
- *      `bun:`-prefixed or bare) — {@link NETWORK_BUILTIN};
- *   2. a curated set of well-known third-party HTTP/socket clients, aligned
- *      with the repo's existing `config/toolchains.ts` `third-party-http`
- *      signature — {@link THIRD_PARTY_NETWORK_CLIENTS};
- *   3. **every other bare package specifier that is not on the vetted-inert
- *      allowlist** {@link INERT_DEPENDENCIES}. This is the rule that actually
- *      closes the defect: a client can be published under ANY name, so the only
- *      non-evadable rule is one that fails closed on names nobody has vetted;
- *   4. remote-URL imports (`https://…`, `wss://…`), which fetch over the wire
- *      by construction;
- *   5. ambient globals reached without an import — `fetch(…)`,
- *      `<globalRoot>.fetch` (where `<globalRoot>` is any spelling of the global
- *      object: `globalThis`/`global`/`self`/`window`), `const f = fetch`,
- *      `const { fetch } = <globalRoot>`, `new WebSocket(…)` — see
- *      {@link AMBIENT_NETWORK_RULES} — plus the Bun ambient runtime object,
- *      whose I/O needs no import at all: `Bun.serve`/`Bun.connect` (network),
- *      `Bun.spawn` (process), `Bun.write`/`Bun.file` (filesystem) — see
- *      {@link AMBIENT_BUN_RULES}.
- *
- * Rule 3 deliberately inverts the list: an allowlist of *inert* dependencies
- * grows only when a human consciously asserts "this package performs no I/O",
- * whereas the old denylist grew only when someone remembered a client name. It
- * is decidable HERE because the shipped bare-import surface is small and fixed
- * (see {@link INERT_DEPENDENCIES}); it is not a general-purpose rule. The
- * `network` classification it assigns is CONSERVATIVE, not a claim of fact — an
- * unvetted package's effect surface is unknowable from source, so the ledger
- * charges it to the widest primitive and carries the specifier in `evidence`
- * (`unvetted-dependency:<pkg>`) so the diagnostic names exactly what was
- * admitted. The fix is either to vet the package into {@link
- * INERT_DEPENDENCIES} or to declare an owner for it.
- *
- * ── DR-13 trust boundary — what this scan does NOT see ──────────────────────
- * DR-13's second acceptance criterion allows an evasion class to be scoped out
- * *provided the boundary is documented explicitly*. These are scoped out, each
- * because it is not soundly decidable from a single module's source text. They
- * are stated here so the carve-out cannot silently grow, and each is pinned by a
- * test in `effect-ledger.test.ts` so a future widening has to delete the pin:
- *
- *   - INJECTED CLIENTS. A client passed in as a constructor/function parameter
- *     (`constructor(private http: HttpLike)`, `run(deps: { post: Poster })`) is
- *     INVISIBLE and cannot be made visible by a source scan: the parameter's
- *     effect surface is a property of the *caller*, which a per-module scan
- *     never sees, and its type may be a structural interface with no effectful
- *     import anywhere. The ledger's coverage of injection is INDIRECT: whichever
- *     module constructs the real client must name it (rules 1–4) or reach an
- *     ambient global (rule 5), and THAT module is the effect site. This is the
- *     deliberate seam — the injection point is a port, the constructor is the
- *     adapter, and the adapter is what the ledger owns.
- *   - TRANSITIVE ATTRIBUTION. A re-export of an effect primitive IS detected —
- *     `export { request } from 'node:https'` names the primitive, so the
- *     re-exporting module is an effect site and needs an owner. What is NOT
- *     detected is the *consumer* of that re-export: effects are attributed to
- *     the module that names the primitive, never propagated along the import
- *     graph. Attribution is intentionally per-module because that is where an
- *     owner, an idempotency contract and a compensation contract can live.
- *   - COMPUTED / STRING-INDEXED ACCESS. `globalThis['fet' + 'ch']`,
- *     `Reflect.get(globalThis, name)` and a `fetch` reference smuggled through a
- *     shape none of {@link AMBIENT_NETWORK_RULES} matches (e.g. the object
- *     shorthand `const c = { fetch }`) are not matched. Computed member access
- *     is undecidable in general; the shorthand is excluded on purpose because a
- *     bare `fetch` identifier rule false-positives on ordinary property keys and
- *     interface members.
- *
- * Everything above is a FALSE-NEGATIVE boundary, never a false positive: the
- * census can under-report a smuggled effect, but it never invents one.
- *
- * ── DR-26 / task 065: the lexical question is INVERTED to the caller ────────
- * The sentence above was, until task 065, **false**, and a fourth carve-out
- * ("TEMPLATE-LITERAL INTERPOLATION") claimed a false-negative the module did not
- * actually have. Both were artefacts of the same thing: this module used to
- * answer "what does this source import, and which of its characters are code?"
- * with two hand-rolled lexers whose own headers admitted the regex-versus-
- * division rule was a heuristic. Measured on the tree at task 065:
- *
- *   • FALSE POSITIVE. `` export const d = `outer ${ `inner from 'node:child_process' text` } end`; ``
- *     imports nothing. The heuristic toggled on every backtick, so the NESTED
- *     template's body read as code and it reported one `process` occurrence —
- *     the census inventing an effect, which the paragraph above swore it could
- *     never do.
- *   • FALSE NEGATIVE, the dangerous direction. A regex literal containing a
- *     backtick in a position the heuristic scored as division
- *     (`return /` + backtick + `/.test(s);`) opened a phantom template literal
- *     that ran to EOF, so a following real `import { readFile } from 'node:fs'`
- *     was invisible and the module scanned as effect-free. That is exactly the
- *     evasion DR-13's closed-world rule exists to prevent, reachable by
- *     accident rather than by malice.
- *
- * The sound answer is to parse: a specifier inside a comment, a string or a
- * template is not an import NODE, and a `${…}` substitution IS code, so both
- * follow by construction rather than by another filter. But the only instrument
- * that cannot disagree with the compiler about TypeScript's grammar is the
- * compiler, and `typescript` is a devDependency while this is shipped `src/`.
- * Task 062 measured the consequence directly: adding `import ts from 'typescript'`
- * to a module under `architecture/` fails this very census with one
- * `INDETERMINATE_OWNER`, because `typescript` is not in {@link
- * INERT_DEPENDENCIES}; and vetting it inert would be FALSE at the granularity
- * this list vets, since `import ts` puts `ts.sys` — full filesystem and process
- * access — one property access away.
- *
- * So the lexer is a REQUIRED PORT ({@link ModuleLexer}), exactly as the
- * filesystem walk already is and exactly as `architecture/import-cycles.ts`
- * takes dependency-cruiser JSON rather than running it. This module keeps the
- * POLICY — which specifier is an effect, which shape is an ambient global, who
- * owns what — and owns no lexing mechanism at all. The implementation is
- * `test-helpers/module-lexer.ts`, the one directory both skipped by {@link
- * EXCLUDED_DIRS} and inside `tsconfig.json`'s `include`, so it is still
- * typechecked. The superseded heuristic is retained ONLY as
- * `test-helpers/superseded-source-lexer.ts`, so the kill fixture can assert both
- * numbers rather than asking a reader to take the gap on faith.
- *
- * The port is REQUIRED everywhere it appears. A default would have to be either
- * the retired heuristic (the defect, retained) or a throwing stub (a runtime
- * failure where the checker could have spoken), and an optional lexer is exactly
- * how a caller silently gets the old answers back.
- */
 
 /** The three statically-detectable effect primitives. */
 export type EffectClass = 'filesystem' | 'process' | 'network';
@@ -185,11 +29,10 @@ export interface EffectOccurrence {
 }
 
 /**
- * A declared ownership rule. `match` is either an exact module path or a
- * directory prefix ending in `/`. A rule claims every occurrence of its
- * `effectClass` whose module the `match` covers. `owner` is the single typed
- * owner; `idempotency` and `compensation` record the two remaining contracts the
- * plan requires of every effect.
+ * A declared ownership rule. `match` is an exact module path, or a directory
+ * prefix that ends in `/`. The rule claims each occurrence of its `effectClass`
+ * in a module that `match` covers. `idempotency` and `compensation` record the
+ * other two contracts of the owner.
  */
 export interface EffectOwnershipRule {
   readonly effectClass: EffectClass;
@@ -237,14 +80,9 @@ export interface EffectLedgerResult {
 }
 
 /**
- * An already-collected effect scan: the occurrences plus the two denominators
- * that say whether the numbers underneath them mean anything.
- *
- * Both counts are REQUIRED, never optional or derived. `occurrences` alone
- * cannot distinguish "the tree performs no unowned effect" (the success state)
- * from "the walk resolved no modules" or "the lexer resolved no specifiers"
- * (a broken instrument), and all three present as an empty array. An optional
- * field defaulting to "unknown" would hand every caller the vacuity back.
+ * An effect scan: the occurrences and two required denominators. An empty
+ * `occurrences` array alone cannot tell a clean tree from a walk that found no
+ * modules, or from a lexer that resolved no specifiers.
  */
 export interface EffectScan {
   readonly occurrences: readonly EffectOccurrence[];
@@ -252,19 +90,10 @@ export interface EffectScan {
   readonly specifierCount: number;
 }
 
-// ─── Detection ──────────────────────────────────────────────────────────────
-
 /**
- * The tree this census governs, repo-relative.
- *
- * Exported so the scan root is a DECLARED fact with one owner rather than a
- * string each caller reconstructs — the live audit resolves its `sourceRoot`
- * from this constant, so "what the module claims" and "what the walk covers"
- * are the same authority (DR-8).
- *
- * Widening it is a real project, not a parameter change: {@link
- * EFFECT_OWNERSHIP}'s `match` prefixes are relative to this root, so a
- * repository-wide walk renames every module and strands every rule.
+ * The tree that this census governs, relative to the repository. The live audit
+ * gets its `sourceRoot` from this constant. The `match` prefixes of
+ * {@link EFFECT_OWNERSHIP} are relative to it, so a new root breaks every rule.
  */
 export const GOVERNED_SOURCE_ROOT = 'src';
 
@@ -294,31 +123,26 @@ const FS_SPEC = /^fs(?:\/promises)?$/;
 const PROCESS_SPEC = /^child_process$/;
 
 /**
- * Network-capable runtime builtins (DR-13 rule 1), matched on the *unprefixed*
- * module name so `node:http2`, `bun:http2` and a bare `http2` are all the same
- * subject. `http2` and `dns` were the two the pre-DR-13 list missed outright.
- * `dns` counts: name resolution is a packet on the wire and is the classic
- * exfiltration channel for a process that is otherwise "offline".
+ * Network-capable runtime builtins, matched on the name without a scheme, so
+ * `node:http2`, `bun:http2` and `http2` are the same. `dns` counts, because name
+ * resolution sends packets and can carry data out.
  */
 const NETWORK_BUILTIN = /^(?:http|https|http2|net|tls|dgram|dns)(?:\/promises)?$/;
 
-/** Remote-URL module specifiers (DR-13 rule 4) — importing one IS a fetch. */
+/** Remote-URL module specifiers. An import of one fetches over the network. */
 const REMOTE_URL_SPEC = /^(?:https?|wss?):\/\//;
 
 /**
- * Runtime-builtin schemes. A specifier carrying one of these is resolved by the
- * runtime, never by the package manager, so it is judged by {@link
- * NETWORK_BUILTIN} / {@link FS_SPEC} / {@link PROCESS_SPEC} alone and is never
- * an "unvetted dependency" (rule 3). `bun:sqlite` — the shipped SQLite
- * substrate — is the live example.
+ * Runtime-builtin schemes. The runtime resolves such a specifier, not the
+ * package manager. Thus only the builtin patterns judge it, and it is never an
+ * unvetted dependency. `bun:sqlite` is the live example.
  */
 const BUILTIN_SCHEME = /^(node|bun):/;
 
 /**
- * Node builtins reachable WITHOUT the `node:` prefix. Needed so the closed-world
- * rule 3 does not mistake a bare `util` or `child_process` import (both live in
- * the shipped tree) for an unvetted npm package. Subpath forms (`fs/promises`)
- * normalise to their head segment before lookup.
+ * Node builtins that a module can import without the `node:` prefix. With this
+ * set, the closed-world rule does not charge a bare `util` import as an
+ * unvetted package. A subpath (`fs/promises`) matches on its first segment.
  */
 const NODE_BUILTINS: ReadonlySet<string> = new Set([
   'assert', 'async_hooks', 'buffer', 'child_process', 'cluster', 'console',
@@ -330,17 +154,10 @@ const NODE_BUILTINS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Well-known third-party HTTP/socket clients (DR-13 rule 2). The membership list
- * is the same vocabulary `config/toolchains.ts` already uses for its
- * `third-party-http` hermetic-dependency signature, plus the socket clients that
- * signature has no reason to name.
- *
- * For the *verdict* this set is subsumed by rule 3 (none of these is inert), and
- * that is deliberate: the set exists so the diagnostic can say "axios" rather
- * than "unvetted dependency", i.e. so a real client is named as a network
- * primitive and not merely as an un-audited package. Keeping it separate also
- * means a future narrowing of rule 3 cannot silently un-detect the named
- * clients.
+ * Well-known third-party HTTP and socket clients. The closed-world rule already
+ * charges each one as network. This set makes the evidence name the client
+ * (`axios`), not `unvetted-dependency`. It also keeps them detected if that rule
+ * gets narrower.
  */
 const THIRD_PARTY_NETWORK_CLIENTS: ReadonlySet<string> = new Set([
   'axios', 'got', 'ky', 'needle', 'node-fetch', 'phin', 'request', 'superagent',
@@ -349,103 +166,55 @@ const THIRD_PARTY_NETWORK_CLIENTS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * The VETTED-INERT dependency allowlist — the closed world rule 3 is closed
- * against. Every bare package specifier the shipped tree imports is listed here
- * with the reason it performs no ambient I/O of its own; anything else is an
- * `unvetted-dependency` network occurrence until a human vets it.
- *
- * This IS an exact-specifier list, but it grows in the SAFE direction: a
- * forgotten entry fails the census (loud), whereas a forgotten entry in the old
- * client denylist silently passed it. Match is on the PACKAGE name, so every
- * subpath of a listed package (`@modelcontextprotocol/server/stdio`) is
- * covered by one entry.
- *
- *   (`@modelcontextprotocol/sdk` — the v1 SDK — was REMOVED from this list by
- *   task 049 along with the dependency itself. It was a declared owner with no
- *   live import site, which is precisely the stale-cover condition the census
- *   fails on; leaving it would have been an allowlist entry vouching for a
- *   package that is not installed.)
- *
- *   - `@lvlup-sw/strategos-contracts` — the published workflow-definition
- *     kernel, VETTED at its first shipped import (the capsule contract under
- *     `contract/capsule/`). This entry is unusually checkable, because the
- *     package is not hand-written: its whole `dist/` is emitted from TypeSpec
- *     and consists of Zod schemas plus their inferred types. Three things carry
- *     the judgement, and each can be re-measured against `node_modules` rather
- *     than believed — `sideEffects: false` in its manifest, `zod` as the only
- *     non-relative import anywhere in `dist/` (and `zod` is vetted inert two
- *     entries down), and no occurrence of a `node:` builtin, `fetch`, or any
- *     socket primitive in the emitted output. A release that adds a runtime of
- *     its own would break all three at once.
- *   - `@modelcontextprotocol/client` — the v2 MCP client package, added by task
- *     049 so the integration proofs could drive a v2 server without a
- *     cross-generation transport pair. The judgement is the same shape as the
- *     `server` entry and just as checkable: the seam draws exactly `Client` and
- *     `StdioClientTransport`, and `connectV2Client` accepts only a branded
- *     `V2Transport`, of which the seam constructs only stdio and in-memory
- *     halves. The package's network-capable surface —
- *     `SSEClientTransport`, `StreamableHTTPClientTransport`, `withOAuth`,
- *     `auth`, `createFetchWithInit` and the OAuth discovery/token helpers — is
- *     not re-exported and therefore unreachable from shipped code. Re-exporting
- *     any of those invalidates this entry and requires an `EFFECT_OWNERSHIP`
- *     rule naming the owner.
- *   - `@modelcontextprotocol/server` — the v2 MCP server package, reached ONLY
- *     through the owned SDK seam (`contract/sdk/seam.ts`, DR-26). The same judgement as
- *     v1 applies, and here it is narrower and checkable: the seam re-exports
- *     `McpServer`, `Server`, `InMemoryTransport` and `StdioServerTransport` and
- *     nothing else. The package's network-capable surface —
- *     `WebStandardStreamableHTTPServerTransport`,
- *     `PerRequestHTTPServerTransport`, `createMcpHandler`, `requireBearerAuth`,
- *     `createFetchWithInit` and the OAuth-metadata helpers — is not re-exported
- *     and therefore unreachable from shipped code. If the seam ever re-exports
- *     one of those, this entry stops being true and must be replaced by an
- *     `EFFECT_OWNERSHIP` rule naming the owner.
- *   - `@modelcontextprotocol/core` — VETTED by DR-0 / task 051, which is the
- *     first shipped import of it. The list's prior note said core was omitted
- *     because nothing imported it, and that the census would fail loudly on the
- *     first import; it did exactly that, and this entry is the human vetting act
- *     it demanded rather than a silencing of it.
- *     The judgement is narrower than the `server` entry, and checkable the same
- *     way: `contract/sdk/seam.ts` draws exactly ONE symbol from core — `TaskStatusSchema`,
- *     a Zod enum of five string literals, read once at module scope for
- *     `V2_TASK_STATUS_VALUES`. Core's network-capable surface (`createFetchWithInit`,
- *     the OAuth client/metadata helpers, `SdkHttpError`) is not imported and not
- *     re-exported, so it is unreachable from shipped code. Widening that single
- *     import invalidates this entry and requires an `EFFECT_OWNERSHIP` rule
- *     naming the owner.
- *   - `better-sqlite3` — embedded file-backed SQLite driver; the filesystem
- *     effect it performs is already owned at `storage/` granularity. (The
- *     `bun:sqlite` sibling needs no entry: it carries a builtin SCHEME and is
- *     judged by {@link BUILTIN_SCHEME}, never by this allowlist.)
- *   - `commander`  — argv parser; pure string/AST work.
- *   - `gray-matter`— front-matter parser over a string the caller already read.
- *   - `pino`       — structured logger writing to an injected stream.
- *   - `vitest`     — the type-test / GWT-harness DSL imported by shipped
- *                    `*.type-test.ts` and `projections/gwt.ts`; test infra.
- *   - `yaml`, `yazl`, `zod` — YAML codec, in-memory zip writer, schema
- *                    validator. All pure data transforms.
+ * The vetted-inert dependency allowlist. It holds each bare package that the
+ * shipped tree imports, with the reason that it does no I/O of its own. Any
+ * other package is an `unvetted-dependency` network occurrence. A missing entry
+ * fails the census, which is the safe direction. Match is on the package name,
+ * so one entry covers all subpaths.
  */
 export const INERT_DEPENDENCIES: ReadonlySet<string> = new Set([
+  /**
+   * Zod schemas and types emitted from TypeSpec. Its manifest sets
+   * `sideEffects: false`, `zod` is its only package import, and its `dist/`
+   * holds no `node:` builtin, `fetch` or socket.
+   */
   '@lvlup-sw/strategos-contracts',
+  /**
+   * The v2 MCP client. `contract/sdk/seam.ts` takes only `Client` and the stdio
+   * transport, not the HTTP transports or the OAuth helpers. An import of one of
+   * those needs an `EFFECT_OWNERSHIP` rule.
+   */
   '@modelcontextprotocol/client',
+  /**
+   * `contract/sdk/seam.ts` takes only `TaskStatusSchema`, a Zod enum. A wider
+   * import needs an `EFFECT_OWNERSHIP` rule.
+   */
   '@modelcontextprotocol/core',
+  /**
+   * The v2 MCP server, reached only through `contract/sdk/seam.ts`. The seam does
+   * not take the HTTP transports or the auth helpers. An import of one of those
+   * needs an `EFFECT_OWNERSHIP` rule.
+   */
   '@modelcontextprotocol/server',
+  /** Embedded SQLite driver. The `storage/` rule owns its filesystem effect. */
   'better-sqlite3',
+  /** Argument parser. It works on strings only. */
   'commander',
+  /** Front-matter parser over a string that the caller read. */
   'gray-matter',
+  /** Structured logger that writes to an injected stream. */
   'pino',
+  /** Test DSL that the shipped `projections/gwt.ts` imports. */
   'vitest',
+  /** YAML codec. */
   'yaml',
+  /** In-memory zip writer. */
   'yazl',
+  /** Schema validator. */
   'zod',
-  // Vetted when task 019 widened this census's scan root. The installer and
-  // renderer toolchain used to live in a `src/` outside the subject tree, so
-  // its dependency surface had never been put to this list — not because
-  // anyone judged it inert, but because nothing asked. Both are:
-  //   `@inquirer/prompts` draws terminal UI over stdin/stdout;
-  //   `js-yaml` parses and serializes YAML in memory.
-  // Neither opens a socket. (`yaml` above is the core's separate YAML library.)
+  /** Terminal prompts over stdin and stdout. It opens no socket. */
   '@inquirer/prompts',
+  /** In-memory YAML parser and serializer. It opens no socket. */
   'js-yaml',
 ]);
 
@@ -461,15 +230,13 @@ export function packageNameOf(spec: string): string {
 }
 
 /**
- * Classify an import specifier to an effect class, or undefined if inert.
- * Returns the `evidence` string alongside the class so the closed-world rule can
- * mark itself as a conservative judgement (`unvetted-dependency:<pkg>`) rather
- * than masquerading as a named network primitive.
+ * Classifies an import specifier to an effect class, or returns undefined for an
+ * inert one. The closed-world fallback gives the evidence
+ * `unvetted-dependency:<pkg>`, so that it does not look like a named client.
  *
- * Order matters: remote URLs first, then builtin schemes and builtin names (so
- * `bun:sqlite` and a bare `util` are inert, not "unvetted"), then relative
- * in-repo paths (inert — the imported module is scanned on its own account),
- * then the curated client set, then the closed-world fallback.
+ * The order is: remote URLs, builtin schemes and names, relative paths, named
+ * clients, then the fallback. A relative import is inert, because the scan
+ * judges the target module on its own.
  */
 export function classifySpecifier(
   spec: string,
@@ -491,8 +258,6 @@ export function classifySpecifier(
     return undefined;
   }
 
-  // Relative / absolute in-repo paths: the target module is scanned separately
-  // and owns its own effects (attribution is per module, never transitive).
   if (spec.startsWith('.') || spec.startsWith('/')) return undefined;
 
   const pkg = packageNameOf(spec);
@@ -506,59 +271,40 @@ export interface ImportRef {
   /** The literal specifier text (`node:fs`, `./x.js`, `axios`). */
   readonly specifier: string;
   /**
-   * True for `import type … from '…'`, `export type … from '…'`,
-   * `import T = require('…')` in type position, and an `import('…')` TYPE QUERY.
-   * All are fully erased at compile time and carry NO runtime binding, so they
-   * perform no effect — `import type { Server } from 'node:http'` is not a
-   * network site.
-   *
-   * A per-specifier `type` modifier (`import { type A, connect } from '…'`) does
-   * NOT set this: the statement still emits, so it is charged as a value import.
-   * That is the fail-closed direction.
+   * True for `import type`, `export type`, a type-position `import T = require()`,
+   * and an `import('…')` type query. These have no runtime binding, so they are
+   * not effects. A per-specifier `type` modifier does not set it, because the
+   * statement still emits.
    */
   readonly typeOnly: boolean;
 }
 
-/**
- * Everything about ONE module's lexical structure that this census needs and
- * that only a real parse can answer.
- */
+/** The lexical facts about one module that this census needs from a real parse. */
 export interface LexedModule {
   /**
-   * Every module specifier the module actually imports or re-exports, in source
-   * order. A specifier inside a comment, a string or a template literal is not
-   * an import NODE, so it is absent BY CONSTRUCTION rather than by filtering.
+   * Each module specifier that the module imports or re-exports, in source order.
+   * A specifier in a comment, string or template is not an import node, so it is
+   * absent.
    */
   readonly imports: readonly ImportRef[];
   /**
-   * `source` with every comment, string literal, template-literal TEXT part and
-   * regex literal blanked to spaces (newlines preserved, offsets aligned), so
-   * the ambient-shape rules see only real code.
-   *
-   * A `${…}` substitution IS code and is deliberately not blanked. That is the
-   * one place the retired heuristic's "mask the template whole" rule was both
-   * wrong — it un-masked the body of a NESTED template, which is the false
-   * positive recorded in the module header — and needlessly blind.
+   * `source` with each comment, string literal, template text part and regex
+   * literal blanked to spaces. Newlines and offsets stay the same, so the ambient
+   * rules see only code. A `${…}` substitution is code, so it stays.
    */
   readonly maskedSource: string;
 }
 
 /**
- * The lexer port. See the module header for why this is a REQUIRED parameter
- * everywhere it appears rather than something this module does for itself, and
- * for the two measured defects that made the inversion necessary.
- *
- * `fileName` reaches the implementation's diagnostics only; it has no effect on
- * the answer.
+ * The lexer port. It is required everywhere, because a default can only be the
+ * retired heuristic or a stub that throws at run time. The implementation is
+ * `tools/test-helpers/module-lexer.ts`. `fileName` goes only to its diagnostics.
  */
 export type ModuleLexer = (source: string, fileName?: string) => LexedModule;
 
 /**
- * The specifiers `lex` resolved for `source`.
- *
- * An ACCESSOR, not a lexer: it holds no knowledge of TypeScript's grammar and
- * must never re-acquire any. Retained under its pre-065 name because that is
- * what the DR-13 pins and the sibling censuses bind to.
+ * Returns the specifiers that `lex` resolved for `source`. It is an accessor,
+ * not a lexer, and it must hold no grammar knowledge.
  */
 export function extractImports(source: string, lex: ModuleLexer): readonly ImportRef[] {
   return lex(source).imports;
@@ -576,50 +322,23 @@ export function extractImportSpecifiers(source: string, lex: ModuleLexer): strin
 }
 
 /**
- * `source` with every non-code span blanked — see {@link LexedModule.maskedSource}.
- *
- * The same kind of accessor as {@link extractImports}, retained for the same
- * reason. Before task 065 this was a SECOND hand-rolled lexer, a near-duplicate
- * of the first, and the two could drift apart silently; on a nested template
- * they were in fact wrong in the same way at the same time. One port answers
- * both questions from one parse, so they can no longer disagree.
+ * Returns `source` with each non-code span blanked. It is an accessor, like
+ * {@link extractImports}. See {@link LexedModule.maskedSource}.
  */
 export function maskNonCode(source: string, lex: ModuleLexer): string {
   return lex(source).maskedSource;
 }
 
 /**
- * Ambient network globals reached WITHOUT an import (DR-13 rule 5). Judged on
- * {@link maskNonCode} output, so a token in a string, comment or regex literal
- * never counts.
+ * Ambient network globals that a module reaches without an import, judged on
+ * {@link maskNonCode} output. Each rule is a shape, not a bare token:
  *
- * Each rule is a SHAPE, not a bare token, and each is false-positive-free on the
- * live tree for a stated reason:
+ * - a `fetch(` call that is not a member call
+ * - a network global on a global root (`globalThis`, `global`, `self`, `window`)
+ * - a `= fetch` alias, or `fetch` destructured from a global root
+ * - `new WebSocket(`, `new EventSource(` or `new XMLHttpRequest(`
  *
- *   - `fetch(`               — a call. `fetchPrData(` / `getOrFetchRoots(` do
- *                              not match (the negative lookahead requires a
- *                              non-identifier after `fetch`, and the lookbehind
- *                              rejects a `.fetch` member call).
- *   - `<globalRoot>.<global>` — the reflective escape hatch, for EVERY spelling
- *                              of the global object: `globalThis`, `global`
- *                              (Node), `self` (workers), `window`. A
- *                              literal-`globalThis` rule was an open evasion —
- *                              `global.fetch(url)` scanned clean because rule 1
- *                              rejects `.fetch` member calls and nothing else
- *                              matched. The live tree contains none of these.
- *   - `= fetch`              — the alias binding DR-13 names (`const f = fetch`,
- *                              `const f = fetch.bind(globalThis)`). Requires
- *                              `fetch` immediately after `=`, so
- *                              `= client.fetch` and `= fetchPrData(…)` do not
- *                              match.
- *   - `{ … fetch … } = <globalRoot>` — the destructured form, over the same
- *                              global-object spellings as the member-access rule.
- *   - `new WebSocket(`       — an ambient socket client, the import-free
- *                              equivalent of the `ws` package.
- *
- * A bare `fetch` identifier rule was deliberately REJECTED: it matches ordinary
- * property keys (`{ fetch: … }`) and interface members, which would make the
- * ratchet unusable. That gap is stated in the module's trust boundary.
+ * No rule matches a bare `fetch` identifier, which is also a property key or member.
  */
 const AMBIENT_NETWORK_RULES: readonly { readonly re: RegExp; readonly evidence: string }[] = [
   { re: /(?<![\w$.])fetch\s*\(/, evidence: 'fetch' },
@@ -639,17 +358,10 @@ const AMBIENT_NETWORK_RULES: readonly { readonly re: RegExp; readonly evidence: 
 ];
 
 /**
- * Bun's ambient runtime object performs I/O with NO import at all, so the
- * import-surface rules (1–4) never see it and the fetch-shaped ambient rules
- * above cover only the network class. Each rule is a member-CALL shape rooted
- * at the `Bun` identifier (optionally reached through a global-object root),
- * judged on {@link maskNonCode} output — `myBun.serve(` and a `Bun.spawn`
- * inside a string/comment never match:
- *
- *   - `Bun.serve(` / `Bun.connect(` / `Bun.listen(` / `Bun.udpSocket(`
- *     — sockets (server and client) → network.
- *   - `Bun.spawn(` / `Bun.spawnSync(` — child processes → process.
- *   - `Bun.write(` / `Bun.file(` — filesystem I/O → filesystem.
+ * Bun runtime calls that do I/O without an import. Each rule is a member call on
+ * `Bun`, with an optional global root, judged on masked source.
+ * `Bun.serve`, `connect`, `listen` and `udpSocket` are network. `Bun.spawn` and
+ * `spawnSync` are process. `Bun.write` and `Bun.file` are filesystem.
  */
 const AMBIENT_BUN_RULES: readonly {
   readonly re: RegExp;
@@ -674,17 +386,15 @@ const AMBIENT_BUN_RULES: readonly {
 ];
 
 /**
- * Enumerate the distinct effect classes a single module performs. Deduped to one
- * occurrence per (module, class): ownership is per module, so a module that reads
- * fs twice is one filesystem occurrence.
- *
- * One `lex` call answers both halves — which specifiers are imports, and which
- * characters are code — so the import surface and the ambient-shape surface can
- * never be judged against two different readings of the same file.
+ * Lists the distinct effect classes of one module, one occurrence for each
+ * class. One `lex` call gives the imports and the masked code. Type-only imports
+ * are not effects. The scan does not see an injected client, the consumer of a
+ * re-exported primitive, or a computed global access. Tests in
+ * `effect-ledger.test.ts` pin these three false negatives.
  *
  * @param module Repo-relative module path, reported on the occurrence.
  * @param source Module source text.
- * @param lex    The lexer port. Required; see {@link ModuleLexer}.
+ * @param lex    The lexer port. It is required. See {@link ModuleLexer}.
  */
 export function detectModuleEffects(
   module: string,
@@ -695,8 +405,6 @@ export function detectModuleEffects(
   const lexed = lex(source, module);
 
   for (const ref of lexed.imports) {
-    // Type-only imports are erased at compile time — no runtime binding, no
-    // effect. `import type { Server } from 'node:http'` is not a network site.
     if (ref.typeOnly) continue;
     const hit = classifySpecifier(ref.specifier);
     if (hit !== undefined && !found.has(hit.effectClass)) {
@@ -704,10 +412,6 @@ export function detectModuleEffects(
     }
   }
 
-  // Ambient globals (no import) are effects too — judged on fully masked
-  // source so a token in a string/comment/regex is not counted. The fetch
-  // shaped rules cover only the network class; the Bun ambient rules span all
-  // three classes, so they are checked per-class.
   if (
     !found.has('network') ||
     !found.has('process') ||
@@ -748,16 +452,10 @@ async function collectScannableFiles(root: string): Promise<string[]> {
 }
 
 /**
- * Scan the shipped source under `sourceRoot` — {@link GOVERNED_SOURCE_ROOT} on
- * the live path — and return every effect occurrence ALONGSIDE the two
- * denominators that say whether the occurrence set means anything: how many
- * modules the walk visited, and how many module specifiers `lex` resolved
- * across all of them.
- *
- * The counts are collected here rather than derived later because this is the
- * only place that sees the population. Downstream, an empty occurrence array is
- * indistinguishable from a broken walk or a lexer that resolved nothing — and
- * both of those read as "the tree performs no unowned effect", which is a pass.
+ * Scans the shipped source under `sourceRoot` and returns the occurrences with
+ * two denominators: the module count and the specifier count. Only this function
+ * sees the population, so it collects the counts. Downstream, an empty
+ * occurrence list looks the same as a broken walk.
  */
 export async function scanEffectTree(
   sourceRoot: string,
@@ -803,8 +501,6 @@ export async function scanEffectOccurrences(
   return (await scanEffectTree(sourceRoot, lex)).occurrences;
 }
 
-// ─── Ownership model ────────────────────────────────────────────────────────
-
 /** Does `rule` claim `occurrence`? */
 export function ruleClaims(rule: EffectOwnershipRule, occurrence: EffectOccurrence): boolean {
   if (rule.effectClass !== occurrence.effectClass) return false;
@@ -813,26 +509,14 @@ export function ruleClaims(rule: EffectOwnershipRule, occurrence: EffectOccurren
 }
 
 /**
- * Pure census verdict over an already-collected scan and rule set.
+ * Pure census verdict over a scan and a rule set. It has four checks:
  *
- * Four independent, complementary checks, each with its own diagnostic:
- *   - INDETERMINATE_OWNER        — an occurrence no rule claims;
- *   - STALE_OWNERSHIP            — a rule that claims no occurrence (phantom cover);
- *   - EMPTY_MODULE_POPULATION    — the walk visited no modules at all, so every
- *     count below it is zero for a reason that has nothing to do with the tree
- *     (moved scan root, renamed package directory, broken walker);
- *   - EMPTY_SPECIFIER_DENOMINATOR — modules were visited but the lexer resolved
- *     no module specifier in ANY of them. Since task 065 the lexer is a
- *     caller-supplied port ({@link ModuleLexer}), so a caller can pass one that
- *     silently answers nothing; the import half of the detector would then see
- *     an empty surface everywhere and the ambient half would carry the census
- *     alone. No real source tree imports nothing.
+ * - `INDETERMINATE_OWNER`: an occurrence that no rule claims.
+ * - `STALE_OWNERSHIP`: a rule that claims no occurrence.
+ * - `EMPTY_MODULE_POPULATION`: the walk visited no modules.
+ * - `EMPTY_SPECIFIER_DENOMINATOR`: the lexer resolved no specifier in any module.
  *
- * The last two are the non-empty-denominator teeth. They exist because the
- * SUCCESS state of this census is "no diagnostics", which is also what a
- * completely broken instrument produces. The `STALE_OWNERSHIP` tooth happens to
- * cover the live tree today (40-odd rules would all go stale), but only because
- * the live rule set is non-empty — it is coincidental cover, not a denominator.
+ * The last two exist because a broken instrument also gives no diagnostics.
  */
 export function runEffectLedgerCensus(
   scan: EffectScan,
@@ -905,11 +589,11 @@ export function runEffectLedgerCensus(
 }
 
 /**
- * Collect the live scan and return the census verdict over the real tree.
+ * Collects the live scan and returns the census verdict for the real tree.
  *
  * @param sourceRoot Directory to walk.
- * @param lex        The lexer port. Required; see {@link ModuleLexer}.
- * @param rules      Ownership rules; defaults to the declared ledger.
+ * @param lex        The lexer port. It is required. See {@link ModuleLexer}.
+ * @param rules      Ownership rules. The default is the declared ledger.
  */
 export async function auditEffectOwnership(
   sourceRoot: string,
@@ -919,13 +603,7 @@ export async function auditEffectOwnership(
   return runEffectLedgerCensus(await scanEffectTree(sourceRoot, lex), rules);
 }
 
-// ─── The declared effect ledger ─────────────────────────────────────────────
-//
-// One entry per (effectClass, module-or-layer). Process and network are declared
-// at owner granularity (the crisp "one typed owner" surface); filesystem
-// persistence is declared at layer granularity. Adding a new effect site to a
-// layer with no rule fails the census until an owner is consciously declared.
-
+/** Builds one {@link EffectOwnershipRule}. */
 const rule = (
   effectClass: EffectClass,
   match: string,
@@ -935,14 +613,14 @@ const rule = (
 ): EffectOwnershipRule => ({ effectClass, match, owner, idempotency, compensation });
 
 /**
- * The effect ownership ledger — the census's single source of truth for who owns
- * each effect. Populated in {@link registerLedger} against the live tree.
+ * The effect ownership ledger, with one rule for each effect class and module or
+ * layer. Process and network rules name exact owners. Filesystem rules work at
+ * layer granularity. A new effect site in a layer without a rule fails the census.
  */
 export const EFFECT_OWNERSHIP: readonly EffectOwnershipRule[] = registerLedger();
 
 function registerLedger(): readonly EffectOwnershipRule[] {
   return Object.freeze([
-    // ── network (crisp: exact modules) ──────────────────────────────────────
     rule(
       'network',
       'workflow/feedback.ts',
@@ -951,7 +629,6 @@ function registerLedger(): readonly EffectOwnershipRule[] {
       'marker-scan reconciliation dedupes a retried post',
     ),
 
-    // ── process (owner granularity) ─────────────────────────────────────────
     rule(
       'process',
       'utils/process.ts',
@@ -1019,7 +696,6 @@ function registerLedger(): readonly EffectOwnershipRule[] {
         'leaves nothing to unwind — the next run recomputes it',
     ),
 
-    // ── filesystem (layer granularity) ──────────────────────────────────────
     rule('filesystem', 'index.ts', 'server-entry-fs', 'startup read-only', 'none'),
     rule(
       'filesystem',

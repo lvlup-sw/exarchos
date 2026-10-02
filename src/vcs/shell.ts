@@ -1,23 +1,18 @@
-// ─── Shell Execution Helper ──────────────────────────────────────────────────
-//
-// Thin wrapper around child_process.execFile for CLI invocations.
-// Separated for easy mocking in tests.
-
+/**
+ * Thin wrapper around `child_process.execFile` for CLI calls.
+ * It is a separate module so that tests can mock it.
+ */
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 
 /**
- * Wall-clock budget for a single CLI invocation (`gh`, `git`, …).
- *
- * Exported because it is the DEEPEST child budget in the process tree: any
- * out-of-process harness that spawns the binary and imposes its own timeout
- * must set that timeout strictly GREATER than this value. If the two are equal,
- * the outer timer — started earlier, at spawn, while this one starts only after
- * the binary boots — always wins the race, so a slow-but-bounded CLI is killed
- * before it can surface its error envelope and is misreported as a hang. See
- * `test/process/packaged-proof.test.ts`.
+ * Wall-clock budget for one CLI call (`gh`, `git`). It is the deepest child budget in the process tree.
+ * A harness that spawns the binary with its own timeout must set that timeout greater than this value.
+ * If the two are equal, the outer timer starts first, at spawn, and wins.
+ * Then the outer timer kills a slow CLI before the CLI returns its error envelope, and the harness reports a hang.
+ * See `tests/core/process/packaged-proof.test.ts`.
  */
 export const EXEC_TIMEOUT_MS = 30_000;
 

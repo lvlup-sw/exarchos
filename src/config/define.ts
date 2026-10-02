@@ -1,21 +1,22 @@
 import type { z } from 'zod';
 
-// ─── Config Types ──────────────────────────────────────────────────────────
-
 export interface EventDefinition {
   readonly source: 'auto' | 'model' | 'hook';
   readonly schema?: z.ZodSchema;
 }
 
 export interface ViewDefinition {
-  readonly events: string[];      // Event types this view subscribes to
-  readonly handler: string;       // Path to handler module (relative to project root)
+  /** The event types that this view subscribes to. */
+  readonly events: string[];
+  /** The path to the handler module, relative to the project root. */
+  readonly handler: string;
 }
 
 export interface ToolActionDefinition {
   readonly name: string;
   readonly description: string;
-  readonly handler: string;       // Path to handler module (relative to project root)
+  /** The path to the handler module, relative to the project root. */
+  readonly handler: string;
 }
 
 export interface ToolDefinition {
@@ -47,11 +48,10 @@ export interface TransitionDefinition {
 
 export interface GuardDefinition {
   readonly command: string;
-  readonly timeout?: number; // ms, default 30000
+  /** The timeout in milliseconds. The default is 30000. */
+  readonly timeout?: number;
   readonly description?: string;
 }
-
-// ─── defineConfig Helper ───────────────────────────────────────────────────
 
 /**
  * Identity function providing type-safety for Exarchos configuration files.

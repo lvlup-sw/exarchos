@@ -1,63 +1,30 @@
 /**
- * SDLC-* consumer-facing invariants catalog (issue #1467, design DR-1/DR-2).
+ * The SDLC-* invariants catalog that Exarchos ships to consumers. It is on by default.
+ * It is separate from the dev catalog (`INV-*`) and from a consumer `user` catalog.
  *
- * The default-on baseline Exarchos ships *to consumers* — engineers using
- * Exarchos as a plugin to govern their own SDLC. Distinct from the dev catalog
- * (`.exarchos/invariants.md`, `INV-*`, loaded only where a `tier: dev`
- * registration names it, so never surfaced to consumers) and from a consumer's
- * own `user`-layer catalog (`U-*`).
+ * The catalog is a typed constant in the binary, not a Markdown file, because the
+ * package does not ship `docs/`. Thus it is present wherever the server runs, with no
+ * file I/O at resolve time. The entries use the frontmatter shape of the dev catalog
+ * and go through the same `parseInvariantEntries` path.
  *
- * ## Why inline (not a .md file)
- *
- * The MCP server ships as a single-file binary (`command: "exarchos"`); the npm
- * package `files` list bundles `dist/bin`, `commands`, `skills` — NOT `docs/`.
- * A catalog under `docs/` would be absent for plugin consumers, so a
- * *default-on* catalog cannot be a `docs/` file read at runtime. Authoring the
- * baseline as a typed constant compiled into the binary guarantees it is
- * present wherever the server runs, with zero file-IO at resolve time (INV-1)
- * and zero packaging/path-resolution risk. Consumers still author THEIR
- * catalogs as `.md`/`.yml` via `.exarchos.yml: invariants.catalogs`.
- *
- * ## Shape & validation
- *
- * Entries are authored in the same frontmatter shape as the dev catalog and
- * validated through the SAME `parseInvariantEntries` path (INV-2 spirit — one
- * parse, no drift), so the v3 `.strict()` enforcement DSL (INV-4) and every
- * typed-field projection apply identically. `loadSdlcCatalog()` fails fast at
- * module load if any entry is malformed.
- *
- * ## Audience-boundary contract (research §3)
- *
- * Every entry is workload-neutral consumer workflow-CONDUCT enforceable through
- * an affordance Exarchos already exposes (lifecycle events, review gates, the
- * PR template, checkpoint/rehydrate, posture). All are `mode: audit`: the
- * conformance gate evaluates a code diff, and SDLC conduct is a judgment about
- * the workflow, not a diff property. `axis: substrate` is the closest enum fit
- * for "runtime conduct" and yields the intended `discovery` exclusion (a
- * docs-only research workflow does not bear these). `integrity-class: sdlc`
- * gives the POLA override floor (INV-11): consumers tune entries down to
- * advisory via `.exarchos.yml: invariants.overrides`, never silently disable.
+ * Every entry is `mode: audit`, because SDLC conduct is a judgment about the workflow,
+ * not a property of a diff. The `integrity-class: sdlc` floor lets a consumer lower an
+ * entry to advisory with `invariants.overrides`, but not disable it.
  */
 import { parseInvariantEntries, type InvariantEntry } from './invariants-loader.js';
 
-/** Workflow types the SDLC baseline governs — all code-bearing workflows; `discovery` (docs-only) excluded. */
+/** The code-bearing workflow types that the SDLC baseline governs. It leaves out `discovery`. */
 const CODE_BEARING_WORKFLOWS = ['feature', 'debug', 'refactor', 'oneshot'] as const;
 
 /**
- * What a reader of this SHIPPED baseline is pointed at.
- *
- * This was a path into this repository's `docs/guides/`, which a consuming
- * project never has — so it was already unresolvable for the audience it was
- * written for, and the document has since relocated out of here entirely. A
- * command is the honest citation: it is available to anyone holding the
- * catalog, which a path never was.
+ * The reference of every shipped entry. It is a command, not a path into this
+ * repository, because a consumer project does not have the files of this repository.
  */
 const GUIDE = 'run `exarchos invariants add` to author an entry interactively';
 
 /**
- * The shipped baseline, authored in catalog-frontmatter shape. Kept as a plain
- * array so it reads like the `.md` catalog and is validated by the shared
- * parser rather than hand-built into the typed shape.
+ * The shipped baseline in catalog-frontmatter shape. It reads like the Markdown
+ * catalog, and the shared parser validates it.
  */
 const RAW_SDLC_ENTRIES: ReadonlyArray<Record<string, unknown>> = [
   {
@@ -101,10 +68,10 @@ const RAW_SDLC_ENTRIES: ReadonlyArray<Record<string, unknown>> = [
     severity: { default: 'blocking', 'by-workflow': { oneshot: 'advisory' } },
     enforcement: {
       mode: 'audit',
-      // Points at the existing adequacy gate rather than re-expressing test
-      // adequacy as catalog enforcement — avoids double-gating (research OQ#3 /
-      // design DR-1). #1587 retired the test-FIRST ordering gate; the keeper is
-      // the outcome-based kill probe.
+      /**
+       * Points at the `check_test_adequacy` gate, so test adequacy is not gated twice.
+       * Test order is not a finding.
+       */
       'audit-prompt':
         'For a workflow that declares verification (feature, oneshot), is each ' +
         'unit of new/changed production code covered by a test that can actually ' +
@@ -187,21 +154,15 @@ const RAW_SDLC_ENTRIES: ReadonlyArray<Record<string, unknown>> = [
 ];
 
 /**
- * The validated SDLC-* baseline. Parsed once at module load via the shared
- * `parseInvariantEntries` (fail-fast: a malformed entry throws here, surfacing
- * at server start rather than mid-resolution). `mergeCatalogs` re-tags these
- * with `integrity-class: sdlc`; the inline class is the authoring intent.
+ * The validated SDLC-* baseline, parsed once at module load. A malformed entry
+ * throws at server start, not during a resolve. `mergeCatalogs` also tags these
+ * entries with `integrity-class: sdlc`.
  */
 const SDLC_CATALOG: InvariantEntry[] = parseInvariantEntries(RAW_SDLC_ENTRIES);
 
 /**
- * Return the shipped, default-on SDLC-* consumer catalog. It needs no
- * registration at all — sdlc ships enabled; the override mechanism is the
- * consumer's escape hatch, not a master switch.
- *
- * Returns a fresh deep copy per call (matching `loadInvariants`'s re-parse
- * semantics) so a downstream consumer cannot mutate the shared module-level
- * singleton — INV-1: the catalog is an immutable source, not a drifting store.
+ * Returns the shipped SDLC-* catalog. It needs no registration. Each call returns
+ * a new deep copy, so a consumer cannot change the shared module-level value.
  */
 export function loadSdlcCatalog(): InvariantEntry[] {
   return structuredClone(SDLC_CATALOG);

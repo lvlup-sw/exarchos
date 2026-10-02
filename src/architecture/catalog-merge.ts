@@ -1,44 +1,19 @@
 /**
- * Layered invariant-catalog merge + per-invariant override-floor clamp
- * (issue: DR-6, tasks T-08 / T-09).
+ * Merges the layered invariant catalogs and clamps each consumer override to the floor of the
+ * invariant.
  *
- * ## DR-6 — per-catalog-relative override authority (NOT a global ladder)
+ * The `integrity-class` of an entry sets how far a consumer can tune it. A `substrate` entry is
+ * immutable. A consumer can lower an `sdlc` or `authoring` entry to `advisory`, but cannot remove
+ * it. A `user` entry has no floor. An explicit `override-floor` in `entry.raw` replaces the default
+ * of the class.
  *
- * An invariant's `integrity-class` determines how far a consumer may tune it.
- * Authority is relative to the catalog that owns the entry, not a global
- * severity ladder:
- *
- *   - `substrate`  → immutable. Not user-tunable at all. (Exarchos's own
- *                    substrate invariants live in a `tier: dev` catalog that
- *                    only this repo registers, so they never reach a consumer;
- *                    this is self-protection within a catalog's own audience.)
- *   - `sdlc` /
- *     `authoring`  → tunable down to `advisory` but never fully removable.
- *                    Floor = `advisory`.
- *   - `user`       → fully owned by the consumer. No floor.
- *
- * An entry MAY carry an explicit `override-floor: advisory | disable` field
- * (it rides in the loader's raw passthrough, so we read it from `entry.raw`).
- * When present it overrides the integrity-class-derived default.
- *
- * ## Layering (T-08)
- *
- * `mergeCatalogs` concatenates three layers (dev, sdlc, user), tagging each
- * entry with its layer's `integrity-class`:
- *
- *   - dev   → keeps whatever class it already carries (substrate/authoring);
- *   - sdlc  → tagged `sdlc`;
- *   - user  → tagged `user`.
- *
- * The reserved `INV-*` and `SDLC-*` id namespaces may NOT appear in the user
- * tier — a consumer cannot impersonate a built-in invariant. Authority is
- * keyed off each entry's source `tier` (P1 T4), not array position: the `dev`
- * tier owns `INV-*` and the inline `sdlc` tier owns `SDLC-*`.
+ * The user layer cannot use the reserved `INV-*` and `SDLC-*` id namespaces, so a consumer cannot
+ * impersonate a built-in invariant.
  */
 import type { InvariantEntry } from './invariants-loader.js';
 import type { InvariantEntryV3 } from './invariant-schema.js';
 
-/** Resolved override floor for an invariant (DR-6). */
+/** The resolved override floor of an invariant. */
 export type OverrideFloor = 'none' | 'advisory' | 'disable' | 'immutable';
 
 /** Per-invariant override directive (mirrors `InvariantsConfigSchema.overrides`). */
@@ -54,8 +29,8 @@ export interface ApplyOverridesResult {
 }
 
 /**
- * Reserved id-namespace prefixes that the user layer may not occupy. These
- * belong to the built-in dev (`INV-*`) and sdlc (`SDLC-*`) catalogs.
+ * The id prefixes that the user layer cannot use. The built-in dev (`INV-*`) and sdlc (`SDLC-*`)
+ * catalogs own them.
  */
 const RESERVED_USER_ID_PREFIXES = ['INV-', 'SDLC-'] as const;
 
@@ -78,10 +53,8 @@ export class ReservedNamespaceError extends Error {
 }
 
 /**
- * True when `id` claims a prefix reserved for built-in invariants
- * (`INV-*` / `SDLC-*`). Exported so the effective-catalog resolver can
- * pre-filter reserved user entries into DR-9 warnings rather than letting
- * `mergeCatalogs` throw `ReservedNamespaceError` and abort the whole gate.
+ * True when `id` uses a prefix reserved for built-in invariants. The effective-catalog resolver
+ * uses it to turn reserved user entries into warnings before `mergeCatalogs` can throw.
  */
 export function isReservedUserId(id: string): boolean {
   return RESERVED_USER_ID_PREFIXES.some((prefix) => id.startsWith(prefix));
@@ -95,7 +68,7 @@ function tag(
   return { ...entry, integrityClass };
 }
 
-/** Stamp an entry's source tier without mutating the input (P1 T4). */
+/** Sets the source tier of an entry without changing the input. */
 function withTier(
   entry: InvariantEntry,
   tier: NonNullable<InvariantEntry['tier']>,
@@ -104,18 +77,11 @@ function withTier(
 }
 
 /**
- * T-08 (DR-6) + P1 T4: concatenate the dev / sdlc / user catalog layers,
- * tagging each entry with its layer's integrity-class AND its source `tier`.
- * The dev layer keeps whatever integrity-class it already carries
- * (substrate/authoring set upstream); sdlc and user layers are tagged from
- * their layer name.
+ * Joins the dev, sdlc and user catalog layers and stamps each entry with its source `tier`. Dev
+ * entries keep their integrity-class. Sdlc and user entries get the class of their layer.
  *
- * Reserved-namespace authority is keyed off the source `tier`, not array
- * position semantics: the `INV-*` namespace belongs to the `dev` tier and
- * `SDLC-*` to the inline `sdlc` tier, so those layers carry their reserved ids
- * legitimately. A `user`-tier entry claiming ANY reserved id (`INV-*` /
- * `SDLC-*`) is rejected with a `ReservedNamespaceError` — a consumer cannot
- * impersonate a built-in invariant.
+ * Only the user tier is subject to the reserved-namespace check. A user entry with an `INV-*` or
+ * `SDLC-*` id throws a {@link ReservedNamespaceError}.
  */
 export function mergeCatalogs(layers: {
   dev: InvariantEntry[];
@@ -124,9 +90,6 @@ export function mergeCatalogs(layers: {
 }): InvariantEntry[] {
   const { dev, sdlc, user } = layers;
 
-  // Reservation is keyed off tier: only the user tier is non-privileged, so it
-  // is the only layer whose reserved-namespace ids are rejected. The dev and
-  // sdlc tiers own `INV-*` / `SDLC-*` respectively and pass through.
   for (const entry of user) {
     if (isReservedUserId(entry.id)) {
       throw new ReservedNamespaceError(entry.id);
@@ -134,9 +97,6 @@ export function mergeCatalogs(layers: {
   }
 
   return [
-    // Dev layer entries keep their existing integrity-class (substrate/
-    // authoring); stamp the dev tier so the INV-* namespace authority is
-    // explicit rather than implied by array position.
     ...dev.map((e) => withTier(e, 'dev')),
     ...sdlc.map((e) => withTier(tag(e, 'sdlc'), 'sdlc')),
     ...user.map((e) => withTier(tag(e, 'user'), 'user')),
@@ -144,15 +104,12 @@ export function mergeCatalogs(layers: {
 }
 
 /**
- * Resolve an invariant's override floor (DR-6). An explicit `override-floor`
- * field on the entry's raw passthrough wins; otherwise the floor is derived
- * from the entry's integrity-class.
+ * Resolves the override floor of an invariant. An explicit `override-floor` of `advisory` or
+ * `disable` in `entry.raw` wins. Otherwise the integrity-class sets the floor, and an entry with no
+ * class has no floor.
  *
- * Exported so the effective-catalog resolver (`resolveEffectiveCatalog`,
- * DR-7) can apply the final honored-disable filter: `applyOverrides` leaves
- * disabled entries in place, so the resolver drops entries whose resolved
- * override is `enabled:false` AND whose floor permits a full disable
- * (`disable` | `none`).
+ * `applyOverrides` keeps disabled entries. The effective-catalog resolver uses this floor to drop
+ * an entry with `enabled: false` when the floor is `disable` or `none`.
  */
 export function resolveFloor(entry: InvariantEntry): OverrideFloor {
   const explicit = entry.raw['override-floor'];
@@ -168,19 +125,14 @@ export function resolveFloor(entry: InvariantEntry): OverrideFloor {
     case 'user':
       return 'none';
     default:
-      // No integrity-class declared ⇒ treat as fully tunable (no floor).
       return 'none';
   }
 }
 
 /**
- * Force an entry to `advisory` in EVERY context. Used when a consumer's
- * `enabled:false` is refused by an `advisory` floor — the invariant can't be
- * removed, so it is clamped to advisory. The clamp must be total: dropping the
- * `by-phase` / `by-workflow` maps is what makes it total, because
- * `resolveSeverity` ranks `by-phase` > `by-workflow` > `default`, so a retained
- * `by-phase:{review:blocking}` would silently re-escalate a clamped invariant
- * back to blocking and defeat the clamp.
+ * Sets an entry to `advisory` in every context. `applyOverrides` uses it when an `advisory` floor
+ * refuses `enabled: false`. It drops the `by-phase` and `by-workflow` maps, because
+ * `resolveSeverity` ranks them above `default`, and a kept map can make the entry blocking again.
  */
 function clampSeverityToAdvisory(entry: InvariantEntry): InvariantEntry {
   return {
@@ -190,20 +142,14 @@ function clampSeverityToAdvisory(entry: InvariantEntry): InvariantEntry {
 }
 
 /**
- * T-09 (DR-6): apply per-invariant overrides, clamping to each invariant's
- * resolved floor.
+ * Applies the per-invariant overrides and clamps each one to the floor of the invariant.
  *
- *   - `severity` override: applied when the floor permits it. An `immutable`
- *     (substrate) floor rejects the override with a warning; an `advisory`
- *     floor permits lowering to `advisory` but rejects raising to `blocking`.
- *   - `enabled:false`: honored when the floor is `disable` or `none` (`user`);
- *     CLAMPED to `advisory` (entry stays present) with a warning when the
- *     floor is `advisory`; rejected with a warning when the floor is
- *     `immutable` (substrate).
+ * - A `severity` override replaces the whole severity profile, so it applies in every context. An
+ *   `immutable` floor refuses it. An `advisory` floor refuses `blocking`.
+ * - `enabled: false` clamps the entry to `advisory` on an `advisory` floor. An `immutable` floor
+ *   refuses it. On a `disable` or `none` floor, the entry stays, and the caller filters it out.
  *
- * Overrides naming an id that is not present in `merged` are a no-op and emit
- * a warning (e.g. a substrate id whose dev layer was gated out — proven at the
- * merge level, not here).
+ * Each refusal, each clamp, and each override for an absent id adds a warning.
  */
 export function applyOverrides(
   merged: InvariantEntry[],
@@ -212,7 +158,6 @@ export function applyOverrides(
   const warnings: string[] = [];
   const byId = new Map(merged.map((e) => [e.id, e]));
 
-  // No-op warning for overrides naming an absent invariant.
   for (const id of Object.keys(overrides)) {
     if (!byId.has(id)) {
       warnings.push(
@@ -229,7 +174,6 @@ export function applyOverrides(
     const floor = resolveFloor(entry);
     let result = entry;
 
-    // ── severity override ──
     if (override.severity !== undefined) {
       if (floor === 'immutable') {
         warnings.push(
@@ -237,19 +181,11 @@ export function applyOverrides(
             `'substrate' is immutable and not user-tunable.`,
         );
       } else if (override.severity === 'blocking' && floor === 'advisory') {
-        // advisory floor permits lowering, not raising back to blocking.
         warnings.push(
           `Severity override for '${entry.id}' to 'blocking' ignored: ` +
             `floor is 'advisory' (can only lower to advisory, not raise).`,
         );
       } else {
-        // A consumer `severity` override is a SCALAR — it expresses one
-        // severity for the invariant. Replace the whole severity profile
-        // (drop any shipped by-phase/by-workflow map) so the override is
-        // honored in every context; keeping those maps would let a shipped
-        // `by-phase:{review:blocking}` silently ignore the override
-        // (resolveSeverity ranks by-phase > by-workflow > default). Mirrors
-        // clampSeverityToAdvisory.
         result = {
           ...result,
           severity: { default: override.severity },
@@ -257,7 +193,6 @@ export function applyOverrides(
       }
     }
 
-    // ── enabled:false override ──
     if (override.enabled === false) {
       if (floor === 'immutable') {
         warnings.push(
@@ -272,9 +207,6 @@ export function applyOverrides(
         );
         result = clampSeverityToAdvisory(result);
       }
-      // floor === 'disable' | 'none': caller may honor the disable downstream
-      // by filtering on `override.enabled === false`. We leave the entry in
-      // place here; the override record carries the intent.
     }
 
     return result;

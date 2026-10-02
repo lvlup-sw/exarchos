@@ -1,21 +1,14 @@
 /**
- * TEST FIXTURE — NOT a shipped consumer.
+ * Test fixture, not a shipped consumer. It is the seeded subject for the kill probe of the
+ * declaration-seam census.
  *
- * The SEEDED SUBJECT for DR-1's kill probe: a declaration consumer that bypasses
- * the seam and reads registry storage directly. It imports the declaration
- * envelope (which makes it a consumer) AND `events/schemas.js` (which is a
- * declared declaration store), which is exactly the pair
- * {@link ../layer-boundaries-seam.js}'s declaration-seam census must reject.
+ * The module imports the declaration envelope and the declaration store `events/schemas.js`.
+ * {@link ../layer-boundaries-seam.js} must reject that pair. `layer-boundaries-seam.test.ts`
+ * runs the real detector over this file and adds the result to the live scan. The scanner
+ * excludes `__fixtures__/`, so this file does not change the live census.
  *
- * `layer-boundaries-seam.test.ts` reads this file from disk, runs the real
- * detector over its real source text, and plants the result into the LIVE scan —
- * so the probe exercises the shipped scanner rather than a hand-written stand-in.
- *
- * It lives under `__fixtures__/`, which the scanner excludes, so it can never
- * contaminate the live census it exists to falsify.
- *
- * The correct shape is the opposite of this one: take a `DeclarationSource`
- * through `openDeclarationSeam` and import no store at all.
+ * A correct consumer takes a `DeclarationSource` through `openDeclarationSeam` and imports no
+ * store.
  */
 
 import type { Declaration } from '../../contract/declaration.js';

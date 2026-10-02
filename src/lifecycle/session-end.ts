@@ -5,8 +5,6 @@ import { parseTranscript } from '../projections/session/transcript-parser.js';
 import { writeManifestCompletion } from '../projections/session/manifest.js';
 import type { SessionEvent, SessionSummaryEvent, SessionManifestCompletion } from '../projections/session/types.js';
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
 /** Write an array of events as newline-delimited JSON to the given path. */
 async function writeEventsFile(eventsPath: string, events: SessionEvent[]): Promise<void> {
   const content = events.map((e) => JSON.stringify(e)).join('\n') + '\n';
@@ -48,19 +46,15 @@ function buildCompletion(
   };
 }
 
-// ─── Handler ────────────────────────────────────────────────────────────────
-
 /**
- * Handle the `session-end` CLI command.
- *
- * Validates inputs, parses the transcript, writes structured events to a JSONL
- * file, and appends completion metadata to the manifest.
+ * Handles the `session-end` CLI command. It validates the input, parses the
+ * transcript, writes the events to a JSONL file, and appends completion metadata
+ * to the manifest. When the events file of the session exists, it does nothing.
  */
 export async function handleSessionEnd(
   stdinData: Record<string, unknown>,
   stateDir: string,
 ): Promise<CommandResult> {
-  // ── Input validation ──────────────────────────────────────────────────────
   const sessionId = stdinData.session_id;
   const transcriptPath = stdinData.transcript_path;
 
@@ -72,7 +66,6 @@ export async function handleSessionEnd(
     return { error: { code: 'MISSING_TRANSCRIPT_PATH', message: 'transcript_path is required' } };
   }
 
-  // ── Idempotency check ─────────────────────────────────────────────────────
   const sessionsDir = path.join(stateDir, 'sessions');
   const eventsPath = path.join(sessionsDir, `${sessionId}.events.jsonl`);
 
@@ -80,7 +73,6 @@ export async function handleSessionEnd(
     return { continue: true };
   }
 
-  // ── Transcript existence check ────────────────────────────────────────────
   if (!(await fileExists(transcriptPath))) {
     return {
       error: {
@@ -90,7 +82,6 @@ export async function handleSessionEnd(
     };
   }
 
-  // ── Extract and write ─────────────────────────────────────────────────────
   try {
     const events = await parseTranscript(transcriptPath, { sessionId });
 

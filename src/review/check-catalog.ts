@@ -1,9 +1,7 @@
-// ─── Quality Check Catalog ────────────────────────────────────────────────────
-//
-// Structured catalog of quality checks that any LLM agent can execute to assess
-// code quality. Each check provides grep patterns, structural heuristics, or
-// threshold-based rules with actionable remediation guidance.
-// ──────────────────────────────────────────────────────────────────────────────
+/**
+ * A catalog of quality checks that an agent can run on code.
+ * Each check gives a grep pattern, a structural heuristic, or a threshold rule, with remediation text.
+ */
 
 export type CheckExecution = 'grep' | 'structural' | 'heuristic';
 export type CheckSeverity = 'HIGH' | 'MEDIUM' | 'LOW';
@@ -44,7 +42,6 @@ export interface PluginFinding {
 export const QUALITY_CHECK_CATALOG: CheckCatalog = {
   version: '1.0.0',
   dimensions: [
-    // ── Error Handling (EH) ─────────────────────────────────────────────────
     {
       id: 'error-handling',
       name: 'Error Handling',
@@ -82,7 +79,6 @@ export const QUALITY_CHECK_CATALOG: CheckCatalog = {
       ],
     },
 
-    // ── Type Safety (TS) ────────────────────────────────────────────────────
     {
       id: 'type-safety',
       name: 'Type Safety',
@@ -110,7 +106,6 @@ export const QUALITY_CHECK_CATALOG: CheckCatalog = {
       ],
     },
 
-    // ── Test Quality (TQ) ───────────────────────────────────────────────────
     {
       id: 'test-quality',
       name: 'Test Quality',
@@ -149,7 +144,6 @@ export const QUALITY_CHECK_CATALOG: CheckCatalog = {
       ],
     },
 
-    // ── Code Hygiene (CH) ───────────────────────────────────────────────────
     {
       id: 'code-hygiene',
       name: 'Code Hygiene',
@@ -186,7 +180,6 @@ export const QUALITY_CHECK_CATALOG: CheckCatalog = {
       ],
     },
 
-    // ── Structural Complexity (SC) ──────────────────────────────────────────
     {
       id: 'structural-complexity',
       name: 'Structural Complexity',
@@ -234,7 +227,6 @@ export const QUALITY_CHECK_CATALOG: CheckCatalog = {
       ],
     },
 
-    // ── Resilience (RS) ─────────────────────────────────────────────────────
     {
       id: 'resilience',
       name: 'Resilience',

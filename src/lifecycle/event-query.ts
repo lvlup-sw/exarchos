@@ -1,3 +1,11 @@
+/**
+ * The streaming loop for `exarchos event query --follow`. The CLI adapter parses the flag and calls
+ * this module. The MCP tool uses the one-shot query path.
+ *
+ * The loop reads an `AsyncIterable<WorkflowEvent>`, so tests can drive it with no real
+ * `EventStore`. {@link pollingEventSource} turns the one-shot `EventStore.query` into that iterable
+ * with a `sinceSequence` cursor.
+ */
 import type { Writable } from 'node:stream';
 import type { WorkflowEvent } from '../events/schemas.js';
 import type { EventStore } from '../events/store.js';
@@ -5,30 +13,14 @@ import { NdjsonEncoder } from '../ndjson/encoder.js';
 import { startHeartbeat } from '../ndjson/heartbeat.js';
 import type { Frame } from '../ndjson/frames.js';
 
-// ─── `event query --follow` streaming handler (T042, DR-9) ─────────────────
-//
-// This module implements the core streaming loop used when a caller passes
-// `--follow` to `exarchos event query`. The CLI adapter (see
-// `adapters/cli.ts`) parses the flag and delegates here; the MCP tool
-// continues to use the one-shot query path in `events/tools.ts`.
-//
-// The handler is intentionally small and framework-free: it accepts an
-// `AsyncIterable<WorkflowEvent>` as its event source so tests can drive it
-// directly without spinning up a real EventStore. A thin helper
-// (`pollingEventSource`) adapts `EventStore.query` into the same iterable
-// contract using periodic polling keyed on `sinceSequence`.
-
-// ─── Follow Handler ─────────────────────────────────────────────────────────
-
 export interface RunEventQueryFollowOptions {
   /** Async source of events to forward as `event` frames. */
   readonly source: AsyncIterable<WorkflowEvent>;
   /** Writable sink that receives NDJSON lines. Closed on completion. */
   readonly sink: Writable;
   /**
-   * Idle heartbeat interval in ms. Defaults to 30s per DR-9 so HTTP/WS
-   * intermediaries don't tear down an idle stream. Tests may shorten or
-   * lengthen this to exercise the heartbeat path deterministically.
+   * The idle heartbeat interval in milliseconds. The default is 30000, so HTTP and WebSocket
+   * intermediaries do not close an idle stream.
    */
   readonly heartbeatIntervalMs?: number;
 }
@@ -69,14 +61,6 @@ export async function runEventQueryFollow(
   encoder.end();
 }
 
-// ─── Polling Event Source ───────────────────────────────────────────────────
-//
-// The EventStore exposes a one-shot `query(streamId, filters)` API. For
-// `--follow` we convert that into an async iterable by polling at a fixed
-// cadence with a `sinceSequence` cursor. This avoids any subscribe/watch
-// API surface on EventStore itself (which doesn't exist today) while still
-// giving the follow handler a clean `AsyncIterable<WorkflowEvent>` source.
-
 export interface PollingEventSourceOptions {
   readonly store: EventStore;
   readonly streamId: string;
@@ -95,9 +79,8 @@ export interface PollingEventSourceOptions {
 }
 
 /**
- * Adapt `EventStore.query` into an `AsyncIterable<WorkflowEvent>` driven by
- * polling. Each poll reads events with sequence greater than the cursor
- * seen so far; the cursor advances as events are yielded.
+ * Turns `EventStore.query` into a polled `AsyncIterable<WorkflowEvent>`. Each poll reads the events
+ * after the cursor, and the cursor moves forward as the iterator yields events.
  */
 export function pollingEventSource(
   options: PollingEventSourceOptions,
@@ -138,10 +121,7 @@ export function pollingEventSource(
   };
 }
 
-/**
- * Promise-based sleep that resolves early on abort. Separated into its own
- * helper so the polling loop reads top-to-bottom without inline timer setup.
- */
+/** A promise-based sleep that resolves early on abort. */
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
     if (signal?.aborted === true) {

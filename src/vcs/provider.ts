@@ -1,8 +1,6 @@
-// ─── VCS Provider Interface ──────────────────────────────────────────────────
-//
-// Abstraction layer for version control system operations.
-// Enables Exarchos to work with GitHub, GitLab, and Azure DevOps.
-
+/**
+ * Provider interface for version control operations on GitHub, GitLab, and Azure DevOps.
+ */
 export interface CreatePrOpts {
   readonly title: string;
   readonly body: string;
@@ -29,20 +27,9 @@ export interface CiStatus {
 }
 
 /**
- * Fold a provider's per-check statuses into a single overall CI verdict
- * ({@link CiStatus.status}). Shared by GitHub / GitLab / Azure DevOps so the
- * three `checkCi` implementations compute the aggregate identically (DR-10 —
- * the three providers previously carried byte-identical private copies).
- *
- * Precedence is fail-fast then pending-blocks:
- *   - any `fail` check ⇒ overall `fail`   (a terminal non-pass blocks gating);
- *   - else any `pending` check ⇒ overall `pending` (not yet terminal);
- *   - else `pass` (every check is `pass` or `skipped`, including the empty set).
- *
- * Pure: no I/O, no throws. Provider methods that throw by design (the GitLab /
- * Azure DevOps partial-provider `UnsupportedOperationError` surfaces) are
- * unaffected — this helper only aggregates the check list a `checkCi` already
- * built and never sits on those throw paths.
+ * Folds the per-check statuses into one overall CI verdict. The `checkCi` method of each of the three providers uses it.
+ * Any `fail` check gives `fail`. Otherwise any `pending` check gives `pending`.
+ * Otherwise the result is `pass`, also for an empty list. The function is pure.
  */
 export function computeOverallCiStatus(
   checks: readonly CiCheck[],
@@ -88,30 +75,8 @@ export interface PrSummary {
 }
 
 /**
- * A single piece of PR feedback, normalized across providers.
- *
- * Three feedback surfaces collapse into one platform-neutral shape via
- * `source`:
- *  - `'issue-comment'`   — PR-level conversation (the shared discussion thread,
- *                          not anchored to a diff line).
- *  - `'review-inline'`   — a per-line review thread anchored to `path`/`line`.
- *  - `'review-summary'`  — the body of a review submission (its top-level
- *                          verdict); `state` carries the review state.
- * The discriminant is named for the feedback *kind*, never for a provider's
- * endpoint or field (e.g. not GitHub's `subject_type`), so consumers stay
- * provider-agnostic.
- *
- * Threading is **one level only**: a reply sets `parentId` to the id of the
- * top-level comment it answers; a reply's parent is always top-level. We do not
- * model deeper nesting. An absent `parentId` means the comment is top-level.
- *
- * `resolved` is **tri-state** and the distinction is load-bearing:
- *  - `true`              — the thread is resolved.
- *  - `false`             — the thread is explicitly unresolved.
- *  - absent / `undefined`— resolution status is *unknown* (e.g. the provider
- *                          does not report it for this surface). Consumers MUST
- *                          treat absent as "unknown" and MUST NOT coerce it to
- *                          `false`. Use {@link isResolvedKnown} to gate on this.
+ * One piece of PR feedback in a shape that is the same for all providers.
+ * The `source` field names the kind of feedback, not a provider endpoint or field.
  */
 export interface PrComment {
   readonly id: number;
@@ -119,56 +84,47 @@ export interface PrComment {
   readonly body: string;
   readonly createdAt: string;
   /**
-   * Which feedback surface this comment came from. Platform-neutral
-   * discriminant — see the interface doc for the three kinds.
+   * Kind of feedback:
+   *  - `'issue-comment'`: PR-level conversation, not anchored to a diff line.
+   *  - `'review-inline'`: a review thread anchored to `path` and `line`.
+   *  - `'review-summary'`: the body of a review submission. `state` holds the review state.
    */
   readonly source: 'issue-comment' | 'review-inline' | 'review-summary';
   readonly path?: string | undefined;
   readonly line?: number | undefined;
   /**
-   * Id of the top-level comment this one replies to (one-level threading).
-   * Absent ⇒ this comment is top-level.
+   * Id of the top-level comment that this reply answers. Threading has one level only.
+   * When it is absent, the comment is top-level.
    */
   readonly parentId?: number;
   /**
-   * Tri-state resolution status: `true` (resolved), `false` (explicitly
-   * unresolved), absent (unknown — NOT false). Never coerce absent to `false`.
+   * `true` is resolved, `false` is explicitly unresolved, and absent is unknown.
+   * Consumers must not convert absent to `false`. Use {@link isResolvedKnown}.
    */
   readonly resolved?: boolean;
   /**
-   * For `source: 'review-summary'`, the review state (e.g. `'APPROVED'`,
-   * `'CHANGES_REQUESTED'`, `'COMMENTED'`). Absent on non-summary sources. A
-   * string, not a provider-specific enum, to keep the contract platform-neutral.
+   * Review state for `source: 'review-summary'`, such as `'APPROVED'`. It is absent on other sources.
+   * It is a string, not a provider enum, so the contract stays the same for all providers.
    */
   readonly state?: string;
 }
 
-/**
- * Whether a comment's resolution status is *known* — i.e. `resolved` was set to
- * an explicit boolean rather than left absent. Returns `false` for the absent
- * (unknown) case so consumers can distinguish "unknown" from "unresolved"
- * instead of silently coercing absent → `false`.
- */
+/** True when `resolved` is an explicit boolean. It lets consumers tell "unknown" from "unresolved". */
 export function isResolvedKnown(comment: PrComment): boolean {
   return comment.resolved !== undefined;
 }
 
-// ─── DR-3: get_pr_comments window + projection ───────────────────────────────
-
 /**
- * Default number of (newest-first) comments returned when the caller omits
- * `limit`. Chosen to keep a default read well under the output-token budget: the
- * audit measured an 85-comment PR at 37,613 tokens unbounded, and windowing to
- * the newest ~20 collapses that to a fraction while the `page` metadata + steer
- * notice keep the rest reachable. An explicit `limit` overrides it.
+ * Number of newest comments that a read returns when the caller omits `limit`.
+ * It keeps a default read well under the output-token budget. One measured PR had 85 comments and 37,613 tokens.
+ * The `page` metadata and the notice keep the other comments reachable.
  */
 export const DEFAULT_PR_COMMENTS_LIMIT = 20;
 
 /**
- * Window + projection inputs for a paged {@link VcsProvider.getPrCommentsPage}
- * read (DR-3). All optional: an omitted `limit` defaults to
- * {@link DEFAULT_PR_COMMENTS_LIMIT}, an omitted/negative `offset` is `0`, and an
- * omitted/empty `fields` returns every comment key.
+ * Window and projection inputs for a paged PR-comments read.
+ * An omitted `limit` is {@link DEFAULT_PR_COMMENTS_LIMIT}. An omitted or negative `offset` is `0`.
+ * An omitted or empty `fields` returns every comment key.
  */
 export interface GetPrCommentsOptions {
   readonly limit?: number | undefined;
@@ -177,10 +133,8 @@ export interface GetPrCommentsOptions {
 }
 
 /**
- * Pagination metadata attached to a windowed read: `total` is the full
- * pre-window count, `offset`/`limit` are the effective window, and `hasMore`
- * says whether comments remain past this page (so a client knows to advance
- * `offset`). Provider-neutral — the same shape every provider returns.
+ * Pagination metadata of a windowed read. `total` is the count before the window, and `offset` and `limit` are the window.
+ * `hasMore` is true when comments remain after this page.
  */
 export interface PageMeta {
   readonly total: number;
@@ -190,13 +144,9 @@ export interface PageMeta {
 }
 
 /**
- * Windowed + projected result of a PR-comments read (DR-3).
- *
- * `comments` is at most `page.limit` entries, newest-first. Each entry is a
- * {@link PrComment} when no projection was requested, or a partial carrying ONLY
- * the {@link GetPrCommentsOptions.fields} keys otherwise — hence
- * `Partial<PrComment>`. `notice`, present only when `page.hasMore`, is a
- * human-readable steer toward a narrower/paged call.
+ * Windowed and projected result of a PR-comments read. `comments` holds at most `page.limit` entries, newest first.
+ * With `fields`, each entry holds only those keys, so the type is `Partial<PrComment>`.
+ * `notice` is present only when `page.hasMore` is true, and tells the reader how to page or project.
  */
 export interface PrCommentsPage {
   readonly comments: readonly Partial<PrComment>[];
@@ -204,19 +154,19 @@ export interface PrCommentsPage {
   readonly notice?: string;
 }
 
-/** Coerce an optional `limit` to a positive integer, defaulting when invalid. */
+/**
+ * Converts an optional `limit` to a positive integer, with the default for an invalid value.
+ * It must never return 0. A fraction in (0, 1) floors to 0, and a zero-sized page reports `hasMore: true` forever.
+ */
 function normalizePrCommentsLimit(limit?: number): number {
   if (limit === undefined || !Number.isFinite(limit) || limit <= 0) {
     return DEFAULT_PR_COMMENTS_LIMIT;
   }
-  // A fractional limit in (0, 1) floors to 0 — a zero-sized page reports
-  // `hasMore: true` forever, so the schema-guarded boundary aside, this
-  // defense-in-depth normalizer must never emit 0 (mirrors resolveCommentWindow).
   const normalized = Math.floor(limit);
   return normalized > 0 ? normalized : DEFAULT_PR_COMMENTS_LIMIT;
 }
 
-/** Coerce an optional `offset` to a non-negative integer, defaulting to 0. */
+/** Converts an optional `offset` to a non-negative integer, with 0 for an invalid value. */
 function normalizePrCommentsOffset(offset?: number): number {
   if (offset === undefined || !Number.isFinite(offset) || offset < 0) {
     return 0;
@@ -225,16 +175,15 @@ function normalizePrCommentsOffset(offset?: number): number {
 }
 
 /**
- * Newest-first comparator. `createdAt` is ISO-8601, so a lexical compare is a
- * chronological compare; ties break by `id` descending so paging is fully
- * deterministic even when two comments share a timestamp.
+ * Newest-first comparator. `createdAt` is ISO-8601, so a lexical compare is a chronological compare.
+ * Ties break by `id` descending, so paging is deterministic when two comments share a timestamp.
  */
 function compareNewestFirst(a: PrComment, b: PrComment): number {
   if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? 1 : -1;
   return b.id - a.id;
 }
 
-/** Project a comment to ONLY the requested keys (present, defined ones). */
+/** Keeps only the requested keys of a comment that are present and defined. */
 function projectComment(comment: PrComment, fields: readonly string[]): Partial<PrComment> {
   const source = comment as unknown as Record<string, unknown>;
   const out: Record<string, unknown> = {};
@@ -247,16 +196,10 @@ function projectComment(comment: PrComment, fields: readonly string[]): Partial<
 }
 
 /**
- * Window + project a provider's full comment list into a bounded {@link
- * PrCommentsPage} (DR-3). Pure and provider-agnostic: EVERY provider funnels its
- * raw {@link VcsProvider.getPrComments} result through this one helper, so the
- * window/projection contract is identical across GitHub/GitLab/ADO and callers
- * of providers that don't override {@link VcsProvider.getPrCommentsPage} get the
- * same behavior via this function directly.
- *
- * Ordering is newest-first (see {@link compareNewestFirst}); the window is
- * `[offset, offset+limit)`; `fields`, when non-empty, projects each entry to
- * only those keys. A `notice` is attached iff the window truncated the set.
+ * Windows and projects a full comment list into a bounded {@link PrCommentsPage}. It is pure.
+ * A provider without `getPrCommentsPage` gets this helper over its `getPrComments` result, so the contract is the same.
+ * The order is newest first, and the window is `[offset, offset+limit)`.
+ * A non-empty `fields` keeps only those keys. A `notice` is present only when comments remain after the window.
  */
 export function windowPrComments(
   comments: readonly PrComment[],
@@ -298,9 +241,7 @@ export interface IssueResult {
 }
 
 /**
- * Summary of an issue surfaced by a marker-based search. Returned by
- * `VcsProvider.searchIssuesByMarker` to support the two-event-split recovery
- * precheck in `handleCreateIssue` (CodeRabbit #3224631237).
+ * Issue found by `VcsProvider.searchIssuesByMarker`. The recovery precheck in `handleCreateIssue` uses it.
  */
 export interface IssueSearchSummary {
   readonly number: number;
@@ -314,14 +255,9 @@ export interface RepoInfo {
 }
 
 /**
- * Result of posting a reply to an existing comment thread via
- * {@link VcsProvider.addReply}.
- *
- * `id` is the provider's identifier for the newly created reply comment — on
- * GitHub this is the `pulls/comments` databaseId, the same id space that
- * {@link PrComment.id} carries for `review-inline` comments. Consumers use it to
- * correlate the posted reply back to a later `getPrComments` read (e.g. the
- * marker-scan verification in the add-comment handler).
+ * Result of {@link VcsProvider.addReply}. `id` identifies the new reply comment.
+ * On GitHub it is the `pulls/comments` databaseId, the same id space as {@link PrComment.id} for `review-inline` comments.
+ * Consumers use it to find the reply in a later `getPrComments` read.
  */
 export interface ReplyResult {
   readonly id: number;
@@ -334,56 +270,27 @@ export interface VcsProvider {
   mergePr(prId: string, strategy: string): Promise<MergeResult>;
   addComment(prId: string, body: string): Promise<void>;
   /**
-   * Post a reply into an existing per-thread review-comment conversation.
-   *
-   * This is the thread-aware sibling of {@link addComment}: `addComment` posts
-   * a PR-level conversation comment (not anchored to any thread), whereas
-   * `addReply` answers a specific review-comment thread so the response nests
-   * under the comment it addresses.
-   *
-   * - `prId`     — the pull/merge request id.
-   * - `threadId` — the id of the top-level review comment to reply to. This is
-   *                the same id space as {@link PrComment.id} for a
-   *                `review-inline` comment (and the value carried by
-   *                {@link PrComment.parentId} on its replies). Threading is one
-   *                level only: replies attach to the top-level comment, not to
-   *                other replies.
-   * - `body`     — the reply text.
-   *
-   * Returns the {@link ReplyResult} for the newly created reply. Implementations
-   * that do not yet support thread replies MUST throw
-   * {@link UnsupportedOperationError} (never silently no-op), matching the
-   * convention used by other not-yet-implemented provider methods.
+   * Posts a reply in a review-comment thread, so the reply nests under that comment.
+   * {@link addComment} posts a PR-level comment that is not in a thread.
+   * `threadId` is the {@link PrComment.id} of the top-level `review-inline` comment. A reply attaches to that comment, not to another reply.
+   * An implementation without thread replies must throw {@link UnsupportedOperationError}, and must not do nothing.
    */
   addReply(prId: string, threadId: string, body: string): Promise<ReplyResult>;
   getReviewStatus(prId: string): Promise<ReviewStatus>;
   listPrs(filter?: PrFilter): Promise<PrSummary[]>;
   getPrComments(prId: string): Promise<PrComment[]>;
   /**
-   * DR-3 — windowed + projected read of PR comments. Returns the newest `limit`
-   * comments (default {@link DEFAULT_PR_COMMENTS_LIMIT}) starting at `offset`,
-   * projected to {@link GetPrCommentsOptions.fields} when given, plus `page`
-   * metadata and a truncation `notice`. Internal callers that need the FULL
-   * feed (e.g. the add-comment verify scan, assess-stack) keep using
-   * {@link getPrComments}; this is the bounded surface for the read-only tool.
-   *
-   * OPTIONAL by design: providers that don't override it are windowed by the
-   * caller via {@link windowPrComments} over their {@link getPrComments} result,
-   * so the GitLab/ADO partials keep their existing behavior unchanged — no new
-   * provider method to implement, no throw-behavior to alter.
+   * Windowed and projected read of PR comments for the read-only tool.
+   * Internal callers that need the full feed use {@link getPrComments}.
+   * This method is optional. For a provider without it, the caller applies {@link windowPrComments} to {@link getPrComments}.
    */
   getPrCommentsPage?(prId: string, opts?: GetPrCommentsOptions): Promise<PrCommentsPage>;
   getPrDiff(prId: string): Promise<string>;
   createIssue(opts: CreateIssueOpts): Promise<IssueResult>;
   /**
-   * Search issues whose body contains the operationId marker
-   * `<!-- exarchos-op:UUID -->`. Used by the create-issue handler's recovery
-   * precheck to detect crash-recovery cases where the issue was created on
-   * the remote but `issue.create.executed` was never committed.
-   *
-   * Implementations should query the provider's search surface scoped to the
-   * current repository. Empty array means "no match" — distinct from a
-   * provider failure (which must throw and not return []).
+   * Searches the current repository for issues whose body holds the marker `<!-- exarchos-op:UUID -->`.
+   * The create-issue recovery precheck uses it to find an issue that exists but has no `issue.create.executed` event.
+   * An empty array means no match. A provider failure must throw, and must not return `[]`.
    */
   searchIssuesByMarker(operationId: string): Promise<IssueSearchSummary[]>;
   getRepository(): Promise<RepoInfo>;

@@ -4,16 +4,13 @@ import type { PrComment as VcsPrComment } from '../../vcs/provider.js';
 const DESCRIPTION_MAX_LENGTH = 100;
 
 /**
- * Catch-all adapter for non-bot reviewers.
+ * The catch-all adapter for reviewers that are not bots.
  *
- * The human adapter intentionally does NOT infer severity from prose — natural
- * language signals like "CRITICAL" or "nit" are too unreliable to drive fixer
- * dispatch. Every accepted comment defaults to {@link Severity} `MEDIUM`.
- *
- * Bot authors are rejected (returns `null`) so dedicated adapters can claim
- * them. This includes:
- *   - any author whose login ends with `[bot]` (GitHub bot convention)
- *   - the literal `Copilot` (GitHub Copilot reviews surface without a [bot] suffix)
+ * It does not infer severity from prose, because words like "CRITICAL" or "nit" are too unreliable
+ * to drive fixer dispatch. Each accepted comment gets {@link Severity} `MEDIUM`. It returns `null`
+ * for a bot author, so a dedicated adapter can claim the comment. A bot login ends with `[bot]`, or
+ * is the literal `Copilot`. A parse error returns `null`, so one bad comment does not stop the
+ * batch.
  */
 export const humanAdapter: ProviderAdapter = {
   kind: 'human',
@@ -41,7 +38,6 @@ export const humanAdapter: ProviderAdapter = {
         normalizedSeverity: 'MEDIUM',
       };
     } catch {
-      // Defensive: bad body must not kill the whole batch (#1159).
       return null;
     }
   },

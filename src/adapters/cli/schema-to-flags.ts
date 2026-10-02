@@ -1,14 +1,11 @@
 import { z } from 'zod';
 import { Command } from 'commander';
 
-// ─── Shared Validation-Error Emission (DR-5) ───────────────────────────────
-//
-// Both the CLI and MCP adapters funnel malformed-argument rejections through
-// this helper so they produce byte-identical `error.code` values and
-// equivalent `error.message` strings. See
-// `schema-to-flags.parity.test.ts` for the parity contract.
-
-/** Canonical error code for any argument-coercion failure at the adapter boundary. */
+/**
+ * Canonical error code for an argument failure at the adapter boundary. The CLI
+ * and MCP paths share the helpers below, so they emit the same `error.code`.
+ * `schema-to-flags.parity.test.ts` holds the parity contract.
+ */
 export const VALIDATION_ERROR_CODE = 'INVALID_INPUT' as const;
 
 /** Shape emitted by {@link formatValidationError} — matches `ToolResult.error`. */
@@ -32,14 +29,10 @@ export function formatZodError(err: z.ZodError): string {
 }
 
 /**
- * Build the canonical validation-error payload from a ZodError. Callers in
- * the CLI and MCP dispatch paths must both use this helper so the two
- * facades emit identical `error.code` and equivalent `error.message`
- * values — a prerequisite for the DR-5 parity contract.
- *
- * Optional `context` is prepended to the message so humans reading the CLI
- * output know which tool+action failed without having to correlate against
- * the surrounding command invocation.
+ * Builds the canonical validation-error payload from a `ZodError`. The CLI and
+ * MCP dispatch paths must both use it, so that they emit the same `error.code`
+ * and equivalent messages. The optional `context` goes before the message, to
+ * name the tool and action that failed.
  */
 export function formatValidationError(
   err: z.ZodError,
@@ -51,15 +44,12 @@ export function formatValidationError(
 }
 
 /**
- * Build an INVALID_INPUT payload for a plain (non-Zod) rejection — e.g.
- * unknown action names, unknown subcommands. Keeps the code channel
- * unified with {@link formatValidationError}.
+ * Builds an `INVALID_INPUT` payload for a rejection without a Zod error, for
+ * example an unknown action or subcommand.
  */
 export function buildInvalidInput(message: string): ValidationError {
   return { code: VALIDATION_ERROR_CODE, message };
 }
-
-// ─── Case Conversion Helpers ────────────────────────────────────────────────
 
 export function toKebab(camel: string): string {
   return camel.replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase();
@@ -69,8 +59,6 @@ export function toCamel(kebab: string): string {
   return kebab.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
 }
 
-// ─── Field Metadata ─────────────────────────────────────────────────────────
-
 export interface FieldMeta {
   name: string;
   type: 'string' | 'number' | 'boolean' | 'enum' | 'array' | 'object' | 'unknown';
@@ -79,11 +67,9 @@ export interface FieldMeta {
   enumValues?: string[] | undefined;
 }
 
-// ─── Schema Shape Extraction ────────────────────────────────────────────────
-
 /**
- * Returns true iff `schema` is a `z.preprocess(...)` pipe (i.e. a ZodPipe
- * whose input is a ZodTransform — distinguishes preprocess from `.transform()`).
+ * Returns true when `schema` is a `z.preprocess(...)` pipe: a `ZodPipe` with a
+ * `ZodTransform` input. This test tells preprocess apart from `.transform()`.
  */
 function isPreprocessPipe(schema: z.ZodType): boolean {
   if (!(schema instanceof z.ZodPipe)) return false;
@@ -151,8 +137,8 @@ function extractEnumValues(schema: z.ZodType): string[] | undefined {
 }
 
 /**
- * Extracts field metadata from a Zod object schema.
- * Handles z.preprocess() wrappers, optional fields, enums, arrays, etc.
+ * Extracts field metadata from a Zod object schema. It unwraps `z.preprocess()`
+ * pipes and the optional, default and nullable wrappers.
  */
 export function extractSchemaFields(schema: z.ZodObject<z.ZodRawShape>): FieldMeta[] {
   const shape = schema.shape;
@@ -176,8 +162,6 @@ export function extractSchemaFields(schema: z.ZodObject<z.ZodRawShape>): FieldMe
   return result;
 }
 
-// ─── Flag Overrides ─────────────────────────────────────────────────────────
-
 export interface FlagOverrides {
   [fieldName: string]: {
     alias?: string;
@@ -185,12 +169,14 @@ export interface FlagOverrides {
   };
 }
 
-// ─── Commander Flag Generation ──────────────────────────────────────────────
-
 /**
- * Adds commander CLI flags from a Zod object schema.
- * Skips the `action` field (used as the subcommand name).
- * Always adds a `--json` flag for raw JSON output.
+ * Adds Commander flags from a Zod object schema. It skips the `action` field,
+ * which is the subcommand name, and adds a `--json` flag.
+ *
+ * Required fields are plain options, so Commander does not exit on a missing
+ * value. The Zod schema enforces them, and their help text starts with
+ * `[required]`. A boolean gets `--flag` and `--no-flag`, and
+ * {@link validateRequiredBooleans} checks it after the parse.
  */
 export function addFlagsFromSchema(
   cmd: Command,
@@ -205,18 +191,10 @@ export function addFlagsFromSchema(
     const kebab = toKebab(field.name);
     const override = overrides?.[field.name];
     const baseDesc = override?.description ?? field.description ?? field.name;
-    // F-024-UX: prepend `[required] ` to the description for required fields
-    // so `--help` preserves the visual cue that was lost when DR-5 switched
-    // from Commander's `requiredOption` to plain `option` (required-field
-    // enforcement now happens via Zod at the action callback, not Commander).
     const desc = field.required ? `[required] ${baseDesc}` : baseDesc;
     const alias = override?.alias;
 
     if (field.type === 'boolean') {
-      // Register both --flag and --no-flag as optional; required validation
-      // happens in validateRequiredBooleans() after parsing, because Commander
-      // treats them as independent options and requiredOption('--flag') rejects
-      // valid '--no-flag' input.
       const posFlag = alias ? `-${alias}, --${kebab}` : `--${kebab}`;
       cmd.option(posFlag, desc);
       cmd.option(`--no-${kebab}`, `Negate --${kebab}`);
@@ -235,24 +213,16 @@ export function addFlagsFromSchema(
       flagStr = alias ? `-${alias}, --${kebab} <value>` : `--${kebab} <value>`;
     }
 
-    // DR-5: Required non-boolean fields are registered as plain options so
-    // Commander doesn't hard-exit on a missing value. Required-field
-    // enforcement happens via the per-action Zod schema at the action
-    // callback layer (cli.ts) and via the dispatch-level validation
-    // (core/dispatch.ts) — both funnel through formatValidationError so
-    // CLI and MCP produce identical INVALID_INPUT payloads.
     cmd.option(flagStr, desc);
   }
 
   cmd.option('--json', 'Output raw JSON');
 }
 
-// ─── Required Boolean Validation ─────────────────────────────────────────────
-
 /**
- * Validates that required boolean fields were provided (either --flag or --no-flag).
- * Commander can't enforce this because --flag and --no-flag are independent options.
- * Returns an array of missing field names (empty = valid).
+ * Returns the flags of required boolean fields that got neither `--flag` nor
+ * `--no-flag`. Commander cannot enforce this, because the two flags are
+ * independent options. An empty array means that all are present.
  */
 export function validateRequiredBooleans(
   opts: Record<string, unknown>,
@@ -270,11 +240,9 @@ export function validateRequiredBooleans(
   return missing;
 }
 
-// ─── Flag Coercion ──────────────────────────────────────────────────────────
-
 /**
- * Converts kebab-case CLI options back to camelCase keys
- * and coerces string values to appropriate types based on the schema.
+ * Converts kebab-case CLI options to camelCase keys, and coerces string values
+ * to the schema type. An array accepts JSON or a comma-separated list.
  */
 export function coerceFlags(
   opts: Record<string, unknown>,

@@ -1,17 +1,7 @@
 /**
- * Loader for the machine-readable invariants catalog at
- * `.exarchos/invariants.md` (the dev catalog, relocated from
- * `docs/architecture/invariants.md` in T19; issue #1260).
- *
- * The frontmatter is the source of truth; this module parses it into a typed
- * `InvariantEntry[]` for consumption by `/ideate` first-turn surfacing, the
- * vocabulary-lint scanner, and the `check_invariant_conformance` gate (which
- * replaced the retired `design-invariants` skill in T-23).
- *
- * Implementation note: we use `gray-matter` (already a devDependency of the
- * MCP server) which sits on top of `js-yaml`. The loader is intentionally
- * tolerant — unknown fields are preserved on `raw` but typed accessors map
- * the documented shape.
+ * Loader for the machine-readable invariants catalog, such as `.exarchos/invariants.md`.
+ * The frontmatter is the source of truth. This module parses it into typed
+ * `InvariantEntry` values. Unknown fields stay on `raw`.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -27,20 +17,13 @@ import {
 import { resolveCatalogSources } from './catalog-sources.js';
 
 /**
- * Schema versions the loader accepts (DR-1). The catalog frontmatter may
- * declare `schema-version: 2` (the live v2 catalog) or `3` (the v3 catalog
- * that layers optional affinity / enforcement / severity / integrity-class
- * fields). An absent `schema-version` is tolerated for back-compat with
- * pre-v2 fixtures; any *declared* value outside this set is a loud parse
- * error (no silent acceptance of an unknown schema — DIM-2 contract).
+ * Schema versions the loader accepts. Version 3 adds the optional affinity,
+ * enforcement, severity, and integrity-class fields. A catalog with no
+ * `schema-version` loads, for old fixtures. A declared value outside this set throws.
  */
 const SUPPORTED_SCHEMA_VERSIONS: readonly number[] = [2, 3] as const;
 
-/**
- * Allowed values for the `cost-of-load` frontmatter field. Drives the
- * `/ideate` Phase 0 split between core entries surfaced by default and
- * reference-only entries loaded on-demand.
- */
+/** Values of the `cost-of-load` frontmatter field. The `core` scope keeps only `always-load` entries. */
 export type CostOfLoad = 'always-load' | 'reference-only' | 'archivable';
 
 const COST_OF_LOAD_VALUES: readonly CostOfLoad[] = [
@@ -50,16 +33,11 @@ const COST_OF_LOAD_VALUES: readonly CostOfLoad[] = [
 ] as const;
 
 /**
- * Allowed values for the `scope` argument to `loadInvariants` (schema-v2).
- * Drives the v2 filter (spec §4.1, §4.2) that intersects axis with
- * `cost-of-load`:
- *
- *   - `'core'`      — axis=substrate AND cost-of-load=always-load
- *                     (the `/ideate` Phase 0 working set)
- *   - `'substrate'` — every entry on the substrate axis (any cost-of-load)
- *   - `'authoring'` — every entry on the authoring axis (empty after the
- *                     #1477 axiom excision removed the sole authoring entry)
- *   - `'all'`       — every entry (default, backwards-compat with v1)
+ * Values of the `scope` option of `loadInvariants`:
+ *   - `core`: substrate-axis entries with `cost-of-load: always-load`.
+ *   - `substrate`: every substrate-axis entry.
+ *   - `authoring`: every authoring-axis entry.
+ *   - `all`: every entry. This is the default.
  */
 export type InvariantsScope = 'core' | 'substrate' | 'authoring' | 'all';
 
@@ -71,30 +49,21 @@ const SCOPE_VALUES: readonly InvariantsScope[] = [
 ] as const;
 
 /**
- * Allowed values for the `axis` frontmatter field introduced in schema-v2.
- * `substrate` entries describe runtime-substrate properties; `authoring`
- * entries describe prose / documentation concerns. The `authoring` axis is
- * retained in the type for forward-compat, though no live entry declares it
- * after the #1477 axiom excision removed the sole authoring (DIM-8) entry.
- * Drives the v2 scope filter (Wave D1) which intersects axis with
- * `cost-of-load` for `scope: 'core'`.
+ * Values of the `axis` frontmatter field. A `substrate` entry describes a
+ * runtime property. An `authoring` entry describes a prose or documentation concern.
  */
 export type InvariantAxis = 'substrate' | 'authoring';
 
 const AXIS_VALUES: readonly InvariantAxis[] = ['substrate', 'authoring'] as const;
 
 export interface InvariantEntry {
-  /** Stable identifier — e.g. "INV-1", "INV-5a", "basileus-boundary". */
+  /** Stable identifier and primary key of the entry, such as `basileus-boundary`. */
   id: string;
   /** Short human-readable category name. */
   dimension: string;
-  /**
-   * Axis classification (schema-v2). Either `'substrate'` (runtime
-   * substrate property) or `'authoring'` (prose / documentation concern).
-   * Required for every entry under schema-v2; the loader throws on missing.
-   */
+  /** Axis classification. The loader throws when it is missing. */
   axis: InvariantAxis;
-  /** Load-cost classification (drives Phase 0 surfacing — see `CostOfLoad`). */
+  /** Load-cost classification. See `CostOfLoad`. */
   costOfLoad: CostOfLoad;
   /** Surface areas (modules, file globs, capability domains) the invariant covers. */
   appliesTo: string[];
@@ -102,59 +71,35 @@ export interface InvariantEntry {
   summary: string;
   /** Pointers to source files where the invariant is detailed in prose. */
   references: string[];
-  /**
-   * External research citations (schema-v2). Optional — recommended ≥3
-   * entries for substrate-axis invariants; v1-era entries (pre-C4..C11)
-   * typically omit it. Undefined when not declared (distinct from
-   * declared-empty `[]`).
-   */
+  /** External research citations. `undefined` when not declared, which differs from a declared `[]`. */
   citations?: string[];
-  /**
-   * SDLC phases this invariant is relevant to (schema-v3, DR-1). Optional;
-   * `undefined` when the entry does not declare `phase-affinity`. Element
-   * type and validation come from `InvariantEntryV3Schema`.
-   */
+  /** SDLC phases this invariant applies to. `undefined` when `phase-affinity` is absent. */
   phaseAffinity?: NonNullable<InvariantEntryV3['phase-affinity']>;
-  /**
-   * Workflow kinds this invariant is relevant to (schema-v3, DR-1).
-   * Optional; `undefined` when `workflow-affinity` is absent.
-   */
+  /** Workflow kinds this invariant applies to. `undefined` when `workflow-affinity` is absent. */
   workflowAffinity?: NonNullable<InvariantEntryV3['workflow-affinity']>;
-  /**
-   * Workflow-state names this invariant is relevant to (schema-v3, DR-1).
-   * Optional; `undefined` when `state-affinity` is absent.
-   */
+  /** Workflow-state names this invariant applies to. `undefined` when `state-affinity` is absent. */
   stateAffinity?: NonNullable<InvariantEntryV3['state-affinity']>;
   /**
-   * Declarative enforcement directive (schema-v3, DR-1/DR-2). Optional;
-   * `undefined` when `enforcement` is absent. Shape validated by the
-   * `.strict()` combinator DSL in `InvariantEntryV3Schema`.
+   * Declarative enforcement directive, validated by the `.strict()` combinator DSL
+   * in `InvariantEntryV3Schema`. `undefined` when `enforcement` is absent.
    */
   enforcement?: Enforcement;
-  /**
-   * Per-context severity overrides (schema-v3, DR-1). Optional; `undefined`
-   * when `severity` is absent.
-   */
+  /** Per-context severity overrides. `undefined` when `severity` is absent. */
   severity?: NonNullable<InvariantEntryV3['severity']>;
-  /**
-   * Integrity-class classification (schema-v3, DR-1). Optional; `undefined`
-   * when `integrity-class` is absent.
-   */
+  /** Integrity-class classification. `undefined` when `integrity-class` is absent. */
   integrityClass?: NonNullable<InvariantEntryV3['integrity-class']>;
   /**
-   * Source-layer tier, assigned by `mergeCatalogs` (P1 T4). Identifies which
-   * catalog layer an entry came from: `'dev'` (built-in/maintainer dev
-   * catalog, owns the `INV-*` namespace), `'sdlc'` (the compiled-in SDLC-*
-   * baseline), or `'user'` (a consumer-registered catalog). Reserved-namespace
-   * authority is keyed off this tier rather than off array position. Absent on
-   * a freshly-loaded entry; set during the merge.
+   * The catalog layer of the entry, which `mergeCatalogs` sets: `dev` (the maintainer
+   * catalog, which owns the `INV-*` namespace), `sdlc` (the compiled-in baseline), or
+   * `user` (a registered consumer catalog). Reserved-namespace authority uses this tier,
+   * not the array position. A newly loaded entry has no tier.
    */
   tier?: 'dev' | 'sdlc' | 'user';
   /** The raw parsed entry for fields not yet promoted to the typed shape. */
   raw: Record<string, unknown>;
 }
 
-/** Untyped shape returned by `gray-matter` for a single catalog entry — validated by `parseEntry`. */
+/** Untyped shape of one catalog entry from `gray-matter`. `parseEntry` validates it. */
 interface RawInvariantEntry {
   id?: unknown;
   dimension?: unknown;
@@ -167,14 +112,14 @@ interface RawInvariantEntry {
   [key: string]: unknown;
 }
 
-/** Untyped shape returned by `gray-matter` for the file frontmatter — validated by `loadInvariants`. */
+/** Untyped shape of the file frontmatter from `gray-matter`. `loadInvariants` validates it. */
 interface RawFrontmatter {
   'schema-version'?: unknown;
   invariants?: unknown;
   [key: string]: unknown;
 }
 
-/** Parse a YAML field as `string[]`; throws with `entry-id + field-name` context on shape mismatch. */
+/** Parses a YAML field as `string[]`. Throws with the entry id and field name on a shape mismatch. */
 function asStringArray(value: unknown, field: string, id: string): string[] {
   if (!Array.isArray(value)) {
     throw new Error(
@@ -191,28 +136,23 @@ function asStringArray(value: unknown, field: string, id: string): string[] {
   });
 }
 
-/** Parse a YAML field as `string`; collapses folded-scalar whitespace; throws on shape mismatch. */
+/** Parses a YAML field as `string` and collapses folded-scalar whitespace. Throws on a mismatch. */
 function asString(value: unknown, field: string, id: string): string {
   if (typeof value !== 'string') {
     throw new Error(
       `invariants-loader: entry "${id}" field "${field}" must be a string, got ${typeof value}`,
     );
   }
-  // Collapse YAML folded-scalar whitespace so consumers get clean prose.
   return value.replace(/\s+/g, ' ').trim();
 }
 
 /**
- * Parse + validate `axis` (schema-v2); throws loudly on missing or invalid
- * value (no silent default — DIM-2 contract). Required for every entry
- * under schema-version: 2.
+ * Parses and validates `axis`, with no default. A missing or invalid value throws.
+ * The error names the entry, the field, and the allowed values, so an editor can fix
+ * the catalog without the spec.
  */
 function parseAxis(value: unknown, id: string): InvariantAxis {
   if (typeof value !== 'string' || value.length === 0) {
-    // Phrasing per plan D2 GREEN: name the entry id, the field, and cite
-    // the schema-version + allowed values so catalog editors can fix the
-    // omission without consulting the spec. Closes the v1-fixture regression
-    // hole (no silent default — DIM-2 contract).
     throw new Error(
       `Invariant entry '${id}' is missing required 'axis' field ` +
         `(schema-version: 2 requires explicit ` +
@@ -228,7 +168,7 @@ function parseAxis(value: unknown, id: string): InvariantAxis {
   return value as InvariantAxis;
 }
 
-/** Parse + validate `cost-of-load`; throws loudly on missing or invalid value (no silent default — DIM-2 contract). */
+/** Parses and validates `cost-of-load`, with no default. A missing or invalid value throws. */
 function parseCostOfLoad(value: unknown, id: string): CostOfLoad {
   if (typeof value !== 'string' || value.length === 0) {
     throw new Error(
@@ -245,7 +185,7 @@ function parseCostOfLoad(value: unknown, id: string): CostOfLoad {
   return value as CostOfLoad;
 }
 
-/** Validate one raw entry and project to the typed `InvariantEntry`; preserves the raw shape for unknown-field forward-compat. */
+/** Validates one raw entry and projects it to `InvariantEntry`. A raw copy stays on `raw`. */
 function parseEntry(raw: RawInvariantEntry): InvariantEntry {
   if (typeof raw.id !== 'string' || raw.id.length === 0) {
     throw new Error('invariants-loader: entry is missing required field "id"');
@@ -261,31 +201,16 @@ function parseEntry(raw: RawInvariantEntry): InvariantEntry {
     references: asStringArray(raw.references, 'references', id),
     raw: { ...raw },
   };
-  // Optional schema-v2 field — only project when declared so the typed
-  // accessor preserves the "not declared" distinction (undefined vs []).
   if (raw.citations !== undefined) {
     entry.citations = asStringArray(raw.citations, 'citations', id);
   }
-  // Optional schema-v3 fields (DR-1) — project through the Zod
-  // `InvariantEntryV3Schema` source of truth so the v3 shape is validated
-  // (incl. the `.strict()` enforcement-DSL sandbox guarantee, INV-4) without
-  // being redefined here. Only declared fields are surfaced; absent fields
-  // resolve to `undefined`, preserving full v2 back-compat.
   projectV3Fields(raw, entry);
   return entry;
 }
 
 /**
- * Validate and project the optional schema-v3 fields onto an already-built
- * `InvariantEntry`. Reuses `InvariantEntryV3Schema` (DR-1) so the v3 shape —
- * including the `.strict()` enforcement combinator DSL (INV-4 sandbox
- * guarantee) — is enforced at load time. Each field is only assigned when
- * declared, so absent fields stay `undefined` (v2 back-compat).
- *
- * We `.pick()` just the v3 keys rather than parsing the whole entry through
- * the v3 schema: the v2 loader's own required-field validation (with its
- * established, test-asserted error messages) stays the authority for v2
- * fields. This keeps the two validation surfaces decoupled.
+ * The optional schema-v3 fields of `InvariantEntryV3Schema`. The pick leaves the v2
+ * checks, with their tested error messages, as the authority for the v2 fields.
  */
 const V3_FIELD_SCHEMA = InvariantEntryV3Schema.pick({
   'phase-affinity': true,
@@ -296,6 +221,10 @@ const V3_FIELD_SCHEMA = InvariantEntryV3Schema.pick({
   'integrity-class': true,
 });
 
+/**
+ * Validates the optional v3 fields, including the `.strict()` enforcement DSL, and
+ * copies each declared field onto `entry`. An absent field stays `undefined`.
+ */
 function projectV3Fields(raw: RawInvariantEntry, entry: InvariantEntry): void {
   const v3 = V3_FIELD_SCHEMA.parse(raw);
   if (v3['phase-affinity'] !== undefined) entry.phaseAffinity = v3['phase-affinity'];
@@ -308,29 +237,13 @@ function projectV3Fields(raw: RawInvariantEntry, entry: InvariantEntry): void {
   if (v3['integrity-class'] !== undefined) entry.integrityClass = v3['integrity-class'];
 }
 
-// ─── Catalog primary-key rule (DR-6: ONE authority, read AND write) ─────────
-//
-// Ids are the catalog's primary key. This rule was previously an inline
-// `Set`-based loop inside `parseInvariantEntries` — reachable only from the
-// READ path — while `invariants_add` honored an explicit `id` with no
-// membership test at all. The writer could therefore author a catalog the
-// reader refuses to load (task 068 / DR-24).
-//
-// It is extracted here, not restated at the write site, so the two paths cannot
-// drift: `parseInvariantEntries` (read) and `verbs/invariants/add.ts`
-// (write) both call these two functions and nothing else decides id uniqueness.
-// A change to what "duplicate" means — case-folding, namespace scoping — moves
-// both paths in one edit.
-
 /**
- * The catalog's primary-key rule. Returns the FIRST id that appears more than
- * once in `ids`, or `undefined` when every id is unique.
+ * The primary-key rule of the catalog. Returns the first id that occurs more than
+ * once in `ids`, or `undefined` when every id is unique. The loader and the
+ * `invariants` add and amend verbs share it, so the read and write paths cannot drift.
  *
- * Total over its input: an empty list is vacuously unique. Callers that must
- * not accept a vacuous answer are responsible for proving their denominator
- * RESOLVED before asking (see `readCatalogIds` in
- * `verbs/invariants/add.ts`) — this function cannot distinguish "no
- * entries" from "could not read the entries", and must not pretend to.
+ * An empty list is unique. This function cannot tell "no entries" from "could not
+ * read the entries", so a caller must prove that it read its entries first.
  */
 export function findDuplicateInvariantId(
   ids: Iterable<string>,
@@ -344,25 +257,18 @@ export function findDuplicateInvariantId(
 }
 
 /**
- * The wire-visible rejection text for a primary-key violation. Shared so the
- * writer's refusal and the loader's throw are the same sentence — a caller
- * matching on this string sees one message regardless of which path produced
- * it.
+ * The rejection text for a duplicate id. The writer and the loader share it, so both
+ * give the same message.
  */
 export function duplicateInvariantIdMessage(id: string): string {
   return `Duplicate invariant ID: ${id}`;
 }
 
 /**
- * Pure raw→typed projection for a list of catalog entries (no file-IO, no
- * `schema-version` guard, no `devCatalog` gate, no scope filter). Validates and
- * projects each raw entry via `parseEntry` (which enforces the v2 required
- * fields and the v3 `.strict()` enforcement DSL, INV-4) and rejects duplicate
- * ids — the same primary-key guarantee `loadInvariants` relies on.
- *
- * This is the single parse path shared by the file loader (`loadInvariants`)
- * and the inline plugin-shipped sdlc catalog (`sdlc-catalog.ts`, #1467), so the
- * two cannot drift (INV-2 spirit).
+ * Pure raw-to-typed projection of a list of catalog entries. It does no file I/O,
+ * version check, registration check, or scope filter. A non-object entry throws
+ * with its index. A duplicate id throws, because it hides the earlier entry.
+ * `loadInvariants` and `sdlc-catalog.ts` share this path, so the two cannot drift.
  */
 export function parseInvariantEntries(rawEntries: unknown): InvariantEntry[] {
   if (!Array.isArray(rawEntries)) {
@@ -370,10 +276,6 @@ export function parseInvariantEntries(rawEntries: unknown): InvariantEntry[] {
       'invariants-loader: parseInvariantEntries expects an array of entries',
     );
   }
-  // Guard each element before parseEntry so a null/primitive entry yields a
-  // clear, index-named loader error instead of a generic TypeError deep in the
-  // parser. For the disk/consumer layers this surfaces as a DR-9 degradation
-  // warning naming the catalog rather than an opaque crash.
   const entries = rawEntries.map((raw, index) => {
     if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
       throw new Error(
@@ -382,11 +284,6 @@ export function parseInvariantEntries(rawEntries: unknown): InvariantEntry[] {
     }
     return parseEntry(raw as RawInvariantEntry);
   });
-  // Reject duplicate IDs — IDs are the catalog's primary key and must be
-  // unique. A silent duplicate would shadow the earlier entry and corrupt
-  // vocabulary-lint / ideate Constraint surfacing. The rule itself lives in
-  // `findDuplicateInvariantId` so the WRITE path enforces the identical
-  // predicate rather than a second copy of it (DR-6 / task 068).
   const duplicate = findDuplicateInvariantId(entries.map((e) => e.id));
   if (duplicate !== undefined) {
     throw new Error(duplicateInvariantIdMessage(duplicate));
@@ -395,45 +292,32 @@ export function parseInvariantEntries(rawEntries: unknown): InvariantEntry[] {
 }
 
 /**
- * Read the `invariants:` block from the closest `.exarchos.yml` walking up
- * from the catalog file. Returns `{}` when no file is found or when the
- * YAML lacks the `invariants` key — both cases collapse to "nothing is
- * registered", hence an empty load at `loadInvariants` (DR-31).
- *
- * Implementation note: we intentionally do NOT route through
- * `loadExarchosConfig` because that function validates the *entire*
- * `.exarchos.yml` against `ExarchosConfigSchema.strict()` — the committed
- * root file also carries `agents:` / `review:` / `workflow:` keys validated
- * by the parallel `ProjectConfigSchema`, so a strict full-file parse would
- * throw on the unrelated keys. Extracting the `invariants` block in
- * isolation keeps this loader decoupled from the other schemas' shape.
- *
- * The walk-up is bounded by the filesystem root; we stop at the first hit.
+ * Reads the `invariants:` block from the closest `.exarchos.yml` above the catalog
+ * file. Returns `{}` when no file is found or the block is absent. Then nothing is
+ * registered, and `loadInvariants` returns no entries.
  */
 export function readInvariantsConfig(catalogFilePath: string): ExarchosConfigInput {
   return discoverInvariantsConfig(catalogFilePath).config;
 }
 
 /**
- * The `.exarchos.yml` a catalog file resolves against: the parsed config plus
- * the DIRECTORY that file lives in.
- *
- * The directory matters for DR-31 gating: `invariants.catalogs` registrations
- * are written relative to the config file, so "is this file registered?" can
- * only be answered by resolving those registrations against that directory.
- * `root` is `undefined` when no config file was found (nothing is registered,
- * so nothing loads).
+ * The `.exarchos.yml` that a catalog file resolves against, and the directory of
+ * that file. Registrations in `invariants.catalogs` are relative to this directory.
+ * `root` is `undefined` when no config file exists.
  */
 interface DiscoveredInvariantsConfig {
   config: ExarchosConfigInput;
   root: string | undefined;
 }
 
+/**
+ * Walks up from the catalog file to the first `.exarchos.yml` or `.exarchos.yaml`.
+ * The walk stops at the filesystem root.
+ */
 function discoverInvariantsConfig(
   catalogFilePath: string,
 ): DiscoveredInvariantsConfig {
   let dir = path.dirname(path.resolve(catalogFilePath));
-  // Bounded walk-up: stop at filesystem root.
   while (true) {
     for (const filename of ['.exarchos.yml', '.exarchos.yaml']) {
       const candidate = path.join(dir, filename);
@@ -448,39 +332,25 @@ function discoverInvariantsConfig(
 }
 
 /**
- * Canonical form for path comparison: absolute-ized, `.`/`..` collapsed, and
- * `/`-separated with no trailing slash.
- *
- * The separator normalization is deliberate and is NOT a platform branch: the
- * same expression runs on POSIX and Windows, so the comparison below has
- * exactly one behavior on both. (A `process.platform` branch here would make
- * the gate live on one OS and dead on the other.)
+ * Canonical form for path comparison: `.` and `..` collapsed, `/`-separated, and
+ * no trailing slash. The same expression runs on POSIX and Windows, with no
+ * platform branch, so the comparison has one behavior on both.
  */
 function canonicalPath(p: string): string {
   return path.normalize(p).replace(/\\/g, '/').replace(/(.)\/+$/, '$1');
 }
 
 /**
- * DR-31 gate: **is a catalog registered for this file?**
+ * Returns true when the config registers `filePath` in `invariants.catalogs`.
+ * `resolveCatalogSources` decides what a registration is.
  *
- * This replaces the retired `invariants.devCatalog !== 'enabled'` boolean
- * gate. The question the loader asks is no longer "did someone flip a
- * repo-only flag?" but "does this config register this catalog?" — the same
- * question a consumer's `.exarchos.yml` answers for its own files. Discovery
- * is delegated to `resolveCatalogSources`, so there is exactly ONE place that
- * knows what a registration is.
+ * A relative registration resolves against `configRoot`. Without `configRoot`, it
+ * matches a segment-aligned path suffix: `.exarchos/invariants.md` matches
+ * `<any-dir>/.exarchos/invariants.md`, but not `<any-dir>/my.exarchos/invariants.md`.
  *
- * Registrations resolve against `configRoot` (the directory of the
- * `.exarchos.yml` they came from, or the root the caller resolved them
- * against). When the config was injected without a root, the loader cannot
- * know which root the caller used, so a RELATIVE registration matches on a
- * segment-aligned path suffix — `.exarchos/invariants.md` matches
- * `<anyRoot>/.exarchos/invariants.md` but never `<anyRoot>/other.md` and never
- * a partial segment such as `<anyRoot>/my.exarchos/invariants.md`.
- *
- * @param filePath Catalog file the caller is asking to load.
- * @param config Effective config (already-injected or disk-read).
- * @param configRoot Directory registrations are relative to, when known.
+ * @param filePath Catalog file that the caller asks to load.
+ * @param config Effective config, injected or read from disk.
+ * @param configRoot Directory that registrations are relative to, when known.
  */
 export function isCatalogRegistered(
   filePath: string,
@@ -501,22 +371,12 @@ export function isCatalogRegistered(
 }
 
 /**
- * Extract the `invariants:` block from a `.exarchos.yml` file, reconciled
- * with the strict `loadExarchosConfig` reader (#1479).
+ * Extracts the `invariants:` block from a `.exarchos.yml` file. It validates the
+ * whole document against `FullExarchosConfigSchema`, as `loadExarchosConfig` does,
+ * so both readers reach the same verdict on a file.
  *
- * Both readers now validate the *entire* document against the unified
- * `FullExarchosConfigSchema` (the merge of the test-runtime concern and the
- * project concern, see `config/yaml-schema.ts`), so they reach the SAME
- * verdict on any given file: a key valid in either concern is accepted; a
- * genuine typo or a malformed `invariants` block is rejected by both.
- *
- * This loader stays NON-throwing by contract — `loadInvariants` expects a
- * `{}` fallback rather than an exception. So an invalid document degrades to
- * `{}` here (no invariants flag honored), which mirrors `loadExarchosConfig`
- * refusing to return a config for the same file: neither path keeps a bogus
- * invariants block alive. Returns `{}` on read/parse errors or when the
- * `invariants` key is absent; default-disabled at the loader handles both as
- * "no flag set."
+ * This function does not throw. A read error, a parse error, a document that is not
+ * valid, or an absent block returns `{}`.
  */
 function parseInvariantsBlock(configPath: string): ExarchosConfigInput {
   try {
@@ -527,10 +387,6 @@ function parseInvariantsBlock(configPath: string): ExarchosConfigInput {
     if (typeof candidate !== 'object' || Array.isArray(candidate)) {
       return {};
     }
-    // Reconciled verdict: validate the whole file with the same unified
-    // schema the strict reader uses. An unknown sibling key or a malformed
-    // invariants block fails the parse, and we degrade to "no flag set" —
-    // identical observable behavior to the strict reader's rejection.
     const result = FullExarchosConfigSchema.safeParse(candidate);
     if (!result.success) {
       return {};
@@ -543,56 +399,25 @@ function parseInvariantsBlock(configPath: string): ExarchosConfigInput {
 }
 
 /**
- * Load and parse the invariants catalog from the given Markdown file.
+ * Loads and parses the invariants catalog from a Markdown file. It returns `[]`
+ * unless the effective config registers the file in `invariants.catalogs`. The
+ * registration check runs before the scope filter, so no scope can bypass it. The
+ * Exarchos repo gets its catalog the same way: its `.exarchos.yml` registers it.
  *
- * **Gating (DR-31): registration, not a boolean.** The loader returns `[]`
- * unless the effective config REGISTERS this file in `invariants.catalogs`
- * (see `isCatalogRegistered`). Gating applies BEFORE any scope filter, so a
- * scope value cannot bypass it. The default reader walks up from the catalog
- * file looking for `.exarchos.yml`; tests and in-process callers may inject an
- * explicit `config` to bypass disk-IO. See `readInvariantsConfig`.
- *
- * This replaces the retired `invariants.devCatalog: 'enabled'` gate, which was
- * a repo-only loading mode no consumer could reproduce. **Behavior change:**
- * `devCatalog: 'disabled'` no longer suppresses a registered catalog — the
- * boolean is inert in either direction; only registration decides. A repo that
- * wants the old "disabled" outcome removes the registration.
- *
- * @param filePath Absolute path to `.exarchos/invariants.md`.
- * @param opts Optional filter (schema-v2; spec §4.1, §4.2):
- *   - `scope: 'core'`      — axis=substrate AND cost-of-load=always-load
- *                            (the /ideate Phase 0 working set; 10 entries
- *                            in v2). Tighter than v1's "always-load alone".
- *   - `scope: 'substrate'` — every entry on the substrate axis (19 today —
- *                            the whole catalog after the #1477 excision).
- *   - `scope: 'authoring'` — every entry on the authoring axis (empty today).
- *   - `scope: 'all'`       — every entry (default; v1 backwards-compat).
- *   Unknown scope values throw — silent fallback is forbidden per
- *   design §5 DIM-2.
- *   - `configRoot`         — directory the injected config's relative
- *                            `catalogs:` registrations resolve against. Supply
- *                            it whenever you resolved those registrations
- *                            yourself (as `resolveEffectiveCatalog` does);
- *                            omit it and a relative registration is matched by
- *                            segment-aligned suffix instead.
- * @param config Optional explicit config (dependency injection for tests).
- *   Defaults to reading `.exarchos.yml` via `readInvariantsConfig`.
+ * @param filePath Absolute path to the catalog file.
+ * @param opts `scope` filters the entries (see `InvariantsScope`). An unknown scope
+ *   throws. `configRoot` is the directory that relative registrations of an injected
+ *   config resolve against. Without it, a relative registration matches by path suffix.
+ * @param config Explicit config. Without it, the loader reads the closest `.exarchos.yml`.
  */
 export function loadInvariants(
   filePath: string,
   opts?: { scope?: InvariantsScope; configRoot?: string },
   config?: ExarchosConfigInput,
 ): InvariantEntry[] {
-  // Discover the config ONLY when one was not injected, so the disk walk-up
-  // also yields the root its relative registrations are written against.
   const discovered =
     config === undefined ? discoverInvariantsConfig(filePath) : undefined;
   const effectiveConfig = config ?? discovered?.config ?? {};
-  // Catalog gating — applied BEFORE any scope filter (DR-31).
-  // Default-empty even inside the Exarchos repo: contributors get the catalog
-  // because the repo's own committed `.exarchos.yml` REGISTERS it under
-  // `invariants.catalogs`, not because the loader detected anything and not
-  // because a repo-only flag was flipped.
   if (
     !isCatalogRegistered(
       filePath,
@@ -612,10 +437,6 @@ export function loadInvariants(
   const source = fs.readFileSync(filePath, 'utf8');
   const parsed = matter(source);
   const data = parsed.data as RawFrontmatter;
-  // Schema-version guard (DR-1). A declared `schema-version` must be one of
-  // SUPPORTED_SCHEMA_VERSIONS (2 or 3). An absent version is tolerated for
-  // back-compat with pre-v2 fixtures; any other declared value is a loud
-  // parse error naming the offending value and the supported set.
   const declaredVersion = data['schema-version'];
   if (declaredVersion !== undefined && declaredVersion !== null) {
     if (
@@ -635,38 +456,21 @@ export function loadInvariants(
     );
   }
   const entries = parseInvariantEntries(data.invariants);
-  // Co-located scope filter — keep the policy next to the load to avoid
-  // drift between the load contract and the surface API. See `InvariantsScope`
-  // type docs for per-variant semantics; the switch arms mirror that order.
   switch (scope) {
     case 'core':
-      // /ideate Phase 0 default: substrate-axis primitives that every
-      // non-trivial design must consider — spec §4.1.
       return entries.filter(
         (e) => e.axis === 'substrate' && e.costOfLoad === 'always-load',
       );
     case 'substrate':
-      // Runtime-substrate axis — every cost-of-load. The conformance gate's
-      // catalog-generated audit prompt uses this when walking substrate
-      // entries by axis.
       return entries.filter((e) => e.axis === 'substrate');
     case 'authoring':
-      // Authoring (prose / documentation) axis — empty today, retained for
-      // forward-compat (#1477 removed the sole authoring entry).
       return entries.filter((e) => e.axis === 'authoring');
     case 'all':
-      // Full catalog — vocabulary-lint ID set + v1 backwards-compat default.
       return entries;
   }
 }
 
-/**
- * Convenience: return only the `cost-of-load: always-load` entries — the
- * `/ideate` Phase 0 working set. Equivalent to `loadInvariants(filePath,
- * { scope: 'core' })`; named so import sites express intent without the
- * option-object indirection. Honours the DR-31 registration gate via
- * the same default config reader as `loadInvariants`.
- */
+/** Returns the `core` scope: `loadInvariants(filePath, { scope: 'core' }, config)`. */
 export function loadCoreInvariants(
   filePath: string,
   config?: ExarchosConfigInput,
@@ -675,13 +479,9 @@ export function loadCoreInvariants(
 }
 
 /**
- * Convenience: return the set of valid invariant IDs (for vocabulary-lint
- * cross-check). Honours the DR-31 registration gate — when the effective
- * config does not register this catalog, returns an empty set, so
- * vocabulary-lint will treat every `INV-*` token as unknown. Consumers using
- * Exarchos as a plugin outside the Exarchos repo therefore opt into invariant
- * checking exactly the way this repo does: by registering the catalog under
- * `invariants.catalogs` in their own `.exarchos.yml`.
+ * Returns the set of invariant ids for the vocabulary-lint cross-check. When the
+ * config does not register the catalog, the set is empty. Then vocabulary-lint
+ * treats every `INV-*` token as unknown.
  */
 export function loadInvariantIds(
   filePath: string,

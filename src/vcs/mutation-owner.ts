@@ -1,47 +1,16 @@
 /**
- * P04-05 — the single typed VCS mutation owner (EFF-010 / EFF-011).
+ * The typed owner of git and worktree mutation. `VcsMutationOwner` returns {@link EffectOutcome}
+ * carriers under four contracts:
+ *   1. Idempotency: a key with a recorded terminal replays that outcome and runs no second effect.
+ *   2. Fencing: a request whose `epoch` is below the highest recorded epoch fails with
+ *      {@link VcsStaleEpochError}.
+ *   3. Convergence: the ledger records an intent before the effect and a terminal after it. The
+ *      effects probe before they mutate, so a retry of an interrupted run converges.
+ *   4. Dry-run: a dry-run request returns the plan and never calls the effect. The owner never
+ *      infers this mode.
  *
- * The unified remediation plan (PROGRAM-04) mandates that **every effect has one
- * typed owner, idempotency boundary, and repair or compensation contract**, and
- * that **VCS is a typed effect owner** alongside filesystem / process / install /
- * network. This module is that owner for git & worktree *mutation*: every
- * branch/worktree create+delete and every provider PR/merge routes through one
- * class that returns P04-01 {@link EffectOutcome} carriers and enforces four
- * contracts uniformly:
- *
- *   1. **Idempotency key** — each mutating request carries an `idempotencyKey`.
- *      The owner folds a durable ledger stream before acting; a key that already
- *      recorded a terminal outcome REPLAYS that outcome and performs no second
- *      effect. This is the exit-proof core: duplicate requests cannot create
- *      duplicate PRs, merges, branches, or worktrees.
- *
- *   2. **Fencing** — every request carries a monotonic `epoch`. A writer whose
- *      epoch is below the highest epoch the ledger has recorded has lost
- *      ownership (a newer owner took over) and is rejected with a typed
- *      {@link VcsStaleEpochError}. This reuses P04-02's cancel-saga fencing
- *      vocabulary (`assertEpochCurrent` / `StaleEpochError`) rather than
- *      inventing a second one.
- *
- *   3. **Compensation / convergence** — the ledger records a durable INTENT
- *      (`vcs.requested`) BEFORE the git effect and a TERMINAL (`vcs.executed` /
- *      `vcs.compensated`) AFTER it. The git effects are probe-before-mutate
- *      (idempotent), so an interrupted run — the observed real-world defect where
- *      `setup_worktree` left a worktree AND branch on disk with NO recorded
- *      event — converges on retry: the same key re-runs an effect that no-ops,
- *      then records the missing terminal. A multi-step create that fails partway
- *      (branch created, `worktree add` fails) compensates the branch it minted so
- *      no orphaned on-disk state survives a failure.
- *
- *   4. **Structural dry-run** — a caller asking for dry-run gets a typed
- *      outcome that performs NO mutation: {@link runEffect} never invokes the
- *      effect thunk. The mode is requested, never inferred from capabilities
- *      (that inference was removed under INV-11).
- *
- * The owner is process-effect only via {@link spawnCommandSync} (the single
- * cross-OS spawn primitive) and persists exclusively through the injected
- * {@link EventStore}; it imports neither `node:child_process` nor `node:fs`
- * directly, so it sits under the existing `vcs/` process-owner rule in the
- * effect ledger with no ledger edit required.
+ * Process effects go only through {@link spawnCommandSync}, and persistence only through the
+ * injected {@link EventStore}. The module imports neither `node:child_process` nor `node:fs`.
  */
 
 import {
@@ -66,47 +35,27 @@ import type { EventStore } from '../events/store.js';
 import type { EventType, WorkflowEvent } from '../events/schemas.js';
 import { spawnCommandSync } from '../utils/process.js';
 
-// ─── Durable ledger vocabulary ───────────────────────────────────────────────
-
 /** The dedicated stream carrying the VCS mutation intent/terminal ledger. */
 export const VCS_MUTATION_STREAM = 'vcs-mutations';
 
-// The three names below are BUILT-IN event types declared in the event catalog
-// (`events/schemas.ts`), each with a data schema, a type-map entry and a
-// substrate-tier coupling annotation. They are named here as constants so the
-// owner and the callers that fold its ledger share one spelling, not because
-// this module owns them.
-//
-// They were previously registered from this module through the store's runtime
-// registration seam, on the reasoning that a seam is cheaper than editing the
-// catalog. It was cheaper and it was wrong: a runtime registration carries no
-// schema, no type-map entry and no coupling tier, so the three busiest effect
-// records in the tree were invisible to every static reader of the catalog.
-// Registering them through the seam now THROWS — a built-in name cannot be
-// re-registered — which is the intended one-way door.
-
-/** Durable INTENT — appended BEFORE the git/provider effect fires. */
+/**
+ * Durable intent, appended before the git or provider effect. This name and the two terminals below
+ * are built-in types of the event catalog. The constants give the owner and the ledger readers one
+ * spelling.
+ */
 export const VCS_REQUESTED = 'vcs.requested';
-/** Durable success TERMINAL — appended AFTER the effect succeeds. */
+/** Durable success terminal, appended after the effect succeeds. */
 export const VCS_EXECUTED = 'vcs.executed';
-/** Durable failure TERMINAL — appended after a compensated / failed effect. */
+/** Durable failure terminal, appended after the effect fails. */
 export const VCS_COMPENSATED = 'vcs.compensated';
 
 /**
- * The ledger this owner promises to write around EVERY mutation, declared on the
- * effect plan itself rather than left implicit in the order of `mutate`'s
- * statements.
+ * The ledger that the owner writes around each mutation, declared on the effect plan. The carrier
+ * refuses to run the effect without a real appender, so the intent cannot be skipped. A reader can
+ * see what a mutation records without a trace of the control flow.
  *
- * Declaring it buys two things a hand-rolled sequence could not. The carrier
- * refuses to run the effect at all unless a real appender was supplied, so the
- * intent cannot be skipped and a committed value cannot be reached without one
- * minted receipt per declared emission; and a reader — human or static — can ask
- * what a VCS mutation records without tracing the control flow that records it.
- *
- * The three conditions map exactly onto the intent/terminal split the ledger
- * fold already reads: an intent that outlives its run is the recoverable state,
- * and the two terminals are mutually exclusive because one execution either
- * returns or throws.
+ * An intent with no terminal marks an interrupted run. The two terminals are mutually exclusive,
+ * because one execution either returns or throws.
  */
 export const VCS_LEDGER_EMISSIONS: RecordsEmissions = records(
   { event: VCS_REQUESTED, when: 'before' },
@@ -114,14 +63,10 @@ export const VCS_LEDGER_EMISSIONS: RecordsEmissions = records(
   { event: VCS_COMPENSATED, when: 'on-failure' },
 );
 
-// ─── Typed fencing error (mirrors P04-02 cancel-saga StaleEpochError) ─────────
-
 /**
- * A stale-epoch VCS mutation was rejected. The classic distributed-lock fencing
- * token: an owner holding an epoch below the highest the ledger recorded has
- * lost ownership to a newer owner and MUST NOT mutate. Mirrors
- * `workflow/cancel-process-manager.ts`'s `StaleEpochError` so the two fencing
- * surfaces share one vocabulary.
+ * The error for a stale-epoch VCS mutation. An owner with an epoch below the highest recorded
+ * epoch lost ownership and must not mutate. It mirrors `StaleEpochError` in
+ * `workflow/cancel-process-manager.ts`.
  */
 export class VcsStaleEpochError extends Error {
   readonly code = 'VCS_STALE_EPOCH' as const;
@@ -140,9 +85,8 @@ export class VcsStaleEpochError extends Error {
 }
 
 /**
- * Reject a mutation from a fenced-out (stale) epoch. A writer whose epoch is
- * below the current owner's has lost ownership and MUST NOT write; an epoch
- * equal to (the reigning owner) or above (a fresh takeover) is allowed.
+ * Rejects a mutation from a stale epoch. An epoch below the current epoch fails. An equal epoch
+ * (the current owner) or a higher epoch (a takeover) passes.
  */
 export function assertVcsEpochCurrent(
   currentEpoch: number,
@@ -153,14 +97,6 @@ export function assertVcsEpochCurrent(
     throw new VcsStaleEpochError(writerEpoch, currentEpoch, idempotencyKey);
   }
 }
-
-// `canMutateShared` used to pick live-vs-dry-run from the caller's
-// capabilities. Removed with the dispatch gate (INV-11). It failed silently:
-// a caller that flunked the check got a dry-run and a successful-looking
-// result for a git mutation that never ran. Mode is now the caller's explicit
-// choice or LIVE.
-
-// ─── Git runner seam ─────────────────────────────────────────────────────────
 
 /** Captured result of one git invocation. Never throws — a failure is `status !== 0`. */
 export interface VcsGitOutput {
@@ -175,10 +111,9 @@ export interface VcsGitRunner {
 }
 
 /**
- * Default real-git runner: routes every git invocation through
- * {@link spawnCommandSync} (the single cross-OS spawn primitive — Windows `.cmd`
- * shim safe, #1623). Never throws; a git failure surfaces as a non-zero status
- * with stderr (or the spawn error message when git never launched).
+ * Default real-git runner through {@link spawnCommandSync}, the cross-OS spawn primitive. It never
+ * throws. A git failure gives a non-zero status with stderr, or with the spawn error message when
+ * git did not start.
  */
 export const defaultVcsGitRunner: VcsGitRunner = {
   run(args: readonly string[], cwd: string): VcsGitOutput {
@@ -197,22 +132,12 @@ export const defaultVcsGitRunner: VcsGitRunner = {
   },
 };
 
-// ─── Shared git-mutation primitives (the single owner of the argv surface) ───
-//
-// P04-05 follow-up: the git *argument vectors* for worktree/branch mutation are
-// defined ONCE, here in the owner module. Callers that already carry their own
-// idempotency boundary — the WLM `worktree/manager.ts` (its own
-// `worktree.remove.requested/executed` ledger + orphan recovery) and the merge
-// saga's ephemeral temp-branch cleanup in `verbs/merge/local-git-merge.ts` — do
-// NOT open a second `vcs-mutations` ledger (that would be a double idempotency
-// boundary for one effect). Instead they route the raw git mutation through
-// these primitives, so the argv + "how to force-remove a worktree / delete a
-// branch" lives in exactly one owner module. The architecture census
-// (`architecture/vcs-ownership.ts`) then confirms no worktree/branch mutation
-// token exists outside `vcs/`. The caller supplies only the transport (its own
-// runner bound to a cwd); the owner supplies the vetted command.
-
-/** The canonical git argv for a forced worktree removal. */
+/**
+ * The canonical git argv for a forced worktree removal. `verbs/worktree/manager.ts` and
+ * `verbs/merge/local-git-merge.ts` have their own idempotency boundary, so they use these argv
+ * helpers and not a second ledger. The census in `tools/conformance/src/vcs-ownership.ts` fails
+ * on a worktree or branch mutation in a module that it does not declare.
+ */
 export function worktreeRemoveForceArgs(worktreePath: string): readonly string[] {
   return ['worktree', 'remove', '--force', worktreePath];
 }
@@ -223,9 +148,8 @@ export function branchDeleteForceArgs(branch: string): readonly string[] {
 }
 
 /**
- * Force-remove a worktree through the owner's argv, executing via the caller's
- * transport (typically a runner already bound to the repo cwd). Returns whatever
- * the transport returns, so a caller keeps its own result shape + idempotency.
+ * Force-removes a worktree with the argv of the owner through the transport of the caller. It
+ * returns the result of the transport, so the caller keeps its own result shape.
  */
 export function removeWorktreeForce<R>(
   run: (argv: readonly string[]) => R,
@@ -234,10 +158,7 @@ export function removeWorktreeForce<R>(
   return run(worktreeRemoveForceArgs(worktreePath));
 }
 
-/**
- * Force-delete a branch through the owner's argv, executing via the caller's
- * transport. Companion to {@link removeWorktreeForce}.
- */
+/** Force-deletes a branch with the argv of the owner through the transport of the caller. */
 export function deleteBranchForce<R>(
   run: (argv: readonly string[]) => R,
   branch: string,
@@ -245,11 +166,9 @@ export function deleteBranchForce<R>(
   return run(branchDeleteForceArgs(branch));
 }
 
-// ─── Request + result shapes ─────────────────────────────────────────────────
-
-/** A single mutating VCS request. The four contracts (key/epoch/mode/description) are explicit. */
+/** One mutating VCS request. */
 export interface VcsMutationRequest {
-  /** Discriminates the mutation family for the audit trail (e.g. `branch.create`). */
+  /** The mutation family for the audit trail, for example `branch.create`. */
   readonly kind: string;
   /** Provider idempotency key — a duplicate key replays the recorded outcome. */
   readonly idempotencyKey: string;
@@ -259,16 +178,12 @@ export interface VcsMutationRequest {
   readonly description: string;
   /** The repair/compensation contract for this effect, when it has one. */
   readonly compensation?: string;
-  /** Explicit mode override; defaults to capability-resolved live/dry-run. */
+  /** Explicit mode. The default is live. */
   readonly mode?: EffectMode;
   /**
-   * Reality probe for an `executed`-terminal replay. When present and it
-   * returns `false`, the recorded terminal no longer describes the world
-   * (e.g. a created worktree was since removed and the same deterministic
-   * path is being legitimately re-requested), so the replay is SKIPPED and
-   * the effect re-runs — safe because every effect is probe-before-mutate.
-   * Absent ⇒ replay unconditionally (prior behaviour). Never invoked for
-   * `compensated` terminals: those stay sticky by design.
+   * Reality probe for the replay of an `executed` terminal. When it returns `false`, the recorded
+   * terminal no longer matches the world, so the owner skips the replay and runs the effect again.
+   * When it is absent, the replay is unconditional. A `compensated` terminal never calls it.
    */
   readonly verifyReplay?: () => boolean;
 }
@@ -298,8 +213,6 @@ export interface WorktreeRemoveResult extends Record<string, unknown> {
   readonly worktreePath: string;
   readonly removed: boolean;
 }
-
-// ─── Ledger fold ─────────────────────────────────────────────────────────────
 
 interface LedgerTerminal {
   readonly kind: 'executed' | 'compensated';
@@ -334,8 +247,8 @@ function recordField(
 }
 
 /**
- * Fold the ledger stream into the fencing epoch, the terminal-by-key map (the
- * idempotency cache), and the set of open intents. Pure over the queried events.
+ * Folds the ledger stream into the fencing epoch, the terminal for each key, and the set of
+ * intents. Pure over the queried events.
  */
 export function foldVcsLedger(events: readonly WorkflowEvent[]): LedgerFold {
   let currentEpoch = 0;
@@ -370,21 +283,17 @@ export function foldVcsLedger(events: readonly WorkflowEvent[]): LedgerFold {
   return { currentEpoch, terminals, intents };
 }
 
-// ─── The owner ───────────────────────────────────────────────────────────────
-
 export interface VcsMutationOwnerDeps {
   readonly eventStore: EventStore;
   /** Injectable git runner (default: real git via {@link spawnCommandSync}). */
   readonly gitRunner?: VcsGitRunner;
-  /** Ledger stream override (default {@link VCS_MUTATION_STREAM}); useful for test isolation. */
+  /** Ledger stream override for test isolation. The default is {@link VCS_MUTATION_STREAM}. */
   readonly stream?: string;
 }
 
 /**
- * What the effect thunk produced, recorded on the way past so the terminal
- * emission can carry it. The carrier hands a sink only the emission and the
- * plan — deliberately, since it does not know what any owner's payload looks
- * like — so the outcome has to travel this short way instead.
+ * What the effect thunk produced, recorded so the terminal emission can carry it. The carrier gives
+ * a sink only the emission and the plan.
  */
 type CapturedEffect =
   | { readonly kind: 'success'; readonly value: Record<string, unknown> }
@@ -426,33 +335,22 @@ export class VcsMutationOwner {
       : base;
   }
 
-  /** An explicit mode wins; otherwise LIVE. Dry-run is never inferred. */
+  /** An explicit mode wins, else LIVE. Dry-run is never inferred. */
   private resolveMode(request: VcsMutationRequest): EffectMode {
     return request.mode ?? LIVE;
   }
 
+  /**
+   * Appends one ledger event. The claim key includes the stream, so a key cannot exist without the
+   * stream it is claimed against. Claim rows from older code have no stream in the text, so they do
+   * not collapse with new rows. The ledger fold is the primary guard, and the claim only covers a
+   * crash between the fold and the append.
+   */
   private async append(
     type: EventType,
     request: VcsMutationRequest,
     extra: Record<string, unknown>,
   ): Promise<void> {
-    // The claim key is BUILT with its stream rather than composed by hand here.
-    // The claims table is already keyed by (stream, key), so the stream in the
-    // text is redundant for collision purposes — what the constructor buys is
-    // that a key cannot come into existence without naming the stream it will
-    // be claimed against, so there is no stream-less string to thread through
-    // the wrong append.
-    //
-    // ONE-RELEASE UPGRADE WINDOW. The text now reads `${stream}:${type}:${key}`
-    // where it previously carried no stream, so a claim row written by the old
-    // code and one minted here for the same logical append no longer collapse at
-    // the storage layer. This weakens a BACKSTOP, not the primary guard: the
-    // ledger fold below returns the recorded terminal before any append runs and
-    // keys on the `idempotencyKey` inside the event data, which did not change.
-    // The claim is the second-line collapse for a crash between that fold and the
-    // append, so the exposure is in-flight operations only and each key closes its
-    // own window as soon as it terminates. This is the only site that builds the
-    // text; nothing else reconstructs it.
     const claim = effectIdempotencyKey(this.stream, `${type}:${request.idempotencyKey}`);
     await this.eventStore.append(
       this.stream,
@@ -470,14 +368,8 @@ export class VcsMutationOwner {
   }
 
   /**
-   * The payload a declared emission carries, which is a function of the
-   * OUTCOME — something the sink itself cannot see, since it is handed only the
-   * emission and the plan. The thunk therefore records what it produced into
-   * {@link CapturedEffect} on the way past, and this reads it back.
-   *
-   * The intent carries the common head alone: at the moment it is appended
-   * there is no result and no failure, which is precisely what makes an intent
-   * with no terminal recognisable as an interrupted run.
+   * The payload of a declared emission, read back from {@link CapturedEffect}. The intent carries
+   * only the common fields, because no result or failure exists when it is appended.
    */
   private emissionPayload(
     when: EmissionCondition,
@@ -494,15 +386,14 @@ export class VcsMutationOwner {
   }
 
   /**
-   * The general mutation primitive. Every named op is a thin wrapper. Enforces
-   * mode → fencing → idempotency replay → intent → effect → terminal, returning
-   * a typed {@link EffectOutcome}. The last three of those are the plan's
-   * declared emissions, driven by the carrier rather than by this method's
-   * statement order.
+   * The general mutation primitive, in the order mode, fencing, replay, intent, effect, terminal.
+   * A replay returns witness evidence, not a receipt, because no effect ran in this call.
+   * The carrier drives the intent and the terminal as declared emissions. When a ledger append
+   * fails, the carrier throws, and this method maps the throw to an owner error code. The write of
+   * the failure terminal is best-effort, so if it fails, the caller still gets the effect error.
    *
-   * `effect` MUST be probe-before-mutate (idempotent): a convergence retry after
-   * an interrupted run re-invokes it, and it must no-op when the target state
-   * already exists.
+   * `effect` must probe before it mutates. A retry after an interrupted run calls it again, and it
+   * must do nothing when the target state exists.
    */
   async mutate<T extends Record<string, unknown>>(
     request: VcsMutationRequest,
@@ -510,7 +401,6 @@ export class VcsMutationOwner {
   ): Promise<EffectOutcome<T>> {
     const plan = this.planFor(request);
 
-    // 1. Dry-run is structural: the effect thunk is never reached.
     const mode = this.resolveMode(request);
     if (mode.kind === 'dry-run') {
       return plannedDryRun<T>(plan);
@@ -518,7 +408,6 @@ export class VcsMutationOwner {
 
     const fold = foldVcsLedger(await this.eventStore.query(this.stream));
 
-    // 2. Fencing: a stale-epoch owner is rejected before any effect.
     try {
       assertVcsEpochCurrent(fold.currentEpoch, request.epoch, request.idempotencyKey);
     } catch (cause) {
@@ -529,21 +418,10 @@ export class VcsMutationOwner {
       });
     }
 
-    // 3. Idempotency: a recorded terminal replays with NO second effect —
-    //    UNLESS the caller supplied a reality probe and it reports the
-    //    recorded outcome no longer holds (remove-then-recreate lifecycle at
-    //    a deterministic path). In that case fall through and re-run the
-    //    probe-before-mutate effect; the fresh terminal supersedes the stale
-    //    one in the ledger fold.
     const recorded = fold.terminals.get(request.idempotencyKey);
     if (recorded !== undefined) {
       if (recorded.kind === 'executed') {
         if (request.verifyReplay === undefined || request.verifyReplay()) {
-          // The committed value carries evidence, and on this path the evidence
-          // is a WITNESS rather than a receipt: no effect ran, so nothing was
-          // minted, but `vcs.executed` is already in the fold — reading it is
-          // how this branch knows to replay at all. A receipt here would claim
-          // this run wrote the fact, which is exactly the wrong claim.
           return succeeded<T>(
             (recorded.result ?? {}) as T,
             replayedEvidence(VCS_EXECUTED, `ledger fold terminal for ${request.idempotencyKey}`),
@@ -559,14 +437,6 @@ export class VcsMutationOwner {
       }
     }
 
-    // 4. Intent, effect and terminal are no longer three statements in this
-    //    method's order — they are the plan's DECLARED emissions, and the
-    //    carrier drives them. The ordering guarantee moves with them: the
-    //    carrier appends the intent before it reaches the thunk, and reaches
-    //    its own return only after exactly one terminal has been evidenced.
-    //    Because the plan declares emissions, an owner that failed to supply a
-    //    real appender would be refused BEFORE the thunk rather than mutating a
-    //    repository and discovering afterwards that nothing recorded it.
     let captured: CapturedEffect | undefined;
     const observed = async (): Promise<T> => {
       try {
@@ -579,10 +449,6 @@ export class VcsMutationOwner {
       }
     };
 
-    // Which append failed, so the typed codes below stay distinguishable. A
-    // recorder failure PROPAGATES out of the carrier rather than becoming an
-    // error carrier — recording is the precondition for the effect, not part of
-    // it — so this method is what turns it back into this owner's vocabulary.
     let failedWhen: EmissionCondition | undefined;
     const ledger = emissionRecorder(async (emission) => {
       try {
@@ -597,12 +463,9 @@ export class VcsMutationOwner {
       }
     });
 
-    // 5. Run the (idempotent) effect through the carrier — captures throws.
     try {
       return await runEffect<T>(mode, plan, observed, ledger);
     } catch (cause) {
-      // The intent could not be recorded, so no effect ran and there is nothing
-      // to converge — surface a clean error.
       if (failedWhen === 'before') {
         return failed<T>({
           code: 'VCS_INTENT_APPEND_FAILED',
@@ -610,8 +473,6 @@ export class VcsMutationOwner {
           cause,
         });
       }
-      // The effect already happened and the intent is durable — a retry with
-      // the same key converges (the effect no-ops and records the terminal).
       if (failedWhen === 'on-success') {
         return failed<T>({
           code: 'VCS_TERMINAL_APPEND_FAILED',
@@ -619,18 +480,12 @@ export class VcsMutationOwner {
           cause,
         });
       }
-      // The compensation record is best-effort: the effect's own failure is
-      // what the caller asked about, and the durable intent already suffices
-      // for a later reconcile.
       if (failedWhen === 'on-failure' && captured?.kind === 'failure') {
         return failed<T>(toEffectError(plan, captured.cause));
       }
-      // Not an emission failure — a wiring fault this owner cannot describe.
       throw cause;
     }
   }
-
-  // ─── git probes (read-only, idempotency helpers) ────────────────────────────
 
   private branchExists(repoRoot: string, branch: string): boolean {
     return (
@@ -639,22 +494,17 @@ export class VcsMutationOwner {
     );
   }
 
+  /**
+   * True when `git rev-parse --git-dir` succeeds at the path. A string compare against
+   * `git worktree list` breaks on path canonicalization, such as Windows 8.3 short names.
+   */
   private worktreeExists(worktreePath: string): boolean {
-    // Ask git directly AT the candidate path rather than string-matching against
-    // `git worktree list` output: worktree path canonicalization differs across
-    // platforms (Windows 8.3 short names, symlink resolution, drive-letter case),
-    // so a string compare is fragile. `git -C <path> rev-parse --git-dir` returns
-    // status 0 iff the path is a live git worktree, and a non-existent path makes
-    // the spawn fail (non-zero) — exactly the idempotency probe we need, with no
-    // `node:fs` import (which would trip the effect ledger's `vcs/`-has-no-fs rule).
     return this.git.run(['rev-parse', '--git-dir'], worktreePath).status === 0;
   }
 
-  // ─── named git mutations ────────────────────────────────────────────────────
-
   /**
-   * Create a branch. Idempotent: an existing branch is a no-op (`created: false`).
-   * Duplicate requests (same key) replay one recorded outcome — exactly one branch.
+   * Creates a branch. An existing branch is a no-op (`created: false`). A recorded create replays
+   * only while the branch exists.
    */
   async createBranch(input: {
     readonly repoRoot: string;
@@ -670,8 +520,6 @@ export class VcsMutationOwner {
       epoch: input.epoch,
       description: `create branch ${input.branch} from ${input.base}`,
       compensation: 'delete the branch (git branch -D)',
-      // Same lifecycle probe as `createWorktree`: replay a recorded create
-      // only while the branch still exists.
       verifyReplay: () => this.branchExists(input.repoRoot, input.branch),
       ...(input.mode !== undefined ? { mode: input.mode } : {}),
     };
@@ -686,7 +534,8 @@ export class VcsMutationOwner {
   }
 
   /**
-   * Delete a branch. Idempotent: an absent branch is a no-op (`deleted: false`).
+   * Deletes a branch. An absent branch is a no-op (`deleted: false`). A recorded delete replays only
+   * while the branch is absent.
    */
   async deleteBranch(input: {
     readonly repoRoot: string;
@@ -700,8 +549,6 @@ export class VcsMutationOwner {
       idempotencyKey: input.idempotencyKey,
       epoch: input.epoch,
       description: `delete branch ${input.branch}`,
-      // Inverse probe: replay a recorded delete only while the branch is
-      // actually absent.
       verifyReplay: () => !this.branchExists(input.repoRoot, input.branch),
       ...(input.mode !== undefined ? { mode: input.mode } : {}),
     };
@@ -716,12 +563,12 @@ export class VcsMutationOwner {
   }
 
   /**
-   * Create a worktree AND its branch atomically-with-event. Both steps are
-   * probe-before-mutate (idempotent); if `worktree add` fails after the branch
-   * was minted, the freshly-created branch is COMPENSATED (deleted) so no
-   * orphaned on-disk state survives a partial failure. The `vcs.executed`
-   * terminal is recorded only on full success — the fix for the observed
-   * `setup_worktree` non-atomicity defect. An interrupted run converges on retry.
+   * Creates a worktree and its branch. Both steps probe before they mutate. If `worktree add` fails
+   * after this call created the branch, the call deletes that branch. The `vcs.executed` terminal
+   * records only on full success.
+   *
+   * Worktrees are removed and requested again at the same path. Thus a recorded create replays only
+   * while the worktree exists, and a removed worktree does not report success.
    */
   async createWorktree(input: {
     readonly repoRoot: string;
@@ -739,11 +586,6 @@ export class VcsMutationOwner {
       description: `create worktree ${input.worktreePath} on branch ${input.branch}`,
       compensation:
         'remove the worktree (git worktree remove) and delete a branch minted for it',
-      // Reality probe: worktrees are removed after waves and legitimately
-      // re-requested at the same deterministic path. A recorded create
-      // terminal must only replay while the worktree actually exists —
-      // otherwise setup_worktree would report success for a path that is
-      // gone, on every retry, forever.
       verifyReplay: () => this.worktreeExists(input.worktreePath),
       ...(input.mode !== undefined ? { mode: input.mode } : {}),
     };
@@ -761,8 +603,6 @@ export class VcsMutationOwner {
           input.repoRoot,
         );
         if (r.status !== 0) {
-          // Compensate the branch we minted this call so a failed create leaves
-          // NO orphaned on-disk state (the observed defect's inverse).
           if (!branchExisted) {
             this.git.run(['branch', '-D', input.branch], input.repoRoot);
           }
@@ -783,7 +623,8 @@ export class VcsMutationOwner {
   }
 
   /**
-   * Remove a worktree. Idempotent: an absent worktree is a no-op (`removed: false`).
+   * Removes a worktree. An absent worktree is a no-op (`removed: false`). A recorded remove replays
+   * only while the worktree is absent, so a remove after a recreate runs the effect again.
    */
   async removeWorktree(input: {
     readonly repoRoot: string;
@@ -797,10 +638,6 @@ export class VcsMutationOwner {
       idempotencyKey: input.idempotencyKey,
       epoch: input.epoch,
       description: `remove worktree ${input.worktreePath}`,
-      // Inverse reality probe of `createWorktree`'s: a recorded remove
-      // terminal only replays while the worktree is actually absent, so a
-      // remove→recreate→remove sequence re-runs the (idempotent) effect
-      // instead of claiming `removed` for a live worktree.
       verifyReplay: () => !this.worktreeExists(input.worktreePath),
       ...(input.mode !== undefined ? { mode: input.mode } : {}),
     };
@@ -823,14 +660,10 @@ export class VcsMutationOwner {
   }
 
   /**
-   * Run a provider mutation (PR create, PR merge, remote merge, …) under the same
-   * idempotency+fencing+ledger contract as the git ops. The `effect` is the
-   * provider call; a duplicate key replays the recorded outcome so a retried
-   * request produces exactly ONE PR / merge. The provider call itself need not be
-   * idempotent — the owner's key check guarantees it runs at most once per key
-   * (barring an interrupt between effect and terminal, which converges only if
-   * the provider effect is itself replay-safe; providers should carry their own
-   * marker, as `workflow/feedback.ts` does).
+   * Runs a provider mutation, such as a PR create or merge, under the idempotency, fencing and
+   * ledger contract of the git operations. A duplicate key replays the recorded outcome. An
+   * interrupt between the effect and the terminal converges only when the provider call is
+   * replay-safe.
    */
   async runProviderMutation<T extends Record<string, unknown>>(
     input: {
@@ -854,13 +687,10 @@ export class VcsMutationOwner {
     return this.mutate<T>(request, effect);
   }
 
-  // ─── repair / convergence ───────────────────────────────────────────────────
-
   /**
-   * Report the idempotency keys with a durable INTENT but no TERMINAL — the
-   * interrupted-run cohort. An operator/reconciler retries each with its original
-   * request (the effect no-ops, the terminal lands) to converge. Exposed so the
-   * "orphaned on-disk state without an event" hazard is observable and closeable.
+   * Returns the idempotency keys with a durable intent and no terminal: the interrupted runs. A
+   * retry of each original request converges, because the effect does nothing and the terminal
+   * lands.
    */
   async openIntents(): Promise<readonly string[]> {
     const fold = foldVcsLedger(await this.eventStore.query(this.stream));

@@ -1,44 +1,9 @@
 /**
- * Catalog-source discovery for the effective-catalog resolver (P1, T2).
- *
- * `resolveEffectiveCatalog` (DR-7) historically hand-coded three layers, with
- * the **dev catalog special-cased**: it loaded from a hardcoded path
- * (`.exarchos/invariants.md`, relocated from `docs/architecture/invariants.md`
- * in T19) behind a bespoke `devCatalog: 'enabled'`
- * boolean, while user catalogs flowed through the generic `invariants.catalogs`
- * registration list — even though BOTH call the identical `loadInvariants`
- * loader. This module is the single discovery surface that collapses that
- * asymmetry: it normalizes every registered file-source into a `CatalogSource`
- * tagged by `tier`, so the resolver can iterate one uniform list (design §4.2).
- *
- * ## Normalization contract (DR-31)
- *
- *   - A bare-string `catalogs` entry → `{ path, tier: 'user' }` (legacy form).
- *   - A `{ path, tier }` object → as-is; an absent `tier` defaults to `'user'`.
- *   - NOTHING else. Registration in `invariants.catalogs` is the ONLY way a
- *     catalog enters discovery.
- *
- * ## What used to be here, and why it is gone (DR-31, site 2)
- *
- * This function previously ALSO desugared a repo-only boolean —
- * `invariants.devCatalog: 'enabled'` → synthesize `{ path:
- * '.exarchos/invariants.md', tier: 'dev' }`, with a `(path, tier: 'dev')`
- * dedupe so the sugar and an explicit registration for the same path did not
- * double-load. That branch made `resolveCatalogSources` a direct reader of the
- * boolean, which is what DR-31 retires: it gave this repository a loading mode
- * no consumer could reproduce from their own `.exarchos.yml`, and it meant one
- * concern (which catalogs load) had two configuration authorities.
- *
- * The audience scoping the boolean carried is now carried by `tier: 'dev'` on
- * an ordinary registration, so a repo opts its own catalog in exactly the way a
- * consumer does. `devCatalog` never reaches this function at all: the config
- * schema (`config/exarchos-config-schema.ts`) desugars the retired alias into
- * an ordinary `catalogs:` entry at the `.exarchos.yml` parse boundary and
- * strips the key from the parsed shape, so discovery has exactly ONE
- * authority — the `catalogs:` list.
- *
- * The returned paths are NOT resolved against a repo root here — that is the
- * resolver's job (it may be absolute or relative).
+ * Discovers the catalog sources for the effective-catalog resolver.
+ * Each `invariants.catalogs` entry becomes a {@link CatalogSource} with a `tier`, so the resolver iterates one list.
+ * Registration in `invariants.catalogs` is the only way that a catalog enters discovery.
+ * The config schema converts the `devCatalog` alias into a `catalogs:` entry at parse time, so this module never sees it.
+ * This module does not resolve paths against a repo root. The resolver does that.
  */
 import type { ExarchosConfigInput } from '../config/exarchos-config-schema.js';
 
@@ -51,9 +16,8 @@ export interface CatalogSource {
 }
 
 /**
- * Normalize `invariants.catalogs` registrations into a tier-tagged
- * `CatalogSource[]`. See the module header for the full contract — in
- * particular that registration is the ONLY opt-in (DR-31).
+ * Converts the `invariants.catalogs` registrations into tier-tagged sources.
+ * A bare string becomes a `user` source. An object keeps its `tier`, and an absent `tier` becomes `user`.
  */
 export function resolveCatalogSources(
   config: ExarchosConfigInput | undefined,

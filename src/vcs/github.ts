@@ -1,7 +1,4 @@
-// ─── GitHub VCS Provider ─────────────────────────────────────────────────────
-//
-// Implements VcsProvider by wrapping the `gh` CLI.
-// Requires `gh` to be installed and authenticated.
+/** GitHub `VcsProvider`. It wraps the `gh` CLI, which must be installed and authenticated. */
 
 import type {
   VcsProvider,
@@ -26,10 +23,11 @@ import type {
 import { windowPrComments, computeOverallCiStatus } from './provider.js';
 import { exec } from './shell.js';
 
-// `gh pr checks --json` fields. The `gh` CLI dropped the legacy `conclusion`
-// and `detailsUrl` fields; the current schema exposes `state` (the check's
-// state/conclusion enum) and `link` (the details URL). Requesting the removed
-// field names now makes `gh` exit non-zero ("Unknown JSON field").
+/**
+ * `gh pr checks --json` fields. `state` holds the check state, and `link` holds
+ * the details URL. `gh` exits non-zero ("Unknown JSON field") for `conclusion`
+ * or `detailsUrl`.
+ */
 interface GhCheckEntry {
   readonly name: string;
   readonly state: string;
@@ -46,8 +44,7 @@ interface GhReviewResponse {
   readonly reviewDecision: string;
 }
 
-// `repos/{owner}/{repo}/issues/{pr}/comments` — PR-level conversation
-// (`gh pr comment` posts here). No diff anchor, no threading.
+/** An entry of `issues/{pr}/comments`: a PR-level comment without a diff anchor or threads. */
 interface GhIssueCommentEntry {
   readonly id: number;
   readonly user: { readonly login: string };
@@ -55,9 +52,10 @@ interface GhIssueCommentEntry {
   readonly created_at: string;
 }
 
-// `repos/{owner}/{repo}/pulls/{pr}/comments` — per-line review threads.
-// `in_reply_to_id` (when present) is the id of the top-level comment this one
-// replies to; threading is one level only.
+/**
+ * An entry of `pulls/{pr}/comments`: a line review comment. `in_reply_to_id` is
+ * the id of the top-level comment that this reply answers. Threads have one level.
+ */
 interface GhReviewCommentEntry {
   readonly id: number;
   readonly user: { readonly login: string };
@@ -68,9 +66,7 @@ interface GhReviewCommentEntry {
   readonly in_reply_to_id?: number;
 }
 
-// `repos/{owner}/{repo}/pulls/{pr}/reviews` — review submissions. Only those
-// with a non-empty body become `review-summary` comments; state-only reviews
-// are handled by getReviewStatus, not here.
+/** An entry of `pulls/{pr}/reviews`: a submitted review. */
 interface GhReviewSummaryEntry {
   readonly id: number;
   readonly user: { readonly login: string };
@@ -79,9 +75,10 @@ interface GhReviewSummaryEntry {
   readonly submitted_at: string;
 }
 
-// A `reviewThreads` node from the GraphQL resolved-status query. Each thread
-// carries its resolution flag plus the databaseIds of the inline comments it
-// contains, which map back to the REST `pulls/comments` ids.
+/**
+ * A GraphQL `reviewThreads` node. It holds the resolution flag and the
+ * `databaseId` of each inline comment, which is the REST `pulls/comments` id.
+ */
 interface GhReviewThreadNode {
   readonly isResolved: boolean;
   readonly comments: { readonly nodes: ReadonlyArray<{ readonly databaseId: number | null }> };
@@ -92,22 +89,18 @@ interface GhRepoViewResponse {
   readonly defaultBranchRef: { readonly name: string };
 }
 
-// Response from `POST pulls/{pr}/comments/{comment_id}/replies` — the newly
-// created reply review-comment. `id` is the same databaseId space as the
-// inline-comment ids returned by getPrComments.
+/** The reply from `POST pulls/{pr}/comments/{comment_id}/replies`. */
 interface GhReplyResponse {
   readonly id: number;
 }
 
-// Maps a `gh pr checks --json state` value onto our CiCheck status. `gh`
-// replaced the removed `conclusion` field with `state`, whose values are gh's
-// own check-state enum (upper-case). This mirrors gh's own state→bucket
-// classification (cli/cli `pkg/cmd/pr/checks/aggregate.go`): SUCCESS→pass;
-// ERROR/FAILURE/TIMED_OUT/ACTION_REQUIRED→fail; SKIPPED/NEUTRAL→skipped;
-// everything else (EXPECTED, REQUESTED, WAITING, QUEUED, PENDING, IN_PROGRESS,
-// STALE, or empty) is not yet terminal → pending. CANCELLED is gh's own
-// `cancel` bucket; our status set has no cancel state, so a cancelled check is
-// folded into `fail` — it is terminal and not a pass, so it must block gating.
+/**
+ * Maps a `gh pr checks` `state` to a `CiCheck` status with the state buckets of
+ * `gh` (`pkg/cmd/pr/checks/aggregate.go`). SUCCESS is pass.
+ * ERROR, FAILURE, TIMED_OUT and ACTION_REQUIRED are fail. CANCELLED is also
+ * fail, because it is terminal and not a pass, so it must block the gate.
+ * SKIPPED and NEUTRAL are skipped. All other values are not terminal, so they are pending.
+ */
 function mapState(state: string): CiCheck['status'] {
   switch (state.toUpperCase()) {
     case 'SUCCESS':
@@ -154,15 +147,14 @@ export class GitHubProvider implements VcsProvider {
   readonly name = 'github' as const;
 
   constructor(_config: Record<string, unknown>) {
-    // Config reserved for future use (e.g., custom gh path)
   }
 
+  /**
+   * Creates a PR with `gh pr create`, which has no `--json` flag. The PR URL is
+   * the last non-empty line of stdout. If that URL ends without a PR number,
+   * it reads the number and URL with `gh pr view`.
+   */
   async createPr(opts: CreatePrOpts): Promise<PrResult> {
-    // NB: `gh pr create` has NO `--json` flag (that's valid only on
-    // `gh pr view`/`gh pr list`); passing it makes gh exit non-zero on
-    // flag-parse BEFORE creating the PR. On success gh prints the created PR
-    // URL to stdout, so we parse the URL/number from that — mirroring how
-    // createIssue derives the issue number from its `gh issue create` stdout.
     const args = [
       'pr',
       'create',
@@ -185,8 +177,6 @@ export class GitHubProvider implements VcsProvider {
     }
 
     const output = await exec('gh', args);
-    // gh may print progress/notice lines before the URL; take the last
-    // non-empty line as the created PR URL.
     const url =
       output
         .split('\n')
@@ -199,8 +189,6 @@ export class GitHubProvider implements VcsProvider {
       return { url, number };
     }
 
-    // Fallback: stdout carried no parseable trailing PR number. Resolve the
-    // structured fields via `gh pr view` rather than throwing.
     const viewOutput = await exec('gh', ['pr', 'view', url, '--json', 'number,url']);
     const parsed = JSON.parse(viewOutput) as { url: string; number: number };
     return { url: parsed.url, number: parsed.number };
@@ -228,14 +216,17 @@ export class GitHubProvider implements VcsProvider {
     };
   }
 
+  /**
+   * Merges with `gh pr merge`, which prints text, not JSON. Then it reads the
+   * merge commit SHA with `gh pr view`. If that read fails, the result is
+   * `merged: true` without a SHA.
+   */
   async mergePr(prId: string, strategy: string): Promise<MergeResult> {
     const strategyFlag = `--${strategy}`;
 
     try {
-      // gh pr merge outputs human-readable text, not JSON — don't parse it
       await exec('gh', ['pr', 'merge', prId, strategyFlag]);
 
-      // Merge succeeded — fetch the merge commit SHA via gh pr view
       try {
         const viewOutput = await exec('gh', [
           'pr',
@@ -248,7 +239,6 @@ export class GitHubProvider implements VcsProvider {
         const sha = parsed.mergeCommit?.oid;
         return sha ? { merged: true, sha } : { merged: true };
       } catch {
-        // SHA retrieval failed — merge still succeeded
         return { merged: true };
       }
     } catch (err: unknown) {
@@ -261,18 +251,14 @@ export class GitHubProvider implements VcsProvider {
     await exec('gh', ['pr', 'comment', prId, '--body', body]);
   }
 
+  /**
+   * Posts a reply in a review-comment thread through the REST reply endpoint,
+   * because `gh pr comment` posts only PR-level comments. `gh` fills in
+   * `{owner}/{repo}` from the current repository. The returned id is in the
+   * id space of the inline comments from `getPrComments`, so a caller can
+   * find the reply again.
+   */
   async addReply(prId: string, threadId: string, body: string): Promise<ReplyResult> {
-    // Reply into an existing review-comment thread. GitHub's dedicated reply
-    // endpoint is REST-only — `gh pr comment` can ONLY post a PR-level issue
-    // comment, so a thread reply must go through `gh api`:
-    //
-    //   POST repos/{owner}/{repo}/pulls/{pr}/comments/{comment_id}/replies
-    //
-    // `{owner}/{repo}` are placeholders gh resolves from the current repo (same
-    // pattern as getPrComments). The body is passed via `-f body=...`; `id` in
-    // the response is the new reply's databaseId, in the same id space as the
-    // inline-comment ids getPrComments returns (so the comment-marker
-    // verification path can correlate it back).
     const output = await exec('gh', [
       'api',
       '--method',
@@ -333,19 +319,16 @@ export class GitHubProvider implements VcsProvider {
     return entries;
   }
 
+  /**
+   * Reads the PR feedback of all authors, bots included, from three endpoints:
+   *
+   * - `issues/{pr}/comments` gives `issue-comment`. `gh pr comment` posts here,
+   *   so the add-comment check reads it.
+   * - `pulls/{pr}/comments` gives `review-inline`. `in_reply_to_id` sets `parentId`.
+   * - `pulls/{pr}/reviews` gives `review-summary`, only for a review with a body.
+   *   `getReviewStatus` reports a review without a body.
+   */
   async getPrComments(prId: string): Promise<PrComment[]> {
-    // Aggregate all three GitHub feedback surfaces into one PrComment[],
-    // for ANY author (bots included). A single surface never sees the
-    // whole conversation: issue comments, inline review threads, and
-    // review summaries each live on a distinct endpoint.
-    //
-    //  1. issues/{pr}/comments  → 'issue-comment'  (PR-level discussion;
-    //     `gh pr comment` posts here, so this surface is load-bearing for
-    //     add-comment's post-then-verify path).
-    //  2. pulls/{pr}/comments   → 'review-inline'  (per-line threads;
-    //     `in_reply_to_id` → parentId, one level only).
-    //  3. pulls/{pr}/reviews    → 'review-summary' (review bodies only;
-    //     state-only reviews are getReviewStatus's job, not ours).
     const [issueOut, inlineOut, reviewOut] = await Promise.all([
       exec('gh', ['api', `repos/{owner}/{repo}/issues/${prId}/comments`, '--paginate']),
       exec('gh', ['api', `repos/{owner}/{repo}/pulls/${prId}/comments`, '--paginate']),
@@ -377,15 +360,11 @@ export class GitHubProvider implements VcsProvider {
         source: 'review-inline',
         path: entry.path,
         line: entry.line,
-        // One-level threading: a reply points straight at the top-level
-        // comment it answers. Absent in_reply_to_id ⇒ top-level.
         ...(entry.in_reply_to_id !== undefined ? { parentId: entry.in_reply_to_id } : {}),
       });
     }
 
     for (const entry of reviewEntries) {
-      // Only reviews with an actual body are feedback; a CHANGES_REQUESTED
-      // or APPROVED review with no body is a verdict getReviewStatus reports.
       if (typeof entry.body !== 'string' || entry.body.trim() === '') continue;
       comments.push({
         id: entry.id,
@@ -401,11 +380,9 @@ export class GitHubProvider implements VcsProvider {
   }
 
   /**
-   * DR-3 — windowed + projected read. Fetches the full aggregated feed via
-   * {@link getPrComments} (all three surfaces + resolution enrichment), then
-   * hands it to the shared, provider-agnostic {@link windowPrComments} so the
-   * newest-first window / `page` metadata / `fields` projection / steer notice
-   * are byte-identical to what the GitLab/ADO fallback path produces.
+   * Windowed read. It reads the full feed with {@link getPrComments}, then
+   * applies the shared {@link windowPrComments}. Thus the output is the same as
+   * the fallback path for other providers.
    */
   async getPrCommentsPage(
     prId: string,
@@ -416,19 +393,12 @@ export class GitHubProvider implements VcsProvider {
   }
 
   /**
-   * Fail-soft enrichment of `resolved` on `review-inline` comments.
-   *
-   * REST inline comments don't carry resolution state — it lives on GraphQL
-   * `reviewThreads`. We query that, build a `databaseId → isResolved` map, and
-   * stamp `resolved` onto any inline comment whose id appears in it. An inline
-   * comment NOT in the map keeps `resolved` absent (unknown — never coerced to
-   * false); issue-comment and review-summary always stay absent (threads are
-   * inline-only).
-   *
-   * Load-bearing fail-soft: the entire GraphQL pass (exec + parse + mapping) is
-   * wrapped in try/catch. On ANY failure we return the REST comments untouched
-   * with every `resolved` absent, rather than throwing — a missing resolution
-   * signal must degrade to "unknown", not block the whole read.
+   * Sets `resolved` on `review-inline` comments from the GraphQL `reviewThreads`,
+   * because REST inline comments do not hold it. A comment that no thread holds
+   * keeps `resolved` absent, which means unknown. It reads threads in pages of
+   * 100, at most 50 pages, and the first 100 comments of each thread. On any
+   * failure, it returns the REST comments without change, so the read does not
+   * stop.
    */
   private async enrichResolvedStatus(
     prId: string,
@@ -443,12 +413,6 @@ export class GitHubProvider implements VcsProvider {
       const [owner, repo] = nameWithOwner.split('/');
       if (!owner || !repo) return comments;
 
-      // Paginate `reviewThreads` with an `after` cursor so resolution is
-      // enriched for EVERY thread, not just the first 100 — on a large PR the
-      // overflow threads would otherwise keep `resolved` absent (unknown). Inner
-      // `comments(first:100)` stays single-page: >100 replies in ONE thread is
-      // not a realistic shape, and an overflow there still degrades safe (absent
-      // → surfaced, never wrongly resolved).
       const query =
         'query($owner:String!,$repo:String!,$pr:Int!,$after:String){' +
         'repository(owner:$owner,name:$repo){' +
@@ -460,8 +424,6 @@ export class GitHubProvider implements VcsProvider {
 
       const resolvedById = new Map<number, boolean>();
       let after: string | null = null;
-      // Defensive page cap (50 × 100 = 5000 threads) so a misbehaving
-      // `pageInfo` can never spin this into an unbounded loop.
       for (let page = 0; page < 50; page++) {
         const graphqlArgs = [
           'api',
@@ -515,9 +477,6 @@ export class GitHubProvider implements VcsProvider {
         return resolved === undefined ? comment : { ...comment, resolved };
       });
     } catch {
-      // GraphQL enrichment is best-effort — any failure leaves every
-      // `resolved` absent (unknown), and getPrComments still returns the
-      // REST comments rather than throwing.
       return comments;
     }
   }
@@ -553,28 +512,13 @@ export class GitHubProvider implements VcsProvider {
     return { url, number: parseInt(match[1] ?? '0', 10) };
   }
 
+  /**
+   * Finds the issues whose body holds the `<!-- exarchos-op:ID -->` marker. The
+   * create-issue recovery check uses it. GitHub search strips HTML comments, so
+   * a search cannot find the marker. Thus it lists the newest 1000 open and
+   * closed issues and scans the bodies locally.
+   */
   async searchIssuesByMarker(operationId: string): Promise<IssueSearchSummary[]> {
-    // Two-event-split recovery precheck for create-issue.
-    //
-    // The marker we embed is an HTML comment (`<!-- exarchos-op:UUID -->`)
-    // chosen so it is invisible to humans reading the issue. GitHub's
-    // server-side search index strips HTML comments before tokenizing, so
-    // `gh issue list --search "<!-- exarchos-op:UUID -->"` returns no
-    // results even when an issue with that marker exists in its body —
-    // Sentry #14058284 and #14058450. Switching the marker to a visible
-    // footer would change rendered-issue UX, so instead we list issues
-    // and scan their bodies client-side, which sees the marker regardless
-    // of indexing rules.
-    //
-    // Scope: open + closed, walked newest-first via gh's default sort.
-    // Earlier revisions used a 200-issue cap; under issue churn the
-    // original marker could fall outside the window and Phase C would
-    // create a duplicate (CodeRabbit review #4278133032). Bumped to
-    // gh's effective per-call ceiling (1000) so the recovery window
-    // matches what gh can return in a single batch. Repositories with
-    // >1000 open+closed issues created since the prior crash should
-    // route through `args.operationId` (orchestrator-supplied) so this
-    // scan never has to be authoritative — see #1352.
     const RECENT_ISSUE_LIMIT = 1000;
     const marker = `<!-- exarchos-op:${operationId} -->`;
     const output = await exec('gh', [

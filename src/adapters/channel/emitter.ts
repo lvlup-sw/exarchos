@@ -1,18 +1,10 @@
 /**
- * Channel Emitter — push of workflow notifications via the MCP Channel.
+ * Channel emitter. It pushes workflow notifications through the MCP channel
+ * `notifications/claude/channel`, and skips an event below the priority threshold.
  *
- * Receives events, applies priority filtering against a configurable threshold,
- * and pushes via `notifications/claude/channel` on the MCP Server instance.
- *
- * P04-01 — delivery is now **observable and typed**. Every push routes through
- * the {@link ../../events/channel/delivery.js} algebra and returns a {@link DeliveryOutcome}:
- *   - {@link ChannelEmitter.push} is `best-effort` — a transport failure is
- *     captured into a typed `failed` carrier (an inspectable value) instead of
- *     being discarded by an empty `catch`. The failure is observable; the caller
- *     decides.
- *   - {@link ChannelEmitter.pushRequired} is `required` — a transport failure
- *     throws a typed {@link RequiredDeliveryError} that propagates. It is
- *     structurally impossible to swallow a required delivery failure here.
+ * Every push returns a typed {@link DeliveryOutcome}. {@link ChannelEmitter.push}
+ * returns a transport failure as a `failed` outcome. {@link ChannelEmitter.pushRequired}
+ * throws a {@link RequiredDeliveryError} for a transport failure.
  */
 
 import type { NotificationPriority } from '../../events/channel/priority.js';
@@ -54,10 +46,8 @@ export class ChannelEmitter {
   }
 
   /**
-   * Best-effort push. Returns a {@link DeliveryOutcome}: `skipped` when the
-   * event is below threshold, `delivered` on success, or `failed` (carrying a
-   * typed error) when the transport rejects. Never throws for a transport
-   * failure — but the failure is a returned value, not a swallowed one.
+   * Best-effort push. Returns `skipped` below the threshold, `delivered` on
+   * success, or `failed` with a typed error when the transport rejects.
    */
   async push(
     event: EventLike,
@@ -67,9 +57,8 @@ export class ChannelEmitter {
   }
 
   /**
-   * Required push. Resolves to `delivered`/`skipped`, or REJECTS with a typed
-   * {@link RequiredDeliveryError} when the transport fails — the failure
-   * propagates and cannot be silently dropped.
+   * Required push. Resolves to `delivered` or `skipped`. Rejects with a
+   * {@link RequiredDeliveryError} when the transport fails.
    */
   async pushRequired(
     event: EventLike,

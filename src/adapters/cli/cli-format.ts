@@ -1,6 +1,7 @@
-// ─── CLI Pretty Printer ─────────────────────────────────────────────────────
-// Converts ToolResult JSON into human-readable terminal output.
-// Main data → stdout (pipeable), metadata → stderr (human-visible).
+/**
+ * Renders a ToolResult or an envelope as terminal output.
+ * Data goes to stdout so that a pipe can read it. Metadata goes to stderr.
+ */
 
 import type {
   ToolResult,
@@ -10,8 +11,6 @@ import type {
   Envelope,
   ErrorEnvelope,
 } from '../../format.js';
-
-// ─── Format Inference ───────────────────────────────────────────────────────
 
 function isTabular(data: unknown): data is ReadonlyArray<Record<string, unknown>> {
   if (!Array.isArray(data) || data.length === 0) return false;
@@ -29,8 +28,6 @@ function inferFormat(data: unknown): 'table' | 'tree' | 'json' {
   return 'json';
 }
 
-// ─── Table Formatter ────────────────────────────────────────────────────────
-
 function formatTable(data: ReadonlyArray<Record<string, unknown>>): string {
   if (data.length === 0) return '';
 
@@ -43,7 +40,7 @@ function formatTable(data: ReadonlyArray<Record<string, unknown>>): string {
   const widths = columns.map(col => Math.max(...col.map(cell => cell.length)));
 
   const lines: string[] = [];
-  const rowCount = data.length + 1; // header + data rows
+  const rowCount = data.length + 1;
   for (let r = 0; r < rowCount; r++) {
     const cells = columns.map((col, c) => (col[r] ?? '').padEnd(widths[c] ?? 0));
     lines.push(cells.join('  '));
@@ -51,8 +48,6 @@ function formatTable(data: ReadonlyArray<Record<string, unknown>>): string {
 
   return lines.join('\n') + '\n';
 }
-
-// ─── Tree Formatter ─────────────────────────────────────────────────────────
 
 const MAX_TREE_DEPTH = 5;
 
@@ -86,8 +81,6 @@ function formatTree(data: Record<string, unknown>, indent: number = 0): string {
   return output;
 }
 
-// ─── Data Formatting ────────────────────────────────────────────────────────
-
 function formatData(data: unknown, format: 'table' | 'json' | 'tree'): string {
   if (data === undefined || data === null) return '';
   if (format === 'table' && isTabular(data)) {
@@ -98,8 +91,6 @@ function formatData(data: unknown, format: 'table' | 'json' | 'tree'): string {
   }
   return JSON.stringify(data, null, 2) + '\n';
 }
-
-// ─── Public API ─────────────────────────────────────────────────────────────
 
 export function printError(error: ToolResult['error']): void {
   if (!error) return;
@@ -133,30 +124,23 @@ export function printError(error: ToolResult['error']): void {
 }
 
 export function prettyPrint(result: ToolResult, format?: 'table' | 'json' | 'tree'): void {
-  // Error case: delegate to printError, then fall through to metadata
   if (!result.success) {
     printError(result.error);
   } else {
-    // Main data to stdout
     const effectiveFormat = format ?? inferFormat(result.data);
     process.stdout.write(formatData(result.data, effectiveFormat));
   }
 
-  // Warnings to stderr (present on both success and error results)
   if (result.warnings && result.warnings.length > 0) {
     for (const warning of result.warnings) {
       process.stderr.write(`  ! ${warning}\n`);
     }
   }
 
-  // Enriched metadata fields (set by telemetry middleware)
-
-  // _perf footer
   if (result._perf) {
     process.stderr.write(`  ${result._perf.ms}ms | ${result._perf.bytes}B | ~${result._perf.tokens} tokens\n`);
   }
 
-  // _eventHints advisory
   if (result._eventHints && result._eventHints.missing && result._eventHints.missing.length > 0) {
     process.stderr.write(`  Missing events for phase "${result._eventHints.phase}":\n`);
     for (const item of result._eventHints.missing) {
@@ -164,13 +148,11 @@ export function prettyPrint(result: ToolResult, format?: 'table' | 'json' | 'tre
     }
   }
 
-  // _meta checkpoint
   const meta = result._meta as Record<string, unknown> | undefined;
   if (meta && meta['checkpointAdvised'] === true) {
     process.stderr.write(`  Checkpoint advised — run: exarchos wf checkpoint\n`);
   }
 
-  // _corrections notice
   if (result._corrections && result._corrections.applied.length > 0) {
     process.stderr.write('\n  Auto-corrections applied:\n');
     for (const c of result._corrections.applied) {
@@ -179,25 +161,14 @@ export function prettyPrint(result: ToolResult, format?: 'table' | 'json' | 'tre
   }
 }
 
-// ─── Envelope CLI Renderer (Wave 0 D.2/D.3) ─────────────────────────────────
-
 /**
- * Reconstitute a {@link ToolResult} from an {@link Envelope} / {@link ErrorEnvelope}
- * so the legacy {@link prettyPrint} renderer can be reused for table/tree modes
- * and for the `EXARCHOS_CLI_ENVELOPE=0` opt-out path.
- *
- * This is the inverse of `toEnvelope` on the success branch. Side-channel
- * fields (`warnings`, `_corrections`, `_eventHints`) are threaded back through
- * so prettyPrint's stderr sidebars render identically to the pre-envelope
- * dispatch path.
+ * Converts an {@link Envelope} or {@link ErrorEnvelope} back to a {@link ToolResult} for {@link prettyPrint}.
+ * On success it is the inverse of `toEnvelope`.
+ * It copies `warnings` and `_corrections` on both branches, and `_eventHints` on success, so that the stderr lines stay the same.
  */
 function envelopeToToolResult(env: Envelope<unknown> | ErrorEnvelope): ToolResult {
   if (env.success === false) {
     const errEnv = env as ErrorEnvelope;
-    // Preserve sidebar fields on the failure path so prettyPrint's
-    // stderr sidebar still renders in table/tree and the
-    // `EXARCHOS_CLI_ENVELOPE=0` legacy path. Mirrors the success-branch
-    // thread below (CodeRabbit minor on PR #1369).
     return {
       success: false,
       error: errEnv.error as NonNullable<ToolResult['error']>,
@@ -226,30 +197,18 @@ function envelopeToToolResult(env: Envelope<unknown> | ErrorEnvelope): ToolResul
 }
 
 /**
- * Carrier-bound CLI renderer for an {@link Envelope} | {@link ErrorEnvelope}
- * (design `docs/designs/archive/2026-05-13-wave-0-carrier-swap.md` §2.3, INV-2 facade
- * equivalence).
- *
- * Default: `--format json` emits the FULL envelope as a single JSON document
- * on stdout (byte-equal to MCP `structuredContent` modulo timestamps). Table
- * and tree modes delegate to {@link prettyPrint} so existing renderings are
- * preserved.
- *
- * Opt-out: `EXARCHOS_CLI_ENVELOPE=0` restores the legacy `prettyPrint` shape
- * (data-only stdout + stderr sidebars). Active since #1368 (Wave 0 follow-up
- * PR-B wired `toCliResult` into `emitResult`). Scheduled for removal in
- * v2.11.0 per design §6 of `docs/designs/archive/2026-05-13-wave-0-carrier-swap.md`;
- * consumers depending on the legacy raw-ToolResult shape MUST migrate to the
- * envelope shape before v2.11.0 ships. The opt-out is strictly the literal
- * string `'0'`; any other value (including unset, `'1'`, `'true'`, etc.)
- * means "envelope".
+ * Renders an {@link Envelope} or {@link ErrorEnvelope} on the CLI.
+ * The CLI and MCP facades must give equal output.
+ * With `json`, it writes the full envelope to stdout as one JSON document, equal to the MCP `structuredContent` except for timestamps.
+ * With `table` or `tree`, it uses {@link prettyPrint}.
+ * When `EXARCHOS_CLI_ENVELOPE` is the literal `'0'`, it always uses {@link prettyPrint}: data on stdout and metadata on stderr.
+ * Any other value, or no value, selects the envelope.
  */
 export function toCliResult(
   env: Envelope<unknown> | ErrorEnvelope,
   format: 'table' | 'json' | 'tree',
 ): void {
   if (process.env.EXARCHOS_CLI_ENVELOPE === '0') {
-    // Legacy path — prettyPrint emits data-only stdout + stderr sidebars.
     prettyPrint(envelopeToToolResult(env), format);
     return;
   }
@@ -259,6 +218,5 @@ export function toCliResult(
     return;
   }
 
-  // Table / tree fall through to prettyPrint with the reconstituted ToolResult.
   prettyPrint(envelopeToToolResult(env), format);
 }
