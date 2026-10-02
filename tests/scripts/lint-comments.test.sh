@@ -2,7 +2,8 @@
 # Self-test for tools/audit/gates/lint-comments.mjs. It drives the real gate over seeded fixtures:
 # a clean file, a new violation, a baselined block, a swap, a duplicate, a stale entry, a comment
 # inside a function, a description that breaks an STE rule, a shell comment after a heredoc, a
-# hand-grown baseline entry, a missing config, and a pull request run without its base branch.
+# hand-grown baseline entry, a missing config, a pull request run without its base branch, and a
+# report on an empty directory or a missing path.
 # The trap restores every changed file.
 set -uo pipefail
 
@@ -102,6 +103,12 @@ check "LintComments_MissingConfig_ExitsTwo" 2 "$(gate --files "$FX" --no-admissi
 check "LintComments_PullRequestWithoutBase_ExitsTwo" 2 \
   "$(GITHUB_EVENT_NAME=pull_request GITHUB_BASE_REF='' node "$GATE" --files "$FX" --baseline "$TMP/empty.tsv" >"$TMP/out" 2>&1; echo $?)"
 expect_output "LintComments_PullRequestWithoutBase_NamesTheCause" "GITHUB_BASE_REF is not set"
+
+mkdir -p "$FX_DIR/empty"
+check "LintComments_ReportOnEmptyDirectory_ExitsTwo" 2 "$(gate report "$FX_DIR/empty")"
+expect_output "LintComments_ReportOnEmptyDirectory_NamesTheCause" "is a directory with no tracked files"
+check "LintComments_ReportOnMissingPath_ExitsTwo" 2 "$(gate report "$FX_DIR/missing.ts")"
+expect_output "LintComments_ReportOnMissingPath_NamesTheCause" "does not exist"
 
 echo "lint-comments self-test: $pass passed, $fail failed"
 [[ "$fail" == "0" ]]
