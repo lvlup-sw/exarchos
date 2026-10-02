@@ -52,8 +52,8 @@ export const GUARD_SUITE_ROOTS: readonly string[] = Object.freeze([
    */
   'src/architecture',
   /**
-   * The agent-dispatch censuses. The spec cites them under an `agents/` path that
-   * no rewrite maps, so channel 4 finds them from the tree.
+   * The agent-dispatch censuses. Channel 4 finds them from the tree, so a spec path
+   * that stops resolving does not hide them.
    */
   'src/runtime/agents',
 ]);

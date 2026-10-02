@@ -65,8 +65,8 @@ function isLoadBearingFixture(path) {
 }
 
 /**
- * True when a line starts with the marker and a non-empty reason. Leading
- * whitespace is ignored, so an indented body matches. The colon in the marker
+ * True when a line starts with the marker and a non-empty reason. The check
+ * ignores leading whitespace, so an indented body matches. The colon in the marker
  * rejects `GOLDEN-FIXTURE-UPDATED`. A bare marker fails, because the reason is
  * the context for the reviewer.
  *

@@ -2,14 +2,14 @@
 /**
  * @fileoverview Extracts comment text from code, with the position of each comment.
  *
- * Its consumers are a CI gate that reports `file:line` and an ESLint rule that
- * reports on a `loc`. Both are JavaScript, so the module is `.mjs` and the logic
+ * It serves a CI gate that reports `file:line` and an ESLint rule that reports
+ * on a `loc`. Both are JavaScript, so the module is `.mjs` and the logic
  * exists in one language only.
  *
  * The module parses the file instead of a token scan. `ts.createScanner` cannot
  * resume a template literal after a `${…}` substitution. Thus the tail of
  * `` `${x}\n// text` `` comes back as an invented comment. With the literal spans
- * from a parse, a `/` outside them always starts a comment.
+ * from a parse, a `//` or `/*` outside them always starts a comment.
  */
 
 import ts from 'typescript';

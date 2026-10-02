@@ -226,7 +226,7 @@ function* walkMdFiles(dir) {
   }
 }
 
-/** An integration context: "integration branch", "integration-branch", "integration ref", or "integration merge". */
+/** An integration context, such as "integration branch", "integration-ref" or "integration merge". */
 const INTEGRATION_CONTEXT_RE = /integration[\s-]?(?:branch|ref|merge)/i;
 
 /**

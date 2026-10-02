@@ -9,8 +9,10 @@
 // that is deliberately unreachable from CI, with an owner and an expiry.
 //
 // The inventory follows `.sh` wrappers transitively, but no `.mjs` or `.ts`
-// runner. A miss reads as "unreachable", so it reports a wiring hole. It cannot
-// see the files that a guard scans, or which jobs branch protection requires.
+// runner. CI runs `run-validate.mjs` with `--list`, which runs no step, so its
+// manifest steps do not count. A miss reads as "unreachable", so it reports a
+// wiring hole. It cannot see the files that a guard scans, or which jobs branch
+// protection requires.
 //
 // This file re-exports the modules under `guard-inventory/`, so
 // `guard-inventory.js` stays the one import path.

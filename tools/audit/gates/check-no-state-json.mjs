@@ -11,7 +11,7 @@
  * It flags an fs primitive call with an inline `.state.json` literal in the same
  * statement. A path string built for a wrapper passes, and so do `readdir` and
  * a path held in a variable.
- * Test, bench, `__tests__` and `benchmarks` files are excluded.
+ * The gate skips test, bench, `__tests__` and `benchmarks` files.
  *
  * Usage: `check-no-state-json.mjs [--src-root <path>]`. The default root is `src`.
  * Exit 0 is clean, 1 is a violation, and 2 is a usage or environment error.

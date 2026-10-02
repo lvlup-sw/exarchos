@@ -1,5 +1,11 @@
 import { default as ts } from 'typescript';
 
+/**
+ * True for a backtick span shaped like a repo-relative file path. The `**Files:**`
+ * lines also hold directories, slash commands and prose words. A dotted extension,
+ * no whitespace, no colon and no leading slash keep those out without a rejection
+ * list. A renamed real path still matches, so it shows in `unresolvedSpecArtifacts`.
+ */
 export function isPathShaped(value: string): boolean {
   if (value.length === 0) return false;
   if (value.startsWith('/') || value.includes(':') || /\s/.test(value)) return false;

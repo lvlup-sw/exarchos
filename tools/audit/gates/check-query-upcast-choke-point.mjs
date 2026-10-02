@@ -5,7 +5,7 @@
  * It finds direct backend reads (`.queryEvents(` and `.queryEventsByType(`) in
  * `src/` outside `events/` and `storage/`. These calls return raw rows that skip the
  * `migrateEvents` upcast. Readers must call `EventStore.query` or `EventStore.queryByType`.
- * Test and bench files are excluded.
+ * The gate skips test and bench files.
  *
  * Exit 0 when clean, 1 on violations (`path:line excerpt` on stderr), and 2 on a usage
  * or environment error. `--src-root <path>` sets the walk root.

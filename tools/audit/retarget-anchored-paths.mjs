@@ -1,6 +1,6 @@
 // Second pass over directory-anchored path literals. It rewrites
-// `resolve(HERE, '…')` and `join(HERE, '…')` calls, where HERE is a module-level
-// binding to the directory of the file itself:
+// `resolve(HERE, '…')` and `join(HERE, '…')` calls, where HERE is a `const` or
+// `let` binding to the directory of the file itself:
 //
 //     const HERE = path.dirname(fileURLToPath(import.meta.url))
 //

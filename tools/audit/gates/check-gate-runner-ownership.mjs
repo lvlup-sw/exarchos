@@ -133,9 +133,9 @@ const DISPOSITIONS = Object.freeze([
     ['src/verbs/gates/gate-utils.ts', 2, 'orchestrate/gate-utils'],
     ['src/verbs/gates/plan-coverage.ts', 1, 'orchestrate/plan-coverage'],
     /**
-     * These two gates append `gate.executed` inside the provider closure, under
-     * the canonical runner. Thus the declared signal and the durable proof land
-     * together.
+     * This gate and `post-delegation-check.ts` append `gate.executed` inside the
+     * provider closure, under the canonical runner. Thus the declared signal and
+     * the durable proof land together.
      */
     ['src/verbs/gates/pre-synthesis-check.ts', 1, 'orchestrate/pre-synthesis-check'],
     ['src/verbs/team/post-delegation-check.ts', 1, 'orchestrate/post-delegation-check'],

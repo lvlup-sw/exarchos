@@ -11,7 +11,7 @@
  * Exit 0 on `pass`. Exit 1 on `fail`: drift, an empty denominator, an unknown derivation,
  * a malformed literal, or a row with no probe. Exit 3 on `gaps` (unprobed rungs), or 1 with
  * `--fail-on-gap`. `--tolerate-gaps-until <YYYY-MM-DD>` maps `gaps` to exit 0 through that
- * day, and the report still says GAPS. Exit 2 on a usage or tooling error.
+ * day and to exit 1 after it, and the report still says GAPS. Exit 2 on a usage or tooling error.
  * `--document <path>` (repeatable) sets the input, and `--json` prints the report as JSON.
  */
 import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';

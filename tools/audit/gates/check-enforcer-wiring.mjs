@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * Enforcer-wiring gate. It proves that each `check-*` and `lint-*` primary in `tools/audit/gates` can fail CI.
+ * Enforcer-wiring gate. It proves that each `check-*` and `lint-*` primary in `tools/audit/gates`
+ * is wired as its manifest entry declares.
  * It walks npm-script chains and workflow run steps, reads the exit-code handling of each term,
  * and reconciles each primary against the manifest.
  *
@@ -161,7 +162,7 @@ export function analyzeCommandRefs(cmd, parentFailable = true) {
 /**
  * Transitively resolve the primaries reachable from a command, expanding
  * `npm run <name>` references through the package.json script map.
- * A reference is failable only when each hop on its path is failable. A primary that is failable through any path is recorded as failable.
+ * A reference is failable only when each hop on its path is failable. The walk records a primary as failable when any path to it is failable.
  * The walk skips an npm script that already occurs on the current path, and a script name that does not exist.
  *
  * @param {string} cmd
@@ -713,7 +714,7 @@ export const CI_PATH_EVENT = 'pull_request';
  * - a step that matches `stepMatch` sits in a job whose `if:` and own step `if:` do not filter.
  * One unfiltered host is enough, even when another copy of the step runs in a filtered job.
  *
- * The model does not follow reusable workflows or read shell exits in `run:` blocks.
+ * It does not follow reusable workflows, read `run:` shell exits, or treat `types:` as a path filter.
  *
  * @param {string} text  workflow file contents
  * @param {{ stepMatch?: string | null, event?: string }} [options]

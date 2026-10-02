@@ -1,6 +1,7 @@
 import { posix } from 'node:path';
 import { COMMAND_PREFIXES, ROOT_ANCHOR, SHELL_INTERPRETERS, assignmentWord, expandShellVars, joinShellContinuations, normalizeRepoPath, resolveCommandSubstitution, shellCommandSegments, shellWords, stripShellComments } from './shell-lexer.js';
 
+/** One file that a CI shell wrapper runs, with the wrapper chain that reaches it. */
 export interface ShellExecution {
   /** Repo-relative path of the executed file. */
   readonly target: string;
@@ -25,6 +26,7 @@ export interface ShellWalk {
  *
  * A `NAME=VALUE` prefix sets a variable. A segment of only assignments executes nothing.
  * After an interpreter, the first non-flag word is the program. A further interpreter name continues the search.
+ * The later words are arguments of that program. Thus `npx eslint --print-config x.ts` does not execute `x.ts`.
  *
  * The walk reads a whole-line `NAME=$(…)` assignment before word splitting, because `$(…)` holds operator characters.
  * When the value resolves to a directory anchor, it sets the variable. Otherwise the walk scans its commands and sets no value.

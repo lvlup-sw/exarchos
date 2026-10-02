@@ -13,15 +13,18 @@ export interface InventoryAudit {
 }
 
 /**
- * Proves that every guard is reachable from CI. Each violation line holds a code in brackets.
- * A scan that finds zero guards, zero `run:` steps, zero wrapper scripts or zero entrypoint
- * sources fails, because a clean result then proves nothing.
+ * Proves that every guard is reachable from CI. A scan that finds zero guards, zero `run:`
+ * steps, zero wrapper scripts or zero entrypoint sources fails, because a clean result then
+ * proves nothing. A `manifestJson` primary that the inventory does not hold also fails.
  *
- * An unreachable guard fails without an exemption. A guard that runs only when `argv[1]`
- * ends with its own filename fails, because a rename makes it a no-op. A guard hosted only in
- * path-filtered jobs fails when its source is outside every filter and no unfiltered
- * pull-request host re-asserts it. An exemption fails when it is orphaned, stale or expired.
- * The audit checks a `filtered-implementation-surface` exemption only when `filterGlobs` is given.
+ * These findings fail unless an exemption excuses them:
+ * - an unreachable guard
+ * - a guard that runs only when `argv[1]` ends with its own filename, so a rename makes it a no-op
+ * - a guard hosted only in path-filtered jobs whose source is outside every filter, when no
+ *   unfiltered pull-request host runs it (a self-test host counts)
+ *
+ * An exemption fails when it is orphaned, stale or expired. The audit checks a
+ * `filtered-implementation-surface` exemption only when the caller passes `filterGlobs`.
  */
 export function auditGuardInventory(
   inventory: GuardInventory,

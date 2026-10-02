@@ -132,7 +132,7 @@ function textOf(value: string | null | undefined): string {
 
 /**
  * The count of child processes that this file starts.
- * `afterAll` fails the run when the count is less than three for each site, because a run without child processes proves nothing.
+ * `afterAll` fails the run when the count is less than three times the number of sites, because a run without child processes proves nothing.
  */
 let spawnCount = 0;
 
@@ -251,7 +251,7 @@ function restoreLegacyPredicate(site: Site, source: string): string {
 }
 
 let scratchDir = '';
-/** Copies under a NEW name: the real `scripts/` entries are all present. */
+/** Copies under a new name. All entries of the real `tools/audit/core` directory are present. */
 let renameShadow: ShadowRoot = { root: '', scriptsDir: '', mirrored: 0 };
 /** Copies under a site's ORIGINAL name: those three entries are carved out. */
 let originalNameShadow: ShadowRoot = { root: '', scriptsDir: '', mirrored: 0 };

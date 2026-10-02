@@ -11,7 +11,8 @@
  *
  * The baseline records the census hash. A missing, malformed, or mismatched baseline
  * fails closed. Exit 0 when clean, 1 on violations, and 2 on a fail-closed or usage
- * error. `--baseline <path>` and `--repo-root <path>` set the inputs.
+ * error. `--update` writes a new baseline from the tree. `--baseline <path>` and
+ * `--repo-root <path>` set the inputs.
  */
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';

@@ -8,8 +8,9 @@
  * Skips (exit 0): a non-`pull_request` event, and a `src/**` diff with no files.
  * Exit 1: a score below threshold, NoCoverage over budget, a hard handler error, or a degrade
  * or skip marker on the result. The gate never trusts `data.passed` alone.
- * Exit 2: fail closed on a missing base ref, a git failure, an unusable `bun`, or bad bridge output.
- * With `--observe`, a gate failure or a fail-closed condition is logged, and the exit is 0.
+ * Exit 2: fail closed on a missing base ref, a git failure, a `--head` other than the checkout,
+ * an unusable `bun`, or bad bridge output.
+ * With `--observe`, the script logs a gate failure or a fail-closed condition and exits 0.
  *
  * Flags: `--observe`, `--event-name`, `--base`, `--head`, `--remote`, `--repo-root`, `--bun-bin`.
  * The defaults come from the GitHub Actions environment.
@@ -139,7 +140,7 @@ function runGit(repoRoot, gitArgs) {
 }
 
 /**
- * Resolves `base` to a diffable ref. A ref that resolves locally is used as is, with no network.
+ * Resolves `base` to a diffable ref. It uses a ref that resolves locally as is, with no network.
  * Otherwise it runs `git fetch <remote> <base>`, because the CI checkout is shallow, and uses
  * `FETCH_HEAD`. A fetch failure fails closed, and it is not an empty diff.
  */
