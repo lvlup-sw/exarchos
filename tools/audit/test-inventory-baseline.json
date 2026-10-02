@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1289,
-    "parsedFiles": 1244,
+    "testFiles": 1290,
+    "parsedFiles": 1245,
     "shellFiles": 45,
-    "cases": 14266,
+    "cases": 14288,
     "dynamicTitles": 172,
     "unparseableFiles": 0
   },
@@ -5363,6 +5363,37 @@
         {
           "suite": "RenderedTree",
           "name": "EveryPluginDeclaredPath_ResolvesAndIsProduced",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/atomic-replace.test.ts": {
+      "file": "tests/architecture/atomic-replace.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "atomic replace owns every rename in src/",
+          "name": "AtomicReplaceGuard_ParsesTheSourceTreeAndFindsItsKnownSites",
+          "dynamic": false
+        },
+        {
+          "suite": "atomic replace owns every rename in src/",
+          "name": "AtomicReplaceGuard_NoRenameOutsideThePrimitiveAndItsExemptions",
+          "dynamic": false
+        },
+        {
+          "suite": "atomic replace owns every rename in src/",
+          "name": "AtomicReplaceGuard_EachExemptionMatchesItsPinnedCount",
+          "dynamic": false
+        },
+        {
+          "suite": "atomic replace owns every rename in src/",
+          "name": "AtomicReplaceGuard_Matcher_FindsSeededViolations",
+          "dynamic": false
+        },
+        {
+          "suite": "atomic replace owns every rename in src/",
+          "name": "AtomicReplaceGuard_Matcher_IgnoresSeamBindingsAndTheCleanTwin",
           "dynamic": false
         }
       ]
@@ -41275,6 +41306,11 @@
           "dynamic": false
         },
         {
+          "suite": "SnapshotStore atomic writes",
+          "name": "snapshotSave_TwoSavesInOneMillisecond_BothResolveAndTheLastIsPublished",
+          "dynamic": false
+        },
+        {
           "suite": "SnapshotStore pipeline v2 lineage",
           "name": "PipelineSnapshot_V1LineageFile_IgnoredAndFullyRefolded",
           "dynamic": false
@@ -47487,6 +47523,11 @@
           "suite": "Atomic Archive Writes",
           "name": "compactWorkflow_CrashDuringArchiveRename_PreservesExistingArchive",
           "dynamic": false
+        },
+        {
+          "suite": "Atomic Archive Writes",
+          "name": "compactWorkflow_TwoCompactionsInOneMillisecond_BothResolveAndTheArchiveIsWhole",
+          "dynamic": false
         }
       ]
     },
@@ -48543,6 +48584,11 @@
         },
         {
           "suite": "Outbox StorageBackend Integration",
+          "name": "Outbox_TwoOutboxesWriteOneStreamInOneMillisecond_BothResolveAndTheFileIsWhole",
+          "dynamic": false
+        },
+        {
+          "suite": "Outbox StorageBackend Integration",
           "name": "Outbox_addEntry_WithBackend_ReturnsEntryWithId",
           "dynamic": false
         }
@@ -49154,6 +49200,71 @@
           "dynamic": false
         },
         {
+          "suite": "publishTempFile — writers to one target are serialized (#2028)",
+          "name": "PublishTempFile_ConcurrentPublishersOneTarget_RenamesNeverOverlapAndRunInCallOrder",
+          "dynamic": false
+        },
+        {
+          "suite": "publishTempFile — writers to one target are serialized (#2028)",
+          "name": "PublishTempFile_ConcurrentPublishersDistinctTargets_RunConcurrently",
+          "dynamic": false
+        },
+        {
+          "suite": "publishTempFile — writers to one target are serialized (#2028)",
+          "name": "PublishTempFile_TwoSpellingsOfOneTarget_ShareOneQueue",
+          "dynamic": false
+        },
+        {
+          "suite": "publishTempFile — writers to one target are serialized (#2028)",
+          "name": "PublishTempFile_Win32TargetsDifferingOnlyInCase_ShareOneQueue",
+          "dynamic": false
+        },
+        {
+          "suite": "publishTempFile — writers to one target are serialized (#2028)",
+          "name": "PublishTempFile_PosixTargetsDifferingOnlyInCase_UseSeparateQueues",
+          "dynamic": false
+        },
+        {
+          "suite": "publishTempFile — writers to one target are serialized (#2028)",
+          "name": "PublishTempFile_FailedPublish_DoesNotBlockTheNextWriter",
+          "dynamic": false
+        },
+        {
+          "suite": "publishTempFile — writers to one target are serialized (#2028)",
+          "name": "PublishTempFile_AllPublishesSettled_LeavesNoQueueEntryBehind",
+          "dynamic": false
+        },
+        {
+          "suite": "publishTempFile — writers to one target are serialized (#2028)",
+          "name": "ReadPublished_InterleavedWithPublishesToOneTarget_NeverOverlapsARename",
+          "dynamic": false
+        },
+        {
+          "suite": "atomicReplace",
+          "name": "AtomicReplace_StringAndBytes_ReplaceTheTargetAndLeaveNoTempFile",
+          "dynamic": false
+        },
+        {
+          "suite": "atomicReplace",
+          "name": "AtomicReplace_ConcurrentWritersOneTarget_EndWithTheLastCallsWholeBytes",
+          "dynamic": false
+        },
+        {
+          "suite": "atomicReplace",
+          "name": "AtomicReplace_ALaterPublishToTheSameTarget_WaitsForTheWholeReplace",
+          "dynamic": false
+        },
+        {
+          "suite": "atomicReplace",
+          "name": "AtomicReplace_RenameFails_RemovesTheTempFileAndKeepsTheTarget",
+          "dynamic": false
+        },
+        {
+          "suite": "atomicReplace",
+          "name": "AtomicReplace_StagingFails_RejectsWithoutCreatingAnything",
+          "dynamic": false
+        },
+        {
           "suite": "publishTempFileSync",
           "name": "PublishTempFileSync_Posix_PublishesRealFile",
           "dynamic": false
@@ -49161,6 +49272,11 @@
         {
           "suite": "publishTempFileSync",
           "name": "PublishTempFileSync_PosixNonRaceError_Rethrows",
+          "dynamic": false
+        },
+        {
+          "suite": "publishTempFileSync",
+          "name": "PublishTempFileSync_InjectedRename_ReplacesTheDefaultRename",
           "dynamic": false
         },
         {

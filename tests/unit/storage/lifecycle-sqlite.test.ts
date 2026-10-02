@@ -212,7 +212,7 @@ describe('Lifecycle with SqliteBackend', () => {
     // Assert: no .tmp files left behind (atomic rename completed)
     const archiveDir = join(stateDir, 'archives');
     const archiveFiles = readdirSync(archiveDir) as string[];
-    const tmpFiles = archiveFiles.filter((f: string) => f.includes('.tmp.'));
+    const tmpFiles = archiveFiles.filter((f: string) => f.includes('.tmp'));
     expect(tmpFiles).toHaveLength(0);
   });
 });

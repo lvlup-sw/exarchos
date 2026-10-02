@@ -35,7 +35,7 @@ import { workflowStateProjection, type WorkflowStateView } from '../projections/
 import type { StorageBackend } from '../storage/backend.js';
 import { mergeSidecarEvents } from '../storage/sidecar-merger.js';
 import { isPidAlive } from '../utils/process.js';
-import { publishTempFile } from '../utils/atomic-write.js';
+import { publishTempFile, readPublished } from '../utils/atomic-write.js';
 import { logger } from '../logger.js';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
@@ -323,7 +323,7 @@ export async function readStateFile(stateFile: string): Promise<WorkflowState> {
   let raw: string;
 
   try {
-    raw = await fs.readFile(stateFile, 'utf-8');
+    raw = await readPublished(stateFile, () => fs.readFile(stateFile, 'utf-8'));
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
       throw new StateStoreError(
@@ -479,7 +479,7 @@ export async function writeStateFile(
   if (options?.expectedVersion !== undefined) {
     let currentVersion = 1;
     try {
-      const raw = await fs.readFile(stateFile, 'utf-8');
+      const raw = await readPublished(stateFile, () => fs.readFile(stateFile, 'utf-8'));
       try {
         const parsed = JSON.parse(raw) as Record<string, unknown>;
         currentVersion = typeof parsed._version === 'number' ? parsed._version : 1;

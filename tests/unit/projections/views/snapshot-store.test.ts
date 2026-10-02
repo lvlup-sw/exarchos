@@ -85,6 +85,25 @@ describe('SnapshotStore atomic writes', () => {
     expect(lastWrite.path).not.toBe(filePath);
     expect(lastWrite.path).toContain('.tmp');
   });
+
+  /** Two saves in one millisecond once shared a temp path, so the second rename found it gone. */
+  it('snapshotSave_TwoSavesInOneMillisecond_BothResolveAndTheLastIsPublished', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(Date.now());
+    try {
+      const results = await Promise.allSettled([
+        store.save('test-stream', 'myview', { writer: 'a' }, 1),
+        store.save('test-stream', 'myview', { writer: 'b' }, 2),
+      ]);
+
+      expect(results.map((r) => r.status)).toEqual(['fulfilled', 'fulfilled']);
+      const saved = JSON.parse(
+        await readFile(path.join(tempDir, 'test-stream.myview.snapshot.json'), 'utf-8'),
+      );
+      expect(saved.view).toEqual({ writer: 'b' });
+    } finally {
+      now.mockRestore();
+    }
+  });
 });
 
 // ─── DR-5/DR-6: versioned pipeline snapshot lineage ──────────────────────────

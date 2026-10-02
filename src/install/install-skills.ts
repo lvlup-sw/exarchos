@@ -51,6 +51,7 @@ import {
   noAgentDetectedFallbackMessage,
   unknownRuntimeMessage,
 } from './install-skills-messages.js';
+import { atomicWriteFile } from '../utils/atomic-write.js';
 
 /**
  * Result shape returned by the injected spawn function. We intentionally keep
@@ -832,12 +833,10 @@ function buildPlacementRecord(
   return { harness, kind, path: toPosixPath(dirPath), hashes };
 }
 
-/** Atomically write JSON: temp file in the target dir, then rename over target. */
+/** Atomically write JSON: a unique temp file in the target dir, then rename over target. */
 function atomicWriteJson(target: string, obj: unknown): void {
   fs.mkdirSync(path.dirname(target), { recursive: true });
-  const tmp = `${target}.tmp-${process.pid}-${Date.now()}`;
-  fs.writeFileSync(tmp, `${JSON.stringify(obj, null, 2)}\n`, 'utf8');
-  fs.renameSync(tmp, target);
+  atomicWriteFile(target, `${JSON.stringify(obj, null, 2)}\n`);
 }
 
 /** Type guard: does a parsed value look like a provenance manifest we can merge into? */

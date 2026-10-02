@@ -55,6 +55,7 @@ import type { ToolResult } from '../../../format.js';
 import type { WorkflowEvent } from '../../../events/schemas.js';
 import { workflowStateProjection, type WorkflowStateView } from '../workflow-state-projection.js';
 import { EnvelopeSchema } from '../../../contract/schemas/envelope.js';
+import { atomicReplace } from '../../../utils/atomic-write.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -314,19 +315,6 @@ function validateAndPrepareOutputPath(outputPath: string, featureId: string): Ou
   return { ok: true };
 }
 
-/** Atomic write: temp sibling → close handle → rename (INV-16 handle safety). */
-async function writeZipAtomic(outputPath: string, zipBytes: Buffer): Promise<void> {
-  const dir = path.dirname(outputPath);
-  const tmp = path.join(dir, `.${path.basename(outputPath)}.tmp-${randomUUID()}`);
-  try {
-    await fsp.writeFile(tmp, zipBytes); // opens + fully closes the handle on resolve
-    await fsp.rename(tmp, outputPath);
-  } catch (err) {
-    await fsp.rm(tmp, { force: true }).catch(() => undefined);
-    throw err;
-  }
-}
-
 // ─── Crash precheck ───────────────────────────────────────────────────────────
 
 interface DanglingIntent {
@@ -449,7 +437,7 @@ export async function handleViewExport(
   }
   const bundleRewritten = existingHash !== contentHash;
   if (bundleRewritten) {
-    await writeZipAtomic(outputPath, zipBytes);
+    await atomicReplace(outputPath, zipBytes);
   }
 
   // INV-13 RESULT — journaled AFTER the write, carrying the bundle's contentHash

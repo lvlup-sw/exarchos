@@ -27,6 +27,7 @@ import { isPidAlive } from '../../../src/utils/process.js';
 import { EventStore } from '../../../src/events/store.js';
 import { InMemoryBackend, VersionConflictError as BackendVersionConflictError } from '../../../src/storage/memory-backend.js';
 import type { WorkflowState } from '../../../src/workflow/types.js';
+import { readPublished } from '../../../src/utils/atomic-write.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 describe('deepMerge', () => {
@@ -1068,6 +1069,11 @@ describe('temp-file naming and orphan sweep', () => {
     expect(() => JSON.parse(published)).not.toThrow();
   });
 
+  /**
+   * The reader is an in-process reader, so it reads through the target's queue,
+   * as the store's own reads do. A reader in another process is outside this
+   * test; on Windows only the bounded publish retry covers it.
+   */
   it('WriteStateFile_ConcurrentWriters_NeitherObservesPartialFile', async () => {
     const { state, stateFile } = await initStateFile(tempDir, 'partial', 'feature');
 
@@ -1086,7 +1092,7 @@ describe('temp-file naming and orphan sweep', () => {
     const reader = (async () => {
       while (!readerStop) {
         try {
-          const raw = await fs.readFile(stateFile, 'utf-8');
+          const raw = await readPublished(stateFile, () => fs.readFile(stateFile, 'utf-8'));
           // Every observation of the published file must be complete JSON —
           // rename(2) is atomic, so a reader can only ever see a whole file.
           JSON.parse(raw);

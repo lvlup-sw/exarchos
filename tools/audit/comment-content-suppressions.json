@@ -976,7 +976,7 @@
   },
   "src/projections/views/lifecycle/export.ts": {
     "comments/comment-content": {
-      "count": 16
+      "count": 15
     }
   },
   "src/projections/views/lifecycle/inspect.ts": {
@@ -1366,7 +1366,7 @@
   },
   "src/utils/atomic-write.ts": {
     "comments/comment-content": {
-      "count": 6
+      "count": 2
     }
   },
   "src/utils/paths.ts": {

@@ -181,4 +181,26 @@ describe('Atomic Archive Writes', () => {
     const afterArchive = JSON.parse(afterRaw);
     expect(afterArchive.eventCount).toBe(99); // Original value preserved
   });
+
+  /** Two archive writes in one millisecond once shared a temp path, so one rename found it gone. */
+  it('compactWorkflow_TwoCompactionsInOneMillisecond_BothResolveAndTheArchiveIsWhole', async () => {
+    const featureId = 'same-millisecond';
+    await writeState(stateDir, featureId, 'completed', daysAgo(60));
+    const policy = { ...DEFAULT_LIFECYCLE_POLICY, retentionDays: 30 };
+    const now = vi.spyOn(Date, 'now').mockReturnValue(Date.now());
+    try {
+      const results = await Promise.allSettled([
+        compactWorkflow(undefined, stateDir, featureId, policy),
+        compactWorkflow(undefined, stateDir, featureId, policy),
+      ]);
+
+      expect(results.map((r) => r.status)).toEqual(['fulfilled', 'fulfilled']);
+      const archive = JSON.parse(
+        await readFile(path.join(stateDir, 'archives', `${featureId}.archive.json`), 'utf-8'),
+      );
+      expect(archive.featureId).toBe(featureId);
+    } finally {
+      now.mockRestore();
+    }
+  });
 });

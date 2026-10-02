@@ -38,6 +38,7 @@
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { publishTempFileSync, type DirectorySyncOutcome } from '../../utils/atomic-write.js';
 
 /**
  * A configuration file exists but does not contain readable JSON.
@@ -191,13 +192,14 @@ export function writeJsonConfigAtomic(
   }
 
   try {
-    io.renameSync(tmpPath, filePath);
+    publishTempFileSync(tmpPath, filePath, {
+      rename: (from, to) => io.renameSync(from, to),
+      syncDirectory: (directory) => fsyncDirectory(io, directory),
+    });
   } catch (err: unknown) {
     unlinkQuietly(io, tmpPath);
     throw err;
   }
-
-  fsyncDirectory(io, dir);
 }
 
 /**
@@ -247,25 +249,33 @@ function assertPromotable(
 /**
  * Flush the directory entry so a crash cannot lose the rename itself.
  *
- * Best-effort by necessity: Windows does not permit opening a directory as a
- * file handle, and some filesystems reject `fsync` on a directory fd. Where it
- * fails the data is still safe — `rename` over an existing file is atomic
- * everywhere we run — so this widens the durability window rather than guarding
- * correctness, and must never turn a completed write into a reported failure.
+ * Best-effort: a host may refuse to open or fsync a directory. The rename has
+ * already landed, so a completed write must never be reported as a failure.
+ * Every refusal is therefore reported as `unsupported`, with its errno.
  */
-function fsyncDirectory(io: AtomicJsonFs, dir: string): void {
+function fsyncDirectory(io: AtomicJsonFs, dir: string): DirectorySyncOutcome {
   let dirFd: number;
   try {
     dirFd = io.openSync(dir, 'r');
-  } catch {
-    return;
+  } catch (err: unknown) {
+    return { directory: dir, status: 'unsupported', code: errnoCode(err) };
   }
   try {
     io.fsyncSync(dirFd);
-  } catch {
-    /* platform does not support directory fsync — the rename already landed */
+  } catch (err: unknown) {
+    return { directory: dir, status: 'unsupported', code: errnoCode(err) };
+  } finally {
+    closeQuietly(io, dirFd);
   }
-  closeQuietly(io, dirFd);
+  return { directory: dir, status: 'synced' };
+}
+
+/** The errno code of a thrown value, or `UNKNOWN` when it carries none. */
+function errnoCode(err: unknown): string {
+  if (typeof err === 'object' && err !== null && 'code' in err && typeof err.code === 'string') {
+    return err.code;
+  }
+  return 'UNKNOWN';
 }
 
 function closeQuietly(io: AtomicJsonFs, fd: number): void {
