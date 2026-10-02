@@ -1,8 +1,6 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
-// ─── Types ──────────────────────────────────────────────────────────────────
-
 export interface TraceEntry {
   readonly toolName: string;
   readonly action: string;
@@ -15,42 +13,30 @@ export interface TraceEntry {
   readonly skillContext?: string;
 }
 
-// ─── Constants ──────────────────────────────────────────────────────────────
-
 const MAX_SUMMARY_BYTES = 2048;
 const DEFAULT_CAPTURE_DIR = 'tests/evals/captured';
 
-// ─── Truncation ─────────────────────────────────────────────────────────────
-
-/** Truncates a JSON-serialised value to at most `maxBytes` bytes. */
+/** Serializes `value` as JSON and keeps the first `maxBytes` bytes of the UTF-8 text. */
 function truncate(value: unknown, maxBytes: number): string {
   const serialized = JSON.stringify(value);
   if (Buffer.byteLength(serialized, 'utf-8') <= maxBytes) return serialized;
-  // Truncate by slicing the string conservatively (multi-byte safe via Buffer)
   const buf = Buffer.from(serialized, 'utf-8');
   return buf.subarray(0, maxBytes).toString('utf-8');
 }
 
-// ─── TraceWriter ────────────────────────────────────────────────────────────
-
-/**
- * Writes tool call traces to session-scoped JSONL files.
- *
- * Opt-in via `EXARCHOS_EVAL_CAPTURE=1`. Output directory defaults to
- * `tests/evals/captured` but can be overridden with `EXARCHOS_EVAL_CAPTURE_DIR`.
- *
- * Env vars are read lazily on each call so that tests can stub them after
- * module import. Zero performance impact when disabled — the env var check
- * is the first operation.
- *
- * Write failures are silently swallowed — trace capture must never interfere
- * with tool execution.
- */
 /** Strips path separators and parent-directory sequences from an identifier. */
 function sanitizeId(id: string): string {
   return id.replace(/[/\\]/g, '_').replace(/\.\./g, '_');
 }
 
+/**
+ * Writes tool-call traces to one JSONL file for each feature and session.
+ *
+ * Capture runs only when `EXARCHOS_EVAL_CAPTURE=1`. `EXARCHOS_EVAL_CAPTURE_DIR`
+ * overrides the default directory `tests/evals/captured`. Each call reads the
+ * environment, so tests can stub it after import. The writer ignores a write
+ * error, so capture never blocks the tool call.
+ */
 export class TraceWriter {
   async writeTrace(entry: TraceEntry): Promise<void> {
     if (process.env.EXARCHOS_EVAL_CAPTURE !== '1') return;
@@ -74,7 +60,6 @@ export class TraceWriter {
 
       await fs.appendFile(filepath, JSON.stringify(record) + '\n', 'utf-8');
     } catch {
-      // Swallow errors — trace capture must never throw or block the tool call
     }
   }
 }

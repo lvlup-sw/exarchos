@@ -11,14 +11,15 @@ import { getOrCreateMaterializer } from './materializer.js';
 import { buildPage } from './pipeline.js';
 import { foldToTail } from '../../fold-at-tail.js';
 
-// ─── View Quality Hints Handler ─────────────────────────────────────────────
-
+/**
+ * Return the quality hints of a workflow as a paged list. Each hint omits `affectedPromptPaths`
+ * and `confidenceLevel` unless the caller sets `detail: true`. With a `skill` filter,
+ * `unscopedTotal` counts the hints without the filter, so the hidden hints stay visible.
+ */
 export async function handleViewQualityHints(
   args: {
     workflowId?: string;
     skill?: string;
-    // DR-8 (Task 024) — `hints` is a paged list; `detail: true` restores each
-    // hint's advisory calibration fields.
     limit?: number;
     offset?: number;
     detail?: boolean;
@@ -36,12 +37,6 @@ export async function handleViewQualityHints(
     const { generateQualityHints } = await import('../../quality/hints.js');
     const hints = generateQualityHints(view, args.skill);
 
-    // DR-8 (Task 024) — `hints` is this view's dominant LIST, so page it and
-    // report P5 scope for the skill filter. `unscopedTotal` re-generates the
-    // unfiltered hint set only when a skill filter is active (mirrors the
-    // inventory batch's filtered-only extra fold) so the elided hints stay
-    // perceivable. Compact-by-default drops each hint's advisory fields;
-    // `detail: true` restores them.
     const filterActive = args.skill !== undefined;
     const unscopedTotal = filterActive
       ? generateQualityHints(view).length

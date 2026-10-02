@@ -1,15 +1,11 @@
-// ─── Prompt Refinement Signal Evaluation ────────────────────────────────────
-//
-// Evaluates quality data from multiple sources and produces refinement
-// signal objects when action is needed. The caller is responsible for
-// emitting events — this module is pure and testable.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Evaluates quality data and returns prompt refinement signals when action is needed.
+ * The module is pure. The caller emits the events.
+ */
 
 import type { QualityRegression } from '../views/code-quality-view.js';
 import type { CalibratedSkillCorrelation } from './calibrated-correlation.js';
 import type { AttributionResult } from './attribution.js';
-
-// ─── Interfaces ─────────────────────────────────────────────────────────────
 
 export interface RefinementEvidence {
   readonly gatePassRate: number;
@@ -39,12 +35,8 @@ export interface RefinementSignal {
   readonly affectedPromptPaths: string[];
 }
 
-// ─── Thresholds ─────────────────────────────────────────────────────────────
-
 const GATE_PASS_RATE_DEGRADATION_THRESHOLD = 0.60;
 const ATTRIBUTION_NEGATIVE_STRENGTH_THRESHOLD = 0.7;
-
-// ─── Evidence Builder ───────────────────────────────────────────────────────
 
 function buildEvidence(input: RefinementSignalInput): RefinementEvidence {
   const correlation = input.calibratedCorrelation;
@@ -57,8 +49,6 @@ function buildEvidence(input: RefinementSignalInput): RefinementEvidence {
     recentRegressions: input.regressions.length,
   };
 }
-
-// ─── Suggested Action Builders ──────────────────────────────────────────────
 
 function buildRegressionAction(regression: QualityRegression): string {
   return `Quality regression detected in ${regression.gate} gate for skill '${regression.skill}' with ${regression.consecutiveFailures} consecutive failures. Review the prompt instructions related to ${regression.gate} validation.`;
@@ -73,8 +63,6 @@ function buildTrendDegradationAction(input: RefinementSignalInput): string {
 function buildAttributionOutlierAction(input: RefinementSignalInput): string {
   return `Attribution analysis for dimension '${input.attribution?.dimension ?? 'unknown'}' reveals a strong negative correlation between quality factors. Investigate prompt-version changes that may have introduced the regression.`;
 }
-
-// ─── Trigger Evaluators ─────────────────────────────────────────────────────
 
 function evaluateRegressionTrigger(
   input: RefinementSignalInput,
@@ -137,22 +125,12 @@ function evaluateAttributionOutlierTrigger(
   }];
 }
 
-// ─── Main Function ──────────────────────────────────────────────────────────
-
 /**
- * Evaluate quality data and produce refinement signals when action is needed.
- *
- * Three trigger conditions (emits if ANY match):
- * 1. Regression — A QualityRegression is detected AND confidence is high/medium
- * 2. Trend degradation — Pass rate dropped below threshold AND confidence is high/medium
- * 3. Attribution outlier — Strong negative correlation in prompt-version dimension AND confidence is high/medium
- *
- * Guards:
- * - Never emits when signalConfidence is 'low'
- * - All signals include affectedPromptPaths and human-readable suggestedAction
+ * Returns the refinement signals for the quality data. A low `signalConfidence` gives no signals.
+ * Otherwise each regression gives one signal. A gate pass rate below `GATE_PASS_RATE_DEGRADATION_THRESHOLD`
+ * gives one signal, and a strong negative attribution correlation gives one signal.
  */
 export function evaluateRefinementSignals(input: RefinementSignalInput): RefinementSignal[] {
-  // Guard: never emit on low confidence
   if (input.signalConfidence === 'low') return [];
 
   const confidence = input.signalConfidence as 'high' | 'medium';

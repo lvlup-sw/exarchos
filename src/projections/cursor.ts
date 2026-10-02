@@ -1,54 +1,23 @@
 /**
- * As-of cursor over an ordered event list (T1, #1555 bounded-fold primitive).
+ * As-of cursor over an ordered event list, for time-travel reads.
  *
- * `boundEvents` slices an already-ordered single-stream event list down to the
- * events at or before an as-of bound, the building block the bounded-fold
- * primitive (`projectAt`) folds over for time-travel reads.
+ * The input must be in sequence order, the order that `EventStore.query(streamId)` returns.
+ * Each bound is an inclusive filter, so an event at the bound is kept. The functions do no I/O and do not mutate the input.
  *
- * ## Ordering contract
- *
- * The input is assumed to already be in **`(timestamp, sequence)`** order — the
- * exact ordering `EventStore.query(streamId)` produces for a single stream (see
- * `events/store.ts`). For a single stream `sequence` is monotonic and
- * `timestamp` is non-decreasing, so the two bound forms reduce to a simple
- * inclusive filter:
- *
- *   - `untilSequence: N` ⇒ keep events with `e.sequence <= N`.
- *   - `untilTimestamp: T` ⇒ keep events with `e.timestamp <= T`. This relies on
- *     lexicographic `<=` matching chronological order, which holds only because
- *     store timestamps are normalized UTC `Z` ISO-8601 strings of uniform width
- *     (mixed UTC offsets or widths would break the lexical ordering). An event
- *     whose timestamp equals `T` is INCLUDED. Ties at the same timestamp are
- *     already ordered by sequence in the input, so no re-sort is needed.
- *
- * The two forms are mutually exclusive — a bound carrying both keys is a
- * programming error and raises {@link MutuallyExclusiveBoundError}.
- *
- * ## Purity
- *
- * `boundEvents` performs no I/O and never mutates its input. When a bound is
- * given it returns a filtered copy; with no bound it returns a shallow copy of
- * the input so callers can never alias (and thus mutate) the source array.
+ * A timestamp bound uses a lexical `<=`. This is correct only because store timestamps are UTC `Z` ISO-8601 strings of one width.
+ * A timestamp bound filters each event, so after clock skew it can drop an interior event and return a result that is not a prefix.
  */
 import type { WorkflowEvent } from '../events/schemas.js';
 
 /**
- * An as-of bound: either a stream-sequence ceiling or a timestamp ceiling.
- *
- * The union is exclusive by construction — a value should carry exactly one of
- * the two keys. A value carrying both is rejected at runtime by
- * {@link boundEvents} (the static type cannot forbid extra keys on a structural
- * object literal).
+ * An as-of bound: a stream-sequence ceiling or a timestamp ceiling.
+ * The static type cannot forbid a value with both keys, so {@link boundEvents} rejects it at runtime.
  */
 export type AsOfBound =
   | { untilSequence: number }
   | { untilTimestamp: string };
 
-/**
- * Raised when an {@link AsOfBound} value carries BOTH `untilSequence` and
- * `untilTimestamp`. The two ceilings are mutually exclusive; supplying both is
- * ambiguous, so the helper fails fast rather than silently preferring one.
- */
+/** Thrown when an {@link AsOfBound} value has both `untilSequence` and `untilTimestamp`. */
 export class MutuallyExclusiveBoundError extends Error {
   constructor() {
     super(
@@ -71,16 +40,10 @@ function hasUntilTimestamp(
 }
 
 /**
- * Slice `events` down to those at or before `bound`.
+ * Returns the events at or before `bound` as a new array.
+ * With no bound, it returns a copy of all events.
  *
- * The input is assumed to already be in `(timestamp, sequence)` order (the
- * single-stream `EventStore.query` ordering). With no bound the full list is
- * returned (as a copy). See the module-level docs for the ordering contract.
- *
- * @param events - An ordered single-stream event list (not mutated).
- * @param bound - Optional as-of ceiling. Omitted/undefined ⇒ return all events.
- * @returns A new array of the retained events.
- * @throws {MutuallyExclusiveBoundError} when `bound` carries both keys.
+ * @throws {MutuallyExclusiveBoundError} when `bound` has both keys.
  */
 export function boundEvents(
   events: readonly WorkflowEvent[],
@@ -101,19 +64,13 @@ export function boundEvents(
     return events.filter((e) => e.sequence <= ceiling);
   }
 
-  // hasTs: ISO-8601 strings compare correctly under lexicographic `<=`; the
-  // event whose timestamp equals the ceiling is included.
   const ceiling = bound.untilTimestamp;
   return events.filter((e) => e.timestamp <= ceiling);
 }
 
 /**
- * The public `asOf` param shape (`workflow/schemas.ts::AsOfSchema`): an
- * optional bound where BOTH keys are individually optional. The schema's
- * `.refine` already rejects a value carrying both keys, so by the time a
- * value reaches the dispatch core at most one key is set. This is the
- * loosely-typed sibling of {@link AsOfBound} (exactly-one), kept here so the
- * dispatch core has a single normalize-and-bound seam.
+ * The public `asOf` param shape of `AsOfSchema` in `workflow/schemas.ts`. Both keys are optional.
+ * The schema rejects a value with both keys.
  */
 export interface AsOfParam {
   readonly untilSequence?: number | undefined;
@@ -121,22 +78,9 @@ export interface AsOfParam {
 }
 
 /**
- * Dispatch-core seam shared by the `get` and `view` `asOf` surfaces.
- *
- * Normalizes the schema-shaped {@link AsOfParam} (optional-both) into the
- * exactly-one {@link AsOfBound} and bounds `events` through {@link boundEvents}.
- * An omitted/empty param returns all events (a copy). A param carrying both
- * keys is rejected upstream by `AsOfSchema.refine`; should one slip through
- * (an internal caller bypassing the schema), {@link boundEvents} fails fast
- * with {@link MutuallyExclusiveBoundError}.
- *
- * Centralizing the normalization here keeps `get` and `view` bounding
- * byte-identical (INV-2 facade equivalence) — neither surface re-implements
- * the `untilSequence` / `untilTimestamp` branch.
- *
- * @param events - An ordered single-stream event list (not mutated).
- * @param asOf - Optional schema-shaped bound. Omitted/empty ⇒ all events.
- * @returns A new array of the retained events.
+ * Bounds `events` by the schema-shaped `asOf` param, and returns a new array.
+ * The `get` and `view` surfaces both use this function, so they bound events identically.
+ * An omitted or empty param keeps all events. A param with both keys throws {@link MutuallyExclusiveBoundError}.
  */
 export function resolveAsOfEvents(
   events: readonly WorkflowEvent[],
@@ -147,20 +91,15 @@ export function resolveAsOfEvents(
 }
 
 /**
- * Normalize an optional-both {@link AsOfParam} into the exactly-one
- * {@link AsOfBound}. Returns `undefined` for an omitted or empty param.
- * Both-keys-present is preserved as a both-keys {@link AsOfBound} so
- * {@link boundEvents} surfaces the {@link MutuallyExclusiveBoundError} rather
- * than this helper silently preferring one.
+ * Converts an {@link AsOfParam} into an {@link AsOfBound}, or `undefined` when no key is set.
+ * A param with both keys passes through unchanged so that {@link boundEvents} throws for it.
+ * The type cannot hold both keys, so that case casts through `unknown`.
  */
 function toAsOfBound(asOf?: AsOfParam): AsOfBound | undefined {
   if (!asOf) return undefined;
   const hasSeq = asOf.untilSequence !== undefined;
   const hasTs = asOf.untilTimestamp !== undefined;
   if (hasSeq && hasTs) {
-    // Defer to boundEvents' fail-fast (MutuallyExclusiveBoundError) by
-    // returning the both-keys shape; the static AsOfBound type can't model it
-    // so we widen through `unknown` at this single, documented seam.
     return asOf as unknown as AsOfBound;
   }
   if (hasSeq) return { untilSequence: asOf.untilSequence! };

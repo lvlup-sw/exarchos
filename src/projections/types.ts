@@ -1,130 +1,49 @@
 /**
- * A deterministic reducer that projects an event stream into a derived state.
+ * The reducer contract for every projection over the Exarchos event store.
+ */
+
+/**
+ * Aggregate boundary of a {@link ProjectionReducer}. It is one literal on purpose.
+ * {@link ProjectionReducer.scope} tells why `'global'` must not be a member.
+ */
+export type ProjectionScope = 'stream';
+
+/**
+ * A deterministic reducer that folds an event stream into a derived state. Each projection
+ * gives one to the projection registry. The registry and the runner decide when to replay it.
  *
- * `ProjectionReducer<State, Event>` is the canonical pattern for every
- * projection over the Exarchos event store (DR-1). Concrete projections —
- * hot-file manifest, time-travel, cross-workflow memory, cost telemetry,
- * rehydration — each provide a reducer and register it with the projection
- * registry. The reducer defines **what** the projection is; the registry and
- * runner handle **when** and **how** it is replayed.
- *
- * ## Purity contract
- *
- * `apply` MUST be a pure function:
- *
- * - **Deterministic**: for the same `(state, event)` inputs, it MUST return an
- *   equal output. No dependence on wall-clock time, random sources, the
- *   filesystem, network, environment variables, or any other ambient state.
- * - **No I/O**: `apply` MUST NOT perform side effects (file writes, logging,
- *   network calls, mutation of module-level variables, etc.).
- * - **No mutation of `state`**: `apply` MUST return a new `State` value and
- *   MUST NOT mutate the `state` argument in place. Downstream consumers rely
- *   on structural sharing across calls, and a property test in a sibling task
- *   (T003) enforces this invariant.
- *
- * Purity is what makes replay safe: rebuilding a projection by folding
- * `apply` over a persisted event log must reproduce the same `State` the
- * live system observed, byte-for-byte.
- *
- * ## Identity and versioning
- *
- * - {@link ProjectionReducer.id} is a human-readable, globally unique
- *   identifier (e.g. `"rehydration@v1"`). Uniqueness is enforced by the
- *   projection registry; duplicate registration raises an error (T002).
- * - {@link ProjectionReducer.version} is an integer schema version. It is
- *   used to detect schema skew between a reducer and a cached snapshot: if
- *   the cached snapshot's version does not match the current reducer's
- *   version, the cache is discarded and the projection is re-folded from the
- *   event log.
+ * `apply` must be pure. The same inputs give an equal output, with no I/O, no ambient state,
+ * and no change to `state`. A rebuild from the stored log must then reproduce the state
+ * that the live system saw.
  *
  * @typeParam State - The projected state type this reducer produces.
  * @typeParam Event - The event type this reducer consumes.
  */
-/**
- * Aggregate boundary a {@link ProjectionReducer} folds over.
- *
- * Deliberately a single literal. See {@link ProjectionReducer.scope} for why a
- * cross-stream (`'global'`) member is not — and must not be — representable.
- * This alias is the one place to change if that decision is ever revisited.
- */
-export type ProjectionScope = 'stream';
-
 export interface ProjectionReducer<State, Event> {
-  /**
-   * Globally unique identifier for this reducer (e.g. `"rehydration@v1"`).
-   *
-   * Must be unique across the projection registry. Duplicate registration is
-   * rejected by the registry (see T002).
-   */
+  /** Unique id in the projection registry, for example `"rehydration@v1"`. The registry rejects a duplicate. */
   readonly id: string;
 
   /**
-   * Integer schema version for this reducer's `State` shape.
-   *
-   * Bumped whenever the `State` type or the meaning of `apply` changes in a
-   * way that invalidates previously cached snapshots. The projection runner
-   * compares this against the version recorded on a cached snapshot and
-   * re-folds from scratch on mismatch.
+   * Integer schema version of `State`. Increase it when a change to `State` or `apply`
+   * makes stored snapshots invalid. A snapshot read matches on this version, so a
+   * snapshot of another version is not used.
    */
   readonly version: number;
 
   /**
-   * Aggregate boundary for this reducer.
+   * Aggregate boundary. `'stream'` folds one feature workflow for `decide`, `withSession` and
+   * `aggregateStream`. This is the one statement of the rule. Other sites link here.
    *
-   * - `'stream'` — folds over events on one stream (one feature workflow).
-   *   Consumed by the `decide` / `withSession` / `aggregateStream` primitives.
+   * A cross-stream fold merges the tasks of different features. `task-store@v1` keys tasks by a
+   * per-feature ordinal, and `TaskRecord` has no `featureId`. The one-literal type makes
+   * `scope: 'global'` a compile error in typechecked code.
    *
-   * {@link ProjectionScope} is `'stream'` and nothing else. A cross-stream
-   * (`'global'`) fold was removed because no reducer in this codebase has a
-   * state shape that survives one: `task-store@v1` keys `TaskStoreState.tasks`
-   * by a bare per-feature ordinal (`'001'`) and `TaskRecord` carries no
-   * `featureId`, so folding two streams together silently merges feature-A's
-   * task `001` into feature-B's. Collapsing the union makes that corrupting
-   * state **unauthorable in typechecked code** — a compile error at the
-   * keyboard rather than a runtime rejection. Note the precise wording: not
-   * "unrepresentable", which would overstate it. See the limit below.
+   * The primitives have no runtime scope check. Three facts make that safe. Each production
+   * `register` call is in a typechecked barrel. A reducer is code and is never deserialized. A wrong scope still
+   * folds one stream, because `decide` and `aggregateStream` read `backend.queryEvents(streamId)`.
    *
-   * Consequently the per-stream primitives carry no runtime scope check. Three
-   * things make that safe, and the type alone is NOT one of them:
-   *
-   * 1. Every production `defaultRegistry.register` call site is a module-load
-   *    side-effect import from a typechecked barrel, so `scope: 'global'` is a
-   *    compile error at every real authoring site.
-   * 2. Reducers are code, never deserialized — snapshots carry state, not
-   *    reducers — so no reducer crosses a trust boundary into the registry.
-   * 3. Even a wrongly-scoped reducer reaching `decide` / `aggregateStream`
-   *    would fold ONE stream: those read `backend.queryEvents(streamId)`. The
-   *    cross-stream fold died with `readProjection`, not with this stamp.
-   *
-   * The limit worth knowing: `tsconfig.json` excludes test files from the
-   * program, so the compiler does NOT enforce this in a `.test.ts`. A fixture
-   * can still author `scope: 'global'` there. That is a gap in coverage, not in
-   * safety — see (3).
-   *
-   * Re-widening {@link ProjectionScope} re-arms the collision above and MUST
-   * re-introduce a runtime guard alongside a state shape actually keyed by
-   * stream.
-   *
-   * THIS COMMENT IS THE ONLY PLACE IN CODE THAT STATES THIS RULE;
-   * `docs/architecture/projections.md` ("Reducer scope discipline") is its
-   * prose counterpart. Every other site — the reducers, the primitives, the
-   * tests — POINTS here and asserts nothing. (`taskstore/types.ts` documents
-   * its own key space: that is the *fact* this rule answers to, not the rule.)
-   *
-   * That is deliberate: #1342 was caused by a claim about this subsystem being
-   * restated in ~8 places until the restatements outlived the code and
-   * contradicted each other. Prose has no compiler, so the only defence is to
-   * have one copy. If you find yourself explaining the scope rule somewhere
-   * else, link instead.
-   *
-   * Worth knowing that this rule is, for now, enforced only by review: the
-   * first version of this very comment claimed two exclusive homes while six
-   * other sites still restated the whole argument — including
-   * `atomic-appender.ts`, which reproduced all three points *and* the tsconfig
-   * limit and then linked here, as though a pointer appended to a restatement
-   * were a pointer. A self-refuting one-copy rule is the failure mode in
-   * miniature. #1696 tracks the grep gate that would catch it in one CI run
-   * instead of a review cycle.
+   * `tsconfig.json` excludes test files, so a test can still author `'global'`. A wider
+   * `ProjectionScope` must add a runtime guard and a state keyed by stream.
    */
   readonly scope: ProjectionScope;
 
@@ -136,12 +55,8 @@ export interface ProjectionReducer<State, Event> {
   readonly initial: State;
 
   /**
-   * Pure folding function: `(state, event) => nextState`.
-   *
-   * MUST be deterministic, side-effect-free, and MUST NOT mutate the `state`
-   * argument. See the interface-level "Purity contract" section for the full
-   * set of invariants. Violations are caught by property tests (T003) and
-   * will cause replay divergence in production.
+   * Pure fold step: `(state, event) => nextState`. The interface description gives the
+   * purity rules. An impure `apply` makes a replay differ from the live state.
    *
    * @param state - The current projected state (MUST NOT be mutated).
    * @param event - The next event to fold into the state.

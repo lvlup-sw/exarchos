@@ -4,10 +4,6 @@ import type { RefinementSignal } from './refinement-signal.js';
 import type { TelemetryViewState } from '../telemetry/telemetry-projection.js';
 import { generateHints as generateTelemetryHints } from '../telemetry/hints.js';
 
-// ─── Module-Level EventStore (removed — now threaded via DispatchContext) ─────
-
-// ─── Hint Interface ─────────────────────────────────────────────────────────
-
 export type QualityHintCategory = 'pbt' | 'benchmark' | 'gate' | 'review' | 'eval' | 'refinement' | 'telemetry';
 
 export interface QualityHint {
@@ -19,28 +15,20 @@ export interface QualityHint {
   readonly affectedPromptPaths?: string[];
 }
 
-// ─── Calibration Context ───────────────────────────────────────────────────
-
 export interface CalibrationContext {
   readonly signalConfidence: 'high' | 'medium' | 'low';
   readonly refinementSignals: RefinementSignal[];
 }
 
-// ─── Rule Type ──────────────────────────────────────────────────────────────
-
 type QualityHintRule = (state: CodeQualityViewState, skillName: string) => QualityHint | null;
-
-// ─── Threshold Constants ────────────────────────────────────────────────────
 
 const GATE_PASS_RATE_WARNING = 0.80;
 const CONSECUTIVE_FAILURES_WARNING = 3;
 const SELF_CORRECTION_RATE_INFO = 0.30;
 const PBT_FAILURE_RATE_WARNING = 0.15;
 
-// ─── Per-Skill Rules ────────────────────────────────────────────────────────
-
 const skillRules: readonly QualityHintRule[] = [
-  // Low gate pass rate rule
+  /** Warns when the gate pass rate of the skill is below `GATE_PASS_RATE_WARNING`. */
   (state, skill) => {
     const metrics = state.skills[skill];
     if (!metrics || metrics.gatePassRate >= GATE_PASS_RATE_WARNING) return null;
@@ -53,7 +41,7 @@ const skillRules: readonly QualityHintRule[] = [
     };
   },
 
-  // Consecutive failures rule
+  /** Warns when gates of the skill have at least `CONSECUTIVE_FAILURES_WARNING` consecutive failures. */
   (state, skill) => {
     const regressions = state.regressions.filter(r => r.skill === skill && r.consecutiveFailures >= CONSECUTIVE_FAILURES_WARNING);
     if (regressions.length === 0) return null;
@@ -66,7 +54,7 @@ const skillRules: readonly QualityHintRule[] = [
     };
   },
 
-  // Self-correction rate rule
+  /** Gives an info hint when the self-correction rate is at least `SELF_CORRECTION_RATE_INFO`. */
   (state, skill) => {
     const metrics = state.skills[skill];
     if (!metrics || metrics.selfCorrectionRate < SELF_CORRECTION_RATE_INFO) return null;
@@ -79,10 +67,9 @@ const skillRules: readonly QualityHintRule[] = [
   },
 ];
 
-// ─── Global Rules (run once, not per-skill) ─────────────────────────────────
-
+/** Rules that run at most once for each call, not once for each skill. */
 const globalRules: readonly QualityHintRule[] = [
-  // Benchmark regression rule
+  /** Warns about benchmarks with a degrading trend. */
   (state, skill) => {
     const degrading = state.benchmarks.filter(b => b.trend === 'degrading');
     if (degrading.length === 0) return null;
@@ -95,7 +82,7 @@ const globalRules: readonly QualityHintRule[] = [
     };
   },
 
-  // PBT failure rule
+  /** Warns when the failure rate of the `check-property-tests` gate is above `PBT_FAILURE_RATE_WARNING`. */
   (state, skill) => {
     const pbtGate = state.gates['check-property-tests'];
     if (!pbtGate) return null;
@@ -110,18 +97,18 @@ const globalRules: readonly QualityHintRule[] = [
   },
 ];
 
-// ─── Constants ──────────────────────────────────────────────────────────────
-
 const MAX_HINTS = 5;
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
 
 function severityOrder(severity: QualityHint['severity']): number {
   return severity === 'warning' ? 0 : 1;
 }
 
-// ─── Generator ──────────────────────────────────────────────────────────────
-
+/**
+ * Generates quality hints, with warnings first, and keeps at most `MAX_HINTS`.
+ * Per-skill rules run for each skill. Global rules run once, for the target skill or the first skill.
+ * The function adds telemetry hints and calibration data when the caller gives them.
+ * When hints exist and `eventStore` is given, it appends `quality.hint.generated` without a wait and ignores a failure.
+ */
 export function generateQualityHints(
   state: CodeQualityViewState,
   targetSkill?: string,
@@ -132,7 +119,6 @@ export function generateQualityHints(
   const hints: QualityHint[] = [];
   const skills = targetSkill ? [targetSkill] : Object.keys(state.skills);
 
-  // Per-skill rules: run once for each skill
   for (const skill of skills) {
     for (const rule of skillRules) {
       const hint = rule(state, skill);
@@ -140,7 +126,6 @@ export function generateQualityHints(
     }
   }
 
-  // Global rules: run exactly once (using first skill for attribution)
   const globalSkill = targetSkill ?? skills[0];
   if (globalSkill) {
     for (const rule of globalRules) {
@@ -149,7 +134,6 @@ export function generateQualityHints(
     }
   }
 
-  // Telemetry hints: convert tool optimization hints to quality hints
   if (telemetryState) {
     const telemetryHints = generateTelemetryHints(telemetryState);
     for (const th of telemetryHints) {
@@ -162,7 +146,6 @@ export function generateQualityHints(
     }
   }
 
-  // Enrich hints with calibration data when provided
   const enrichedHints = calibrationContext
     ? enrichWithCalibration(hints, calibrationContext, targetSkill)
     : hints;
@@ -170,7 +153,6 @@ export function generateQualityHints(
   enrichedHints.sort((a, b) => severityOrder(a.severity) - severityOrder(b.severity));
   const result = enrichedHints.slice(0, MAX_HINTS);
 
-  // Fire-and-forget: emit quality.hint.generated event when hints are produced
   if (result.length > 0 && eventStore) {
     eventStore
       .append('quality-hints', {
@@ -183,15 +165,17 @@ export function generateQualityHints(
         },
       })
       .catch(() => {
-        // Intentionally swallowed — event emission is fire-and-forget
       });
   }
 
   return result;
 }
 
-// ─── Calibration Enrichment ──────────────────────────────────────────────────
-
+/**
+ * Sets the confidence level on each hint and adds a refinement hint for each signal.
+ * A high or medium signal confidence gives `actionable`, and a low one gives `advisory`.
+ * When `targetSkill` is given, only the signals of that skill add hints.
+ */
 function enrichWithCalibration(
   hints: QualityHint[],
   calibration: CalibrationContext,
@@ -201,13 +185,11 @@ function enrichWithCalibration(
     ? 'actionable' as const
     : 'advisory' as const;
 
-  // Enrich existing hints with confidence level
   const enriched: QualityHint[] = hints.map(hint => ({
     ...hint,
     confidenceLevel,
   }));
 
-  // Add refinement hints for matching signals (filtered by targetSkill when specified)
   for (const signal of calibration.refinementSignals) {
     if (targetSkill && signal.skill !== targetSkill) continue;
     enriched.push({

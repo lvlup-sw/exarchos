@@ -1,28 +1,10 @@
 /**
- * `merge-orchestrator@v1` projection reducer (Wave 2B.2 / #1304).
+ * `merge-orchestrator@v1` projection reducer.
  *
- * Folds the `merge.*` event family on a feature stream into the
- * {@link MergeOrchestratorState} phase machine documented in `types.ts`.
- *
- * Replaces the in-memory side-database that pre-preview.2 `merge-orchestrate.ts`
- * carried (audit findings §F1.2). Mirrors Wave 2A's TaskStore-as-projection
- * substitution: every state transition is now an event, every state read is a
- * fold over the durable event log.
- *
- * ## Naming note (#1306 rename / DR-2 retirement)
- *
- * `merge.recovered` is the canonical recovery event and, since DR-2 (task 006),
- * the sole one emitted. The legacy `merge.rollback` is retired — read-tolerant-
- * not-emittable — so the dispatcher below still handles it as a READER (old
- * event logs replay identically), never as a live emission. The reducer's
- * external contract (the `recovering` phase, the {@link MergeRecoveryContext}
- * field shape) is identical whichever of the two event types folded it.
- *
- * ## Purity contract
- *
- * Per DR-1: `apply` is pure, deterministic, side-effect-free, and never
- * mutates its `state` argument. The sibling `assertReducerImmutable` test
- * (Wave 2B.3) enforces this property over a representative event fixture.
+ * It folds the `merge.*` events of a feature stream into the {@link MergeOrchestratorState} phase machine in `types.ts`.
+ * Each state change is an event, and each state read is a fold over the durable event log.
+ * Writers emit only `merge.recovered` for recovery. The reducer also folds the retired `merge.rollback`, so old logs replay to the same state.
+ * `apply` is pure and does not mutate its `state` argument.
  */
 import type { ProjectionReducer } from '../types.js';
 import type { WorkflowEvent } from '../../events/schemas.js';
@@ -33,12 +15,6 @@ import {
   type MergePreflightMetadata,
   type MergeRecoveryContext,
 } from './types.js';
-
-// ─── Field extractors (typed reads over event.data) ─────────────────────────
-//
-// The event-store base schema types `data` as `Record<string, unknown> | undefined`;
-// these extractors do the runtime checks the type system cannot. Mirrors the
-// pattern in `projections/rehydration/reducer.ts`.
 
 function extractString(
   data: WorkflowEvent['data'],
@@ -68,9 +44,8 @@ function extractNumber(
 }
 
 /**
- * Narrowing reader for the closed `strategy` enum on `merge.requested` /
- * `merge.executed`. Returns `undefined` for missing / unrecognised values so
- * the reducer never widens the metadata field beyond the typed enum.
+ * Reads the `strategy` enum from `data`.
+ * It returns `undefined` for a missing or unknown value, so the metadata never holds a value outside the enum.
  */
 function extractStrategy(
   data: WorkflowEvent['data'],
@@ -81,10 +56,8 @@ function extractStrategy(
 }
 
 /**
- * Narrowing reader for the INV-14 `recoveryError` discriminator on
- * `merge.rollback`. Mirrors `extractStrategy` — unrecognised / missing
- * values yield `undefined` so the projection never carries a `recoveryError`
- * the enum doesn't sanction.
+ * Reads the `recoveryError` enum from a recovery event.
+ * It returns `undefined` for a missing or unknown value, so the projection never holds a value outside the enum.
  */
 function extractRecoveryError(
   data: WorkflowEvent['data'],
@@ -100,13 +73,8 @@ function extractRecoveryError(
 }
 
 /**
- * Flatten the preflight failure surface into a single operator-facing string.
- *
- * The `merge.preflight` event carries `failureReasons: string[]` (per
- * `MergePreflightData` in `events/schemas.ts`); we collapse that into one
- * comma-joined string so the projection's `reason` field stays a simple
- * string — matching the audit/observability shape downstream tooling expects.
- * Returns `undefined` when no actionable reason is present.
+ * Joins the `failureReasons` strings of a `merge.preflight` event into one comma-separated reason.
+ * When the array has no reason, it uses the flat `reason` string that some emitters write.
  */
 function extractPreflightReason(
   data: WorkflowEvent['data'],
@@ -119,18 +87,13 @@ function extractPreflightReason(
     );
     if (strs.length > 0) return strs.join(', ');
   }
-  // Fallback: an explicit `reason` field (some emitters use a flat string).
   return extractString(data, 'reason');
 }
 
-// ─── Per-event handlers ─────────────────────────────────────────────────────
-
 /**
- * Handler for `merge.preflight` — captures the preflight gate outcome and
- * advances the phase to `preflight`. The `passed` flag MUST be present on the
- * event (per `MergePreflightData`); if it isn't, fall back to `false` so a
- * malformed event still records as a (failed) preflight rather than corrupting
- * the phase machine with an invented `true` verdict.
+ * Handles `merge.preflight`: records the gate outcome and moves the phase to `preflight`.
+ * A missing `passed` flag counts as `false`, so a malformed event records a failed preflight and never an invented pass.
+ * It also copies the branch fields when the event has them.
  */
 function applyMergePreflight(
   state: MergeOrchestratorState,
@@ -143,9 +106,6 @@ function applyMergePreflight(
     : reason !== undefined
       ? { passed: false, reason }
       : { passed: false };
-  // Capture branch identifiers eagerly when present — they're useful for
-  // observability even before merge.requested / merge.executed lands them
-  // formally on the `merge` sub-record.
   const merge = mergeFromEvent(state.merge, event);
   return {
     ...state,
@@ -157,10 +117,8 @@ function applyMergePreflight(
 }
 
 /**
- * Handler for `merge.requested` — audit §F1.2's durable-intent event. Records
- * branches / strategy / prNumber / taskId on the `merge` sub-record and
- * advances the phase to `requested` (the new phase between `preflight` and
- * `executed`).
+ * Handles `merge.requested`, the durable intent to merge.
+ * It records the merge fields and moves the phase to `requested`, between `preflight` and `executed`.
  */
 function applyMergeRequested(
   state: MergeOrchestratorState,
@@ -175,10 +133,8 @@ function applyMergeRequested(
 }
 
 /**
- * Handler for `merge.executed` — records the merge's outcome (mergeSha,
- * rollbackSha) and advances the phase to `executed`. Preserves earlier merge
- * fields (taskId, branches, strategy) so observability replay never loses
- * them across the requested → executed split.
+ * Handles `merge.executed`: records the merge outcome and moves the phase to `executed`.
+ * It keeps the earlier merge fields.
  */
 function applyMergeExecuted(
   state: MergeOrchestratorState,
@@ -193,12 +149,9 @@ function applyMergeExecuted(
 }
 
 /**
- * Handler for `merge.recovered` (and its read-tolerant legacy alias
- * `merge.rollback`) — `any → recovering`. Captures the recovery reason + any
- * reset-side error. Does NOT
- * overwrite earlier merge metadata; the recovery context is additive, and
- * downstream observability needs both the original merge identifiers and the
- * rollback rationale.
+ * Handles `merge.recovered` and the retired `merge.rollback`: any phase moves to `recovering`.
+ * It records `reason`, `recoveryError` and the `rollbackError` detail. It does not overwrite the earlier merge metadata.
+ * Only `merge.rollback` has `rollbackError`. This handler does not read `recoveryErrorDetail`, the detail field of `merge.recovered`.
  */
 function applyMergeRollback(
   state: MergeOrchestratorState,
@@ -221,9 +174,8 @@ function applyMergeRollback(
 }
 
 /**
- * Handler for `merge.completed` — terminal transition; phase advances to
- * `completed`. Preserves all earlier metadata (preflight, merge, recovery)
- * so the final projection state is a full audit record of the lifecycle.
+ * Handles `merge.completed`, the terminal transition.
+ * It keeps all earlier metadata, so the final state is a full record of the lifecycle.
  */
 function applyMergeCompleted(
   state: MergeOrchestratorState,
@@ -237,14 +189,9 @@ function applyMergeCompleted(
 }
 
 /**
- * Merge-field extractor — folds any of the merge.* events that carry merge
- * metadata into a fresh {@link MergeActionMetadata} record. New fields from the
- * event overwrite existing ones; absent fields preserve the prior value (so
- * `merge.executed` does NOT blank out the `strategy` recorded earlier on
- * `merge.requested`).
- *
- * Returns the existing `merge` reference when no field changed — lets callers
- * skip an unnecessary spread when the event carried no relevant fields.
+ * Folds the merge fields of an event into a new {@link MergeActionMetadata} record.
+ * A field in the event overwrites the old value. An absent field keeps the old value.
+ * When the event has no merge field, it returns `existing` unchanged.
  */
 function mergeFromEvent(
   existing: MergeActionMetadata | undefined,
@@ -280,13 +227,9 @@ function mergeFromEvent(
   };
 }
 
-// ─── Reducer (thin dispatcher) ──────────────────────────────────────────────
-
 /**
- * Concrete `merge-orchestrator@v1` reducer value. Registered with
- * `defaultRegistry` by the sibling `./index.ts` barrel at module-import time
- * (DR-1 convention — concrete projections self-register; the registry is the
- * single source of truth for projection identity).
+ * The `merge-orchestrator@v1` reducer. The `./index.ts` barrel registers it with `defaultRegistry` on import.
+ * An unknown event type returns `state` unchanged, so `projectionSequence` advances only for handled events.
  */
 export const mergeOrchestratorReducer: ProjectionReducer<
   MergeOrchestratorState,
@@ -297,8 +240,6 @@ export const mergeOrchestratorReducer: ProjectionReducer<
   scope: 'stream' as const,
   initial: initialMergeOrchestratorState,
   apply(state: MergeOrchestratorState, event: WorkflowEvent): MergeOrchestratorState {
-    // Dispatch by event.type. Unknown event types short-circuit back to
-    // `state` unchanged so projectionSequence only advances on handled events.
     switch (event.type) {
       case 'merge.preflight':
         return applyMergePreflight(state, event);
@@ -306,15 +247,6 @@ export const mergeOrchestratorReducer: ProjectionReducer<
         return applyMergeRequested(state, event);
       case 'merge.executed':
         return applyMergeExecuted(state, event);
-      // DR-2 (task 006) — the recovery path now emits ONLY the canonical
-      // `merge.recovered`. The legacy `merge.rollback` case is KEPT (read
-      // tolerance): pre-DR-2 event logs that already contain `merge.rollback`
-      // (whether standalone or the second half of the old dual-emit) must still
-      // fold to the `any → recovering` transition, so old streams replay to
-      // identical state (INV-1). Folding both is safe and idempotent —
-      // `applyMergeRollback` sets `phase: 'recovering'` from any prior phase and
-      // the recovery context is identical across the pair. `merge.rollback` is
-      // read-tolerant-but-not-emittable: this case is a READER, never a writer.
       case 'merge.recovered':
       case 'merge.rollback':
         return applyMergeRollback(state, event);

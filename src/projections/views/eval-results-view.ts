@@ -1,17 +1,11 @@
 import type { ViewProjection } from './materializer.js';
 import { JudgeCalibratedDataSchema, type WorkflowEvent } from '../../events/schemas.js';
 
-// ─── View Name Constant ────────────────────────────────────────────────────
-
 export const EVAL_RESULTS_VIEW = 'eval-results';
-
-// ─── Bounds ─────────────────────────────────────────────────────────────────
 
 export const MAX_EVAL_RUNS = 100;
 export const MAX_CALIBRATIONS = 50;
 export const MAX_SCORE_HISTORY = 50;
-
-// ─── View State Interfaces ─────────────────────────────────────────────────
 
 export interface SkillEvalMetrics {
   readonly skill: string;
@@ -61,8 +55,6 @@ export interface EvalResultsViewState {
   readonly calibrations: ReadonlyArray<CalibrationRecord>;
 }
 
-// ─── Internal Tracking State ───────────────────────────────────────────────
-
 interface CaseHistory {
   lastPassed: boolean;
   consecutiveFailures: number;
@@ -78,9 +70,7 @@ interface InternalState extends EvalResultsViewState {
   readonly _scoreHistory: Record<string, ScoreHistory>;
 }
 
-// ─── Helpers ───────────────────────────────────────────────────────────────
-
-/** Calculate trend direction from last 3+ scores. */
+/** Returns the trend of the last 3 scores. With fewer than 3 scores, it returns `stable`. */
 function calculateTrend(scores: number[]): 'improving' | 'stable' | 'degrading' {
   if (scores.length < 3) return 'stable';
 
@@ -106,12 +96,13 @@ function toInternal(view: EvalResultsViewState): InternalState {
   };
 }
 
-/** Create a result that hides internal tracking from enumeration. */
+/**
+ * Returns the public state, with the internal trackers as non-enumerable properties.
+ * The trackers survive the next `apply`, but `toEqual` and `JSON.stringify` do not see them.
+ */
 function fromInternal(state: InternalState): EvalResultsViewState {
   const { _caseHistory, _scoreHistory, ...publicState } = state;
   const result = { ...publicState } as EvalResultsViewState;
-  // Store internal trackers as non-enumerable so they survive apply() chaining
-  // but don't leak into toEqual/JSON.stringify comparisons
   Object.defineProperty(result, '_caseHistory', {
     value: _caseHistory,
     enumerable: false,
@@ -127,8 +118,10 @@ function fromInternal(state: InternalState): EvalResultsViewState {
   return result;
 }
 
-// ─── Event Handlers ────────────────────────────────────────────────────────
-
+/**
+ * Records the run and updates the metrics of its skill, keyed by `suiteId`.
+ * `capabilityPassRate` is the passed cases over the total cases, for the stored runs of that suite and the new run.
+ */
 function handleEvalRunCompleted(state: InternalState, event: WorkflowEvent): EvalResultsViewState {
   const data = event.data as {
     runId?: string;
@@ -153,7 +146,6 @@ function handleEvalRunCompleted(state: InternalState, event: WorkflowEvent): Eva
   const avgScore = data.avgScore ?? 0;
   const duration = data.duration ?? 0;
 
-  // Add run record
   const newRun: EvalRunRecord = {
     runId,
     suiteId,
@@ -166,7 +158,6 @@ function handleEvalRunCompleted(state: InternalState, event: WorkflowEvent): Eva
     timestamp: event.timestamp,
   };
 
-  // Update score history for trend calculation
   const prevScoreHistory = state._scoreHistory[suiteId] ?? { scores: [] };
   let updatedScores = [...prevScoreHistory.scores, avgScore];
   if (updatedScores.length > MAX_SCORE_HISTORY) {
@@ -174,16 +165,13 @@ function handleEvalRunCompleted(state: InternalState, event: WorkflowEvent): Eva
   }
   const trend = calculateTrend(updatedScores);
 
-  // Count regressions for this skill
   const regressionCount = state.regressions.filter((r) => r.suiteId === suiteId).length;
 
-  // Calculate capability pass rate
   const skillRuns = [...state.runs.filter((r) => r.suiteId === suiteId), newRun];
   const totalPassed = skillRuns.reduce((sum, r) => sum + r.passed, 0);
   const totalCases = skillRuns.reduce((sum, r) => sum + r.total, 0);
   const capabilityPassRate = totalCases > 0 ? totalPassed / totalCases : 0;
 
-  // Build updated skill metrics
   const prevSkill = state.skills[suiteId];
   const updatedSkill: SkillEvalMetrics = {
     skill: suiteId,
@@ -209,6 +197,10 @@ function handleEvalRunCompleted(state: InternalState, event: WorkflowEvent): Eva
   });
 }
 
+/**
+ * A passed case clears its regression.
+ * A failed case adds or updates a regression only when it passed before or already has a regression.
+ */
 function handleEvalCaseCompleted(state: InternalState, event: WorkflowEvent): EvalResultsViewState {
   const data = event.data as {
     runId?: string;
@@ -229,7 +221,6 @@ function handleEvalCaseCompleted(state: InternalState, event: WorkflowEvent): Ev
   let updatedRegressions = [...state.regressions];
 
   if (passed) {
-    // Case passed — remove any existing regression for this case
     updatedRegressions = updatedRegressions.filter(
       (r) => !(r.caseId === caseId && r.suiteId === suiteId),
     );
@@ -248,7 +239,6 @@ function handleEvalCaseCompleted(state: InternalState, event: WorkflowEvent): Ev
     });
   }
 
-  // Case failed
   const wasPreviouslyPassing = prevHistory?.lastPassed === true;
   const prevConsecutiveFailures = prevHistory?.consecutiveFailures ?? 0;
   const newConsecutiveFailures = prevConsecutiveFailures + 1;
@@ -261,13 +251,10 @@ function handleEvalCaseCompleted(state: InternalState, event: WorkflowEvent): Ev
   );
 
   if (wasPreviouslyPassing || hadRegression) {
-    // This is a regression (was passing) or ongoing regression (already failing)
-    // Remove existing regression entry for this case
     updatedRegressions = updatedRegressions.filter(
       (r) => !(r.caseId === caseId && r.suiteId === suiteId),
     );
 
-    // Add updated regression entry
     updatedRegressions.push({
       caseId,
       suiteId,
@@ -316,8 +303,6 @@ function handleJudgeCalibrated(state: InternalState, event: WorkflowEvent): Eval
     calibrations: updatedCalibrations,
   });
 }
-
-// ─── Projection ────────────────────────────────────────────────────────────
 
 export const evalResultsProjection: ViewProjection<EvalResultsViewState> = {
   init: (): EvalResultsViewState => ({

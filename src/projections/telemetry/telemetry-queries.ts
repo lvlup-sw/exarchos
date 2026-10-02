@@ -1,8 +1,6 @@
-// ─── Telemetry Query Abstraction ──────────────────────────────────────────────
-//
-// Encapsulates telemetry materialization behind a query API, isolating the
-// orchestrate layer from direct telemetry projection internals.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Telemetry query API. It keeps the orchestrate layer away from the internals of the telemetry projection.
+ */
 
 import { foldToTail } from '../fold-at-tail.js';
 import { getOrCreateMaterializer, queryDeltaEvents } from '../views/tools.js';
@@ -10,23 +8,17 @@ import { TELEMETRY_VIEW } from './telemetry-projection.js';
 import type { TelemetryViewState } from './telemetry-projection.js';
 import type { EventStore } from '../../events/store.js';
 
-// ─── Runtime Metrics Interface ───────────────────────────────────────────────
-
 export interface RuntimeMetrics {
   readonly sessionTokens: number;
   readonly toolCount: number;
   readonly totalInvocations: number;
 }
 
-// ─── Zero Metrics Constant ───────────────────────────────────────────────────
-
 const ZERO_METRICS: RuntimeMetrics = {
   sessionTokens: 0,
   toolCount: 0,
   totalInvocations: 0,
 };
-
-// ─── Query Functions ─────────────────────────────────────────────────────────
 
 /**
  * Query runtime metrics from the telemetry projection.

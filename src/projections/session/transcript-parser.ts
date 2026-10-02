@@ -35,7 +35,6 @@ function extractFilePaths(toolName: string, input: Record<string, unknown>): str
     }
   }
 
-  // Deduplicate
   return [...new Set(paths)];
 }
 
@@ -163,13 +162,11 @@ export function buildSessionSummary(
   turnEvents: SessionTurnEvent[],
   metadata: SessionMetadata,
 ): SessionSummaryEvent {
-  // Aggregate tools by name
   const tools: Record<string, number> = {};
   for (const te of toolEvents) {
     tools[te.tool] = (tools[te.tool] ?? 0) + 1;
   }
 
-  // Sum tokens across all turns
   let tokIn = 0;
   let tokOut = 0;
   let tokCacheR = 0;
@@ -181,7 +178,6 @@ export function buildSessionSummary(
     tokCacheW += turn.tokCacheW;
   }
 
-  // Collect unique file paths
   const fileSet = new Set<string>();
   for (const te of toolEvents) {
     if (te.files) {
@@ -191,7 +187,6 @@ export function buildSessionSummary(
     }
   }
 
-  // Calculate duration from timestamps
   const allTimestamps: number[] = [];
   for (const te of toolEvents) {
     if (te.ts) allTimestamps.push(new Date(te.ts).getTime());
@@ -227,6 +222,10 @@ export function buildSessionSummary(
   };
 }
 
+/**
+ * Parses a JSONL transcript into tool events, turn events, and one summary event.
+ * It skips a line that is not valid JSON.
+ */
 export async function parseTranscript(
   transcriptPath: string,
   metadata: SessionMetadata,
@@ -240,7 +239,6 @@ export async function parseTranscript(
     try {
       lines.push(JSON.parse(trimmed));
     } catch {
-      // Skip malformed lines
     }
   }
 

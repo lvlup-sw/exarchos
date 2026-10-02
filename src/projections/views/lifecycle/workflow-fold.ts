@@ -1,23 +1,14 @@
+/**
+ * Workflow-fold view: the read half of the `ps` workflows fold.
+ * It adds a computed `ageMs` to the {@link StorageBackend.listWorkflowSummaries} rows.
+ * The backend applies the filters and the defaults, so both storage implementations give the same rows.
+ * It reads summary rows, not events, so the single-workflow-fold CI gate (`tools/audit/gates/check-single-workflow-fold.mjs`) does not apply to it.
+ */
 import type {
   StorageBackend,
   WorkflowLifecycleStatus,
   WorkflowSummaryFilter,
 } from '../../../storage/backend.js';
-
-/**
- * Workflow-fold view (DR-3) — the read half of the `ps` workflows fold.
- *
- * Folds the backend's {@link StorageBackend.listWorkflowSummaries} rows into
- * the display shape a `ps`-style listing renders: one row per workflow with a
- * computed `ageMs`. The heavy lifting (the indexed `workflow_type` pushdown,
- * the lifecycle-axis filtering, the terminal-state default) lives in the
- * backend so both storage implementations stay row-for-row equivalent; this
- * view is the thin, backend-agnostic layer that adds age.
- *
- * It is NOT an event fold — it reads the projected summary rows, never a
- * `switch (event.type)` over `WorkflowEvent` — so it sits entirely outside the
- * single-workflow-fold CI gate (`tools/audit/gates/check-single-workflow-fold.mjs`).
- */
 
 /**
  * One rendered workflow row. `ageMs` is the elapsed time since the workflow's
@@ -43,14 +34,8 @@ export interface WorkflowFoldOptions extends WorkflowSummaryFilter {
 }
 
 /**
- * Read the filtered workflow summaries from `backend` and fold them into
- * {@link WorkflowFoldRow}s, computing `ageMs` from each row's event-envelope
- * `createdAt` against `nowMs`.
- *
- * Rows are ordered oldest-first (largest `ageMs`), with envelope-less rows
- * (`ageMs === null`) sorted last and `featureId` as a stable tie-break — the
- * order a `ps` listing wants (the stalest workflows, the ones most likely to
- * need attention, surface at the top).
+ * Reads the filtered summaries from `backend`, and computes `ageMs` from each `createdAt` and `nowMs`.
+ * The rows sort oldest first, with `ageMs === null` rows last and `featureId` as the tie-break. Thus the stalest workflows come first.
  */
 export function foldWorkflowSummaries(
   backend: StorageBackend,
@@ -70,7 +55,6 @@ export function foldWorkflowSummaries(
     }));
 
   rows.sort((a, b) => {
-    // Nulls last; otherwise oldest (largest age) first.
     if (a.ageMs === null && b.ageMs === null) return a.featureId.localeCompare(b.featureId);
     if (a.ageMs === null) return 1;
     if (b.ageMs === null) return -1;

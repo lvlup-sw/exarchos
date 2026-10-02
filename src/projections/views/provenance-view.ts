@@ -1,15 +1,9 @@
 import type { ViewProjection } from './materializer.js';
 import type { WorkflowEvent } from '../../events/schemas.js';
 
-// ─── View Name Constant ────────────────────────────────────────────────────
-
 export const PROVENANCE_VIEW = 'provenance';
 
-// ─── Bounds ─────────────────────────────────────────────────────────────────
-
 export const MAX_ORPHAN_TASKS = 200;
-
-// ─── View State Interfaces ─────────────────────────────────────────────────
 
 export interface RequirementStatus {
   readonly id: string;
@@ -30,8 +24,6 @@ export interface ProvenanceViewState {
   readonly _completedTaskIds: readonly string[];
 }
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
 function computeCoverage(requirements: readonly RequirementStatus[]): number {
   if (requirements.length === 0) return 0;
   const covered = requirements.filter((r) => r.status === 'covered').length;
@@ -49,6 +41,10 @@ function computeAcceptanceTestCoverage(
   return withAcceptanceTests / requirements.length;
 }
 
+/**
+ * Adds the task, tests, files, and acceptance test ref to a requirement, or creates the requirement.
+ * For a known requirement, the function skips a test whose name and file match a test it already holds.
+ */
 function upsertRequirement(
   requirements: readonly RequirementStatus[],
   reqId: string,
@@ -60,7 +56,6 @@ function upsertRequirement(
   const existing = requirements.find((r) => r.id === reqId);
 
   if (existing) {
-    // Deduplicate tests by name+file key (includes intra-batch dedup)
     const seenTestKeys = new Set(existing.tests.map((t) => `${t.name}\0${t.file}`));
     const newTests: Array<{ name: string; file: string }> = [];
     for (const t of tests) {
@@ -70,7 +65,6 @@ function upsertRequirement(
       newTests.push(t);
     }
 
-    // Deduplicate acceptance test refs
     const updatedAcceptanceTests = acceptanceTestRef && !existing.acceptanceTests.includes(acceptanceTestRef)
       ? [...existing.acceptanceTests, acceptanceTestRef]
       : [...existing.acceptanceTests];
@@ -101,8 +95,6 @@ function upsertRequirement(
   ];
 }
 
-// ─── Event Handlers ────────────────────────────────────────────────────────
-
 function handleWorkflowStarted(
   state: ProvenanceViewState,
   event: WorkflowEvent,
@@ -116,6 +108,10 @@ function handleWorkflowStarted(
   };
 }
 
+/**
+ * Records a completed task against each requirement in its `implements` list.
+ * A task with no `implements` entry is an orphan. The view keeps the last `MAX_ORPHAN_TASKS` orphans.
+ */
 function handleTaskCompleted(
   state: ProvenanceViewState,
   event: WorkflowEvent,
@@ -130,7 +126,6 @@ function handleTaskCompleted(
 
   if (!data?.taskId) return state;
 
-  // Track this task as completed
   const completedTaskIds = state._completedTaskIds.includes(data.taskId)
     ? state._completedTaskIds
     : [...state._completedTaskIds, data.taskId];
@@ -140,7 +135,6 @@ function handleTaskCompleted(
   const filesArr = data.files ?? [];
   const acceptanceTestRef = data.acceptanceTestRef;
 
-  // No implements or empty implements → orphan task
   if (implementsArr.length === 0) {
     let updatedOrphans = [...state.orphanTasks, data.taskId];
     if (updatedOrphans.length > MAX_ORPHAN_TASKS) {
@@ -157,7 +151,6 @@ function handleTaskCompleted(
     };
   }
 
-  // Update requirements for each implemented requirement ID
   let updatedRequirements = [...state.requirements] as RequirementStatus[];
   for (const reqId of implementsArr) {
     updatedRequirements = upsertRequirement(
@@ -180,8 +173,6 @@ function handleTaskCompleted(
     acceptanceTestCoverage: computeAcceptanceTestCoverage(updatedRequirements, completedSet),
   };
 }
-
-// ─── Projection ────────────────────────────────────────────────────────────
 
 export const provenanceProjection: ViewProjection<ProvenanceViewState> = {
   init(): ProvenanceViewState {

@@ -9,20 +9,24 @@ import { foldToTail } from '../../fold-at-tail.js';
 import { getOrCreateMaterializer } from './materializer.js';
 import { deriveCorrelationFilters, hasCorrelationFilters, materializeFiltered, queryDeltaEvents } from './query.js';
 
-// ─── View Code Quality Handler ──────────────────────────────────────────────
-
+/**
+ * Returns the `code_quality` view. The response omits `models` unless `detail` is true.
+ * `scope` and `unscopedTotal` count the skill and gate records.
+ *
+ * A correlation filter (`operationId`, `correlationId`, `causationId`) folds a new
+ * projection from `init()`, so the materializer cache keeps the unfiltered state. The
+ * handler then skips regression detection, because a slice hides the failures outside it.
+ *
+ * Without that filter, it appends each new regression, keyed on gate, skill, and first
+ * failure commit. `emitRegressionEvents` ignores a failed append, so it does not fail the view.
+ */
 export async function handleViewCodeQuality(
   args: {
     workflowId?: string;
     skill?: string;
     gate?: string;
     limit?: number;
-    // DR-8 (Task 024) — compact-by-default; `detail: true` restores the full
-    // projection (including the per-model roll-up stripped by default).
     detail?: boolean;
-    // Wave 5 (#1437) — correlation tuple filters scope the underlying
-    // EventStore.query, so the projection folds only the slice that matches
-    // the dispatch boundary. Threaded into queryDeltaEvents below.
     operationId?: string;
     correlationId?: string;
     causationId?: string;
@@ -37,8 +41,6 @@ export async function handleViewCodeQuality(
 
     const correlationFilters = deriveCorrelationFilters(args);
     const correlationFiltered = hasCorrelationFilters(correlationFilters);
-    // Wave 5 (#1437) — under a correlation filter, fold a fresh projection
-    // off `init()` so the materializer cache stays the unfiltered truth.
     const view = correlationFiltered
       ? materializeFiltered<CodeQualityViewState>(
           materializer,
@@ -47,15 +49,6 @@ export async function handleViewCodeQuality(
         )
       : (await foldToTail<CodeQualityViewState>(store, materializer, streamId, CODE_QUALITY_VIEW)).view;
 
-    // Detect and emit quality regressions with deduplication.
-    // _failureTrackers is a non-enumerable property set by code-quality-view.ts.
-    //
-    // Wave 5 (#1437) — skip regression detection/emission when a
-    // correlation filter is active. Regressions are a global SDLC signal
-    // derived from the unfiltered fold; detecting them on a filtered slice
-    // would (a) produce false negatives (gates that failed outside the
-    // slice look healthy) and (b) emit phantom `quality.regression` events
-    // that bake a filtered view into the unfiltered truth.
     if (!correlationFiltered) {
       const regressions = detectRegressions(view as CodeQualityViewState & { _failureTrackers?: Record<string, FailureTracker> });
       if (regressions.length > 0) {
@@ -74,9 +67,6 @@ export async function handleViewCodeQuality(
           try {
             await emitRegressionEvents(newRegressions, streamId, store);
           } catch (err) {
-            // Fire-and-forget: emission failure must not break the view
-            // query, but swallowing silently hides write-path failures.
-            // Log so the failure is observable in operator logs.
             logger.warn(
               {
                 streamId,
@@ -90,7 +80,6 @@ export async function handleViewCodeQuality(
       }
     }
 
-    // Apply optional filters
     let filtered: CodeQualityViewState = { ...view };
 
     if (args.skill) {
@@ -119,9 +108,6 @@ export async function handleViewCodeQuality(
       };
     }
 
-    // DR-8 (Task 024) P5 — a skill/gate filter scopes the skills+gates records,
-    // so report `scope` + `unscopedTotal` (the pre-filter record count) and
-    // surface the hidden-rows escape hatch when the filter elided records.
     const filterActive = args.skill !== undefined || args.gate !== undefined;
     const unscopedTotal =
       Object.keys(view.skills).length + Object.keys(view.gates).length;
@@ -131,8 +117,6 @@ export async function handleViewCodeQuality(
     const nextActions =
       s.nextActions.length > 0 ? { next_actions: s.nextActions } : {};
 
-    // DR-8 compact-by-default — drop the per-model roll-up (`models`), the
-    // heaviest secondary record; `detail: true` restores the full projection.
     if (args.detail) {
       return {
         success: true,

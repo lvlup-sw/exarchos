@@ -1,45 +1,21 @@
 /**
  * Public barrel for the `projections/` module.
  *
- * Re-exports the core reducer contract and the property-test harness used to
- * validate the DR-1 purity invariants across every projection.
- *
- * ## Side-effect imports
- *
- * The per-projection barrels below are imported for their registration side
- * effects (DR-1 convention — concrete projections self-register with
- * `defaultRegistry` at module load). Each new projection adds one
- * side-effect import line per barrel — keep them deliberately separate so
- * wave-merges stay trivial to hand-resolve. Order is insertion order in the
- * registry's list view; functionally each registration is independent.
+ * It re-exports the reducer contract and the immutability test helper.
+ * The side-effect imports register the concrete projections with `defaultRegistry` at module load.
+ * The `taskstore` reducer is stream-scoped, not global.
  */
-
-// Wave 2A — TaskStore projection registration (side-effect import); the
-// reducer is stream-scoped, not global — see taskstore/reducer.ts (#1342).
 import './taskstore/index.js';
-
-// Wave 2B — mergeOrchestrator per-stream projection registration (side-effect import)
 import './merge-orchestrator/index.js';
-
-// Wave 3 (#1554) — canonical workflow-state@v1 reducer registration (side-effect import)
 import './workflow-state/index.js';
-
-// WLM foundation — worktrees@v1 lifecycle reducer registration (side-effect import)
 import '../verbs/worktree/projections/index.js';
 
 export type { ProjectionReducer } from './types.js';
 export { assertReducerImmutable } from './testing.js';
 
 /**
- * Threshold for surfacing `_meta.projectionLag` on response envelopes
- * (#1359 / PR4 T15). When the delta between `Date.now()` and the
- * projection's `projectionAsOf` exceeds this value, the response builder
- * sets `_meta.projectionLag` to the delta in milliseconds; otherwise the
- * field is omitted (sparse — fresh projections do not carry the field).
- *
- * Five seconds matches the rehydrate audit-event budget used elsewhere in
- * the workflow surface — long enough that normal cold-cache + tail-event
- * folds stay below the bar, short enough that a genuinely stale snapshot
- * (e.g. due to a delayed reducer) surfaces visibly to agents.
+ * Lag in milliseconds above which a response sets `_meta.projectionLag`.
+ * The lag is `Date.now()` minus the projection's `projectionAsOf`. A fresh projection omits the field.
+ * Five seconds keeps a normal cold-cache fold below the threshold, and still shows a stale snapshot to agents.
  */
 export const PROJECTION_LAG_THRESHOLD_MS = 5000;

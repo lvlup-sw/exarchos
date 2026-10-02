@@ -7,15 +7,12 @@ import { TOOL_REGISTRY, buildToolDescription } from '../../registry.js';
 import { StableSectionsSchema } from './schema.js';
 
 /**
- * Loads the committed prefix fingerprint for the rehydration projection.
+ * Load the committed prefix fingerprint: the trimmed contents of the
+ * `PREFIX_FINGERPRINT` file next to this module.
  *
- * Reads the co-located `PREFIX_FINGERPRINT` file (written relative to this
- * module via `import.meta.url`) and returns its trimmed contents as a string.
- *
- * After T046, this file holds the SHA-256 hex digest produced by
- * {@link computePrefixFingerprint}. CI (T047) reruns the computation and
- * fails on divergence — intentional updates commit the new hash alongside
- * the template change that caused it.
+ * The file holds the SHA-256 hex digest from {@link computePrefixFingerprint}.
+ * CI computes the digest again and fails on a difference. An intended change
+ * commits the new hash together with the template change.
  */
 export function loadPrefixFingerprint(): string {
   const fingerprintUrl = new URL('./PREFIX_FINGERPRINT', import.meta.url);
@@ -24,21 +21,15 @@ export function loadPrefixFingerprint(): string {
 }
 
 /**
- * Optional overrides for {@link computePrefixFingerprint}. Tests inject
- * alternate byte strings via these keys to exercise divergence without
- * mutating the real schema or MCP registry.
+ * Overrides for {@link computePrefixFingerprint}. Tests use them to cause a
+ * difference without a change to the real schema or registry.
  */
 export interface PrefixFingerprintInputs {
-  /**
-   * Canonical JSON-schema bytes for the stable sections. Defaults to
-   * `JSON.stringify(zodToJsonSchema(StableSectionsSchema), sortedKeys)`.
-   */
+  /** Canonical JSON-schema bytes for the stable sections. Defaults to the bytes of `StableSectionsSchema`. */
   schemaJson?: string;
   /**
-   * The MCP tool-description bytes seen by a consuming agent. Defaults to
-   * the concatenation (joined by `\n---\n`) of the `exarchos_workflow` tool
-   * description and every action description (including `rehydrate`), as
-   * produced by {@link buildToolDescription} in non-slim mode.
+   * The MCP tool-description bytes that a consuming agent sees. Defaults to the
+   * non-slim {@link buildToolDescription} output for `exarchos_workflow`.
    */
   toolDescriptionBytes?: string;
 }
@@ -46,10 +37,8 @@ export interface PrefixFingerprintInputs {
 const WORKFLOW_TOOL_NAME = 'exarchos_workflow';
 
 /**
- * Stable stringify: serialize an arbitrary JSON-safe value with keys sorted
- * at every nested object level. The output is byte-deterministic regardless
- * of insertion order in the source object — necessary for a hash that CI
- * can reproduce across machines and Node versions.
+ * Serialize a JSON-safe value with the keys sorted at every object level. The
+ * output does not depend on insertion order, so CI can reproduce the hash.
  */
 function stableStringify(value: unknown): string {
   if (value === null || typeof value !== 'object') {
@@ -67,17 +56,13 @@ function stableStringify(value: unknown): string {
 }
 
 /**
- * Default canonical JSON-schema bytes for `StableSectionsSchema`. Derived
- * via `zod-to-json-schema` then canonicalized through {@link stableStringify}
- * so nested key order is fixed — otherwise `zod-to-json-schema` internal
- * emit order could flip the hash between point releases.
+ * Default canonical JSON-schema bytes for `StableSectionsSchema`.
+ *
+ * {@link stableStringify} fixes the nested key order, so the emit order of the
+ * converter cannot change the hash. The target is draft-07, so the fingerprint
+ * stays stable when the default draft of the codebase changes.
  */
 function defaultSchemaJson(): string {
-  // PR-C (#1366): migrated from `zod-to-json-schema` to v4 native
-  // `z.toJSONSchema(...)`. The legacy `name` option (a v3 `$ref` wrapper)
-  // and `target: 'jsonSchema7'` are no longer valid. We pin draft-07 here —
-  // the rehydration fingerprint inputs need a stable draft that won't drift
-  // when the rest of the codebase moves to draft-2020-12 by default.
   const schema = zodToJsonSchema(StableSectionsSchema, {
     target: 'draft-07',
   });
@@ -85,12 +70,11 @@ function defaultSchemaJson(): string {
 }
 
 /**
- * Default tool-description bytes. We hash the non-slim description of the
- * workflow tool (which includes every action's signature + doc string) so
- * any edit to the workflow, rehydrate, checkpoint, etc. action descriptions
- * surfaces as a fingerprint divergence. This is a superset of the rehydrate
- * action alone, which is deliberate: the rehydration document's prefix
- * promises cover behavioral guidance that spans the full tool surface.
+ * Default tool-description bytes: the non-slim description of the workflow tool,
+ * with the signature and description of each action. An edit to one of these
+ * action descriptions changes the fingerprint. The scope is wider than the
+ * `rehydrate` action on purpose, because the document prefix gives guidance for
+ * the full tool surface.
  */
 function defaultToolDescriptionBytes(): string {
   const tool = TOOL_REGISTRY.find((t) => t.name === WORKFLOW_TOOL_NAME);
@@ -103,24 +87,16 @@ function defaultToolDescriptionBytes(): string {
 }
 
 /**
- * Compute the SHA-256 fingerprint of the rehydration document's stable
- * prefix inputs (DR-12).
+ * Compute the SHA-256 fingerprint of the stable prefix inputs of the rehydration
+ * document, as a 64-character lowercase hex digest.
  *
- * Inputs included in the hash (in this order, separated by `\n--\n`):
- *   1. Canonical JSON schema of `StableSectionsSchema` (stable-key
- *      stringified).
- *   2. Non-slim MCP tool description for `exarchos_workflow`, which
- *      includes every action's signature + description.
+ * The hash covers, in this order and separated by `\n--\n`:
+ *   1. The canonical JSON schema of `StableSectionsSchema`.
+ *   2. The non-slim MCP tool description for `exarchos_workflow`.
  *
- * The result is a 64-char lowercase hex digest. Tests may inject
- * {@link PrefixFingerprintInputs} overrides to exercise divergence without
- * mutating the real schema or registry.
- *
- * Rationale: the prompt cache invalidates any time the bytes agents see at
- * the top of the rehydration document change. Schema shape and tool
- * description are the two "invisible" drivers of those bytes — a schema
- * field rename flips serializer output; a tool description edit changes
- * what the agent reads. Hashing both lets CI fail fast on either.
+ * The prompt cache becomes invalid when the bytes at the top of the document
+ * change. A schema change and a tool description edit both change those bytes,
+ * so CI fails fast on either.
  */
 export function computePrefixFingerprint(inputs: PrefixFingerprintInputs = {}): string {
   const schemaJson = inputs.schemaJson ?? defaultSchemaJson();

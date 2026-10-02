@@ -10,16 +10,20 @@ import { getOrCreateMaterializer } from './materializer.js';
 import { buildPage } from './pipeline.js';
 import { deriveCorrelationFilters, hasCorrelationFilters, materializeFiltered, queryDeltaEvents } from './query.js';
 
-// ─── View Delegation Timeline Handler ───────────────────────────────────────
-
+/**
+ * Handles the `delegation_timeline` view. It pages `tasks[]` and compacts each task unless `detail` is true.
+ * With a correlation filter, it folds a fresh projection from `init()`, so the materializer cache keeps the unfiltered view.
+ * In that case, `unscopedTotal` comes from a cached fold of the full stream. That fold does not touch the filtered result.
+ * The `page` object is separate, so `page.hasMore` does not collide with the projection's own `hasMore`.
+ */
 export async function handleViewDelegationTimeline(
   args: {
     workflowId?: string;
-    // DR-8 (Task 013) — list/inventory paging + compact-by-default over `tasks[]`.
+    /** Page size for `tasks[]`. Without it, the default item cap applies. */
     limit?: number;
     offset?: number;
     detail?: boolean;
-    // Wave 5 (#1437) — correlation filters scope the projection fold.
+    /** A correlation filter. With any correlation filter, the view scope is `correlation`. */
     operationId?: string;
     correlationId?: string;
     causationId?: string;
@@ -34,8 +38,6 @@ export async function handleViewDelegationTimeline(
 
     const correlationFilters = deriveCorrelationFilters(args);
     const filtered = hasCorrelationFilters(correlationFilters);
-    // Wave 5 (#1437) — under a correlation filter, fold a fresh projection
-    // off `init()` so the materializer cache stays the unfiltered truth.
     const view = filtered
       ? materializeFiltered<DelegationTimelineViewState>(
           materializer,
@@ -44,17 +46,9 @@ export async function handleViewDelegationTimeline(
         )
       : (await foldToTail<DelegationTimelineViewState>(store, materializer, streamId, DELEGATION_TIMELINE_VIEW)).view;
 
-    // DR-8 — the `tasks[]` list is the paged inventory; `total` is the scoped
-    // (possibly correlation-filtered) task count.
     const scopedTasks = view.tasks;
     const total = scopedTasks.length;
 
-    // DR-8 P5 — a correlation filter is this view's SCOPE. Report `scope` +
-    // `unscopedTotal` so rows hidden by the filter stay perceivable. The
-    // unfiltered count comes from a cached fold of the full stream: the
-    // correlation-filtered path bypasses the cache, so this fold neither reads
-    // from nor contaminates the filtered result — the same seam pipeline uses
-    // to derive its pre-scope count.
     let scope: 'all' | 'correlation' = 'all';
     let unscopedTotal = total;
     if (filtered) {
@@ -68,16 +62,12 @@ export async function handleViewDelegationTimeline(
       unscopedTotal = unfiltered.view.tasks.length;
     }
 
-    // DR-8 — deterministic window (default item cap when `limit` omitted).
     const { start, effectiveLimit } = resolveInventoryWindow(args);
     const windowed = scopedTasks.slice(start, start + effectiveLimit);
-    // DR-8 — compact by default (drop per-task ISO timestamps); `detail:true` full.
     const tasks: Array<TimelineTask | CompactTimelineTask> = args.detail
       ? windowed
       : windowed.map(compactTimelineTask);
 
-    // DR-8 — `page` is namespaced so `page.hasMore` never collides with the
-    // projection's own per-view eviction `hasMore` (mirrors the pipeline note).
     const page = buildPage(total, start, effectiveLimit, windowed.length);
     const nextActions: NextAction[] = [];
     if (page.hasMore) {

@@ -9,17 +9,16 @@ import { foldPairToTail } from '../../fold-at-tail.js';
 import { getOrCreateMaterializer } from './materializer.js';
 import { deriveCorrelationFilters, hasCorrelationFilters, materializeFiltered, queryDeltaEvents } from './query.js';
 
-// ─── View Quality Correlation Handler ────────────────────────────────────────
-
+/**
+ * Handles the `quality_correlation` view: it joins the code-quality and eval-results views for each skill.
+ * Both views fold from one event sequence, so an append between the two folds cannot give a state that the stream never had.
+ * With correlation filters, both views fold the same filtered event list. Without filters, `foldPairToTail` pins one tail for the pair.
+ * Each skill entry has only `skill`, `gatePassRate` and `evalScore`, unless `detail` is true.
+ */
 export async function handleViewQualityCorrelation(
   args: {
     workflowId?: string;
-    // DR-8 (Task 024) — compact-by-default per-skill; `detail: true` restores
-    // each skill's trend + regression-count detail.
     detail?: boolean;
-    // Wave 5 (#1437) — correlation filters scope both underlying projections
-    // (CQ + ER) to the same dispatch boundary so the joined view stays
-    // internally consistent.
     operationId?: string;
     correlationId?: string;
     causationId?: string;
@@ -35,14 +34,6 @@ export async function handleViewQualityCorrelation(
     const correlationFilters = deriveCorrelationFilters(args);
     const correlationFiltered = hasCorrelationFilters(correlationFilters);
 
-    // Under a correlation filter, `queryDeltaEvents` short-circuits the
-    // cache and returns `store.query(streamId, filters)` regardless of
-    // Both projections describe ONE state of the stream, so both must come from
-    // one sequence. Filtered, that is the single fetched event list they each
-    // fold; unfiltered, it is the single tail `foldPairToTail` pins for the
-    // pair. Folding them independently would let an append between the two
-    // produce a comparison of a state the stream was never in — and would also
-    // charge every unfiltered read for an event query it does not use.
     let cqView: CodeQualityViewState;
     let erView: EvalResultsViewState;
     if (correlationFiltered) {
@@ -68,8 +59,6 @@ export async function handleViewQualityCorrelation(
     }
 
     const correlation = correlateQualityAndEvals(cqView, erView);
-    // DR-8 (Task 024) compact-by-default — keep each skill's headline (pass rate
-    // + eval score); `detail: true` restores the trend + regression-count detail.
     if (args.detail) {
       return { success: true, data: correlation };
     }

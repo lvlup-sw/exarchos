@@ -3,11 +3,7 @@ import type { WorkflowEvent } from '../../events/schemas.js';
 import { canonicaliseTaskId } from '../../utils/task-id.js';
 import { isTypedArtifactReference } from '../../workflow/guards.js';
 
-// ─── View Name Constant ────────────────────────────────────────────────────
-
 export const DELEGATION_READINESS_VIEW = 'delegation-readiness';
-
-// ─── View State Interface ─────────────────────────────────────────────────
 
 export interface DelegationReadinessState {
   readonly ready: boolean;
@@ -26,23 +22,15 @@ export interface DelegationReadinessState {
     readonly expected: number;
     readonly ready: number;
     readonly failed: readonly string[];
-    /**
-     * DR-T-2 (#1206): per-task ID tracking for wave scoping. Populated by
-     * `task.assigned` events; deduplicated. `expected` is derived from
-     * `assignedTaskIds.length` and kept for back-compat consumers.
-     */
+    /** Task ids from `task.assigned` events, without duplicates. `expected` is the length of this list. */
     readonly assignedTaskIds: readonly string[];
     /**
-     * DR-T-2 (#1206): per-task ID tracking for wave scoping. Populated by
-     * `worktree.created` events that carry `data.taskId`; deduplicated.
-     * `ready` is derived from `readyTaskIds.length` plus a fallback
-     * counter for legacy events without taskId. See handleWorktreeCreated.
+     * Task ids from `worktree.created` events that carry `data.taskId`, without duplicates.
+     * `ready` counts these ids plus each legacy `worktree.created` event without a `taskId`.
      */
     readonly readyTaskIds: readonly string[];
   };
 }
-
-// ─── Blocker Computation ────────────────────────────────────────────────────
 
 function computeBlockers(state: Omit<DelegationReadinessState, 'ready' | 'blockers'>): string[] {
   const blockers: string[] = [];
@@ -96,13 +84,9 @@ function withReadiness(
   };
 }
 
-// ─── Gate Name Matching ─────────────────────────────────────────────────────
-
 function isPlanCoverageGate(gateName: string): boolean {
   return gateName.includes('plan-coverage');
 }
-
-// ─── Event Handlers ────────────────────────────────────────────────────────
 
 function handleWorkflowTransition(
   state: DelegationReadinessState,
@@ -122,6 +106,10 @@ function handleWorkflowTransition(
   return state;
 }
 
+/**
+ * Records the latest plan-coverage gate result as a pass rate of 1 or 0. A failure
+ * with a reason adds the reason to `regressions`.
+ */
 function handleGateExecuted(
   state: DelegationReadinessState,
   event: WorkflowEvent,
@@ -138,7 +126,6 @@ function handleGateExecuted(
   const passed = data.passed ?? false;
   const reason = typeof data.details?.reason === 'string' ? data.details.reason : undefined;
 
-  // For plan-coverage gates, track the latest pass/fail result
   const gatePassRate = passed ? 1 : 0;
 
   const regressions = !passed && reason
@@ -156,6 +143,7 @@ function handleGateExecuted(
   });
 }
 
+/** Adds a new `taskId` to `assignedTaskIds`. A repeated `taskId`, for example from a replay, does not count twice. */
 function handleTaskAssigned(
   state: DelegationReadinessState,
   event: WorkflowEvent,
@@ -163,8 +151,6 @@ function handleTaskAssigned(
   const data = event.data as { taskId?: string } | undefined;
   if (!data?.taskId) return state;
 
-  // DR-T-2 (#1206): dedup by taskId. Multiple `task.assigned` events with
-  // the same taskId (e.g. from rehydration replay) must not double-count.
   if (state.worktrees.assignedTaskIds.includes(data.taskId)) {
     return state;
   }
@@ -179,12 +165,16 @@ function handleTaskAssigned(
     quality: state.quality,
     worktrees: {
       ...state.worktrees,
-      expected: assignedTaskIds.length, // derived
+      expected: assignedTaskIds.length,
       assignedTaskIds,
     },
   });
 }
 
+/**
+ * Counts a ready worktree. An event with a `taskId` counts once for each task id. A
+ * legacy event without a `taskId` increments `ready` only, so a wave scope does not see it.
+ */
 function handleWorktreeCreated(
   state: DelegationReadinessState,
   event: WorkflowEvent,
@@ -192,9 +182,6 @@ function handleWorktreeCreated(
   const data = event.data as { taskId?: string; worktreePath?: string } | undefined;
   const taskId = data?.taskId;
 
-  // DR-T-2 (#1206): when the event carries a taskId, dedupe and add to
-  // readyTaskIds. When it doesn't (legacy), bump the count via fallback
-  // delta so totals stay sensible but per-task scoping skips it.
   if (taskId) {
     if (state.worktrees.readyTaskIds.includes(taskId)) {
       return state;
@@ -211,7 +198,6 @@ function handleWorktreeCreated(
     });
   }
 
-  // Legacy: no taskId on event. Bump count only.
   return withReadiness({
     plan: state.plan,
     quality: state.quality,
@@ -247,6 +233,11 @@ function handleWorktreeBaseline(
   return state;
 }
 
+/**
+ * Reads `planReview.approved` and `artifacts.plan` from a patch, in nested or dot-path
+ * form. Plan presence uses `isTypedArtifactReference` from `workflow/guards.ts`, so
+ * readiness and the guards agree that a whitespace-only plan is absent.
+ */
 function handleStatePatched(
   state: DelegationReadinessState,
   event: WorkflowEvent,
@@ -254,7 +245,6 @@ function handleStatePatched(
   const data = event.data as { patch?: Record<string, unknown> } | undefined;
   if (!data?.patch) return state;
 
-  // Resolve approved value from nested or dot-path form
   const planReview = data.patch.planReview as { approved?: boolean } | undefined;
   const dotPathValue = data.patch['planReview.approved'];
 
@@ -264,12 +254,6 @@ function handleStatePatched(
       ? planReview.approved
       : undefined;
 
-  // DR-T-1 (#1205): Resolve artifacts.plan presence from nested or dot-path form.
-  // Presence is judged by the ONE typed-artifact-reference predicate (DR-5,
-  // `workflow/guards.ts`): a TRIMMED non-empty string. A whitespace-only plan
-  // must read as ABSENT here, or readiness reports the artifact present while
-  // the guard/admission layers deny it (the readiness/admission divergence
-  // this shared import closes).
   const artifacts = data.patch.artifacts as { plan?: unknown } | undefined;
   const artifactsPlanDotPath = data.patch['artifacts.plan'];
   const artifactsPlanRaw = artifactsPlanDotPath !== undefined
@@ -298,8 +282,6 @@ function handleStatePatched(
   return state;
 }
 
-// ─── Wave Scoping (WFQ-002 / DR-T-2 #1206, fix-005 #1213) ───────────────────
-
 export interface ScopedWorktreesResult {
   readonly expected: number;
   readonly ready: number;
@@ -308,28 +290,17 @@ export interface ScopedWorktreesResult {
 }
 
 /**
- * Recompute worktree counts and blockers against a wave subset.
+ * Recomputes worktree counts and blockers for a wave of tasks. With no filter, it
+ * returns the global values.
  *
- * WFQ-002: the projection accumulates `expected` from EVERY historical
- * `task.assigned` event on the stream. A four-task wave inside a seventeen-task
- * workflow must NOT wait on seventeen worktrees, so every readiness consumer
- * scopes through this one helper. It lives beside the projection — not inside a
- * single consumer — so `prepare_delegation` and the `delegation_readiness` view
- * action cannot report different readiness for the same wave.
+ * The projection counts each `task.assigned` event on the stream, so a small wave must
+ * not wait on all worktrees. `prepare_delegation` and the `delegation_readiness` view
+ * both use this helper, so they report the same readiness for a wave. It compares ids
+ * after `canonicaliseTaskId`, because emitters and callers spell one id in different forms.
  *
- * Returns:
- * - `expected` — the size of the wave (or the projection's expected when
- *   no filter is provided).
- * - `ready` — count of wave members whose worktree is in `readyTaskIds`
- *   (or the projection's global `ready` when no filter is provided).
- * - `pending` — `expected - ready`.
- * - `blockers` — `readiness.blockers` with the canonical
- *   `"<N> worktrees pending"` message rewritten to the wave-scoped count
- *   (dropped entirely when the wave is fully ready). Other worktree-class
- *   blockers (e.g., "no worktrees expected", baseline failures) pass
- *   through unchanged — they're stream-global signals, not wave-scoped.
- *
- * Pure: no I/O, no shared state.
+ * The `"<N> worktrees pending"` blocker gets the wave count. It goes away when the wave
+ * is ready, and the helper adds it when only the wave has pending worktrees. Other
+ * blockers pass through, because they apply to the full stream.
  */
 export function computeScopedWorktrees(
   readiness: DelegationReadinessState,
@@ -344,11 +315,6 @@ export function computeScopedWorktrees(
     };
   }
 
-  // F19 (#1213): canonicalise IDs before comparing. Callers may pass
-  // `T-001`/`T001`/`001` interchangeably; the projection's `readyTaskIds`
-  // preserves the form recorded by upstream emitters. Without
-  // canonicalisation a wave addressed as `T-001` reports "1 worktrees
-  // pending" even when the projection holds `T001` as ready.
   const canonicalReady = new Set(
     readiness.worktrees.readyTaskIds.map(canonicaliseTaskId),
   );
@@ -360,23 +326,15 @@ export function computeScopedWorktrees(
   const pending = expected - readyInWave;
 
   let blockers = readiness.blockers.flatMap(blocker => {
-    // Only touch the canonical "<N> worktrees pending" message; pass
-    // through other worktree-class blockers (failed, no-worktrees-expected).
     if (!/^\d+ worktrees pending$/.test(blocker)) {
       return [blocker];
     }
     if (pending === 0) {
-      return []; // wave is complete — drop the blocker
+      return [];
     }
     return [`${pending} worktrees pending`];
   });
 
-  // F-iter3 (#1213, sentry HIGH r3186305844): if the global readiness has no
-  // "N worktrees pending" blocker (because the global state was ready) but
-  // the wave subset still has pending worktrees, synthesise one. Without
-  // this the caller sees an empty blockers array and dispatches prematurely
-  // (e.g. mixed legacy/modern `worktree.created` events leave the global
-  // view consistent but the wave-projection is not).
   if (
     pending > 0 &&
     !blockers.some(b => /^\d+ worktrees pending$/.test(b))
@@ -388,9 +346,8 @@ export function computeScopedWorktrees(
 }
 
 /**
- * Apply {@link computeScopedWorktrees} to a materialized readiness state,
- * returning a state whose visible counters, blockers, and `ready` flag all
- * describe the requested wave. Passing no filter returns the state unchanged.
+ * Applies {@link computeScopedWorktrees} to a readiness state. The counts, blockers,
+ * and `ready` flag of the result describe the wave. With no filter, the state returns unchanged.
  */
 export function scopeReadinessToWave(
   readiness: DelegationReadinessState,
@@ -409,8 +366,6 @@ export function scopeReadinessToWave(
     },
   };
 }
-
-// ─── Projection ────────────────────────────────────────────────────────────
 
 export const delegationReadinessProjection: ViewProjection<DelegationReadinessState> = {
   init: (): DelegationReadinessState => ({
@@ -446,7 +401,6 @@ export const delegationReadinessProjection: ViewProjection<DelegationReadinessSt
         break;
     }
 
-    // Handle event types not in the schema enum via string comparison
     const eventType = event.type as string;
 
     if (eventType === 'state.patched') {

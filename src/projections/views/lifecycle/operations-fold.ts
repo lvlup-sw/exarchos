@@ -1,29 +1,12 @@
-// ─── Lifecycle verb substrate: `ps` operations fold (DR-3, task 006) ─────────
-//
-// A GENERIC fold over an ordered event list that answers "which INV-10
-// liveness instances are still IN FLIGHT?" across EVERY registered surface —
-// merge / launch / mutation / prune today, and whatever a future task 004+N
-// adds to the registry tomorrow — with ZERO surface-specific code in this
-// file. The whole per-surface contract (which event starts an instance, which
-// event(s) terminate it, how to derive its instance key) lives in
-// `events/liveness-registry.ts` (task 004); this module contributes
-// exactly one thing on top of that registry: iterate every descriptor,
-// delegate the pairing to the registry's own `computeInFlightInstances`
-// helper, and shape the survivors into a uniform row a `ps` consumer (task
-// 007) can render without knowing which surface produced it.
-//
-// DR-3 acceptance criterion this file exists to satisfy: "adding a surface to
-// the registry must add it to `ps` with no fold change." Because the loop
-// below iterates `LIVENESS_DESCRIPTORS` (or a caller-supplied override, used
-// only by this file's own conformance test) rather than naming `'merge'` /
-// `'launch'` / `'mutation'` / `'prune'` anywhere, a fifth registry entry is
-// picked up automatically — nothing here needs to change.
-//
-// Age: derived from the event ENVELOPE (`timestamp`, via the registry's own
-// `livenessStartedAt`) rather than any surface-specific data field — the same
-// uniformity discipline the registry itself documents.
-// ─────────────────────────────────────────────────────────────────────────────
-
+/**
+ * Lifecycle substrate: the `ps` operations fold.
+ *
+ * A generic fold that finds the liveness instances still in flight on each registered surface.
+ * `events/liveness-registry.ts` holds the whole per-surface contract: the start event, the terminal
+ * events and the instance key. This module iterates each descriptor, calls the registry's
+ * `computeInFlightInstances`, and shapes the result into one row type. It names no surface, so a
+ * new registry entry appears in `ps` with no change here. Age comes from the envelope `timestamp`.
+ */
 import {
   LIVENESS_DESCRIPTORS,
   computeInFlightInstances,
@@ -34,23 +17,15 @@ import {
   type LivenessStreamScope,
 } from '../../../events/liveness-registry.js';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
 /**
- * The minimal event shape this fold operates on: a {@link LivenessEventLike}
- * (`type` + optional `data`) plus the envelope `timestamp` age is derived
- * from. Real `WorkflowEvent` rows (and `EventStore.query()` results) satisfy
- * this structurally — no adapter needed.
+ * The event shape of this fold: a {@link LivenessEventLike} plus the envelope `timestamp`.
+ * `WorkflowEvent` rows satisfy it structurally.
  */
 export interface OperationEventLike extends LivenessEventLike {
   readonly timestamp?: string;
 }
 
-/**
- * One in-flight liveness instance, shaped uniformly across every surface —
- * the row shape a `ps` consumer (task 007) renders alongside task 005's
- * workflow-fold.
- */
+/** One in-flight liveness instance, in the same row shape for each surface. `ps` shows it next to the workflow fold. */
 export interface InFlightOperation {
   /** Which liveness surface this instance belongs to (registry-derived, not hardcoded). */
   readonly surface: LivenessSurface;
@@ -59,17 +34,14 @@ export interface InFlightOperation {
   /** Which stream family this surface's pair rides on (`'feature'` | `'worktrees'`). */
   readonly streamScope: LivenessStreamScope;
   /**
-   * The stream this instance's START rode. For `feature`-scoped surfaces this
-   * distinguishes two workflows whose `instanceKey` collides (DR-2 per-stream
-   * pairing); for the singleton `worktrees` scope it is the shared stream id.
-   * `undefined` only for a keyless test fixture.
+   * The stream of the start event. On a `feature` surface, it separates two workflows with the
+   * same `instanceKey`. On the singleton `worktrees` scope, it is the shared stream id.
+   * It is `undefined` only for a keyless test fixture.
    */
   readonly streamId: string | undefined;
   /**
-   * The workflow this operation belongs to — the featureId — for `feature`-scoped
-   * surfaces (where `streamId` IS the featureId), so a consumer can answer "which
-   * workflow is stuck?". `undefined` for `worktrees`-scoped surfaces (launch /
-   * prune ride the shared singleton stream, not a workflow's feature stream).
+   * The featureId on a `feature` surface, where `streamId` is the featureId. It is `undefined`
+   * on a `worktrees` surface, because launch and prune use the shared singleton stream.
    */
   readonly featureId: string | undefined;
   /** The `<surface>.executing_started` CLAIM event type that opened this instance. */
@@ -77,9 +49,8 @@ export interface InFlightOperation {
   /** ISO 8601 instant the instance started, from the START event's envelope `timestamp`. */
   readonly startedAt: string | undefined;
   /**
-   * Age in milliseconds at fold time (`now - startedAt`), or `null` when
-   * `startedAt` is unresolvable. Standardized on `number | null` to match the
-   * sibling workflow-fold's `ageMs` (one age contract across both `ps` folds).
+   * Age in milliseconds at fold time, or `null` when `startedAt` is `undefined`. The workflow
+   * fold uses the same `number | null` contract.
    */
   readonly ageMs: number | null;
 }
@@ -87,33 +58,18 @@ export interface InFlightOperation {
 /** Options for {@link foldInFlightOperations}. */
 export interface FoldInFlightOperationsOptions {
   /**
-   * The descriptor set to fold over. Defaults to the REAL
-   * {@link LIVENESS_DESCRIPTORS} — the whole point of the generic design. Only
-   * ever overridden by this module's own conformance test, to prove that a
-   * hypothetical fifth surface flows through with no code change here.
+   * The descriptor set. Defaults to {@link LIVENESS_DESCRIPTORS}. A conformance test overrides
+   * it to prove that a new surface needs no change here.
    */
   readonly registry?: readonly LivenessDescriptor[];
   /** Clock hook for `ageMs` (defaults to `Date.now`) — deterministic in tests. */
   readonly now?: () => number;
 }
 
-// ─── The fold ─────────────────────────────────────────────────────────────────
-
 /**
- * Fold an ordered event list into every liveness instance still IN FLIGHT,
- * across every descriptor in `options.registry` (default: the real
- * registry). For each descriptor this simply delegates the START/TERMINAL
- * pairing to {@link computeInFlightInstances} — the registry's own pairing
- * helper — and maps the surviving `instanceKey -> START event` entries into
- * {@link InFlightOperation} rows. No `if (surface === '...')` branch exists
- * anywhere in this function; that is the DR-3 genericity guarantee.
- *
- * Ordering / semantics are exactly `computeInFlightInstances`'s: a START with
- * no later matching TERMINAL (by instance key, scanning `events` left to
- * right) is in flight; a re-START after a TERMINAL reopens the instance; an
- * orphan TERMINAL (no prior START) is a no-op; an unresolvable key is
- * skipped. This fold adds no additional semantics on top of that contract —
- * it is purely a shape-and-merge step across descriptors.
+ * Fold an ordered event list into the in-flight instances of each descriptor in `options.registry`.
+ * For each descriptor, it calls {@link computeInFlightInstances} and maps each surviving start event
+ * to an {@link InFlightOperation}. It has no branch on the surface and adds no pairing rule.
  */
 export function foldInFlightOperations(
   events: readonly OperationEventLike[],
@@ -133,8 +89,6 @@ export function foldInFlightOperations(
         instanceKey,
         streamScope: descriptor.streamScope,
         streamId,
-        // `feature`-scoped streams ARE the featureId; `worktrees`-scoped launch/
-        // prune ride the shared singleton stream, so they name no workflow.
         featureId: descriptor.streamScope === 'feature' ? streamId : undefined,
         startType: descriptor.startType,
         startedAt,

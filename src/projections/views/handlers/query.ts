@@ -4,26 +4,10 @@ import { EventStore } from '../../../events/store.js';
 import { logger } from '../../../logger.js';
 import { ViewMaterializer } from '../materializer.js';
 
-// ─── Helper: query delta events using materializer high-water mark ──────────
-
 /**
- * Wave 5 (#1437) — view-action correlation filter passthrough.
- *
- * Telemetry view callers can pass `operationId / correlationId / causationId`
- * down to the underlying `EventStore.query` so the projection folds only the
- * slice that matches a dispatch-boundary tuple. The filter handle is the
- * indexed correlation columns on the SQLite substrate (a post-fetch JS
- * filter on the in-memory backend); INV-1 keeps the value of truth on the
- * payload, mirrored to the indexed columns.
- *
- * Cache semantics: a filtered query MUST bypass the materializer LRU cache.
- * The cached `view` baked in the unfiltered roll-up of every event past the
- * high-water mark; folding only a filtered subset on top of that base would
- * silently contaminate the cache (e.g. a `correlationId: cor-X` query would
- * leave the cache reading "everything except cor-Y"). Callers route through
- * `materializeFiltered` below when filters are present so the fold runs
- * from `projection.init()` against the filtered event list and the cache
- * is never written.
+ * Correlation filters that a view passes down to `EventStore.query`, so the projection folds only the matching events.
+ * A filtered query must not use the materializer cache. The cached view holds the unfiltered fold, and a filtered fold on top of it corrupts the cache.
+ * Thus a filtered caller folds through {@link materializeFiltered}, which starts from `projection.init()` and does not write the cache.
  */
 export interface ViewQueryFilters {
   readonly operationId?: string;
@@ -45,16 +29,9 @@ export function hasCorrelationFilters(filters?: ViewQueryFilters): boolean {
 }
 
 /**
- * Wave 2 (#1448) — AsyncLocalStorage-aware default for correlation filters.
- *
- * Returns the explicit args verbatim if any are supplied (explicit-wins).
- * Otherwise, if a dispatch context is active, defaults `correlationId` to
- * the active dispatch's correlationId — the chain-stable anchor for the
- * current workflow scope. If no args AND no active context, returns empty.
- *
- * The default makes "show me telemetry for the workflow I'm in" Just Work
- * inside an agent dispatch without requiring the agent to thread the
- * correlation tuple back into every telemetry call.
+ * Returns the explicit filter args when any is set.
+ * Otherwise, inside an active dispatch context, it returns the `correlationId` of that dispatch, so an agent sees the telemetry of its own workflow.
+ * With no args and no context, it returns an empty object.
  */
 export function deriveCorrelationFilters(args: {
   operationId?: string | undefined;
@@ -80,7 +57,13 @@ export function deriveCorrelationFilters(args: {
   return {};
 }
 
-/** @internal Exported for CLI commands and testing */
+/**
+ * Returns the events that the fold of `viewName` needs.
+ * A filtered query returns all matching events and skips the cache. A warm cache gets only the events after its high-water mark.
+ * A cold cache loads the snapshot first, then returns all events.
+ *
+ * @internal Exported for CLI commands and testing
+ */
 export async function queryDeltaEvents(
   store: EventStore,
   materializer: ViewMaterializer,
@@ -88,42 +71,28 @@ export async function queryDeltaEvents(
   viewName: string,
   filters?: ViewQueryFilters,
 ): Promise<WorkflowEvent[]> {
-  // Wave 5 (#1437) — filtered queries bypass the cache entirely so the
-  // hwm-relative incremental path can't bleed an unfiltered base into a
-  // filtered fold. See ViewQueryFilters doc for the contamination scenario.
   if (hasCorrelationFilters(filters)) {
     return store.query(streamId, filters);
   }
   const cachedState = materializer.getState(streamId, viewName);
   if (cachedState) {
-    // Warm call: only fetch events past the high-water mark
     const hwm = cachedState.highWaterMark;
     return hwm > 0
       ? store.query(streamId, { sinceSequence: hwm })
       : store.query(streamId);
   }
-  // Cold call: load snapshot then query all events
   await materializer.loadFromSnapshot(streamId, viewName);
   return store.query(streamId);
 }
 
 /**
- * Cache-bypassing fold for correlation-filtered queries (Wave 5 / #1437).
- *
- * Reads the registered projection for `viewName`, builds a fresh
- * `projection.init()` base, and applies every event in the input list in
- * order. Never reads or writes the materializer LRU cache, so an unfiltered
- * call before or after retains the full roll-up untouched.
+ * Folds `events` from `projection.init()` for a correlation-filtered query.
+ * It does not read or write the LRU cache, but it adds 1 to the `bypasses` count of the cache stats.
  */
 export function materializeFiltered<T>(
   materializer: ViewMaterializer,
   viewName: string,
   events: WorkflowEvent[],
 ): T {
-  // Delegates to the shared cache-bypassing fresh fold (#1555 consolidation).
-  // `materializeFresh` records the bypass on every successful call so the
-  // correlation-filtered traffic is visible alongside the LRU hit/miss stats —
-  // without it, a healthy hitRate can mask thousands of cache-skipping calls
-  // (PR #1447 DIM-2 audit) — and never touches the LRU cache.
   return materializer.materializeFresh<T>(viewName, events);
 }
