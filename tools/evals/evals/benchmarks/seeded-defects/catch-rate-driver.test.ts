@@ -1,12 +1,9 @@
-// ─── Gate catch-rate driver — real-handler measurement (#1675, task 004) ──────
-//
-// Verifies the DR-3/DR-5/DR-8 contract: the driver runs each seeded fixture
-// through its REAL class gate handler in a disposable worktree with an EPHEMERAL
-// event store, records per-cell verdict + wall-clock ms + payload tokens, treats
-// the dropped-edge-case class as ungated pass-through, and emits an explicit
-// `invalid` record (never a fabricated verdict) when a handler crashes.
-// ────────────────────────────────────────────────────────────────────────────
-
+/**
+ * Tests for the gate catch-rate driver. The driver runs each seeded fixture through its real class
+ * gate handler in a temp worktree with a temp event store. It records the verdict, the wall-clock
+ * time, and the payload tokens of each cell. A dropped-edge-case fixture is ungated, and a handler
+ * crash gives an explicit `invalid` record.
+ */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -21,14 +18,6 @@ import {
 } from './catch-rate-driver.js';
 import { loadSeededCorpus, MECHANICAL_GATE_CLASSES, type SeededFixture } from './corpus.js';
 import { rmrf } from '../../../../test-helpers/temp-dir.js';
-
-
-/**
- * Tests for the gate catch-rate driver. The driver runs each seeded fixture through its real class
- * gate handler in a temp worktree with a temp event store. It records the verdict, the wall-clock
- * time, and the payload tokens of each cell. A dropped-edge-case fixture is ungated, and a handler
- * crash gives an explicit `invalid` record.
- */
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, '../../../../..');
