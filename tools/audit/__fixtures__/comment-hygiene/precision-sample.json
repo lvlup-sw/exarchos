@@ -166,5 +166,470 @@
       "priorEstimate": 321,
       "priorEstimateNote": "The design recorded 321 from a regex pass. The parse-based extractor finds 316, so the two agree within rounding and the phrase's volume was never the uncertain part."
     }
+  },
+  "checksMeasurement": {
+    "measuredAt": "2026-10-01",
+    "tree": "5756578c8c36eba5977e9ff8b07fd8eae98f53e6",
+    "parsedFiles": 2373,
+    "sampling": "Stride: every k-th match in path and line order, where k is the total over 50. The first matches in path order cluster in a few files, so a stride sample measures more of the tree. Where 50 or fewer matches exist, all are adjudicated.",
+    "adjudication": "Each item was judged against the rule text: the placement definitions in the policy, or the cited rule of the vendored simple-english skill in pragmatic mode. After each narrowing, every judged item was re-run against the final code. An item that stopped firing left the count, and new items were judged before they counted."
+  },
+  "checks": {
+    "comment-placement/banner": {
+      "totalMatches": 4306,
+      "adjudicated": 50,
+      "truePositives": 50,
+      "precision": 1.0,
+      "verdict": "enabled",
+      "basis": "A title between two decoration runs, and pure dividers. Round one (50/50) measured the set before the two-sided title rule; round two measured the set after it."
+    },
+    "comment-placement/trailing": {
+      "totalMatches": 1156,
+      "adjudicated": 49,
+      "truePositives": 49,
+      "precision": 1.0,
+      "verdict": "enabled",
+      "basis": "Code comes before the comment on its first line, in every item. The question is factual."
+    },
+    "comment-placement/non-jsdoc": {
+      "totalMatches": 1926,
+      "adjudicated": 43,
+      "truePositives": 43,
+      "precision": 1.0,
+      "verdict": "enabled",
+      "basis": "Measured 47/50 at first. The three false positives were section dividers with a two-character run or a long title, so the banner check now takes them. The items that remain are all true.",
+      "removedFalsePositives": [
+        {
+          "file": "src/contract/ir/admission-ir-fixtures.ts",
+          "line": 135,
+          "why": "Pure sub-section divider (decoration + 2-word title) so banner precedence applies; isBanner misses it because the decoration run is 2 chars, below the 4-char DECORATION_RUN threshold."
+        },
+        {
+          "file": "src/workflow/admission/built-in-workflow-ir.ts",
+          "line": 131,
+          "why": "Pure sub-section divider grouping the following fact keys (decoration + short title); banner should win, missed because the decoration run is only 2 chars."
+        },
+        {
+          "file": "tests/unit/projections/views/handlers.test.ts",
+          "line": 1907,
+          "why": "Section banner identical in shape to its classified-banner siblings in the same file; missed only because the title is 72 chars, over the 60-char title cap."
+        }
+      ]
+    },
+    "comment-placement/in-body": {
+      "totalMatches": 21590,
+      "adjudicated": 50,
+      "truePositives": 50,
+      "precision": 1.0,
+      "verdict": "enabled",
+      "basis": "Each item sits inside a function, method or arrow body, checked against the TypeScript compiler API and by hand."
+    },
+    "comment-placement/detached": {
+      "totalMatches": 653,
+      "adjudicated": 37,
+      "truePositives": 37,
+      "precision": 1.0,
+      "verdict": "enabled",
+      "basis": "A blank line follows each block, after the first statement and outside every function body. The 13 items that left the check are dividers that the banner check now takes."
+    },
+    "comment-placement/floating": {
+      "totalMatches": 512,
+      "adjudicated": 50,
+      "truePositives": 50,
+      "precision": 1.0,
+      "verdict": "enabled",
+      "basis": "The next code takes no description: an import, a union member, a `vi.mock` call, a specifier-only export, or the end of the file. A prose comment between a block and a declaration breaks the attachment, as the rule says."
+    },
+    "comment-prose/sentence-length": {
+      "totalMatches": 3128,
+      "adjudicated": 49,
+      "truePositives": 49,
+      "precision": 1.0,
+      "verdict": "enabled",
+      "basis": "Counted per STE rules 8.5 to 8.7. A semicolon does not end a sentence. The only false positive was a hyphenated word split by a line break, which now joins.",
+      "removedFalsePositives": [
+        {
+          "file": "src/verbs/onboard/install.ts",
+          "line": 745,
+          "why": "The hyphenated word 'both-scope' is broken across a line and counted as two words; the true count is 25, at the limit, and no other sentence in the block exceeds 25."
+        }
+      ]
+    },
+    "comment-prose/paragraph-length": {
+      "totalMatches": 5,
+      "adjudicated": 5,
+      "truePositives": 5,
+      "precision": 1.0,
+      "verdict": "enabled",
+      "basis": "Measured 5/31 at first: bullets, lettered items, hanging-indent entries and flag tables were read as one paragraph. The splitter now starts a paragraph at each, and the 5 blocks that remain are all true. The set is exhaustive.",
+      "removedFalsePositives": [
+        {
+          "file": "src/contract/cli/cli-contract-seam.ts",
+          "line": 1,
+          "why": "Three • bullets (2-3 sentences each) are not recognized as list items and were joined into one 7-sentence paragraph."
+        },
+        {
+          "file": "src/contract/compiler/index.ts",
+          "line": 1,
+          "why": "A 3-sentence lead-in and four • bullets were joined into one paragraph."
+        },
+        {
+          "file": "src/contract/reachability/graph.ts",
+          "line": 1,
+          "why": "Seven • definition bullets (1-2 sentences each) were joined into one 9-sentence paragraph."
+        },
+        {
+          "file": "src/events/partition/authority.ts",
+          "line": 165,
+          "why": "Seven • bullets (1-2 sentences each) were joined into one paragraph."
+        },
+        {
+          "file": "src/events/partition/witnesses.ts",
+          "line": 1,
+          "why": "Four • bullets (max 3 sentences each) were joined into one paragraph."
+        },
+        {
+          "file": "src/events/registration-validate.ts",
+          "line": 1,
+          "why": "Six • bullets (2 sentences each) were joined into one 12-sentence paragraph."
+        },
+        {
+          "file": "src/storage/sqlite-backend.ts",
+          "line": 465,
+          "why": "A definition list of five 'Vn -> Vm:' entries with hanging indent (max 3 sentences each) was joined into one 12-sentence paragraph."
+        },
+        {
+          "file": "tests/core/process/packaged-proof.test.ts",
+          "line": 1,
+          "why": "A lead-in and six • bullets (max 2 sentences each) were joined into one paragraph."
+        },
+        {
+          "file": "tests/evals/native-baseline/harness.ts",
+          "line": 1,
+          "why": "A 3-sentence lead-in, two • bullets and two → bullets (max 4 sentences each) were joined into one 12-sentence paragraph."
+        },
+        {
+          "file": "tests/integration/cli-table-tree-regression.test.ts",
+          "line": 1,
+          "why": "A setext heading, a 4-sentence paragraph, two • bullets and a 2-sentence tail were joined into one paragraph."
+        },
+        {
+          "file": "tests/integration/tools-list-2020-12.test.ts",
+          "line": 1,
+          "why": "The list label 'Q2.' was counted as a sentence; the item has 6 sentences, which is within the limit."
+        },
+        {
+          "file": "tests/scripts/tsconfig-scripts-coverage.test.ts",
+          "line": 1,
+          "why": "A heading and four • bullets (max 3 sentences each) were joined into one paragraph."
+        },
+        {
+          "file": "tests/unit/dispatch/core/onboarding/reconcile.characterization.test.ts",
+          "line": 1,
+          "why": "The (a)/(b) list items are not recognized; the items have 4 and 5 sentences, joined into one 9-sentence paragraph."
+        },
+        {
+          "file": "tests/unit/runtime/agents/dispatch-shape.prose-binding.test.ts",
+          "line": 1,
+          "why": "A definition list of four 'term —' entries with hanging indent (max 2 sentences each) was joined into one paragraph."
+        },
+        {
+          "file": "tests/unit/workflow/__fixtures__/guard-classification.ts",
+          "line": 1,
+          "why": "A definition list of six 'term —' entries with hanging indent (max 2 sentences each) was joined into one paragraph."
+        },
+        {
+          "file": "tools/audit/gates/check-measured-premises.mjs",
+          "line": 2,
+          "why": "A banner heading and a 4-entry definition list of verdicts (max 3 sentences each) were joined; the second hit is a CLI flag table."
+        },
+        {
+          "file": "tools/audit/gates/check-module-intent.mjs",
+          "line": 2,
+          "why": "A CLI usage table of flags and their descriptions was read as one prose paragraph."
+        },
+        {
+          "file": "tools/audit/gates/check-mutation-gate.mjs",
+          "line": 2,
+          "why": "A CLI usage table of eight flags was read as one 13-sentence prose paragraph."
+        },
+        {
+          "file": "tools/audit/gates/guard-inventory/audit.ts",
+          "line": 15,
+          "why": "A definition list of nine code-label entries with hanging indent (max 2 sentences each) was joined into one paragraph."
+        },
+        {
+          "file": "tools/conformance/src/authority-census.ts",
+          "line": 1,
+          "why": "Three • bullets (max 3 sentences each) were joined into one paragraph."
+        },
+        {
+          "file": "tools/conformance/src/authority-topology.ts",
+          "line": 1,
+          "why": "Three • bullets (max 3 sentences each) were joined into one paragraph."
+        },
+        {
+          "file": "tools/conformance/src/output-schema-census.selftest.test.ts",
+          "line": 1,
+          "why": "Five • bullets (max 4 sentences each) were joined into one paragraph."
+        },
+        {
+          "file": "tools/conformance/src/parity/__tests__/packaged-proof.ts",
+          "line": 1,
+          "why": "A banner heading, a 2-sentence lead-in and six • bullets were joined into one paragraph."
+        },
+        {
+          "file": "tools/evals/evals/benchmarks/seeded-defects/corpus.ts",
+          "line": 1,
+          "why": "A banner heading and four • bullets (max 3 sentences each) were joined into one paragraph."
+        },
+        {
+          "file": "tools/test-helpers/module-lexer.ts",
+          "line": 1,
+          "why": "Three • bullets (max 4 sentences each) were joined into one 10-sentence paragraph."
+        },
+        {
+          "file": "tools/test-helpers/module-specifier-parser.ts",
+          "line": 1,
+          "why": "Three • bullets (max 4 sentences each) were joined into one 10-sentence paragraph."
+        }
+      ]
+    },
+    "comment-prose/semicolon": {
+      "totalMatches": 2394,
+      "adjudicated": 50,
+      "truePositives": 50,
+      "precision": 1.0,
+      "verdict": "enabled",
+      "basis": "The pattern needs whitespace after the semicolon, which drops `for(;;)` written without backticks.",
+      "removedFalsePositives": [
+        {
+          "file": "src/verbs/pure/operational-resilience.ts",
+          "line": 1,
+          "why": "The semicolons are the unbackticked code literal for(;;), not prose punctuation."
+        }
+      ]
+    },
+    "comment-prose/modal": {
+      "totalMatches": 1632,
+      "adjudicated": 48,
+      "truePositives": 48,
+      "precision": 1.0,
+      "verdict": "enabled",
+      "basis": "The skill bans the word with no exception, so RFC 2119 `MAY` and past-ability `could not` count."
+    },
+    "comment-prose/contraction": {
+      "totalMatches": 173,
+      "adjudicated": 50,
+      "truePositives": 50,
+      "precision": 1.0,
+      "verdict": "enabled",
+      "basis": "Measured 46/50 at first. The four false positives were participles of call names (`unref'd`, `fsync'd`), so `'d`, `'m`, `'re`, `'ll` and `'ve` now need a pronoun subject.",
+      "removedFalsePositives": [
+        {
+          "file": "src/projections/views/lifecycle/wait.ts",
+          "line": 138,
+          "why": "'unref'd' is a past-participle inflection of the Node timer method unref(), not a contraction that merges or omits words."
+        },
+        {
+          "file": "src/runtime/launcher/signals.ts",
+          "line": 112,
+          "why": "'unref'd' is a past-participle inflection of the Node timer method unref(), not a contraction that merges or omits words."
+        },
+        {
+          "file": "src/verbs/init/writers/mcp-json-writer.ts",
+          "line": 228,
+          "why": "'fsync'd' is a past-participle inflection of the fsync syscall name (= fsynced), not a contraction that omits a word."
+        },
+        {
+          "file": "src/workflow/admission/cutover-auto-export.ts",
+          "line": 1,
+          "why": "'fsync'd' is a past-participle inflection of the fsync syscall name (= fsynced), not a contraction that omits a word."
+        }
+      ]
+    },
+    "comment-prose/perfect-tense": {
+      "totalMatches": 121,
+      "adjudicated": 49,
+      "truePositives": 49,
+      "precision": 1.0,
+      "verdict": "enabled",
+      "basis": "\"has/have/had been\" in prose, in every item."
+    },
+    "comment-prose/progressive-passive": {
+      "totalMatches": 22,
+      "adjudicated": 22,
+      "truePositives": 22,
+      "precision": 1.0,
+      "verdict": "enabled",
+      "basis": "Measured 23/26 at first. The false positives were a gerund after a copula and an \"is to be\" infinitive, so the pattern needs a past participle after \"being\". The set is exhaustive.",
+      "removedFalsePositives": [
+        {
+          "file": "src/architecture/audit-delivery-closure.data.ts",
+          "line": 56,
+          "why": "'is' is a copula linking 'purpose' to a passive-infinitive complement, not the be-to modal ('is to be installed') or a progressive."
+        },
+        {
+          "file": "tools/test-helpers/superseded-site-lexers.ts",
+          "line": 1,
+          "why": "'being wrong' is a gerund phrase used as the complement of copula 'is', not a progressive verb."
+        },
+        {
+          "file": "tools/test-helpers/superseded-source-lexer.ts",
+          "line": 1,
+          "why": "'being wrong' is a gerund phrase used as the complement of copula 'is', not a progressive verb."
+        }
+      ]
+    },
+    "comment-prose/latin-abbreviation": {
+      "totalMatches": 592,
+      "adjudicated": 49,
+      "truePositives": 49,
+      "precision": 1.0,
+      "verdict": "enabled",
+      "basis": "e.g., i.e., etc. and vs in prose. Masking removes code spans first."
+    },
+    "comment-prose/filler": {
+      "totalMatches": 24,
+      "adjudicated": 24,
+      "truePositives": 24,
+      "precision": 1.0,
+      "verdict": "enabled",
+      "basis": "Measured 37/50 with the whole slop table, then 25/32. The false positives came from words that carry a fact in context, so these left the list: \"just\", \"simply\", \"gracefully\", \"is designed to\", \"easily\", \"as needed\", and \"robust\" before \"to\", \"against\" or \"across\". The set is exhaustive.",
+      "removedFalsePositives": [
+        {
+          "file": "src/adapters/mcp/mcp.ts",
+          "line": 177,
+          "term": "is designed to",
+          "why": "The seam does not host it yet, so 'designed to' carries the intent-not-behavior fact and 'say what it does' cannot apply."
+        },
+        {
+          "file": "src/dispatch/core/interceptors/session-machinery.ts",
+          "line": 1,
+          "term": "just",
+          "why": "Temporal 'just' (the rehydrate that landed a moment ago); deleting it or writing 'only' loses the recency fact."
+        },
+        {
+          "file": "src/dispatch/core/onboarding/reconcile.ts",
+          "line": 663,
+          "term": "just",
+          "why": "Temporal 'just' contrasts newly produced with already present; deleting it or writing 'only' loses that."
+        },
+        {
+          "file": "src/install/onramp/managed-block.ts",
+          "line": 341,
+          "term": "just",
+          "why": "Temporal 'just' identifies the file written a moment ago; not an intensifier."
+        },
+        {
+          "file": "src/install/skills-guard.ts",
+          "line": 1,
+          "term": "just",
+          "why": "Temporal 'just' (the overwrite done by the build that just ran); 'only' would be wrong."
+        },
+        {
+          "file": "src/projections/degraded-result.ts",
+          "line": 121,
+          "term": "just",
+          "why": "Temporal 'just' identifies the immediately preceding failed call."
+        },
+        {
+          "file": "src/projections/task-store/event-sourced-task-store.ts",
+          "line": 1,
+          "term": "just",
+          "why": "Temporal 'just' identifies the page returned by the current call."
+        },
+        {
+          "file": "src/projections/views/materializer.ts",
+          "line": 262,
+          "term": "gracefully",
+          "why": "'graceful shutdown' names a defined process behavior (drain then exit), not puffery."
+        },
+        {
+          "file": "src/verbs/worktree/merge-serializer.ts",
+          "line": 135,
+          "term": "just",
+          "why": "'just before' means immediately before; deleting it loses the timing fact."
+        },
+        {
+          "file": "src/workflow/handlers/init.ts",
+          "line": 15,
+          "term": "gracefully",
+          "why": "'graceful degradation' is a term of art for continuing in reduced mode; 'for degradation' alone inverts the sense."
+        },
+        {
+          "file": "tests/architecture/render-guard.test.ts",
+          "line": 63,
+          "term": "just",
+          "why": "Temporal 'just' (churn from the guard run that ended a moment ago) motivates the retry; not an intensifier."
+        },
+        {
+          "file": "tests/unit/install/skills-guard.test.ts",
+          "line": 490,
+          "term": "simply",
+          "why": "'simply' means 'only' here; deleting it (the policy remedy) turns 'widening is not enough' into 'widening is forbidden'."
+        },
+        {
+          "file": "tools/conformance/src/authority-census.ts",
+          "line": 1557,
+          "term": "simply",
+          "why": "'simply' means 'merely, for free'; deleting it (the policy remedy) makes the sentence say a row cannot assert the class at all."
+        },
+        {
+          "file": "src/dispatch/core/onboarding/reconcile.ts",
+          "line": 432,
+          "term": "robust",
+          "why": "'robust to <named reordering>' states an order-independence property; the table's remedy (give the property) is already met."
+        },
+        {
+          "file": "src/verbs/worktree/schemas.ts",
+          "line": 295,
+          "term": "robust",
+          "why": "'robust to <Zod v4 union internals>' states a specific non-dependence, explained in the same sentence; not puffery."
+        },
+        {
+          "file": "tests/integration/perf-validation.test.ts",
+          "line": 1,
+          "term": "robust",
+          "why": "'CI-robust' names the tolerated disturbance (CI noise) and the rationale block gives the number (7-10x headroom)."
+        },
+        {
+          "file": "tools/audit/gates/check-mutation-gate.mjs",
+          "line": 2,
+          "term": "robust",
+          "why": "'robust to <a named CI setting>' states a specific invariance; deleting it loses why cwd is not used."
+        },
+        {
+          "file": "tools/audit/gates/check-single-workflow-fold.mjs",
+          "line": 2,
+          "term": "robust",
+          "why": "'robust to <two named code shapes>' states exactly which variation the match ignores; carries a fact."
+        },
+        {
+          "file": "tools/conformance/src/import-cycles.ts",
+          "line": 84,
+          "term": "robust",
+          "why": "'robust to config drift' names the disturbance (tsPreCompilationDeps changing); a factual invariance, not puffery."
+        },
+        {
+          "file": "tools/release/codegen-runtimes.ts",
+          "line": 130,
+          "term": "robust",
+          "why": "'robust against <named invocation condition>' states a specific invariance; deleting it loses the reason for import.meta.url."
+        }
+      ]
+    },
+    "comment-prose/header-lines": {
+      "totalMatches": 614,
+      "deterministic": true,
+      "verdict": "enabled",
+      "basis": "A count of text lines has no false positive. Delimiters, blank lines and type-only tags do not count."
+    },
+    "comment-prose/doc-lines": {
+      "totalMatches": 615,
+      "deterministic": true,
+      "verdict": "enabled",
+      "basis": "A count of text lines has no false positive. Delimiters, blank lines and type-only tags do not count."
+    }
   }
 }

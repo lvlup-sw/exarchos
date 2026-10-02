@@ -20,6 +20,11 @@ import { execFileSync } from 'node:child_process';
 import { loadPolicy, isExempt } from './comment-policy.mjs';
 import { extractComments, CommentExtractionError } from './comment-prose.mjs';
 import { classifyText } from './comment-classifier.mjs';
+import { analyzeFile } from './comment-analysis.mjs';
+import { parseCommentFile } from './comment-parse.mjs';
+import { PLACEMENT_RULE } from './comment-placement.mjs';
+import { PROSE_RULE } from './comment-ste.mjs';
+import { isInLintScope } from './lint-scope.mjs';
 
 const CODE_EXTENSIONS = new Set(['.ts', '.tsx', '.mts', '.cts', '.js', '.mjs', '.cjs', '.jsx']);
 
@@ -98,6 +103,91 @@ export function collectMatches(repoRoot, policy) {
 }
 
 /**
+ * One match of a placement or prose check, with the source lines around the block.
+ *
+ * @typedef {object} CheckMatch
+ * @property {string} file
+ * @property {number} line
+ * @property {string} message
+ * @property {string} block The block text, cut at 4,000 characters.
+ * @property {string} context Up to three source lines on each side of the block.
+ */
+
+/**
+ * The policy with every placement and prose check enabled. A check ships disabled because its rate
+ * is unknown, so the sample must still measure it.
+ *
+ * @param {ReturnType<typeof loadPolicy>} policy
+ * @returns {ReturnType<typeof loadPolicy>}
+ */
+function measuringPolicy(policy) {
+  const placement = policy.placement === undefined ? undefined : {
+    ...policy.placement,
+    checks: new Map([...policy.placement.checks].map(([id, check]) => [id, { ...check, enabled: true }])),
+  };
+  const prose = policy.prose === undefined ? undefined : {
+    ...policy.prose,
+    steChecks: policy.prose.steChecks.map((check) => ({ ...check, enabled: true })),
+    budgets: new Map([...policy.prose.budgets].map(([id, budget]) => [id, { ...budget, enabled: true }])),
+  };
+  return { ...policy, placement, prose };
+}
+
+/**
+ * Collect every match of the placement and prose checks, keyed by `rule/checkId`.
+ *
+ * @param {string} repoRoot
+ * @param {ReturnType<typeof loadPolicy>} policy
+ * @returns {{ byCheck: Map<string, CheckMatch[]>, scanned: number }}
+ */
+export function collectCheckMatches(repoRoot, policy) {
+  const measuring = measuringPolicy(policy);
+  /** @type {Map<string, CheckMatch[]>} */
+  const byCheck = new Map();
+  let scanned = 0;
+  for (const rel of trackedSourceFiles(repoRoot)) {
+    if (!isInLintScope(rel)) continue;
+    const text = fs.readFileSync(path.join(repoRoot, rel), 'utf8');
+    const { blocks, syntax } = parseCommentFile(rel, text, repoRoot);
+    if (syntax === undefined) continue;
+    scanned += 1;
+    const lines = text.split('\n');
+    const { analyzed } = analyzeFile({ relPath: rel, blocks, policy: measuring, entries: undefined, syntax });
+    for (const item of analyzed) {
+      for (const finding of item.findings) {
+        if (finding.rule !== PLACEMENT_RULE && finding.rule !== PROSE_RULE) continue;
+        const key = `${finding.rule}/${finding.checkId}`;
+        const bucket = byCheck.get(key) ?? [];
+        bucket.push({
+          file: rel,
+          line: item.block.line,
+          message: finding.message,
+          block: item.block.raw.slice(0, 4000),
+          context: lines.slice(Math.max(0, item.block.line - 4), item.block.endLine + 3).join('\n'),
+        });
+        byCheck.set(key, bucket);
+      }
+    }
+  }
+  return { byCheck, scanned };
+}
+
+/**
+ * A deterministic sample spread over the whole tree: every k-th match, where k is the total over the
+ * limit. The first matches in path order cluster in a few files, so a stride sample measures more of
+ * the tree.
+ *
+ * @template T
+ * @param {readonly T[]} all
+ * @param {number} limit
+ * @returns {T[]}
+ */
+export function strideSample(all, limit) {
+  if (all.length <= limit) return [...all];
+  return Array.from({ length: limit }, (_, i) => /** @type {T} */ (all[Math.floor((i * all.length) / limit)]));
+}
+
+/**
  * Every pattern the policy declares, including those shipping disabled — a
  * disabled pattern still needs its matches read before it can be turned on.
  *
@@ -130,7 +220,20 @@ function main() {
     };
   }
 
-  const payload = { scannedFiles: scanned, indeterminateFiles: indeterminate, patterns: report };
+  /** @type {Record<string, unknown>} */
+  const checks = {};
+  const { byCheck, scanned: parsed } = collectCheckMatches(repoRoot, policy);
+  const declared = [
+    ...[...(policy.placement?.checks.keys() ?? [])].map((id) => `${PLACEMENT_RULE}/${id}`),
+    ...(policy.prose?.steChecks ?? []).map((check) => `${PROSE_RULE}/${check.id}`),
+    ...[...(policy.prose?.budgets.keys() ?? [])].map((id) => `${PROSE_RULE}/${id}`),
+  ];
+  for (const key of declared) {
+    const all = byCheck.get(key) ?? [];
+    checks[key] = { totalMatches: all.length, sampled: strideSample(all, limit), exhaustive: all.length <= limit };
+  }
+
+  const payload = { scannedFiles: scanned, indeterminateFiles: indeterminate, patterns: report, parsedFiles: parsed, checks };
   const json = JSON.stringify(payload, null, 2);
   if (outPath) fs.writeFileSync(outPath, `${json}\n`, 'utf8');
   else process.stdout.write(`${json}\n`);

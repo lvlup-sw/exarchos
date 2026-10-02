@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { loadPolicy } from '../../../tools/audit/lib/comment-policy.mjs';
 import { classifyText } from '../../../tools/audit/lib/comment-classifier.mjs';
+import { steFindings } from '../../../tools/audit/lib/comment-ste.mjs';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..');
 const policy = loadPolicy(path.join(REPO_ROOT, '.exarchos/comment-policy.json'));
@@ -24,9 +25,18 @@ const audit = JSON.parse(
   scannedFiles: number;
   indeterminateFiles: number;
   patterns: Record<string, PatternAudit>;
+  checksMeasurement: { measuredAt: string; tree: string; sampling: string; parsedFiles: number };
+  checks: Record<string, PatternAudit & { deterministic?: boolean }>;
 };
 
 const declared = [...policy.forbiddenOrdinals, ...policy.changelogPatterns];
+
+/** Every placement and prose check, keyed as the sampler keys it, with its enabled flag. */
+const declaredChecks: { key: string; enabled: boolean; budget: boolean }[] = [
+  ...[...policy.placement!.checks].map(([id, check]) => ({ key: `comment-placement/${id}`, enabled: check.enabled, budget: false })),
+  ...policy.prose!.steChecks.map((check) => ({ key: `comment-prose/${check.id}`, enabled: check.enabled, budget: false })),
+  ...[...policy.prose!.budgets].map(([id, budget]) => ({ key: `comment-prose/${id}`, enabled: budget.enabled, budget: true })),
+];
 
 describe('precision audit', () => {
   it('Precision_SampledPattern_ScoreRecorded', () => {
@@ -138,3 +148,55 @@ describe('precision audit', () => {
     expect(audit.indeterminateFiles).toBe(0);
   });
 });
+
+describe('placement and prose precision', () => {
+  /** A check that blocks without a measured number ships on an assumption, which the floor exists to prevent. */
+  it('Precision_EveryPlacementAndProseCheck_HasARecord', () => {
+    expect(declaredChecks.length).toBeGreaterThan(10);
+    for (const { key } of declaredChecks) {
+      const record = audit.checks[key];
+      expect(record, `no precision record for "${key}"`).toBeDefined();
+      expect(record!.totalMatches).toBeGreaterThan(0);
+    }
+  });
+
+  it('Precision_EveryEnabledCheck_MeetsTheFloor', () => {
+    for (const { key, enabled, budget } of declaredChecks) {
+      const record = audit.checks[key]!;
+      if (!enabled || (budget && record.deterministic === true)) continue;
+      expect(record.adjudicated, `"${key}" has no adjudicated sample`).toBeGreaterThan(0);
+      expect(record.precision, `"${key}" ships enabled below the floor`).toBeGreaterThanOrEqual(audit.floor.threshold);
+    }
+  });
+
+  /** A line count has no false positive, so only a line budget can skip the sample. */
+  it('Precision_DeterministicRecord_IsALineBudget', () => {
+    for (const { key, budget } of declaredChecks) {
+      if (audit.checks[key]?.deterministic === true) expect(budget, `"${key}" claims to be deterministic`).toBe(true);
+    }
+  });
+
+  it('Precision_CheckBelowTheFloor_ShipsDisabledWithItsEvidence', () => {
+    for (const { key, enabled } of declaredChecks) {
+      const record = audit.checks[key]!;
+      if (record.deterministic === true || record.precision >= audit.floor.threshold) continue;
+      expect(enabled, `"${key}" is below the floor but enabled`).toBe(false);
+      expect(record.basis).toBeTruthy();
+      expect(record.falsePositives?.length).toBeGreaterThan(0);
+    }
+  });
+
+  /** These phrasings were false positives in the sample. A later change to a pattern must keep them silent. */
+  it('Precision_RecordedProseFalsePositives_StayUnreported', () => {
+    const silent: [string, string][] = [
+      ['contraction', '/** The timer is unref\'d here, and the file is fsync\'d first. */'],
+      ['progressive-passive', '/** Its value is being wrong in a way a reader sees. */'],
+      ['semicolon', '/** The loop is for(;;) with a break inside. */'],
+      ['filler', '/** It runs just before the write, with a graceful shutdown. */'],
+    ];
+    for (const [checkId, raw] of silent) {
+      expect(steFindings(raw, policy.prose!.steChecks).map((f) => f.checkId), raw).not.toContain(checkId);
+    }
+  });
+});
+

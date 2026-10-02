@@ -15,6 +15,7 @@ import tseslint from 'typescript-eslint';
 import commentContent from './tools/eslint-rules/comment-content.js';
 import commentBaseline from './tools/eslint-rules/comment-baseline.js';
 import commentPlacement from './tools/eslint-rules/comment-placement.js';
+import commentProse from './tools/eslint-rules/comment-prose.js';
 import { LINT_GLOBS, LINT_IGNORES } from './tools/audit/lib/lint-scope.mjs';
 
 export default [
@@ -31,7 +32,12 @@ export default [
     plugins: {
       '@typescript-eslint': tseslint.plugin,
       comments: {
-        rules: { 'comment-content': commentContent, 'comment-placement': commentPlacement, 'comment-baseline': commentBaseline },
+        rules: {
+          'comment-content': commentContent,
+          'comment-placement': commentPlacement,
+          'comment-prose': commentProse,
+          'comment-baseline': commentBaseline,
+        },
       },
     },
     linterOptions: {
@@ -40,6 +46,7 @@ export default [
     rules: {
       'comments/comment-content': 'error',
       'comments/comment-placement': 'error',
+      'comments/comment-prose': 'error',
       'comments/comment-baseline': 'error',
       'no-restricted-syntax': [
         'error',

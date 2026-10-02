@@ -3,7 +3,8 @@
   "rule": "A code comment states its constraint in words and names no planning ordinal. Planning ordinals identify artifacts of a workflow that a future reader cannot resolve and that are renumbered as the plan is revised, so a citation accurate when written stops being so without anything changing. Durable external references are unaffected: they name something outside this repository's planning cycle and a reader can follow them.",
   "rules": [
     "comment-content",
-    "comment-placement"
+    "comment-placement",
+    "comment-prose"
   ],
   "placement": {
     "rule": "A comment is the file header, or a `/** */` description attached to a module-level declaration, a member, a module-level literal element, or a test call. A comment anywhere else describes code that cannot carry it: move the reason into a description, or delete the comment.",
@@ -48,6 +49,240 @@
         "id": "floating",
         "enabled": true,
         "message": "Comment on a statement that takes no description, such as an import, an expression, a parameter or a closing brace. Move it into a declaration's `/** */` description, or delete it."
+      }
+    ]
+  },
+  "prose": {
+    "rule": "A file header or a description is written in Simplified Technical English, in the pragmatic mode of the vendored `simple-english` skill, and it stays short. A reader who is not a native speaker reads a short sentence in a simple tense correctly, and the line budgets keep a comment in proportion to the code that it describes. The checks apply to comment text that is new or edited: a baselined block stays suppressed until someone changes it.",
+    "skill": {
+      "canonical": ".agents/skills/simple-english/SKILL.md",
+      "mirror": ".claude/skills/simple-english/SKILL.md",
+      "version": "1.2.0"
+    },
+    "steChecks": [
+      {
+        "id": "sentence-length",
+        "steRule": "6.3",
+        "limit": 25,
+        "enabled": true,
+        "remedy": "Split it into shorter sentences, one fact in each."
+      },
+      {
+        "id": "paragraph-length",
+        "steRule": "6.6",
+        "limit": 6,
+        "enabled": true,
+        "remedy": "Split the paragraph by topic, or delete the sentences that the code already says."
+      },
+      {
+        "id": "semicolon",
+        "steRule": "8.1",
+        "pattern": ";(?=\\s|$)",
+        "flags": "g",
+        "enabled": true,
+        "remedy": "Write two sentences."
+      },
+      {
+        "id": "modal",
+        "steRule": "3.2",
+        "pattern": "\\b(?:should|would|may|might|could)\\b",
+        "flags": "gi",
+        "enabled": true,
+        "remedy": "Write `must` for a requirement and `can` for a possibility. State a suggestion as a fact, or delete it."
+      },
+      {
+        "id": "contraction",
+        "steRule": "4.2",
+        "pattern": "\\b[A-Za-z]+n['’]t\\b|\\b(?:I|you|we|they|he|she|it|that|there|here|what|who|where|how|this|these|those)['’](?:re|ll|ve|d|m)\\b|\\b(?:it|that|there|here|what|who|where|let|he|she|how)['’]s\\b",
+        "flags": "gi",
+        "enabled": true,
+        "remedy": "Write the words in full."
+      },
+      {
+        "id": "perfect-tense",
+        "steRule": "3.4",
+        "pattern": "\\b(?:has|have|had)\\s+(?:not\\s+|never\\s+|already\\s+|also\\s+|just\\s+)?been\\b",
+        "flags": "gi",
+        "enabled": true,
+        "remedy": "Use a simple tense: `is`, `was` or `will be`."
+      },
+      {
+        "id": "progressive-passive",
+        "steRule": "3.4",
+        "pattern": "\\b(?:is|are|was|were|be)\\s+being\\s+(?:[a-z]+ly\\s+)?(?:[a-z]+(?:ed|en)|[a-z]*(?:built|made|done|run|set|held|kept|sent|shown|read|left|lost|found|paid|put|told|thrown|caught|brought|bought|taught|sold|written|known))\\b",
+        "flags": "gi",
+        "enabled": true,
+        "remedy": "Use a simple tense in the active voice, and name the actor."
+      },
+      {
+        "id": "latin-abbreviation",
+        "steRule": "GR-6",
+        "pattern": "(?<![\\w.])(?:[Ee]\\.g\\.|[Ii]\\.e\\.|etc\\b\\.?|vs\\b\\.?|cf\\.|viz\\.)",
+        "flags": "g",
+        "enabled": true,
+        "remedy": "Write \"for example\" or \"that is\", or name the items. Write \"against\" or \"compared with\" for \"vs\"."
+      },
+      {
+        "id": "filler",
+        "source": "simple-english slop-to-simple table",
+        "terms": [
+          {
+            "term": "leverage",
+            "pattern": "\\bleverag(?:e|es|ed|ing)\\b",
+            "flags": "gi",
+            "use": "write \"use\""
+          },
+          {
+            "term": "utilize",
+            "pattern": "\\butili[sz](?:e|es|ed|ing|ation)\\b",
+            "flags": "gi",
+            "use": "write \"use\""
+          },
+          {
+            "term": "in order to",
+            "pattern": "\\bin order to\\b",
+            "flags": "gi",
+            "use": "write \"to\""
+          },
+          {
+            "term": "prior to",
+            "pattern": "\\bprior to\\b",
+            "flags": "gi",
+            "use": "write \"before\""
+          },
+          {
+            "term": "it is worth noting",
+            "pattern": "\\bit is worth noting\\b|\\bworth noting\\b",
+            "flags": "gi",
+            "use": "delete it"
+          },
+          {
+            "term": "it is important to",
+            "pattern": "\\bit is important to\\b|\\bit\\'s important to\\b",
+            "flags": "gi",
+            "use": "delete it and state the fact"
+          },
+          {
+            "term": "crucially",
+            "pattern": "\\bcrucially\\b",
+            "flags": "gi",
+            "use": "delete it and state the fact"
+          },
+          {
+            "term": "robust",
+            "pattern": "(?<![\\w-])robust\\b(?!\\s+(?:to|against|across)\\b)|\\b(?:powerful|comprehensive|performant)\\b",
+            "flags": "gi",
+            "use": "delete it, or give the property that it means"
+          },
+          {
+            "term": "seamlessly",
+            "pattern": "\\b(?:seamlessly|effortlessly)\\b",
+            "flags": "gi",
+            "use": "delete it"
+          },
+          {
+            "term": "functionality",
+            "pattern": "\\bfunctionality\\b",
+            "flags": "gi",
+            "use": "write \"function\" or \"feature\""
+          },
+          {
+            "term": "enables you to",
+            "pattern": "\\b(?:enables|allows) you to\\b",
+            "flags": "gi",
+            "use": "write \"you can\""
+          },
+          {
+            "term": "facilitate",
+            "pattern": "\\bfacilitat(?:e|es|ed|ing)\\b",
+            "flags": "gi",
+            "use": "write \"help\" or \"make possible\""
+          },
+          {
+            "term": "delve into",
+            "pattern": "\\b(?:dive|delve)s? into\\b",
+            "flags": "gi",
+            "use": "write \"read\" or \"examine\""
+          },
+          {
+            "term": "when it comes to",
+            "pattern": "\\bwhen it comes to\\b",
+            "flags": "gi",
+            "use": "write \"for\""
+          },
+          {
+            "term": "in the event that",
+            "pattern": "\\bin the event that\\b",
+            "flags": "gi",
+            "use": "write \"if\""
+          },
+          {
+            "term": "due to the fact that",
+            "pattern": "\\bdue to the fact that\\b",
+            "flags": "gi",
+            "use": "write \"because\""
+          },
+          {
+            "term": "and/or",
+            "pattern": "\\band/or\\b",
+            "flags": "gi",
+            "use": "pick one, or write \"X, or Y, or both\""
+          },
+          {
+            "term": "out of the box",
+            "pattern": "\\bout of the box\\b",
+            "flags": "gi",
+            "use": "write \"by default\""
+          },
+          {
+            "term": "under the hood",
+            "pattern": "\\bunder the hood\\b",
+            "flags": "gi",
+            "use": "write \"internally\""
+          },
+          {
+            "term": "state-of-the-art",
+            "pattern": "\\b(?:blazingly|state-of-the-art)\\b",
+            "flags": "gi",
+            "use": "delete it, or give the number"
+          },
+          {
+            "term": "streamline",
+            "pattern": "\\bstreamlin(?:e|es|ed|ing)\\b",
+            "flags": "gi",
+            "use": "write \"make simpler\" or \"make faster\""
+          },
+          {
+            "term": "myriad",
+            "pattern": "\\b(?:plethora|myriad)\\b",
+            "flags": "gi",
+            "use": "write \"many\""
+          },
+          {
+            "term": "tackles",
+            "pattern": "\\btackl(?:e|es|ed|ing)\\b",
+            "flags": "gi",
+            "use": "write \"corrects\" or \"removes\""
+          }
+        ],
+        "enabled": true,
+        "remedy": "Delete a word that carries no fact."
+      }
+    ],
+    "budgets": [
+      {
+        "id": "header-lines",
+        "lines": 15,
+        "enabled": true,
+        "remedy": "Cut the file header to the purpose of the file and the constraints that a reader must know. Move the detail onto the declarations that it describes.",
+        "reason": "A header longer than one screen is not read. The budget counts lines of text: comment delimiters, blank lines and type-only JSDoc tags do not count. On the measured tree the median header had 13 lines of text, and the 90th percentile 34."
+      },
+      {
+        "id": "doc-lines",
+        "lines": 10,
+        "enabled": true,
+        "remedy": "Cut the description to what the declaration does and why. Delete what the signature or the code already says.",
+        "reason": "A description over 10 lines of text usually describes the body line by line. The budget counts lines of text, as the header budget does. On the measured tree the median description had 1 line of text, and the 90th percentile 8."
       }
     ]
   },
@@ -247,7 +482,8 @@
       "glob": "tools/audit/__fixtures__/comment-hygiene/**",
       "rules": [
         "comment-content",
-        "comment-placement"
+        "comment-placement",
+        "comment-prose"
       ],
       "reason": "Kill fixtures carry verbatim offender text. A guard that flags its own fixtures cannot be tested."
     },
@@ -255,7 +491,8 @@
       "glob": "tests/evals/**/runs/**",
       "rules": [
         "comment-content",
-        "comment-placement"
+        "comment-placement",
+        "comment-prose"
       ],
       "reason": "Verbatim captured agent output. It is evidence of what an agent produced, not authored code: rewriting it would destroy the record."
     }

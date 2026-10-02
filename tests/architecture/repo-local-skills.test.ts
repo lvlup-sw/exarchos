@@ -12,6 +12,7 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { parse as parseYaml } from 'yaml';
+import { loadPolicy } from '../../tools/audit/lib/comment-policy.mjs';
 import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..');
@@ -68,6 +69,21 @@ describe('repo-local skills', () => {
       const a = fs.readFileSync(path.join(REPO_ROOT, CANONICAL_DIR, file));
       const b = fs.readFileSync(path.join(REPO_ROOT, MIRROR_DIR, file));
       expect(b.equals(a), `${MIRROR_DIR}/${file} differs from ${CANONICAL_DIR}/${file}`).toBe(true);
+    }
+  });
+
+  /** The prose checks cite rule numbers, and an author follows each citation to the skill. */
+  it('RepoLocalSkills_EveryRuleThatThePolicyCites_IsInTheVendoredSkill', () => {
+    const prose = loadPolicy(path.join(REPO_ROOT, '.exarchos/comment-policy.json')).prose!;
+    const skill = fs.readFileSync(path.join(REPO_ROOT, prose.skill.canonical), 'utf8');
+    const cited = prose.steChecks.flatMap((check) => (check.steRule === undefined ? [] : [check.steRule]));
+
+    expect([prose.skill.canonical, prose.skill.mirror]).toEqual([`${CANONICAL_DIR}/simple-english/SKILL.md`, `${MIRROR_DIR}/simple-english/SKILL.md`]);
+    expect(frontmatter(prose.skill.canonical).version).toBe(prose.skill.version);
+    expect(cited.length).toBeGreaterThan(0);
+    for (const rule of cited) {
+      const row = /^\d+\.\d+$/.test(rule) ? new RegExp(`^\\| ${rule.replace('.', '\\.')} \\|`, 'm') : new RegExp(`\\b${rule}\\b`);
+      expect(skill, `the policy cites rule ${rule}, which the skill does not have`).toMatch(row);
     }
   });
 });

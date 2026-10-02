@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1312,
-    "parsedFiles": 1266,
+    "testFiles": 1314,
+    "parsedFiles": 1268,
     "shellFiles": 46,
-    "cases": 14472,
+    "cases": 14503,
     "dynamicTitles": 162,
     "unparseableFiles": 0
   },
@@ -6739,6 +6739,11 @@
           "suite": "repo-local skills",
           "name": "RepoLocalSkills_Mirror_IsByteIdenticalToTheCanonicalCopy",
           "dynamic": false
+        },
+        {
+          "suite": "repo-local skills",
+          "name": "RepoLocalSkills_EveryRuleThatThePolicyCites_IsInTheVendoredSkill",
+          "dynamic": false
         }
       ]
     },
@@ -12318,6 +12323,37 @@
         }
       ]
     },
+    "tests/scripts/eslint-rules/comment-prose.test.ts": {
+      "file": "tests/scripts/eslint-rules/comment-prose.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "",
+          "name": "ProseRule_DescriptionWithViolations_ReportsEachCheckAtTheBlock",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "ProseRule_PlainDescription_IsNotReported",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "ProseRule_CommentInsideAFunction_IsNotReported",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "ProseRule_BaselinedBlock_IsNotReported",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "ProseRule_ExemptPath_IsNotReported",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/scripts/generate-legacy-skill-hashes.test.ts": {
       "file": "tests/scripts/generate-legacy-skill-hashes.test.ts",
       "runner": "vitest:root",
@@ -13073,6 +13109,31 @@
           "suite": "precision audit",
           "name": "Precision_Measurement_ScannedARealTreeAndFoundNoIndeterminateFiles",
           "dynamic": false
+        },
+        {
+          "suite": "placement and prose precision",
+          "name": "Precision_EveryPlacementAndProseCheck_HasARecord",
+          "dynamic": false
+        },
+        {
+          "suite": "placement and prose precision",
+          "name": "Precision_EveryEnabledCheck_MeetsTheFloor",
+          "dynamic": false
+        },
+        {
+          "suite": "placement and prose precision",
+          "name": "Precision_DeterministicRecord_IsALineBudget",
+          "dynamic": false
+        },
+        {
+          "suite": "placement and prose precision",
+          "name": "Precision_CheckBelowTheFloor_ShipsDisabledWithItsEvidence",
+          "dynamic": false
+        },
+        {
+          "suite": "placement and prose precision",
+          "name": "Precision_RecordedProseFalsePositives_StayUnreported",
+          "dynamic": false
         }
       ]
     },
@@ -13485,6 +13546,11 @@
         },
         {
           "suite": "loadPolicy",
+          "name": "LoadPolicy_ProseInRoster_RequiresEveryCheckAndBudget",
+          "dynamic": false
+        },
+        {
+          "suite": "loadPolicy",
           "name": "LoadPolicy_EmptyForbiddenOrdinals_Fails",
           "dynamic": false
         },
@@ -13733,6 +13799,107 @@
         {
           "suite": "sourceLanguage",
           "name": "SourceLanguage_MapsExtensions",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/scripts/lib/comment-ste.test.ts": {
+      "file": "tests/scripts/lib/comment-ste.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "word count and sentences",
+          "name": "CountWords_CodeParenthesesQuotesAndHyphens_CountAsOneWordEach",
+          "dynamic": false
+        },
+        {
+          "suite": "word count and sentences",
+          "name": "ProseParagraphs_HyphenAtALineBreak_JoinsOneWord",
+          "dynamic": false
+        },
+        {
+          "suite": "word count and sentences",
+          "name": "SplitSentences_PeriodAfterAnAbbreviationOrInitial_DoesNotEndTheSentence",
+          "dynamic": false
+        },
+        {
+          "suite": "word count and sentences",
+          "name": "ProseParagraphs_TagsListsAndBlankLines_StartParagraphs",
+          "dynamic": false
+        },
+        {
+          "suite": "word count and sentences",
+          "name": "ProseParagraphs_BulletsLettersFlagRowsAndDedents_StartParagraphs",
+          "dynamic": false
+        },
+        {
+          "suite": "word count and sentences",
+          "name": "ProseParagraphs_RuleLinesAndClosingEmphasis_EndTheText",
+          "dynamic": false
+        },
+        {
+          "suite": "word count and sentences",
+          "name": "ProseParagraphs_CodeExamplesHeadingsTablesAndUnknownTags_AreSkipped",
+          "dynamic": false
+        },
+        {
+          "suite": "STE checks",
+          "name": "SentenceLength_OverTheLimit_IsReported",
+          "dynamic": false
+        },
+        {
+          "suite": "STE checks",
+          "name": "ParagraphLength_OverSixSentences_IsReported",
+          "dynamic": false
+        },
+        {
+          "suite": "STE checks",
+          "name": "PatternChecks_InsideCodeQuotesOrUrls_AreNotReported",
+          "dynamic": false
+        },
+        {
+          "suite": "STE checks",
+          "name": "PatternChecks_InProse_AreReportedOncePerCheck",
+          "dynamic": false
+        },
+        {
+          "suite": "STE checks",
+          "name": "Semicolon_WithoutASpaceAfterIt_IsNotProse",
+          "dynamic": false
+        },
+        {
+          "suite": "STE checks",
+          "name": "Contraction_Possessive_IsNotReported",
+          "dynamic": false
+        },
+        {
+          "suite": "STE checks",
+          "name": "Finding_Message_NamesTheMatchAndCitesTheRule",
+          "dynamic": false
+        },
+        {
+          "suite": "line budgets",
+          "name": "TextLines_DelimitersBlankLinesAndTypeOnlyTags_DoNotCount",
+          "dynamic": false
+        },
+        {
+          "suite": "line budgets",
+          "name": "DocLines_DescriptionOverTheBudget_IsReported",
+          "dynamic": false
+        },
+        {
+          "suite": "line budgets",
+          "name": "HeaderLines_HeaderOverTheBudget_ReportsEveryHeaderBlock",
+          "dynamic": false
+        },
+        {
+          "suite": "line budgets",
+          "name": "ProseChecks_BlockInsideAFunction_AreNotReported",
+          "dynamic": false
+        },
+        {
+          "suite": "line budgets",
+          "name": "ProseChecks_ExemptPath_AreNotReported",
           "dynamic": false
         }
       ]
