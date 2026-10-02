@@ -61,15 +61,16 @@ describe('handleGetPrComments', () => {
     expect(mockProvider.getPrComments).toHaveBeenCalledWith('42');
   });
 
+  /**
+   * The handler returns a `{ comments, page }` window. Both fixture comments fit
+   * the default window, newest first, so no page remains and no notice shows.
+   */
   it('handleGetPrComments_ValidPrId_ReturnsSuccessWithComments', async () => {
     const args = { prId: '42' };
 
     const result = await handleGetPrComments(args, ctx);
 
     expect(result.success).toBe(true);
-    // DR-3: the shim now returns a windowed `{ comments, page }` shape. With the
-    // 2-comment fixture both fit the default window, newest-first (id 2 before
-    // id 1), and nothing remains (hasMore false → no notice).
     const data = result.data as { comments: unknown[]; page: unknown; notice?: string };
     expect(data.comments).toEqual([sampleComments[1], sampleComments[0]]);
     expect(data.page).toEqual({ total: 2, offset: 0, limit: 20, hasMore: false });
@@ -77,9 +78,13 @@ describe('handleGetPrComments', () => {
     expect(result.next_actions).toBeUndefined();
   });
 
+  /**
+   * A provider with `getPrCommentsPage` gets the limit, offset and fields
+   * unchanged, and the handler does not read the full feed. When more pages
+   * remain, the next-page command keeps `--fields`. Without it, page 2 returns
+   * full comments.
+   */
   it('handleGetPrComments_ThreadsWindowOpts_ToProvider', async () => {
-    // A provider that implements the bounded surface receives the parsed
-    // limit/offset/fields opts verbatim; the shim prefers it over the fallback.
     const page = {
       comments: [{ id: 5, author: 'z' }],
       page: { total: 3, offset: 0, limit: 2, hasMore: true },
@@ -99,22 +104,18 @@ describe('handleGetPrComments', () => {
       offset: 0,
       fields: ['id', 'author'],
     });
-    // Falls through to the full feed only when the bounded surface is absent.
     expect(mockProvider.getPrComments).not.toHaveBeenCalled();
     expect(result.success).toBe(true);
     expect(result.data).toEqual(page);
-    // hasMore → a narrow affordance steering to the next page.
     expect(result.next_actions).toHaveLength(1);
     expect(result.next_actions?.[0]?.verb).toBe('get_pr_comments');
-    // The continuation command advances the offset AND preserves the projection
-    // — without --fields, page 2 would silently return full comments.
     expect(result.next_actions?.[0]?.hint).toBe(
       'get_pr_comments --pr 42 --offset 2 --limit 2 --fields id,author',
     );
   });
 
+  /** Without a field list in the request, the next-page command has no `--fields`. */
   it('handleGetPrComments_NoFields_OmitsFieldsFromContinuation', async () => {
-    // No projection requested → the continuation command must not invent one.
     const page = {
       comments: [{ id: 5, author: 'z', body: 'b', createdAt: 't', source: 'issue-comment' }],
       page: { total: 3, offset: 0, limit: 2, hasMore: true },

@@ -1,11 +1,7 @@
-// ─── Typed worktree-surface output schemas (WLM-6 Task 001, DR-1) ────────────
-//
-// Pins the DR-1 surface contract: every `surface: 'worktree'` action advertises
-// a TYPED `outputSchema` (not `EnvelopeSchema(z.unknown())`), the schemas accept
-// the REAL handler output (so the MCP adapter never replaces a real result with
-// an INTERNAL_ERROR), and the six previously-unguided actions carry the INV-5a
-// "Use for / Do NOT use for" affordance.
-// ─────────────────────────────────────────────────────────────────────────────
+// Each `surface: 'worktree'` action advertises a typed `outputSchema`, not
+// `EnvelopeSchema(z.unknown())`. Each schema accepts the real handler output, so
+// the MCP adapter does not replace a real result with an `INTERNAL_ERROR`. Six
+// actions carry the "Use for" and "Do NOT use for" guidance.
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
@@ -32,8 +28,6 @@ import type { GitWorktreeProbe } from '../../../../src/verbs/worktree/manager.js
 import type { ProcessSource } from '../../../../src/verbs/worktree/pure/process-identity.js';
 import type { ProcessTableSource } from '../../../../src/verbs/worktree/pure/probe.js';
 
-// ─── Deterministic injected deps (no git spawn, fixed process identity) ──────
-
 const EMPTY_PROBE: GitWorktreeProbe = {
   listWorktrees: () => [],
   verifyHead: () => ({ head: null, upstream: null, mutable: false, reason: 'head-unresolved' }),
@@ -43,15 +37,13 @@ const FIXED_SOURCE: ProcessSource = {
   getStartTime: () => ({ status: 'present', startedAt: 'fixed-start' }),
 };
 
-/** Unsupported process table → every liveness probe reads 'unknown' (fail closed). */
+/** An unsupported process table, so each liveness probe reads `'unknown'`. */
 const UNSUPPORTED_TABLE: ProcessTableSource = {
   list: () => [],
   isSupported: () => false,
 };
 
 const DETERMINISTIC_DEPS = { gitProbe: EMPTY_PROBE, processSource: FIXED_SOURCE };
-
-// ─── The seven surface actions, keyed by name for the real-output table ──────
 
 function surfaceActions(): ToolAction[] {
   return TOOL_REGISTRY.flatMap((t) => t.actions).filter((a) => a.surface === 'worktree');
@@ -62,8 +54,6 @@ function findSurfaceAction(name: string): ToolAction {
   if (action === undefined) throw new Error(`surface action '${name}' not registered`);
   return action;
 }
-
-// ─── Arm helper ──────────────────────────────────────────────────────────────
 
 interface Arm {
   readonly stateDir: string;
@@ -78,13 +68,9 @@ async function createArm(): Promise<Arm> {
 }
 
 describe('worktree surface — typed outputSchema registration (DR-1)', () => {
+  /** The roster pins the eight marked actions, so a lost marker fails the test. */
   it('WorktreeSurface_EveryMarkedAction_RegistersTypedOutputSchema', () => {
     const actions = surfaceActions();
-    // Exactly the eight surface actions carry the marker; if the marker
-    // regresses the count assertion goes red (kill-probe robustness). The
-    // eighth is `reconcile_worktrees` — the reclaim and the two reconcilers,
-    // moved off `ps probe:true` — and it arrived with a real schema rather than
-    // a waiver, so it belongs in this roster from its first commit.
     expect(actions.map((a) => a.name).sort()).toEqual(
       ['acquire_worktree', 'prune_worktrees', 'ps', 'reconcile_worktrees', 'release_worktree', 'serialize_merge', 'wait', 'worktrees'],
     );
@@ -97,8 +83,6 @@ describe('worktree surface — typed outputSchema registration (DR-1)', () => {
   });
 
   it('WorktreeActions_SixActions_CarryDoNotUseForGuidance', () => {
-    // The six actions that previously lacked INV-5a guidance (serialize_merge
-    // already carried it).
     const six = ['acquire_worktree', 'release_worktree', 'prune_worktrees', 'ps', 'wait', 'worktrees'];
     for (const name of six) {
       const action = findSurfaceAction(name);
@@ -121,6 +105,11 @@ describe('worktree surface — real handler output validates against schema (DR-
     return arm;
   }
 
+  /**
+   * The `wait` case uses `until: 'idle'`, which resolves at once on a store with
+   * no prune in flight. The `serialize_merge` case uses the dry-run default, so
+   * it checks the planned-effect shape and does not call `mergeOrchestrate`.
+   */
   it('WorktreeActions_RealHandlerOutput_SafeParsesAgainstSchema — success payloads', async () => {
     const arm = await nextArm();
     const repoRoot = arm.stateDir;
@@ -155,16 +144,10 @@ describe('worktree surface — real handler output validates against schema (DR-
         result: await handleViewPs({}, arm.ctx, DETERMINISTIC_DEPS),
       },
       {
-        // until:'idle' resolves immediately on a store with no in-flight prune.
         name: 'wait',
         result: await handleViewWait({ until: 'idle', timeoutMs: 1000 }, arm.ctx, DETERMINISTIC_DEPS),
       },
       {
-        // DEFAULT dry-run (no `dryRun` arg → dry-run by default, Task 002): the
-        // PLANNED-effect shape. The lease is NOT claimed and the injected
-        // `mergeOrchestrate` is NOT called (only `readIntegrationHead` runs);
-        // the executed-merge shape (the `serializedMerge` lease annotation) is
-        // validated by the dedicated executed-path test below.
         name: 'serialize_merge',
         result: await handleSerializeMerge(
           {
@@ -201,14 +184,15 @@ describe('worktree surface — real handler output validates against schema (DR-
     }
   });
 
+  /**
+   * With `dryRun: false`, the handler claims the lease, runs the fake merge, and
+   * releases. The test first proves that the executed branch ran: the result has
+   * the `serializedMerge` annotation and no `dryRun` marker. Otherwise the schema
+   * check can pass on the planned-effect shape.
+   */
   it('WorktreeActions_SerializeMergeExecuted_OutputSafeParsesAndAnnotatesLease — executed path (DR-1)', async () => {
     const arm = await nextArm();
 
-    // `dryRun: false` drives the REAL branch — claim → composed (fake) merge →
-    // release — so the `serializedMerge`-annotated executed shape is the one
-    // validated against SerializeMergeOutputSchema (the riskier passthrough the
-    // adapters/mcp.ts:262 runtime-validation guard exists for). The default-
-    // dry-run case above cannot reach this branch.
     const result = await handleSerializeMerge(
       {
         featureId: 'feat-x',
@@ -231,16 +215,11 @@ describe('worktree surface — real handler output validates against schema (DR-
 
     expect(result.success, 'executed serialize_merge should succeed').toBe(true);
 
-    // Prove the executed branch was ACTUALLY taken — not silently short-circuited
-    // to dry-run: the lease annotation is present and no `dryRun` marker is set.
-    // Without this, a regression that re-defaults the call to dry-run would leave
-    // the schema assertion below validating the wrong (planned-effect) shape.
     const data = result.data as Record<string, unknown>;
     expect(data.serializedMerge, 'executed path must carry the serializedMerge lease annotation').toBeDefined();
     expect(data.dryRun, 'executed path must NOT report a dryRun planned effect').toBeUndefined();
     expect((data.serializedMerge as Record<string, unknown>).operationId, 'lease annotation carries the operationId').toBeDefined();
 
-    // The executed-merge output shape validates against the typed schema.
     const action = findSurfaceAction('serialize_merge');
     const parsed = action.outputSchema.safeParse(toEnvelope(result));
     expect(
@@ -251,16 +230,18 @@ describe('worktree surface — real handler output validates against schema (DR-
     ).toBe(true);
   });
 
+  /**
+   * Each case drives an `INVALID_INPUT` guard to its error envelope. The `wait`
+   * case uses `until: 'merge'` with no `integrationRef`.
+   */
   it('WorktreeActions_RealHandlerOutput_SafeParsesAgainstSchema — INV-5b error envelopes', async () => {
     const arm = await nextArm();
 
-    // Every action with an INVALID_INPUT guard, driven to its error envelope.
     const cases: ReadonlyArray<{ name: string; result: ToolResult }> = [
       { name: 'acquire_worktree', result: await handleAcquireWorktree({}, arm.ctx, DETERMINISTIC_DEPS) },
       { name: 'release_worktree', result: await handleReleaseWorktree({}, arm.ctx, DETERMINISTIC_DEPS) },
       { name: 'prune_worktrees', result: await handlePruneWorktrees({}, arm.ctx, DETERMINISTIC_DEPS) },
       { name: 'serialize_merge', result: await handleSerializeMerge({}, arm.ctx) },
-      // until:'merge' with no integrationRef → INVALID_INPUT.
       { name: 'wait', result: await handleViewWait({ until: 'merge' }, arm.ctx, DETERMINISTIC_DEPS) },
     ];
 

@@ -1,12 +1,10 @@
-// Regression harness for #1145: verifies preflight.* events actually
-// persist to a real EventStore, not just that a mock's .append was called.
+// Integration tests for `prepare_delegation` on a real `EventStore`. They query the
+// store after dispatch, so they prove that events persist, not only that a mock
+// `append` ran.
 //
-// The v2.8.1 fix for #1129 added store.append() call sites for preflight
-// events. The existing unit tests assert on mockStore.append.mock.calls,
-// which only proves the handler *invoked* the append. Live MCP testing
-// revealed events are being silently dropped — this harness exercises the
-// real store through the production code path and queries it after the
-// handler returns.
+// The dispatch-guard mock blocks on the protected branch by default, and its stash
+// probe does nothing. The base-ref mock reports a pinned base ref, so a ready
+// dispatch passes `assertWorktreeBaseRefPinned`.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -41,16 +39,9 @@ vi.mock('../../../../src/verbs/team/dispatch-guard.js', () => ({
     reason: 'current-branch-protected',
     currentBranch: 'main',
   }),
-  // #1261 — stash probe is fire-and-forget; default to a no-op for this
-  // integration test, which exercises the blocked-protected-branch
-  // short-circuit only.
   probeStashAndEmit: vi.fn().mockResolvedValue(undefined),
 }));
 
-// vls1-b1 (task 002): the verification-ladder acceptance test exercises the
-// nativeIsolation ready path, which runs `assertWorktreeBaseRefPinned`. Default
-// it to "pinned" so the dispatch proceeds; the existing blocked-protected-branch
-// tests short-circuit before this guard, so the mock is inert for them.
 vi.mock('../../../../src/verbs/team/worktree-baseref.js', () => ({
   assertWorktreeBaseRefPinned: vi
     .fn()
@@ -114,13 +105,7 @@ describe('handlePrepareDelegation — event persistence (integration)', () => {
     expect(eventData.details.currentBranch).toBe('main');
   });
 
-  // The constructor-injection refactor (#1182) requires every reader to
-  // share the same EventStore instance the handler used. A "freshReader"
-  // EventStore at the same stateDir must still see events on disk, but
-  // sequence-counter coherence is only guaranteed when the same instance
-  // is used for both writes and reads — that is enforced by single-
-  // composition-root wiring at the MCP server level. This test verifies
-  // the on-disk events are present (write-side persistence).
+  /** A second `EventStore` instance at the same state directory reads the persisted events from disk. */
   it('event persists to disk and is readable by a second EventStore instance', async () => {
     const args = { featureId: 'test-cross-instance' };
     const ctxStore = new EventStore(tmpDir);
@@ -142,10 +127,7 @@ describe('handlePrepareDelegation — event persistence (integration)', () => {
     expect(events[0]?.type).toBe('preflight.blocked');
   });
 
-  // Reproduces the EXACT production MCP call path: handleOrchestrate
-  // dispatched with a DispatchContext whose ctx.eventStore is a distinct
-  // instance from the factory-cached store the handler uses internally.
-  // This is the drift that caused #1129's partial regression to escape.
+  /** This is the production MCP path: `handleOrchestrate` with a `DispatchContext`. */
   it('preflight.blocked persists when dispatched via handleOrchestrate with DispatchContext', async () => {
     const ctxStore = new EventStore(tmpDir);
     const ctx: DispatchContext = {
@@ -171,13 +153,10 @@ describe('handlePrepareDelegation — event persistence (integration)', () => {
     expect(events).toHaveLength(1);
   });
 
-  // Race reproduction: a caller that queries IMMEDIATELY after the dispatch
-  // response returns (no flush, no sleep) — exactly what a downstream MCP
-  // client does. The event must be visible the moment the dispatch returns,
-  // not "eventually." This is the failure mode that surfaced in the v2.8.1
-  // dogfood re-verify: the handler returned blocked, the caller queried,
-  // the stream was empty. Fire-and-forget appends are not synchronous with
-  // the dispatch response, so any "read your writes" MCP caller races.
+  /**
+   * A caller that queries at once after the dispatch returns must see the event.
+   * An append that the handler does not await races such a caller.
+   */
   it('preflight.blocked is visible the moment handleOrchestrate returns (no flush)', async () => {
     const ctxStore = new EventStore(tmpDir);
     const ctx: DispatchContext = {
@@ -191,8 +170,6 @@ describe('handlePrepareDelegation — event persistence (integration)', () => {
       ctx,
     );
 
-    // Intentionally no flush — mirrors a subsequent MCP call from the
-    // same client reading its own writes.
     const events = await ctxStore.query('test-race-stream', {
       type: 'preflight.blocked',
     });
@@ -200,30 +177,12 @@ describe('handlePrepareDelegation — event persistence (integration)', () => {
   });
 });
 
-// ─── T-09 (#1301): Working-tree mirroring-leak root-cause characterization ────
-//
-// characterizationRequired: true
-//
-// #1301 symptom: an implementer agent's worktree edits surface as
-// byte-identical UNCOMMITTED modifications in the orchestrator's MAIN
-// worktree. The issue's leading hypothesis (#1) is a "file-tool path
-// resolution leak" — an agent file-write resolving to BOTH the worktree path
-// AND the equivalent main-worktree path.
-//
-// This block characterizes whether that leak can originate in
-// MCP-SERVER-OWNED code. The server's entire surface area for "where an agent
-// will write" is the worktree it provisions via `handleSetupWorktree`
-// (`git worktree add <repoRoot>/.worktrees/<task>`). The server never spawns
-// the agent and never resolves the agent's individual file-write targets —
-// that is the Claude Code harness / file-tool layer, outside this repo.
-//
-// INV-11 (by-construction worktree isolation) on the server side reduces to a
-// single provable invariant: every path the server hands off as an agent
-// write root MUST live strictly inside `<repoRoot>/.worktrees/`, NEVER the
-// main worktree root. These tests assert exactly that. If the server resolved
-// a write target to the main worktree, the leak would reproduce here; if it
-// cannot, the root fix is a harness-layer concern (escalated to RC2), with
-// T-08's `verify-worktree-baseline` backstop as the shipping mitigation.
+/**
+ * Characterizes whether a worktree edit by an implementer agent can leak into the
+ * main worktree through server code. The server decides only the worktree path from
+ * `handleSetupWorktree`, so each agent write root must be inside `<repoRoot>/.worktrees/`.
+ * Agent file writes happen in the harness, outside this repository.
+ */
 describe('ImplementerDispatch_WorktreeEdit_DoesNotAppearInMainWorktree (characterization, #1301)', () => {
   let repoRoot: string;
 
@@ -231,13 +190,12 @@ describe('ImplementerDispatch_WorktreeEdit_DoesNotAppearInMainWorktree (characte
     return execFileAsync('git', ['-C', cwd, ...args]);
   }
 
+  /** Commits `src.txt`, so the agent worktree has a counterpart file in the main worktree. */
   beforeEach(async () => {
     repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'rootcause-1301-'));
     await git(repoRoot, ['init', '-b', 'main']);
     await git(repoRoot, ['config', 'user.email', 'test@example.com']);
     await git(repoRoot, ['config', 'user.name', 'Test']);
-    // Seed a committed file so the agent worktree has a real main-worktree
-    // counterpart to (not) leak into.
     await fs.writeFile(path.join(repoRoot, 'src.txt'), 'baseline\n');
     await git(repoRoot, ['add', '.']);
     await git(repoRoot, ['commit', '-m', 'baseline']);
@@ -247,6 +205,7 @@ describe('ImplementerDispatch_WorktreeEdit_DoesNotAppearInMainWorktree (characte
     await rmrfAsync(repoRoot);
   });
 
+  /** `handleSetupWorktree` returns a POSIX path, so the test builds the `.worktrees/` prefix with `toPosix`. */
   it('resolves the agent write-root strictly inside <repoRoot>/.worktrees/, never the main worktree', async () => {
     const result = await handleSetupWorktree({
       repoRoot,
@@ -258,17 +217,17 @@ describe('ImplementerDispatch_WorktreeEdit_DoesNotAppearInMainWorktree (characte
     expect(result.success).toBe(true);
     const data = result.data as { worktreePath: string; passed: boolean };
 
-    // handleSetupWorktree returns a POSIX-normalized worktreePath (#1620), so
-    // build the containment prefix the same way rather than with native sep.
     const worktreesRoot = toPosix(path.join(repoRoot, '.worktrees')) + '/';
-    // The write root must be UNDER .worktrees/ — not the repoRoot itself and
-    // not a sibling escaping the isolation boundary.
     expect(data.worktreePath.startsWith(worktreesRoot)).toBe(true);
     expect(path.resolve(data.worktreePath)).not.toBe(path.resolve(repoRoot));
-    // A real, distinct worktree was provisioned (git sees a separate gitdir).
     expect(await existsSafe(data.worktreePath)).toBe(true);
   });
 
+  /**
+   * The test writes `src.txt` at the worktree path that the server returns. The main
+   * worktree must show no change to `src.txt`. The check ignores other paths, because
+   * `handleSetupWorktree` writes `.gitignore` into the main worktree by design.
+   */
   it('an agent-side write into its worktree does NOT mirror into the main worktree', async () => {
     const setup = await handleSetupWorktree({
       repoRoot,
@@ -278,24 +237,15 @@ describe('ImplementerDispatch_WorktreeEdit_DoesNotAppearInMainWorktree (characte
     });
     const { worktreePath } = setup.data as { worktreePath: string };
 
-    // Simulate the agent's file-tool write happening at the path the SERVER
-    // handed it. If server path-resolution leaked, the byte-identical content
-    // would also appear at the main worktree's copy of the same file.
     const agentFile = path.join(worktreePath, 'src.txt');
     await execFileAsync('node', ['-e', `require('fs').writeFileSync(${JSON.stringify(agentFile)}, 'agent-edit\\n')`]);
 
-    // The agent's edited path (src.txt) must NOT surface as a modification in
-    // the main worktree. (`handleSetupWorktree` step 1 writes `.gitignore`
-    // into the main worktree by design — that is provisioning, not a leak, so
-    // we assert specifically on the agent-edited path, not whole-tree
-    // cleanliness.)
     const mainStatus = await git(repoRoot, ['status', '--porcelain']);
     const leakedPaths = mainStatus
       .split('\n')
       .map(l => l.slice(2).trim())
       .filter(p => p === 'src.txt');
     expect(leakedPaths).toEqual([]);
-    // And the main worktree's file is untouched.
     const mainContent = await execFileAsync('cat', [path.join(repoRoot, 'src.txt')]);
     expect(mainContent).toBe('baseline\n');
   });
@@ -310,33 +260,23 @@ async function existsSafe(p: string): Promise<boolean> {
   }
 }
 
-// ─── vls1-b1 (task 002 / 007): verification-ladder ACCEPTANCE ────────────────
-//
-// Dispatches `prepare_delegation` THROUGH `handleOrchestrate` (the production
-// dispatch entry — a registered action without a dispatch branch returns
-// UNKNOWN_ACTION, which per-handler tests cannot catch) on a real EventStore
-// seeded to a ready state. Asserts every returned task classification carries
-// the verification-ladder fields — `riskTier`, `boundaryTouching`, and an
-// ordered `verificationSequence` — consistent with the policy table
-// (`workflow/verification-policy.ts`, task 006).
-//
-// Written FIRST and RED until the wire-in (task 007). Each case exercises a
-// distinct tier/boundary combination so a partial implementation is caught.
+/**
+ * Dispatches `prepare_delegation` through `handleOrchestrate`, because a registered
+ * action without a dispatch branch returns `UNKNOWN_ACTION` and a handler test cannot
+ * catch that. The seeded store makes the readiness projection report ready, and the
+ * handler classifies tasks only when ready. Each case checks `riskTier`,
+ * `boundaryTouching` and the ordered `verificationSequence`.
+ */
 describe('HandleOrchestrate_PrepareDelegation_StampsRiskTierBoundaryAndVerificationSequence', () => {
-  // Seed a real EventStore so the delegation-readiness projection reports
-  // ready=true (plan approved + artifact present + every task's worktree
-  // created). The handler classifies tasks only on the ready path.
   async function seedReadyStream(
     store: EventStore,
     streamId: string,
     taskIds: readonly string[],
   ): Promise<void> {
-    // plan.approved = true
     await store.append(streamId, {
       type: 'workflow.transition',
       data: { to: 'plan-review' },
     });
-    // artifacts.plan present → plan.artifactPresent = true
     await store.append(streamId, {
       type: 'state.patched',
       data: { patch: { 'artifacts.plan': 'plan.md' } },
@@ -374,6 +314,13 @@ describe('HandleOrchestrate_PrepareDelegation_StampsRiskTierBoundaryAndVerificat
     };
   }
 
+  /**
+   * The test overrides the dispatch-guard mock, so the dispatch is not blocked on the
+   * protected branch. `t-high` edits a schema file that is not a boundary glob.
+   * The `acceptance` layer gives a high, boundary-touching task. The `integration`
+   * layer gives a medium, boundary-touching task. A medium or high boundary task
+   * appends `check_contract_drift` and then `check_mock_boundary` to its base sequence.
+   */
   it('stamps riskTier, boundaryTouching, and an ordered verificationSequence per task', async () => {
     const ctxStore = new EventStore(tmpDir);
     const streamId = 'vls1-acceptance';
@@ -387,8 +334,6 @@ describe('HandleOrchestrate_PrepareDelegation_StampsRiskTierBoundaryAndVerificat
       enableTelemetry: false,
     };
 
-    // Override the module-level dispatch-guard mock so this dispatch is NOT
-    // blocked on the protected-branch short-circuit (the file default blocks).
     const guard = await import('../../../../src/verbs/team/dispatch-guard.js');
     vi.mocked(guard.getCurrentBranch).mockReturnValue('feature/verification-ladder');
     vi.mocked(guard.assertCurrentBranchNotProtected).mockReturnValue({ blocked: false });
@@ -399,19 +344,10 @@ describe('HandleOrchestrate_PrepareDelegation_StampsRiskTierBoundaryAndVerificat
         featureId: streamId,
         nativeIsolation: true,
         tasks: [
-          // (a) high tier via a high-risk schema glob — NOT a boundary glob and
-          // NOT a boundary testLayer, so this cleanly exercises the pure-high
-          // base sequence (riskTier and boundaryTouching are orthogonal axes).
           { id: 't-high', title: 'edit schema', files: ['src/events/schemas.ts'] },
-          // (a2) high tier via testLayer 'acceptance'. Per the boundary policy,
-          // the acceptance layer ALSO marks the task boundary-touching, so its
-          // sequence is base-high + contract_drift + mock_boundary.
           { id: 't-high-accept', title: 'Write acceptance test', testLayer: 'acceptance' },
-          // (b) medium default — single module behavior, no high/low signals.
           { id: 't-medium', title: 'Add validation logic', files: ['src/validate.ts'] },
-          // (c) low — doc-only files.
           { id: 't-low', title: 'Update changelog', files: ['docs/CHANGELOG.md'] },
-          // (d) boundary-tagged — testLayer 'integration'.
           { id: 't-boundary', title: 'Integration test', testLayer: 'integration' },
         ],
       },
@@ -422,7 +358,6 @@ describe('HandleOrchestrate_PrepareDelegation_StampsRiskTierBoundaryAndVerificat
     const data = (result.data as { ready?: boolean }) ?? {};
     expect(data.ready).toBe(true);
 
-    // (a) high tier, NOT boundary-touching → base high sequence only.
     const high = findClassification(data, 't-high');
     expect(high.riskTier).toBe('high');
     expect(high.boundaryTouching).toBe(false);
@@ -432,8 +367,6 @@ describe('HandleOrchestrate_PrepareDelegation_StampsRiskTierBoundaryAndVerificat
       'check_integration_suite',
     ]);
 
-    // (a2) high tier AND boundary-touching (acceptance layer) → base high
-    // sequence + contract_drift + mock_boundary, appended in that order.
     const highAccept = findClassification(data, 't-high-accept');
     expect(highAccept.riskTier).toBe('high');
     expect(highAccept.boundaryTouching).toBe(true);
@@ -445,7 +378,6 @@ describe('HandleOrchestrate_PrepareDelegation_StampsRiskTierBoundaryAndVerificat
       'check_mock_boundary',
     ]);
 
-    // (b) medium default, not boundary-touching → base medium sequence.
     const medium = findClassification(data, 't-medium');
     expect(medium.riskTier).toBe('medium');
     expect(medium.boundaryTouching).toBe(false);
@@ -454,16 +386,11 @@ describe('HandleOrchestrate_PrepareDelegation_StampsRiskTierBoundaryAndVerificat
       'check_test_adequacy',
     ]);
 
-    // (c) low (doc-only), not boundary-touching → base low sequence.
     const low = findClassification(data, 't-low');
     expect(low.riskTier).toBe('low');
     expect(low.boundaryTouching).toBe(false);
     expect(low.verificationSequence).toEqual(['check_static_analysis']);
 
-    // (d) boundary-tagged (integration testLayer). riskTier is medium
-    // (integration → medium), boundaryTouching true → base medium sequence
-    // PLUS check_contract_drift (every tier) then check_mock_boundary
-    // (medium/high only), appended in that order.
     const boundary = findClassification(data, 't-boundary');
     expect(boundary.boundaryTouching).toBe(true);
     expect(boundary.riskTier).toBe('medium');
@@ -474,17 +401,15 @@ describe('HandleOrchestrate_PrepareDelegation_StampsRiskTierBoundaryAndVerificat
       'check_mock_boundary',
     ]);
 
-    // Every sequence is duplicate-free.
     for (const c of [high, highAccept, medium, low, boundary]) {
       expect(new Set(c.verificationSequence).size).toBe(c.verificationSequence.length);
     }
   });
 
-  // vls1-b1 (task 007): the wired classifier must populate the
-  // verificationSequence from the policy table — assert the exact sequence the
-  // policy produces appears on the returned classification (the "delegation
-  // record"), proving the wire-in is sourced from resolveVerificationSequence
-  // rather than hand-rolled in the handler.
+  /**
+   * The adapter file gives a medium, boundary-touching task. Its classification carries
+   * the exact sequence from `resolveVerificationSequence`, not one that the handler builds.
+   */
   it('PrepareDelegation_ClassifiedTask_CarriesPolicySequenceOnDelegationRecord', async () => {
     const ctxStore = new EventStore(tmpDir);
     const streamId = 'vls1-policy-record';
@@ -509,7 +434,6 @@ describe('HandleOrchestrate_PrepareDelegation_StampsRiskTierBoundaryAndVerificat
         action: 'prepare_delegation',
         featureId: streamId,
         nativeIsolation: true,
-        // medium tier (single source file), boundary-touching (adapter glob).
         tasks: [{ id: 't-only', title: 'tweak adapter', files: ['src/adapters/cli.ts'] }],
       },
       ctx,
@@ -519,21 +443,17 @@ describe('HandleOrchestrate_PrepareDelegation_StampsRiskTierBoundaryAndVerificat
     const c = findClassification(result.data, 't-only');
     expect(c.riskTier).toBe('medium');
     expect(c.boundaryTouching).toBe(true);
-    // The record's sequence is EXACTLY what the policy table resolves.
     expect(c.verificationSequence).toEqual([
       ...resolveVerificationSequence('medium', true),
     ]);
   });
 });
 
-// ─── DR-2: workflow-level riskTier persistence + review-contract wiring ──────
-//
-// Drives prepare_delegation through the production handleOrchestrate path on a
-// real EventStore, then proves the END-TO-END wiring task 004 delivers:
-//   1. the derived workflow tier persists to state.riskTier (event-sourced
-//      state.patched, materialized through the real workflow-state projection);
-//   2. that persisted tier feeds the /review required-reviews contract so the
-//      high-tier mutation-adequacy backstop is armed.
+/**
+ * Drives `prepare_delegation` through `handleOrchestrate` on a real `EventStore`. The
+ * derived workflow tier persists to `state.riskTier` through `state.patched`, and a
+ * high tier adds `mutation-adequacy` to the required reviews.
+ */
 describe('HandleOrchestrate_PrepareDelegation_PersistsWorkflowRiskTier (DR-2)', () => {
   async function seedReadyStream(
     store: EventStore,
@@ -574,6 +494,7 @@ describe('HandleOrchestrate_PrepareDelegation_PersistsWorkflowRiskTier (DR-2)', 
     return view.riskTier;
   }
 
+  /** The workflow tier is the highest task tier, so a schema task and a medium task give `high`. */
   it('persists state.riskTier=high for a high-tier wave and arms the mutation-adequacy backstop', async () => {
     const ctxStore = new EventStore(tmpDir);
     const streamId = 'dr2-workflow-risktier';
@@ -597,7 +518,6 @@ describe('HandleOrchestrate_PrepareDelegation_PersistsWorkflowRiskTier (DR-2)', 
         featureId: streamId,
         nativeIsolation: true,
         tasks: [
-          // high via the **/*schema* glob; medium default — max-of-tiers ⇒ high.
           { id: 't-high', title: 'edit schema', files: ['src/events/schemas.ts'] },
           { id: 't-medium', title: 'Add validation logic', files: ['src/validate.ts'] },
         ],
@@ -606,7 +526,6 @@ describe('HandleOrchestrate_PrepareDelegation_PersistsWorkflowRiskTier (DR-2)', 
     );
     expect(result.success).toBe(true);
 
-    // (1) the state.patched riskTier event actually persisted to the real store.
     const patchEvents = await ctxStore.query(streamId, { type: 'state.patched' });
     const riskTierPatch = patchEvents.find(
       (e) => !!(e.data as { patch?: Record<string, unknown> }).patch
@@ -615,20 +534,19 @@ describe('HandleOrchestrate_PrepareDelegation_PersistsWorkflowRiskTier (DR-2)', 
     expect(riskTierPatch).toBeDefined();
     expect((riskTierPatch!.data as { patch: { riskTier: string } }).patch.riskTier).toBe('high');
 
-    // (2) folded through the real workflow-state projection → state.riskTier=high.
     const riskTier = await materializeRiskTier(ctxStore, tmpDir, streamId);
     expect(riskTier).toBe('high');
 
-    // (3) that persisted tier arms the /review mutation-adequacy backstop.
     expect(getRequiredReviews('feature', riskTier as string)).toContain('mutation-adequacy');
   });
 
+  /**
+   * Every derivation appends a `state.patched` event, and the projection keeps the last
+   * value. An idempotency key on the tier value drops the second `high` and leaves `medium`.
+   * The test closes the store before `afterEach` removes `tmpDir`, because an open SQLite
+   * handle blocks removal on Windows.
+   */
   it('re-raised tier survives high → medium → high (no value-keyed dedup — RVC-R9)', async () => {
-    // Regression: persistWorkflowRiskTier keyed the state.patched by tier value,
-    // so a workflow that went high → medium → high cache-hit the second `high` at
-    // the store and materialized to `medium` — silently under-arming the
-    // mutation-adequacy backstop. With the value-based key removed, every
-    // derivation appends and the projection folds last-write-wins.
     const ctxStore = new EventStore(tmpDir);
     const streamId = 'dr2-risktier-reraise';
     try {
@@ -636,8 +554,6 @@ describe('HandleOrchestrate_PrepareDelegation_PersistsWorkflowRiskTier (DR-2)', 
       await persistWorkflowRiskTier(ctxStore, streamId, 'medium');
       await persistWorkflowRiskTier(ctxStore, streamId, 'high');
 
-      // All three patches must persist (the value-based key would have dropped the
-      // third as a cache-hit, leaving `medium` as the last applied value).
       const patches = await ctxStore.query(streamId, { type: 'state.patched' });
       const tierPatches = patches.filter(
         (e) =>
@@ -646,17 +562,15 @@ describe('HandleOrchestrate_PrepareDelegation_PersistsWorkflowRiskTier (DR-2)', 
       );
       expect(tierPatches.length).toBe(3);
 
-      // Materialized through the real projection → last-write-wins yields `high`.
       const riskTier = await materializeRiskTier(ctxStore, tmpDir, streamId);
       expect(riskTier).toBe('high');
       expect(getRequiredReviews('feature', riskTier as string)).toContain('mutation-adequacy');
     } finally {
-      // MUST close the SQLite handle before the afterEach removes tmpDir — an open
-      // handle blocks fs.rm on Windows (EventStore.close() contract; CodeRabbit).
       ctxStore.close();
     }
   });
 
+  /** The task derives to `medium`, and the caller sets `riskTier: 'high'`. */
   it('an explicit caller riskTier override wins over the derived value end-to-end', async () => {
     const ctxStore = new EventStore(tmpDir);
     const streamId = 'dr2-override';
@@ -679,7 +593,6 @@ describe('HandleOrchestrate_PrepareDelegation_PersistsWorkflowRiskTier (DR-2)', 
         action: 'prepare_delegation',
         featureId: streamId,
         nativeIsolation: true,
-        // The task derives to medium, but the caller forces high — override wins.
         riskTier: 'high',
         tasks: [{ id: 't-only', title: 'Add validation logic', files: ['src/validate.ts'] }],
       },

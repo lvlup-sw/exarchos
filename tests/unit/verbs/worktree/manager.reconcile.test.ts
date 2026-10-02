@@ -1,18 +1,8 @@
-// ─── WorktreeManager — crash-safe reservation + heal-as-reconcile-fold (DR-3) ─
-//
-// HIGH-tier integration suite: every assertion drives the REAL EventStore /
-// SQLite substrate (a per-test tmp `stateDir`), so the reserve / release /
-// reconcile contract is pinned across the actual event-store seam — not a mock.
-//
-// Contract under test:
-//   - reserve / release append a single event to the singleton `worktrees`
-//     stream keyed by the two-component `<eventType>:<operationId>` idempotency
-//     convention.
-//   - reconcile releases every reservation whose owner is provably dead, exactly
-//     once, never touching a live owner, idempotent on repeat, and serialized so
-//     two concurrent reconciles never double-release.
-//   - ownership lives ONLY in events: no advisory lock file, no JSON side file —
-//     state is rebuildable from the stream alone.
+// Tests for `WorktreeManager` reserve, release, and reconcile over a real EventStore, with no mock of the store.
+// Reserve and release append one event to the singleton `worktrees` stream through a `decide` over `worktrees@v1`.
+// Reconcile releases each reservation whose owner is provably dead, once, and never touches a live owner.
+// A repeated reconcile is idempotent, and two concurrent reconciles do not release twice.
+// Ownership lives only in events, with no lock file and no JSON side file.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, readdir } from 'node:fs/promises';
@@ -28,8 +18,6 @@ import {
 } from '../../../../src/verbs/worktree/manager.js';
 import type { ProcessSource, StartTimeProbe } from '../../../../src/verbs/worktree/pure/process-identity.js';
 import type { WorktreesProjection } from '../../../../src/verbs/worktree/projections/worktrees.js';
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /** A ProcessSource backed by a PID→create-time map (absent PID ⇒ exited). */
 function sourceFrom(table: Record<number, string>): ProcessSource {
@@ -78,8 +66,6 @@ async function walkFiles(dir: string): Promise<string[]> {
   return out;
 }
 
-// ─── Suite ────────────────────────────────────────────────────────────────────
-
 describe('WorktreeManager (real event store)', () => {
   let stateDir: string;
   let store: EventStore;
@@ -94,8 +80,10 @@ describe('WorktreeManager (real event store)', () => {
     await rmrfAsync(stateDir);
   });
 
-  // ─── reserve ────────────────────────────────────────────────────────────────
-
+  /**
+   * Reserve goes through a `decide` over `worktrees@v1`, so the idempotency key is `<streamId>:<reducerId>:<operationId>`.
+   * The key uses the `operationId` from the payload.
+   */
   it('Reserve_AppendsToWorktreesStream_WithOperationIdKey', async () => {
     const manager = new WorktreeManager({ eventStore: store });
     await manager.reserve({
@@ -110,18 +98,12 @@ describe('WorktreeManager (real event store)', () => {
     expect(reserved).toHaveLength(1);
 
     const event = reserved[0];
-    // Lands on the dedicated singleton `worktrees` stream.
     expect(event.streamId).toBe(WORKTREES_STREAM);
-    // reserve now routes through `decide` over worktrees@v1 (fold → validate
-    // exclusive ownership → append under OCC), so the per-call idempotency key is
-    // the decide-derived `<streamId>:<reducerId>:<operationId>` — one key per call,
-    // still anchored on the payload's operationId.
     const operationId = (event.data as { operationId?: unknown }).operationId;
     expect(typeof operationId).toBe('string');
     expect(event.idempotencyKey).toBe(
       `${WORKTREES_STREAM}:${WORKTREES_REDUCER}:${operationId}`,
     );
-    // Payload round-trips the reservation owner.
     expect(event.data).toMatchObject({
       worktreeId: '/wt/alpha',
       path: '/wt/alpha',
@@ -131,16 +113,14 @@ describe('WorktreeManager (real event store)', () => {
     });
   });
 
-  // ─── reserve: exclusive ownership (fold-before-append, fix 4) ─────────────────
-
+  /**
+   * Two live owners reserve the same worktree at once. Reserve folds `worktrees@v1` under OCC before it appends, so one wins.
+   * The loser folds the new state again and gets the holder as its conflict. A blind append lets both succeed.
+   */
   it('Reserve_ConcurrentDifferentOwners_OneWins_NoDoubleReserve', async () => {
-    // Two live owners race to reserve the SAME worktree. Because reserve now
-    // folds worktrees@v1 under OCC before appending, exactly ONE wins; the loser
-    // re-folds against the now-reserved state and is rejected. A blind append
-    // (the bug) would let BOTH "succeed", fabricating two concurrent owners.
     const manager = new WorktreeManager({
       eventStore: store,
-      processSource: sourceFrom({ 100: 'boot-100', 200: 'boot-200' }), // both live
+      processSource: sourceFrom({ 100: 'boot-100', 200: 'boot-200' }),
     });
     const base = {
       worktreeId: '/wt/contended',
@@ -153,29 +133,25 @@ describe('WorktreeManager (real event store)', () => {
       manager.reserve({ ...base, ownerPid: 200, ownerStartedAt: 'boot-200' }),
     ]);
 
-    // Exactly one `worktree.reserved` was appended.
     expect(eventsOfType(store, 'worktree.reserved')).toHaveLength(1);
-    // Exactly one call reports `reserved: true`; the other is rejected with the
-    // winning owner surfaced as the conflict.
     expect([a.reserved, b.reserved].sort()).toEqual([false, true]);
     const loser = a.reserved ? b : a;
     const winner = a.reserved ? a : b;
     expect(winner.conflict).toBeUndefined();
     expect(loser.conflict).toBeDefined();
 
-    // The fold shows a single live owner — whichever won.
     const proj = await projection(store);
     const entry = proj.worktrees['/wt/contended'];
     expect(entry.state).toBe('reserved');
     expect([100, 200]).toContain(entry.ownerPid);
-    // The reported conflict owner is the one that actually holds the lease.
     expect(loser.conflict?.ownerPid).toBe(entry.ownerPid);
   });
 
+  /** Owner 100 is live, so a claim by another process is rejected with owner 100 as the conflict. */
   it('Reserve_AlreadyReservedByLiveOwner_RejectsSecondClaim', async () => {
     const manager = new WorktreeManager({
       eventStore: store,
-      processSource: sourceFrom({ 100: 'boot-100' }), // owner 100 is live
+      processSource: sourceFrom({ 100: 'boot-100' }),
     });
     await manager.reserve({
       worktreeId: '/wt/held',
@@ -185,7 +161,6 @@ describe('WorktreeManager (real event store)', () => {
       ownerStartedAt: 'boot-100',
     });
 
-    // A different process tries to claim the live-owned worktree → rejected.
     const second = await manager.reserve({
       worktreeId: '/wt/held',
       path: '/wt/held',
@@ -198,12 +173,11 @@ describe('WorktreeManager (real event store)', () => {
     expect(eventsOfType(store, 'worktree.reserved')).toHaveLength(1);
   });
 
-  // ─── release: never free a foreign live owner's claim (fix 4) ─────────────────
-
+  /** Owner 100 is live, so owner 200 cannot release the reservation. Owner 100 can release it. */
   it('Release_ForeignLiveOwner_Rejected_LeavesReservationIntact', async () => {
     const manager = new WorktreeManager({
       eventStore: store,
-      processSource: sourceFrom({ 100: 'boot-100' }), // owner 100 is live
+      processSource: sourceFrom({ 100: 'boot-100' }),
     });
     await manager.reserve({
       worktreeId: '/wt/owned',
@@ -213,8 +187,6 @@ describe('WorktreeManager (real event store)', () => {
       ownerStartedAt: 'boot-100',
     });
 
-    // A stale/foreign caller (owner 200) must NOT be able to release owner 100's
-    // live reservation.
     const foreign = await manager.release('/wt/owned', {
       ownerPid: 200,
       ownerStartedAt: 'boot-200',
@@ -223,12 +195,10 @@ describe('WorktreeManager (real event store)', () => {
     expect(foreign.released).toBe(false);
     expect(eventsOfType(store, 'worktree.released')).toHaveLength(0);
 
-    // The reservation is intact — still held by owner 100.
     let proj = await projection(store);
     expect(proj.worktrees['/wt/owned'].state).toBe('reserved');
     expect(proj.worktrees['/wt/owned'].ownerPid).toBe(100);
 
-    // The true owner CAN release it.
     const own = await manager.release('/wt/owned', {
       ownerPid: 100,
       ownerStartedAt: 'boot-100',
@@ -238,8 +208,6 @@ describe('WorktreeManager (real event store)', () => {
     proj = await projection(store);
     expect(proj.worktrees['/wt/owned'].state).toBe('released');
   });
-
-  // ─── reconcile: dead owner ────────────────────────────────────────────────────
 
   it('Reconcile_DeadOwner_EmitsReleasedExactlyOnce', async () => {
     const manager = new WorktreeManager({
@@ -259,18 +227,15 @@ describe('WorktreeManager (real event store)', () => {
     expect(result.released).toEqual(['/wt/dead']);
     expect(eventsOfType(store, 'worktree.released')).toHaveLength(1);
 
-    // State folds to `released` — owner fields cleared.
     const proj = await projection(store);
     expect(proj.worktrees['/wt/dead'].state).toBe('released');
     expect(proj.worktrees['/wt/dead'].ownerPid).toBeNull();
   });
 
-  // ─── reconcile: live owner ────────────────────────────────────────────────────
-
+  /** PID 4242 is live with the create time that the reservation recorded. */
   it('Reconcile_LiveOwnerPidAndStartedAtMatch_NeverReleases', async () => {
     const manager = new WorktreeManager({
       eventStore: store,
-      // PID 4242 is live with the exact create-time the reservation recorded.
       processSource: sourceFrom({ 4242: 'boot-4242' }),
     });
     await manager.reserve({
@@ -290,8 +255,6 @@ describe('WorktreeManager (real event store)', () => {
     expect(proj.worktrees['/wt/live'].state).toBe('reserved');
     expect(proj.worktrees['/wt/live'].ownerPid).toBe(4242);
   });
-
-  // ─── reconcile: idempotent on repeat ──────────────────────────────────────────
 
   it('Reconcile_RepeatedRun_IsIdempotent', async () => {
     const manager = new WorktreeManager({
@@ -314,12 +277,9 @@ describe('WorktreeManager (real event store)', () => {
 
     expect(first.released).toEqual(['/wt/once']);
     expect(second.released).toEqual([]);
-    // The second pass appends nothing.
     expect(eventCountAfterSecond).toBe(eventCountAfterFirst);
     expect(eventsOfType(store, 'worktree.released')).toHaveLength(1);
   });
-
-  // ─── no advisory lock file ────────────────────────────────────────────────────
 
   it('Reservation_LeavesNoAdvisoryLockFile', async () => {
     const manager = new WorktreeManager({ eventStore: store });
@@ -336,8 +296,7 @@ describe('WorktreeManager (real event store)', () => {
     expect(lockFiles).toEqual([]);
   });
 
-  // ─── no JSON ownership side file ──────────────────────────────────────────────
-
+  /** No JSON file exists under the state dir, and the projection rebuilds the state from the event log. */
   it('ReserveRelease_WritesNoJsonSideFile', async () => {
     const manager = new WorktreeManager({ eventStore: store });
     await manager.reserve({
@@ -349,19 +308,16 @@ describe('WorktreeManager (real event store)', () => {
     });
     await manager.release('/wt/json');
 
-    // No JSON ownership cache anywhere under the state dir.
     const files = await walkFiles(stateDir);
     const jsonFiles = files.filter((f) => /\.json$/i.test(f));
     expect(jsonFiles).toEqual([]);
 
-    // State is fully rebuildable from the event log alone.
     const proj = await projection(store);
     expect(proj.worktrees['/wt/json'].state).toBe('released');
     expect(proj.worktrees['/wt/json'].featureId).toBe('feat-json');
   });
 
-  // ─── concurrent reconcile: stream-lock serialization ──────────────────────────
-
+  /** Two reconciles race on the same dead reservation. One appends `worktree.released`, and the other folds to a no-op. */
   it('Reconcile_ConcurrentSameWorktree_StreamLockSerializes_NoDoubleRelease', async () => {
     const manager = new WorktreeManager({
       eventStore: store,
@@ -375,16 +331,12 @@ describe('WorktreeManager (real event store)', () => {
       ownerStartedAt: 'boot-555',
     });
 
-    // Two reconciles racing on the same dead reservation.
     const [a, b] = await Promise.all([
       manager.reconcile(),
       manager.reconcile(),
     ]);
 
-    // At most one `worktree.released` is appended for the dead worktree.
     expect(eventsOfType(store, 'worktree.released')).toHaveLength(1);
-    // Exactly one of the two passes reports the release; the other re-folds to
-    // a no-op against the now-`released` state.
     const releasedReports = [...a.released, ...b.released];
     expect(releasedReports).toEqual(['/wt/race']);
 

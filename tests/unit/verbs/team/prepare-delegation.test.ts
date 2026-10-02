@@ -1,4 +1,4 @@
-// ─── Prepare Delegation Action Tests ─────────────────────────────────────────
+// Tests for `handlePrepareDelegation` and the helpers that classify tasks, derive risk tiers and scope worktree readiness.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ToolResult } from '../../../../src/format.js';
@@ -8,17 +8,11 @@ import { DELEGATION_READINESS_VIEW } from '../../../../src/projections/views/del
 import type { DelegationReadinessState } from '../../../../src/projections/views/delegation-readiness-view.js';
 import { SequenceConflictError } from '../../../../src/events/store.js';
 
-// ─── Mock Dependencies ──────────────────────────────────────────────────────
-
 vi.mock('../../../../src/projections/views/tools.js', () => ({
   getOrCreateMaterializer: vi.fn(),
   queryDeltaEvents: vi.fn(),
 }));
 
-// #1855 — the handler folds each view to the stream's durable tail through
-// `foldToTail` rather than pairing `queryDeltaEvents` with a bare `materialize`.
-// `setupMaterializer` below routes the stub by view name exactly as the
-// materializer stub did, so what each test controls is unchanged.
 vi.mock('../../../../src/projections/fold-at-tail.js', () => ({
   foldToTail: vi.fn(),
 }));
@@ -40,14 +34,9 @@ vi.mock('../../../../src/verbs/team/dispatch-guard.js', () => ({
   assertMainWorktree: vi.fn().mockReturnValue({ isMain: true, actual: '/repo', expected: 'main worktree (no .claude/worktrees/ in path)' }),
   getCurrentBranch: vi.fn().mockReturnValue('feature/test-branch'),
   assertCurrentBranchNotProtected: vi.fn().mockReturnValue({ blocked: false }),
-  // #1261 — stash probe is fire-and-forget; default to a no-op so existing
-  // tests don't need to manage shared-stash semantics.
   probeStashAndEmit: vi.fn().mockResolvedValue(undefined),
 }));
 
-// #1509/#1501 — default the native-isolation base-pin guard to "pinned" so
-// existing nativeIsolation tests reach the readiness logic. Tests that exercise
-// the block override the return value per-case.
 vi.mock('../../../../src/verbs/team/worktree-baseref.js', () => ({
   assertWorktreeBaseRefPinned: vi
     .fn()
@@ -59,11 +48,6 @@ vi.mock('../../../../src/workflow/checkpoint.js', () => ({
   CHECKPOINT_OPERATION_THRESHOLD: 20,
 }));
 
-// DR-7: partially mock the phase-kind boundary so a single test can force the
-// IMPLEMENT-kind gate-set resolver to throw (simulating a deferred-kind
-// 'not-yet-wired' fault or any resolver error). The default implementation
-// delegates to the real resolver so every other test exercises the genuine
-// ladder; only the fail-closed test overrides it via `mockImplementationOnce`.
 vi.mock('../../../../src/workflow/phase-kind.js', async (importActual) => {
   const actual = await importActual<typeof import('../../../../src/workflow/phase-kind.js')>();
   return { ...actual, resolveGateSet: vi.fn(actual.resolveGateSet) };
@@ -125,8 +109,6 @@ import { resolveGateSet } from '../../../../src/workflow/phase-kind.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 const STATE_DIR = '/tmp/test-state';
-
-// ─── Fixtures ───────────────────────────────────────────────────────────────
 
 function readyWorkflowState() {
   return {
@@ -212,6 +194,10 @@ function notReadyDelegationReadiness(): DelegationReadinessState {
   };
 }
 
+/**
+ * Stubs the materializer and `foldToTail` to return each view by its name, and returns a new store stub.
+ * Without a readiness view, it uses the ready or the not-ready fixture from `planReview.approved`.
+ */
 function setupMaterializer(
   workflowState: Record<string, unknown>,
   qualityState?: Record<string, unknown>,
@@ -219,7 +205,6 @@ function setupMaterializer(
 ) {
   const cqState = qualityState ?? emptyQualityState();
   const drState = delegationReadiness ?? (
-    // Auto-derive from workflow state: if plan is approved and has tasks, use ready
     (workflowState as { planReview?: { approved?: boolean }; tasks?: unknown[] }).planReview?.approved
       ? readyDelegationReadiness()
       : notReadyDelegationReadiness()
@@ -259,9 +244,7 @@ function setupMaterializer(
   return { mockMaterializer, mockStore };
 }
 
-// Default mock store + ctx for tests that don't need a custom one. Tests
-// that need a captured store from setupMaterializer can build their own
-// ctx via makeCtx(localStore, STATE_DIR).
+/** The default store stub that most handler tests pass through `makeCtx`. */
 const mockStore = {
   query: vi.fn().mockResolvedValue([]),
   append: vi.fn().mockResolvedValue(undefined),
@@ -276,12 +259,13 @@ function makeCtx(store: { append: unknown; query: unknown }, stateDir: string) {
   };
 }
 
-// ─── Tests ──────────────────────────────────────────────────────────────────
-
 describe('handlePrepareDelegation', () => {
+  /**
+   * Restores the guard defaults, because some tests override them with `mockReturnValue` and `vi.clearAllMocks` keeps implementations.
+   * The base-ref guard defaults to pinned, so native-isolation tests reach the readiness logic.
+   */
   beforeEach(() => {
     vi.clearAllMocks();
-    // Re-set dispatch guard defaults after clearAllMocks
     vi.mocked(validateBranchAncestry).mockResolvedValue({ passed: true, checks: ['ancestry'] });
     vi.mocked(assertMainWorktree).mockReturnValue({
       isMain: true,
@@ -289,7 +273,6 @@ describe('handlePrepareDelegation', () => {
       expected: 'main worktree (no .claude/worktrees/ in path)',
     });
     vi.mocked(shouldEnforceCheckpoint).mockReturnValue({ gated: false });
-    // #1509/#1501 — default the native-isolation base-pin guard to "pinned".
     vi.mocked(assertWorktreeBaseRefPinned).mockReturnValue({
       pinned: true,
       effective: 'head',
@@ -298,32 +281,27 @@ describe('handlePrepareDelegation', () => {
   });
 
   it('PrepareDelegation_MissingFeatureId_ReturnsInvalidInput', async () => {
-    // Arrange
     const args = {} as { featureId: string };
 
-    // Act
     const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
-    // Assert
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('INVALID_INPUT');
     expect(result.error?.message).toContain('featureId');
   });
 
+  /**
+   * A non-MCP caller can pass `tasks` through an unchecked cast. The shape guard must reject each malformed field as `INVALID_INPUT`.
+   * Otherwise the field crashes a later step, and the fail-closed wrapper reports it as a false `phase.blocked` fault.
+   */
   it('PrepareDelegation_MalformedTaskShape_ReturnsInvalidInputNotPhaseBlocked', async () => {
-    // A non-MCP caller can hand `tasks` through an unchecked cast. Any malformed
-    // planner field that the heuristics / resolver consume would otherwise crash
-    // downstream — e.g. `files.some(...)` on a non-array, or a bad `riskTier`
-    // reaching resolveVerificationSequence — and, caught by the fail-closed
-    // wrapper, masquerade as a `phase.blocked` RESOLVER fault. The shape guard
-    // must reject every such field as INVALID_INPUT first.
     const malformed: Array<Record<string, unknown>> = [
-      { id: 't1', title: 'ok', files: 'src/not-an-array.ts' }, // files: non-array (crash path)
-      { id: 't2', title: 'ok', blockedBy: [1, 2] }, // blockedBy: non-string elements
-      { id: 't3', title: 'ok', riskTier: 'critical' }, // riskTier: not a RiskTier (resolver throw)
-      { id: 't4', title: 'ok', boundaryTouching: 'yes' }, // boundaryTouching: non-boolean
-      { id: 't5', title: 'ok', testLayer: 'e2e' }, // testLayer: not in the enum
-      { id: 7, title: 'ok' }, // id: non-string
+      { id: 't1', title: 'ok', files: 'src/not-an-array.ts' },
+      { id: 't2', title: 'ok', blockedBy: [1, 2] },
+      { id: 't3', title: 'ok', riskTier: 'critical' },
+      { id: 't4', title: 'ok', boundaryTouching: 'yes' },
+      { id: 't5', title: 'ok', testLayer: 'e2e' },
+      { id: 7, title: 'ok' },
     ];
 
     for (const bad of malformed) {
@@ -341,15 +319,12 @@ describe('handlePrepareDelegation', () => {
   });
 
   it('PrepareDelegation_NotReady_ReturnsBlockers', async () => {
-    // Arrange
     const state = notReadyWorkflowState();
     setupMaterializer(state);
     const args = { featureId: 'test-feature' };
 
-    // Act
     const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
-    // Assert
     expect(result.success).toBe(true);
     const data = result.data as {
       ready: boolean;
@@ -363,16 +338,13 @@ describe('handlePrepareDelegation', () => {
   });
 
   it('PrepareDelegation_Ready_ReturnsTrue', async () => {
-    // Arrange
     const state = readyWorkflowState();
     setupMaterializer(state);
     vi.mocked(generateQualityHints).mockReturnValue([]);
     const args = { featureId: 'test-feature' };
 
-    // Act
     const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
-    // Assert
     expect(result.success).toBe(true);
     const data = result.data as {
       ready: boolean;
@@ -384,7 +356,6 @@ describe('handlePrepareDelegation', () => {
   });
 
   it('PrepareDelegation_ValidInput_ReturnsReadiness', async () => {
-    // Arrange
     const state = readyWorkflowState();
     setupMaterializer(state);
     vi.mocked(generateQualityHints).mockReturnValue([]);
@@ -396,10 +367,8 @@ describe('handlePrepareDelegation', () => {
       ],
     };
 
-    // Act
     const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
-    // Assert
     expect(result.success).toBe(true);
     const data = result.data as {
       ready: boolean;
@@ -414,7 +383,6 @@ describe('handlePrepareDelegation', () => {
   });
 
   it('PrepareDelegation_QualityHints_IncludedInResult', async () => {
-    // Arrange
     const state = readyWorkflowState();
     setupMaterializer(state);
     const hints = mockQualityHints();
@@ -423,10 +391,8 @@ describe('handlePrepareDelegation', () => {
     );
     const args = { featureId: 'test-feature' };
 
-    // Act
     const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
-    // Assert
     expect(result.success).toBe(true);
     const data = result.data as {
       ready: boolean;
@@ -441,23 +407,20 @@ describe('handlePrepareDelegation', () => {
   });
 
   it('PrepareDelegation_Ready_EmitsPlanCoverageGateEvent', async () => {
-    // Arrange
     const state = readyWorkflowState();
     setupMaterializer(state);
     vi.mocked(generateQualityHints).mockReturnValue([]);
     const args = { featureId: 'test-feature' };
 
-    // Act
     await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
-    // Assert
     expect(emitGateEvent).toHaveBeenCalledOnce();
     expect(emitGateEvent).toHaveBeenCalledWith(
-      expect.anything(), // store
-      'test-feature',    // streamId
-      'plan-coverage',   // gateName
-      'planning',        // layer
-      true,              // passed
+      expect.anything(),
+      'test-feature',
+      'plan-coverage',
+      'planning',
+      true,
       {
         dimension: 'D1',
         phase: 'delegate',
@@ -468,16 +431,13 @@ describe('handlePrepareDelegation', () => {
   });
 
   it('PrepareDelegation_Ready_EmitsGateEvent_IncludesPhaseInDetails', async () => {
-    // Arrange
     const state = readyWorkflowState();
     setupMaterializer(state);
     vi.mocked(generateQualityHints).mockReturnValue([]);
     const args = { featureId: 'test-feature' };
 
-    // Act
     await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
-    // Assert
     expect(emitGateEvent).toHaveBeenCalledOnce();
     const callArgs = vi.mocked(emitGateEvent).mock.calls[0];
     const details = callArgs[5] as Record<string, unknown>;
@@ -485,32 +445,24 @@ describe('handlePrepareDelegation', () => {
   });
 
   it('PrepareDelegation_NotReady_DoesNotEmitGateEvent', async () => {
-    // Arrange
     const state = notReadyWorkflowState();
     setupMaterializer(state);
     const args = { featureId: 'test-feature' };
 
-    // Act
     await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
-    // Assert
     expect(emitGateEvent).not.toHaveBeenCalled();
   });
 
-  // ─── T-08: DelegationReadinessView Consolidation ─────────────────────────
-
   it('HandlePrepareDelegation_ViewReady_ReturnsReadyWithHints', async () => {
-    // Arrange: seed a ready delegation readiness view
     const state = readyWorkflowState();
     const drState = readyDelegationReadiness();
     setupMaterializer(state, undefined, drState);
     vi.mocked(generateQualityHints).mockReturnValue([]);
     const args = { featureId: 'test-feature' };
 
-    // Act
     const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
-    // Assert
     expect(result.success).toBe(true);
     const data = result.data as {
       ready: boolean;
@@ -525,16 +477,13 @@ describe('handlePrepareDelegation', () => {
   });
 
   it('HandlePrepareDelegation_ViewNotReady_ReturnsBlockers', async () => {
-    // Arrange: seed a not-ready delegation readiness view
     const state = notReadyWorkflowState();
     const drState = notReadyDelegationReadiness();
     setupMaterializer(state, undefined, drState);
     const args = { featureId: 'test-feature' };
 
-    // Act
     const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
-    // Assert
     expect(result.success).toBe(true);
     const data = result.data as {
       ready: boolean;
@@ -546,24 +495,13 @@ describe('handlePrepareDelegation', () => {
     expect(data.readiness.ready).toBe(false);
   });
 
-  // DR-T-1 (T-03): plan-artifact blocker comes ONLY from the projection.
-  // This replaces a previous test that asserted a handler-side supplementary
-  // check fired when artifacts.plan was missing in workflow state. After T-03
-  // the handler trusts the projection — single source of truth (#1205).
+  /**
+   * The plan-artifact blocker comes only from the readiness projection, and the handler adds no blocker of its own.
+   * The test replays one stream through `delegationReadinessProjection`, which readies both worktrees but records no plan artifact.
+   * The handler gets that view, and its blockers must equal the projection blockers.
+   * Without `tasks`, the wave scoping passes the blockers through unchanged.
+   */
   it('HandlePrepareDelegation_BlockerList_MatchesDelegationReadinessView', async () => {
-    // fix-003 (review #1213, T-03): true parity test — replay the SAME
-    // event stream through both the handler (via the mocked materializer)
-    // and `delegationReadinessProjection.apply` directly, then deep-equal
-    // the resulting blockers arrays. Earlier revisions of this test only
-    // asserted the handler did not append a supplementary blocker; they
-    // never invoked the projection itself, so a divergence in the
-    // projection's blocker generation could pass undetected.
-
-    // ── Step 1: build a minimal event stream that exercises the
-    // plan-artifact branch.
-    // - workflow.transition → plan-review flips planReview.approved to true.
-    // - state.patched without artifacts.plan keeps artifactPresent at false.
-    // - task.assigned x2 + worktree.created x2 satisfy the worktree gate.
     const events: WorkflowEvent[] = [
       { type: 'workflow.transition', data: { to: 'plan-review' } } as unknown as WorkflowEvent,
       { type: 'task.assigned', data: { taskId: 'task-1' } } as unknown as WorkflowEvent,
@@ -572,25 +510,16 @@ describe('handlePrepareDelegation', () => {
       { type: 'worktree.created', data: { taskId: 'task-2', path: '/w/2' } } as unknown as WorkflowEvent,
     ];
 
-    // ── Step 2: replay events through the projection — this is the
-    // delegation_readiness view as a caller would observe it.
     let projectedView = delegationReadinessProjection.init();
     for (const ev of events) {
       projectedView = delegationReadinessProjection.apply(projectedView, ev);
     }
 
-    // Sanity-check the projection: plan-artifact blocker must be present
-    // (because no state.patched flipped artifactPresent), AND no worktree
-    // pending (both created). If this ever stops being true the test
-    // fixture needs updating.
     expect(projectedView.blockers).toContain('Plan artifact is missing');
     expect(projectedView.blockers.find(b => /worktrees pending/.test(b))).toBeUndefined();
 
-    // ── Step 3: feed the SAME projection result into the handler. Workflow
-    // state's `artifacts.plan` is irrelevant — the projection is authoritative.
     const state = {
       ...readyWorkflowState(),
-      // Match projection's view of tasks: 2 entries, no plan artifact.
       artifacts: { design: 'design.md', plan: null, pr: null },
     };
     setupMaterializer(state, undefined, projectedView);
@@ -598,9 +527,6 @@ describe('handlePrepareDelegation', () => {
 
     const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
-    // ── Step 4: deep-equal the blocker arrays. The handler must not
-    // mutate or supplement what the projection produced (no `tasks` arg
-    // here, so the wave-scoping helper is a passthrough).
     expect(result.success).toBe(true);
     const data = result.data as {
       ready: boolean;
@@ -611,9 +537,8 @@ describe('handlePrepareDelegation', () => {
     expect(data.blockers).toEqual([...projectedView.blockers]);
   });
 
+  /** The projection reports a plan artifact that the workflow state does not list. The handler must not add a blocker for it. */
   it('HandlePrepareDelegation_ViewReady_NoSupplementaryPlanArtifactCheck', async () => {
-    // Arrange: projection says ready (artifactPresent: true) but workflow
-    // state lacks artifacts.plan. Handler must NOT add a side blocker.
     const state = {
       ...readyWorkflowState(),
       artifacts: { design: 'design.md', plan: null, pr: null },
@@ -637,12 +562,8 @@ describe('handlePrepareDelegation', () => {
     expect(data.readiness.blockers).toEqual([]);
   });
 
-  // ─── DR-T-3 (T-06): state-vs-plan desync diagnostic ────────────────────
-
+  /** The projection counts 33 planned tasks and the workflow state lists 31. The handler reports the drift as a desync blocker. */
   it('PrepareDelegation_TaskCountExceedsStateTasks_AddsDesyncBlocker', async () => {
-    // Projection has 33 task.assigned events (plan.taskCount = 33), but
-    // workflow state has only 31 entries in tasks[]. Plan revision likely
-    // added two without re-syncing state — surface the drift.
     const state = {
       ...readyWorkflowState(),
       tasks: Array.from({ length: 31 }, (_, i) => ({
@@ -675,9 +596,8 @@ describe('handlePrepareDelegation', () => {
     expect(desync).toContain('33');
   });
 
+  /** The desync blocker also appears when the workflow state lists more tasks than the projection counts. */
   it('PrepareDelegation_StateTasksExceedPlanCount_AddsDesyncBlocker', async () => {
-    // Reverse: state has more entries than plan.taskCount. Either drift
-    // direction triggers the diagnostic.
     const state = {
       ...readyWorkflowState(),
       tasks: Array.from({ length: 5 }, (_, i) => ({
@@ -708,9 +628,8 @@ describe('handlePrepareDelegation', () => {
   });
 
   it('PrepareDelegation_TaskCountMatchesStateTasks_NoDesyncBlocker', async () => {
-    // Counts match — no drift, no diagnostic.
     const state = readyWorkflowState();
-    setupMaterializer(state); // uses readyDelegationReadiness()
+    setupMaterializer(state);
     vi.mocked(generateQualityHints).mockReturnValue([]);
     const args = { featureId: 'test-feature' };
 
@@ -721,11 +640,10 @@ describe('handlePrepareDelegation', () => {
     expect(data.readiness.blockers.find(b => /state-vs-plan desync/.test(b))).toBeUndefined();
   });
 
+  /** A new workflow has no tasks in the projection or the state, and the desync diagnostic does not fire at that baseline. */
   it('PrepareDelegation_PlanTaskCountZero_NoDesyncBlockerEvenIfStateEmpty', async () => {
-    // Initial state — no tasks anywhere yet. Diagnostic should not fire
-    // at the empty-state baseline (blocker would be noise).
     const state = notReadyWorkflowState();
-    setupMaterializer(state); // uses notReadyDelegationReadiness()
+    setupMaterializer(state);
     const args = { featureId: 'test-feature' };
 
     const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
@@ -735,15 +653,12 @@ describe('handlePrepareDelegation', () => {
     expect(data.readiness.blockers.find(b => /state-vs-plan desync/.test(b))).toBeUndefined();
   });
 
-  // ─── DR-T-2 (T-05): wave-scoped worktree readiness ─────────────────────
-
+  /** The projection has 5 assigned tasks and 3 ready worktrees. The wave names the 3 ready tasks, so no worktree blocker appears. */
   it('PrepareDelegation_TasksArgSubsetReady_NoBlocker', async () => {
-    // Projection has 5 assigned, 3 ready (subset). tasks arg names the
-    // 3 ready ones — wave is complete, no worktree blocker should fire.
     const state = readyWorkflowState();
     const drState: DelegationReadinessState = {
       ready: false,
-      blockers: ['2 worktrees pending'], // global view: 2 of 5 still pending
+      blockers: ['2 worktrees pending'],
       plan: { approved: true, taskCount: 5, artifactPresent: true },
       quality: { queried: true, gatePassRate: null, regressions: [] },
       worktrees: {
@@ -768,15 +683,11 @@ describe('handlePrepareDelegation', () => {
     expect(result.success).toBe(true);
     const data = result.data as { ready: boolean; readiness: DelegationReadinessState };
     expect(data.ready).toBe(true);
-    // fix-006 (review #1213): explicit predicate avoids the
-    // `not.toContain(expect.stringContaining(...))` asymmetric-matcher
-    // construction whose semantics vary across vitest versions.
     expect(data.readiness.blockers.find(b => /worktrees pending/.test(b))).toBeUndefined();
   });
 
+  /** The projection has 33 assigned tasks and none ready. A wave of 3 pending tasks reports 3 worktrees pending, not 33. */
   it('PrepareDelegation_TasksArgSubsetPending_ExactPendingCountInBlocker', async () => {
-    // Projection has 33 assigned, 0 ready. tasks arg names 3 pending.
-    // Blocker should report 3 worktrees pending, not 33.
     const state = readyWorkflowState();
     const drState: DelegationReadinessState = {
       ready: false,
@@ -808,8 +719,8 @@ describe('handlePrepareDelegation', () => {
     expect(data.readiness.blockers).not.toContain('33 worktrees pending');
   });
 
+  /** Without `tasks`, the global worktree blocker passes through unchanged. */
   it('PrepareDelegation_NoTasksArg_AllAssignedConsidered', async () => {
-    // Without tasks arg, the global blocker passes through unchanged.
     const state = readyWorkflowState();
     const drState: DelegationReadinessState = {
       ready: false,
@@ -823,7 +734,7 @@ describe('handlePrepareDelegation', () => {
       },
     };
     setupMaterializer(state, undefined, drState);
-    const args = { featureId: 'test-feature' }; // no tasks arg
+    const args = { featureId: 'test-feature' };
 
     const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
@@ -832,20 +743,15 @@ describe('handlePrepareDelegation', () => {
     expect(data.readiness.blockers).toContain('10 worktrees pending');
   });
 
-  // fix-005 (review #1213): wave-scoping must update both blockers AND the
-  // numeric worktrees.expected/ready surfaces, not just the blocker strings.
-  // Plan T-05 specified a pure helper computeScopedWorktrees(readiness,
-  // tasksFilter) returning { expected, ready, pending } so all three counts
-  // stay in lockstep. This test asserts effectiveReadiness.worktrees mirrors
-  // the wave subset rather than the global stream-wide count.
+  /**
+   * Wave scoping must update `readiness.worktrees.expected` and `ready` as well as the blocker text.
+   * The projection has 5 assigned tasks and 2 ready. The wave names 2 ready tasks and 1 pending task, so it reports 3 and 2.
+   */
   it('PrepareDelegation_TasksArgSubset_EffectiveReadinessReportsScopedWorktreeCounts', async () => {
-    // Projection has 5 assigned, 2 ready (global). The wave names 3 of those
-    // 5 — 2 ready, 1 pending. Effective readiness must report
-    // worktrees.expected === 3 and worktrees.ready === 2 (NOT 5/2).
     const state = readyWorkflowState();
     const drState: DelegationReadinessState = {
       ready: false,
-      blockers: ['3 worktrees pending'], // global view: 3 of 5 still pending
+      blockers: ['3 worktrees pending'],
       plan: { approved: true, taskCount: 5, artifactPresent: true },
       quality: { queried: true, gatePassRate: null, regressions: [] },
       worktrees: {
@@ -858,9 +764,9 @@ describe('handlePrepareDelegation', () => {
     const args = {
       featureId: 'test-feature',
       tasks: [
-        { id: 't1', title: 'A' }, // ready
-        { id: 't2', title: 'B' }, // ready
-        { id: 't3', title: 'C' }, // pending
+        { id: 't1', title: 'A' },
+        { id: 't2', title: 'B' },
+        { id: 't3', title: 'C' },
       ],
     };
 
@@ -868,19 +774,15 @@ describe('handlePrepareDelegation', () => {
 
     expect(result.success).toBe(true);
     const data = result.data as { ready: boolean; readiness: DelegationReadinessState };
-    // Wave size is 3 (not 5). One pending in the wave (t3).
     expect(data.readiness.worktrees.expected).toBe(args.tasks.length);
     expect(data.readiness.worktrees.expected).toBe(3);
     expect(data.readiness.worktrees.ready).toBe(2);
-    // Blocker reports the wave-scoped pending count.
     expect(data.readiness.blockers).toContain('1 worktrees pending');
     expect(data.readiness.blockers).not.toContain('3 worktrees pending');
   });
 
-  // ─── DR-5: nativeIsolation readiness.blockers consistency ─────────────────
-
+  /** Under native isolation, the handler also drops the worktree blockers from `readiness.blockers`, so that list agrees with `ready`. */
   it('handlePrepareDelegation_NativeIsolation_ExcludesWorktreeBlockers', async () => {
-    // Arrange: ONLY worktree-related blockers present
     const state = readyWorkflowState();
     const drState: DelegationReadinessState = {
       ready: false,
@@ -893,10 +795,8 @@ describe('handlePrepareDelegation', () => {
     vi.mocked(generateQualityHints).mockReturnValue([]);
     const args = { featureId: 'test-feature', nativeIsolation: true };
 
-    // Act
     const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
-    // Assert: ready=true AND readiness.blockers is empty (consistent)
     expect(result.success).toBe(true);
     const data = result.data as {
       ready: boolean;
@@ -907,8 +807,8 @@ describe('handlePrepareDelegation', () => {
     expect(data.readiness.blockers).toEqual([]);
   });
 
+  /** Native isolation drops only the worktree blockers. The other blockers stay. */
   it('handlePrepareDelegation_NativeIsolation_PreservesNonWorktreeBlockers', async () => {
-    // Arrange: BOTH worktree AND non-worktree blockers
     const state = notReadyWorkflowState();
     const drState: DelegationReadinessState = {
       ready: false,
@@ -920,10 +820,8 @@ describe('handlePrepareDelegation', () => {
     setupMaterializer(state, undefined, drState);
     const args = { featureId: 'test-feature', nativeIsolation: true };
 
-    // Act
     const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
-    // Assert: readiness.blockers contains ONLY non-worktree items
     expect(result.success).toBe(true);
     const data = result.data as {
       ready: boolean;
@@ -939,7 +837,6 @@ describe('handlePrepareDelegation', () => {
   });
 
   it('handlePrepareDelegation_WithoutNativeIsolation_IncludesAllBlockers', async () => {
-    // Arrange: both worktree AND non-worktree blockers, no nativeIsolation
     const state = notReadyWorkflowState();
     const drState: DelegationReadinessState = {
       ready: false,
@@ -951,10 +848,8 @@ describe('handlePrepareDelegation', () => {
     setupMaterializer(state, undefined, drState);
     const args = { featureId: 'test-feature' };
 
-    // Act
     const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
-    // Assert: ALL blockers present including worktree ones
     expect(result.success).toBe(true);
     const data = result.data as {
       ready: boolean;
@@ -964,15 +859,9 @@ describe('handlePrepareDelegation', () => {
     expect(data.ready).toBe(false);
     expect(data.readiness.blockers).toContain('plan not approved');
     expect(data.readiness.blockers).toContain('worktrees pending');
-    // Plan artifact missing now comes from the projection itself (T-02);
-    // the handler does not emit a supplementary copy (T-03).
-    // (This fixture's drState.blockers does not include it, so it should NOT appear here.)
   });
 
-  // ─── T-15: nativeIsolation parameter ──────────────────────────────────────
-
   it('PrepareDelegation_NativeIsolationTrue_SkipsWorktreeBlockers', async () => {
-    // Arrange: worktrees not ready, but nativeIsolation skips those blockers
     const state = readyWorkflowState();
     const drState: DelegationReadinessState = {
       ready: false,
@@ -985,23 +874,19 @@ describe('handlePrepareDelegation', () => {
     vi.mocked(generateQualityHints).mockReturnValue([]);
     const args = { featureId: 'test-feature', nativeIsolation: true };
 
-    // Act
     const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
-    // Assert — should be ready despite worktree blockers
     expect(result.success).toBe(true);
     const data = result.data as { ready: boolean; isolation: string; blockers?: string[] };
     expect(data.ready).toBe(true);
     expect(data.isolation).toBe('native');
   });
 
-  // ─── #1542: native-isolation readiness honesty (warn, don't block) ────────
-
+  /**
+   * Native isolation expects 2 worktrees, but none is ready. `ready` stays true, because the host owns isolation.
+   * A warning names the shared-checkout hazard, so the readiness result does not hide it.
+   */
   it('PrepareDelegation_NativeIsolationExpectedButNoneReady_WarnsKeepsReadyTrue', async () => {
-    // #1542: native isolation requested, worktrees EXPECTED but 0 confirmed
-    // ready. Native filtering makes `ready` true, but the readiness affordance
-    // must not lie (INV-12) — a warning surfaces the shared-checkout hazard
-    // WITHOUT flipping `ready` (INV-11 host-owns-isolation contract).
     const state = readyWorkflowState();
     const drState: DelegationReadinessState = {
       ready: false,
@@ -1018,7 +903,7 @@ describe('handlePrepareDelegation', () => {
 
     expect(result.success).toBe(true);
     const data = result.data as { ready: boolean; isolation: string };
-    expect(data.ready).toBe(true); // warn, don't block
+    expect(data.ready).toBe(true);
     expect(data.isolation).toBe('native');
     expect(result.warnings).toBeDefined();
     expect(
@@ -1029,9 +914,8 @@ describe('handlePrepareDelegation', () => {
   });
 
   it('PrepareDelegation_NativeIsolationWorktreesReady_NoSharedCheckoutWarning', async () => {
-    // When worktrees ARE confirmed ready, the hazard does not apply — no warning.
     const state = readyWorkflowState();
-    setupMaterializer(state, undefined, readyDelegationReadiness()); // expected:2, ready:2
+    setupMaterializer(state, undefined, readyDelegationReadiness());
     vi.mocked(generateQualityHints).mockReturnValue([]);
     const args = { featureId: 'test-feature', nativeIsolation: true };
 
@@ -1041,9 +925,8 @@ describe('handlePrepareDelegation', () => {
     expect((result.warnings ?? []).some((w) => /shared checkout/i.test(w))).toBe(false);
   });
 
+  /** Without native isolation, pending worktrees block dispatch, and the shared-checkout warning does not appear. */
   it('PrepareDelegation_NonNativeWorktreesPending_NoSharedCheckoutWarning', async () => {
-    // The warning is native-isolation-specific: a non-native wave with pending
-    // worktrees blocks normally (ready:false) and emits NO shared-checkout warning.
     const state = readyWorkflowState();
     const drState: DelegationReadinessState = {
       ready: false,
@@ -1053,7 +936,7 @@ describe('handlePrepareDelegation', () => {
       worktrees: { expected: 2, ready: 0, failed: [], assignedTaskIds: [], readyTaskIds: [] },
     };
     setupMaterializer(state, undefined, drState);
-    const args = { featureId: 'test-feature' }; // NOT native isolation
+    const args = { featureId: 'test-feature' };
 
     const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
@@ -1061,11 +944,11 @@ describe('handlePrepareDelegation', () => {
     expect((result.warnings ?? []).some((w) => /shared checkout/i.test(w))).toBe(false);
   });
 
-  // ─── #1509/#1501: native-isolation worktree base-pin guard ────────────────
-
+  /**
+   * Under native isolation, an unpinned `worktree.baseRef` makes Claude Code branch the subagent worktree from main.
+   * The handler blocks dispatch and returns the settings patch that pins it.
+   */
   it('PrepareDelegation_NativeIsolation_BaseRefUnset_BlocksWithRemediation', async () => {
-    // Arrange: nativeIsolation requested, but worktree.baseRef is NOT pinned to
-    // "head" — Claude Code would branch the subagent worktree from main.
     const state = readyWorkflowState();
     setupMaterializer(state, undefined, readyDelegationReadiness());
     vi.mocked(assertWorktreeBaseRefPinned).mockReturnValue({
@@ -1078,10 +961,8 @@ describe('handlePrepareDelegation', () => {
     });
     const args = { featureId: 'test-feature', nativeIsolation: true };
 
-    // Act
     const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
-    // Assert — dispatch is blocked loud, with the exact remediation
     expect(result.success).toBe(true);
     const data = result.data as {
       blocked: boolean;
@@ -1099,16 +980,13 @@ describe('handlePrepareDelegation', () => {
   });
 
   it('PrepareDelegation_NativeIsolation_BaseRefPinned_RunsGuardAndProceeds', async () => {
-    // Arrange: nativeIsolation with baseRef pinned (default mock) → proceeds.
     const state = readyWorkflowState();
     setupMaterializer(state, undefined, readyDelegationReadiness());
     vi.mocked(generateQualityHints).mockReturnValue([]);
     const args = { featureId: 'test-feature', nativeIsolation: true };
 
-    // Act
     const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
-    // Assert — guard ran on the native path, dispatch proceeds
     expect(assertWorktreeBaseRefPinned).toHaveBeenCalled();
     expect(result.success).toBe(true);
     const data = result.data as { ready: boolean; isolation?: string; blocked?: boolean };
@@ -1117,24 +995,20 @@ describe('handlePrepareDelegation', () => {
     expect(data.isolation).toBe('native');
   });
 
+  /** Without native isolation, `setup_worktree` sets the worktree base, so the base-ref guard does not run. */
   it('PrepareDelegation_NonNativeIsolation_DoesNotRunBaseRefGuard', async () => {
-    // Arrange: default (non-native) path — the baseRef guard is irrelevant
-    // (exarchos manages the worktree base explicitly via setup_worktree).
     const state = readyWorkflowState();
     setupMaterializer(state, undefined, readyDelegationReadiness());
     vi.mocked(generateQualityHints).mockReturnValue([]);
     const args = { featureId: 'test-feature' };
 
-    // Act
     const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
-    // Assert — guard never consulted on the non-native path
     expect(assertWorktreeBaseRefPinned).not.toHaveBeenCalled();
     expect(result.success).toBe(true);
   });
 
   it('PrepareDelegation_NativeIsolationFalse_PreservesWorktreeBlockers', async () => {
-    // Arrange: worktrees not ready, nativeIsolation false (default)
     const state = readyWorkflowState();
     const drState: DelegationReadinessState = {
       ready: false,
@@ -1146,10 +1020,8 @@ describe('handlePrepareDelegation', () => {
     setupMaterializer(state, undefined, drState);
     const args = { featureId: 'test-feature' };
 
-    // Act
     const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
-    // Assert — should NOT be ready because of worktree blockers
     expect(result.success).toBe(true);
     const data = result.data as { ready: boolean; blockers?: string[]; isolation?: string };
     expect(data.ready).toBe(false);
@@ -1158,7 +1030,6 @@ describe('handlePrepareDelegation', () => {
   });
 
   it('PrepareDelegation_NativeIsolationTrue_StillTracksState', async () => {
-    // Arrange: nativeIsolation but plan not approved — non-worktree blockers still apply
     const state = notReadyWorkflowState();
     const drState: DelegationReadinessState = {
       ready: false,
@@ -1170,10 +1041,8 @@ describe('handlePrepareDelegation', () => {
     setupMaterializer(state, undefined, drState);
     const args = { featureId: 'test-feature', nativeIsolation: true };
 
-    // Act
     const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
-    // Assert — still not ready because plan not approved (non-worktree blocker persists)
     expect(result.success).toBe(true);
     const data = result.data as { ready: boolean; blockers?: string[]; readiness: DelegationReadinessState };
     expect(data.ready).toBe(false);
@@ -1182,7 +1051,6 @@ describe('handlePrepareDelegation', () => {
   });
 
   it('PrepareDelegation_NativeIsolationTrue_StillRunsPreChecks', async () => {
-    // Arrange: nativeIsolation with ready state — quality hints still assembled
     const state = readyWorkflowState();
     const drState = readyDelegationReadiness();
     setupMaterializer(state, undefined, drState);
@@ -1192,10 +1060,8 @@ describe('handlePrepareDelegation', () => {
     );
     const args = { featureId: 'test-feature', nativeIsolation: true };
 
-    // Act
     const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
-    // Assert — quality hints still present
     expect(result.success).toBe(true);
     const data = result.data as {
       ready: boolean;
@@ -1209,7 +1075,6 @@ describe('handlePrepareDelegation', () => {
   });
 
   it('HandlePrepareDelegation_ReadinessIncludesWorktreeData', async () => {
-    // Arrange: ready state with worktree data
     const state = readyWorkflowState();
     const drState: DelegationReadinessState = {
       ...readyDelegationReadiness(),
@@ -1219,10 +1084,8 @@ describe('handlePrepareDelegation', () => {
     vi.mocked(generateQualityHints).mockReturnValue([]);
     const args = { featureId: 'test-feature' };
 
-    // Act
     const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
-    // Assert
     expect(result.success).toBe(true);
     const data = result.data as {
       readiness: DelegationReadinessState;
@@ -1232,10 +1095,7 @@ describe('handlePrepareDelegation', () => {
     expect(data.readiness.worktrees.failed).toHaveLength(0);
   });
 
-  // ─── DR-1: Ancestry Check Integration ───────────────────────────────────
-
   it('handlePrepareDelegation_AncestryCheckFails_ReturnsBlocked', async () => {
-    // Arrange: ancestry check returns blocked
     const state = readyWorkflowState();
     setupMaterializer(state);
     vi.mocked(validateBranchAncestry).mockResolvedValue({
@@ -1246,10 +1106,8 @@ describe('handlePrepareDelegation', () => {
     });
     const args = { featureId: 'test-feature' };
 
-    // Act
     const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
-    // Assert
     expect(result.success).toBe(true);
     const data = result.data as {
       blocked: boolean;
@@ -1262,7 +1120,6 @@ describe('handlePrepareDelegation', () => {
   });
 
   it('handlePrepareDelegation_AncestryCheckPasses_ProceedsToClassification', async () => {
-    // Arrange: ancestry check passes
     const state = readyWorkflowState();
     setupMaterializer(state);
     vi.mocked(validateBranchAncestry).mockResolvedValue({
@@ -1277,10 +1134,8 @@ describe('handlePrepareDelegation', () => {
       ],
     };
 
-    // Act
     const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
-    // Assert — proceeds past ancestry check, returns readiness data
     expect(result.success).toBe(true);
     const data = result.data as {
       ready: boolean;
@@ -1292,10 +1147,7 @@ describe('handlePrepareDelegation', () => {
     expect(data.taskClassifications).toBeDefined();
   });
 
-  // ─── DR-2: Worktree Assertion Integration ─────────────────────────────────
-
   it('handlePrepareDelegation_InSubagentWorktree_ReturnsBlocked', async () => {
-    // Arrange: assertMainWorktree returns isMain=false (subagent worktree)
     const state = readyWorkflowState();
     setupMaterializer(state);
     vi.mocked(assertMainWorktree).mockReturnValue({
@@ -1305,10 +1157,8 @@ describe('handlePrepareDelegation', () => {
     });
     const args = { featureId: 'test-feature' };
 
-    // Act
     const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
-    // Assert
     expect(result.success).toBe(true);
     const data = result.data as {
       blocked: boolean;
@@ -1322,9 +1172,8 @@ describe('handlePrepareDelegation', () => {
     expect(data.expected).toBeDefined();
   });
 
-  // ─── #1129 C: Current-Branch Protection ────────────────────────────────
+  /** On a protected branch, the handler blocks before the ancestry check runs and records a `preflight.blocked` event. */
   it('handlePrepareDelegation_OnProtectedBranch_ReturnsBlockedAndEmitsPreflightBlocked', async () => {
-    // Arrange: current branch is main (protected)
     const state = readyWorkflowState();
     const { mockStore } = setupMaterializer(state);
     vi.mocked(getCurrentBranch).mockReturnValueOnce('main');
@@ -1335,10 +1184,8 @@ describe('handlePrepareDelegation', () => {
     });
     const args = { featureId: 'test-feature' };
 
-    // Act
     const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
-    // Assert: blocked with the dedicated reason — ancestry never even runs
     expect(result.success).toBe(true);
     const data = result.data as {
       blocked: boolean;
@@ -1358,38 +1205,26 @@ describe('handlePrepareDelegation', () => {
     expect(eventData.reason).toBe('current-branch-protected');
   });
 
-  // ─── DR-10: nativeIsolation skips the protected-branch guard ────────────
-  // (refactor-pipeline-view-economy) The server reads HEAD from its own
-  // launch cwd — the main checkout, which sits on `main` because the feature
-  // branch is checked out in the orchestrator worktree — so the protected-
-  // branch guard is a guaranteed false positive under worktree orchestration.
-  // Under nativeIsolation the host owns base safety (baseRef guard), so this
-  // guard must be skipped, mirroring the DR-2 worktree-location skip.
+  /**
+   * The server reads HEAD from its own launch checkout, which stays on `main` while the orchestrator works in a worktree.
+   * So the protected-branch guard gives a false positive there. Under native isolation, the host owns base safety and the guard does not run.
+   * The test sets `getCurrentBranch` with `mockReturnValueOnce`, so the value does not leak into later tests.
+   */
   it('handlePrepareDelegation_NativeIsolationOnProtectedBranch_SkipsGuardAndProceeds', async () => {
-    // Arrange: HEAD (as the server reads it, from the main checkout) is on
-    // main — the guard WOULD block on the non-native path. Use
-    // `mockReturnValueOnce` so the override cannot leak into later tests
-    // (beforeEach only clears call history, not implementations); the
-    // guard itself is skipped under nativeIsolation, so we do NOT queue a
-    // value on `assertCurrentBranchNotProtected` — it must never be called.
     const state = readyWorkflowState();
     setupMaterializer(state);
     vi.mocked(generateQualityHints).mockReturnValue([]);
     vi.mocked(getCurrentBranch).mockReturnValueOnce('main');
     const args = { featureId: 'test-feature', nativeIsolation: true };
 
-    // Act
     const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
-    // Assert: the protected-branch guard was skipped structurally (never
-    // consulted) and dispatch proceeded to readiness instead of blocking.
     expect(vi.mocked(assertCurrentBranchNotProtected)).not.toHaveBeenCalled();
     expect(result.success).toBe(true);
     const data = result.data as { blocked?: boolean; reason?: string; ready?: boolean };
     expect(data.reason).not.toBe('current-branch-protected');
     expect(data.ready).toBe(true);
 
-    // No preflight.blocked(current-branch-protected) event was emitted.
     const protectedBlocked = mockStore.append.mock.calls.find(
       (call: unknown[]) =>
         (call[1] as { type: string }).type === 'preflight.blocked' &&
@@ -1399,9 +1234,8 @@ describe('handlePrepareDelegation', () => {
     expect(protectedBlocked).toBeUndefined();
   });
 
-  // ─── #1129 D: integrationBranch fallback safety ─────────────────────────
+  /** Without `synthesis.integrationBranch`, the ancestry check uses the current branch and never the feature id. */
   it('handlePrepareDelegation_IntegrationBranchUnset_UsesCurrentBranchNotFeatureId', async () => {
-    // Arrange: synthesis.integrationBranch unset; current branch known
     const state = readyWorkflowState() as ReturnType<typeof readyWorkflowState> & {
       synthesis?: { integrationBranch?: string };
     };
@@ -1414,14 +1248,12 @@ describe('handlePrepareDelegation', () => {
     });
     vi.mocked(generateQualityHints).mockReturnValue([]);
     const args = {
-      featureId: 'dogfood-v280',  // not a real branch name
+      featureId: 'dogfood-v280',
       tasks: [{ id: 'task-1', title: 'x' }],
     };
 
-    // Act
     await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
-    // Assert: ancestry ran against current branch, never against featureId
     const call = vi.mocked(validateBranchAncestry).mock.calls[0];
     expect(call).toBeDefined();
     expect(call![0]).toBe('feature/real-branch');
@@ -1429,7 +1261,6 @@ describe('handlePrepareDelegation', () => {
   });
 
   it('handlePrepareDelegation_InMainWorktree_ProceedsNormally', async () => {
-    // Arrange: assertMainWorktree returns isMain=true
     const state = readyWorkflowState();
     setupMaterializer(state);
     vi.mocked(assertMainWorktree).mockReturnValue({
@@ -1440,10 +1271,8 @@ describe('handlePrepareDelegation', () => {
     vi.mocked(generateQualityHints).mockReturnValue([]);
     const args = { featureId: 'test-feature' };
 
-    // Act
     const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
-    // Assert — proceeds normally, returns readiness
     expect(result.success).toBe(true);
     const data = result.data as {
       ready: boolean;
@@ -1453,10 +1282,7 @@ describe('handlePrepareDelegation', () => {
     expect(data.readiness).toBeDefined();
   });
 
-  // ─── DR-1/DR-2: Preflight Event Emissions ────────────────────────────────
-
   it('handlePrepareDelegation_AncestryPasses_EmitsPreflightExecutedEvent', async () => {
-    // Arrange: ancestry and worktree checks pass, ready state
     const state = readyWorkflowState();
     const { mockStore } = setupMaterializer(state);
     vi.mocked(validateBranchAncestry).mockResolvedValue({
@@ -1471,10 +1297,8 @@ describe('handlePrepareDelegation', () => {
     vi.mocked(generateQualityHints).mockReturnValue([]);
     const args = { featureId: 'test-feature' };
 
-    // Act
     await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
-    // Assert: preflight.executed event emitted
     const appendCalls = mockStore.append.mock.calls;
     const preflightEvent = appendCalls.find(
       (call: unknown[]) => (call[1] as { type: string }).type === 'preflight.executed',
@@ -1488,7 +1312,6 @@ describe('handlePrepareDelegation', () => {
   });
 
   it('handlePrepareDelegation_AncestryBlocked_EmitsPreflightBlockedEvent', async () => {
-    // Arrange: ancestry check fails
     const state = readyWorkflowState();
     const { mockStore } = setupMaterializer(state);
     vi.mocked(validateBranchAncestry).mockResolvedValue({
@@ -1499,10 +1322,8 @@ describe('handlePrepareDelegation', () => {
     });
     const args = { featureId: 'test-feature' };
 
-    // Act
     await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
-    // Assert: preflight.blocked event emitted
     const appendCalls = mockStore.append.mock.calls;
     const preflightEvent = appendCalls.find(
       (call: unknown[]) => (call[1] as { type: string }).type === 'preflight.blocked',
@@ -1514,7 +1335,6 @@ describe('handlePrepareDelegation', () => {
   });
 
   it('handlePrepareDelegation_WorktreeBlocked_EmitsPreflightBlockedEvent', async () => {
-    // Arrange: ancestry passes but worktree check fails
     const state = readyWorkflowState();
     const { mockStore } = setupMaterializer(state);
     vi.mocked(validateBranchAncestry).mockResolvedValue({
@@ -1528,10 +1348,8 @@ describe('handlePrepareDelegation', () => {
     });
     const args = { featureId: 'test-feature' };
 
-    // Act
     await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
-    // Assert: preflight.blocked event emitted
     const appendCalls = mockStore.append.mock.calls;
     const preflightEvent = appendCalls.find(
       (call: unknown[]) => (call[1] as { type: string }).type === 'preflight.blocked',
@@ -1544,10 +1362,7 @@ describe('handlePrepareDelegation', () => {
     expect(details.expected).toBeDefined();
   });
 
-  // ─── DR-5: Checkpoint Gate Integration ──────────────────────────────────
-
   it('handlePrepareDelegation_AboveThreshold_ReturnsCheckpointRequired', async () => {
-    // Arrange: operationsSince above threshold — gate should block
     const state = readyWorkflowState();
     const { mockStore } = setupMaterializer(state);
     vi.mocked(generateQualityHints).mockReturnValue([]);
@@ -1559,10 +1374,8 @@ describe('handlePrepareDelegation', () => {
     });
     const args = { featureId: 'test-feature' };
 
-    // Act
     const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
-    // Assert: gated response
     expect(result.success).toBe(true);
     const data = result.data as {
       gated: boolean;
@@ -1575,7 +1388,6 @@ describe('handlePrepareDelegation', () => {
     expect(data.operationsSince).toBe(25);
     expect(data.threshold).toBe(20);
 
-    // Assert: checkpoint.enforced event emitted
     const appendCalls = mockStore.append.mock.calls;
     const enforcedEvent = appendCalls.find(
       (call: unknown[]) => (call[1] as { type: string }).type === 'checkpoint.enforced',
@@ -1588,7 +1400,6 @@ describe('handlePrepareDelegation', () => {
   });
 
   it('handlePrepareDelegation_BelowThreshold_ProceedsNormally', async () => {
-    // Arrange: operationsSince below threshold — gate should not block
     const state = readyWorkflowState();
     setupMaterializer(state);
     vi.mocked(generateQualityHints).mockReturnValue([]);
@@ -1602,10 +1413,8 @@ describe('handlePrepareDelegation', () => {
       ],
     };
 
-    // Act
     const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
-    // Assert: proceeds to task classification — not gated
     expect(result.success).toBe(true);
     const data = result.data as {
       ready: boolean;
@@ -1618,14 +1427,11 @@ describe('handlePrepareDelegation', () => {
     expect(data.taskClassifications).toHaveLength(1);
   });
 
-  // ─── Workflow Risk-Tier Persistence (DR-2) ───────────────────────────────
-  //
-  // prepare_delegation derives the workflow-level riskTier (max-of-tiers over
-  // the classified wave) and persists it to state.riskTier via the
-  // event-sourced state.patched single-writer path. An explicit caller-supplied
-  // riskTier override wins over the derived value.
+  /**
+   * The handler writes the workflow risk tier, the highest tier of the wave, to `state.riskTier` in one `state.patched` event.
+   * An explicit `riskTier` argument wins over the derived tier. `riskTierPatches` collects the patches that the store stub got.
+   */
   describe('Workflow riskTier persistence', () => {
-    /** Extract the riskTier patches the handler emitted via state.patched. */
     function riskTierPatches(
       store: { append: { mock: { calls: unknown[][] } } },
     ): Array<Record<string, unknown>> {
@@ -1640,18 +1446,15 @@ describe('handlePrepareDelegation', () => {
         .map((e) => e.data!.patch!);
     }
 
+    /** One task matches the high-risk schema glob, and one derives to medium. The handler writes `high` in exactly one event. */
     it('PrepareDelegation_HighRiskTask_PersistsWorkflowRiskTierHigh_ViaStatePatched', async () => {
-      // A wave whose max tier is high (a schema-file task) → state.riskTier=high,
-      // persisted through exactly one state.patched event (single writer).
       const state = readyWorkflowState();
       setupMaterializer(state);
       vi.mocked(generateQualityHints).mockReturnValue([]);
       const args = {
         featureId: 'test-feature',
         tasks: [
-          // high: matches the **/*schema* high-risk glob.
           { id: 'task-1', title: 'edit schema', files: ['src/events/schemas.ts'] },
-          // medium default — must not lower the max.
           { id: 'task-2', title: 'Add tests' },
         ],
       };
@@ -1660,13 +1463,12 @@ describe('handlePrepareDelegation', () => {
 
       expect(result.success).toBe(true);
       const patches = riskTierPatches(mockStore);
-      expect(patches).toHaveLength(1); // single writer
+      expect(patches).toHaveLength(1);
       expect(patches[0]).toEqual({ riskTier: 'high' });
     });
 
+    /** With no high task, the wave derives to `medium`. This shows that the tier is derived and not fixed at `high`. */
     it('PrepareDelegation_AllMediumTasks_PersistsDerivedMedium', async () => {
-      // No high task → derived workflow tier is medium (the per-task default),
-      // proving derivation, not a hardcoded high.
       const state = readyWorkflowState();
       setupMaterializer(state);
       vi.mocked(generateQualityHints).mockReturnValue([]);
@@ -1684,9 +1486,8 @@ describe('handlePrepareDelegation', () => {
       expect(riskTierPatches(mockStore)).toEqual([{ riskTier: 'medium' }]);
     });
 
+    /** The wave derives to `medium`, and the handler writes the explicit `high` argument instead. */
     it('PrepareDelegation_ExplicitRiskTierOverride_WinsOverDerived', async () => {
-      // The wave derives to medium, but the caller forces high — the explicit
-      // override is what gets persisted.
       const state = readyWorkflowState();
       setupMaterializer(state);
       vi.mocked(generateQualityHints).mockReturnValue([]);
@@ -1705,9 +1506,8 @@ describe('handlePrepareDelegation', () => {
       expect(riskTierPatches(mockStore)).toEqual([{ riskTier: 'high' }]);
     });
 
+    /** The override also wins downward. A wave that derives to `high` and gets `low` writes `low`. */
     it('PrepareDelegation_OverrideWinsDownward_OverHighDerivation', async () => {
-      // Override precedence is direction-agnostic: a high-deriving wave forced to
-      // low persists low (the caller has context the heuristic lacks).
       const state = readyWorkflowState();
       setupMaterializer(state);
       vi.mocked(generateQualityHints).mockReturnValue([]);
@@ -1724,7 +1524,6 @@ describe('handlePrepareDelegation', () => {
     });
 
     it('PrepareDelegation_NoTasksNoOverride_DoesNotPersistRiskTier', async () => {
-      // Nothing to derive from and no override → no riskTier stamp emitted.
       const state = readyWorkflowState();
       setupMaterializer(state);
       vi.mocked(generateQualityHints).mockReturnValue([]);
@@ -1737,7 +1536,6 @@ describe('handlePrepareDelegation', () => {
     });
 
     it('PrepareDelegation_InvalidRiskTierOverride_ReturnsInvalidInput', async () => {
-      // An out-of-vocabulary override is rejected at the boundary, not stamped.
       const args = {
         featureId: 'test-feature',
         riskTier: 'critical',
@@ -1751,11 +1549,8 @@ describe('handlePrepareDelegation', () => {
     });
   });
 
-  // ─── Task Classification ─────────────────────────────────────────────────
-
   describe('Task classification', () => {
     it('PrepareDelegation_WithTasks_ReturnsTaskClassifications', async () => {
-      // Arrange: ready state with tasks
       const state = readyWorkflowState();
       setupMaterializer(state);
       vi.mocked(generateQualityHints).mockReturnValue([]);
@@ -1767,10 +1562,8 @@ describe('handlePrepareDelegation', () => {
         ],
       };
 
-      // Act
       const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
-      // Assert
       expect(result.success).toBe(true);
       const data = result.data as {
         ready: boolean;
@@ -1784,13 +1577,10 @@ describe('handlePrepareDelegation', () => {
     });
 
     it('TaskClassification_ScaffoldingTitle_ReturnsLowScaffolder', () => {
-      // Arrange
       const task = { id: 'task-1', title: 'Stub out the API interface' };
 
-      // Act
       const classification = classifyTask(task);
 
-      // Assert
       expect(classification.taskId).toBe('task-1');
       expect(classification.complexity).toBe('low');
       expect(classification.recommendedAgent).toBe('scaffolder');
@@ -1799,7 +1589,6 @@ describe('handlePrepareDelegation', () => {
     });
 
     it('TaskClassification_BoilerplateTitle_ReturnsLowScaffolder', () => {
-      // Arrange: test multiple scaffolding keywords
       const tasks = [
         { id: 't-1', title: 'Generate boilerplate for the service' },
         { id: 't-2', title: 'Create type def for the API' },
@@ -1807,7 +1596,6 @@ describe('handlePrepareDelegation', () => {
         { id: 't-4', title: 'Scaffold the test harness' },
       ];
 
-      // Act & Assert
       for (const task of tasks) {
         const classification = classifyTask(task);
         expect(classification.complexity).toBe('low');
@@ -1817,17 +1605,14 @@ describe('handlePrepareDelegation', () => {
     });
 
     it('TaskClassification_MultiDependencyTask_ReturnsHighImplementer', () => {
-      // Arrange: task with >= 2 blockedBy entries
       const task = {
         id: 'task-1',
         title: 'Integrate payment system',
         blockedBy: ['task-a', 'task-b'],
       };
 
-      // Act
       const classification = classifyTask(task);
 
-      // Assert
       expect(classification.complexity).toBe('high');
       expect(classification.recommendedAgent).toBe('implementer');
       expect(classification.effort).toBe('high');
@@ -1835,70 +1620,56 @@ describe('handlePrepareDelegation', () => {
     });
 
     it('TaskClassification_ManyFiles_ReturnsHighImplementer', () => {
-      // Arrange: task with >= 3 files
       const task = {
         id: 'task-1',
         title: 'Refactor data access layer',
         files: ['src/a.ts', 'src/b.ts', 'src/c.ts'],
       };
 
-      // Act
       const classification = classifyTask(task);
 
-      // Assert
       expect(classification.complexity).toBe('high');
       expect(classification.recommendedAgent).toBe('implementer');
       expect(classification.effort).toBe('high');
     });
 
     it('TaskClassification_StandardTask_ReturnsMediumImplementer', () => {
-      // Arrange: task with no special markers
       const task = { id: 'task-1', title: 'Add validation logic' };
 
-      // Act
       const classification = classifyTask(task);
 
-      // Assert
       expect(classification.complexity).toBe('medium');
       expect(classification.recommendedAgent).toBe('implementer');
       expect(classification.effort).toBe('medium');
     });
 
     it('PrepareDelegation_NoTasks_OmitsClassifications', async () => {
-      // Arrange: ready state, no tasks arg
       const state = readyWorkflowState();
       setupMaterializer(state);
       vi.mocked(generateQualityHints).mockReturnValue([]);
       const args = { featureId: 'test-feature' };
 
-      // Act
       const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
-      // Assert
       expect(result.success).toBe(true);
       const data = result.data as Record<string, unknown>;
       expect(data.ready).toBe(true);
       expect(data.taskClassifications).toBeUndefined();
     });
 
-    // ─── T-003: testLayer effort mapping ──────────────────────────────────────
-
     it('classifyTask_AcceptanceTestLayer_ReturnsHighEffort', () => {
-      // Arrange
       const task = { id: 'T-001', title: 'Write acceptance test', testLayer: 'acceptance' as const };
 
-      // Act
       const classification = classifyTask(task);
 
-      // Assert
       expect(classification.effort).toBe('high');
       expect(classification.complexity).toBe('high');
       expect(classification.recommendedAgent).toBe('implementer');
       expect(classification.reason.toLowerCase()).toContain('acceptance');
     });
 
+    /** An integration task gets medium effort and the implementer agent, even with 2 blockers. */
     it('classifyTask_IntegrationTestLayer_ReturnsMediumImplementer', () => {
-      // Arrange — integration tasks short-circuit to medium/implementer regardless of deps
       const task = {
         id: 'T-002',
         title: 'Integration test',
@@ -1906,77 +1677,61 @@ describe('handlePrepareDelegation', () => {
         blockedBy: ['T-001', 'T-003'],
       };
 
-      // Act
       const classification = classifyTask(task);
 
-      // Assert
       expect(classification.effort).toBe('medium');
       expect(classification.recommendedAgent).toBe('implementer');
     });
 
     it('classifyTask_IntegrationTestLayerLowDeps_ReturnsMediumEffort', () => {
-      // Arrange
       const task = {
         id: 'T-002',
         title: 'Integration test',
         testLayer: 'integration' as const,
       };
 
-      // Act
       const classification = classifyTask(task);
 
-      // Assert
       expect(classification.effort).toBe('medium');
     });
 
+    /** The unit test layer does not change the classification. With no other signal, the default heuristic gives medium effort. */
     it('classifyTask_UnitTestLayer_FallsBackToExistingHeuristics', () => {
-      // Arrange
       const task = { id: 'T-003', title: 'Unit test for parser', testLayer: 'unit' as const };
 
-      // Act
       const classification = classifyTask(task);
 
-      // Assert — falls through to default heuristic (no scaffolding keywords, no deps, no files)
       expect(classification.effort).toBe('medium');
     });
 
+    /** With no test layer, a scaffolding keyword in the title gives the scaffolder agent and low effort. */
     it('classifyTask_NoTestLayer_UnchangedBehavior', () => {
-      // Arrange — no testLayer, title has scaffolding keyword
       const task = { id: 'T-004', title: 'stub boilerplate' };
 
-      // Act
       const classification = classifyTask(task, DEFAULTS.agents);
 
-      // Assert — existing scaffolding behavior preserved
       expect(classification.effort).toBe('low');
       expect(classification.recommendedAgent).toBe('scaffolder');
     });
   });
 
-  // ─── Verification-policy stamp (vls1-b2 / task 003) ───────────────────────
-  //
-  // classifyTask must stamp the CONFIG-RESOLVED verification sequence
-  // (resolveVerificationPolicy) rather than the frozen built-in table
-  // (resolveVerificationSequence). When no config is supplied the stamp must
-  // be byte-identical to the built-in path.
+  /**
+   * `classifyTask` stamps the verification sequence that the project config resolves, not the built-in table.
+   * Without a config, the stamp equals the built-in sequence.
+   * `configWithMediumPolicy` copies `DEFAULTS` and replaces only the medium cell, so the other cells keep the built-in values.
+   */
   describe('classifyTask — verification-policy stamp', () => {
-    /** A deep-mutable config seeded from DEFAULTS with a custom medium cell. */
     function configWithMediumPolicy(sequence: readonly GateName[]): ResolvedProjectConfig {
       const config = structuredClone(DEFAULTS) as ResolvedProjectConfig;
-      // structuredClone drops nothing here; override only the medium cell so
-      // the boundary axis + other cells still fall through to the base table.
       (config.verification.policy as { medium?: readonly GateName[] }).medium = [...sequence];
       return config;
     }
 
     it('ClassifyTask_NoVerificationConfig_StampsBuiltinSequence', () => {
-      // Arrange — a medium-risk, non-boundary task (default heuristic), no config.
       const task: TaskInput = { id: 'T-100', title: 'Implement feature X' };
 
-      // Act
       const classification = classifyTask(task);
 
-      // Assert — characterization: byte-identical to the built-in table.
       const expected = resolveVerificationSequence(
         classification.riskTier,
         classification.boundaryTouching,
@@ -1984,8 +1739,8 @@ describe('handlePrepareDelegation', () => {
       expect(classification.verificationSequence).toEqual(expected);
     });
 
+    /** The task derives to the medium cell, so the configured medium sequence replaces the built-in sequence. */
     it('ClassifyTask_ConfiguredPolicyCell_StampsConfigResolvedSequence', () => {
-      // Arrange — task derives to medium/non-boundary; config overrides medium.
       const customSequence: readonly GateName[] = [
         'check_static_analysis',
         'check_mock_boundary',
@@ -1993,27 +1748,22 @@ describe('handlePrepareDelegation', () => {
       const task: TaskInput = { id: 'T-101', title: 'Implement feature Y' };
       const config = configWithMediumPolicy(customSequence);
 
-      // Pre-assert the task lands in the medium cell so the override applies.
       const baseline = classifyTask(task);
       expect(baseline.riskTier).toBe('medium');
       expect(baseline.boundaryTouching).toBe(false);
 
-      // Act
       const classification = classifyTask(task, DEFAULTS.agents, config);
 
-      // Assert — the configured cell is stamped verbatim (full replacement).
       expect(classification.verificationSequence).toEqual(customSequence);
-      // And it diverges from the built-in table the no-config path would stamp.
       expect(classification.verificationSequence).not.toEqual(baseline.verificationSequence);
     });
   });
 
-  // task-004 (DR-4): classifyTask now resolves its verification sequence by
-  // routing through resolveGateSet('IMPLEMENT', …) instead of calling
-  // resolveVerificationPolicy directly. Because the IMPLEMENT kind's resolver is
-  // wired to delegate verbatim to resolveVerificationPolicy, the stamped
-  // sequence must remain byte-identical across representative task profiles —
-  // i.e. the routing is purely behavior-neutral plumbing.
+  /**
+   * `classifyTask` gets its verification sequence through `resolveGateSet('IMPLEMENT', ...)`.
+   * That resolver returns the `resolveVerificationPolicy` sequence unchanged, so the stamp equals it for each profile.
+   * Each profile sets `riskTier` and `boundaryTouching`, so the derivation heuristic does not affect the comparison.
+   */
   describe('classifyTask — resolver-routing behavior-neutrality (task-004)', () => {
     const profiles: ReadonlyArray<{
       readonly label: string;
@@ -2027,8 +1777,6 @@ describe('handlePrepareDelegation', () => {
 
     it('ClassifyTask_VerificationSequence_UnchangedByResolverRouting', () => {
       for (const { label, riskTier, boundaryTouching } of profiles) {
-        // Arrange — explicit risk/boundary overrides pin the profile so the
-        // derivation heuristic does not influence the comparison.
         const task: TaskInput = {
           id: `T-NEUTRAL-${label}`,
           title: 'Implement feature under neutrality check',
@@ -2036,23 +1784,21 @@ describe('handlePrepareDelegation', () => {
           boundaryTouching,
         };
 
-        // Act
         const classification = classifyTask(task);
 
-        // Assert — byte-identical to the pre-routing builtin behavior.
         const expected = resolveVerificationPolicy(riskTier, boundaryTouching).sequence;
         expect(classification.verificationSequence, label).toEqual(expected);
       }
     });
   });
 
-  // #1586 (root cause) upheld under DR-4: classifyTask still TIER-SELECTS the
-  // implementer prompt (never the static medium-RGR default). DR-4 only changed
-  // WHERE the tier-selected note is carried: the default classification exposes a
-  // `verificationNoteKey` (the tier profile) and the full prompt is deduped into
-  // the response's shared template + note map, rendered inline per task only when
-  // the caller opts in via `{ includeImplementerPrompt: true }`.
+  /**
+   * `classifyTask` selects the implementer prompt by tier, and never uses a fixed medium default.
+   * The default classification carries only `verificationNoteKey`.
+   * The full prompt is inline only when the caller passes `includeImplementerPrompt: true`.
+   */
   describe('classifyTask — per-task implementer prompt rendering (#1586 / DR-4)', () => {
+    /** A low-tier prompt must not contain the uppercase red-green-refactor tokens. */
     it('ClassifyTask_LowTierTask_RendersStaticAnalysisNote_NotRGR', () => {
       const task: TaskInput = {
         id: 'T-LOW',
@@ -2067,7 +1813,6 @@ describe('handlePrepareDelegation', () => {
 
       expect(classification.verificationNoteKey).toBe('low|false');
       expect(classification.implementerPrompt).toContain('static analysis suffices');
-      // The uppercase RGR ceremony tokens must NOT leak onto a low-tier dispatch.
       expect(classification.implementerPrompt).not.toContain('RED');
       expect(classification.implementerPrompt).not.toContain('REFACTOR');
     });
@@ -2090,8 +1835,6 @@ describe('handlePrepareDelegation', () => {
     });
 
     it('ClassifyTask_DefaultClassification_OmitsFullPrompt_CarriesNoteKey', () => {
-      // DR-4: the default (token-optimal) path carries only the tiny
-      // `verificationNoteKey`, never the ~1,560-token full prompt.
       const task: TaskInput = {
         id: 'T-MED',
         title: 'Implement widget',
@@ -2117,8 +1860,6 @@ describe('handlePrepareDelegation', () => {
         includeImplementerPrompt: true,
       });
 
-      // The detail-path prompt IS renderImplementerPrompt for the task's resolved
-      // tier — no static medium default in the path (#1586 preserved).
       expect(classification.implementerPrompt).toBe(
         renderImplementerPrompt({
           riskTier: classification.riskTier,
@@ -2128,27 +1869,23 @@ describe('handlePrepareDelegation', () => {
     });
   });
 
-  // ─── DR-4: prepare_delegation prompt dedupe ──────────────────────────────
-  //
-  // Live confirmation this matters: a 10-task wave once returned a 71,000-char
-  // response because the FULL ~1,560-token implementer prompt was re-rendered
-  // once PER TASK (~95% identical). DR-4 returns the shared template ONCE, the
-  // distinct tier notes ONCE each, and a tiny per-task note key — losslessly
-  // reconstructible into the exact pre-DR-4 per-task prompt.
+  /**
+   * The response carries the implementer prompt template once, each distinct tier note once, and a note key for each task.
+   * The template and a note rebuild the full prompt of a task without loss. Without the dedupe, each task carries the full prompt.
+   * `eightTaskWave` holds 2 low, 4 medium and 2 high tasks.
+   * The tests that use it pass `nativeIsolation: true`, so worktree blockers do not stop the wave before classification.
+   */
   describe('DR-4 — prompt dedupe (template once + per-task note deltas)', () => {
-    // An 8-task wave whose tiers cluster (as real decompositions do). Native
-    // isolation filters worktree blockers so the whole wave reaches
-    // classification regardless of the fixture's readyTaskIds.
     function eightTaskWave(): TaskInput[] {
       return [
-        { id: 'task-1', title: 'Update the README', files: ['docs/a.md'] }, // low
-        { id: 'task-2', title: 'Update the guide', files: ['docs/b.md'] }, // low
-        { id: 'task-3', title: 'Implement widget A' }, // medium
-        { id: 'task-4', title: 'Implement widget B' }, // medium
-        { id: 'task-5', title: 'Implement widget C' }, // medium
-        { id: 'task-6', title: 'Implement widget D' }, // medium
-        { id: 'task-7', title: 'Reshape the schema', riskTier: 'high', boundaryTouching: true }, // high
-        { id: 'task-8', title: 'Rework the API contract', riskTier: 'high', boundaryTouching: true }, // high
+        { id: 'task-1', title: 'Update the README', files: ['docs/a.md'] },
+        { id: 'task-2', title: 'Update the guide', files: ['docs/b.md'] },
+        { id: 'task-3', title: 'Implement widget A' },
+        { id: 'task-4', title: 'Implement widget B' },
+        { id: 'task-5', title: 'Implement widget C' },
+        { id: 'task-6', title: 'Implement widget D' },
+        { id: 'task-7', title: 'Reshape the schema', riskTier: 'high', boundaryTouching: true },
+        { id: 'task-8', title: 'Rework the API contract', riskTier: 'high', boundaryTouching: true },
       ];
     }
 
@@ -2159,8 +1896,12 @@ describe('handlePrepareDelegation', () => {
       verificationNotes?: Record<string, string>;
     }
 
+    /**
+     * The head sentence of the template appears once in the serialized response, and no task carries the full prompt.
+     * The prompt payload of the 8 tasks stays at or under 2,500 tokens. The classification metadata is outside that budget.
+     * The whole response is less than a third of its size with a full prompt on each task.
+     */
     it('prepareDelegation_EightTaskWave_ReturnsPromptTemplateOnce', async () => {
-      // Arrange
       const state = readyWorkflowState();
       setupMaterializer(state);
       vi.mocked(generateQualityHints).mockReturnValue([]);
@@ -2170,42 +1911,28 @@ describe('handlePrepareDelegation', () => {
         tasks: eightTaskWave(),
       };
 
-      // Act
       const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
-      // Assert — 8 classifications, template shipped exactly ONCE.
       expect(result.success).toBe(true);
       const data = result.data as DedupeData;
       expect(data.ready).toBe(true);
       expect(data.taskClassifications).toHaveLength(8);
 
-      // The shared template is present once and is the real implementer template.
       expect(typeof data.implementerPromptTemplate).toBe('string');
       expect(data.implementerPromptTemplate).toBe(IMPLEMENTER_PROMPT_TEMPLATE);
       expect(data.implementerPromptTemplate).toContain(VERIFICATION_NOTE_PLACEHOLDER);
 
-      // "Once, not 8×": the template's unique HEAD sentence appears exactly once
-      // across the entire serialized response.
       const serialized = JSON.stringify(data);
       const sentinel = 'You are an implementer agent on the verification ladder';
       expect(serialized.split(sentinel).length - 1).toBe(1);
 
-      // No task carries the full prompt on the default path — only the note key.
       for (const c of data.taskClassifications) {
         expect(c.implementerPrompt).toBeUndefined();
         expect(typeof c.verificationNoteKey).toBe('string');
       }
 
-      // The distinct notes are deduped into the shared map (3 tier profiles here,
-      // far fewer than 8 full prompts).
       expect(Object.keys(data.verificationNotes ?? {})).toHaveLength(3);
 
-      // DR-4 acceptance (≤2,500 tok for 8 tasks): DR-4 dedupes the PROMPT payload
-      // — the shared template (once), the distinct tier notes (once each), and
-      // the tiny per-task note keys. That is the surface that replaced the
-      // ~12,500-token 8×-full-prompt duplication (the advisory classification
-      // metadata — complexity/reason/verificationSequence — is a separate,
-      // pre-existing feature, not what DR-4 controls).
       const promptPayloadTokens = estimateTokens(
         JSON.stringify({
           implementerPromptTemplate: data.implementerPromptTemplate,
@@ -2215,8 +1942,6 @@ describe('handlePrepareDelegation', () => {
       );
       expect(promptPayloadTokens).toBeLessThanOrEqual(2500);
 
-      // …and the WHOLE response is far smaller than the pre-DR-4 shape, which
-      // carried the full ~1,560-token prompt inline on every task.
       const responseTokens = estimateTokens(serialized);
       const preDr4PromptTokens = data.taskClassifications.reduce(
         (sum, c) =>
@@ -2226,14 +1951,15 @@ describe('handlePrepareDelegation', () => {
           ),
         0,
       );
-      // The pre-DR-4 response = this response minus the deduped prompt payload,
-      // plus one full prompt per task.
       const preDr4ResponseTokens = responseTokens - promptPayloadTokens + preDr4PromptTokens;
       expect(responseTokens).toBeLessThan(preDr4ResponseTokens / 3);
     });
 
+    /**
+     * For each task, the template with its note equals `renderImplementerPrompt` for the tier of the task, byte for byte.
+     * `reconstructImplementerPrompt` gives the same text.
+     */
     it('prepareDelegation_PerTaskDeltas_ReconstructExactPerTaskPrompt', async () => {
-      // Arrange
       const state = readyWorkflowState();
       setupMaterializer(state);
       vi.mocked(generateQualityHints).mockReturnValue([]);
@@ -2243,20 +1969,15 @@ describe('handlePrepareDelegation', () => {
         tasks: eightTaskWave(),
       };
 
-      // Act
       const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
-      // Assert — LOSSLESS: template + per-task note delta reconstructs byte-for-byte
-      // what today's per-task `implementerPrompt` produced.
       const data = result.data as DedupeData;
       const template = data.implementerPromptTemplate as string;
       const notes = data.verificationNotes as Record<string, string>;
 
       for (const c of data.taskClassifications) {
-        // The note key indexes a note that exists in the shared map.
         expect(notes[c.verificationNoteKey]).toBeDefined();
 
-        // Reconstruction === the pre-DR-4 full per-task prompt.
         const reconstructed = template.replaceAll(
           VERIFICATION_NOTE_PLACEHOLDER,
           notes[c.verificationNoteKey],
@@ -2267,13 +1988,11 @@ describe('handlePrepareDelegation', () => {
         });
         expect(reconstructed).toBe(preDr4);
 
-        // And the shared-helper path agrees byte-for-byte.
         expect(
           reconstructImplementerPrompt({ verificationNote: notes[c.verificationNoteKey] }),
         ).toBe(preDr4);
       }
 
-      // The map is keyed exactly as `verificationNoteKey` computes it.
       for (const c of data.taskClassifications) {
         expect(c.verificationNoteKey).toBe(
           verificationNoteKey(c.riskTier, c.boundaryTouching),
@@ -2284,16 +2003,15 @@ describe('handlePrepareDelegation', () => {
       }
     });
 
+    /**
+     * A high, boundary-touching stamp in the plan file at `planPath` reaches the classification and selects the high-tier note.
+     * The plan heading and the task match by their canonical id.
+     */
     it('prepareDelegation_TierStamps_ThreadedEndToEnd', async () => {
-      // Characterization of #1636 UNCHANGED under DR-4: a high-tier stamp lifted
-      // from the plan markdown via `planPath` must still resolve end-to-end and
-      // drive the high-tier verification note in the deduped response.
       const state = readyWorkflowState();
       setupMaterializer(state);
       vi.mocked(generateQualityHints).mockReturnValue([]);
 
-      // Write a real decomposition-markdown plan with a high+boundary stamp for
-      // the task, matched by canonical id (`Task 001` ↔ `task-1`).
       const planDir = await fsp.mkdtemp(nodePath.join(os.tmpdir(), 'dr4-planpath-'));
       const planPath = nodePath.join(planDir, 'plan.md');
       await fsp.writeFile(
@@ -2316,13 +2034,10 @@ describe('handlePrepareDelegation', () => {
         expect(data.taskClassifications).toHaveLength(1);
         const c = data.taskClassifications[0];
 
-        // The plan stamp threaded through: high tier, boundary-touching.
         expect(c.riskTier).toBe('high');
         expect(c.boundaryTouching).toBe(true);
         expect(c.verificationNoteKey).toBe('high|true');
 
-        // …and it drives the HIGH-tier note (integration-suite rung + boundary
-        // steer), reconstructed losslessly.
         const note = (data.verificationNotes as Record<string, string>)[c.verificationNoteKey];
         expect(note).toContain('check_integration_suite');
         const reconstructed = (data.implementerPromptTemplate as string).replaceAll(
@@ -2337,9 +2052,8 @@ describe('handlePrepareDelegation', () => {
       }
     });
 
+    /** With `detail: true`, each classification carries its full prompt inline, equal to `renderImplementerPrompt` for its tier. */
     it('prepareDelegation_DetailFlag_InlinesFullPerTaskPrompt', async () => {
-      // The `detail` escape hatch restores the pre-DR-4 inline full prompt for a
-      // caller that explicitly wants it — byte-identical to reconstruction.
       const state = readyWorkflowState();
       setupMaterializer(state);
       vi.mocked(generateQualityHints).mockReturnValue([]);
@@ -2375,11 +2089,11 @@ describe('handlePrepareDelegation', () => {
   });
 
   describe('handler config threading', () => {
+    /**
+     * The sequence from `ctx.projectConfig` reaches the classifications that the handler returns, and prompt assembly reads that stamp.
+     * The task derives to medium, and the config replaces the medium cell.
+     */
     it('PrepareDelegation_ConfiguredPolicy_StampsConfigSequenceOnClassifications', async () => {
-      // R7-inheritance proof: the config-resolved sequence flows onto the
-      // taskClassifications records the handler returns (prompt assembly
-      // downstream reads exactly this stamp).
-      // Arrange
       const state = readyWorkflowState();
       setupMaterializer(state);
       vi.mocked(generateQualityHints).mockReturnValue([]);
@@ -2392,7 +2106,6 @@ describe('handlePrepareDelegation', () => {
 
       const args = {
         featureId: 'test-feature',
-        // A title with no scaffolding keywords / deps / files derives to medium.
         tasks: [{ id: 'task-1', title: 'Implement widget' }],
       };
       const ctx = {
@@ -2402,10 +2115,8 @@ describe('handlePrepareDelegation', () => {
         projectConfig: config,
       };
 
-      // Act
       const result = await handlePrepareDelegation(args, STATE_DIR, ctx as never);
 
-      // Assert
       expect(result.success).toBe(true);
       const data = result.data as { taskClassifications: TaskClassification[] };
       const stamped = data.taskClassifications[0];
@@ -2414,7 +2125,6 @@ describe('handlePrepareDelegation', () => {
     });
 
     it('PrepareDelegation_WithTasks_ClassificationsIncludeRecommendedModel', async () => {
-      // Arrange
       const state = readyWorkflowState();
       setupMaterializer(state);
       vi.mocked(generateQualityHints).mockReturnValue([]);
@@ -2426,10 +2136,8 @@ describe('handlePrepareDelegation', () => {
         ],
       };
 
-      // Act
       const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
-      // Assert
       expect(result.success).toBe(true);
       const data = result.data as { taskClassifications: TaskClassification[] };
       expect(data.taskClassifications).toBeDefined();
@@ -2439,12 +2147,11 @@ describe('handlePrepareDelegation', () => {
       }
     });
 
+    /**
+     * The model follows the risk tier through `projectConfig.agents.tierModels`, not the scaffolder or implementer agent.
+     * Both tasks derive to medium, so both get the configured medium model from a real `resolveConfig` result.
+     */
     it('PrepareDelegation_WithCtx_UsesProjectConfigForModelResolution', async () => {
-      // DR-1 (#1672): the handler threads `projectConfig.agents.tierModels`
-      // through the classify seam — the dispatched model now keys off the task's
-      // riskTier, NOT the scaffolder/implementer agent split. Both tasks derive
-      // to the medium tier ({id,title}-only → default), so both resolve to the
-      // CONFIGURED medium model, regardless of agent.
       const state = readyWorkflowState();
       setupMaterializer(state);
       vi.mocked(generateQualityHints).mockReturnValue([]);
@@ -2455,9 +2162,6 @@ describe('handlePrepareDelegation', () => {
           { id: 'task-2', title: 'Implement handler' },
         ],
       };
-      // A REAL resolved config (not a hand-mocked partial) with a custom
-      // medium→opus tier policy — exercising the genuine resolveConfig collaborator
-      // across the classify seam.
       const ctx = {
         stateDir: STATE_DIR,
         eventStore: {} as never,
@@ -2465,29 +2169,26 @@ describe('handlePrepareDelegation', () => {
         projectConfig: resolveConfig({ agents: { 'tier-models': { medium: 'opus' } } }),
       };
 
-      // Act
       const result = await handlePrepareDelegation(args, STATE_DIR, ctx as never);
 
-      // Assert
       expect(result.success).toBe(true);
       const data = result.data as { taskClassifications: TaskClassification[] };
       const scaffolderTask = data.taskClassifications.find(tc => tc.recommendedAgent === 'scaffolder');
       const implementerTask = data.taskClassifications.find(tc => tc.recommendedAgent === 'implementer');
-      // Agent split is preserved…
       expect(scaffolderTask).toBeDefined();
       expect(implementerTask).toBeDefined();
-      // …but BOTH medium-tier tasks resolve to the configured medium model.
       expect(scaffolderTask?.riskTier).toBe('medium');
       expect(implementerTask?.riskTier).toBe('medium');
       expect(scaffolderTask?.recommendedModel).toBe('opus');
       expect(implementerTask?.recommendedModel).toBe('opus');
     });
 
+    /**
+     * The handler appends one `task.assigned` with a per-task key for each task that the stream has not announced.
+     * It skips an announced task, because the projection reads a second row as a return to `assigned`.
+     * The title comes from the workflow state, which is the authority on the plan. The append guard is the tail that the read saw.
+     */
     it('PrepareDelegation_AnnouncesEachTaskTheStreamHasNotHeardOf_BeforeReadiness', async () => {
-      // The announcement is this handler's now, not a call the model makes
-      // first: one `task.assigned` per task the stream has not yet heard of,
-      // keyed per task, and none for a task already announced — a second row
-      // would read to the projection as the task returning to `assigned`.
       const state = readyWorkflowState();
       setupMaterializer(state);
       vi.mocked(generateQualityHints).mockReturnValue([]);
@@ -2511,9 +2212,6 @@ describe('handlePrepareDelegation', () => {
             key: (opts as { idempotencyKey?: string } | undefined)?.idempotencyKey,
             guard: (opts as { expectedSequence?: number } | undefined)?.expectedSequence,
           }));
-        // The plan's title, not the wave's: the workflow state lists the second
-        // task as 'Add tests', and the plan is the authority on what a task is.
-        // The append is guarded by the tail the read saw.
         expect(announced).toEqual([
           { data: { taskId: 'task-2', title: 'Add tests' }, key: 'test-feature:task.assigned:task-2', guard: 7 },
         ]);
@@ -2523,12 +2221,12 @@ describe('handlePrepareDelegation', () => {
       }
     });
 
+    /**
+     * Another writer appends between the read and the append, so the tail guard refuses the first append.
+     * The handler reads the stream again and announces only the tasks that the new read does not hold.
+     * The raced task gets no second announcement, and the next task uses the tail of the new read as its guard.
+     */
     it('PrepareDelegation_AnnouncementRacesAnotherWriter_DecidesAgainFromAFreshRead', async () => {
-      // A writer that lands between the read and the append — the capsule
-      // path, a hand append — moves the tail the append is guarded by. The
-      // guard refuses, the stream is read again, and only what that read has
-      // still not heard is announced: the raced task is not announced twice,
-      // and the remaining one is guarded by the tail the fresh read saw.
       const state = readyWorkflowState();
       setupMaterializer(state);
       vi.mocked(generateQualityHints).mockReturnValue([]);
@@ -2567,8 +2265,8 @@ describe('handlePrepareDelegation', () => {
       }
     });
 
+    /** The context has no `projectConfig`, so both medium tasks get `sonnet` from `DEFAULTS.agents.tierModels`, whatever their agent. */
     it('PrepareDelegation_WithoutCtx_UsesDefaults', async () => {
-      // Arrange
       const state = readyWorkflowState();
       setupMaterializer(state);
       vi.mocked(generateQualityHints).mockReturnValue([]);
@@ -2580,37 +2278,26 @@ describe('handlePrepareDelegation', () => {
         ],
       };
 
-      // Act -- no ctx passed
       const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
-      // Assert -- uses DEFAULTS.agents.tierModels. Both tasks are {id,title}-only
-      // → medium tier → DEFAULTS.agents.tierModels.medium = 'sonnet'. The agent
-      // split (scaffolder vs implementer) is preserved but no longer drives the
-      // model (DR-1 #1672 — the model tracks the tier, not the agent).
       expect(result.success).toBe(true);
       const data = result.data as { taskClassifications: TaskClassification[] };
       const scaffolderTask = data.taskClassifications.find(tc => tc.recommendedAgent === 'scaffolder');
       const implementerTask = data.taskClassifications.find(tc => tc.recommendedAgent === 'implementer');
       expect(scaffolderTask).toBeDefined();
       expect(implementerTask).toBeDefined();
-      expect(scaffolderTask?.recommendedModel).toBe('sonnet');   // tierModels.medium (was models.scaffolder=haiku)
-      expect(implementerTask?.recommendedModel).toBe('sonnet');  // tierModels.medium (was defaultModel=opus)
+      expect(scaffolderTask?.recommendedModel).toBe('sonnet');
+      expect(implementerTask?.recommendedModel).toBe('sonnet');
     });
   });
 
-  // ─── DR-7: Fail-Closed at the Gate-Set Boundary ──────────────────────────
-  //
-  // The wave-dispatch boundary stamps each task's verification sequence by
-  // routing through `resolveGateSet('IMPLEMENT', …)`. That call was previously
-  // UNGUARDED: a resolver throw (e.g. a deferred-kind 'not-yet-wired' fault, or
-  // any resolver error) propagated out of the handler and the dispatch failed
-  // OPEN / silently. DR-7 makes the boundary FAIL CLOSED: append a
-  // `phase.blocked` event carrying a visible skip reason, and refuse to proceed
-  // (structured error envelope, NO task classifications stamped).
+  /**
+   * The dispatch boundary stamps each verification sequence through `resolveGateSet('IMPLEMENT', ...)`.
+   * When the resolver throws, the boundary fails closed. It appends `phase.blocked` with a visible reason and stamps no classification.
+   */
   describe('fail-closed gate-set boundary (DR-7)', () => {
+    /** The phase-kind module mock wraps the real `resolveGateSet`, and this test makes it throw once with `mockImplementationOnce`. */
     it('ResolveGateSet_ResolverThrows_AppendsPhaseBlocked', async () => {
-      // Arrange: a ready workflow with a single implement task. Force the
-      // IMPLEMENT-kind resolver to throw at the dispatch boundary.
       const state = readyWorkflowState();
       setupMaterializer(state);
       vi.mocked(generateQualityHints).mockReturnValue([]);
@@ -2630,23 +2317,18 @@ describe('handlePrepareDelegation', () => {
         tasks: [{ id: 'task-1', title: 'Implement widget' }],
       };
 
-      // Act
       const result = await handlePrepareDelegation(
         args,
         STATE_DIR,
         makeCtx(localStore, STATE_DIR),
       );
 
-      // Assert: dispatch did NOT proceed — structured error envelope, and
-      // CRUCIALLY no taskClassifications were stamped (fail closed).
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('PHASE_BLOCKED');
-      // Visible skip reason surfaced to the operator.
       expect(result.error?.message).toMatch(/gate|resolve|blocked|verification/i);
       const data = (result.data ?? {}) as { taskClassifications?: unknown };
       expect(data.taskClassifications).toBeUndefined();
 
-      // A `phase.blocked` event was appended carrying a visible skip reason.
       const blockedCall = localStore.append.mock.calls.find(
         (c) => (c[1] as { type?: string }).type === 'phase.blocked',
       );
@@ -2661,44 +2343,36 @@ describe('handlePrepareDelegation', () => {
     });
   });
 
-  // ─── DR-1 (#1672 / #1670): tier-keyed model selection in the classify path ──
-  //
-  // The dispatched model now tracks the task's verification-ladder `riskTier`
-  // via `agents.tierModels`, NOT the scaffolder/implementer agent split. The
-  // agent split (classifyTaskCore) is unchanged; the tier policy overrides the
-  // model on top. Defaults: low → haiku, medium → sonnet, high → opus.
+  /**
+   * The model follows the risk tier through `agents.tierModels`. The scaffolder or implementer split sets the agent, but not the model.
+   * The defaults are haiku for low, sonnet for medium, and opus for high.
+   */
   describe('classifyTask — tier-keyed model resolution (DR-1 #1672)', () => {
+    /** A low-tier task gets the configured low model, here `sonnet`. The control call with the defaults gets `haiku`. */
     it('ClassifyTask_LowTier_ResolvesConfiguredLowModel', () => {
-      // A low-tier task (all files match LOW_RISK_GLOBS) resolves to the
-      // CONFIGURED low-tier model — here re-mapped to 'sonnet' (a monotone table:
-      // low=sonnet, medium=sonnet, high=opus) to prove the config drives it, not
-      // the hardcoded default.
       const agents = resolveConfig({ agents: { 'tier-models': { low: 'sonnet' } } }).agents;
       const result = classifyTask({ id: '001', title: 'Tune settings', files: ['settings.json'] }, agents);
       expect(result.riskTier).toBe('low');
       expect(result.recommendedModel).toBe('sonnet');
 
-      // Control: with the documented defaults the same low-tier task → haiku.
       const dflt = classifyTask({ id: '001', title: 'Tune settings', files: ['settings.json'] });
       expect(dflt.riskTier).toBe('low');
       expect(dflt.recommendedModel).toBe('haiku');
     });
 
+    /** A scaffolding title on a high-tier task keeps the scaffolder agent but gets the high-tier model, not haiku. */
     it('ClassifyTask_HighTierScaffoldingTitle_NeverHaiku', () => {
-      // The #1670 miscalibration: a scaffolding-keyword title on a HIGH-tier task
-      // used to collapse to haiku (scaffolder→haiku). Now the agent stays
-      // scaffolder but the model is the high-tier model — never haiku.
       const result = classifyTask({ id: '002', title: 'Scaffold the API interface', riskTier: 'high' });
-      expect(result.recommendedAgent).toBe('scaffolder'); // agent split preserved
+      expect(result.recommendedAgent).toBe('scaffolder');
       expect(result.riskTier).toBe('high');
       expect(result.recommendedModel).not.toBe('haiku');
-      expect(result.recommendedModel).toBe('opus'); // DEFAULTS.agents.tierModels.high
+      expect(result.recommendedModel).toBe('opus');
     });
 
+    /**
+     * The planner stamp wins over the heuristic. A task that derives to medium gets the high-tier model when the planner stamps it high.
+     */
     it('ClassifyTask_PlannerHighStamp_GetsHighTierModel', () => {
-      // The planner's explicit riskTier stamp WINS over the heuristic (#1669):
-      // an otherwise-medium task ({id,title}-only) stamped high dispatches on the
-      // high-tier model.
       const heuristicOnly = classifyTask({ id: '003', title: 'Implement feature' });
       expect(heuristicOnly.riskTier).toBe('medium');
       expect(heuristicOnly.recommendedModel).toBe('sonnet');
@@ -2708,18 +2382,16 @@ describe('handlePrepareDelegation', () => {
       expect(stamped.recommendedModel).toBe('opus');
     });
 
+    /** A configured high-tier model of `sonnet` reaches the classification from a real `resolveConfig` result. */
     it('ClassifyTask_TierModelsOverride_FlowsThrough', () => {
-      // The settled OQ2 opt-in high→sonnet flows through the classify seam from a
-      // real resolved config.
       const agents = resolveConfig({ agents: { 'tier-models': { high: 'sonnet' } } }).agents;
       const result = classifyTask({ id: '004', title: 'Implement feature', riskTier: 'high' }, agents);
       expect(result.riskTier).toBe('high');
       expect(result.recommendedModel).toBe('sonnet');
     });
 
+    /** A task with only an id and a title derives to medium and gets `sonnet`. The model does not follow the agent. */
     it('ClassifyTask_MediumDefault_ResolvesSonnet', () => {
-      // Characterization: a plain {id,title} task is medium tier → sonnet, no
-      // longer opus-by-defaultModel. Locks the decoupling of model from agent.
       const result = classifyTask({ id: '005', title: 'Add validation logic' });
       expect(result.riskTier).toBe('medium');
       expect(result.recommendedAgent).toBe('implementer');
@@ -2728,29 +2400,23 @@ describe('handlePrepareDelegation', () => {
   });
 });
 
-// ─── DR-1 (#1672 / #1670): executed corpus assertion ────────────────────────
-//
-// The #1670 finding: over the stamped `docs/specs/` corpus the dispatched model
-// COLLAPSED to essentially a single model (opus), because the model keyed off
-// the scaffolder/implementer agent split — independent of the planner's tier.
-// After DR-1 the model is tier-keyed, so the corpus model mix must TRACK the
-// tier distribution (no single-model collapse). This runs the REAL production
-// `classifyTask` over the REAL corpus (parsed by the production stamp parser),
-// exercising the genuine classify seam end-to-end — not a hand-mocked fixture.
+/**
+ * Runs the production `classifyTask` over each tier-stamped task in the spec corpus, as `parseTaskStamps` reads it.
+ * The model mix must follow the tier mix. The suite skips when the spec directory is absent.
+ */
 describe.skipIf(!fs.existsSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../../../../docs/specs')))(
   'classifyTask — stamped-corpus model mix (DR-1 #1672)',
   () => {
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   const SPECS_DIR = path.join(__dirname, '../../../../docs/specs');
 
-  /** Load every stamped task from docs/specs via the production stamp parser. */
   function loadStampedCorpus(): TaskInput[] {
     const files = fs.readdirSync(SPECS_DIR).filter((f) => f.endsWith('.md'));
     const tasks: TaskInput[] = [];
     for (const f of files) {
       const parsed = parseTaskStamps(fs.readFileSync(path.join(SPECS_DIR, f), 'utf-8'));
       for (const t of parsed) {
-        if (t.riskTier === undefined) continue; // only riskTier-stamped tasks are meaningful
+        if (t.riskTier === undefined) continue;
         tasks.push({
           id: t.id,
           title: t.title,
@@ -2765,30 +2431,26 @@ describe.skipIf(!fs.existsSync(path.join(path.dirname(fileURLToPath(import.meta.
     return tasks;
   }
 
+  /**
+   * Each task gets the default model of its tier. The corpus holds at least 20 tasks in at least 2 tiers, so the check is not vacuous.
+   * The default tier models are distinct, so each model count equals the count of its tier, and no model covers the whole corpus.
+   */
   it('PrepareDelegation_StampedCorpus_ModelMixTracksTierDistribution', () => {
     const corpus = loadStampedCorpus();
-    // The corpus must be non-trivial and span more than one tier, else the
-    // "tracks the distribution / no collapse" claim is vacuous.
     expect(corpus.length).toBeGreaterThanOrEqual(20);
 
     const tierCounts: Record<RiskTier, number> = { low: 0, medium: 0, high: 0 };
     const modelCounts: Record<string, number> = {};
     for (const task of corpus) {
       const c = classifyTask(task);
-      // Core invariant: the dispatched model is exactly the tier's configured
-      // model. This is what goes RED if the tier-keying is reverted.
       expect(c.recommendedModel).toBe(DEFAULTS.agents.tierModels[c.riskTier]);
       tierCounts[c.riskTier]++;
       modelCounts[c.recommendedModel] = (modelCounts[c.recommendedModel] ?? 0) + 1;
     }
 
-    // More than one tier is represented (a genuine distribution, not a collapse).
     const tiersPresent = (['low', 'medium', 'high'] as const).filter((t) => tierCounts[t] > 0);
     expect(tiersPresent.length).toBeGreaterThanOrEqual(2);
 
-    // The aggregate model mix TRACKS the tier distribution exactly, under the
-    // documented default table (low→haiku, medium→sonnet, high→opus — all
-    // distinct, so each model's count equals its tier's count).
     const expectedModelCounts: Record<string, number> = {};
     for (const tier of tiersPresent) {
       const model = DEFAULTS.agents.tierModels[tier];
@@ -2796,8 +2458,6 @@ describe.skipIf(!fs.existsSync(path.join(path.dirname(fileURLToPath(import.meta.
     }
     expect(modelCounts).toEqual(expectedModelCounts);
 
-    // NO single-model collapse: more than one distinct model, and no model
-    // accounts for the entire corpus.
     const distinctModels = Object.keys(modelCounts);
     expect(distinctModels.length).toBeGreaterThanOrEqual(2);
     for (const count of Object.values(modelCounts)) {
@@ -2806,15 +2466,10 @@ describe.skipIf(!fs.existsSync(path.join(path.dirname(fileURLToPath(import.meta.
   });
 });
 
-// ─── F19 (#1213): computeScopedWorktrees task-ID canonicalisation ──────────
-//
-// Callers may pass `T-001`/`T001`/`001` interchangeably; the projection's
-// `readyTaskIds` preserves the form recorded by upstream emitters. Strict
-// string-equality comparisons mis-fire on this drift and produce false
-// "<N> worktrees pending" blockers. The helper now canonicalises both
-// sides via `canonicaliseTaskId` (collapses `T-NNN`/`TNNN`/`NNN` to a
-// shared `<digits>` form) before comparing.
-
+/**
+ * `computeScopedWorktrees` compares task ids after `canonicaliseTaskId`, so the prefixed, unprefixed and plain-number forms match.
+ * A strict string comparison gives false `<N> worktrees pending` blockers.
+ */
 describe('computeScopedWorktrees', () => {
   function readiness(
     readyTaskIds: readonly string[],
@@ -2836,12 +2491,8 @@ describe('computeScopedWorktrees', () => {
     };
   }
 
+  /** The wave uses the hyphenated id form and the projection holds the unhyphenated form. Both tasks are ready, so none is pending. */
   it('ComputeScopedWorktrees_HyphenedVsUnhyphenedIds_TreatedEqual', () => {
-    // Wave addresses tasks with the hyphenated form `T-001`/`T-002`; the
-    // projection holds the unhyphenated form `T001`/`T002` (e.g. because
-    // an upstream task.assigned event normalised them differently). Both
-    // tasks ARE worktree-ready, so the wave-scoped count must report
-    // 2/2 ready and zero pending — not "2 worktrees pending".
     const state = readiness(['T001', 'T002'], 2, ['2 worktrees pending']);
     const result = computeScopedWorktrees(state, [
       { id: 'T-001' },
@@ -2850,14 +2501,10 @@ describe('computeScopedWorktrees', () => {
     expect(result.expected).toBe(2);
     expect(result.ready).toBe(2);
     expect(result.pending).toBe(0);
-    // The "2 worktrees pending" blocker must drop because the wave is
-    // fully ready under canonical comparison.
     expect(result.blockers).not.toContain('2 worktrees pending');
   });
 
   it('ComputeScopedWorktrees_PlainNumericInArgs_MatchesTPrefixedReady', () => {
-    // Wave passes plain-numeric IDs (`001`, `002`); projection records
-    // the `T-`-prefixed form. Canonical comparison still matches.
     const state = readiness(['T-001', 'T-002'], 2);
     const result = computeScopedWorktrees(state, [{ id: '001' }, { id: '002' }]);
     expect(result.expected).toBe(2);
@@ -2865,35 +2512,24 @@ describe('computeScopedWorktrees', () => {
     expect(result.pending).toBe(0);
   });
 
+  /** A wave task that is absent from `readyTaskIds` stays pending, and the blocker shows the wave count. */
   it('ComputeScopedWorktrees_MismatchedIds_StillReportsPending', () => {
-    // Sanity: when a wave member is genuinely missing from
-    // readyTaskIds (regardless of form), pending is non-zero.
     const state = readiness(['T-001'], 2, ['1 worktrees pending']);
     const result = computeScopedWorktrees(state, [
-      { id: 'T-001' }, // ready
-      { id: 'T-099' }, // not ready
+      { id: 'T-001' },
+      { id: 'T-099' },
     ]);
     expect(result.expected).toBe(2);
     expect(result.ready).toBe(1);
     expect(result.pending).toBe(1);
-    // Blocker rewritten to wave-scoped count (matches existing scoping
-    // contract; canonical comparison only changes the match logic).
     expect(result.blockers).toContain('1 worktrees pending');
   });
 
-  // F-iter3 (#1213, sentry HIGH r3186305844): the global readiness can be
-  // empty of "N worktrees pending" blockers (because globally everything is
-  // ready) while a wave subset still has unready members. Without an
-  // explicit synthesise step the caller saw `blockers === []` and dispatched
-  // prematurely. The next three tests pin the synthesise / no-synthesise /
-  // existing-rewrite behaviours.
+  /**
+   * The global readiness can have no pending blocker while a wave task is not ready.
+   * The helper then adds a `<N> worktrees pending` blocker, so the caller does not dispatch too early.
+   */
   it('ComputeScopedWorktrees_GlobalReadyButWavePending_SynthesisesBlocker', () => {
-    // Globally only T-001 is ready and the projection has no
-    // "N worktrees pending" blocker (e.g. global expected==1 / ready==1
-    // because the global expected count was scoped to the ready set, OR a
-    // mix of legacy/modern worktree.created events). The wave addresses
-    // T-002 — which is not ready. Without synthesis the caller would see
-    // blockers===[] and dispatch.
     const state = readiness(['T-001'], 1, []);
     const result = computeScopedWorktrees(state, [{ id: 'T-002' }]);
     expect(result.expected).toBe(1);
@@ -2903,8 +2539,6 @@ describe('computeScopedWorktrees', () => {
   });
 
   it('ComputeScopedWorktrees_GlobalAndWaveReady_NoBlockerSynthesised', () => {
-    // Globally and wave-locally the only task is ready. No blocker should
-    // be synthesised; result.blockers must remain empty.
     const state = readiness(['T-001'], 1, []);
     const result = computeScopedWorktrees(state, [{ id: 'T-001' }]);
     expect(result.expected).toBe(1);
@@ -2913,21 +2547,18 @@ describe('computeScopedWorktrees', () => {
     expect(result.blockers).toEqual([]);
   });
 
+  /** The helper rewrites the global pending blocker to the wave count and adds no second pending blocker. */
   it('ComputeScopedWorktrees_GlobalHasPendingBlocker_RewrittenToWaveCount', () => {
-    // Existing transformation contract: the global "5 worktrees pending"
-    // blocker must be rewritten to the wave-scoped count, not duplicated
-    // or left at the global value.
     const state = readiness(['T-001'], 5, ['5 worktrees pending']);
     const result = computeScopedWorktrees(state, [
-      { id: 'T-001' }, // ready
-      { id: 'T-002' }, // not ready
+      { id: 'T-001' },
+      { id: 'T-002' },
     ]);
     expect(result.expected).toBe(2);
     expect(result.ready).toBe(1);
     expect(result.pending).toBe(1);
     expect(result.blockers).toContain('1 worktrees pending');
     expect(result.blockers).not.toContain('5 worktrees pending');
-    // Synthesise step must not produce a duplicate "1 worktrees pending".
     const matches = result.blockers.filter(b =>
       /^\d+ worktrees pending$/.test(b),
     );
@@ -2935,12 +2566,10 @@ describe('computeScopedWorktrees', () => {
   });
 });
 
-// ─── vls1-b1 (task 003): deriveRiskTier — high rules ────────────────────────
-//
-// Pure derivation of a task's risk tier. High when ANY of: a file matches a
-// HIGH_RISK_GLOB (schema/type/API/shared-contract surfaces), testLayer is
-// 'acceptance', blockedBy has >= 2 entries, or files has >= 3 entries.
-
+/**
+ * A task is high risk when a file matches `HIGH_RISK_GLOBS` or the test layer is acceptance.
+ * It is also high with 2 or more blockers or 3 or more files.
+ */
 describe('deriveRiskTier — high rules', () => {
   it('DeriveRiskTier_AcceptanceTestLayer_ReturnsHigh', () => {
     const task: TaskInput = { id: 't-1', title: 'Acceptance test', testLayer: 'acceptance' };
@@ -2965,9 +2594,8 @@ describe('deriveRiskTier — high rules', () => {
     expect(deriveRiskTier(task)).toBe('high');
   });
 
+  /** One file that matches a high-risk glob gives `high` without another high signal. */
   it('DeriveRiskTier_SchemaContractGlobHit_ReturnsHigh', () => {
-    // A single file that matches a high-risk glob is enough — even when no
-    // other high signal (deps/file-count/acceptance) is present.
     const cases: TaskInput[] = [
       { id: 's-1', title: 'edit schema', files: ['src/events/schemas.ts'] },
       { id: 's-2', title: 'edit types', files: ['src/types/foo.ts'] },
@@ -2981,25 +2609,17 @@ describe('deriveRiskTier — high rules', () => {
   });
 
   it('DeriveRiskTier_HighRiskGlobsExported_NonEmpty', () => {
-    // The glob list is the SoT for high-risk surfaces — assert it is
-    // exported and non-empty so consumers can reference it.
     expect(Array.isArray(HIGH_RISK_GLOBS)).toBe(true);
     expect(HIGH_RISK_GLOBS.length).toBeGreaterThan(0);
   });
 });
 
-// ─── vls1-b1 (task 004): deriveRiskTier — low / medium / override ───────────
-//
-// Precedence: explicit planner value > high-rules > low-rules > medium.
-// Low requires ALL files to match LOW_RISK_GLOBS (docs/config/rename-only).
-// A single-module behavioural change with no high/low signal defaults to
-// medium. Mixed low+unknown files resolve to medium (ambiguous).
-
+/**
+ * The planner value wins first, then the high rules, then the low rules. Medium is the default.
+ * Low needs each file to match `LOW_RISK_GLOBS`, so a mix of low and other files gives medium.
+ */
 describe('deriveRiskTier — low / medium / override', () => {
-  // PR #1535 CodeRabbit (CR-4): schema/contract ARTIFACTS are shared-contract
-  // surfaces (the documented blast-radius gap) and must reach the HIGH lane.
-  // Before the fix, `openapi.yaml` fell through to LOW via the `**/*.yaml`
-  // low-glob, and `*.proto` / `*.graphql` defaulted to MEDIUM.
+  /** Schema and contract artifacts are shared-contract surfaces. They derive to high, even when a low-risk glob also matches the file. */
   it('DeriveRiskTier_SchemaArtifacts_ReturnHigh', () => {
     const cases: TaskInput[] = [
       { id: 'sa-1', title: 'proto reshape', files: ['proto/workflow.proto'] },
@@ -3024,7 +2644,6 @@ describe('deriveRiskTier — low / medium / override', () => {
   });
 
   it('DeriveRiskTier_SingleModuleBehavior_DefaultsMedium', () => {
-    // One source file, no high-risk glob, not all-low → medium.
     const task: TaskInput = {
       id: 'm-1',
       title: 'Add validation logic',
@@ -3039,7 +2658,6 @@ describe('deriveRiskTier — low / medium / override', () => {
   });
 
   it('DeriveRiskTier_MixedLowAndUnknownFiles_ResolvesMedium', () => {
-    // Not ALL files match low globs → ambiguous → medium, not low.
     const task: TaskInput = {
       id: 'm-3',
       title: 'Docs plus code',
@@ -3048,9 +2666,8 @@ describe('deriveRiskTier — low / medium / override', () => {
     expect(deriveRiskTier(task)).toBe('medium');
   });
 
+  /** The planner value wins in both directions. It can lower a high task or raise a documentation task. */
   it('DeriveRiskTier_ExplicitPlannerValue_WinsOverDerivation', () => {
-    // Explicit override beats every derived rule, in BOTH directions:
-    // a planner can downgrade a would-be-high task, or upgrade a doc task.
     const wouldBeHigh: TaskInput = {
       id: 'o-1',
       title: 'edit schema',
@@ -3073,8 +2690,7 @@ describe('deriveRiskTier — low / medium / override', () => {
     expect(LOW_RISK_GLOBS.length).toBeGreaterThan(0);
   });
 
-  // Property: the derived tier is always one of low|medium|high for arbitrary
-  // TaskInput, and an explicit override always wins.
+  /** For any task input, the derived tier is low, medium or high, and an explicit tier always wins. */
   it('DeriveRiskTier_Property_AlwaysValidTierAndOverrideWins', () => {
     const tierArb = fc.constantFrom('low', 'medium', 'high') as fc.Arbitrary<
       'low' | 'medium' | 'high'
@@ -3119,14 +2735,10 @@ describe('deriveRiskTier — low / medium / override', () => {
   });
 });
 
-// ─── vls1-b1 (task 005): deriveBoundaryTouching ─────────────────────────────
-//
-// A task is boundary-touching when it crosses an I/O or schema boundary:
-// testLayer is integration/acceptance, a file matches a BOUNDARY_GLOB
-// (adapters/clients/io/http), or a file is a schema artifact (*.proto,
-// openapi.*, *.graphql). Boundary tagging is INDEPENDENT of risk tier — a
-// low-blast task can still be boundary-touching. An explicit override wins.
-
+/**
+ * A task is boundary-touching when its test layer is integration or acceptance, or when a file matches `BOUNDARY_GLOBS`.
+ * The tag is independent of the risk tier, and an explicit value wins.
+ */
 describe('deriveBoundaryTouching', () => {
   it('DeriveBoundaryTouching_IntegrationOrAcceptanceTestLayer_ReturnsTrue', () => {
     expect(deriveBoundaryTouching({ id: 'b-1', title: 'x', testLayer: 'integration' })).toBe(true);
@@ -3134,7 +2746,6 @@ describe('deriveBoundaryTouching', () => {
   });
 
   it('DeriveBoundaryTouching_UnitOrPropertyTestLayer_NotBoundaryByLayer', () => {
-    // Unit/property layers alone do not mark a boundary.
     expect(deriveBoundaryTouching({ id: 'b-u', title: 'x', testLayer: 'unit', files: ['src/a.ts'] })).toBe(false);
     expect(deriveBoundaryTouching({ id: 'b-p', title: 'x', testLayer: 'property', files: ['src/a.ts'] })).toBe(false);
   });
@@ -3162,13 +2773,10 @@ describe('deriveBoundaryTouching', () => {
     }
   });
 
+  /** One adapter file marks the task boundary-touching, but it does not make the task high risk. */
   it('DeriveBoundaryTouching_LowBlastSchemaAdapterEdit_TagIndependentOfRiskTier', () => {
-    // A single adapter file → low risk tier (one source file, not high/low
-    // glob for risk) but STILL boundary-touching. Tag is orthogonal to tier.
     const task: TaskInput = { id: 'i-1', title: 'tweak adapter', files: ['src/adapters/cli.ts'] };
     expect(deriveBoundaryTouching(task)).toBe(true);
-    // riskTier derivation must not be 'high' from this alone (adapters is not
-    // a high-risk glob) — confirms independence.
     expect(deriveRiskTier(task)).not.toBe('high');
   });
 
@@ -3177,8 +2785,8 @@ describe('deriveBoundaryTouching', () => {
     expect(deriveBoundaryTouching(task)).toBe(false);
   });
 
+  /** The explicit value sets the tag in both directions. */
   it('DeriveBoundaryTouching_ExplicitOverride_Wins', () => {
-    // Override forces the tag in both directions.
     const forceTrue: TaskInput = { id: 'o-1', title: 'plain', files: ['src/validate.ts'], boundaryTouching: true };
     expect(deriveBoundaryTouching(forceTrue)).toBe(true);
     const forceFalse: TaskInput = { id: 'o-2', title: 'adapter', files: ['src/adapters/cli.ts'], boundaryTouching: false };
@@ -3192,27 +2800,25 @@ describe('deriveBoundaryTouching', () => {
 });
 
 describe('DR-14 dispatch-boundary capability enforcement (#1546)', () => {
+  /** With the default handshake, the bundle that `mintCapabilitiesForKind` mints for the dispatch kind carries `fs:write`. */
   it('AssertDispatchMutationCapabilities_DefaultHandshake_GrantsFsWrite', () => {
-    // The dispatch kind (IMPLEMENT / task-isolated) mints a POLA bundle that
-    // carries fs:write — mintCapabilitiesForKind is invoked in PRODUCTION here,
-    // not only in its own unit test (the review F1 gap).
     const caps = assertDispatchMutationCapabilities();
     expect(caps.has('fs:write')).toBe(true);
     expect(caps.has('isolation:worktree')).toBe(true);
   });
 
+  /**
+   * A handshake that revokes `fs:write`, as a sandboxed client can do, makes the dispatch boundary throw.
+   * It does not dispatch an agent that cannot write.
+   */
   it('AssertDispatchMutationCapabilities_HandshakeDeniesFsWrite_FailsClosed', () => {
-    // Runtime fail-closed: a handshake that revokes the worktree-mutation token
-    // (e.g. a sandboxed client) yields a bundle without fs:write — the dispatch
-    // boundary throws rather than dispatch an agent that cannot write.
     expect(() =>
       assertDispatchMutationCapabilities({ deny: ['fs:write'] }),
     ).toThrow(/fs:write/);
   });
 
+  /** The capability check does not block the ordinary dispatch path, because the dispatch kind grants mutation. */
   it('ClassifyTasksFailClosed_HappyPath_StillClassifies', () => {
-    // Regression: the capability assertion does not break the ordinary
-    // built-in-posture dispatch path (IMPLEMENT grants mutation).
     const result = classifyTasksFailClosed([]);
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.classifications).toEqual([]);

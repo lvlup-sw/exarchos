@@ -1,3 +1,11 @@
+/**
+ * Regression test for the worktree-escape leak (#1301).
+ * An absolute parent-repo path in `Edit` or `Write` ignores the agent worktree cwd and writes into the main worktree.
+ * `handleVerifyWorktreeBoundary` denies each write target outside the agent worktree root.
+ * The guard unit suite stubs `gitToplevel` and `realpath`, so it cannot see a `defaultGitToplevel` that reports the main repo toplevel.
+ * This file makes real linked worktrees under `.worktrees/` and runs the guard with its default git and filesystem seams.
+ * Only `stderr` is injected.
+ */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { realpathSync } from 'node:fs';
 import { mkdtemp, writeFile } from 'node:fs/promises';
@@ -6,37 +14,6 @@ import * as path from 'node:path';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 import { handleVerifyWorktreeBoundary } from '../../../../src/lifecycle/verify-worktree-boundary.js';
-
-/**
- * #1301 worktree-escape leak-shape regression pin (DR-4, WLM slice-3 task-013).
- *
- * #1301: an implementer agent's `Edit`/`Write` to an ABSOLUTE parent-repo path
- * resolves literally — ignoring the agent's isolated worktree cwd — and writes
- * byte-identically into the orchestrator's MAIN worktree (the "mirroring" leak).
- * The structural root-fix (merged #1568) is the boundary guard
- * `handleVerifyWorktreeBoundary`: it resolves the write target against the
- * agent's worktree root and DENIES (exit 2) anything that escapes it. Because
- * the guard is a runtime-agnostic `exarchos` verb (not a Claude-only harness
- * hook), the guarantee lives in the resolver/dispatch core — INV-4.
- *
- * WHY THIS FILE EXISTS (non-duplication): the existing unit suite
- * (`lifecycle/verify-worktree-boundary.test.ts`) pins the boundary DECISION
- * comprehensively, but by design STUBS both real seams — `gitToplevel` and
- * `realpath` — "so the unit tests never touch git or the filesystem". That
- * leaves the load-bearing property from the guard's own doc comment untested:
- * "a linked worktree reports its OWN toplevel, so the parent main repo is
- * correctly out of bounds". If `defaultGitToplevel` regressed to report the
- * MAIN repo's toplevel (e.g. a dropped `-C <cwd>`, or a git behavior change),
- * #1301 would silently re-open and EVERY stubbed unit test would still pass.
- *
- * This regression closes that gap end-to-end: it provisions a REAL linked git
- * worktree exactly as native isolation does (`git worktree add
- * <repoRoot>/.worktrees/agent-*`) and runs the guard with its DEFAULT deps —
- * the real `defaultGitToplevel` + `defaultRealpath` — asserting the #1301 leak
- * shape is BLOCKED at the boundary and legitimate in-worktree writes are
- * allowed. Only `stderr` is injected (to assert the deny reason); the git/fs
- * seams stay real.
- */
 
 /** Run `git <args>` from `cwd`, returning trimmed stdout (throws on failure). */
 async function git(cwd: string, args: readonly string[]): Promise<string> {
@@ -52,16 +29,19 @@ function preToolUse(
   return JSON.stringify({ cwd, tool_name: toolName, tool_input: toolInput });
 }
 
-// PreToolUse block contract: 0 = allow, 2 = deny.
+/** PreToolUse hook exit codes: 0 allows the write, 2 denies it. */
 const ALLOW = 0;
 const DENY = 2;
 
+/**
+ * `worktreePath` is the agent cwd and `siblingPath` is the worktree of a parallel agent.
+ * `runGuard` keeps the default git and filesystem seams and captures only `stderr`.
+ */
 describe('WorktreeBoundaryGuard #1301 leak-shape regression (real linked worktree, real git seams)', () => {
   let repoRoot: string;
-  let worktreePath: string; // <repoRoot>/.worktrees/agent-x — the agent's cwd
-  let siblingPath: string; // <repoRoot>/.worktrees/agent-other — a parallel agent
+  let worktreePath: string;
+  let siblingPath: string;
 
-  /** Invoke the guard with DEFAULT git/fs seams; only capture stderr. */
   function runGuard(stdin: string): { code: number; err: string } {
     const errLines: string[] = [];
     const code = handleVerifyWorktreeBoundary(stdin, {
@@ -70,22 +50,21 @@ describe('WorktreeBoundaryGuard #1301 leak-shape regression (real linked worktre
     return { code, err: errLines.join('\n') };
   }
 
+  /**
+   * `realpathSync` removes the macOS `/tmp` symlink, so the containment check compares canonical paths.
+   * The committed `src.txt` gives the absolute-path leak a real target in the main worktree.
+   * The two linked worktrees have their own toplevels, as native isolation makes them.
+   */
   beforeEach(async () => {
-    // realpathSync defeats the /tmp → /private/tmp (macOS) symlink so the
-    // containment math is done in canonical space on both sides.
     repoRoot = realpathSync(await mkdtemp(path.join(tmpdir(), 'boundary-1301-')));
     await git(repoRoot, ['init', '-q', '-b', 'main']);
     await git(repoRoot, ['config', 'user.email', 'test@example.com']);
     await git(repoRoot, ['config', 'user.name', 'Test']);
     await git(repoRoot, ['config', 'commit.gpgsign', 'false']);
-    // Seed a committed file so the MAIN worktree has a real counterpart for the
-    // absolute-path leak to (attempt to) land in.
     await writeFile(path.join(repoRoot, 'src.txt'), 'baseline\n');
     await git(repoRoot, ['add', '.']);
     await git(repoRoot, ['commit', '-q', '-m', 'baseline']);
 
-    // Provision two linked worktrees under .worktrees/, exactly as native
-    // isolation does. Each is a distinct git worktree with its OWN toplevel.
     worktreePath = path.join(repoRoot, '.worktrees', 'agent-x');
     siblingPath = path.join(repoRoot, '.worktrees', 'agent-other');
     await git(repoRoot, ['worktree', 'add', '-q', worktreePath, '-b', 'agent-x']);
@@ -96,34 +75,29 @@ describe('WorktreeBoundaryGuard #1301 leak-shape regression (real linked worktre
     await rmrfAsync(repoRoot);
   });
 
-  // ── The #1301 leak shape: an absolute parent-repo write is BLOCKED ──────────
-
+  /**
+   * The real `defaultGitToplevel` must resolve the agent cwd to the linked worktree toplevel.
+   * The main repo is then out of bounds, and the deny reason cites #1301.
+   */
   it('WorktreeBoundary_AbsoluteMainRepoPath_DeniedThroughRealGitToplevel', () => {
-    // The exact #1301 vector: an implementer writes an ABSOLUTE path into the
-    // main (parent) worktree instead of a worktree-relative one. The real
-    // `defaultGitToplevel` must resolve the agent cwd to the LINKED worktree's
-    // own toplevel, leaving the parent repo out of bounds → deny.
     const { code, err } = runGuard(
       preToolUse({ file_path: path.join(repoRoot, 'src.txt') }, worktreePath),
     );
     expect(code).toBe(DENY);
-    // Deny reason names the leak and cites #1301 (surfaced to the agent).
     expect(err).toMatch(/outside the isolated worktree/i);
     expect(err).toContain('#1301');
   });
 
+  /** A relative `..` path from the worktree resolves to the same main-repo file. */
   it('WorktreeBoundary_DotDotEscapeToMainRepo_Denied', () => {
-    // A relative `..`-escape that climbs out of .worktrees/agent-x back to the
-    // main repo root resolves to the SAME leaked file — also blocked.
     const { code } = runGuard(
       preToolUse({ file_path: '../../src.txt' }, worktreePath),
     );
     expect(code).toBe(DENY);
   });
 
+  /** A write into the worktree of a parallel agent is also out of bounds. */
   it('WorktreeBoundary_SiblingWorktreePath_Denied', () => {
-    // Parallel-dispatch protection: a write into a PARALLEL agent's worktree
-    // must not leak across the isolation boundary either.
     const { code } = runGuard(
       preToolUse(
         { file_path: path.join(siblingPath, 'src.txt') },
@@ -133,8 +107,8 @@ describe('WorktreeBoundaryGuard #1301 leak-shape regression (real linked worktre
     expect(code).toBe(DENY);
   });
 
+  /** The notebook write tool has the same leak path. */
   it('WorktreeBoundary_NotebookEditIntoMainRepo_Denied', () => {
-    // The leak vector is identical for the notebook write tool.
     const { code } = runGuard(
       preToolUse(
         { notebook_path: path.join(repoRoot, 'analysis.ipynb') },
@@ -144,8 +118,6 @@ describe('WorktreeBoundaryGuard #1301 leak-shape regression (real linked worktre
     );
     expect(code).toBe(DENY);
   });
-
-  // ── The other side of the boundary: legitimate in-worktree writes ALLOW ─────
 
   it('WorktreeBoundary_RelativePathInsideWorktree_Allowed', () => {
     const { code } = runGuard(
@@ -164,10 +136,8 @@ describe('WorktreeBoundaryGuard #1301 leak-shape regression (real linked worktre
     expect(code).toBe(ALLOW);
   });
 
+  /** A new nested path runs the `ENOENT` branch of `defaultRealpath` on a real filesystem. */
   it('WorktreeBoundary_NewNestedFileInsideWorktree_Allowed', () => {
-    // A brand-new (not-yet-existing) nested path must still be allowed — this
-    // exercises defaultRealpath's ENOENT-tail branch against a real filesystem,
-    // where an identity-stub realpath would not.
     const { code } = runGuard(
       preToolUse(
         { file_path: path.join(worktreePath, 'sub', 'brand-new.ts') },

@@ -90,6 +90,7 @@ describe('handleMergePr', () => {
     });
   });
 
+  /** The call completes, so the result is a success that carries `merged: false`. */
   it('handleMergePr_MergeFailed_ReturnsSuccessWithUnmergedData', async () => {
     vi.mocked(mockProvider.mergePr).mockResolvedValue({ merged: false, error: 'Conflicts' });
 
@@ -97,7 +98,6 @@ describe('handleMergePr', () => {
 
     const result = await handleMergePr(args, ctx);
 
-    // Still success (the operation completed), but merged=false
     expect(result.success).toBe(true);
     expect(result.data).toEqual({ merged: false, error: 'Conflicts' });
   });
@@ -124,10 +124,13 @@ describe('handleMergePr', () => {
     expect(result.error?.message).toContain('API timeout');
   });
 
+  /**
+   * The merge lands on the remote, but the append of its record fails. The
+   * handler must not report success with no durable record of the merge. The
+   * merge result stays on the error block, because a failed result has no
+   * top-level `data`.
+   */
   it('handleMergePr_MergedButAppendFails_ReturnsFailureNotSilentSuccess', async () => {
-    // The merge landed on the remote — the append recording it is what fails.
-    // A swallowed catch here would report success:true with no durable trace
-    // of a merge that actually happened.
     vi.mocked(ctx.eventStore.append).mockRejectedValue(new Error('SQLITE_BUSY'));
 
     const args = { prId: '42', strategy: 'squash' as const };
@@ -137,9 +140,6 @@ describe('handleMergePr', () => {
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('PR_MERGED_EVENT_UNRECORDED');
     expect(result.error?.message).toContain('SQLITE_BUSY');
-    // The merge's own result is preserved on the error block — the effect
-    // happened and is worth reading even though the durable record of it did
-    // not land, and the failed envelope variant admits no top-level `data`.
     expect(result.error?.mergeResult).toEqual({ merged: true, sha: 'abc123' });
     expect(result.data).toBeUndefined();
   });

@@ -1,13 +1,10 @@
-// ─── serialize_merge — integration-branch merge lease tests (DR-7) ────────────
-//
-// The optimistic lease: at most one in-flight merge per `integrationRef`,
-// composing `merge_orchestrate` UNCHANGED. Concurrency tests run against a real
-// SQLite EventStore (the substrate's in-transaction stream-version gate is the
-// cross-process guard); the composition test runs the REAL merge over two real
-// temp git repos so the per-featureId `merge.*` events are compared modulo the
-// commit-derived SHAs. Every behavioral test drives the handler / lease with
-// deterministic injected seams (no real timers, no OS process probe); the
-// routing test drives `handleOrchestrate` so a missing dispatch wiring goes red.
+// Tests for the `serialize_merge` lease. It allows at most one in-flight merge
+// per `integrationRef` and calls `merge_orchestrate` unchanged. The concurrency
+// test uses a real SQLite `EventStore`, because its stream-version check in the
+// transaction is the guard across processes. The composition test runs the real
+// merge in two temp git repos and compares the `merge.*` events without the
+// commit SHAs. The routing test goes through `handleOrchestrate`, so a missing
+// dispatch entry fails.
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
@@ -37,8 +34,6 @@ import type { WorktreesProjection } from '../../../../src/verbs/worktree/project
 import type { ProcessTableSource, ProcessRecord } from '../../../../src/verbs/worktree/pure/probe.js';
 import type { SleepFn } from '../../../../src/verbs/worktree/git-retry.js';
 import type { MergePreflightResult, GitExec } from '../../../../src/verbs/pure/merge-preflight.js';
-
-// ─── Arm: one stateDir + EventStore + ctx ────────────────────────────────────
 
 interface Arm {
   readonly stateDir: string;
@@ -74,9 +69,7 @@ afterEach(async () => {
   }
 });
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-/** Live process table reporting exactly the listed (pid, startTime) pairs alive. */
+/** A supported process table that lists only the given PID and start time pairs as alive. */
 function liveTable(pairs: ReadonlyArray<{ pid: number; startTime: string }>): ProcessTableSource {
   const records: ProcessRecord[] = pairs.map(({ pid, startTime }) => ({
     pid,
@@ -87,22 +80,20 @@ function liveTable(pairs: ReadonlyArray<{ pid: number; startTime: string }>): Pr
   return { list: () => records };
 }
 
-/** Empty but SUPPORTED process table — every probed pid reads as absent (provably dead). */
+/** A supported empty process table, so each probed PID is absent and provably dead. */
 const EMPTY_TABLE: ProcessTableSource = { list: () => [] };
 
 /**
- * UNSUPPORTED process table — the off-Linux shape (no enumerator). `list()` is
- * `[]` but `isSupported()` is `false`, so a probed pid reads as `'unknown'`,
- * NEVER provably dead. A holder probed against this table must be HELD, not
- * reclaimed (DR-7 fail-closed). Mirrors the real `defaultProcessTableSource`
- * off-Linux.
+ * An unsupported process table, as on a platform with no enumerator. `list()`
+ * is `[]` and `isSupported()` is `false`, so a probed PID reads as `'unknown'`.
+ * The lease must keep a holder that this table probes.
  */
 const UNSUPPORTED_TABLE: ProcessTableSource = {
   list: () => [],
   isSupported: () => false,
 };
 
-/** A merge_orchestrate stub that records the featureIds it ran for. */
+/** A `merge_orchestrate` stub that records the `featureId` of each call. */
 function recordingMerge(into: string[]): (input: { featureId: string }) => Promise<ToolResult> {
   return async (input) => {
     into.push(input.featureId);
@@ -110,7 +101,7 @@ function recordingMerge(into: string[]): (input: { featureId: string }) => Promi
   };
 }
 
-/** Directly seed a held lease (CLAIM) on the worktrees stream. */
+/** Appends a `worktree.merge_requested` claim to the worktrees stream, so the lease is held. */
 async function seedHolder(
   arm: Arm,
   holder: {
@@ -135,17 +126,14 @@ async function foldWorktrees(arm: Arm): Promise<WorktreesProjection> {
   return aggregate;
 }
 
-// ─── Real-git helpers (composition test) ─────────────────────────────────────
-
 function git(repoRoot: string, args: readonly string[]): Promise<string> {
   return execFileAsync('git', args, { cwd: repoRoot, timeout: 30_000 });
 }
 
 /**
- * A repo where `main` (the integration ref) IS an ancestor of `feat` (the
- * source): main@A, feat@A→C. HEAD is left on `feat` (a non-protected branch) so
- * merge-preflight passes — ancestry, current-branch, main-worktree, drift all
- * clean — and `git merge --no-ff feat` lands a clean merge commit on main.
+ * A repo in which `main`, the integration ref, is an ancestor of `feat`, the
+ * source. `main` has commit A, and `feat` adds commit C. HEAD stays on `feat`,
+ * which is not protected, so the merge preflight passes.
  */
 async function setupMergeableRepo(): Promise<string> {
   const repoRoot = mkdtempSync(path.join(os.tmpdir(), 'wlm-serialize-repo-'));
@@ -192,7 +180,7 @@ async function seedFeatureState(stateDir: string, featureId: string): Promise<vo
   );
 }
 
-/** Normalize a `merge.*` event to its stable (non-volatile, non-SHA) projection. */
+/** Reduces a `merge.*` event to its stable fields, without volatile values or SHAs. */
 function normalizeMergeEvent(e: { type: string; data?: Record<string, unknown> }): Record<string, unknown> {
   const d = e.data ?? {};
   return {
@@ -204,15 +192,17 @@ function normalizeMergeEvent(e: { type: string; data?: Record<string, unknown> }
   };
 }
 
-// ─── Test 1: second claimant waits for the first's release before claiming ────
-
 describe('serialize_merge — single-writer ordering', () => {
+  /**
+   * F1 holds the lease under the live PID 999. The injected sleep releases F1 on
+   * its first call, so F2 waits at least one poll. F2 claims only after the
+   * `worktree.merge_executed` of F1, and the lease ends clear.
+   */
   it('SerializeMerge_TwoFeatureIdsSameBranch_SecondWaitsForFirstExecutedBeforeClaiming', async () => {
     const arm = await createArm();
     const integrationRef = 'integration/main';
     const f1OpId = 'f1-holder-op';
 
-    // F1 holds the lease under a LIVE pid (999).
     await seedHolder(arm, {
       integrationRef,
       operationId: f1OpId,
@@ -221,8 +211,6 @@ describe('serialize_merge — single-writer ordering', () => {
       holderStartedAt: 'alive-999',
     });
 
-    // The injected sleep releases F1 on its FIRST call, so F2 must wait at least
-    // one poll iteration and can only claim AFTER F1's worktree.merge_executed.
     let sleepCalls = 0;
     let released = false;
     const sleep: SleepFn = async () => {
@@ -253,9 +241,8 @@ describe('serialize_merge — single-writer ordering', () => {
 
     expect(result.success).toBe(true);
     expect(merged).toEqual(['F2']);
-    expect(sleepCalls).toBeGreaterThanOrEqual(1); // F2 blocked at least once.
+    expect(sleepCalls).toBeGreaterThanOrEqual(1);
 
-    // Ordering: F2's CLAIM lands strictly AFTER F1's RELEASE.
     const events = await arm.eventStore.query(WORKTREES_STREAM);
     const f1ExecIdx = events.findIndex(
       (e) => e.type === 'worktree.merge_executed' && e.data?.operationId === f1OpId,
@@ -266,23 +253,22 @@ describe('serialize_merge — single-writer ordering', () => {
     expect(f1ExecIdx).toBeGreaterThanOrEqual(0);
     expect(f2ReqIdx).toBeGreaterThan(f1ExecIdx);
 
-    // The lease is released at the end — no in-flight merge remains.
     expect((await foldWorktrees(arm)).inFlightMerges[integrationRef]).toBeUndefined();
   });
 });
 
-// ─── Test 1b: off-Linux unsupported table NEVER reclaims a live holder (REV-H1)─
-
 describe('serialize_merge — unsupported process table (DR-7 fail-closed)', () => {
+  /**
+   * The holder PID is not in the empty list of the unsupported table. A supported
+   * empty table reads that PID as dead, but this table reads it as `'unknown'`,
+   * so the holder must stay. The injected sleep advances a fake clock, so the
+   * wait times out and the merge does not run.
+   */
   it('SerializeMerge_UnsupportedProcessTable_DoesNotReclaimLiveHolder', async () => {
     const arm = await createArm();
     const integrationRef = 'integration/unsupported';
     const holderOpId = 'live-holder-op';
 
-    // A holder whose pid is absent from the UNSUPPORTED table's empty list. On a
-    // SUPPORTED-empty table this pid would read as provably dead and be reclaimed
-    // inline; on the UNSUPPORTED table it reads 'unknown', so it must be HELD —
-    // the off-Linux path must never steal what could be a LIVE merge holder.
     await seedHolder(arm, {
       integrationRef,
       operationId: holderOpId,
@@ -291,8 +277,6 @@ describe('serialize_merge — unsupported process table (DR-7 fail-closed)', () 
       holderStartedAt: 'boot-9090',
     });
 
-    // A fake clock that the injected sleep advances, so the bounded wait expires
-    // deterministically (no real timer, no hang) INSTEAD of reclaiming the holder.
     let clock = 0;
     const sleep: SleepFn = async (ms) => {
       clock += ms;
@@ -304,7 +288,7 @@ describe('serialize_merge — unsupported process table (DR-7 fail-closed)', () 
       {
         now: () => clock,
         sleep,
-        processTableSource: UNSUPPORTED_TABLE, // pid 9090 → 'unknown', NOT dead.
+        processTableSource: UNSUPPORTED_TABLE,
         selfPid: 222,
         selfStartedAt: 'self-222',
         mergeOrchestrate: recordingMerge(merged),
@@ -312,56 +296,46 @@ describe('serialize_merge — unsupported process table (DR-7 fail-closed)', () 
       },
     );
 
-    // The slot was NEVER stolen: the wait timed out structurally instead.
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('MERGE_SLOT_TIMEOUT');
     expect((result.data as { reason?: string }).reason).toBe('merge-slot-timeout');
-    // The merge NEVER ran — no live holder was reclaimed.
     expect(merged).toEqual([]);
-    // The holder's lease is STILL in flight (no merge_executed reclaimed it).
     const projection = await foldWorktrees(arm);
     expect(projection.inFlightMerges[integrationRef]?.operationId).toBe(holderOpId);
     const events = await arm.eventStore.query(WORKTREES_STREAM);
     const reclaims = events.filter(
       (e) => e.type === 'worktree.merge_executed' && e.data?.operationId === holderOpId,
     );
-    expect(reclaims).toHaveLength(0); // the holder was held, never reclaimed.
+    expect(reclaims).toHaveLength(0);
   });
 });
 
-// ─── Test 2: concurrent claims resolve to a single holder (real-SQLite, x-proc)─
-
 describe('serialize_merge — cross-process OCC', () => {
+  /**
+   * Two `EventStore` instances over one database file race as two processes.
+   * The merge stub holds the lease for 120 ms, longer than the first retry
+   * backoff of the loser, so the loser folds a live holder. The sleep yields a
+   * macrotask, so the loser does not starve the winner. A walk of the committed
+   * log then checks that no two claims for the ref are open at once.
+   */
   it('SerializeMerge_ConcurrentClaims_OccResolvesSingleHolderCrossProcess', async () => {
-    // TWO EventStores over the SAME db file = two appenders / two SQLite handles
-    // = a genuine cross-process race resolved by the in-txn stream-version gate.
     const armA = await createArm();
     const armB = await createArm(armA.stateDir);
     const integrationRef = 'integration/shared';
 
-    // The composed merge asserts non-overlap: if serialization broke and both
-    // claims won, two merges would run concurrently and maxActive would reach 2.
     let active = 0;
     let maxActive = 0;
     const merged: string[] = [];
     const mergeOrchestrate = async (input: { featureId: string }): Promise<ToolResult> => {
       active += 1;
       maxActive = Math.max(maxActive, active);
-      // Hold the lease across the loser's OCC-conflict retry window (its
-      // withStateRetry backoff is ~50ms): a winner that releases too fast would
-      // let the loser re-claim a FREE slot, masking a broken in-closure guard.
-      // Holding makes the loser's retry fold the LIVE holder, so a removed guard
-      // commits a second claim (active-claim counter → 2) and the log invariant
-      // below goes red.
       await new Promise((r) => setTimeout(r, 120));
       active -= 1;
       merged.push(input.featureId);
       return { success: true, data: { phase: 'completed' } };
     };
 
-    // The loser polls a MACROTASK so it never starves the winner's setImmediate.
     const sleep: SleepFn = () => new Promise((r) => setImmediate(r));
-    // Both claimants' pids read alive, so neither reclaims the other's live lease.
     const table = liveTable([
       { pid: 5001, startTime: 'start-A' },
       { pid: 5002, startTime: 'start-B' },
@@ -382,10 +356,9 @@ describe('serialize_merge — cross-process OCC', () => {
 
     expect(rA.success).toBe(true);
     expect(rB.success).toBe(true);
-    expect(maxActive).toBe(1); // never two in-flight merges at once (wall-clock).
+    expect(maxActive).toBe(1);
     expect([...merged].sort()).toEqual(['F-A', 'F-B']);
 
-    // Exactly one CLAIM + one RELEASE per featureId, slot ends clear.
     const events = await armA.eventStore.query(WORKTREES_STREAM);
     const claims = events.filter((e) => e.type === 'worktree.merge_requested');
     const releases = events.filter((e) => e.type === 'worktree.merge_executed');
@@ -393,11 +366,6 @@ describe('serialize_merge — cross-process OCC', () => {
     expect(releases).toHaveLength(2);
     expect((await foldWorktrees(armA)).inFlightMerges[integrationRef]).toBeUndefined();
 
-    // DETERMINISTIC single-writer invariant on the COMMITTED log order: walk the
-    // worktrees stream maintaining an active-claim counter (+1 on a claim, -1 on
-    // a release). It must NEVER exceed 1 — two adjacent claims with no intervening
-    // release for the same ref is exactly the double-claim a broken in-closure OCC
-    // guard would produce (and is independent of wall-clock interleaving).
     let activeClaims = 0;
     let maxActiveClaims = 0;
     for (const e of events) {
@@ -412,13 +380,16 @@ describe('serialize_merge — cross-process OCC', () => {
   });
 });
 
-// ─── Test 3: merge_orchestrate composed UNCHANGED (real git, modulo SHAs) ─────
-
 describe('serialize_merge — composition', () => {
+  /**
+   * Runs the serialized path through `handleOrchestrate` with `dryRun: false`,
+   * so `merge_orchestrate` runs. Runs the direct `handleMergeOrchestrate` path
+   * on an equal second repo. The `merge.*` events of the feature stream must
+   * match without ids, timestamps, sequences, and commit SHAs.
+   */
   it('SerializeMerge_MergeOrchestrateComposedUnchanged_FeatureStreamEventsMatchModuloVolatileAndShas', async () => {
     const featureId = 'feat-compose';
 
-    // (1) Serialized path — through handleOrchestrate, production defaults.
     const repoSerial = await setupMergeableRepo();
     const armSerial = await createArm();
     await seedFeatureState(armSerial.stateDir, featureId);
@@ -430,15 +401,12 @@ describe('serialize_merge — composition', () => {
         sourceBranch: 'feat',
         strategy: 'merge',
         repoRoot: repoSerial,
-        // dryRun:false — serialize_merge now DEFAULTS to dry-run (DR-1); this
-        // composition proof needs the real apply path so merge_orchestrate runs.
         dryRun: false,
       },
       armSerial.ctx,
     );
     expect(serialResult.success).toBe(true);
 
-    // (2) Direct path — handleMergeOrchestrate on an EQUIVALENT independent repo.
     const repoDirect = await setupMergeableRepo();
     const armDirect = await createArm();
     await seedFeatureState(armDirect.stateDir, featureId);
@@ -448,8 +416,6 @@ describe('serialize_merge — composition', () => {
     );
     expect(directResult.success).toBe(true);
 
-    // The per-featureId `merge.*` timeline matches modulo id/timestamp/sequence
-    // AND the commit-derived SHAs (independent repos → different SHAs/paths).
     const serialMerge = (await armSerial.eventStore.query(featureId))
       .filter((e) => e.type.startsWith('merge.'))
       .map(normalizeMergeEvent);
@@ -459,23 +425,23 @@ describe('serialize_merge — composition', () => {
 
     expect(serialMerge.length).toBeGreaterThan(0);
     expect(serialMerge).toEqual(directMerge);
-    // The serializer adds NO events to the feature stream (only worktrees stream).
     expect(serialMerge.map((e) => e.type)).toContain('merge.executed');
   });
 });
 
-// ─── Test 4: release is a plain keyed append, NOT CAS-pinned to the claim seq ─
-
 describe('serialize_merge — release semantics', () => {
+  /**
+   * The composed merge appends an unrelated event, so the stream tail moves past
+   * the claim sequence before the release. A release pinned to the claim
+   * sequence conflicts here, and a plain keyed append does not. The release
+   * call must carry no `AppendOptions`, and the slot must end clear.
+   */
   it('SerializeMerge_ReleaseIsPlainKeyedAppend_NotCasPinnedToClaimSeq', async () => {
     const arm = await createArm();
     const integrationRef = 'integration/release';
     const appender = arm.eventStore.getAppender();
     const appendSpy = vi.spyOn(appender, 'append');
 
-    // The composed merge ADVANCES the worktrees stream with an unrelated event,
-    // so the tail moves PAST the claim seq before the release append runs. A
-    // CAS-pin to the claim seq would conflict here; a plain keyed append does not.
     const mergeOrchestrate = async (): Promise<ToolResult> => {
       await appender.append(
         WORKTREES_STREAM,
@@ -492,18 +458,15 @@ describe('serialize_merge — release semantics', () => {
     );
     expect(result.success).toBe(true);
 
-    // The RELEASE append carried NO AppendOptions (no expectedSequence pin).
     const releaseCall = appendSpy.mock.calls.find((c) => {
       const events = c[1] as Array<{ type: string }>;
       return events[0]?.type === 'worktree.merge_executed';
     });
     expect(releaseCall).toBeDefined();
-    expect(releaseCall![3]).toBeUndefined(); // 4th arg = AppendOptions → absent.
+    expect(releaseCall![3]).toBeUndefined();
 
-    // Behavioral proof: the release CLEARED the slot despite the advanced tail.
     const fold = await foldWorktrees(arm);
     expect(fold.inFlightMerges[integrationRef]).toBeUndefined();
-    // The unrelated event really did advance the stream between claim and release.
     const events = await arm.eventStore.query(WORKTREES_STREAM);
     const adoptIdx = events.findIndex((e) => e.type === 'worktree.adopted');
     const releaseIdx = events.findIndex((e) => e.type === 'worktree.merge_executed');
@@ -512,25 +475,24 @@ describe('serialize_merge — release semantics', () => {
   });
 });
 
-// ─── Test 5: no lock file written, no flock library imported ──────────────────
-
 describe('serialize_merge — the lease IS the serialization', () => {
+  /**
+   * The static check strips comments from the serializer source first, so its
+   * own prose cannot match. The behavioral check walks `stateDir` in Node and
+   * does not run `find`, because on Windows `find` is a different program.
+   */
   it('SerializeMerge_WritesNoLockFile_ImportsNoFlockLib', async () => {
-    // (a) Static: the serializer imports NO advisory-lock library and uses NO
-    // flock / .lock filesystem API. Strip comments first so the module's own
-    // prose ("no flock / .lock") cannot false-positive.
     const sourcePath = fileURLToPath(new URL('../../../../src/verbs/worktree/merge-serializer.ts', import.meta.url));
     const source = readFileSync(sourcePath, 'utf-8');
     const code = source
-      .replace(/\/\*[\s\S]*?\*\//g, '') // block comments
-      .replace(/(^|[^:])\/\/.*$/gm, '$1'); // line comments (keep "://" in URLs)
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/(^|[^:])\/\/.*$/gm, '$1');
     const importSpecifiers = [...code.matchAll(/from\s+['"]([^'"]+)['"]/g)].map((m) => m[1]);
     for (const spec of importSpecifiers) {
       expect(spec.toLowerCase()).not.toContain('lock');
     }
     expect(code).not.toMatch(/flockSync|O_EXLOCK|proper-lockfile|lockfile|\.lock\b/i);
 
-    // (b) Behavioral: a full lease cycle writes NO `*.lock` file under stateDir.
     const arm = await createArm();
     const merged: string[] = [];
     const result = await serializeMerge(
@@ -540,8 +502,6 @@ describe('serialize_merge — the lease IS the serialization', () => {
     );
     expect(result.success).toBe(true);
 
-    // Cross-platform recursive walk — never shell out to `find` (on Windows that
-    // resolves to C:\Windows\System32\find.exe, whose syntax differs entirely).
     const lockFiles = readdirSync(arm.stateDir, { recursive: true }).filter((entry) =>
       entry.toString().endsWith('.lock'),
     );
@@ -549,15 +509,16 @@ describe('serialize_merge — the lease IS the serialization', () => {
   });
 });
 
-// ─── Test 5b: unresolved create-time emits schema-valid null holderStartedAt ───
-
 describe('serialize_merge — unresolvable create-time (Sentry #15023070/1)', () => {
+  /**
+   * The process source cannot resolve the create time of the caller, and the
+   * test does not inject `selfStartedAt`. The claim must carry a `null`
+   * `holderStartedAt`, not an empty string. The schema accepts `null` and
+   * rejects `''`.
+   */
   it('SerializeMerge_UnresolvedStartTime_EmitsNullHolderStartedAt_SchemaValid', async () => {
     const arm = await createArm();
     const merged: string[] = [];
-    // A process source that can't resolve the caller's create-time (the off-Linux
-    // shape). Do NOT inject selfStartedAt, so resolveSelfStartedAt runs and must
-    // yield null — NOT '' — keeping the emitted event schema-valid.
     const result = await serializeMerge(
       { featureId: 'F', integrationRef: 'integration/nostart', sourceBranch: 'feat/x', strategy: 'merge', timeoutMs: 10_000 },
       arm.ctx,
@@ -573,20 +534,19 @@ describe('serialize_merge — unresolvable create-time (Sentry #15023070/1)', ()
     const events = await arm.eventStore.query(WORKTREES_STREAM);
     const claim = events.find((e) => e.type === 'worktree.merge_requested');
     expect(claim).toBeDefined();
-    // Modeled as null (absence), never an out-of-contract empty string.
     expect((claim!.data as { holderStartedAt?: unknown }).holderStartedAt).toBeNull();
 
-    // The stored raw event validates against the canonical data schema — null is
-    // in-contract now (z.string().min(1).nullable()); '' would still be rejected.
     const schema = EVENT_DATA_SCHEMAS['worktree.merge_requested'];
     expect(() => schema.parse(claim!.data)).not.toThrow();
     expect(() => schema.parse({ ...claim!.data, holderStartedAt: '' })).toThrow();
   });
 
+  /**
+   * The release event must carry the required `status`. It must not carry
+   * `sourceBranch`, which only the claim has. Then the stored event matches the
+   * release schema.
+   */
   it('SerializeMerge_Release_EmitsSchemaValidStatus_NoStraySourceBranch', async () => {
-    // Sentry #15023037/0: the RELEASE event must carry the required `status` and
-    // must NOT carry the CLAIM-only `sourceBranch`, so the raw stored event
-    // conforms to WorktreeMergeExecutedData.
     const arm = await createArm();
     const merged: string[] = [];
     const result = await serializeMerge(
@@ -605,23 +565,21 @@ describe('serialize_merge — unresolvable create-time (Sentry #15023070/1)', ()
     const release = events.find((e) => e.type === 'worktree.merge_executed');
     expect(release).toBeDefined();
     const data = release!.data as Record<string, unknown>;
-    expect(data.status).toBe('merged'); // truthful terminal for a successful merge
-    expect('sourceBranch' in data).toBe(false); // CLAIM-only field, not on the release
-    // The raw stored event validates against the canonical release schema.
+    expect(data.status).toBe('merged');
+    expect('sourceBranch' in data).toBe(false);
     expect(() => EVENT_DATA_SCHEMAS['worktree.merge_executed'].parse(data)).not.toThrow();
   });
 });
 
-// ─── Test 6: handleOrchestrate routes serialize_merge to the handler ──────────
-
 describe('serialize_merge — dispatch wiring', () => {
+  /**
+   * The dispatch omits required fields, so the handler returns `INVALID_INPUT`.
+   * An `UNKNOWN_ACTION` means that the action is missing from the dispatch table.
+   */
   it('HandleOrchestrate_SerializeMerge_RoutesToHandler_NotUnknownAction', async () => {
     const arm = await createArm();
-    // Dispatch with a MISSING required field: routing to the handler surfaces a
-    // structured INVALID_INPUT (the handler's own validation), NOT UNKNOWN_ACTION
-    // (which would mean the action fell through the dispatch table — the DOA class).
     const result = await handleOrchestrate(
-      { action: 'serialize_merge', featureId: 'F' }, // integrationRef/sourceBranch/strategy missing
+      { action: 'serialize_merge', featureId: 'F' },
       arm.ctx,
     );
     expect(result.error?.code).not.toBe('UNKNOWN_ACTION');
@@ -629,9 +587,8 @@ describe('serialize_merge — dispatch wiring', () => {
   });
 });
 
-// ─── Bonus: bounded-wait timeout + dead-holder inline reclamation ─────────────
-
 describe('serialize_merge — bounded wait + reclamation', () => {
+  /** The injected sleep advances a fake clock, so the deadline is deterministic. The live holder keeps the slot. */
   it('SerializeMerge_LiveHolderPastDeadline_ReturnsMergeSlotTimeout', async () => {
     const arm = await createArm();
     const integrationRef = 'integration/timeout';
@@ -643,7 +600,6 @@ describe('serialize_merge — bounded wait + reclamation', () => {
       holderStartedAt: 'alive-777',
     });
 
-    // A fake clock advanced by the injected sleep makes the deadline deterministic.
     let clock = 0;
     const result = await serializeMerge(
       { featureId: 'F', integrationRef, sourceBranch: 'feat/x', strategy: 'merge', timeoutMs: 1000 },
@@ -654,7 +610,7 @@ describe('serialize_merge — bounded wait + reclamation', () => {
           clock += ms;
         },
         pollIntervalMs: 200,
-        processTableSource: liveTable([{ pid: 777, startTime: 'alive-777' }]), // holder stays alive.
+        processTableSource: liveTable([{ pid: 777, startTime: 'alive-777' }]),
         mergeOrchestrate: async () => {
           throw new Error('merge_orchestrate must NOT run on a timed-out slot');
         },
@@ -667,10 +623,14 @@ describe('serialize_merge — bounded wait + reclamation', () => {
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('MERGE_SLOT_TIMEOUT');
     expect((result.data as { reason?: string }).reason).toBe('merge-slot-timeout');
-    // The live holder still holds the slot (we never reclaimed it).
     expect((await foldWorktrees(arm)).inFlightMerges[integrationRef]?.operationId).toBe('live-holder-op');
   });
 
+  /**
+   * The holder PID is absent from a supported empty table, so the holder is dead.
+   * The lease reclaims it with no wait. The release of the dead holder carries its
+   * own `operationId`, and the slot ends clear.
+   */
   it('SerializeMerge_DeadHolder_ReclaimedInline_ThenClaimsAndMerges', async () => {
     const arm = await createArm();
     const integrationRef = 'integration/dead';
@@ -687,7 +647,7 @@ describe('serialize_merge — bounded wait + reclamation', () => {
       { featureId: 'F', integrationRef, sourceBranch: 'feat/live', strategy: 'merge', timeoutMs: 5000 },
       arm.ctx,
       {
-        processTableSource: EMPTY_TABLE, // pid 4242 absent → provably dead.
+        processTableSource: EMPTY_TABLE,
         sleep: async () => {
           throw new Error('reclamation should clear the slot without waiting');
         },
@@ -701,25 +661,20 @@ describe('serialize_merge — bounded wait + reclamation', () => {
     expect(result.success).toBe(true);
     expect(merged).toEqual(['F']);
 
-    // The dead holder was reclaimed inline — its terminal release rode its OWN
-    // operationId (the documented correlation, even for recovery releases).
     const events = await arm.eventStore.query(WORKTREES_STREAM);
     const deadRelease = events.find(
       (e) => e.type === 'worktree.merge_executed' && e.data?.operationId === 'dead-holder-op',
     );
     expect(deadRelease).toBeDefined();
-    // Slot ends clear (our own claim released too).
     expect((await foldWorktrees(arm)).inFlightMerges[integrationRef]).toBeUndefined();
   });
 });
-
-// ─── Handler-level input validation ───────────────────────────────────────────
 
 describe('handleSerializeMerge — input guards', () => {
   it('HandleSerializeMerge_MissingStrategy_RejectsInvalidInput', async () => {
     const arm = await createArm();
     const result = await handleSerializeMerge(
-      { featureId: 'F', integrationRef: 'main', sourceBranch: 'feat/x' }, // strategy missing
+      { featureId: 'F', integrationRef: 'main', sourceBranch: 'feat/x' },
       arm.ctx,
       { mergeOrchestrate: recordingMerge([]), readIntegrationHead: () => null, selfPid: 1, selfStartedAt: 's' },
     );
@@ -729,20 +684,7 @@ describe('handleSerializeMerge — input guards', () => {
   });
 });
 
-// ─── DR-2 — lease threaded through the composed merge_orchestrate guard ───────
-//
-// `merge_orchestrate` now enforces a single-writer lease guard: a foreign live
-// lease on the target integration ref fails the merge closed. The serializer
-// (and its crash-resume path) hold their OWN lease before composing
-// `merge_orchestrate`, so they MUST thread their lease `operationId` as
-// `leaseOperationId` — otherwise the guard would treat the serializer's own
-// live claim as a foreign holder and block. These tests run the REAL
-// `handleMergeOrchestrate` (so the REAL guard executes) with its preflight /
-// executor / git seams stubbed, capturing the threaded `leaseOperationId` and
-// injecting a live process table so a MISSING thread would deterministically
-// fail closed (kill-probe sensitivity).
-
-/** Minimal passing preflight — the composed guard runs before this is consulted. */
+/** A passing preflight result. The lease guard of `merge_orchestrate` runs before the preflight. */
 const GUARD_PASSING_PREFLIGHT: MergePreflightResult = {
   passed: true,
   ancestry: { passed: true, checks: ['ancestry'] },
@@ -751,14 +693,13 @@ const GUARD_PASSING_PREFLIGHT: MergePreflightResult = {
   drift: { clean: true, uncommittedFiles: [], indexStale: false, detachedHead: false },
 };
 
-/** A gitExec that fails every call → neutralizes merge_orchestrate's section-0a probe. */
+/** A `gitExec` that fails each call, so the git worktree probe of `merge_orchestrate` finds nothing. */
 const GUARD_NO_GIT: GitExec = () => ({ exitCode: 1, stdout: '', stderr: '' });
 
 /**
- * A `mergeOrchestrate` dep that runs the REAL `handleMergeOrchestrate` (so the
- * REAL DR-2 guard executes) with preflight / executor / git stubbed and the
- * guard's process table pinned to `table`. Captures the `leaseOperationId` the
- * caller threaded so the test can assert it matches the held lease.
+ * A `mergeOrchestrate` dep that runs the real `handleMergeOrchestrate` and its
+ * lease guard, with stubs for the preflight, the executor, and git. The guard
+ * reads `table`. The dep records the `leaseOperationId` that the caller passes.
  */
 function realMergeCapturingLease(
   captured: { leaseOperationId?: string },
@@ -786,13 +727,22 @@ function realMergeCapturingLease(
   };
 }
 
+/**
+ * `merge_orchestrate` fails closed when another live holder has the lease on the
+ * target ref. The serializer holds its own lease first, so it must pass that
+ * `operationId` as `leaseOperationId`. Otherwise the guard blocks the own claim
+ * of the serializer as a foreign holder.
+ */
 describe('serialize_merge — DR-2 lease threading through the guard', () => {
+  /**
+   * The guard table reads the identity of the serializer as alive, so a missing
+   * `leaseOperationId` fails closed. The passed value must equal the
+   * `operationId` of the claim.
+   */
   it('SerializeMerge_OwnLeaseThreadedThroughComposedCall_PassesGuard', async () => {
     const arm = await createArm();
     const integrationRef = 'integration/own-lease';
     const captured: { leaseOperationId?: string } = {};
-    // The serializer stamps its own live identity on the claim; pin the guard's
-    // table so that identity reads ALIVE — a missing thread would fail closed.
     const table = liveTable([{ pid: 222, startTime: 'self-222' }]);
 
     const result = await serializeMerge(
@@ -807,10 +757,8 @@ describe('serialize_merge — DR-2 lease threading through the guard', () => {
       },
     );
 
-    // The serializer's own lease passed the guard → the composed merge ran.
     expect(result.success).toBe(true);
 
-    // The threaded leaseOperationId equals the CLAIM's operationId (the lease it holds).
     const events = await arm.eventStore.query(WORKTREES_STREAM);
     const claim = events.find((e) => e.type === 'worktree.merge_requested');
     expect(claim).toBeDefined();
@@ -818,10 +766,4 @@ describe('serialize_merge — DR-2 lease threading through the guard', () => {
     expect(captured.leaseOperationId).toBe(claimOpId);
     expect(typeof captured.leaseOperationId).toBe('string');
   });
-
-  // The former `SerializeMerge_CrashResumedNewPid_OriginalOperationId_PassesGuard`
-  // exercised the DR-2 "match by operationId, not pid" guard through the standalone
-  // `resumeCrashedMerge` export, which was excised (DR-3, WLM slice 3). That guard
-  // contract is covered directly in `merge-orchestrate.test.ts`
-  // (`handleMergeOrchestrate (DR-2 — single-writer lease guard)`), so no coverage is lost.
 });
