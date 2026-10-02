@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
 import {
   loadPolicy,
   isExempt,
@@ -10,6 +9,7 @@ import {
   PolicyError,
   DEFAULT_POLICY_PATH,
 } from '../../../tools/audit/lib/comment-policy.mjs';
+import { execFileAsync } from '../../../tools/test-helpers/spawn.js';
 
 const REPO_POLICY = path.resolve(import.meta.dirname, '../../../.exarchos/comment-policy.json');
 
@@ -173,8 +173,8 @@ describe('the repository policy datum', () => {
     }
   });
 
-  it('Policy_EveryExemptGlob_MatchesATrackedFile', () => {
-    const tracked = execFileSync('git', ['ls-files'], { cwd: path.dirname(path.dirname(REPO_POLICY)), encoding: 'utf8' })
+  it('Policy_EveryExemptGlob_MatchesATrackedFile', async () => {
+    const tracked = (await execFileAsync('git', ['ls-files'], { cwd: path.dirname(path.dirname(REPO_POLICY)) }))
       .split('\n')
       .filter((line) => line.length > 0);
     const policy = loadPolicy(REPO_POLICY);
