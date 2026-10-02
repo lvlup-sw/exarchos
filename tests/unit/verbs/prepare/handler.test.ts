@@ -1,10 +1,9 @@
 // `prepare` end to end, against a real event store and a real content-addressed
 // bundle store in a temporary directory.
 //
-// The load-bearing assertions are the ones no test of the pure compiler can
-// make: that the record REFERENCES bytes actually in custody and those bytes
-// read back as the capsule the receipt returned, that a retry is answered from
-// the durable claim, and that every refusal leaves the store untouched.
+// No test of the pure compiler can check these facts. The record references bytes in custody,
+// and those bytes read back as the capsule that the receipt returned. A retry gets its answer
+// from the durable claim. Each refusal leaves the store unchanged.
 //
 // @oracle-sources: ../../../../src/verbs/prepare/handler.ts, the prepared bundle read back out of the content-addressed store and re-digested rather than compared with the in-process capsule
 
@@ -38,7 +37,7 @@ import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 const STREAM = 'feat-prepare-unit';
 const COMPILED_AT = '2026-09-12T00:00:00.000Z';
-/** What a runtime that can settle what it dispatches holds; the profile is a subset. */
+/** The capabilities of a runtime that can settle what it dispatches. The execution profile is a subset of them. */
 const FIT_CAPABILITIES = ['fs:read', 'fs:write', 'shell:exec', 'mcp:exarchos', 'subagent:spawn'];
 
 let stateDir: string;
@@ -148,6 +147,7 @@ const PLAN: readonly SeedTask[] = [
 ];
 
 describe('prepare — the compilation endpoint', () => {
+  /** The test reads the bundle back out of custody and digests it again. The record pins bytes that decode to the capsule that the caller got. */
   it('Prepare_ADelegatingFeature_RecordsOneCapsuleWhoseBytesAreInCustody', async () => {
     await seedDelegatingFeature(PLAN);
     const receipt = receiptOf(await prepare({ featureId: STREAM }));
@@ -165,8 +165,6 @@ describe('prepare — the compilation endpoint', () => {
     expect(record.capsuleDigest).toBe(receipt.capsuleDigest);
     expect(record.taskCount).toBe(2);
 
-    // Read back out of custody and re-digested: the record pins bytes that
-    // really decode to the capsule the caller was handed.
     const found = await findPreparedCapsule(wiring(), STREAM, 1);
     expect(found.found).toBe(true);
     if (found.found) {
@@ -241,10 +239,11 @@ describe('prepare — the compilation endpoint', () => {
     expect(await preparedRows()).toHaveLength(2);
   });
 
+  /**
+   * The compilation appends one `task.assigned` for each compiled task before the prepared record, in the same commit.
+   * So the event contract of the delegate phase does not depend on a model call. The receipt tail is the sequence of the record, and a retry announces nothing more.
+   */
   it('Prepare_ACompiledBatch_AnnouncesItsTasksInTheSameCommit', async () => {
-    // One `task.assigned` per compiled task, ahead of the prepared record, in
-    // the same commit: the delegate phase's event contract is met by the
-    // compilation, not by a call the model has to remember before it.
     await seedDelegatingFeature(PLAN);
     const receipt = receiptOf(await prepare({ featureId: STREAM }));
     const events = await store.query(STREAM);
@@ -256,17 +255,16 @@ describe('prepare — the compilation endpoint', () => {
     const prepared = events.find((e) => e.type === 'workflow.prepared');
     expect(prepared).toBeDefined();
     expect(assigned.every((e) => e.sequence < (prepared?.sequence ?? 0))).toBe(true);
-    // The receipt's tail is the record's own sequence, past the announcements.
     expect(receipt.tailSequence).toBe(prepared?.sequence);
-    // A retry announces nothing further.
     receiptOf(await prepare({ featureId: STREAM }));
     expect((await store.query(STREAM)).filter((e) => e.type === 'task.assigned')).toHaveLength(2);
   });
 
+  /**
+   * A task with an earlier `task.assigned` row gets no second row, because the task projection reads a second row as a return to `assigned`.
+   * The next version compiles from the remaining tasks, which all have rows.
+   */
   it('Prepare_ATaskTheStreamAlreadyHeardOf_IsNotAnnouncedAgain', async () => {
-    // Announced by hand before the compilation, or by an earlier one: a
-    // second row would read to the task projection as the task returning to
-    // `assigned`, so the compilation leaves it alone.
     await seedDelegatingFeature(PLAN);
     await store.append(STREAM, { type: 'task.assigned', data: { taskId: 'T-3', title: 'by hand', branch: 'feat/t3' } });
     receiptOf(await prepare({ featureId: STREAM }));
@@ -276,7 +274,6 @@ describe('prepare — the compilation endpoint', () => {
         .map((e) => (e.data as { taskId: string }).taskId);
     expect(await taskIds()).toEqual(['T-3', 'T-2']);
 
-    // The next version compiles from the tasks the first wave left — every one already announced.
     await store.append(STREAM, { type: 'state.patched', data: { patch: { 'tasks[1].status': 'complete' } } });
     expect(receiptOf(await prepare({ featureId: STREAM })).capsuleVersion).toBe(2);
     expect(await taskIds()).toEqual(['T-3', 'T-2']);
@@ -289,12 +286,11 @@ describe('prepare — the compilation endpoint', () => {
     expect((await store.query(STREAM)).filter((e) => e.type === 'task.assigned')).toEqual([]);
   });
 
+  /**
+   * The verification terms are inputs to the compilation. A policy change for a risk tier in the batch compiles the next version with the new gate list.
+   * A policy change for a risk tier outside the batch replays the recorded capsule.
+   */
   it('Prepare_AChangedVerificationPolicy_CompilesTheNextVersion', async () => {
-    // The verification terms are inputs to the compilation, not a decoration
-    // of it: the same plan under a policy that now names another sequence
-    // for a profile the batch carries is the next version, whose capsule
-    // states the new sequence. A change to a profile the batch does not
-    // carry changes none of its terms, and replays.
     await seedDelegatingFeature(PLAN);
     const first = receiptOf(await prepare({ featureId: STREAM }));
     expect(first.capsule.settlementContract.taskVerification?.['T-2']).toEqual({
@@ -325,9 +321,8 @@ describe('prepare — the compilation endpoint', () => {
     expect(receipt.capsule.authority.invariants.map((i) => i.id)).toContain('INV-9');
   });
 
+  /** A server that dispatches for another workspace must bind the configuration and catalog of that workspace, not those of the process directory. */
   it('Prepare_TheCatalog_IsResolvedFromTheDispatchedWorkspace', async () => {
-    // A server dispatching for a workspace other than its own directory must
-    // bind that workspace's configuration and catalog, not the process's.
     await seedDelegatingFeature(PLAN);
     const workspace = path.join(stateDir, 'dispatched-workspace');
     expect(workspace).not.toBe(process.cwd());
@@ -345,11 +340,12 @@ describe('prepare — the compilation endpoint', () => {
     expect(roots).toEqual([workspace]);
   });
 
+  /**
+   * The stream moves after the handler reads its tail and before the record commits. A concurrent preparation of the same version lands in this window.
+   * No claim survives the lost race, so the next preparation compiles the version again.
+   */
   it('Prepare_AStreamThatMovesBeforeTheCommit_LosesTheVersionAndLeavesNoClaim', async () => {
     await seedDelegatingFeature(PLAN);
-    // The stream moves after the handler read its tail and before the record
-    // commits: the window a concurrent preparation claiming the same version
-    // would land in.
     const real = store.bundleStore;
     const racing: RunBundleStore = Object.create(real);
     racing.putThenReference = async (artifactId, bytes, commit) => {
@@ -368,35 +364,32 @@ describe('prepare — the compilation endpoint', () => {
     if (!lost.success) expect(lost.error.code).toBe('CONCURRENCY_CONFLICT');
     expect(await preparedRows()).toEqual([]);
 
-    // No claim survived the lost race, so preparing again compiles the version
-    // rather than replaying a decision that was never recorded.
     const retried = receiptOf(await prepare({ featureId: STREAM }));
     expect(retried.capsuleVersion).toBe(1);
     expect(await preparedRows()).toHaveLength(1);
   });
 
+  /**
+   * The profile holds what the calls of the plane need: `settle` and each leaf of the segment that it composes. It comes from their registrations.
+   * The bound knowledge states the gates for each tier, so a harness can tell its workers without a policy copy.
+   */
   it('Prepare_TheCapsule_CarriesTheExecutionProfileTheRegistryDeclares', async () => {
-    // The profile is what the plane's own calls need — settle, and every leaf
-    // of the segment it composes — read off their registrations rather than
-    // listed. Pinned against the registry-derived set, and against the
-    // shape a fit runtime is measured by.
     await seedDelegatingFeature(PLAN);
     const receipt = receiptOf(await prepare({ featureId: STREAM }));
     const profile = receipt.capsule.executionProfile;
     expect(profile).toBeDefined();
     expect(profile?.capabilities).toEqual(planeExecutionCapabilities());
     expect(profile?.capabilities).toEqual(['fs:read', 'fs:write', 'mcp:exarchos', 'shell:exec']);
-    // And the bound knowledge says what each tier's work will be judged by,
-    // so a dispatching harness can tell its workers without a policy copy.
     expect(receipt.capsule.knowledge.patterns.map((p) => p.statement)).toEqual([
       'A task at riskTier=medium, boundaryTouching=false is verified at settlement by: check_static_analysis, check_test_adequacy.',
     ]);
   });
 
+  /**
+   * A harness without shell access cannot run the ladder gates that settlement composes. It gets the refusal here, before the handler compiles or records anything.
+   * A caller with no trusted snapshot has no grant, so the handler refuses it too.
+   */
   it('Prepare_ARuntimeThatCannotSettleTheBatch_IsRefusedBeforeFanOut', async () => {
-    // A harness without shell access cannot run the ladder gates settlement
-    // composes. It learns so here, with nothing compiled and nothing recorded,
-    // rather than at settlement with the work already dispatched.
     await seedDelegatingFeature(PLAN);
     const blobs = await bundleBlobCount();
     const result = await prepare({ featureId: STREAM }, [], ['fs:read', 'fs:write', 'mcp:exarchos']);
@@ -407,7 +400,6 @@ describe('prepare — the compilation endpoint', () => {
     }
     expect(await preparedRows()).toEqual([]);
     expect(await bundleBlobCount()).toBe(blobs);
-    // No trusted snapshot at all is no grant at all.
     const anonymous = await runWithDispatchContext(mintDispatchContext(undefined), () =>
       handlePrepare({ featureId: STREAM }, stateDir, wiring(), { catalogInvariants: () => [], now: () => COMPILED_AT }),
     );

@@ -1,14 +1,8 @@
-// ─── Plan Coverage Action Tests ──────────────────────────────────────────────
-//
-// Tests for pure TypeScript plan-coverage validation functions.
-// Replaces bash script invocation with native TypeScript logic.
-// ────────────────────────────────────────────────────────────────────────────
+/** Tests for the plan-coverage parsers, `computeCoverage`, and `handlePlanCoverage`. */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ToolResult } from '../../../../src/format.js';
 import type { EventStore } from '../../../../src/events/store.js';
-
-// ─── Mock event store ────────────────────────────────────────────────────────
 
 const mockStore = {
   append: vi.fn().mockResolvedValue(undefined),
@@ -42,8 +36,6 @@ vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
   }),
 }));
 
-// ─── Mock fs for handlePlanCoverage ──────────────────────────────────────────
-
 vi.mock('node:fs/promises', () => ({
   readFile: vi.fn(),
 }));
@@ -65,8 +57,6 @@ import {
 import { acceptanceCriteriaFinding } from '../../../../src/verbs/pure/design-completeness.js';
 
 const STATE_DIR = '/tmp/test-plan-coverage';
-
-// ─── parseDesignSections Tests ──────────────────────────────────────────────
 
 describe('parseDesignSections', () => {
   it('ParseDesignSections_TechnicalDesignHeader_ExtractsSubsections', () => {
@@ -231,12 +221,11 @@ describe('parseDesignSections', () => {
   });
 });
 
-// ─── Canonical unified spec parsing (WFQ-006) ────────────────────────────────
-
+/**
+ * The unified spec puts each DR-N under `## Design & Rationale` as a `#### DR-N:` heading below `### Requirements (DR-N)`.
+ * A `## Decomposition` section follows.
+ */
 describe('parseDesignRequirements — canonical unified spec (WFQ-006)', () => {
-  // The canonical unified spec places DR-N under `## Design & Rationale` via
-  // `### Requirements (DR-N)` with `#### DR-N:` headings, followed by a
-  // `## Decomposition`. The legacy `## Technical Design` heading is absent.
   const UNIFIED_SPEC = [
     '# Spec: Widget System',
     '',
@@ -278,10 +267,8 @@ describe('parseDesignRequirements — canonical unified spec (WFQ-006)', () => {
     ]);
   });
 
+  /** The `**Implements:**` references in the task region are not DR-N definitions. Only the two headings in the design region count. */
   it('ParseDesignRequirements_IgnoresImplementsReferencesInDecomposition', () => {
-    // The `**Implements:** DR-1/DR-2` references live in the task region and
-    // must NOT be mistaken for DR-N definitions — only the two design-region
-    // headings count.
     expect(parseDesignRequirements(UNIFIED_SPEC)).toHaveLength(2);
   });
 
@@ -295,11 +282,8 @@ describe('parseDesignRequirements — canonical unified spec (WFQ-006)', () => {
     expect(parseDesignRequirements(bulletOnly)).toEqual([]);
   });
 
+  /** The DR-N headings become the design sections. The rationale subsections around them are not coverage sections. */
   it('ParseDesignSections_UnifiedSpec_PrefersDrRequirements', () => {
-    // WFQ-006 acceptance: a spec using ONLY Design & Rationale with DR-N
-    // subsections yields design sections (no NO_DESIGN_SECTIONS), and the
-    // surrounding rationale subsections (Problem Statement, Technical Design)
-    // are NOT emitted as coverage sections.
     const sections = parseDesignSections(UNIFIED_SPEC);
     expect(sections).toEqual(['DR-1: Render widgets', 'DR-2: Cache widget state']);
     expect(sections).not.toContain('Problem Statement');
@@ -328,10 +312,8 @@ describe('computeCoverage — DR-N traceability at plan time (WFQ-006)', () => {
     expect(result.coverage).toEqual({ covered: 2, gaps: 0, deferred: 0, total: 2 });
   });
 
+  /** No task implements the second requirement, and no task shares a keyword with its headline. The plan-time check must report the gap. */
   it('ComputeCoverage_DrWithNoImplementingTask_IsTraceabilityGap', () => {
-    // DR-2 is a design requirement with NO task implementing it and no task
-    // whose title/body keyword-overlaps its headline — a traceability gap that
-    // must still be caught at plan time.
     const sections = ['DR-1: Render widgets', 'DR-2: Telemetry export pipeline'];
     const planContent = [
       '## Decomposition',
@@ -394,7 +376,6 @@ describe('handlePlanCoverage — canonical unified spec (WFQ-006)', () => {
 
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; coverage: { covered: number; total: number } };
-    // DR-1 and DR-2 are both implemented → full coverage, no NO_DESIGN_SECTIONS.
     expect(data.passed).toBe(true);
     expect(data.coverage).toMatchObject({ covered: 2, total: 2 });
   });
@@ -432,8 +413,6 @@ describe('handlePlanCoverage — canonical unified spec (WFQ-006)', () => {
     expect(data.gapSections).toContain('DR-2: Telemetry export pipeline');
   });
 });
-
-// ─── parsePlanTasks Tests ────────────────────────────────────────────────────
 
 describe('parsePlanTasks', () => {
   it('ParsePlanTasks_StandardFormat_ExtractsTitles', () => {
@@ -509,8 +488,6 @@ describe('parsePlanTasks', () => {
   });
 });
 
-// ─── extractKeywords Tests ──────────────────────────────────────────────────
-
 describe('extractKeywords', () => {
   it('ExtractKeywords_StopWordsFiltered_ReturnsSignificantWords', () => {
     const result = extractKeywords('The unified events hydration function');
@@ -519,7 +496,6 @@ describe('extractKeywords', () => {
 
   it('ExtractKeywords_ShortWordsFiltered_SkipsUnderThreeChars', () => {
     const result = extractKeywords('UI is a go');
-    // 'ui' is 2 chars, 'is' is stop word + 2 chars, 'a' is stop word + 1 char, 'go' is 2 chars
     expect(result).toEqual([]);
   });
 
@@ -530,14 +506,11 @@ describe('extractKeywords', () => {
 
   it('ExtractKeywords_NonAlphaStripped_SplitsOnPunctuation', () => {
     const result = extractKeywords('DR-1: Sensitive Document Removal');
-    // Should split on non-alpha, filter short words and stop words
     expect(result).toContain('sensitive');
     expect(result).toContain('document');
     expect(result).toContain('removal');
   });
 });
-
-// ─── keywordMatch Tests ─────────────────────────────────────────────────────
 
 describe('keywordMatch', () => {
   it('KeywordMatch_TwoKeywordsFound_ReturnsTrue', () => {
@@ -570,8 +543,6 @@ describe('keywordMatch', () => {
     expect(keywordMatch(sectionKeywords, targetText)).toBe(false);
   });
 });
-
-// ─── parseDeferredSections Tests ────────────────────────────────────────────
 
 describe('parseDeferredSections', () => {
   it('ParseDeferredSections_TraceabilityTable_ExtractsDeferredNames', () => {
@@ -641,8 +612,6 @@ describe('parseDeferredSections', () => {
     expect(result).toEqual([]);
   });
 });
-
-// ─── computeCoverage Tests ──────────────────────────────────────────────────
 
 describe('computeCoverage', () => {
   it('ComputeCoverage_AllSectionsCovered_ReturnsPass', () => {
@@ -727,7 +696,6 @@ describe('computeCoverage', () => {
     const tasks = [
       { id: '001', title: 'Implement auth module' },
     ];
-    // The plan body mentions token and validation keywords
     const planContent = [
       '### Task 001: Implement auth module',
       '',
@@ -741,8 +709,6 @@ describe('computeCoverage', () => {
     expect(result.coverage.gaps).toBe(0);
   });
 });
-
-// ─── Acceptance Test Coverage Tests ──────────────────────────────────────────
 
 describe('detectGwtSections', () => {
   it('DetectGwtSections_GivenWhenThenPresent_ReturnsSectionName', () => {
@@ -839,7 +805,6 @@ describe('acceptance test coverage in computeCoverage', () => {
     const deferredSections: string[] = [];
 
     const result = computeCoverage(designSections, tasks, planContent, deferredSections, designContent);
-    // The section is covered (task matches), but advisory should flag missing acceptance test
     expect(result.advisories).toBeDefined();
     expect(result.advisories!.length).toBeGreaterThan(0);
     expect(result.advisories![0]).toContain('DR-1');
@@ -878,7 +843,6 @@ describe('acceptance test coverage in computeCoverage', () => {
     const deferredSections: string[] = [];
 
     const result = computeCoverage(designSections, tasks, planContent, deferredSections, designContent);
-    // No advisories — acceptance test task exists for DR-1
     expect(result.advisories ?? []).toEqual([]);
     expect(result.passed).toBe(true);
   });
@@ -908,22 +872,16 @@ describe('acceptance test coverage in computeCoverage', () => {
     const deferredSections: string[] = [];
 
     const result = computeCoverage(designSections, tasks, planContent, deferredSections, designContent);
-    // No advisories — DR-2 only has bullet-point criteria, no GWT
     expect(result.advisories ?? []).toEqual([]);
     expect(result.passed).toBe(true);
   });
 });
 
-// ─── Task 011 (#1581 DR-6): gate fold — design-completeness → plan-coverage ──
-//
-// The design+plan collapse retires the standalone `check_design_completeness`
-// gate (tasks 013/014). DR-6 requires its acceptance-criteria ("error-coverage")
-// finding to be REPRODUCED by `check_plan_coverage` on the same (now unified)
-// input, so no coverage is lost when it leaves the chain. The fold is advisory:
-// it surfaces the finding without flipping plan-coverage's `passed`. The pure
-// `computeCoverage` (and its parity snapshots) is untouched — the fold lives in
-// the handler, sourced from the same `acceptanceCriteriaFinding` string the
-// standalone gate uses, so the two cannot drift.
+/**
+ * `check_plan_coverage` reproduces the acceptance-criteria finding of `check_design_completeness` on a unified spec.
+ * The handler takes the text from the shared `acceptanceCriteriaFinding`, so the two gates cannot drift.
+ * The finding is advisory and does not change `passed`. The spec is one file, so `designPath` and `planPath` are equal.
+ */
 describe('plan-coverage folds design-completeness acceptance-criteria (Task 011, #1581 DR-6)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -931,8 +889,6 @@ describe('plan-coverage folds design-completeness acceptance-criteria (Task 011,
     mockStore.query.mockResolvedValue([]);
   });
 
-  // In the collapsed world designPath === planPath (one docs/specs/ file); both
-  // reads return the same unified artifact.
   function mockUnifiedArtifact(content: string): void {
     vi.mocked(readFile).mockImplementation(async () => content);
   }
@@ -943,10 +899,11 @@ describe('plan-coverage folds design-completeness acceptance-criteria (Task 011,
     planPath: '/tmp/specs/feat.md',
   };
 
+  /**
+   * The spec has one covered design section and one bullet-form DR-N entry with no acceptance criteria.
+   * A bullet entry is not a coverage section, so the gate passes and still reports the advisory.
+   */
   it('CheckPlanCoverage_FoldsDesignCompletenessChecks_ReproducesFindings', async () => {
-    // Unified artifact: a covered design section + a DR-N entry (bullet form, so
-    // it is NOT itself a coverage section) that carries no acceptance criteria —
-    // exactly what check_design_completeness would have flagged.
     const unified = [
       '## Technical Design',
       '',
@@ -974,22 +931,16 @@ describe('plan-coverage folds design-completeness acceptance-criteria (Task 011,
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; advisories?: string[] };
 
-    // The folded advisory reproduces design-completeness's finding EXACTLY —
-    // same single-source string (no drift).
     const expectedFinding = acceptanceCriteriaFinding(unified);
     expect(expectedFinding).not.toBeNull();
     expect(expectedFinding).toContain('DR-3');
     expect(data.advisories ?? []).toContain(expectedFinding!);
 
-    // Advisory only — the fold never flips plan-coverage's pass/fail. The lone
-    // design section (Widget Component) is covered by Task 001, so it PASSES
-    // despite the acceptance-criteria advisory.
     expect(data.passed).toBe(true);
   });
 
+  /** The DR-N entry carries Given/When/Then criteria. Neither gate reports a finding. */
   it('CheckPlanCoverage_AllDrCarryCriteria_NoFoldedAdvisory', async () => {
-    // Same shape, but DR-3 now carries Given/When/Then — design-completeness
-    // would NOT flag it, so plan-coverage must not either.
     const unified = [
       '## Technical Design',
       '',
@@ -1025,16 +976,12 @@ describe('plan-coverage folds design-completeness acceptance-criteria (Task 011,
   });
 });
 
-// ─── handlePlanCoverage Tests ───────────────────────────────────────────────
-
 describe('handlePlanCoverage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockStore.append.mockResolvedValue(undefined);
     mockStore.query.mockResolvedValue([]);
   });
-
-  // ─── Validation ──────────────────────────────────────────────────────────
 
   describe('input validation', () => {
     it('handlePlanCoverage_MissingFeatureId_ReturnsError', async () => {
@@ -1061,8 +1008,6 @@ describe('handlePlanCoverage', () => {
       expect(result.error?.message).toContain('planPath');
     });
   });
-
-  // ─── Full integration via handlePlanCoverage ──────────────────────────────
 
   describe('HandlePlanCoverage_RealDesignDoc_NoCrash', () => {
     it('handlePlanCoverage_WithValidContent_ReturnsStructuredResult', async () => {
@@ -1127,8 +1072,6 @@ describe('handlePlanCoverage', () => {
     });
   });
 
-  // ─── Gate Event Emission ─────────────────────────────────────────────────
-
   describe('gate event emission', () => {
     it('handlePlanCoverage_EmitsGateExecutedEvent', async () => {
       const designContent = [
@@ -1183,8 +1126,6 @@ describe('handlePlanCoverage', () => {
     });
   });
 
-  // ─── File Read Error ────────────────────────────────────────────────────
-
   describe('file read errors', () => {
     it('handlePlanCoverage_FileNotFound_ReturnsError', async () => {
       vi.mocked(readFile).mockRejectedValue(new Error('ENOENT: no such file'));
@@ -1201,8 +1142,6 @@ describe('handlePlanCoverage', () => {
       expect(result.error?.code).toBe('FILE_ERROR');
     });
   });
-
-  // ─── Empty Design ────────────────────────────────────────────────────────
 
   describe('empty design', () => {
     it('handlePlanCoverage_NoDesignSections_ReturnsError', async () => {
@@ -1227,8 +1166,6 @@ describe('handlePlanCoverage', () => {
       expect(result.error?.code).toBe('NO_DESIGN_SECTIONS');
     });
   });
-
-  // ─── No Tasks ─────────────────────────────────────────────────────────────
 
   describe('no tasks in plan', () => {
     it('handlePlanCoverage_NoTasks_ReturnsFailResult', async () => {

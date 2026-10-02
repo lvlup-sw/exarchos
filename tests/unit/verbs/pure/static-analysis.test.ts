@@ -21,13 +21,6 @@ describe('runStaticAnalysis', () => {
     rmrf(tmpDir);
   });
 
-  // ============================================================
-  // FIXTURE HELPERS
-  // ============================================================
-
-  /**
-   * Create a package.json with specified npm scripts.
-   */
   function createPackageJson(scripts: Record<string, string>): string {
     const repoRoot = path.join(tmpDir, 'repo');
     fs.mkdirSync(repoRoot, { recursive: true });
@@ -39,16 +32,10 @@ describe('runStaticAnalysis', () => {
     return repoRoot;
   }
 
-  /**
-   * Create a RunCommandFn mock that always succeeds.
-   */
   function successRunner(): RunCommandFn {
     return vi.fn(() => ({ exitCode: 0, stdout: '', stderr: '' }));
   }
 
-  /**
-   * Create a RunCommandFn mock that fails for specific scripts.
-   */
   function failingRunner(failOn: Record<string, { stderr: string }>): RunCommandFn {
     return vi.fn((cmd: string, args: readonly string[]) => {
       const argsStr = args.join(' ');
@@ -60,10 +47,6 @@ describe('runStaticAnalysis', () => {
       return { exitCode: 0, stdout: '', stderr: '' };
     });
   }
-
-  // ============================================================
-  // ALL CHECKS PASS
-  // ============================================================
 
   describe('all checks pass', () => {
     it('returns pass when all tools succeed', () => {
@@ -96,10 +79,11 @@ describe('runStaticAnalysis', () => {
       expect(result.output).toContain('## Static Analysis Report');
     });
 
+    /**
+     * An undeclared script skips its check, and one skipped check prevents a
+     * PASS result. For this reason, the test declares all three scripts.
+     */
     it('output shows PASS markers for passing checks', () => {
-      // T-09 / DR-6: `quality-check` must be declared too — an undeclared
-      // constituent SKIPs, and a skipped constituent degrades the aggregate
-      // off PASS. This test is about the PASS markers, so declare all three.
       const repoRoot = createPackageJson({
         lint: 'eslint .',
         typecheck: 'tsc --noEmit',
@@ -115,10 +99,6 @@ describe('runStaticAnalysis', () => {
       expect(result.output).toContain('Result: PASS');
     });
   });
-
-  // ============================================================
-  // LINT FAILS
-  // ============================================================
 
   describe('lint fails', () => {
     it('returns fail when lint exits non-zero', () => {
@@ -156,10 +136,6 @@ describe('runStaticAnalysis', () => {
     });
   });
 
-  // ============================================================
-  // TYPECHECK FAILS
-  // ============================================================
-
   describe('typecheck fails', () => {
     it('returns fail when typecheck exits non-zero', () => {
       const repoRoot = createPackageJson({
@@ -178,10 +154,6 @@ describe('runStaticAnalysis', () => {
       expect(result.failCount).toBeGreaterThan(0);
     });
   });
-
-  // ============================================================
-  // PARTIAL FAILURES (some pass, some fail)
-  // ============================================================
 
   describe('partial failures', () => {
     it('lint fails but typecheck passes shows mixed results', () => {
@@ -203,11 +175,11 @@ describe('runStaticAnalysis', () => {
     });
   });
 
-  // ============================================================
-  // SKIP FLAGS
-  // ============================================================
-
   describe('skip flags', () => {
+    /**
+     * With `skipLint`, lint does not run, so the result is `skip` and not PASS.
+     * A check that did not run is not evidence of a pass.
+     */
     it('--skip-lint skips lint check even if it would fail', () => {
       const repoRoot = createPackageJson({
         lint: 'eslint .',
@@ -225,15 +197,10 @@ describe('runStaticAnalysis', () => {
         runCommand: runner,
       });
 
-      // T-09 / DR-6 (behavior change): this asserted `status === 'pass'`.
-      // A `--skip-lint` flag means the lint check DID NOT RUN, and a check
-      // that never ran is not evidence that it would have passed. The
-      // aggregate is now DEGRADED/inconclusive, never PASS.
       expect(result.status).toBe('skip');
       expect(result.skipReason).toBe('constituent-skipped');
       expect(result.output).toContain('SKIP');
       expect(result.output).not.toContain('Result: PASS');
-      // Lint should not have been invoked
       const calls = (runner as ReturnType<typeof vi.fn>).mock.calls;
       const lintCalled = calls.some(
         (c: unknown[]) => Array.isArray(c[1]) && (c[1] as string[]).some((a: string) => a.includes('lint'))
@@ -258,15 +225,14 @@ describe('runStaticAnalysis', () => {
     });
   });
 
-  // ============================================================
-  // MISSING NPM SCRIPTS (should skip, not fail)
-  // ============================================================
-
   describe('missing npm scripts', () => {
+    /**
+     * A missing script skips its check and does not fail it. The result is
+     * `skip`, because one check that ran cannot make a clean pass.
+     */
     it('missing script in package.json degrades the aggregate (DR-6)', () => {
       const repoRoot = createPackageJson({
         lint: 'eslint .',
-        // no typecheck, no quality-check
       });
 
       const result = runStaticAnalysis({
@@ -274,10 +240,6 @@ describe('runStaticAnalysis', () => {
         runCommand: successRunner(),
       });
 
-      // T-09 / DR-6 (behavior change): this asserted `status === 'pass'`.
-      // The missing scripts still SKIP the individual checks (they are not
-      // failures), but the DIMENSION can no longer render as a clean pass off
-      // the one check that actually ran.
       expect(result.status).toBe('skip');
       expect(result.skipReason).toBe('constituent-skipped');
       expect(result.skipCount).toBe(2);
@@ -296,7 +258,6 @@ describe('runStaticAnalysis', () => {
         runCommand: successRunner(),
       });
 
-      // T-09 / DR-6 (behavior change): this asserted `status === 'pass'`.
       expect(result.status).not.toBe('pass');
       expect(result.status).toBe('skip');
       expect(result.passCount).toBe(1);
@@ -304,9 +265,8 @@ describe('runStaticAnalysis', () => {
       expect(result.skipCount).toBe(2);
     });
 
+    /** A positive control: the result is PASS when no check skips. */
     it('every declared script running clean still reaches PASS', () => {
-      // Positive control for the two DR-6 assertions above: PASS is reachable
-      // — it is the SKIP, not the new tally, that degrades the aggregate.
       const repoRoot = createPackageJson({
         lint: 'eslint .',
         typecheck: 'tsc --noEmit',
@@ -324,14 +284,9 @@ describe('runStaticAnalysis', () => {
     });
   });
 
-  // ============================================================
-  // WARNINGS ONLY (exit 0 with warning output)
-  // ============================================================
-
   describe('warnings only', () => {
+    /** The test declares all three scripts, so the warning output is the only variable. */
     it('warnings with exit 0 still passes', () => {
-      // All three constituents declared so the only variable under test is the
-      // warning output (T-09 / DR-6: an undeclared script would SKIP → degrade).
       const repoRoot = createPackageJson({
         lint: 'eslint .',
         typecheck: 'tsc --noEmit',
@@ -353,16 +308,9 @@ describe('runStaticAnalysis', () => {
     });
   });
 
-  // ============================================================
-  // USAGE ERROR: missing repo root
-  // ============================================================
-
   describe('usage errors', () => {
+    /** A directory with no recognized toolchain gives `skip`, so the gate cannot report a false pass. */
     it('empty directory with no project files returns skip (no applicable toolchain)', () => {
-      // T-10: no-toolchain repos produce a 'skip' (inconclusive) result so
-      // the static-analysis gate cannot falsely-green a project that has
-      // no recognized toolchain. See DR-4 in
-      // docs/plans/archive/2026-05-04-v290-dogfood-bundle.md.
       const emptyDir = path.join(tmpDir, 'empty');
       fs.mkdirSync(emptyDir, { recursive: true });
 
@@ -388,10 +336,6 @@ describe('runStaticAnalysis', () => {
     });
   });
 
-  // ============================================================
-  // EXTERNAL TOOL NOT FOUND (graceful error)
-  // ============================================================
-
   describe('external tool not found', () => {
     it('runner throwing error is treated as a failure', () => {
       const repoRoot = createPackageJson({
@@ -412,10 +356,6 @@ describe('runStaticAnalysis', () => {
       expect(result.output).toContain('FAIL');
     });
   });
-
-  // ============================================================
-  // STRUCTURED OUTPUT FORMAT
-  // ============================================================
 
   describe('structured output', () => {
     it('output includes repository path', () => {
@@ -442,14 +382,9 @@ describe('runStaticAnalysis', () => {
         runCommand: successRunner(),
       });
 
-      // Should show something like "2/2 checks passed"
       expect(result.output).toMatch(/\d+\/\d+ checks passed/);
     });
   });
-
-  // ============================================================
-  // PLATFORM DETECTION — NON-NODE.JS PROJECTS
-  // ============================================================
 
   describe('platform detection', () => {
     function createProjectDir(files: Record<string, string>): string {
@@ -484,7 +419,6 @@ describe('runStaticAnalysis', () => {
       expect(result.status).toBe('pass');
       expect(result.projectType).toBe('.NET');
       expect(result.output).toContain('.NET');
-      // Should call dotnet, not npm
       const calls = (runner as ReturnType<typeof vi.fn>).mock.calls;
       expect(calls.some((c: unknown[]) => c[0] === 'dotnet')).toBe(true);
       expect(calls.some((c: unknown[]) => c[0] === 'npm')).toBe(false);
@@ -543,6 +477,7 @@ describe('runStaticAnalysis', () => {
       expect(calls.some((c: unknown[]) => c[0] === 'cargo')).toBe(true);
     });
 
+    /** With no toolchain, the result is `skip`, not `pass`. */
     it('unrecognized project type returns pass with no checks', () => {
       const repoRoot = createProjectDir({ 'README.md': '# Hello' });
 
@@ -551,21 +486,13 @@ describe('runStaticAnalysis', () => {
         runCommand: successRunner(),
       });
 
-      // T-10: no-toolchain now resolves to 'skip' instead of 'pass' so the
-      // gate is honestly inconclusive rather than falsely-green.
       expect(result.status).toBe('skip');
       expect(result.projectType).toBeUndefined();
       expect(result.passCount).toBe(0);
       expect(result.failCount).toBe(0);
     });
 
-    // ─── T-10: SKIP status for unsupported toolchains ──────────────────────
-
     it('runStaticAnalysis_NoToolchainDetected_ReturnsSkipStatus', () => {
-      // A directory with no recognized project file (no package.json,
-      // no *.csproj/*.sln, no go.mod, no Cargo.toml) should yield a
-      // 'skip' status with skipReason='no-toolchain' rather than a
-      // false-green 'pass'.
       const repoRoot = createProjectDir({ 'README.md': '# Empty repo' });
 
       const result = runStaticAnalysis({
@@ -578,7 +505,6 @@ describe('runStaticAnalysis', () => {
       expect(result.projectType).toBeUndefined();
       expect(result.passCount).toBe(0);
       expect(result.failCount).toBe(0);
-      // Output should announce SKIP, not PASS, in the result line.
       expect(result.output).toContain('Result: SKIP');
       expect(result.output).not.toContain('Result: PASS');
     });
@@ -597,11 +523,9 @@ describe('runStaticAnalysis', () => {
     });
 
     it('Node.js takes priority over other project files', () => {
-      // A project with both package.json and Cargo.toml should be detected as Node.js
       const repoRoot = createProjectDir({
         'Cargo.toml': '[package]',
       });
-      // Also add package.json
       fs.writeFileSync(
         path.join(repoRoot, 'package.json'),
         JSON.stringify({ name: 'hybrid', scripts: { lint: 'eslint .' } }),
@@ -617,19 +541,22 @@ describe('runStaticAnalysis', () => {
     });
   });
 
-  // ============================================================
-  // DR-7a — FAIL-detail cap (counts-not-transcripts)
-  // ============================================================
-
+  /**
+   * The FAIL detail keeps the first `FAIL_DETAIL_MAX_LINES` lines and states the
+   * total line count. A breakdown names the failing files, up to
+   * `FAIL_DETAIL_MAX_FILES` files.
+   */
   describe('DR-7a FAIL-detail cap', () => {
+    /**
+     * The transcript names no files, so the test covers only the line cap, the
+     * total count, and the re-run steer.
+     */
     it('checkStaticAnalysis_FailWith500Lines_TruncatesWithCountAndSteering', () => {
       const repoRoot = createPackageJson({
         lint: 'eslint .',
         typecheck: 'tsc --noEmit',
       });
 
-      // 500 lines of transcript with no file tokens — isolates the head-cap +
-      // total-count + steering mechanism from the per-file breakdown.
       const totalLines = 500;
       const bigStderr = Array.from(
         { length: totalLines },
@@ -643,35 +570,33 @@ describe('runStaticAnalysis', () => {
 
       expect(result.status).toBe('fail');
 
-      // Head kept: the first line and the last kept line survive.
       expect(result.output).toContain('ESLint problem number 0');
       expect(result.output).toContain(
         `ESLint problem number ${FAIL_DETAIL_MAX_LINES - 1}`,
       );
-      // Tail elided: the first dropped line and a far-tail line are gone.
       expect(result.output).not.toContain(
         `ESLint problem number ${FAIL_DETAIL_MAX_LINES}`,
       );
       expect(result.output).not.toContain(`ESLint problem number ${totalLines - 1}`);
 
-      // Total count reported so the reader knows how much was elided.
       expect(result.output).toContain(String(totalLines));
       expect(result.output).toContain(`of ${totalLines} lines`);
 
-      // Steering suffix points at the escape hatch (re-run for full output).
       expect(result.output).toContain('Re-run `npm run lint`');
       expect(result.output).toContain('full output');
     });
 
+    /**
+     * 49 alpha lines and 1 beta line fill the 50-line head, so the 20 gamma
+     * lines are past the cap. The breakdown must still name gamma with its full
+     * count.
+     */
     it('checkStaticAnalysis_CappedFailDetail_IncludesEveryFailingFile', () => {
       const repoRoot = createPackageJson({
         lint: 'eslint .',
         typecheck: 'tsc --noEmit',
       });
 
-      // 49 alpha lines + 1 beta line fill the 50-line head; 20 gamma lines then
-      // appear ONLY beyond the cap, so triage would miss gamma without the
-      // full-output per-file breakdown.
       const lines: string[] = [];
       for (let i = 1; i <= 49; i++) {
         lines.push(`src/alpha.ts(${i},1): error TS2322: type error`);
@@ -680,7 +605,7 @@ describe('runStaticAnalysis', () => {
       for (let i = 1; i <= 20; i++) {
         lines.push(`src/gamma.ts(${i},1): error TS2531: possibly null`);
       }
-      const stderr = lines.join('\n'); // 70 lines total, gamma all past the cap
+      const stderr = lines.join('\n');
 
       const result = runStaticAnalysis({
         repoRoot,
@@ -689,26 +614,25 @@ describe('runStaticAnalysis', () => {
 
       expect(result.status).toBe('fail');
 
-      // gamma's raw transcript lines are dropped from the head…
       expect(result.output).not.toContain('src/gamma.ts(1,1)');
-      // …yet gamma is still named with its complete count.
       expect(result.output).toContain('src/gamma.ts: 20');
-      // In-head files carry per-file counts too.
       expect(result.output).toContain('src/alpha.ts: 49');
       expect(result.output).toContain('src/beta.ts: 1');
-      // The complete set of distinct failing files is enumerated.
       expect(result.output).toContain('Failing files (3)');
     });
 
+    /**
+     * 30 files with two lines each exceed the line cap. Without a file cap, the
+     * breakdown itself exceeds the output budget. The breakdown lists only the
+     * first `FAIL_DETAIL_MAX_FILES` files and states how many it leaves out.
+     * The total file count stays correct.
+     */
     it('checkStaticAnalysis_ManyFailingFiles_CapsBreakdownWithElidedCount', () => {
       const repoRoot = createPackageJson({
         lint: 'eslint .',
         typecheck: 'tsc --noEmit',
       });
 
-      // 30 distinct files, 2 lines each (60 lines total), so the head cap
-      // engages AND the per-file breakdown would list all 30 without a cap —
-      // itself blowing the DR-7 budget the line cap protects.
       const fileCount = 30;
       const lines: string[] = [];
       for (let i = 1; i <= fileCount; i++) {
@@ -723,14 +647,10 @@ describe('runStaticAnalysis', () => {
       });
 
       expect(result.status).toBe('fail');
-      // Total distinct-file count is still reported honestly…
       expect(result.output).toContain(`Failing files (${fileCount})`);
-      // …but only the first FAIL_DETAIL_MAX_FILES are enumerated, with an
-      // explicit elided-count line so the omission is perceivable.
       expect(result.output).toContain(
         `…and ${fileCount - FAIL_DETAIL_MAX_FILES} more files.`,
       );
-      // The first file is shown; a folded-off file is absent entirely.
       expect(result.output).toContain('src/file01.ts: 2');
       expect(result.output).not.toContain('src/file30.ts');
     });

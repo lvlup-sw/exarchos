@@ -1,14 +1,21 @@
-// ─── Context Economy Action Tests ───────────────────────────────────────────
+/**
+ * These tests cover the `context-economy` gate handler. They stub the phase-gate
+ * runner down to its provider call, because they test the provider verdict.
+ * `gate-runner.test.ts` tests the runner against a real store, and
+ * `unrunbooked-gate-evidence-dispatch.test.ts` tests the evidence over real
+ * dispatch.
+ *
+ * The `requireGateEvent` stub appends through `mockEmitGateEvent` and withholds
+ * the carrier when the append throws, as the real helper does. A test controls
+ * the append failure through `mockEmitGateEvent`.
+ */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { EventStore } from '../../../../src/events/store.js';
 
-// ─── Mock gate-utils (getDiff + emitGateEvent) ─────────────────────────────
-
 const mockGetDiff = vi.fn<(repoRoot: string, baseBranch: string) => string | null>();
 const mockEmitGateEvent = vi.fn().mockResolvedValue(undefined);
-// Outside a dispatch scope there is no operation for a retry to collapse onto,
-// so the real helper answers `undefined` — the mock says the same thing.
+/** Outside a dispatch scope, the real helper returns `undefined`. The mock does the same. */
 const mockSameOperationGateKey = vi.fn<(gateName: string) => string | undefined>(
   () => undefined,
 );
@@ -17,10 +24,6 @@ vi.mock('../../../../src/verbs/gates/gate-utils.js', () => ({
   getDiff: (...args: [string, string]) => mockGetDiff(...args),
   emitGateEvent: (...args: unknown[]) => mockEmitGateEvent(...args),
   sameOperationGateKey: (gateName: string) => mockSameOperationGateKey(gateName),
-  // The handler now calls `requireGateEvent`, not `emitGateEvent`, directly.
-  // This stub mirrors the real helper's semantics — append via the same
-  // mocked `emitGateEvent`, withhold the carrier when the append throws — so
-  // a test controls the failure through `mockEmitGateEvent` exactly as before.
   requireGateEvent: async (
     store: unknown,
     streamId: string,
@@ -47,13 +50,6 @@ vi.mock('../../../../src/verbs/gates/gate-utils.js', () => ({
   },
 }));
 
-// The gate now records durable evidence through the shared phase-gate runner
-// before any success carrier escapes. These cases are about the PROVIDER's
-// verdict, so the runner is stubbed down to its provider call — the same seam
-// every other migrated gate's unit test stubs. What the runner itself
-// guarantees is proven against a real store in `gate-runner.test.ts`, and the
-// evidence a caller actually gets is proven over real dispatch in
-// `unrunbooked-gate-evidence-dispatch.test.ts`.
 vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
   runPhaseGateWithEvidence: vi.fn(async (request) => {
     try {
@@ -77,13 +73,9 @@ vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
   }),
 }));
 
-// ─── Mock pure TS context-economy module ────────────────────────────────────
-
 vi.mock('../../../../src/verbs/pure/context-economy.js', () => ({
   checkContextEconomy: vi.fn(),
 }));
-
-// ─── Mock event store and materializer ───────────────────────────────────────
 
 const mockStore = {
   append: vi.fn().mockResolvedValue(undefined),
@@ -109,15 +101,12 @@ vi.mock('../../../../src/projections/views/tools.js', () => ({
   queryDeltaEvents: vi.fn().mockResolvedValue([]),
 }));
 
-// #1855 — the gate folds its view to the stream's durable tail through
-// `foldToTail` rather than pairing `queryDeltaEvents` with a bare
-// `materialize`. The fold is the seam a unit test of the VERDICT should stub:
-// what the fold itself guarantees is covered against a real store in
-// `tests/unit/projections/fold-at-tail.test.ts`.
-// `foldToTail` guarantees the fold covers the stream's durable tail, and
-// callers now bound their own evidence to the sequence it reports. These
-// fixtures ARE the stream, so the stub reports a sequence at or past every
-// fixture event; a lower one would assert a lag this file never sets up.
+/**
+ * The sequence that the `foldToTail` stub reports. The fixtures are the whole
+ * stream, so the stub reports a sequence at or past each fixture event. A
+ * lower sequence asserts a lag that this file does not set up.
+ * `tests/unit/projections/fold-at-tail.test.ts` tests the real fold.
+ */
 const AT_TAIL = Number.MAX_SAFE_INTEGER;
 
 vi.mock('../../../../src/projections/fold-at-tail.js', () => ({
@@ -129,16 +118,12 @@ import { handleContextEconomy } from '../../../../src/verbs/gates/context-econom
 
 const STATE_DIR = '/tmp/test-context-economy';
 
-// ─── Tests ───────────────────────────────────────────────────────────────────
-
 describe('handleContextEconomy', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockStore.append.mockResolvedValue(undefined);
     mockStore.query.mockResolvedValue([]);
   });
-
-  // ─── Validation ──────────────────────────────────────────────────────────
 
   describe('input validation', () => {
     it('handleContextEconomy_MissingFeatureId_ReturnsError', async () => {
@@ -149,8 +134,6 @@ describe('handleContextEconomy', () => {
       expect(result.error?.message).toContain('featureId');
     });
   });
-
-  // ─── Clean Code ────────────────────────────────────────────────────────
 
   describe('clean code', () => {
     it('handleContextEconomy_CleanCode_ReturnsPassed', async () => {
@@ -176,8 +159,6 @@ describe('handleContextEconomy', () => {
       expect(data.report).toContain('Result: PASS');
     });
   });
-
-  // ─── Findings Detected ─────────────────────────────────────────────────
 
   describe('findings detected', () => {
     it('handleContextEconomy_Findings_ReturnsFailWithCount', async () => {
@@ -207,8 +188,6 @@ describe('handleContextEconomy', () => {
     });
   });
 
-  // ─── Gate Event Emission ──────────────────────────────────────────────────
-
   describe('gate event emission', () => {
     it('handleContextEconomy_EmitsGateEvent_WithD3Dimension', async () => {
       mockGetDiff.mockReturnValue('diff --git a/foo.ts b/foo.ts\n');
@@ -235,8 +214,6 @@ describe('handleContextEconomy', () => {
     });
   });
 
-  // ─── Phase in Gate Event Details ──────────────────────────────────────────
-
   describe('phase in gate event details', () => {
     it('handleContextEconomy_EmitsGateEvent_IncludesPhaseInDetails', async () => {
       mockGetDiff.mockReturnValue('diff --git a/foo.ts b/foo.ts\n');
@@ -256,8 +233,6 @@ describe('handleContextEconomy', () => {
     });
   });
 
-  // ─── Git Diff Failure (fail-closed) ───────────────────────────────────────
-
   describe('git diff failure', () => {
     it('handleContextEconomy_GitDiffFails_ReturnsError', async () => {
       mockGetDiff.mockReturnValue(null);
@@ -270,8 +245,6 @@ describe('handleContextEconomy', () => {
       expect(checkContextEconomy).not.toHaveBeenCalled();
     });
   });
-
-  // ─── Telemetry Integration ────────────────────────────────────────────────
 
   describe('telemetry integration', () => {
     it('handleContextEconomy_WithTelemetryData_IncludesRuntimeMetricsInResult', async () => {
@@ -373,8 +346,6 @@ describe('handleContextEconomy', () => {
       expect(data.runtimeMetrics.totalInvocations).toBe(0);
     });
   });
-
-  // ─── Gate Event Append Failure ─────────────────────────────────────────────
 
   describe('gate event append failure', () => {
     it('ContextEconomy_GateEventAppendFails_WithholdsTheSuccessCarrier', async () => {

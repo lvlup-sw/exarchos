@@ -1,21 +1,13 @@
-// ─── Task 083 — the cutover verbs' paydown ───────────────────────────────────
+// The cutover verbs declare real output schemas. This file checks four claims.
 //
-// Four claims, and none of them is "the file changed":
-//
-//   1. SUBSTANCE. `cutover_readiness` and `cutover_decide` no longer declare a
-//      vacuous `outputSchema`. Measured by the live census, which walks the Zod
-//      objects the registry constructs — not by grepping for `vacuityWaiver`.
-//   2. THE ROW WENT OFF, NOT SIDEWAYS. Both ids left `VACUITY_ALLOWLIST` and
-//      landed in `VACUITY_RETIRED`, so the seed key set — the quantity the pin
-//      freezes — is unchanged. A paydown recorded as a DELETION would move it.
-//   3. THE RATCHET STILL HAS TEETH IN BOTH DIRECTIONS. It accepts a further
-//      MOVE, and rejects an ADDITION, a DELETION, and the sideways "keep the
-//      waiver anyway" edit. A shrink-only claim nobody has seen refuse a growth
-//      is the same presence-not-substance defect DR-4 exists to remove.
-//   4. THE CONTRACT IS HONEST. The declarations the registry now carries accept
-//      what the handlers really emit (so the MCP D.5 validator cannot turn a
-//      correct response into an INTERNAL_ERROR) and reject what the vacuous
-//      schema used to wave through.
+// 1. `cutover_readiness` and `cutover_decide` declare a substantive `outputSchema`.
+//    The live census walks the Zod objects of the registry to measure this.
+// 2. Both ids moved from `VACUITY_ALLOWLIST` to `VACUITY_RETIRED`.
+//    Thus the seed key set, which the pin freezes, does not change.
+// 3. The ratchet accepts a further move. It rejects an addition, a deletion,
+//    and a waiver that stays after the schema is fixed.
+// 4. The registry declarations accept what the handlers emit,
+//    and reject what a vacuous schema accepts.
 //
 // @oracle-sources: ../../../src/registry.ts, ../../../tools/conformance/src/output-schema-seed-pin.ts
 
@@ -91,8 +83,6 @@ function declaredDataSchema(id: string): z.ZodType {
   if (data === undefined) throw new Error(`no envelope 'data' branch on '${id}'`);
   return data;
 }
-
-// ─── Fixtures for the live-handler arm ───────────────────────────────────────
 
 const AT = '2026-07-21T20:00:00.000Z';
 const SHA_A = 'a'.repeat(64);
@@ -190,17 +180,14 @@ const SATISFIED_DEPS: CutoverVerbDeps = {
   observerHealth: () => healthyObserver(),
 };
 
-// ─── 1. Substance ────────────────────────────────────────────────────────────
-
 /** All five disagreement classes seeded, as `emptyTally()` produces them. */
 const FULL_TALLY: Record<string, number> = Object.fromEntries(
   DISAGREEMENT_CLASSES.map((c) => [c, 0]),
 );
 
 describe('Task 083 — the cutover verbs declare substantive outputSchemas', () => {
+  /** The census walks the constructed Zod object. A text search for `vacuityWaiver` does not see a waiver under another name. */
   it('CutoverVerbs_LiveCensus_ClassifiesBothSubstantive', () => {
-    // Read through the census, which walks the constructed Zod object. A grep
-    // for `vacuityWaiver` would agree with a laundered alias; this does not.
     for (const id of [READINESS_ID, DECIDE_ID]) {
       const verdict = classifyOutputSchema(declaredOutputSchema(id), OUTPUT_SCHEMA_PORTS);
       expect(verdict.classification).toBe('substantive');
@@ -208,10 +195,9 @@ describe('Task 083 — the cutover verbs declare substantive outputSchemas', () 
     }
   });
 
+  /** The test asserts a non-empty census first. An empty census makes each exclusion pass for no reason. */
   it('CutoverVerbs_CensusVacuousPopulation_ExcludesBoth', () => {
     const census = censusLiveOutputSchemas();
-    // Non-empty denominator first: a census that lost its subject would make
-    // every exclusion below true for the worst possible reason.
     expect(census.total).toBeGreaterThan(0);
     expect(census.ok).toBe(true);
     expect(census.vacuous).not.toContain(READINESS_ID);
@@ -221,27 +207,26 @@ describe('Task 083 — the cutover verbs declare substantive outputSchemas', () 
   });
 });
 
-// ─── 2. The rows went OFF, not sideways ──────────────────────────────────────
-
 describe('Task 083 — the waiver rows left the allowlist', () => {
+  /**
+   * The counts make a silent re-add visible. The seed holds 112 ids, and four are retired.
+   * One is `exarchos_view.stack_place`, which moved to `exarchos_orchestrate`.
+   * A waiver under the new key is a key swap, which the seed digest rejects.
+   */
   it('CutoverVerbs_WaiverSeed_MovedFromAllowlistToRetired', () => {
     expect(VACUITY_ALLOWLIST_IDS).not.toContain(READINESS_ID);
     expect(VACUITY_ALLOWLIST_IDS).not.toContain(DECIDE_ID);
     expect(VACUITY_RETIRED_IDS).toContain(READINESS_ID);
     expect(VACUITY_RETIRED_IDS).toContain(DECIDE_ID);
-    // The shrink, stated as a number so a silent re-add is visible. The seed
-    // was 112 ids; four are now retired — the fourth is `stack_place`, whose
-    // re-parenting onto `exarchos_orchestrate` could not carry its waiver across
-    // (a waiver is keyed by action id, and swapping one seeded key for another
-    // is what the seed digest reddens), so the debt was paid instead.
     expect(VACUITY_ALLOWLIST_IDS.length).toBe(108);
     expect(VACUITY_RETIRED_IDS.length).toBe(4);
   });
 
+  /**
+   * The pin is a second authority. `output-schema-seed-pin.ts` imports nothing, so it cannot observe the seed.
+   * A deletion changes the digest. A move does not.
+   */
   it('CutoverVerbs_SeedKeySet_UnchangedBecausePaydownIsAMove', () => {
-    // The pin is the SECOND authority: `output-schema-seed-pin.ts` imports
-    // nothing, so it cannot observe the seed it pins. A paydown recorded as a
-    // deletion would break this; a move does not.
     const live = liveVacuitySeedDigest([...VACUITY_ALLOWLIST_IDS, ...VACUITY_RETIRED_IDS]);
     expect(live).toBe(VACUITY_SEED_KEY_SET_DIGEST);
     expect(auditLiveVacuitySeedIntegrity().ok).toBe(true);
@@ -254,12 +239,14 @@ describe('Task 083 — the waiver rows left the allowlist', () => {
   });
 });
 
-// ─── 3. The ratchet accepts a SHRINK and refuses a GROWTH ────────────────────
-
+/**
+ * These tests run the shrink-only ratchet in both directions. The first live
+ * waiver is the subject of a hypothetical next paydown.
+ */
 describe('Task 083 — the shrink-only ratchet, exercised in both directions', () => {
-  // Any live waiver will do as the subject of a hypothetical NEXT paydown.
   const someLiveWaiver = VACUITY_ALLOWLIST_IDS[0] ?? '';
 
+  /** A move does not change the seed size. This makes the pin usable. */
   it('VacuityRatchet_FurtherPaydownAsAMove_Accepted', () => {
     expect(someLiveWaiver.length).toBeGreaterThan(0);
     const verdict = auditLiveVacuitySeedIntegrity(
@@ -268,7 +255,6 @@ describe('Task 083 — the shrink-only ratchet, exercised in both directions', (
     );
     expect(verdict.findings).toEqual([]);
     expect(verdict.ok).toBe(true);
-    // A move cannot change the seed's size — that is what makes the pin usable.
     expect(verdict.keySetSize).toBe(112);
   });
 
@@ -291,10 +277,8 @@ describe('Task 083 — the shrink-only ratchet, exercised in both directions', (
     expect(verdict.findings.map((f) => f.code)).toContain('SEED_KEY_SET_DRIFT');
   });
 
+  /** The schema is fixed but the waiver stays. The declaration is not vacuous, so the audit reports the waiver as stale. */
   it('VacuityRatchet_WaiverKeptSideways_RejectedAsStale', () => {
-    // The "sideways" edit task 083 was told not to make: fix the schema but
-    // leave the waiver standing. Membership catches it because the declaration
-    // is no longer vacuous, so the waiver has nothing left to waive.
     const verdict = auditVacuityAllowlist(censusLiveOutputSchemas(), [
       ...VACUITY_ALLOWLIST_IDS,
       READINESS_ID,
@@ -305,8 +289,6 @@ describe('Task 083 — the shrink-only ratchet, exercised in both directions', (
     expect(verdict.stale).toContain(DECIDE_ID);
   });
 });
-
-// ─── 4. The contract is honest about what the handlers emit ──────────────────
 
 describe('Task 083 — the declared contracts match the real emissions', () => {
   let stateDir: string;
@@ -334,19 +316,20 @@ describe('Task 083 — the declared contracts match the real emissions', () => {
     );
   }
 
+  /**
+   * The emission must parse against the module contract and against the registry schema.
+   * The registry schema is that contract after `withCappedShape` adds the capped fallback.
+   * If the registry schema rejects the emission, the MCP validator turns a correct response
+   * into an `INTERNAL_ERROR`.
+   */
   it('CutoverReadiness_ColdStoreEmission_ParsesAgainstTheRegistryDeclaration', async () => {
     const result = await handleCutoverReadiness({}, stateDir, eventStore, EMPTY_DEPS);
     expect(result.success).toBe(true);
 
-    // The module-level contract…
     const direct = CutoverReadinessData.safeParse(result.data);
     expect(direct.error?.message).toBeUndefined();
     expect(direct.success).toBe(true);
 
-    // …and the schema the REGISTRY actually advertises, which is that contract
-    // after `withCappedShape` unioned the capped fallback in. Both must accept
-    // the emission, or the D.5 validator turns a correct response into an
-    // INTERNAL_ERROR.
     const declared = declaredDataSchema(READINESS_ID).safeParse(result.data);
     expect(declared.error?.message).toBeUndefined();
     expect(declared.success).toBe(true);
@@ -374,25 +357,23 @@ describe('Task 083 — the declared contracts match the real emissions', () => {
     expect(declared.success).toBe(true);
   });
 
+  /**
+   * A vacuous `data` schema (`z.unknown()`) accepts each of these values. The real schemas
+   * reject each one, including a report without the field that the caller branches on.
+   */
   it('CutoverVerbs_RegistryDeclarations_RejectWhatTheWaiverAccepted', () => {
-    // A vacuous `data` (`z.unknown()`) accepted every one of these. The point
-    // of the paydown is that they now fail at the boundary.
     for (const id of [READINESS_ID, DECIDE_ID]) {
       const data = declaredDataSchema(id);
       expect(data.safeParse(42).success).toBe(false);
       expect(data.safeParse('report').success).toBe(false);
       expect(data.safeParse(null).success).toBe(false);
       expect(data.safeParse({}).success).toBe(false);
-      // A report-shaped payload missing the field the caller branches on.
       expect(data.safeParse({ report: { satisfied: true } }).success).toBe(false);
     }
   });
 
+  /** `emptyTally()` seeds all five classes. A missing class looks like a real zero, so the schema rejects a partial tally. */
   it('CutoverGateReport_PartialDisagreementTally_Rejected', () => {
-    // The tally's five classes are always present (`emptyTally()` seeds them),
-    // and a class that silently stopped being counted is indistinguishable
-    // from a genuine zero — so a partial tally is refused rather than read as
-    // "four classes, all fine".
     const summary: DurableEvidenceSummary = {
       featureIds: [],
       attemptCount: 0,
@@ -422,12 +403,11 @@ describe('Task 083 — the declared contracts match the real emissions', () => {
     expect(CutoverReadinessData.safeParse(partial).success).toBe(false);
   });
 
+  /**
+   * `satisfied` and `unmet` derive from `conditions`. The schema rejects a report that contradicts itself.
+   * The two consistent shapes still parse, so the schema rejects only the contradiction.
+   */
   it('CutoverGateReport_SelfContradictoryVerdict_IsRefused', () => {
-    // `unmet` and `satisfied` are derivable from `conditions`, and every field
-    // was individually valid while the document as a whole disagreed with
-    // itself. The header says the everything-is-met reading must not cross the
-    // boundary as a clean one — a `satisfied: true` beside a failing condition
-    // is exactly that reading.
     const base = {
       unexplainedDisagreements: 0,
       liveAttemptCount: 0,
@@ -444,7 +424,6 @@ describe('Task 083 — the declared contracts match the real emissions', () => {
       hasDenyOutcome: false,
     };
 
-    // satisfied: true, but a condition failed.
     expect(
       CutoverGateReportSchema.safeParse({
         ...base,
@@ -454,7 +433,6 @@ describe('Task 083 — the declared contracts match the real emissions', () => {
       }).success,
     ).toBe(false);
 
-    // `unmet` names a condition that was MET, and omits the one that was not.
     expect(
       CutoverGateReportSchema.safeParse({
         ...base,
@@ -467,7 +445,6 @@ describe('Task 083 — the declared contracts match the real emissions', () => {
       }).success,
     ).toBe(false);
 
-    // satisfied: false with nothing unmet is the mirror contradiction.
     expect(
       CutoverGateReportSchema.safeParse({
         ...base,
@@ -477,8 +454,6 @@ describe('Task 083 — the declared contracts match the real emissions', () => {
       }).success,
     ).toBe(false);
 
-    // …and the two CONSISTENT shapes still parse, so this rejects contradiction
-    // rather than rejecting reports.
     expect(
       CutoverGateReportSchema.safeParse({
         ...base,

@@ -14,8 +14,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { handleVerifyWorktreeBaseline } from '../../../../src/verbs/gates/verify-worktree-baseline.js';
 
-// Helper: package.json contents declaring a `test:run` script (required by the
-// resolver's npm code path).
+/** A package.json with the `test:run` script that the npm path of the resolver requires. */
 const NPM_PACKAGE_JSON = JSON.stringify({ scripts: { 'test:run': 'vitest run' } });
 
 describe('handleVerifyWorktreeBaseline', () => {
@@ -123,7 +122,6 @@ describe('handleVerifyWorktreeBaseline', () => {
     error.stdout = '3 tests failed';
     error.stderr = 'FAIL src/foo.test.ts';
     vi.mocked(execFileSync).mockImplementation((cmd, args) => {
-      // Allow git rev-parse to succeed
       if (String(cmd) === 'git') return '.git\n';
       throw error;
     });
@@ -152,7 +150,6 @@ describe('handleVerifyWorktreeBaseline', () => {
       if (String(p) === '/not-git') return true;
       return false;
     });
-    // git rev-parse --git-dir throws for non-git directories
     vi.mocked(execFileSync).mockImplementation((cmd, args) => {
       if (String(cmd) === 'git' && Array.isArray(args) && args.includes('--git-dir')) {
         throw new Error('fatal: not a git repository');
@@ -166,12 +163,8 @@ describe('handleVerifyWorktreeBaseline', () => {
     expect(result.error).toMatchObject({ code: 'NOT_GIT_WORKTREE' });
   });
 
-  // ── T08 additions: behavior changes from resolver migration ─────────────
-
+  /** A Python project with only `pyproject.toml` resolves to pytest, which runs with no arguments. */
   it('detectProjectType_PythonProject_ReturnsPytestNow', async () => {
-    // Intentional gap closure: prior to T08 a Python project (pyproject.toml
-    // only) returned UNKNOWN_PROJECT_TYPE. The unified resolver now detects
-    // it and selects pytest.
     vi.mocked(existsSync).mockImplementation((p) => {
       const s = String(p).replace(/\\/g, '/').replace(/^[A-Za-z]:/, '');
       if (s === '/worktree') return true;
@@ -188,13 +181,13 @@ describe('handleVerifyWorktreeBaseline', () => {
     expect(data.passed).toBe(true);
     expect(data.projectType).toBe('Python');
     expect(data.testCommand).toBe('pytest');
-    // Verify pytest was invoked with no args (cmd='pytest', args=[]).
     const calls = vi.mocked(execFileSync).mock.calls;
     const pytestCall = calls.find((c) => String(c[0]).replace(/\.cmd$/, '') === 'pytest');
     expect(pytestCall).toBeDefined();
     expect(pytestCall?.[1]).toEqual([]);
   });
 
+  /** Bun does not require `scripts.test`, but the resolver still reads package.json. */
   it('detectProjectType_BunProject_ReturnsBunTest', async () => {
     vi.mocked(existsSync).mockImplementation((p) => {
       const s = String(p).replace(/\\/g, '/').replace(/^[A-Za-z]:/, '');
@@ -204,7 +197,6 @@ describe('handleVerifyWorktreeBaseline', () => {
       return false;
     });
     vi.mocked(readdirSync).mockReturnValue([]);
-    // bun does not require scripts.test, but the resolver still reads package.json.
     vi.mocked(readFileSync).mockImplementation((p) => {
       if (String(p).endsWith('package.json')) return JSON.stringify({});
       throw new Error(`unexpected readFileSync: ${String(p)}`);
@@ -222,19 +214,15 @@ describe('handleVerifyWorktreeBaseline', () => {
     expect(bunCall?.[1]).toEqual(['test']);
   });
 
-  // ── #1199 shepherd fix: honor config-sourced runtimes ──────────────────
-  // Regression: prior to this fix `toProjectDetection` rejected any runtime
-  // whose `source !== 'detection'`, which meant a `.exarchos.yml`-supplied
-  // test command would surface as UNKNOWN_PROJECT_TYPE — breaking the very
-  // Basileus-forward configuration path the resolver was added to enable.
+  /**
+   * With no detection markers, the handler must still use the test command from `.exarchos.yml`.
+   * `pytest` is in the built-in label set, so the project type is `Python`.
+   * On Windows, `resolve()` adds a drive and backslashes to the config path, so the mock strips both.
+   */
   it('ConfigSourcedTestCommand_KnownRunner_HonoredByHandler', async () => {
     vi.mocked(existsSync).mockImplementation((p) => {
-      // loadExarchosConfig resolves the .exarchos.yml path (resolve() prefixes
-      // the drive + emits backslashes on Windows); strip both so these posix
-      // mock keys still match. (#1620)
       const s = String(p).replace(/\\/g, '/').replace(/^[A-Za-z]:/, '');
       if (s === '/worktree') return true;
-      // No detection markers; the only signal comes from .exarchos.yml.
       if (s === '/worktree/.exarchos.yml') return true;
       return false;
     });
@@ -255,11 +243,11 @@ describe('handleVerifyWorktreeBaseline', () => {
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; projectType: string; testCommand: string };
     expect(data.passed).toBe(true);
-    // pytest is in the built-in label set, so the projectType is recognized.
     expect(data.projectType).toBe('Python');
     expect(data.testCommand).toBe('pytest');
   });
 
+  /** `make test` is not in the built-in label set, so the project type is a label that names the config source. */
   it('ConfigSourcedTestCommand_UnknownRunner_GetsConfiguredLabel', async () => {
     vi.mocked(existsSync).mockImplementation((p) => {
       const s = String(p).replace(/\\/g, '/').replace(/^[A-Za-z]:/, '');
@@ -284,22 +272,17 @@ describe('handleVerifyWorktreeBaseline', () => {
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; projectType: string; testCommand: string };
     expect(data.passed).toBe(true);
-    // `make test` isn't in the built-in label set, so we surface a
-    // source-tagged fallback rather than UNKNOWN_PROJECT_TYPE.
     expect(data.projectType).toBe('Configured (.exarchos.yml)');
     expect(data.testCommand).toBe('make test');
   });
 
-  // ── T-08 (#1301): merge-time leak backstop ──────────────────────────────
-  // When the main worktree is dirty and a modified path's working-tree blob is
-  // byte-identical to the same path already committed on the agent branch tip,
-  // classify it as a recoverable `leaked-committed` leak (the #1301 mirroring
-  // symptom) rather than as unrelated dirt. Surface a safe `git checkout --`
-  // remediation; never auto-discard silently.
+  /**
+   * A dirty path whose working-tree blob matches the committed blob on the agent branch tip is a recoverable `leaked-committed` leak.
+   * It is not unrelated dirt. The remediation is `git checkout --` with the path in single quotes, which neutralizes shell metacharacters.
+   */
   it('VerifyWorktreeBaseline_LeakedEditByteIdenticalToCommittedAgentChange_IsDetected', async () => {
     const AGENT_BRANCH = 'feature/agent-task-123';
     const LEAKED_PATH = 'src/leaked.ts';
-    // Identical bytes on both sides — this is the leak signature.
     const SHARED_BLOB = 'export const leaked = true;\n';
 
     vi.mocked(existsSync).mockImplementation((p) => {
@@ -317,25 +300,18 @@ describe('handleVerifyWorktreeBaseline', () => {
     vi.mocked(execFileSync).mockImplementation((cmd, args) => {
       const a = (args as string[]) ?? [];
       if (String(cmd) === 'git') {
-        // git -C /worktree rev-parse --git-dir
         if (a.includes('--git-dir')) return '.git\n' as unknown as Buffer;
-        // git -C /worktree status --porcelain → one modified, tracked path
         if (a.includes('status') && a.includes('--porcelain')) {
           return ` M ${LEAKED_PATH}\n` as unknown as Buffer;
         }
-        // git -C /worktree hash-object -- <path> → working-tree blob hash
         if (a.includes('hash-object')) {
-          // Hash of the working-tree content.
           return 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n' as unknown as Buffer;
         }
-        // git -C /worktree rev-parse <agentBranch>:<path> → committed blob hash
         if (a.includes('rev-parse') && a.some((x) => x.startsWith(AGENT_BRANCH))) {
-          // Byte-identical content on the agent tip → same blob hash.
           return 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n' as unknown as Buffer;
         }
         return '' as unknown as Buffer;
       }
-      // baseline test runner
       return 'Tests passed\n' as unknown as Buffer;
     });
 
@@ -355,18 +331,15 @@ describe('handleVerifyWorktreeBaseline', () => {
     expect(data.leakDetection?.dirty).toBe(true);
     const entry = data.leakDetection?.paths.find((p) => p.path === LEAKED_PATH);
     expect(entry).toBeDefined();
-    // Must classify as a recoverable, byte-identical-to-committed leak —
-    // NOT a generic dirty/unrelated change, NOT a silent pass.
     expect(entry?.classification).toBe('leaked-committed');
-    // Safe remediation must match the documented manual workaround, with the
-    // path single-quoted to neutralize shell metacharacters in crafted names.
     expect(entry?.remediation).toContain(`git checkout -- '${LEAKED_PATH}'`);
   });
 
+  /**
+   * Porcelain shows a rename as `R  old -> new`, and the file on disk is at `new`.
+   * The parser must pass `new` to `git hash-object`, not the raw arrow string. In the mock, only the new path matches the agent blob.
+   */
   it('VerifyWorktreeBaseline_RenamedLeak_ParsesNewPathNotRawArrow', async () => {
-    // Porcelain renders a rename as "R  old -> new". The blob on disk lives at
-    // `new`; the parser must extract it, not pass the raw "old -> new" string to
-    // git hash-object (which is not a real file and silently fails detection).
     const AGENT_BRANCH = 'feature/agent-task-123';
     const OLD_PATH = 'src/old-name.ts';
     const NEW_PATH = 'src/renamed-leak.ts';
@@ -390,9 +363,6 @@ describe('handleVerifyWorktreeBaseline', () => {
         if (a.includes('status') && a.includes('--porcelain')) {
           return `R  ${OLD_PATH} -> ${NEW_PATH}\n` as unknown as Buffer;
         }
-        // Only the NEW path resolves to the byte-identical blob. If the parser
-        // leaked the raw "old -> new" string, hash-object would be invoked with
-        // a non-file and this branch would never match → no leaked-committed.
         if (a.includes('hash-object') && a.includes(NEW_PATH)) {
           return 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n' as unknown as Buffer;
         }
@@ -414,13 +384,13 @@ describe('handleVerifyWorktreeBaseline', () => {
       leakDetection?: { paths: { path: string; classification: string }[] };
     };
     const paths = data.leakDetection?.paths ?? [];
-    // The parsed path is the post-rename name, never the raw arrow string.
     expect(paths.some((p) => p.path.includes(' -> '))).toBe(false);
     const entry = paths.find((p) => p.path === NEW_PATH);
     expect(entry).toBeDefined();
     expect(entry?.classification).toBe('leaked-committed');
   });
 
+  /** The agent tip has a different blob, so the path is a divergent local change and classifies as `dirty`. */
   it('VerifyWorktreeBaseline_UnrelatedDirtyTree_IsGenuineBlocker', async () => {
     const AGENT_BRANCH = 'feature/agent-task-123';
     const DIRTY_PATH = 'src/local-wip.ts';
@@ -448,7 +418,6 @@ describe('handleVerifyWorktreeBaseline', () => {
           return 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n' as unknown as Buffer;
         }
         if (a.includes('rev-parse') && a.some((x) => x.startsWith(AGENT_BRANCH))) {
-          // Different blob on the agent tip → genuinely divergent local change.
           return 'cccccccccccccccccccccccccccccccccccccccc\n' as unknown as Buffer;
         }
         return '' as unknown as Buffer;
@@ -473,6 +442,7 @@ describe('handleVerifyWorktreeBaseline', () => {
     expect(entry?.classification).toBe('dirty');
   });
 
+  /** The pnpm path requires a `test` script in package.json. */
   it('detectProjectType_PnpmProject_ReturnsPnpmTest', async () => {
     vi.mocked(existsSync).mockImplementation((p) => {
       const s = String(p).replace(/\\/g, '/').replace(/^[A-Za-z]:/, '');
@@ -482,7 +452,6 @@ describe('handleVerifyWorktreeBaseline', () => {
       return false;
     });
     vi.mocked(readdirSync).mockReturnValue([]);
-    // pnpm path requires a `test` script in package.json.
     vi.mocked(readFileSync).mockImplementation((p) => {
       if (String(p).endsWith('package.json'))
         return JSON.stringify({ scripts: { test: 'vitest run' } });

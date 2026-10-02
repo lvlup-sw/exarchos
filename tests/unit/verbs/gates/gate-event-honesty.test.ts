@@ -1,13 +1,6 @@
-// ─── gate.executed append failure — durable evidence honesty ────────────────
-//
-// Class-level pin for the fire-and-forget repair: a gate that declares
-// `gate.executed` unconditionally must not return a success carrier when the
-// durable append did not land. Per-handler kill probes for the eleven
-// repaired gates live beside each handler's own test file; this file pins
-// the two seams the repair shares across all of them — the shared runner's
-// verdict-normalization interaction, and `requireGateEvent` itself — so the
-// repair cannot be reverted one file at a time without something naming it.
-// ────────────────────────────────────────────────────────────────────────────
+// A gate that declares `gate.executed` must not return a success carrier when
+// the durable append did not land. This file pins two seams that the gates share:
+// how the shared runner records a provider failure carrier, and `requireGateEvent`.
 
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -56,6 +49,11 @@ describe('gate.executed append failure — durable evidence honesty', () => {
     await rmrfAsync(root);
   });
 
+  /**
+   * The provider returns what a `requireGateEvent` handler returns when its
+   * append fails: a failure carrier that keeps the verdict on `data`. The runner
+   * must record `indeterminate`, not a fabricated `fail`.
+   */
   it('GateEventUnrecorded_UnderTheSharedRunner_RecordsAnIndeterminateVerdict', async () => {
     const artifactStore = new ContentAddressedStore(join(root, 'artifacts'));
     const request: GateRunRequest = {
@@ -71,9 +69,6 @@ describe('gate.executed append failure — durable evidence honesty', () => {
       policy: { policyId: 'verification-ladder', policyDigest: POLICY_DIGEST },
     };
 
-    // Mirrors what a `requireGateEvent`-guarded handler returns when its own
-    // `gate.executed` append failed: a failure carrier that still preserves
-    // the gate's verdict on `data`.
     const unrecordedProvider: GateProviderExecutor = async () => ({
       success: false,
       data: { passed: true, findingCount: 0 },
@@ -112,9 +107,6 @@ describe('gate.executed append failure — durable evidence honesty', () => {
     });
     expect(events).toHaveLength(1);
     const record = AdmissionEvidenceRecordedData.parse(events[0]!.data);
-    // An error envelope from the provider is indeterminate, never a
-    // fabricated `fail` — the gate did not produce trustworthy proof, but
-    // nothing observed a genuine failing verdict either.
     expect(record.evidence.verdict).toBe('indeterminate');
   });
 
@@ -174,8 +166,6 @@ describe('gate.executed append failure — durable evidence honesty', () => {
     );
 
     const rows = await eventStore.query(streamId, { type: 'gate.executed' });
-    // A same-operation retry collapses onto the first row instead of
-    // appending a duplicate.
     expect(rows).toHaveLength(1);
   });
 });

@@ -1,11 +1,8 @@
 /**
- * T6 — `invariants_scaffold` handler tests.
- *
- * The scaffold verb creates a v3-shaped starter catalog file at a target path
- * (with one commented worked-example entry), idempotently registers it in
- * `.exarchos.yml`, and NEVER overwrites an existing catalog file. All fs side
- * effects flow through injected hooks so the handler is pure-by-default
- * (mirrors `seedExarchosConfig`).
+ * Tests for the `invariants_scaffold` handler. The verb writes a v3 starter catalog with one commented
+ * worked-example entry and registers it in `.exarchos.yml` when it is not registered. It does not
+ * overwrite an existing catalog. All file system effects go through injected hooks, like
+ * `seedExarchosConfig`.
  */
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
@@ -16,8 +13,6 @@ import { handleScaffold, renderStarterCatalog } from '../../../../src/verbs/inva
 import type { ScaffoldDeps } from '../../../../src/verbs/invariants/scaffold.js';
 import { loadInvariants } from '../../../../src/architecture/invariants-loader.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
-
-// ─── In-memory fs harness ────────────────────────────────────────────────────
 
 interface FakeFs {
   files: Map<string, string>;
@@ -44,6 +39,7 @@ function makeFakeFs(seed: Record<string, string> = {}): FakeFs {
 }
 
 describe('handleScaffold', () => {
+  /** The starter file has a top-level `invariants:` key and a commented worked-example entry. */
   it('handleScaffold_NewCatalog_WritesStarterFile', async () => {
     const fake = makeFakeFs();
 
@@ -61,9 +57,7 @@ describe('handleScaffold', () => {
 
     const written = fake.files.get('/repo/.exarchos/invariants.md');
     expect(written).toBeDefined();
-    // v3-shaped: a top-level `invariants:` list key …
     expect(written).toMatch(/invariants:/);
-    // … and a COMMENTED worked-example entry (the author un-comments to start).
     expect(written).toMatch(/#.*id:/);
   });
 
@@ -84,7 +78,6 @@ describe('handleScaffold', () => {
     };
     expect(data.catalog.wrote).toBe(false);
     expect(data.catalog.reason).toBe('already-exists');
-    // The catalog file is untouched — no write to that path.
     expect(
       fake.writes.some(
         (w) => w.path === '/repo/.exarchos/invariants.md',
@@ -152,42 +145,20 @@ describe('handleScaffold', () => {
 });
 
 /**
- * Round-trip regression (#1487 HIGH/Sentry): a freshly-scaffolded catalog MUST
- * be parseable by `loadInvariants`. The prior `renderStarterCatalog` emitted no
- * `---` frontmatter fences, so `gray-matter` produced `data.invariants ===
- * undefined` and `loadInvariants` threw — every scaffolded file was dead on
- * arrival and silently skipped by `resolveEffectiveCatalog`. This covers the
- * scaffold → loadInvariants round-trip the original tests omitted.
+ * A new scaffolded catalog must parse through `loadInvariants` and declare no entries. Without `---`
+ * frontmatter fences, `data.invariants` is undefined and `loadInvariants` throws.
+ * Registration is the opt-in, and the loader returns `[]` for an unregistered file before it parses.
+ * So `registering` registers the file under test.
  *
- * ## T-42: this test had gone VACUOUS — read before touching it
- *
- * It used to opt the load in with `invariants: { devCatalog: 'enabled' }`.
- * DR-31 retired that boolean and made it inert, so the loader's registration
- * gate began short-circuiting to `[]` BEFORE parsing the file. The test still
- * passed — but for the wrong reason: `expect(entries).toEqual([])` was
- * satisfied by "the loader never opened the file", not by "the scaffold
- * declares no entries". The #1487 regression it exists to catch (a scaffold
- * that THROWS on parse) would no longer have been caught at all, because the
- * parse never ran.
- *
- * Two changes fix that, and the second is the load-bearing one:
- *   1. the catalog is REGISTERED, so the loader actually parses it; and
- *   2. a positive control loads a seeded copy of the SAME body through the
- *      SAME call and requires the seeded entry back. If the gate ever
- *      short-circuits again, the control returns `[]` and this test fails
- *      loudly instead of passing silently.
+ * A positive control loads a seeded copy of the same body and must get the seeded entry back.
+ * Without it, `toEqual([])` also passes for a loader that does not read the file. `SEEDED_ENTRY` is
+ * the worked example without comments, and the test asserts that the seeded body differs.
  */
 describe('renderStarterCatalog → loadInvariants round-trip (#1487)', () => {
-  /** Register the file under test — DR-31: registration IS the opt-in. */
   const registering = (catalogPath: string, tier: 'user' | 'dev') => ({
     invariants: { catalogs: [{ path: catalogPath, tier }] },
   });
 
-  /**
-   * The commented worked example from the scaffold, un-commented. Seeding it
-   * turns the pristine body into one that declares exactly one entry, which is
-   * how we prove the loader really read the file.
-   */
   const SEEDED_ENTRY = [
     'invariants:',
     '  - id: U-1',
@@ -218,7 +189,6 @@ describe('renderStarterCatalog → loadInvariants round-trip (#1487)', () => {
       fs.writeFileSync(catalogPath, body);
 
       try {
-        // (1) THE #1487 CLAIM: a pristine scaffold parses without throwing...
         let entries: ReturnType<typeof loadInvariants> | undefined;
         expect(() => {
           entries = loadInvariants(
@@ -228,20 +198,8 @@ describe('renderStarterCatalog → loadInvariants round-trip (#1487)', () => {
           );
         }).not.toThrow();
         expect(Array.isArray(entries)).toBe(true);
-        // ...and declares NO entries, because its worked example is commented.
-        // A scaffold that shipped a LIVE entry reddens right here.
         expect(entries).toEqual([]);
 
-        // (2) POSITIVE CONTROL — the anti-vacuity guard. The same loader call
-        // against the same body WITH the worked example live must return that
-        // entry. A gate that short-circuits, or a parser that never reads the
-        // frontmatter, returns [] here and this fails. Without this assertion
-        // the `toEqual([])` above passes for a loader that does nothing.
-        //
-        // The seeded copy differs from the pristine one ONLY in that its
-        // worked example is live. If the substitution ever stops applying, the
-        // control would silently degenerate into a second copy of the pristine
-        // case — so assert the bodies actually differ before relying on it.
         const seededBody = body.replace('invariants: []', SEEDED_ENTRY);
         expect(
           seededBody,
@@ -264,9 +222,8 @@ describe('renderStarterCatalog → loadInvariants round-trip (#1487)', () => {
 });
 
 /**
- * #1489 — `dev`/INV-N is exarchos's reserved substrate namespace. Scaffolding a
- * dev catalog from a consumer repo is rejected before any write; the exarchos
- * repo itself (or an explicit override) is allowed.
+ * The `dev` tier with `INV` ids is the reserved namespace of exarchos. A consumer repo cannot scaffold
+ * a dev catalog, and the guard runs before any write. The exarchos repo or an explicit override can.
  */
 describe('handleScaffold reserved-tier guard (#1489)', () => {
   it('handleScaffold_DevTier_NonExarchosRepo_BlockedAsReserved', async () => {
@@ -282,7 +239,6 @@ describe('handleScaffold reserved-tier guard (#1489)', () => {
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('RESERVED_TIER');
     expect(result.error?.suggestedFix?.params.tier).toBe('user');
-    // No catalog file written — guard fires before the fs write.
     expect(fake.writes).toHaveLength(0);
   });
 

@@ -1,20 +1,10 @@
 /**
- * T12 — CLI↔MCP facade parity for invariants_scaffold + invariants_add (INV-2).
+ * CLI and MCP facade parity tests for `invariants_scaffold` and `invariants_add`.
  *
- * Both verbs have two facades:
- *   1. MCP — `exarchos_orchestrate { action: 'invariants_scaffold' | 'invariants_add' }`.
- *   2. CLI — the auto-generated `exarchos orch <action>` surface (flags emitted
- *      from each action's Zod schema in registry.ts — no hand-added flags).
- *
- * Both dispatch through the same `exarchos_orchestrate` composite, so for the
- * same args they MUST project byte-identical ToolResult payloads (modulo the
- * wall-clock fields the envelope wrapper injects). This is INV-2.
- *
- * Strategy (mirrors check-invariant-conformance.parity.test.ts): stub the
- * composite via `stubCompositeHandler` and forward to the real handlers with a
- * FRESH in-memory fs per invocation, so the two arms each see identical
- * starting state and produce byte-equal output without touching disk. The add
- * arm uses dryRun (the default) so it is fully deterministic and writes nothing.
+ * MCP calls `exarchos_orchestrate` with the action. The CLI uses `exarchos orch <action>`, with flags from the Zod schema of the action.
+ * Both dispatch through the `exarchos_orchestrate` composite, so the same args must give the same ToolResult, apart from time fields.
+ * The stub sends each call to the real handler with a new in-memory fs.
+ * Thus both arms start from the same state, and the handlers write nothing to disk.
  */
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
@@ -37,8 +27,6 @@ import type { ScaffoldDeps } from '../../../../src/verbs/invariants/scaffold.js'
 import { handleAdd } from '../../../../src/verbs/invariants/add.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
-// ─── Fixtures ────────────────────────────────────────────────────────────────
-
 const REPO_ROOT = '/parity-repo';
 const CATALOG_REL = '.exarchos/invariants.md';
 
@@ -57,10 +45,11 @@ const VALID_ENTRY = {
   },
 } as const;
 
-/** Fresh in-memory fs per call, seeded with an empty catalog + minimal config. */
+/**
+ * Returns a new in-memory fs with an empty catalog and a minimal config.
+ * Keys are POSIX paths, so they match the handler paths on Windows too.
+ */
 function freshDeps(): ScaffoldDeps {
-  // Keys are POSIX-normalized so the fake fs matches the handlers' paths on
-  // Windows too (they build paths via toPosix(path.join(...))). (#1620)
   const files = new Map<string, string>([
     [toPosix(path.join(REPO_ROOT, CATALOG_REL)), 'invariants: []\n'],
     [toPosix(path.join(REPO_ROOT, '.exarchos.yml')), 'test: npm test\n'],
@@ -78,8 +67,6 @@ function freshDeps(): ScaffoldDeps {
   };
 }
 
-// ─── Arm helpers ─────────────────────────────────────────────────────────────
-
 interface ArmContext {
   readonly stateDir: string;
   readonly ctx: DispatchContext;
@@ -93,16 +80,13 @@ async function createArm(prefix: string): Promise<ArmContext> {
 }
 
 /**
- * Composite stub that forwards the two authoring actions to the real handlers
- * with a fresh in-memory fs. The scaffold path creates a brand-new file
- * (deterministic) per call; the add path is dryRun (writes nothing).
+ * Composite stub that sends the two authoring actions to the real handlers with a new in-memory fs.
+ * The scaffold fs holds no catalog file, so each scaffold call creates it. The add call defaults to `dryRun` and writes nothing.
  */
 function buildAuthoringStub(): CompositeHandler {
   return async (args, ctx): Promise<ToolResult> => {
     const { action, ...rest } = args;
     if (action === 'invariants_scaffold') {
-      // Use a fresh in-memory fs that does NOT pre-seed the catalog file, so
-      // the scaffold genuinely "creates" it (deterministic across arms).
       const files = new Map<string, string>([
         [toPosix(path.join(REPO_ROOT, '.exarchos.yml')), 'test: npm test\n'],
       ]);
@@ -151,8 +135,6 @@ function normalize(value: unknown): unknown {
   });
 }
 
-// ─── Tests ─────────────────────────────────────────────────────────────────
-
 describe('invariants_scaffold + invariants_add CLI↔MCP parity (INV-2)', () => {
   let arms: ArmContext[] = [];
   let restoreStub: (() => void) | null = null;
@@ -197,6 +179,7 @@ describe('invariants_scaffold + invariants_add CLI↔MCP parity (INV-2)', () => 
     expect(JSON.stringify(normalizedCli)).toEqual(JSON.stringify(normalizedMcp));
   });
 
+  /** The args omit `dryRun`, so the add call defaults to a dry run and writes nothing. */
   it('InvariantsAdd_Parity_CliEqualsMcp', async () => {
     restoreStub = stubCompositeHandler('exarchos_orchestrate', buildAuthoringStub());
 
@@ -209,7 +192,6 @@ describe('invariants_scaffold + invariants_add CLI↔MCP parity (INV-2)', () => 
       entry: VALID_ENTRY,
       catalog: CATALOG_REL,
       tier: 'user',
-      // dryRun omitted → defaults to true at dispatch (INV-5c): deterministic.
     };
 
     const { result: cliResult, exitCode } = await harnessCallCli(

@@ -4,10 +4,6 @@ import {
   type WorkflowDeterminismResult,
 } from '../../../../src/verbs/pure/workflow-determinism.js';
 
-// ============================================================
-// Test diff fixtures
-// ============================================================
-
 const CLEAN_DIFF = `diff --git a/src/utils.test.ts b/src/utils.test.ts
 index abc1234..def5678 100644
 --- a/src/utils.test.ts
@@ -161,7 +157,6 @@ describe('checkWorkflowDeterminism', () => {
 
     expect(result.status).toBe('findings');
     expect(result.findingCount).toBeGreaterThan(0);
-    // Should mention only/skip/focus
     const findingText = result.findings.join(' ');
     expect(findingText).toMatch(/only|skip|focus/i);
   });
@@ -207,11 +202,11 @@ describe('checkWorkflowDeterminism', () => {
     expect(result.findingCount).toBeGreaterThan(0);
   });
 
+  /** The diff has four issues: `describe.only`, `console.log`, `Date.now()`, and `it.skip`. */
   it('multiple issues all reported', () => {
     const result = checkWorkflowDeterminism({ diffContent: MULTI_ISSUE_DIFF });
 
     expect(result.status).toBe('findings');
-    // At least: describe.only, console.log, Date.now, it.skip
     expect(result.findingCount).toBeGreaterThanOrEqual(3);
   });
 
@@ -269,6 +264,7 @@ index abc1234..def5678 100644
     expect(result.findingCount).toBeGreaterThan(0);
   });
 
+  /** The diff calls `vi.useFakeTimers()`, so `Date.now()` is not a finding. */
   it('Date.now() with fake timers in context is not flagged', () => {
     const diff = `diff --git a/src/timer.test.ts b/src/timer.test.ts
 index abc1234..def5678 100644
@@ -285,7 +281,6 @@ index abc1234..def5678 100644
 `;
     const result = checkWorkflowDeterminism({ diffContent: diff });
 
-    // Should not flag Date.now() because vi.useFakeTimers is in context
     expect(result.findings.filter((f) => f.includes('time'))).toHaveLength(0);
   });
 });

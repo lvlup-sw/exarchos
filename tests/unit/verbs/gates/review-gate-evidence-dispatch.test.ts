@@ -1,18 +1,13 @@
 // @oracle-sources: ../../../../src/dispatch/core/dispatch.ts, the post-dispatch postcondition observation — the store and the persisted-evidence reader, asked after the handler returned, rather than anything the handler said about itself
 //
-// ─── The repaired gates, through the REAL dispatch path ────────────────────
+// These tests run review and plan gates through the real dispatch path. Each
+// gate declares durable gate evidence as a postcondition. Dispatch checks each
+// declared fact in the store after the handler returns. A missing fact fails
+// the call with ENSURE_CONTRACT_VIOLATED.
 //
-// `check_security_scan`, `check_convergence` and `check_invariant_conformance`
-// each declare durable gate evidence as a postcondition and each used to pay it
-// with a bare `gate.executed` append; `check_task_decomposition` did the same,
-// and `spec_coverage_check` recorded nothing at all. Dispatch observes declared postconditions
-// after the handler returns, so the first two answered ENSURE_CONTRACT_VIOLATED
-// on every call and the third would have as soon as it was admitted.
-//
-// Nothing is stubbed here — not the gate runner, not the handler table. That is
-// the whole point: the sibling unit tests stub the runner to isolate a provider
-// verdict, which is exactly the seam that hid this defect. What these cases ask
-// is what a caller gets.
+// These tests stub nothing, not the gate runner and not the handler table. The
+// unit tests of each gate stub the runner, so they cannot see a missing
+// evidence row.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, writeFile } from 'node:fs/promises';
@@ -114,6 +109,11 @@ afterEach(async () => {
   await rmrfAsync(stateDir);
 });
 
+/**
+ * Most cases assert that the error code is not ENSURE_CONTRACT_VIOLATED and
+ * that the call succeeds. The first assertion names the fault when a regression
+ * occurs.
+ */
 describe('review gates that declare durable evidence pay it on dispatch', () => {
   it('CheckSecurityScan_Dispatched_SucceedsAndRecordsEvidence', async () => {
     const before = await evidenceCount();
@@ -124,8 +124,6 @@ describe('review gates that declare durable evidence pay it on dispatch', () => 
       diffContent: '+export const answer = 42;\n',
     });
 
-    // Not merely "not this code": a success is what the caller is owed, and
-    // naming the code keeps a future regression legible.
     expect(result.error?.code).not.toBe('ENSURE_CONTRACT_VIOLATED');
     expect(result.success).toBe(true);
     expect(await evidenceCount()).toBe(before + 1);
@@ -141,10 +139,12 @@ describe('review gates that declare durable evidence pay it on dispatch', () => 
     expect(await evidenceCount()).toBe(before + 1);
   });
 
+  /**
+   * Dispatch admits this gate only after a resolved review gate. The test seeds
+   * that evidence first, so the case tests the postcondition and not an
+   * admission denial.
+   */
   it('CheckInvariantConformance_Dispatched_SucceedsAndRecordsEvidence', async () => {
-    // This gate requires a resolved review gate before it is admitted at all,
-    // so the precondition is seeded first — otherwise the case would report an
-    // admission denial and say nothing about the postcondition.
     await seedGateEvidence(store, {
       streamId: STREAM,
       requirementId: 'review',
@@ -163,11 +163,12 @@ describe('review gates that declare durable evidence pay it on dispatch', () => 
     expect(await evidenceCount()).toBe(before + 1);
   });
 
+  /**
+   * `workflowId` changes the stream that the gate reads. The gate still writes
+   * its rows on the `featureId` stream, which the action declares. The other
+   * stream gets no `gate.executed` row.
+   */
   it('CheckConvergence_WorkflowIdNamingAnotherStream_StillRecordsOnTheSubject', async () => {
-    // `workflowId` re-points the READ. It used to re-point the WRITE too, which
-    // put the gate's own row on a stream the action does not declare it touches
-    // — so the caller got a refusal for a shape its own schema still accepts,
-    // and the evidence and the signal ended up on two different streams.
     const other = 'wf-review-gate-evidence-other';
     await seedActivePhaseAttempt(store, other, { phase: 'review' });
 
@@ -179,7 +180,6 @@ describe('review gates that declare durable evidence pay it on dispatch', () => 
 
     expect(result.error?.code).toBeUndefined();
     expect(result.success).toBe(true);
-    // Both durable rows on the declared subject; the read stream carries none.
     const signal = await store.query(STREAM, { type: 'gate.executed' });
     expect(signal.map((row) => (row.data as { gateName?: string }).gateName)).toContain(
       'convergence',
@@ -187,9 +187,11 @@ describe('review gates that declare durable evidence pay it on dispatch', () => 
     expect(await store.query(other, { type: 'gate.executed' })).toHaveLength(0);
   });
 
+  /**
+   * The gate binds to the plan phases, so the test seeds its own plan-phase
+   * attempt. The review attempt from `beforeEach` is not its subject.
+   */
   it('CheckTaskDecomposition_Dispatched_SucceedsAndRecordsEvidence', async () => {
-    // A plan-phase attempt of its own: the gate is bound to the plan phases, and
-    // the review attempt seeded in `beforeEach` is not the subject it keys by.
     const planStream = 'wf-plan-gate-evidence-decomposition';
     await seedActivePhaseAttempt(store, planStream, { phase: 'plan' });
     const planPath = await writePlan();
@@ -206,15 +208,16 @@ describe('review gates that declare durable evidence pay it on dispatch', () => 
     expect(await evidenceCount(planStream)).toBe(before + 1);
   });
 
+  /**
+   * `skipRun` stops the post-implementation test run for each test file that
+   * the plan names. This case tests only the evidence record.
+   */
   it('SpecCoverageCheck_Dispatched_SucceedsAndRecordsEvidence', async () => {
     const planStream = 'wf-plan-gate-evidence-coverage';
     await seedActivePhaseAttempt(store, planStream, { phase: 'plan' });
     const planPath = await writePlan();
     const before = await evidenceCount(planStream);
 
-    // `skipRun` because the post-implementation phase otherwise shells a test
-    // run once per test file the plan references, which is not this case's
-    // subject — the subject is whether the verdict carries its declared record.
     const result = await call({
       action: 'spec_coverage_check',
       featureId: planStream,
@@ -229,23 +232,19 @@ describe('review gates that declare durable evidence pay it on dispatch', () => 
     expect(await evidenceCount(planStream)).toBe(before + 1);
   });
 
+  /**
+   * The runner runs the provider again before it finds that the operation
+   * already produced evidence. The provider keys its `gate.executed` append on
+   * the operation identity, so a retry of one operation leaves one row. The
+   * test calls the handler directly, because `dispatch()` mints a new operation
+   * id for each call. The operation carries the trusted caller snapshot that
+   * the runner requires.
+   */
   it('CheckTaskDecomposition_SameOperationRetried_LeavesOneGateExecutedRow', async () => {
-    // The provider mints its own `gate.executed` from inside the runner, and the
-    // runner re-runs the provider before it can discover that this operation
-    // already produced evidence. Unkeyed, one gate run under a retried operation
-    // left two rows — only the evidence row collapsed on its deterministic id.
-    // Keying the append on the operation identity a retry deliberately reuses
-    // collapses them; two genuinely distinct calls still leave two rows.
-    //
-    // Driven under the handler rather than `dispatch()`: dispatch mints a fresh
-    // operation id per call, so a retry of ONE operation is not a shape that
-    // seam can express.
     const planStream = 'wf-plan-gate-evidence-retry';
     await seedActivePhaseAttempt(store, planStream, { phase: 'plan' });
     const planPath = await writePlan();
 
-    // Trusted caller identity is a precondition of the runner, so the retried
-    // operation carries the same authorization snapshot a dispatch would mint.
     const operation = mintDispatchContext(
       undefined,
       snapshotCallerAuthorization(
@@ -262,9 +261,11 @@ describe('review gates that declare durable evidence pay it on dispatch', () => 
     expect(rows).toHaveLength(1);
   });
 
+  /**
+   * The `check_security_scan` result carries one evidence reference, so a
+   * caller can find the record without a query. The test covers only this gate.
+   */
   it('EachGate_AttachesTheEvidenceItRecorded_ToItsOwnCarrier', async () => {
-    // The evidence is not only in the log — the gate's carrier references it, so
-    // a caller reading the result can find the record without querying.
     const result = await call({
       action: 'check_security_scan',
       featureId: STREAM,

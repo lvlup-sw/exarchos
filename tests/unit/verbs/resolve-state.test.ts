@@ -1,7 +1,6 @@
-// ─── Tests for resolveWorkflowState ─────────────────────────────────────────
-//
-// Verifies state resolution fallback: file → event store → error.
-// ────────────────────────────────────────────────────────────────────────────
+// Tests for `resolveWorkflowState` and `classifyStateFile`.
+// With `featureId` and an event store, the resolver folds the event stream.
+// Otherwise it reads the state file. With neither source, it returns an error.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
@@ -14,11 +13,8 @@ import { EventStore } from '../../../src/events/store.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 /**
- * Minimal equivalence checker for the #1504 1504-1 proof. Returns the dot-paths
- * (supporting `arr[idx]` segments) where the folded `state` diverges from the
- * `expected` field values. An empty array means the projection reconstructs
- * every asserted field-group losslessly — i.e. the on-disk `.state.json` carried
- * nothing the event fold cannot recover.
+ * Returns the dot paths where `state` differs from the `expected` values. A path can hold `arr[idx]` segments.
+ * An empty array means that the projection rebuilds each asserted field.
  */
 function diffStates(
   state: Record<string, unknown>,
@@ -56,8 +52,6 @@ afterEach(async () => {
 });
 
 describe('resolveWorkflowState', () => {
-  // ─── Test 1: With State File ─────────────────────────────────────────────
-
   it('ResolveWorkflowState_WithStateFile_ReadsFromFile', async () => {
     const stateData = {
       workflowType: 'feature',
@@ -77,8 +71,6 @@ describe('resolveWorkflowState', () => {
       expect(result.state).toEqual(stateData);
     }
   });
-
-  // ─── Test 2: No State File, With FeatureId + EventStore ──────────────────
 
   it('ResolveWorkflowState_NoStateFile_WithFeatureId_ResolvesFromEventStore', async () => {
     const eventStoreDir = path.join(tempDir, 'events');
@@ -103,10 +95,8 @@ describe('resolveWorkflowState', () => {
       eventStore,
     });
 
-    // Must NOT return an error
     expect('error' in result).toBe(false);
 
-    // Must return materialized state
     expect('state' in result).toBe(true);
     if ('state' in result) {
       const state = result.state as Record<string, unknown>;
@@ -115,8 +105,6 @@ describe('resolveWorkflowState', () => {
       expect(state.workflowType).toBe('feature');
     }
   });
-
-  // ─── Test 3: No State File, No FeatureId ─────────────────────────────────
 
   it('ResolveWorkflowState_NoStateFile_NoFeatureId_ReturnsError', async () => {
     const result = await resolveWorkflowState({});
@@ -128,8 +116,7 @@ describe('resolveWorkflowState', () => {
     }
   });
 
-  // ─── Test 4: State File Not Found, Falls Back to Event Store ─────────────
-
+  /** With `featureId` and a store, a missing state file is not an error. */
   it('ResolveWorkflowState_StateFileNotFound_FallsBackToEventStore', async () => {
     const nonExistentFile = path.join(tempDir, 'does-not-exist.json');
 
@@ -156,7 +143,6 @@ describe('resolveWorkflowState', () => {
       eventStore,
     });
 
-    // Must NOT return STATE_FILE_NOT_FOUND — should fall back to event store
     expect('error' in result).toBe(false);
 
     expect('state' in result).toBe(true);
@@ -168,14 +154,7 @@ describe('resolveWorkflowState', () => {
     }
   });
 
-  // ─── Task 1504-1: Equivalence proof (projection ≡ file, event-store-first) ──
-  //
-  // The resolver became event-store-first in 1504-2; these pin the guarantees
-  // that close out PR2 (#1504): a stale file never shadows newer events, the
-  // CLI and MCP arms resolve identically, and the event fold reconstructs every
-  // field-group the `.state.json` used to carry (so the file is fully
-  // redundant and safe to stop writing).
-
+  /** A stale state file never shadows newer events. The phase comes from the event fold. */
   it('ResolveWorkflowState_StaleFileShadowsNewerEvents_PrefersProjection', async () => {
     const eventStoreDir = path.join(tempDir, 'events-stale');
     await fsPromises.mkdir(eventStoreDir, { recursive: true });
@@ -189,7 +168,6 @@ describe('resolveWorkflowState', () => {
     });
     await eventStore.append(streamId, { type: 'workflow.transition', data: { to: 'plan' } });
 
-    // Stale file claims the OLD phase — must NOT shadow the newer event.
     const stateFile = path.join(tempDir, `${streamId}.state.json`);
     fs.writeFileSync(
       stateFile,
@@ -201,15 +179,12 @@ describe('resolveWorkflowState', () => {
 
     expect('state' in result).toBe(true);
     if ('state' in result) {
-      // Event-folded 'plan', NOT the stale file's 'ideate' — the #1504 fix.
       expect((result.state as Record<string, unknown>).phase).toBe('plan');
     }
   });
 
+  /** The CLI arm passes a divergent state file, and the MCP arm omits it. For the same `featureId` and store, both arms give the same state. */
   it('ResolveWorkflowState_SameFeatureIdViaCliAndMcp_IdenticalState', async () => {
-    // INV-2 facade parity: identical state for the same `featureId + eventStore`
-    // whether or not a (divergent) stateFile is also supplied — no file-presence
-    // divergence between the CLI arm (passes a path) and the MCP arm (omits it).
     const eventStoreDir = path.join(tempDir, 'events-parity');
     await fsPromises.mkdir(eventStoreDir, { recursive: true });
     const eventStore = new EventStore(eventStoreDir);
@@ -222,7 +197,6 @@ describe('resolveWorkflowState', () => {
     });
     await eventStore.append(streamId, { type: 'workflow.transition', data: { to: 'plan' } });
 
-    // A divergent file on the "CLI" arm must not change the result.
     const stateFile = path.join(tempDir, `${streamId}.state.json`);
     fs.writeFileSync(
       stateFile,
@@ -239,10 +213,8 @@ describe('resolveWorkflowState', () => {
     }
   });
 
+  /** Over a realistic history, the event fold rebuilds the phase, artifacts, tasks, and synthesis fields of the state file. */
   it('ResolveWorkflowState_ProjectionFoldOverRealHistory_ReconstructsAllFileFields', async () => {
-    // Equivalence proof (diffStates): over a realistic history the projection
-    // fold reconstructs EVERY field-group the file carried — phase, artifacts,
-    // tasks, and synthesis — losslessly, so the file is fully redundant.
     const eventStoreDir = path.join(tempDir, 'events-coverage');
     await fsPromises.mkdir(eventStoreDir, { recursive: true });
     const eventStore = new EventStore(eventStoreDir);

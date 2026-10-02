@@ -1,12 +1,9 @@
 /**
- * reserved-tier-guard — tests (#1489).
- *
- * `dev`/`INV-N` is exarchos's OWN reserved substrate namespace. A consumer who
- * authors into `tier: dev` silently collides their `INV-N` ids with exarchos's
- * built-in `INV-1..6` in the merged `invariants_effective` projection — and the
- * `doctor` `invariants-catalog` check can't catch it, because the catalog is
- * self-declared as dev tier. This guard rejects `tier: dev` at authoring time in
- * any repo that is not exarchos itself, redirecting to `tier: user`.
+ * Tests for the reserved-tier guard. The `dev` tier holds the invariant ids that
+ * exarchos itself ships. A consumer catalog in `tier: dev` collides with them in
+ * the merged `invariants_effective` projection, and the `doctor` catalog check
+ * cannot see it. Outside the exarchos repo, the guard refuses `tier: dev` at
+ * authoring time and redirects to `tier: user`.
  */
 import { describe, it, expect } from 'vitest';
 
@@ -68,8 +65,8 @@ describe('assertDevTierAllowed', () => {
     ).toBeNull();
   });
 
+  /** An omitted tier defaults to `user`, so the guard allows it. */
   it('assertDevTierAllowed_UndefinedTier_Allows', () => {
-    // tier omitted ⇒ defaults to user downstream; nothing to guard.
     const deps = makeDeps({ '/repo/package.json': consumerPkg });
     expect(
       assertDevTierAllowed(
@@ -89,6 +86,11 @@ describe('assertDevTierAllowed', () => {
     ).toBeNull();
   });
 
+  /**
+   * The refusal carries a `suggestedFix` with `tier: user` and the caller's
+   * action, so the agent can invoke it again. It also names the
+   * `allowReservedTier` override.
+   */
   it('assertDevTierAllowed_DevTierInConsumerRepo_Blocks', () => {
     const deps = makeDeps({ '/repo/package.json': consumerPkg });
     const result = assertDevTierAllowed(
@@ -98,19 +100,15 @@ describe('assertDevTierAllowed', () => {
     expect(result).not.toBeNull();
     expect(result!.success).toBe(false);
     expect(result!.error?.code).toBe('RESERVED_TIER');
-    // INV-5b carrier shape: redirect to tier: user so the agent self-corrects.
     expect(result!.error?.suggestedFix?.params.tier).toBe('user');
-    // suggestedFix must be directly re-invokable: it carries the action so
-    // handleOrchestrate can route it (the guard echoes the caller's verb).
     expect(result!.error?.suggestedFix?.params.action).toBe(
       'invariants_scaffold',
     );
-    // The override path is named so a genuine exarchos fork can proceed.
     expect(JSON.stringify(result!.error)).toMatch(/allowReservedTier/);
   });
 
+  /** A repo without `package.json` counts as not exarchos. */
   it('assertDevTierAllowed_DevTierMissingPackageJson_Blocks', () => {
-    // "Unknown" repo is treated as not-exarchos: dev is almost always a mistake.
     const deps = makeDeps({});
     const result = assertDevTierAllowed(
       { tier: 'dev', repoRoot: '/repo', action: 'invariants_add' },

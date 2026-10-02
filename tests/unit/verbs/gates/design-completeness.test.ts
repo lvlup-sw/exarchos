@@ -1,20 +1,16 @@
-// ─── Design Completeness — DEPRECATED alias delegation tests (#1581 task 013) ─
-//
-// The design+plan collapse turned check_design_completeness into a deprecated
-// alias that delegates to check_plan_coverage. These tests pin the delegation
-// contract: the resolved artifact path is forwarded as BOTH designPath and
-// planPath, plan-coverage's result is returned verbatim with a deprecation
-// marker (so the folded acceptance-criteria finding still reaches callers), and
-// the path resolves from workflow-state artifacts when not supplied explicitly.
-// The pure design-completeness checks remain covered in
-// `pure/design-completeness.test.ts`.
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Tests for `check_design_completeness`, a deprecated alias that delegates to `check_plan_coverage`.
+ *
+ * The handler sends the resolved artifact path as both `designPath` and `planPath`.
+ * It adds a deprecation marker to a successful plan-coverage result and returns a failed result unchanged.
+ * Without an explicit path, the handler resolves the path from the workflow-state artifacts.
+ * `pure/design-completeness.test.ts` tests the pure checks.
+ */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ToolResult } from '../../../../src/format.js';
 import type { EventStore } from '../../../../src/events/store.js';
 
-// Mock the delegate target and the state resolver.
 vi.mock('../../../../src/verbs/gates/plan-coverage.js', () => ({
   handlePlanCoverage: vi.fn(),
 }));
@@ -57,6 +53,7 @@ describe('handleDesignCompleteness (deprecated alias → check_plan_coverage, #1
   });
 
   describe('delegation', () => {
+    /** With an explicit path, the handler does not resolve state. The plan-coverage advisories reach the caller unchanged. */
     it('CheckDesignCompleteness_DeprecatedAlias_DelegatesToPlanCoverage', async () => {
       mockPlanCoverage.mockResolvedValue({
         success: true,
@@ -75,8 +72,6 @@ describe('handleDesignCompleteness (deprecated alias → check_plan_coverage, #1
         mockStore as unknown as EventStore,
       );
 
-      // Delegated to plan-coverage with the unified artifact path as BOTH
-      // designPath and planPath; no state re-resolution when path is explicit.
       expect(mockPlanCoverage).toHaveBeenCalledTimes(1);
       const [args] = mockPlanCoverage.mock.calls[0];
       expect(args).toEqual({
@@ -86,8 +81,6 @@ describe('handleDesignCompleteness (deprecated alias → check_plan_coverage, #1
       });
       expect(mockResolveState).not.toHaveBeenCalled();
 
-      // plan-coverage's result is returned verbatim + a deprecation marker, so
-      // the folded acceptance-criteria finding still reaches the caller.
       expect(result.success).toBe(true);
       const data = result.data as {
         passed: boolean;
@@ -131,6 +124,7 @@ describe('handleDesignCompleteness (deprecated alias → check_plan_coverage, #1
       expect(args.planPath).toBe('/tmp/specs/from-state.md');
     });
 
+    /** The handler returns a failed delegate result unchanged and adds no deprecation marker to it. */
     it('handleDesignCompleteness_DelegationFailure_ReturnedVerbatim', async () => {
       mockPlanCoverage.mockResolvedValue({
         success: false,
@@ -143,8 +137,6 @@ describe('handleDesignCompleteness (deprecated alias → check_plan_coverage, #1
         mockStore as unknown as EventStore,
       );
 
-      // A delegate failure passes through unchanged (no spurious deprecated
-      // marker bolted onto an error envelope).
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('NO_PLAN_TASKS');
     });

@@ -1,29 +1,15 @@
+/**
+ * These tests compare `design-completeness.ts` with the bash script
+ * `verify-ideate-artifacts.sh`. The bash script required six sections. The TS
+ * port also requires "Requirements", and the tests record that difference.
+ */
+
 import { describe, it, expect, afterEach } from 'vitest';
 import { checkRequiredSections, checkMultipleOptions, handleDesignCompleteness } from '../../../../src/verbs/pure/design-completeness.js';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
-
-/**
- * Behavioral parity tests for design-completeness.ts against the original
- * scripts/verify-ideate-artifacts.sh bash script.
- *
- * Bash script behavior (verify-ideate-artifacts.sh):
- *   - exit 0 → all 4 checks pass: design exists, sections present, >=2 options, state has path
- *   - exit 1 → at least 1 check fails (e.g. missing section)
- *   - Complete design: "**Result: PASS** (4/4 checks passed)" — all sections, 3 options
- *   - Missing section: "**Result: FAIL** (1/4 checks failed)" — missing Technical Design, 2 options
- *
- * Known behavioral difference:
- *   The bash script required 6 sections:
- *     Problem Statement, Chosen Approach, Technical Design,
- *     Integration Points, Testing Strategy, Open Questions
- *   The TS implementation requires 7 sections (adds "Requirements").
- *   Tests below document this divergence explicitly.
- */
-
-// ─── Fixtures ────────────────────────────────────────────────────────────────
 
 const COMPLETE_DESIGN = `# Design: Test Feature
 
@@ -114,16 +100,10 @@ Unit tests for everything.
 
 None yet.`;
 
-// ─── Tests ───────────────────────────────────────────────────────────────────
-
 describe('behavioral parity with verify-ideate-artifacts.sh', () => {
   describe('checkRequiredSections', () => {
+    /** The fixture has no Requirements section, so the test adds one. */
     it('complete design with all 7 TS sections — passes with no missing sections', () => {
-      // The complete design fixture includes a Requirements section
-      // (via "## Chosen Approach" — no, it doesn't have ## Requirements).
-      // The TS implementation adds "Requirements" as a 7th required section
-      // that the bash script did not require. This fixture lacks ## Requirements,
-      // so it will report Requirements as missing.
       const withRequirements = COMPLETE_DESIGN + '\n\n## Requirements\n\nMust handle 1000 requests/sec.\n';
       const result = checkRequiredSections(withRequirements);
 
@@ -131,29 +111,30 @@ describe('behavioral parity with verify-ideate-artifacts.sh', () => {
       expect(result.missing).toEqual([]);
     });
 
+    /**
+     * The bash script passes this fixture. The TS port fails it, because the
+     * fixture has no Requirements section.
+     */
     it('complete design without ## Requirements — known divergence from bash', () => {
-      // The bash script would PASS this fixture (it did not check for Requirements).
-      // The TS implementation FAILS because it requires "Requirements" as a 7th section.
-      // This documents the known behavioral difference.
       const result = checkRequiredSections(COMPLETE_DESIGN);
 
       expect(result.passed).toBe(false);
       expect(result.missing).toEqual(['Requirements']);
     });
 
+    /**
+     * The bash script reported only Technical Design. The TS port also reports
+     * Requirements, because the fixture has no Requirements section.
+     */
     it('missing Technical Design section — reports it as missing (bash: exit 1)', () => {
-      // Bash output: "Missing: Technical Design", 1/4 checks failed
-      // The TS also requires Requirements which this fixture lacks,
-      // so both Technical Design and Requirements appear as missing.
       const result = checkRequiredSections(MISSING_TECHNICAL_DESIGN);
 
       expect(result.passed).toBe(false);
       expect(result.missing).toContain('Technical Design');
     });
 
+    /** Of the six sections that the bash script checked, only Technical Design is missing. */
     it('missing Technical Design — the 6 bash-era sections report correctly', () => {
-      // Verify that among the 6 sections the bash script checked,
-      // only Technical Design is missing from the incomplete fixture.
       const bashSections = [
         'Problem Statement',
         'Chosen Approach',

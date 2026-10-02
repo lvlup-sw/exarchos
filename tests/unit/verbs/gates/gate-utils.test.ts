@@ -1,5 +1,3 @@
-// ─── Gate Utils Tests ─────────────────────────────────────────────────────────
-
 import { describe, it, expect, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -30,16 +28,11 @@ import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 describe('emitGateEvent', () => {
-  // ─── Test 1: Valid input appends gate.executed event ─────────────────────
-
   it('emitGateEvent_ValidInput_AppendsGateExecutedEvent', async () => {
-    // Arrange
     const mockStore = { append: vi.fn().mockResolvedValue(undefined) };
 
-    // Act
     await emitGateEvent(mockStore as any, 'stream-1', 'test-gate', 'CI', true);
 
-    // Assert
     expect(mockStore.append).toHaveBeenCalledOnce();
     expect(mockStore.append).toHaveBeenCalledWith('stream-1', {
       type: 'gate.executed',
@@ -47,55 +40,38 @@ describe('emitGateEvent', () => {
     });
   });
 
-  // ─── Test 2: With details includes details in payload ────────────────────
-
   it('emitGateEvent_WithDetails_IncludesDetailsInPayload', async () => {
-    // Arrange
     const mockStore = { append: vi.fn().mockResolvedValue(undefined) };
     const details = { passCount: 10, failCount: 2 };
 
-    // Act
     await emitGateEvent(mockStore as any, 'stream-2', 'test-suite', 'CI', false, details);
 
-    // Assert
     expect(mockStore.append).toHaveBeenCalledWith('stream-2', {
       type: 'gate.executed',
       data: { gateName: 'test-suite', layer: 'CI', passed: false, details },
     });
   });
 
-  // ─── Test 3: With custom layer uses provided layer ───────────────────────
-
   it('emitGateEvent_WithCustomLayer_UsesProvidedLayer', async () => {
-    // Arrange
     const mockStore = { append: vi.fn().mockResolvedValue(undefined) };
 
-    // Act
     await emitGateEvent(mockStore as any, 'stream-3', 'design-check', 'design', true);
 
-    // Assert
     expect(mockStore.append).toHaveBeenCalledWith('stream-3', {
       type: 'gate.executed',
       data: { gateName: 'design-check', layer: 'design', passed: true },
     });
   });
 
-  // ─── Test 4: Without details omits details from payload ──────────────────
-
   it('emitGateEvent_WithoutDetails_OmitsDetailsFromPayload', async () => {
-    // Arrange
     const mockStore = { append: vi.fn().mockResolvedValue(undefined) };
 
-    // Act
     await emitGateEvent(mockStore as any, 'stream-4', 'post-merge', 'post-merge', true);
 
-    // Assert
     const calledEvent = mockStore.append.mock.calls[0][1];
     expect(calledEvent.data).not.toHaveProperty('details');
   });
 });
-
-// ─── resolveRepoRoot (#1330 / T-04) ────────────────────────────────────────
 
 describe('resolveRepoRoot', () => {
   function storeWith(events: Array<{ type: string; data: unknown }>): EventStore {
@@ -115,7 +91,6 @@ describe('resolveRepoRoot', () => {
       store,
     );
     expect(result).toEqual({ ok: true, repoRoot: '/home/user/project' });
-    // No event lookup needed for a literal path.
     expect((store.query as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
   });
 
@@ -133,7 +108,6 @@ describe('resolveRepoRoot', () => {
       store,
     );
     expect(result).toEqual({ ok: true, repoRoot: '/from/arg' });
-    // The explicit arg wins; no event lookup performed.
     expect((store.query as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
   });
 
@@ -161,21 +135,16 @@ describe('resolveRepoRoot', () => {
   });
 });
 
-// ─── normalizeGateVerdict — DR-7 verdict fidelity (task 078) ────────────────
-//
-// THE KILL FIXTURE for site 1. The advisory-skip carrier the three ladder gates
-// actually emit is `{ passed: true, skipped: true, … }`. The pre-fix guard read
-// `skipped === true && passed !== true`, so it could never fire on that carrier
-// and the runner minted `verdict:'pass'` — durable proof for a gate that never
-// ran. Every case below distinguishes "did not run" from "ran and passed";
-// restoring the `passed !== true` qualifier reds the first two.
-
+/**
+ * An advisory-skip carrier holds `passed: true` and `skipped: true`. A skip is not proof, so its verdict is `indeterminate`.
+ * Each case separates "did not run" from "ran and passed".
+ * A guard that reads `skipped === true && passed !== true` fails the first two cases.
+ */
 describe('normalizeGateVerdict — an explicit skip is never proof (DR-7)', () => {
   const carrier = (data: unknown): ToolResult => ({ success: true, data });
 
+  /** The input is the carrier that `handleTestAdequacy` returns when `resolvePolicySkip` skips the gate. */
   it('NormalizeGateVerdict_SkippedCarrierWithPassedTrue_IsIndeterminate', () => {
-    // The exact carrier `handleTestAdequacy` returns when `resolvePolicySkip`
-    // routes the gate out of the resolved sequence.
     const policySkip = carrier({
       passed: true,
       skipped: true,
@@ -188,22 +157,19 @@ describe('normalizeGateVerdict — an explicit skip is never proof (DR-7)', () =
     });
 
     expect(normalizeGateVerdict(policySkip)).toBe('indeterminate');
-    // Stated as the property, not just the value: a skip is not a pass.
     expect(normalizeGateVerdict(policySkip)).not.toBe('pass');
   });
 
+  /** A skipped carrier produces neither proof nor a finding, so the value of `passed` has no effect. */
   it('NormalizeGateVerdict_SkippedCarrier_IsIndeterminateWhateverPassedSays', () => {
-    // `passed` is irrelevant once the carrier declares itself skipped — the
-    // gate produced neither proof nor a finding on any of these.
     for (const passed of [true, false, undefined]) {
       const result = carrier({ skipped: true, ...(passed === undefined ? {} : { passed }) });
       expect(normalizeGateVerdict(result)).toBe('indeterminate');
     }
   });
 
+  /** A gate that ran keeps its verdict. An implementation that returns `indeterminate` for each input fails this test. */
   it('NormalizeGateVerdict_RanToAVerdict_StillMapsPassAndFail', () => {
-    // The discriminating half: a gate that DID run keeps its verdict, so the
-    // fix cannot be satisfied by answering `indeterminate` to everything.
     expect(normalizeGateVerdict(carrier({ passed: true }))).toBe('pass');
     expect(normalizeGateVerdict(carrier({ passed: false }))).toBe('fail');
     expect(normalizeGateVerdict(carrier({ passed: true, skipped: false }))).toBe('pass');
@@ -214,6 +180,11 @@ describe('normalizeGateVerdict — an explicit skip is never proof (DR-7)', () =
       .toBe('indeterminate');
   });
 
+  /**
+   * A skip carrier returns its discriminant and reason. Other shapes are not skips.
+   * A predicate that claims too much makes each ordinary gate `indeterminate`.
+   * A skip without a discriminant is still a skip.
+   */
   it('ReadGateSkipDescriptor_SkipCarrier_CarriesDiscriminantAndReason', () => {
     expect(
       readGateSkipDescriptor(
@@ -221,18 +192,13 @@ describe('normalizeGateVerdict — an explicit skip is never proof (DR-7)', () =
       ),
     ).toEqual({ skipped: true, discriminant: SKIPPED_BY_POLICY, reason: 'why' });
 
-    // Absent/other shapes are NOT skips — the predicate must not over-claim, or
-    // every ordinary gate would be demoted to indeterminate.
     expect(readGateSkipDescriptor(carrier({ passed: true }))).toBeUndefined();
     expect(readGateSkipDescriptor(carrier({ skipped: 'yes' }))).toBeUndefined();
     expect(readGateSkipDescriptor(carrier(null))).toBeUndefined();
     expect(readGateSkipDescriptor(carrier([{ skipped: true }]))).toBeUndefined();
-    // A skip with no declared discriminant is still a skip.
     expect(readGateSkipDescriptor(carrier({ skipped: true }))).toEqual({ skipped: true });
   });
 });
-
-// ─── resolvePolicySkip (task 004) ───────────────────────────────────────────
 
 const ALL_TIERS: readonly RiskTier[] = ['low', 'medium', 'high'];
 const ALL_BOUNDARY: readonly boolean[] = [false, true];
@@ -242,13 +208,13 @@ function configWith(policy: VerificationPolicyOverlay) {
 }
 
 describe('resolvePolicySkip', () => {
+  /**
+   * The config cell replaces the medium sequence and omits `check_test_adequacy`, so that gate skips.
+   * The reason names the config source, so nobody reads the skip as a builtin decision.
+   * A gate that the cell includes still runs.
+   */
   it('ResolvePolicySkip_ConfiguredCellExcludesGate_SkipsWithConfigSource', () => {
-    // A config cell that REPLACES the medium-base sequence with one that omits
-    // `check_test_adequacy` must produce a skip for that gate, and the reason
-    // must name the CONFIG source so a config-induced skip is never read as a
-    // builtin decision.
     const overlay: VerificationPolicyOverlay = {
-      // medium normally clears [static_analysis, test_adequacy]; drop the latter.
       medium: ['check_static_analysis'],
     };
     const config = configWith(overlay);
@@ -263,7 +229,6 @@ describe('resolvePolicySkip', () => {
     expect(skip?.reason).toContain('policy: config');
     expect(skip?.reason).not.toContain('policy: builtin');
 
-    // A gate that the config cell DOES include must still run (no skip).
     const noSkip = resolvePolicySkip({
       gateName: 'check_static_analysis',
       riskTier: 'medium',
@@ -273,10 +238,11 @@ describe('resolvePolicySkip', () => {
     expect(noSkip).toBeNull();
   });
 
+  /**
+   * With no config, or a config with an unset cell, the builtin table decides.
+   * A gate outside the builtin sequence skips, and the reason names the builtin source.
+   */
   it('ResolvePolicySkip_BuiltinDecision_ReasonNamesBuiltinSource', () => {
-    // No config (or a config whose cell is unset) → the builtin table decides.
-    // A gate not in the builtin sequence for the profile is skipped, and the
-    // reason names the BUILTIN source.
     const skip = resolvePolicySkip({
       gateName: 'check_integration_suite',
       riskTier: 'low',
@@ -286,8 +252,6 @@ describe('resolvePolicySkip', () => {
     expect(skip?.reason).toContain('policy: builtin');
     expect(skip?.reason).not.toContain('policy: config');
 
-    // Same result when a config is present but its relevant cell is unset —
-    // the builtin table still decides, source stays builtin.
     const config = configWith({ high: ['check_static_analysis'] });
     const skipUnsetCell = resolvePolicySkip({
       gateName: 'check_integration_suite',
@@ -299,10 +263,8 @@ describe('resolvePolicySkip', () => {
     expect(skipUnsetCell?.reason).toContain('policy: builtin');
   });
 
+  /** A partial stamp, with either field absent, returns null, so the gate runs. A config that excludes the gate does not change this. */
   it('ResolvePolicySkip_PartialStamp_StillRunsUnconditionally', () => {
-    // Characterization rail: a partial stamp (either field absent) returns null
-    // so the gate runs unconditionally — preserved byte-identically. Config
-    // presence must NOT change this (absent stamp dominates).
     const config = configWith({ medium: [] });
 
     expect(
@@ -313,8 +275,6 @@ describe('resolvePolicySkip', () => {
     ).toBeNull();
     expect(resolvePolicySkip({ gateName: 'check_test_adequacy' })).toBeNull();
 
-    // Same, with a config that would otherwise exclude the gate — the absent
-    // stamp still dominates and the gate runs.
     expect(
       resolvePolicySkip({ gateName: 'check_test_adequacy', riskTier: 'medium', config }),
     ).toBeNull();
@@ -324,31 +284,23 @@ describe('resolvePolicySkip', () => {
   });
 
   it('ResolvePolicySkip_BothStampsAbsent_ReasonAbsentByteIdenticalToNull', () => {
-    // No config threaded: behavior must match the pre-task-004 absent-stamp path
-    // exactly (null when either stamp is absent).
     for (const gate of VERIFICATION_GATE_NAMES) {
       expect(resolvePolicySkip({ gateName: gate })).toBeNull();
     }
   });
 });
 
-// ─── Round-trip: stamp ⇔ skip consistency (task 004) ────────────────────────
-
 describe('StampAndSkip consistency', () => {
+  /**
+   * For each tier, boundary, and config variant, `classifyTask` stamps a sequence.
+   * `resolvePolicySkip` skips a gate exactly when the gate is not in that sequence.
+   * The variants are no config, a custom cell, and an empty cell for the same tier and boundary.
+   */
   it('StampAndSkip_SameConfig_NeverDisagree', () => {
-    // For a matrix of (tier × boundary × config-variant), the stamped sequence
-    // (`classifyTask`) and the per-gate skip decisions (`resolvePolicySkip`)
-    // must be mutually consistent: a gate is skipped IFF it is NOT in the
-    // stamped sequence. The two surfaces now share `resolveVerificationPolicy`,
-    // so they can never diverge.
     type Variant = { readonly label: string; readonly config: ReturnType<typeof configWith> | undefined };
 
     for (const tier of ALL_TIERS) {
       for (const boundary of ALL_BOUNDARY) {
-        // Per-cell config variants:
-        //  - no config (builtin table)
-        //  - a custom non-empty cell for THIS exact (tier, boundary) cell
-        //  - an explicit empty cell for THIS exact (tier, boundary) cell
         const customCell: GateName[] = ['check_static_analysis', 'check_mock_boundary'];
         const custom = boundary
           ? ({ boundary: { [tier]: customCell } } as VerificationPolicyOverlay)
@@ -364,8 +316,6 @@ describe('StampAndSkip consistency', () => {
         ];
 
         for (const variant of variants) {
-          // Stamp via the delegation classifier with explicit tier/boundary
-          // overrides (so the derived profile is exactly this cell).
           const classification = classifyTask(
             {
               id: `t-${tier}-${boundary}`,
@@ -378,11 +328,9 @@ describe('StampAndSkip consistency', () => {
           );
           const stamped = classification.verificationSequence;
 
-          // The classification's stamped profile must equal (tier, boundary).
           expect(classification.riskTier).toBe(tier);
           expect(classification.boundaryTouching).toBe(boundary);
 
-          // For EVERY gate, skip ⇔ not-in-stamped-sequence.
           for (const gate of VERIFICATION_GATE_NAMES) {
             const skip = resolvePolicySkip({
               gateName: gate,
@@ -394,7 +342,6 @@ describe('StampAndSkip consistency', () => {
             const message =
               `tier=${tier} boundary=${boundary} variant=${variant.label} gate=${gate}: ` +
               `stamped=[${stamped.join(',')}] skip=${skip ? 'SKIP' : 'RUN'}`;
-            // skipped IFF not in the stamped sequence.
             expect(skip === null, message).toBe(inSequence);
           }
         }
@@ -402,9 +349,8 @@ describe('StampAndSkip consistency', () => {
     }
   });
 
+  /** With no config, the stamped sequence equals the builtin table, and each skip decision agrees with it. */
   it('StampAndSkip_NoConfig_MatchesBuiltinTable', () => {
-    // Belt-and-suspenders: with no config, the stamped sequence is exactly the
-    // builtin table, and every skip decision agrees with it.
     for (const tier of ALL_TIERS) {
       for (const boundary of ALL_BOUNDARY) {
         const builtin = resolveVerificationSequence(tier, boundary);
@@ -425,15 +371,9 @@ describe('StampAndSkip consistency', () => {
   });
 });
 
-// ─── resolvePhaseMode (DR-16, #1546) ─────────────────────────────────────────
-
 describe('resolvePhaseMode', () => {
+  /** PLAN, REVIEW, and SYNTHESIZE gates block, so they bind to enforce. They stay enforce even under oneshot, where IMPLEMENT is audit. */
   it('migratedGates_PlanReviewSynthesis_BindEnforceNotAudit', () => {
-    // The migrated PLAN/REVIEW/SYNTHESIZE gates already BLOCKED under the
-    // pre-binding playbooks, so they bind DIRECTLY to enforce (behavior-
-    // preserving). Even on a workflow type whose IMPLEMENT phase graduates to
-    // audit (oneshot), these kinds stay enforce — audit-first was only ever
-    // correct for S2's genuinely-new IMPLEMENT coverage.
     for (const kind of ['PLAN', 'REVIEW', 'SYNTHESIZE'] as const) {
       expect(resolvePhaseMode(kind, 'oneshot')).toBe('enforce');
       expect(resolvePhaseMode(kind, 'feature')).toBe('enforce');
@@ -441,21 +381,22 @@ describe('resolvePhaseMode', () => {
   });
 
   it('implementKind_StillGraduatesPerWorkflowType', () => {
-    // IMPLEMENT keeps its per-workflow audit→enforce graduation (DR-6).
     expect(resolvePhaseMode('IMPLEMENT', 'oneshot')).toBe('audit');
     expect(resolvePhaseMode('IMPLEMENT', 'feature')).toBe('enforce');
     expect(resolvePhaseMode('IMPLEMENT', 'debug')).toBe('enforce');
   });
 
+  /** GATHER has no gates. The default is enforce, so an unexpected kind cannot downgrade a gate. */
   it('gatherKind_NoGates_DefaultsEnforce', () => {
-    // GATHER carries no gates; enforce is the safe default (never silently
-    // downgrade an unexpected kind).
     expect(resolvePhaseMode('GATHER', 'feature')).toBe('enforce');
   });
 });
 
+/**
+ * `repoWithDiffOfAtLeast` builds a throwaway repo whose `main...HEAD` diff exceeds `approxBytes`.
+ * The new file holds only added lines, so each of its bytes is in the unified diff body.
+ */
 describe('getDiff', () => {
-  /** Build a throwaway repo whose `main...HEAD` diff exceeds `approxBytes`. */
   async function repoWithDiffOfAtLeast(approxBytes: number): Promise<string> {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-utils-diff-'));
     const git = async (...args: string[]): Promise<void> => {
@@ -469,7 +410,6 @@ describe('getDiff', () => {
     await git('commit', '-m', 'seed');
 
     await git('checkout', '-b', 'feature');
-    // One added line per row keeps every byte inside the unified diff body.
     const line = `${'x'.repeat(99)}\n`;
     fs.writeFileSync(path.join(root, 'big.txt'), line.repeat(Math.ceil(approxBytes / line.length)));
     await git('add', '.');
@@ -477,13 +417,12 @@ describe('getDiff', () => {
     return root;
   }
 
+  /**
+   * The default `maxBuffer` of `execFileSync` is 1 MiB, and a larger output raises `ENOBUFS`.
+   * A null diff makes the three callers report `DIFF_ERROR`.
+   * Two MiB is above the Node default and far below the `getDiff` ceiling.
+   */
   it('getDiff_DiffLargerThanNodeDefaultMaxBuffer_ReturnsTheDiff', async () => {
-    // Node caps execFileSync output at 1 MiB by default and raises ENOBUFS past
-    // it. getDiff caught that as "git unavailable" and returned null, which its
-    // three callers render as a generic DIFF_ERROR — so context-economy,
-    // operational-resilience and workflow-determinism all failed closed on any
-    // review-sized change. Two MiB is comfortably over the default and far under
-    // the ceiling getDiff now sets.
     const root = await repoWithDiffOfAtLeast(2 * 1024 * 1024);
     try {
       const diff = getDiff(root, 'main');
@@ -495,10 +434,8 @@ describe('getDiff', () => {
     }
   });
 
+  /** The negative control: a `getDiff` that never returns null fails this test. */
   it('getDiff_UnresolvableBaseRef_ReturnsNull', async () => {
-    // The null arm still has to mean "could not produce a diff" — the negative
-    // control that keeps the test above from passing on a getDiff that never
-    // fails at all.
     const root = await repoWithDiffOfAtLeast(1024);
     try {
       expect(getDiff(root, 'no-such-base-ref')).toBeNull();

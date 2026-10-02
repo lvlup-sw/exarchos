@@ -2,8 +2,6 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// ─── Mock node:fs ────────────────────────────────────────────────────────────
-
 const mockExistsSync = vi.fn();
 const mockReadFileSync = vi.fn();
 const mockReaddirSync = vi.fn();
@@ -18,8 +16,6 @@ vi.mock('node:fs', () => ({
 
 import { handleVerifyDocLinks } from '../../../../src/verbs/gates/verify-doc-links.js';
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
 function makeStat(opts: { isFile?: boolean; isDirectory?: boolean }) {
   return {
     isFile: () => opts.isFile ?? false,
@@ -30,8 +26,6 @@ function makeStat(opts: { isFile?: boolean; isDirectory?: boolean }) {
 beforeEach(() => {
   vi.clearAllMocks();
 });
-
-// ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe('handleVerifyDocLinks', () => {
   it('returns error when both docFile and docsDir are missing', () => {
@@ -46,7 +40,6 @@ describe('handleVerifyDocLinks', () => {
     const content = '[Guide](./guide.md)\n[API](./api.md)\n';
 
     mockExistsSync.mockImplementation((p: string) => {
-      // File exists check, link target checks
       return true;
     });
     mockStatSync.mockReturnValue(makeStat({ isFile: true }));
@@ -138,14 +131,12 @@ describe('handleVerifyDocLinks', () => {
     const data = result.data as { passed: boolean; linksChecked: number };
     expect(data.passed).toBe(true);
     expect(data.linksChecked).toBe(1);
-    // Should have checked /docs/guide.md, not /docs/guide.md#installation
     expect(mockExistsSync).toHaveBeenCalledWith('/docs/guide.md');
   });
 
   it('finds .md files recursively in directory mode', () => {
     const docsDir = '/project/docs';
 
-    // Setup directory structure: docs/ has sub/ dir and root.md; sub/ has nested.md
     mockExistsSync.mockReturnValue(true);
     mockStatSync.mockImplementation((p: string) => {
       if (p === docsDir) return makeStat({ isDirectory: true });

@@ -1,8 +1,7 @@
-// Lowering the built-in state machines into the published kernel definition.
-//
-// Every expectation below is read off the live machine, never off a list typed
-// into this file: a list of steps written here would agree with itself the day
-// the machine gained a phase.
+// These tests lower the built-in state machines into the published kernel
+// definition. The expected steps and transitions come from the live machine. A
+// list of steps typed into this file does not change when the machine gains a
+// phase, so it cannot detect the new phase.
 //
 // @oracle-sources: ../../../../src/verbs/prepare/lower-definition.ts, the live state machine states and transitions read through getHSMDefinition and the published kernel definition schema
 
@@ -17,9 +16,8 @@ import { getHSMDefinition, listWorkflowTypes } from '../../../../src/workflow/st
 const BUILT_INS = ['feature', 'debug', 'refactor', 'oneshot', 'discovery'];
 
 describe('built-in definitions lowered into the kernel', () => {
+  /** Each type in `BUILT_INS` must be a workflow type that the state machine registers. */
   it('LowerDefinition_TheBuiltInRoster_IsTheMachinesOwn', () => {
-    // The denominator for every per-type case below: the roster this file
-    // iterates is the one the state machine registers, not a subset of it.
     const registered = listWorkflowTypes().workflowTypes.map((t) => t.name);
     for (const type of BUILT_INS) expect(registered).toContain(type);
   });
@@ -52,10 +50,12 @@ describe('built-in definitions lowered into the kernel', () => {
     }
   });
 
+  /**
+   * A transition between two non-compound states must arrive unchanged. The
+   * lowering expands a transition that touches a compound state, and the
+   * endpoint test above covers it.
+   */
   it.each(BUILT_INS)('LowerDefinition_%s_CarriesEveryMachineTransitionBetweenLeaves', (type) => {
-    // A transition between two non-compound states must arrive unchanged. The
-    // ones touching a compound state are expanded, and are covered by the
-    // endpoint test above.
     const hsm = getHSMDefinition(type);
     const leaf = (id: string): boolean => hsm.states[id]?.type !== 'compound';
     const lowered = new Set(
@@ -87,9 +87,12 @@ describe('built-in definitions lowered into the kernel', () => {
     expect(contentDigest(oneTransitionFewer)).not.toBe(first.definitionVersion);
   });
 
+  /**
+   * With no catalog registered, the authority still passes the capsule
+   * authority schema. A repository with no invariants still gets a capsule
+   * that settle can judge.
+   */
   it.each(BUILT_INS)('LowerDefinition_%s_CarriesAnAuthorityACapsuleCanSettleAgainst', (type) => {
-    // Non-empty in every required category with no catalog registered: a
-    // repository that never wrote an invariant still gets a settleable capsule.
     const authority = lowerBuiltInDefinition(type)?.definition.authority;
     expect(ExarchosCapsuleAuthorityV1Schema.safeParse(authority).success).toBe(true);
   });

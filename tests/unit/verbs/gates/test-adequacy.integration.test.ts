@@ -1,26 +1,9 @@
-// ─── check_test_adequacy ACCEPTANCE — kill-probe through handleOrchestrate ────
-//
-// Verification-ladder slice 1, Bundle B2 (task 010). The end-to-end contract:
-// dispatch `check_test_adequacy` through the composite `handleOrchestrate`
-// router against a real temp-dir git fixture repo and prove the kill probe
-// (mutation-testing-at-N=1) distinguishes a vacuous test from a real one.
-//
-//   • Real test  — a source change + a test that FAILS when the source is
-//     reverted → the probe observes red on revert → `passed: true`.
-//   • Vacuous test — a source change + an `expect(true).toBe(true)` assertion
-//     that survives the revert → no red observed → `passed: false`,
-//     `redObserved: false`.
-//
-// This file is the acceptance gate: it stays RED until task 014 registers the
-// action + wires the dispatch branch. Per-handler/unit coverage of the split,
-// snapshot/restore, and probe orchestration lives in test-adequacy.test.ts.
-//
-// The fixtures mirror the real-git idioms in local-git-merge.test.ts: a tiny
-// node project committed on `main`, then a task diff committed on a feature
-// branch. The probe resolves the test command from the project itself
-// (resolveTestRuntime) so the fixture ships a runnable `npm test` — we use
-// `node --test` so no install step is required inside the temp repo.
-// ────────────────────────────────────────────────────────────────────────────
+// Acceptance tests for `check_test_adequacy`. They dispatch through the composite `handleOrchestrate`
+// router against a real git fixture repo in a temp directory. The kill probe must tell a real test
+// from a vacuous one.
+// A real test fails when the source change is reverted, so the probe sees red and passes. A vacuous
+// test stays green on the revert, so the probe fails with `redObserved: false`.
+// `test-adequacy.test.ts` holds the unit tests for the split, the snapshot and restore, and the probe.
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
@@ -34,7 +17,6 @@ import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 import { runAsTrustedCaller, seedActivePhaseAttempt, withTrustedCaller } from '../../../../tools/test-helpers/trusted-context.js';
 import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 
-// ─── git fixture helpers ─────────────────────────────────────────────────────
 
 function git(repoRoot: string, args: readonly string[]): Promise<string> {
   return execFileAsync('git', args, { cwd: repoRoot, timeout: 30_000 });
@@ -50,9 +32,9 @@ async function initRepo(prefix: string): Promise<string> {
 }
 
 /**
- * A tiny node project whose tests run via `node --test` (no install needed in
- * the temp repo). `package.json` declares a `test:run` script so the resolver
- * (npm tier) produces a runnable command, and `test` for good measure.
+ * Writes a small node project whose tests run with `node --test`, so the temp repo needs no install.
+ * The `test:run` script gives the npm tier of the resolver a runnable command. The base source
+ * returns 1, and each task diff changes it to 2.
  */
 async function writeBaseProject(repoRoot: string): Promise<void> {
   writeFileSync(
@@ -68,7 +50,6 @@ async function writeBaseProject(repoRoot: string): Promise<void> {
       2,
     ) + '\n',
   );
-  // Base source: a function returning 1. The task diff will change it to 2.
   mkdirSync(path.join(repoRoot, 'src'), { recursive: true });
   writeFileSync(path.join(repoRoot, 'src', 'calc.js'), 'export function value() {\n  return 1;\n}\n');
   await git(repoRoot, ['add', '.']);
@@ -87,14 +68,10 @@ interface AdequacyData {
   discriminant?: string;
 }
 
-// ─── tests ───────────────────────────────────────────────────────────────────
-
-// Spawns REAL `npm`/git in a temp fixture and exercises the mutation kill-probe.
-// Runs on Windows too: the handler routes the spawn through `runCommandSync`,
-// which launches the `npm`/`npx` `.cmd` shim via `shell: true` (#1623 —
-// execFile can't start a `.cmd` directly since CVE-2024-27980 / Node ≥20.12.2).
-// This is the end-to-end acceptance that the cross-platform spawn actually
-// works, not just the mocked handler tests.
+/**
+ * Runs real `npm` and git in a temp fixture. On Windows, `runCommandSync` starts the `npm` `.cmd` shim
+ * with `shell: true`, because `execFile` cannot start a `.cmd` file on Node 20.12.2 and later.
+ */
 describe('check_test_adequacy acceptance (kill probe through handleOrchestrate)', () => {
   const cleanups: Array<() => void> = [];
 
@@ -103,7 +80,6 @@ describe('check_test_adequacy acceptance (kill probe through handleOrchestrate)'
       try {
         fn();
       } catch {
-        /* best-effort temp cleanup */
       }
     }
   });
@@ -131,6 +107,10 @@ describe('check_test_adequacy acceptance (kill probe through handleOrchestrate)'
     return result as { success: boolean; data: AdequacyData };
   }
 
+  /**
+   * The task diff changes the source and adds a test that asserts `value() === 2`. The probe must see
+   * red on the revert and pass.
+   */
   it(
     'HandleOrchestrate_CheckTestAdequacy_RealTest_PassesProbe',
     async () => {
@@ -138,9 +118,6 @@ describe('check_test_adequacy acceptance (kill probe through handleOrchestrate)'
       cleanups.push(() => rmrf(repoRoot));
       await writeBaseProject(repoRoot);
 
-      // Task diff on a feature branch: change source AND add a REAL test that
-      // pins the new behavior (asserts value() === 2). Reverting calc.js back
-      // to `return 1` makes this test FAIL → red observed → probe passes.
       await git(repoRoot, ['checkout', '-b', 'feature/real', '-q']);
       writeFileSync(path.join(repoRoot, 'src', 'calc.js'), 'export function value() {\n  return 2;\n}\n');
       writeFileSync(
@@ -171,6 +148,10 @@ describe('check_test_adequacy acceptance (kill probe through handleOrchestrate)'
     120_000,
   );
 
+  /**
+   * The task diff changes the source and adds a test that asserts nothing. The test stays green on the
+   * revert, so the probe fails. The tool call still succeeds with an advisory carrier.
+   */
   it(
     'HandleOrchestrate_CheckTestAdequacy_AssertNothingTest_FailsProbe',
     async () => {
@@ -178,8 +159,6 @@ describe('check_test_adequacy acceptance (kill probe through handleOrchestrate)'
       cleanups.push(() => rmrf(repoRoot));
       await writeBaseProject(repoRoot);
 
-      // Task diff: change source but add an ASSERT-NOTHING test. Reverting the
-      // source leaves the tautology green → no red observed → probe FAILS.
       await git(repoRoot, ['checkout', '-b', 'feature/vacuous', '-q']);
       writeFileSync(path.join(repoRoot, 'src', 'calc.js'), 'export function value() {\n  return 2;\n}\n');
       writeFileSync(
@@ -199,7 +178,6 @@ describe('check_test_adequacy acceptance (kill probe through handleOrchestrate)'
 
       const { success, data } = await dispatch(repoRoot, 'feature/vacuous');
 
-      // The tool call still SUCCEEDS (advisory carrier); the probe FAILS.
       expect(success).toBe(true);
       expect(data.passed).toBe(false);
       expect(data.redObserved).toBe(false);
@@ -209,18 +187,14 @@ describe('check_test_adequacy acceptance (kill probe through handleOrchestrate)'
   );
 });
 
-/**
- * These tests invoke the composite handler DIRECTLY, bypassing `dispatch()`.
- *
- * Two things `dispatch()` and a real run would have provided must be recreated,
- * or every case exercises a fail-closed path instead of the behaviour under
- * test: the ambient trusted dispatch scope the durable-evidence gates read
- * their caller authorization from (`TRUSTED_CALLER_REQUIRED` without it), and a
- * started workflow with an active phase attempt for the gate's evidence to bind
- * to (`ACTIVE_PHASE_ATTEMPT_REQUIRED` without it).
- */
+/** One key for each state directory and feature id, so each new store gets one seed. */
 const seededWorkflows = new Set<string>();
 
+/**
+ * Calls the composite handler directly, not through `dispatch()`. It recreates the trusted dispatch
+ * scope, because without it the gate runner refuses with `TRUSTED_CALLER_REQUIRED`. It also seeds a
+ * started workflow with an active phase attempt, which the gate evidence binds to.
+ */
 async function orchestrate(
   args: Record<string, unknown>,
   ctx: DispatchContext,

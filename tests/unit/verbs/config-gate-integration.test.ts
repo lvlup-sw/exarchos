@@ -38,7 +38,7 @@ describe('withConfigSeverity', () => {
     });
 
     const result = await withConfigSeverity('test-gate', 'D1', config, mockGateHandler);
-    expect(result.success).toBe(true); // warning gates don't block
+    expect(result.success).toBe(true);
     expect(result.warnings).toEqual(expect.arrayContaining([expect.stringContaining('warning-only')]));
     expect(mockGateHandler).toHaveBeenCalled();
   });
@@ -50,7 +50,7 @@ describe('withConfigSeverity', () => {
     });
 
     const result = await withConfigSeverity('test-gate', 'D1', DEFAULTS, mockGateHandler);
-    expect(result.success).toBe(false); // blocking gates fail
+    expect(result.success).toBe(false);
   });
 
   it('GateHandler_NoProjectConfig_DefaultBehavior', async () => {
@@ -60,7 +60,7 @@ describe('withConfigSeverity', () => {
     });
 
     const result = await withConfigSeverity('test-gate', 'D1', undefined, mockGateHandler);
-    expect(result.success).toBe(false); // no config = all blocking
+    expect(result.success).toBe(false);
     expect(mockGateHandler).toHaveBeenCalled();
   });
 
@@ -74,11 +74,9 @@ describe('withConfigSeverity', () => {
     expect(result.success).toBe(true);
   });
 
+  /** Under a oneshot workflow, a ladder gate has warning severity, so a failure becomes success with a warning. */
   it('GateHandler_OneshotLadderGate_FailureBecomesWarning', async () => {
-    // Task 005: a ladder-gate failure under an oneshot workflow is threaded as
-    // warning severity via the new trailing workflowType param — the failure is
-    // converted to success-with-warning rather than blocking.
-    const ladderGate = VERIFICATION_GATE_NAMES[0]; // 'check_static_analysis'
+    const ladderGate = VERIFICATION_GATE_NAMES[0];
     mockGateHandler.mockResolvedValue({
       success: false,
       error: { code: 'GATE_FAILED', message: 'Gate failed' },
@@ -91,8 +89,8 @@ describe('withConfigSeverity', () => {
     );
   });
 
+  /** A feature workflow has no severity entry for the ladder gate, so the gate stays blocking. */
   it('GateHandler_FeatureLadderGate_FailureStillBlocks', async () => {
-    // A non-oneshot workflow keeps the ladder gate blocking (no table entry).
     const ladderGate = VERIFICATION_GATE_NAMES[0];
     mockGateHandler.mockResolvedValue({
       success: false,
@@ -104,16 +102,14 @@ describe('withConfigSeverity', () => {
   });
 });
 
-// ─── applyLadderGateSeverity (advisory-carrier conversion) ───────────────────
-//
-// Ladder gates are INV-5b advisory carriers: a FAILING gate is
-// `success:true, data.passed:false`, NOT `success:false`. This helper applies
-// the resolved per-workflow severity to that advisory shape — converting a
-// `data.passed:false` to success-with-warning when severity is `warning`,
-// leaving the result untouched otherwise.
+/** The first ladder gate, `check_static_analysis`. */
+const LADDER = VERIFICATION_GATE_NAMES[0];
 
-const LADDER = VERIFICATION_GATE_NAMES[0]; // 'check_static_analysis'
-
+/**
+ * A failing ladder gate returns `success: true` with `data.passed: false`.
+ * Under warning severity, the helper sets `data.passed` to true and adds a warning.
+ * Otherwise it returns the result unchanged.
+ */
 describe('applyLadderGateSeverity', () => {
   it('ApplyLadderGateSeverity_OneshotFailingAdvisory_AddsWarning', () => {
     const advisory: ToolResult = { success: true, data: { passed: false, report: 'r' } };
@@ -131,9 +127,8 @@ describe('applyLadderGateSeverity', () => {
     expect(result.warnings).toBeUndefined();
   });
 
+  /** Blocking severity returns the result unchanged. The orchestrator reads `data.passed` to block. */
   it('ApplyLadderGateSeverity_FeatureFailingAdvisory_Unchanged', () => {
-    // Blocking severity (no oneshot table entry) leaves the advisory result as
-    // the handler returned it — the orchestrator reads data.passed to block.
     const advisory: ToolResult = { success: true, data: { passed: false } };
     const result = applyLadderGateSeverity(LADDER, 'D2', DEFAULTS, advisory, 'feature');
     expect(result).toEqual(advisory);
@@ -146,9 +141,8 @@ describe('applyLadderGateSeverity', () => {
     expect(result).toEqual(advisory);
   });
 
+  /** An error result stays a failure, even under oneshot warning severity. */
   it('ApplyLadderGateSeverity_ErrorResult_Untouched', () => {
-    // A real error envelope (not an advisory carrier) is never downgraded — an
-    // INVALID_INPUT / MISWIRED_CONTEXT must still surface as a failure.
     const errored: ToolResult = {
       success: false,
       error: { code: 'INVALID_INPUT', message: 'featureId is required' },

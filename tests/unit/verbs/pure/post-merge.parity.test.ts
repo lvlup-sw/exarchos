@@ -1,3 +1,7 @@
+// Behavioral parity of `checkPostMerge` with `check-post-merge.sh`. The gate has
+// two checks, CI status and the test suite, and reports PASS only when both pass.
+// A CI check passes on `pass` or `skipped`.
+
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -6,18 +10,6 @@ import { checkPostMerge } from '../../../../src/verbs/pure/post-merge.js';
 import type { CommandResult } from '../../../../src/verbs/pure/post-merge.js';
 import type { VcsProvider, CiStatus } from '../../../../src/vcs/provider.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
-
-/**
- * Behavioral parity tests for post-merge.ts against the original
- * scripts/check-post-merge.sh bash script.
- *
- * Migrated to use VcsProvider for CI status instead of runCommand('gh', ...).
- *
- * Bash script behavior:
- *   - 2 checks: CI green (gh pr checks) + test suite (npm run test:run)
- *   - exit 0 -> PASS (2/2), exit 1 -> FAIL (N/2)
- *   - CI passing states: SUCCESS, NEUTRAL (bash); pass, skipped (VcsProvider)
- */
 
 const PR_URL = 'https://github.com/org/repo/pull/42';
 const MERGE_SHA = 'abc1234def5678';
@@ -46,8 +38,8 @@ function makeTestFailRunner(): (cmd: string, args: readonly string[]) => Command
   return (): CommandResult => ({ exitCode: 1, stdout: '', stderr: 'Test failures\n' });
 }
 
+/** The node fixture repo makes the resolved test command `npm run test:run`. */
 describe('behavioral parity with check-post-merge.sh', () => {
-  /** A node project, so the resolved test command is the script's `npm run test:run`. */
   let nodeRepo: string;
 
   beforeAll(() => {

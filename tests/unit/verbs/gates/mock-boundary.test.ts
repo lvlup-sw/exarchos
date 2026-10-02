@@ -1,14 +1,7 @@
-// ─── mock-boundary unit tests ────────────────────────────────────────────────
-//
-// Verification-ladder slice 1, task 025 (SIV-4 #1530). Covers the pure
-// mock-detection + ownership cross-reference core in isolation. The gate
-// registration (task 026) wires these findings into a steer affordance later;
-// here we prove only the detection/classification logic.
-//
-// Empirical grounding (cited in the module JSDoc): Hora & Robbes, MSR '26 —
-// coding agents add mocks in 36% of test commits vs 26% for humans, 95% the
-// brittle `mock` double; an LLM mocks its own assumption of an unowned API.
-// ────────────────────────────────────────────────────────────────────────────
+// Tests the pure mock-detection and ownership core of the mock-boundary gate.
+// The detector flags a mock in a test-file diff when its target is outside the
+// first-party globs.
+
 import { describe, it, expect } from 'vitest';
 import {
   detectMockFindings,
@@ -16,8 +9,7 @@ import {
   type MockFinding,
 } from '../../../../src/verbs/gates/mock-boundary.js';
 
-// First-party globs as the resolved `.exarchos.yml` `ownership.firstParty`
-// default would supply them to the gate.
+/** The default first-party globs from the configuration schema. */
 const FIRST_PARTY: readonly string[] = ['src/**', 'servers/*/src/**'];
 
 /** Build a test-file diff entry from a list of added (line, text) tuples. */
@@ -62,10 +54,12 @@ describe('detectMockFindings', () => {
   });
 
   describe('DetectMocks_FirstPartyMock_Allowed', () => {
+    /**
+     * From `src/verbs/`, the relative `../config/toolchains.js` resolves to
+     * `src/config/toolchains.js`, which is first-party. An owned target gives no
+     * finding.
+     */
     it('does not flag a vi.mock whose relative specifier resolves under a first-party glob', () => {
-      // foo.test.ts lives at src/verbs/; the relative
-      // '../config/toolchains.js' resolves to src/config/
-      // toolchains.js, which matches `servers/*/src/**`.
       const diff: readonly FileDiff[] = [
         testDiff('src/verbs/foo.test.ts', [
           [8, "vi.mock('../config/toolchains.js');"],
@@ -74,14 +68,13 @@ describe('detectMockFindings', () => {
 
       const findings = detectMockFindings(diff, { firstPartyGlobs: FIRST_PARTY });
 
-      // First-party mocks carry unowned:false; the gate filters them out, so the
-      // module emits NO finding for an owned target.
       expect(findings.every((f) => f.unowned)).toBe(true);
       expect(findings).toHaveLength(0);
     });
   });
 
   describe('DetectMocks_HeuristicIdentifiers_AllDetected', () => {
+    /** Each identifier family matches at least once. `spyOn` matches at the capital-letter boundary. */
     it('catches the representative mock/stub/spy/fake/patch/monkeypatch forms', () => {
       const diff: readonly FileDiff[] = [
         testDiff('src/heuristics.test.ts', [
@@ -98,20 +91,17 @@ describe('detectMockFindings', () => {
       const findings = detectMockFindings(diff, { firstPartyGlobs: FIRST_PARTY });
 
       const identifiers = findings.map((f) => f.identifier).sort();
-      // Every member of the regex family is represented at least once.
       expect(new Set(identifiers)).toEqual(
         new Set(['mock', 'stub', 'spy', 'fake', 'patch', 'monkeypatch']),
       );
-      // spyOn matches via the capital-letter identifier boundary (spy|On).
       expect(findings.some((f) => f.identifier === 'spy')).toBe(true);
     });
 
+    /**
+     * A family word followed by a lowercase letter is part of a longer word, so
+     * `stubbornness`, `fakery`, `patchwork` and `spying` do not match.
+     */
     it('does not flag family substrings buried inside a longer ordinary word (trailing-lowercase boundary rule)', () => {
-      // The trailing-boundary rule rejects any family word immediately followed
-      // by another lowercase letter — so each of these BURIED substrings is a
-      // longer ordinary word, not a mock identifier. (A STANDALONE family word
-      // in prose, e.g. a bare "stub", WOULD be flagged — that is the documented
-      // ~94%-precision tradeoff, exercised separately below.)
       const diff: readonly FileDiff[] = [
         testDiff('src/prose.test.ts', [
           [10, '// stubbornness should never be confused with a double'],
@@ -122,17 +112,14 @@ describe('detectMockFindings', () => {
 
       const findings = detectMockFindings(diff, { firstPartyGlobs: FIRST_PARTY });
 
-      // stubbornness → stub+b, fakery → fake+r, patchwork → patch+w,
-      // spying → spy+i: every family word continues into a lowercase letter, so
-      // the boundary rule rejects all four.
       expect(findings).toHaveLength(0);
     });
 
+    /**
+     * The leading boundary is permissive: a standalone family word matches even
+     * in a comment. The test pins this accepted false positive.
+     */
     it('DOES flag a standalone family word in prose (documented precision tradeoff)', () => {
-      // The boundary rule is deliberately permissive on the LEADING side: a bare
-      // family token at an identifier boundary fires even in a comment. This is
-      // the ~6% false-positive surface the design accepts; we pin it so the
-      // tradeoff is intentional, not accidental.
       const diff: readonly FileDiff[] = [
         testDiff('src/prose.test.ts', [
           [3, "// we stub 'axios' here for now"],
@@ -148,10 +135,9 @@ describe('detectMockFindings', () => {
   });
 
   describe('DetectMocks_SourceFileDiff_Ignored', () => {
+    /** A mock call in a source file is production code, not a test double. */
     it('ignores mock identifiers that appear in SOURCE-file hunks', () => {
       const diff: readonly FileDiff[] = [
-        // Source file (no test glob match) — mock call here is real production
-        // code, not a test double, so detection must skip it.
         testDiff('src/verbs/foo.ts', [[5, "vi.mock('axios');"]]),
       ];
 
@@ -174,9 +160,11 @@ describe('detectMockFindings', () => {
   });
 
   describe('DetectMocks_ModuleSpecifierResolution_RelativeVsPackage', () => {
+    /**
+     * From a test outside the first-party tree, a relative mock of a sibling is
+     * unowned. From a test inside `src/`, the same mock is owned and gives no finding.
+     */
     it('resolves relative specifiers against the diff file path before ownership matching', () => {
-      // From a test that lives OUTSIDE the first-party tree, a relative mock of
-      // a sibling stays outside → unowned.
       const outside: readonly FileDiff[] = [
         testDiff('scripts/tools/foo.test.ts', [
           [4, "vi.mock('./bar.js');"],
@@ -187,8 +175,6 @@ describe('detectMockFindings', () => {
       expect(outsideFindings[0].mockedTarget).toBe('scripts/tools/bar.js');
       expect(outsideFindings[0].unowned).toBe(true);
 
-      // From a test INSIDE the first-party tree, a relative mock of a sibling
-      // resolves under src/** → owned, filtered out.
       const inside: readonly FileDiff[] = [
         testDiff('src/verbs/foo.test.ts', [
           [4, "vi.mock('./bar.js');"],
@@ -198,6 +184,7 @@ describe('detectMockFindings', () => {
       expect(insideFindings).toHaveLength(0);
     });
 
+    /** A first-party glob that matches a bare package specifier makes that package owned. */
     it('treats a bare package specifier as unowned unless a first-party glob matches it', () => {
       const diff: readonly FileDiff[] = [
         testDiff('src/a.test.ts', [
@@ -210,8 +197,6 @@ describe('detectMockFindings', () => {
       expect(baseFindings).toHaveLength(2);
       expect(baseFindings.every((f) => f.unowned)).toBe(true);
 
-      // A workspace package declared first-party (its bare specifier matches a
-      // glob) is owned → filtered out.
       const withWorkspace = detectMockFindings(diff, {
         firstPartyGlobs: [...FIRST_PARTY, '@scope/**'],
       });
@@ -237,9 +222,9 @@ describe('detectMockFindings', () => {
       });
     });
 
+    /** `src/specs/a.checks.ts` is not a test file by default. Only the `testGlobs` override classifies it. */
     it('honors a testGlobs override for classification', () => {
       const diff: readonly FileDiff[] = [
-        // Not a .test.* file — only matched when the override names it.
         testDiff('src/specs/a.checks.ts', [[1, "vi.mock('axios');"]]),
       ];
       const withDefault = detectMockFindings(diff, { firstPartyGlobs: FIRST_PARTY });

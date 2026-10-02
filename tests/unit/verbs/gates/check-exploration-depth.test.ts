@@ -1,10 +1,6 @@
-// ─── check_exploration_depth gate — DR-4 (Gap B) ────────────────────────────
-//
-// Tests run THROUGH `handleOrchestrate` so the dispatch wiring (registry action
-// → ACTION_HANDLERS entry → handler) is exercised, not just the bare handler —
-// guarding against the registered-action-without-a-dispatch-branch failure mode
-// that returns UNKNOWN_ACTION.
-// ─────────────────────────────────────────────────────────────────────────────
+// Tests for the `check_exploration_depth` gate. The tests run through `handleOrchestrate`,
+// so they exercise the dispatch wiring and not only the handler.
+// A registered action without a dispatch branch returns `UNKNOWN_ACTION`.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp, writeFile } from 'node:fs/promises';
@@ -28,8 +24,7 @@ import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 const FEATURE_ID = 'exploration-feature';
 
-// A `deep` spec whose Exploration section cites the discover pass by path +
-// correlationId (the deep-only obligation per spec-template.md).
+/** A `deep` spec whose Exploration section cites the discover pass by path and correlationId. */
 const DEEP_WITH_EXPLORATION = `# Spec: Example
 
 ## Design & Rationale
@@ -49,7 +44,7 @@ at \`docs/research/2026-06-29-example.md\`, stitched by correlationId
 - **Option B —** rejected.
 `;
 
-// A `deep` spec missing the `### Exploration` section entirely.
+/** A `deep` spec without a `### Exploration` section. */
 const DEEP_WITHOUT_EXPLORATION = `# Spec: Example
 
 ## Design & Rationale
@@ -76,6 +71,11 @@ describe('check_exploration_depth gate (DR-4)', () => {
   let eventStore: EventStore;
   let ctx: DispatchContext;
 
+  /**
+   * The gate binds its evidence to the active phase attempt, so this hook seeds one.
+   * The gate also reads the caller authorization from the dispatch scope, which `orchestrate` opens.
+   * Without both, the test exercises the fail-closed path.
+   */
   beforeEach(async () => {
     base = await mkdtemp(path.join(tmpdir(), 'exploration-depth-'));
     stateDir = path.join(base, 'state');
@@ -87,10 +87,6 @@ describe('check_exploration_depth gate (DR-4)', () => {
       enableTelemetry: false,
       cwd: base,
     } as unknown as DispatchContext;
-    // The gate records durable evidence, which binds to the active phase
-    // attempt and reads the caller's authorization from the ambient dispatch
-    // scope. Driving the handler below `dispatch()` means the test has to open
-    // both, or it exercises the fail-closed path instead of the gate.
     await seedActivePhaseAttempt(eventStore, FEATURE_ID, { phase: 'plan' });
   });
 
@@ -98,15 +94,11 @@ describe('check_exploration_depth gate (DR-4)', () => {
     return runAsTrustedCaller(stateDir, () => handleOrchestrate(args, ctx));
   }
 
+  /** The store closes before the directory removal. On Windows, an open `exarchos.db` handle makes `fs.rm` fail with `EBUSY`. */
   afterEach(async () => {
-    // MUST close the SQLite handle before removing the temp dir — on Windows an
-    // open `exarchos.db` handle blocks `fs.rm` with EBUSY (store.ts close()
-    // contract). POSIX tolerates unlinking an open file, so this is Windows-only.
     eventStore.close();
     await rmrfAsync(base);
   });
-
-  // ── Dispatch wiring: the action must route end-to-end ──────────────────────
 
   it('routes through handleOrchestrate (not UNKNOWN_ACTION)', async () => {
     const result = await orchestrate(
@@ -116,8 +108,6 @@ describe('check_exploration_depth gate (DR-4)', () => {
     expect(errCode).not.toBe('UNKNOWN_ACTION');
     expect(result.success).toBe(true);
   });
-
-  // ── (a) deep WITHOUT an Exploration section → gate FAILS ───────────────────
 
   it('deep spec without `### Exploration` section fails the gate', async () => {
     const specPath = path.join(base, 'deep-without.md');
@@ -139,8 +129,6 @@ describe('check_exploration_depth gate (DR-4)', () => {
     expect(data.hasSection).toBe(false);
   });
 
-  // ── (b) deep WITH a valid Exploration section → gate PASSES ────────────────
-
   it('deep spec with a path + correlationId Exploration section passes', async () => {
     const specPath = path.join(base, 'deep-with.md');
     await writeFile(specPath, DEEP_WITH_EXPLORATION, 'utf-8');
@@ -159,8 +147,6 @@ describe('check_exploration_depth gate (DR-4)', () => {
     expect(data.passed).toBe(true);
     expect(data.skipped).toBe(false);
   });
-
-  // ── (c) standard / thin → SELF-SKIP (no artifact touched) ──────────────────
 
   it('standard depth self-skips the gate', async () => {
     const result = await orchestrate(
@@ -195,8 +181,7 @@ describe('check_exploration_depth gate (DR-4)', () => {
     }
   });
 
-  // ── gate.executed append failure withholds the success carrier ────────────
-
+  /** The `gate.executed` append fails. The gate withholds the success carrier, but its verdict stays readable on `data`. */
   it('ExplorationDepth_GateEventAppendFails_WithholdsTheSuccessCarrier (self-skip path)', async () => {
     const originalAppend = eventStore.append.bind(eventStore);
     vi.spyOn(eventStore, 'append').mockImplementation(async (streamId, event, options) => {
@@ -214,8 +199,6 @@ describe('check_exploration_depth gate (DR-4)', () => {
     if (result.success === false) {
       expect(result.error?.code).toBe('GATE_EVENT_UNRECORDED');
     }
-    // The gate's own verdict is still readable on `data` — nothing is lost,
-    // only the success carrier is withheld.
     const data = result.data as EnvelopeData;
     expect(data.passed).toBe(true);
     expect(data.skipped).toBe(true);
@@ -252,8 +235,6 @@ describe('check_exploration_depth gate (DR-4)', () => {
   });
 });
 
-// ── Pure-helper unit coverage (no dispatch / no event store) ─────────────────
-
 describe('checkExplorationDepth (pure)', () => {
   it('extractExplorationSection returns null when the header is absent', () => {
     expect(extractExplorationSection(DEEP_WITHOUT_EXPLORATION)).toBeNull();
@@ -263,7 +244,6 @@ describe('checkExplorationDepth (pure)', () => {
     const section = extractExplorationSection(DEEP_WITH_EXPLORATION);
     expect(section).not.toBeNull();
     expect(section).toContain('docs/research/2026-06-29-example.md');
-    // The trailing `### Alternatives considered` heading is NOT part of the body.
     expect(section).not.toContain('Alternatives considered');
   });
 

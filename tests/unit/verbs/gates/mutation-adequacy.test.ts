@@ -1,20 +1,11 @@
-// ─── mutation-adequacy action — dispatch-through integration tests ──────────
-//
-// Verification-ladder slice 3, R5 (#1520). These tests dispatch the
-// `mutation-adequacy` action THROUGH the composite `handleOrchestrate` router
-// (the DOA-action trap: a registered action with no dispatch branch returns
-// UNKNOWN_ACTION — only a dispatch-through test catches that). The mutation
-// runner is injected as a seam so NO real Stryker / cargo-mutants process ever
-// runs in the suite (DIM-4 hermeticity).
-//
-// Task 003 — handler + registry + dispatch branch + Skipped/Warning degrade +
-//   full-scope deferral.
-// Task 004 — liveness (`mutation.executing_started`/`executed`) + foldable
-//   `gate.executed { gateName, layer, mutationScore }`; idempotent re-run.
-// Task 005 — survivor / NoCoverage affordances in `next_actions`.
-// Task 006 — advisory verdict vs config threshold (severity reused, not
-//   reinvented).
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Dispatch-through tests for the `mutation-adequacy` action.
+ *
+ * Most tests dispatch through `handleOrchestrate`, because only such a test sees a registered action without a dispatch branch.
+ * The other tests call the diff-scope, config-discovery, and run-root helpers directly.
+ * No real Stryker or cargo-mutants process runs. Most tests inject the runner, and the real-runner tests spawn a small Node script.
+ * The suite covers the handler and its degrade paths, the liveness events, the `next_actions` affordances, and the advisory verdict.
+ */
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { mkdirSync, mkdtempSync, renameSync, writeFileSync } from 'node:fs';
@@ -40,8 +31,6 @@ import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 import { workflowStateProjection } from '../../../../src/projections/views/workflow-state-projection.js';
 import { guards } from '../../../../src/workflow/guards.js';
 import type { GuardFailure } from '../../../../src/workflow/guards.js';
-
-// ─── fixtures ────────────────────────────────────────────────────────────────
 
 /** A minimal valid Stryker report with a configurable mutant mix. */
 function strykerReport(mutants: ReadonlyArray<{
@@ -101,17 +90,14 @@ interface MutationData {
   deferred?: boolean;
   warning?: string;
   next_actions?: string[];
-  // DR-6 additive carrier fields.
   maxNoCoverage?: number;
   trivialPass?: boolean;
   noCoverageReason?: string;
-  // DR-8 additive carrier fields — the run root and where it came from.
+  /** The run root. `runnerCwdRationale` and `mutationConfigPath` tell where it came from. */
   runnerCwd?: string;
   runnerCwdRationale?: string;
   mutationConfigPath?: string | null;
 }
-
-// ─── harness ─────────────────────────────────────────────────────────────────
 
 const cleanups: Array<() => void> = [];
 afterEach(() => {
@@ -119,16 +105,13 @@ afterEach(() => {
     try {
       fn();
     } catch {
-      /* best-effort */
     }
   }
 });
 
 /**
- * A throwaway repo root on disk. Keys are repo-relative POSIX paths; missing
- * parent directories are created. Real files matter here: run-root resolution
- * is a claim about the filesystem, so a fixture that only exists in an
- * assertion would prove nothing about it.
+ * Creates a temporary repo root on disk. Keys are repo-relative POSIX paths, and the helper creates missing parent directories.
+ * The files are real, because run-root resolution reads the filesystem.
  */
 function makeRepoFixture(files: Readonly<Record<string, string>>): string {
   const root = mkdtempSync(path.join(os.tmpdir(), 'mutadq-repo-'));
@@ -168,15 +151,14 @@ interface DispatchOpts {
   eventStore?: EventStore;
   stateDir?: string;
   /**
-   * The diff seam. Defaults to "no files changed", which is what most cases in
-   * this suite mean when they hand the runner a report directly. It matters for
-   * the empty-mutant-surface cases: an empty report is a trivial pass ONLY when
-   * the diff also changed nothing mutatable, so leaving this to the real git
-   * would make those assertions depend on the checkout they run in.
+   * The diff seam. The default is "no files changed", which most cases mean when they give the runner a report directly.
+   * An empty report is a trivial pass only when the diff changed nothing mutatable.
+   * Thus the empty-surface cases must not depend on the real checkout.
    */
   runDiff?: (base: string, repoRoot: string) => readonly string[];
 }
 
+/** Dispatches `mutation-adequacy` through `handleOrchestrate`, with the test seams in the dispatch args. */
 async function dispatchMutation(
   opts: DispatchOpts = {},
 ): Promise<{ success: boolean; data: MutationData; warnings?: string[] }> {
@@ -195,7 +177,6 @@ async function dispatchMutation(
       ...(opts.threshold !== undefined ? { threshold: opts.threshold } : {}),
       ...(opts.maxNoCoverage !== undefined ? { maxNoCoverage: opts.maxNoCoverage } : {}),
       ...(opts.operationId !== undefined ? { operationId: opts.operationId } : {}),
-      // Test seams — injected through the dispatch args.
       resolve: () => runtimeWith(cmd),
       detectToolchainId: () => 'node',
       runDiff: opts.runDiff ?? ((): readonly string[] => []),
@@ -214,9 +195,8 @@ async function dispatchMutation(
   return result as { success: boolean; data: MutationData; warnings?: string[] };
 }
 
-// ─── Task 003: handler + registry + dispatch-through ─────────────────────────
-
 describe('mutation-adequacy action (dispatch-through handleOrchestrate)', () => {
+  /** The score is killed divided by total minus NoCoverage: 2 / (4 - 1). The node toolchain adds `--since=main` to the command. */
   it('HandleOrchestrate_MutationAdequacy_ResolvesRunsParsesReturnsCarrier', async () => {
     const recordRuns: string[] = [];
     const { success, data } = await dispatchMutation({
@@ -233,7 +213,6 @@ describe('mutation-adequacy action (dispatch-through handleOrchestrate)', () => 
     });
 
     expect(success).toBe(true);
-    // killed / (total - noCoverage) = 2 / (4 - 1) = 0.666…
     expect(data.killed).toBe(2);
     expect(data.survived).toBe(1);
     expect(data.noCoverage).toBe(1);
@@ -241,30 +220,30 @@ describe('mutation-adequacy action (dispatch-through handleOrchestrate)', () => 
     expect(data.mutationScore).toBeCloseTo(2 / 3, 5);
     expect(typeof data.passed).toBe('boolean');
     expect(data.report).toBeDefined();
-    // The resolved command was diff-scoped (node → --since=main) before the run.
     expect(recordRuns).toHaveLength(1);
     expect(recordRuns[0]).toContain('npx stryker run');
     expect(recordRuns[0]).toContain('--since=main');
   });
 
+  /** A skip is not a failing verdict. The reason names a remediation path, and no runner runs. */
   it('HandleOrchestrate_MutationAdequacy_UnresolvedCommand_Skipped', async () => {
     const recordRuns: string[] = [];
     const { success, data } = await dispatchMutation({ mutationCmd: null, recordRuns });
 
     expect(success).toBe(true);
     expect(data.skipped).toBe(true);
-    expect(data.passed).toBe(true); // a skip is not a failing verdict
-    // The reason names a remediation path (never a silent skip).
+    expect(data.passed).toBe(true);
     expect(typeof data.reason).toBe('string');
     expect(data.reason!.length).toBeGreaterThan(0);
-    // No runner was invoked.
     expect(recordRuns).toHaveLength(0);
   });
 
+  /**
+   * With no toolchain, the handler still emits a skip-pass `gate.executed`, so the projection records the review as skip-pass.
+   * Otherwise review to synthesize deadlocks at the high tier on a repo with no mutation runner.
+   * The skip-pass is not marked degraded, because that marker is for a runner that is present but broken.
+   */
   it('HandleOrchestrate_MutationAdequacy_NoToolchain_EmitsSkipPassGateExecuted', async () => {
-    // DR-2a: no toolchain still emits a skip-passing gate.executed so the
-    // projection records reviews['mutation-adequacy'] as skip-pass — otherwise
-    // review→synthesize dead-locks at HIGH tier on a repo with no mutation runner.
     const { stateDir, eventStore } = await newStore();
     const { success, data } = await dispatchMutation({ mutationCmd: null, eventStore, stateDir });
     expect(success).toBe(true);
@@ -283,29 +262,29 @@ describe('mutation-adequacy action (dispatch-through handleOrchestrate)', () => 
     expect(gd.layer).toBe('review');
     expect(gd.passed).toBe(true);
     expect(gd.details?.skipped).toBe(true);
-    // RVC-R1: the no-toolchain skip-pass is NOT marked degraded — that marker is
-    // reserved for a present-but-broken runner, so block enforcement can tell the
-    // two apart (a backstop the repo cannot run stays advisory even under block).
     expect(gd.details?.degraded).toBeUndefined();
   });
 
+  /**
+   * A malformed report degrades to a Warning carrier with `success: true`, not to an error envelope.
+   * A degraded report has no score, so `passed` stays true.
+   */
   it('HandleOrchestrate_MutationAdequacy_MalformedReport_Warning', async () => {
     const { success, data } = await dispatchMutation({
       runResult: { ok: true, report: 'not-json-at-all{' },
     });
 
-    // Degrade to a Warning carrier — success:true, NEVER a throw / error envelope.
     expect(success).toBe(true);
     expect(typeof data.warning).toBe('string');
     expect(data.warning!.length).toBeGreaterThan(0);
-    // A degraded report has no usable score; passed is not a hard failure.
     expect(data.passed).toBe(true);
   });
 
+  /**
+   * A degrade with the toolchain present records a skip-pass marked `degraded: true`.
+   * Thus block enforcement can fail closed while the advisory mode stays live.
+   */
   it('HandleOrchestrate_MutationAdequacy_MalformedReport_EmitsDegradedSkipPass_RVC_R1', async () => {
-    // RVC-R1: a degrade (toolchain PRESENT, unparseable report) records a skip-pass
-    // marked degraded:true — DISTINCT from the no-toolchain skip-pass — so the
-    // block-enforcement score gate can fail closed while advisory stays live.
     const { stateDir, eventStore } = await newStore();
     const { success } = await dispatchMutation({
       runResult: { ok: true, report: 'not-json-at-all{' },
@@ -325,10 +304,8 @@ describe('mutation-adequacy action (dispatch-through handleOrchestrate)', () => 
     expect(gd.details?.degraded).toBe(true);
   });
 
+  /** A runner crash (`ok: false`) is the other degrade path, and it is also marked `degraded: true`. */
   it('HandleOrchestrate_MutationAdequacy_RunnerFailure_EmitsDegradedSkipPass_RVC_R1', async () => {
-    // The runner-crash degrade (ok:false) is the other degrade path — also marked
-    // degraded:true so block enforcement fails closed on a broken runner rather
-    // than silently passing review→synthesize.
     const { stateDir, eventStore } = await newStore();
     const { success } = await dispatchMutation({
       runResult: { ok: false, reason: 'stryker exited 1' },
@@ -348,22 +325,20 @@ describe('mutation-adequacy action (dispatch-through handleOrchestrate)', () => 
     expect(gd.details?.degraded).toBe(true);
   });
 
+  /**
+   * The `gate.executed` key is the operationId with the outcome as a suffix.
+   * Thus a degraded row does not suppress a later scored row for the same operationId.
+   */
   it('HandleOrchestrate_MutationAdequacy_SameOperationId_DegradeThenScore_BothRowsPersist_RVC_R7', async () => {
-    // RVC-R7 (CodeRabbit): gate.executed emissions are keyed by operationId
-    // SUFFIXED with outcome, so a degraded row does NOT suppress a later scored
-    // row for the same operationId (the bare-operationId key deduped the second
-    // emission, stranding the skip-pass and losing the real score).
     const { stateDir, eventStore } = await newStore();
     const op = 'op-shared-123';
 
-    // First run degrades (unparseable report) → degraded skip-pass row.
     await dispatchMutation({
       runResult: { ok: true, report: 'not-json{' },
       operationId: op,
       eventStore,
       stateDir,
     });
-    // Retry under the SAME operationId scores a real result → scored row.
     await dispatchMutation({
       runResult: { ok: true, report: strykerReport([{ status: 'Killed' }, { status: 'Killed' }]) },
       operationId: op,
@@ -374,9 +349,7 @@ describe('mutation-adequacy action (dispatch-through handleOrchestrate)', () => 
     const mut = (await eventStore.query('feat-mutadq', { type: 'gate.executed' })).filter(
       (e) => (e.data as { gateName?: string }).gateName === 'mutation-adequacy',
     );
-    // Both rows persist — a shared bare-operationId key would have collapsed to 1.
     expect(mut.length).toBe(2);
-    // The scored row (not degraded, real score) survives for the projection to fold.
     const scored = mut.find((e) => {
       const d = (e.data as { details?: { degraded?: boolean; mutationScore?: number } }).details;
       return d?.degraded !== true && typeof d?.mutationScore === 'number' && d.mutationScore > 0;
@@ -392,13 +365,14 @@ describe('mutation-adequacy action (dispatch-through handleOrchestrate)', () => 
     expect(data.deferred).toBe(true);
     expect(typeof data.reason).toBe('string');
     expect(data.reason).toMatch(/R10|v2\.12|deferred/i);
-    // No inline full-tree run — the runner was never invoked.
     expect(recordRuns).toHaveLength(0);
   });
 
+  /**
+   * The explicit offline opt-in runs the whole tree with an unscoped command and gives a scored result, not the deferred advisory.
+   * It also emits a foldable `gate.executed`.
+   */
   it('HandleOrchestrate_MutationAdequacy_FullScopeOffline_RunsFullTreeScored', async () => {
-    // DR-6: the explicit offline opt-in runs the WHOLE tree and produces a scored
-    // result — not the deferred advisory — with an unscoped command (no diff --since).
     const recordRuns: string[] = [];
     const { stateDir, eventStore } = await newStore();
     const { success, data } = await dispatchMutation({
@@ -414,29 +388,27 @@ describe('mutation-adequacy action (dispatch-through handleOrchestrate)', () => 
     });
 
     expect(success).toBe(true);
-    expect(data.deferred).toBeUndefined(); // actually ran — not deferred
+    expect(data.deferred).toBeUndefined();
     expect(data.mutationScore).toBeCloseTo(2 / 3, 5);
-    // Ran once, full-tree: the command is the resolved runner verbatim, unscoped.
     expect(recordRuns).toHaveLength(1);
     expect(recordRuns[0]).toContain('npx stryker run');
     expect(recordRuns[0]).not.toContain('--since');
-    // Foldable gate.executed emitted (INV-1) so the offline run records the dimension.
     const gates = await eventStore.query('feat-mutadq', { type: 'gate.executed' });
     expect(
       gates.some((e) => (e.data as { gateName?: string }).gateName === 'mutation-adequacy'),
     ).toBe(true);
   });
 
+  /** Inline review never sets `offline`, so it never runs the full tree. */
   it('HandleOrchestrate_MutationAdequacy_FullScopeWithoutOffline_StaysDeferred', async () => {
-    // Inline /review never sets `offline` → full-tree is never run inline.
     const recordRuns: string[] = [];
     const { data } = await dispatchMutation({ scope: 'full', offline: false, recordRuns });
     expect(data.deferred).toBe(true);
     expect(recordRuns).toHaveLength(0);
   });
 
+  /** A registered action without a `handleOrchestrate` branch returns UNKNOWN_ACTION. */
   it('Registry_MutationAdequacyAction_HasHandlerBranch', async () => {
-    // A registered action with no handleOrchestrate branch returns UNKNOWN_ACTION.
     const { stateDir, eventStore } = await newStore();
     const ctx = makeCtx(stateDir, eventStore);
     const result = await handleOrchestrate(
@@ -452,7 +424,6 @@ describe('mutation-adequacy action (dispatch-through handleOrchestrate)', () => 
       },
       ctx,
     );
-    // NOT an UNKNOWN_ACTION error — the dispatch branch exists.
     if (result.success === false) {
       expect(result.error?.code).not.toBe('UNKNOWN_ACTION');
     }
@@ -460,21 +431,13 @@ describe('mutation-adequacy action (dispatch-through handleOrchestrate)', () => 
   });
 });
 
-// ─── DR-10: real-runner degrade attributes the runner's stderr (#1719) ─────
-//
-// Every test above injects `runMutation`, so none of them ever exercise the
-// PRODUCTION default (`defaultRunMutation`) — the one that actually shells
-// out and catches `execFileSync`'s thrown error. On PR #1719,
-// `check-mutation-gate.mjs --observe` surfaced `mutation run produced no
-// report (exit 1)` with no underlying reason because that catch read
-// `e.stdout` but never `e.stderr`, silently dropping the runner's actual
-// diagnostic. This test drives the UNMOCKED default runner (no `runMutation`
-// seam) against a real child process that fails with a KNOWN stderr marker
-// and nothing parseable on stdout, then asserts the degrade `reason` the
-// handler surfaces CONTAINS that marker — proving the underlying failure is
-// now attributable (DR-10), not silently dropped.
-
+/**
+ * The tests above inject `runMutation`, so they do not run the production `defaultRunMutation`.
+ * This test runs the real default against a child process that fails with a known stderr marker and no report on stdout.
+ * The degrade reason must contain the marker, so the runner failure is attributable.
+ */
 describe('mutation-adequacy real runner — DR-10 stderr attribution (#1719)', () => {
+  /** No `runMutation` seam is injected. The unknown toolchain has no diff-scope augmentation, so the command runs exactly as resolved. */
   it('HandleOrchestrate_MutationAdequacy_RealRunnerFailure_DegradeReasonContainsStderrTail', async () => {
     const marker = 'MUTATION_DR10_STDERR_MARKER_9f3c1a';
     const fixtureDir = mkdtempSync(path.join(os.tmpdir(), 'mutadq-fixture-'));
@@ -492,40 +455,20 @@ describe('mutation-adequacy real runner — DR-10 stderr attribution (#1719)', (
         action: 'mutation-adequacy',
         featureId: 'feat-mutadq',
         base: 'main',
-        // No `runMutation` injected — exercises the real, unmocked
-        // `defaultRunMutation` shell-out + catch path.
         resolve: () => runtimeWith(`${process.execPath} ${script}`),
-        // An unrecognised toolchain has no diff-scope augmentation
-        // (`resolveMutationDiffScope` → 'unscoped-warning'), so the command
-        // runs EXACTLY as resolved — no `--since` flag appended.
         detectToolchainId: () => 'no-such-toolchain-xyz',
       },
       ctx,
     )) as { success: boolean; data: MutationData; warnings?: string[] };
 
     expect(result.success).toBe(true);
-    // A run-level degrade (no parseable report) surfaces as a Warning carrier
-    // — never a throw / error envelope.
     expect(typeof result.data.warning).toBe('string');
-    // DR-10: the reason names WHY the run produced no report, not just THAT
-    // it did — the runner's captured stderr must be attributable in it.
     expect(result.data.warning).toContain(marker);
     expect(result.data.warning).toContain('mutation run produced no report');
   });
 });
 
-// ─── Diff-scope applier resolution (DR-5 / Gap C) ────────────────────────────
-//
-// The diff-scope DESCRIPTOR encodes intent (toolchains SoT); the applier
-// (composeScopedCommand) materializes it against the injected `runDiff` seam.
-// PIT's `-DtargetClasses=<changed>` resolves to the changed Java classes; mutmut
-// path-restricts to the changed `.py` paths. A normal diff-scoped run substitutes
-// the placeholder and does NOT degrade to the unscoped-warning. Only when the
-// diff touches no scopable file does the applier fall back to the warning
-// contract (never a literal `<changed>`, never silent full-tree). These dispatch
-// through handleOrchestrate with injected `detectToolchainId` + `runDiff` seams.
-
-/** Dispatch the action for a specific detected toolchain, capturing runs. */
+/** Dispatches the action for one detected toolchain and records the runs. The diff seam keeps the suite hermetic. */
 async function dispatchForToolchain(
   toolchainId: string,
   opts: { scope?: string; recordRuns?: string[]; runDiff?: RunDiff } = {},
@@ -540,7 +483,6 @@ async function dispatchForToolchain(
       ...(opts.scope !== undefined ? { scope: opts.scope } : {}),
       resolve: () => runtimeWith('mutate run'),
       detectToolchainId: () => toolchainId,
-      // Injected diff seam — keeps the suite hermetic (no real git/diff).
       ...(opts.runDiff ? { runDiff: opts.runDiff } : {}),
       runMutation: (runArgs: { command: string }) => {
         opts.recordRuns?.push(runArgs.command);
@@ -552,6 +494,11 @@ async function dispatchForToolchain(
   return result as { success: boolean; data: MutationData; warnings?: string[]; error?: { code?: string } };
 }
 
+/**
+ * The applier `composeScopedCommand` fills the diff-scope descriptor from the injected `runDiff` seam.
+ * PIT gets the changed Java classes, and mutmut gets the changed `.py` paths.
+ * When the diff touches no file that it can scope, the applier falls back to the unscoped warning and never ships a literal `<changed>`.
+ */
 describe('mutation-adequacy diff-scope applier resolution', () => {
   it('MutationAdequacy_JavaScope_ResolvesChangedClasses_NoDegradeWarning', async () => {
     const recordRuns: string[] = [];
@@ -562,10 +509,8 @@ describe('mutation-adequacy diff-scope applier resolution', () => {
 
     expect(success).toBe(true);
     expect(recordRuns).toHaveLength(1);
-    // `<changed>` resolved to the FQCN — the literal placeholder never ships.
     expect(recordRuns[0]).not.toContain('<changed>');
     expect(recordRuns[0]).toContain('-DtargetClasses=com.example.Calc');
-    // A normal diff-scoped run does NOT degrade to the unscoped warning.
     const surfaced = (warnings ?? []).join(' ');
     expect(surfaced).not.toMatch(/unscoped|full-tree/i);
   });
@@ -579,7 +524,6 @@ describe('mutation-adequacy diff-scope applier resolution', () => {
 
     expect(success).toBe(true);
     expect(recordRuns).toHaveLength(1);
-    // mutmut path-restricts to the changed `.py` paths (--paths-to-mutate).
     expect(recordRuns[0]).toContain('--paths-to-mutate=');
     expect(recordRuns[0]).toContain('app/calc.py');
     expect(recordRuns[0]).toContain('app/util.py');
@@ -588,9 +532,11 @@ describe('mutation-adequacy diff-scope applier resolution', () => {
     expect(surfaced).not.toMatch(/unscoped|full-tree/i);
   });
 
+  /**
+   * A diff with no Java sources cannot be scoped.
+   * The applier degrades to the unscoped warning and does not send an empty `-DtargetClasses=`.
+   */
   it('MutationAdequacy_JavaScope_EmptyRelevantDiff_DegradesToWarning_NeverSilentFullTree', async () => {
-    // Boundary: a diff with no Java sources cannot be scoped — degrade to the
-    // unscoped warning (never an empty `-DtargetClasses=`, never silent full-tree).
     const recordRuns: string[] = [];
     const { success, warnings } = await dispatchForToolchain('java-maven', {
       recordRuns,
@@ -605,9 +551,8 @@ describe('mutation-adequacy diff-scope applier resolution', () => {
     expect(surfaced).toMatch(/unscoped|full-tree/i);
   });
 
+  /** cargo-mutants already uses `--in-diff`, so the applier appends nothing and shows no warning. */
   it('MutationAdequacy_RustNativeScope_AppendsNothing_NoWarning', async () => {
-    // Control: cargo-mutants is already --in-diff; the applier appends nothing
-    // and surfaces no scope-downgrade warning (and never consults the diff seam).
     const recordRuns: string[] = [];
     const { success, warnings } = await dispatchForToolchain('rust', { recordRuns });
 
@@ -618,16 +563,11 @@ describe('mutation-adequacy diff-scope applier resolution', () => {
   });
 });
 
-// ─── composeScopedCommand — shape-based unit tests (mocked diff seam) ────────
-//
-// Acceptance criterion #3 (DR-5 / Gap C): call the applier directly with a
-// MOCKED `runDiff` — no live mutation run, no real git. PIT resolves `<changed>`
-// to the changed classes; mutmut path-restricts to the changed `.py` paths;
-// neither degrades to the unscoped-warning on a normal diff. The descriptor is
-// pulled from the toolchains SoT (resolveMutationDiffScope), not hand-built.
-
+/**
+ * Calls the applier directly with a mocked `runDiff`, so no mutation run and no real git occur.
+ * The descriptor comes from `resolveMutationDiffScope`.
+ */
 describe('composeScopedCommand diff-seam resolution (DR-5 / Gap C)', () => {
-  /** A ScopeContext whose mocked diff returns a fixed changed-file set. */
   const ctxWithDiff = (changed: readonly string[]) => ({
     base: 'main',
     repoRoot: '/repo',
@@ -635,7 +575,7 @@ describe('composeScopedCommand diff-seam resolution (DR-5 / Gap C)', () => {
   });
 
   it('Pit_ResolvesChangedPlaceholderToChangedClasses_NoDegradeWarning', () => {
-    const scope = resolveMutationDiffScope('java-maven', 'main'); // -DtargetClasses=<changed>
+    const scope = resolveMutationDiffScope('java-maven', 'main');
     const out = composeScopedCommand(
       'mvn org.pitest:pitest-maven:mutationCoverage',
       scope,
@@ -649,12 +589,11 @@ describe('composeScopedCommand diff-seam resolution (DR-5 / Gap C)', () => {
     expect(out.command).toContain('-DtargetClasses=');
     expect(out.command).toContain('com.example.Calc');
     expect(out.command).toContain('com.example.CalcTest');
-    // The literal `<changed>` placeholder is fully substituted — never shipped.
     expect(out.command).not.toContain('<changed>');
   });
 
   it('Mutmut_PathRestrictsToChangedPaths_NoDegradeWarning', () => {
-    const scope = resolveMutationDiffScope('python', 'main'); // --paths-to-mutate=<changed>
+    const scope = resolveMutationDiffScope('python', 'main');
     const out = composeScopedCommand(
       'mutmut run',
       scope,
@@ -665,14 +604,12 @@ describe('composeScopedCommand diff-seam resolution (DR-5 / Gap C)', () => {
     expect(out.command).toContain('--paths-to-mutate=');
     expect(out.command).toContain('app/calc.py');
     expect(out.command).toContain('app/util.py');
-    // Non-`.py` files are not path-restriction targets.
     expect(out.command).not.toContain('README.md');
     expect(out.command).not.toContain('<changed>');
   });
 
+  /** The Stryker `--since=<base>` flag has no `<changed>`, so the applier does not call the diff seam. */
   it('Stryker_AppendFlagWithoutPlaceholder_AppendsVerbatim_NeverCallsDiff', () => {
-    // Control: Stryker's `--since=<base>` carries no `<changed>`; the seam is
-    // never consulted and nothing degrades.
     let called = false;
     const scope = resolveMutationDiffScope('node', 'origin/main');
     const out = composeScopedCommand('npx stryker run', scope, {
@@ -710,10 +647,9 @@ describe('composeScopedCommand diff-seam resolution (DR-5 / Gap C)', () => {
     const out = composeScopedCommand(
       'mvn org.pitest:pitest-maven:mutationCoverage',
       scope,
-      ctxWithDiff(['docs/readme.md']), // no `.java` files changed
+      ctxWithDiff(['docs/readme.md']),
     );
 
-    // Never ship an empty `-DtargetClasses=`; degrade to a visible warning.
     expect(out.command).toBe('mvn org.pitest:pitest-maven:mutationCoverage');
     expect(out.warning).toMatch(/unscoped|full-tree/i);
   });
@@ -728,16 +664,16 @@ describe('composeScopedCommand diff-seam resolution (DR-5 / Gap C)', () => {
 });
 
 describe('mutation-adequacy scope validation (INV-5a/5b)', () => {
+  /** The typo `dif` must not become `diff`. The handler rejects it before any runner work. */
   it('MutationAdequacy_InvalidScope_ReturnsInvalidInput_NeverRuns', async () => {
     const recordRuns: string[] = [];
     const { success, error } = await dispatchForToolchain('node', {
-      scope: 'dif', // a typo — must NOT be coerced to 'diff'
+      scope: 'dif',
       recordRuns,
     });
 
     expect(success).toBe(false);
     expect(error?.code).toBe('INVALID_INPUT');
-    // Rejected before any runner work.
     expect(recordRuns).toHaveLength(0);
   });
 
@@ -751,11 +687,9 @@ describe('mutation-adequacy scope validation (INV-5a/5b)', () => {
 });
 
 describe("mutation-adequacy repoRoot:'auto' resolution (PR #1541 Seer)", () => {
+  /** The worktree is a real directory with a mutation config, because the reported run root must be a place where a runner can start. */
   it('MutationAdequacy_AutoRepoRoot_ResolvesFromWorktreeCreatedEvent', async () => {
     const { stateDir, eventStore } = await newStore();
-    // A REAL worktree directory carrying a mutation config: the run root the
-    // gate reports has to be one it could actually launch a runner in, so a
-    // path that exists only in the event is no longer enough to reach the run.
     const worktree = makeRepoFixture({ 'stryker.conf.mjs': 'export default {};\n' });
     await eventStore.append('feat-mutadq', {
       type: 'worktree.created',
@@ -782,13 +716,11 @@ describe("mutation-adequacy repoRoot:'auto' resolution (PR #1541 Seer)", () => {
     );
 
     expect(result.success).toBe(true);
-    // 'auto' resolved to the task's worktree via the event lookup (taskId threaded).
     expect(seenRepoRoot).toBe(worktree);
   });
 
+  /** `auto` without `taskId` or `worktreePath` cannot resolve, so the handler returns INVALID_INPUT and does not run. */
   it('MutationAdequacy_AutoRepoRoot_NoTaskIdNoWorktree_InvalidInput', async () => {
-    // Boundary: 'auto' with neither taskId nor worktreePath is unresolvable —
-    // surface INVALID_INPUT and never invoke the runner.
     const { stateDir, eventStore } = await newStore();
     const ctx = makeCtx(stateDir, eventStore);
 
@@ -817,22 +749,17 @@ describe("mutation-adequacy repoRoot:'auto' resolution (PR #1541 Seer)", () => {
   });
 });
 
-
-// ─── Task 004: liveness + gate.executed ──────────────────────────────────────
-
 describe('mutation-adequacy liveness + gate emission', () => {
+  /**
+   * A liveness-emission failure must not fail a mutation run that succeeded, so the handler degrades without a throw.
+   * `computeInFlightInstances` has no TTL, so a lost terminal event leaves the start in flight in `ps`.
+   * Thus the handler logs a warning that names the terminal type and the instance. The spy fails only the terminal append.
+   */
   it('MutationAdequacy_TerminalLivenessEmitFails_DegradesWithoutThrowingButLogsTrail', async () => {
-    // The no-throw degrade is deliberate (INV-4): a liveness-emission failure
-    // must not fail a mutation run that actually succeeded. But an empty
-    // `catch {}` also discarded the only breadcrumb — and a lost TERMINAL event
-    // is the consequential case: `computeInFlightInstances` has no TTL, so the
-    // unpaired start reports in-flight to `ps` until an S-6 registry terminal
-    // lands. Degrade, but leave a diagnostic trail (RVC-R4).
     const { stateDir, eventStore } = await newStore();
     const ctx = makeCtx(stateDir, eventStore);
     const warn = vi.spyOn(orchestrateLogger, 'warn').mockImplementation(() => undefined);
 
-    // Fail ONLY the terminal append; the opening one must still land.
     const realAppend = eventStore.append.bind(eventStore);
     vi.spyOn(eventStore, 'append').mockImplementation(
       async (stream: string, event: { type: string }) => {
@@ -841,11 +768,8 @@ describe('mutation-adequacy liveness + gate emission', () => {
       },
     );
 
-    // The run still completes — the emission failure does not surface as a throw.
     await expect(dispatchMutation({ eventStore, stateDir })).resolves.toBeDefined();
 
-    // …and the failure is no longer silent: the trail names the terminal type
-    // and the instance an operator would otherwise reverse-engineer from `ps`.
     const terminalWarn = warn.mock.calls.find(
       (c) => (c[0] as { type?: string })?.type === 'mutation.executed',
     );
@@ -858,13 +782,12 @@ describe('mutation-adequacy liveness + gate emission', () => {
     vi.restoreAllMocks();
   });
 
+  /**
+   * The injected seam can reject, and the terminal event must still land.
+   * An unpaired `mutation.executing_started` keeps the run in flight: `ps` reports it and `wait --operation mutation` blocks to timeout.
+   * The handler returns a coded `SCRIPT_ERROR`, not the generic INTERNAL_ERROR from the dispatch safety net.
+   */
   it('MutationAdequacy_RunMutationRejects_StillEmitsPairedTerminalExecuted', async () => {
-    // `defaultRunMutation` handles its own sync failures, but the INJECTED
-    // seam can reject. The terminal event must still land: an unpaired
-    // `mutation.executing_started` pins the run in-flight forever — `ps`
-    // reports a phantom executing mutation and `wait --operation mutation`
-    // blocks to timeout, because DR-2 pairing resolves an instance only when
-    // its terminal event arrives.
     const { stateDir, eventStore } = await newStore();
     const ctx = makeCtx(stateDir, eventStore);
 
@@ -880,10 +803,6 @@ describe('mutation-adequacy liveness + gate emission', () => {
       ctx,
     )) as { success: boolean; error?: { code?: string; message?: string } };
 
-    // #1706 DR-1: a rejecting injected seam must return a coded
-    // ToolResult.error, not let the throw abnormally complete the handler
-    // (which dispatch.ts's safety net would otherwise flatten to a generic
-    // INTERNAL_ERROR, discarding this classification).
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('SCRIPT_ERROR');
     expect(result.error?.message).toContain('runner exploded');
@@ -892,9 +811,7 @@ describe('mutation-adequacy liveness + gate emission', () => {
     const started = events.find((e) => e.type === 'mutation.executing_started');
     const executed = events.find((e) => e.type === 'mutation.executed');
     expect(started).toBeDefined();
-    // The pair is CLOSED despite the rejection — no phantom in-flight instance.
     expect(executed).toBeDefined();
-    // …and it closes THIS instance (same instanceId) as a failure.
     const startedData = started!.data as { instanceId?: string };
     const executedData = executed!.data as { instanceId?: string; passed?: boolean };
     expect(executedData.instanceId).toBe(startedData.instanceId);
@@ -913,11 +830,11 @@ describe('mutation-adequacy liveness + gate emission', () => {
     expect(endIdx).toBeGreaterThan(startIdx);
   });
 
+  /**
+   * Both liveness events must carry a canonical `instanceId`, so `ps` can see a stuck run and a caller can wait for it.
+   * A supplied operationId becomes the `instanceId`, and the terminal event clears the start in the fold.
+   */
   it('MutationAdequacy_LivenessPair_CarriesCanonicalInstanceId_AndFoldsToPaired', async () => {
-    // Finding 3: the LIVE emitter (mutation-adequacy) must stamp a canonical
-    // `instanceId` on BOTH liveness emissions so a stuck mutation run is visible
-    // to `ps` and waitable — not an anonymous keyless row collapsed to the DR-2
-    // singleton. Passing an operationId correlates the instanceId with the gate.
     const { stateDir, eventStore } = await newStore();
     await dispatchMutation({ eventStore, stateDir, operationId: 'op-mut-42' });
 
@@ -927,24 +844,20 @@ describe('mutation-adequacy liveness + gate emission', () => {
     const startId = (start?.data as { instanceId?: unknown } | undefined)?.instanceId;
     const endId = (end?.data as { instanceId?: unknown } | undefined)?.instanceId;
 
-    // Both emissions carry a non-empty instanceId, equal to each other and to
-    // the supplied operationId (the correlation contract, mirroring run-mutation).
     expect(typeof startId).toBe('string');
     expect((startId as string).length).toBeGreaterThan(0);
     expect(endId).toBe(startId);
     expect(startId).toBe('op-mut-42');
 
-    // And the pair folds cleanly: the terminal clears the start → nothing stuck.
     const rows = foldInFlightOperations(events as unknown as OperationEventLike[]);
     expect(rows.some((r) => r.surface === 'mutation')).toBe(false);
   });
 
+  /**
+   * The test drops `mutation.executed` to model a crashed run.
+   * The fold then shows the unpaired start, keyed by the `instanceId` and attributed to the feature stream.
+   */
   it('MutationAdequacy_StuckRun_VisibleToOperationsFold_WithFeatureAttribution', async () => {
-    // The S-6 case at the LIVE-emitter level: if the terminal never lands (a
-    // crashed run — simulated by dropping the `mutation.executed` event), the
-    // unpaired start is surfaced by the fold, keyed by the canonical instanceId
-    // and attributed to the feature stream — exactly what `ps operations` /
-    // `wait --operation mutation` consume.
     const { stateDir, eventStore } = await newStore();
     await dispatchMutation({ eventStore, stateDir, operationId: 'op-stuck' });
 
@@ -980,8 +893,8 @@ describe('mutation-adequacy liveness + gate emission', () => {
     expect(data.details?.mutationScore).toBeCloseTo(2 / 3, 5);
   });
 
+  /** A sequence of `gate.executed` rows folds into a score trend that does not decrease. */
   it('MutationAdequacy_GateExecuted_FoldsIntoScoreTrend', async () => {
-    // R10-ready: a sequence of gate.executed left-folds into a score trend.
     const { stateDir, eventStore } = await newStore();
     const scores = [0.4, 0.6, 0.8];
     for (const [i, killedCount] of [2, 3, 4].entries()) {
@@ -989,7 +902,6 @@ describe('mutation-adequacy liveness + gate emission', () => {
         ...Array.from({ length: killedCount }, () => ({ status: 'Killed' })),
         { status: 'Survived' },
       ];
-      // tune denominators so scores roughly ascend; exact value asserted via fold
       void i;
       await dispatchMutation({
         eventStore,
@@ -1004,12 +916,12 @@ describe('mutation-adequacy liveness + gate emission', () => {
       .map((e) => (e.data as { details?: { mutationScore?: number } }).details?.mutationScore)
       .filter((s): s is number => typeof s === 'number');
     expect(trend.length).toBe(3);
-    // Monotonic non-decreasing fold (the trend R10 reads).
     for (let i = 1; i < trend.length; i++) {
       expect(trend[i]).toBeGreaterThanOrEqual(trend[i - 1]);
     }
   });
 
+  /** A retry under the same operationId collapses to one `gate.executed` row and does not throw a CAS conflict. */
   it('MutationAdequacy_Retry_IdempotentNoCasPin', async () => {
     const { stateDir, eventStore } = await newStore();
     const opts = {
@@ -1022,23 +934,14 @@ describe('mutation-adequacy liveness + gate emission', () => {
       },
     };
     await dispatchMutation(opts);
-    // A retry under the SAME operationId must collapse, not throw a CAS conflict.
     await expect(dispatchMutation(opts)).resolves.toBeDefined();
 
     const gates = await eventStore.query('feat-mutadq', { type: 'gate.executed' });
     const mutationGates = gates.filter(
       (e) => (e.data as { gateName?: string }).gateName === 'mutation-adequacy',
     );
-    // Idempotency-collapse → exactly one gate.executed for the operationId.
     expect(mutationGates).toHaveLength(1);
   });
-
-  // ─── gate.executed append failure withholds the success carrier ──────────
-  //
-  // `mutation-adequacy` has three append sites — skip-no-toolchain, degraded,
-  // and scored — each its own producer of the declared `gate.executed` row.
-  // A dropped append at any of them must withhold the success carrier rather
-  // than returning one the log does not back.
 
   function failGateExecutedAppends(eventStore: EventStore): void {
     const originalAppend = eventStore.append.bind(eventStore);
@@ -1050,6 +953,10 @@ describe('mutation-adequacy liveness + gate emission', () => {
     });
   }
 
+  /**
+   * The handler has three `gate.executed` append sites: the no-toolchain skip, the degraded result, and the scored result.
+   * When an append fails at one of them, the handler withholds the success carrier. `data` still holds the verdict.
+   */
   it('MutationAdequacy_GateEventAppendFails_WithholdsTheSuccessCarrier_SkipNoToolchain', async () => {
     const { stateDir, eventStore } = await newStore();
     failGateExecutedAppends(eventStore);
@@ -1059,7 +966,6 @@ describe('mutation-adequacy liveness + gate emission', () => {
     expect(result.success).toBe(false);
     const error = (result as unknown as { error?: { code?: string } }).error;
     expect(error?.code).toBe('GATE_EVENT_UNRECORDED');
-    // The gate's own verdict is still readable on `data` — nothing is lost.
     expect(result.data.skipped).toBe(true);
     expect(result.data.passed).toBe(true);
   });
@@ -1096,13 +1002,9 @@ describe('mutation-adequacy liveness + gate emission', () => {
     expect(result.success).toBe(false);
     const error = (result as unknown as { error?: { code?: string } }).error;
     expect(error?.code).toBe('GATE_EVENT_UNRECORDED');
-    // The scored verdict is still readable on `data` — nothing is lost.
     expect(result.data.mutationScore).toBeCloseTo(2 / 3, 5);
   });
 });
-
-
-// ─── Task 005: survivor affordances ──────────────────────────────────────────
 
 describe('mutation-adequacy survivor affordances (next_actions)', () => {
   it('MutationAdequacy_SurvivingMutants_EmitKillTestNextActions', async () => {
@@ -1145,15 +1047,16 @@ describe('mutation-adequacy survivor affordances (next_actions)', () => {
   });
 });
 
-// ─── Task 006: advisory verdict + threshold ──────────────────────────────────
-
 function configWith(overrides: Partial<ProjectConfig>): DispatchContext['projectConfig'] {
   return resolveConfig(overrides as ProjectConfig);
 }
 
 describe('mutation-adequacy advisory verdict + threshold', () => {
+  /**
+   * One killed mutant of three detectable mutants scores 0.33, below the 0.40 default.
+   * The verdict is `passed: false` but advisory, with no error envelope.
+   */
   it('MutationAdequacy_ScoreBelowThreshold_PassedFalseButAdvisory', async () => {
-    // 1 killed / 3 detectable = 0.33 < 0.40 default → passed:false but ADVISORY.
     const result = await dispatchMutation({
       runResult: {
         ok: true,
@@ -1166,12 +1069,11 @@ describe('mutation-adequacy advisory verdict + threshold', () => {
     });
     expect(result.success).toBe(true);
     expect(result.data.passed).toBe(false);
-    // Advisory: never an error envelope; the failing verdict does not block.
     expect(result.data.mutationScore).toBeLessThan(0.4);
   });
 
+  /** An explicit `review.gates` override raises the severity to blocking, so no warning-only downgrade appears. */
   it('MutationAdequacy_ExplicitOverride_Blocking', async () => {
-    // An explicit review.gates override raises severity to blocking.
     const blockingConfig = configWith({
       review: { gates: { 'mutation-adequacy': { enabled: true, blocking: true } } },
     } as Partial<ProjectConfig>);
@@ -1183,17 +1085,15 @@ describe('mutation-adequacy advisory verdict + threshold', () => {
       },
     })) as { success: boolean; data: MutationData; warnings?: string[] };
     expect(result.data.passed).toBe(false);
-    // Blocking severity does NOT annotate a warning-only downgrade.
     const warnings = (result as { warnings?: string[] }).warnings ?? [];
     expect(warnings.some((w) => /warning-only/.test(w))).toBe(false);
   });
 
+  /**
+   * Without threshold config, the soft default applies.
+   * The warning-only downgrade sets `data.passed` to true and carries the finding as a warning, because `passed: false` blocks the dispatch.
+   */
   it('MutationAdequacy_NoThresholdConfig_DefaultsToSoftAdvisory', async () => {
-    // No threshold config → soft default (~0.40); a sub-default score warns,
-    // never blocks (advisory severity from the resolved default). The warning-only
-    // downgrade CLEARS the blocking signal (data.passed → true) and carries the
-    // finding as a warning — leaving data.passed:false would still block the
-    // dispatch (the contract the orchestrator reads). See the DR-6 review fix.
     const advisoryConfig = configWith({} as Partial<ProjectConfig>);
     const result = (await dispatchMutation({
       projectConfig: advisoryConfig,
@@ -1209,18 +1109,17 @@ describe('mutation-adequacy advisory verdict + threshold', () => {
   });
 });
 
-// ─── DR-6: NoCoverage as a SECOND, orthogonal blocking axis (handler) ─────────
-//
-// `mutationScore = killed / (total − noCoverage)` is UNCHANGED (INV-5b). For a
-// diff-scoped run the handler additionally requires `noCoverage <= maxNoCoverage`
-// (default 0). An empty mutatable surface (`total === 0`) is a trivial pass.
-
+/**
+ * `mutationScore = killed / (total − noCoverage)` stays the same.
+ * For a diff-scoped run, the handler also requires `noCoverage <= maxNoCoverage`, with a default of 0.
+ * An empty mutatable surface (`total === 0`) is a trivial pass.
+ */
 describe('mutation-adequacy NoCoverage axis (DR-6)', () => {
+  /**
+   * Five killed and five NoCoverage mutants give a score of 1.0.
+   * The NoCoverage axis, with a budget of 0, fails the run, and the score stays the same.
+   */
   it('Passed_DiffScopeKilledPlusNoCoverageMix_Fails', async () => {
-    // 5 killed + 5 NoCoverage → mutationScore = 5 / (10 − 5) = 1.0 (>= threshold),
-    // yet the diff has 5 uncovered changed mutants: TODAY this passed at score 1.0.
-    // DR-6: the NoCoverage axis (budget 0) now FAILS it while the score is
-    // untouched.
     const { data } = await dispatchMutation({
       runResult: {
         ok: true,
@@ -1238,17 +1137,14 @@ describe('mutation-adequacy NoCoverage axis (DR-6)', () => {
         ]),
       },
     });
-    // mutationScore definition UNCHANGED — still 1.0 (INV-5b).
     expect(data.mutationScore).toBeCloseTo(1.0, 5);
     expect(data.noCoverage).toBe(5);
-    // The orthogonal axis blocks despite the perfect score.
     expect(data.passed).toBe(false);
     expect(data.maxNoCoverage).toBe(0);
   });
 
+  /** An all-covered diff at the same score of 1.0 still passes. */
   it('Passed_AllCoveredAtThreshold_PassesUnchanged', async () => {
-    // An all-covered diff at the same 1.0 score (0 NoCoverage) still PASSES on the
-    // handler path — the score axis is byte-identical to before (INV-5b guardrail).
     const { data } = await dispatchMutation({
       runResult: {
         ok: true,
@@ -1264,9 +1160,8 @@ describe('mutation-adequacy NoCoverage axis (DR-6)', () => {
     expect(data.passed).toBe(true);
   });
 
+  /** With a budget of 2, two NoCoverage mutants pass and a third fails. */
   it('Passed_NoCoverageWithinExplicitBudget_Passes', async () => {
-    // With an explicit budget of 2, a diff with 2 NoCoverage mutants (and a
-    // passing score) is within budget → PASSES. The budget is honoured.
     const { data } = await dispatchMutation({
       maxNoCoverage: 2,
       runResult: {
@@ -1282,7 +1177,6 @@ describe('mutation-adequacy NoCoverage axis (DR-6)', () => {
     expect(data.noCoverage).toBe(2);
     expect(data.maxNoCoverage).toBe(2);
     expect(data.passed).toBe(true);
-    // One more uncovered mutant beyond the same budget flips it closed.
     const over = await dispatchMutation({
       maxNoCoverage: 2,
       runResult: {
@@ -1300,25 +1194,24 @@ describe('mutation-adequacy NoCoverage axis (DR-6)', () => {
     expect(over.data.passed).toBe(false);
   });
 
+  /**
+   * With `total === 0` and an empty diff, the result is a trivial pass with an explicit marker, not a score-0 failure or a degrade.
+   * The score stays 0 for a zero denominator. The empty `runDiff` keeps the case independent of the checkout.
+   */
   it('Passed_EmptyMutatableSurface_TrivialPassWithMarker', async () => {
-    // total === 0 with a diff that changed NOTHING mutatable is a TRIVIAL PASS
-    // with an explicit marker: not a score-0 failure, not a degrade. The empty
-    // `runDiff` is what makes it a server-untouching diff rather than an
-    // assumption about the checkout.
     const { success, data } = await dispatchMutation({
       runDiff: () => [],
       runResult: { ok: true, report: JSON.stringify({ schemaVersion: '1', files: {} }) },
     });
     expect(success).toBe(true);
     expect(data.total).toBe(0);
-    expect(data.mutationScore).toBe(0); // score guard stays 0 for a 0 denominator
-    expect(data.passed).toBe(true); // …yet vacuously adequate
-    expect(data.trivialPass).toBe(true); // the explicit marker
+    expect(data.mutationScore).toBe(0);
+    expect(data.passed).toBe(true);
+    expect(data.trivialPass).toBe(true);
   });
 
+  /** A diff with only files that no runner mutates must still give a trivial pass, or each docs change degrades the required dimension. */
   it('Passed_DocsOnlyDiff_StillTrivialPasses', async () => {
-    // The trivial pass must survive a diff that changed files no runner mutates,
-    // or every docs/spec change starts degrading the required dimension.
     const { success, data } = await dispatchMutation({
       runDiff: () => ['docs/specs/plan.md', 'README.md', 'src/foo.test.ts'],
       runResult: { ok: true, report: JSON.stringify({ schemaVersion: '1', files: {} }) },
@@ -1328,29 +1221,25 @@ describe('mutation-adequacy NoCoverage axis (DR-6)', () => {
     expect(data.passed).toBe(true);
   });
 
+  /**
+   * `total === 0` has two causes: nothing to mutate, or nothing was mutated.
+   * Here the diff changed mutatable source, so the handler degrades and does not report a trivial pass.
+   * The warning names the mutatable files, so a reader can find the cause.
+   */
   it('ZeroMutants_WhileTheDiffChangedMutatableSource_DegradesInsteadOfPassing', async () => {
-    // The vacuous-pass hole. `total === 0` has two causes and they are NOT
-    // interchangeable: nothing to mutate, or nothing was mutated. The required
-    // HIGH-tier dimension reported adequacy in under 30ms over a diff touching 290
-    // production modules because it read the second as the first, and emitted no
-    // `skipped`, `reason` or `warning` to tell them apart. Corroborating the empty
-    // surface against the diff is what makes the difference observable.
     const { success, data, warnings } = await dispatchMutation({
       runDiff: () => ['src/verbs/gates/gate-runner.ts', 'src/advisory-registry.ts'],
       runResult: { ok: true, report: JSON.stringify({ schemaVersion: '1', files: {} }) },
     });
-    expect(success).toBe(true); // still a degrade, never a thrown envelope
-    expect(data.trivialPass).toBeUndefined(); // NOT laundered as vacuously adequate
+    expect(success).toBe(true);
+    expect(data.trivialPass).toBeUndefined();
     const surfaced = [...(warnings ?? []), data.warning ?? ''].join(' ');
     expect(surfaced).toMatch(/ZERO mutants/i);
-    // The reason has to name the run, not just complain — this is the line that
-    // sends a reader to the actual cause.
     expect(surfaced).toMatch(/mutatable file/i);
   });
 
+  /** When the NoCoverage axis blocks, the failure message names each uncovered mutant by `file:line`. */
   it('FailureMessage_NoCoverageMutants_AttributesFileAndLine', async () => {
-    // When the NoCoverage axis blocks, the failure message names each uncovered
-    // mutant by file:line so the caller knows exactly what executes no test.
     const { data } = await dispatchMutation({
       runResult: {
         ok: true,
@@ -1367,9 +1256,8 @@ describe('mutation-adequacy NoCoverage axis (DR-6)', () => {
     expect(data.noCoverageReason).toContain('src/calc.ts:42');
   });
 
+  /** The NoCoverage axis applies only to a diff-scoped run. A full-scope offline run keeps only the score axis. */
   it('FullScope_NoCoverageAxisInert_ScoreOnly', async () => {
-    // The NoCoverage axis is a DIFF-scoped signal. A full-scope (offline) run
-    // keeps the single score axis — NoCoverage mutants do not block there.
     const { data } = await dispatchMutation({
       scope: 'full',
       offline: true,
@@ -1383,15 +1271,14 @@ describe('mutation-adequacy NoCoverage axis (DR-6)', () => {
       },
     });
     expect(data.noCoverage).toBe(1);
-    // score = 2 / (3 − 1) = 1.0 >= threshold, and NoCoverage is inert at full scope.
     expect(data.passed).toBe(true);
   });
 
+  /**
+   * The real handler emits `gate.executed`, the real projection folds it into `reviews['mutation-adequacy']`, and the real block-mode guard blocks.
+   * No mocks sit between the three.
+   */
   it('Integration_HandlerEventFoldsToGuard_NoCoverageBlocks', async () => {
-    // HIGH-rung cross-seam proof: the REAL handler emits a real gate.executed,
-    // the REAL projection folds it into reviews['mutation-adequacy'] (carrying
-    // noCoverage), and the REAL block-mode guard reads that folded state and
-    // blocks — no mocks between the three collaborators.
     const { stateDir, eventStore } = await newStore();
     const mix = [
       { status: 'Killed', line: 1 },
@@ -1410,11 +1297,9 @@ describe('mutation-adequacy NoCoverage axis (DR-6)', () => {
       stateDir,
       runResult: { ok: true, report: strykerReport(mix) },
     });
-    // Handler axis: score 1.0 (UNCHANGED) yet failed on the NoCoverage axis.
     expect(data.mutationScore).toBeCloseTo(1.0, 5);
     expect(data.passed).toBe(false);
 
-    // Fold the emitted events through the REAL projection.
     const events = await eventStore.query('feat-mutadq', { type: 'gate.executed' });
     let view = workflowStateProjection.init();
     for (const e of events) view = workflowStateProjection.apply(view, e);
@@ -1422,9 +1307,8 @@ describe('mutation-adequacy NoCoverage axis (DR-6)', () => {
       'mutation-adequacy'
     ];
     expect(dim.noCoverage).toBe(5);
-    expect(dim.mutationScore).toBeCloseTo(1.0, 5); // definition unchanged (INV-5b)
+    expect(dim.mutationScore).toBeCloseTo(1.0, 5);
 
-    // The REAL guard reads the folded state + the injected budget and blocks.
     const guardState = {
       reviews: view.reviews,
       _requiredReviews: ['mutation-adequacy'],
@@ -1437,17 +1321,6 @@ describe('mutation-adequacy NoCoverage axis (DR-6)', () => {
     expect((verdict as GuardFailure).reason).toContain('NoCoverage');
   });
 });
-
-// ─── DR-8: the run root is derived from the mutation config's location ───────
-//
-// The gate's subject is the tree the runner actually looked at. Launching the
-// command at the repo root of a repository whose mutation config lives in a
-// sub-package measures a directory the config never described — DR-8's shape,
-// one layer out from a guard's scan root.
-//
-// Every fixture below puts the config under a package name that appears NOWHERE
-// in the production module, so a run root spelled as a constant cannot satisfy
-// them: only reading the config's own location can.
 
 /** Dispatch against a real on-disk repo root, capturing the runner's cwd. */
 async function dispatchInRepo(
@@ -1488,6 +1361,10 @@ async function dispatchInRepo(
   return { ...result, seenCwd, ran };
 }
 
+/**
+ * The gate measures the tree where the runner runs, so the run root comes from the location of the mutation config.
+ * Each fixture puts the config under a package name that the production module does not contain, so a constant run root cannot pass.
+ */
 describe('mutation config discovery (DR-8 — location, not a package name)', () => {
   it('DiscoverMutationConfig_ConfigInSubPackage_ResolvesThatPackageAsOwner', () => {
     const root = makeRepoFixture({
@@ -1502,9 +1379,8 @@ describe('mutation config discovery (DR-8 — location, not a package name)', ()
     expect(path.basename(found.configPath)).toBe('stryker.conf.mjs');
   });
 
+  /** Moving the config moves the run root, with no source change. */
   it('DiscoverMutationConfig_MovingTheConfig_MovesTheOwner', () => {
-    // The whole point of deriving the owner: relocating the config relocates
-    // the run root, with no source change anywhere.
     const before = makeRepoFixture({ 'apps/api/stryker.conf.mjs': STRYKER_CONFIG });
     const after = makeRepoFixture({ 'tooling/mutation/stryker.conf.mjs': STRYKER_CONFIG });
     const a = discoverMutationConfig(before);
@@ -1513,10 +1389,8 @@ describe('mutation config discovery (DR-8 — location, not a package name)', ()
     expect(b.ok && path.relative(after, b.packageDir)).toBe(path.join('tooling', 'mutation'));
   });
 
+  /** A config inside a dependency tree or build output is not the project config. The scan root stays the whole repository. */
   it('DiscoverMutationConfig_DependencyAndBuildOutput_ExcludedByProperty', () => {
-    // A config that only exists inside a dependency tree or build output is not
-    // the project's config. Excluded because of WHAT those directories are —
-    // the scan root stays the whole repository.
     const root = makeRepoFixture({
       'node_modules/some-dep/stryker.conf.js': STRYKER_CONFIG,
       'dist/stryker.conf.js': STRYKER_CONFIG,
@@ -1536,9 +1410,8 @@ describe('mutation config discovery (DR-8 — location, not a package name)', ()
     expect(found.ok && found.packageDir).toBe(path.resolve(root));
   });
 
+  /** Each Python package has a `pyproject.toml`, so the file name proves nothing. Only the runner section makes it a mutation config. */
   it('DiscoverMutationConfig_SharedFile_NeedsTheRunnersOwnSection', () => {
-    // `pyproject.toml` exists in every Python package — the basename proves
-    // nothing. Only the runner's declared section makes it a mutation config.
     const without = makeRepoFixture({ 'pyproject.toml': '[project]\nname = "x"\n' });
     const withSection = makeRepoFixture({
       'pkg/pyproject.toml': '[project]\nname = "x"\n\n[tool.mutmut]\npaths_to_mutate = "src/"\n',
@@ -1559,11 +1432,11 @@ describe('mutation runner cwd resolution (DR-8)', () => {
     expect(resolved.rationale).toBe('config-owner');
   });
 
+  /**
+   * A command whose entry point resolves only from the repo root is a project seam.
+   * When it runs in another directory, it misses its own file or runs against the wrong tree.
+   */
   it('ResolveRunnerCwd_RepoRootAnchoredCommand_StaysAtRepoRoot', () => {
-    // A command naming an entry point that resolves ONLY from the repo root is
-    // a project-declared seam that re-roots itself. Relocating it does not make
-    // it read the config — it makes it miss its own file, or run against a tree
-    // that isn't there and hand back an empty-but-valid report.
     const root = makeRepoFixture({
       'packages/engine/stryker.conf.mjs': STRYKER_CONFIG,
       'tools/mutation/run.mjs': '// adapter\n',
@@ -1585,15 +1458,12 @@ describe('mutation runner cwd resolution (DR-8)', () => {
     expect(resolved.reason).toMatch(/runnerDir/);
   });
 
+  /**
+   * The refusal above applies to an inferred command whose config cannot be found.
+   * A project that declares the command itself already says how mutation testing runs, and many runners have no config file.
+   * The same tree with an inferred command is still a refusal, so the declaration decides the result.
+   */
   it('ResolveRunnerCwd_NoConfigButProjectDeclaredCommand_RunsAtRepoRoot', () => {
-    // The refusal above is for an INFERRED command whose config cannot be
-    // located. A project that declared the command itself has already said how
-    // mutation testing runs here, and runners like mutmut, cargo-mutants at
-    // defaults, or any bespoke script carry no config file at all — refusing
-    // those failed the gate closed on the projects that configured it most
-    // explicitly. Caught by `scripts/check-mutation-gate.test.sh`, whose fixture
-    // declares `mutation:` in `.exarchos.yml` and ships no config file; the unit
-    // suite could not see it because it injects the runtime.
     const root = makeRepoFixture({ 'src/index.ts': 'export const x = 1;\n' });
     const resolved = resolveMutationRunnerCwd({
       command: 'node ./run-mutants.mjs',
@@ -1604,9 +1474,6 @@ describe('mutation runner cwd resolution (DR-8)', () => {
     expect(resolved.ok && resolved.cwd).toBe(path.resolve(root));
     expect(resolved.ok && resolved.rationale).toBe('declared-command');
 
-    // The discriminator is the declaration, not the missing config: the SAME
-    // tree with an inferred command is still a refusal, so this branch cannot
-    // be reached by simply having no config.
     const inferred = resolveMutationRunnerCwd({
       command: 'node ./run-mutants.mjs',
       repoRoot: root,
@@ -1614,8 +1481,8 @@ describe('mutation runner cwd resolution (DR-8)', () => {
     expect(inferred.ok).toBe(false);
   });
 
+  /** `runnerDir` is the escape hatch for a runner that needs no config file, such as cargo-mutants. */
   it('ResolveRunnerCwd_DeclaredRunnerDir_WinsOverDiscovery', () => {
-    // The escape hatch for a runner that needs no config file (cargo-mutants).
     const root = makeRepoFixture({
       'crates/core/Cargo.toml': '[package]\nname = "core"\n',
       'packages/engine/stryker.conf.mjs': STRYKER_CONFIG,
@@ -1641,12 +1508,12 @@ describe('mutation runner cwd resolution (DR-8)', () => {
     expect(resolved.reason).toMatch(/does not exist/i);
   });
 
+  /**
+   * `runnerDir` is relative to the repo root. The resolver refuses an absolute path or a `..` climb that leaves the repo, also when the target exists.
+   * A sibling directory with the repo name as a prefix is also outside, because the check uses the path separator.
+   * The in-repo case `.` still resolves.
+   */
   it('ResolveRunnerCwd_DeclaredRunnerDirEscapingTheRepo_IsRefused', () => {
-    // `runnerDir` is documented repo-root-relative, and only existence was
-    // checked — so an absolute path or a `..` climb resolved OUTSIDE the repo
-    // and the mutation command ran there, scoring a tree that is not the one
-    // under review. Both escapes point at directories that certainly exist, so
-    // the existence check could never catch them.
     const root = makeRepoFixture({ 'stryker.conf.mjs': STRYKER_CONFIG });
     const escapes = [path.resolve(root, '..'), '..', '../..', path.resolve(os.tmpdir())];
 
@@ -1661,8 +1528,6 @@ describe('mutation runner cwd resolution (DR-8)', () => {
       expect(resolved.reason).toMatch(/outside/i);
     }
 
-    // A SIBLING sharing the repo's name as a prefix is outside it too — the
-    // containment test is on the separator, not on the string.
     const sibling = `${path.resolve(root)}-other`;
     const siblingResolved = resolveMutationRunnerCwd({
       command: 'npx stryker run',
@@ -1671,8 +1536,6 @@ describe('mutation runner cwd resolution (DR-8)', () => {
     });
     expect(siblingResolved.ok).toBe(false);
 
-    // …and the legitimate in-repo case still resolves, so this rejects escape
-    // rather than rejecting declaration.
     const inside = resolveMutationRunnerCwd({
       command: 'npx stryker run',
       repoRoot: root,
@@ -1683,6 +1546,7 @@ describe('mutation runner cwd resolution (DR-8)', () => {
 });
 
 describe('mutation-adequacy run root — handler path (DR-8)', () => {
+  /** The carrier reports the run root, so a reader can check the reach of the gate. */
   it('MutationAdequacy_ConfigInSubPackage_RunnerLaunchedThere_NotAtRepoRoot', async () => {
     const root = makeRepoFixture({
       'package.json': '{"name":"root"}',
@@ -1691,10 +1555,8 @@ describe('mutation-adequacy run root — handler path (DR-8)', () => {
     const { success, data, seenCwd } = await dispatchInRepo(root);
 
     expect(success).toBe(true);
-    // The claim: the runner ran where the config lives, not at the repo root.
     expect(seenCwd).toBe(path.join(path.resolve(root), 'services', 'billing-engine'));
     expect(seenCwd).not.toBe(path.resolve(root));
-    // …and the carrier SAYS so, so a reader can check the gate's reach.
     expect(data.runnerCwd).toBe('services/billing-engine');
     expect(data.runnerCwdRationale).toBe('config-owner');
     expect(data.mutationConfigPath).toBe('services/billing-engine/stryker.conf.mjs');
@@ -1727,11 +1589,11 @@ describe('mutation-adequacy run root — handler path (DR-8)', () => {
     expect(data.runnerCwdRationale).toBe('declared-runner-dir');
   });
 
+  /**
+   * The test runs one repo twice. With the config in place, the gate runs and scores.
+   * After the config moves into an excluded dot-directory, the gate must not run, and it must not report adequacy.
+   */
   it('MutationAdequacy_MovingTheMutationConfig_Degrades_NeverSilentlyPasses', async () => {
-    // THE KILL FIXTURE, run both ways against one repo. With the config in
-    // place the gate reaches a runner and scores. Move that one file and the
-    // gate must say it cannot run — a `total: 0` from a run that never happened
-    // is the exact reading this gate exists to refuse.
     const root = makeRepoFixture({
       'package.json': '{"name":"root"}',
       'services/billing-engine/stryker.conf.mjs': STRYKER_CONFIG,
@@ -1742,8 +1604,6 @@ describe('mutation-adequacy run root — handler path (DR-8)', () => {
     expect(before.data.total).toBeGreaterThan(0);
     expect(before.data.passed).toBe(true);
 
-    // Move the config OUT of the tree the scan can see (a dot-directory is
-    // excluded by property), leaving everything else identical.
     mkdirSync(path.join(root, '.attic'), { recursive: true });
     renameSync(
       path.join(root, 'services', 'billing-engine', 'stryker.conf.mjs'),
@@ -1751,23 +1611,20 @@ describe('mutation-adequacy run root — handler path (DR-8)', () => {
     );
 
     const after = await dispatchInRepo(root);
-    // The runner is never invoked — the gate refuses to run somewhere it
-    // cannot justify rather than running at the repo root and reporting it.
     expect(after.ran).toBe(false);
-    expect(after.success).toBe(true); // advisory degrade, never an error envelope
+    expect(after.success).toBe(true);
     const surfaced = [...(after.warnings ?? []), after.data.warning ?? ''].join(' ');
     expect(surfaced).toMatch(/no mutation-runner configuration was found/i);
-    // The degrade is NOT laundered into adequacy: no trivial-pass marker, and
-    // no score to read.
     expect(after.data.trivialPass).toBeUndefined();
     expect(after.data.total).toBe(0);
     expect(after.data.mutationScore).toBe(0);
   });
 
+  /**
+   * With no config, the gate row is `{ skipped, degraded }`, so block-mode enforcement can fail closed.
+   * Nothing starts, so no liveness event exists.
+   */
   it('MutationAdequacy_NoConfig_DegradeIsRecordedAsDegradedNotAScore', async () => {
-    // The degrade path H4 added stays reachable and keeps its marker: the
-    // emitted gate row is `{skipped, degraded}`, which is what lets block-mode
-    // enforcement fail CLOSED on a runner that produced no verifiable score.
     const root = makeRepoFixture({ 'src/index.ts': 'export const x = 1;\n' });
     const { stateDir, eventStore } = await newStore();
     const ctx = makeCtx(stateDir, eventStore);
@@ -1796,17 +1653,17 @@ describe('mutation-adequacy run root — handler path (DR-8)', () => {
     expect(row.details?.degraded).toBe(true);
     expect(row.details?.reason).toMatch(/no mutation-runner configuration was found/i);
 
-    // No liveness pair either — nothing was launched, so nothing is in flight.
     const liveness = await eventStore.query('feat-mutadq', { type: 'mutation.executing_started' });
     expect(liveness).toHaveLength(0);
   });
 });
 
 describe('mutation-adequacy real runner — cwd is the config package (DR-8)', () => {
+  /**
+   * The real `defaultRunMutation` spawns a child that reports its own `process.cwd()` as the mutated file.
+   * The script path is absolute, so it is not a repo-root-anchored command, and the config package wins.
+   */
   it('RealRunner_ShellsOutInTheConfigPackage_ProvenByTheChildsOwnCwd', async () => {
-    // No injected runner: the real `defaultRunMutation` spawns a real child.
-    // The child reports its OWN `process.cwd()` as the mutated file, so the
-    // carrier can only name the config package if the shell-out truly used it.
     const root = makeRepoFixture({
       'package.json': '{"name":"root"}',
       'services/billing-engine/stryker.conf.mjs': STRYKER_CONFIG,
@@ -1830,8 +1687,6 @@ describe('mutation-adequacy real runner — cwd is the config package (DR-8)', (
         featureId: 'feat-mutadq',
         base: 'main',
         repoRoot: root,
-        // An ABSOLUTE script path resolves identically from any cwd, so it is
-        // not a repo-root-anchored command — the config package wins.
         resolve: () => runtimeWith(`${process.execPath} ${script}`),
         detectToolchainId: () => 'no-such-toolchain-xyz',
         runDiff: (): readonly string[] => [],

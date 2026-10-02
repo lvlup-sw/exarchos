@@ -1,8 +1,6 @@
-// ─── check_mock_boundary registration + dispatch + steer (task 026) ──────────
-//
-// Mirrors contract-drift-handler.test.ts: prove the action is registered with a
-// non-throwing registration schema + outputSchema, and that dispatch through
-// handleOrchestrate routes to the real handler (NOT an UNKNOWN_ACTION envelope).
+// Registration, dispatch and steer text for `check_mock_boundary`. The action
+// declares a registration schema and an `outputSchema`, and `handleOrchestrate`
+// routes it to the real handler.
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { mkdtempSync } from 'node:fs';
@@ -24,8 +22,6 @@ vi.mock('../../../../src/verbs/gates/durable-gate-producer.js', () => ({
   ) => executeProvider(),
 }));
 
-// ─── seams ──────────────────────────────────────────────────────────────────
-
 /**
  * A git seam that returns an empty diff for any `git diff …` call, so the
  * routing test exercises the dispatch arm without a real repo. An empty diff
@@ -46,29 +42,30 @@ async function makeArm(prefix: string): Promise<Arm> {
   return { stateDir, ctx: { stateDir, eventStore, enableTelemetry: false } as DispatchContext };
 }
 
-// ─── tests ───────────────────────────────────────────────────────────────────
-
 describe('check_mock_boundary registration + dispatch + steer', () => {
   const arms: Arm[] = [];
   afterEach(() => {
     for (const a of arms.splice(0)) rmrf(a.stateDir);
   });
 
+  /**
+   * The registry entry exists, declares an `outputSchema`, and marks the gate
+   * advisory in dimension `D1`. The test does not call `buildRegistrationSchema`.
+   */
   it('CheckMockBoundary_Registration_DoesNotThrow', () => {
-    // Building the registration schema must not throw at startup — a same-name
-    // field with a different base type would make buildRegistrationSchema throw.
     const action = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate')!.actions.find(
       (a) => a.name === 'check_mock_boundary',
     );
     expect(action).toBeDefined();
-    // The action declares a Zod outputSchema (envelope-wrapped).
     expect(action!.outputSchema).toBeDefined();
-    // Advisory-by-default: registry gate.blocking is false (severity demotion
-    // is resolved at runtime via DEFAULTS.review.gates, like tdd-compliance).
     expect(action!.gate?.blocking).toBe(false);
     expect(action!.gate?.dimension).toBe('D1');
   });
 
+  /**
+   * An empty diff has no mock sites, so the real handler returns a clean pass.
+   * An `UNKNOWN_ACTION` envelope fails the test.
+   */
   it('HandleOrchestrate_CheckMockBoundary_RoutesToHandler', async () => {
     const arm = await makeArm('mock-boundary-route-');
     arms.push(arm);
@@ -86,20 +83,19 @@ describe('check_mock_boundary registration + dispatch + steer', () => {
       arm.ctx,
     );
 
-    // Routed to the real handler — NOT an UNKNOWN_ACTION envelope.
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; findings: unknown[] };
     expect(typeof data.passed).toBe('boolean');
-    // Empty diff → no mock sites → clean pass with empty findings.
     expect(data.passed).toBe(true);
     expect(Array.isArray(data.findings)).toBe(true);
     expect(data.findings).toHaveLength(0);
   });
 
+  /**
+   * axios classifies as third-party-http. The steer names the dependency, its
+   * class, the concrete double and the shape-not-semantics caveat.
+   */
   it('SteerForFinding_KnownDependency_ResolvesConcreteHermeticDouble', () => {
-    // SIV-5 (#1531): axios classifies as third-party-http → a Pact-verified
-    // contract stub. The steer names the dependency, its class, the CONCRETE
-    // double, and the honesty caveat — not a generic menu.
     const steer = steerForFinding({
       file: 'src/foo.test.ts',
       line: 3,
@@ -111,12 +107,11 @@ describe('check_mock_boundary registration + dispatch + steer', () => {
     expect(steer).toMatch(/replace the mock/i);
     expect(steer).toMatch(/third-party-http/i);
     expect(steer).toMatch(/Pact-verified contract stub/i);
-    // The honesty caveat (shape-not-semantics) rides the resolved descriptor.
     expect(steer).toMatch(/shape, not provider semantics/i);
   });
 
+  /** pg classifies as database, so the steer names Testcontainers at the boundary-offline cadence. */
   it('SteerForFinding_DatabaseDependency_ResolvesTestcontainers', () => {
-    // pg classifies as database → Testcontainers (real, boundary-offline).
     const steer = steerForFinding({
       file: 'src/db.test.ts',
       line: 5,
@@ -127,12 +122,11 @@ describe('check_mock_boundary registration + dispatch + steer', () => {
     expect(steer).toContain('pg');
     expect(steer).toMatch(/database/i);
     expect(steer).toMatch(/Testcontainers/i);
-    // Container-backed ⇒ boundary/offline cadence, never the inner loop.
     expect(steer).toMatch(/boundary-offline/i);
   });
 
+  /** An `@aws-sdk` client classifies as cloud-api, so the steer names LocalStack and flags it as a fake. */
   it('SteerForFinding_CloudApiDependency_ResolvesLocalStackWithFakeCaveat', () => {
-    // @aws-sdk/* classifies as cloud-api → LocalStack, flagged as a FAKE.
     const steer = steerForFinding({
       file: 'src/s3.test.ts',
       line: 9,
@@ -145,9 +139,8 @@ describe('check_mock_boundary registration + dispatch + steer', () => {
     expect(steer).toMatch(/FAKE of the cloud/i);
   });
 
+  /** An unknown dependency keeps the generic hermetic menu. The resolver never guesses a concrete double. */
   it('SteerForFinding_UnclassifiedDependency_FallsBackToGenericMenu', () => {
-    // An unrecognized dependency keeps the generic hermetic menu — the resolver
-    // never guesses a concrete double (resolve, don't bake).
     const steer = steerForFinding({
       file: 'src/foo.test.ts',
       line: 3,

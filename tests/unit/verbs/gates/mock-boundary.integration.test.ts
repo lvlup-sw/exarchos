@@ -1,26 +1,11 @@
-// ─── check_mock_boundary ACCEPTANCE — through handleOrchestrate (task 026) ────
+// Acceptance tests for `check_mock_boundary`. Each case dispatches through `handleOrchestrate`
+// against a temporary git repo.
 //
-// Verification-ladder slice 1, SIV-4 (#1530). The end-to-end contract: dispatch
-// `check_mock_boundary` through the composite `handleOrchestrate` router against
-// a real temp-dir git fixture repo and prove the gate distinguishes:
-//
-//   • UNOWNED mock — a task diff adds a test file that mocks a third-party
-//     dependency (`vi.mock('axios')`) outside the first-party ownership scope →
-//     advisory pass (severity advisory by default), carrying the finding AND a
-//     per-finding steer in next_actions that names the dependency and prescribes
-//     a hermetic replacement.
-//   • FIRST-PARTY mock — a task diff mocks a relative module that resolves under
-//     the first-party globs (`vi.mock('../../foo.js')`) → clean pass, no findings.
-//   • CONFIG OVERRIDE — a `.exarchos.yml` review-gate override flips the gate to
-//     blocking; the advisory carrier honors it (severity:'blocking').
-//   • ESCAPE HATCH — when the caller acknowledges an intentional unowned mock via
-//     an explicit `reason`, the gate passes advisory AND the gate.executed event
-//     payload records the escape hatch + reason (an enforced default, not an
-//     absolute).
-//
-// This file is the acceptance gate; it stays RED until the action is registered
-// and the dispatch branch wired.
-// ────────────────────────────────────────────────────────────────────────────
+// - An unowned mock (`vi.mock('axios')`) gives an advisory pass with the finding and a steer.
+// - A first-party mock under `src/` gives a clean pass with no findings.
+// - A `.exarchos.yml` review-gate override makes the gate blocking.
+// - A `reason` acknowledges an intentional unowned mock. The gate passes,
+//   and the durable evidence records the acknowledgement.
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
@@ -35,7 +20,6 @@ import { runAsTrustedCaller, seedActivePhaseAttempt, withTrustedCaller } from '.
 import { gateRunnerObservationSource } from '../../../../src/verbs/gates/gate-runner.js';
 import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 
-// ─── git fixture helpers ─────────────────────────────────────────────────────
 
 function git(repoRoot: string, args: readonly string[]): Promise<string> {
   return execFileAsync('git', args, { cwd: repoRoot, timeout: 30_000 });
@@ -51,10 +35,9 @@ async function initRepo(prefix: string): Promise<string> {
 }
 
 /**
- * Scaffold a fixture repo on `main`: a source module + a base test, plus an
- * optional `.exarchos.yml`. The first-party scope defaults to `src/**`, so a
- * relative mock of `../foo.js` from `src/foo.test.ts` is OWNED, while a bare
- * `axios` mock is UNOWNED.
+ * Commits a source module, a base test, and an optional `.exarchos.yml` on `main`.
+ * The default first-party scope includes `src/**`. A bare `axios` mock is not a path
+ * in that scope, so it is unowned.
  */
 async function writeBaseProject(repoRoot: string, exarchosYml?: string): Promise<void> {
   mkdirSync(path.join(repoRoot, 'src'), { recursive: true });
@@ -83,17 +66,15 @@ interface MockBoundaryData {
   skipped?: boolean;
 }
 
-// ─── tests ───────────────────────────────────────────────────────────────────
-
 describe('check_mock_boundary acceptance (through handleOrchestrate)', () => {
   const cleanups: Array<() => void> = [];
 
+  /** The temporary directory cleanup is best-effort. */
   afterEach(() => {
     for (const fn of cleanups.splice(0)) {
       try {
         fn();
       } catch {
-        /* best-effort temp cleanup */
       }
     }
   });
@@ -124,6 +105,7 @@ describe('check_mock_boundary acceptance (through handleOrchestrate)', () => {
     return { result: result as { success: boolean; data: MockBoundaryData }, eventStore, featureId };
   }
 
+  /** `axios` classifies as `third-party-http`, so the steer names a concrete hermetic double, a Pact-verified contract stub. */
   it(
     'HandleOrchestrate_CheckMockBoundary_UnownedMock_AdvisoryWithSteerNextAction',
     async () => {
@@ -131,7 +113,6 @@ describe('check_mock_boundary acceptance (through handleOrchestrate)', () => {
       cleanups.push(() => rmrf(repoRoot));
       await writeBaseProject(repoRoot);
 
-      // Branch: add a test file that mocks a third-party dependency.
       await git(repoRoot, ['checkout', '-b', 'feature/unowned', '-q']);
       writeFileSync(
         path.join(repoRoot, 'src', 'http.test.ts'),
@@ -143,24 +124,16 @@ describe('check_mock_boundary acceptance (through handleOrchestrate)', () => {
       const { result } = await dispatch(repoRoot, 'feature/unowned');
       const { success, data } = result;
 
-      // Advisory carrier: tool call SUCCEEDS, gate verdict advisory (passes).
       expect(success).toBe(true);
       expect(data.passed).toBe(true);
       expect(data.severity).toBe('warning');
 
-      // Carries the unowned finding.
-      // Optional-chaining over non-null assertions (PR #1535 CR-2): if the
-      // Array.isArray expectation fails, execution still reaches the next
-      // lines — `?.` keeps them well-defined instead of hiding an undefined.
       expect(Array.isArray(data.findings)).toBe(true);
       expect(data.findings?.length ?? 0).toBeGreaterThan(0);
       const axiosFinding = data.findings?.find((f) => f.mockedTarget === 'axios');
       expect(axiosFinding).toBeDefined();
       expect(axiosFinding?.unowned).toBe(true);
 
-      // Per-finding steer (INV-12 + SIV-5 resolution #1531): names the dep, and
-      // since axios classifies as third-party-http, resolves the CONCRETE
-      // hermetic double (a Pact-verified contract stub) rather than a generic menu.
       expect(Array.isArray(data.next_actions)).toBe(true);
       const steer = data.next_actions?.find((s) => s.includes('axios'));
       expect(steer).toBeDefined();
@@ -171,6 +144,7 @@ describe('check_mock_boundary acceptance (through handleOrchestrate)', () => {
     120_000,
   );
 
+  /** `./foo.js` resolves against the directory of `src/bar.test.ts`, so the target `src/foo.js` is first-party. */
   it(
     'HandleOrchestrate_CheckMockBoundary_FirstPartyMock_Passes',
     async () => {
@@ -178,9 +152,6 @@ describe('check_mock_boundary acceptance (through handleOrchestrate)', () => {
       cleanups.push(() => rmrf(repoRoot));
       await writeBaseProject(repoRoot);
 
-      // Branch: add a test that mocks a FIRST-PARTY relative module. `./foo.js`
-      // resolves against the diff file's directory (`src/bar.test.ts` → `src/`),
-      // so the target is `src/foo.js` — under the `src/**` first-party scope.
       await git(repoRoot, ['checkout', '-b', 'feature/firstparty', '-q']);
       writeFileSync(
         path.join(repoRoot, 'src', 'bar.test.ts'),
@@ -194,20 +165,18 @@ describe('check_mock_boundary acceptance (through handleOrchestrate)', () => {
 
       expect(success).toBe(true);
       expect(data.passed).toBe(true);
-      // First-party mocks are filtered out by the pure core → no findings.
       expect(data.findings ?? []).toEqual([]);
-      // No unowned finding → no steer.
       expect(data.next_actions ?? []).toEqual([]);
     },
     120_000,
   );
 
+  /** A `.exarchos.yml` review-gate override makes the gate blocking. With an unowned finding, the gate does not pass. */
   it(
     'CheckMockBoundary_ConfigOverrideBlocking_StillHonored',
     async () => {
       const repoRoot = await initRepo('mock-boundary-blocking-');
       cleanups.push(() => rmrf(repoRoot));
-      // `.exarchos.yml` flips the gate to blocking via a review-gate override.
       await writeBaseProject(
         repoRoot,
         ['review:', '  gates:', '    mock-boundary:', '      blocking: true', ''].join('\n'),
@@ -224,17 +193,19 @@ describe('check_mock_boundary acceptance (through handleOrchestrate)', () => {
       const { result } = await dispatch(repoRoot, 'feature/blocking');
       const { success, data } = result;
 
-      // The config override flips severity to blocking; the unowned finding is
-      // still present, but now the gate result reflects the blocking posture.
       expect(success).toBe(true);
       expect(data.severity).toBe('blocking');
-      // Blocking + an unowned finding → the gate does NOT pass.
       expect(data.passed).toBe(false);
       expect(data.findings?.some((f) => f.mockedTarget === 'axios') ?? false).toBe(true);
     },
     120_000,
   );
 
+  /**
+   * With the escape hatch, the gate passes and the carrier records the acknowledgement.
+   * An escape hatch needs an audit trail, so the gate runner also records
+   * `admission.evidence-recorded` with its observation source. The carrier references that record.
+   */
   it(
     'GateEvent_EscapeHatch_LoggedInPayload',
     async () => {
@@ -256,21 +227,12 @@ describe('check_mock_boundary acceptance (through handleOrchestrate)', () => {
       });
       const { success, data } = result;
 
-      // With the escape hatch acknowledged, the gate passes advisory regardless
-      // of the unowned finding, and the carrier records the acknowledgement.
       expect(success).toBe(true);
       expect(data.passed).toBe(true);
       expect(data.escapeHatch).toBeDefined();
       expect(data.escapeHatch!.acknowledged).toBe(true);
       expect(data.escapeHatch!.reason).toBe(reason);
 
-      // The acknowledgement must be bound into DURABLE evidence, not just the
-      // returned carrier — an escape hatch that leaves no audit trail is not an
-      // escape hatch. The canonical gate runner records this as
-      // `admission.evidence-recorded` stamped with the runner's observation
-      // source (`gate.executed` was the pre-migration emitter and the ladder
-      // gates no longer write it), and the returned carrier carries the
-      // reference back to that record.
       const events = await eventStore.query(featureId, {
         type: 'admission.evidence-recorded',
       });
@@ -288,11 +250,9 @@ describe('check_mock_boundary acceptance (through handleOrchestrate)', () => {
           subject: unknown;
         };
       };
-      // The carrier that recorded the acknowledgement is what got hashed.
       expect(record.evidence.verdict).toBe('pass');
       expect(record.evidence.contentDigest.value).toMatch(/^[0-9a-f]{64}$/);
 
-      // …and the result points back at that immutable record.
       const references = (data as unknown as {
         evidenceReferences?: readonly { contentDigest: { value: string } }[];
       }).evidenceReferences;
@@ -307,18 +267,15 @@ describe('check_mock_boundary acceptance (through handleOrchestrate)', () => {
   );
 });
 
-/**
- * These tests invoke the composite handler DIRECTLY, bypassing `dispatch()`.
- *
- * Two things `dispatch()` and a real run would have provided must be recreated,
- * or every case exercises a fail-closed path instead of the behaviour under
- * test: the ambient trusted dispatch scope the durable-evidence gates read
- * their caller authorization from (`TRUSTED_CALLER_REQUIRED` without it), and a
- * started workflow with an active phase attempt for the gate's evidence to bind
- * to (`ACTIVE_PHASE_ATTEMPT_REQUIRED` without it).
- */
+/** The state dir and feature id pairs that `orchestrate` already seeded. */
 const seededWorkflows = new Set<string>();
 
+/**
+ * Calls the composite handler directly, without `dispatch()`. For this reason, it opens the
+ * trusted dispatch scope and seeds an active phase attempt once for each workflow.
+ * Without the scope, the gate fails with `TRUSTED_CALLER_REQUIRED`.
+ * Without the attempt, it fails with `ACTIVE_PHASE_ATTEMPT_REQUIRED`.
+ */
 async function orchestrate(
   args: Record<string, unknown>,
   ctx: DispatchContext,

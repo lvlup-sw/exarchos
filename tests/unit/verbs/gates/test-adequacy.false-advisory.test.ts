@@ -1,16 +1,9 @@
-// ─── WFQ-005 / P02-04: no false advisory success ─────────────────────────────
+// The kill probe must not report a vacuous pass. These tests pin three cases.
 //
-// The kill probe is the sole load-bearing per-task verification gate. Three
-// ways it used to report a vacuous PASS:
-//
-//   1. `git diff` failed  → changed files came back `[]` → `no-new-tests` PASS.
-//   2. The diff was taken against the checked-out `HEAD` rather than the named
-//      task branch, so an orchestrator calling from the main worktree saw an
-//      empty diff for a branch that plainly added tests → `no-new-tests` PASS.
-//   3. A medium/high-risk task that shipped no probe-able tests was skipped
-//      advisory-PASS, which is exactly the tier where the probe is required.
-//
-// These tests pin all three closed.
+// 1. A failed `git diff` is a failure, not an empty list of changed files.
+// 2. The diff uses the named task branch, not the checked-out `HEAD`.
+//    From the main worktree, a `HEAD` diff is empty for a branch that adds tests.
+// 3. A medium-risk or high-risk task without probe-able tests fails.
 
 import { describe, it, expect } from 'vitest';
 import { execFileSync } from 'node:child_process';
@@ -55,10 +48,8 @@ async function initRepo(prefix: string): Promise<string> {
 }
 
 /**
- * Base commit on `main`, then a committed task branch that adds an entirely
- * NEW source module plus its NEW test, and leaves `main` checked out. This is
- * the shape the gate previously mis-handled: task-added source paths, on a
- * committed branch, observed from a repo whose HEAD is not that branch.
+ * Commits a base on `main` and a task branch that adds a new source module and its test.
+ * Then it checks out `main` again, as in the main worktree of the orchestrator.
  */
 async function setupCommittedTaskBranch(prefix: string): Promise<{
   repoRoot: string;
@@ -78,7 +69,6 @@ async function setupCommittedTaskBranch(prefix: string): Promise<{
   await git(repoRoot, ['add', '.']);
   await git(repoRoot, ['commit', '-m', 'task: add module + test', '-q']);
 
-  // Leave the repo on main — the orchestrator's main-worktree situation.
   await git(repoRoot, ['checkout', 'main', '-q']);
 
   return { repoRoot, baseRef, branch: 'feature/added' };
@@ -96,9 +86,8 @@ describe('TestAdequacy_CommittedBranchDiscovery (WFQ-005)', () => {
     );
   });
 
+  /** With `HEAD` on `main`, the diff is empty, although the branch adds a test file. */
   it('returns an empty diff — not the branch diff — when HEAD is used instead of the branch', async () => {
-    // Characterizes WHY the bug passed vacuously: HEAD is main, so the diff is
-    // empty even though the branch plainly added a test file.
     const { repoRoot, baseRef } = await setupCommittedTaskBranch('wfq005-head-');
 
     const viaHead = changedFilesFor(realGitExec, repoRoot, baseRef);
@@ -197,6 +186,7 @@ describe('TestAdequacy_NoFalseAdvisorySuccess (WFQ-005)', () => {
 });
 
 describe('TestAdequacy_TaskAddedSource_RealKillProbe (WFQ-005)', () => {
+  /** The fake test run fails exactly when the source module is absent, as a real kill probe must observe. */
   it('reverts task-added source and observes a real red, not revert-conflict', async () => {
     const { repoRoot, baseRef, branch } = await setupCommittedTaskBranch('wfq005-kill-');
     await git(repoRoot, ['checkout', branch, '-q']);
@@ -205,8 +195,6 @@ describe('TestAdequacy_TaskAddedSource_RealKillProbe (WFQ-005)', () => {
     expect(changed.ok).toBe(true);
     if (!changed.ok) return;
 
-    // The test "fails" exactly when the source module it pins is absent —
-    // the behaviour a genuine kill probe must observe.
     const runTests: TestRunFn = () =>
       Promise.resolve(existsSync(path.join(repoRoot, 'src', 'added.js')));
 

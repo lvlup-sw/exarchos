@@ -1,27 +1,12 @@
 /**
- * CLI↔MCP parity tests for the `doctor` action (task 021).
+ * CLI and MCP parity tests for the `doctor` action.
  *
- * Doctor has two user-visible facades:
- *   1. MCP — `exarchos_orchestrate {action:'doctor'}` over the MCP SDK
- *   2. CLI — `exarchos orch doctor` (auto-generated subcommand) and the
- *      promoted top-level `exarchos doctor` surface (cli-doctor.ts)
- *
- * Both paths must project identical ToolResult payloads modulo wall-clock
- * jitter (durationMs, diagnostic event timestamps). Task 021 proves that
- * invariant so future adapter refactors can't silently diverge the two
- * surfaces.
- *
- * Strategy:
- *   - Stub the `exarchos_orchestrate` composite handler via
- *     `stubCompositeHandler` (the designated test seam from F-021-4).
- *   - The stub forwards `doctor` invocations to `handleDoctorWithChecks`,
- *     passing a tiny deterministic check list + `makeStubProbes()` as the
- *     probe factory. That exercises the real handler → schema → adapter
- *     projection path without depending on real filesystem / git / sqlite
- *     state.
- *   - Two isolated arms (separate tmp state dirs) run concurrently and
- *     their outputs are normalized (timestamps / `durationMs`) before a
- *     deep-equal check.
+ * The facades are `exarchos_orchestrate {action:'doctor'}` over MCP and `exarchos orch doctor` on the CLI.
+ * Both must return the same ToolResult, apart from times, UUIDs, `_perf`, and `_meta`.
+ * The suite stubs the `exarchos_orchestrate` composite with `stubCompositeHandler`.
+ * The stub sends `doctor` to `handleDoctorWithChecks` with a fixed check list and `makeStubProbes()`.
+ * Thus the real handler, schema, and adapter projection run without real filesystem, git, or SQLite state.
+ * Each arm has its own temporary state directory.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -48,13 +33,10 @@ import type { CheckFn } from '../../../src/verbs/doctor/checks/__shared__/make-s
 import type { CheckResult } from '../../../src/verbs/doctor/schema.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
-// ─── Deterministic check list ──────────────────────────────────────────────
-//
-// Two checks covering every status the schema accepts: Pass, Warning, Fail,
-// Skipped (the handler tallies all four into the summary). Deterministic
-// messages + `durationMs: 0` so every field except the outer schema-level
-// `durationMs` (not present at this layer) is byte-identical across runs.
-
+/**
+ * Fixed checks with the statuses Pass, Fail, and Skipped.
+ * Each check has a fixed message and `durationMs: 0`, so each check result is the same on each run.
+ */
 const DETERMINISTIC_CHECKS: ReadonlyArray<CheckFn> = [
   async (): Promise<CheckResult> => ({
     category: 'runtime',
@@ -80,8 +62,6 @@ const DETERMINISTIC_CHECKS: ReadonlyArray<CheckFn> = [
     durationMs: 0,
   }),
 ];
-
-// ─── Arm helpers ───────────────────────────────────────────────────────────
 
 interface ArmContext {
   readonly stateDir: string;
@@ -156,17 +136,15 @@ function normalize(value: unknown): unknown {
   });
 }
 
-// ─── Tests ─────────────────────────────────────────────────────────────────
-
-// Each parity case spawns the real CLI + MCP doctor over SQLite; on
-// windows-latest the per-test setup exceeds 60s. INV-2 facade-equivalence is
-// otherwise enforced by the parity.test.ts snapshot suite. (#1620)
+/**
+ * Skipped on Windows: each case runs the real CLI and MCP doctor over SQLite, and setup takes more than 60 seconds there.
+ * The `parity.test.ts` snapshot suite also checks facade equivalence.
+ */
 describe.skipIf(process.platform === 'win32')('exarchos doctor CLI↔MCP parity', () => {
   let arms: ArmContext[] = [];
   let restoreStub: (() => void) | null = null;
 
   beforeEach(() => {
-    // Defensive — each test installs its own stub in Arrange.
   });
 
   afterEach(async () => {
@@ -179,10 +157,11 @@ describe.skipIf(process.platform === 'win32')('exarchos doctor CLI↔MCP parity'
     vi.restoreAllMocks();
   });
 
+  /**
+   * The CLI arm runs through `buildCli`, Commander, and `dispatch`. The MCP arm calls `dispatch` with `{ action, ...args }`.
+   * The last assertion compares a constant with itself. It is a marker for the TDD gate and cannot fail.
+   */
   it('Doctor_CliAndMcpAdaptersGivenSameProbes_ReturnByteEqualJsonOutput', async () => {
-    // Arrange — stub the orchestrate composite so both arms see identical
-    // deterministic doctor output (driven by `makeStubProbes` + a tiny
-    // canned check list).
     restoreStub = stubCompositeHandler(
       'exarchos_orchestrate',
       buildDoctorCompositeStub(DETERMINISTIC_CHECKS),
@@ -193,9 +172,6 @@ describe.skipIf(process.platform === 'win32')('exarchos doctor CLI↔MCP parity'
     const mcpArm = await createArm('doctor-parity-mcp-');
     arms.push(mcpArm);
 
-    // Act (CLI arm) — goes through `buildCli` → Commander → `dispatch` →
-    // composite stub. `--json` is appended by the harness; we parse the
-    // raw ToolResult back from stdout.
     const { result: cliResult, exitCode: cliExitCode } = await harnessCallCli(
       cliArm.ctx,
       'orch',
@@ -203,14 +179,10 @@ describe.skipIf(process.platform === 'win32')('exarchos doctor CLI↔MCP parity'
       {},
     );
 
-    // Act (MCP arm) — direct `dispatch` entry point with the `{ action, ...args }`
-    // shape the MCP SDK produces after schema validation.
     const mcpResult = await harnessCallMcp(mcpArm.ctx, 'exarchos_orchestrate', {
       action: 'doctor',
     });
 
-    // Assert — both arms produced the same successful ToolResult modulo
-    // wall-clock-derived fields (durationMs, timestamps).
     expect(cliResult.success).toBe(true);
     expect(mcpResult.success).toBe(true);
     expect(cliExitCode).toBe(0);
@@ -219,28 +191,20 @@ describe.skipIf(process.platform === 'win32')('exarchos doctor CLI↔MCP parity'
     const normalizedMcp = normalize(mcpResult);
     expect(normalizedCli).toEqual(normalizedMcp);
 
-    // And the serialized JSON is byte-equal after normalization — the
-    // stronger invariant that the parity contract demands.
     expect(JSON.stringify(normalizedCli)).toEqual(JSON.stringify(normalizedMcp));
 
-    // Spot-check the projected payload matches what the deterministic
-    // check list should produce (1 Pass + 1 Fail + 1 Skipped = 3 checks).
     const cliData = cliResult.data as { checks: CheckResult[]; summary: { passed: number; failed: number; skipped: number; warnings: number } };
     expect(cliData.checks).toHaveLength(DETERMINISTIC_CHECKS.length);
     expect(cliData.summary).toEqual({ passed: 1, warnings: 0, failed: 1, skipped: 1 });
 
-    // Parity sentinel — held RED in the preceding commit so the TDD
-    // gate witnessed a failure before the adapters' agreement was
-    // asserted green here. Task 020 had already aligned both surfaces;
-    // the sentinel is ceremonial proof that the gate mechanism itself
-    // is live.
     expect('parity-asserted').toBe('parity-asserted');
   });
 
+  /**
+   * The handler throws, so both adapters return the INTERNAL_ERROR shape from the `dispatch()` error boundary.
+   * MCP has no exit code, so only the CLI exit code 2 (HANDLER_ERROR) is checked.
+   */
   it('Doctor_CliAndMcpAdaptersOnFailure_ReturnIdenticalErrorShape', async () => {
-    // Arrange — handler throws; both adapters must funnel the throw through
-    // the `dispatch()` error boundary (INTERNAL_ERROR) producing identical
-    // ToolResult error shapes.
     const errorMessage = 'simulated doctor-handler failure for parity test';
     restoreStub = stubCompositeHandler(
       'exarchos_orchestrate',
@@ -252,7 +216,6 @@ describe.skipIf(process.platform === 'win32')('exarchos doctor CLI↔MCP parity'
     const mcpArm = await createArm('doctor-parity-err-mcp-');
     arms.push(mcpArm);
 
-    // Act (CLI arm)
     const { result: cliResult, exitCode: cliExitCode } = await harnessCallCli(
       cliArm.ctx,
       'orch',
@@ -260,12 +223,10 @@ describe.skipIf(process.platform === 'win32')('exarchos doctor CLI↔MCP parity'
       {},
     );
 
-    // Act (MCP arm)
     const mcpResult = await harnessCallMcp(mcpArm.ctx, 'exarchos_orchestrate', {
       action: 'doctor',
     });
 
-    // Assert — identical error shape: success:false, same code, same message.
     expect(cliResult.success).toBe(false);
     expect(mcpResult.success).toBe(false);
     expect(cliResult.error?.code).toBe('INTERNAL_ERROR');
@@ -273,20 +234,13 @@ describe.skipIf(process.platform === 'win32')('exarchos doctor CLI↔MCP parity'
     expect(cliResult.error?.message).toContain(errorMessage);
     expect(mcpResult.error?.message).toContain(errorMessage);
 
-    // Byte-equal ToolResult after normalization — the full error projection
-    // must match between adapters.
     expect(normalize(cliResult)).toEqual(normalize(mcpResult));
     expect(JSON.stringify(normalize(cliResult))).toEqual(
       JSON.stringify(normalize(mcpResult)),
     );
 
-    // CLI maps handler-reported errors to exit 2 (HANDLER_ERROR); MCP is
-    // transport-agnostic and has no exit code. We only assert the CLI
-    // exit-code contract here so a future adapter change can't silently
-    // downgrade the failure.
     expect(cliExitCode).toBe(2);
 
-    // Parity sentinel — see note in the success test above.
     expect('parity-asserted').toBe('parity-asserted');
   });
 });

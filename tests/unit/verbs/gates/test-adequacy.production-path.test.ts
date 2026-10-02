@@ -1,36 +1,14 @@
-// ─── check_test_adequacy: PRODUCTION-PATH proofs ─────────────────────────────
-//
-// Why this file exists at all.
-//
-// `test-adequacy.false-advisory.test.ts` calls `runProbe()` DIRECTLY. That is
-// why a fully green suite coexisted with a live gate that returned a vacuous
-// PASS: the direct-call fixtures pin the probe's own logic, but they never
-// exercise the composition the MCP action actually travels —
-//
-//     exarchos_orchestrate(action:'check_test_adequacy')
-//       → dispatch()                      (per-action Zod validation)
-//       → handleOrchestrate               (adaptLadderGate)
-//       → handleTestAdequacy              (preflight, repoRoot, toolchain globs)
-//       → runDurableGateProducer → runGate
-//       → runProbe
-//
-// Everything asserted here is asserted THROUGH that composition against a real
-// git repo. Two independent defects lived in the gap and are pinned closed:
-//
-//   (a) SUBJECT — the handler threaded the detected toolchain's test globs as a
-//       REPLACEMENT for the co-located conventions, so in any repo whose root
-//       marker prescribes a layout (python/rust/ruby/…) a co-located
-//       `*.test.ts` was classified as SOURCE. The gate resolved ZERO test files
-//       for a task that plainly added tests → `no-new-tests` on the wrong
-//       subject.
-//
-//   (b) REPRESENTABILITY — "the probe could not run" and "the probe ran and
-//       passed" shared one boolean, so a SKIPPED check was indistinguishable
-//       from a verified one in the carrier. The gate now reports a
-//       `disposition` derived from the `ProbeVerdict` union, and an advisory
-//       skip is stamped `skipped:true` — it can still be non-blocking, but it
-//       can never again read as proof of test adequacy.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * These tests run `check_test_adequacy` against a real git repo through the
+ * production path: `dispatch()`, `handleOrchestrate`, `handleTestAdequacy`, the
+ * durable gate producer, and `runProbe`. `test-adequacy.false-advisory.test.ts`
+ * calls `runProbe()` directly and does not cover this path.
+ *
+ * Two facts are central. The probe adds the toolchain test globs to the
+ * co-located defaults, so a co-located `*.test.ts` file is a test file. A
+ * skipped probe reports `skipped: true` and a `disposition`, so it never reads
+ * as proof of test adequacy.
+ */
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
@@ -56,7 +34,6 @@ import {
   type AdequacyDiscriminant,
 } from '../../../../src/verbs/gates/test-adequacy.js';
 
-// ─── fixtures ────────────────────────────────────────────────────────────────
 
 function git(repoRoot: string, args: readonly string[]): Promise<string> {
   return execFileAsync('git', args, { cwd: repoRoot, timeout: 30_000 });
@@ -71,7 +48,7 @@ async function initRepo(prefix: string): Promise<string> {
   return repoRoot;
 }
 
-/** The carrier shape the gate returns (INV-5b advisory). */
+/** The carrier that the gate returns. */
 interface AdequacyData {
   readonly passed: boolean;
   readonly disposition?: string;
@@ -91,6 +68,7 @@ function dataOf(result: { readonly data?: unknown }): AdequacyData {
   return data as AdequacyData;
 }
 
+/** `sourceOnlyBranch` builds a task branch that changes only source, so the probe has nothing to kill. */
 describe('check_test_adequacy production path', () => {
   const cleanups: Array<() => void> = [];
 
@@ -99,7 +77,6 @@ describe('check_test_adequacy production path', () => {
       try {
         fn();
       } catch {
-        /* best-effort */
       }
     }
   });
@@ -117,7 +94,6 @@ describe('check_test_adequacy production path', () => {
     } as DispatchContext);
   }
 
-  /** A task branch that changes ONLY source — nothing for the probe to kill. */
   async function sourceOnlyBranch(prefix: string): Promise<string> {
     const repoRoot = await initRepo(prefix);
     cleanups.push(() => rmrf(repoRoot));
@@ -133,14 +109,12 @@ describe('check_test_adequacy production path', () => {
     return repoRoot;
   }
 
-  // ── REQUIRED PROOF 2 — the observed vacuous-pass scenario, preserved ───────
-
+  /**
+   * A high-tier task with no tests to probe gets an indeterminate verdict,
+   * because the probe did not run. The high tier requires a probe, so the gate
+   * blocks. A block is not a skip.
+   */
   it('ObservedVacuousPass_HighTierNoProbeableTests_Blocks', async () => {
-    // The EXACT live payload this fix answers:
-    //   {"passed":true,"redObserved":false,"restoredClean":true,"probedTests":[],
-    //    "discriminant":"no-new-tests","report":"nothing to probe — task adds no tests"}
-    // returned for riskTier:'high'. A high-tier task whose kill probe did not
-    // run is UNVERIFIED, and the gate must block rather than advise.
     const repoRoot = await sourceOnlyBranch('prodpath-observed-');
     const ctx = await makeCtx('prodpath-observed-state-', 'feat-observed');
 
@@ -160,29 +134,20 @@ describe('check_test_adequacy production path', () => {
 
     expect(result.success).toBe(true);
     const data = dataOf(result);
-    // The verdict is INDETERMINATE (the probe did not run) and the high tier
-    // requires it, so the gate BLOCKS.
     expect(data.passed).toBe(false);
     expect(data.disposition).toBe('blocked');
     expect(data.discriminant).toBe('no-new-tests');
     expect(data.probedTests).toEqual([]);
-    // A blocked indeterminate is NOT a skip.
     expect(data.skipped).toBeUndefined();
     expect(data.report).toContain('requires a kill probe');
   }, 180_000);
 
-  // ── REQUIRED PROOF 1 — a skipped check can never read as proof ────────────
-
+  /**
+   * With no risk tier, the gate can pass as a non-blocking advisory. The
+   * carrier must then mark the result as a skip, so a probe that did not run
+   * never looks like a probe that passed.
+   */
   it('ProductionPath_UnstampedTierNoProbeableTests_LabelledSkipNotProof', async () => {
-    // THE structural fix. When no tier is stamped the gate may still degrade to
-    // a NON-BLOCKING advisory (INV-4) — but the carrier must say so out loud.
-    //
-    // Pre-fix the carrier was `{passed:true, discriminant:'no-new-tests',
-    // report:'nothing to probe — task adds no tests'}` with NO skip marker at
-    // all: a check that never ran was, on the wire, byte-indistinguishable from
-    // a check that ran and proved the tests non-vacuous. That is the defect
-    // class — "could not run" and "ran and passed" sharing one channel — and
-    // these two assertions are what fail without the `ProbeVerdict` union.
     const repoRoot = await sourceOnlyBranch('prodpath-skip-');
     const ctx = await makeCtx('prodpath-skip-state-', 'feat-skip');
 
@@ -195,16 +160,13 @@ describe('check_test_adequacy production path', () => {
         branch: 'feature/src-only',
         baseBranch: 'main',
         repoRoot,
-        // NO riskTier — the legacy/unstamped caller.
       },
       ctx,
     );
 
     expect(result.success).toBe(true);
     const data = dataOf(result);
-    // Non-blocking is allowed …
     expect(data.passed).toBe(true);
-    // … but ONLY as an explicitly-labelled SKIP, never as proof.
     expect(data.skipped).toBe(true);
     expect(data.disposition).toBe('advisory-skip');
     expect(data.disposition).not.toBe('proved');
@@ -212,15 +174,13 @@ describe('check_test_adequacy production path', () => {
     expect(data.report).toMatch(/NOT proof/i);
   }, 180_000);
 
-  // ── DR-7 (task 078) — the skip must survive into the DURABLE record ────────
-  //
-  // The proof above stops at the carrier. Its sibling defect lived one layer
-  // deeper: `runGate` normalized the SAME `{passed:true, skipped:true}` carrier
-  // to `verdict:'pass'`, so `admission.evidence-recorded` minted durable proof
-  // and `gate.executed` minted `passed:true` for a gate that never ran. This
-  // drives the identical production composition and reads what actually landed
-  // in the event store, because that is what every downstream reader sees.
-
+  /**
+   * A low-tier task that touches no boundary leaves this gate out of the
+   * verification sequence, so `resolvePolicySkip` skips it. The carrier passes,
+   * but the durable rows must record a skip. The evidence verdict is
+   * `indeterminate`, and the `test-adequacy` `gate.executed` row has
+   * `passed: false` with the reason in `details`.
+   */
   it('ProductionPath_PolicySkippedGate_DurableRowsRecordSkipNotPass', async () => {
     const repoRoot = await sourceOnlyBranch('prodpath-durable-skip-');
     const ctx = await makeCtx('prodpath-durable-skip-state-', 'feat-durable-skip');
@@ -234,9 +194,6 @@ describe('check_test_adequacy production path', () => {
         branch: 'feature/src-only',
         baseBranch: 'main',
         repoRoot,
-        // Low tier + non-boundary — the resolved verification sequence excludes
-        // check_test_adequacy, so `resolvePolicySkip` routes it out. This is the
-        // live producer of `{passed:true, skipped:true, discriminant:…}`.
         riskTier: 'low',
         boundaryTouching: false,
       },
@@ -245,11 +202,9 @@ describe('check_test_adequacy production path', () => {
 
     expect(result.success).toBe(true);
     const data = dataOf(result);
-    // Non-blocking carrier, unchanged …
     expect(data.passed).toBe(true);
     expect(data.skipped).toBe(true);
 
-    // … but the DURABLE proof says nothing was proven.
     const evidenceRows = await ctx.eventStore.query('feat-durable-skip', {
       type: 'admission.evidence-recorded',
     });
@@ -260,7 +215,6 @@ describe('check_test_adequacy production path', () => {
     expect(verdicts).toContain('indeterminate');
     expect(verdicts).not.toContain('pass');
 
-    // … and the signal `task_complete` reads agrees, with the reason attached.
     const gateRows = await ctx.eventStore.query('feat-durable-skip', {
       type: 'gate.executed',
     });
@@ -275,17 +229,13 @@ describe('check_test_adequacy production path', () => {
     }
   }, 180_000);
 
-  // ── REQUIRED PROOF 3 — the gate must probe the RIGHT subject ──────────────
-
+  /**
+   * The root marker `pyproject.toml` selects python, but the task adds the
+   * co-located test `src/calc.test.ts`. The probe must include that file. The
+   * injected `runTests` reports red on the reverted source, so the disposition
+   * is `proved`. The test enters at `handleOrchestrate` to inject `runTests`.
+   */
   it('ProductionPath_ColocatedTestsUnderLayoutToolchain_ResolvesNonEmptyProbedTests', async () => {
-    // SUBJECT FAULT (a). A polyglot repo whose ROOT marker is python
-    // (`pyproject.toml`) but whose tests are co-located `*.test.ts`. The task
-    // genuinely changes a test file, so the probe MUST see it.
-    //
-    // Pre-fix `testGlobsForToolchain('python')` REPLACED the co-located
-    // defaults, so `src/calc.test.ts` was classified as SOURCE, `probedTests`
-    // came back `[]`, and the gate reported `no-new-tests` for a task that
-    // plainly added a test — the gate probing the wrong subject.
     const repoRoot = await initRepo('prodpath-subject-');
     cleanups.push(() => rmrf(repoRoot));
     writeFileSync(path.join(repoRoot, 'pyproject.toml'), '[project]\nname = "fx"\n');
@@ -311,8 +261,6 @@ describe('check_test_adequacy production path', () => {
           baseBranch: 'main',
           repoRoot,
           riskTier: 'high',
-          // Injected so no real test runner is needed; the probe reports RED on
-          // the reverted source, which is the genuine kill.
           runTests: async () => ({ passed: false, output: 'red on revert' }),
         },
         ctx,
@@ -324,18 +272,16 @@ describe('check_test_adequacy production path', () => {
     expect(data.probedTests).toEqual(expect.arrayContaining(['src/calc.test.ts']));
     expect(data.probedTests?.length ?? 0).toBeGreaterThan(0);
     expect(data.discriminant).not.toBe('no-new-tests');
-    // Right subject + observed kill ⇒ a real proof, not a skip.
     expect(data.disposition).toBe('proved');
     expect(data.passed).toBe(true);
     expect(data.skipped).toBeUndefined();
   }, 180_000);
 
-  // ── Execution failures fail closed on EVERY tier, and are never skips ─────
-
+  /**
+   * `diff-failed` is an execution failure of the probe, not an empty subject.
+   * It blocks the gate even at the low tier and is not a skip.
+   */
   it('ProductionPath_DiffFailure_BlocksEvenAtLowTier', async () => {
-    // `diff-failed` is indeterminate too, but it is an EXECUTION failure of a
-    // probe that was supposed to run — not a legitimate "nothing to do". It
-    // must never degrade to an advisory skip, even on the low tier.
     const repoRoot = await sourceOnlyBranch('prodpath-difffail-');
     const ctx = await makeCtx('prodpath-difffail-state-', 'feat-difffail');
 
@@ -362,8 +308,6 @@ describe('check_test_adequacy production path', () => {
   }, 180_000);
 });
 
-// ─── Unit-level pins on the verdict algebra ──────────────────────────────────
-
 describe('ProbeVerdict algebra', () => {
   const ALL_CAUSES: readonly AdequacyDiscriminant[] = [
     'no-new-tests',
@@ -386,14 +330,13 @@ describe('ProbeVerdict algebra', () => {
     }
   });
 
+  /** An indeterminate verdict is never a proof. It is blocked or an explicit skip. */
   it('Indeterminate_AtLowTier_IsAlwaysLabelledSkipWhenNonBlocking', () => {
     for (const cause of ALL_CAUSES) {
       const interpretation = interpretProbeVerdict(
         { kind: 'indeterminate', cause, detail: 'probe did not run' },
         'low',
       );
-      // Whatever the policy decides, an indeterminate verdict is NEVER
-      // reported as a proof: it is either blocked, or an explicit skip.
       expect(interpretation.disposition).not.toBe('proved');
       if (interpretation.passed) {
         expect(interpretation.skipped).toBe(true);
@@ -428,10 +371,12 @@ describe('ProbeVerdict algebra', () => {
     }
   });
 
+  /**
+   * `verdictOf` does not read `passed`, so a carrier that claims `passed: true`
+   * with a "could not run" discriminant becomes an indeterminate verdict. At a
+   * required tier, that verdict blocks.
+   */
   it('VerdictOf_LegacyVacuousCarrier_ReconstructsIndeterminateNotPass', () => {
-    // A hand-authored legacy carrier claiming `passed:true` alongside a
-    // "could not run" discriminant must NOT be trusted: `verdictOf` never reads
-    // `passed`, so the claim cannot smuggle a skipped check through as success.
     const verdict = verdictOf({
       passed: true,
       redObserved: false,
@@ -441,7 +386,6 @@ describe('ProbeVerdict algebra', () => {
       report: 'nothing to probe — task adds no tests',
     });
     expect(verdict.kind).toBe('indeterminate');
-    // …and at a required tier that reconstruction blocks.
     expect(interpretProbeVerdict(verdict, 'high').passed).toBe(false);
   });
 
@@ -457,6 +401,10 @@ describe('ProbeVerdict algebra', () => {
     expect(interpretProbeVerdict(verdict, 'low').passed).toBe(false);
   });
 
+  /**
+   * The toolchain globs add to the co-located defaults and do not replace them.
+   * With no toolchain layout, the result is the co-located defaults.
+   */
   it('ResolveProbeTestGlobs_AugmentsRatherThanReplacesColocatedDefaults', () => {
     const merged = resolveProbeTestGlobs(['tests/**', '**/test_*.py']);
     for (const glob of DEFAULT_TEST_GLOBS) {
@@ -464,7 +412,6 @@ describe('ProbeVerdict algebra', () => {
     }
     expect(merged).toContain('tests/**');
     expect(merged).toContain('**/test_*.py');
-    // No toolchain layout → the co-located defaults, unchanged.
     expect(resolveProbeTestGlobs(null)).toEqual(DEFAULT_TEST_GLOBS);
   });
 });

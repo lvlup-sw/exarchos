@@ -1,15 +1,8 @@
-// ─── CLI-vs-MCP Parity Tests for exarchos_orchestrate ──────────────────────
-//
-// Implements DR-3 (CLI output parity with MCP) for a fast subset of orchestrate
-// actions: check_design_completeness, check_plan_coverage, task_claim, task_complete.
-//
-// For each action, we invoke the handler twice:
-//   • CLI arm — via `buildCli(ctx).parseAsync([...])`, capturing JSON stdout.
-//   • MCP arm — via direct `dispatch('exarchos_orchestrate', ...)`.
-//
-// Both arms use isolated tmp state dirs (so side effects don't collide).
-// Payloads are normalized (timestamps/UUIDs stripped) before deep-equal.
-// ───────────────────────────────────────────────────────────────────────────
+/**
+ * CLI-versus-MCP parity tests for a fast subset of `exarchos_orchestrate` actions.
+ * Each test calls the action through the CLI and through MCP dispatch, each arm in its own temp state dir.
+ * The test normalizes both payloads before it compares them.
+ */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp, writeFile } from 'node:fs/promises';
@@ -25,16 +18,14 @@ import {
   normalize as harnessNormalize,
 } from '../parity-harness.js';
 
-// ─── Shared Helpers ────────────────────────────────────────────────────────
-
 interface ArmContext {
   readonly stateDir: string;
   readonly ctx: DispatchContext;
 }
 
 /**
- * Build an isolated DispatchContext backed by a fresh tmp state dir + EventStore.
- * Each arm of a parity test gets its own arm so side effects don't cross-contaminate.
+ * Builds a DispatchContext on a fresh temp state dir and EventStore, with a seeded active phase attempt.
+ * Each arm has its own context, so the side effects stay apart.
  */
 async function createArm(prefix: string): Promise<ArmContext> {
   const stateDir = await mkdtemp(path.join(tmpdir(), prefix));
@@ -72,23 +63,11 @@ async function callMcp(
   return harnessCallMcp(ctx, 'exarchos_orchestrate', { action, ...args });
 }
 
-// ─── Normalization ─────────────────────────────────────────────────────────
-
 import { UUID_ANY_RE } from '../parity-harness.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 import { seedActivePhaseAttempt, withTrustedCaller } from '../../../tools/test-helpers/trusted-context.js';
 
-/**
- * Orchestrate suite normalizer. Historical placeholders:
- *   • ISO-8601 timestamps → `<TIMESTAMP>`
- *   • UUIDs (any version) → `<UUID>`
- *   • Commit SHAs → `<SHA>`
- *   • Tmp paths → `<TMP_PATH>`
- *   • `_perf` / `_meta` keys dropped
- *   • Keyed transforms: timestamp/UUID keys replaced even when the value
- *     isn't a matching ISO/UUID string (e.g. `claimedAt: Date` already
- *     serialized to string but still keyed explicitly).
- */
+/** Keys whose values the normalizer replaces with `<TIMESTAMP>`, whatever the value format. */
 const TIMESTAMP_KEYS = new Set([
   'timestamp',
   'claimedAt',
@@ -98,6 +77,10 @@ const TIMESTAMP_KEYS = new Set([
 ]);
 const UUID_KEYS = new Set(['eventId', 'id']);
 
+/**
+ * Replaces timestamps, UUIDs, commit SHAs, and temp paths with placeholders. It drops `_perf`, `_meta`, and `evidenceReferences`.
+ * Each arm has its own event store, so the content-addressed evidence ids differ. They are not part of the payload contract under comparison.
+ */
 function normalize(value: unknown): unknown {
   return harnessNormalize(value, {
     timestampPlaceholder: '<TIMESTAMP>',
@@ -107,17 +90,9 @@ function normalize(value: unknown): unknown {
     uuidRegex: UUID_ANY_RE,
     timestampKeys: TIMESTAMP_KEYS,
     uuidKeys: UUID_KEYS,
-    // videnceReferences carries the durable evidence identity the canonical
-    // gate runner minted for THIS arm. Each arm owns a separate state dir and
-    // event store, so the content-addressed evidenceId necessarily differs —
-    // it is arm-local provenance, not part of the CLI/MCP payload contract
-    // under comparison. Evidence PERSISTENCE is proven by the gate integration
-    // suites, which assert the reference and its digest directly.
     dropKeys: new Set(['_perf', '_meta', 'evidenceReferences']),
   });
 }
-
-// ─── Fixtures ──────────────────────────────────────────────────────────────
 
 const MINIMAL_DESIGN = `# Widget System — Design
 
@@ -148,11 +123,10 @@ Unit tests for all components.
 - None blocking.
 `;
 
-// #1581 task 013: check_design_completeness is now a deprecated alias that
-// delegates to check_plan_coverage on the UNIFIED docs/specs/ artifact (design
-// + decomposition in one file). The parity test below feeds this fixture so the
-// delegated plan-coverage run succeeds (every design section is covered by a
-// task) and CLI/MCP return equal payloads.
+/**
+ * `check_design_completeness` is a deprecated alias of `check_plan_coverage` on the unified spec.
+ * A task covers each design section of this fixture, so the delegated run succeeds.
+ */
 const UNIFIED_SPEC = `${MINIMAL_DESIGN}
 ## Decomposition
 
@@ -181,8 +155,6 @@ Build the API integration.
 Design section: API Client
 `;
 
-// ─── Tests ─────────────────────────────────────────────────────────────────
-
 describe('exarchos_orchestrate CLI-vs-MCP parity', () => {
   let arms: ArmContext[] = [];
 
@@ -200,13 +172,11 @@ describe('exarchos_orchestrate CLI-vs-MCP parity', () => {
   });
 
   it('OrchestrateParity_CheckDesignCompleteness_CliAndMcp_ReturnEqualPayload', async () => {
-    // Arrange — two isolated arms, each with its own copy of the design fixture.
     const cliArm = await createArm('parity-design-cli-');
     arms.push(cliArm);
     const cliDesign = path.join(cliArm.stateDir, 'design.md');
     await writeFile(cliDesign, UNIFIED_SPEC, 'utf-8');
 
-    // Act (CLI)
     resetMaterializerCache();
     const cliResult = await callCli(cliArm.ctx, 'check_design_completeness', {
       featureId: 'parity-feat',
@@ -218,20 +188,17 @@ describe('exarchos_orchestrate CLI-vs-MCP parity', () => {
     const mcpDesign = path.join(mcpArm.stateDir, 'design.md');
     await writeFile(mcpDesign, UNIFIED_SPEC, 'utf-8');
 
-    // Act (MCP)
     resetMaterializerCache();
     const mcpResult = await callMcp(mcpArm.ctx, 'check_design_completeness', {
       featureId: 'parity-feat',
       designPath: mcpDesign,
     });
 
-    // Assert — payloads equal modulo timestamps/UUIDs/perf
     expect(normalize(cliResult)).toEqual(normalize(mcpResult));
     expect(cliResult.success).toBe(true);
   });
 
   it('OrchestrateParity_CheckPlanCoverage_CliAndMcp_ReturnEqualPayload', async () => {
-    // Arrange — two isolated arms, each with design + plan fixtures.
     const cliArm = await createArm('parity-plan-cli-');
     arms.push(cliArm);
     const cliDesign = path.join(cliArm.stateDir, 'design.md');
@@ -239,7 +206,6 @@ describe('exarchos_orchestrate CLI-vs-MCP parity', () => {
     await writeFile(cliDesign, MINIMAL_DESIGN, 'utf-8');
     await writeFile(cliPlan, MINIMAL_PLAN, 'utf-8');
 
-    // Act (CLI)
     resetMaterializerCache();
     const cliResult = await callCli(cliArm.ctx, 'check_plan_coverage', {
       featureId: 'parity-feat',
@@ -254,7 +220,6 @@ describe('exarchos_orchestrate CLI-vs-MCP parity', () => {
     await writeFile(mcpDesign, MINIMAL_DESIGN, 'utf-8');
     await writeFile(mcpPlan, MINIMAL_PLAN, 'utf-8');
 
-    // Act (MCP)
     resetMaterializerCache();
     const mcpResult = await callMcp(mcpArm.ctx, 'check_plan_coverage', {
       featureId: 'parity-feat',
@@ -262,19 +227,12 @@ describe('exarchos_orchestrate CLI-vs-MCP parity', () => {
       planPath: mcpPlan,
     });
 
-    // Assert — payloads equal modulo timestamps/UUIDs/perf
     expect(normalize(cliResult)).toEqual(normalize(mcpResult));
     expect(cliResult.success).toBe(true);
   });
 
+  /** Each arm gets a `task.assigned` event, so the claim is legal. The seed uses the event store of the arm, because dispatch reads through that store. */
   it('OrchestrateParity_TaskClaim_CliAndMcp_ReturnEqualPayload', async () => {
-    // Arrange — seed task.assigned events in each arm so the claim is legal.
-    //
-    // Use the arm's existing `ctx.eventStore` rather than instantiating a second
-    // `EventStore(cliArm.stateDir)` — a second instance loses the PID lock held
-    // by the arm's store (task-022 hardening routes non-lock-holder writes to a
-    // sidecar file), which then fails to be seen by `handleTaskClaim`'s module-
-    // level store cache and triggers spurious `CLAIM_FAILED` retry exhaustion.
     const streamId = 'parity-claim-wf';
 
     const cliArm = await createArm('parity-claim-cli-');
@@ -284,7 +242,6 @@ describe('exarchos_orchestrate CLI-vs-MCP parity', () => {
       data: { taskId: 't-parity-1', title: 'Parity claim', assignee: 'agent-parity' },
     });
 
-    // Act (CLI)
     resetMaterializerCache();
     const cliResult = await callCli(cliArm.ctx, 'task_claim', {
       taskId: 't-parity-1',
@@ -299,7 +256,6 @@ describe('exarchos_orchestrate CLI-vs-MCP parity', () => {
       data: { taskId: 't-parity-1', title: 'Parity claim', assignee: 'agent-parity' },
     });
 
-    // Act (MCP)
     resetMaterializerCache();
     const mcpResult = await callMcp(mcpArm.ctx, 'task_claim', {
       taskId: 't-parity-1',
@@ -307,28 +263,18 @@ describe('exarchos_orchestrate CLI-vs-MCP parity', () => {
       streamId,
     });
 
-    // Assert
     expect(normalize(cliResult)).toEqual(normalize(mcpResult));
     expect(cliResult.success).toBe(true);
   });
 
+  /**
+   * Each arm gets `task.assigned`, `task.claimed`, and a passing `static-analysis` gate row, so `task_complete` is legal.
+   * Caller evidence cannot satisfy a blocking gate, so the fixture seeds the gate row. The `evidence` argument stays because it records provenance.
+   * The seed uses the event store of the arm, because dispatch reads through that store.
+   */
   it('OrchestrateParity_TaskComplete_CliAndMcp_ReturnEqualPayload', async () => {
-    // Arrange — seed each arm with task.assigned + task.claimed so `task_complete`
-    // is legal, plus a real passing `static-analysis` gate.executed row.
-    //
-    // DR-2 (T-03): this fixture previously supplied `evidence.type: 'manual'` +
-    // `passed: true` to trip the gate bypass. Caller-supplied evidence can no
-    // longer satisfy a BLOCKING gate — the governed cannot mint its own proof
-    // of compliance — so the fixture now seeds the gate signal a producer
-    // actually emits. `evidence` is retained because its provenance-recording
-    // role is unchanged; it simply no longer carries the completion.
     const streamId = 'parity-complete-wf';
 
-    // Reuse the arm's already-initialized EventStore. Pre-v2.11 a fresh
-    // `new EventStore(stateDir).initialize()` here silently entered sidecar
-    // mode under the existing PID lock; v2.11 (#1082) deletes that
-    // fallback, so the seed must operate on the same store the dispatch
-    // path will read through.
     const seedStream = async (store: EventStore) => {
       await store.append(streamId, {
         type: 'task.assigned',
@@ -365,7 +311,6 @@ describe('exarchos_orchestrate CLI-vs-MCP parity', () => {
     arms.push(cliArm);
     await seedStream(cliArm.ctx.eventStore);
 
-    // Act (CLI)
     resetMaterializerCache();
     const cliResult = await callCli(cliArm.ctx, 'task_complete', completeArgs);
 
@@ -373,23 +318,18 @@ describe('exarchos_orchestrate CLI-vs-MCP parity', () => {
     arms.push(mcpArm);
     await seedStream(mcpArm.ctx.eventStore);
 
-    // Act (MCP)
     resetMaterializerCache();
     const mcpResult = await callMcp(mcpArm.ctx, 'task_complete', completeArgs);
 
-    // Assert
     expect(normalize(cliResult)).toEqual(normalize(mcpResult));
     expect(cliResult.success).toBe(true);
   });
 
+  /**
+   * Both arms must return the same hints for a workflow in the `review` phase. Neither lists the auto-emitted `review.routed` as missing.
+   * Two seed events put the stream in the `review` phase without the HSM guard.
+   */
   it('OrchestrateParity_CheckEventEmissions_ReviewRoutedAuto_CliAndMcp_ReturnEqualPayload', async () => {
-    // RC2 (#1395) — a WITNESS for the governing INV-2 (equivalence by
-    // construction), not the invariant itself. After migrating `review.routed`
-    // model → auto, both carriers must compute identical `_eventHints` for a
-    // `review`-phase workflow: review.routed must NOT appear among the missing
-    // hints on either arm. Driving the stream into `review` phase via two seed
-    // events (workflow.started → workflow.transition to review) mirrors the
-    // rehydrate fixture and is independent of HSM guard state.
     const streamId = 'parity-emissions-review';
 
     const seedReviewPhase = async (
@@ -409,7 +349,6 @@ describe('exarchos_orchestrate CLI-vs-MCP parity', () => {
     arms.push(cliArm);
     await seedReviewPhase(cliArm.ctx.eventStore);
 
-    // Act (CLI)
     resetMaterializerCache();
     const cliResult = await callCli(cliArm.ctx, 'check_event_emissions', {
       featureId: streamId,
@@ -419,17 +358,14 @@ describe('exarchos_orchestrate CLI-vs-MCP parity', () => {
     arms.push(mcpArm);
     await seedReviewPhase(mcpArm.ctx.eventStore);
 
-    // Act (MCP)
     resetMaterializerCache();
     const mcpResult = await callMcp(mcpArm.ctx, 'check_event_emissions', {
       featureId: streamId,
     });
 
-    // Assert — byte-equal payloads across carriers (INV-2)…
     expect(normalize(cliResult)).toEqual(normalize(mcpResult));
     expect(cliResult.success).toBe(true);
 
-    // …and review.routed must be absent from the missing-event hints on both.
     const hintTypes = (r: ToolResult): string[] => {
       const data = (r as { data?: { hints?: Array<{ eventType: string }> } }).data;
       return (data?.hints ?? []).map((h) => h.eventType);

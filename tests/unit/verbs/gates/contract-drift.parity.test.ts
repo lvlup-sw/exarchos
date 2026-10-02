@@ -1,17 +1,10 @@
 /**
- * CLI↔MCP parity tests for the `check_contract_drift` action (INV-2).
+ * CLI and MCP parity for the `check_contract_drift` action.
  *
- * `check_contract_drift` has two user-visible facades:
- *   1. MCP — `exarchos_orchestrate { action: 'check_contract_drift' }`.
- *   2. CLI — the auto-generated `exarchos orch check_contract_drift` surface,
- *      emitted from the action's Zod schema in registry.ts.
- *
- * Both dispatch through the same composite, so for a given input they MUST
- * project byte-identical `ToolResult` payloads (modulo wall-clock fields).
- *
- * Strategy mirrors test-adequacy.parity.test.ts: stub the composite so the
- * action forwards to the real `handleContractDrift`, and mock the pure
- * `runContractDrift` so the gate is deterministic and never shells out.
+ * Both facades dispatch through the same composite, so for one input they must
+ * return byte-identical `ToolResult` payloads after normalization. The stub
+ * forwards to the real `handleContractDrift`. A mock of `runContractDrift` keeps
+ * the gate deterministic and stops it from running shell commands.
  */
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
@@ -19,7 +12,7 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
-// Mock the drift core so both arms compute the same deterministic result.
+/** The mock of the drift core. Both arms get the same result from it. */
 const mockRunContractDrift = vi.fn();
 vi.mock('../../../../src/verbs/gates/contract-drift.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../../src/verbs/gates/contract-drift.js')>();
@@ -97,17 +90,15 @@ function buildContractDriftCompositeStub(): CompositeHandler {
   };
 }
 
+/**
+ * Drops `_perf`, `_meta` and `evidenceReferences`. Each arm owns a separate
+ * event store, so the content-addressed evidence id differs per arm.
+ */
 function normalize(value: unknown): unknown {
   return harnessNormalize(value, {
     timestampPlaceholder: '<TS>',
     uuidPlaceholder: '<UUID>',
     keyPlaceholders: { ms: '<MS>' },
-    // videnceReferences carries the durable evidence identity the canonical
-    // gate runner minted for THIS arm. Each arm owns a separate state dir and
-    // event store, so the content-addressed evidenceId necessarily differs —
-    // it is arm-local provenance, not part of the CLI/MCP payload contract
-    // under comparison. Evidence PERSISTENCE is proven by the gate integration
-    // suites, which assert the reference and its digest directly.
     dropKeys: new Set(['_perf', '_meta', 'evidenceReferences']),
   });
 }
@@ -127,8 +118,11 @@ describe('exarchos check_contract_drift CLI↔MCP parity (INV-2)', () => {
     mockRunContractDrift.mockReset();
   });
 
+  /**
+   * CLI and MCP results match for a passing gate and for a failing gate. A
+   * failing gate is still a successful tool call.
+   */
   it('ContractDrift_CliVsMcp_IdenticalResultForSameInput', async () => {
-    // ─── Pass path ─────────────────────────────────────────────────────────
     mockRunContractDrift.mockResolvedValue(makePassResult());
     restoreStub = stubCompositeHandler(
       'exarchos_orchestrate',
@@ -164,7 +158,6 @@ describe('exarchos check_contract_drift CLI↔MCP parity (INV-2)', () => {
     expect(normalizedCli).toEqual(normalizedMcp);
     expect(JSON.stringify(normalizedCli)).toEqual(JSON.stringify(normalizedMcp));
 
-    // ─── Fail path ─────────────────────────────────────────────────────────
     mockRunContractDrift.mockResolvedValue(makeFailResult());
 
     const cliFailArm = await createArm('contract-parity-cli-fail-');
@@ -183,7 +176,6 @@ describe('exarchos check_contract_drift CLI↔MCP parity (INV-2)', () => {
       ...PARITY_ARGS,
     });
 
-    // A failing gate is still a successful tool call (advisory carrier).
     expect(cliFail.success).toBe(true);
     expect(mcpFail.success).toBe(true);
     const cliFailData = cliFail.data as { passed: boolean; drift: boolean };
