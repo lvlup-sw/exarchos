@@ -1,14 +1,10 @@
 import type { WorkflowEvent } from '../../../src/events/schemas.js';
 import type { EvalCase } from './types.js';
 
-// ─── Options ────────────────────────────────────────────────────────────────
-
 export interface CaptureOptions {
   /** Filter events by skill/source. */
   skill?: string | undefined;
 }
-
-// ─── Paired Event Types ─────────────────────────────────────────────────────
 
 /** Event types that represent the start of an action (input). */
 const INPUT_EVENT_TYPES = new Set([
@@ -26,14 +22,9 @@ const OUTPUT_EVENT_TYPES = new Set([
   'workflow.cancel',
 ]);
 
-// ─── Core Capture Logic ─────────────────────────────────────────────────────
-
 /**
- * Extract eval cases from a sequence of workflow events.
- *
- * Pairs input events (workflow.started, workflow.transition, task.assigned)
- * with their corresponding output events (task.completed, task.failed) to
- * create trace-type eval cases suitable for regression testing.
+ * Extracts regression trace cases from workflow events. Each output event pairs with the most
+ * recent unpaired input event. A last input event with no output becomes an `unmatched` case.
  */
 export function captureTrace(
   events: WorkflowEvent[],
@@ -41,7 +32,6 @@ export function captureTrace(
 ): EvalCase[] {
   if (events.length === 0) return [];
 
-  // Optionally filter events by skill/source
   const filtered = options?.skill
     ? events.filter((e) => e.source === options.skill)
     : events;
@@ -78,7 +68,6 @@ export function captureTrace(
     }
   }
 
-  // If there's a trailing input with no matching output, capture it
   if (pendingInput) {
     const skillLabel = options?.skill ?? pendingInput.source ?? 'unknown';
     cases.push({

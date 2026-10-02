@@ -1,8 +1,6 @@
 import { z } from 'zod';
 import { loadJsonl } from './jsonl-reader.js';
 
-// ─── HumanGradedCase ────────────────────────────────────────────────────────
-
 export const HumanGradedCaseSchema = z.object({
   caseId: z.string().min(1),
   skill: z.string().min(1),
@@ -14,8 +12,6 @@ export const HumanGradedCaseSchema = z.object({
 });
 
 export type HumanGradedCase = z.infer<typeof HumanGradedCaseSchema>;
-
-// ─── CalibrationReport ──────────────────────────────────────────────────────
 
 const DisagreementSchema = z.object({
   caseId: z.string(),
@@ -43,8 +39,6 @@ export const CalibrationReportSchema = z.object({
 
 export type CalibrationReport = z.infer<typeof CalibrationReportSchema>;
 
-// ─── CalibrateInput ─────────────────────────────────────────────────────────
-
 export const CalibrateInputSchema = z.object({
   goldStandardPath: z.string(),
   split: z.enum(['validation', 'test']),
@@ -53,17 +47,11 @@ export const CalibrateInputSchema = z.object({
 
 export type CalibrateInput = z.infer<typeof CalibrateInputSchema>;
 
-// ─── Split Type ────────────────────────────────────────────────────────────
-
 export type CalibrationSplit = 'train' | 'validation' | 'test';
 
-// ─── JSONL Loader ───────────────────────────────────────────────────────────
-
 /**
- * Load human-graded cases from a JSONL file.
- *
- * Each non-blank line is parsed as JSON and validated against HumanGradedCaseSchema.
- * Throws with line number on parse or validation errors.
+ * Loads human-graded cases from a JSONL file. It throws with the line number when a
+ * line is not valid JSON or fails `HumanGradedCaseSchema`.
  */
 export async function loadGoldStandard(filePath: string): Promise<HumanGradedCase[]> {
   return loadJsonl(filePath, HumanGradedCaseSchema);

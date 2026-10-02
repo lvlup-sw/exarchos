@@ -1,21 +1,15 @@
 #!/usr/bin/env node
 /**
- * Standalone entrypoint for the Eval Gate workflow.
+ * Standalone entrypoint for the Eval Gate workflow (`.github/workflows/eval-gate.yml`).
  *
- * Reads a single JSON object from stdin describing the run options, then
- * invokes `runAll()` against the resolved evals directory and writes a
- * report (CI annotations or rich CLI output) to stderr. Exit code reflects
- * regression-layer pass/fail; capability-layer failures are advisory.
+ * It reads one JSON object of run options from stdin, calls `runAll()` on the evals directory, and writes
+ * the report to stderr. The exit code is 1 when a case fails or no suite runs. A `capability` run exits 0
+ * even when cases fail.
  *
- * Replaces the deleted `lifecycle/eval-run.ts` handler that was wired
- * through the MCP-server stdin-JSON router (also removed in v2.9). The
- * workflow file `.github/workflows/eval-gate.yml` invokes this script
- * directly via `node dist/evals/run-evals-cli.js`.
- *
- * stdin shape (all fields optional):
+ * stdin shape (all fields optional). `ci` selects CI annotations, and `skill` limits the run to one skill:
  *   {
- *     "ci"?: boolean,                                // CI annotations to stderr
- *     "skill"?: string,                              // restrict to one skill suite
+ *     "ci"?: boolean,
+ *     "skill"?: string,
  *     "layer"?: "regression" | "capability" | "reliability"
  *   }
  */
@@ -72,6 +66,7 @@ async function readStdinJson(): Promise<Record<string, unknown>> {
   return parsed as Record<string, unknown>;
 }
 
+/** Runs the suites and returns the exit code. The CLI is its own process, so it opens its own `EventStore`. */
 async function main(): Promise<number> {
   const stdinData = await readStdinJson();
   const ciMode = stdinData['ci'] === true;
@@ -85,7 +80,6 @@ async function main(): Promise<number> {
 
   const evalsDir = resolveEvalsDir();
   const stateDir = resolveStateDir();
-  // CLI entrypoint — bootstrap own EventStore (separate process boundary).
   const store = new EventStore(stateDir);
   await store.initialize();
   const eventStore: EvalEventStore = {

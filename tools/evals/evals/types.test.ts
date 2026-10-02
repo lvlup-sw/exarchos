@@ -10,8 +10,6 @@ import {
   RunSummarySchema,
 } from './types.js';
 
-// ─── GradeResultSchema ──────────────────────────────────────────────────
-
 describe('GradeResultSchema', () => {
   it('Parse_ValidInput_Succeeds', () => {
     const result = GradeResultSchema.parse({
@@ -53,8 +51,6 @@ describe('GradeResultSchema', () => {
   });
 });
 
-// ─── AssertionConfigSchema ──────────────────────────────────────────────
-
 describe('AssertionConfigSchema', () => {
   it('Parse_ValidInput_Succeeds', () => {
     const result = AssertionConfigSchema.parse({
@@ -63,7 +59,7 @@ describe('AssertionConfigSchema', () => {
     });
     expect(result.type).toBe('exact-match');
     expect(result.name).toBe('check-output');
-    expect(result.threshold).toBe(1.0); // default
+    expect(result.threshold).toBe(1.0);
   });
 
   it('Parse_AllTypes_Succeeds', () => {
@@ -130,8 +126,6 @@ describe('AssertionConfigSchema', () => {
   });
 });
 
-// ─── AssertionResultSchema ──────────────────────────────────────────────
-
 describe('AssertionResultSchema', () => {
   it('Parse_ValidInput_Succeeds', () => {
     const result = AssertionResultSchema.parse({
@@ -191,8 +185,6 @@ describe('AssertionResultSchema', () => {
   });
 });
 
-// ─── EvalCaseSchema ─────────────────────────────────────────────────────
-
 describe('EvalCaseSchema', () => {
   it('Parse_ValidInput_Succeeds', () => {
     const result = EvalCaseSchema.parse({
@@ -203,7 +195,7 @@ describe('EvalCaseSchema', () => {
       expected: { output: 'world' },
     });
     expect(result.id).toBe('case-1');
-    expect(result.tags).toEqual([]); // default
+    expect(result.tags).toEqual([]);
   });
 
   it('Parse_EmptyId_Rejects', () => {
@@ -242,8 +234,6 @@ describe('EvalCaseSchema', () => {
     expect(result.tags).toEqual(['smoke', 'regression']);
   });
 });
-
-// ─── EvalResultSchema ───────────────────────────────────────────────────
 
 describe('EvalResultSchema', () => {
   it('Parse_ValidInput_Succeeds', () => {
@@ -315,8 +305,6 @@ describe('EvalResultSchema', () => {
   });
 });
 
-// ─── EvalSuiteConfigSchema ──────────────────────────────────────────────
-
 describe('EvalSuiteConfigSchema', () => {
   it('Parse_ValidInput_Succeeds', () => {
     const result = EvalSuiteConfigSchema.parse({
@@ -342,8 +330,6 @@ describe('EvalSuiteConfigSchema', () => {
     ).toThrow();
   });
 });
-
-// ─── RunSummarySchema ───────────────────────────────────────────────────
 
 describe('RunSummarySchema', () => {
   it('Parse_ValidInput_Succeeds', () => {
@@ -423,10 +409,7 @@ describe('RunSummarySchema', () => {
   });
 });
 
-// ─── Property Tests ─────────────────────────────────────────────────────
-
 describe('Schema Property Tests', () => {
-  // Arbitrary generators for valid schema inputs
   const arbScore = fc.double({ min: 0, max: 1, noNaN: true });
 
   const arbGradeResult = fc.record({

@@ -1,21 +1,16 @@
 import type { HumanGradedCase, CalibrationSplit } from './calibration-types.js';
 
-// ─── Hash Function ─────────────────────────────────────────────────────
-
 /**
- * Simple deterministic hash: sum of character codes.
- * Sufficient for split assignment — not cryptographic.
+ * Deterministic string hash: `hash * 31 + charCode`, kept as an unsigned 32-bit value.
+ * It is good enough for split assignment. It is not cryptographic.
  */
 function hashString(s: string): number {
   let hash = 0;
   for (let i = 0; i < s.length; i++) {
-    // djb2-style: hash * 31 + charCode for better distribution
     hash = (hash * 31 + s.charCodeAt(i)) >>> 0;
   }
   return hash;
 }
-
-// ─── Split Assignment ──────────────────────────────────────────────────
 
 /**
  * Deterministically assigns a case ID to a split.
@@ -33,12 +28,7 @@ export function assignSplit(caseId: string): CalibrationSplit {
   return 'test';
 }
 
-// ─── Filter by Split ───────────────────────────────────────────────────
-
-/**
- * Filters a list of human-graded cases to only those
- * belonging to the given split.
- */
+/** Returns the human-graded cases that belong to the given split. */
 export function filterBySplit(
   cases: HumanGradedCase[],
   split: CalibrationSplit,

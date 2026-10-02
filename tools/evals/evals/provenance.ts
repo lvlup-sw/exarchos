@@ -1,48 +1,35 @@
 /**
- * Shared eval provenance + fail-honest helper (DR-7).
+ * Shared eval provenance and fail-honest helpers. Each experiment writes its raw-data artifacts
+ * through this module, so a reader can reproduce or reject a published number.
  *
- * A small module every experiment writes its raw-data artifacts through, so a
- * reader can reproduce or invalidate any published number:
+ * - {@link stampProvenance} attaches `{ binaryTag, gitSha, modelIds, date }` to a record. It
+ *   throws when a field is missing.
+ * - {@link assertMeasured} rejects a record that is not flagged `measured`.
  *
- *   - {@link stampProvenance} pins `{ binaryTag, gitSha, modelIds, date }` onto a
- *     record. All four are REQUIRED — it throws if any is missing. `date`,
- *     `gitSha`, and `binaryTag` are supplied BY THE CALLER (no ambient clock, no
- *     `new Date()`, no reading git here) so the stamp core is a pure function and
- *     runs reproduce byte-for-byte.
- *   - {@link assertMeasured} rejects any record self-flagged `modeled` or
- *     `assumed`, admitting only `measured` results.
- *
- * ── Honest limit (read before trusting this) ────────────────────────────────
- * This is a CONVENTION BACKSTOP, not a proof of authenticity. It enforces that
- * provenance is present and rejects a record that *declares itself* modeled — but
- * it CANNOT structurally detect a pure-function result that has been mislabeled
- * as `measured`. That was the #1669 sin, and the structural defense against it
- * lives elsewhere: the experiments (Exp 1/2/3) that drive the real binary, real
- * headless Claude Code, and the real harness grader. This helper is the belt;
- * those experiments are the mechanism. Do not mistake a green `assertMeasured`
- * for evidence that a number was actually measured.
+ * Limit: this is a convention backstop, not a proof of authenticity. It cannot detect a
+ * pure-function result with a false `measured` flag. The experiments that drive the real binary,
+ * headless Claude Code, and the real harness grader are the structural defense. A green
+ * `assertMeasured` is not evidence that a number was measured.
  */
 
 /**
- * Where a metric came from — the honest-provenance discriminant every raw-data
- * record carries. Only `measured` is admissible as a published result; the other
- * two exist so a record can be honest about being a stand-in.
+ * Where a metric came from. Only `measured` is admissible as a published result. The other two
+ * values let a record declare that it is a stand-in.
  */
 export type MeasurementSource = 'measured' | 'modeled' | 'assumed';
 
 /**
- * Reproducibility pin attached to every raw-data artifact. All fields are
- * caller-supplied — nothing here is read from the ambient environment — so the
- * same inputs always produce the same stamp.
+ * The reproducibility pin on a raw-data artifact. The caller supplies every field, so the same
+ * inputs give the same stamp.
  */
 export interface Provenance {
-  /** Exact binary version/tag the artifact was produced with (e.g. `v2.12.0-preview.2`). */
+  /** The binary version or tag that produced the artifact, for example `v2.12.0-preview.2`. */
   readonly binaryTag: string;
   /** Git SHA of the measured binary. */
   readonly gitSha: string;
   /** Model IDs involved in the run (at least one). */
   readonly modelIds: readonly string[];
-  /** Caller-supplied date string (e.g. ISO-8601) — NO ambient clock, so runs reproduce. */
+  /** A caller-supplied date string, for example ISO-8601. No clock is read, so runs reproduce. */
   readonly date: string;
 }
 
@@ -62,7 +49,7 @@ export class ProvenanceError extends Error {
   }
 }
 
-/** The required keys of {@link Provenance}, in stamp order — the single source of truth for "what must be present". */
+/** The required keys of {@link Provenance}, in stamp order. */
 export const REQUIRED_PROVENANCE_KEYS = ['binaryTag', 'gitSha', 'modelIds', 'date'] as const;
 
 function isNonEmptyString(value: unknown): value is string {
@@ -70,10 +57,10 @@ function isNonEmptyString(value: unknown): value is string {
 }
 
 /**
- * Validate and normalize a {@link Provenance} without touching the environment.
- * Throws a {@link ProvenanceError} naming the first offending key. Pure: returns
- * a fresh object with `modelIds` copied so the result never aliases the caller's
- * array.
+ * Validates a {@link Provenance} and returns a fresh copy. The copy of `modelIds` does not alias
+ * the caller's array.
+ *
+ * @throws ProvenanceError that names the first invalid key.
  */
 function validateProvenance(provenance: Provenance): Provenance {
   if (provenance === null || typeof provenance !== 'object') {
@@ -105,30 +92,24 @@ function validateProvenance(provenance: Provenance): Provenance {
 }
 
 /**
- * Attach a reproducibility pin to a raw-data record. Pure and side-effect-free:
- * the same `record`/`provenance` inputs always yield the same output, and the
- * required provenance keys round-trip intact. Throws {@link ProvenanceError} if
- * any required provenance field is missing or empty.
+ * Attaches a reproducibility pin to a raw-data record as a pure function. It keeps the fields of
+ * the record and adds or replaces its `provenance` field.
  *
- * The record's own fields are preserved; a `provenance` field is added (or
- * overwritten). Callers pass `binaryTag`, `gitSha`, and `date` in explicitly —
- * this function never reads the clock, git, or the filesystem.
+ * @throws ProvenanceError when a required provenance field is missing or empty.
  */
 export function stampProvenance<T extends object>(record: T, provenance: Provenance): ProvenanceStamped<T> {
   const validated = validateProvenance(provenance);
   return { ...record, provenance: validated };
 }
 
-/** Non-throwing predicate: is this record an admissible `measured` result? */
+/** Returns true when the record is an admissible `measured` result. */
 export function isMeasured<T extends SourcedRecord>(record: T): boolean {
   return record.source === 'measured';
 }
 
 /**
- * Fail-honest guard: throw unless `record.source === 'measured'`. Rejects any
- * record self-flagged `modeled` or `assumed` (and any other non-`measured`
- * value), so a modeled stand-in can never be published as a measured result.
- * Narrows the record to the measured variant on success.
+ * Fail-honest guard: throws unless `record.source === 'measured'`, so a modeled stand-in cannot
+ * pass as a measured result. On success, it narrows the record to the measured variant.
  */
 export function assertMeasured<T extends SourcedRecord>(
   record: T

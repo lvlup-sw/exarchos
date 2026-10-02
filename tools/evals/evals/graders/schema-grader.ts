@@ -1,8 +1,6 @@
 import { z, type ZodSchema } from 'zod';
 import type { GradeResult, IGrader } from '../types.js';
 
-// ─── Built-in schemas ───────────────────────────────────────────────────
-
 const taskDecompositionSchema = z.object({
   taskId: z.string(),
   title: z.string(),
@@ -14,8 +12,6 @@ const reviewFindingSchema = z.object({
   category: z.string(),
   message: z.string(),
 });
-
-// ─── Schema Registry ────────────────────────────────────────────────────
 
 const builtInSchemas = new Map<string, ZodSchema>([
   ['task-decomposition', taskDecompositionSchema],

@@ -1,41 +1,15 @@
-// ─── Seeded-defect corpus — shared failure-tail substrate (#1675, task 003) ───
-//
-// The corpus #1670 never produced: inputs that *should* fail verification, with
-// matched known-good controls, one class per mechanical gate. Six defect
-// classes (DR-2):
-//
-//   test-adequacy      → check_test_adequacy    — vacuous / tautological test
-//   contract-drift     → check_contract_drift   — broken seam contract
-//   mock-boundary      → check_mock_boundary    — over-mocked (unowned) boundary
-//   static-analysis    → check_static_analysis  — type / lint violation
-//   integration-suite  → check_integration_suite— broad-blast regression
-//   dropped-edge-case  → (no production gate)   — hidden-oracle only
-//
-// The dropped-edge-case class is a DECLARED DEVIATION from #1675's six-row gate
-// table: no mechanical gate can catch a silently-dropped edge case, so it is
-// detected by an eval-side HIDDEN ORACLE ({@link runDroppedEdgeOracle}) and is
-// the escaped-defect substrate for the DR-5 gate-policy replay — never a row in
-// the catch-rate table. Its exclusion is documented here and in the Bundle-A
-// findings doc.
-//
-// ── Design invariants ────────────────────────────────────────────────────────
-//  • Fixtures are INERT TEMPLATE ASSETS — JSON file-maps under `fixtures/`, one
-//    per class. They are NEVER compiled TypeScript (the fixtures/ dir is excluded
-//    from tsconfig + eslint) so intentionally type/lint-broken defect content
-//    cannot fail repo CI. Broken source exists only as string data here, and
-//    becomes a real file solely inside a disposable worktree at materialize time.
-//  • Loading ({@link loadSeededCorpus}) is deterministic and offline: no LLM, no
-//    network, no temp dirs, no spawns — just read the JSON + derive tiers.
-//  • Each fixture manifest carries `{ gate, defectMechanism, expectedVerdict,
-//    riskTier, boundaryTouching }`, where the tier stamps are DERIVED by the
-//    production classifier (`deriveRiskTier` / `deriveBoundaryTouching`) from the
-//    fixture's real changed file paths — never hand-assigned (the anti-pinning
-//    contract). The author's file-path choices steer the tiers; the multi-tier-
-//    span test makes that visible rather than hiding it.
-//  • ONE loader API is the single source consumed by the catch-rate driver
-//    (task 004), the gate-policy replay (task 006), and the DR-7 ratchet (013).
-// ────────────────────────────────────────────────────────────────────────────
-
+/**
+ * The seeded-defect corpus: defect inputs that must fail verification, and matched known-good
+ * controls, in six classes.
+ *
+ * Five classes target an `exarchos_orchestrate` gate (see `GATE_FOR_CLASS`). The
+ * `dropped-edge-case` class has no production gate. The eval-side hidden oracle
+ * ({@link runDroppedEdgeOracle}) detects it, and it is never a row in the catch-rate table.
+ *
+ * Fixtures are JSON file maps under `fixtures/`, one file per class. The typecheck and the lint
+ * exclude that directory, so broken defect content cannot fail repo CI. The production classifier
+ * derives the tier stamps of each fixture from its changed file paths.
+ */
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -48,16 +22,10 @@ import {
 } from '../../../../../src/verbs/team/prepare-delegation.js';
 import type { MechanicalGateClass } from '../../../../../src/verbs/gates/gate-provider-registry.js';
 
-// ─── Gate-class taxonomy ──────────────────────────────────────────────────────
-
 /**
- * The six seeded-defect classes (five gate-targeting + one hidden-oracle).
- *
- * The five mechanical classes are NOT restated here — they are the production vocabulary owned by
- * `verbs/gates/gate-provider-registry.ts`, the module that resolves a provider for each. Task 011
- * inverted this: production used to import the taxonomy from this eval corpus, which made an eval
- * fixture loader (and everything it imports) reachable from production. The corpus adds its
- * hidden-oracle class on top instead, so the two taxonomies still cannot drift.
+ * The six seeded-defect classes: the five mechanical classes and `dropped-edge-case`.
+ * `gate-provider-registry.ts` owns the mechanical classes, so production does not import this eval
+ * corpus and the two taxonomies cannot drift.
  */
 export type GateClass = MechanicalGateClass | 'dropped-edge-case';
 
@@ -86,17 +54,14 @@ export const GATE_FOR_CLASS: Readonly<Record<GateClass, string | null>> = {
   'dropped-edge-case': null,
 };
 
-// ─── Fixture model ────────────────────────────────────────────────────────────
-
 /** Whether a fixture is a seeded defect or a matched known-good control. */
 export type FixtureKind = 'defect' | 'control';
 
 /**
- * The verdict a correct gate should return for a fixture:
- *   • `fail`    — a seeded defect the gate must flag (true positive).
- *   • `pass`    — a control the gate must leave clean (no false positive).
- *   • `ungated` — dropped-edge-case: NO production gate targets it; detection is
- *                 the hidden oracle's job, and it escapes every gate set.
+ * The verdict that a correct gate returns for a fixture:
+ *   - `fail`: a seeded defect that the gate must flag (true positive).
+ *   - `pass`: a control that the gate must leave clean (no false positive).
+ *   - `ungated`: a dropped-edge-case fixture. No production gate targets it. The hidden oracle detects it.
  */
 export type ExpectedVerdict = 'fail' | 'pass' | 'ungated';
 
@@ -104,13 +69,11 @@ export type ExpectedVerdict = 'fail' | 'pass' | 'ungated';
 export type FileMap = Readonly<Record<string, string>>;
 
 /**
- * The hidden-oracle spec for a dropped-edge-case fixture. The oracle imports
- * `module`'s named `export` from the materialized HEAD tree and checks each edge
- * `case`; a mismatch means the dropped edge is present (the defect). No
- * production gate reads this — it is the eval-side grading device.
+ * The hidden-oracle spec for a dropped-edge-case fixture. The oracle imports the named `export` of
+ * `module` from the HEAD tree and runs each edge `case`. A mismatch shows the dropped edge.
  */
 export interface OracleSpec {
-  /** Repo-relative ESM module in the fixture HEAD (e.g. `src/clamp.mjs`). */
+  /** Repo-relative ESM module in the fixture HEAD, for example `src/clamp.mjs`. */
   readonly module: string;
   /** The named export under test. */
   readonly export: string;
@@ -118,13 +81,13 @@ export interface OracleSpec {
   readonly cases: ReadonlyArray<{ readonly args: readonly unknown[]; readonly expected: unknown }>;
 }
 
-/** The DR-2 manifest fields carried on every fixture. */
+/** The manifest fields on every fixture. */
 export interface FixtureManifest {
   /** The `exarchos_orchestrate` gate this class targets (`null` = ungated). */
   readonly gate: string | null;
   /** Human description of the seeded defect mechanism (or the control's shape). */
   readonly defectMechanism: string;
-  /** The verdict a correct gate should return. */
+  /** The verdict that a correct gate returns. */
   readonly expectedVerdict: ExpectedVerdict;
   /** DERIVED by `deriveRiskTier` from the changed file paths — never hand-set. */
   readonly riskTier: RiskTier;
@@ -134,13 +97,13 @@ export interface FixtureManifest {
 
 /** A fully-resolved corpus fixture returned by {@link loadSeededCorpus}. */
 export interface SeededFixture {
-  /** Stable id, e.g. `test-adequacy/defect-01`. */
+  /** Stable id, for example `test-adequacy/defect-01`. */
   readonly id: string;
   /** The defect class. */
   readonly gateClass: GateClass;
-  /** defect vs control. */
+  /** Whether the fixture is a defect or a control. */
   readonly kind: FixtureKind;
-  /** The DR-2 manifest (gate/mechanism/verdict + derived tiers). */
+  /** The gate, the mechanism, the verdict, and the derived tiers. */
   readonly manifest: FixtureManifest;
   /** Files committed on `baseBranch` (the merge-base state). */
   readonly base: FileMap;
@@ -155,8 +118,6 @@ export interface SeededFixture {
   /** Present only for dropped-edge-case fixtures — the hidden-oracle spec. */
   readonly oracle?: OracleSpec;
 }
-
-// ─── Raw asset shape (the JSON on disk) ───────────────────────────────────────
 
 interface RawFixture {
   readonly id: string;
@@ -174,8 +135,6 @@ interface RawClassAsset {
   readonly controls: readonly RawFixture[];
 }
 
-// ─── Loading ──────────────────────────────────────────────────────────────────
-
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURES_DIR = path.join(HERE, 'fixtures');
 
@@ -185,9 +144,8 @@ function assetPathFor(gateClass: GateClass): string {
 }
 
 /**
- * Compute the repo-relative paths that differ between `base` and `head` — the
- * exact set `git diff --name-only base...HEAD` would report. Added, modified,
- * and deleted paths all count. Sorted for deterministic classifier input.
+ * Returns the sorted repo-relative paths that differ between `base` and `head`, the same set as
+ * `git diff --name-only base...HEAD`. Added, changed, and deleted paths all count.
  */
 export function computeChangedFiles(base: FileMap, head: FileMap): string[] {
   const changed = new Set<string>();
@@ -201,11 +159,8 @@ export function computeChangedFiles(base: FileMap, head: FileMap): string[] {
 }
 
 /**
- * Derive the risk-tier + boundary-touching manifest stamps from a fixture's real
- * changed file paths, using the PRODUCTION classifier (`deriveRiskTier` /
- * `deriveBoundaryTouching`). This is the anti-pinning contract: the stamps are a
- * function of the file paths the author chose, never a value typed into the
- * asset. Exported so the tests can assert the derivation is not hand-forged.
+ * Derives the risk tier and the boundary flag from the changed file paths with the production
+ * classifier. The stamps are never values in the asset. The tests call this to prove the derivation.
  */
 export function deriveManifestTiers(changedFiles: readonly string[]): {
   riskTier: RiskTier;
@@ -256,13 +211,9 @@ function loadClassAsset(gateClass: GateClass): SeededFixture[] {
 }
 
 /**
- * Load the seeded-defect corpus, optionally scoped to a single class.
- *
- * This is THE single loader API consumed by the catch-rate driver (task 004),
- * the gate-policy replay (006), and the DR-7 ratchet (013). Deterministic and
- * OFFLINE: reads the committed JSON assets and derives tier stamps via the
- * production classifier — no LLM, no network, no temp dirs, no spawns. Fixtures
- * come back in a stable order (class order, then defects then controls, by id).
+ * Loads the seeded-defect corpus, or one class of it. It reads the committed JSON assets and derives
+ * the tier stamps, with no LLM, network, temp directory, or spawn. The order is stable: class order,
+ * then the defects, then the controls.
  */
 export function loadSeededCorpus(gateClass?: GateClass): SeededFixture[] {
   const classes = gateClass ? [gateClass] : SEEDED_GATE_CLASSES;
@@ -271,24 +222,14 @@ export function loadSeededCorpus(gateClass?: GateClass): SeededFixture[] {
   return out;
 }
 
-// ─── Materialization (disposable worktree) ────────────────────────────────────
-//
-// The gate handlers inspect a real git diff (`baseRef...HEAD`), so a fixture is
-// exercised by materializing it into a throwaway git repo: the BASE map committed
-// on `main`, then the HEAD map committed on a feature branch. Both the catch-rate
-// driver and the hidden-oracle detector reuse this — single source, no per-caller
-// git idioms.
-
 /** A total git executor (a non-zero exit is a value, never a throw). */
 export interface GitRun {
   (repoRoot: string, args: readonly string[]): { stdout: string; exitCode: number };
 }
 
 /**
- * A git setup command failed while materializing a fixture. Thrown by
- * {@link materializeFixture} so the caller records an explicit `invalid` cell
- * (never a trustworthy-looking verdict off a partial worktree) — the DR-8
- * fail-honest contract for the catch-rate driver.
+ * A git setup command failed in {@link materializeFixture}. The caller records an explicit
+ * `invalid` cell for it, never a verdict from a partial worktree.
  */
 export class FixtureMaterializationError extends Error {
   constructor(args: readonly string[], exitCode: number, stdout: string) {
@@ -313,21 +254,18 @@ function writeFileMap(root: string, map: FileMap): void {
 }
 
 /**
- * Materialize a fixture into `repoRoot` (which must be an empty directory):
- * commit the BASE map on `main`, then commit the HEAD map on the fixture's
- * feature branch. The resulting `main...branch` diff is exactly the fixture's
- * changed set — precisely what the gate handlers inspect. Never throws on a
- * non-zero git exit; returns the branch coordinates the gate call needs.
+ * Materializes a fixture into the empty directory `repoRoot`, for gate handlers that read a real
+ * git diff. It commits the BASE map on `main`, then the HEAD map on the fixture branch. On the
+ * branch, it deletes the base-only paths before it writes HEAD, so the diff shows deletions.
+ *
+ * `git` returns an exit code and never throws. Any non-zero exit throws
+ * {@link FixtureMaterializationError}, because a partial worktree gives a verdict that nobody can trust.
  */
 export function materializeFixture(
   fixture: SeededFixture,
   repoRoot: string,
   git: GitRun,
 ): MaterializedFixture {
-  // `git` is total (returns an exit code, never throws), so a failed setup step
-  // would otherwise proceed with a partial worktree and yield an untrustworthy
-  // verdict. Fail fast on any non-zero exit so the driver records an `invalid`
-  // cell instead (DR-8 fail-honest).
   const run = (args: readonly string[]): void => {
     const { exitCode, stdout } = git(repoRoot, args);
     if (exitCode !== 0) throw new FixtureMaterializationError(args, exitCode, stdout);
@@ -343,8 +281,6 @@ export function materializeFixture(
   run(['commit', '-q', '-m', 'base: seeded-corpus merge-base']);
 
   run(['checkout', '-q', '-b', fixture.branch]);
-  // Remove any base-only paths, then lay down the full HEAD tree, so the diff is
-  // accurate for adds, modifications, AND deletions.
   for (const rel of Object.keys(fixture.base)) {
     if (!(rel in fixture.head)) {
       fs.rmSync(path.join(repoRoot, rel), { force: true });
@@ -357,15 +293,7 @@ export function materializeFixture(
   return { repoRoot, branch: fixture.branch, baseBranch: fixture.baseBranch };
 }
 
-// ─── Hidden-oracle detector (dropped-edge-case class) ─────────────────────────
-//
-// No mechanical gate can catch a silently-dropped edge case, so this eval-side
-// device does: materialize the HEAD tree, import the module-under-test, run each
-// committed edge-case probe, and report whether the dropped edge is present. A
-// DEFECT trips at least one probe (`detected: true`); a CONTROL passes them all.
-// Used by task 006's escape computation and task 013's ratchet — never by a
-// production gate.
-
+/** The ESM script that runs each oracle probe and prints `{ detected, failures }` as JSON. */
 const ORACLE_RUNNER = `import { readFileSync } from 'node:fs';
 const spec = JSON.parse(readFileSync(new URL('./__oracle.json', import.meta.url), 'utf-8'));
 const mod = await import(new URL(spec.module, import.meta.url));
@@ -393,14 +321,12 @@ export interface OracleOutcome {
 export type NodeRunFn = (cwd: string, scriptFile: string) => { stdout: string; exitCode: number };
 
 /**
- * Run a dropped-edge-case fixture's hidden oracle against its HEAD tree in a
- * throwaway directory. Materializes only the HEAD file-map (no git needed — the
- * oracle grades behavior, not a diff), writes the module + probe spec + a tiny
- * ESM runner, spawns node once, and parses the verdict. Deterministic + offline.
+ * Runs the hidden oracle of a dropped-edge-case fixture against its HEAD tree in a temp directory.
+ * It writes the HEAD file map, the probe spec, and the ESM runner, then spawns node once. It uses
+ * no git, because the oracle grades behavior, not a diff.
  *
- * Throws only for a misuse (a non-dropped-edge-case fixture / missing oracle).
- * A crashed/garbled runner surfaces as `detected: true` — a fixture whose module
- * cannot even be imported has, a fortiori, dropped its contract.
+ * It throws for a fixture that is not a dropped-edge-case fixture with an oracle. Runner output
+ * that does not parse gives `detected: true`, because a module that cannot load has dropped its contract.
  */
 export function runDroppedEdgeOracle(
   fixture: SeededFixture,
@@ -421,7 +347,6 @@ export function runDroppedEdgeOracle(
       const parsed = JSON.parse(res.stdout) as OracleOutcome;
       return parsed;
     } catch {
-      // Unparseable output → the module could not be imported/run at all.
       return { detected: true, failures: [{ args: [], expected: '<importable>', got: res.stdout.slice(0, 200) }] };
     }
   } finally {
@@ -429,12 +354,11 @@ export function runDroppedEdgeOracle(
   }
 }
 
+/**
+ * Spawns node through the win32-safe `spawnCommandSync` helper. On a non-zero exit, a timeout, or a
+ * spawn error, it returns stdout plus stderr, so an unimportable module shows as a detection.
+ */
 const defaultRunNode: NodeRunFn = (cwd, scriptFile) => {
-  // Route the node spawn through the sanctioned win32-safe helper (#1623): the
-  // Windows-portability gate forbids a raw execFileSync of a resolved bin. For
-  // `process.execPath` (an absolute path, not a bare npm/npx shim) this is a
-  // thin pass-through to spawnSync, so POSIX behavior is unchanged. spawnSync
-  // does not throw on a non-zero exit — branch on `status` instead.
   const res = spawnCommandSync(process.execPath, [scriptFile], {
     cwd,
     encoding: 'utf-8',
@@ -444,7 +368,5 @@ const defaultRunNode: NodeRunFn = (cwd, scriptFile) => {
   if (res.status === 0 && res.error === undefined) {
     return { stdout: res.stdout ?? '', exitCode: 0 };
   }
-  // Non-zero exit / timeout / spawn error → surface stdout+stderr so an
-  // unimportable module is reported, mirroring the previous catch branch.
   return { stdout: (res.stdout ?? '') + (res.stderr ?? ''), exitCode: res.status ?? 1 };
 };

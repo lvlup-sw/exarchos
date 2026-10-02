@@ -2,8 +2,6 @@ import { describe, it, expect } from 'vitest';
 import { formatRunSummary, formatMultiSuiteReport } from './cli-reporter.js';
 import type { RunSummary, EvalResult } from '../types.js';
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
 function makeResult(overrides: Partial<EvalResult> & { caseId: string }): EvalResult {
   return {
     suiteId: 'test-suite',
@@ -34,11 +32,8 @@ function makeSummary(overrides: Partial<RunSummary> & { suiteId: string }): RunS
   };
 }
 
-// ─── formatRunSummary ───────────────────────────────────────────────────────
-
 describe('formatRunSummary', () => {
   it('FormatRunSummary_AllPassed_ShowsCheckmarks', () => {
-    // Arrange
     const summary = makeSummary({
       suiteId: 'my-suite',
       results: [
@@ -47,16 +42,14 @@ describe('formatRunSummary', () => {
       ],
     });
 
-    // Act
     const output = formatRunSummary(summary);
 
-    // Assert
-    expect(output).toContain('\u2713'); // checkmark
-    expect(output).not.toContain('\u2717'); // X mark
+    expect(output).toContain('\u2713');
+    expect(output).not.toContain('\u2717');
   });
 
+  /** A failed case shows the X mark, and its reason after an L-shaped box-drawing connector. */
   it('FormatRunSummary_FailedCase_ShowsXAndReasons', () => {
-    // Arrange
     const summary = makeSummary({
       suiteId: 'my-suite',
       results: [
@@ -78,17 +71,15 @@ describe('formatRunSummary', () => {
       ],
     });
 
-    // Act
     const output = formatRunSummary(summary);
 
-    // Assert
-    expect(output).toContain('\u2717'); // X mark
-    expect(output).toContain('\u2514\u2500'); // L-shaped connector
+    expect(output).toContain('\u2717');
+    expect(output).toContain('\u2514\u2500');
     expect(output).toContain('Mismatched fields: output');
   });
 
+  /** The suite header holds the suite name and a horizontal box-drawing line. */
   it('FormatRunSummary_ContainsSuiteHeader', () => {
-    // Arrange
     const summary = makeSummary({
       suiteId: 'delegation',
       results: [],
@@ -97,16 +88,13 @@ describe('formatRunSummary', () => {
       failed: 0,
     });
 
-    // Act
     const output = formatRunSummary(summary);
 
-    // Assert
     expect(output).toContain('delegation');
-    expect(output).toContain('\u2500\u2500'); // horizontal line
+    expect(output).toContain('\u2500\u2500');
   });
 
   it('FormatRunSummary_ContainsFooterTotals', () => {
-    // Arrange
     const summary = makeSummary({
       suiteId: 'test-suite',
       total: 5,
@@ -123,10 +111,8 @@ describe('formatRunSummary', () => {
       ],
     });
 
-    // Act
     const output = formatRunSummary(summary);
 
-    // Assert
     expect(output).toContain('5 cases');
     expect(output).toContain('3 passed');
     expect(output).toContain('2 failed');
@@ -134,7 +120,6 @@ describe('formatRunSummary', () => {
   });
 
   it('FormatRunSummary_EmptyResults_ShowsZeroSummary', () => {
-    // Arrange
     const summary = makeSummary({
       suiteId: 'empty-suite',
       total: 0,
@@ -145,21 +130,16 @@ describe('formatRunSummary', () => {
       results: [],
     });
 
-    // Act
     const output = formatRunSummary(summary);
 
-    // Assert
     expect(output).toContain('0 cases');
     expect(output).toContain('0 passed');
     expect(output).toContain('0 failed');
   });
 });
 
-// ─── formatMultiSuiteReport ─────────────────────────────────────────────────
-
 describe('formatMultiSuiteReport', () => {
   it('FormatMultiSuiteReport_MultipleSuites_ShowsAllSections', () => {
-    // Arrange
     const summaries = [
       makeSummary({
         suiteId: 'delegation',
@@ -171,16 +151,13 @@ describe('formatMultiSuiteReport', () => {
       }),
     ];
 
-    // Act
     const output = formatMultiSuiteReport(summaries);
 
-    // Assert
     expect(output).toContain('delegation');
     expect(output).toContain('quality-review');
   });
 
   it('FormatMultiSuiteReport_ContainsGrandTotal', () => {
-    // Arrange
     const summaries = [
       makeSummary({
         suiteId: 'suite-a',
@@ -205,18 +182,15 @@ describe('formatMultiSuiteReport', () => {
       }),
     ];
 
-    // Act
     const output = formatMultiSuiteReport(summaries);
 
-    // Assert
-    // Grand total: 5 total, 4 passed, 1 failed
     expect(output).toContain('5 cases');
     expect(output).toContain('4 passed');
     expect(output).toContain('1 failed');
   });
 
+  /** One suite has its own footer and no grand total, so `2 cases` appears once. */
   it('FormatMultiSuiteReport_SingleSuite_NoGrandTotal', () => {
-    // Arrange
     const summaries = [
       makeSummary({
         suiteId: 'only-one',
@@ -230,13 +204,9 @@ describe('formatMultiSuiteReport', () => {
       }),
     ];
 
-    // Act
     const output = formatMultiSuiteReport(summaries);
 
-    // Assert
     expect(output).toContain('only-one');
-    // Should not have a grand total section — count occurrences of "cases"
-    // The single suite has its own footer; there should be exactly one occurrence of "2 cases"
     const caseOccurrences = output.split('2 cases').length - 1;
     expect(caseOccurrences).toBe(1);
   });

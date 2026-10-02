@@ -2,8 +2,6 @@ import { describe, it, expect } from 'vitest';
 import { formatCIReport, formatFailedAssertions, escapeCommandValue, escapeCommandProperty } from './ci-reporter.js';
 import type { RunSummary, EvalResult } from '../types.js';
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
 function makeResult(overrides: Partial<EvalResult> & { caseId: string }): EvalResult {
   return {
     suiteId: 'test-suite',
@@ -34,11 +32,8 @@ function makeSummary(overrides: Partial<RunSummary> & { suiteId: string }): RunS
   };
 }
 
-// ─── formatCIReport ─────────────────────────────────────────────────────────
-
 describe('formatCIReport', () => {
   it('formatCIReport_AllPassing_ReturnsNoticeAnnotations', () => {
-    // Arrange
     const summaries = [
       makeSummary({
         suiteId: 'delegation',
@@ -50,16 +45,13 @@ describe('formatCIReport', () => {
       }),
     ];
 
-    // Act
     const output = formatCIReport(summaries);
 
-    // Assert
     expect(output).toContain('::notice');
     expect(output).not.toContain('::error');
   });
 
   it('formatCIReport_WithFailures_ReturnsErrorAnnotations', () => {
-    // Arrange
     const summaries = [
       makeSummary({
         suiteId: 'delegation',
@@ -78,16 +70,13 @@ describe('formatCIReport', () => {
       }),
     ];
 
-    // Act
     const output = formatCIReport(summaries);
 
-    // Assert
     expect(output).toContain('::error');
     expect(output).toContain('::notice');
   });
 
   it('formatCIReport_ErrorAnnotation_IncludesCaseId', () => {
-    // Arrange
     const summaries = [
       makeSummary({
         suiteId: 'delegation',
@@ -105,10 +94,8 @@ describe('formatCIReport', () => {
       }),
     ];
 
-    // Act
     const output = formatCIReport(summaries);
 
-    // Assert
     expect(output).toContain('delegate-task-routing');
     const errorLine = output.split('\n').find((l) => l.startsWith('::error'));
     expect(errorLine).toBeDefined();
@@ -116,7 +103,6 @@ describe('formatCIReport', () => {
   });
 
   it('formatCIReport_ErrorAnnotation_IncludesFailedAssertionReasons', () => {
-    // Arrange
     const summaries = [
       makeSummary({
         suiteId: 'delegation',
@@ -134,16 +120,13 @@ describe('formatCIReport', () => {
       }),
     ];
 
-    // Act
     const output = formatCIReport(summaries);
 
-    // Assert
     const errorLine = output.split('\n').find((l) => l.startsWith('::error'));
     expect(errorLine).toContain('Expected exarchos_orchestrate');
   });
 
   it('formatCIReport_NoticeAnnotation_IncludesPassCount', () => {
-    // Arrange
     const summaries = [
       makeSummary({
         suiteId: 'delegation',
@@ -155,17 +138,14 @@ describe('formatCIReport', () => {
       }),
     ];
 
-    // Act
     const output = formatCIReport(summaries);
 
-    // Assert
     const noticeLine = output.split('\n').find((l) => l.startsWith('::notice'));
     expect(noticeLine).toBeDefined();
     expect(noticeLine).toContain('3/5 passed');
   });
 
   it('formatCIReport_NoticeAnnotation_IncludesScorePercentage', () => {
-    // Arrange
     const summaries = [
       makeSummary({
         suiteId: 'delegation',
@@ -174,17 +154,14 @@ describe('formatCIReport', () => {
       }),
     ];
 
-    // Act
     const output = formatCIReport(summaries);
 
-    // Assert
     const noticeLine = output.split('\n').find((l) => l.startsWith('::notice'));
     expect(noticeLine).toBeDefined();
     expect(noticeLine).toContain('85.7%');
   });
 
   it('formatCIReport_MultipleSuites_ReportsEachSuite', () => {
-    // Arrange
     const summaries = [
       makeSummary({
         suiteId: 'delegation',
@@ -198,10 +175,8 @@ describe('formatCIReport', () => {
       }),
     ];
 
-    // Act
     const output = formatCIReport(summaries);
 
-    // Assert
     const noticeLines = output.split('\n').filter((l) => l.startsWith('::notice'));
     expect(noticeLines).toHaveLength(2);
     expect(noticeLines[0]).toContain('delegation');
@@ -209,19 +184,14 @@ describe('formatCIReport', () => {
   });
 
   it('formatCIReport_EmptySummaries_ReturnsEmptyString', () => {
-    // Arrange & Act
     const output = formatCIReport([]);
 
-    // Assert
     expect(output).toBe('');
   });
 });
 
-// ─── formatFailedAssertions ─────────────────────────────────────────────────
-
 describe('formatFailedAssertions', () => {
   it('formatFailedAssertions_NoFailures_ReturnsDefaultMessage', () => {
-    // Arrange
     const result = makeResult({
       caseId: 'c-1',
       passed: false,
@@ -229,15 +199,12 @@ describe('formatFailedAssertions', () => {
       assertions: [],
     });
 
-    // Act
     const output = formatFailedAssertions(result);
 
-    // Assert
     expect(output).toBe('No assertion details');
   });
 
   it('formatFailedAssertions_SingleFailure_FormatsReason', () => {
-    // Arrange
     const result = makeResult({
       caseId: 'c-1',
       passed: false,
@@ -247,15 +214,12 @@ describe('formatFailedAssertions', () => {
       ],
     });
 
-    // Act
     const output = formatFailedAssertions(result);
 
-    // Assert
     expect(output).toBe('tool-call: Missing tool invocation');
   });
 
   it('formatFailedAssertions_MultipleFailures_JoinsReasons', () => {
-    // Arrange
     const result = makeResult({
       caseId: 'c-1',
       passed: false,
@@ -267,16 +231,12 @@ describe('formatFailedAssertions', () => {
       ],
     });
 
-    // Act
     const output = formatFailedAssertions(result);
 
-    // Assert
     expect(output).toBe('exact-match: Field mismatch; schema: Invalid structure');
     expect(output).not.toContain('passing-one');
   });
 });
-
-// ─── escapeCommandValue ─────────────────────────────────────────────────────
 
 describe('escapeCommandValue', () => {
   it('escapeCommandValue_SpecialChars_EscapesPercentsAndNewlines', () => {
@@ -288,8 +248,6 @@ describe('escapeCommandValue', () => {
   });
 });
 
-// ─── escapeCommandProperty ──────────────────────────────────────────────────
-
 describe('escapeCommandProperty', () => {
   it('escapeCommandProperty_ColonsAndCommas_EscapesPropertyChars', () => {
     expect(escapeCommandProperty('key:value,item')).toBe('key%3Avalue%2Citem');
@@ -300,11 +258,8 @@ describe('escapeCommandProperty', () => {
   });
 });
 
-// ─── formatCIReport escaping ────────────────────────────────────────────────
-
 describe('formatCIReport escaping', () => {
   it('formatCIReport_SpecialCharsInCaseId_EscapesAnnotationTitle', () => {
-    // Arrange
     const summaries = [
       makeSummary({
         suiteId: 'test:suite',
@@ -322,10 +277,8 @@ describe('formatCIReport escaping', () => {
       }),
     ];
 
-    // Act
     const output = formatCIReport(summaries);
 
-    // Assert
     const errorLine = output.split('\n').find((l) => l.startsWith('::error'));
     expect(errorLine).toBeDefined();
     expect(errorLine).toContain('case%3Awith%2Cspecial%25chars');
