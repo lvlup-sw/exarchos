@@ -1,33 +1,16 @@
-// ─── Merge orchestrator happy-timeline integration test (T23) ──────────────
+// Integration tests for the merge orchestrator through a real `EventStore`.
 //
-// Reconstructs the full event timeline for a successful subagent worktree
-// merge across the contract assembled in T01-T22:
+// The happy timeline: a `task.completed` event with `data.worktree` moves the
+// feature workflow to the `merge-pending` substate. `computeNextActions` then
+// offers the `merge_orchestrate` verb with an idempotency key. The composite
+// `exarchos_orchestrate` routes that action to `handleMergeOrchestrate`, which
+// runs preflight and appends `merge.preflight`. `handleExecuteMerge` appends
+// the merge events after the VCS merge. The stream must hold the events in
+// order, with increasing sequence numbers.
 //
-//   1. T17 — `task.completed` (with `data.worktree`) parks the feature
-//      workflow in the `merge-pending` HSM substate.
-//   2. T18 — `computeNextActions` surfaces the `merge_orchestrate` verb
-//      (with idempotency key) for callers in `merge-pending`.
-//   3. T20 — the composite `exarchos_orchestrate` action registry routes
-//      `merge_orchestrate` to `handleMergeOrchestrate`.
-//   4. T11 — `handleMergeOrchestrate` runs preflight (T06) and emits
-//      `merge.preflight` (T03 schema) directly to the workflow stream.
-//   5. T15 — `handleExecuteMerge` (delegated by T11) emits `merge.executed`
-//      (T03 schema) to the same stream after a successful VCS merge.
-//
-// The full stream — `task.completed → merge.preflight → merge.executed` —
-// must reconstruct in order, with monotonically-increasing sequence numbers.
-//
-// Per #1185, this exercises a real `EventStore` constructed via a real
-// `DispatchContext` (production wiring). The composition-root smoke gate
-// (`tools/audit/gates/check-event-store-composition-root.mjs`, run in T25) excludes
-// `*.test.ts` files automatically, so the direct `new EventStore(...)` here
-// is allowed and intentional — we want to assert the on-disk + in-memory
-// store reconstructs the timeline, not just that mocks were invoked.
-//
-// The only DI overrides are at the VCS / git boundary (we cannot run real
-// git or hit a real PR provider). Everything between the dispatch entry
-// point and those leaves runs production code.
-// ────────────────────────────────────────────────────────────────────────────
+// The composition-root gate excludes test files, so a direct `new EventStore`
+// is allowed here. Only the VCS and git leaves are stubs. The code between the
+// dispatch entry and those leaves is production code.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
@@ -62,8 +45,6 @@ import { handleWorkflow } from '../../../../src/workflow/composite.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { BYPASS_SECTION_0A } from '../../../helpers/section-0a-bypass.js';
 
-// ─── Fixtures ──────────────────────────────────────────────────────────────
-
 const FEATURE_ID = 'feat-merge-orch-happy';
 const TASK_ID = 'T-happy';
 const SOURCE_BRANCH = 'feat/happy';
@@ -85,8 +66,6 @@ const PASSING_PREFLIGHT: MergePreflightResult = {
   },
 } as MergePreflightResult;
 
-// ─── Suite ─────────────────────────────────────────────────────────────────
-
 describe('Merge orchestrator happy timeline (T23, DR-MO-1, DR-MO-2)', () => {
   let stateDir: string;
   let eventStore: EventStore;
@@ -94,10 +73,6 @@ describe('Merge orchestrator happy timeline (T23, DR-MO-1, DR-MO-2)', () => {
 
   beforeEach(async () => {
     stateDir = await mkdtemp(path.join(tmpdir(), 'merge-orch-integ-happy-'));
-    // Real EventStore via real DispatchContext — production wiring shape.
-    // The composition-root gate (`tools/audit/gates/check-event-store-composition-root.mjs`)
-    // excludes `*.test.ts` automatically, so this raw `new EventStore` is
-    // intentionally permitted in this fixture.
     eventStore = new EventStore(stateDir);
     await eventStore.initialize();
     ctx = {
@@ -112,23 +87,15 @@ describe('Merge orchestrator happy timeline (T23, DR-MO-1, DR-MO-2)', () => {
     await rmrfAsync(stateDir);
   });
 
+  /**
+   * The test builds the HSM and next-actions inputs in memory and writes no state file, because the handler
+   * does not read it on this path. It dispatches through the real `handleOrchestrate` composite. The executor
+   * stub calls the real `handleExecuteMerge` with stub `vcsMerge` and `gitExec` leaves, so the merge events
+   * land in the real store. The `persistState` stubs do nothing, and the unit suite tests that persistence.
+   * `merge.executing_started` makes a long merge visible as started but not finished.
+   * `merge.completed` is the terminal marker after `merge.executed`.
+   */
   it('eventTimeline_TaskCompletedThroughMergeExecuted_FullyReconstructs', async () => {
-    // ─── 1. (Implicit) workflow is in `delegate` ────────────────────────────
-    //
-    // The HSM transition check (step 3) and the next-actions check (step 4)
-    // both use in-memory state shapes constructed below. The merge-orchestrate
-    // handler itself does not read the workflow state file on the happy path
-    // (no `resume: true`, and `persistState` is overridden to a no-op), so we
-    // intentionally skip materializing a `<featureId>.state.json` here — the
-    // full WorkflowStateSchema would require ~10 unrelated fields that this
-    // test does not exercise.
-
-    // ─── 2. Emit `task.completed` with worktree association (T17 trigger) ──
-    //
-    // This is the upstream signal a delegated subagent emits when its task
-    // finishes inside its own worktree. The HSM guard `mergePendingEntry`
-    // (T17) reads this from `state._events` and authorizes the
-    // `delegate → merge-pending` transition.
     const taskCompletedEvent = await eventStore.append(FEATURE_ID, {
       type: 'task.completed',
       data: {
@@ -139,10 +106,6 @@ describe('Merge orchestrator happy timeline (T23, DR-MO-1, DR-MO-2)', () => {
     expect(taskCompletedEvent.type).toBe('task.completed');
     expect(taskCompletedEvent.sequence).toBe(1);
 
-    // ─── 3. HSM evaluator — assert delegate → merge-pending fires ──────────
-    //
-    // Build the in-memory state shape the HSM evaluator consumes (`_events`
-    // sourced from the real stream we just wrote to).
     const eventsForHsm = await eventStore.query(FEATURE_ID, {});
     const stateForHsm = {
       phase: 'delegate',
@@ -155,11 +118,6 @@ describe('Merge orchestrator happy timeline (T23, DR-MO-1, DR-MO-2)', () => {
     expect(transition.success).toBe(true);
     expect(transition.newPhase).toBe('merge-pending');
 
-    // ─── 4. Next-actions surfaces `merge_orchestrate` verb (T18 clause) ────
-    //
-    // Once parked in `merge-pending`, the next-action computer must include
-    // the `merge_orchestrate` action verb with a deterministic
-    // idempotency key composed from featureId + taskId.
     const stateAtMergePending = {
       phase: 'merge-pending',
       featureId: FEATURE_ID,
@@ -173,39 +131,14 @@ describe('Merge orchestrator happy timeline (T23, DR-MO-1, DR-MO-2)', () => {
     );
     expect(mergeAction?.validTargets).toEqual(['merge_orchestrate']);
 
-    // ─── 5. Dispatch `merge_orchestrate` via the composite ─────────────────
-    //
-    // We dispatch through the real `handleOrchestrate` composite (T20) so
-    // the routing layer + handler are exercised together. The only DI is at
-    // the leaves we cannot run for real:
-    //   - `preflight`     → returns PASSING_PREFLIGHT (avoids a git shell-out)
-    //   - `executeMerge`  → delegates to the REAL `handleExecuteMerge` with
-    //                       a stub `vcsMerge` (resolves with mergeSha) and
-    //                       a stub `gitExec` (returns ROLLBACK_SHA for
-    //                       `rev-parse HEAD` so `recordRollbackPoint`
-    //                       succeeds without git on disk).
-    //   - `persistState`  → no-op so we don't compete with the workflow state
-    //                       file; the merge-orchestrator phase persistence is
-    //                       tested at the unit level in
-    //                       merge-orchestrate.test.ts.
-    //
-    // This shape preserves the production emission path for
-    // `merge.preflight` (in handleMergeOrchestrate) AND `merge.executed`
-    // (in the real handleExecuteMerge). Both events land on the SAME real
-    // EventStore, so the timeline assertion below reads what the dispatcher
-    // actually wrote.
     const stubVcsMerge = vi.fn().mockResolvedValue({ mergeSha: MERGE_SHA });
     const stubGitExec = (
       _repoRoot: string,
       args: readonly string[],
     ): GitExecResult => {
-      // recordRollbackPoint shells out `git rev-parse HEAD` for the pre-merge SHA.
       if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
         return { stdout: `${ROLLBACK_SHA}\n`, exitCode: 0 };
       }
-      // No other shell-outs are expected on the happy path; default to a
-      // benign empty success so a stray invocation doesn't crash the test
-      // (the assertions below would still catch behavioral drift).
       return { stdout: '', exitCode: 0 };
     };
 
@@ -218,11 +151,8 @@ describe('Merge orchestrator happy timeline (T23, DR-MO-1, DR-MO-2)', () => {
         taskId: TASK_ID,
         strategy: 'squash',
 
-        // DI overrides — typed-only, never crossed over the wire.
         preflight: async (): Promise<MergePreflightResult> => PASSING_PREFLIGHT,
 
-        // Delegate to the real handleExecuteMerge with leaf stubs so the
-        // real `merge.executed` emission path runs against our real EventStore.
         executeMerge: async (
           input: HandleExecuteMergeInput,
           innerCtx: DispatchContext,
@@ -233,16 +163,12 @@ describe('Merge orchestrator happy timeline (T23, DR-MO-1, DR-MO-2)', () => {
               vcsMerge: stubVcsMerge,
               gitExec: stubGitExec,
               persistState: async () => {
-                /* no-op — see header comment */
               },
             },
             innerCtx,
           ),
 
-        // Skip the workflow-state mergeOrchestrator phase write — that path
-        // is unit-tested elsewhere and would race with our bootstrap above.
         persistState: async () => {
-          /* no-op */
         },
         gitExec: BYPASS_SECTION_0A,
       },
@@ -255,8 +181,6 @@ describe('Merge orchestrator happy timeline (T23, DR-MO-1, DR-MO-2)', () => {
       mergeSha: string;
       recoveryPointSha: string;
       preflight: MergePreflightResult;
-      // Composite envelope wrapping (T038) may add `next_actions`, `_meta`,
-      // `_perf` here — we only assert the shape we contracted on.
     };
     expect(data.phase).toBe('completed');
     expect(data.mergeSha).toBe(MERGE_SHA);
@@ -268,45 +192,17 @@ describe('Merge orchestrator happy timeline (T23, DR-MO-1, DR-MO-2)', () => {
       strategy: 'squash',
     });
 
-    // ─── 6. Reconstruct the full event timeline ────────────────────────────
-    //
-    // Query the same real EventStore instance the dispatcher wrote through.
-    // The expected order is the production contract (post Wave 4 / audit
-    // §F1.2 two-event split):
-    //
-    //   sequence 1: task.completed          (the T17 trigger, from step 2)
-    //   sequence 2: merge.preflight          (T11 emits before delegating)
-    //   sequence 3: merge.requested          (Wave 4 Phase A — durable intent
-    //                                          emitted via `decide` BEFORE the
-    //                                          executor's local git merge side effect)
-    //   sequence 4: merge.executing_started  (#1309 liveness — emitted after the
-    //                                          recovery point is recorded, before
-    //                                          the first vcsMerge)
-    //   sequence 5: merge.executed           (T15 emits on phase: 'completed')
-    //
-    // No other events are expected on the happy path (no merge.rollback,
-    // no merge.aborted).
     const finalEvents = await eventStore.query(FEATURE_ID, {});
     const timeline = finalEvents.map((e) => e.type);
     expect(timeline).toEqual([
       'task.completed',
       'merge.preflight',
       'merge.requested',
-      // #1309 INV-10 liveness — emitted before the merge so a long-running merge
-      // is observable as started-but-unterminated.
       'merge.executing_started',
       'merge.executed',
-      // #1304 INV-10 terminal marker — emitted adjacent to merge.executed
-      // by `handleExecuteMerge` once `merge.executed` lands successfully.
       'merge.completed',
     ]);
 
-    // ─── 7. Sequence numbers monotonic ─────────────────────────────────────
-    //
-    // The EventStore guarantees per-stream sequence monotonicity. Re-assert
-    // here so a future regression that breaks ordering (e.g. parallel writes
-    // racing the sequence counter, sidecar mode leaking into the happy path)
-    // shows up in this integration suite, not just in store-level unit tests.
     const sequences = finalEvents.map((e) => e.sequence);
     expect(sequences).toEqual([1, 2, 3, 4, 5, 6]);
     for (let i = 1; i < sequences.length; i += 1) {
@@ -317,10 +213,6 @@ describe('Merge orchestrator happy timeline (T23, DR-MO-1, DR-MO-2)', () => {
       expect(curr as number).toBeGreaterThan(prev as number);
     }
 
-    // ─── 8. Payload spot-checks on the merge events ────────────────────────
-    //
-    // Cheap sanity: the stream identifier flow (featureId → streamId) and
-    // the carrier fields T03 declares on the dedicated schemas are present.
     const preflightEvent = finalEvents.find(
       (e) => e.type === 'merge.preflight',
     );
@@ -353,31 +245,10 @@ describe('Merge orchestrator happy timeline (T23, DR-MO-1, DR-MO-2)', () => {
   });
 });
 
-// ─── T24 — Rollback timeline integration ───────────────────────────────────
-//
-// Exercises the full rollback timeline through the real `EventStore` (via
-// `initializeContext`, NOT a mock) when `vcsMerge` rejects:
-//
-//   1. dispatch `merge_orchestrate` with a passing preflight + a failing
-//      `vcsMerge` adapter that rejects with a generic Error.
-//   2. assert event stream contains `merge.preflight` (passed: true) followed
-//      by `merge.recovered` with `data.reason === 'merge-failed'` per T10. DR-2
-//      (task 006) retired the legacy `merge.rollback` write path; the recovery
-//      terminal is now the canonical `merge.recovered` (carrying
-//      `recoveryPointSha` in place of the legacy `rollbackSha`).
-//   3. read workflow state file; assert `mergeOrchestrator.phase` advanced
-//      past `'pending'` (softened — see Wiring Gaps footer).
-//   4. compute `next_actions` for synthesized post-fix state (`phase:
-//      'merge-pending'`, `mergeOrchestrator.phase: 'rolled-back'`); assert
-//      `merge_orchestrate` is omitted (T19 filter).
-// ───────────────────────────────────────────────────────────────────────────
-
 /**
- * Build a `gitExec` stub for the executor's INV-14 rollback ladder:
- *   1. `git rev-parse HEAD` — returns the rollback sha (anchor record + the
- *      post-recovery drift check both see it, so recovery lands clean).
- *   2. `git merge --abort` then `git reset --keep <rollbackSha>` — succeed (the
- *      catch-all returns exitCode 0). `--hard` is never invoked.
+ * A `gitExec` stub for the rollback ladder of the executor. `git rev-parse HEAD` returns the rollback sha,
+ * so the anchor record and the drift check after recovery both see it. Every other call succeeds, which
+ * covers `git merge --abort` and `git reset --keep <rollbackSha>`.
  */
 function makeGitExecForRollback(): (
   repoRoot: string,
@@ -387,20 +258,11 @@ function makeGitExecForRollback(): (
     if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
       return { stdout: `${ROLLBACK_SHA}\n`, exitCode: 0 };
     }
-    // `git merge --abort` / `git reset --keep <rollbackSha>` both succeed here.
     return { stdout: '', exitCode: 0 };
   };
 }
 
-/**
- * Seed a minimal feature workflow state file. Phase is `delegate` (a built-in
- * `FeaturePhaseSchema` member) rather than `merge-pending`. The HSM defines
- * `merge-pending` as a substate (T17), but `FeaturePhaseSchema` does not yet
- * include it — see Wiring Gaps footer item 2. Using `delegate` keeps state-
- * file reads/writes valid; the next-actions assertion runs against a
- * synthesized `phase: 'merge-pending'` because `computeNextActions` only
- * consults the HSM and the in-memory state shape.
- */
+/** Seeds a minimal feature workflow state file in the `delegate` phase, with a `pending` merge orchestrator. */
 async function seedFeatureStateForRollback(
   stateDir: string,
   featureId: string,
@@ -437,6 +299,10 @@ async function seedFeatureStateForRollback(
   return stateFile;
 }
 
+/**
+ * The rollback timeline through a real store from `initializeContext`, with a `vcsMerge` that rejects.
+ * The stream holds a passed `merge.preflight` and one `merge.recovered` with reason `merge-failed`, and no `merge.rollback`.
+ */
 describe('handleMergeOrchestrate integration — rollback timeline (T24)', () => {
   let tmpDir: string;
 
@@ -448,15 +314,13 @@ describe('handleMergeOrchestrate integration — rollback timeline (T24)', () =>
     await rmrfAsync(tmpDir);
   });
 
+  /** A plain `Error` is not a timeout and does not name verification, so `categorizeFailure` gives `merge-failed`. */
   it('eventTimeline_RecoveryPath_ContainsMergeRecoveredWithCategorizedReason', async () => {
     const ctx = await initializeContext(tmpDir);
     const featureId = 'feat-rollback';
     await seedFeatureStateForRollback(tmpDir, featureId);
 
     const preflight = async () => PASSING_PREFLIGHT;
-    // Failing vcsMerge → pure executor categorizes as 'merge-failed'
-    // (Error.message does not match /verification/i; not a TimeoutError /
-    // ETIMEDOUT). See `pure/execute-merge.ts:categorizeFailure`.
     const vcsMerge = async () => {
       throw new Error('merge conflict');
     };
@@ -483,8 +347,6 @@ describe('handleMergeOrchestrate integration — rollback timeline (T24)', () =>
     expect(result.success).toBe(false);
 
     const events = await ctx.eventStore.query(featureId);
-    // DR-2 (task 006): the recovery terminal is the canonical `merge.recovered`;
-    // the retired legacy `merge.rollback` must NOT appear on the stream.
     const recoveredEvents = events.filter((e) => e.type === 'merge.recovered');
     expect(recoveredEvents).toHaveLength(1);
     expect(events.filter((e) => e.type === 'merge.rollback')).toHaveLength(0);
@@ -503,6 +365,11 @@ describe('handleMergeOrchestrate integration — rollback timeline (T24)', () =>
     ).toBe(true);
   });
 
+  /**
+   * The executor appends `merge.recovered` and then writes `rolled-back` to the state file.
+   * With `mergeOrchestrator.phase` at `rolled-back`, next actions omit `merge_orchestrate`.
+   * The test does not run the HSM evaluator, so it sets the workflow `phase` to `merge-pending` itself.
+   */
   it('eventTimeline_AfterRollback_NextActionsOmitMergeOrchestrate', async () => {
     const ctx = await initializeContext(tmpDir);
     const featureId = 'feat-rollback-omit';
@@ -540,20 +407,10 @@ describe('handleMergeOrchestrate integration — rollback timeline (T24)', () =>
       workflowType: string;
     };
 
-    // T27 persists the terminal phase before emitting the recovery terminal
-    // (`merge.recovered` post-DR-2), so the on-disk `mergeOrchestrator.phase`
-    // reflects the actual outcome. (Originally softened to `not.toBe('pending')`
-    // while T27 was a known gap; now strict per the design.)
     expect(state.mergeOrchestrator?.phase).toBe('rolled-back');
     expect(state.mergeOrchestrator?.reason).toBe('merge-failed');
     expect(typeof state.mergeOrchestrator?.recoveryPointSha).toBe('string');
 
-    // T19 contract: when state carries `mergeOrchestrator.phase ===
-    // 'rolled-back'`, `merge_orchestrate` is omitted from next-actions.
-    // Workflow-level `phase` is synthesized to `merge-pending` because the
-    // integration test doesn't run the HSM evaluator that would auto-
-    // transition the top-level phase. T26 added `merge-pending` to
-    // `FeaturePhaseSchema`, so the synthesis is schema-valid.
     const hsm = createFeatureHSM();
     const realStateAtMergePending = {
       ...state,
@@ -565,27 +422,10 @@ describe('handleMergeOrchestrate integration — rollback timeline (T24)', () =>
   });
 });
 
-// ─── #1303 — idempotencyKey + expectedSequence integration tests ───────────
-//
-// These tests pin the substrate guarantees added in #1259 / #1323 (SQLite
-// PRIMARY KEY (stream_id, sequence) + UNIQUE INDEX (idempotency_key))
-// onto the merge-orchestrate / execute-merge surface. Two scenarios:
-//
-//   α-01: a crash between event-append and downstream state-write must NOT
-//         produce a duplicate `merge.executed` event when the caller resumes.
-//         Idempotency-key dedup at append time is the substrate-level
-//         guarantee being asserted.
-//
-//   α-03: two concurrent invocations against the same stream must NOT
-//         produce duplicate sequences and must produce exactly one
-//         `merge.executed` event. `expectedSequence` (CAS on the stream
-//         high-water mark) plus the `idempotencyKey` UNIQUE INDEX is the
-//         substrate-level guarantee being asserted.
-//
-// All in-process: NO subprocess spawn (per design — α-01 explicitly
-// decouples from #1324). Event-append is the surface mocked / raced on.
-// ───────────────────────────────────────────────────────────────────────────
-
+/**
+ * A crash between the `merge.executed` append and the next state write must not give a second
+ * `merge.executed` event when the caller resumes. The test runs in process and mocks the event append.
+ */
 describe('handleMergeOrchestrate integration — idempotency & concurrency (#1303)', () => {
   let stateDir: string;
   let eventStore: EventStore;
@@ -607,6 +447,11 @@ describe('handleMergeOrchestrate integration — idempotency & concurrency (#130
     await rmrfAsync(stateDir);
   });
 
+  /**
+   * The `append` spy persists the first `merge.executed` row and then throws, as a crash before the state write.
+   * The handler does not wrap event-store errors, so the crash reaches the caller.
+   * The resume call has no prior state file, so `readState` returns undefined and the handler dispatches again.
+   */
   it('MergeOrchestrate_CrashAfterMergeExecutedAppendThenResume_AppendsExactlyOneMergeExecutedEvent', async () => {
     const featureId = 'feat-idem-crash';
     const taskId = 'T-crash';
@@ -622,9 +467,6 @@ describe('handleMergeOrchestrate integration — idempotency & concurrency (#130
       return { stdout: '', exitCode: 0 };
     };
 
-    // Spy on `append`. For the first invocation, let the underlying append
-    // run (the row IS persisted), then throw on the way out — simulating
-    // a crash between event-append durability and downstream state-write.
     const realAppend = eventStore.append.bind(eventStore);
     let crashed = false;
     const appendSpy = vi
@@ -644,7 +486,6 @@ describe('handleMergeOrchestrate integration — idempotency & concurrency (#130
         },
       );
 
-    // First invocation — crashes after the merge.executed append.
     let firstError: unknown;
     try {
       await handleMergeOrchestrate(
@@ -662,13 +503,11 @@ describe('handleMergeOrchestrate integration — idempotency & concurrency (#130
                 vcsMerge: stubVcsMerge,
                 gitExec: stubGitExec,
                 persistState: async () => {
-                  /* no-op */
                 },
               },
               innerCtx,
             ),
           persistState: async () => {
-            /* no-op */
           },
           gitExec: BYPASS_SECTION_0A,
         },
@@ -677,23 +516,16 @@ describe('handleMergeOrchestrate integration — idempotency & concurrency (#130
     } catch (err) {
       firstError = err;
     }
-    // The simulated crash bubbles all the way out (the handler does not
-    // wrap event-store IO errors). Sanity-check we actually crashed.
     expect(firstError).toBeInstanceOf(Error);
     expect(crashed).toBe(true);
 
-    // Sanity: row IS in the store from the first call.
     const afterFirst = await eventStore.query(featureId);
     expect(
       afterFirst.filter((e) => e.type === 'merge.executed'),
     ).toHaveLength(1);
 
-    // Restore the spy for the resume call so it actually returns rather
-    // than re-throwing.
     appendSpy.mockRestore();
 
-    // Second invocation — caller's retry. Must NOT produce a second
-    // merge.executed event.
     const resumeResult = await handleMergeOrchestrate(
       {
         featureId,
@@ -710,25 +542,18 @@ describe('handleMergeOrchestrate integration — idempotency & concurrency (#130
               vcsMerge: stubVcsMerge,
               gitExec: stubGitExec,
               persistState: async () => {
-                /* no-op */
               },
             },
             innerCtx,
           ),
         persistState: async () => {
-          /* no-op */
         },
-        // No prior workflow state file — readState returns undefined → fall
-        // through to fresh dispatch (which is the non-trivial replay path
-        // we need to exercise).
         readState: async () => undefined,
         gitExec: BYPASS_SECTION_0A,
       },
       ctx,
     );
 
-    // The second call should succeed (or at least not append a duplicate).
-    // The substrate-level invariant under test is on the stream itself.
     expect(resumeResult).toBeDefined();
 
     const finalEvents = await eventStore.query(featureId);
@@ -740,43 +565,9 @@ describe('handleMergeOrchestrate integration — idempotency & concurrency (#130
 
 });
 
-// ─── #1305 T15 — merge-pending transitions emit workflow.transition ─────────
-//
-// INVARIANT: the `merge-pending` entry (`delegate → merge-pending`) and exit
-// (`merge-pending → delegate`) phase transitions MUST go through the
-// canonical HSM transition primitive — `handleWorkflow({ action: 'transition' })`
-// → `handleTransition` → `hsmTransitionGuard.attempt` — which emits exactly
-// one `workflow.transition` event per call and NEVER a bare top-level
-// phase-set that would bypass the event log and desync the projection.
-//
-// v2.11 (composite.ts T5a.1) hard-cut the prior `set({phase})` rerouting
-// path; `transition` is now the single phase-mutation entry point. These
-// tests pin that the merge-pending edges resolve through it and produce the
-// canonical event — `workflow.transition`, not `workflow.set` / a bare
-// phase-set.
-//
-// Coverage split:
-//   • The EXIT edge (`merge-pending → delegate`) is driven END-TO-END through
-//     the real store + canonical primitive: its guard (`mergePendingExit`)
-//     inspects only `_events[].type` for terminal events, so it evaluates
-//     correctly against the store-hydrated `_events` shape.
-//   • The ENTRY edge (`delegate → merge-pending`) is asserted reachable
-//     through the HSM evaluator (the production projection path consumes the
-//     same evaluator) and confirmed to route through the canonical primitive.
-//     The entry guard reads `task.completed.data.worktree`; the store
-//     hydration helper flattens event `data` to the top level (worktree lands
-//     under `metadata`, not `.data`), so an entry transition cannot be driven
-//     through `handleTransition` against a live store today. That `.data`-vs-
-//     `metadata` impedance is a pre-existing hydration concern (out of scope
-//     for T15 — the resolver/projection work is #1305 T13/T14), so the entry
-//     edge is exercised at the HSM-evaluator seam the projection uses.
-// ───────────────────────────────────────────────────────────────────────────
-
 /**
- * Seed a minimal feature workflow state file at the given phase. Same minimal
- * shape as the rollback seed helper, with a fresh `mergeOrchestrator` block
- * (`phase: 'pending'`) so the entry guard's "not in a terminal phase" check
- * passes.
+ * Seeds a minimal feature workflow state file at `phase`. The `pending` merge orchestrator passes the
+ * terminal-phase check of the entry guard.
  */
 async function seedFeatureStateAtPhase(
   stateDir: string,
@@ -815,6 +606,13 @@ async function seedFeatureStateAtPhase(
   return stateFile;
 }
 
+/**
+ * The `merge-pending` entry and exit transitions must go through `handleWorkflow({ action: 'transition' })`.
+ * That path emits one `workflow.transition` event per call and never a bare phase set that skips the event log.
+ * The exit guard reads only the `type` of each event in `_events`, so the exit edge runs end to end on the real store.
+ * The entry guard reads `task.completed.data.worktree`, but store hydration puts the worktree under `metadata`.
+ * So the test checks the entry edge at the HSM evaluator, which the projection also uses.
+ */
 describe('MergePendingTransitions_EmitWorkflowTransition_NotSet (#1305 T15)', () => {
   let stateDir: string;
   let eventStore: EventStore;
@@ -836,14 +634,14 @@ describe('MergePendingTransitions_EmitWorkflowTransition_NotSet (#1305 T15)', ()
     await rmrfAsync(stateDir);
   });
 
+  /**
+   * A `task.completed` with a worktree, then a `merge.executed`, authorize the exit edge.
+   * The exit gives one `workflow.transition` event and no `workflow.set` event, and the state file shows `delegate`.
+   */
   it('MergePendingExit_DrivenThroughCanonicalPrimitive_EmitsWorkflowTransitionNotBarePhaseSet', async () => {
     const featureId = 'feat-t15-exit';
     await seedFeatureStateAtPhase(stateDir, featureId, 'merge-pending');
 
-    // Terminal events that authorize the `merge-pending → delegate` edge
-    // (mergePendingExit guard): a worktree-bearing task.completed followed by
-    // a merge.executed. Both land on the real stream so the guard evaluates
-    // against production-shaped (store-hydrated) `_events`.
     await eventStore.append(featureId, {
       type: 'task.completed',
       data: { taskId: 'T15', worktree: WORKTREE_PATH },
@@ -859,20 +657,17 @@ describe('MergePendingTransitions_EmitWorkflowTransition_NotSet (#1305 T15)', ()
       },
     });
 
-    // No transition events before the exit call.
     const before = await eventStore.query(featureId);
     expect(
       before.filter((e) => e.type === 'workflow.transition'),
     ).toHaveLength(0);
 
-    // ─── EXIT transition through the canonical primitive ────────────────────
     const exitResult = await handleWorkflow(
       { action: 'transition', featureId, target: 'delegate' },
       ctx,
     );
     expect(exitResult.success).toBe(true);
 
-    // Exactly one workflow.transition event, from merge-pending → delegate.
     const after = await eventStore.query(featureId);
     const transitions = after.filter((e) => e.type === 'workflow.transition');
     expect(transitions).toHaveLength(1);
@@ -882,14 +677,9 @@ describe('MergePendingTransitions_EmitWorkflowTransition_NotSet (#1305 T15)', ()
       featureId,
     });
 
-    // ─── No bare phase-set bypass ───────────────────────────────────────────
-    // The event log is the ONLY phase-mutation seam: the phase change is
-    // carried by a `workflow.transition` event. No separate `workflow.set` /
-    // phase-mutation event exists that would indicate a `set({phase})` bypass.
     const phaseMutationEvents = after.filter(
       (e) =>
         e.type === 'workflow.transition' ||
-        // Defensive: catch a hypothetical future `workflow.set` phase event.
         e.type === ('workflow.set' as typeof e.type),
     );
     expect(
@@ -897,8 +687,6 @@ describe('MergePendingTransitions_EmitWorkflowTransition_NotSet (#1305 T15)', ()
     ).toBe(true);
     expect(phaseMutationEvents).toHaveLength(1);
 
-    // Final on-disk phase reflects the exit transition (delegate), proving the
-    // CAS write that accompanies the transition primitive landed.
     const finalRaw = await fs.readFile(
       path.join(stateDir, `${featureId}.state.json`),
       'utf-8',
@@ -907,16 +695,13 @@ describe('MergePendingTransitions_EmitWorkflowTransition_NotSet (#1305 T15)', ()
     expect(finalState.phase).toBe('delegate');
   });
 
+  /**
+   * The entry edge fires in the HSM evaluator when `task.completed` carries a worktree.
+   * `delegate → merge-pending` is one declared, guarded edge, and without a worktree the guard blocks it.
+   */
   it('MergePendingEntry_IsReachableThroughHsmEvaluatorAndCanonicalPrimitive', async () => {
-    // The entry edge (`delegate → merge-pending`) is the same edge the
-    // production rehydration projection consults. Assert it is reachable
-    // through the HSM evaluator with a worktree-bearing task.completed, and
-    // that the only declared edge into `merge-pending` from `delegate` is the
-    // guarded transition (so the sole phase-mutation seam is the canonical
-    // `workflow.transition` primitive, never a bare set).
     const hsm = getHSMDefinition('feature');
 
-    // (1) HSM evaluator — the entry edge fires with a worktree association.
     const stateForEntry = {
       phase: 'delegate',
       featureId: 'feat-t15-entry',
@@ -929,18 +714,12 @@ describe('MergePendingTransitions_EmitWorkflowTransition_NotSet (#1305 T15)', ()
     expect(entryEval.success).toBe(true);
     expect(entryEval.newPhase).toBe('merge-pending');
 
-    // (2) Topology — `delegate → merge-pending` is a declared, guarded edge.
-    //     A declared HSM edge is mutated ONLY by the canonical transition
-    //     primitive (which emits `workflow.transition`); there is no separate
-    //     phase-set code path for it.
     const entryEdges = hsm.transitions.filter(
       (t) => t.from === 'delegate' && t.to === 'merge-pending',
     );
     expect(entryEdges).toHaveLength(1);
     expect(entryEdges[0]!.guard).toBeDefined();
 
-    // (3) Without a worktree association the entry edge does NOT fire — the
-    //     guard, not a bare phase-set, gates entry.
     const stateNoWorktree = {
       phase: 'delegate',
       featureId: 'feat-t15-entry',

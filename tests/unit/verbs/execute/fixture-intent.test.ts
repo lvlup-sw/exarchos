@@ -1,31 +1,13 @@
 // @oracle-sources: ../../../../src/verbs/execute/executor.ts, the three-leaf CHAIN table this file writes by hand — the population every per-leaf predicate quantifies over is pinned against that list on the line above each quantifier so an empty receipt cannot satisfy one vacuously
 //
-// ─── Fixture intents: what the executor's semantics look like end to end ────
-//
-// The suite in `executor.test.ts` pins one property per test. This one runs
-// whole segments and asks the questions that only a segment can answer:
-//
-//   ordering and per-leaf identity across a three-leaf chain, with the receipt
-//   as the caller's whole view of what happened;
-//
-//   whether placing admission BEFORE EACH LEAF rather than once up front buys
-//   anything. None of the shipped task-completion leaves declares a `requires`,
-//   so on the shipped surface the placement is unfalsifiable. A fixture whose
-//   terminal leaf declares a real resolved-gate requirement — satisfied only by
-//   evidence an earlier leaf records — is what makes it falsifiable: the same
-//   leaf is admitted after its predecessor ran and denied before it;
-//
-//   whether a retry after a crash duplicates the rows the completed leaves
-//   already wrote;
-//
-//   whether an oversized real receipt survives the registered economy cap with
-//   the fields a caller needs to keep following the operation;
-//
-//   whether a caller holding nothing but the receipt can retrieve the trace.
-//
-// Everything here runs through the injected dependency seam: fixture runbooks,
-// fixture leaves, fixture handlers. No shell, no test-only entry in the live
-// registry.
+// Fixture intents run whole executor segments end to end. `executor.test.ts` pins one
+// property per test. This suite checks what only a segment shows:
+//   - order and per-leaf identity across a chain, as the receipt reports them
+//   - admission before each leaf, not once for the whole segment
+//   - no duplicate rows when a retry follows a crash
+//   - the registered economy cap over a real oversized receipt
+//   - trace retrieval from the receipt alone
+// All tests use the injected dependency seam with fixture runbooks, leaves and handlers.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
@@ -121,8 +103,6 @@ function announcing(name: string, event: string) {
   });
 }
 
-// ─── A deterministic chain, and the receipt as the caller's whole view ──────
-
 describe('a three-leaf fixture chain', () => {
   const CHAIN: readonly (readonly [string, string])[] = [
     ['fixture_claim', 'task.claimed'],
@@ -138,6 +118,10 @@ describe('a three-leaf fixture chain', () => {
     return depsFor(steps, handlers, actions);
   }
 
+  /**
+   * The stream order is the runbook order, because a segment runs in sequence.
+   * The event of each leaf carries the derived id of that leaf, not the id of the caller or of a neighbor leaf.
+   */
   it('RunsInRunbookOrder_StampsEachLeafWithItsOwnDerivedIdentity', async () => {
     const result = await execute(
       { intent: INTENT, streamId: STREAM, args: { taskId: 't1' }, operationId: 'op-chain' },
@@ -150,21 +134,21 @@ describe('a three-leaf fixture chain', () => {
     expect(receipt.leaves.map((leaf) => leaf.action)).toEqual(CHAIN.map(([name]) => name));
     expect(receipt.leaves.every((leaf) => leaf.status === 'passed')).toBe(true);
 
-    // The stream's own order is the runbook's order — the segment is a
-    // sequence, not a fan-out.
     const appended = (await store.query(STREAM)).filter(
       (event) => event.type !== INTENT_EXECUTED_EVENT,
     );
     expect(appended.map((event) => event.type)).toEqual(CHAIN.map(([, event]) => event));
 
-    // Each leaf's event carries that leaf's derived id, not the caller's and
-    // not its neighbour's.
     for (const [index, [name]] of CHAIN.entries()) {
       expect(appended[index]?.operationId).toBe(derivedLeafOperationId('op-chain', index, name));
     }
     expect(new Set(appended.map((event) => event.operationId)).size).toBe(CHAIN.length);
   });
 
+  /**
+   * Each leaf reports the type, the stream and the sequence of its event.
+   * Every leaf here addresses the subject, so each entry names the subject stream.
+   */
   it('ReceiptDescribesEveryLeafAndTheTailItReached', async () => {
     const receipt = receiptOf(
       await execute(
@@ -178,8 +162,6 @@ describe('a three-leaf fixture chain', () => {
     );
     expect(receipt.leaves.map((leaf) => leaf.events)).toEqual(
       CHAIN.map(([, event], index) => [
-        // Type, the stream the sequence numbers, and the sequence. Every leaf
-        // here addresses the subject, so every pair names the subject stream.
         { type: event, streamId: STREAM, sequence: appended[index]?.sequence },
       ]),
     );
@@ -205,13 +187,13 @@ describe('a three-leaf fixture chain', () => {
   });
 });
 
-// ─── Why per-leaf admission is placed where it is ───────────────────────────
-
+/**
+ * Shows why admission runs before each leaf, not once for the segment.
+ * The terminal leaf requires a resolved `review` gate, and only the first leaf records the evidence.
+ * The contract normalizer accepts any gate name for the `review` family.
+ * The admission evaluator matches the evidence id `gate:review:review` to that requirement.
+ */
 describe('a terminal leaf whose requirement an earlier leaf satisfies', () => {
-  // `review` is a family the contract normalizer accepts without a gate
-  // whitelist, so a fixture can name a resolved gate the same way a shipped
-  // action does. The evidence id spelling is one of the three the admission
-  // evaluator matches a `{family, gate}` discriminant against.
   const REQUIREMENT_ID = 'gate:review:review';
   const PRODUCER = 'fixture.review-gate';
 
@@ -262,11 +244,13 @@ describe('a terminal leaf whose requirement an earlier leaf satisfies', () => {
     expect(evidence).toHaveLength(1);
   });
 
+  /**
+   * The control. The declaration, the arguments and the evaluator stay the same.
+   * Only the store contents differ, because the earlier leaf has not run.
+   * One admission check before the whole segment asks this question and denies a segment that succeeds in order.
+   * After the predecessor runs alone, the same check admits the leaf.
+   */
   it('SameLeafAdmittedBeforeItsPredecessorRan_IsDenied', async () => {
-    // The control. Same declaration, same arguments, same evaluator — only the
-    // store's contents differ, because the earlier leaf has not run. Admitting
-    // the whole segment up front would have asked exactly this question, and
-    // got exactly this answer, for a segment that in order succeeds.
     const compiled = compileIntent(INTENT, { streamId: STREAM }, { taskId: 't1' }, gatedDeps());
     expect(compiled.ok).toBe(true);
     if (!compiled.ok) return;
@@ -287,7 +271,6 @@ describe('a terminal leaf whose requirement an earlier leaf satisfies', () => {
     expect(before).not.toBeNull();
     expect(before?.error?.code).toBe('ADMISSION_DENIED');
 
-    // Run the predecessor, and only the predecessor.
     await execute(
       {
         intent: INTENT,
@@ -317,9 +300,8 @@ describe('a terminal leaf whose requirement an earlier leaf satisfies', () => {
     expect(after).toBeNull();
   });
 
+  /** Without the recording leaf, the executor refuses the gated leaf and does not run it. */
   it('DeniedLeaf_HaltsTheSegmentAndCommitsFailed', async () => {
-    // The same denial reached through the executor: without the recording
-    // leaf, the gated leaf is refused rather than run.
     const ran = countingHandler(silentHandler());
     const result = await execute(
       { intent: INTENT, streamId: STREAM, args: { taskId: 't1' }, operationId: 'op-ungated' },
@@ -335,8 +317,6 @@ describe('a terminal leaf whose requirement an earlier leaf satisfies', () => {
   });
 });
 
-// ─── Crash, retry, and the rows the completed leaves already wrote ──────────
-
 describe('retry after a crash mid-segment', () => {
   const first = announcing('fixture_first', 'task.claimed');
   const second = announcing('fixture_second', 'gate.executed');
@@ -350,6 +330,12 @@ describe('retry after a crash mid-segment', () => {
     fixtureStep('fixture_fourth', 'stop'),
   ];
 
+  /**
+   * The retried receipt reports the rows that the first run wrote.
+   * A deduped append notifies no observer, so the executor finds those rows by the derived id of each leaf.
+   * The completed leaves run again. The derived leaf id, and so the append key, is the same on both attempts.
+   * As a result, the second write collapses onto the first.
+   */
   it('SameOperationId_AppendsNoDuplicateRowsForTheLeavesThatAlreadyRan', async () => {
     const firstCalls = countingHandler(keyedAppendingHandler('task.claimed', 'fixture.first'));
     const secondCalls = countingHandler(
@@ -382,10 +368,6 @@ describe('retry after a crash mid-segment', () => {
     const result = await execute(request, deps);
     expect(result.success).toBe(true);
 
-    // The retried receipt reports the rows the FIRST run wrote. A deduped
-    // append notifies no observer — that is what dedupe means — so a receipt
-    // built from the observer alone read zero events and a zero tail for rows
-    // plainly in the log. The leaf's own derived id is what retrieves them.
     const retried = receiptOf(result);
     expect(retried.leaves.map((leaf) => leaf.events)).toEqual([
       [{ type: 'task.claimed', streamId: STREAM, sequence: afterCrash[0]?.sequence }],
@@ -396,10 +378,6 @@ describe('retry after a crash mid-segment', () => {
     expect(retried.tailSequence).toBe(afterCrash[1]?.sequence);
     expect(retried.interaction.eventsAppended).toBe(2);
 
-    // The two completed leaves genuinely RE-RAN — nothing skipped them. What
-    // did not happen is a second row: the derived leaf id is the same on both
-    // attempts, so the key each leaf appends under is the same, and the second
-    // write collapses onto the first.
     expect(firstCalls.calls()).toBe(2);
     expect(secondCalls.calls()).toBe(2);
     const leafEvents = (await store.query(STREAM)).filter(
@@ -418,10 +396,13 @@ describe('retry after a crash mid-segment', () => {
     }
   });
 
+  /**
+   * The control for the test above. The leaf appends without a derived key, and the retry writes a second row.
+   * Stable ids do not dedupe on their own. They make a key that can.
+   * The second leaf promises an event that its silent handler does not append, so the retry halts there.
+   * The test counts only the rows of the first leaf.
+   */
   it('AnUnkeyedLeafDuplicatesInstead_TheKeyIsWhatDedupes', async () => {
-    // The control for the test above: the same crash and the same retry, with
-    // the only change being that the leaf appends without a derived key. Two
-    // rows. Stable ids do not dedupe by themselves — they make a key that can.
     const unkeyed = countingHandler(appendingHandler('task.claimed'));
     let crash = true;
     const handlers: LeafHandlerTable = {
@@ -444,9 +425,6 @@ describe('retry after a crash mid-segment', () => {
 
     await expect(execute(request, deps)).rejects.toThrow('fixture crash');
     crash = false;
-    // The second leaf's registration promises an event its silent handler does
-    // not append, so the retried segment halts there — the point of interest is
-    // the first leaf's row count either way.
     await execute(request, deps);
 
     expect(unkeyed.calls()).toBe(2);
@@ -454,13 +432,12 @@ describe('retry after a crash mid-segment', () => {
   });
 });
 
-// ─── The registered economy cap, over a receipt the executor actually made ──
-
+/**
+ * The tests check the receipt size. The worker declares no emission,
+ * so that the many worker leaves do not turn the run into a test of the emission check.
+ */
 describe('an oversized receipt through the registered economy path', () => {
   const LEAF_COUNT = 120;
-  // The worker declares no emission: what is under test is the receipt's SIZE,
-  // and a hundred-odd leaves each owing an event would make the run about the
-  // emission check instead.
   const worker = fixtureAction({ name: 'fixture_worker' });
   const refuser = fixtureAction({ name: 'fixture_refuser' });
 
@@ -480,6 +457,10 @@ describe('an oversized receipt through the registered economy path', () => {
     );
   }
 
+  /**
+   * The cap drops the per-leaf detail. The capped payload stays under the declared budget.
+   * The receipt comes from the executor, not from a hand-built object.
+   */
   it('CommittedAndOverBudget_KeepsOperationIdOutcomeAndTailSequence', async () => {
     const receipt = receiptOf(
       await execute(
@@ -502,12 +483,9 @@ describe('an oversized receipt through the registered economy path', () => {
     expect(data.outcome).toBe('committed');
     expect(data.tailSequence).toBe(receipt.tailSequence);
     expect(data.tailSequence).toBeGreaterThan(0);
-    // The per-leaf detail is what the cap gave up.
     expect(data.leaves).toBeUndefined();
     expect(data.counts).toMatchObject({ leaves: LEAF_COUNT + 1, total: LEAF_COUNT + 1 });
 
-    // And the capped payload is actually under the declared budget — over a
-    // receipt the executor really produced, not a hand-built one.
     const budget = findActionInRegistry('exarchos_orchestrate', 'execute_intent')?.economy
       ?.budgetTokens;
     expect(budget).toBeGreaterThan(0);
@@ -516,11 +494,11 @@ describe('an oversized receipt through the registered economy path', () => {
     expect(data.counts).toMatchObject({ shown: (data.firstPage as unknown[]).length });
   });
 
+  /**
+   * `enforceResponseEconomy` returns a failure envelope whole, with no measure and no cap, so that a refusal survives.
+   * The dispatch path cannot reach the `failedLeaf` pin. The test checks it on the registered reducer.
+   */
   it('FailedAndOverBudget_IsReturnedVerbatimAndTheReducerStillPinsFailedLeaf', async () => {
-    // A failure envelope is not measured or capped — `enforceResponseEconomy`
-    // returns it whole, because a refusal's carrier has to survive. So the
-    // `failedLeaf` pin can never be reached through the dispatch path; it is
-    // the registered reducer's own promise, and that is where it is checked.
     const result = await execute(
       { intent: INTENT, streamId: STREAM, args: { taskId: 't1' }, operationId: 'op-economy-fail' },
       longDeps('refuses'),
@@ -550,14 +528,17 @@ describe('an oversized receipt through the registered economy path', () => {
   });
 });
 
-// ─── The trace, from nothing but the receipt ────────────────────────────────
-
 describe('retrieving the trace a receipt describes', () => {
   const CHAIN: readonly (readonly [string, string])[] = [
     ['fixture_claim', 'task.claimed'],
     ['fixture_gate', 'gate.executed'],
   ];
 
+  /**
+   * A caller holds only the receipt. The events of each leaf come back by the derived id over `receipt.operationId`.
+   * The operation record carries the operation id of the outer dispatch, because the emission check
+   * for `execute_intent` queries by that id. The key of the caller is inside the record.
+   */
   it('LeafEventsByDerivedId_OperationRecordByTheOuterDispatchId', async () => {
     const actions = CHAIN.map(([name, event]) => announcing(name, event));
     const handlers: LeafHandlerTable = {};
@@ -575,8 +556,6 @@ describe('retrieving the trace a receipt describes', () => {
       ),
     );
 
-    // A caller holds the receipt and nothing else. Each leaf's events come
-    // back from the derived-id convention over `receipt.operationId`.
     const seen: { type: string; sequence: number }[] = [];
     for (const [index, leaf] of receipt.leaves.entries()) {
       const page = await handleEventQuery(
@@ -596,10 +575,6 @@ describe('retrieving the trace a receipt describes', () => {
       receipt.leaves.flatMap((leaf) => leaf.events.map((event) => event.sequence)),
     );
 
-    // The operation record is stamped with the OUTER dispatch's operation id,
-    // not the caller's key — the emission check for `execute_intent` itself
-    // queries by that dispatch id, so the commit has to carry it. The caller's
-    // key is inside the record, which is how a receipt-holder recognizes it.
     const record = await handleEventQuery(
       { stream: STREAM, filter: { operationId: outer.operationId } },
       stateDir,

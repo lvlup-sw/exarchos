@@ -1,24 +1,13 @@
-// ─── handleExecuteMerge tests (T15 + T16) ───────────────────────────────────
+// Tests for `handleExecuteMerge`, which wraps the pure `executeMerge` with a VCS adapter and
+// event-store emission.
 //
-// T15 — happy path. Wraps the pure `executeMerge` (T08+T09+T10) with a
-// VCS provider adapter and event-store emission. Asserts:
-//   1. delegates to the underlying VCS merge (handleMergePr / vcs.mergePr)
-//   2. emits `merge.executed` to the workflow's event stream with both the
-//      mergeSha and the rollbackSha captured pre-merge
-//   3. persists the `executing` intermediate state (with rollbackSha) BEFORE
-//      the VCS merge call, so a crash mid-merge is recoverable
+// On success, the handler persists the `executing` state with the recovery point before the VCS
+// merge, then appends `merge.executed` and `merge.completed`.
 //
-// T16 — rollback/recovery path. When the VCS merge rejects, the pure executor
-// returns `phase: 'rolled-back'` after running the INV-14 recovery ladder
-// (`git merge --abort` → `git reset --keep <rollbackSha>`, never `--hard`).
-// DR-2 (task 006) retired the legacy `merge.rollback` write path; the handler
-// now must:
-//   1. emit ONLY the canonical `merge.recovered` to the workflow's event stream
-//      carrying the categorized reason ('merge-failed' | 'verification-failed'
-//      | 'timeout') and, on a non-clean recovery, the INV-14 `recoveryError`
-//      discriminator + `recoveryErrorDetail`. NO legacy `merge.rollback` append.
-//   2. rewind to `<rollbackSha>` via the ladder so HEAD matches the captured sha
-//   3. return a structured `ToolResult` failure with code `MERGE_ROLLED_BACK`
+// When the VCS merge rejects, the pure executor runs the recovery ladder: `git merge --abort`, then
+// `git reset --keep <rollbackSha>`, never `--hard`. The handler appends only `merge.recovered`, with
+// the categorized reason and, after a blocked recovery, `recoveryError` and `recoveryErrorDetail`.
+// It returns a `MERGE_ROLLED_BACK` failure.
 
 import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 import type { EventStore } from '../../../../src/events/store.js';
@@ -27,18 +16,12 @@ import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js'
 
 import { handleExecuteMerge } from '../../../../src/verbs/merge/execute-merge.js';
 
-// ─── Test helpers ──────────────────────────────────────────────────────────
-
+/**
+ * A mock store. The handler calls `getAppender().decide(...)` to commit `merge.requested` before the
+ * VCS merge, so the stub `decide` resolves to a committed result. `query` returns no events, so each
+ * tail read gives `expectedSequence: 0`. `execute-merge.migration.test.ts` runs the real `decide` path.
+ */
 function makeMockEventStore(): EventStore {
-  // Wave 4 (audit §F1.2): the executor now invokes
-  // `ctx.eventStore.getAppender().decide(...)` to commit `merge.requested`
-  // (Phase A) BEFORE the vcsMerge side effect fires. The mock returns a
-  // stub appender whose `decide` resolves to a `kind: 'committed'` shape
-  // so the pre-existing tests (T15/T16/T27/etc — which assert on the
-  // vcsMerge invocation + merge.executed/rollback emission legs)
-  // continue passing. The migration test
-  // (execute-merge.migration.test.ts) is the one that exercises the real
-  // `decide` path against a tmp-dir `EventStore`.
   const decide = vi.fn().mockResolvedValue({
     ok: true,
     kind: 'committed',
@@ -52,9 +35,6 @@ function makeMockEventStore(): EventStore {
       type: 'merge.executed',
       timestamp: new Date().toISOString(),
     }),
-    // #1303: handler reads stream tail to compute expectedSequence before
-    // appending merge.executed / merge.completed / merge.recovered. Empty
-    // array → expectedSequence: 0. (DR-2 retired the merge.rollback append.)
     query: vi.fn().mockResolvedValue([]),
     getAppender: vi.fn().mockReturnValue({ decide }),
   } as unknown as EventStore;
@@ -72,7 +52,7 @@ function makeMockCtx(overrides: Partial<DispatchContext> = {}): DispatchContext 
 const ROLLBACK_SHA = 'b'.repeat(40);
 const MERGE_SHA = 'a'.repeat(40);
 
-// gitExec stub: `git rev-parse HEAD` returns the rollback sha.
+/** A `gitExec` stub. `git rev-parse HEAD` returns the rollback sha, and every other command succeeds. */
 function makeGitExec() {
   return vi.fn().mockImplementation((_repo: string, args: readonly string[]) => {
     if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
@@ -82,6 +62,10 @@ function makeGitExec() {
   });
 }
 
+/**
+ * The success path. Each test injects `vcsMerge`, `persistState` and `gitExec`,
+ * so no real VCS provider or git command runs.
+ */
 describe('handleExecuteMerge (T15)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -101,7 +85,6 @@ describe('handleExecuteMerge (T15)', () => {
         targetBranch: 'main',
         taskId: 'T11',
         strategy: 'squash',
-        // DI: bypass real createVcsProvider + git invocation
         vcsMerge,
         persistState,
         gitExec: makeGitExec(),
@@ -117,6 +100,12 @@ describe('handleExecuteMerge (T15)', () => {
     });
   });
 
+  /**
+   * The handler makes three appends. `merge.executing_started` marks liveness before the first VCS merge.
+   * `merge.executed` records the side effect, and `merge.completed` is the terminal marker.
+   * With a `taskId`, `instanceId` equals the task id. Each append reads the live stream tail for its
+   * expected sequence. The mock tail is empty, so each value is 0.
+   */
   it('handleExecuteMerge_MergeSucceeds_EmitsMergeExecutedWithMergeSha', async () => {
     const ctx = makeMockCtx();
     const vcsMerge = vi.fn().mockResolvedValue({ mergeSha: MERGE_SHA });
@@ -137,11 +126,6 @@ describe('handleExecuteMerge (T15)', () => {
     );
 
     expect(result.success).toBe(true);
-    // Three appends: `merge.executing_started` (#1309 liveness, BEFORE the first
-    // vcsMerge), then `merge.executed` (side-effect record) and `merge.completed`
-    // (terminal lifecycle marker). Distinct events per #1304 INV-10 alignment.
-    // The liveness append is leading, so the terminal pair is the 2nd/3rd call;
-    // the terminal payloads themselves are unchanged.
     expect(ctx.eventStore.append).toHaveBeenCalledTimes(3);
     expect(ctx.eventStore.append).toHaveBeenNthCalledWith(
       1,
@@ -154,7 +138,6 @@ describe('handleExecuteMerge (T15)', () => {
           targetBranch: 'main',
           recoveryPointSha: ROLLBACK_SHA,
           startedAt: expect.any(String),
-          // DR-2 — canonical liveness instance key (taskId present).
           instanceId: 'T11',
         },
       },
@@ -175,11 +158,9 @@ describe('handleExecuteMerge (T15)', () => {
           strategy: 'squash',
           mergeSha: MERGE_SHA,
           rollbackSha: ROLLBACK_SHA,
-          // DR-2 — canonical liveness instance key (taskId present).
           instanceId: 'T11',
         },
       },
-      // #1303: idempotencyKey + expectedSequence wired on merge.executed.
       {
         expectedSequence: 0,
         idempotencyKey: 'feat-x:merge_orchestrate:T11:merge.executed',
@@ -199,32 +180,21 @@ describe('handleExecuteMerge (T15)', () => {
         },
       },
       {
-        // CAS against the LIVE stream tail (not a static pin to the
-        // merge.executed append result). The mock `query` returns [] for
-        // every tail read, so the high-water mark is 0 here. The live-tail
-        // read is what makes the terminal marker self-heal on retry — see
-        // the `...CasPinsToLiveTailNotFrozenExecutedSequence` regression
-        // test (Sentry r3315312847).
         expectedSequence: 0,
         idempotencyKey: 'feat-x:merge_orchestrate:T11:merge.completed',
       },
     );
   });
 
+  /**
+   * The `merge.completed` append must read the live stream tail, not reuse the `merge.executed` sequence.
+   * Another event on the shared stream moves the tail past a fixed pin. A retry gets the same cached
+   * `merge.executed` sequence, so a fixed pin fails on every retry and the workflow stays in `executing`.
+   * The mock tail is empty for the first two reads and at sequence 7 for the third.
+   * The `merge.executed` append returns sequence 1, so a fixed pin sends 1, not 7.
+   */
   it('handleExecuteMerge_MergeCompleted_CasPinsToLiveTailNotFrozenExecutedSequence', async () => {
-    // Regression — Sentry r3315312847 (PR #1492). The merge.completed CAS
-    // MUST read the live stream tail, NOT a static pin to the merge.executed
-    // sequence. The old pin stranded the workflow permanently in `executing`:
-    // any unrelated event interleaving on the shared featureId stream advanced
-    // the tail past the pin, and a retry re-derived the SAME executed sequence
-    // (idempotency-key cache-hit) so the pinned CAS reproduced the conflict
-    // forever with no recovery. A live-tail CAS self-heals on retry.
     const ctx = makeMockCtx();
-    // Tail reads, in order: (1) before merge.executing_started (#1309 liveness),
-    // (2) before merge.executed, both empty. By the third read (before
-    // merge.completed) a concurrent writer has advanced the tail to seq 7.
-    // merge.executed still returns its own seq 1 from the append mock — a frozen
-    // pin would carry that stale 1 into the merge.completed CAS.
     (ctx.eventStore.query as ReturnType<typeof vi.fn>)
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
@@ -246,9 +216,6 @@ describe('handleExecuteMerge (T15)', () => {
       ctx,
     );
 
-    // merge.completed (3rd append, after the liveness + merge.executed appends)
-    // CAS-pins to the LIVE tail (7), not the merge.executed append's returned
-    // sequence (1).
     expect(ctx.eventStore.append).toHaveBeenNthCalledWith(
       3,
       'feat-x',
@@ -257,20 +224,19 @@ describe('handleExecuteMerge (T15)', () => {
     );
   });
 
+  /**
+   * A `SequenceConflictError` on the `merge.completed` append must recover in place.
+   * `handleMergeOrchestrate` runs the executor outside its retry boundary, so a new call runs the
+   * non-idempotent `vcsMerge` again. This call won the `merge.executed` append, so it owns completion
+   * and retries only the terminal marker. The first attempt fails, and the retry lands.
+   */
   it('handleExecuteMerge_MergeCompleted_RetriesInPlaceOnTransientSequenceConflict', async () => {
-    // Regression — Sentry r3329404869 (PR #1492). A SequenceConflictError on
-    // the merge.completed append must self-heal IN PLACE. Recovery cannot be
-    // delegated to the caller: `handleMergeOrchestrate` runs the executor
-    // OUTSIDE its retry boundary so a re-invocation would re-fire the
-    // non-idempotent `vcsMerge`. This invocation already won the merge.executed
-    // CAS, so it owns completion and retries just the terminal-marker append.
     const ctx = makeMockCtx();
     let completedAttempts = 0;
     (ctx.eventStore.append as ReturnType<typeof vi.fn>).mockImplementation(
       async (_stream: string, event: { type: string }) => {
         if (event.type === 'merge.completed') {
           completedAttempts += 1;
-          // First attempt loses the sequence race; the in-place retry lands.
           if (completedAttempts === 1) {
             throw new SequenceConflictError(0, 5);
           }
@@ -295,19 +261,16 @@ describe('handleExecuteMerge (T15)', () => {
       ctx,
     );
 
-    // Recovered: terminal phase reached despite the transient conflict.
     expect(result.success).toBe(true);
-    // The marker append was retried (first threw, retry landed).
     expect(completedAttempts).toBe(2);
-    // The non-idempotent git merge was NOT re-run by the retry.
     expect(vcsMerge).toHaveBeenCalledTimes(1);
-    // Terminal state still persisted after the marker landed.
     expect(persistState).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({ phase: 'completed' }),
     );
   });
 
+  /** The first `persistState` call writes the `executing` phase with the recovery point, before `vcsMerge` runs. */
   it('handleExecuteMerge_BeforeRefMutation_RollbackShaPersistedToWorkflowState', async () => {
     const ctx = makeMockCtx();
     const callOrder: string[] = [];
@@ -334,7 +297,6 @@ describe('handleExecuteMerge (T15)', () => {
       ctx,
     );
 
-    // Ordering: persistState({phase:'executing', recoveryPointSha}) BEFORE vcsMerge.
     expect(callOrder.length).toBeGreaterThanOrEqual(2);
     expect(callOrder[0]).toBe(
       `persistState:${JSON.stringify({
@@ -355,9 +317,13 @@ describe('handleExecuteMerge rollback (T16)', () => {
     vi.clearAllMocks();
   });
 
+  /**
+   * A rejected `vcsMerge` gets the default reason `merge-failed`. The handler makes two appends:
+   * the liveness event before the merge, then `merge.recovered` as the only recovery terminal.
+   * `merge.recovered` has its own idempotency key and reads a fresh tail.
+   */
   it('executeMerge_RecoveryPath_EmitsOnlyMergeRecovered', async () => {
     const ctx = makeMockCtx();
-    // vcsMerge rejects → categorized as 'merge-failed' (default bucket).
     const vcsMerge = vi.fn().mockRejectedValue(new Error('merge conflict'));
     const persistState = vi.fn().mockResolvedValue(undefined);
 
@@ -376,13 +342,7 @@ describe('handleExecuteMerge rollback (T16)', () => {
     );
 
     expect(result.success).toBe(false);
-    // #1309 prepends the `merge.executing_started` liveness append (BEFORE the
-    // first vcsMerge). DR-2 (task 006) retired the legacy `merge.rollback`
-    // append: the recovery path now appends EXACTLY the canonical
-    // `merge.recovered` terminal. Order: liveness → canonical recovered.
-    // Exactly two appends — NO third legacy append.
     expect(ctx.eventStore.append).toHaveBeenCalledTimes(2);
-    // 1) #1309 liveness `merge.executing_started`, emitted before the merge.
     expect(ctx.eventStore.append).toHaveBeenNthCalledWith(
       1,
       'feat-x',
@@ -394,7 +354,6 @@ describe('handleExecuteMerge rollback (T16)', () => {
           targetBranch: 'main',
           recoveryPointSha: ROLLBACK_SHA,
           startedAt: expect.any(String),
-          // DR-2 — canonical liveness instance key (taskId present).
           instanceId: 'T11',
         },
       },
@@ -403,9 +362,6 @@ describe('handleExecuteMerge rollback (T16)', () => {
         idempotencyKey: 'feat-x:merge_orchestrate:T11:merge.executing_started',
       },
     );
-    // 2) canonical `merge.recovered` — the SOLE terminal recovery event, with
-    //    renamed fields (recoveryPointSha), its OWN idempotency key + fresh-tail
-    //    CAS read.
     expect(ctx.eventStore.append).toHaveBeenNthCalledWith(
       2,
       'feat-x',
@@ -426,10 +382,8 @@ describe('handleExecuteMerge rollback (T16)', () => {
     );
   });
 
+  /** The recovery path appends `merge.recovered` and never the retired `merge.rollback` event. */
   it('executeMerge_RecoveryPath_NoLegacyRollbackAppend', async () => {
-    // DR-2 (task 006): explicit non-emission proof — the retired legacy
-    // `merge.rollback` write path must NEVER append, regardless of how many
-    // other appends the recovery path makes.
     const ctx = makeMockCtx();
     const vcsMerge = vi.fn().mockRejectedValue(new Error('merge conflict'));
     const persistState = vi.fn().mockResolvedValue(undefined);
@@ -452,18 +406,19 @@ describe('handleExecuteMerge rollback (T16)', () => {
     const appendedTypes = (ctx.eventStore.append as ReturnType<typeof vi.fn>).mock.calls.map(
       (call) => (call[1] as { type: string }).type,
     );
-    // The canonical successor IS emitted; the retired legacy event is NOT.
     expect(appendedTypes).toContain('merge.recovered');
     expect(appendedTypes).not.toContain('merge.rollback');
   });
 
+  /**
+   * After the failure, the pure executor runs `git merge --abort`, then `git reset --keep <rollbackSha>`.
+   * It never runs the destructive `--hard` reset.
+   */
   it('handleExecuteMerge_AfterRollback_HeadMatchesRecordedSha', async () => {
     const ctx = makeMockCtx();
     const vcsMerge = vi.fn().mockRejectedValue(new Error('merge conflict'));
     const persistState = vi.fn().mockResolvedValue(undefined);
 
-    // Track the gitExec calls so we can assert the INV-14 recovery ladder
-    // (`git merge --abort` → `git reset --keep <sha>`) ran after the failure.
     const gitCalls: ReadonlyArray<string>[] = [];
     const gitExec = vi.fn().mockImplementation(
       (_repo: string, args: readonly string[]) => {
@@ -471,7 +426,6 @@ describe('handleExecuteMerge rollback (T16)', () => {
         if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
           return { stdout: `${ROLLBACK_SHA}\n`, exitCode: 0 };
         }
-        // merge --abort / reset --keep <sha> both succeed via this catch-all
         return { stdout: '', exitCode: 0 };
       },
     );
@@ -490,8 +444,6 @@ describe('handleExecuteMerge rollback (T16)', () => {
       ctx,
     );
 
-    // INV-14: the pure executor invokes `git reset --keep <rollbackSha>` on
-    // failure (after `git merge --abort`), never the destructive `--hard`.
     const resetCall = gitCalls.find(
       (a) => a[0] === 'reset' && a[1] === '--keep',
     );
@@ -501,6 +453,7 @@ describe('handleExecuteMerge rollback (T16)', () => {
     expect(gitCalls.some((a) => a[0] === 'reset' && a[1] === '--hard')).toBe(false);
   });
 
+  /** A message that matches `verification` gives the reason `verification-failed`. The failure also carries `data`. */
   it('handleExecuteMerge_RollbackPath_ReturnsToolResultFailureWithStructuredError', async () => {
     const ctx = makeMockCtx();
     const vcsMerge = vi.fn().mockRejectedValue(new Error('verification check failed'));
@@ -524,7 +477,6 @@ describe('handleExecuteMerge rollback (T16)', () => {
     expect(result.error?.code).toBe('MERGE_ROLLED_BACK');
     expect(typeof result.error?.message).toBe('string');
     expect(result.error?.message.length ?? 0).toBeGreaterThan(0);
-    // The handler also surfaces `data` so the caller can introspect.
     expect(result.data).toMatchObject({
       phase: 'rolled-back',
       recoveryPointSha: ROLLBACK_SHA,
@@ -532,10 +484,12 @@ describe('handleExecuteMerge rollback (T16)', () => {
     });
   });
 
-  // The recovery-failure path is the one that populates `recoveryError` +
-  // the recovery-error detail end-to-end — exercising it here keeps the operator
-  // recovery contract (state file + emitted event + ToolResult all carry the
-  // indeterminate-worktree signal) covered by the test suite.
+  /**
+   * A refused `git reset --keep` leaves the worktree indeterminate but intact, and an operator must act.
+   * `recoveryError: 'reset-keep-blocked'` and `recoveryErrorDetail` go on the `ToolResult` data and on
+   * `merge.recovered`. Callers and event consumers see the signal without a read of the state file.
+   * The handler makes two appends: the liveness event, then `merge.recovered`.
+   */
   it('handleExecuteMerge_ResetKeepRefuses_SurfacesRecoveryErrorOnEventAndToolResult', async () => {
     const ctx = makeMockCtx();
     const vcsMerge = vi.fn().mockRejectedValue(new Error('merge conflict'));
@@ -547,9 +501,6 @@ describe('handleExecuteMerge rollback (T16)', () => {
           return { stdout: `${ROLLBACK_SHA}\n`, exitCode: 0 };
         }
         if (args[0] === 'reset' && args[1] === '--keep') {
-          // Simulate `git reset --keep` refusing to discard local work: the
-          // worktree is indeterminate (but non-destructive). INV-14's
-          // 'reset-keep-blocked' case — operators must intervene.
           return { stdout: 'fatal: Could not reset index file', exitCode: 1 };
         }
         return { stdout: '', exitCode: 0 };
@@ -577,9 +528,6 @@ describe('handleExecuteMerge rollback (T16)', () => {
       recoveryPointSha: ROLLBACK_SHA,
       reason: 'merge-failed',
     });
-    // `recoveryError` (discriminator) + `recoveryErrorDetail` (detail) ride on
-    // the ToolResult `data` so callers detect the indeterminate worktree without
-    // re-querying the event stream.
     expect((result.data as { recoveryError?: string }).recoveryError).toBe(
       'reset-keep-blocked',
     );
@@ -587,48 +535,35 @@ describe('handleExecuteMerge rollback (T16)', () => {
       'reset --keep',
     );
 
-    // The INV-14 discriminator must appear on the canonical `merge.recovered`
-    // event so event-stream consumers (projections, dashboards, alerting) see
-    // it without reading the state file. DR-2 (task 006) retired the legacy
-    // `merge.rollback` append: the recovery path now appends exactly the
-    // liveness marker then the canonical recovered terminal (two appends).
     expect(ctx.eventStore.append).toHaveBeenCalledTimes(2);
     const calls = (ctx.eventStore.append as ReturnType<typeof vi.fn>).mock.calls;
-    // 0) #1309 liveness merge.executing_started — emitted before the merge.
     const [, startedPayload] = calls[0];
     expect(startedPayload.type).toBe('merge.executing_started');
-    // 1) canonical merge.recovered — carries recoveryError + recoveryErrorDetail.
     const [, recoveredPayload] = calls[1];
     expect(recoveredPayload.type).toBe('merge.recovered');
     expect(recoveredPayload.data.recoveryError).toBe('reset-keep-blocked');
     expect(recoveredPayload.data.recoveryErrorDetail).toContain('reset --keep');
-    // The retired legacy `merge.rollback` event must NOT be appended.
     const appendedTypes = calls.map((call) => (call[1] as { type: string }).type);
     expect(appendedTypes).not.toContain('merge.rollback');
   });
 });
 
-// ─── T29: Executor's persistState retries on VersionConflictError ─────────
-//
-// `handleExecuteMerge`'s default `persistState` writes to disk via
-// `writeStateFile`, which throws `VersionConflictError` when a concurrent
-// writer raced. T14 added the retry loop only in the orchestrator; T29
-// extracts it to a shared module and applies it here so the executor's
-// intermediate `executing` write + terminal `completed`/`rolled-back`
-// writes are equally race-tolerant.
-
 import { VersionConflictError } from '../../../../src/workflow/state-store.js';
 
+/**
+ * The handler wraps each `persistState` call in a retry on `VersionConflictError`, at most three attempts.
+ * The wrapper covers the `executing` write and the terminal write, and it also retries an injected hook.
+ */
 describe('handleExecuteMerge default persistState retries on VersionConflictError (T29)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
+  /**
+   * The first `executing` write throws `VersionConflictError`, and the retry succeeds.
+   * The merge completes: two `executing` attempts, then one `completed` write.
+   */
   it('handleExecuteMerge_DefaultPersistState_VersionConflictThenSucceeds_RetriesAndCompletes', async () => {
-    // We exercise the retry by injecting a `persistState` that simulates a
-    // VersionConflictError on the first 'executing' write, then succeeds
-    // on the retry. The handler must NOT bubble the error out — the merge
-    // should complete normally.
     let executingAttempt = 0;
     const persistState = vi.fn().mockImplementation(async (state: { phase: string }) => {
       if (state.phase === 'executing') {
@@ -641,9 +576,6 @@ describe('handleExecuteMerge default persistState retries on VersionConflictErro
     const ctx = makeMockCtx();
     const vcsMerge = vi.fn().mockResolvedValue({ mergeSha: MERGE_SHA });
 
-    // Wrap the injected persistState in the same retry helper the handler
-    // uses internally — i.e. assert the handler exposes/honors the retry
-    // contract for caller-injected hooks too.
     const result = await handleExecuteMerge(
       {
         featureId: 'feat-x',
@@ -659,16 +591,15 @@ describe('handleExecuteMerge default persistState retries on VersionConflictErro
     );
 
     expect(result.success).toBe(true);
-    // 1st attempt threw, 2nd succeeded for executing; then 1 terminal write.
     expect(executingAttempt).toBe(2);
-    // Handler called persistState 3 times: executing(retry-1)=throw,
-    // executing(retry-2)=success, completed=success.
     expect(persistState).toHaveBeenCalledTimes(3);
   });
 
+  /**
+   * A persistent `VersionConflictError` uses all three attempts on the `executing` write, so `vcsMerge` does not run.
+   * The handler returns a `STATE_CONFLICT` failure and does not throw.
+   */
   it('handleExecuteMerge_DefaultPersistState_VersionConflictExhausted_BubblesErrorAsToolResult', async () => {
-    // Persistent VersionConflictError → handler exhausts retries and
-    // returns a structured failure (not a thrown exception).
     const persistState = vi.fn().mockImplementation(async () => {
       throw new VersionConflictError('persistent CAS race');
     });
@@ -691,21 +622,15 @@ describe('handleExecuteMerge default persistState retries on VersionConflictErro
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('STATE_CONFLICT');
-    // 3 retries × 1 (executing only — vcsMerge never runs after exhaustion).
     expect(persistState).toHaveBeenCalledTimes(3);
   });
 });
 
-// ─── T27: handleExecuteMerge persists terminal phase ──────────────────────
-//
-// The pure executor (T09) writes the intermediate `phase: 'executing'` shape
-// before invoking vcsMerge. After T27, the handler is responsible for the
-// terminal-phase write so disk state always reflects the actual outcome:
-//   • completed  → persist {phase, recoveryPointSha, mergeSha}
-//   • rolled-back → persist {phase, recoveryPointSha, reason}
-// Without this, a successful merge or rollback leaves disk state at
-// 'executing' indefinitely, breaking HSM exit guards and resume semantics.
-
+/**
+ * The pure executor writes the `executing` phase before the VCS merge. The handler writes the terminal phase:
+ * `completed` with `mergeSha`, or `rolled-back` with `reason`. Without that write, disk state stays at
+ * `executing`, and the HSM exit guards and resume fail.
+ */
 describe('handleExecuteMerge terminal-phase persistence (T27)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -730,7 +655,6 @@ describe('handleExecuteMerge terminal-phase persistence (T27)', () => {
       ctx,
     );
 
-    // Two persistState calls now: executing (T09) → completed (T27).
     expect(persistState).toHaveBeenCalledTimes(2);
     expect(persistState).toHaveBeenNthCalledWith(2, {
       phase: 'completed',
@@ -766,6 +690,12 @@ describe('handleExecuteMerge terminal-phase persistence (T27)', () => {
     });
   });
 
+  /**
+   * Both terminal events go to the store before the state file write. If an append fails, replay rebuilds
+   * from the event stream. If the state write fails after the appends, a reconcile recovers from the events.
+   * The liveness event goes out in the `persistState` wrapper, before the `executing` write.
+   * The projection fold needs this order. Log adjacency is not required, because each append reads the live tail.
+   */
   it('handleExecuteMerge_OnCompleted_EmitsMergeExecutedBeforePersistingTerminalState', async () => {
     const ctx = makeMockCtx();
     const callOrder: string[] = [];
@@ -800,19 +730,6 @@ describe('handleExecuteMerge terminal-phase persistence (T27)', () => {
       { ...ctx, eventStore },
     );
 
-    // Event-first commit point (#1109 §1): both terminal events MUST be
-    // appended before the state file is mutated. If either event append
-    // fails, replay can still reconstruct from the event stream; if the
-    // state write fails after, a reconcile recovers from the events alone.
-    //
-    // Order: event(merge.executing_started) → persist(executing) → vcsMerge →
-    //        event(merge.executed) → event(merge.completed) → persist(completed).
-    // #1309: the liveness event is emitted inside the persistState wrapper on the
-    // `executing` payload, BEFORE the state write (and thus before the first
-    // vcsMerge). The merge.completed terminal marker (#1304) follows
-    // merge.executed and both precede the state-file write. Ordering is what the
-    // projection fold requires; strict log adjacency is NOT enforced (the CAS
-    // reads the live tail), so an unrelated interleaved event would not break this.
     expect(callOrder).toEqual([
       'event:merge.executing_started',
       'persist:executing',
@@ -823,6 +740,7 @@ describe('handleExecuteMerge terminal-phase persistence (T27)', () => {
     ]);
   });
 
+  /** The liveness event comes first. On rollback, only `merge.recovered` goes to the store before the terminal state write. */
   it('handleExecuteMerge_OnRolledBack_EmitsMergeRecoveredBeforePersistingTerminalState', async () => {
     const ctx = makeMockCtx();
     const callOrder: string[] = [];
@@ -857,11 +775,6 @@ describe('handleExecuteMerge terminal-phase persistence (T27)', () => {
       { ...ctx, eventStore },
     );
 
-    // #1309: the liveness event leads, emitted inside the persistState wrapper on
-    // the `executing` payload (before the state write / first vcsMerge). DR-2
-    // (task 006) retired the legacy `merge.rollback` append: ONLY the canonical
-    // `merge.recovered` is appended BEFORE the terminal state-file write
-    // (event-first commit point, #1109 §1).
     expect(callOrder).toEqual([
       'event:merge.executing_started',
       'persist:executing',
@@ -871,13 +784,12 @@ describe('handleExecuteMerge terminal-phase persistence (T27)', () => {
     ]);
   });
 
-  // ─── T09 (#1308): merge.retry_attempt emission on timeout-then-success ────
-
+  /**
+   * A `vcsMerge` that times out once and then succeeds gives one `merge.retry_attempt`, then the
+   * `merge.executed` and `merge.completed` pair. No recovery ladder runs. The retry event carries
+   * `attempt`, `delayMs` and `reason`. The `jitter` and `sleep` hooks make the test deterministic and instant.
+   */
   it('handleExecuteMerge_TimeoutOnceThenSuccess_EmitsOneRetryThenExecuted', async () => {
-    // A vcsMerge that times out once then succeeds emits exactly ONE
-    // `merge.retry_attempt` (the retry audit record) followed by the normal
-    // `merge.executed` / `merge.completed` terminal pair — with NO
-    // `merge.recovered` / `merge.rollback` (no recovery ladder runs).
     const ctx = makeMockCtx();
     const appendedTypes: string[] = [];
     (ctx.eventStore.append as ReturnType<typeof vi.fn>).mockImplementation(
@@ -909,8 +821,6 @@ describe('handleExecuteMerge terminal-phase persistence (T27)', () => {
         vcsMerge,
         persistState,
         gitExec: makeGitExec(),
-        // Bounded-retry seams (passed through to the pure executor) so the test
-        // is deterministic and instant.
         jitter: () => 0,
         sleep: async () => {},
       },
@@ -919,9 +829,6 @@ describe('handleExecuteMerge terminal-phase persistence (T27)', () => {
 
     expect(result.success).toBe(true);
     expect(vcsMerge).toHaveBeenCalledTimes(2);
-    // #1309 liveness event leads (before the first vcsMerge), then exactly ONE
-    // retry attempt event, then merge.executed, then the terminal completed
-    // marker. NO recovery/rollback events.
     expect(appendedTypes).toEqual([
       'merge.executing_started',
       'merge.retry_attempt',
@@ -931,8 +838,6 @@ describe('handleExecuteMerge terminal-phase persistence (T27)', () => {
     expect(appendedTypes).not.toContain('merge.recovered');
     expect(appendedTypes).not.toContain('merge.rollback');
 
-    // The retry_attempt carries the #1308 audit payload
-    // ({ attempt, delayMs, reason }) for the single retry.
     const retryCall = (ctx.eventStore.append as ReturnType<typeof vi.fn>).mock.calls.find(
       (c) => (c[1] as { type: string }).type === 'merge.retry_attempt',
     );
@@ -944,15 +849,12 @@ describe('handleExecuteMerge terminal-phase persistence (T27)', () => {
     });
   });
 
-  // ─── #1309 T12: merge.executing_started liveness event timeline ───────────
-
+  /**
+   * The handler emits `merge.executing_started` once, after it records the recovery point and before the
+   * first `vcsMerge`. It precedes every `merge.retry_attempt` and the terminal event. The payload carries
+   * the recovery point sha, the branch and task context, and a `startedAt` timestamp.
+   */
   it('ExecuteMerge_Timeline_ExecutingStartedBeforeTerminal', async () => {
-    // The liveness event `merge.executing_started` is emitted EXACTLY ONCE,
-    // after the recovery point is recorded and BEFORE the first vcsMerge — so it
-    // lands before any merge.retry_attempt AND before the terminal event. The
-    // timeout-then-success scenario exercises the full ordering:
-    //   merge.executing_started → merge.retry_attempt → merge.executed →
-    //   merge.completed.
     const ctx = makeMockCtx();
     const appendedTypes: string[] = [];
     (ctx.eventStore.append as ReturnType<typeof vi.fn>).mockImplementation(
@@ -992,14 +894,11 @@ describe('handleExecuteMerge terminal-phase persistence (T27)', () => {
 
     expect(result.success).toBe(true);
 
-    // Emitted exactly once.
     const startedCount = appendedTypes.filter(
       (t) => t === 'merge.executing_started',
     ).length;
     expect(startedCount).toBe(1);
 
-    // Position invariants: executing_started precedes EVERY retry_attempt and
-    // the terminal event.
     const startedIdx = appendedTypes.indexOf('merge.executing_started');
     const retryIdx = appendedTypes.indexOf('merge.retry_attempt');
     const executedIdx = appendedTypes.indexOf('merge.executed');
@@ -1007,7 +906,6 @@ describe('handleExecuteMerge terminal-phase persistence (T27)', () => {
     expect(retryIdx).toBeGreaterThan(startedIdx);
     expect(executedIdx).toBeGreaterThan(retryIdx);
 
-    // Full ordering, with the terminal emission path (#1308/#1304) unchanged.
     expect(appendedTypes).toEqual([
       'merge.executing_started',
       'merge.retry_attempt',
@@ -1015,8 +913,6 @@ describe('handleExecuteMerge terminal-phase persistence (T27)', () => {
       'merge.completed',
     ]);
 
-    // The liveness payload carries the recovery point sha (captured pre-merge)
-    // plus the branch/task context and a startedAt timestamp.
     const startedCall = (ctx.eventStore.append as ReturnType<typeof vi.fn>).mock.calls.find(
       (c) => (c[1] as { type: string }).type === 'merge.executing_started',
     );
@@ -1032,10 +928,8 @@ describe('handleExecuteMerge terminal-phase persistence (T27)', () => {
     expect((startedData.startedAt as string).length).toBeGreaterThan(0);
   });
 
+  /** On the recovery path, the liveness event also comes first, and `merge.recovered` is the only terminal. */
   it('ExecuteMerge_Timeline_ExecutingStartedBeforeRecoveryTerminal', async () => {
-    // On the recovery path the liveness event still lands first, before the
-    // recovery terminal. DR-2 (task 006) retired the legacy `merge.rollback`
-    // append: the terminal is now the single canonical `merge.recovered`.
     const ctx = makeMockCtx();
     const appendedTypes: string[] = [];
     (ctx.eventStore.append as ReturnType<typeof vi.fn>).mockImplementation(
@@ -1070,20 +964,6 @@ describe('handleExecuteMerge terminal-phase persistence (T27)', () => {
   });
 });
 
-// ─── DR-2 (task 006) — single-emit recovery + CAS idempotency ───────────────
-//
-// DR-2 RETIRED the legacy `merge.rollback` write path: the recovery path now
-// emits ONLY the canonical `merge.recovered` (read-tolerant-but-not-emittable
-// for `merge.rollback`). The append carries an idempotency key so a retried
-// recovery is a clean no-op — and the append is NEVER re-pinned to a stale
-// prior sequence (the CAS-pin trap from PR #1492 /
-// `project_cas_pin_idempotency_trap`). Retirement removed the second (legacy)
-// append entirely, so the cross-pin hazard now has one fewer surface.
-//
-// These tests run against a REAL `EventStore` (tmp-dir) so the SQLite
-// idempotency-claims dedup is exercised end-to-end, mirroring
-// `execute-merge.migration.test.ts`.
-
 import { EventStore } from '../../../../src/events/store.js';
 import * as fsp from 'node:fs/promises';
 import * as osMod from 'node:os';
@@ -1115,6 +995,11 @@ function makeRealCtx(eventStore: EventStore, stateDir: string): DispatchContext 
   } as unknown as DispatchContext;
 }
 
+/**
+ * The recovery path appends only `merge.recovered`. The append carries an idempotency key, so a retried
+ * recovery is a no-op. The append reads a fresh tail and never reuses an earlier sequence.
+ * These tests use a real `EventStore` in a temporary directory, so the SQLite idempotency claims really dedupe.
+ */
 describe('handleExecuteMerge DR-2 (task 006) — single-emit recovery + CAS idempotency', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -1128,6 +1013,7 @@ describe('handleExecuteMerge DR-2 (task 006) — single-emit recovery + CAS idem
     );
   });
 
+  /** Against the real store, the recovery path writes one `merge.recovered` with `recoveryPointSha` and no `merge.rollback`. */
   it('ExecuteMerge_RecoveryPath_EmitsOnlyMergeRecovered_NoLegacyRollback', async () => {
     const { eventStore, stateDir } = await makeRealScratchEventStore();
     const ctx = makeRealCtx(eventStore, stateDir);
@@ -1156,25 +1042,19 @@ describe('handleExecuteMerge DR-2 (task 006) — single-emit recovery + CAS idem
     const recovered = events.filter((e) => e.type === 'merge.recovered');
     const rollback = events.filter((e) => e.type === 'merge.rollback');
 
-    // DR-2 (task 006): exactly ONE canonical `merge.recovered`, and ZERO legacy
-    // `merge.rollback` — the write path is retired end-to-end against the real
-    // SQLite substrate.
     expect(recovered).toHaveLength(1);
     expect(rollback).toHaveLength(0);
 
-    // Canonical event carries the renamed field `recoveryPointSha`.
     const recoveredData = recovered[0].data as Record<string, unknown>;
     expect(recoveredData.recoveryPointSha).toBe(ROLLBACK_SHA);
     expect(recoveredData.reason).toBe('merge-failed');
   });
 
+  /**
+   * The CLI and MCP surfaces both call `handleExecuteMerge`, so the `merge.recovered` payload must be byte-identical.
+   * The test runs the executor twice against two separate real stores and compares the serialized payloads.
+   */
   it('ExecuteMerge_RecoveredPayload_ByteEqualAcrossRuns', async () => {
-    // Both dispatch surfaces funnel through the SAME `handleExecuteMerge`, so
-    // the emitted `merge.recovered` payload MUST be byte-identical regardless of
-    // which surface drove the recovery. We drive the executor twice against two
-    // independent real event stores and compare the serialized payload
-    // byte-for-byte (the DR-10 equivalence, retargeted from the retired legacy
-    // deprecation envelope to the sole recovery terminal).
     async function driveRecoveryAndReadPayload(): Promise<unknown> {
       const { eventStore, stateDir } = await makeRealScratchEventStore();
       const ctx = makeRealCtx(eventStore, stateDir);
@@ -1198,7 +1078,6 @@ describe('handleExecuteMerge DR-2 (task 006) — single-emit recovery + CAS idem
     const cliPayload = await driveRecoveryAndReadPayload();
     const mcpPayload = await driveRecoveryAndReadPayload();
 
-    // The exact recovery payload the shared code path emits.
     const expected = {
       taskId: 'T11',
       sourceBranch: 'feat/x',
@@ -1209,22 +1088,16 @@ describe('handleExecuteMerge DR-2 (task 006) — single-emit recovery + CAS idem
     expect(cliPayload).toEqual(expected);
     expect(mcpPayload).toEqual(expected);
 
-    // Byte-equality across surfaces (the parity invariant).
     expect(JSON.stringify(cliPayload)).toEqual(JSON.stringify(mcpPayload));
     expect(JSON.stringify(cliPayload)).toEqual(JSON.stringify(expected));
   });
 
+  /**
+   * A second run of the same recovery must be a no-op. The SQLite idempotency index dedupes the append by its key.
+   * A fixed pin to an earlier sequence makes the retry conflict on every run.
+   * Then the second run throws or returns `STATE_CONFLICT`, and this test fails.
+   */
   it('ExecuteMerge_RetriedRecovery_IdempotentOnMergeRecovered', async () => {
-    // Re-running the SAME recovery (same featureId + taskId) must be a clean
-    // no-op: the SQLite idempotency-claims UNIQUE INDEX dedups the append by its
-    // key. A retry must NOT append a duplicate `merge.recovered` (and never a
-    // `merge.rollback` — that write path is retired).
-    //
-    // CAS-PIN TRAP GUARD (#1492): if the `merge.recovered` append were re-pinned
-    // to a stale prior sequence, the cache-hit on the second run would precede
-    // the CAS and the retry would conflict forever. This test fails loudly in
-    // that case (the second run would throw / surface STATE_CONFLICT instead of
-    // a clean no-op).
     const { eventStore, stateDir } = await makeRealScratchEventStore();
     const ctx = makeRealCtx(eventStore, stateDir);
 
@@ -1247,8 +1120,6 @@ describe('handleExecuteMerge DR-2 (task 006) — single-emit recovery + CAS idem
     expect(first.success).toBe(false);
     expect(first.error?.code).toBe('MERGE_ROLLED_BACK');
 
-    // Retry — same operation, same key. Must be a clean no-op (not a
-    // permanent CAS conflict).
     const second = await invoke();
     expect(second.success).toBe(false);
     expect(second.error?.code).toBe('MERGE_ROLLED_BACK');

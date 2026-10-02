@@ -1,32 +1,11 @@
 /**
- * T0 characterization (epic task 006, design §4.7) — PINS the CURRENT doctor
- * roster surface so the upcoming reconciler/doctor extension (a sibling task
- * adds a 13th check and widens `ResolvedCommandsSchema`) has a regression
- * oracle.
+ * Characterization of the doctor roster. It pins the static `ALL_CHECKS` export: the count, the order,
+ * the `(category, name)` of each check, and the status vocabulary.
+ * `doctor.characterization.test.ts` pins the same identities through a full `handleDoctor` run.
+ * This file pins them at the export, so a new check fails here before any handler wiring.
  *
- * SCOPE — this file pins the STATIC roster export `ALL_CHECKS` at the roster
- * level: how many checks ship, each check's stable `(name, category)`, and the
- * status vocabulary the contract type declares. It is deliberately COMPLEMENTARY
- * to `doctor.characterization.test.ts`, which pins the same identity set as
- * observed through the full `handleDoctor` run + the `diagnostic.executed` event
- * payload. Pinning the roster export directly (rather than only through the
- * composer) means a sibling task that appends a 13th entry to `ALL_CHECKS` trips
- * THIS guard at the roster boundary, before any handler wiring.
- *
- * This test MUST PASS against unmodified HEAD — it is a Feathers baseline, not
- * a spec for new behavior.
- *
- * HOW IDENTITY IS READ (no copied literals masquerading as pins): each check in
- * the REAL `ALL_CHECKS` is executed with a benign full-probe bundle and its
- * `(name, category)` is read off the returned `CheckResult`. The bundle returns
- * safe values for every probe a check might touch, so each check reaches its
- * return statement and surfaces its own identity — we never hand-build a check
- * result. The benign bundle is identity-only scaffolding; the pass/fail STATUS
- * each check computes is host-dependent and intentionally NOT pinned here.
- *
- * The status VOCABULARY is pinned from the canonical `CheckStatusSchema` enum
- * (schema.ts) — the source of truth the `CheckFn` result type derives from — so
- * the pin tracks the type, not a transcribed copy.
+ * Each check in the real `ALL_CHECKS` runs on a benign probe bundle, and the test reads the identity off the result.
+ * The status of each check depends on the host, so this file does not pin it.
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -37,39 +16,9 @@ import type { BundleIntegrityResult } from '../../../../src/events/bundle/integr
 import { CheckStatusSchema, CheckResultSchema, type CheckResult } from '../../../../src/verbs/doctor/schema.js';
 import { ALL_CHECKS } from '../../../../src/verbs/doctor/index.js';
 
-// ─── Pinned roster identity ──────────────────────────────────────────────────
-
 /**
- * The SIXTEEN checks shipped today, pinned by `(category, name)` and ORDER.
- * `ALL_CHECKS` order is part of the observable contract: the composer preserves
- * it so callers scan top-to-bottom for the first Fail. A task adding a check
- * must update this list (and the count) deliberately — that edit is the signal
- * this guard exists to force.
- *
- * DELIBERATE PIN UPDATE (task 009, design §4.6): the `verification-toolchain`
- * entry (category `verification`) was added as a CONSCIOUS act (12 → 13).
- * DELIBERATE PIN UPDATE (Task 017, DR-5/DR-7): `onramp-block-drift` (the Task 013
- * drift finding, previously unregistered) and `retired-hooks-present` (the
- * uninstall-reachability check) were added together in the `agent` block, in that
- * order (block-write step before hook-removal step); the count is updated
- * 13 → 15 on purpose.
- * DELIBERATE PIN UPDATE (Task 011): `stale-skill-dirs` (category `plugin`) was
- * added as a further CONSCIOUS act, updating the count 15 → 16.
- * DELIBERATE PIN UPDATE (Task 019, DR-11 B-5): `store-path-divergence` (category
- * `storage`) was added in the storage block, after `storage-sqlite-health`, as a
- * CONSCIOUS act, updating the count 16 → 17.
- * DELIBERATE PIN UPDATE (P05-04): `install-freshness` (category `plugin`) was
- * added in the plugin block, after `plugin-version-match`, as a CONSCIOUS act,
- * updating the count 17 → 18.
- * DELIBERATE PIN UPDATE: `action-contract-closure` (category `invariants`) was
- * added after `invariants-catalog` as a CONSCIOUS act, updating the count
- * 18 → 19. It gives the ActionId closure evaluator a production caller — until
- * then the instrument was reachable only from its own tests, and a build whose
- * contract projections had drifted said nothing about it at runtime.
- * DELIBERATE PIN UPDATE: `run-bundle-integrity` (category `storage`) was added
- * after `store-path-divergence` as a CONSCIOUS act, updating the count 19 → 20.
- * It gives the run-bundle resolvability oracle a production caller, now that
- * the executor writes bundles the ledger references by digest.
+ * The pinned checks, by `(category, name)` and in order. The `ALL_CHECKS` order is the doctor output order.
+ * A new check must edit this list and the count. That edit is the review signal that this guard forces.
  */
 const PINNED_ROSTER: ReadonlyArray<{
   category: CheckResult['category'];
@@ -97,16 +46,9 @@ const PINNED_ROSTER: ReadonlyArray<{
   { category: 'verification', name: 'verification-toolchain' },
 ];
 
-// ─── Benign probe bundle (identity scaffolding only) ─────────────────────────
-
 /**
- * A DoctorProbes bundle where every probe returns a SAFE value so each check
- * reaches its return statement and surfaces its own `(name, category)`. We do
- * NOT assert the resulting statuses — those depend on the (benign) probe values
- * and are host-/scaffold-dependent; only the identity each check stamps on its
- * result is pinned. This mirrors the real `DoctorProbes` field surface (see
- * `make-stub-probes.ts`) without throwing, since here we WANT every check to
- * run rather than fault on an unstubbed probe.
+ * A `DoctorProbes` bundle in which each probe returns a safe value, so each check reaches its return statement.
+ * Unlike `make-stub-probes.ts`, no probe throws.
  */
 function benignProbes(): DoctorProbes {
   const emptyEnvironments: AgentEnvironment[] = [];
@@ -180,51 +122,42 @@ async function runRoster(): Promise<readonly CheckResult[]> {
   return Promise.all(ALL_CHECKS.map((check) => check(probes, controller.signal)));
 }
 
-// ─── Characterization ────────────────────────────────────────────────────────
-
 describe('doctor roster characterization (T0 baseline)', () => {
+  /**
+   * The test reads each identity off the result of the real check, not off a copied literal.
+   * The schema check proves that each entry returns a valid `CheckResult`.
+   */
   it('DoctorRoster_CurrentBuild_ExactlyTwentyChecksWithStableNames', async () => {
-    // The static export ships exactly the pinned roster, in pinned order. Every
-    // check that joined it did so through a deliberate edit of this count and
-    // of PINNED_ROSTER; the edit is the review signal this guard exists for.
     expect(ALL_CHECKS).toHaveLength(20);
     expect(PINNED_ROSTER).toHaveLength(20);
 
     const results = await runRoster();
     expect(results).toHaveLength(20);
 
-    // Each check, run through the REAL ALL_CHECKS, stamps its own identity —
-    // we read (category, name) off the returned result rather than transcribing.
     const observedIdentity = results.map((r) => ({
       category: r.category,
       name: r.name,
     }));
     expect(observedIdentity).toEqual(PINNED_ROSTER);
 
-    // The name set is exactly the pinned set: no duplicates, no strays.
     const observedNames = new Set(results.map((r) => r.name));
     expect(observedNames.size).toBe(20);
     for (const { name } of PINNED_ROSTER) {
       expect(observedNames.has(name)).toBe(true);
     }
 
-    // Every result satisfies the canonical CheckResult contract — proves each
-    // entry is a real check returning a schema-valid result, not a stub.
     for (const r of results) {
       expect(CheckResultSchema.safeParse(r).success).toBe(true);
     }
   });
 
+  /** The vocabulary comes from the `CheckStatusSchema` enum, and the enum rejects any other value. */
   it('DoctorRoster_CurrentBuild_StatusVocabularyPinned', () => {
-    // The status vocabulary is exactly these four values, sourced from the
-    // canonical CheckStatusSchema enum (the type CheckFn results derive from).
     expect(CheckStatusSchema.options).toEqual(['Pass', 'Warning', 'Fail', 'Skipped']);
 
-    // Each vocabulary member round-trips through the schema (the enum is closed).
     for (const status of ['Pass', 'Warning', 'Fail', 'Skipped'] as const) {
       expect(CheckStatusSchema.safeParse(status).success).toBe(true);
     }
-    // A value outside the vocabulary is rejected (the enum admits nothing else).
     expect(CheckStatusSchema.safeParse('Unknown').success).toBe(false);
     expect(CheckStatusSchema.safeParse('Ok').success).toBe(false);
   });

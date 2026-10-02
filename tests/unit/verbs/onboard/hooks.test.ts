@@ -1,24 +1,11 @@
 /**
- * Tests for the DR-8 SessionStart binding hook installer (task 012, #1485).
+ * Tests the onboard lifecycle-hook seam and the `session-start-hook` doctor check.
+ * `installHook` writes the SessionStart, SessionEnd, and SubagentStop bindings into `<home>/.claude/settings.json`, and a second run adds nothing.
+ * `removeRetiredHooks` removes the retired SessionStart and SessionEnd bindings and keeps SubagentStop and user hooks.
  *
- * Two surfaces are under test, wired end-to-end through the REAL onboard
- * pipeline so the default-on / `--no-hooks` behavior is exercised exactly as
- * production runs it:
- *
- *   1. `installHook` (this module) — the idempotent installer that writes the
- *      #1485 SessionStart binding into the Claude Code agent-host settings
- *      (`<home>/.claude/settings.json`, `hooks.SessionStart[]`). Re-running must
- *      not duplicate the entry.
- *   2. The new `session-start-hook` doctor check — Fails/Warns (with a `fix`)
- *      when the binding is absent, Passes when present. Its `name` is the stable
- *      key the DR-4 CHECK_CLASSIFICATION maps to a `hook` PlanStep, so without it
- *      the default-on hook step never lands.
- *
- * The pipeline is driven through `handleOnboard` with an injected
- * `runDoctorChecks` seam: a `session-start-hook` Fail BEFORE apply (so the
- * `hook` step is planned) and a green check AFTER (the VERIFY re-diff converges).
- * The real `installHook` is the side effect; we assert against the settings
- * file the installer actually wrote (real fs, redirected `home`).
+ * The default-on and `--no-hooks` tests run the real `handleOnboard` pipeline with an injected `runDoctorChecks`.
+ * That seam fails `session-start-hook` before apply, so the `hook` step is planned, and passes it after apply.
+ * Each test uses the real file system with a redirected `home`.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -42,8 +29,6 @@ import {
 } from '../../../../src/verbs/onboard/hooks.js';
 import { sessionStartHook } from '../../../../src/verbs/doctor/checks/session-start-hook.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
-
-// ─── Fixtures ────────────────────────────────────────────────────────────────
 
 interface Fixture {
   readonly repoRoot: string;
@@ -105,7 +90,7 @@ function exarchosBindingCount(settings: Record<string, unknown> | undefined): nu
   return bindingCount(settings, 'SessionStart', 'exarchos session-start');
 }
 
-/** Count command hooks under `event` whose command includes `marker` (#1572 Gap-1). */
+/** Count command hooks under `event` whose command includes `marker`. */
 function bindingCount(
   settings: Record<string, unknown> | undefined,
   event: string,
@@ -172,8 +157,6 @@ function makeDeps(fx: Fixture, overrides?: Partial<OnboardDeps>): OnboardDeps {
   };
 }
 
-// ─── Tests ───────────────────────────────────────────────────────────────────
-
 describe('DR-8 SessionStart hook install (#1485, task 012)', () => {
   it('Hooks_DefaultOn_InstallsSessionStartBinding', async () => {
     const fx = await createFixture();
@@ -183,7 +166,6 @@ describe('DR-8 SessionStart hook install (#1485, task 012)', () => {
 
       expect(result.success).toBe(true);
 
-      // The binding landed in the fixture home's settings.json.
       const settings = await readSettings(fx);
       expect(exarchosBindingCount(settings)).toBe(1);
     } finally {
@@ -199,7 +181,6 @@ describe('DR-8 SessionStart hook install (#1485, task 012)', () => {
 
       expect(result.success).toBe(true);
 
-      // --no-hooks neutralizes the installer: no binding written.
       const settings = await readSettings(fx);
       expect(exarchosBindingCount(settings)).toBe(0);
     } finally {
@@ -207,14 +188,12 @@ describe('DR-8 SessionStart hook install (#1485, task 012)', () => {
     }
   });
 
+  /** After one onboard run, the test calls `installHook` twice more to isolate idempotency. */
   it('Hooks_Rerun_NoDuplicateRegistration', async () => {
     const fx = await createFixture();
     try {
-      // Two back-to-back installs against the same settings file.
       const deps = makeDeps(fx);
       await handleOnboard({ surface: 'cli' }, fx.ctx, deps);
-      // Second run: the binding is already present, so the installer is a
-      // no-op (idempotent). Drive `installHook` directly to isolate idempotency.
       const ctx = {
         repoRoot: fx.repoRoot,
         surface: 'cli' as const,
@@ -236,10 +215,14 @@ describe('DR-8 SessionStart hook install (#1485, task 012)', () => {
     }
   });
 
+  /**
+   * A settings file that is present but not parseable is not the same as no settings file.
+   * The installer throws instead of overwriting it, and the file stays byte for byte.
+   * `applyHookStep` turns the throw into a residual step with an advisory.
+   */
   it('Hooks_MalformedSettings_RefusesAndPreservesFile', async () => {
     const fx = await createFixture();
     try {
-      // A present-but-malformed settings.json the installer must NOT clobber.
       const sp = settingsPath(fx);
       await mkdir(path.dirname(sp), { recursive: true });
       const corrupt = '{ "hooks": { not valid json ';
@@ -257,14 +240,8 @@ describe('DR-8 SessionStart hook install (#1485, task 012)', () => {
         writerDeps: fixtureWriterDeps(fx),
       };
 
-      // INV-14 (refuse-to-discard): rather than overwriting a file it could not
-      // parse, the installer throws — a present-but-unreadable settings.json is
-      // not "no settings".
       await expect(installHook(step, ctx)).rejects.toThrow(/refusing to overwrite/i);
 
-      // The user's malformed file is preserved byte-for-byte (no destructive
-      // rewrite). The throw is what `applyHookStep` turns into a residual +
-      // advisory (forward-only), never a silent clobber.
       const after = await readFile(sp, 'utf8');
       expect(after).toBe(corrupt);
     } finally {
@@ -272,10 +249,10 @@ describe('DR-8 SessionStart hook install (#1485, task 012)', () => {
     }
   });
 
+  /** With no settings file, the check fails or warns with a fix. After `installHook` runs, the check passes. */
   it('Doctor_DetectsMissingSessionStartHook', async () => {
     const fx = await createFixture();
     try {
-      // No settings file at all → the check Fails/Warns and carries a fix.
       const probes = makeStubProbes({
         fs: {
           readFile: async () => {
@@ -301,7 +278,6 @@ describe('DR-8 SessionStart hook install (#1485, task 012)', () => {
       expect(typeof result.fix).toBe('string');
       expect(result.fix && result.fix.length).toBeGreaterThan(0);
 
-      // And the present-binding path Passes.
       await installHook(
         {
           kind: 'hook',
@@ -328,7 +304,6 @@ describe('DR-8 SessionStart hook install (#1485, task 012)', () => {
   });
 });
 
-// ─── #1572 Gap-1: SubagentStop + SessionEnd binding symmetry ────────────────
 describe('onboard hook symmetry — SessionEnd + SubagentStop (#1572 Gap-1)', () => {
   const step = {
     kind: 'hook' as const,
@@ -337,6 +312,7 @@ describe('onboard hook symmetry — SessionEnd + SubagentStop (#1572 Gap-1)', ()
     description: 'install the cross-harness Exarchos bindings',
   };
 
+  /** The SubagentStop binding feeds `subagent.tokens_used`. The installer writes it for standalone-CLI hosts, as the plugin `hooks.json` does. */
   it('InstallHook_WritesSubagentStopBinding', async () => {
     const fx = await createFixture();
     try {
@@ -346,8 +322,6 @@ describe('onboard hook symmetry — SessionEnd + SubagentStop (#1572 Gap-1)', ()
         writerDeps: fixtureWriterDeps(fx),
       });
       const settings = await readSettings(fx);
-      // The SubagentStop binding — the seam that feeds subagent.tokens_used — is
-      // now written for standalone-CLI hosts, symmetric with the plugin hooks.json.
       expect(bindingCount(settings, 'SubagentStop', 'exarchos subagent-stop')).toBe(1);
     } finally {
       await cleanup(fx);
@@ -395,7 +369,6 @@ describe('onboard hook symmetry — SessionEnd + SubagentStop (#1572 Gap-1)', ()
         surface: 'cli' as const,
         writerDeps: fixtureWriterDeps(fx),
       };
-      // Two installs against the same file: every binding stays at exactly one.
       await installHook(step, ctx);
       await installHook(step, ctx);
       const settings = await readSettings(fx);
@@ -407,6 +380,7 @@ describe('onboard hook symmetry — SessionEnd + SubagentStop (#1572 Gap-1)', ()
     }
   });
 
+  /** The seeded settings file holds only a SessionStart binding. The installer adds the two missing bindings and keeps one SessionStart binding. */
   it('InstallHook_PartialPriorState_AddsOnlyMissingBindings', async () => {
     const fx = await createFixture();
     try {
@@ -415,9 +389,6 @@ describe('onboard hook symmetry — SessionEnd + SubagentStop (#1572 Gap-1)', ()
         surface: 'cli' as const,
         writerDeps: fixtureWriterDeps(fx),
       };
-      // Seed a settings.json carrying ONLY the legacy SessionStart binding (the
-      // pre-#1572 state). The installer must add the two missing bindings and
-      // leave SessionStart untouched (still one).
       const sp = settingsPath(fx);
       await mkdir(path.dirname(sp), { recursive: true });
       await writeFile(
@@ -442,8 +413,6 @@ describe('onboard hook symmetry — SessionEnd + SubagentStop (#1572 Gap-1)', ()
     }
   });
 });
-
-// ─── DR-7 retired-hook uninstall (Task 017) ──────────────────────────────────
 
 /** A minimal ApplyCtx for driving the hook seam directly against the fixture. */
 function hookCtx(fx: Fixture) {
@@ -470,9 +439,11 @@ async function seedSettings(fx: Fixture, settings: unknown): Promise<void> {
 }
 
 describe('DR-7 retired-hook uninstall (removeRetiredHooks, Task 017)', () => {
+  /**
+   * Mixed case: the retired SessionStart and SessionEnd hooks sit next to a user hook and the kept SubagentStop binding.
+   * Other top-level keys stay unchanged.
+   */
   it('removeRetiredHooks_MixedSettings_RemovesOnlyOurs', async () => {
-    // The fixture-matrix "mixed" case: our retired hooks (SessionStart directive +
-    // SessionEnd) alongside a USER hook and the RETAINED SubagentStop binding.
     const fx = await createFixture();
     try {
       await seedSettings(fx, {
@@ -497,23 +468,18 @@ describe('DR-7 retired-hook uninstall (removeRetiredHooks, Task 017)', () => {
       await removeRetiredHooks(REMOVE_STEP, hookCtx(fx));
 
       const settings = await readSettings(fx);
-      // OUR retired hooks are gone.
       expect(bindingCount(settings, 'SessionStart', 'exarchos session-start')).toBe(0);
       expect(bindingCount(settings, 'SessionEnd', 'exarchos session-end')).toBe(0);
-      // RETAINED SubagentStop (token attribution) is untouched.
       expect(bindingCount(settings, 'SubagentStop', 'exarchos subagent-stop')).toBe(1);
-      // USER hook is untouched.
       expect(bindingCount(settings, 'PreToolUse', 'my-own-linter')).toBe(1);
-      // Other top-level keys are preserved verbatim.
       expect(settings?.model).toBe('opus');
     } finally {
       await cleanup(fx);
     }
   });
 
+  /** User-only case: with no Exarchos hooks, the remover keeps the user hooks. */
   it('removeRetiredHooks_UserOnly_LeavesUserHooksUntouched', async () => {
-    // The "user-only" matrix case: no Exarchos hooks at all — nothing removed,
-    // user hooks preserved exactly.
     const fx = await createFixture();
     try {
       await seedSettings(fx, {
@@ -531,13 +497,11 @@ describe('DR-7 retired-hook uninstall (removeRetiredHooks, Task 017)', () => {
     }
   });
 
+  /** Already-clean case: with no settings file, removal does nothing and does not create a file. */
   it('removeRetiredHooks_AlreadyClean_NoWrite_Idempotent', async () => {
-    // The "already-clean" matrix case: no settings file at all. Removal is a
-    // no-op — it must NOT create a settings file just to write `{}`.
     const fx = await createFixture();
     try {
       await removeRetiredHooks(REMOVE_STEP, hookCtx(fx));
-      // No file was created.
       const settings = await readSettings(fx);
       expect(settings).toBeUndefined();
     } finally {
@@ -545,9 +509,8 @@ describe('DR-7 retired-hook uninstall (removeRetiredHooks, Task 017)', () => {
     }
   });
 
+  /** Ours-only case, run twice. The first run removes the retired hooks, and the second run leaves the file byte-stable. */
   it('removeRetiredHooks_RepeatedRuns_Idempotent', async () => {
-    // The "ours-only" matrix case run TWICE: first run removes, second run is a
-    // no-op over already-clean settings — the file content is stable.
     const fx = await createFixture();
     try {
       await seedSettings(fx, {
@@ -570,20 +533,17 @@ describe('DR-7 retired-hook uninstall (removeRetiredHooks, Task 017)', () => {
       await removeRetiredHooks(REMOVE_STEP, hookCtx(fx));
       const afterSecond = await readFile(settingsPath(fx), 'utf8');
 
-      // Retired hooks gone after the first run.
       const settings = JSON.parse(afterFirst) as Record<string, unknown>;
       expect(bindingCount(settings, 'SessionStart', 'exarchos session-start')).toBe(0);
       expect(bindingCount(settings, 'SessionEnd', 'exarchos session-end')).toBe(0);
-      // Second run changed nothing (byte-stable).
       expect(afterSecond).toBe(afterFirst);
     } finally {
       await cleanup(fx);
     }
   });
 
+  /** The `hook` seam sends the retired-hooks key to the remover, so `apply` reaches removal without a second seam. */
   it('removeRetiredHooks_ViaInstallHookDispatch_RemovesRetired', async () => {
-    // The single `hook` seam dispatches the retired-hooks key to the remover —
-    // this is how `apply` reaches removal without a second seam.
     const fx = await createFixture();
     try {
       await seedSettings(fx, {
@@ -606,8 +566,8 @@ describe('DR-7 retired-hook uninstall (removeRetiredHooks, Task 017)', () => {
     }
   });
 
+  /** The remover throws on a settings file that is not parseable, and the file stays byte for byte. */
   it('removeRetiredHooks_MalformedSettings_RefusesAndPreservesFile', async () => {
-    // A present-but-malformed settings.json the remover must NOT clobber (INV-14).
     const fx = await createFixture();
     try {
       const sp = settingsPath(fx);
@@ -617,7 +577,6 @@ describe('DR-7 retired-hook uninstall (removeRetiredHooks, Task 017)', () => {
 
       await expect(removeRetiredHooks(REMOVE_STEP, hookCtx(fx))).rejects.toThrow();
 
-      // The user's file is preserved byte-for-byte.
       const after = await readFile(sp, 'utf8');
       expect(after).toBe(malformed);
     } finally {

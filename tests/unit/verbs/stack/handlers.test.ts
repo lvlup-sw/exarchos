@@ -24,11 +24,8 @@ afterEach(async () => {
   await rmrfAsync(tempDir);
 });
 
-// ─── A18: Stack MCP Tools ──────────────────────────────────────────────────
-
 describe('handleStackStatus', () => {
   it('with positions returns stack state', async () => {
-    // Arrange: Append stack.position-filled events to EventStore
     await store.append('wf-001', {
       type: 'stack.position-filled',
       data: { position: 1, taskId: 't1', branch: 'feature/t1' },
@@ -38,10 +35,8 @@ describe('handleStackStatus', () => {
       data: { position: 2, taskId: 't2', branch: 'feature/t2', prUrl: 'https://github.com/pr/1' },
     });
 
-    // Act
     const result = await handleStackStatus({ streamId: 'wf-001' }, tempDir, store);
 
-    // Assert
     expect(result.success).toBe(true);
     expect(result.data).toBeDefined();
     const positions = result.data as Array<{ position: number; taskId: string; branch?: string; prUrl?: string }>;
@@ -69,7 +64,6 @@ describe('handleStackStatus', () => {
   });
 
   it('filters only stack.position-filled events', async () => {
-    // Append mixed events
     await store.append('wf-001', {
       type: 'task.completed',
       data: { taskId: 't1' },
@@ -104,7 +98,6 @@ describe('handleStackPlace', () => {
 
     expect(result.success).toBe(true);
 
-    // Verify event was emitted
     const events = await store.query('wf-001', { type: 'stack.position-filled' });
     expect(events).toHaveLength(1);
     expect(events[0].data).toEqual(
@@ -172,14 +165,12 @@ describe('handleStackPlace', () => {
   });
 
   it('status after place reflects new position', async () => {
-    // Place a position
     await handleStackPlace(
       { streamId: 'wf-001', position: 1, taskId: 't1', branch: 'feature/t1' },
       tempDir,
       store,
     );
 
-    // Check status
     const status = await handleStackStatus({ streamId: 'wf-001' }, tempDir, store);
 
     expect(status.success).toBe(true);
@@ -269,9 +260,8 @@ describe('handleStackPlace', () => {
     expect(events[0].data).not.toHaveProperty('prUrl');
   });
 
+  /** The injected store throws on append, so the handler takes the `PLACE_FAILED` path. */
   it('when store.append() throws returns PLACE_FAILED', async () => {
-    // Inject a store that throws on append to exercise the PLACE_FAILED
-    // error path (the real `store` here writes to a tempDir and would succeed).
     const failingStore = {
       append: vi
         .fn()
@@ -291,8 +281,11 @@ describe('handleStackPlace', () => {
 });
 
 describe('handleStackStatus error path', () => {
+  /**
+   * The stream id holds `!`, which is not a valid stream-id character. The
+   * error from the read gives `STATUS_FAILED`.
+   */
   it('when store.query() throws returns STATUS_FAILED', async () => {
-    // Use an invalid stream ID (uppercase chars) to trigger validateStreamId error
     const result = await handleStackStatus(
       { streamId: 'INVALID_STREAM_ID!!' },
       tempDir,
@@ -305,8 +298,6 @@ describe('handleStackStatus error path', () => {
   });
 });
 
-// ─── Pagination ─────────────────────────────────────────────────────────────
-
 describe('handleStackStatus pagination', () => {
   async function seedPositions(streamId: string, count: number): Promise<void> {
     for (let i = 1; i <= count; i++) {
@@ -318,17 +309,14 @@ describe('handleStackStatus pagination', () => {
   }
 
   it('with limit returns subset of positions', async () => {
-    // Arrange
     await seedPositions('wf-paginate', 10);
 
-    // Act
     const result = await handleStackStatus(
       { streamId: 'wf-paginate', limit: 3 },
       tempDir,
       store,
     );
 
-    // Assert
     expect(result.success).toBe(true);
     const positions = result.data as Array<{ position: number; taskId: string }>;
     expect(positions).toHaveLength(3);
@@ -338,17 +326,14 @@ describe('handleStackStatus pagination', () => {
   });
 
   it('with offset and limit skips and returns correct positions', async () => {
-    // Arrange
     await seedPositions('wf-paginate-offset', 10);
 
-    // Act
     const result = await handleStackStatus(
       { streamId: 'wf-paginate-offset', offset: 5, limit: 3 },
       tempDir,
       store,
     );
 
-    // Assert
     expect(result.success).toBe(true);
     const positions = result.data as Array<{ position: number; taskId: string }>;
     expect(positions).toHaveLength(3);
@@ -358,51 +343,42 @@ describe('handleStackStatus pagination', () => {
   });
 
   it('without pagination params returns all positions', async () => {
-    // Arrange
     await seedPositions('wf-paginate-all', 10);
 
-    // Act
     const result = await handleStackStatus(
       { streamId: 'wf-paginate-all' },
       tempDir,
       store,
     );
 
-    // Assert
     expect(result.success).toBe(true);
     const positions = result.data as Array<{ position: number; taskId: string }>;
     expect(positions).toHaveLength(10);
   });
 
   it('with offset beyond array length returns empty', async () => {
-    // Arrange
     await seedPositions('wf-paginate-beyond', 5);
 
-    // Act
     const result = await handleStackStatus(
       { streamId: 'wf-paginate-beyond', offset: 10 },
       tempDir,
       store,
     );
 
-    // Assert
     expect(result.success).toBe(true);
     const positions = result.data as Array<{ position: number; taskId: string }>;
     expect(positions).toHaveLength(0);
   });
 
   it('with only offset returns remaining positions', async () => {
-    // Arrange
     await seedPositions('wf-paginate-offset-only', 5);
 
-    // Act
     const result = await handleStackStatus(
       { streamId: 'wf-paginate-offset-only', offset: 3 },
       tempDir,
       store,
     );
 
-    // Assert
     expect(result.success).toBe(true);
     const positions = result.data as Array<{ position: number; taskId: string }>;
     expect(positions).toHaveLength(2);
@@ -411,16 +387,12 @@ describe('handleStackStatus pagination', () => {
   });
 });
 
-// ─── Task 005: StackView CQRS Rewire ─────────────────────────────────────────
-// These tests intentionally duplicate scenarios from the handleStackStatus suite
-// above (same assertions, different streamId). They exist as explicit regression
-// documentation for the Task 005 CQRS rewire: they verify that the materializer-
-// based code path produces identical results to the prior direct EventStore access
-// implementation, ensuring the refactor introduced no behavioral changes.
-
+/**
+ * These cases repeat cases of the `handleStackStatus` suite with other stream
+ * ids. They check that the materializer path gives the expected positions.
+ */
 describe('handleStackStatus CQRS rewire', () => {
   it('handleStackStatus_AfterRewire_ReturnsCorrectPositions', async () => {
-    // Arrange: place positions via store (simulating the event-sourced path)
     await store.append('wf-rewire', {
       type: 'stack.position-filled',
       data: { position: 1, taskId: 't1', branch: 'feature/t1' },
@@ -430,10 +402,8 @@ describe('handleStackStatus CQRS rewire', () => {
       data: { position: 2, taskId: 't2', branch: 'feature/t2', prUrl: 'https://github.com/pr/2' },
     });
 
-    // Act
     const result = await handleStackStatus({ streamId: 'wf-rewire' }, tempDir, store);
 
-    // Assert: same results as before the rewire
     expect(result.success).toBe(true);
     const positions = result.data as Array<{ position: number; taskId: string; branch?: string; prUrl?: string }>;
     expect(positions).toHaveLength(2);
@@ -453,13 +423,12 @@ describe('handleStackStatus CQRS rewire', () => {
   });
 });
 
-// ─── EventStore Consolidation ────────────────────────────────────────────────
-
 describe('stack handlers shared EventStore', () => {
+  /**
+   * Both handlers get the same `store` as their third argument, so
+   * `handleStackStatus` sees the events that `handleStackPlace` writes.
+   */
   it('both handlers share the same EventStore via the injected store', async () => {
-    // Both handlers receive the same `store` instance through their third
-    // positional arg — events written by handleStackPlace must be visible
-    // to handleStackStatus on the same EventStore.
     const result1 = await handleStackPlace(
       { streamId: 'wf-cache-test', position: 1, taskId: 't1', branch: 'feat/t1' },
       tempDir,
@@ -474,7 +443,6 @@ describe('stack handlers shared EventStore', () => {
     );
     expect(result2.success).toBe(true);
 
-    // Both events should be visible via status on the shared injected store
     const status = await handleStackStatus({ streamId: 'wf-cache-test' }, tempDir, store);
     expect(status.success).toBe(true);
     const positions = status.data as Array<{ position: number; taskId: string }>;

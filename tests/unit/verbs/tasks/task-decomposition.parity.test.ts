@@ -1,3 +1,14 @@
+/**
+ * Parity tests for `task-decomposition.ts` against the behavior of the
+ * `check-task-decomposition.sh` script. A plan of three well-decomposed tasks
+ * passes. A task with files and tests passes, even with a terse description.
+ *
+ * The gate-utils mock includes `requireGateEvent`, which the handler calls.
+ * The gate-runner mock calls only the provider, because these cases test the
+ * verdict of the provider. `gate-runner.test.ts` tests the runner against a
+ * real store.
+ */
+
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../../../src/projections/views/tools.js', () => ({
@@ -8,18 +19,10 @@ vi.mock('../../../../src/projections/views/tools.js', () => ({
 
 vi.mock('../../../../src/verbs/gates/gate-utils.js', () => ({
   emitGateEvent: vi.fn().mockResolvedValue(undefined),
-  // The handler calls `requireGateEvent` directly. Without this export the
-  // call site raises a TypeError instead of resolving, leaving the emission
-  // unexercised — this stub always succeeds (`undefined`), since these
-  // parity cases exercise the parser, not the append failure path.
   requireGateEvent: vi.fn().mockResolvedValue(undefined),
   sameOperationGateKey: vi.fn(() => undefined),
 }));
-// The gate now records durable evidence through the shared phase-gate runner
-// before any success carrier escapes. These cases are about the PROVIDER's
-// verdict, so the runner is stubbed down to its provider call — the same seam
-// every other migrated gate's unit test stubs. What the runner itself
-// guarantees is proven against a real store in `gate-runner.test.ts`.
+
 vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
   runPhaseGateWithEvidence: vi.fn(async (request) => {
     try {
@@ -56,19 +59,6 @@ import {
   checkParallelSafety,
   handleTaskDecomposition,
 } from '../../../../src/verbs/tasks/task-decomposition.js';
-
-/**
- * Behavioral parity tests for task-decomposition.ts against the original
- * scripts/check-task-decomposition.sh bash script.
- *
- * Bash script behavior (check-task-decomposition.sh):
- *   - Well-decomposed (exit 0): 3 tasks all PASS
- *       descriptions 20-22 words, files and tests present, valid DAG, no parallel conflicts
- *   - Missing description (exit 1): 1 task FAIL
- *       2 words description, below minimum threshold
- */
-
-// ─── Fixtures ────────────────────────────────────────────────────────────────
 
 const WELL_DECOMPOSED_PLAN = `# Implementation Plan
 ## Tasks
@@ -114,8 +104,6 @@ const MISSING_DESCRIPTION_PLAN = `# Implementation Plan
 - [RED] \`Widget_Render_DisplaysContent\`
 **Dependencies:** None
 **Parallelizable:** No`;
-
-// ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe('behavioral parity with check-task-decomposition.sh', () => {
   beforeEach(() => {
@@ -171,11 +159,11 @@ describe('behavioral parity with check-task-decomposition.sh', () => {
       }
     });
 
+    /**
+     * The word count does not fail a task. The status depends on files and
+     * tests, and the description fields are only information.
+     */
     it('terse description but files+tests present — PASS (#1544 relaxation)', () => {
-      // #1544: the word-count threshold no longer hard-FAILs a task. The fixture
-      // task has files + tests and only a terse "Build it." description — exactly
-      // the false-FAIL #1544 targets. status now gates on files+tests; the
-      // description stays informational (hasDescription/wordCount unchanged).
       const blocks = parseTaskBlocks(MISSING_DESCRIPTION_PLAN);
       const result = validateTaskStructure(blocks[0].content);
 
@@ -271,6 +259,7 @@ describe('behavioral parity with check-task-decomposition.sh', () => {
       expect(data.report).toContain('**Result: PASS**');
     });
 
+    /** Files and tests make the task well-decomposed, even with a terse description. */
     it('terse-description plan — passes when files+tests present (#1544 relaxation)', async () => {
       const mockedReadFile = vi.mocked(readFile);
       mockedReadFile.mockResolvedValue(MISSING_DESCRIPTION_PLAN);
@@ -290,8 +279,6 @@ describe('behavioral parity with check-task-decomposition.sh', () => {
         report: string;
       };
 
-      // #1544: files + tests present → well-decomposed, no rework, despite the
-      // terse description (no longer a hard-FAIL signal).
       expect(data.passed).toBe(true);
       expect(data.wellDecomposed).toBe(1);
       expect(data.needsRework).toBe(0);

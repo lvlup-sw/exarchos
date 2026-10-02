@@ -1,36 +1,17 @@
 /**
- * CLI/MCP parity tests for the `onboard` action (DR-6, task 014).
+ * CLI and MCP parity tests for the `onboard` action. Onboard runs five steps:
+ * DETECT, CONFIG, GENERATE, INSTALL, and VERIFY.
  *
- * Onboard runs a five-step pipeline:
+ * For every step except INSTALL, the CLI and MCP arms must give the same
+ * `ToolResult` for the same context and args. INSTALL runs `npx` and writes to
+ * `~/.claude/`, so it is CLI-only. On a surface other than `'cli'`, the core
+ * `apply` turns that step into a structured {@link Advisory} with
+ * `surface: 'cli-only'`. The step never runs on the server and is never a
+ * silent no-op. The gate is in the core, not in an adapter branch.
  *
- *   DETECT → CONFIG → GENERATE → INSTALL → VERIFY
- *
- * DR-6 splits this surface in two:
- *   - Steps 1–3 + 5 (detect/config/generate/verify) are MCP-parity-able: the
- *     CLI and MCP arms MUST project identical `ToolResult`s for them given the
- *     same context + args (INV-2 — behavior lives in the core, the surface is
- *     just presentation).
- *   - Step 4 (skills/deps install — `npx` + a `~/.claude/` write) is gated
- *     CLI-only. On the MCP (non-`'cli'`) surface the core `apply` downgrades it
- *     to a structured {@link Advisory} (`surface: 'cli-only'`, `commands`) — it
- *     is NEVER executed server-side and NEVER a silent no-op.
- *
- * The step-4 gate is a property of the plan step's `surface` tag + the run's
- * capability surface (DR-6), NOT an `if (adapter === 'mcp')` branch in an
- * adapter file. The gating already lives in the CORE (`apply`'s install router
- * downgrades a `cli-only` step to an advisory when `ctx.surface !== 'cli'`).
- * This suite proves:
- *   1. parity of the non-install steps across the two surfaces;
- *   2. the MCP adapter passes its non-`'cli'` surface so the advisory fires and
- *      is surfaced in the `ToolResult` with `next_actions` pointing at the CLI;
- *   3. the MCP arm never invokes the `~/.claude/`-writing install hook.
- *
- * Onboard is not yet registered as a composite action (task 011), so the
- * CLI/MCP *arms* drive `handleOnboard` directly with the surface each carrier
- * supplies (CLI ⇒ `'cli'`, MCP ⇒ the non-CLI surface the MCP adapter stamps).
- * The MCP adapter's surface-stamp + advisory-surfacing seam is exercised
- * through its dedicated `stampOnboardSurface` / `surfaceOnboardCliAdvisory`
- * helpers (the thin, testable slice of `adapters/mcp.ts`).
+ * The arms call `handleOnboard` directly with the surface of each carrier. The
+ * `stampOnboardSurface` and `surfaceOnboardCliAdvisory` helpers test the MCP
+ * adapter seam.
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -55,8 +36,6 @@ import {
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { BLOCK_DRIFT_CHECK_NAME } from '../../../../src/verbs/onboard/block-drift.js';
 import { RETIRED_HOOKS_CHECK_NAME } from '../../../../src/verbs/onboard/hooks.js';
-
-// ─── Fixtures ──────────────────────────────────────────────────────────────
 
 interface Fixture {
   readonly repoRoot: string;
@@ -127,7 +106,7 @@ const GREEN: CheckResult = {
   durationMs: 0,
 };
 
-/** On-ramp block drift → a `generate` block-write PlanStep (DR-5). */
+/** On-ramp block drift → a `generate` block-write PlanStep. */
 const BLOCK_WRITE_DRIFT: CheckResult = {
   category: 'agent',
   name: BLOCK_DRIFT_CHECK_NAME,
@@ -137,7 +116,7 @@ const BLOCK_WRITE_DRIFT: CheckResult = {
   durationMs: 0,
 };
 
-/** Retired hooks present → a `hook` removal PlanStep (DR-7). */
+/** Retired hooks present → a `hook` removal PlanStep. */
 const RETIRED_HOOKS_DRIFT: CheckResult = {
   category: 'agent',
   name: RETIRED_HOOKS_CHECK_NAME,
@@ -163,9 +142,8 @@ function twoPhaseChecks(
 }
 
 /**
- * Build the injected deps for one arm. `installStep` is the `~/.claude/`-writing
- * install hook the CLI surface runs and the MCP surface MUST NOT — so each arm
- * gets its OWN spy to prove who invoked it.
+ * Builds the injected deps for one arm. The CLI surface runs the `installStep` hook, which writes to `~/.claude/`.
+ * The MCP surface must not run it, so each arm gets its own spy. The seeder is fixed, so the config step is the same on both arms.
  */
 function makeDeps(
   fx: Fixture,
@@ -177,7 +155,6 @@ function makeDeps(
     writerDeps: fixtureWriterDeps(fx),
     writers: [],
     runDoctorChecks,
-    // Deterministic seeder so the config step is reproducible across arms.
     seed: () => ({ wrote: true, path: path.join(fx.repoRoot, '.exarchos.yml') }),
     installStep,
     installHook: vi.fn().mockResolvedValue(undefined),
@@ -198,13 +175,13 @@ function normalize(value: unknown): unknown {
   });
 }
 
-// ─── Tests ───────────────────────────────────────────────────────────────────
-
 describe('exarchos onboard CLI/MCP parity (DR-6)', () => {
+  /**
+   * Both arms have the same drift: a config `Fail` before apply and green after. The plan has no install step,
+   * so only the surface differs. The plan holds two config steps: the injected `state-dir` drift and the seeded
+   * `verification-command-mutation` step. The node fixture detects `npx stryker run`, and `.exarchos.yml` does not declare it.
+   */
   it('Parity_StepsOneToThreeAndFive_IdenticalAcrossSurfaces', async () => {
-    // Two isolated arms, identical drift surface: a config Fail before apply,
-    // green after. NO install step in the plan — this isolates steps 1–3+5,
-    // the parity-able surface. The ONLY difference between arms is the surface.
     const cliFx = await createFixture('onboard-parity-cli-');
     const mcpFx = await createFixture('onboard-parity-mcp-');
     try {
@@ -213,8 +190,6 @@ describe('exarchos onboard CLI/MCP parity (DR-6)', () => {
       const cliDeps = makeDeps(cliFx, twoPhaseChecks([CONFIG_FAIL], [GREEN]), cliInstall);
       const mcpDeps = makeDeps(mcpFx, twoPhaseChecks([CONFIG_FAIL], [GREEN]), mcpInstall);
 
-      // CLI arm runs `surface: 'cli'`; MCP arm runs the non-CLI surface the
-      // MCP adapter stamps. Both produce identical detect/config/generate/verify.
       const cliArgs: HandleOnboardArgs = { surface: 'cli', format: 'json' };
       const mcpArgs: HandleOnboardArgs = stampOnboardSurface({
         format: 'json',
@@ -223,7 +198,6 @@ describe('exarchos onboard CLI/MCP parity (DR-6)', () => {
       const cliResult = await handleOnboard(cliArgs, cliFx.ctx, cliDeps);
       const mcpResult = await handleOnboard(mcpArgs, mcpFx.ctx, mcpDeps);
 
-      // Both succeed and the non-install steps are byte-equal after normalize.
       expect(cliResult.success).toBe(true);
       expect(mcpResult.success).toBe(true);
 
@@ -232,11 +206,6 @@ describe('exarchos onboard CLI/MCP parity (DR-6)', () => {
       expect(normalizedCli).toEqual(normalizedMcp);
       expect(JSON.stringify(normalizedCli)).toEqual(JSON.stringify(normalizedMcp));
 
-      // Sanity — the plan reconciled config steps on both arms (no install).
-      // Two config steps: the injected `state-dir` doctor-check drift PLUS the
-      // §4.5-seed `verification-command-mutation` step (the node fixture resolves
-      // `npx stryker run` from detection, undeclared in `.exarchos.yml`). Both
-      // arms produce the identical plan — parity is unaffected by the new seeding.
       const cliData = cliResult.data as { plan: { steps: { kind: string; key: string }[] } };
       expect(cliData.plan.steps.map((s) => s.kind)).toEqual(['config', 'config']);
       expect(cliData.plan.steps.map((s) => s.key)).toEqual([
@@ -249,9 +218,11 @@ describe('exarchos onboard CLI/MCP parity (DR-6)', () => {
     }
   });
 
+  /**
+   * The plan holds a CLI-only install step. The CLI arm runs it. The MCP arm skips the effect and returns a
+   * structured advisory, not an error. The MCP adapter adds an `onboard` pointer to the CLI in `next_actions`.
+   */
   it('Parity_McpInstallStep_ReturnsStructuredAdvisory', async () => {
-    // The plan now carries a cli-only install step. CLI applies it; MCP skips
-    // the side effect and downgrades it to a structured advisory.
     const cliFx = await createFixture('onboard-advisory-cli-');
     const mcpFx = await createFixture('onboard-advisory-mcp-');
     try {
@@ -268,7 +239,6 @@ describe('exarchos onboard CLI/MCP parity (DR-6)', () => {
         mcpInstall,
       );
 
-      // CLI arm — install side effect runs.
       const cliResult = await handleOnboard(
         { surface: 'cli', format: 'json' },
         cliFx.ctx,
@@ -277,20 +247,14 @@ describe('exarchos onboard CLI/MCP parity (DR-6)', () => {
       expect(cliResult.success).toBe(true);
       expect(cliInstall).toHaveBeenCalledTimes(1);
 
-      // MCP arm — non-CLI surface stamped by the adapter; the adapter surfaces
-      // the cli-only advisory with a CLI pointer in next_actions.
       const mcpArgs = stampOnboardSurface({ format: 'json' }) as HandleOnboardArgs;
       const mcpRaw = await handleOnboard(mcpArgs, mcpFx.ctx, mcpDeps);
       const mcpResult = surfaceOnboardCliAdvisory(mcpRaw);
 
-      // NOT an error — a structured advisory carrier, never a silent no-op.
       expect(mcpResult.success).toBe(true);
 
-      // The install side effect never ran on the MCP arm.
       expect(mcpInstall).not.toHaveBeenCalled();
 
-      // The structured advisory is on the apply result: cli-only surface,
-      // a `commands` array, and a non-empty message.
       const mcpData = mcpResult.data as {
         result?: { advisories: { surface: string; message: string; commands?: string[] }[] };
       };
@@ -301,8 +265,6 @@ describe('exarchos onboard CLI/MCP parity (DR-6)', () => {
       expect(Array.isArray(installAdvisory?.commands)).toBe(true);
       expect((installAdvisory?.commands ?? []).some((c) => c.includes('onboard'))).toBe(true);
 
-      // The MCP adapter surfaced a CLI pointer in next_actions (run install
-      // from the CLI) — distinct from the success-path `doctor` pointer.
       const verbs = (mcpResult.next_actions ?? []).map((a) => a.verb);
       expect(verbs).toContain('onboard');
       const onboardHint = (mcpResult.next_actions ?? []).find((a) => a.verb === 'onboard');
@@ -313,12 +275,11 @@ describe('exarchos onboard CLI/MCP parity (DR-6)', () => {
     }
   });
 
+  /**
+   * The block-write step comes before the retired-hooks removal step, and the result is byte-equal on both surfaces.
+   * The pure core `diff` holds the order. With `writers: []` the block-write step stays residual, so apply keeps the hooks.
+   */
   it('Parity_RetiredHookRemovalOrdering_IdenticalAcrossSurfaces', async () => {
-    // DR-7 surface parity: the on-ramp block-write step is ordered before the
-    // retired-hooks removal step, and the whole reconcile result is byte-identical
-    // across the CLI and MCP surfaces (the ordering lives in the pure core `diff`,
-    // not in an adapter branch). `writers: []` makes the block-write step residual,
-    // so apply's gate DEFERS the removal (hooks kept) — identically on both arms.
     const cliFx = await createFixture('onboard-retired-cli-');
     const mcpFx = await createFixture('onboard-retired-mcp-');
     try {
@@ -339,10 +300,8 @@ describe('exarchos onboard CLI/MCP parity (DR-6)', () => {
       expect(cliResult.success).toBe(true);
       expect(mcpResult.success).toBe(true);
 
-      // Byte-equal reconcile surface across the two arms.
       expect(normalize(cliResult)).toEqual(normalize(mcpResult));
 
-      // The block-write step precedes the retired-hooks removal step in the plan.
       const cliData = cliResult.data as { plan: { steps: { key: string }[] } };
       const keys = cliData.plan.steps.map((s) => s.key);
       expect(keys.indexOf(BLOCK_DRIFT_CHECK_NAME)).toBeGreaterThanOrEqual(0);
@@ -355,10 +314,11 @@ describe('exarchos onboard CLI/MCP parity (DR-6)', () => {
     }
   });
 
+  /**
+   * The `installStep` hook runs `npx` and writes to `~/.claude/`, so it must never run on the MCP surface.
+   * The advisory is present even when the install step stays residual.
+   */
   it('Parity_McpArm_NeverWritesClaudeHome', async () => {
-    // The `installStep` hook is the ONLY path that shells `npx` + writes
-    // `~/.claude/`. On the MCP (non-CLI) surface it must NEVER fire — the
-    // cli-only step is downgraded to an advisory, not executed server-side.
     const mcpFx = await createFixture('onboard-noclaudehome-mcp-');
     try {
       const mcpInstall = vi.fn().mockResolvedValue(undefined);
@@ -371,14 +331,11 @@ describe('exarchos onboard CLI/MCP parity (DR-6)', () => {
       const mcpArgs = stampOnboardSurface({ format: 'json' }) as HandleOnboardArgs;
       const result = await handleOnboard(mcpArgs, mcpFx.ctx, mcpDeps);
 
-      // Zero `~/.claude/` writes — the install hook was never invoked.
       expect(mcpInstall).not.toHaveBeenCalled();
 
-      // The stamped surface is the non-CLI MCP surface (drives the downgrade).
       expect(mcpArgs.surface).toBe(MCP_ONBOARD_SURFACE);
       expect(MCP_ONBOARD_SURFACE).not.toBe('cli');
 
-      // The advisory is present even when the install step stays residual.
       const data = result.data as {
         result?: { advisories: { surface: string }[] };
       };

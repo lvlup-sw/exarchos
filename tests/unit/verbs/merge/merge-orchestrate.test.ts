@@ -1,41 +1,9 @@
-// ─── handleMergeOrchestrate tests (T11 + T12 + T13 + T14) ──────────────────
-//
-// T11 — happy path. Top-level orchestrator handler that composes preflight
-// (T06/T07) with executor (T15) and emits the `merge.preflight` event for
-// observability. Asserts:
-//   1. on preflight pass + execute success returns
-//      { success: true, data: { phase: 'completed', mergeSha, recoveryPointSha,
-//        preflight } }.
-//   2. emits `merge.preflight` exactly once (direct stream append, NOT
-//      wrapped in `gate.executed` — the dedicated schema (T03) is top-level).
-//
-// T12 — preflight-fail abort branch. Asserts:
-//   3. persistState invoked with
-//      { phase: 'aborted', preflight, abortReason: 'preflight-failed' }
-//      and ToolResult is { success: false, error: { code: 'PREFLIGHT_FAILED' } }.
-//   4. executor adapter is NEVER invoked when preflight fails.
-//   5. `merge.preflight` event is still emitted with `passed: false`.
-//
-// T13 — dry-run path. Asserts:
-//   6. with `dryRun: true` and a passing preflight, the executor adapter is
-//      NEVER invoked.
-//   7. with `dryRun: true` and a passing preflight, returns
-//      { success: true, data: { dryRun: true, preflight, phase: 'pending' } }
-//      WITHOUT persisting `mergeOrchestrator` state (dry-run is observation
-//      only).
-//
-// T14 — resume + state-write retry. Asserts:
-//   8. with `resume: true` and existing `mergeOrchestrator.phase === 'pending'`
-//      state, handler continues from preflight (no special short-circuit).
-//   9. with `resume: true` and existing `mergeOrchestrator.phase === 'completed'`
-//      state, handler returns the existing result without re-emitting events
-//      or invoking the executor.
-//   10. with `resume: false` (or omitted), existing state is ignored — fresh run.
-//   11. when `persistState` throws `VersionConflictError` once then succeeds,
-//       handler retries and the merge completes successfully.
-//   12. when `persistState` keeps throwing `VersionConflictError`, handler
-//       returns `{ success: false, error: { code: 'STATE_CONFLICT' } }`.
-// ────────────────────────────────────────────────────────────────────────────
+// Tests for `handleMergeOrchestrate`, which runs the merge preflight, emits
+// `merge.preflight`, and calls the executor. The tests inject the preflight,
+// the executor, the state callbacks, and `gitExec`. They cover the completed
+// path, the abort on a failing preflight, and the `debug` block on the event.
+// They also cover the dry run, coded errors, resume, the state-write retry,
+// and the single-writer lease guard.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
@@ -52,18 +20,14 @@ import { WORKTREES_STREAM } from '../../../../src/verbs/worktree/manager.js';
 import type { ProcessTableSource, ProcessRecord } from '../../../../src/verbs/worktree/pure/probe.js';
 import { BYPASS_SECTION_0A } from '../../../helpers/section-0a-bypass.js';
 
-// ─── Test helpers ──────────────────────────────────────────────────────────
-
+/**
+ * A mock event store. `getAppender().decide` resolves as `committed`, so the
+ * handler commits `merge.requested` without a real appender. The migration test
+ * covers the real `decide` path. `aggregateStream` returns an empty
+ * `worktrees@v1` projection, so the lease guard finds no holder. `query`
+ * returns no events, so `merge.preflight` gets `expectedSequence: 0`.
+ */
 function makeMockEventStore(): EventStore {
-  // Wave 4 (audit §F1.2): the orchestrator now invokes
-  // `ctx.eventStore.getAppender().decide(...)` to commit `merge.requested`
-  // (Phase A) before delegating to the executor. The mock returns a stub
-  // appender whose `decide` resolves to a `kind: 'committed'` shape so the
-  // pre-existing tests (T11/T12/T13/T14 — which only assert on the
-  // preflight + executor delegation legs) continue to pass without the
-  // need for a real `AtomicAppender` instance. The migration test
-  // (merge-orchestrate.migration.test.ts) is the one that exercises the
-  // real `decide` path against a tmp-dir `EventStore`.
   const decide = vi.fn().mockResolvedValue({
     ok: true,
     kind: 'committed',
@@ -71,10 +35,6 @@ function makeMockEventStore(): EventStore {
     eventIds: ['evt-mock-requested'],
     timestamps: [new Date().toISOString()],
   });
-  // DR-2 lease guard: the handler folds `worktrees@v1` via
-  // `getAppender().aggregateStream(...)` before any git side effect. These
-  // legacy tests hold NO lease, so the mock returns an empty projection →
-  // guard finds no holder → proceeds exactly as before the guard existed.
   const aggregateStream = vi.fn().mockResolvedValue({
     aggregate: { projectionSequence: 0, worktrees: {}, inFlightMerges: {} },
     version: 0,
@@ -85,8 +45,6 @@ function makeMockEventStore(): EventStore {
       type: 'merge.preflight',
       timestamp: new Date().toISOString(),
     }),
-    // #1303 α-04: handler reads stream tail to compute expectedSequence
-    // before appending merge.preflight. Empty array → expectedSequence: 0.
     query: vi.fn().mockResolvedValue([]),
     getAppender: vi.fn().mockReturnValue({ decide, aggregateStream }),
   } as unknown as EventStore;
@@ -104,9 +62,10 @@ function makeMockCtx(overrides: Partial<DispatchContext> = {}): DispatchContext 
 const MERGE_SHA = 'a'.repeat(40);
 const ROLLBACK_SHA = 'b'.repeat(40);
 
-// Type the fixture so it stays in lockstep with the production
-// `MergePreflightResult` contract — an untyped fixture lets fields like
-// `branch` vs `currentBranch` drift silently while tests still pass.
+/**
+ * Typed as `MergePreflightResult`, so an editor flags a field name that drifts
+ * from the production contract. `npm run typecheck` does not read `tests/unit`.
+ */
 const PASSING_PREFLIGHT: MergePreflightResult = {
   passed: true,
   ancestry: { passed: true, checks: ['ancestry'] },
@@ -122,8 +81,7 @@ const PASSING_PREFLIGHT: MergePreflightResult = {
 
 const FAILING_PREFLIGHT = {
   passed: false,
-  // Ancestry not satisfied — target ('main') is not an ancestor of source
-  // ('feat/x'), i.e., source is not up-to-date with target.
+  /** The ancestry check fails: `main` is not an ancestor of `feat/x`, so the source is behind the target. */
   ancestry: {
     passed: false,
     blocked: true,
@@ -164,7 +122,6 @@ describe('handleMergeOrchestrate (T11)', () => {
         targetBranch: 'main',
         taskId: 'T11',
         strategy: 'squash',
-        // DI: bypass real preflight composer + executor
         preflight,
         executeMerge,
         gitExec: BYPASS_SECTION_0A,
@@ -183,6 +140,12 @@ describe('handleMergeOrchestrate (T11)', () => {
     expect(executeMerge).toHaveBeenCalledTimes(1);
   });
 
+  /**
+   * The executor is a mock, so the only `merge.preflight` append comes from the
+   * handler. The event carries the preflight sub-results, so the event log
+   * alone can rebuild the timeline. The append sets `expectedSequence` and an
+   * `idempotencyKey`.
+   */
   it('handleMergeOrchestrate_Always_EmitsMergePreflightEventOnce', async () => {
     const ctx = makeMockCtx();
     const preflight = vi.fn().mockResolvedValue(PASSING_PREFLIGHT);
@@ -209,16 +172,11 @@ describe('handleMergeOrchestrate (T11)', () => {
       ctx,
     );
 
-    // Filter to merge.preflight emissions only — handleExecuteMerge is
-    // mocked here, so the only append in this test should be preflight.
     const appendMock = ctx.eventStore.append as ReturnType<typeof vi.fn>;
     const preflightCalls = appendMock.mock.calls.filter(
       (call) => (call[1] as { type?: string } | undefined)?.type === 'merge.preflight',
     );
     expect(preflightCalls).toHaveLength(1);
-    // DR-MO-1 AC#1: emit must include the structured preflight sub-results
-    // (ancestry / currentBranchProtection / worktree / drift) so the event
-    // log alone is sufficient for timeline reconstruction.
     expect(preflightCalls[0]).toEqual([
       'feat-x',
       {
@@ -234,7 +192,6 @@ describe('handleMergeOrchestrate (T11)', () => {
           drift: PASSING_PREFLIGHT.drift,
         },
       },
-      // #1303 α-04: idempotencyKey + expectedSequence wired on merge.preflight.
       {
         expectedSequence: 0,
         idempotencyKey: 'feat-x:merge_orchestrate:T11:merge.preflight',
@@ -248,6 +205,10 @@ describe('handleMergeOrchestrate (T12 — preflight-fail abort)', () => {
     vi.clearAllMocks();
   });
 
+  /**
+   * The abort record carries the source and target, so a consumer can show it
+   * without a read of the event stream. The result is a `PREFLIGHT_FAILED` failure.
+   */
   it('handleMergeOrchestrate_PreflightFails_PersistsPhaseAbortedAndReturnsToolResultFailure', async () => {
     const ctx = makeMockCtx();
     const preflight = vi.fn().mockResolvedValue(FAILING_PREFLIGHT);
@@ -269,9 +230,6 @@ describe('handleMergeOrchestrate (T12 — preflight-fail abort)', () => {
       ctx,
     );
 
-    // 1. persistState invoked with the abort shape, carrying source/target so
-    //    a downstream consumer can render the aborted record without
-    //    re-reading the event stream.
     expect(persistState).toHaveBeenCalledTimes(1);
     expect(persistState).toHaveBeenCalledWith({
       phase: 'aborted',
@@ -282,7 +240,6 @@ describe('handleMergeOrchestrate (T12 — preflight-fail abort)', () => {
       taskId: 'T12',
     });
 
-    // 2. ToolResult is a structured failure with code 'PREFLIGHT_FAILED'.
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('PREFLIGHT_FAILED');
     expect(typeof result.error?.message).toBe('string');
@@ -293,6 +250,7 @@ describe('handleMergeOrchestrate (T12 — preflight-fail abort)', () => {
     });
   });
 
+  /** A merge after a failing preflight defeats the gate, so the executor must not run. */
   it('handleMergeOrchestrate_PreflightFails_DoesNotInvokeExecutor', async () => {
     const ctx = makeMockCtx();
     const preflight = vi.fn().mockResolvedValue(FAILING_PREFLIGHT);
@@ -314,12 +272,13 @@ describe('handleMergeOrchestrate (T12 — preflight-fail abort)', () => {
       ctx,
     );
 
-    // Critical: the executor adapter must NEVER be invoked when preflight
-    // fails. A successful merge after a failing preflight would defeat the
-    // purpose of the gate.
     expect(executeMerge).not.toHaveBeenCalled();
   });
 
+  /**
+   * A failing event carries the sub-results and a `failureReasons` list that
+   * matches the diagnostic for the operator.
+   */
   it('handleMergeOrchestrate_PreflightFails_EmitsMergePreflightWithPassedFalse', async () => {
     const ctx = makeMockCtx();
     const preflight = vi.fn().mockResolvedValue(FAILING_PREFLIGHT);
@@ -346,8 +305,6 @@ describe('handleMergeOrchestrate (T12 — preflight-fail abort)', () => {
       (call) => (call[1] as { type?: string } | undefined)?.type === 'merge.preflight',
     );
     expect(preflightCalls).toHaveLength(1);
-    // DR-MO-1 AC#1 + MEDIUM fix: failing emits include sub-results AND a
-    // populated `failureReasons` mirroring the operator-facing diagnostic.
     const [, emitted] = preflightCalls[0] as [string, { data: Record<string, unknown> }];
     expect(emitted.data).toMatchObject({
       taskId: 'T12',
@@ -364,18 +321,13 @@ describe('handleMergeOrchestrate (T12 — preflight-fail abort)', () => {
   });
 });
 
-// ─── #1362 phase 1 — preflight.debug event-wire ─────────────────────────────
-//
-// The helper at `pure/merge-preflight.ts` attaches an optional `debug` field
-// to `MergePreflightResult` when `EXARCHOS_PREFLIGHT_DEBUG=1 && !ancestry.passed`.
-// The schema at `events/schemas.ts:MergePreflightData.debug` declares an
-// optional `MergePreflightDebugData` branch. The handler is the missing link:
-// these tests assert that `preflight.debug`, when present on the helper's
-// return value, is threaded through to `event.data.debug` on the appended
-// `merge.preflight` event. Without this assertion the regression class
-// (helper produces debug, schema accepts debug, but handler silently drops
-// it) is invisible — `tests/outcome/preflight-debug.test.ts` only exercises
-// the pure helper's return value and never inspects the appended event.
+/**
+ * A failing preflight with a `debug` block. The preflight helper adds `debug`
+ * when `EXARCHOS_PREFLIGHT_DEBUG=1` and ancestry fails, and the event schema
+ * accepts it. These tests prove that the handler copies `preflight.debug` to
+ * `event.data.debug`. `tests/outcome/preflight-debug.test.ts` reads only the
+ * helper result, not the appended event.
+ */
 const FAILING_PREFLIGHT_WITH_DEBUG: MergePreflightResult = {
   ...FAILING_PREFLIGHT,
   debug: {
@@ -400,12 +352,12 @@ describe('handleMergeOrchestrate (#1362 — preflight.debug event-wire)', () => 
     vi.unstubAllEnvs();
   });
 
+  /**
+   * The outcome test covers the env gate of the helper. This test injects a
+   * preflight result that already has `debug`. The event must carry that block
+   * with each required field, so a schema check on the read side accepts it.
+   */
   it('MergeOrchestrate_EnvSetAndAncestryFail_AppendsDebugBlockToEvent', async () => {
-    // The handler accepts a DI'd `preflight` adapter, so the helper's env-var
-    // gating is exercised separately (outcome test). Here we drive the handler
-    // with a result that *already* carries `debug` (the exact shape the helper
-    // produces under `EXARCHOS_PREFLIGHT_DEBUG=1 && !ancestry.passed`) and
-    // assert the handler propagates it into the appended event.
     vi.stubEnv('EXARCHOS_PREFLIGHT_DEBUG', '1');
     const ctx = makeMockCtx();
     const preflight = vi.fn().mockResolvedValue(FAILING_PREFLIGHT_WITH_DEBUG);
@@ -434,12 +386,9 @@ describe('handleMergeOrchestrate (#1362 — preflight.debug event-wire)', () => 
     expect(preflightCalls).toHaveLength(1);
     const [, emitted] = preflightCalls[0] as [string, { data: Record<string, unknown> }];
 
-    // Core assertion: handler threads `preflight.debug` into `event.data.debug`.
     expect(emitted.data.debug).toBeDefined();
     expect(emitted.data.debug).toEqual(FAILING_PREFLIGHT_WITH_DEBUG.debug);
 
-    // Shape sanity — every required PreflightDebug field is present so a
-    // schema validator at the read-side will accept the record.
     const debug = emitted.data.debug as Record<string, unknown>;
     expect(typeof debug.gitVersion).toBe('string');
     expect(typeof debug.repoRoot).toBe('string');
@@ -458,11 +407,11 @@ describe('handleMergeOrchestrate (#1362 — preflight.debug event-wire)', () => 
     expect(typeof debug.mergeBaseStderr).toBe('string');
   });
 
+  /**
+   * If the preflight result has no `debug`, the event has no `debug` key: not
+   * an empty object, and not an explicit `undefined`.
+   */
   it('MergeOrchestrate_EnvUnsetAndAncestryFail_NoDebugBlockOnEvent', async () => {
-    // Symmetric case: when the helper does NOT attach `debug` (env unset or
-    // ancestry passed), the handler must omit `debug` from the event entirely
-    // — not stamp an empty object, not stamp `undefined` explicitly. The
-    // optional-spread pattern (matching `failureReasons`) is the contract.
     vi.stubEnv('EXARCHOS_PREFLIGHT_DEBUG', '');
     const ctx = makeMockCtx();
     const preflight = vi.fn().mockResolvedValue(FAILING_PREFLIGHT);
@@ -493,15 +442,12 @@ describe('handleMergeOrchestrate (#1362 — preflight.debug event-wire)', () => 
     expect('debug' in emitted.data).toBe(false);
   });
 
+  /**
+   * The handler copies `debug` only when `debug` is present and ancestry
+   * fails. An injected adapter can put `debug` on a passing preflight. The
+   * handler must drop it, so diagnostic payloads stay off passing events.
+   */
   it('MergeOrchestrate_PassingAncestryWithDebugInjected_DoesNotPersistDebug', async () => {
-    // Defense-in-depth at the event-sourcing boundary (INV-1). The helper's
-    // contract is "only attach `debug` when ancestry FAILED" — but the handler
-    // accepts a DI'd `preflight` adapter, so a test fixture (or a future code
-    // path) could synthesize a `PreflightResult` with `debug` set on a PASSING
-    // preflight. The handler MUST NOT persist that debug into the event;
-    // otherwise we'd leak diagnostic payloads onto passing-preflight events
-    // and pollute the event store. The wire condition gates on BOTH the
-    // presence of debug AND `ancestry.passed === false`.
     vi.stubEnv('EXARCHOS_PREFLIGHT_DEBUG', '1');
     const passingWithDebug: MergePreflightResult = {
       ...PASSING_PREFLIGHT,
@@ -540,7 +486,6 @@ describe('handleMergeOrchestrate (#1362 — preflight.debug event-wire)', () => 
     );
     expect(preflightCalls).toHaveLength(1);
     const [, emitted] = preflightCalls[0] as [string, { data: Record<string, unknown> }];
-    // Passing preflight + debug-injected → handler MUST drop debug.
     expect('debug' in emitted.data).toBe(false);
   });
 });
@@ -550,6 +495,7 @@ describe('handleMergeOrchestrate (T13 — dry-run path)', () => {
     vi.clearAllMocks();
   });
 
+  /** A dry run still runs the preflight, but never the executor. */
   it('handleMergeOrchestrate_DryRunFlag_RunsPreflightAndSkipsExecutor', async () => {
     const ctx = makeMockCtx();
     const preflight = vi.fn().mockResolvedValue(PASSING_PREFLIGHT);
@@ -572,12 +518,15 @@ describe('handleMergeOrchestrate (T13 — dry-run path)', () => {
       ctx,
     );
 
-    // Preflight must still run — dry-run is observation, not bypass.
     expect(preflight).toHaveBeenCalledTimes(1);
-    // Executor must NEVER run on a dry-run path.
     expect(executeMerge).not.toHaveBeenCalled();
   });
 
+  /**
+   * A dry run returns `phase: 'pending'` and persists no `mergeOrchestrator`
+   * state. A persisted dry-run phase puts a phase with no real effect into the
+   * workflow state.
+   */
   it('handleMergeOrchestrate_DryRunPassedTrue_ReturnsToolResultSuccess', async () => {
     const ctx = makeMockCtx();
     const preflight = vi.fn().mockResolvedValue(PASSING_PREFLIGHT);
@@ -600,7 +549,6 @@ describe('handleMergeOrchestrate (T13 — dry-run path)', () => {
       ctx,
     );
 
-    // Successful dry-run shape — phase 'pending' signals "would proceed".
     expect(result.success).toBe(true);
     expect(result.data).toEqual({
       dryRun: true,
@@ -608,46 +556,30 @@ describe('handleMergeOrchestrate (T13 — dry-run path)', () => {
       phase: 'pending',
     });
 
-    // Dry-run must NOT persist `mergeOrchestrator` state — it's pure
-    // observation. Persistence on the dry-run path would corrupt the
-    // workflow state with a transient phase that has no real effect.
     expect(persistState).not.toHaveBeenCalled();
   });
 });
 
-// ─── #1706 DR-1 — unknown-error paths return coded envelopes, never throw ──
-//
-// Three sites in this handler convert KNOWN retryable/typed errors
-// (SequenceConflictError/VersionConflictError/StateStoreError/
-// ConcurrencyError/StorageBusyError) but previously RE-THREW anything else.
-// dispatch.ts's outer safety net would catch that throw and flatten it to a
-// generic INTERNAL_ERROR, discarding the structured classification. Each
-// site must instead return a coded ToolResult.error directly. `withStateRetry`
-// only retries the recognized typed errors (state-retry.ts's `isRetryable`),
-// so a plain `Error` propagates on the FIRST attempt — these tests assert
-// single-call, not retried.
-// ─────────────────────────────────────────────────────────────────────────────
-
+/**
+ * Three sites in the handler map known typed errors to codes. Any other error
+ * must also return a coded `ToolResult.error`, not a throw that dispatch turns
+ * into a generic `INTERNAL_ERROR`. `withStateRetry` retries only the typed
+ * errors, so a plain `Error` stops after one call. `bypassSection0a` makes the
+ * sibling-worktree probe fail, so the result does not depend on the worktree
+ * layout of the host repo.
+ */
 describe('handleMergeOrchestrate (#1706 DR-1 — unknown-error coded envelopes)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  // Section 0a (#1356) shells out to REAL git (via the default `gitExec`)
-  // to detect whether `targetBranch` is checked out in a sibling worktree —
-  // a real concern when these tests run from inside an actual git worktree
-  // checkout (e.g. this repo's own `.worktrees/` dev layout), where 'main'
-  // genuinely IS checked out in a sibling directory. A non-zero exit code
-  // short-circuits that whole probe (merge-orchestrate.ts:509), so this
-  // fixture — mirroring the DR-2 lease-guard describe block's `NO_GIT`
-  // below — makes these tests deterministic regardless of the host repo's
-  // real worktree topology.
   const bypassSection0a = BYPASS_SECTION_0A;
 
+  /**
+   * The `merge.preflight` append runs before the dry-run and abort branches. A
+   * plain `Error` from it gives `EVENT_APPEND_FAILED`.
+   */
   it('MergeOrchestrate_PreflightAppendUnknownError_ReturnsCodedEnvelopeNotThrow', async () => {
-    // The `merge.preflight` append (section 2) runs before the dry-run /
-    // abort branches, for both a passing and failing preflight. A plain
-    // Error (not SequenceConflictError) must return EVENT_APPEND_FAILED.
     const decide = vi.fn();
     const aggregateStream = vi.fn().mockResolvedValue({
       aggregate: { projectionSequence: 0, worktrees: {}, inFlightMerges: {} },
@@ -692,10 +624,11 @@ describe('handleMergeOrchestrate (#1706 DR-1 — unknown-error coded envelopes)'
     expect(executeMerge).not.toHaveBeenCalled();
   });
 
+  /**
+   * The abort-branch `persistState` maps `VersionConflictError` and
+   * `StateStoreError`. A plain `Error` gives `STATE_WRITE_FAILED` after one call.
+   */
   it('MergeOrchestrate_PersistAbortStateUnknownError_ReturnsCodedEnvelopeNotThrow', async () => {
-    // The abort-branch persistState (section 4, T12) converts
-    // VersionConflictError and StateStoreError; a plain Error must return
-    // STATE_WRITE_FAILED instead of escaping.
     const ctx = makeMockCtx();
     const preflight = vi.fn().mockResolvedValue(FAILING_PREFLIGHT);
     const executeMerge = vi.fn();
@@ -716,7 +649,6 @@ describe('handleMergeOrchestrate (#1706 DR-1 — unknown-error coded envelopes)'
       ctx,
     );
 
-    // Not a recognized retryable class — persistState invoked exactly once.
     expect(persistState).toHaveBeenCalledTimes(1);
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('STATE_WRITE_FAILED');
@@ -724,10 +656,12 @@ describe('handleMergeOrchestrate (#1706 DR-1 — unknown-error coded envelopes)'
     expect(executeMerge).not.toHaveBeenCalled();
   });
 
+  /**
+   * The `appender.decide` call for `merge.requested` maps `ConcurrencyError`
+   * and `StorageBusyError`. A plain `Error` gives `EVENT_APPEND_FAILED` after
+   * one call.
+   */
   it('MergeOrchestrate_MergeRequestedDecideUnknownError_ReturnsCodedEnvelopeNotThrow', async () => {
-    // Phase A's `appender.decide` (section 4b) converts ConcurrencyError and
-    // StorageBusyError; a plain Error must return EVENT_APPEND_FAILED
-    // instead of escaping.
     const decide = vi.fn().mockRejectedValue(new Error('disk full'));
     const aggregateStream = vi.fn().mockResolvedValue({
       aggregate: { projectionSequence: 0, worktrees: {}, inFlightMerges: {} },
@@ -763,7 +697,6 @@ describe('handleMergeOrchestrate (#1706 DR-1 — unknown-error coded envelopes)'
       ctx,
     );
 
-    // Not a recognized retryable class — decide invoked exactly once.
     expect(decide).toHaveBeenCalledTimes(1);
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('EVENT_APPEND_FAILED');
@@ -777,6 +710,10 @@ describe('handleMergeOrchestrate (T14 — resume path)', () => {
     vi.clearAllMocks();
   });
 
+  /**
+   * On a resume from a `pending` phase, the handler reads the state and then
+   * runs the preflight and the executor as a fresh run does.
+   */
   it('handleMergeOrchestrate_ResumeWithExistingPendingState_LoadsAndContinues', async () => {
     const ctx = makeMockCtx();
     const preflight = vi.fn().mockResolvedValue(PASSING_PREFLIGHT);
@@ -815,8 +752,6 @@ describe('handleMergeOrchestrate (T14 — resume path)', () => {
       ctx,
     );
 
-    // On a 'pending' phase resume, the handler reads existing state, then
-    // falls through to preflight + executor as if it were a fresh run.
     expect(readState).toHaveBeenCalled();
     expect(preflight).toHaveBeenCalledTimes(1);
     expect(executeMerge).toHaveBeenCalledTimes(1);
@@ -824,6 +759,10 @@ describe('handleMergeOrchestrate (T14 — resume path)', () => {
     expect((result.data as { phase: string }).phase).toBe('completed');
   });
 
+  /**
+   * A resume from a terminal phase does nothing: no event, no executor, and no
+   * state write. It returns the stored result.
+   */
   it('handleMergeOrchestrate_ResumeWithCompletedState_ReturnsExistingResultNoOp', async () => {
     const ctx = makeMockCtx();
     const preflight = vi.fn();
@@ -857,8 +796,6 @@ describe('handleMergeOrchestrate (T14 — resume path)', () => {
       ctx,
     );
 
-    // Critical: terminal-phase resume is a NO-OP. No new events, no executor,
-    // no persistence — just surface the existing result.
     expect(preflight).not.toHaveBeenCalled();
     expect(executeMerge).not.toHaveBeenCalled();
     expect(persistState).not.toHaveBeenCalled();
@@ -873,6 +810,10 @@ describe('handleMergeOrchestrate (T14 — resume path)', () => {
     });
   });
 
+  /**
+   * Without `resume`, the handler does not read the stored terminal state. The
+   * result comes from the new executor run.
+   */
   it('handleMergeOrchestrate_ResumeWithoutFlagButStateExists_StartsFresh', async () => {
     const ctx = makeMockCtx();
     const preflight = vi.fn().mockResolvedValue(PASSING_PREFLIGHT);
@@ -885,7 +826,6 @@ describe('handleMergeOrchestrate (T14 — resume path)', () => {
       },
     });
     const persistState = vi.fn().mockResolvedValue(undefined);
-    // readState returns terminal state, but resume=false should ignore it.
     const readState = vi.fn().mockResolvedValue({
       mergeOrchestrator: {
         phase: 'completed',
@@ -901,7 +841,6 @@ describe('handleMergeOrchestrate (T14 — resume path)', () => {
         targetBranch: 'main',
         taskId: 'T14',
         strategy: 'squash',
-        // resume omitted → must default to fresh dispatch
         preflight,
         executeMerge,
         persistState,
@@ -911,18 +850,18 @@ describe('handleMergeOrchestrate (T14 — resume path)', () => {
       ctx,
     );
 
-    // Without resume, readState must not be consulted (fresh run semantics).
     expect(readState).not.toHaveBeenCalled();
     expect(preflight).toHaveBeenCalledTimes(1);
     expect(executeMerge).toHaveBeenCalledTimes(1);
     expect(result.success).toBe(true);
-    // Result reflects the FRESH executor output, not the stale state.
     expect((result.data as { mergeSha: string }).mergeSha).toBe(MERGE_SHA);
   });
 
+  /**
+   * A failing preflight takes the `persistState` path. The first call throws
+   * `VersionConflictError` and the second call succeeds, so the result is the abort.
+   */
   it('handleMergeOrchestrate_StateWriteVersionConflict_RetriesAndSucceeds', async () => {
-    // Setup: trigger the persistState path via preflight failure (T12 abort).
-    // First call throws VersionConflictError, second call succeeds.
     const ctx = makeMockCtx();
     const preflight = vi.fn().mockResolvedValue(FAILING_PREFLIGHT);
     const executeMerge = vi.fn();
@@ -950,12 +889,12 @@ describe('handleMergeOrchestrate (T14 — resume path)', () => {
       ctx,
     );
 
-    // Retry succeeded → persistState invoked twice, ToolResult reflects abort.
     expect(persistState).toHaveBeenCalledTimes(2);
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('PREFLIGHT_FAILED');
   });
 
+  /** After `MAX_STATE_RETRIES` conflicts, the handler returns `STATE_CONFLICT`. */
   it('handleMergeOrchestrate_StateWriteRetriesExhausted_ReturnsToolResultFailure', async () => {
     const ctx = makeMockCtx();
     const preflight = vi.fn().mockResolvedValue(FAILING_PREFLIGHT);
@@ -979,22 +918,12 @@ describe('handleMergeOrchestrate (T14 — resume path)', () => {
       ctx,
     );
 
-    // After MAX_STATE_RETRIES exhaustions, surface STATE_CONFLICT.
     expect(persistState).toHaveBeenCalledTimes(3);
     expect(executeMerge).not.toHaveBeenCalled();
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('STATE_CONFLICT');
   });
 });
-
-// ─── DR-2 — single-writer lease guard (task-005) ─────────────────────────────
-//
-// The guard folds `worktrees@v1` at the handler chokepoint and fails a merge
-// CLOSED when a FOREIGN live lease holds the target integration ref. These
-// tests drive it against a REAL EventStore (real fold) with the DR-5 probe
-// fixtures, injecting only the preflight / executor / git seams the handler
-// itself owns. A benign `gitExec` neutralizes the section-0a worktree probe so
-// the proceed-path tests exercise the guard in isolation.
 
 /** Real EventStore arm — the guard reads a genuine `worktrees@v1` fold. */
 interface LeaseArm {
@@ -1067,6 +996,12 @@ function passingExecuteMerge() {
   });
 }
 
+/**
+ * The guard folds `worktrees@v1` and fails a merge closed when a live foreign
+ * lease holds the target ref. The tests use a real `EventStore` and inject only
+ * the preflight, executor, and git seams of the handler. `NO_GIT` makes the
+ * sibling-worktree probe fail, so the tests isolate the guard.
+ */
 describe('handleMergeOrchestrate (DR-2 — single-writer lease guard)', () => {
   afterEach(async () => {
     while (leaseArms.length > 0) {
@@ -1078,6 +1013,12 @@ describe('handleMergeOrchestrate (DR-2 — single-writer lease guard)', () => {
     }
   });
 
+  /**
+   * A caller without `leaseOperationId` meets a live foreign lease. The handler
+   * fails closed with an error that names `serialize_merge`. The guard runs
+   * first, so no preflight, executor, or feature event occurs. The lease stays
+   * with its holder.
+   */
   it('MergeOrchestrate_ForeignLiveLeaseOnTarget_FailsClosedNamingSerializeMerge', async () => {
     const arm = await createLeaseArm();
     const integrationRef = 'integration/guard-foreign';
@@ -1097,7 +1038,6 @@ describe('handleMergeOrchestrate (DR-2 — single-writer lease guard)', () => {
         sourceBranch: 'feat/mine',
         targetBranch: integrationRef,
         strategy: 'squash',
-        // No leaseOperationId — a plain caller racing the integration branch.
         preflight,
         executeMerge,
         gitExec: NO_GIT,
@@ -1106,19 +1046,15 @@ describe('handleMergeOrchestrate (DR-2 — single-writer lease guard)', () => {
       arm.ctx,
     );
 
-    // Fail-closed with a structured error that NAMES serialize_merge.
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('MERGE_LEASE_HELD');
     expect(result.error?.message).toMatch(/serialize_merge/);
     expect((result.data as { reason?: string }).reason).toBe('foreign-live-lease');
 
-    // NO git side effect: the executor never ran and NO merge.preflight /
-    // merge.requested event landed on the feature stream (guard runs first).
     expect(preflight).not.toHaveBeenCalled();
     expect(executeMerge).not.toHaveBeenCalled();
     const featureEvents = await arm.eventStore.query('feat-guard');
     expect(featureEvents).toHaveLength(0);
-    // The lease is untouched — still held by the foreign holder.
     const wt = await arm.eventStore
       .getAppender()
       .aggregateStream(WORKTREES_STREAM, 'worktrees@v1');
@@ -1128,9 +1064,9 @@ describe('handleMergeOrchestrate (DR-2 — single-writer lease guard)', () => {
     ).toBe('foreign-live-op');
   });
 
+  /** With no lease on the target, the guard has no effect, and the preflight and the executor run. */
   it('MergeOrchestrate_NoLease_BehavesAsToday', async () => {
     const arm = await createLeaseArm();
-    // No lease seeded — the target integration ref is free.
     const preflight = vi.fn().mockResolvedValue(PASSING_PREFLIGHT);
     const executeMerge = passingExecuteMerge();
 
@@ -1148,17 +1084,19 @@ describe('handleMergeOrchestrate (DR-2 — single-writer lease guard)', () => {
       arm.ctx,
     );
 
-    // No holder → guard is transparent → preflight + executor run as today.
     expect(result.success).toBe(true);
     expect((result.data as { phase: string }).phase).toBe('completed');
     expect(preflight).toHaveBeenCalledTimes(1);
     expect(executeMerge).toHaveBeenCalledTimes(1);
   });
 
+  /**
+   * The holder pid is absent from a supported empty table, so the holder is
+   * dead. A dead holder does not block, even without `leaseOperationId`.
+   */
   it('MergeOrchestrate_DeadHolderLease_ProceedsAfterProbe', async () => {
     const arm = await createLeaseArm();
     const integrationRef = 'integration/guard-dead';
-    // Holder pid absent from the SUPPORTED empty table → provably dead.
     await seedLease(arm, {
       integrationRef,
       operationId: 'dead-holder-op',
@@ -1175,7 +1113,6 @@ describe('handleMergeOrchestrate (DR-2 — single-writer lease guard)', () => {
         sourceBranch: 'feat/mine',
         targetBranch: integrationRef,
         strategy: 'squash',
-        // No leaseOperationId — a provably-dead holder proceeds regardless.
         preflight,
         executeMerge,
         gitExec: NO_GIT,
@@ -1184,16 +1121,17 @@ describe('handleMergeOrchestrate (DR-2 — single-writer lease guard)', () => {
       arm.ctx,
     );
 
-    // Provably-dead holder does NOT block — the merge proceeds (back-compat).
     expect(result.success).toBe(true);
     expect(executeMerge).toHaveBeenCalledTimes(1);
   });
 
+  /**
+   * An absent pid on an unsupported table reads as `unknown`, not dead.
+   * Unknown liveness counts as held, so the guard fails closed.
+   */
   it('MergeOrchestrate_UnknownHolderLiveness_FailsClosed', async () => {
     const arm = await createLeaseArm();
     const integrationRef = 'integration/guard-unknown';
-    // Same absent pid, but probed against the UNSUPPORTED (off-Linux) table:
-    // liveness reads 'unknown', NOT 'dead' → the guard must fail CLOSED.
     await seedLease(arm, {
       integrationRef,
       operationId: 'unknown-holder-op',
@@ -1218,20 +1156,19 @@ describe('handleMergeOrchestrate (DR-2 — single-writer lease guard)', () => {
       arm.ctx,
     );
 
-    // Unknown liveness counts as held → fail closed (off-Linux fail-closed).
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('MERGE_LEASE_HELD');
     expect((result.data as { holder?: { liveness?: string } }).holder?.liveness).toBe('unknown');
     expect(executeMerge).not.toHaveBeenCalled();
   });
 
+  /**
+   * The serializer keys `inFlightMerges` by the bare branch name. The handler
+   * builds `refs/heads/main` internally, but the guard must look up the bare key
+   * `main`. A lookup of `refs/heads/main` misses the lease and fails this test.
+   */
   it('MergeOrchestrate_LeaseKeyShape_MatchesSerializerBareBranch', async () => {
     const arm = await createLeaseArm();
-    // The serializer writes BARE branch names as the inFlightMerges key. Seed
-    // under the bare 'main' and target 'main': the handler builds
-    // `refs/heads/main` internally, but the guard MUST look up the BARE key the
-    // serializer WROTE. A guard that looked up `refs/heads/main` would miss the
-    // lease and proceed — this test would then go red.
     await seedLease(arm, {
       integrationRef: 'main',
       operationId: 'bare-key-op',
@@ -1256,18 +1193,18 @@ describe('handleMergeOrchestrate (DR-2 — single-writer lease guard)', () => {
       arm.ctx,
     );
 
-    // The bare-branch key matched → fail closed against the foreign live lease.
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('MERGE_LEASE_HELD');
     expect((result.data as { integrationRef?: string }).integrationRef).toBe('main');
     expect(executeMerge).not.toHaveBeenCalled();
   });
 
+  /**
+   * The serializer, or a caller that resumes after a crash, passes the
+   * operation id of the holder as `leaseOperationId`. The guard matches it and
+   * proceeds, although the holder is live.
+   */
   it('MergeOrchestrate_MatchingLeaseOperationId_ProceedsThroughGuard', async () => {
-    // The serializer's own composed call (and a crash-resumed caller) present
-    // the holder's operationId as leaseOperationId → matched → proceed even
-    // though the holder is LIVE. This is the positive twin of the fail-closed
-    // path and pins the operationId-match short-circuit.
     const arm = await createLeaseArm();
     const integrationRef = 'integration/guard-own';
     await seedLease(arm, {
@@ -1286,7 +1223,7 @@ describe('handleMergeOrchestrate (DR-2 — single-writer lease guard)', () => {
         sourceBranch: 'feat/mine',
         targetBranch: integrationRef,
         strategy: 'squash',
-        leaseOperationId: 'my-own-lease-op', // our own lease → matched by opId.
+        leaseOperationId: 'my-own-lease-op',
         preflight,
         executeMerge,
         gitExec: NO_GIT,

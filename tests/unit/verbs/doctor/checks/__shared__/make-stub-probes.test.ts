@@ -3,6 +3,7 @@ import type { AgentEnvironment } from '../../../../../../src/runtime/agent-envir
 import { makeStubProbes } from '../../../../../../src/verbs/doctor/checks/__shared__/make-stub-probes.js';
 
 describe('makeStubProbes', () => {
+  /** The `env` record does not throw. It is empty, so callers read a missing key as unset. */
   it('MakeStubProbes_WithNoOverrides_ThrowsOnAnyProbeCall', () => {
     const probes = makeStubProbes();
 
@@ -18,8 +19,6 @@ describe('makeStubProbes', () => {
     expect(() => probes.eventStore.append({} as never)).toThrow(
       /probe not overridden: eventStore/,
     );
-    // env is a plain readonly record; accessing it should not throw, but it
-    // is empty by default so callers treat missing keys as unset.
     expect(probes.env).toEqual({});
   });
 
@@ -44,9 +43,7 @@ describe('makeStubProbes', () => {
       detector: async () => [],
     });
 
-    // detector overridden: safe to call
     expect(typeof probes.detector).toBe('function');
-    // other probes still throw
     expect(() => probes.git.which('git')).toThrow(/probe not overridden: git/);
     expect(() => probes.sqlite.runIntegrityCheck()).toThrow(
       /probe not overridden: sqlite/,

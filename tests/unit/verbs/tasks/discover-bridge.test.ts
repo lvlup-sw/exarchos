@@ -1,3 +1,9 @@
+/**
+ * Tests the deep-rung discover bridge from plan authoring to the discover research workflow.
+ * The bridge is opt-in, so nothing spawns without author confirmation.
+ * A confirmed bridge links the spec and the discover workflow with one `correlationId`.
+ */
+
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -6,11 +12,6 @@ import * as path from 'node:path';
 import { EventStore } from '../../../../src/events/store.js';
 import { handleDiscoverBridge } from '../../../../src/verbs/tasks/discover-bridge.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
-
-// ─── DR-7 (#1581 task 018): the deep-rung discover bridge ────────────────────
-//
-// Event-linked, correlationId-stitched escalation from PLAN authoring to the
-// discover research workflow. Opt-in: nothing spawns without author confirmation.
 
 let tempDir: string;
 let store: EventStore;
@@ -37,9 +38,8 @@ interface BridgeData {
 }
 
 describe('handleDiscoverBridge (DR-7, task 018)', () => {
+  /** Without confirmation, the bridge describes the affordance, spawns nothing, and appends no event. */
   it('DiscoverBridge_NoAuthorConfirm_NoSilentSpawn', async () => {
-    // GIVEN a deep-rung feature, WHEN the bridge is invoked WITHOUT confirmation,
-    // THEN it describes the affordance but spawns nothing and emits no event.
     const featureId = 'feat-deep';
     const result = await handleDiscoverBridge(
       { featureId, artifact: 'docs/specs/2026-06-22-feat-deep.md' },
@@ -53,15 +53,15 @@ describe('handleDiscoverBridge (DR-7, task 018)', () => {
     expect(data.affordance?.optIn).toBe(true);
     expect(data.affordance?.verb).toBe('discover_bridge');
 
-    // No silent spawn — the feature stream has NO event from the unconfirmed bridge.
     const events = await store.query(featureId, { sinceSequence: 0 });
     expect(events.length).toBe(0);
   });
 
+  /**
+   * With confirmation and a report, the spec citation and the discover link share one `correlationId`.
+   * The discover stream id comes from the feature id. A `state.patched` event on the feature stream records the same link.
+   */
   it('DiscoverBridge_CorrelationId_StitchesReportToSpec', async () => {
-    // GIVEN confirmation + a discover report, WHEN the bridge runs, THEN the spec
-    // citation and the discover linkage share ONE correlationId, and that link is
-    // recorded on the feature stream (event-linked).
     const featureId = 'feat-deep';
     const artifact = 'docs/specs/2026-06-22-feat-deep.md';
     const reportPath = 'docs/research/2026-06-22-feat-deep-discovery.md';
@@ -76,15 +76,11 @@ describe('handleDiscoverBridge (DR-7, task 018)', () => {
     expect(data.spawned).toBe(true);
     expect(data.eventLinked).toBe(true);
 
-    // The stitch: citation correlationId === the bridge correlationId, and the
-    // discover stream id is derived from the feature.
     expect(data.specCitation?.correlationId).toBe(data.correlationId);
     expect(data.specCitation?.artifact).toBe(artifact);
     expect(data.specCitation?.reportPath).toBe(reportPath);
     expect(data.discoverFeatureId).toBe('feat-deep-discover');
 
-    // Event-linked: a state.patched event on the feature stream carries the same
-    // correlationId and records the report path stitched to the spec.
     const events = (await store.query(featureId, { sinceSequence: 0 })) as unknown as Array<{
       type: string;
       correlationId?: string;
@@ -99,9 +95,8 @@ describe('handleDiscoverBridge (DR-7, task 018)', () => {
     expect(bridge?.correlationId).toBe(data.correlationId);
   });
 
+  /** The bridge derives the `correlationId` from the `featureId`, so two confirmations give the same link. */
   it('DiscoverBridge_Confirmed_DeterministicCorrelationId', async () => {
-    // The stitch correlationId is deterministic (replay-safe), derived from the
-    // featureId — two confirmations re-derive the same link.
     const featureId = 'feat-x';
     const args = { featureId, artifact: 'docs/specs/x.md', confirm: true } as const;
     const a = (await handleDiscoverBridge(args, stateDir, store)).data as BridgeData;
@@ -116,9 +111,8 @@ describe('handleDiscoverBridge (DR-7, task 018)', () => {
     expect((result.error as { code: string }).code).toBe('INVALID_INPUT');
   });
 
+  /** Without an event store, the bridge still returns the deterministic link, so the discover init of the author can adopt it. */
   it('DiscoverBridge_ConfirmedNoEventStore_DegradesToLinkage', async () => {
-    // File-based dispatch (no event store): the escalation still returns the
-    // deterministic linkage so the author's discover init can adopt it.
     const result = await handleDiscoverBridge(
       { featureId: 'feat-y', artifact: 'docs/specs/y.md', confirm: true },
       stateDir,

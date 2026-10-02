@@ -50,6 +50,21 @@ import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { seedActivePhaseAttempt } from '../../../../tools/test-helpers/trusted-context.js';
 import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 
+import { execFileSync } from 'node:child_process';
+
+// `settle` over the full shipped task-completion runbook, when a blocking gate blocks.
+//
+// The kill probe is the first gate of that runbook, and it runs for real here.
+// The capsule stamps the task medium-tier. The claimed worktree is a git repository whose branch ships a test that does not read the change.
+// The probe reverts the source, the test stays green, and the gate blocks on a success carrier.
+// The batch must be rejected with the halt named, and the stream must hold no completion.
+//
+// The fixture also passes lint, typecheck, and the quality check.
+// A segment that lets the verdict through thus runs on to a completion that static analysis admits.
+// A rejection here can only come from the kill probe.
+//
+// @oracle-sources: ../../../../src/verbs/settle/handler.ts, the rows a real event store holds after the batch, read back by type rather than off the receipt
+
 const STREAM = 'feat-settle-blocking-gate';
 const CAPSULE_VERSION = 9;
 const CAPABILITIES = ['fs:read', 'fs:write', 'shell:exec', 'mcp:exarchos', 'admission:issue-gate-evidence'];

@@ -1,10 +1,7 @@
 // @oracle-sources: ../../../../src/verbs/execute/executor.ts, the persisted operation claim the SQLite appender hands back on a replay — read out of the store rather than rebuilt in process, so a receipt the first call invented and never durably recorded cannot satisfy the comparison
 //
-// The two receipt-equality assertions here compare a receipt the executor BUILT
-// while running a segment against the one a later call with the same operation
-// id READS from the claim row. One authority is the code under test; the other
-// is the durable row it wrote. A replay answered out of memory would compare a
-// value with itself and could never disagree.
+// The receipt-equality assertions compare a receipt that the executor builds during a segment with the receipt that a replay reads from the claim row.
+// A replay answered from memory compares a value with itself and cannot disagree.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createHash } from 'node:crypto';
@@ -137,8 +134,6 @@ function claimFor(operationId: string): { requestDigest: string; result: IntentR
   return store.getAppender().ensureSqliteBackendSync().lookupOperationClaim<IntentReceipt>(operationId);
 }
 
-// ─── Request validation ─────────────────────────────────────────────────────
-
 describe('handleExecuteIntent request validation', () => {
   const deps = () => depsFor([fixtureStep('fixture_quiet', 'stop')], { fixture_quiet: silentHandler() });
 
@@ -181,8 +176,6 @@ describe('handleExecuteIntent request validation', () => {
     expect(await operationEvents()).toHaveLength(0);
   });
 });
-
-// ─── The committed path ─────────────────────────────────────────────────────
 
 describe('handleExecuteIntent commit', () => {
   it('EveryLeafPasses_CommitsTheOperationEvent', async () => {
@@ -234,9 +227,8 @@ describe('handleExecuteIntent commit', () => {
     });
   });
 
+  /** A composing caller that reads the tier from a pinned capsule says so. The record never claims that the runtime supplied the terms. */
   it('CapsuleSteering_IsRecordedAsTheCapsules', async () => {
-    // A composing caller that read the tier off a pinned capsule says so, and
-    // the record never claims the runtime supplied the terms it was judged by.
     const deps = { ...depsFor([fixtureStep('fixture_quiet', 'stop')], { fixture_quiet: silentHandler() }), steeringSource: 'capsule' as const };
     const result = await execute(
       {
@@ -254,6 +246,7 @@ describe('handleExecuteIntent commit', () => {
     });
   });
 
+  /** The commit event belongs to the outer dispatch, not to a leaf. The emission check for that dispatch queries by its operation id. */
   it('LeafEvents_CarryTheDerivedPerLeafOperationId', async () => {
     const deps = depsFor(
       [fixtureStep('fixture_quiet', 'stop'), fixtureStep('fixture_promises', 'stop')],
@@ -268,8 +261,6 @@ describe('handleExecuteIntent commit', () => {
     expect(appended).toHaveLength(1);
     expect(appended[0]?.operationId).toBe(derivedLeafOperationId('op-derived', 1, 'fixture_promises'));
 
-    // The commit is the OUTER dispatch's event, not a leaf's — the emission
-    // check running over that dispatch queries by its operation id.
     const committed = await operationEvents();
     expect(committed[0]?.operationId).not.toContain(':leaf-');
     expect(committed[0]?.operationId).toBeDefined();
@@ -280,6 +271,7 @@ describe('handleExecuteIntent commit', () => {
     expect(byDerived.map((event) => event.type)).toEqual(['task.completed']);
   });
 
+  /** A leaf event names its stream with its sequence. This leaf addresses the subject, so the pair names the subject stream. */
   it('TailSequence_IsTheHighestSequenceTheLeavesReached', async () => {
     const deps = depsFor([fixtureStep('fixture_promises', 'stop')], {
       fixture_promises: appendingHandler('task.completed'),
@@ -292,14 +284,10 @@ describe('handleExecuteIntent commit', () => {
     const appended = await store.query(STREAM, { type: 'task.completed' });
     expect(receipt.tailSequence).toBe(appended[0]?.sequence);
     expect(receipt.leaves[0]?.events).toEqual([
-      // The stream travels with the sequence: this leaf addresses the subject,
-      // so the pair names the subject stream.
       { type: 'task.completed', streamId: STREAM, sequence: appended[0]?.sequence },
     ]);
   });
 });
-
-// ─── Failure policy ─────────────────────────────────────────────────────────
 
 describe('handleExecuteIntent onFail', () => {
   it('StopFailure_HaltsTheSegmentAndCommitsFailed', async () => {
@@ -515,12 +503,9 @@ describe('handleExecuteIntent blocking gate verdicts', () => {
   });
 });
 
-// ─── Per-leaf emission verification ─────────────────────────────────────────
-
 describe('handleExecuteIntent per-leaf emission verification', () => {
+  /** Seeded violation: the registration promises `task.completed` on each successful call, and the handler appends nothing. */
   it('SilentLeafThatDeclaredAnEmission_FailsItsOwnContract', async () => {
-    // The seeded violation: the registration promises `task.completed` on every
-    // successful call and the handler appends nothing.
     const deps = depsFor([fixtureStep('fixture_promises', 'stop')], {
       fixture_promises: silentHandler(),
     });
@@ -536,8 +521,8 @@ describe('handleExecuteIntent per-leaf emission verification', () => {
     expect(receipt.failedLeaf).toBe('fixture_promises');
   });
 
+  /** The control for the test above. Only the handler changes. */
   it('SameLeafDeclarationAppendingTheEvent_Passes', async () => {
-    // The control for the test above: only the handler changes.
     const deps = depsFor([fixtureStep('fixture_promises', 'stop')], {
       fixture_promises: appendingHandler('task.completed'),
     });
@@ -549,9 +534,12 @@ describe('handleExecuteIntent per-leaf emission verification', () => {
     expect(receiptOf(result).leaves[0]?.status).toBe('passed');
   });
 
+  /**
+   * An earlier leaf that appends the event a later leaf owes must not satisfy the later leaf.
+   * The verifier records its finding against the derived operation id of the leaf.
+   * With one shared id, its query finds the earlier `task.completed` and reports the contract as kept.
+   */
   it('LeafEmissionCheckIsScopedToItsOwnOperationId', async () => {
-    // An earlier leaf appending the event a later leaf owes must not satisfy
-    // the later leaf — the derived per-leaf identity is what rules that out.
     const deps = depsFor(
       [fixtureStep('fixture_quiet', 'stop'), fixtureStep('fixture_promises', 'stop')],
       { fixture_quiet: appendingHandler('task.completed'), fixture_promises: silentHandler() },
@@ -563,17 +551,12 @@ describe('handleExecuteIntent per-leaf emission verification', () => {
     expect(result.error?.code).toBe('INTENT_EMISSION_CONTRACT_VIOLATED');
     expect(receiptOf(result).failedLeaf).toBe('fixture_promises');
 
-    // The verifier's own finding, recorded against the LEAF's operation id.
-    // Under one shared id its query would have found the earlier leaf's
-    // `task.completed` and reported the contract kept.
     const findings = await store.query(STREAM, { type: 'emission.violated' });
     expect(findings.map((event) => (event.data as { operationId?: string }).operationId)).toEqual([
       derivedLeafOperationId('op-scoped', 1, 'fixture_promises'),
     ]);
   });
 });
-
-// ─── Replay ─────────────────────────────────────────────────────────────────
 
 describe('handleExecuteIntent replay', () => {
   it('ReplayOfACommittedOperation_ExecutesNothing', async () => {
@@ -639,9 +622,8 @@ describe('handleExecuteIntent replay', () => {
   });
 });
 
-// ─── Crash ──────────────────────────────────────────────────────────────────
-
 describe('handleExecuteIntent crash distinguishability', () => {
+  /** The work of the completed leaf stays durable, under a leaf id derived from the operation id of the caller. */
   it('ThrowMidSegment_LeavesNoClaimAndNoOperationEvent', async () => {
     const deps = depsFor(
       [fixtureStep('fixture_quiet', 'stop'), fixtureStep('fixture_promises', 'stop')],
@@ -662,13 +644,13 @@ describe('handleExecuteIntent crash distinguishability', () => {
     expect(claimFor('op-crash')).toBeUndefined();
     expect(await operationEvents()).toHaveLength(0);
 
-    // The completed leaf's work is durable and keyed to the caller's operation.
     const durable = await store.query(STREAM, {
       operationId: derivedLeafOperationId('op-crash', 0, 'fixture_quiet'),
     });
     expect(durable.map((event) => event.type)).toEqual(['task.completed']);
   });
 
+  /** No claim exists after the crash, so the retry runs the segment again from the top. */
   it('RetryAfterCrash_RunsFromTheTopAndReusesTheDerivedLeafIds', async () => {
     const counted = countingHandler(appendingHandler('task.completed'));
     let crash = true;
@@ -696,7 +678,6 @@ describe('handleExecuteIntent crash distinguishability', () => {
 
     const result = await execute(request, deps);
     expect(result.success).toBe(true);
-    // No claim existed, so the segment genuinely re-ran from the top.
     expect(counted.calls()).toBe(2);
     const durable = await store.query(STREAM, {
       operationId: derivedLeafOperationId('op-retry', 0, 'fixture_quiet'),
@@ -704,8 +685,6 @@ describe('handleExecuteIntent crash distinguishability', () => {
     expect(durable).toHaveLength(2);
   });
 });
-
-// ─── The caller's operation key, and what it has to leave room for ──────────
 
 describe('handleExecuteIntent operationId bound', () => {
   const deps = () => depsFor([fixtureStep('fixture_quiet', 'stop')], { fixture_quiet: silentHandler() });
@@ -720,11 +699,12 @@ describe('handleExecuteIntent operationId bound', () => {
     expect(receiptOf(result).operationId).toBe(key);
   });
 
+  /**
+   * The other boundary tests take their input from the constant, so a larger constant moves them too.
+   * This test measures the constant against the operation-id limit of the event row, with the longest suffix the live registry can add.
+   * It also proves that the row refuses a longer id.
+   */
   it('TheBound_LeavesRoomForTheLongestDerivedLeafIdTheRegistryCanProduce', () => {
-    // The tooth the boundary tests below cannot carry: they take their input
-    // FROM the constant, so raising it moves them with it. This one measures
-    // the constant against the authority it has to fit — the event row's own
-    // operation-id limit — over the worst suffix the live registry can add.
     const longestAction = getFullRegistry()
       .flatMap((tool) => tool.actions.map((action) => action.name))
       .reduce((longest, name) => (name.length > longest.length ? name : longest), '');
@@ -745,14 +725,14 @@ describe('handleExecuteIntent operationId bound', () => {
       longestAction,
     );
     expect(row(worstCase)).toBe(true);
-    // And the limit is real rather than assumed: the row refuses a longer id.
     expect(row('a'.repeat(worstCase.length + 200))).toBe(false);
   });
 
+  /**
+   * The event row holds the derived leaf id, which is the caller key plus a suffix.
+   * A key at the ceiling of the admission grammar gives leaf ids that the store rejects mid-segment.
+   */
   it('OperationIdOneOverTheBound_IsRefusedBeforeAnyEffect', async () => {
-    // The derived per-leaf id is the caller's key plus a suffix, and it is the
-    // DERIVED id the event row has to hold. A key accepted at the admission
-    // grammar's own ceiling produces leaf ids the store rejects mid-segment.
     const result = await execute(
       {
         intent: INTENT,
@@ -768,8 +748,7 @@ describe('handleExecuteIntent operationId bound', () => {
   });
 });
 
-// ─── Subject identity: two spellings of one stream ──────────────────────────
-
+/** `streamId` and `featureId` are two spellings of one stream. */
 describe('handleExecuteIntent subject resolution', () => {
   const deps = () => depsFor([fixtureStep('fixture_quiet', 'stop')], { fixture_quiet: silentHandler() });
 
@@ -782,9 +761,8 @@ describe('handleExecuteIntent subject resolution', () => {
     expect(await operationEvents()).toHaveLength(1);
   });
 
+  /** A silent choice commits the segment to one stream while the dispatch-layer emission check reads the other. */
   it('BothSpellingsPresentAndDisagreeing_IsRefused', async () => {
-    // Resolving one of them silently commits the segment to one stream and has
-    // the dispatch-layer emission check read the other.
     const result = await execute(
       {
         intent: INTENT,
@@ -802,10 +780,10 @@ describe('handleExecuteIntent subject resolution', () => {
     expect(await store.query('wf-somewhere-else')).toHaveLength(0);
   });
 
+  /**
+   * `vcs` is a reserved infrastructure stream. A segment bound to it mixes the operation claim and receipts with the journal records that the reservation keeps apart from feature streams.
+   */
   it('ReservedInfraStreamAsStreamId_IsRefusedBeforeCompilation', async () => {
-    // 'vcs' is a reserved infrastructure stream; binding a segment's subject
-    // to it would interleave the operation claim and receipts with the journal
-    // records the reservation keeps separate from feature streams.
     const result = await execute(
       { intent: INTENT, streamId: 'vcs', args: { taskId: 't1' }, operationId: 'op-reserved-stream' },
       deps(),
@@ -827,9 +805,8 @@ describe('handleExecuteIntent subject resolution', () => {
     expect(await store.query('telemetry')).toHaveLength(0);
   });
 
+  /** The dispatch-layer resolver reads `featureId` first, and the executor must agree with it on the stream. */
   it('FeatureIdWins_MatchingTheDispatchLayerStreamResolver', async () => {
-    // Not a preference: the dispatch-layer resolver reads `featureId` first,
-    // and the two have to agree on which stream this call is about.
     const result = await execute(
       { intent: INTENT, featureId: STREAM, args: { taskId: 't1' }, operationId: 'op-feature-first' },
       deps(),
@@ -839,8 +816,11 @@ describe('handleExecuteIntent subject resolution', () => {
   });
 });
 
-// ─── Losing the claim to a concurrent call ──────────────────────────────────
-
+/**
+ * A concurrent call can take the operation claim after the replay pre-flight misses and before the commit.
+ * The `claimingHandler` helper takes the claim from inside a leaf handler to reproduce that window.
+ * Like any other commit, its claim carries at least one event.
+ */
 describe('handleExecuteIntent commit races', () => {
   const request = (operationId: string) => ({
     intent: INTENT,
@@ -849,16 +829,10 @@ describe('handleExecuteIntent commit races', () => {
     operationId,
   });
 
-  /**
-   * Claim `operationId` from INSIDE a leaf handler — after the executor's
-   * replay pre-flight has already missed, and before its commit runs. That is
-   * the window a concurrent caller occupies, reproduced deterministically.
-   */
   function claimingHandler(operationId: string, digest: () => string, result: IntentReceipt): LeafHandler {
     return async () => {
       await store.getAppender().decideOnce<IntentReceipt>(operationId, digest(), () => ({
         streamId: STREAM,
-        // A claim carries at least one event, the same as any other commit.
         events: [{ type: 'task.progressed', data: { taskId: 'racing-writer' } }],
         result,
       }));
@@ -866,9 +840,11 @@ describe('handleExecuteIntent commit races', () => {
     };
   }
 
+  /**
+   * The digest covers the request, not the key. Thus a probe with the same request under a different key gives the digest for the racing writer.
+   * No claim stores the local receipt of the loser, so the caller must get the persisted receipt.
+   */
   it('SameDigest_TheCallerGetsThePersistedReceiptNotTheLocalOne', async () => {
-    // The digest is over the REQUEST, not the key, so an identical request
-    // under a different key produces the digest the racing writer must use.
     const probe = receiptOf(
       await execute(
         request('op-race-probe'),
@@ -884,14 +860,12 @@ describe('handleExecuteIntent commit races', () => {
       }),
     );
 
-    // The loser's locally-built receipt says tailSequence 0 and is recorded
-    // nowhere. Handing it back would leave the caller holding a receipt no
-    // claim stores and no replay reproduces.
     expect(result.success).toBe(true);
     expect(receiptOf(result)).toEqual(winner);
     expect(claimFor('op-race')?.result).toEqual(winner);
   });
 
+  /** The segment ran, so the refusal says that effects are already performed, not the "nothing was executed" text of the pre-flight. */
   it('DifferentDigest_IsTheTypedReplayRefusalNotAnInternalError', async () => {
     const foreign: IntentReceipt = {
       operationId: 'op-race-clash',
@@ -911,15 +885,14 @@ describe('handleExecuteIntent commit races', () => {
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('INTENT_REPLAY_DIGEST_MISMATCH');
-    // The segment DID run, and the refusal says so rather than implying the
-    // pre-flight's "nothing was executed".
     expect(result.error?.message).toContain('effects are already performed');
   });
 
+  /**
+   * The executor serializes in-process calls with the same operation id.
+   * The second call waits, finds the claim of the first call in its pre-flight, and replays it.
+   */
   it('ConcurrentSameRequest_RunsTheSegmentOnceAndBothCallersGetTheReceipt', async () => {
-    // In-process calls with the same operation id are serialized: the second
-    // waits, finds the first's claim in its own pre-flight, and replays it.
-    // Without that, both observe an empty pre-flight and both run the leaves.
     const leaf = vi.fn(silentHandler());
     const deps = depsFor([fixtureStep('fixture_quiet', 'stop')], {
       fixture_quiet: leaf,
@@ -937,11 +910,11 @@ describe('handleExecuteIntent commit races', () => {
     expect(await operationEvents()).toHaveLength(1);
   });
 
+  /**
+   * The pre-flight of the waiting call finds a claim with a different digest and refuses before its leaves run.
+   * The "effects are already performed" text is for a racer in another process, which only the commit can catch.
+   */
   it('ConcurrentDifferentRequest_SecondIsRefusedWithoutRunningItsLeaves', async () => {
-    // Same key, different request: the waiter's pre-flight finds a claim whose
-    // digest disagrees and refuses BEFORE any of its leaves run — the
-    // "effects are already performed" wording is reserved for a racer in
-    // another process, which only the commit can catch.
     const leaf = vi.fn(silentHandler());
     const deps = depsFor([fixtureStep('fixture_quiet', 'stop')], {
       fixture_quiet: leaf,
@@ -963,17 +936,15 @@ describe('handleExecuteIntent commit races', () => {
   });
 });
 
-// ─── Correlation off a real dispatch ────────────────────────────────────────
-
 describe('handleExecuteIntent without an ambient dispatch context', () => {
+  /**
+   * A direct in-process call with no `runWithDispatchContext` wrapper mints the outer packet.
+   * The operation record and the leaf events must carry the same minted correlation id.
+   */
   it('OperationRecordAndLeafEvents_ShareTheMintedOuterCorrelationId', async () => {
     const deps = depsFor([fixtureStep('fixture_promises', 'stop')], {
       fixture_promises: appendingHandler('task.completed'),
     });
-    // No `runWithDispatchContext` wrapper: a direct in-process call, where the
-    // outer packet is minted rather than inherited. The commit used to stamp
-    // from an ambient context that was still undefined, leaving the operation
-    // record uncorrelated with the leaves it describes.
     const result = await handleExecuteIntent(
       { intent: INTENT, streamId: STREAM, args: { taskId: 't1' }, operationId: 'op-no-ambient' },
       stateDir,
@@ -990,18 +961,18 @@ describe('handleExecuteIntent without an ambient dispatch context', () => {
   });
 });
 
-// ─── Declared postconditions, observed the way dispatch observes them ───────
-
+/**
+ * The `ensuring` leaf declares an event-append postcondition but no emission.
+ * The `evidencing` leaf declares the durable-evidence source, which an event query cannot see.
+ */
 describe('handleExecuteIntent per-leaf ensures', () => {
-  /** Declares an event-append postcondition it does NOT declare as an emission. */
   const ensuring = fixtureAction({
     name: 'fixture_ensures',
     ensures: declared({ source: 'event-append', when: 'success', event: 'gate.executed' }),
   });
 
+  /** The leaf declares no emissions, so only the ensures observation can catch it. */
   it('SilentLeafWithAnEnsuresEventOutsideItsEmissions_FailsItsContract', async () => {
-    // The emissions axis cannot see this leaf at all — it declares none — so
-    // the only thing that can catch it is the ensures observation.
     const deps = depsFor([fixtureStep('fixture_ensures', 'stop')], { fixture_ensures: silentHandler() }, [
       ensuring,
     ]);
@@ -1014,15 +985,13 @@ describe('handleExecuteIntent per-leaf ensures', () => {
     expect(receiptOf(result).failedLeaf).toBe('fixture_ensures');
   });
 
-  /** Declares the durable-evidence source — the one an event query cannot see. */
   const evidencing = fixtureAction({
     name: 'fixture_evidences',
     ensures: declared({ source: 'durable-evidence', when: 'success', evidenceType: 'gate' }),
   });
 
+  /** A comparison over appended event types alone skips the durable-evidence source and reports nothing. */
   it('SilentLeafWithADurableEvidenceEnsures_FailsItsContract', async () => {
-    // Every shipped gate leaf declares this source. A comparison built only
-    // over appended event types skipped all of them without saying so.
     const deps = depsFor([fixtureStep('fixture_evidences', 'stop')], {
       fixture_evidences: silentHandler(),
     }, [evidencing]);
@@ -1034,9 +1003,8 @@ describe('handleExecuteIntent per-leaf ensures', () => {
     expect(result.error?.message).toContain('evidence gate');
   });
 
+  /** The control: the leaf records the evidence that the gate runner records, with the same keys, under its derived identity. */
   it('SameLeafRecordingTheEvidence_Passes', async () => {
-    // The control: the evidence the gate runner would record, keyed the way it
-    // keys one, under the leaf's own derived identity.
     const deps = depsFor([fixtureStep('fixture_evidences', 'stop')], {
       fixture_evidences: gateEvidenceHandler({
         requirementId: 'gate:review:review',
@@ -1069,11 +1037,12 @@ describe('handleExecuteIntent per-leaf ensures', () => {
     expect(receiptOf(result).leaves[0]?.status).toBe('passed');
   });
 
+  /**
+   * The row commits with a real reference, but the blob is not under the root of the executor resolver.
+   * A two-root producer split leaves the same shape, and it must halt like a missing blob.
+   * The error names the blob digest, because "evidence gate" alone does not tell a missing row from an unreadable blob.
+   */
   it('Executor_LeafArtifactEvidenceUnderAnotherRoot_HaltsWithEmissionContractViolated', async () => {
-    // The row commits with a real, resolvable-looking reference on it — just
-    // not under the root the executor's resolver is bound to. That is the
-    // same shape a two-root producer split leaves behind, and it must halt
-    // exactly as a missing blob would.
     const deps = depsFor([fixtureStep('fixture_evidences', 'stop')], {
       fixture_evidences: gateEvidenceHandler({
         requirementId: 'gate:review:review',
@@ -1092,16 +1061,12 @@ describe('handleExecuteIntent per-leaf ensures', () => {
       deps,
     );
     expect(result.error?.code).toBe('INTENT_EMISSION_CONTRACT_VIOLATED');
-    // Names the unresolved blob's digest, not merely the ensure it broke —
-    // an operator seeing "evidence gate" alone cannot tell a missing row
-    // from an unreadable blob.
     expect(result.error?.message).toMatch(/sha256:[0-9a-f]{64}/);
     expect(receiptOf(result).failedLeaf).toBe('fixture_evidences');
   });
 
+  /** The pair of the test above: the same leaf and blob content, written under the root that the resolver reads. */
   it('Executor_LeafArtifactEvidenceUnderTheStateDir_Passes', async () => {
-    // The two-sided pair: identical leaf and identical blob content, written
-    // under the root the resolver actually looks under.
     const deps = depsFor([fixtureStep('fixture_evidences', 'stop')], {
       fixture_evidences: gateEvidenceHandler({
         requirementId: 'gate:review:review',
@@ -1126,12 +1091,11 @@ describe('handleExecuteIntent per-leaf ensures', () => {
     expect(receiptOf(result).leaves[0]?.status).toBe('passed');
   });
 
+  /**
+   * The observer fails (an unreadable ledger, or a resolver failure outside its per-reference guard) instead of reporting a miss.
+   * The leaf already ran its effects. An escaped throw loses the halt-regardless classification and leaves no receipt that names the unchecked postcondition.
+   */
   it('Executor_PostconditionObservationThrows_HaltsInsteadOfEscaping', async () => {
-    // The observer is offline (an unreadable ledger, a resolver failure
-    // outside its own per-reference guard) rather than merely reporting a
-    // miss. The leaf already ran its effects; the throw must not escape past
-    // this point, because escaping loses the halt-regardless classification
-    // and leaves no receipt naming what could not be checked.
     const querySpy = vi.spyOn(store, 'query').mockImplementation(async (streamId, filters) => {
       if (filters?.type === 'admission.evidence-recorded') {
         throw new Error('simulated ledger read failure');
@@ -1164,10 +1128,8 @@ describe('handleExecuteIntent per-leaf ensures', () => {
   });
 });
 
-// ─── Enforcement mode, and what an advisory leaf may not wave through ───────
-
+/** The `announcing` leaf promises an event on each call and declares no postcondition. */
 describe('handleExecuteIntent emission enforcement on a continue leaf', () => {
-  /** Promises an event unconditionally; declares no postcondition. */
   const announcing = fixtureAction({
     name: 'fixture_announces',
     emissions: declared({
@@ -1186,10 +1148,11 @@ describe('handleExecuteIntent emission enforcement on a continue leaf', () => {
     );
   }
 
+  /**
+   * `onFail: 'continue'` applies to the verdict of the leaf.
+   * A broken emission contract breaks the integrity of the log, and the advisory policy of the runbook does not excuse that.
+   */
   it('BlockMode_HaltsTheSegmentEvenThoughTheLeafIsAdvisory', async () => {
-    // `onFail: 'continue'` is a policy about the leaf's own VERDICT. A leaf
-    // that broke its declared emission contract broke the log's integrity, and
-    // the runbook's advisory policy never licensed that.
     const later = countingHandler(silentHandler());
     const result = await execute(
       { intent: INTENT, streamId: STREAM, args: { taskId: 't1' }, operationId: 'op-continue-block' },
@@ -1204,10 +1167,8 @@ describe('handleExecuteIntent emission enforcement on a continue leaf', () => {
     expect(later.calls()).toBe(0);
   });
 
+  /** Advisory mode reports the finding without the failure. The finding stays on the receipt leaf that produced it, so it is not lost. */
   it('AdvisoryMode_CommitsAndRecordsTheViolationOnTheLeaf', async () => {
-    // The operator asked for the finding without the failure. A finding
-    // suppressed to keep an advisory run quiet is a finding lost, so it rides
-    // on the receipt leaf that produced it.
     const later = countingHandler(silentHandler());
     const result = await execute(
       { intent: INTENT, streamId: STREAM, args: { taskId: 't1' }, operationId: 'op-continue-advisory' },
@@ -1224,12 +1185,12 @@ describe('handleExecuteIntent emission enforcement on a continue leaf', () => {
     expect(later.calls()).toBe(1);
   });
 
+  /**
+   * The verifier records its advisory finding under the derived id of the violating leaf.
+   * After a crash, the retried leaf finds that row under its own id. The row is about the leaf and is not a leaf emission.
+   * The receipt must not report it as an appended event or count it toward the tail.
+   */
   it('APriorAttemptsViolationRow_IsNotFoldedIntoTheRetriedReceipt', async () => {
-    // The verifier records its advisory finding under the violating leaf's own
-    // derived id. After a crash, that row is among the rows the retried leaf's
-    // identity durably holds — bookkeeping ABOUT the leaf, not a leaf emission —
-    // so a receipt that folded it in would report the finding as an event the
-    // leaf appended and count it toward the tail.
     let crash = true;
     const deps = depsFor(
       [fixtureStep('fixture_announces', 'continue'), fixtureStep('fixture_quiet', 'stop')],
@@ -1269,11 +1230,11 @@ describe('handleExecuteIntent emission enforcement on a continue leaf', () => {
     expect(receipt.interaction.eventsAppended).toBe(0);
   });
 
+  /**
+   * The receipt of a failed segment travels inside the error.
+   * The advisory finding must stay in that receipt, because the caller whose segment halted needs it most.
+   */
   it('AnAdvisoryFindingOnAFailedSegment_SurvivesIntoTheErrorEnvelope', async () => {
-    // A failed segment's receipt travels inside the error. The advisory
-    // finding is part of that receipt: dropping it at the envelope boundary
-    // would make the one caller who most needs the finding — the one whose
-    // segment then halted — the one caller who cannot see it.
     const result = await execute(
       {
         intent: INTENT,
@@ -1294,9 +1255,13 @@ describe('handleExecuteIntent emission enforcement on a continue leaf', () => {
   });
 });
 
-// ─── A failed segment's receipt has to survive the envelope boundary ────────
-
+/** The receipt of a failed segment must survive the envelope boundary. */
 describe('handleExecuteIntent failure envelope', () => {
+  /**
+   * The assertions read the envelope, not the raw ToolResult.
+   * The envelope keeps `data` only on the success path, so a receipt left there never reaches the caller.
+   * A failed segment still ran, so the refusal carries its bundle references.
+   */
   it('SegmentFailure_CarriesTheCompactReceiptInsideTheError', async () => {
     const deps = depsFor(
       [fixtureStep('fixture_promises', 'stop'), fixtureStep('fixture_quiet', 'stop')],
@@ -1308,9 +1273,6 @@ describe('handleExecuteIntent failure envelope', () => {
     );
     const receipt = receiptOf(result);
 
-    // Asserted over the ENVELOPE, not the raw ToolResult: the boundary keeps
-    // `data` only on the success path, so a receipt left there is a receipt the
-    // caller never receives.
     const envelope = toEnvelope(result);
     expect(envelope.success).toBe(false);
     if (envelope.success) return;
@@ -1320,8 +1282,6 @@ describe('handleExecuteIntent failure envelope', () => {
       outcome: 'failed',
       failedLeaf: 'fixture_quiet',
       tailSequence: receipt.tailSequence,
-      // A failed segment still ran, so its bundle is still in custody, and the
-      // refusal is where the caller reads it from.
       bundleRefs: receipt.bundleRefs,
       leaves: [
         { action: 'fixture_promises', status: 'passed', events: 1 },
@@ -1352,8 +1312,7 @@ describe('handleExecuteIntent failure envelope', () => {
   });
 });
 
-// ─── Run-bundle custody: the interior is durable before the record names it ─
-
+/** The run bundle is durable before the operation record names it. */
 describe('handleExecuteIntent run bundle', () => {
   const bundles = () => RunBundleStore.forStateDir(stateDir);
 
@@ -1366,6 +1325,13 @@ describe('handleExecuteIntent run bundle', () => {
     return receipt.bundleRefs;
   }
 
+  /**
+   * The receipt and the row carry one reference, named for the operation.
+   * The bundle holds the run interior: the args, the times, and the handler result of each leaf.
+   * The bundle does not carry its own reference, because the digest is of these bytes.
+   * Schema version `1.1` marks the custody epoch, so the sweep can tell this row from a row that settled before custody.
+   * The type and the version are literals, so a third authority checks the binding of the executor to the oracle.
+   */
   it('CommittedSegment_WritesItsInteriorToTheBundleStoreAndStampsTheReferenceOnTheRecord', async () => {
     const deps = depsFor(
       [fixtureStep('fixture_quiet', 'stop'), fixtureStep('fixture_promises', 'stop')],
@@ -1383,7 +1349,6 @@ describe('handleExecuteIntent run bundle', () => {
     const receipt = receiptOf(result);
     expect(result.success).toBe(true);
 
-    // One reference, named for the operation, on the receipt AND on the row.
     const refs = refsOf(receipt);
     expect(refs).toHaveLength(1);
     const [ref] = refs;
@@ -1393,9 +1358,6 @@ describe('handleExecuteIntent run bundle', () => {
     expect(committed).toHaveLength(1);
     expect(committed[0]?.data?.[BUNDLE_REF_FIELD]).toEqual(refs);
 
-    // The bytes behind the digest are the run's interior: what each leaf was
-    // invoked with, when, and what its handler said — none of which the row
-    // or the receipt carries.
     const bundle = decodeExecuteIntentBundle(await bundles().resolve(ref.digest));
     expect(bundle).toMatchObject({
       kind: 'execute-intent-run',
@@ -1418,26 +1380,19 @@ describe('handleExecuteIntent run bundle', () => {
     expect(quiet?.verdict).toEqual({ status: 'passed' });
     expect(Date.parse(quiet?.endedAt ?? '')).toBeGreaterThanOrEqual(Date.parse(quiet?.startedAt ?? ''));
     expect(promises?.events).toEqual(receipt.leaves[1]?.events);
-    // The bundle never carries its own reference — the digest is OF these bytes.
     expect(Object.hasOwn(bundle, 'bundleRefs')).toBe(false);
 
-    // The row is stamped with the custody epoch: the payload version that says
-    // "written under the contract that requires a reference", which is how the
-    // sweep tells it from a row that settled before custody existed. Both the
-    // type and the version are literals here, so the executor's binding to the
-    // oracle's settlement endpoint is checked against a third authority.
     expect(committed[0]?.type).toBe('orchestrate.intent_executed');
     expect(committed[0]?.schemaVersion).toBe('1.1');
     expect(SETTLED_EVENT_TYPES).toContain('orchestrate.intent_executed');
     expect(INTENT_EXECUTED_EVENT).toBe('orchestrate.intent_executed');
   });
 
+  /**
+   * The crash retry skips a reject-replay leaf that already landed its declared rows.
+   * The bundle records this as one discriminated value, so "not reached" and "already proved" cannot disagree.
+   */
   it('ReplayElidedLeaf_IsRecordedAsElidedNotInvoked', async () => {
-    // A reject-replay leaf that already landed its declared rows is skipped on
-    // the crash-retry, and the bundle says so. Two facts the trace exists to
-    // carry — "the handler was not reached" and "because a prior attempt
-    // proved the effect" — are one discriminated value, not two booleans that
-    // could disagree.
     const guarded = fixtureAction({
       name: 'fixture_guarded',
       emissions: declared({ event: 'task.completed', condition: 'always', owner: 'orchestrate', role: 'primary' }),
@@ -1474,12 +1429,11 @@ describe('handleExecuteIntent run bundle', () => {
     expect(bundle.leaves[1]?.disposition).toEqual({ kind: 'invoked', handler: { success: true } });
   });
 
+  /**
+   * The executor does not own the error codes of handlers. An empty code must not make the commit throw on each retry.
+   * The trace records the refusal unchanged, and the segment commits as failed.
+   */
   it('HandlerReturningAnEmptyErrorCode_StillCommits', async () => {
-    // The executor does not own third-party error codes. A handler that
-    // refuses with an empty code must not turn the commit into a
-    // deterministic post-effect throw that every retry repeats — the
-    // refusal is recorded verbatim in the trace and the segment commits as
-    // failed.
     const deps = depsFor([fixtureStep('fixture_quiet', 'stop')], {
       fixture_quiet: async () => ({ success: false, error: { code: '', message: '' } }),
     });
@@ -1501,12 +1455,11 @@ describe('handleExecuteIntent run bundle', () => {
     });
   });
 
+  /**
+   * A claim from a build before custody carries no `bundleRefs`, and a replay returns that receipt unchanged.
+   * The test seeds the claim with the commit primitive of the executor, under the digest that the executor computes for the request.
+   */
   it('AClaimPersistedBeforeCustody_ReplaysThroughTheOutputSchema', async () => {
-    // The one reason `bundleRefs` is optional on the receipt: a claim recorded
-    // by a build that predates custody carries none, and a replay hands that
-    // receipt back verbatim. Seeded through the same primitive the executor
-    // commits with, under the digest the executor will compute for the same
-    // request, so the executor's own pre-flight answers the replay.
     const request = { intent: INTENT, streamId: STREAM, args: { taskId: 't1' }, operationId: 'op-pre-custody' };
     const ordered = Object.keys(request.args)
       .sort()
@@ -1552,6 +1505,7 @@ describe('handleExecuteIntent run bundle', () => {
     expect(parsed.success, JSON.stringify(parsed.error?.issues ?? null)).toBe(true);
   });
 
+  /** The compact receipt in the refusal points at the same bundle bytes. */
   it('FailedSegment_AlsoWritesItsBundle_AndTheTraceCarriesTheHandlersRefusal', async () => {
     const deps = depsFor(
       [fixtureStep('fixture_promises', 'stop'), fixtureStep('fixture_quiet', 'stop')],
@@ -1575,10 +1529,10 @@ describe('handleExecuteIntent run bundle', () => {
       handler: { success: false, error: { code: 'FIXTURE_LEAF_REFUSED', message: 'refused' } },
     });
     expect(bundle.leaves[1]?.verdict.status).toBe('failed');
-    // The refusal's compact detail points at the same bytes.
     expect(result.error?.intentReceipt?.bundleRefs).toEqual(receipt.bundleRefs);
   });
 
+  /** The claim answers the replay, and the blob bytes stay unchanged. */
   it('Replay_ReturnsThePersistedReferenceAndWritesNoSecondBundle', async () => {
     const counted = countingHandler(silentHandler());
     const deps = depsFor([fixtureStep('fixture_quiet', 'stop')], { fixture_quiet: counted.handler });
@@ -1593,18 +1547,16 @@ describe('handleExecuteIntent run bundle', () => {
 
     expect(counted.calls()).toBe(1);
     expect(second.bundleRefs).toEqual(first.bundleRefs);
-    // The claim answered the replay; the blob is untouched and still the only one.
     expect((await readFile(blobPath(ref.digest))).equals(bytesBefore)).toBe(true);
     expect(claimFor('op-bundle-replay')?.result.bundleRefs).toEqual(first.bundleRefs);
   });
 
+  /**
+   * The executor makes the bundle durable before the record that names it.
+   * A failed publish thus fails the commit: no claim, no operation event, and the leaf work stays in the log.
+   * A leaf that throws mid-segment leaves the same shape, and the retry model can finish it.
+   */
   it('BundleWriteFails_LeavesNoClaimAndNoOperationEvent_LikeAnyOtherCrash', async () => {
-    // The bytes are made durable BEFORE the record that names them. A store
-    // whose publish step fails therefore fails the commit outright: no claim,
-    // no operation event, the completed leaf's own work still in the log —
-    // the same shape a leaf that threw mid-segment leaves, which the retry
-    // model already knows how to finish. Committing without the reference
-    // would append a record the integrity oracle condemns on sight.
     const failing = new RunBundleStore(path.join(stateDir, 'failing-bundles'), {
       mkdir: async () => undefined,
       writeFile: async () => undefined,
@@ -1640,11 +1592,12 @@ describe('handleExecuteIntent run bundle', () => {
     expect(durable.map((event) => event.type)).toEqual(['task.completed']);
   });
 
+  /**
+   * After a real execution, the oracle is clear with a non-empty denominator.
+   * It reports `digest-mismatch` when the bytes at the same path change, because the reference still parses but the re-hash disagrees.
+   * It reports `blob-missing` when the bytes are deleted. The claim still answers the replay, so only the oracle names the deletion.
+   */
   it('TheIntegrityOracle_HoldsANonEmptyDenominatorOnTheProducersOwnStream_AndNamesASeededLoss', async () => {
-    // The oracle was dormant-red until this producer existed: every settled
-    // stream referenced nothing. This is the two-sided evidence that it is
-    // now live — clear with a real denominator after a real execution, and
-    // red naming the digest once the bytes are gone or altered.
     const deps = depsFor([fixtureStep('fixture_quiet', 'stop')], { fixture_quiet: silentHandler() });
     const receipt = receiptOf(
       await execute(
@@ -1661,8 +1614,6 @@ describe('handleExecuteIntent run bundle', () => {
     expect(clear.referenceCount).toBe(1);
     expect(clear.scannedStreamCount).toBeGreaterThanOrEqual(1);
 
-    // Tamper: same path, different bytes. The reference still parses; the
-    // store's re-hash disagrees.
     const blob = blobPath(ref.digest);
     const original = await readFile(blob);
     await writeFile(blob, Buffer.concat([original, Buffer.from('\n// altered', 'utf8')]));
@@ -1673,8 +1624,6 @@ describe('handleExecuteIntent run bundle', () => {
       { kind: 'digest-mismatch', streamId: STREAM, sequence: expect.any(Number), digest: `sha256:${ref.digest.value}` },
     ]);
 
-    // Loss: the bytes are gone. Replay is still answered from the claim —
-    // the oracle is what names the deletion.
     await unlink(blob);
     const replayed = receiptOf(
       await execute(
@@ -1690,11 +1639,11 @@ describe('handleExecuteIntent run bundle', () => {
     expect(missing.violations[0]?.digest).toBe(`sha256:${ref.digest.value}`);
   });
 
+  /**
+   * The schema refuses a record that names no bundle bytes.
+   * Thus a producer that forgets custody fails at commit, before it appends a row that the oracle rejects.
+   */
   it('TheOperationRecord_CannotBeBuiltWithoutAReference', () => {
-    // The schema is the structural half of the guard: the executor's own
-    // parse refuses a record that names no bytes, so a producer that forgot
-    // custody fails at commit rather than appending a row the oracle would
-    // condemn.
     const withoutRefs = {
       operationId: 'op-x',
       intent: INTENT,
@@ -1712,8 +1661,6 @@ describe('handleExecuteIntent run bundle', () => {
     ).toBe(true);
   });
 });
-
-// ─── The registered output schema, over receipts the executor actually made ─
 
 describe('the registered output schema accepts a real receipt', () => {
   function envelopeOf(receipt: IntentReceipt): Record<string, unknown> {

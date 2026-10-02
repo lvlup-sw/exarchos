@@ -14,6 +14,10 @@ import {
 
 const passing = fixtureAction({ name: 'fixture_pass' });
 
+/**
+ * Builds compile deps for one fixture runbook. Every fixture step names `FIXTURE_TOOL`, so it is the default `handlerTool`.
+ * A test of the owner fence overrides `handlerTool` directly.
+ */
 function depsFor(
   steps: Parameters<typeof fixtureRunbook>[1],
   overrides: Partial<CompileDeps> = {},
@@ -22,9 +26,6 @@ function depsFor(
     runbookTable: [fixtureRunbook('fixture-intent', steps)],
     findAction: findFixtureAction([passing]),
     argSchemas: { 'fixture-intent': fixtureIntentArgs },
-    // Every fixture step names `FIXTURE_TOOL`, so this is the correct default
-    // owner for a `handlers` table a test supplies without overriding it. A
-    // test exercising the owner fence itself overrides `handlerTool` directly.
     handlerTool: FIXTURE_TOOL,
     ...overrides,
   };
@@ -65,9 +66,8 @@ describe('compileIntent refusals', () => {
     expect(refusal.message).toContain('taskId');
   });
 
+  /** The intent schema must catch a string in a boolean field. Otherwise the gate routes on a truthy string that it never declared. */
   it('IntentArgs_BooleanSpelledAsString_Refuses', () => {
-    // A string is not a boolean, and the intent schema is where that is caught —
-    // downstream the gate would route on a truthy string it never declared.
     const refusal = refusalOf(
       compileIntent(
         'fixture-intent',
@@ -102,11 +102,11 @@ describe('compileIntent refusals', () => {
     expect(refusal.step).toBe('1:spawn');
   });
 
+  /**
+   * The step is registered, local, and valid, but the leaves run through one handler table, so it cannot run.
+   * A refusal at the turn of the leaf comes after the earlier leaves ran, possibly after an effect that cannot be undone.
+   */
   it('StepWithNoHandlerInTheTable_IsNotClosed', () => {
-    // Registered, local, schema-satisfied — and still not invokable, because the
-    // leaves run through ONE handler table. Discovered at the leaf's turn this
-    // refusal arrives after every leaf before it has run, which for a segment
-    // that reaches a remote is after an effect nothing takes back.
     const orphan = fixtureAction({ name: 'fixture_no_handler' });
     const deps = depsFor(
       [fixtureStep('fixture_pass', 'stop'), fixtureStep('fixture_no_handler', 'stop')],
@@ -121,26 +121,25 @@ describe('compileIntent refusals', () => {
     expect(refusal.message).toContain('no handler');
   });
 
+  /** The fence refuses a missing handler, not a present one. */
   it('EveryStepHasAHandler_Compiles', () => {
-    // The other half: the fence refuses a MISSING handler, not a present one.
     const deps = depsFor([fixtureStep('fixture_pass', 'stop')], {
       handlers: { fixture_pass: () => undefined },
     });
     expect(segmentOf(compileIntent('fixture-intent', SUBJECT, ARGS, deps))).toHaveLength(1);
   });
 
+  /** A caller that compiles a segment only to inspect it owns no handler table. The fence must not refuse that call. */
   it('NoHandlerTableSupplied_CompilesForInspection', () => {
-    // A caller compiling to INSPECT a segment owns no handler table, and the
-    // fence must not turn that into a refusal.
     const deps = depsFor([fixtureStep('fixture_pass', 'stop')]);
     expect(segmentOf(compileIntent('fixture-intent', SUBJECT, ARGS, deps))).toHaveLength(1);
   });
 
+  /**
+   * `findAcrossBothTools` resolves `fixture_pass` under two tool names, which is the collision that the fence catches.
+   * `findFixtureAction` answers only for `FIXTURE_TOOL`, so only this local lookup reaches the collision.
+   */
   describe('the handler table owner fence', () => {
-    // `fixture_pass` resolved under BOTH tool names — the collision the fence
-    // exists to catch. `findFixtureAction` on its own answers only for
-    // `FIXTURE_TOOL`, so this local override is what makes the collision
-    // reachable at all.
     function findAcrossBothTools(tool: string, action: string) {
       return (tool === FIXTURE_TOOL || tool === 'exarchos_event') && action === 'fixture_pass'
         ? passing
@@ -153,10 +152,11 @@ describe('compileIntent refusals', () => {
       ]),
     ];
 
+    /**
+     * Kill probe: delete the tool arm in `compile.ts`. The step then compiles into a leaf that dispatches to the
+     * orchestrate handler table for an action that the step never named on that tool.
+     */
     it('CrossToolActionNameCollision_IsRefusedBeforeAnyEffect', () => {
-      // Kill probe: delete the tool arm in compile.ts and this step compiles
-      // into a leaf that would dispatch to the orchestrate handler table for
-      // an action the step never named on that tool.
       const deps: CompileDeps = {
         runbookTable: collidingRunbook,
         findAction: findAcrossBothTools,
@@ -170,10 +170,8 @@ describe('compileIntent refusals', () => {
       expect(refusal.message).toContain(FIXTURE_TOOL);
     });
 
+    /** The same collision, with no owner on the table. A caller that omits `handlerTool` must not turn the fence off. */
     it('HandlerTableWithoutAnOwner_RefusesRatherThanTrustingTheName', () => {
-      // Same collision, but the table names no owner at all. An optional
-      // `handlerTool` a caller can simply omit would leave the fence above
-      // silently inert in exactly the callers that must exercise it.
       const deps: CompileDeps = {
         runbookTable: collidingRunbook,
         findAction: findAcrossBothTools,
@@ -236,9 +234,8 @@ describe('compileIntent refusals', () => {
     expect(refusal.message).toContain('mandatory');
   });
 
+  /** The strict leaf schema refuses a param that the leaf never declared. The dispatch layer applies the same check to a direct call. */
   it('LeafArgs_UnknownRunbookParam_IsRejectedByTheStrictLeafSchema', () => {
-    // The chokepoint the dispatch layer holds for a direct call: a param the
-    // leaf never declared does not get quietly dropped.
     const deps = depsFor([fixtureStep('fixture_pass', 'stop', { notDeclared: 'x' })]);
     const refusal = refusalOf(compileIntent('fixture-intent', SUBJECT, ARGS, deps));
     expect(refusal.code).toBe('INTENT_LEAF_ARGS_INVALID');
@@ -271,15 +268,11 @@ describe('compileIntent argument construction', () => {
     });
   });
 
+  /**
+   * A step that names a variable makes that variable required. The fixture schema leaves `riskTier` optional on purpose.
+   * This case is an intent whose schema does not require a variable that its runbook uses. Shipped schemas do not reach it.
+   */
   it('UnboundPlaceholder_RefusesRatherThanDroppingOut', () => {
-    // The placeholder used to drop out silently and the leaf ran without the
-    // value. The step naming the variable is what makes it required.
-    //
-    // The fixture intent's schema deliberately leaves `riskTier` optional, so
-    // this is the case a shipped schema no longer reaches: an intent whose
-    // author forgot to require a variable their runbook references. That is
-    // the population the compiler-side check exists for, and pinning it here
-    // keeps the check from going vacuous as shipped schemas tighten.
     const deps = depsFor([fixtureStep('fixture_pass', 'stop', { riskTier: '<riskTier>' })]);
     const refusal = refusalOf(compileIntent('fixture-intent', SUBJECT, ARGS, deps));
     expect(refusal.code).toBe('INTENT_TEMPLATE_VAR_UNBOUND');
@@ -295,11 +288,11 @@ describe('compileIntent argument construction', () => {
     expect(leaves[0]?.args).toMatchObject({ riskTier: 'low' });
   });
 
+  /**
+   * The leaf must commit to the stream that the emission check watches.
+   * A step param with the name of a subject field must not replace the subject.
+   */
   it('StepParamNamedStreamId_CannotDisplaceTheSubject', () => {
-    // Subject identity is the executor's contract with the emission check: the
-    // leaf commits to the stream the check watches. A runbook param spelled
-    // like the subject used to win, because step params were merged AFTER it —
-    // so a leaf would run against one stream while verification read another.
     const identityShaped = fixtureAction({
       name: 'fixture_pass',
       schema: z
@@ -329,6 +322,7 @@ describe('compileIntent argument construction', () => {
 });
 
 describe('compileIntent over the live registry', () => {
+  /** The runbook literal stays, the gate gets the frozen steering, and the terminal leaf gets the subject under both names. */
   it('TaskCompletion_CompilesToFiveLocalLeaves', () => {
     const outcome = compileIntent(
       'task-completion',
@@ -344,8 +338,6 @@ describe('compileIntent over the live registry', () => {
       'check_static_analysis',
       'task_complete',
     ]);
-    // The runbook's literal survives; the frozen steering reaches the gate that
-    // routes on it; the terminal leaf gets the subject under both spellings.
     expect(leaves[0]?.args).toMatchObject({
       repoRoot: 'auto',
       worktreePath: '/tmp/agent-wt',
@@ -411,13 +403,11 @@ describe('compileIntent over the live registry', () => {
     expect(refusalOf(outcome).code).toBe('INTENT_ARGS_INVALID');
   });
 
+  /**
+   * The kill-probe gate routes on `<riskTier>`. Without the tier, an unproven probe becomes an advisory skip.
+   * The intent schema requires the tier, so the schema refuses the call and nothing runs.
+   */
   it('TaskCompletion_WithoutRiskTier_RefusesBeforeAnyEffect', () => {
-    // Every gate step in this runbook passes `<riskTier>`, and the kill-probe
-    // gate routes on it — arriving tierless degrades an unproven probe to an
-    // advisory skip. The intent's own schema now REQUIRES the tier, so the
-    // refusal lands on the schema rather than on the step that would have used
-    // it; either way nothing runs. The compiler's own refusal keeps its teeth
-    // over a fixture intent above, where the schema leaves the var optional.
     const outcome = compileIntent(
       'task-completion',
       { streamId: 'wf-live' },
@@ -441,10 +431,8 @@ describe('compileIntent over the live registry', () => {
     expect(refusal.message).toContain('boundaryTouching');
   });
 
+  /** A runbook is executable when it gets past `INTENT_NOT_COMPILABLE`. The test checks every declared runbook, in table order. */
   it('EveryOtherRunbook_IsNotCompilable_FourIntentsShip', () => {
-    // Reaching past INTENT_NOT_COMPILABLE is what "executable" means here, so
-    // the denominator is every declared runbook, not a hand-kept list. The
-    // order is the table's own.
     const executable = PRODUCTION_COMPILE_DEPS.runbookTable
       .map((runbook) => {
         const outcome = compileIntent(runbook.id, { streamId: 'wf-live' }, {}, PRODUCTION_COMPILE_DEPS);

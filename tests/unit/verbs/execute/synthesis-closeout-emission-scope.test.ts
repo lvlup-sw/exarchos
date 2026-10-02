@@ -1,23 +1,13 @@
 // @oracle-sources: ../../../../src/verbs/execute/executor.ts, the rows a real EventStore holds on both the subject stream and the shared vcs stream after each arm runs — read back from the store rather than off the receipt, so a receipt that claims events nobody wrote cannot satisfy either arm
 //
-// ─── The cross-stream observation mechanism, killed and revived ─────────────
+// `synthesis-closeout-parity.test.ts` compares the two stores for this intent. This file adds
+// a kill probe on a mechanism that both parity paths share. `create_pr` journals its intent and
+// its result onto the shared `vcs` stream. The executor observes the emissions there because the
+// action declares that stream as a resource. Without the declaration, the executor observes the
+// subject stream, finds nothing, and refuses the leaf.
 //
-// The composition-parity comparison for this intent lives in
-// `synthesis-closeout-parity.test.ts`: `create_pr`'s two journal rows are a
-// real denominator once the provider is stubbed at the factory, so the
-// two-store comparison is not the vacuous one an earlier reading of this
-// segment assumed.
-//
-// What this file adds is a kill probe on the one mechanism parity cannot
-// separate, because both of its paths share it. `create_pr` journals its intent
-// and its result onto the shared `vcs` stream; the emissions are observed there
-// because the ACTION DECLARES that stream on its resource axis. Strip it
-// and the observation falls back to the subject stream, where the handler wrote
-// nothing — and the leaf must be refused for breaking a contract it kept.
-//
-// One variable between the arms: the declared stream resource. The failure
-// policy is `continue` in BOTH, so the arm that fails is also showing that an
-// emission-contract violation halts whatever the step's policy says.
+// The arms differ only in the declared stream resource. Both arms set the create step to `continue`,
+// so the failing arm also shows that the step policy does not soften an emission-contract violation.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
@@ -79,11 +69,9 @@ function makeProvider(): VcsProvider {
 }
 
 /**
- * The runbook as shipped, except that the create step says `continue`.
- *
- * Held constant across both arms so the failure policy is not the variable. In
- * the stripped arm it is also the thing being overridden: an integrity failure
- * halts regardless of what the step asked for.
+ * The shipped runbook table, with `continue` on the create step.
+ * Both arms use it, so the failure policy is not the variable.
+ * In the stripped arm, the integrity failure overrides this policy.
  */
 function advisoryCreateStep(): readonly RunbookDefinition[] {
   const permissive: RunbookDefinition = {
@@ -95,7 +83,10 @@ function advisoryCreateStep(): readonly RunbookDefinition[] {
   return ALL_RUNBOOKS.map((runbook) => (runbook.id === INTENT ? permissive : runbook));
 }
 
-/** The live `create_pr` declaration with its declared stream resource removed. */
+/**
+ * The live `create_pr` declaration with its declared stream resource removed.
+ * It asserts that the strip removes a resource. Otherwise the two arms are the same and the probe proves nothing.
+ */
 function withoutDeclaredStream(): ToolAction {
   const real = findActionInRegistry(TOOL, 'create_pr');
   if (real?.actionContract === undefined) throw new Error('create_pr is not registered');
@@ -103,8 +94,6 @@ function withoutDeclaredStream(): ToolAction {
   const resources = contract.touches.resources;
   if (resources.kind !== 'declared') throw new Error('create_pr declares no resources to strip');
   const kept = resources.values.filter((resource) => resource.kind !== 'stream');
-  // The strip has to actually remove something, or the two arms are the same
-  // arm and the probe proves nothing.
   expect(kept.length).toBeLessThan(resources.values.length);
   return {
     ...real,
@@ -153,6 +142,11 @@ afterEach(async () => {
 });
 
 describe('the declared observation stream is load-bearing', () => {
+  /**
+   * The handler still writes its rows to `vcs`. Only the stream where the executor looks changes.
+   * The failure names both declared events, not only the first missing one.
+   * The `continue` policy does not soften an integrity failure.
+   */
   it('SynthesisCloseout_WithoutTheDeclaredStream_LeafIsRefusedForItsOwnEmissions', async () => {
     const stripped = withoutDeclaredStream();
     const result = await execute('op-emission-scope-killed', {
@@ -163,8 +157,6 @@ describe('the declared observation stream is load-bearing', () => {
     });
     const receipt = receiptOf(result);
 
-    // The handler did its work — the rows are on `vcs`, exactly where they
-    // always were. What changed is where the executor looked for them.
     const vcsRows = await store.query(VCS_STREAM);
     expect(vcsRows.map((row) => row.type).sort()).toEqual([
       'pr.create.executed',
@@ -175,14 +167,12 @@ describe('the declared observation stream is load-bearing', () => {
     expect(receipt.outcome).toBe('failed');
     expect(receipt.failedLeaf).toBe('create_pr');
     expect(receipt.failure?.code).toBe('INTENT_EMISSION_CONTRACT_VIOLATED');
-    // Both declared events are named, not just the first one to come up short.
     expect(receipt.failure?.message).toContain('pr.create.requested');
     expect(receipt.failure?.message).toContain('pr.create.executed');
-    // `continue` did not soften it: an integrity failure is not a verdict the
-    // step's failure policy gets to overrule.
     expect(receipt.leaves.at(-1)?.status).toBe('failed');
   });
 
+  /** The rows, the stream and the handler match the stripped arm. Only the declaration differs. */
   it('SynthesisCloseout_WithTheShippedDeclaration_TheSameSegmentPasses', async () => {
     const result = await execute('op-emission-scope-shipped', deps({}));
     const receipt = receiptOf(result);
@@ -192,7 +182,6 @@ describe('the declared observation stream is load-bearing', () => {
     expect(receipt.leaves.map((leaf) => leaf.status)).toEqual(['passed', 'passed']);
     expect(receipt.failure).toBeUndefined();
 
-    // Same rows, same stream, same handler. Only the declaration differed.
     const vcsRows = await store.query(VCS_STREAM);
     expect(vcsRows.map((row) => row.type).sort()).toEqual([
       'pr.create.executed',

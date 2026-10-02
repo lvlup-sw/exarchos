@@ -11,7 +11,7 @@ describe('storage-state-dir', () => {
       fs: {
         readFile: () => { throw new Error('unused'); },
         stat: async () => ({ isDirectory: () => true }),
-        access: async () => { /* writable */ },
+        access: async () => {},
       },
     });
 

@@ -1,11 +1,8 @@
 // @oracle-sources: ../../../../../src/verbs/doctor/checks/env-variables.ts, shipped-src-corpus
 //
-// The drift guard below derives its expectation from the shipped `src/` tree —
-// every `EXARCHOS_*` name the source mentions — and checks it against the
-// hand-maintained `KNOWN` set in the check itself. Both authorities are named
-// here because the assertion is a comparison BETWEEN them: the tree supplies
-// the population, the check supplies the claim, and the test exists to stop the
-// two drifting apart.
+// The drift guard compares two authorities. The shipped `src/` tree supplies every
+// `EXARCHOS_*` name. The hand-maintained `KNOWN` set in the check supplies the claim.
+// The test stops the two from drifting apart.
 
 import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs';
@@ -15,10 +12,8 @@ import { envVariables } from '../../../../../src/verbs/doctor/checks/env-variabl
 import { makeStubProbes } from '../../../../../src/verbs/doctor/checks/__shared__/make-stub-probes.js';
 
 /**
- * The names the check itself recognizes, read out of its source.
- *
- * Deliberately NOT a copy of the list: a second hand-maintained copy would be
- * the very defect this file guards against.
+ * The check source. The test reads the recognized names from this file.
+ * A second hand-maintained copy of the list is the defect that this file guards against.
  */
 const CHECK_SOURCE = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -37,31 +32,20 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 const SRC_ROOT = path.join(REPO_ROOT, 'src');
 
 /**
- * The two directions deliberately scan different trees.
+ * The two directions scan different trees.
  *
- * Forward ("every name the source mentions must be recognized") reads `src/`
- * alone, because that is what the shipped product actually consults. Widening
- * it would drag in this file's own negative fixture (`EXARCHOS_FOO`) and demand
- * that a name invented to be unknown be added to the list.
+ * Forward reads `src/` only, because only that tree ships.
+ * A wider scan finds the negative fixture `EXARCHOS_FOO` and demands that the list recognize it.
  *
- * Reverse ("every recognized name must still be mentioned") reads the whole
- * repository, because a knob that only a test still exercises is not yet dead
- * and removing it from the list would make `doctor` warn about it. The wider
- * scope makes the reverse claim weaker and safer: it fires only for a name
- * nothing anywhere refers to.
+ * Reverse reads `src`, `tests` and `tools`. A name that only a test uses is not dead.
+ * The reverse check fails only for a name that no scanned file mentions.
  */
 const REVERSE_SCAN_ROOTS = ['src', 'tests', 'tools'].map((d) => path.join(REPO_ROOT, d));
 
 /**
- * Every `EXARCHOS_*` name the shipped source mentions, EXCLUDING the check's
- * own module.
- *
- * The exclusion is load-bearing, not tidiness. The check declares its
- * recognized names as string literals, so a scan that reads that file finds
- * every one of them and the reverse direction becomes a tautology: the list
- * would prove itself current by quoting itself. Seeding a name the rest of the
- * tree never mentions is what exposed it — with the file in scope, the guard
- * stayed green.
+ * Collects every `EXARCHOS_*` name in the `.ts` files under `dir`, except the `exclude` file.
+ * The default exclusion is the check module. It declares its names as string literals,
+ * so a scan of it makes the reverse direction pass for every name.
  */
 function scanExarchosNames(
   dir: string,
@@ -89,7 +73,7 @@ describe('env-variables', () => {
       env: {
         EXARCHOS_LOG_LEVEL: 'debug',
         EXARCHOS_PLUGIN_ROOT: '/opt/exarchos',
-        PATH: '/usr/bin', // unrelated, ignored
+        PATH: '/usr/bin',
       },
     });
 
@@ -101,20 +85,16 @@ describe('env-variables', () => {
     expect(result.fix).toBeUndefined();
   });
 
-  // ─── the list is hand-maintained, so prove it against the tree ───────────
-  //
-  // Seventeen supported variables had drifted out of `KNOWN`, so `doctor`
-  // reported correct configuration as an unknown variable and advised removing
-  // it. A hand-maintained mirror of a fact the source already carries goes
-  // stale silently; this is the tooth that makes it go red instead.
+  /**
+   * `KNOWN` is hand-maintained, so this test proves it against the tree.
+   * The floor of 20 names stops an empty scan from passing.
+   * The test sets every name at once, so that one Warning names every unrecognized name.
+   */
   it('EnvVariables_EveryNameTheSourceMentions_IsRecognized', async () => {
     const names = [...scanExarchosNames(SRC_ROOT)].sort();
 
-    // Denominator: a scan that finds nothing would satisfy the loop below
-    // without checking anything.
     expect(names.length).toBeGreaterThan(20);
 
-    // Feed every name at once — one Warning names every unrecognized member.
     const env: Record<string, string> = {};
     for (const n of names) env[n] = 'x';
     const result = await envVariables(makeStubProbes({ env }), signal);
@@ -125,15 +105,15 @@ describe('env-variables', () => {
     ).toBe('Pass');
   });
 
-  // The other direction. A one-way check lets the list keep names the source
-  // dropped, so a deleted variable stays "supported" forever and the list grows
-  // monotonically into fiction. Both directions together pin it to the tree.
+  /**
+   * The reverse direction stops the list from keeping a name that the source dropped.
+   * A name counts as recognized when the check gives Pass for that name alone.
+   */
   it('EnvVariables_EveryRecognizedName_IsStillMentionedBySource', async () => {
     const names = new Set<string>();
     for (const root of REVERSE_SCAN_ROOTS) scanExarchosNames(root, names);
     expect(names.size).toBeGreaterThan(20);
 
-    // A name is recognized when the check does NOT warn about it on its own.
     const stale: string[] = [];
     for (const known of KNOWN_NAMES) {
       if (names.has(known)) continue;
