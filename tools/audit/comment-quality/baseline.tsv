@@ -13003,9 +13003,6 @@ tests/unit/verbs/gates/test-adequacy.test.ts	ef2362515b11	1
 tests/unit/verbs/init/writers/mcp-json-writer.test.ts	0d315aa3f4fb	1
 tests/unit/verbs/init/writers/mcp-json-writer.test.ts	9e974123b2bd	1
 tests/unit/verbs/init/writers/mcp-json-writer.test.ts	fdfa09f4b9d4	1
-tests/unit/verbs/onboard/install.test.ts	58deefda322b	1
-tests/unit/verbs/onboard/install.test.ts	c47bf91fa4d7	1
-tests/unit/verbs/onboard/install.test.ts	f22ec5145592	1
 tests/unit/verbs/team/dispatch-guard.test.ts	234c68689c95	1
 tests/unit/verbs/team/dispatch-guard.test.ts	2456317adf30	1
 tests/unit/verbs/team/dispatch-guard.test.ts	2c210f53f704	1

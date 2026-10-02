@@ -1,26 +1,16 @@
 /**
- * Tests for the DR-2/DR-6 skills + deps INSTALL step (task 015) — the real
- * `installStep` hook the reconciler's `apply` routes `install` PlanSteps to on
- * the CLI surface.
+ * Tests for the onboard install step and the rename migration.
  *
- * Two side effects are under test, driven through the REAL `installSkills`
- * seam (from the workspace-root `src/install-skills.ts`) so the local-copy
- * fast path / `npx skills add` fallback contract is exercised exactly as
- * production runs it — without ever shelling out to the network:
+ * `makeInstallStep` installs the skills bundle through the real `installSkills` seam. All I/O is
+ * injected, so no test reaches the network. A resolvable skills source selects the local-copy
+ * fast path, and no source selects the `npx skills add` fallback. The project install command
+ * comes from `resolveTestRuntime(repoRoot).install` and runs through an injected command runner.
  *
- *   1. Skills-bundle install — reuses `installSkills`' local-copy fast path
- *      (copy `skills/<runtime>/` → the runtime's skills dir) when a
- *      `skillsSource` is resolvable, and falls back to the `npx skills add`
- *      shell-out (injected spawn) when it is not (#1355 contract).
- *   2. Project-deps install — the install command is resolved via the Bundle B
- *      layered resolver (`resolveTestRuntime(repoRoot).install`, single-sourced
- *      INV-6) and run through an INJECTED command runner (never a real spawn in
- *      the test).
+ * The hook has no surface guard. The core `apply` router calls `ctx.installStep` only on the
+ * `cli` surface and gives an advisory on other surfaces.
  *
- * Surface gating (DR-6) is NOT this hook's job — the core `apply` install router
- * only invokes `ctx.installStep` when `ctx.surface === 'cli'` and downgrades to
- * an Advisory otherwise. The second test asserts that wiring end-to-end through
- * the real onboard pipeline (`defaultOnboardDeps` supplies the real step).
+ * `onboardMigrate` removes an old-name skill directory only when provenance proves that
+ * Exarchos installed it.
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -52,33 +42,11 @@ import {
   type ProvenanceManifest,
   type RuntimeSkillsTarget,
 } from '../../../../src/verbs/onboard/install.js';
-// Test-only reach into the root install-skills provenance source of truth (this
-// test file is excluded from the server tsc `rootDir`, so the cross-package
-// import is legal here — the same lever `command-shim-emitter.test.ts` uses). The
-// migration MIRRORS these two hashers; the drift-guard test below pins parity.
 import {
   hashSkillDirContent,
   hashSkillMdContent,
 } from '../../../../src/install/install-skills.js';
 import { rmrfAsync, rmrf } from '../../../../tools/test-helpers/temp-dir.js';
-
-// ─── Fixtures ────────────────────────────────────────────────────────────────
-
-
-/**
- * Tests for the onboard install step and the rename migration.
- *
- * `makeInstallStep` installs the skills bundle through the real `installSkills` seam. All I/O is
- * injected, so no test reaches the network. A resolvable skills source selects the local-copy
- * fast path, and no source selects the `npx skills add` fallback. The project install command
- * comes from `resolveTestRuntime(repoRoot).install` and runs through an injected command runner.
- *
- * The hook has no surface guard. The core `apply` router calls `ctx.installStep` only on the
- * `cli` surface and gives an advisory on other surfaces.
- *
- * `onboardMigrate` removes an old-name skill directory only when provenance proves that
- * Exarchos installed it.
- */
 
 interface Fixture {
   readonly repoRoot: string;
