@@ -1,9 +1,7 @@
 /**
- * Tests for handleDoctor — the composer that wires all per-check
- * modules into a single MCP action. Tests inject explicit check lists
- * via `handleDoctorWithChecks` (the testable seam) so parallelism,
- * timeout semantics, and abort propagation can be exercised without
- * spawning any real probe work.
+ * Tests for the doctor composer, which runs the checks as one action. The tests
+ * pass check lists to `handleDoctorWithChecks`. Thus they cover parallel runs,
+ * timeouts, and abort without real probe work.
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -16,8 +14,6 @@ import type { IntegrityResult } from '../../../../src/events/store.js';
 import type { BundleIntegrityResult } from '../../../../src/events/bundle/integrity.js';
 import type { CheckResult } from '../../../../src/verbs/doctor/schema.js';
 import { handleDoctorWithChecks, ALL_CHECKS } from '../../../../src/verbs/doctor/index.js';
-
-// ─── Test helpers ───────────────────────────────────────────────────────────
 
 function fakeContext(): DispatchContext {
   return {
@@ -34,7 +30,7 @@ function fakeContextWithProbes(): { ctx: DispatchContext; buildProbes: () => Ret
 
 /**
  * Builds `count` checks that each wait until all of them have started. They can
- * all finish only when the composer runs them at the same time, so a
+ * all finish only when the composer runs them at the same time. Thus a
  * `maxRunning()` of `count` proves parallel execution without reading a clock.
  */
 function concurrentChecks(count: number): { checks: CheckFn[]; maxRunning: () => number } {
@@ -61,11 +57,10 @@ function concurrentChecks(count: number): { checks: CheckFn[]; maxRunning: () =>
   return { checks, maxRunning: () => maxRunning };
 }
 
-/** Build a check that runs longer than the timeout budget. */
+/** Builds a check that never resolves, so it always runs past the timeout. */
 function hangingCheck(name: string): CheckFn {
   return async () => {
-    await new Promise<void>(() => {}); // never resolves
-    // unreachable
+    await new Promise<void>(() => {});
     return {
       category: 'runtime',
       name,
@@ -76,16 +71,15 @@ function hangingCheck(name: string): CheckFn {
   };
 }
 
-// ─── Task 014 — parallel execution + per-check timeout ─────────────────────
-
 describe('handleDoctor — parallel execution + timeout', () => {
+  /**
+   * Four checks each sleep 500ms. In sequence they take about 2000ms. In
+   * parallel they take about 500ms plus overhead.
+   */
   it('HandleDoctor_AllChecksRunInParallel_TotalTimeLessThanSequentialSum', async () => {
-    // Arrange: 4 checks that each wait until all 4 have started. Run in
-    // sequence, the first would wait until its timeout and the rest never overlap.
     const { ctx } = fakeContextWithProbes();
     const { checks, maxRunning } = concurrentChecks(4);
 
-    // Act
     const result = await handleDoctorWithChecks(
       { timeoutMs: 5000 },
       ctx,
@@ -93,8 +87,6 @@ describe('handleDoctor — parallel execution + timeout', () => {
       () => makeStubProbes(),
     );
 
-    // Assert: success, all 4 checks were running at the same time, and none
-    // timed out waiting for the others.
     expect(result.success).toBe(true);
     expect(maxRunning()).toBe(4);
     expect(result.data).toMatchObject({
@@ -103,11 +95,9 @@ describe('handleDoctor — parallel execution + timeout', () => {
   });
 
   it('HandleDoctor_CheckExceedsTimeout_ReturnsWarningWithTimeoutFix', async () => {
-    // Arrange
     const { ctx } = fakeContextWithProbes();
     const checks: CheckFn[] = [hangingCheck('hang')];
 
-    // Act
     const result = await handleDoctorWithChecks(
       { timeoutMs: 50 },
       ctx,
@@ -115,7 +105,6 @@ describe('handleDoctor — parallel execution + timeout', () => {
       () => makeStubProbes(),
     );
 
-    // Assert
     expect(result.success).toBe(true);
     const data = result.data as { checks: CheckResult[] };
     expect(data.checks).toHaveLength(1);
@@ -126,7 +115,6 @@ describe('handleDoctor — parallel execution + timeout', () => {
   });
 
   it('HandleDoctor_MixedResults_ReturnsCorrectSummaryTally', async () => {
-    // Arrange: 2 Pass, 1 Warning, 1 Fail, 1 Skipped.
     const { ctx } = fakeContextWithProbes();
     const mkResult = (status: CheckResult['status'], name: string): CheckFn => async () => {
       const base = { category: 'runtime' as const, name, durationMs: 0 };
@@ -146,7 +134,6 @@ describe('handleDoctor — parallel execution + timeout', () => {
       mkResult('Skipped', 's1'),
     ];
 
-    // Act
     const result = await handleDoctorWithChecks(
       { timeoutMs: 5000 },
       ctx,
@@ -154,14 +141,12 @@ describe('handleDoctor — parallel execution + timeout', () => {
       () => makeStubProbes(),
     );
 
-    // Assert: summary tally matches the input mix.
     expect(result.success).toBe(true);
     const data = result.data as { summary: { passed: number; warnings: number; failed: number; skipped: number } };
     expect(data.summary).toEqual({ passed: 2, warnings: 1, failed: 1, skipped: 1 });
   });
 
   it('HandleDoctor_AllPass_SummaryEqualsChecksLength', async () => {
-    // Arrange: 3 passing checks.
     const { ctx } = fakeContextWithProbes();
     const mkPass = (name: string): CheckFn => async () => ({
       category: 'runtime',
@@ -172,7 +157,6 @@ describe('handleDoctor — parallel execution + timeout', () => {
     });
     const checks: CheckFn[] = [mkPass('a'), mkPass('b'), mkPass('c')];
 
-    // Act
     const result = await handleDoctorWithChecks(
       { timeoutMs: 5000 },
       ctx,
@@ -180,7 +164,6 @@ describe('handleDoctor — parallel execution + timeout', () => {
       () => makeStubProbes(),
     );
 
-    // Assert
     expect(result.success).toBe(true);
     const data = result.data as { checks: CheckResult[]; summary: { passed: number } };
     expect(data.summary.passed).toBe(data.checks.length);
@@ -188,8 +171,6 @@ describe('handleDoctor — parallel execution + timeout', () => {
   });
 
   it('HandleDoctor_OnCompletion_AppendsDiagnosticExecutedEventWithSummaryAndFailedNames', async () => {
-    // Arrange: 1 pass, 1 fail — captures the event append call via a
-    // spy on the in-memory eventStore double.
     const appendSpy = vi.fn(async () => ({}));
     const ctx: DispatchContext = {
       stateDir: '/tmp/doctor-test',
@@ -212,7 +193,6 @@ describe('handleDoctor — parallel execution + timeout', () => {
       durationMs: 0,
     });
 
-    // Act
     await handleDoctorWithChecks(
       { timeoutMs: 5000 },
       ctx,
@@ -220,8 +200,6 @@ describe('handleDoctor — parallel execution + timeout', () => {
       () => makeStubProbes(),
     );
 
-    // Assert: one diagnostic.executed event was appended with the
-    // expected data shape.
     expect(appendSpy).toHaveBeenCalledTimes(1);
     const [streamId, event] = appendSpy.mock.calls[0] as [string, { type: string; data: unknown }];
     expect(typeof streamId).toBe('string');
@@ -239,9 +217,8 @@ describe('handleDoctor — parallel execution + timeout', () => {
     expect(data.durationMs).toBeGreaterThanOrEqual(0);
   });
 
+  /** The external abort fires before the check gives a result, so the composer writes no partial event. */
   it('HandleDoctor_OnAbort_DoesNotAppendEvent', async () => {
-    // Arrange: a long-sleeping check; the external abort fires before
-    // any result is produced. No partial event should be written.
     const appendSpy = vi.fn(async () => ({}));
     const ctx: DispatchContext = {
       stateDir: '/tmp/doctor-test',
@@ -266,7 +243,6 @@ describe('handleDoctor — parallel execution + timeout', () => {
       };
     };
 
-    // Act
     setTimeout(() => controller.abort(), 10);
     await expect(
       handleDoctorWithChecks(
@@ -277,13 +253,11 @@ describe('handleDoctor — parallel execution + timeout', () => {
       ),
     ).rejects.toThrow(/abort/i);
 
-    // Assert: no event was written.
     expect(appendSpy).not.toHaveBeenCalled();
   });
 
+  /** A caller can cancel a run in progress through `externalSignal`. */
   it('HandleDoctor_AbortSignalFired_RejectsWithAbortError', async () => {
-    // Arrange: a check that awaits the signal to abort. The composer
-    // exposes an `externalSignal` so the caller can cancel in-flight.
     const { ctx } = fakeContextWithProbes();
     const controller = new AbortController();
 
@@ -295,7 +269,6 @@ describe('handleDoctor — parallel execution + timeout', () => {
           { once: true },
         );
       });
-      // unreachable
       return {
         category: 'runtime',
         name: 'abort-target',
@@ -305,7 +278,6 @@ describe('handleDoctor — parallel execution + timeout', () => {
       };
     };
 
-    // Act: fire abort shortly after kickoff, expect the promise to reject.
     setTimeout(() => controller.abort(), 20);
     await expect(
       handleDoctorWithChecks(
@@ -318,14 +290,11 @@ describe('handleDoctor — parallel execution + timeout', () => {
   });
 });
 
-// ─── Task 009 — verification-toolchain (13th check) dispatch-through ─────────
-
 /**
- * A benign full-probe bundle so every REAL check in `ALL_CHECKS` reaches its
- * return statement (mirrors the roster characterization's identity scaffold).
- * We dispatch the genuine roster through `handleDoctorWithChecks` rather than
- * unit-calling the CheckFn — per-handler tests bypass dispatch and have masked
- * DOA-action bugs before; the 13th check must be reachable THROUGH the composer.
+ * A probe bundle where each real check in `ALL_CHECKS` returns a result. The
+ * tests run the real roster through `handleDoctorWithChecks`, not one check
+ * directly. A direct call skips dispatch and can hide a check that dispatch
+ * does not reach.
  */
 function benignProbes(): DoctorProbes {
   const emptyEnvironments: AgentEnvironment[] = [];
@@ -391,11 +360,15 @@ function benignProbes(): DoctorProbes {
 }
 
 describe('handleDoctor — verification-toolchain roster (task 009)', () => {
+  /**
+   * The roster holds the pinned count of checks. The verification-toolchain
+   * check appears with its name and category in the output of the composer,
+   * not only in the export. With the benign probe it gives Pass, and its six
+   * policy cells pass `DoctorOutputSchema.parse`.
+   */
   it('HandleDoctorWithChecks_RosterIncludesVerificationToolchain_FifteenChecks', async () => {
-    // Arrange — dispatch the REAL ALL_CHECKS through the composer.
     const ctx = fakeContext();
 
-    // Act
     const result = await handleDoctorWithChecks(
       { timeoutMs: 5000 },
       ctx,
@@ -403,11 +376,6 @@ describe('handleDoctor — verification-toolchain roster (task 009)', () => {
       () => benignProbes(),
     );
 
-    // Assert — the roster ships exactly the pinned set (the on-ramp drift and
-    // retired-hooks checks, stale-skill-dirs, store-path-divergence and
-    // install-freshness all joined it deliberately), and verification-toolchain
-    // is present (by category + name) in the dispatched output, not just the
-    // export.
     expect(ALL_CHECKS).toHaveLength(20);
     expect(result.success).toBe(true);
     const data = result.data as { checks: CheckResult[] };
@@ -416,18 +384,17 @@ describe('handleDoctor — verification-toolchain roster (task 009)', () => {
     const vt = data.checks.find((c) => c.name === 'verification-toolchain');
     expect(vt).toBeDefined();
     expect(vt!.category).toBe('verification');
-    // Reached through the composer with the benign full-triple probe → Pass,
-    // and the six policy cells survive the DoctorOutputSchema.parse round-trip.
     expect(vt!.status).toBe('Pass');
     expect(vt!.policyCells).toHaveLength(6);
   });
 
-  // ── Fold-in (Task 017): the DR-5 drift finding is REGISTERED in the roster ──
+  /**
+   * The block-drift check and the retired-hooks check both reach the output of
+   * the composer, not only the static list. The drift check has the `agent`
+   * category. It comes before the retired-hooks check, so a derived plan puts
+   * the block-write step before the hook-removal step.
+   */
   it('HandleDoctorWithChecks_RosterIncludesBlockDriftAndRetiredHooks', async () => {
-    // The Task 013 drift check (`checkBlockDrift`) was implemented + tested but
-    // left UNREGISTERED, so DR-5's finding never fired in production. This pins
-    // that BOTH the drift check and the retired-hooks uninstall-reachability check
-    // reach the dispatched output through the composer (not just the static list).
     const ctx = fakeContext();
     const result = await handleDoctorWithChecks(
       { timeoutMs: 5000 },
@@ -442,11 +409,8 @@ describe('handleDoctor — verification-toolchain roster (task 009)', () => {
     expect(names).toContain('onramp-block-drift');
     expect(names).toContain('retired-hooks-present');
 
-    // The drift check keys off the `agent` category (its diff step is `generate`).
     const drift = data.checks.find((c) => c.name === 'onramp-block-drift');
     expect(drift!.category).toBe('agent');
-    // And it appears BEFORE the retired-hooks removal check, so the block-write
-    // step is ordered before the hook-removal step in any derived plan.
     expect(names.indexOf('onramp-block-drift')).toBeLessThan(
       names.indexOf('retired-hooks-present'),
     );

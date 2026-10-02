@@ -1,17 +1,12 @@
-// ─── `execute_intent` registration boundary ──────────────────────────────────
-//
-// Two things this suite pins, at the boundary rather than inside the handler
-// (the handler's own behavior is covered by `compile.test.ts` / `executor.test.ts`):
-//
-//   1. The composite router: `exarchos_orchestrate` dispatches action
-//      'execute_intent' to `handleExecuteIntent`, hands it the live handler
-//      table, and envelope-wraps whatever it returns — the stubbed-handler
-//      pattern `tools.test.ts` already uses for every other routed action.
-//   2. The registered economy declaration: over the declared budget, the real
-//      registered action's `economy.summarize` (not the generic list fallback)
-//      caps the receipt while keeping the four fields a caller needs to keep
-//      following the operation — `operationId`, `outcome`, `failedLeaf`,
-//      `tailSequence` — outside the capped shape.
+/**
+ * Tests for the `execute_intent` registration boundary. `compile.test.ts` and `executor.test.ts` cover the handler itself.
+ *
+ * - The composite router: `exarchos_orchestrate` sends `execute_intent` to `handleExecuteIntent`, passes the live handler table, and wraps the result in an envelope.
+ * - The registered economy: over budget, the action's own `economy.summarize` caps the receipt.
+ *   It keeps `operationId`, `outcome`, `failedLeaf` and `tailSequence`, which a caller uses to follow the operation.
+ *
+ * The mock stubs only `handleExecuteIntent`. `productionExecuteDeps` stays real, so the test proves that the composite passes the handler table to the executor.
+ */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
@@ -20,9 +15,6 @@ import { estimateOutputTokens } from '../../../../src/dispatch/core/economy.js';
 import { EventStore } from '../../../../src/events/store.js';
 import { findActionInRegistry } from '../../../../src/registry.js';
 
-// Partial mock: only the handler is stubbed. `productionExecuteDeps` stays
-// real, because the assertion below is that the composite hands the executor
-// the live handler table rather than the executor reaching back for it.
 vi.mock('../../../../src/verbs/execute/executor.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../../src/verbs/execute/executor.js')>()),
   handleExecuteIntent: vi.fn().mockResolvedValue({
@@ -55,6 +47,7 @@ describe('exarchos_orchestrate routes execute_intent (registration boundary)', (
     ctx = makeCtx(stateDir);
   });
 
+  /** If the composite does not pass the handler table, the executor has no route for a compiled leaf. */
   it('ExecuteIntent_RoutedToHandler_AndEnvelopeWrapped', async () => {
     const result = await handleOrchestrate(
       { action: 'execute_intent', intent: 'task-completion', featureId: 'f1', args: { taskId: 't1', worktreePath: '/tmp/wt' } },
@@ -66,8 +59,6 @@ describe('exarchos_orchestrate routes execute_intent (registration boundary)', (
     expect(call?.[0]).toEqual({ intent: 'task-completion', featureId: 'f1', args: { taskId: 't1', worktreePath: '/tmp/wt' } });
     expect(call?.[1]).toBe(stateDir);
     expect(call?.[2]).toBe(ctx);
-    // The table is handed IN. If the composite ever stopped passing it, the
-    // executor would have nothing to route a compiled leaf through.
     expect(Object.keys(call?.[3]?.handlers ?? {})).toContain('task_complete');
 
     expect(result.success).toBe(true);
@@ -87,15 +78,16 @@ describe('execute_intent registered economy declaration', () => {
     expect(typeof action?.economy?.summarize).toBe('function');
   });
 
+  /**
+   * The receipt has many more leaves than the shipped intent, so it is far over budget but still realistic.
+   * The cap keeps `bundleRefs`, the only pointer into the run, next to the fields that a caller uses to follow the operation.
+   * The cap is a ceiling: the capped data must fit the declared budget, not only carry a truncation label.
+   */
   it('ExecuteIntentEconomy_OverBudgetPlusOne_SummarizesAndKeepsPinnedFields', () => {
     const budget = action?.economy?.budgetTokens;
     expect(budget).toBeDefined();
     if (budget === undefined) return;
 
-    // A receipt whose serialized size clears the declared budget (byte length
-    // over 4, `estimateOutputTokens`) by a wide margin — a runbook with many
-    // more leaves than the one shipped intent has, so the over-budget shape
-    // stays a realistic receipt rather than a padded blob.
     const leafCount = Math.ceil((budget * 5) / 60) + 50;
     const leaves = Array.from({ length: leafCount }, (_, i) => ({
       action: `leaf_${i}`,
@@ -124,24 +116,15 @@ describe('execute_intent registered economy declaration', () => {
 
     expect(result._meta).toMatchObject({ truncated: true });
     const data = result.data as Record<string, unknown>;
-    // The pinned fields survive the cap — they are what a caller needs to keep
-    // following the operation without the full per-leaf detail.
     expect(data.operationId).toBe('op-over-budget');
     expect(data.outcome).toBe('committed');
     expect(data.tailSequence).toBe(leaves.length);
     expect(data.failedLeaf).toBeUndefined();
-    // The custody reference is the only pointer to the run's interior, so it
-    // survives the cap alongside the four fields a caller follows the
-    // operation by.
     expect(data.bundleRefs).toEqual(bundleRefs);
-    // The generic capped shape's own fields are still present (CappedDataSchema).
     expect(typeof data.summary).toBe('string');
     expect(data.counts).toBeDefined();
     expect(Array.isArray(data.firstPage)).toBe(true);
 
-    // The cap is a CEILING, not a label. A reducer that mapped every leaf into
-    // `firstPage` produced a "capped" payload well over the declared budget,
-    // which is the same thing as no cap while reading as one.
     expect(estimateOutputTokens(data)).toBeLessThanOrEqual(budget);
     expect((data.firstPage as unknown[]).length).toBeLessThan(leafCount);
     expect(data.counts).toMatchObject({

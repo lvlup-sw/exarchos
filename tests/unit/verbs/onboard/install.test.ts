@@ -1,26 +1,16 @@
 /**
- * Tests for the DR-2/DR-6 skills + deps INSTALL step (task 015) — the real
- * `installStep` hook the reconciler's `apply` routes `install` PlanSteps to on
- * the CLI surface.
+ * Tests for the onboard install step and the rename migration.
  *
- * Two side effects are under test, driven through the REAL `installSkills`
- * seam (from the workspace-root `src/install-skills.ts`) so the local-copy
- * fast path / `npx skills add` fallback contract is exercised exactly as
- * production runs it — without ever shelling out to the network:
+ * `makeInstallStep` installs the skills bundle through the real `installSkills` seam. All I/O is
+ * injected, so no test reaches the network. A resolvable skills source selects the local-copy
+ * fast path, and no source selects the `npx skills add` fallback. The project install command
+ * comes from `resolveTestRuntime(repoRoot).install` and runs through an injected command runner.
  *
- *   1. Skills-bundle install — reuses `installSkills`' local-copy fast path
- *      (copy `skills/<runtime>/` → the runtime's skills dir) when a
- *      `skillsSource` is resolvable, and falls back to the `npx skills add`
- *      shell-out (injected spawn) when it is not (#1355 contract).
- *   2. Project-deps install — the install command is resolved via the Bundle B
- *      layered resolver (`resolveTestRuntime(repoRoot).install`, single-sourced
- *      INV-6) and run through an INJECTED command runner (never a real spawn in
- *      the test).
+ * The hook has no surface guard. The core `apply` router calls `ctx.installStep` only on the
+ * `cli` surface and gives an advisory on other surfaces.
  *
- * Surface gating (DR-6) is NOT this hook's job — the core `apply` install router
- * only invokes `ctx.installStep` when `ctx.surface === 'cli'` and downgrades to
- * an Advisory otherwise. The second test asserts that wiring end-to-end through
- * the real onboard pipeline (`defaultOnboardDeps` supplies the real step).
+ * `onboardMigrate` removes an old-name skill directory only when provenance proves that
+ * Exarchos installed it.
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -52,17 +42,11 @@ import {
   type ProvenanceManifest,
   type RuntimeSkillsTarget,
 } from '../../../../src/verbs/onboard/install.js';
-// Test-only reach into the root install-skills provenance source of truth (this
-// test file is excluded from the server tsc `rootDir`, so the cross-package
-// import is legal here — the same lever `command-shim-emitter.test.ts` uses). The
-// migration MIRRORS these two hashers; the drift-guard test below pins parity.
 import {
   hashSkillDirContent,
   hashSkillMdContent,
 } from '../../../../src/install/install-skills.js';
 import { rmrfAsync, rmrf } from '../../../../tools/test-helpers/temp-dir.js';
-
-// ─── Fixtures ────────────────────────────────────────────────────────────────
 
 interface Fixture {
   readonly repoRoot: string;
@@ -73,8 +57,10 @@ interface Fixture {
   readonly eventStore: EventStore;
 }
 
-/** A temp Node repo (so the resolver derives an install command) + isolated
- * home (the skills target) + isolated EventStore state dir. */
+/**
+ * Creates a temp Node repo, an isolated home for the skills target, and an isolated store.
+ * The `package-lock.json` makes the resolver derive an npm install command.
+ */
 async function createFixture(): Promise<Fixture> {
   const base = await mkdtemp(path.join(tmpdir(), 'onboard-install-'));
   const repoRoot = path.join(base, 'repo');
@@ -91,8 +77,6 @@ async function createFixture(): Promise<Fixture> {
     ),
     'utf8',
   );
-  // package-lock.json → the vendored package-manager-detector resolves `npm`,
-  // so `resolveTestRuntime(repoRoot).install` is `npm ci`.
   await writeFile(path.join(repoRoot, 'package-lock.json'), '{}\n', 'utf8');
   const eventStore = new EventStore(stateDir);
   await eventStore.initialize();
@@ -106,13 +90,13 @@ async function cleanup(fx: Fixture): Promise<void> {
   );
 }
 
-/** WriterDeps redirected at the fixture (real fs; cwd=repo, home=fixture home). */
+/** Real `WriterDeps` with `cwd` at the fixture repo and `home` at the fixture home. */
 function fixtureWriterDeps(fx: Fixture): WriterDeps {
   const real = buildWriterDeps();
   return { ...real, cwd: () => fx.repoRoot, home: () => fx.home };
 }
 
-/** Build a minimal `install` PlanStep (the kind the reconciler routes here). */
+/** Builds a minimal `install` plan step, the kind that the reconciler routes to the install hook. */
 function installPlanStep(): PlanStep {
   return {
     kind: 'install',
@@ -122,7 +106,7 @@ function installPlanStep(): PlanStep {
   };
 }
 
-/** Build an ApplyCtx pointed at the fixture (cli surface — the gated path). */
+/** Builds an `ApplyCtx` for the fixture. The default surface is `cli`, where the install hook runs. */
 function applyCtx(fx: Fixture, surface: ApplyCtx['surface'] = 'cli'): ApplyCtx {
   return {
     repoRoot: fx.repoRoot,
@@ -134,9 +118,8 @@ function applyCtx(fx: Fixture, surface: ApplyCtx['surface'] = 'cli'): ApplyCtx {
 }
 
 /**
- * Seed a fake per-runtime skills source tree at `<base>/skills/claude/<skill>/`
- * so the local-copy fast path has something to copy. Returns the parent
- * `skills/` dir (the `skillsSource`).
+ * Writes a fake skills source at `<base>/skills/claude/ideate/` for the local-copy fast path.
+ * Returns the parent `skills/` directory.
  */
 async function seedSkillsSource(fx: Fixture): Promise<string> {
   const skillsRoot = path.join(fx.base, 'skills');
@@ -146,31 +129,24 @@ async function seedSkillsSource(fx: Fixture): Promise<string> {
   return skillsRoot;
 }
 
-// ─── Tests ───────────────────────────────────────────────────────────────────
-
 describe('installStep (DR-2/DR-6 — skills + deps install)', () => {
+  /**
+   * Fakes for the copy, the spawn, and the command runner record their calls, so nothing runs
+   * `npx` or an install. The test sets `agent` to skip runtime detection, which needs a
+   * `detection` block that the test does not fake. A stub `registerMcp` writes no `~/.claude.json`.
+   */
   it('Install_LocalCopyFastPath_ThenNpxFallback', async () => {
     const fx = await createFixture();
     try {
       const skillsSource = await seedSkillsSource(fx);
 
-      // Spies for the reused `installSkills` seam: a recording copyDir (the
-      // local-copy fast path) and a recording spawn (the npx fallback). We
-      // never shell out to a real `npx` — both are injected fakes.
       const copyDir = vi.fn((_src: string, _dest: string) => {});
       const spawn = vi.fn(async () => ({ code: 0, stderr: '' }));
-      // Injected command runner for the project-deps install — records the
-      // resolved install command + cwd instead of executing it.
       const runCommand = vi.fn(async (_cmd: string, _cwd: string) => {});
 
       const deps: InstallStepDeps = {
-        // Target claude explicitly so `installSkills` skips runtime detection
-        // (auto-detect needs a full RuntimeMap `detection` block we don't fake).
         agent: 'claude',
-        // Force the FAST PATH: a resolvable skills source → copyDir runs,
-        // spawn (npx) does NOT.
         resolveSkillsSource: () => skillsSource,
-        // Single claude runtime so the copy targets a deterministic dir.
         runtimes: [
           {
             name: 'claude',
@@ -181,7 +157,6 @@ describe('installStep (DR-2/DR-6 — skills + deps install)', () => {
         copyDir,
         spawn,
         runCommand,
-        // Don't write ~/.claude.json during the test.
         registerMcp: () => {},
         log: () => {},
         errLog: () => {},
@@ -191,33 +166,26 @@ describe('installStep (DR-2/DR-6 — skills + deps install)', () => {
       const ctx = applyCtx(fx);
       const installStep = makeInstallStep(deps);
 
-      // ── Fast path: skills copied locally, npx NOT invoked ──
       await installStep(step, ctx);
 
-      // Local-copy fast path ran (the reused `installSkills` seam).
       expect(copyDir).toHaveBeenCalled();
-      // The `npx skills add` fallback was NOT taken (source was resolvable).
       expect(spawn).not.toHaveBeenCalled();
 
-      // Project deps installed via the Bundle-B-resolved command (`npm ci`),
-      // run in the repo root (not a real spawn).
       expect(runCommand).toHaveBeenCalledTimes(1);
       const [installCmd, installCwd] = runCommand.mock.calls[0];
       expect(installCmd).toContain('npm');
       expect(installCwd).toBe(fx.repoRoot);
 
-      // ── Fallback: no resolvable source → npx shell-out (injected spawn) ──
       const spawn2 = vi.fn(async () => ({ code: 0, stderr: '' }));
       const copyDir2 = vi.fn((_src: string, _dest: string) => {});
       const fallbackStep = makeInstallStep({
         ...deps,
-        resolveSkillsSource: () => undefined, // no local tree → npx fallback
+        resolveSkillsSource: () => undefined,
         spawn: spawn2,
         copyDir: copyDir2,
       });
       await fallbackStep(step, ctx);
 
-      // The npx fallback shelled out; the local copy did not run.
       expect(spawn2).toHaveBeenCalled();
       const [npxCmd, npxArgs] = spawn2.mock.calls[0];
       expect(npxCmd).toBe('npx');
@@ -228,19 +196,13 @@ describe('installStep (DR-2/DR-6 — skills + deps install)', () => {
     }
   });
 
+  /**
+   * The GENERATE step of the reconciler owns MCP registration. The default `registerMcp` of
+   * `installSkills` writes `~/.claude.json`, so the install step must pass a no-op, or claude
+   * repos register twice. The test injects no `registerMcp`. It captures the function that the
+   * step forwards and calls it to prove that it writes nothing.
+   */
   it('Install_DoesNotRegisterMcp_SingleRegistrationInGenerate', async () => {
-    // DR-5 (task 018): MCP registration is written by EXACTLY ONE code path —
-    // the reconciler's GENERATE step (the init writers, e.g. ClaudeCodeWriter →
-    // ~/.claude.json + the mcp-json-writer → .vscode/.cursor mcp.json). The
-    // install step (which reuses `installSkills`, whose DEFAULT `registerMcp` is
-    // `registerExarchosInClaudeJson`) must NOT also register MCP, or claude
-    // repos would double-register. The PRODUCTION `installStep` therefore threads
-    // a NO-OP `registerMcp` into the skills-install seam.
-    //
-    // We capture the opts the default `installStep` forwards to the skills-install
-    // seam (the bridge passthrough) WITHOUT injecting our own `registerMcp` — so
-    // we observe production's own choice. A `registerMcp` MUST be present and MUST
-    // be a no-op (calling it writes nothing).
     const fx = await createFixture();
     try {
       const skillsSource = await seedSkillsSource(fx);
@@ -250,9 +212,6 @@ describe('installStep (DR-2/DR-6 — skills + deps install)', () => {
         capturedRegisterMcp = opts.registerMcp;
       });
 
-      // PRODUCTION deps: no `registerMcp` injected — we assert the default the
-      // step itself supplies. `runSkillsInstall` is captured so we never reach
-      // the real bridge; `runCommand` is stubbed so deps-install is a no-op.
       const deps: InstallStepDeps = {
         agent: 'claude',
         resolveSkillsSource: () => skillsSource,
@@ -269,29 +228,28 @@ describe('installStep (DR-2/DR-6 — skills + deps install)', () => {
       const installStep = makeInstallStep(deps);
       await installStep(step, ctx);
 
-      // The skills-install seam was reached and a `registerMcp` was threaded.
       expect(runSkillsInstall).toHaveBeenCalledTimes(1);
       expect(typeof capturedRegisterMcp).toBe('function');
 
-      // It is a NO-OP: calling it writes NO `~/.claude.json` (single-registration
-      // is owned by GENERATE, not the install step).
       const claudeJson = path.join(fx.home, '.claude.json');
       capturedRegisterMcp!(fx.home);
       const homeEntries = await readdir(fx.home).catch(() => [] as string[]);
       expect(homeEntries).not.toContain('.claude.json');
-      // Belt-and-braces: the file genuinely does not exist.
       await expect(readFile(claudeJson, 'utf8')).rejects.toThrow();
     } finally {
       await cleanup(fx);
     }
   });
 
+  /**
+   * `defaultOnboardDeps` must supply a real install step, and a spy replaces it for the run.
+   * The doctor stub gives one cli-only install failure before apply and a pass after it. On the
+   * `cli` surface the pipeline calls the step. On `any`, the surface that the MCP adapter stamps,
+   * the core does not call the step and gives a cli-only advisory.
+   */
   it('Install_WiredIntoDefaultOnboardDeps_CliSurface', async () => {
     const fx = await createFixture();
     try {
-      // `defaultOnboardDeps` must supply a REAL installStep (no longer the
-      // no-op). We drive the pipeline with a deterministic `install`-only plan:
-      // one cli-only install Fail before apply, green after (VERIFY converges).
       const INSTALL_FAIL: CheckResult = {
         category: 'plugin',
         name: 'plugin-skill-hash-sync',
@@ -308,12 +266,9 @@ describe('installStep (DR-2/DR-6 — skills + deps install)', () => {
         durationMs: 0,
       };
 
-      // `defaultOnboardDeps` wires the real installStep; assert it is present.
       const prodDeps = defaultOnboardDeps(fx.ctx, {});
       expect(typeof prodDeps.installStep).toBe('function');
 
-      // Spy on the real installStep so we don't actually shell out, but still
-      // verify the pipeline routes to it on `surface:'cli'`.
       const installSpy = vi.fn().mockResolvedValue(undefined);
 
       let phase = 0;
@@ -332,7 +287,6 @@ describe('installStep (DR-2/DR-6 — skills + deps install)', () => {
         detectOptions: { detectRuntimes: async () => [], vcs: 'git' },
       };
 
-      // ── CLI surface: the install step RUNS ──
       const cliDeps: OnboardDeps = { ...baseDeps, installStep: installSpy };
       const cliArgs: HandleOnboardArgs = { surface: 'cli', format: 'json' };
       const cliResult = await handleOnboard(cliArgs, fx.ctx, cliDeps);
@@ -346,7 +300,6 @@ describe('installStep (DR-2/DR-6 — skills + deps install)', () => {
       expect(cliData.result.applied.map((s) => s.key)).toContain('plugin-skill-hash-sync');
       expect(cliData.verify.residualBlocking).toBe(0);
 
-      // ── Non-cli surface: the core DOWNGRADES to an advisory (step NOT run) ──
       let phase2 = 0;
       const runDoctorChecks2 = async (): Promise<readonly CheckResult[]> => {
         phase2 += 1;
@@ -358,19 +311,13 @@ describe('installStep (DR-2/DR-6 — skills + deps install)', () => {
         runDoctorChecks: runDoctorChecks2,
         installStep: installSpy2,
       };
-      // The MCP adapter stamps the non-cli `'any'` surface (MCP_ONBOARD_SURFACE)
-      // — use that real value, not a phantom `'mcp'` cast. The core downgrades a
-      // cli-only install step to an advisory on ANY non-`'cli'` surface (INV-2:
-      // the surface type contract is honoured, no `as never` escape hatch).
       const mcpArgs: HandleOnboardArgs = { surface: 'any', format: 'json' };
       const mcpResult = await handleOnboard(mcpArgs, fx.ctx, mcpDeps);
 
-      // Off-CLI the install hook is NEVER invoked — the core downgrades it.
       expect(installSpy2).not.toHaveBeenCalled();
       const mcpData = mcpResult.data as {
         result: { applied: { key: string }[]; advisories: { surface: string; commands?: string[] }[] };
       };
-      // The install step is surfaced as a cli-only advisory, not applied.
       expect(mcpData.result.applied.map((s) => s.key)).not.toContain('plugin-skill-hash-sync');
       const advisorySurfaces = mcpData.result.advisories.map((a) => a.surface);
       expect(advisorySurfaces).toContain('cli-only');
@@ -380,14 +327,12 @@ describe('installStep (DR-2/DR-6 — skills + deps install)', () => {
   });
 });
 
-// ─── Onboard rename migration (Task 011, DR-3/DR-8) ───────────────────────────
-
+/** Each fixture has one claude runtime, and `loc` is the skills directory that the migration scans. */
 describe('onboardMigrate (DR-3/DR-8 — stale old-name skill dir reconcile)', () => {
   interface MigrateFixture {
     readonly base: string;
     readonly home: string;
     readonly projectRoot: string;
-    /** A per-harness native skills dir the migration scans. */
     readonly loc: string;
     readonly runtimes: readonly RuntimeSkillsTarget[];
   }
@@ -409,7 +354,6 @@ describe('onboardMigrate (DR-3/DR-8 — stale old-name skill dir reconcile)', ()
     };
   }
 
-  /** Place a skill dir `<parent>/<name>/SKILL.md` with `content`; returns its path. */
   function placeSkillDir(parent: string, name: string, content: string): string {
     const dir = path.join(parent, name);
     nodeFs.mkdirSync(dir, { recursive: true });
@@ -417,12 +361,12 @@ describe('onboardMigrate (DR-3/DR-8 — stale old-name skill dir reconcile)', ()
     return dir;
   }
 
+  /** The install manifest records a whole-directory hash that matches the stale directory. */
   it('onboardMigrate_ManifestProvenance_Removed', () => {
     const fx = makeMigrateFixture();
     try {
       const content = '# brainstorming\n\nOrient the ideation workflow.\n';
       const staleDir = placeSkillDir(fx.loc, 'brainstorming', content);
-      // Task 010 install-manifest provenance: the recorded whole-dir hash matches.
       const manifest: ProvenanceManifest = {
         placements: [
           { path: fx.loc, hashes: { brainstorming: hashSkillDirContent(staleDir) } },
@@ -439,20 +383,18 @@ describe('onboardMigrate (DR-3/DR-8 — stale old-name skill dir reconcile)', ()
       expect(result.removed.map((r) => r.path)).toContain(staleDir);
       expect(result.removed.find((r) => r.path === staleDir)?.via).toBe('install-manifest');
       expect(result.preserved).toEqual([]);
-      // The stale dir is gone from disk.
       expect(nodeFs.existsSync(staleDir)).toBe(false);
     } finally {
       rmrf(fx.base);
     }
   });
 
+  /** The `SKILL.md` hash matches one entry in a set of legacy release hashes that also holds a decoy. */
   it('onboardMigrate_LegacyHashMatchAnyRelease_Removed', () => {
     const fx = makeMigrateFixture();
     try {
       const content = '# delegation\n\nDelegate to sub-agents.\n';
       const staleDir = placeSkillDir(fx.loc, 'delegation', content);
-      // Task 023 legacy provenance: the SKILL.md hash matches SOME historical
-      // release's render (modeled here as a set with the matching hash + a decoy).
       const legacy = new Map<string, Set<string>>([
         ['delegation', new Set([hashSkillMdContent(content), 'a-different-release-hash'])],
       ]);
@@ -472,13 +414,14 @@ describe('onboardMigrate (DR-3/DR-8 — stale old-name skill dir reconcile)', ()
     }
   });
 
+  /**
+   * The legacy hash covers the LF render, and the installed copy has CRLF line endings.
+   * Newline normalization must make the hashes match.
+   */
   it('onboardMigrate_CrlfInstalledCopy_StillMatches', () => {
     const fx = makeMigrateFixture();
     try {
       const lf = '# synthesis\n\nSynthesize the workflow outputs.\n';
-      // The legacy hash is computed over the LF (git-checkout) render, but the
-      // installed copy on disk has CRLF line endings — newline normalization must
-      // make them hash-match anyway.
       const legacyHash = hashSkillMdContent(lf);
       const staleDir = placeSkillDir(fx.loc, 'synthesis', lf.replace(/\n/g, '\r\n'));
       const legacy = new Map<string, Set<string>>([['synthesis', new Set([legacyHash])]]);
@@ -498,14 +441,16 @@ describe('onboardMigrate (DR-3/DR-8 — stale old-name skill dir reconcile)', ()
     }
   });
 
+  /**
+   * The install location holds a symlink to a target outside the scanned location. The
+   * migration removes the link and does not follow it, so the target stays.
+   */
   it('onboardMigrate_SymlinkedInstall_RemovesLinkOnly', () => {
     const fx = makeMigrateFixture();
     try {
       const content = '# discovery\n\nDiscover prior workflows.\n';
-      // The symlink TARGET lives OUTSIDE the scanned location.
       const targetParent = path.join(fx.base, 'shared-target');
       const targetDir = placeSkillDir(targetParent, 'discovery', content);
-      // The install location holds a SYMLINK to the shared target.
       const link = path.join(fx.loc, 'discovery');
       nodeFs.symlinkSync(targetDir, link);
 
@@ -523,20 +468,20 @@ describe('onboardMigrate (DR-3/DR-8 — stale old-name skill dir reconcile)', ()
       const removed = result.removed.find((r) => r.path === link);
       expect(removed).toBeDefined();
       expect(removed?.symlink).toBe(true);
-      // The LINK is gone…
       expect(nodeFs.existsSync(link)).toBe(false);
-      // …but the symlink TARGET (never followed for removal) survives intact.
       expect(nodeFs.existsSync(path.join(targetDir, 'SKILL.md'))).toBe(true);
     } finally {
       rmrf(fx.base);
     }
   });
 
+  /**
+   * The content of the stale directory matches no provenance source, so the migration must keep
+   * it. It warns once and reports the directory for the doctor finding.
+   */
   it('onboardMigrate_UserModifiedDir_PreservedWithWarning', () => {
     const fx = makeMigrateFixture();
     try {
-      // A stale old-name dir whose content matches NEITHER manifest (user-edited
-      // or from an unknown source) — the migration must never delete it.
       const staleDir = placeSkillDir(
         fx.loc,
         'oneshot-workflow',
@@ -556,7 +501,6 @@ describe('onboardMigrate (DR-3/DR-8 — stale old-name skill dir reconcile)', ()
       expect(result.removed).toEqual([]);
       expect(result.preserved.map((p) => p.path)).toContain(staleDir);
       expect(result.preserved[0]?.reason).toBe('no-provenance-match');
-      // Preserved on disk, warned once, and surfaced for the doctor finding.
       expect(nodeFs.existsSync(path.join(staleDir, 'SKILL.md'))).toBe(true);
       expect(warn).toHaveBeenCalledTimes(1);
       expect(result.warnings).toHaveLength(1);
@@ -566,6 +510,7 @@ describe('onboardMigrate (DR-3/DR-8 — stale old-name skill dir reconcile)', ()
     }
   });
 
+  /** The second run removes nothing and does not change the bytes of the modified directory. */
   it('onboardMigrate_RepeatedRuns_Idempotent', () => {
     const fx = makeMigrateFixture();
     try {
@@ -587,7 +532,6 @@ describe('onboardMigrate (DR-3/DR-8 — stale old-name skill dir reconcile)', ()
           legacyHashesBySkill: legacy,
         });
 
-      // ── First run: matched dir removed, modified dir preserved. ──
       const first = run();
       expect(first.removed.map((r) => r.path)).toEqual([matchedDir]);
       expect(first.preserved.map((p) => p.path)).toEqual([modifiedDir]);
@@ -595,9 +539,8 @@ describe('onboardMigrate (DR-3/DR-8 — stale old-name skill dir reconcile)', ()
       expect(nodeFs.existsSync(modifiedDir)).toBe(true);
       const modifiedBytes = nodeFs.readFileSync(path.join(modifiedDir, 'SKILL.md'));
 
-      // ── Second run: byte-stable no-op — nothing new removed, dir untouched. ──
       const second = run();
-      expect(second.removed).toEqual([]); // idempotent: the matched dir is already gone
+      expect(second.removed).toEqual([]);
       expect(second.preserved.map((p) => p.path)).toEqual([modifiedDir]);
       expect(nodeFs.existsSync(matchedDir)).toBe(false);
       expect(nodeFs.readFileSync(path.join(modifiedDir, 'SKILL.md'))).toEqual(modifiedBytes);
@@ -606,10 +549,11 @@ describe('onboardMigrate (DR-3/DR-8 — stale old-name skill dir reconcile)', ()
     }
   });
 
+  /**
+   * The migration acts only on retired skill names. A current skill directory in the same
+   * location must stay and get no flag, even when a manifest vouches for it.
+   */
   it('onboardMigrate_NewAndLiveSkillNames_NeverTargeted', () => {
-    // The migration can only ever act on RENAMED-AWAY names. A LIVE (renamed-to)
-    // skill dir sharing the location must never be removed or flagged, even with a
-    // vouching manifest — the stale set is closed over the 9 old names only.
     const fx = makeMigrateFixture();
     try {
       const liveDir = placeSkillDir(fx.loc, 'ideate', '# ideate\n');
@@ -633,11 +577,11 @@ describe('onboardMigrate (DR-3/DR-8 — stale old-name skill dir reconcile)', ()
     }
   });
 
+  /**
+   * The migration hashers copy the hashers in `src/install/install-skills.ts`. This test fails
+   * when an edit to one side makes their results differ, which breaks provenance matching.
+   */
   it('migrationHashers_MirrorInstallSkillsSourceOfTruth', () => {
-    // Drift guard: the server-package hashers MIRROR the root install-skills
-    // provenance source of truth (they cannot import it under the MCP server's
-    // tsc rootDir). Pin byte-for-byte parity so a future edit to either cannot
-    // silently break provenance matching.
     const base = nodeFs.mkdtempSync(path.join(tmpdir(), 'migrate-hashguard-'));
     try {
       const dir = path.join(base, 'delegation');

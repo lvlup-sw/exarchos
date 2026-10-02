@@ -1,17 +1,12 @@
 // @oracle-sources: ../../../../src/verbs/execute/compile.ts, the `SHIPPED_LEAVES` list this file writes by hand — the population both `every` quantifiers range over is pinned against that list and against a literal index sequence before either runs, so a segment that compiled short or empty cannot satisfy a per-leaf predicate vacuously
 //
-// ─── Compiling the review-closeout segment ──────────────────────────────────
+// Tests that compile the `quality-evaluation` segment against the shipped runbook, the real
+// registry lookup, and the real argument schema. The runbook as written must use only
+// registered local actions.
 //
-// `quality-evaluation` is compiled against the LIVE table — the shipped runbook,
-// the real registry lookup, the real argument schema — because what is under
-// test is whether the runbook as authored closes over registered local actions,
-// not whether a fixture does.
-//
-// Two things the compiler owes this intent are asserted here rather than
-// inferred: that subject identity reaches every leaf that declares it, under
-// whichever spelling that leaf declares, and that a missing argument is refused
-// BEFORE the first leaf runs. Both refusals name the field, because a caller
-// told only "invalid" has to guess which of eight it was.
+// The subject identity must reach each leaf that declares it, under the field name of that
+// leaf. The compiler refuses a missing argument before the first leaf runs, and the refusal
+// names the field.
 
 import { describe, it, expect } from 'vitest';
 
@@ -50,14 +45,16 @@ function leavesOf(outcome: ReturnType<typeof compileIntent>): readonly CompiledL
 }
 
 describe('quality-evaluation compiles against the live registry', () => {
+  /**
+   * The segment keeps the failure policy of the runbook and does not decide a new one.
+   * Each leaf has local authority, so the segment can run in the process.
+   */
   it('QualityEvaluation_CompilesToTheFiveShippedLeaves_InRunbookOrder', () => {
     const leaves = leavesOf(compileIntent(INTENT, SUBJECT, ARGS, PRODUCTION_COMPILE_DEPS));
 
     expect(leaves.map((leaf) => leaf.action)).toEqual(SHIPPED_LEAVES);
     expect(leaves.map((leaf) => leaf.index)).toEqual([0, 1, 2, 3, 4]);
     expect(leaves.every((leaf) => leaf.tool === 'exarchos_orchestrate')).toBe(true);
-    // The runbook's own failure policy, carried onto the segment rather than
-    // re-decided: the two advisory gates continue, the three blocking ones stop.
     expect(leaves.map((leaf) => leaf.onFail)).toEqual([
       'stop',
       'continue',
@@ -65,19 +62,19 @@ describe('quality-evaluation compiles against the live registry', () => {
       'stop',
       'stop',
     ]);
-    // Every leaf is locally authoritative, which is the property that makes the
-    // segment executable in-process at all.
     expect(
       leaves.every((leaf) => leaf.contract.executionAuthority.kind === 'local'),
     ).toBe(true);
   });
 
+  /**
+   * Each leaf whose schema declares a subject field must carry the same stream. Otherwise
+   * the segment commits part of its work to a stream that nobody watches. The last check
+   * makes sure that at least one leaf declares a subject field.
+   */
   it('QualityEvaluation_SubjectIdentity_ReachesEveryLeafThatDeclaresIt', () => {
     const leaves = leavesOf(compileIntent(INTENT, SUBJECT, ARGS, PRODUCTION_COMPILE_DEPS));
 
-    // Not "at least one leaf carries it" — every leaf whose registered schema
-    // declares a subject field must carry the SAME stream, or the segment would
-    // commit part of its work to a stream nobody is watching.
     for (const leaf of leaves) {
       const declaredKeys = new Set(Object.keys(leaf.declaration.schema.shape));
       if (declaredKeys.has('featureId')) {
@@ -87,7 +84,6 @@ describe('quality-evaluation compiles against the live registry', () => {
         expect(leaf.args.streamId, leaf.action).toBe(SUBJECT.streamId);
       }
     }
-    // Non-vacuous: at least one leaf actually declares a subject field.
     expect(
       leaves.filter((leaf) => leaf.args.featureId === SUBJECT.streamId).length,
     ).toBeGreaterThan(0);
@@ -115,10 +111,12 @@ describe('quality-evaluation compiles against the live registry', () => {
     },
   );
 
+  /**
+   * The intent requires `diffContent`, although the registry declares it optional. The
+   * security-scan handler refuses at run time without it, and a refusal in the middle of the
+   * segment comes after the earlier leaves ran.
+   */
   it('QualityEvaluation_WithoutDiffContent_Refuses', () => {
-    // Required here although the registry declares it optional: the
-    // security-scan handler refuses at runtime without it, and a refusal
-    // discovered mid-segment is one the earlier leaves have already paid for.
     const { diffContent: _dropped, ...partial } = ARGS;
 
     const refusal = refusalOf(compileIntent(INTENT, SUBJECT, partial, PRODUCTION_COMPILE_DEPS));
@@ -139,10 +137,11 @@ describe('quality-evaluation compiles against the live registry', () => {
     expect(refusal.message).toContain('riskTier');
   });
 
+  /**
+   * The subject comes as `featureId` or `streamId` on the request, not in `args`. A subject
+   * in `args` offers a choice that the compiler then overwrites, so the compiler refuses it.
+   */
   it('QualityEvaluation_FeatureIdArgument_Refused_SubjectIsNotACallerArgument', () => {
-    // The subject arrives as `featureId`/`streamId` on the REQUEST, not inside
-    // `args`. Accepting it here would advertise a choice the compiler overwrites
-    // a moment later.
     const refusal = refusalOf(
       compileIntent(
         INTENT,

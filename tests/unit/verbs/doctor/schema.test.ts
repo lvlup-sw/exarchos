@@ -60,8 +60,6 @@ describe('CheckResultSchema', () => {
     expect(parsed.fix).toContain('nvm install 20');
   });
 
-  // ─── policyCells provenance contract (verification-toolchain only) ──────────
-
   const SIX_CELLS = [
     { riskTier: 'low', boundaryTouching: false, source: 'builtin' },
     { riskTier: 'low', boundaryTouching: true, source: 'builtin' },

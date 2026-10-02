@@ -1,12 +1,7 @@
-// ─── Extract Fix Tasks Tests ─────────────────────────────────────────────────
-//
-// Tests for the TypeScript port of extract-fix-tasks.sh.
-// Mocks node:fs to avoid real filesystem access.
-// ────────────────────────────────────────────────────────────────────────────
+// Tests for `handleExtractFixTasks`. The `node:fs` mock stands in for the state file and the
+// review report. The event-store tests use a real `EventStore` in a temporary directory.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-
-// ─── Mock node:fs ────────────────────────────────────────────────────────────
 
 vi.mock('node:fs', () => ({
   existsSync: vi.fn(),
@@ -27,8 +22,6 @@ const mockReadFileSync = vi.mocked(readFileSync);
 beforeEach(() => {
   vi.resetAllMocks();
 });
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function makeStateWithReviews(findings: unknown[]) {
   return JSON.stringify({
@@ -56,8 +49,6 @@ function makeStateWithWorktreeAndReviews(
     })),
   });
 }
-
-// ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe('handleExtractFixTasks', () => {
   it('extracts fix tasks from state file reviews', async () => {
@@ -269,13 +260,11 @@ describe('handleExtractFixTasks', () => {
     expect(result.error?.code).toBe('PARSE_ERROR');
   });
 
-  // ─── Fileless resolution: MCP-only workflow ────────────────────────────
-  //
-  // INV-1: the event store is the sole source of truth. An MCP-only workflow
-  // has no `.state.json` stamp; findings (in state.reviews[*].findings) and
-  // worktree info (in state.tasks) must resolve from the event-store
-  // projection via featureId + eventStore.
-
+  /**
+   * An MCP-only workflow has no `.state.json`, and the event store is the source of truth.
+   * A `state.patched` event puts the findings and the tasks on the projection.
+   * The handler resolves them through `featureId` and `eventStore`.
+   */
   it('FilelessMcpOnly_ResolvesFindingsFromEventStore', async () => {
     mockExistsSync.mockReturnValue(false);
 
@@ -290,7 +279,6 @@ describe('handleExtractFixTasks', () => {
       type: 'workflow.started',
       data: { featureId, workflowType: 'feature' },
     });
-    // reviews[*].findings + tasks land on the projection via state.patched.
     await eventStore.append(featureId, {
       type: 'state.patched',
       data: {
@@ -312,7 +300,6 @@ describe('handleExtractFixTasks', () => {
     eventStore.close();
     await rmrfAsync(eventStoreDir);
 
-    // Must NOT fail with FILE_NOT_FOUND / PARSE_ERROR.
     expect(result.success).toBe(true);
     const data = result.data as { tasks: Array<{ id: string; file: string; worktree: string | null }>; count: number };
     expect(data.count).toBe(1);
@@ -323,16 +310,11 @@ describe('handleExtractFixTasks', () => {
     });
   });
 
-  // ─── Both sources provided: explicit-stateFile error handling ──────────
-  //
-  // Regression for the silent-swallow bug: when BOTH stateFile and
-  // featureId + eventStore are supplied, a malformed explicit stateFile must
-  // surface PARSE_ERROR rather than being silently ignored (resolveWorkflowState
-  // catches the JSON error and falls back to the event store). A *missing*
-  // stateFile, by contrast, is an optional freshness hint and must fall back.
-
+  /**
+   * With both a `stateFile` and an event store, a malformed explicit `stateFile` must give `PARSE_ERROR`.
+   * A file that exists but does not parse is a configuration error, not a reason to fall back.
+   */
   it('BothProvided_MalformedStateFile_SurfacesParseError', async () => {
-    // File exists but is unparseable → configuration error, not a fallback.
     mockExistsSync.mockImplementation((p) => p === '/tmp/bad.json');
     mockReadFileSync.mockReturnValue('{ not valid json');
 
@@ -355,9 +337,11 @@ describe('handleExtractFixTasks', () => {
     expect(result.error?.code).toBe('PARSE_ERROR');
   });
 
+  /**
+   * A missing explicit `stateFile` is an optional freshness hint.
+   * The handler falls back to the event store and does not return `FILE_NOT_FOUND`.
+   */
   it('BothProvided_MissingStateFile_FallsBackToEventStore', async () => {
-    // A missing explicit stateFile is not an error when the event store can
-    // resolve it (INV-1). The handler must fall back, not return FILE_NOT_FOUND.
     mockExistsSync.mockReturnValue(false);
 
     const eventStoreDir = await fsPromises.mkdtemp(

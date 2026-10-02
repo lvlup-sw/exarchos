@@ -1,15 +1,11 @@
 // @oracle-sources: ../../../../src/verbs/execute/executor.ts, the rows a real EventStore holds after the segment runs — queried back by each leaf's DERIVED operation id rather than read off the receipt the executor built, so a receipt that claims events nobody wrote cannot satisfy the comparison
 //
-// ─── Executing the plan-closeout segment end to end ─────────────────────────
+// Tests that run the plan-closeout segment end to end. They use the live orchestrate handler
+// table, a real store, and a real spec on disk. The shipped runbook, compiler, and executor must
+// produce the rows of the shipped gates. The operation record commits on both outcomes.
 //
-// The LIVE orchestrate handler table against a real store and a real spec on
-// disk. Nothing here is a fixture leaf: the point is that the shipped runbook,
-// compiled by the shipped compiler, driven by the shipped executor, produces the
-// rows the shipped gates produce — and that the operation record commits on both
-// outcomes.
-//
-// Per-leaf scoping is asserted by DERIVED operation id, not by counting rows on
-// the stream. A count would be satisfied by one leaf writing everything.
+// The tests read the rows of each leaf by its derived operation id. A row count on the stream
+// passes even when one leaf writes all the rows.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, writeFile } from 'node:fs/promises';
@@ -86,13 +82,15 @@ let stateDir: string;
 let store: EventStore;
 let specPath: string;
 
+/**
+ * Builds the executor deps with the live orchestrate handler table. A case can pass a
+ * table that replaces one leaf to stage a failure that the shipped table cannot.
+ */
 function deps(handlers: LeafHandlerTable = ACTION_HANDLERS): ExecuteIntentDeps {
   return {
     runbookTable: ALL_RUNBOOKS,
     findAction: findActionInRegistry,
     argSchemas: INTENT_ARG_SCHEMAS,
-    // The LIVE table the orchestrate composite hands the executor, unless a
-    // case substitutes one leaf to stage a failure the shipped table cannot.
     handlers,
     handlerTool: 'exarchos_orchestrate',
   };
@@ -145,24 +143,23 @@ describe('plan-closeout over the live handler table', () => {
     ]);
     expect(receipt.leaves.every((leaf) => leaf.status === 'passed')).toBe(true);
 
-    // Exactly one operation record — the whole point of the commit.
     const operationRows = await store.query(STREAM, { type: INTENT_EXECUTED_EVENT });
     expect(operationRows).toHaveLength(1);
   });
 
+  /**
+   * Each gate leaf holds both rows under its own derived id, so the evidence of an earlier
+   * leaf cannot answer for it. The matrix generator writes no row under its derived id.
+   */
   it('PlanCloseout_EachGateLeaf_HoldsItsOwnEvidenceAndSignal', async () => {
     await execute('op-plan-closeout-rows', { specPath });
 
     for (const [index, action] of GATE_LEAVES) {
       const derived = derivedLeafOperationId('op-plan-closeout-rows', index, action);
       const types = (await rowsFor(derived)).map((row) => row.type).sort();
-      // Both rows, under THIS leaf's identity: a predecessor's evidence cannot
-      // answer for it.
       expect(types, action).toEqual(['admission.evidence-recorded', 'gate.executed']);
     }
 
-    // The matrix generator declares no emission and writes none, so its derived
-    // identity holds nothing — the negative half of the same scoping claim.
     const traceability = derivedLeafOperationId(
       'op-plan-closeout-rows',
       2,
@@ -171,6 +168,10 @@ describe('plan-closeout over the live handler table', () => {
     expect(await rowsFor(traceability)).toHaveLength(0);
   });
 
+  /**
+   * The replay reads the receipt back from the persisted claim. The sequence and type of
+   * each row in the log stay the same, so nothing ran again.
+   */
   it('PlanCloseout_SameOperationIdSameRequest_ReplaysWithoutReExecuting', async () => {
     const first = receiptOf(await execute('op-plan-closeout-replay', { specPath }));
     const before = await store.query(STREAM);
@@ -178,21 +179,19 @@ describe('plan-closeout over the live handler table', () => {
     const second = receiptOf(await execute('op-plan-closeout-replay', { specPath }));
     const after = await store.query(STREAM);
 
-    // The identical receipt, read back off the persisted claim.
     expect(second).toEqual(first);
-    // And nothing ran: the log is byte-for-byte where the first call left it.
     expect(after.map((row) => `${row.sequence}:${row.type}`)).toEqual(
       before.map((row) => `${row.sequence}:${row.type}`),
     );
   });
 
+  /**
+   * A crash before the commit leaves no claim, so the retry runs the gate leaves again.
+   * The replay case cannot reach this path. Each gate appends its own `gate.executed` row
+   * inside the provider, before the runner can see the earlier evidence. Without a key on
+   * that row, the retry writes a duplicate, and the receipt keeps both sequences.
+   */
   it('PlanCloseout_CrashedMidSegmentThenRetried_LeavesOneRowPerGateLeaf', async () => {
-    // The uncommitted retry, which the replay case above cannot reach: a crash
-    // before the commit leaves no claim, so the retry re-runs the gate leaves
-    // instead of short-circuiting on a persisted receipt. Both gates mint their
-    // own `gate.executed` from inside the provider, and the runner re-runs the
-    // provider before it can see that this operation already produced evidence
-    // — so the row has to be keyed or the second attempt writes a duplicate.
     const traceability = ACTION_HANDLERS.generate_traceability;
     if (traceability === undefined) throw new Error('generate_traceability has no handler');
     let crash = true;
@@ -216,8 +215,6 @@ describe('plan-closeout over the live handler table', () => {
     for (const [index, action] of GATE_LEAVES) {
       const derived = derivedLeafOperationId('op-plan-closeout-crash', index, action);
       const types = (await rowsFor(derived)).map((row) => row.type).sort();
-      // One of each. Two `gate.executed` rows here would be one gate run
-      // described twice, and the receipt bakes those sequences in permanently.
       expect(types, action).toEqual(['admission.evidence-recorded', 'gate.executed']);
     }
   });
@@ -234,9 +231,13 @@ describe('plan-closeout over the live handler table', () => {
     expect(result.error?.message).toContain('Nothing was executed.');
   });
 
+  /**
+   * The spec has no requirement identifiers, so the coverage gate fails. The segment must
+   * stop at the first blocking gate for the reason of that gate, not for a wiring fault.
+   * The operation record commits when the segment ends, and only a crash leaves none. The
+   * error carries the receipt facts, because an envelope does not carry the `data` of a failed dispatch.
+   */
   it('PlanCloseout_BlockingLeafFails_HaltsAndStillCommits', async () => {
-    // A spec with no requirement identifiers: the coverage gate has nothing to
-    // cover and the provenance gate has nothing to trace.
     await writeFile(specPath, SPEC_WITHOUT_REQUIREMENTS, 'utf8');
 
     const result = await execute('op-plan-closeout-halt', { specPath });
@@ -244,26 +245,16 @@ describe('plan-closeout over the live handler table', () => {
 
     expect(result.success).toBe(false);
     expect(receipt.outcome).toBe('failed');
-    // The FIRST blocking gate is where it stops, and it stops for the gate's own
-    // stated reason rather than a wiring error — a halt on the wrong leaf, or
-    // for an admission or handler-lookup fault, would prove nothing about the
-    // failure policy.
     expect(receipt.failedLeaf).toBe('check_plan_coverage');
     expect(receipt.failure?.code).toBe('INTENT_SEGMENT_FAILED');
     expect(receipt.failure?.message).toContain('No design subsections found');
-    // Halted: the leaves AFTER the failure never ran, so the receipt is short.
     const attempted = receipt.leaves.map((leaf) => leaf.action);
     expect(attempted).toEqual(['check_plan_coverage']);
     expect(receipt.leaves.at(-1)?.status).toBe('failed');
 
-    // "Ran and failed" is distinguishable from "crashed mid-segment": the
-    // operation record is there either way the segment ENDED, and only a crash
-    // leaves none.
     const operationRows = await store.query(STREAM, { type: INTENT_EXECUTED_EVENT });
     expect(operationRows).toHaveLength(1);
 
-    // The refusal reaches the caller with the receipt facts attached, not only
-    // on `data` — a failed dispatch's `data` is not what an envelope carries.
     const detail = result.error?.intentReceipt as
       | { operationId: string; outcome: string; leaves: { action: string }[] }
       | undefined;
@@ -272,15 +263,16 @@ describe('plan-closeout over the live handler table', () => {
     expect(detail?.leaves.map((leaf) => leaf.action)).toEqual(attempted);
   });
 
+  /**
+   * Both outcomes commit, so both outcomes replay. A failed segment that runs again on
+   * replay repeats its effects for a call that the claim already answered.
+   */
   it('PlanCloseout_FailedSegment_ReplaysToTheSameFailedReceipt', async () => {
     await writeFile(specPath, SPEC_WITHOUT_REQUIREMENTS, 'utf8');
 
     const first = await execute('op-plan-closeout-failreplay', { specPath });
     const second = await execute('op-plan-closeout-failreplay', { specPath });
 
-    // Both outcomes commit, so both outcomes replay. A failed segment that
-    // re-ran on replay would repeat its effects for a call the claim already
-    // answered.
     expect(receiptOf(second)).toEqual(receiptOf(first) satisfies IntentReceipt);
     expect(second.success).toBe(false);
     const operationRows = await store.query(STREAM, { type: INTENT_EXECUTED_EVENT });

@@ -1,11 +1,7 @@
-// Adjudication is judged against the CAPSULE, and every case here bends the
-// capsule or the batch by exactly one thing.
+// Tests for settlement adjudication against the capsule. Each case changes the capsule or the batch in one way.
 //
-// The corpus is the capsule contract's own fixture rather than a hand-written
-// stand-in, so a change to the schema reaches these cases instead of leaving
-// them asserting against a shape that no longer ships. Every capsule used below
-// is one the published contract accepts — a case that also failed the schema
-// would be proving the schema, not the adjudicator.
+// The cases start from the capsule contract's own fixture, so a schema change reaches them.
+// The published contract accepts each capsule here. A case that also fails the schema tests the schema, not the adjudicator.
 //
 // @oracle-sources: ../../../../src/contract/capsule/exarchos-capsule-fixtures.ts, the capsule contract's own corpus which is authored for the schema round trip and not for this module, so a case here cannot be tuned to the assertion it feeds
 
@@ -151,20 +147,20 @@ const CASES: readonly AdjudicationCase[] = [
 ];
 
 describe('settlement adjudication', () => {
+  /** The denominator. Without this case, an adjudicator that refuses everything passes every rejecting case. */
   it('Adjudicate_ABatchSatisfyingTheCapsule_Settles', () => {
-    // The denominator. An adjudicator that refused everything would satisfy
-    // every rejecting case below without this one.
     const verdict = adjudicateSettlement(baseValidCapsule(), [passingClaim()], [], RESOLVING);
     expect(verdict.findings).toEqual([]);
     expect(verdict.outcome).toBe('settled');
     expect(verdict.acceptedTasks).toEqual(['task-verify']);
   });
 
+  /**
+   * A verdict with zero findings can come from a pass that adjudicated nothing or from a pass that adjudicated everything.
+   * Only the census on the verdict tells them apart, and a reader cannot compute it without the capsule.
+   * The shape pass reads no verification. The final pass reads one for each accepted claim.
+   */
   it('Adjudicate_TheVerdict_CarriesItsOwnDenominator', () => {
-    // A settlement that adjudicated nothing and one that adjudicated everything
-    // both report zero findings. Only the census separates them, which is why
-    // it travels with the verdict rather than being recomputable by a reader
-    // who would have to hold the capsule to do it.
     const empty = adjudicateSettlement(
       { ...baseValidCapsule(), settlementContract: { requiredResults: ['task-verify'] } },
       [],
@@ -177,9 +173,6 @@ describe('settlement adjudication', () => {
     expect(full.adjudicated.fields).toBeGreaterThan(0);
     expect(full.adjudicated.evidence).toBe(1);
     expect(full.adjudicated.requiredResults).toBe(1);
-    // The shape pass reads no verification; the final pass reads one per
-    // accepted claim. Same batch, two counts — the census is what tells the
-    // two passes apart after the fact.
     expect(full.adjudicated.verification).toBe(0);
     const final = adjudicateSettlement(baseValidCapsule(), [passingClaim()], [], {
       ...RESOLVING,
@@ -188,9 +181,8 @@ describe('settlement adjudication', () => {
     expect(final.adjudicated.verification).toBe(1);
   });
 
+  /** The published contract accepts each case, so each refusal comes from the adjudicator, not from the schema. */
   it.each(CASES)('Adjudicate_IsStructurallyValid_$name', ({ capsule }) => {
-    // Every case is a capsule the published contract ACCEPTS. One the schema
-    // also refused would be proving the schema rather than this module.
     const parsed = ExarchosCapsuleV1Schema.safeParse(capsule);
     expect(parsed.success, JSON.stringify(parsed.error?.issues ?? [])).toBe(true);
   });
@@ -211,10 +203,11 @@ describe('settlement adjudication', () => {
     ).toEqual([]);
   });
 
+  /**
+   * This is the one finding kind that does not block. A refusal of a valid deviation pushes a worker to comply with a premise that it disproved.
+   * The length check proves that every other kind blocks.
+   */
   it('Adjudicate_ADeviationInsideTheEnvelope_HoldsTheBatchRatherThanRefusingIt', () => {
-    // The one non-blocking finding, and the reason it is non-blocking: refusing
-    // a legitimate deviation pushes a worker toward silently complying with a
-    // premise it has already disproved.
     const verdict = adjudicateSettlement(
       baseValidCapsule(),
       [passingClaim()],
@@ -224,8 +217,6 @@ describe('settlement adjudication', () => {
     expect(verdict.outcome).toBe('deviation-pending');
     expect(verdict.findings.map((f) => f.kind)).toEqual(['deviation-awaiting-approval']);
     expect(BLOCKING_SETTLEMENT_FINDING_KINDS).not.toContain('deviation-awaiting-approval');
-    // And it is the ONLY one: a list that had quietly become "everything" would
-    // make the distinction above vacuous.
     expect(BLOCKING_SETTLEMENT_FINDING_KINDS.length).toBe(SETTLEMENT_FINDING_KINDS.length - 1);
   });
 
@@ -247,11 +238,12 @@ describe('settlement adjudication', () => {
     expect(verdict.outcome).toBe('settled');
   });
 
+  /**
+   * The decision round answers the same deviation. An accepted deviation lets the batch settle.
+   * A rejected deviation refuses the batch, because a hold is only for a decision that is not made.
+   * The claim stays in `acceptedTasks`, because the refusal is on the deviation. The census counts each decision that it reads.
+   */
   it('Adjudicate_ADecidedDeviation_IsNoLongerAwaiting', () => {
-    // The decision round: the same deviation, now answered. Accepted, the
-    // batch settles as though the envelope had not required approval;
-    // rejected, the batch is refused rather than held, because holding is for
-    // a decision not yet made. Either way the census counts the decision read.
     const deviation = { deviationKind: 'invalidated-assumption', statement: 'the store is not SQLite' };
     const decide = (decision: 'accepted' | 'rejected' | undefined) =>
       adjudicateSettlement(baseValidCapsule(), [passingClaim()], [deviation], {
@@ -267,9 +259,6 @@ describe('settlement adjudication', () => {
     const rejected = decide('rejected');
     expect(rejected.outcome).toBe('rejected');
     expect(rejected.findings.map((f) => f.kind)).toEqual(['deviation-rejected']);
-    // The claim itself is one the capsule admits; it is the batch that is
-    // refused, on the deviation. What the handler does with an accepted claim
-    // on a rejected batch is nothing — verification runs on a settled shape.
     expect(rejected.acceptedTasks).toEqual(['task-verify']);
     expect(rejected.adjudicated.decisions).toBe(1);
     expect(BLOCKING_SETTLEMENT_FINDING_KINDS).toContain('deviation-rejected');
@@ -279,10 +268,8 @@ describe('settlement adjudication', () => {
     expect(undecided.adjudicated.decisions).toBe(0);
   });
 
+  /** One pass reports every defect, so a caller does not find the defects one round trip at a time. */
   it('Adjudicate_ManyDefects_AreAllReported', () => {
-    // One pass, every reason. A caller fixing a rejected batch that had to
-    // discover its defects one round trip at a time is exactly the interaction
-    // cost this plane exists to remove.
     const verdict = adjudicateSettlement(
       baseValidCapsule(),
       [
@@ -299,10 +286,8 @@ describe('settlement adjudication', () => {
     expect(verdict.acceptedTasks).toEqual([]);
   });
 
+  /** The duplicate is refused whole. The adjudicator does not report the defects of a claim that it does not consider. */
   it('Adjudicate_ADefectiveDuplicateClaim_IsRefusedOnlyAsADuplicate', () => {
-    // The duplicate is refused whole. A second claim carrying its own defects
-    // must not also report them: those would be findings against a claim that
-    // was never going to be considered.
     const verdict = adjudicateSettlement(
       baseValidCapsule(),
       [
@@ -316,8 +301,8 @@ describe('settlement adjudication', () => {
     expect(verdict.outcome).toBe('rejected');
   });
 
+  /** A field with `required: false` can be absent, and its absence is not a finding. */
   it('Adjudicate_AnOptionalFieldLeftOut_IsNotAFinding', () => {
-    // `required: false` has to mean something, or the flag is decoration.
     const base = baseValidCapsule();
     const verdict = adjudicateSettlement(
       {

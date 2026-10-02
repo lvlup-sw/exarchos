@@ -1,11 +1,7 @@
-// ─── Extract Intent Tests (DR-1 #1593, task 004) ────────────────────────────
-//
-// Covers the intent FOUNDATION: a diff-derived floor written to
-// `artifacts.intent` via a single state-patch event, optional transcript
-// enrichment, and the structural INV-6 guarantee (no `workflowType` branch on
-// the intent path). The persist tests drive a REAL event store + stateDir and
-// read the intent back via `resolveWorkflowState` — the same canonical surface
-// the gates use.
+// Tests for the workflow intent. `deriveIntent` builds a floor from the diff, and a transcript can
+// enrich it. `persistIntent` writes the intent to `artifacts.intent` with one state-patch event. The
+// intent path has no branch on `workflowType`. The persist tests use a real event store and read
+// the intent back through `resolveWorkflowState`, the same surface that the gates use.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -27,8 +23,6 @@ import { handleInit } from '../../../../src/workflow/tools.js';
 import { resolveWorkflowState } from '../../../../src/verbs/resolve-state.js';
 import { EventStore } from '../../../../src/events/store.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
-
-// ─── Harness ────────────────────────────────────────────────────────────────
 
 let tmpDir: string;
 let eventStore: EventStore;
@@ -52,16 +46,15 @@ async function readStoredIntent(featureId: string): Promise<WorkflowIntent | und
 }
 
 describe('extract-intent (DR-1 #1593)', () => {
+  /** The surfaces are the sorted, distinct top-level directories of the changed files. */
   it('ExtractIntent_DiffDerivedFloor_WritesArtifactsIntent', async () => {
-    // ── Pure floor ──────────────────────────────────────────────────────────
     const intent = deriveIntent(['servers/a.ts', 'docs/b.md']);
     expect(intent.source).toBe('diff');
     expect(intent.changedFiles).toEqual(['servers/a.ts', 'docs/b.md']);
-    expect(intent.surfaces).toEqual(['docs', 'servers']); // de-duped, sorted top-level prefixes
+    expect(intent.surfaces).toEqual(['docs', 'servers']);
     expect(intent.summary).toBe('2 files changed across 2 surfaces: docs, servers');
     expect(intent.transcriptSummary).toBeUndefined();
 
-    // ── Persist + read back through the canonical projection ─────────────────
     const featureId = 'intent-floor-feat';
     const init = await handleInit({ featureId, workflowType: 'feature' }, tmpDir, eventStore);
     expect(init.success).toBe(true);
@@ -75,15 +68,17 @@ describe('extract-intent (DR-1 #1593)', () => {
     expect(stored).toEqual(intent);
   });
 
+  /**
+   * A transcript gives the `diff+transcript` source and a summary from its first line. No
+   * transcript, or a blank one, keeps the diff floor with no summary.
+   */
   it('ExtractIntent_TranscriptPresent_EnrichesIntent', async () => {
-    // With a transcript: enriched source + a bounded transcriptSummary.
     const enriched = deriveIntent(['servers/a.ts'], {
       transcript: 'Refactor the dispatch adapter to thread eventStore.\nMore detail follows.',
     });
     expect(enriched.source).toBe('diff+transcript');
     expect(enriched.transcriptSummary).toBe('Refactor the dispatch adapter to thread eventStore.');
 
-    // Without a transcript (and with an empty/whitespace one): floor, no summary.
     const floor = deriveIntent(['servers/a.ts']);
     expect(floor.source).toBe('diff');
     expect(floor.transcriptSummary).toBeUndefined();
@@ -93,11 +88,11 @@ describe('extract-intent (DR-1 #1593)', () => {
     expect(blank.transcriptSummary).toBeUndefined();
   });
 
+  /**
+   * A `feature` workflow and a `oneshot` workflow store the same `artifacts.intent`. `deriveIntent`
+   * takes only `changedFiles` and `opts`, so its arity is 2. The derived intent has no key that names a workflow type.
+   */
   it('ExtractIntent_WorkflowAgnostic_NoTypeBranch', async () => {
-    // INV-6: the SAME derived intent persists identically regardless of workflow
-    // type. `deriveIntent` takes no workflowType (proven by its arity / call
-    // shape), and the persist path is type-blind — so a `feature` and a
-    // `oneshot` workflow store byte-identical `artifacts.intent`.
     const intent = deriveIntent(['servers/a.ts', 'content/x/SKILL.md', 'docs/y.md']);
 
     const featureId = 'intent-agnostic-feature';
@@ -113,23 +108,16 @@ describe('extract-intent (DR-1 #1593)', () => {
     expect(featureIntent).toEqual(oneshotIntent);
     expect(featureIntent).toEqual(intent);
 
-    // Structural assertion: the derivation's only positional inputs are
-    // `(changedFiles, opts?)` — there is NO workflowType parameter. A
-    // workflowType would have to be a third positional arg; the function's arity
-    // (`changedFiles` + the optional `opts`) is exactly 2, leaving no slot for
-    // it. The byte-identical feature/oneshot intents above prove the same code
-    // path runs for every type.
     expect(deriveIntent.length).toBe(2);
-    // And `opts` carries only `transcript` — never a workflowType-like key — so
-    // a type can't sneak in through the options bag either.
     const probe = deriveIntent(['servers/a.ts'], { transcript: 'x' });
     expect(Object.keys(probe).filter((k) => k.toLowerCase().includes('workflowtype'))).toEqual([]);
   });
 
+  /**
+   * Without a workflow, `persistIntent` returns `persisted: false` with a warning and does not
+   * throw. Review provisioning must survive a failed state patch.
+   */
   it('ExtractIntent_PersistWithoutWorkflow_FailsSoft', async () => {
-    // Fail-soft contract: persisting against a featureId with no inited workflow
-    // returns `{ persisted: false, warning }` and NEVER throws — review
-    // provisioning must survive a state-patch miss.
     const intent = deriveIntent(['servers/a.ts']);
     const result = await persistIntent('no-such-workflow', intent, tmpDir, eventStore);
     expect(result.persisted).toBe(false);
@@ -137,12 +125,8 @@ describe('extract-intent (DR-1 #1593)', () => {
   });
 });
 
-// ─── readIntent (DR-1 task 006) ──────────────────────────────────────────────
-
 describe('readIntent (DR-1 task 006)', () => {
   it('ReadIntent_PersistedMeaningfulIntent_RoundTrips', async () => {
-    // The READ counterpart of persistIntent: persist a meaningful intent, read it
-    // back through the canonical projection-backed reader.
     const intent = deriveIntent(['servers/a.ts', 'docs/b.md']);
     const featureId = 'read-intent-feat';
     expect((await handleInit({ featureId, workflowType: 'feature' }, tmpDir, eventStore)).success).toBe(true);
@@ -153,39 +137,33 @@ describe('readIntent (DR-1 task 006)', () => {
   });
 
   it('ReadIntent_NoFeatureId_ReturnsUndefined', async () => {
-    // Degrade: no featureId → undefined, never throws.
     expect(await readIntent(undefined, eventStore)).toBeUndefined();
   });
 
   it('ReadIntent_NoEventStore_ReturnsUndefined', async () => {
-    // Degrade: no event store → undefined, never throws.
     expect(await readIntent('some-feat', undefined)).toBeUndefined();
   });
 
   it('ReadIntent_NoPersistedIntent_ReturnsUndefined', async () => {
-    // A workflow with no `artifacts.intent` → undefined (absent is not an error).
     const featureId = 'read-intent-absent';
     expect((await handleInit({ featureId, workflowType: 'feature' }, tmpDir, eventStore)).success).toBe(true);
     expect(await readIntent(featureId, eventStore)).toBeUndefined();
   });
 
   it('ReadIntent_UnknownWorkflow_FailsSoftToUndefined', async () => {
-    // Unreadable / unknown workflow state → undefined, never throws.
     expect(await readIntent('no-such-workflow-at-all', eventStore)).toBeUndefined();
   });
 });
 
-// ─── Body grounding helpers (DR-1 task 006) ──────────────────────────────────
-
 describe('intent body grounding (DR-1 task 006)', () => {
+  /** The original body stays ahead of the appended section. */
   it('GroundBody_MeaningfulIntent_AppendsIntentSectionAndMarker', () => {
     const intent = deriveIntent(['servers/a.ts', 'docs/b.md']);
     const grounded = groundBodyInIntent('## Summary\n\nDoes a thing.', intent);
     expect(grounded).toContain('## Intent');
     expect(bodyHasIntentMarker(grounded)).toBe(true);
-    expect(grounded).toContain('docs, servers'); // surfaces
+    expect(grounded).toContain('docs, servers');
     expect(grounded).toContain(intent.summary);
-    // Original body content is preserved ahead of the appended section.
     expect(grounded.startsWith('## Summary')).toBe(true);
   });
 
@@ -206,7 +184,6 @@ describe('intent body grounding (DR-1 task 006)', () => {
     const intent = deriveIntent(['servers/a.ts']);
     const once = groundBodyInIntent('## Summary\n\nBody.', intent);
     const twice = groundBodyInIntent(once, intent);
-    // Second pass is a no-op — the marker appears exactly once.
     expect(twice).toBe(once);
     expect(twice.split(INTENT_GROUNDING_MARKER).length - 1).toBe(1);
   });

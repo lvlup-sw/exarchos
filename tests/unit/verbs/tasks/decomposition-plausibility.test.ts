@@ -11,8 +11,6 @@ import {
   type PlausibilityBaseline,
 } from '../../../../src/verbs/tasks/decomposition-plausibility.js';
 
-// ─── Signal primitive: breadth ────────────────────────────────────────────
-
 describe('computeBreadth', () => {
   it('ComputeBreadth_FilesInSameDirectory_CountsOnce', () => {
     expect(computeBreadth(['src/a/x.ts', 'src/a/y.ts', 'src/a/z.test.ts'])).toBe(1);
@@ -27,13 +25,12 @@ describe('computeBreadth', () => {
     expect(computeBreadth(['src\\a\\x.ts', 'src/a/y.ts'])).toBe(1);
   });
 
+  /** The bare names `x.ts` and `y.ts` share the `.` directory. */
   it('ComputeBreadth_BarePathAndEmpty_HandledGracefully', () => {
-    expect(computeBreadth(['x.ts', '', 'y.ts'])).toBe(1); // both in '.'
+    expect(computeBreadth(['x.ts', '', 'y.ts'])).toBe(1);
     expect(computeBreadth([])).toBe(0);
   });
 });
-
-// ─── Signal primitive: behavior count ─────────────────────────────────────
 
 describe('countBehaviors', () => {
   it('CountBehaviors_DistinctBehaviorTokens_CountsEach', () => {
@@ -45,9 +42,8 @@ describe('countBehaviors', () => {
     expect(countBehaviors(block)).toBe(3);
   });
 
+  /** A behavior in a `[RED]` step and in a checklist line is one behavior. */
   it('CountBehaviors_RepeatedBehaviorToken_DeduplicatesToOne', () => {
-    // Same behavior appears in a [RED] step and a verification checklist line —
-    // that is one behavior, not two.
     const block = [
       '- [RED] `Widget_Render_DisplaysContent`',
       '- [ ] Test passes: `Widget_Render_DisplaysContent`',
@@ -59,8 +55,6 @@ describe('countBehaviors', () => {
     expect(countBehaviors('**Goal:** just prose, no test names here.')).toBe(0);
   });
 });
-
-// ─── Signal primitive: boundary-touching stamp ────────────────────────────
 
 describe('extractBoundaryTouching', () => {
   it('ExtractBoundaryTouching_TitleCaseTrue_ReturnsTrue', () => {
@@ -81,13 +75,11 @@ describe('extractBoundaryTouching', () => {
     expect(extractBoundaryTouching('**Files:**\n- `src/a.ts`')).toBeUndefined();
   });
 
+  /** The pattern `(?![\w-])` rejects a value that a word or hyphen character follows. */
   it('ExtractBoundaryTouching_MalformedSuffix_ReturnsUndefined', () => {
-    // `(?![\w-])` — a trailing word/hyphen char means it is not a clean stamp.
     expect(extractBoundaryTouching('**Boundary Touching:** false-ish maybe')).toBeUndefined();
   });
 });
-
-// ─── Signal primitive: override parsing ───────────────────────────────────
 
 describe('parseOverrides', () => {
   it('ParseOverrides_KnownSignalWithRationale_Recorded', () => {
@@ -118,30 +110,31 @@ describe('parseOverrides', () => {
   });
 });
 
-// ─── Baseline derivation ──────────────────────────────────────────────────
-
 describe('deriveBaseline', () => {
+  /**
+   * The 90th-percentile file count is 10 and the behavior count is 9. With a slack of 2, the
+   * bounds are 20 and 18, above the floors. The fields that are not derived keep the floor.
+   */
   it('DeriveBaseline_LargeHistoricalSpread_RaisesThresholdAboveFloor', () => {
     const baseline = deriveBaseline({
       fileCounts: [2, 3, 4, 5, 6, 7, 8, 9, 10, 50],
       behaviorCounts: [1, 2, 3, 4, 5, 6, 7, 8, 9, 30],
     });
-    // p90 fileCount = 10, slack 2 → 20 (> floor 12)
     expect(baseline.maxFileCount).toBe(20);
-    // p90 behaviorCount = 9, slack 2 → 18 (> floor 8)
     expect(baseline.maxBehaviorCount).toBe(18);
-    // non-derived fields inherit the floor
     expect(baseline.maxBreadth).toBe(DEFAULT_PLAUSIBILITY_BASELINE.maxBreadth);
     expect(baseline.uniformityMinTasks).toBe(DEFAULT_PLAUSIBILITY_BASELINE.uniformityMinTasks);
   });
 
+  /**
+   * The derived values are below the floor, so the floor applies. A sample of small tasks cannot
+   * make a threshold too strict.
+   */
   it('DeriveBaseline_TinyHistoricalTasks_FloorsAtDefault', () => {
     const baseline = deriveBaseline({
       fileCounts: [1, 1, 2, 2, 3],
       behaviorCounts: [1, 1, 1, 2, 2],
     });
-    // Derived values are below the floor, so the floor wins — a sample of tiny
-    // tasks cannot produce an implausibly-strict threshold.
     expect(baseline.maxFileCount).toBe(DEFAULT_PLAUSIBILITY_BASELINE.maxFileCount);
     expect(baseline.maxBehaviorCount).toBe(DEFAULT_PLAUSIBILITY_BASELINE.maxBehaviorCount);
   });
@@ -160,8 +153,6 @@ describe('deriveBaseline', () => {
   });
 });
 
-// ─── Assessment helpers ───────────────────────────────────────────────────
-
 /** Build a small, plausible task input with overridable fields. */
 function task(overrides: Partial<PlausibilityTaskInput> = {}): PlausibilityTaskInput {
   return {
@@ -176,7 +167,7 @@ function task(overrides: Partial<PlausibilityTaskInput> = {}): PlausibilityTaskI
   };
 }
 
-/** A calibrated 48-task fleet with the given uniform stamps. */
+/** Builds `n` one-file tasks with the same risk tier and boundary stamp. */
 function uniformFleet(
   n: number,
   riskTier: PlausibilityTaskInput['riskTier'],
@@ -194,10 +185,9 @@ function uniformFleet(
 }
 
 describe('assessDecompositionPlausibility', () => {
-  // ── Per-task signals ──
-
+  /** Five directories exceed the default breadth bound of 4. */
   it('Assess_BroadTask_ChallengesBreadth', () => {
-    const files = ['a/1.ts', 'b/2.ts', 'c/3.ts', 'd/4.ts', 'e/5.ts']; // breadth 5 > 4
+    const files = ['a/1.ts', 'b/2.ts', 'c/3.ts', 'd/4.ts', 'e/5.ts'];
     const result = assessDecompositionPlausibility([task({ files })]);
     expect(result.challenged).toBe(true);
     expect(result.challenges.map((c) => c.signal)).toContain('breadth');
@@ -207,15 +197,16 @@ describe('assessDecompositionPlausibility', () => {
     expect(breadth?.taskId).toBe('T-01');
   });
 
+  /** Nine behaviors exceed the default bound of 8. */
   it('Assess_ManyBehaviors_ChallengesBehaviorCount', () => {
-    const result = assessDecompositionPlausibility([task({ behaviorCount: 9 })]); // > 8
+    const result = assessDecompositionPlausibility([task({ behaviorCount: 9 })]);
     expect(result.challenged).toBe(true);
     expect(result.challenges.map((c) => c.signal)).toContain('behavior-count');
   });
 
+  /** Twenty files exceed the default file-count bound of 12. */
   it('Assess_OversizedTask_ChallengesHistoricalSize', () => {
-    // Exit-proof (b): a task far larger than a historical task is challenged.
-    const files = Array.from({ length: 20 }, (_, i) => `src/mod/file${i}.ts`); // 20 > 12
+    const files = Array.from({ length: 20 }, (_, i) => `src/mod/file${i}.ts`);
     const result = assessDecompositionPlausibility([task({ files, behaviorCount: 1 })]);
     expect(result.challenged).toBe(true);
     const size = result.challenges.find((c) => c.signal === 'historical-size');
@@ -223,9 +214,11 @@ describe('assessDecompositionPlausibility', () => {
     expect(size?.observed).toBe(20);
   });
 
+  /**
+   * A repository with large historical tasks raises the file-count bound, so the same 20-file
+   * task gets no challenge.
+   */
   it('Assess_OversizedTask_NotChallengedUnderCalibratedBaseline', () => {
-    // The historical-size signal is calibrated: a repo whose historical tasks
-    // are large raises the bar, so the same 20-file task is NOT flagged.
     const files = Array.from({ length: 20 }, (_, i) => `src/mod/file${i}.ts`);
     const baseline: PlausibilityBaseline = deriveBaseline({
       fileCounts: [10, 12, 14, 16, 18, 20, 22, 24, 26, 40],
@@ -237,11 +230,11 @@ describe('assessDecompositionPlausibility', () => {
     expect(result.challenges.some((c) => c.signal === 'historical-size')).toBe(false);
   });
 
-  // ── Plan-level uniformity signals (exit-proof a) ──
-
+  /**
+   * Forty-eight tasks that are all low risk and touch no boundary get a challenge on both
+   * uniformity signals.
+   */
   it('Assess_48TasksUniformLowNoBoundary_ChallengesRiskAndBoundary', () => {
-    // Exit-proof (a): 48 tasks uniformly low-risk / no-boundary → structured
-    // challenge on BOTH uniformity signals.
     const result = assessDecompositionPlausibility(uniformFleet(48, 'low', false));
     expect(result.challenged).toBe(true);
     const signals = result.challenges.map((c) => c.signal);
@@ -252,26 +245,25 @@ describe('assessDecompositionPlausibility', () => {
     expect(risk?.observed).toBe(48);
   });
 
+  /** A 3-task plan is below the uniformity threshold of 10, so all of its tasks can be low risk. */
   it('Assess_SmallUniformLowPlan_NotChallenged', () => {
-    // Below the uniformity threshold: a 3-task plan legitimately can be all-low.
     const result = assessDecompositionPlausibility(uniformFleet(3, 'low', false));
     expect(result.challenges.some((c) => c.signal === 'risk-uniformity')).toBe(false);
     expect(result.challenges.some((c) => c.signal === 'boundary-uniformity')).toBe(false);
   });
 
+  /**
+   * An all-high plan is conservative, because a risk that is too high fails safe. Only an all-low
+   * plan gets a risk challenge, and an all-true boundary stamp gets no boundary challenge.
+   */
   it('Assess_LargeUniformHighPlan_RiskNotChallenged', () => {
-    // Blanket HIGH is conservative (over-calling risk fails safe) — only the
-    // blanket-LOW under-call is challenged. Boundary=true is not the blanket
-    // "nothing touches a boundary" pattern either.
     const result = assessDecompositionPlausibility(uniformFleet(48, 'high', true));
     expect(result.challenges.some((c) => c.signal === 'risk-uniformity')).toBe(false);
     expect(result.challenges.some((c) => c.signal === 'boundary-uniformity')).toBe(false);
   });
 
-  // ── Plausible decomposition (exit-proof c) ──
-
+  /** A plan of small tasks with mixed risk tiers and mixed boundary stamps gets no challenge. */
   it('Assess_PlausibleMixedDecomposition_NoChallenge', () => {
-    // Exit-proof (c): a well-decomposed, mixed-risk plan produces no challenge.
     const tiers = ['low', 'medium', 'high'] as const;
     const tasks = Array.from({ length: 12 }, (_, i) =>
       task({
@@ -279,7 +271,7 @@ describe('assessDecompositionPlausibility', () => {
         files: [`src/mod${i}/file.ts`, `src/mod${i}/file.test.ts`],
         behaviorCount: 2,
         riskTier: tiers[i % 3],
-        boundaryTouching: i % 4 === 0, // some true, some false
+        boundaryTouching: i % 4 === 0,
       }),
     );
     const result = assessDecompositionPlausibility(tasks);
@@ -287,12 +279,9 @@ describe('assessDecompositionPlausibility', () => {
     expect(result.challenges).toHaveLength(0);
   });
 
-  // ── Override rationale (exit-proof d) ──
-
+  /** A non-empty rationale suppresses that one challenge and records it in `overridden` for audit. */
   it('Assess_TaskOverrideWithRationale_SuppressesChallenge', () => {
-    // Exit-proof (d): an explicit non-empty rationale suppresses the specific
-    // challenge but records it in `overridden` for auditability.
-    const files = ['a/1.ts', 'b/2.ts', 'c/3.ts', 'd/4.ts', 'e/5.ts']; // breadth 5
+    const files = ['a/1.ts', 'b/2.ts', 'c/3.ts', 'd/4.ts', 'e/5.ts'];
     const result = assessDecompositionPlausibility([
       task({ files, overrides: { breadth: 'cross-cutting rename touches every module' } }),
     ]);
@@ -305,16 +294,17 @@ describe('assessDecompositionPlausibility', () => {
 
   it('Assess_TaskOverrideMissing_DoesNotSuppress', () => {
     const files = ['a/1.ts', 'b/2.ts', 'c/3.ts', 'd/4.ts', 'e/5.ts'];
-    const result = assessDecompositionPlausibility([task({ files })]); // no overrides
+    const result = assessDecompositionPlausibility([task({ files })]);
     expect(result.challenged).toBe(true);
     expect(result.challenges.some((c) => c.signal === 'breadth')).toBe(true);
     expect(result.overridden).toHaveLength(0);
   });
 
+  /** A rationale of only whitespace counts as empty. */
   it('Assess_TaskOverrideEmptyRationale_DoesNotSuppress', () => {
     const files = ['a/1.ts', 'b/2.ts', 'c/3.ts', 'd/4.ts', 'e/5.ts'];
     const result = assessDecompositionPlausibility([
-      task({ files, overrides: { breadth: '   ' } }), // whitespace-only
+      task({ files, overrides: { breadth: '   ' } }),
     ]);
     expect(result.challenged).toBe(true);
     expect(result.challenges.some((c) => c.signal === 'breadth')).toBe(true);
@@ -335,9 +325,8 @@ describe('assessDecompositionPlausibility', () => {
     ]);
   });
 
+  /** An override applies to one signal, so a risk-uniformity override keeps the boundary-uniformity challenge. */
   it('Assess_PlanOverrideOnlyRisk_BoundaryStillChallenged', () => {
-    // An override is per-signal: overriding risk-uniformity does NOT suppress
-    // the independent boundary-uniformity challenge.
     const result = assessDecompositionPlausibility(uniformFleet(48, 'low', false), {
       planOverrides: { 'risk-uniformity': 'mechanical copy edits' },
     });

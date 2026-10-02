@@ -1,25 +1,15 @@
 /**
- * Tests for the `onboard --new <name>` greenfield scaffold (DR-3, task 016).
+ * Tests for the `onboard --new <name>` greenfield scaffold.
  *
- * DR-3's contract is a *single pipeline*: `--new` is the ONLY difference between
- * greenfield and adopt. The greenfield path seeds the salvageable initial
- * scaffold (dir + `.exarchos.yml` seed + `.gitignore`) into a FRESH `<name>/`,
- * then runs the IDENTICAL DR-2 detect→config→generate→install→verify pipeline
- * against that dir. There is exactly ONE scaffolding/pipeline code path.
+ * Greenfield and adopt share one pipeline. `--new` seeds a fresh `<name>/` with the scaffold,
+ * then runs the adopt pipeline against it.
  *
- * The suite proves three properties:
- *   - `OnboardNew_Greenfield_ByteEquivalentToAdopt` — `--new foo` produces a repo
- *     equivalent (modulo timestamps) to running `onboard` inside an
- *     equivalently-seeded empty `foo/`. This is the single-path proof: both
- *     invocations drive the same `handleOnboard` body, so their normalized
- *     `ToolResult`s match.
- *   - `OnboardNew_ExistingNonEmptyDir_RefusesCleanly` — a non-empty target dir is
- *     refused with a clear error and NOTHING is written (DR-10 edge case).
- *   - `OnboardNew_EmitsOnboardNewTrigger` — the greenfield run emits
- *     `onboard.requested` carrying `trigger: 'onboard-new'`.
- *
- * The scaffold helper (`scaffoldNewRepo`) is also unit-tested directly with
- * injected fs hooks so the refuse/seed behavior is verified without disk.
+ * The suite checks three properties:
+ *   - `OnboardNew_Greenfield_ByteEquivalentToAdopt`: `--new foo` gives the same result as `onboard`
+ *     inside an equally seeded empty `foo/`, apart from timestamps, paths and the `greenfield` flag.
+ *   - `OnboardNew_ExistingNonEmptyDir_RefusesCleanly`: the handler refuses a non-empty target and writes nothing.
+ *   - `OnboardNew_EmitsOnboardNewTrigger`: `onboard.requested` carries `trigger: 'onboard-new'`.
+ * Tests with injected fs hooks also check `scaffoldNewRepo` without disk access.
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -38,8 +28,6 @@ import { normalize as harnessNormalize } from '../../parity-harness.js';
 import { handleOnboard, type HandleOnboardArgs, type OnboardDeps } from '../../../../src/verbs/onboard/index.js';
 import { scaffoldNewRepo, type ScaffoldNewDeps } from '../../../../src/verbs/onboard/new.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
-
-// ─── Fixtures ────────────────────────────────────────────────────────────────
 
 interface Fixture {
   /** The cwd the greenfield run resolves `<name>` against (the parent dir). */
@@ -83,14 +71,13 @@ const GREEN: CheckResult = {
   durationMs: 0,
 };
 
-/** Build injected onboard deps targeting `repoRoot`. */
+/** Builds injected onboard deps for `repoRoot`. The seeder is deterministic, so the config step gives the same result in both arms. */
 function makeDeps(repoRoot: string, overrides?: Partial<OnboardDeps>): OnboardDeps {
   return {
     repoRoot,
     writerDeps: writerDepsFor(repoRoot),
     writers: [],
     runDoctorChecks: async () => [GREEN],
-    // Deterministic seeder so the config step is reproducible across arms.
     seed: () => ({ wrote: true, path: path.join(repoRoot, '.exarchos.yml') }),
     installStep: vi.fn().mockResolvedValue(undefined),
     installHook: vi.fn().mockResolvedValue(undefined),
@@ -106,10 +93,9 @@ async function onboardEvents(fx: Fixture): Promise<string[]> {
 }
 
 /**
- * Normalize a `ToolResult` so two independent runs compare equal — strip the
- * wall-clock `durationMs` and per-dispatch `_meta`/`_perf`. The greenfield-vs-
- * adopt comparison ALSO normalizes the absolute repo path so the two distinct
- * temp dirs don't make otherwise-equivalent results diverge.
+ * Normalizes a `ToolResult` so that two separate runs compare equal.
+ * It replaces timestamps, UUIDs and `durationMs` with placeholders, and drops `_meta` and `_perf`.
+ * It also replaces the absolute repo root with `<REPO>`, because the two arms use different temporary directories.
  */
 function normalizeResult(value: unknown, repoRoot: string): unknown {
   const normalized = harnessNormalize(value, {
@@ -118,14 +104,11 @@ function normalizeResult(value: unknown, repoRoot: string): unknown {
     keyPlaceholders: { durationMs: '<MS>' },
     dropKeys: new Set(['_perf', '_meta']),
   });
-  // Replace the absolute repo root with a stable placeholder so the two arms'
-  // distinct temp dirs don't diverge (the SHAPE is what the single-path proof
-  // compares, not the path literal).
   const json = JSON.stringify(normalized).split(repoRoot).join('<REPO>');
   return JSON.parse(json);
 }
 
-/** Snapshot a repo's seeded layout: sorted entries + the `.exarchos.yml` body. */
+/** Snapshots the seeded layout of a repo: the sorted entries and the `.gitignore` body. */
 async function repoSnapshot(repoRoot: string): Promise<{ entries: string[]; gitignore: string }> {
   const entries = (await readdir(repoRoot)).sort();
   let gitignore = '';
@@ -135,9 +118,11 @@ async function repoSnapshot(repoRoot: string): Promise<{ entries: string[]; giti
   return { entries, gitignore };
 }
 
-// ─── Tests ───────────────────────────────────────────────────────────────────
-
 describe('scaffoldNewRepo (DR-3 — greenfield scaffold helper)', () => {
+  /**
+   * For an empty directory, the config resolver finds nothing, and the `.exarchos.yml` seed can skip the write.
+   * Thus the test checks only the directory and the `.gitignore`.
+   */
   it('seeds a fresh dir with .exarchos.yml + .gitignore', async () => {
     const fx = await createFixture('scaffold-seed-');
     try {
@@ -153,9 +138,6 @@ describe('scaffoldNewRepo (DR-3 — greenfield scaffold helper)', () => {
 
       const entries = (await readdir(repoRoot)).sort();
       expect(entries).toContain('.gitignore');
-      // `.exarchos.yml` is seeded for a Node-detected repo; for an empty dir the
-      // resolver finds nothing, so the seed may no-op — the .gitignore is the
-      // guaranteed salvageable artifact. The dir itself must exist.
       const gitignore = await readFile(path.join(repoRoot, '.gitignore'), 'utf8');
       expect(gitignore).toContain('.claude/settings.local.json');
     } finally {
@@ -166,7 +148,6 @@ describe('scaffoldNewRepo (DR-3 — greenfield scaffold helper)', () => {
   it('OnboardNew_ExistingNonEmptyDir_RefusesCleanly', async () => {
     const fx = await createFixture('scaffold-refuse-');
     try {
-      // Pre-create a NON-EMPTY target dir.
       const target = path.join(fx.parentDir, 'occupied');
       await mkdir(target, { recursive: true });
       await writeFile(path.join(target, 'README.md'), '# existing\n', 'utf8');
@@ -179,7 +160,6 @@ describe('scaffoldNewRepo (DR-3 — greenfield scaffold helper)', () => {
       expect(result.error.code).toBe('ONBOARD_NEW_TARGET_NONEMPTY');
       expect(result.error.message).toMatch(/occupied/);
 
-      // NOTHING was written: the dir is byte-for-byte what it was.
       const after = (await readdir(target)).sort();
       expect(after).toEqual(before);
       expect(after).not.toContain('.gitignore');
@@ -189,11 +169,12 @@ describe('scaffoldNewRepo (DR-3 — greenfield scaffold helper)', () => {
     }
   });
 
+  /** The target exists as a non-empty directory, so the scaffold refuses and writes nothing. */
   it('refuses cleanly with injected fs hooks (no disk)', () => {
     const writes: string[] = [];
     const deps: ScaffoldNewDeps = {
-      isNonEmptyDir: () => true, // target exists + non-empty
-      targetExistsAsFile: () => false, // exists as a dir, not a file
+      isNonEmptyDir: () => true,
+      targetExistsAsFile: () => false,
       mkdir: () => {
         throw new Error('mkdir must not run when refusing');
       },
@@ -209,13 +190,14 @@ describe('scaffoldNewRepo (DR-3 — greenfield scaffold helper)', () => {
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error('expected refusal');
     expect(result.error.code).toBe('ONBOARD_NEW_TARGET_NONEMPTY');
-    expect(writes).toHaveLength(0); // wrote nothing
+    expect(writes).toHaveLength(0);
   });
 
+  /**
+   * `--new` takes a bare project name. A traversal, an absolute path or a separator can escape `parentDir`.
+   * The scaffold refuses such a name before any fs probe or write. The trap deps throw if a call reaches them.
+   */
   it('OnboardNew_PathLikeName_RefusesBeforeAnyFsAccess', () => {
-    // `--new` takes a bare project NAME. A traversal / absolute / separator'd
-    // value could escape parentDir, so it is rejected BEFORE any fs probe or
-    // write — proven by deps that throw if touched.
     const trap: ScaffoldNewDeps = {
       isNonEmptyDir: () => {
         throw new Error('must not probe on an invalid name');
@@ -242,22 +224,23 @@ describe('scaffoldNewRepo (DR-3 — greenfield scaffold helper)', () => {
     }
   });
 
+  /**
+   * A file at the target path gives a structured refusal, not an ENOTDIR crash from the non-empty probe.
+   * The file stays the same, with no partial scaffold.
+   */
   it('OnboardNew_TargetIsAFile_RefusesNotDirectory', async () => {
     const fx = await createFixture('scaffold-file-');
     try {
-      // A NON-directory already occupies the resolved target path.
       const target = path.join(fx.parentDir, 'occupied-file');
       await writeFile(target, 'i am a file\n', 'utf8');
       const before = await readFile(target, 'utf8');
 
       const result = scaffoldNewRepo('occupied-file', fx.parentDir);
 
-      // A structured refusal — NOT an ENOTDIR crash from the non-empty probe.
       expect(result.ok).toBe(false);
       if (result.ok) throw new Error('expected refusal');
       expect(result.error.code).toBe('ONBOARD_NEW_TARGET_NOT_DIRECTORY');
 
-      // The file is untouched (no partial scaffold).
       expect(await readFile(target, 'utf8')).toBe(before);
     } finally {
       await cleanup(fx);
@@ -266,18 +249,18 @@ describe('scaffoldNewRepo (DR-3 — greenfield scaffold helper)', () => {
 });
 
 describe('handleOnboard --new (DR-3 — greenfield single pipeline)', () => {
+  /**
+   * Arm A runs `onboard --new foo`. The test injects `scaffold` to control where the new repo lands,
+   * and the handler points the deps at the scaffolded directory.
+   * Arm B seeds an empty `foo/` with the same scaffold, then runs plain `onboard` against it.
+   * The layouts and the normalized results must match. The only difference is the `greenfield` flag.
+   */
   it('OnboardNew_Greenfield_ByteEquivalentToAdopt', async () => {
-    // ARM A: `onboard --new foo` — scaffold-then-pipeline through ONE path.
     const fxNew = await createFixture('greenfield-new-');
-    // ARM B: `onboard` run inside an equivalently-seeded empty `foo/`.
     const fxAdopt = await createFixture('greenfield-adopt-');
     try {
-      // ── ARM A: greenfield. The handler scaffolds `<parent>/foo` then runs the
-      // identical pipeline against it. `scaffold` is injected so the test
-      // controls WHERE the new repo lands; production uses the real fs default.
       const newRepoRoot = path.join(fxNew.parentDir, 'foo');
       const depsNew = makeDeps(fxNew.parentDir, {
-        // For greenfield the handler retargets these to the scaffolded dir.
         scaffold: (name) => scaffoldNewRepo(name, fxNew.parentDir),
       });
       const argsNew: HandleOnboardArgs = { surface: 'cli', new: 'foo', format: 'json' };
@@ -285,8 +268,6 @@ describe('handleOnboard --new (DR-3 — greenfield single pipeline)', () => {
       expect(resultNew.success).toBe(true);
       const snapNew = await repoSnapshot(newRepoRoot);
 
-      // ── ARM B: adopt. Equivalently seed an empty `foo/` ourselves, then run
-      // plain `onboard` against it (no `--new`).
       const adoptRepoRoot = path.join(fxAdopt.parentDir, 'foo');
       const seeded = scaffoldNewRepo('foo', fxAdopt.parentDir);
       expect(seeded.ok).toBe(true);
@@ -296,14 +277,9 @@ describe('handleOnboard --new (DR-3 — greenfield single pipeline)', () => {
       expect(resultAdopt.success).toBe(true);
       const snapAdopt = await repoSnapshot(adoptRepoRoot);
 
-      // ── Byte-equivalence (modulo timestamps + the absolute repo path).
-      // The seeded layouts match.
       expect(snapNew.entries).toEqual(snapAdopt.entries);
       expect(snapNew.gitignore).toEqual(snapAdopt.gitignore);
 
-      // The pipeline RESULTS match, modulo the greenfield flag + durations +
-      // repo path. Strip the one field DR-3 says MUST differ (`greenfield`) and
-      // assert the rest is identical — the single-path proof.
       const stripGreenfield = (r: unknown, repoRoot: string): unknown => {
         const n = normalizeResult(r, repoRoot) as { data?: Record<string, unknown> };
         if (n.data && typeof n.data === 'object') {
@@ -316,7 +292,6 @@ describe('handleOnboard --new (DR-3 — greenfield single pipeline)', () => {
         stripGreenfield(resultAdopt, adoptRepoRoot),
       );
 
-      // The ONLY shape difference: greenfield is flagged on the `--new` arm.
       const dataNew = resultNew.data as { greenfield: boolean };
       const dataAdopt = resultAdopt.data as { greenfield: boolean };
       expect(dataNew.greenfield).toBe(true);
@@ -327,10 +302,13 @@ describe('handleOnboard --new (DR-3 — greenfield single pipeline)', () => {
     }
   });
 
+  /**
+   * The handler refuses a non-empty target before the pipeline runs. The seed spy gets no call,
+   * no event goes to the onboard stream, and the target stays the same.
+   */
   it('OnboardNew_ExistingNonEmptyDir_RefusesCleanly', async () => {
     const fx = await createFixture('handler-refuse-');
     try {
-      // Pre-create a non-empty target.
       const target = path.join(fx.parentDir, 'taken');
       await mkdir(target, { recursive: true });
       await writeFile(path.join(target, 'keep.txt'), 'data\n', 'utf8');
@@ -338,7 +316,6 @@ describe('handleOnboard --new (DR-3 — greenfield single pipeline)', () => {
 
       const deps = makeDeps(fx.parentDir, {
         scaffold: (name) => scaffoldNewRepo(name, fx.parentDir),
-        // If the pipeline ran, this spy would fire — it must NOT.
         seed: vi.fn(() => ({ wrote: true, path: path.join(target, '.exarchos.yml') })),
       });
       const result = await handleOnboard(
@@ -347,16 +324,13 @@ describe('handleOnboard --new (DR-3 — greenfield single pipeline)', () => {
         deps,
       );
 
-      // Refused with a clear error; the pipeline never ran.
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('ONBOARD_NEW_TARGET_NONEMPTY');
       expect(deps.seed).not.toHaveBeenCalled();
 
-      // No events emitted — the run never reached the two-event split.
       const types = await onboardEvents(fx);
       expect(types).toHaveLength(0);
 
-      // The target dir is untouched.
       const after = (await readdir(target)).sort();
       expect(after).toEqual(before);
     } finally {
@@ -364,6 +338,7 @@ describe('handleOnboard --new (DR-3 — greenfield single pipeline)', () => {
     }
   });
 
+  /** The greenfield run emits `onboard.requested` with `trigger: 'onboard-new'`. */
   it('OnboardNew_EmitsOnboardNewTrigger', async () => {
     const fx = await createFixture('trigger-');
     try {
@@ -377,8 +352,6 @@ describe('handleOnboard --new (DR-3 — greenfield single pipeline)', () => {
       );
       expect(result.success).toBe(true);
 
-      // The two-event split landed, and `onboard.requested` carries the
-      // greenfield trigger.
       const events = await fx.eventStore.query(ONBOARD_STREAM_ID);
       const requested = events.find((e) => e.type === 'onboard.requested');
       expect(requested).toBeDefined();

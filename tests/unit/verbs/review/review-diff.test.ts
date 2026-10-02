@@ -15,10 +15,9 @@ vi.mock('node:fs', () => ({
 import { handleReviewDiff, REVIEW_DIFF_CAPS } from '../../../../src/verbs/review/review-diff.js';
 
 /**
- * Build a synthetic unified diff with `files` files × `hunksPerFile` hunks.
- * When `uniqueMarkers` is true, each hunk's added line carries a globally
- * unique marker (`HUNK_MARKER_<i>`) so a test can count how many times any
- * single hunk's text appears across the whole response.
+ * Builds a synthetic unified diff with `files` files and `hunksPerFile` hunks in each file.
+ * With `uniqueMarkers`, the added line of each hunk carries a unique marker such as `<HUNK_MARKER_1>`.
+ * The angle brackets stop one marker from matching inside another, so a test can count each hunk in the response.
  */
 function makeLargeDiff(
   files: number,
@@ -36,8 +35,6 @@ function makeLargeDiff(
     diffParts.push(`diff --git a/${file} b/${file}`, `--- a/${file}`, `+++ b/${file}`);
     for (let h = 0; h < hunksPerFile; h++) {
       const line = 1 + h * 20;
-      // Angle-bracket boundaries so `<HUNK_MARKER_1>` is not a substring of
-      // `<HUNK_MARKER_10>` — the occurrence-count assertion relies on this.
       const marker = uniqueMarkers ? `<HUNK_MARKER_${hunkIndex}>` : `ADDED_${f}_${h}`;
       markers.push(marker);
       diffParts.push(
@@ -58,15 +55,18 @@ function makeLargeDiff(
   };
 }
 
-/** Wire up mocks for a successful review_diff over the given fixture. */
+/**
+ * Mocks a successful `review_diff` over `fixture`. The git calls come in this order: `rev-parse --git-dir`,
+ * `branch --show-current`, then `diff` with `--stat`, `--name-only` and `--unified=3`.
+ */
 function mockDiff(fixture: { diff: string; stat: string; nameOnly: string }): void {
   vi.mocked(fs.statSync).mockReturnValue({ isDirectory: () => true } as unknown as fs.Stats);
   vi.mocked(execFileSync)
-    .mockReturnValueOnce('.git\n') // rev-parse --git-dir
-    .mockReturnValueOnce('feature/big\n') // branch --show-current
-    .mockReturnValueOnce(fixture.stat) // diff --stat
-    .mockReturnValueOnce(fixture.nameOnly) // diff --name-only
-    .mockReturnValueOnce(fixture.diff); // diff --unified=3
+    .mockReturnValueOnce('.git\n')
+    .mockReturnValueOnce('feature/big\n')
+    .mockReturnValueOnce(fixture.stat)
+    .mockReturnValueOnce(fixture.nameOnly)
+    .mockReturnValueOnce(fixture.diff);
 }
 
 describe('handleReviewDiff', () => {
@@ -76,19 +76,18 @@ describe('handleReviewDiff', () => {
     vi.restoreAllMocks();
   });
 
+  /**
+   * The mocks answer the git calls in order, and each `diff` call uses the three-dot range against the base.
+   * The raw diff appears only in `data.diff`, and the report does not embed it.
+   */
   it('handleReviewDiff_ValidWorktree_ReturnsFormattedDiff', async () => {
     vi.mocked(fs.statSync).mockReturnValue({ isDirectory: () => true } as unknown as fs.Stats);
 
-    // git rev-parse --git-dir (verify git repo)
     vi.mocked(execFileSync)
       .mockReturnValueOnce('.git\n')
-      // git branch --show-current
       .mockReturnValueOnce('feature/my-branch\n')
-      // git diff ...HEAD --stat (three-dot stat)
       .mockReturnValueOnce(' src/foo.ts | 10 ++++\n src/bar.ts | 5 ++---\n 2 files changed, 7 insertions(+), 3 deletions(-)\n')
-      // git diff ...HEAD --name-only (three-dot name-only)
       .mockReturnValueOnce('src/foo.ts\nsrc/bar.ts\n')
-      // git diff ...HEAD --unified=3 (three-dot unified)
       .mockReturnValueOnce('diff --git a/src/foo.ts b/src/foo.ts\n--- a/src/foo.ts\n+++ b/src/foo.ts\n@@ -1,3 +1,4 @@\n+added line\n');
 
     const result = await handleReviewDiff(
@@ -107,7 +106,6 @@ describe('handleReviewDiff', () => {
     expect(data.report).toContain('### Files Modified');
     expect(data.report).toContain('- `src/foo.ts`');
     expect(data.report).toContain('- `src/bar.ts`');
-    // The raw diff lives ONLY in data.diff — the report must not re-embed it.
     expect(data.diff).toContain('diff --git');
     expect(data.report).not.toContain('added line');
     expect(data.report).not.toContain('```diff');
@@ -161,6 +159,7 @@ describe('handleReviewDiff', () => {
     });
   });
 
+  /** When the three-dot range fails, each `diff` call falls back to the two-dot range and succeeds. */
   it('handleReviewDiff_ThreeDotFails_FallsBackToTwoDot', async () => {
     vi.mocked(fs.statSync).mockReturnValue({ isDirectory: () => true } as unknown as fs.Stats);
 
@@ -169,18 +168,14 @@ describe('handleReviewDiff', () => {
       callCount++;
       const argsArr = args as string[];
 
-      // git rev-parse --git-dir
       if (argsArr[0] === 'rev-parse') return '.git\n';
-      // git branch --show-current
       if (argsArr[0] === 'branch') return 'my-branch\n';
 
-      // For diff commands: three-dot fails, two-dot succeeds
       if (argsArr[0] === 'diff') {
         const diffSpec = argsArr[1] as string;
         if (diffSpec.includes('...')) {
           throw new Error('unknown revision');
         }
-        // Two-dot fallback succeeds
         if (argsArr.includes('--stat')) return ' file.ts | 1 +\n 1 file changed\n';
         if (argsArr.includes('--name-only')) return 'file.ts\n';
         if (argsArr.includes('--unified=3')) return 'diff content\n';
@@ -200,14 +195,15 @@ describe('handleReviewDiff', () => {
     expect(data.report).toContain('file.ts');
   });
 
+  /** Empty `diff` outputs give zero changed files and a `No changes` report. */
   it('handleReviewDiff_EmptyDiff_ReturnsNoDiff', async () => {
     vi.mocked(fs.statSync).mockReturnValue({ isDirectory: () => true } as unknown as fs.Stats);
     vi.mocked(execFileSync)
-      .mockReturnValueOnce('.git\n')      // rev-parse
-      .mockReturnValueOnce('main\n')      // branch
-      .mockReturnValueOnce('')            // stat (empty)
-      .mockReturnValueOnce('')            // name-only (empty)
-      .mockReturnValueOnce('');           // unified (empty)
+      .mockReturnValueOnce('.git\n')
+      .mockReturnValueOnce('main\n')
+      .mockReturnValueOnce('')
+      .mockReturnValueOnce('')
+      .mockReturnValueOnce('');
 
     const result = await handleReviewDiff(
       { worktreePath: '/my/worktree' },
@@ -234,7 +230,6 @@ describe('handleReviewDiff', () => {
     expect(result.success).toBe(true);
     const data = result.data as { report: string };
     expect(data.report).toContain('**Base:** main');
-    // Verify cwd was used by checking execFileSync was called with cwd: process.cwd()
     expect(execFileSync).toHaveBeenCalledWith(
       'git',
       expect.anything(),
@@ -242,9 +237,12 @@ describe('handleReviewDiff', () => {
     );
   });
 
+  /**
+   * The fixture holds 60 hunks across 6 files, each with a unique marker.
+   * No marker appears more than once in the serialized response, and the diff is still embedded.
+   */
   it('reviewDiff_LargeDiff_EmbedsEachHunkAtMostOnce', async () => {
-    // 60 hunks across 6 files, each with a globally-unique added-line marker.
-    const fixture = makeLargeDiff(6, 10, /* uniqueMarkers */ true);
+    const fixture = makeLargeDiff(6, 10, true);
     mockDiff(fixture);
 
     const result = await handleReviewDiff(
@@ -255,21 +253,22 @@ describe('handleReviewDiff', () => {
     expect(result.success).toBe(true);
     const serialized = JSON.stringify(result);
 
-    // The double-embed is gone: no hunk's unique text appears more than once
-    // anywhere in the response (data.diff + data.report combined).
     for (const marker of fixture.markers) {
       const occurrences = serialized.split(marker).length - 1;
       expect(occurrences, `marker ${marker} appeared ${occurrences} times`).toBeLessThanOrEqual(1);
     }
 
-    // Sanity: the diff is actually embedded once (not simply dropped wholesale).
     const data = result.data as { diff: string; hunksTotal: number };
     expect(data.diff).toContain(fixture.markers[0]);
     expect(data.hunksTotal).toBe(60);
   });
 
+  /**
+   * The fixture holds 600 hunks across 20 files. The embedded diff stays inside the caps.
+   * The report points to the uncapped `git diff` command and does not embed the diff.
+   * Without the cap and the single copy, the response goes far past the size ceiling.
+   */
   it('reviewDiff_LargeDiffFixture_StaysUnderBudget', async () => {
-    // A very large diff: 20 files × 30 hunks = 600 hunks.
     const fixture = makeLargeDiff(20, 30);
     mockDiff(fixture);
 
@@ -287,18 +286,14 @@ describe('handleReviewDiff', () => {
       report: string;
     };
 
-    // The embedded diff is capped to the contract's bounds.
     expect(data.hunksTotal).toBe(600);
     expect(data.truncated).toBe(true);
     expect(data.hunksReturned).toBe(REVIEW_DIFF_CAPS.maxHunks);
     expect(data.diff.length).toBeLessThanOrEqual(REVIEW_DIFF_CAPS.maxChars);
 
-    // Report carries a steering hint to the uncapped path, but not the diff.
     expect(data.report).toContain('git diff main...HEAD');
     expect(data.report).not.toContain('```diff');
 
-    // Whole-response budget: without capping + single-copy, a 600-hunk diff
-    // embedded twice blows well past this ceiling.
     const serialized = JSON.stringify(result);
     expect(serialized.length).toBeLessThan(REVIEW_DIFF_CAPS.maxChars + 10_000);
   });

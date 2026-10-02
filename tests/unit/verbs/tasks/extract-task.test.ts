@@ -1,5 +1,3 @@
-// ─── Extract Task Tests ─────────────────────────────────────────────────────
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { handleExtractTask } from '../../../../src/verbs/tasks/extract-task.js';
 import * as fs from 'node:fs';
@@ -77,7 +75,6 @@ describe('handleExtractTask', () => {
     expect(data.taskId).toBe('001');
     expect(data.taskContent).toContain('### Task 001: Set up project structure');
     expect(data.taskContent).toContain('Step 1: Initialize npm');
-    // Should NOT contain the next task
     expect(data.taskContent).not.toContain('Task 002');
   });
 
@@ -97,6 +94,7 @@ describe('handleExtractTask', () => {
     expect(data.availableTasks).toContain('A1');
   });
 
+  /** A two-hash header with no colon and a three-hash header with an alphanumeric ID both resolve to their own sections. */
   it('handles various header formats', async () => {
     const variantPlan = `# Plan
 
@@ -116,7 +114,6 @@ Next content.
 `;
     vi.mocked(fs.readFileSync).mockReturnValue(variantPlan);
 
-    // ## Task 1 (two hashes, no colon)
     const r1 = await handleExtractTask({ planPath: '/p.md', taskId: '1' }, '/tmp/state');
     expect(r1.success).toBe(true);
     const d1 = r1.data as { taskContent: string };
@@ -124,7 +121,6 @@ Next content.
     expect(d1.taskContent).toContain('Content for task 1.');
     expect(d1.taskContent).not.toContain('Task A1');
 
-    // ### Task A1: (alphanumeric ID with colon)
     const r2 = await handleExtractTask({ planPath: '/p.md', taskId: 'A1' }, '/tmp/state');
     expect(r2.success).toBe(true);
     const d2 = r2.data as { taskContent: string };
