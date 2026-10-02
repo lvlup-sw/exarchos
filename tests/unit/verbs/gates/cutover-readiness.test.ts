@@ -1,17 +1,12 @@
-// ─── #1739 — cutover promotion verb tests ────────────────────────────────────
-//
-// The load-bearing claims:
-//   * `cutover_readiness` names EVERY unmet condition individually, and
-//     reports ready only when all six hold — with no side effects;
-//   * `cutover_decide` is operator-gated (T-03: ambient dispatch authorization
-//     only — a delegated agent or contextless caller is denied before any
-//     append);
-//   * an unsatisfied gate records the `continue-shadow` rollout decision but
-//     REFUSES the enablement fact with a typed error naming the unmet
-//     conditions;
-//   * a satisfied gate appends `admission.rollout-decision`
-//     (approve-enforcement) and THEN `admission.enforcement-enabled`, linked
-//     by `rolloutDecisionId`.
+/**
+ * Tests for the cutover verbs.
+ *
+ * `cutover_readiness` names each unmet condition and reports ready only when all six hold. It appends nothing.
+ *
+ * `cutover_decide` requires the operator role. It denies a delegated agent or a contextless caller before any append.
+ * An unsatisfied gate records a `continue-shadow` rollout decision and refuses the enablement fact with a typed error.
+ * A satisfied gate appends `admission.rollout-decision` and then `admission.enforcement-enabled`, linked by `rolloutDecisionId`.
+ */
 
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -43,19 +38,6 @@ import {
   type CutoverVerbDeps,
 } from '../../../../src/verbs/gates/cutover-readiness.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
-
-// ─── Fixtures ─────────────────────────────────────────────────────────────────
-
-
-/**
- * Tests for the cutover verbs.
- *
- * `cutover_readiness` names each unmet condition and reports ready only when all six hold. It appends nothing.
- *
- * `cutover_decide` requires the operator role. It denies a delegated agent or a contextless caller before any append.
- * An unsatisfied gate records a `continue-shadow` rollout decision and refuses the enablement fact with a typed error.
- * A satisfied gate appends `admission.rollout-decision` and then `admission.enforcement-enabled`, linked by `rolloutDecisionId`.
- */
 
 const AT = '2026-07-21T20:00:00.000Z';
 const SHA_A = 'a'.repeat(64);

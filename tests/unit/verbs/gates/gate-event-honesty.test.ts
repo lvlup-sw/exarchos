@@ -1,13 +1,6 @@
-// ─── gate.executed append failure — durable evidence honesty ────────────────
-//
-// Class-level pin for the fire-and-forget repair: a gate that declares
-// `gate.executed` unconditionally must not return a success carrier when the
-// durable append did not land. Per-handler kill probes for the eleven
-// repaired gates live beside each handler's own test file; this file pins
-// the two seams the repair shares across all of them — the shared runner's
-// verdict-normalization interaction, and `requireGateEvent` itself — so the
-// repair cannot be reverted one file at a time without something naming it.
-// ────────────────────────────────────────────────────────────────────────────
+// A gate that declares `gate.executed` must not return a success carrier when
+// the durable append did not land. This file pins two seams that the gates share:
+// how the shared runner records a provider failure carrier, and `requireGateEvent`.
 
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -37,11 +30,6 @@ import {
 } from '../../../../src/verbs/gates/gate-runner.js';
 import { requireGateEvent } from '../../../../src/verbs/gates/gate-utils.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
-
-
-// A gate that declares `gate.executed` must not return a success carrier when
-// the durable append did not land. This file pins two seams that the gates share:
-// how the shared runner records a provider failure carrier, and `requireGateEvent`.
 
 const FIXED_TIME = '2026-08-28T00:00:00.000Z';
 const POLICY_DIGEST: ContentDigestV1 = { algorithm: 'sha256', value: '2'.repeat(64) };

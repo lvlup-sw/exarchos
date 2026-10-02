@@ -13422,12 +13422,6 @@ tests/unit/verbs/execute/task-completion-parity.test.ts	8cd39071088f	1
 tests/unit/verbs/execute/task-completion-parity.test.ts	8d2d33ccd830	1
 tests/unit/verbs/execute/task-completion-parity.test.ts	c15c0abc04c9	1
 tests/unit/verbs/execute/task-completion-parity.test.ts	ea6698eb2fd4	1
-tests/unit/verbs/gates/cutover-readiness.test.ts	b9473cf39c6a	1
-tests/unit/verbs/gates/cutover-readiness.test.ts	c9fbff17f6ea	1
-tests/unit/verbs/gates/gate-event-honesty.test.ts	f052382af381	1
-tests/unit/verbs/gates/gate-runner.concurrency.test.ts	668df2640a50	1
-tests/unit/verbs/init/writers/mcp-json-writer.test.ts	9e974123b2bd	1
-tests/unit/verbs/init/writers/mcp-json-writer.test.ts	fdfa09f4b9d4	1
 tests/unit/verbs/merge/execute-merge.deprecation-parity.test.ts	047878e1e8ab	1
 tests/unit/verbs/merge/execute-merge.deprecation-parity.test.ts	15a0f0d5910b	1
 tests/unit/verbs/merge/execute-merge.deprecation-parity.test.ts	190dae94cb47	1
@@ -15024,8 +15018,6 @@ tests/unit/verbs/team/worktree-baseref.test.ts	b9473cf39c6a	1
 tests/unit/verbs/team/worktree-baseref.test.ts	df54fd836106	1
 tests/unit/verbs/team/worktree-baseref.test.ts	f5a9ca978e57	1
 tests/unit/verbs/team/worktree-baseref.test.ts	fe57d1b68ce8	1
-tests/unit/verbs/template-roundtrip.test.ts	168ad6942b2b	1
-tests/unit/verbs/template-roundtrip.test.ts	1a180e42a449	1
 tests/unit/verbs/vcs/add-pr-comment.parity.test.ts	00c94b02e81a	1
 tests/unit/verbs/vcs/add-pr-comment.parity.test.ts	019ae69b511c	1
 tests/unit/verbs/vcs/add-pr-comment.parity.test.ts	04fd9dcdba3e	1

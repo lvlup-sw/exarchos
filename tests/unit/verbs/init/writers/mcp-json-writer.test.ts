@@ -1,14 +1,9 @@
 /**
- * DR-18 — the spec-named CLI/MCP config writers get the same promotion
- * guarantees the skills tree already had.
+ * Promotion tests for the CLI and MCP config writers.
  *
- * These are INTEGRATION tests: they run against a real filesystem in a real temp
- * directory, because the property under test — "an injected failure leaves the
- * config old-complete or new-complete" — is a property of renames, fsyncs and
- * journals, and an in-memory fs cannot falsify it. Faults are injected through
- * the writers' own filesystem seams (the `PromotionIo` pattern
- * `install/atomic-promotion.ts` established), never by mocking `node:fs`
- * wholesale.
+ * These integration tests use a real temporary directory. The property under test is that an injected failure leaves the config complete, old or new.
+ * Renames, fsyncs, and journals give that property, and an in-memory filesystem cannot falsify it.
+ * Faults go through the filesystem seams of the writers, never through a mock of all of `node:fs`.
  */
 
 import { describe, it, expect, afterEach } from 'vitest';
@@ -37,17 +32,6 @@ import {
 } from '../../../../../src/install/atomic-promotion.js';
 import { fsyncDir, type DirectorySyncOutcome } from '../../../../../src/utils/atomic-write.js';
 import { rmrf } from '../../../../../tools/test-helpers/temp-dir.js';
-
-// ─── Temp-dir plumbing ──────────────────────────────────────────────────────
-
-
-/**
- * Promotion tests for the CLI and MCP config writers.
- *
- * These integration tests use a real temporary directory. The property under test is that an injected failure leaves the config complete, old or new.
- * Renames, fsyncs, and journals give that property, and an in-memory filesystem cannot falsify it.
- * Faults go through the filesystem seams of the writers, never through a mock of all of `node:fs`.
- */
 
 const tempRoots: string[] = [];
 
