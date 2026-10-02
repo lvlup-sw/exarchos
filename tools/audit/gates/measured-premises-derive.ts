@@ -1,27 +1,12 @@
 /**
- * TS-side derivations for the DR-27 measured-premise checker.
+ * TypeScript derivations for the measured-premise checker.
+ * `check-measured-premises.mjs` is dependency-free Node, so it shells out to `tsx` for the values
+ * that only the live module can give. The `outputSchema` vacuity census walks the Zod schema
+ * objects, because a named binding hides a vacuous schema from a text search. `EventTypes.length`
+ * is the length of the array, not a count of lines.
  *
- * `tools/audit/gates/check-measured-premises.mjs` is deliberately dependency-free Node so
- * it can host in the zero-dep unfiltered CI lane. Two of its derivations,
- * however, are only sound if they read the LIVE MODULE rather than its source
- * text:
- *
- *   - the `outputSchema` vacuity census walks the Zod schema OBJECT, because a
- *     named binding (`WorkflowUpdateOutputSchema`) launders the source-text
- *     grep while staying exactly as vacuous. Source text cannot answer it.
- *   - `EventTypes.length` is the array's own length, not a count of lines that
- *     look like registrations.
- *
- * This entrypoint is the seam: it imports both authorities, prints a single
- * JSON object on stdout, and the `.mjs` shells out to `tsx` exactly the way
- * `check-prefix-fingerprint.mjs` already does for the rehydration fingerprint.
- * One spawn serves every TS-backed derivation.
- *
- * FAIL-CLOSED: if the census raises ANY diagnostic (an empty registry, an
- * unreadable envelope) the numbers it produced are not trustworthy, so this
- * process exits non-zero with the diagnostics on stderr rather than printing a
- * number the checker would then compare against. A derivation that reports a
- * value it cannot stand behind is the defect DR-27 exists to remove.
+ * The entrypoint prints one JSON object on stdout. When a census reports a diagnostic, it exits 1
+ * with the diagnostics on stderr and prints no number.
  */
 import { fileURLToPath } from 'node:url';
 import * as path from 'node:path';
@@ -42,33 +27,14 @@ export interface TsDerivedValues {
   readonly 'event-name-pattern-divergence': number;
 }
 
+/**
+ * Derives the live values, and throws when one of them is not trustworthy.
+ * The `EventTypes` check runs first, because the event censuses default their parameters from the event catalog.
+ * An empty catalog then names `event-types-total` and not a census diagnostic.
+ * `eventTypesTotal` is typed `number`, because `EventTypes` is `as const` and `tsc` rejects a compare of its literal length with 0.
+ * `event-name-pattern-divergence` counts the names on which `EVENT_NAME_PATTERN` and the event-name grammar disagree.
+ */
 export function deriveTsPremises(): TsDerivedValues {
-  // `event-types-total` couples to a premise document that does not exist in
-  // this tree yet: the sibling re-scope spec is the change that both creates
-  // it and arms `check-measured-premises.mjs` to scan it, by adding it to
-  // `DEFAULT_DOCUMENTS` (or annotating `.exarchos/invariants.md`, which is
-  // already in scope). Until then nothing in the repo asserts
-  // `<!-- measured: event-types-total -->N<!-- /measured -->`, so this
-  // derivation is the only place the value is bound to the live catalog —
-  // recording that binding here, against `EventTypes.length` rather than a
-  // typed number, is what keeps the eventual annotation from being able to go
-  // stale the moment the catalog grows again.
-  //
-  // Checked first and fails closed the same way the two census values below
-  // already do: a derivation that reports a number it cannot stand behind is
-  // the defect this entrypoint exists to remove, and an empty `EventTypes` —
-  // a broken import, a shadowed module, a resolution that silently returned
-  // nothing — is exactly that. `EventTypes.length` is never legitimately zero
-  // on a working tree, so refusing to emit one is the honest response. It has
-  // to run before the census calls below: both of them default their own
-  // parameters from this same `EventTypes` binding, so an emptied catalog
-  // would otherwise surface as one of THEIR diagnostics instead of naming the
-  // value that actually went stale.
-  // Widened to `number`: `EventTypes` is `as const`, so `.length` is typed as
-  // the literal count on the live tree and `tsc` (rightly) flags a literal-vs-
-  // 0 comparison as unreachable. The guard exists for the case the type system
-  // cannot see — a mocked or otherwise degenerate import — so the runtime
-  // value has to be treated as the `number` it actually is at that seam.
   const eventTypesTotal: number = EventTypes.length;
   if (eventTypesTotal === 0) {
     throw new Error(
@@ -90,9 +56,6 @@ export function deriveTsPremises(): TsDerivedValues {
     );
   }
 
-  // Same fail-closed rule, applied to G3's census (task 013). The spec asserted "25 report-coupled
-  // types" as bare prose in two places; DR-27's whole point is that a number nothing derives is an
-  // unbound claim, and this census is the artifact that derives it.
   const coupling = censusLiveReportCoupling();
 
   if (!coupling.ok) {
@@ -108,22 +71,13 @@ export function deriveTsPremises(): TsDerivedValues {
     'output-schema-substantive': census.substantiveCount,
     'event-types-total': eventTypesTotal,
     'report-coupled-events': coupling.reportCoupledCount,
-    // Task 015's measured disagreement between the two authorities that decide
-    // what an event name may be: the shipped `EVENT_NAME_PATTERN` and the DR-3
-    // grammar. Task 075 exists to collapse them; until it lands, the number is
-    // a bound premise so the spec cannot state a stale one.
     'event-name-pattern-divergence': grammar.divergent.length,
   };
 }
 
 /**
- * True only when this module is `tsx`'s entry script, following the same
- * check `check-measured-premises.mjs` already makes on itself. Without it,
- * importing this module for `deriveTsPremises` alone — the seam a unit test
- * needs to exercise the fail-closed guard above without shelling out — would
- * also run the CLI's stdout/exit side effects on every import, including the
- * `process.exit(1)` branch, which would tear down the importing process
- * rather than let a test observe the thrown error.
+ * True only when this module is the entry script of `tsx`.
+ * Without this check, a test that imports `deriveTsPremises` also runs the CLI side effects, and `process.exit(1)` stops the test process.
  */
 const invokedDirectly = (() => {
   const argv1 = process.argv[1];

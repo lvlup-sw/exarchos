@@ -1,21 +1,15 @@
 // @ts-check
 /**
- * @fileoverview Comment text, separated from code, with the position of each
- * comment.
+ * @fileoverview Extracts comment text from code, with the position of each comment.
  *
- * Two consumers need this: a CI gate that reports `file:line`, and an ESLint
- * rule that reports on a `loc`. Both are non-TypeScript, so the extractor is
- * authored once as `.mjs` and imported directly by each — a TypeScript module
- * inside the server package would have to be reimplemented in the rule, putting
- * the same classification logic in two languages.
+ * It serves a CI gate that reports `file:line` and an ESLint rule that reports
+ * on a `loc`. Both are JavaScript, so the module is `.mjs` and the logic
+ * exists in one language only.
  *
- * It PARSES rather than scanning. Driving `ts.createScanner` token by token
- * cannot resume a template literal after a `${…}` substitution, so the tail of
- * `` `${x}\n// text` `` re-enters the token stream as a comment: the extractor
- * invents prose the file does not contain. Measured on a real tree, that
- * desynchronisation under-counted comment lines by a third. With literal spans
- * known from a parse, a `/` outside them can only begin a comment — the
- * ambiguity does not arise rather than being guessed at.
+ * The module parses the file instead of a token scan. `ts.createScanner` cannot
+ * resume a template literal after a `${…}` substitution. Thus the tail of
+ * `` `${x}\n// text` `` comes back as an invented comment. With the literal spans
+ * from a parse, a `//` or `/*` outside them always starts a comment.
  */
 
 import ts from 'typescript';
@@ -30,11 +24,7 @@ export { stripMarkers };
  */
 
 /**
- * One comment, its marker-stripped prose, and where it sits.
- *
- * `line`/`column` are 1-based so they can be printed as `file:line:column`
- * without adjustment at each call site. `text` is the prose; `raw` keeps the
- * markers for a consumer that needs to reproduce the original.
+ * One comment, its prose without markers, and its position.
  *
  * @typedef {object} ExtractedComment
  * @property {string} text Marker-stripped prose, lines joined.
@@ -48,11 +38,8 @@ export { stripMarkers };
  */
 
 /**
- * Thrown when a file cannot be parsed cleanly.
- *
- * A distinct type so a gate can tell "this file is indeterminate" from "this
- * file is clean". Reporting the two the same way is how a scanner that silently
- * skips unparseable input comes to report a green tree it never read.
+ * Thrown when a file does not parse cleanly.
+ * The distinct type lets a gate tell an indeterminate file from a clean file.
  */
 export class CommentExtractionError extends Error {
   /**
@@ -89,11 +76,8 @@ function scriptKindFor(fileName) {
 }
 
 /**
- * Parse one module, refusing a RECOVERED parse.
- *
- * A partial tree silently loses literal spans, and a lost span turns code back
- * into "prose" — the exact failure this module parses to avoid. Refusing is
- * what lets a caller distinguish indeterminate from clean.
+ * Parses one module and throws on a recovered parse.
+ * A partial tree loses literal spans, and a lost span makes code look like prose.
  *
  * @param {string} source
  * @param {string} fileName
@@ -104,7 +88,7 @@ function parseOrThrow(source, fileName) {
     fileName,
     source,
     ts.ScriptTarget.Latest,
-    /* setParentNodes */ false,
+    false,
     scriptKindFor(fileName),
   );
   const raw = Reflect.get(sourceFile, 'parseDiagnostics');
@@ -121,10 +105,9 @@ function parseOrThrow(source, fileName) {
 }
 
 /**
- * Every span in the file that is literal text rather than code.
- *
- * Template expressions contribute only their TEXT parts: a `${…}` substitution
- * is code and may hold comments of its own that must still be found.
+ * Every span in the file that is literal text, not code.
+ * A template expression gives only its text parts. A `${…}` substitution is code
+ * and can hold comments of its own.
  *
  * @param {ts.SourceFile} sourceFile
  * @returns {LiteralSpan[]}

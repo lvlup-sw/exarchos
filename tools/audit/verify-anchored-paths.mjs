@@ -1,19 +1,14 @@
-// Which directory-anchored path literals do NOT resolve on disk (task 020).
+// Lists the directory-anchored path literals that do not resolve on disk.
+// It resolves each `resolve` or `join` call on a self-directory anchor, and on a root derived
+// from one, such as `const ROOT = resolve(HERE, '..')`. A root one level short still lands
+// inside the repo, so only the derived hop shows the error.
+// It strips comments first, and it skips a call with a segment that holds `${`.
 //
-// The move's four rewrite passes are mechanical, so the honest question after
-// them is not "did the codemod run" but "does every anchored path still land
-// on something". This answers that by RESOLVING each literal and stat-ing it,
-// which is the only check that cannot be fooled by a plausible-looking `'..'`
-// count.
+//   MISSING - resolves to nothing.
+//   ESCAPED - resolves above the repo root. The path still names a real directory,
+//             so the mistake shows later as a confusing ENOENT.
 //
-// It reports two failure shapes, and the second is the one that motivated the
-// whole task:
-//
-//   MISSING   — resolves to nothing. Loud, easy.
-//   ESCAPED   — resolves ABOVE the repo root. This is the dangerous one: it
-//               still names a real directory (the repo's parent, or higher),
-//               so nothing throws at the mistake. It surfaces later as a
-//               confusing ENOENT for a file that obviously exists.
+// Exit 1 when it finds a MISSING or ESCAPED path.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -27,15 +22,15 @@ const SELF_DIR_BINDING = new RegExp(
   'g',
 );
 const STRINGS = /'([^']*)'/g;
-// `const ROOT = resolve(<base>, '..', '..')` — a root derived from another anchor.
+/** Matches a root derived from another anchor: `const ROOT = resolve(<base>, '..', '..')`. */
 const DERIVED_BINDING =
   /(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:[A-Za-z_$][\w$]*\.)?(?:resolve|join)\(\s*([A-Za-z_$][\w$]*)\s*,\s*((?:'[^']*'\s*,?\s*)+)\)/g;
 
-// The same shape, but anchored on the INLINE self-dir expression instead of a
-// named binding: `const SRC_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')`.
-// Without this the binding is never recorded, so neither it NOR anything
-// derived from it is ever resolved — which is how a root three levels above
-// the repo sat in the tree reporting zero escapes.
+/**
+ * The same shape on the inline self-directory expression:
+ * `const SRC_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')`.
+ * Without it, the script resolves neither that root nor a root derived from it.
+ */
 const INLINE_DERIVED_BINDING = new RegExp(
   String.raw`(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:[A-Za-z_$][\w$]*\.)?(?:resolve|join)\(\s*${SELF_DIR_EXPR}\s*,\s*((?:'[^']*'\s*,?\s*)+)\)`,
   'g',
@@ -63,19 +58,11 @@ for (const rel of tracked) {
     continue;
   }
   const dir = path.dirname(abs);
-  // Comments discuss these idioms constantly — this very file does. Scanning
-  // them produces findings that are prose, not defects.
   src = stripComments(src);
 
-  // Every identifier that names this file's own directory, plus the inline
-  // forms and `__dirname` itself.
   const anchors = new Set(['__dirname']);
   for (const m of src.matchAll(SELF_DIR_BINDING)) anchors.add(m[1]);
 
-  // One level of indirection: `const ROOT = resolve(HERE, '..')` then
-  // `join(ROOT, 'package.json')`. This is the dominant idiom in the tree, and
-  // a root that is one hop short lands INSIDE the repo — so it is neither
-  // missing nor escaped, and only resolving the second hop reveals it.
   const derived = new Map();
   for (const [, name, args] of src.matchAll(INLINE_DERIVED_BINDING)) {
     const segs = [...args.matchAll(STRINGS)].map((s) => s[1]);
@@ -113,7 +100,6 @@ for (const rel of tracked) {
   for (const m of src.matchAll(CALL)) {
     const segs = [...m[1].matchAll(STRINGS)].map((s) => s[1]);
     if (!segs.length) continue;
-    // A path built from a variable segment cannot be checked statically.
     if (segs.some((s) => s.includes('${'))) continue;
     const resolved = path.resolve(dir, ...segs);
     const relToRoot = path.relative(ROOT, resolved);

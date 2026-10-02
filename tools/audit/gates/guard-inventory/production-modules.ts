@@ -26,7 +26,8 @@ function walkSourceFiles(repoRoot: string, dir: string, out: string[]): void {
 
 /**
  * Repo-relative paths of every non-test TypeScript module under the source roots.
- * `statSync` keeps the walk honest about symlinked roots.
+ * `statSync` keeps the walk honest about symlinked roots. The result is
+ * de-duplicated, so a nested source root does not inflate the count.
  */
 export function enumerateProductionModules(repoRoot: string = REPO_ROOT): string[] {
   const out: string[] = [];
@@ -38,25 +39,13 @@ export function enumerateProductionModules(repoRoot: string = REPO_ROOT): string
     }
     walkSourceFiles(repoRoot, root, out);
   }
-  // De-duplicated so a future nested root inflates nothing: the roots above are
-  // disjoint today, and this keeps the denominator honest if that stops holding.
   return [...new Set(out)].filter((p) => !isTestArtifact(p)).sort();
 }
 
 /**
- * Every module specifier imported (or re-exported) by a source file, PARSED —
- * static declarations AND dynamic `import('…')` calls.
- *
- * Task 061 and task 062 both had to correct scanners that matched specifiers as
- * raw text; a package named only in a comment or a template literal is not an
- * import. `ts.isImportDeclaration` cannot disagree with the compiler about what
- * an import is.
- *
- * The dynamic half is not optional. `src/index.ts` reaches
- * `adapters/mcp.ts` ONLY through `await import('.././adapters/mcp.js')` — a
- * deliberate lazy edge that keeps the MCP SDK off the CLI's cold-start path. A
- * static-only scan reports the repo's MCP adapter as having no production caller,
- * which would have put a false R-11 finding in this inventory on day one.
+ * Every module specifier that a source file imports or re-exports, read from the parsed syntax tree.
+ * It reads static declarations and dynamic `import('…')` calls. A package name in a comment or a plain string is not an import.
+ * The dynamic half is necessary, because `src/index.ts` loads the MCP adapter only through a lazy `import()`.
  */
 export function collectImportSpecifiers(source: string, fileName: string): string[] {
   const sourceFile = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true);
@@ -89,11 +78,8 @@ export function resolveRelativeSpecifier(fromFile: string, specifier: string): s
 }
 
 /**
- * Artifacts imported by at least one NON-test module.
- *
- * This is the R-11 axis and it is deliberately independent of CI reachability:
- * `resolveDispatchShape` is executed on every MCP-touching PR through its
- * co-located vitest and still has no production caller.
+ * Artifacts that at least one non-test module imports.
+ * This set is independent of CI reachability. A module can run in CI through its co-located vitest and still have no production caller.
  */
 export function productionImportedSet(repoRoot: string = REPO_ROOT): Set<string> {
   const modules = enumerateProductionModules(repoRoot);
@@ -112,7 +98,3 @@ export function productionImportedSet(repoRoot: string = REPO_ROOT): Set<string>
   }
   return imported;
 }
-
-// ─── Exemption register (the one hand-maintained input) ──────────────────────
-
-/** The finding an exemption is allowed to excuse. One entry excuses exactly one. */

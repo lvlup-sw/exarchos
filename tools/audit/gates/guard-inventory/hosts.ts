@@ -52,11 +52,8 @@ export interface ResolutionContext {
 }
 
 /**
- * Wrapper-script reach for every `run:` step in the workflow set, computed once.
- *
- * Keyed by the parsed step OBJECT rather than by a synthesized string id, so the
- * index and {@link resolveHosts} cannot disagree about which step they are
- * talking about — they iterate the same parsed documents.
+ * Wrapper-script reach for each `run:` step in the workflow set, computed once.
+ * The map key is the parsed step object, so the index and {@link resolveHosts} read the same step.
  */
 export interface ShellIndirectionIndex {
   readonly byStep: ReadonlyMap<WorkflowStep, readonly ShellExecution[]>;
@@ -64,15 +61,13 @@ export interface ShellIndirectionIndex {
   readonly runStepsWalked: number;
   /** Distinct wrapper scripts actually read. */
   readonly wrapperScriptsWalked: readonly string[];
-  /** Invocation words whose variables could not be resolved. */
+  /** Invocation words with variables that the walk cannot resolve. */
   readonly unresolvedInvocations: readonly string[];
 }
 
 /**
- * True when a step's expanded command text executes `artifact`.
- *
- * Matching is on the artifact path, tried both repo-relative and relative to the
- * step's working directory, so a step that sets one still resolves its artifact.
+ * True when the expanded command text of a step executes `artifact`.
+ * The match tries the artifact path as repo-relative and as relative to the working directory of the step.
  */
 function commandExecutes(command: string, artifact: string, workingDir: string): boolean {
   const candidates = [artifact];
@@ -83,14 +78,9 @@ function commandExecutes(command: string, artifact: string, workingDir: string):
 }
 
 /**
- * The PATH operands of a `vitest run …` tail.
- *
- * A token counts as a file operand only when it looks like a path (contains `/`
- * or carries a `.ts`/`.mts`/`.mjs` extension). Without that test, `npm run
- * test:unit` — which expands to `vitest run --project unit --project integration`
- * — reads `unit` and `integration` as file filters, and every guard whose only
- * host is the root suite resolves UNREACHABLE. That false negative is the exact
- * failure this inventory exists to prevent, so the narrower rule is deliberate.
+ * The path operands of a `vitest run …` tail.
+ * A token is a file operand only when it holds `/` or ends in a JavaScript or TypeScript extension.
+ * Without this rule, the `unit` in `--project unit` reads as a file filter, and a guard whose only host is the root suite resolves as unreachable.
  */
 export function vitestPathOperands(tail: string): string[] {
   return tail
@@ -101,17 +91,10 @@ export function vitestPathOperands(tail: string): string[] {
 }
 
 /**
- * True when a job runs the vitest suite that collects `testPath`.
- *
- * Derived from the job's own steps: an `npm run`-expanded command containing a
- * `vitest run` invocation in the package that owns the suite. `vitest bench` is
- * NOT a suite run — it collects `*.bench.ts` only — so the benchmark job must not
- * be reported as a host of every co-located test.
- *
- * A `vitest run <explicit paths>` step counts only when one of those paths is a
- * prefix of the test file; otherwise the single-file re-assert steps
- * (`npx --no-install vitest run tests/scripts/ci-topology.test.ts`) would each read as
- * running the whole suite.
+ * True when a job runs the vitest suite that collects `testPath`, from an npm-expanded `vitest run` step.
+ * `vitest bench` does not count, because it collects only `*.bench.ts`.
+ * A `--project` list must select a project of the test.
+ * A step with explicit paths counts only when one path is a prefix of the test file. Otherwise each single-file re-assert step reads as a run of the whole suite.
  */
 function jobRunsSuiteFor(
   job: WorkflowJob,
@@ -129,8 +112,6 @@ function jobRunsSuiteFor(
       if (invocation === null) continue;
       const tail = invocation[1] ?? '';
       const selectors = vitestProjectSelectors(tail);
-      // No `--project` means every project; otherwise the test must belong to a
-      // SELECTED one, or this step does not collect it.
       if (selectors.length > 0 && !membership.projects.some((project) => selectors.includes(project))) continue;
       const operands = vitestPathOperands(tail);
       if (operands.length === 0) {
@@ -146,12 +127,9 @@ function jobRunsSuiteFor(
 }
 
 /**
- * Walk every `run:` step once and record what it reaches through shell wrappers.
- *
- * Done as ONE pass over the workflow set rather than per-guard, so the
- * non-empty-denominator numbers ({@link ShellIndirectionIndex.runStepsWalked},
- * `wrapperScriptsWalked`) describe the resolver itself and not whichever guard
- * happened to be asked about last.
+ * Walk each `run:` step once and record what it reaches through shell wrappers.
+ * One pass over the workflow set makes the walk counts describe the resolver, not the last guard that was asked.
+ * The walk anchors `$GITHUB_WORKSPACE` at the checkout root, as the workflow steps do.
  */
 export function indexShellIndirection(ctx: ResolutionContext): ShellIndirectionIndex {
   const byStep = new Map<WorkflowStep, readonly ShellExecution[]>();
@@ -169,10 +147,6 @@ export function indexShellIndirection(ctx: ResolutionContext): ShellIndirectionI
         const workingDir = stepWorkingDirectory(job, step);
         const expanded = expandNpmScripts(step.run, ctx.rootPkg);
         const executions: ShellExecution[] = [];
-        // The step's own text is scanned for the wrapper scripts it launches; the
-        // wrappers' contents are what the walk then resolves.
-        // `$GITHUB_WORKSPACE` is the checkout root — the one anchor the workflow
-        // steps themselves use (`bash "$GITHUB_WORKSPACE/tools/release/npm-ci-retry.sh"`).
         const stepVars = new Map<string, string>([['GITHUB_WORKSPACE', ROOT_ANCHOR]]);
         for (const line of expanded.split('\n')) {
           for (const rawWord of shellWords(line)) {
@@ -205,7 +179,15 @@ export function indexShellIndirection(ctx: ResolutionContext): ShellIndirectionI
   };
 }
 
-/** Resolve every CI host of one guard artifact. */
+/**
+ * Resolve each CI host of one guard artifact. A job hosts the guard in three ways:
+ * - a step runs the artifact after npm-script expansion (`direct`).
+ * - a step runs a shell wrapper that runs the artifact (`direct`, with the wrapper chain in `through`).
+ * - a step runs a self-test of the artifact, or the job runs a vitest suite that collects one (`self-test`).
+ *
+ * A wrapper chain through a self-test of the guard is `self-test`, because it runs against seeded fixtures.
+ * Several matching steps swallow the exit only when each step swallows it.
+ */
 export function resolveHosts(artifact: string, ctx: ResolutionContext): GuardHost[] {
   const hosts: GuardHost[] = [];
   const selfTests = selfTestCandidates(artifact).filter((c) => ctx.exists(c));
@@ -235,16 +217,8 @@ export function resolveHosts(artifact: string, ctx: ResolutionContext): GuardHos
         });
       };
 
-      // (a) direct execution of the artifact by a step, npm chains expanded.
-      //     `directSwallowed` ANDs across matching steps: a guard run twice, once
-      //     under `|| true` and once not, is still failable.
       let directSwallowed: boolean | null = null;
-      // (b) direct execution of a co-located self-test by a step — the DR-10
-      //     `.test.sh` re-asserts that ride the unfiltered grep-gates host so a
-      //     scripts-only PR still proves the gate is failable.
       let selfTestSwallowed: boolean | null = null;
-      // (a2) INDIRECT execution: a step runs a shell wrapper that runs the guard.
-      //      Tracked separately from (a) so the chain survives into the verdict.
       const indirect = new Map<string, { through: readonly string[]; swallowed: boolean }>();
       const noteIndirect = (execution: ShellExecution, stepSwallowed: boolean): void => {
         const key = execution.through.join(' → ');
@@ -253,12 +227,6 @@ export function resolveHosts(artifact: string, ctx: ResolutionContext): GuardHos
         if (prior === undefined) indirect.set(key, { through: execution.through, swallowed });
         else indirect.set(key, { through: prior.through, swallowed: prior.swallowed && swallowed });
       };
-      /**
-       * A guard run BY ITS OWN `.test.sh` is executing against seeded fixtures, not
-       * policing the repo — so that chain stays `self-test` and cannot make an
-       * unwired gate read as wired. Collapsing this into `direct` would re-open the
-       * exact hole {@link isEnforcingHost} exists to keep shut.
-       */
       const viaFor = (through: readonly string[]): HostingVia =>
         through.some((script) => selfTests.includes(script)) ? 'self-test' : 'direct';
       for (const step of job.steps ?? []) {
@@ -266,10 +234,6 @@ export function resolveHosts(artifact: string, ctx: ResolutionContext): GuardHos
         const workingDir = stepWorkingDirectory(job, step);
         const expanded = expandNpmScripts(step.run, ctx.rootPkg);
         const swallowed = stepSwallowsExit(job, step);
-        // Self-test paths are checked FIRST: `…/x.test.sh` contains `…/x.test.`
-        // but never `…/x.mjs`, so the two matches cannot alias. Checking the
-        // artifact against a step that only names its self-test would, though —
-        // hence the explicit `.test.` exclusion below.
         if (selfTests.some((selfTest) => commandExecutes(expanded, selfTest, workingDir))) {
           selfTestSwallowed = selfTestSwallowed === null ? swallowed : selfTestSwallowed && swallowed;
         }
@@ -290,8 +254,6 @@ export function resolveHosts(artifact: string, ctx: ResolutionContext): GuardHos
       if (selfTestSwallowed !== null) record('self-test', selfTestSwallowed);
       for (const { through, swallowed } of indirect.values()) record(viaFor(through), swallowed, through);
 
-      // (c) execution through a co-located self-test collected by a vitest suite
-      //     the job runs.
       for (const selfTest of selfTests) {
         const suite = suiteForTest(selfTest, ctx.suites);
         if (suite === null) continue;
@@ -302,10 +264,3 @@ export function resolveHosts(artifact: string, ctx: ResolutionContext): GuardHos
   }
   return hosts;
 }
-
-// ─── Production reachability (the R-11 axis) ─────────────────────────────────
-
-// One entry per tree, and none nested inside another. Task 019 mapped two
-// distinct source roots onto `src` and put the dissolved package's scripts
-// under `scripts/core`, leaving a list that walked both trees twice — a
-// silently doubled denominator for the reachability ratio below.

@@ -1,26 +1,18 @@
 #!/usr/bin/env node
 /**
- * One-shot codemod: rewrite every reference to the retired flat skill source
- * root so it names the capability-grouped authoring tree instead.
+ * One-shot codemod that rewrites each reference to the flat skill source root to
+ * name the authoring tree under `content/`.
  *
- * Three rewrites, applied most-specific first so a broader pattern can never
- * consume a path a narrower one owns:
+ * The rewrites run most specific first, so a broad pattern cannot consume a path
+ * that a narrow pattern owns:
  *
  *   1. `<old-root>/<skill>`  -> `content/<domain>/skills/<skill>`
  *   2. `<old-root>/<glob>`   -> `content/` with the `skills/` segment restored
  *   3. a bare `<old-root>`   -> `content`
  *
- * Rewrite 1 is a lookup, not arithmetic: a skill's domain is known only from
- * the table below, so an unrecognized skill name is left untouched and
- * reported rather than guessed at.
- *
- * Two files this must never touch, both learned the hard way:
- *   - itself. The old root appears throughout this source, so including it in
- *     the sweep corrupts the codemod into a no-op that reads as if it worked.
- *   - a recorded baseline. An oracle is captured against the pre-move tree and
- *     is meant to be *compared* to reality through a relocation map. Editing
- *     one to agree with the new tree destroys the only evidence a move lost
- *     something.
+ * Rewrite 1 looks up the domain in `DOMAIN_OF`. An unknown skill name stays as it
+ * is and appears in the report. The codemod skips itself and each recorded
+ * baseline. An edit to a baseline destroys the evidence of a lost file.
  *
  * Usage: node tools/audit/retarget-skills-src.mjs [--apply] [paths...]
  */
@@ -91,7 +83,6 @@ for (const file of files) {
     return domain === '_shared' ? 'content/_shared' : `content/${domain}/skills/${name}`;
   });
 
-  // A wildcard standing in for the skill segment gains the `skills/` level.
   after = after
     .replaceAll(`${OLD_ROOT}/**`, 'content/**')
     .replaceAll(`${OLD_ROOT}/*`, 'content/*/skills/*')

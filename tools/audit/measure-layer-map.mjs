@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const SRC = path.join(ROOT, 'src');
 
-// target → { layer, published }. `install` is a declared NON-layer peer.
+/** The layer and display name of each target directory. `install` is a declared non-layer peer. */
 const TARGETS = {
   storage:     { layer: 'L1', name: 'Storage' },
   events:      { layer: 'L2', name: 'Event store' },

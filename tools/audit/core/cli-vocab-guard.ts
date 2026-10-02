@@ -1,35 +1,16 @@
-// tools/audit/core/cli-vocab-guard.ts
+// `cli:vocab-guard`: a CI gate against CLI vocabulary drift, the CLI sibling of
+// `npm run skills:guard`. A gate, not code review, enforces vocabulary consistency.
 //
-// `cli:vocab-guard` — mechanical CI gate against CLI vocabulary drift (T4 / #1317).
+// It walks the Commander tree that `buildCli(ctx)` builds. Flags come from each action's Zod
+// schema, from explicit `.option(...)` calls, and from registry `cli.alias` and `cli.flags`
+// aliases. The built tree is the one place where they all meet. A text grep over the source
+// gives false positives on doc comments and on the internal `format` field.
 //
-// WHY THIS EXISTS
-// ───────────────
-// Per the Trevin Chow "agent-native CLI" evaluation, section R-A / Principle 6
-// (`docs/research/2026-05-08-trevin-agent-native-cli-evaluation.md`) and
-// Cloudflare's Wrangler rebuild: cross-CLI vocabulary consistency must be
-// enforced **mechanically by a gate, not by code review** — "manually enforcing
-// consistency through reviews is Swiss cheese." This guard is the CLI sibling of
-// `npm run skills:guard` (which fails CI on skill-vocabulary drift).
+// It checks each command name, command alias and long flag against the banned set. It prints
+// every violation with its command path and canonical replacement, and returns exit 1.
 //
-// HOW IT WORKS
-// ────────────
-// It walks the *actual rendered Commander surface* produced by `buildCli(ctx)` —
-// not a hand-maintained list, and not a raw text grep over source (which
-// false-positives on doc comments and the internal `format` presentation field).
-// Exarchos flags are schema-driven: they auto-emit from each action's Zod schema
-// via `addFlagsFromSchema` in `schema-to-flags.ts`, plus explicit `.option(...)`
-// calls and registry `cli.alias` / `cli.flags` aliases. Walking the built tree is
-// the one place all of those converge into the surface an agent actually sees.
-//
-// It then checks every command name, command alias, and long flag against the
-// banned set below and exits non-zero on the first violation, printing the
-// offending token, its command path, and the canonical replacement.
-//
-// The guard is intentionally a `bun run` script (not a zero-dep node `.mjs` like
-// the `grep-gates` scripts) because resolving `buildCli` pulls in `bun:sqlite`
-// transitively — that virtual module resolves only under Bun (the compiled
-// binary's runtime) or Vitest's alias shim. Bun is already a CI dependency in the
-// MCP jobs, so `bun run scripts/cli-vocab-guard.ts` is the natural invocation.
+// It runs under Bun, because `buildCli` pulls in `bun:sqlite`. That module resolves only under
+// Bun or the Vitest alias shim.
 
 import { realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -37,17 +18,6 @@ import { fileURLToPath } from 'node:url';
 import { buildCli } from '../../../src/adapters/cli/cli.js';
 import type { DispatchContext } from '../../../src/dispatch/core/dispatch.js';
 import type { Command } from 'commander';
-
-// ─── Canonical vocabulary (R-A / Principle 6) ────────────────────────────────
-//
-// The contract these bans protect, sourced from the research doc's
-// "Cloudflare's banned-vocabulary list" table:
-//   - `get`  not `info`                      (read a single resource)
-//   - `list` not `ls`                        (enumerate resources)
-//   - `--force` not `--skip-confirmations`   (bypass a destructive prompt)
-//   - `--json` not `--format=json`           (select machine-readable output)
-// plus the obvious destructive-verb anti-aliases (`rm`/`del`/`remove`) that an
-// agent-native CLI surfaces as explicit composite actions, never as terse shells.
 
 /** A banned verb (command name or command alias) → its canonical replacement + rationale. */
 interface BannedVerb {
@@ -63,6 +33,10 @@ interface BannedFlag {
   readonly rationale: string;
 }
 
+/**
+ * Banned command names and aliases. Use `get` and not `info`, `list` and not `ls`, and one
+ * explicit destructive action in place of `rm`, `del` or `remove`.
+ */
 const BANNED_VERBS: readonly BannedVerb[] = [
   {
     token: 'info',
@@ -91,6 +65,10 @@ const BANNED_VERBS: readonly BannedVerb[] = [
   },
 ] as const;
 
+/**
+ * Banned long flags. Use `--json` and not `--format` or `--output`. Use `--force` and not a
+ * `--skip-confirmation*` or `--skip-prompt*` flag.
+ */
 const BANNED_FLAGS: readonly BannedFlag[] = [
   {
     token: '--format',
@@ -125,36 +103,16 @@ const BANNED_FLAGS: readonly BannedFlag[] = [
   },
 ] as const;
 
-// ─── Known, tracked exceptions (legacy surface debt) ──────────────────────────
-//
-// Two banned tokens are already present on the rendered surface and are woven
-// through parity contracts and pinning tests, so they cannot be excised within
-// the scope of T4 (#1317) without a sprawling CLI rewrite. They are excepted
-// here — keyed by their exact `<command-path>::<token>` so the exception is
-// surgical: any *new* `ls`/`--format` drift to a different command still fails.
-// Each exception names a follow-up so the debt is visible, not silently blessed.
-//
-//   1. `exarchos vw ls`     — pipeline action's INV-5c noun-shaped alias. The
-//      research doc (Principle 6) flags this as an intentional gray area:
-//      "`list` not `ls` — varies; ... noun-shaped per INV-5c (Aspire verbs),
-//      which is intentional." Tracked for rename to `list` as a follow-up.
-//   2. `exarchos doctor --format`, `exarchos onboard --format` — these commands
-//      auto-emit `--format <table|json>` from their handler's `format` schema
-//      field, alongside the canonical `--json`. The `format` field is load-
-//      bearing in HandleDoctorArgs/HandleOnboardArgs and their parity tests.
-//      Tracked for collapse onto `--json` as a follow-up.
-//   3. `exarchos vw export --output` — NOT debt and NOT a JSON-carrier alias.
-//      The `--output` ban targets `--output json` (output-FORMAT selection, whose
-//      canonical is `--json`); `export`'s `--output` is a DESTINATION FILE PATH
-//      (DR-6 — the zip bundle's location, default `./<featureId>-export.zip`),
-//      declared by the shared DR-8 `output` field (schema-fields.ts, which
-//      documents it as "a path, NOT a table|json format enum"). The guard keys
-//      on the token STRING and cannot see that semantic split, so the legitimate
-//      path-valued use is excepted surgically — a `--output` on any OTHER command
-//      still fails. DR-7 (task-015) promotes `export` to a TOP-LEVEL verb, so the
-//      SAME destination-path `--output` now also surfaces at `exarchos export`;
-//      that promoted path gets the identical surgical exception below (the flag's
-//      semantics are unchanged by the hoist — same action, same schema field).
+/**
+ * Banned tokens that the rendered surface keeps, keyed by `<command-path>::<token>`.
+ * The same token on any other command still fails.
+ *
+ * `vw ls` is the noun-shaped alias of the pipeline action. It is debt to rename to `list`.
+ * `doctor` and `onboard` emit `--format <table|json>` from a `format` schema field that their
+ * parity tests pin. It is debt to fold into `--json`.
+ * `vw export --output` and `export --output` take a destination file path, not an output
+ * format, so they are not debt. The guard sees only the token string.
+ */
 const KNOWN_EXCEPTIONS: ReadonlySet<string> = new Set([
   'exarchos vw ls::ls',
   'exarchos doctor::--format',
@@ -162,14 +120,11 @@ const KNOWN_EXCEPTIONS: ReadonlySet<string> = new Set([
   'exarchos orch doctor::--format',
   'exarchos orch onboard::--format',
   'exarchos vw export::--output',
-  // DR-7 top-level promotion of the same DR-6 destination-path flag.
   'exarchos export::--output',
 ]);
 
-// ─── Surface extraction ───────────────────────────────────────────────────────
-
 export interface SurfaceVerb {
-  /** Full command path, e.g. `exarchos vw ls`. */
+  /** Full command path, for example `exarchos vw ls`. */
   readonly path: string;
   /** The token under test (command name OR a single alias). */
   readonly token: string;
@@ -178,7 +133,7 @@ export interface SurfaceVerb {
 export interface SurfaceFlag {
   /** Full command path that declares the flag. */
   readonly path: string;
-  /** The long-flag token, e.g. `--format`. */
+  /** The long-flag token, for example `--format`. */
   readonly token: string;
 }
 
@@ -188,8 +143,8 @@ export interface CliSurface {
 }
 
 /**
- * Walk a built Commander program and collect every command name, command alias,
- * and long flag as `{path, token}` records. Exported for testability.
+ * Walks a built Commander program and collects each command name, command alias and long
+ * flag as a `{path, token}` record. It skips the root name, because `exarchos` is not a verb.
  */
 export function extractCliSurface(program: Command): CliSurface {
   const verbs: SurfaceVerb[] = [];
@@ -199,15 +154,12 @@ export function extractCliSurface(program: Command): CliSurface {
     const name = cmd.name();
     const path = prefix ? `${prefix} ${name}` : name;
 
-    // Command name itself (skip the program root — `exarchos` is not a verb).
     if (prefix) {
       verbs.push({ path, token: name });
     }
-    // Aliases (e.g. `wf` → `workflow`).
     for (const alias of cmd.aliases()) {
       verbs.push({ path: `${prefix} ${alias}`.trim(), token: alias });
     }
-    // Long flags.
     for (const opt of cmd.options) {
       if (opt.long) {
         flags.push({ path, token: opt.long });
@@ -222,8 +174,6 @@ export function extractCliSurface(program: Command): CliSurface {
   return { verbs, flags };
 }
 
-// ─── Violation detection ──────────────────────────────────────────────────────
-
 export interface VocabViolation {
   readonly kind: 'verb' | 'flag';
   readonly path: string;
@@ -235,10 +185,7 @@ export interface VocabViolation {
 const BANNED_VERB_MAP = new Map(BANNED_VERBS.map((b) => [b.token, b]));
 const BANNED_FLAG_MAP = new Map(BANNED_FLAGS.map((b) => [b.token, b]));
 
-/**
- * Given an extracted surface, return every banned-token violation that is not a
- * tracked exception. Pure — exported so the test can drive it directly.
- */
+/** Returns every banned token in `surface` whose `<path>::<token>` key is not in `exceptions`. */
 export function findVocabViolations(
   surface: CliSurface,
   exceptions: ReadonlySet<string> = KNOWN_EXCEPTIONS,
@@ -275,9 +222,8 @@ export function findVocabViolations(
 }
 
 /**
- * Build the live CLI surface and return its violations. Wraps `buildCli` with a
- * minimal dispatch context (no backend work happens during command-tree
- * construction). Exported so the test can assert the live tree is clean.
+ * Builds the live CLI surface and returns its violations. Command-tree construction does
+ * no backend work, so a minimal dispatch context is enough.
  */
 export function findLiveCliViolations(): VocabViolation[] {
   const ctx: DispatchContext = {
@@ -288,8 +234,6 @@ export function findLiveCliViolations(): VocabViolation[] {
   const program = buildCli(ctx);
   return findVocabViolations(extractCliSurface(program));
 }
-
-// ─── CLI entrypoint ────────────────────────────────────────────────────────────
 
 function formatViolation(v: VocabViolation): string {
   return [
@@ -318,30 +262,9 @@ export function runGuard(): number {
   return 1;
 }
 
-// THE ENTRYPOINT TAIL — and why it is not a filename comparison (task 074)
-//
-// The predicate used to be `process.argv[1].endsWith('cli-vocab-guard.ts')`,
-// which couples self-execution to the FILE'S NAME. Renaming the file — and
-// updating `cli:vocab-guard` in package.json to match, which is what a rename
-// means — leaves a CI step that still exists, still runs, still resolves, prints
-// NOTHING and exits 0. Measured: a byte-identical copy under any other name
-// produced 0 bytes on stdout, 0 bytes on stderr, exit 0.
-//
-// This guard runs under BUN, not Node, so the idiom's two halves were checked
-// against Bun rather than inferred from Node's semantics (DR-4 asked for exactly
-// that). Measured on bun 1.3.12: `process.argv[1]` is the ABSOLUTE, REALPATH'd
-// script path for an absolute invocation, a relative one, and a symlink alike,
-// and `import.meta.url` is that same path as a `file://` URL — so the comparison
-// below holds under Bun for all three. `scripts/entrypoint-predicates.selftest.test.ts`
-// re-runs that measurement rather than trusting this note. {@link canonicalPath}
-// keeps the `realpathSync` leg anyway, because Node — which the co-located test
-// and any `tsx` invocation use — reports the main module's realpath while
-// `argv[1]` keeps the link.
-
 /**
- * A canonical absolute path for comparison: symlinks resolved where possible,
- * falling back to plain resolution for a path that does not exist on disk (so
- * an exotic `argv[1]` degrades to "not the entrypoint" rather than throwing).
+ * An absolute path with symlinks resolved where possible. For a path that does not exist,
+ * it returns the plain resolved path, so an odd `argv[1]` reads as not the entry point.
  */
 function canonicalPath(candidate: string): string {
   const absolute = resolve(candidate);
@@ -352,14 +275,20 @@ function canonicalPath(candidate: string): string {
   }
 }
 
-// Only run when executed directly (not when imported by the test).
+/**
+ * True when this module is the process entry point. It compares resolved paths, not a filename,
+ * so a rename cannot leave a CI step that prints nothing and exits 0. Under Bun, `argv[1]` is the
+ * absolute realpath, and `import.meta.url` is the same path.
+ * `entrypoint-predicates.selftest.test.ts` measures this. Node keeps a symlink in `argv[1]`,
+ * so {@link canonicalPath} resolves both sides.
+ *
+ * The guard sets `process.exitCode`, because `process.exit` can cut stdout before it drains.
+ */
 const isDirectRun =
   typeof process !== 'undefined' &&
   typeof process.argv[1] === 'string' &&
   canonicalPath(process.argv[1]) === canonicalPath(fileURLToPath(import.meta.url));
 
 if (isDirectRun) {
-  // `exitCode`, never `exit(…)` — see report-coupling-ratchet-guard.ts: exiting
-  // can sever stdout before the diagnostics drain.
   process.exitCode = runGuard();
 }

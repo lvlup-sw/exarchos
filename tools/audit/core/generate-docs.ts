@@ -4,12 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { TOOL_REGISTRY } from '../../../src/registry.js';
 import type { CompositeTool } from '../../../src/registry.js';
 
-// ─── Constants ──────────────────────────────────────────────────────────────
-
-/**
- * Derives the complete set of phases from registry action metadata.
- * This avoids hardcoding phases that may drift from the registry.
- */
+/** Returns the sorted set of phases that the registry actions declare, so no phase list is hardcoded. */
 function collectPhasesFromRegistry(registry: readonly CompositeTool[]): string[] {
   const phases = new Set<string>();
   for (const composite of registry) {
@@ -21,8 +16,6 @@ function collectPhasesFromRegistry(registry: readonly CompositeTool[]): string[]
   }
   return [...phases].sort();
 }
-
-// ─── Markdown Generation ────────────────────────────────────────────────────
 
 function escapeTableCell(text: string): string {
   return text.replace(/\|/g, '\\|');
@@ -75,7 +68,6 @@ function generateActionDetails(registry: readonly CompositeTool[], allPhases: st
 }
 
 function generatePhaseMappings(registry: readonly CompositeTool[], allPhases: string[]): string {
-  // Build a map of phase -> list of "composite:action" strings
   const phaseMap = new Map<string, string[]>();
   for (const phase of allPhases) {
     phaseMap.set(phase, []);
@@ -109,8 +101,8 @@ function generatePhaseMappings(registry: readonly CompositeTool[], allPhases: st
 }
 
 /**
- * Generates Markdown documentation from the TOOL_REGISTRY.
- * Exported for testability; the script's main entrypoint writes to stdout.
+ * Renders the `TOOL_REGISTRY` as a Markdown tool reference. A direct run of this script
+ * writes it to stdout.
  */
 export function generateDocsMarkdown(): string {
   const allPhases = collectPhasesFromRegistry(TOOL_REGISTRY);
@@ -130,21 +122,9 @@ export function generateDocsMarkdown(): string {
   return sections.join('\n');
 }
 
-// ─── CLI Entrypoint ─────────────────────────────────────────────────────────
-//
-// The predicate used to be `process.argv[1].endsWith('generate-docs.ts')`, which
-// couples self-execution to the FILE'S NAME. Renaming the file — and updating
-// the `generate:docs` script to match, which is what a rename means — leaves an
-// invocation that still exists, still runs, still resolves, and writes NOTHING:
-// measured as 0 bytes on stdout, 0 on stderr, exit 0, with the empty output then
-// flowing wherever the generated reference is redirected. Comparing the RESOLVED
-// PATH of the process entrypoint against this module's own URL is rename-proof
-// by construction, because both sides move together (DR-4, task 074).
-
 /**
- * A canonical absolute path for comparison: symlinks resolved where possible,
- * falling back to plain resolution for a path that does not exist on disk (so
- * an exotic `argv[1]` degrades to "not the entrypoint" rather than throwing).
+ * Returns the absolute path with symlinks resolved. When `realpathSync` fails, it
+ * returns the plain absolute path, so an odd `argv[1]` reads as "not the entrypoint".
  */
 function canonicalPath(candidate: string): string {
   const absolute = resolve(candidate);
@@ -155,7 +135,11 @@ function canonicalPath(candidate: string): string {
   }
 }
 
-// Only run when executed directly (not imported by tests)
+/**
+ * True when this file is the process entrypoint, not an import. It compares resolved
+ * paths, not the file name. A name check fails silently after a rename: the script
+ * runs, writes nothing, and exits 0.
+ */
 const isDirectRun =
   typeof process !== 'undefined' &&
   typeof process.argv[1] === 'string' &&

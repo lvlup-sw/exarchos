@@ -31,7 +31,7 @@ export class PolicyError extends Error {
  * @property {string} pattern Regular-expression source.
  * @property {string} [flags]
  * @property {boolean} enabled
- * @property {string} [remedy] What the author should write instead.
+ * @property {string} [remedy] What to write instead.
  * @property {string} [disabledReason]
  */
 
@@ -79,10 +79,11 @@ function requireString(entry, key, where) {
 }
 
 /**
- * Validate a pattern entry and prove its source actually compiles.
+ * Validates a pattern entry and compiles its source.
  *
- * Compiling here rather than at first use means a malformed pattern fails the
- * load, not the first file that happens to reach it.
+ * A malformed pattern thus fails the load, not the first file that reaches it.
+ * An absent optional field stays absent, not `undefined`, because
+ * `exactOptionalPropertyTypes` treats the two as different types.
  *
  * @param {unknown} raw
  * @param {string} where
@@ -110,9 +111,6 @@ function readPatternEntry(raw, where) {
     pattern,
     flags,
     enabled: entry.enabled,
-    // Omitted rather than set to `undefined`: under `exactOptionalPropertyTypes`
-    // an optional property and one explicitly holding `undefined` are different
-    // types, and only the first is what "absent" means here.
     ...(typeof entry.remedy === 'string' ? { remedy: entry.remedy } : {}),
     ...(typeof entry.disabledReason === 'string'
       ? { disabledReason: entry.disabledReason }
@@ -121,11 +119,10 @@ function readPatternEntry(raw, where) {
 }
 
 /**
- * Compile a pattern entry to a fresh regular expression.
+ * Compiles a pattern entry to a fresh regular expression.
  *
- * Fresh each call on purpose: a `g`-flagged expression carries `lastIndex`
- * between uses, so a shared instance silently skips matches in whichever file
- * happens to be scanned second.
+ * A `g`-flagged expression keeps `lastIndex` between uses. A shared instance
+ * thus silently skips matches in the second file that it scans.
  *
  * @param {PatternEntry} entry
  * @returns {RegExp}

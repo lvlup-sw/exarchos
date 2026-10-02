@@ -3,11 +3,10 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { REPO_ROOT } from './paths.js';
 
+/** The aggregator job. In the CI workflow, only a job that it needs can fail a PR. */
 export const AGGREGATOR_JOB = 'ci-gate';
 /** The workflow that hosts the aggregator. */
 export const CI_WORKFLOW = '.github/workflows/ci.yml';
-
-// ─── Workflow model ──────────────────────────────────────────────────────────
 
 export interface WorkflowStep {
   readonly name?: string;
@@ -62,12 +61,13 @@ export function loadWorkflows(repoRoot: string = REPO_ROOT): LoadedWorkflow[] {
   return out.sort((a, b) => a.path.localeCompare(b.path));
 }
 
+/**
+ * The `needs` of a job as a list. The check uses `typeof`, because
+ * `Array.isArray` does not narrow a `readonly string[]` out of the union.
+ */
 export function needsList(job: WorkflowJob | undefined): string[] {
   const needs = job?.needs;
   if (needs === undefined) return [];
-  // Discriminated on `typeof`, not `Array.isArray`: the latter does not narrow a
-  // `readonly string[]` out of the union, and widening it back with an assertion
-  // would spend cast budget to work around a check that already holds.
   return typeof needs === 'string' ? [needs] : [...needs];
 }
 
@@ -106,5 +106,3 @@ export function pathFilterGlobs(workflow: Workflow): Record<string, string[]> {
   }
   return out;
 }
-
-// ─── npm-script expansion ────────────────────────────────────────────────────

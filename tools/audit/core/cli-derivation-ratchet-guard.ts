@@ -1,73 +1,14 @@
-// tools/audit/core/cli-derivation-ratchet-guard.ts
+// The executable ratchet for the CLI-derivation allowlist, and the one
+// production clock read of this mechanism.
 //
-// DR-5 / G1 — the executable CLI-derivation ALLOWLIST ratchet, and the ONE
-// place this mechanism reads the wall clock.
+// This entrypoint is separate from `cli-derivation-guard.ts`. A
+// `--ratchet-only` flag on that guard is a discoverable way to disable the
+// derivation policy from the workflow file.
 //
-// ─────────────────────────────────────────────────────────────────────────────
-// WHY THIS IS A SECOND ENTRYPOINT AND NOT A FLAG ON THE FIRST
-//
-// `cli-derivation-guard.ts` states two different verdicts about the CLI
-// composition root, and exactly one of them can be green today:
-//
-//   • THE DERIVATION POLICY — "the composition root contains no literal
-//     `.command('<name>')` call". Its live failing subject is
-//     `merge-orchestrate`, which is declared BOTH as a registry action (carrying
-//     `posture: 'shared-mutating'`) and by hand. That name is not allowlistable
-//     — `readPolicy` refuses a policy file that names it — because an earlier
-//     revision exempted it and thereby neutralized the rejection DR-5 requires.
-//     DR-5's remediation is to DELETE the hand-written call. Until that lands,
-//     `runGuard()` correctly exits 1, so it cannot be a blocking CI step.
-//
-//   • THE RATCHET — "the tolerated set may only SHRINK, every entry has an owner
-//     and an ENFORCED deadline, and nothing may be swapped in place". This is
-//     green on the landing branch, and it is what this file executes.
-//
-// Two verdicts, two exit codes, two artifacts. Folding them into one entrypoint
-// with a `--ratchet-only` flag would put a documented, discoverable way to
-// neuter the derivation policy into the workflow file — the same shape as the
-// `|| true` trap `tools/audit/gates/check-enforcer-wiring.mjs` exists to catch. Splitting
-// them also mirrors DR-4 exactly, where the census library
-// (`../src/architecture/output-schema-census.ts`) is separate from the runnable
-// gate (`./output-schema-ratchet-guard.ts`).
-//
-// ─────────────────────────────────────────────────────────────────────────────
-// WHY THE CLOCK IS READ HERE AND NOWHERE ELSE
-//
-// DR-5 requires a per-entry expiry, and an ENFORCED deadline is by definition a
-// verdict that changes with the date. That makes WHERE the clock is read a
-// design decision, not an implementation detail:
-//
-//   • Inside the library → every audit becomes time-dependent and its unit tests
-//     become date bombs. On the day the debt comes due the suite stops working,
-//     and the cheapest green is to fix the CLOCK (freeze it, stub it, widen the
-//     assertion) rather than the debt. The deadline would have taught the
-//     opposite lesson from the one it exists to teach.
-//   • Inside the unit suite → same failure, plus a developer who cannot run
-//     `vitest` locally for a reason that has nothing to do with their change.
-//   • HERE, at the gate that blocks the merge → the deadline reddens the thing a
-//     deadline should redden. `auditCliDerivationExpiry` stays a pure function
-//     of (today, entries, horizon), so the verdict is reproducible from the
-//     report this guard prints, and every assertion about it is deterministic.
-//
-// So `cli-derivation-guard.ts` contains no `new Date()` at all, and
-// {@link resolveToday} below is the single production clock read in DR-5's
-// mechanism.
-//
-// ─────────────────────────────────────────────────────────────────────────────
-// WHY THE SEAMS ARE PARAMETERS AND NOT CLI FLAGS
-//
-// {@link runRatchetGuard} takes its clock, its scan, its policy, its pin and its
-// horizon as optional arguments so the co-located self-test can pose an expired
-// waiver, a self-renewed one, a seeded eleventh entry and an in-place swap
-// without touching the live seed. It deliberately parses NO argv, for the reason
-// above.
-//
-// POLICY IS DATA, NOT PROSE IN A TEST BODY: the waived population and every
-// deadline live in `./cli-derivation-allowlist.json`; the horizon and the seed
-// digest live in `./cli-derivation-seed-pin.ts`. This module reads them and
-// exits non-zero. It decides nothing.
-//
-// Implements: DR-5 (task 023).
+// The clock is read here and not in the library. Thus the expiry audit stays a
+// pure function, and its unit tests do not fail on a calendar date. The day rule
+// comes from `waiver-ledger.ts`, which reaches no `bun:sqlite`. Thus this guard
+// still runs under plain node, and a conformance test asserts it.
 
 import {
   ALLOWLIST_PATH,
@@ -80,11 +21,6 @@ import {
   type CliDerivationPolicy,
   type DerivationScan,
 } from './cli-derivation-guard.js';
-// DR-6: the clock read below is the ledger's day rule, not a third statement of
-// it. `waiver-ledger.ts` imports NOTHING, so taking it here costs this guard
-// none of the load-bearing property that made task 023 decline to extract in the
-// first place — it still reaches no `bun:sqlite` and still runs under plain
-// node. That property is asserted, not assumed; see the co-located self-test.
 import { realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -96,9 +32,8 @@ import {
 } from './cli-derivation-seed-pin.js';
 
 /**
- * The live artifacts this guard governs, named once so the self-test can assert
- * that the production defaults really are these values rather than a stub. A
- * guard proven only through its injected seams has been proven about the seams.
+ * The live artifacts this guard governs. The self-test asserts that the
+ * production defaults are these values and not a stub.
  */
 export const LIVE_SUBJECT = Object.freeze({
   allowlistPath: ALLOWLIST_PATH,
@@ -106,9 +41,12 @@ export const LIVE_SUBJECT = Object.freeze({
   pinnedDigest: CLI_DERIVATION_SEED_KEY_SET_DIGEST,
 });
 
-/** Every input {@link runRatchetGuard} will accept. Absent fields resolve to the live artifact. */
+/**
+ * The inputs of {@link runRatchetGuard}. An absent field resolves to the live
+ * artifact. The self-test injects them, because the guard reads no argv.
+ */
 export interface RatchetGuardOptions {
-  /** ISO `YYYY-MM-DD`. Defaults to {@link resolveToday} — the only clock read. */
+  /** ISO `YYYY-MM-DD`. The default is {@link resolveToday}. */
   readonly today?: string;
   readonly scan?: DerivationScan;
   readonly policy?: CliDerivationPolicy;
@@ -119,34 +57,27 @@ export interface RatchetGuardOptions {
 }
 
 /**
- * The current UTC calendar day. The single production clock read in DR-5's
- * mechanism; everything downstream is a pure function of its result.
+ * The current UTC calendar day. This is the one production clock read of the
+ * ratchet. All later steps are pure functions of its result.
  */
 export function resolveToday(now: Date = new Date()): string {
   return isoDayUtc(now);
 }
 
 /**
- * Run all three teeth and return a process exit code.
+ * Runs the membership, seed-integrity and expiry audits, and returns an exit
+ * code. The code is `0` when the ratchet is clean and `1` for one or more
+ * findings. The report names each finding with its repair.
  *
- * `0` — the ratchet is clean: every hand-written literal except the kill fixture
- * is tracked, every tracked name is still a live literal, the seed key set
- * hashes to its pin, and no waiver is malformed, self-renewed or past due.
- *
- * `1` — at least one finding. The report names every one, with the legal repair
- * for each, because "the gate is red" without the repair is how a ratchet turns
- * into a thing people delete.
+ * The scan and the policy read throw on a moved composition root or a bad
+ * policy file. This function catches nothing, so a broken gate cannot report a
+ * pass.
  */
 export function runRatchetGuard(options: RatchetGuardOptions = {}): number {
   const out = options.stdout ?? ((chunk: string): void => void process.stdout.write(chunk));
   const err = options.stderr ?? ((chunk: string): void => void process.stderr.write(chunk));
 
   const today = options.today ?? resolveToday();
-  // `scanGovernedSources` and `readPolicy` both fail CLOSED — a moved
-  // composition root, a zero-site parse, a missing or mis-shaped policy file and
-  // a policy file naming the kill fixture all THROW rather than resolving to an
-  // empty result. Nothing is caught here: a broken gate must not be reported as
-  // a passing one, and a thrown error is a non-zero exit with a message.
   const scan = options.scan ?? scanGovernedSources();
   const policy = options.policy ?? readPolicy();
   const pinnedDigest = options.pinnedDigest ?? LIVE_SUBJECT.pinnedDigest;
@@ -181,9 +112,8 @@ export function runRatchetGuard(options: RatchetGuardOptions = {}): number {
 }
 
 /**
- * A canonical absolute path for comparison: symlinks resolved where possible,
- * falling back to plain resolution for a path that does not exist on disk (so
- * an exotic `argv[1]` degrades to "not the entrypoint" rather than throwing).
+ * A canonical absolute path with symlinks resolved. For a path that does not
+ * exist, it returns the plain resolution, so an odd `argv[1]` does not throw.
  */
 function canonicalPath(candidate: string): string {
   const absolute = resolve(candidate);
@@ -194,9 +124,10 @@ function canonicalPath(candidate: string): string {
   }
 }
 
-// Identity, not spelling. The filename test this replaced went silently green
-// under any other name — task 074's detector found this guard after the spec's
-// hand-enumeration had named three sites and stopped.
+/**
+ * True when this file is the process entrypoint. It compares file identity, not
+ * the file name, because a name check stays green under any other name.
+ */
 const isDirectRun =
   typeof process !== 'undefined' &&
   typeof process.argv[1] === 'string' &&

@@ -1,18 +1,15 @@
 // @ts-check
 /**
- * @fileoverview Partitions `src/architecture/` by extraction cost for task 018a.
+ * @fileoverview Sorts the modules of `src/architecture/` by extraction cost.
+ * An outside edge is a relative import of a `src/` module outside `src/architecture/`.
  *
- *   CLEAN     - no outbound edge into src/ at all       (moves as-is)
- *   TYPE-ONLY - outbound edges erase at compile time    (moves as-is)
- *   VALUE     - imports a runtime value from the subject (needs inversion)
+ *   CLEAN     - no outside edge (moves as-is).
+ *   TYPE-ONLY - every outside edge erases at compile time (moves as-is).
+ *   VALUE     - an outside edge imports a runtime value (needs inversion).
  *
- * The distinction is the whole point: a raw import count treats `import type`
- * as a blocker, but a type-only edge cannot create a package cycle. Counting
- * them together is what makes the extraction look harder than it is.
- *
- * Reports; never fails. The stated exceptions live in
- * `tools/audit/conformance-extraction-exceptions.md`, which this regenerates
- * the numbers for.
+ * A type-only edge cannot make a package cycle, so the script counts it apart from a value edge.
+ * The script only reports and never fails. It gives the numbers for
+ * `tools/audit/conformance-extraction-exceptions.md`.
  *
  * Usage: `node tools/audit/measure-conformance-extraction.mjs`
  */
@@ -23,14 +20,11 @@ import { fileURLToPath } from 'node:url';
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const SRC = path.join(REPO_ROOT, 'src');
 const ARCH = path.join(SRC, 'architecture');
-// Anchored at a line start, and the clause may not contain a `;` — together
-// those keep a match inside ONE statement. An unanchored `[\s\S]*?` clause bleeds
-// across statements whenever an earlier import has a bare specifier: the lazy
-// run expands past `from 'node:fs'` (which the `\.` specifier class rejects) into
-// the NEXT import, so a following `import type` is read with the previous line's
-// missing `type` keyword and scored as a value edge. That misread every
-// `import fs from 'node:fs'` + `import type {...} from '../x.js'` pair in the
-// tree — inflating the "needs inversion" bucket with modules that are type-only.
+/**
+ * Matches one relative import statement. The line-start anchor and the ban on `;` in the clause
+ * keep a match inside one statement. Without them, a match that starts at a bare-specifier import
+ * runs into the next import and scores an `import type` as a value edge.
+ */
 const STMT_RE = /^[ \t]*import\s+(type\s+)?([^;]*?)\s*from\s*['"](\.[^'"]+)['"]/gm;
 
 function walk(dir) {

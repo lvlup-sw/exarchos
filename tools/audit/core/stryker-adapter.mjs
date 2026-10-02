@@ -1,60 +1,19 @@
 #!/usr/bin/env node
 /**
- * stryker-adapter — the DR-7 mutation-runner seam
- * (docs/specs/2026-07-17-wave-s-enforcement-substrate.md §DR-7, task 012).
+ * The mutation-runner seam that the `.exarchos.yml` `mutation:` entry resolves
+ * to, as `node tools/audit/core/stryker-adapter.mjs` from the repo root.
  *
- * This is the command the `.exarchos.yml` `mutation:` entry resolves to
- * (`node tools/audit/core/stryker-adapter.mjs`, runnable from
- * repo-root cwd — never `npx`). It exists because the in-tree handler's
- * default runner (`defaultRunMutation`, mutation-adequacy.ts) has a contract
- * that a bare `npx stryker run` cannot satisfy on its own, for three
- * independent reasons this one adapter absorbs:
+ * `defaultRunMutation` parses the stdout of one command as a Stryker JSON
+ * report. StrykerJS writes its report to a file, so this adapter runs Stryker,
+ * keeps its console output off stdout, and prints the report file. It turns the
+ * `--since=<base>` flag, which StrykerJS does not support, into a `--mutate`
+ * list of the changed `src/` source files. It runs the pinned local binary,
+ * never `npx`.
  *
- *   1. `defaultRunMutation` captures the **stdout** of one whitespace-
- *      tokenized, no-shell command as the Stryker-schema JSON report — but
- *      StrykerJS logs progress to stdout and writes its actual report to a
- *      **file** (`reports/mutation/mutation.json`). This adapter runs
- *      Stryker with only the `json` reporter (see `stryker.conf.mjs`),
- *      captures its OWN stdout separately (never forwarded), then reads the
- *      report file after Stryker exits and echoes its content to *this*
- *      process's stdout — that is what `defaultRunMutation` actually parses.
- *   2. The handler appends `--since=<base>` for the node toolchain
- *      (`toolchains.ts` `MUTATION_DIFF_SCOPE.node`) — a Stryker.NET flag
- *      StrykerJS does not support. This adapter is the thing that consumes
- *      `--since=<base>` and translates it into StrykerJS's own scoping
- *      mechanism: it computes `git diff --name-only <base>...HEAD`, filters
- *      to changed, still-existing, mutatable `src/**`
- *      source files (deletions and test files excluded), and passes them as
- *      a `--mutate` glob list.
- *   3. `npx` can resolve a DIFFERENT Stryker than the pinned one, or fetch
- *      one from the network. This adapter instead executes the **local pinned
- *      binary** (`node_modules/.bin/stryker`) directly — no `npx` anywhere on
- *      this path, so the version under test is always the pinned version.
- *
- * Contract summary:
- *   - `--since=<base>` present  → diff-scope to `src/**`
- *     files changed since `<base>`. An EMPTY mutatable surface prints the
- *     empty-valid report `{schemaVersion, files:{}}` to stdout and exits 0
- *     (parseable, never a degrade — Stryker is never even invoked).
- *   - `--since=<base>` absent   → full-tree run: Stryker's own configured
- *     `mutate` default applies (the long-running offline/nightly lane,
- *     DR-6 `scope:'full'`; out of scope for the inline/CI-blocking lane).
- *   - A missing local pinned binary, a Stryker run that throws, a completed
- *     run with no report file on disk, or a diff whose qualifying mutatable
- *     surface EXCEEDS `MAX_MUTATE_FILES` are all FAIL-CLOSED: stderr names the
- *     artifact and the reason, nothing is written to stdout, and the process
- *     exits 1. `defaultRunMutation` folds a non-zero exit with empty stdout
- *     into a degrade (never a false pass) — this is the "devDep absent"
- *     direction the composed-path smoke test exercises. An oversized diff fails
- *     closed rather than silently mutating only a bounded subset (#1720).
- *   - `git diff` failing (bad `--since` ref, not a git repo, …) is also
- *     fail-closed — distinct from a genuinely empty diff, which is a
- *     logged, exit-0, valid-empty-report outcome, not an error.
- *
- * Pure helpers below (`parseSinceArg`, `isMutatableServerSource`,
- * `computeMutateGlobs`) are exported for direct unit testing; the CLI
- * wiring (`main`/`runStryker`/`gitDiffNames`) only runs when this file is
- * invoked directly (not when imported by a test).
+ * Without `--since`, Stryker uses its configured `mutate` default. An empty
+ * mutatable diff prints an empty valid report and exits 0. A missing binary, a
+ * failed run, a missing report, a failed `git diff`, or more than
+ * `MAX_MUTATE_FILES` files exits 1 with an empty stdout.
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
@@ -63,10 +22,8 @@ import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 
 /**
- * Repo-root-relative prefix this adapter's diff-scoping is hardwired to.
- * Empty since task 019 folded the server into the repo root: the mutated tree
- * IS the root tree. Kept as a named constant rather than inlined, because the
- * prefix is still the seam a future nesting would move.
+ * The repo-relative prefix of the mutated tree. It is empty, because the mutated
+ * tree is the repo root. The named constant keeps the seam for a future nesting.
  */
 export const SERVER_PREFIX = '';
 const SERVER_SRC_PREFIX = `${SERVER_PREFIX}src/`;
@@ -85,14 +42,11 @@ const NON_MUTATABLE_SUFFIXES = [
 ];
 
 /**
- * Mutant-count bound (DR-7 acceptance criteria): StrykerJS has no native
- * "max mutants" flag, so the bound is enforced upstream, on the input file
- * set, before Stryker ever runs. A diff touching more than this many
- * qualifying files FAILS CLOSED (`main` returns 1) rather than silently
- * evaluating only a bounded subset — a mutant in an omitted file could survive
- * unseen, so a partial run is not an adequate one (#1720). `computeMutateGlobs`
- * still reports the `truncated`/`totalQualifying` count so `main` can name the
- * exact overflow in its fail-closed message.
+ * The bound on the mutated file set. StrykerJS has no native limit on mutants,
+ * so the adapter bounds its input files before Stryker runs. A diff with more
+ * qualifying files fails closed, because a mutant in an omitted file can survive
+ * unseen. `computeMutateGlobs` reports `totalQualifying`, so `main` names the
+ * exact overflow.
  */
 export const MAX_MUTATE_FILES = 40;
 
@@ -119,13 +73,10 @@ export function isMutatableServerSource(posixPath) {
 }
 
 /**
- * Filter+bound a raw `git diff --name-only` file list down to the
- * `--mutate` glob list Stryker receives, given an injectable existence
- * check (production: `existsSync`; tests: a fixed in-memory set) so the
- * filtering logic is unit-testable without touching a real filesystem.
- *
- * Returns paths relative to the directory Stryker runs in, which since task
- * 019 is the repo root itself.
+ * Filters a `git diff --name-only` list to the `--mutate` list for Stryker. It
+ * keeps the mutatable `src/` files that still exist, and bounds the count. The
+ * `fileExists` check is injectable, so tests need no real filesystem. Paths are
+ * relative to the repo root, where Stryker runs.
  */
 export function computeMutateGlobs(changedFiles, fileExists) {
   const posixFiles = (changedFiles ?? [])
@@ -134,7 +85,6 @@ export function computeMutateGlobs(changedFiles, fileExists) {
 
   const qualifying = posixFiles
     .filter(isMutatableServerSource)
-    // "still-existing": a file deleted by the diff cannot be mutated.
     .filter((file) => fileExists(file))
     .sort();
 
@@ -146,11 +96,9 @@ export function computeMutateGlobs(changedFiles, fileExists) {
 }
 
 /**
- * `git diff --name-only <base>...HEAD`, run with `cwd: repoRoot` (the same
- * merge-base three-dot form `defaultRunDiff` uses elsewhere in this
- * codebase, mutation-adequacy.ts). Never throws — a git failure is a
- * tagged `{ ok: false }` so the caller can fail closed rather than silently
- * treating "git broke" the same as "genuinely empty diff".
+ * Runs `git diff --name-only <base>...HEAD` in `repoRoot`, the merge-base form
+ * that `defaultRunDiff` also uses. It never throws. A git failure returns
+ * `{ ok: false }`, so the caller can tell it from an empty diff.
  */
 function gitDiffNames(base, repoRoot) {
   try {
@@ -172,11 +120,9 @@ function gitDiffNames(base, repoRoot) {
 }
 
 /**
- * Bound a captured-output tail to a fixed character budget (DR-10
- * attributability, #1719) — keeps the LAST `maxChars` (a runner's actual
- * failure is almost always at the tail, not the head, of its output),
- * prefixed with a truncation marker when it clips, so a stderr line never
- * floods CI output with a full Stryker transcript.
+ * Keeps the last `maxChars` characters of captured output, with a truncation
+ * marker when it clips. The failure of a runner is usually at the tail, and the
+ * bound keeps a full Stryker transcript out of the CI log.
  */
 function boundedTail(text, maxChars = 1500) {
   const trimmed = (text ?? '').trim();
@@ -186,10 +132,12 @@ function boundedTail(text, maxChars = 1500) {
 }
 
 /**
- * Run the local pinned Stryker binary (never `npx`) with `cwd: serverDir`,
- * then read+print its JSON report file. Fail-closed on a missing binary, a
- * throwing run, or a completed run with no report on disk: stderr names the
- * artifact and the reason, stdout stays empty, exit code is 1.
+ * Runs the pinned local Stryker binary in `serverDir` and prints its JSON
+ * report file. A missing binary, a failed run, or a missing report writes the
+ * reason to stderr and returns 1. It deletes an old report first, so a missing
+ * report means that this run made none. Stryker console output never reaches
+ * stdout. On a failure, stderr gets a bounded tail of that output, because the
+ * `execFileSync` error message holds only a generic wrapper.
  */
 function runStryker(serverDir, mutateFiles) {
   const binName = process.platform === 'win32' ? 'stryker.cmd' : 'stryker';
@@ -209,28 +157,14 @@ function runStryker(serverDir, mutateFiles) {
     args.push('--mutate', mutateFiles.join(','));
   }
 
-  // Delete any pre-existing report BEFORE launching Stryker (correctness,
-  // #1720): the "no report on disk" branch below is the fail-closed signal for
-  // a run that produced nothing this invocation. A stale `mutation.json` left
-  // by a previous run would otherwise be read as THIS run's output if Stryker
-  // exits 0 without rewriting it, silently passing the current diff on old
-  // results. Absence-after-execution must mean "this run produced no report".
   const reportPath = path.join(serverDir, 'reports', 'mutation', 'mutation.json');
   rmSync(reportPath, { force: true });
 
-  // Captured on the SUCCESS path too (DR-10): `execFileSync` only returns
-  // stdout when the child exits 0 — stderr on success is not exposed at all
-  // — so this is the one chance to tail Stryker's own console output if the
-  // "exited cleanly but no report" branch below is reached.
   let strykerStdout = '';
   try {
     strykerStdout = execFileSync(binPath, args, {
       cwd: serverDir,
       encoding: 'utf-8',
-      // Stryker's own console output (progress, warnings) is captured but
-      // never forwarded to THIS process's stdout — the only thing this
-      // adapter ever writes to stdout is the report file's content, so the
-      // handler's stdout-is-the-report contract stays a single writer.
       stdio: ['ignore', 'pipe', 'pipe'],
     });
   } catch (err) {
@@ -238,10 +172,6 @@ function runStryker(serverDir, mutateFiles) {
       err
     );
     const detail = e?.message ?? (err instanceof Error ? err.message : String(err));
-    // `execFileSync`'s thrown error carries the child's actual captured
-    // output on `.stderr`/`.stdout` — `.message` for a failed exec is just
-    // the generic "Command failed: …" wrapper, dropping Stryker's real
-    // diagnostic entirely. Surface a bounded tail of it (#1719).
     const stderrText = typeof e?.stderr === 'string' ? e.stderr : e?.stderr?.toString('utf-8') ?? '';
     const stdoutText = typeof e?.stdout === 'string' ? e.stdout : e?.stdout?.toString('utf-8') ?? '';
     const tail = boundedTail(stderrText.length > 0 ? stderrText : stdoutText);
@@ -273,19 +203,17 @@ function runStryker(serverDir, mutateFiles) {
 }
 
 /**
- * Adapter entry point. `repoRoot` is `process.cwd()` — the `.exarchos.yml`
- * `mutation:` command is a repo-root-relative path, so the handler always
- * invokes it with cwd set to the repo/worktree root, which since task 019 is
- * also the directory Stryker runs in.
+ * The adapter entry point. The handler runs the `mutation:` command from the
+ * repo or worktree root, so `process.cwd()` is the root where Stryker runs.
+ * Without `--since`, Stryker mutates with its configured default. A diff over
+ * `MAX_MUTATE_FILES` fails closed. An empty mutatable diff prints
+ * `EMPTY_REPORT` without a Stryker run.
  */
 export function main(argv) {
   const repoRoot = process.cwd();
   const serverDir = repoRoot;
   const since = parseSinceArg(argv);
 
-  // No `--since`: the full-tree lane (DR-6 `scope:'full'`, offline-only).
-  // No diff computation, no `--mutate` override — Stryker's own configured
-  // default applies.
   if (since === undefined) {
     return runStryker(serverDir, []);
   }
@@ -302,12 +230,6 @@ export function main(argv) {
     existsSync(path.join(repoRoot, file)),
   );
 
-  // FAIL CLOSED on an oversized scope (DR-10: no silent truncation, #1720).
-  // Evaluating only the first MAX_MUTATE_FILES would let a surviving/uncovered
-  // mutant in an OMITTED file pass unseen — a partial result is not an adequate
-  // one. Reject the whole diff instead of silently mutating a bounded subset;
-  // the mutant-count wall-clock bound is preserved by refusing, not by
-  // dropping files. (Handling an oversized diff — e.g. sharding — is #1720.)
   if (truncated) {
     process.stderr.write(
       `stryker-adapter: diff touched ${totalQualifying} mutatable server files, exceeding the maximum ` +
@@ -317,9 +239,6 @@ export function main(argv) {
     return 1;
   }
 
-  // Empty mutatable surface: never a degrade. Print the empty-valid report
-  // and exit 0 WITHOUT ever invoking Stryker — a diff that touches no
-  // server source is vacuously adequate, not a tool failure.
   if (files.length === 0) {
     process.stdout.write(JSON.stringify(EMPTY_REPORT));
     return 0;
@@ -328,9 +247,7 @@ export function main(argv) {
   return runStryker(serverDir, files);
 }
 
-// ─── CLI main ────────────────────────────────────────────────────────────
-// Only runs when invoked directly (not when imported by the test file).
-
+/** True when Node runs this file directly, not when a test imports it. */
 const invokedDirectly = (() => {
   try {
     const argv1 = process.argv[1];

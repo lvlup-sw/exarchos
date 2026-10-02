@@ -1,15 +1,13 @@
-// Repo-relative path LITERALS invalidated by the task 019 move (task 020).
+// Rewrites the repo-relative path literals that the move of
+// `servers/exarchos-mcp` leaves stale. `tsc` cannot see these strings: a config
+// glob, a CI path filter, a `readFileSync` argument, a baseline key. The script
+// maps them with `move-table.mjs`, the table of the move, so a destination cannot drift.
 //
-// This is the class `tsc` cannot see: a string that is a path but sits in no
-// import position — a config glob, a CI path filter, a readFileSync argument, a
-// baseline key. It is reconciled as one deliberate pass rather than dribbled
-// across the move, and it is driven by the SAME table as the move itself
-// (`move-table.mjs`), so a destination cannot drift between the two halves.
+// `docs/**` and the captured eval traces stay out of scope. They record a tree
+// that existed under `servers/`, and a rewrite falsifies that record.
 //
-// PROSE IS DELIBERATELY OUT OF SCOPE. `docs/**` and the captured eval traces are
-// historical records: they describe a tree that really did exist under
-// `servers/`, and rewriting them would falsify the archive rather than fix
-// anything. The extension set below is the one task 020 names.
+// The script prints each literal that the table cannot place. Such a literal names
+// a path that the move does not cover. Without `--apply` it writes nothing.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -21,22 +19,25 @@ const APPLY = process.argv.includes('--apply');
 
 const SCANNED = /\.(ts|tsx|mts|cts|js|mjs|cjs|json|yml|yaml|sh|ps1)$/;
 const EXCLUDED_TREES = ['docs/', 'evals/captured/', 'node_modules/'];
-// The move table states the OLD paths as data. Rewriting them would collapse it
-// to an identity map — the table would still parse, still run, and silently
-// move nothing.
+/**
+ * The move table states the old paths as data. A rewrite turns it into an
+ * identity map that still runs and silently moves nothing.
+ */
 const EXCLUDED_FILES = ['tools/audit/move-table.mjs'];
 
-// Any run of path characters starting at the old package root. The trailing
-// class deliberately excludes quotes, whitespace and backticks so a literal
-// stops at its delimiter.
+/**
+ * Any run of path characters from the old package root. The character class
+ * excludes quotes, whitespace and backticks, so a match stops at its delimiter.
+ * A match maps with a trailing `/` added, because each directory prefix ends in `/`.
+ */
 const LITERAL_RE = /servers\/exarchos-mcp(?:\/[A-Za-z0-9_.@\-/*]*)?/g;
 
-// The same path spelled SEGMENT-WISE: `path.join(ROOT, 'servers',
-// 'exarchos-mcp', 'src')`. No single string contains the package path, so
-// LITERAL_RE cannot see it — and these are the ones that keep a guard pointed
-// at a directory that no longer exists while its own self-test still passes.
-// Removing the two segments leaves the call resolving to the repo root, which
-// is what the package root became.
+/**
+ * The package path in segment form, as in `path.join(ROOT, 'servers',
+ * 'exarchos-mcp', 'src')`. No single string holds the package path, so
+ * `LITERAL_RE` cannot see it. Removal of the two segments points the call at the
+ * repo root, which replaces the package root.
+ */
 const SEGMENTS_WITH_TAIL = /'servers',\s*'exarchos-mcp',\s*/g;
 const SEGMENTS_AT_END = /,\s*'servers',\s*'exarchos-mcp'(?=\s*[),])/g;
 
@@ -71,9 +72,6 @@ for (const rel of tracked) {
     if (out !== before) n += (before.match(/'servers',\s*'exarchos-mcp'/g) ?? []).length;
   }
   out = out.replace(LITERAL_RE, (lit) => {
-    // Trailing separators and glob tails are preserved by mapping the literal
-    // as-is; the table's prefixes all end in `/` so a bare directory reference
-    // still matches.
     const mapped = mapLiteral(lit.endsWith('/') ? lit : lit + '/');
     let next = mapped.endsWith('/') && !lit.endsWith('/') ? mapped.slice(0, -1) : mapped;
     if (next === lit) {
@@ -94,8 +92,6 @@ for (const rel of tracked) {
 console.log(`literal rewrites: ${literalsChanged} across ${filesChanged} files`);
 
 if (unmapped.size) {
-  // A literal the table cannot place is the interesting output of this script:
-  // it is a reference to something the move did not account for.
   console.log(`\nUNMAPPED (${unmapped.size} distinct) — these need a human decision:`);
   for (const [lit, n] of [...unmapped].sort((a, b) => b[1] - a[1]).slice(0, 40)) {
     console.log(`  ${String(n).padStart(4)}  ${lit}`);

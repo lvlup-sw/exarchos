@@ -23,7 +23,8 @@ function cat(p){
   return 'other';
 }
 const top = (p)=>{ const rp=relative(root,p).split(sep); return rp.length>1?rp[0]:'(root)'; };
-const agg = new Map(); // key: area||cat -> {files,lines,bytes}
+/** Totals of files, lines and bytes for each `area||category` key. */
+const agg = new Map();
 const catTot = new Map();
 for(const f of files){ const c=cat(f), a=top(f), k=a+'||'+c; const L=lines(f), B=bytes(f);
   const o=agg.get(k)||{files:0,lines:0,bytes:0}; o.files++; o.lines+=L; o.bytes+=B; agg.set(k,o);

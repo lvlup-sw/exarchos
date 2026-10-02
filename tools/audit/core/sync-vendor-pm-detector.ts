@@ -1,30 +1,28 @@
 #!/usr/bin/env tsx
 /**
- * Regenerate the vendored `package-manager-detector` lockfile map.
+ * Regenerates the vendored `package-manager-detector` lockfile map.
  *
- * Fetches `src/constants.ts` + `LICENSE` from the pinned upstream tag, extracts
- * the `LOCKS` and `INSTALL_METADATA` tables, and writes:
- *   - src/config/vendor/package-manager-detector/lockfiles.generated.ts
- *   - src/config/vendor/package-manager-detector/LICENSE
+ * It fetches `src/constants.ts` and `LICENSE` from the pinned upstream tag. It
+ * extracts the `LOCKS` and `INSTALL_METADATA` tables, and writes
+ * `lockfiles.generated.ts` and `LICENSE` to
+ * `src/config/vendor/package-manager-detector/`.
  *
- * Usage (from the repo root):
- *   npm run vendor:sync:pm-detector     # regenerate
- *   npm run vendor:check:pm-detector    # CI drift guard: exit 1 if stale
+ * Usage, from the repo root:
+ *   npm run vendor:sync:pm-detector
+ *   npm run vendor:check:pm-detector
  *
- * Why this exists: we vendor the small lockfile→agent DATA table rather than
- * depend on the (async-only) library, to keep our resolver synchronous. See
- * src/config/vendor/package-manager-detector/README.md.
+ * The check form writes nothing and exits 1 when a vendored file is stale. The
+ * upstream `detect()` is async, so the repo vendors only the data table and keeps
+ * the resolver synchronous.
  */
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// ─── Pin ────────────────────────────────────────────────────────────────────
-// Bump these two together when refreshing against a new upstream release.
 const VENDOR_REPO = 'antfu-collective/package-manager-detector';
+/** The pinned upstream tag. Change it and `VENDOR_COMMIT` together. */
 const VENDOR_VERSION = 'v1.6.0';
 const VENDOR_COMMIT = '59047a20315252c7350d846dbad3d18a99e45906';
-// ──────────────────────────────────────────────────────────────────────────────
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const VENDOR_DIR = join(__dirname, '../../../src/config/vendor/package-manager-detector');
@@ -42,19 +40,20 @@ async function fetchText(url: string): Promise<string> {
   return res.text();
 }
 
-// Allowlist for extracted keys/values. We re-emit these verbatim into a TS
-// string literal, so anything outside this set (notably a backslash or quote)
-// could corrupt or inject into the generated file. Fail loudly instead.
+/**
+ * Allowlist for the extracted keys and values. The script writes them verbatim
+ * into TS string literals, so a backslash or a quote can corrupt the generated
+ * file. A token outside this set stops the run.
+ */
 const SAFE_VENDOR_TOKEN = /^[A-Za-z0-9._/@-]+$/;
 
-/** Extract a flat `export const NAME ... = { 'k': 'v', ... }` table, order-preserving. */
+/**
+ * Extracts a flat `export const NAME ... = { 'k': 'v' }` table in source order.
+ * It throws on any upstream shape it does not expect, an empty capture included.
+ */
 function extractMap(src: string, name: string): Array<[string, string]> {
   const block = src.match(new RegExp(`export const ${name}\\b[^=]*=\\s*\\{([\\s\\S]*?)\\n\\}`));
   if (!block) throw new Error(`could not locate \`export const ${name}\` in upstream constants.ts`);
-  // `block[1]` / `m[1]` / `m[2]` are `string | undefined` under
-  // `noUncheckedIndexedAccess`. Narrow rather than assert: this module already
-  // fails loudly on anything it did not expect from upstream, and a capture
-  // group that did not participate is exactly that case.
   const body = block[1];
   if (body === undefined) {
     throw new Error(`\`export const ${name}\` matched with no body capture — upstream format changed?`);
@@ -131,6 +130,10 @@ ${renderEntries(install)}
 `;
 }
 
+/**
+ * With `--check`, an unreachable upstream prints a warning and returns without
+ * an error. An outage is not drift.
+ */
 async function main(): Promise<void> {
   const check = process.argv.includes('--check');
 
@@ -143,8 +146,6 @@ async function main(): Promise<void> {
     ]);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    // In --check, a network/upstream failure is an OUTAGE, not drift. Don't
-    // fail the build on it — that would flag an unreachable GitHub as stale.
     if (check) {
       console.warn(`vendor:check:pm-detector skipped — upstream unreachable (${msg}). Not treated as drift.`);
       return;

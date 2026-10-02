@@ -1,22 +1,17 @@
-// Whole-tree move codemod for task 019 — the servers/ fold.
+// A codemod that moves whole trees by a table of repo-relative path prefixes.
 //
-// This is `move-directories.mjs` generalized from src-relative to REPO-relative
-// paths, because 019 moves the source root itself: the MCP server tree
-// becomes `src`, while the old root `src` (the installer and renderer
-// toolchain) becomes `src/install`. Those two moves cross, so the mapping is
-// computed once against the ORIGINAL paths and applied as a single simultaneous
-// bijection. Re-mapping an already-mapped path would send the installer to
-// `src/install/install/…` and is the bug this shape rules out.
+// The mapping is computed once against the original paths and applied as one
+// simultaneous bijection. Two moves can cross, and a second mapping of a mapped
+// path sends it to the wrong place.
 //
-// Import rewriting stays ARITHMETIC: resolve each specifier against its file's
-// OLD directory, map it, recompute it relative to that file's NEW directory. A
-// textual prefix sweep gets the moved-file/unmoved-target case wrong, and here
-// that is most of the tree.
+// Each relative import specifier is resolved against the old directory of its
+// file, mapped, and made relative to the new directory. A textual prefix sweep
+// gets the case of a moved file with an unmoved target wrong.
 //
-// KNOWN BLIND SPOT, inherited: strings that are module paths in no import
-// position — `vi.doUnmock`, the argument of `vi.importActual`, readFileSync
-// paths, fixture text. Run `scan-unresolved-specifiers.mjs` afterwards; a stale
-// un-mock leaves a mock silently in force and the affected tests still PASS.
+// Module paths outside an import position are not rewritten: `vi.importActual`
+// arguments, readFileSync paths, and fixture text. Run
+// `scan-unresolved-specifiers.mjs` after a move. Tests can still pass with a
+// stale path in such a string.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -26,8 +21,7 @@ import { PREFIX_MOVES } from './move-table.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const APPLY = process.argv.includes('--apply');
 
-// A follow-up move reuses this codemod's arithmetic with its own table, passed
-// as JSON in MOVE_TABLE_JSON. Without it the task 019 table is used.
+/** The move table. `MOVE_TABLE_JSON` can supply a table as JSON. The default is `PREFIX_MOVES`. */
 const TABLE = process.env.MOVE_TABLE_JSON ? JSON.parse(process.env.MOVE_TABLE_JSON) : PREFIX_MOVES;
 const SORTED = [...TABLE].sort((a, b) => b[0].length - a[0].length);
 
@@ -53,10 +47,11 @@ const tracked = execFileSync('git', ['-C', ROOT, 'ls-files'], { encoding: 'utf8'
   .filter(Boolean)
   .filter((f) => !f.includes('node_modules'));
 
-// ─── Fail closed on a mapping that is not a bijection ────────────────────────
-// Two sources landing on one destination is a silent overwrite; a destination
-// landing on a file that is NOT moving is the same thing with a stayer as the
-// victim. Both are checked before anything is written.
+/**
+ * The destination of each tracked file. Before a write, the script aborts when
+ * two files map to one destination. This includes a mover that lands on a file
+ * that stays.
+ */
 const destOf = new Map();
 const byDest = new Map();
 for (const f of tracked) {
@@ -75,13 +70,17 @@ if (collisions.length) {
 const moving = tracked.filter((f) => destOf.get(f) !== f);
 console.log(`tracked: ${tracked.length}   moving: ${moving.length}   destinations: ${byDest.size}`);
 
-// ─── Arithmetic specifier rewrite ────────────────────────────────────────────
 const REWRITABLE = /\.(ts|tsx|mts|cts|js|mjs|cjs)$/;
 const SPEC_RE =
   /(\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|\bvi\.(?:mock|doMock|unmock|doUnmock)\s*\(\s*|\bimport\s+)(['"])(\.[^'"]*)\2/g;
 
 let filesChanged = 0;
 let specsChanged = 0;
+/**
+ * The rewritten content of each changed file. The apply step writes it at the
+ * old path, then renames each mover, so an edited file that stays uses the same
+ * pass.
+ */
 const edits = [];
 
 for (const relFile of tracked) {
@@ -124,10 +123,6 @@ if (!APPLY) {
   process.exit(0);
 }
 
-// ─── Apply ───────────────────────────────────────────────────────────────────
-// Content is written at the OLD path first so a file that is edited but not
-// moved is handled by the same pass, then every mover is renamed. Rename after
-// write keeps the two steps independent of each other's ordering.
 for (const [relFile, content] of edits) fs.writeFileSync(toAbs(relFile), content, 'utf8');
 
 for (const relFile of moving) {
@@ -137,7 +132,7 @@ for (const relFile of moving) {
   fs.renameSync(from, to);
 }
 
-// Prune the directories the move emptied, deepest first.
+/** The directories that held movers, deepest first. The script removes each one that the move emptied. */
 const dirs = [...new Set(moving.map((f) => path.dirname(toAbs(f))))].sort((a, b) => b.length - a.length);
 for (const d of dirs) {
   let cur = d;

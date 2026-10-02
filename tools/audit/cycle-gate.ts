@@ -1,38 +1,14 @@
 /**
- * cycle-gate.ts — the DR-4/DR-8 no-circular blocking ratchet.
+ * The blocking ratchet for runtime import cycles in `src`.
  *
- * Runs `dependency-cruiser` over `src`, computes the RUNTIME
- * import cycles itself (Tarjan SCC via architecture/import-cycles.ts — the single
- * acceptance instrument, shared with the MCP `import-cycles.test.ts` regression),
- * and diffs them against `cycle-baseline.json`. The gate FAILS CLOSED — it exits
- * non-zero, and never silently passes — on any of the FOUR DR-4 failure modes:
+ * It runs `dependency-cruiser`, finds runtime cycles with the shared detector in
+ * `import-cycles.ts`, and compares them to `cycle-baseline.json`. It exits 1 for
+ * an unbaselined cycle edge, an expired waiver, or a phantom entry. A phantom
+ * entry matches no live edge and pre-authorizes a future cycle on that edge. It
+ * exits 2 when it cannot verify the surface.
  *
- *   (a) unbaselined cycle   → a live runtime cycle with no baseline entry
- *   (b) expired entry       → a baseline waiver past its review deadline
- *   (c) PHANTOM entry       → a baseline entry matching NO live cycle edge (the
- *                             no-mask tooth: stale cover pre-authorizing a future
- *                             cycle on that exact seam — a hard FAIL here, unlike
- *                             knip's `stale`, which is only a hygiene warning)
- *   (d) tool-missing /      → depcruise absent, or its output is empty/unparseable
- *       unparseable output    (DR-8: cannot verify the surface → fail closed)
- *   (e) EMPTY GRAPH         → the output parsed, but no first-party module
- *                             resolved under `srcPrefix`. An empty node set
- *                             yields an empty cycle list, which is the same
- *                             value a clean tree yields — so this gate used to
- *                             print `OK: 0 runtime cycle(s)` and exit 0 for a
- *                             relocated source root (DR-8, task 079).
- *
- * (a)/(b)/(c) exit 1 (a real cycle-surface finding); the DR-8 "can't verify"
- * causes exit 2, so CI can tell "there is an unacceptable cycle" from "the gate
- * itself broke". Both are blocking. The pure `runCycleGate(deps)` body and
- * `loadCycleBaseline` are exported so every fail-closed path is unit-testable
- * without spawning depcruise.
- *
- * Severity note: the shared `.dependency-cruiser.cjs` ships `no-circular` at
- * `warn`, NOT `error`, so the dogfooded static-analysis leg (`runBoundaryLint`,
- * which folds any non-zero `depcruise --validate` exit into a FAIL) stays green.
- * Blocking enforcement is HERE, over the `--output-type json` graph — not in the
- * config's severity.
+ * `.dependency-cruiser.cjs` sets `no-circular` to `warn`, so the
+ * static-analysis leg stays green. This gate holds the blocking enforcement.
  */
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -52,15 +28,9 @@ import {
 /** Repo-relative source root the ratchet governs (matches import-cycles default). */
 export const SRC_PREFIX = 'src';
 
-/**
- * Re-exported so the gate presents ONE error vocabulary to its callers and
- * tests. `EmptyCycleGraphError` is raised by the detector, but it is a
- * gate-level fail-closed reason (exit 2), so a consumer should not have to reach
- * into `architecture/import-cycles.js` to name it.
- */
 export { EmptyCycleGraphError };
 
-/** Thrown when depcruise output cannot be parsed into a graph (DR-8). */
+/** Thrown when the depcruise output does not parse into a graph. */
 export class CycleGraphParseError extends Error {
   constructor(message: string) {
     super(message);
@@ -73,13 +43,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Detect the runtime cycles in a depcruise JSON graph, converting any malformed
- * input into a {@link CycleGraphParseError} so the caller can fail closed instead
- * of treating garbage as "acyclic".
- *
- * Returns the SCAN, not just the cycles: the gate reports the population it
- * measured, so an operator reading the OK line can tell "no cycle in 600
- * modules" from "no cycle in nothing" (DR-8, task 079).
+ * Detects the runtime cycles in a depcruise JSON graph. Malformed input throws
+ * {@link CycleGraphParseError}, so the caller fails closed and does not read
+ * bad output as acyclic. It returns the whole scan, so the OK line can report
+ * the measured population.
  */
 export function detectCyclesOrThrow(raw: string, srcPrefix = SRC_PREFIX): RuntimeCycleScan {
   const trimmed = raw.trim();
@@ -95,25 +62,21 @@ export function detectCyclesOrThrow(raw: string, srcPrefix = SRC_PREFIX): Runtim
   if (!isRecord(json) || !Array.isArray(json.modules)) {
     throw new CycleGraphParseError('depcruise JSON is missing the expected top-level `modules[]` array');
   }
-  // import-cycles re-parses the text; safe because we already proved it is valid.
   return scanRuntimeCycleGraph(trimmed, srcPrefix);
 }
 
 /**
- * The validated baseline document. Its entries carry the NARROW `EdgeRegisterEntry`
- * type (`permanent?: true`), which is a subtype of `import-cycles`'s
- * `CycleBaselineEntry` (`permanent?: boolean`) — so it flows unchanged into the
- * graph helpers (`unbaselinedCycleEdges` / `phantomBaselineEntries`) AND into
- * `isEntryExpired`, whose `permanent?: true` contract the wide type would reject.
+ * The validated baseline document. Its entries use the narrow `EdgeRegisterEntry`
+ * type (`permanent?: true`). The graph helpers and `isEntryExpired` both accept
+ * this type. `isEntryExpired` rejects the wide `permanent?: boolean` type.
  */
 export interface ValidatedCycleBaseline {
   readonly entries: readonly EdgeRegisterEntry[];
 }
 
 /**
- * Validate the raw `cycle-baseline.json` document against the shared edge-register
- * contract. Tolerates the doc's `version` / `instrument` / `entryShape` metadata
- * and validates only `entries[]` — each against {@link edgeRegisterSchema}.
+ * Validates the raw `cycle-baseline.json` document. It ignores the metadata
+ * fields and validates each item of `entries[]` against {@link edgeRegisterSchema}.
  */
 export function loadCycleBaseline(raw: unknown): ValidatedCycleBaseline {
   if (!isRecord(raw) || !Array.isArray(raw.entries)) {
@@ -132,7 +95,7 @@ export function loadCycleBaseline(raw: unknown): ValidatedCycleBaseline {
 export const EXIT_OK = 0;
 /** A real cycle-surface finding: unbaselined, expired, or phantom. */
 export const EXIT_VIOLATIONS = 1;
-/** Fail-closed: the gate itself could not verify the surface (DR-8). */
+/** The gate cannot verify the surface, so it fails closed. */
 export const EXIT_GATE_ERROR = 2;
 
 export interface DepcruiseRun {
@@ -150,11 +113,16 @@ export interface CycleGateDeps {
   readonly now: Date;
   readonly log: (message: string) => void;
   readonly errlog: (message: string) => void;
-  /** Overridable for tests; defaults to {@link SRC_PREFIX}. */
+  /** Tests can override it. The default is {@link SRC_PREFIX}. */
   readonly srcPrefix?: string;
 }
 
-/** Injectable gate body — no process/FS/child_process access of its own. */
+/**
+ * The gate body. It has no process, file system, or child-process access of its
+ * own. An empty first-party graph gets its own reason, so an operator can tell a
+ * moved source root from bad output. The OK line reports the module and edge
+ * counts, because a scan of nothing also finds 0 cycles.
+ */
 export function runCycleGate(deps: CycleGateDeps): number {
   const srcPrefix = deps.srcPrefix ?? SRC_PREFIX;
 
@@ -172,11 +140,6 @@ export function runCycleGate(deps: CycleGateDeps): number {
   try {
     scan = detectCyclesOrThrow(run.stdout, srcPrefix);
   } catch (err) {
-    // An empty first-party node set gets its OWN reason (DR-8, task 079). It
-    // parsed fine — the prefix simply matched nothing, which used to yield an
-    // empty cycle list and an `OK … 0 runtime cycle(s)` exit 0. Naming it
-    // separately from "unparseable" is what lets an operator tell a moved source
-    // root from garbage on stdout.
     if (err instanceof EmptyCycleGraphError) {
       deps.errlog(
         `[cycle-gate] FAIL (empty-graph): ${err.message} ` +
@@ -237,9 +200,6 @@ export function runCycleGate(deps: CycleGateDeps): number {
   }
   if (failed) return EXIT_VIOLATIONS;
 
-  // The OK line reports the POPULATION, not just the finding. "0 cycles" is the
-  // healthy answer and also the answer a scan of nothing gives, so the number
-  // that makes the verdict readable is the denominator.
   deps.log(
     `[cycle-gate] OK: ${cycles.length} runtime cycle(s) over ${scan.nodeCount} first-party ` +
       `module(s) / ${scan.edgeCount} runtime edge(s) under ${srcPrefix}, all baselined & ` +
@@ -249,28 +209,20 @@ export function runCycleGate(deps: CycleGateDeps): number {
   return EXIT_OK;
 }
 
-// ─── production wiring (only runs when invoked as a CLI) ────────────────────
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, '..', '..');
 const BASELINE_PATH = path.join(HERE, 'cycle-baseline.json');
 const DEPCRUISE_CONFIG = path.join(REPO_ROOT, '.dependency-cruiser.cjs');
 
 /**
- * Run depcruise from the repo root so the emitted module paths are repo-relative
- * (`src/…`) — matching {@link SRC_PREFIX} and the baseline's
- * documented `from`/`to` convention. Uses the ROOT-hoisted binary (task 010).
- * Mirrors knip-diff's `defaultRunKnip`: this CI gate runs on ubuntu; a spawn
- * failure (incl. win32, where Node cannot exec the shell shim directly) degrades
- * to `found:false` → fail-closed tool-missing. win32 runtime-cycle coverage is
- * the MCP `import-cycles.test.ts` lane, which uses the win32-correct spawn shim.
+ * Runs the root depcruise binary from the repo root, so module paths are
+ * repo-relative (`src/…`) like {@link SRC_PREFIX} and the baseline. A spawn
+ * error, for example on win32, returns `found: false`, and the gate fails
+ * closed. `EXARCHOS_DEPCRUISE_BIN` overrides the binary path, so the shell
+ * self-test can reach the tool-missing and unparseable-output paths. The gate
+ * reads stdout for each exit code, because `no-circular` is only `warn`.
  */
 function defaultRunDepcruise(): DepcruiseRun {
-  // Binary path is overridable via EXARCHOS_DEPCRUISE_BIN so the DR-8 fail-closed
-  // paths (tool-missing / unparseable-output) are exercisable from the unfiltered
-  // grep-gates `.test.sh` self-test without uninstalling depcruise: point it at a
-  // missing path (→ found:false, tool-missing) or a stub that emits garbage
-  // (→ unparseable-output). Mirrors the `--refgraph` / `--manifest` seams the
-  // sibling `.mjs` gates already expose for the same reason.
   const binPath = process.env.EXARCHOS_DEPCRUISE_BIN ?? path.join(REPO_ROOT, 'node_modules', '.bin', 'depcruise');
   const res = spawnSync(
     binPath,
@@ -282,8 +234,6 @@ function defaultRunDepcruise(): DepcruiseRun {
   }
   return {
     found: true,
-    // depcruise exits non-zero only for ERROR-severity violations; no-circular is
-    // `warn`, so a clean tree exits 0. The gate reads stdout regardless of code.
     code: res.status ?? -1,
     stdout: res.stdout ?? '',
     stderr: res.stderr ?? '',
