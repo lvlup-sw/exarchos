@@ -1,10 +1,71 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import vitestConfig, { WIN32_SPAWN_HEADROOM } from '../../vitest.config.js';
+import vitestConfig, { CLOSE_SQLITE, FILE_BOUNDARY_RESET, WIN32_SPAWN_HEADROOM } from '../../vitest.config.js';
 
-const PACKAGE_JSON = join(dirname(fileURLToPath(import.meta.url)), '../../package.json');
+const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../..');
+const PACKAGE_JSON = join(REPO_ROOT, 'package.json');
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** Each project's `test` block, read without a cast. */
+function projectTestBlocks(): Array<Record<string, unknown>> {
+  const test: unknown = Reflect.get(vitestConfig, 'test');
+  const list: unknown = isRecord(test) ? test['projects'] : undefined;
+  if (!Array.isArray(list)) return [];
+  const blocks: Array<Record<string, unknown>> = [];
+  for (const entry of list) {
+    const block: unknown = isRecord(entry) ? entry['test'] : undefined;
+    if (isRecord(block)) blocks.push(block);
+  }
+  return blocks;
+}
+
+function setupFilesOf(block: Record<string, unknown>): string[] {
+  const files = block['setupFiles'];
+  if (typeof files === 'string') return [files];
+  return Array.isArray(files) ? files.filter((file): file is string => typeof file === 'string') : [];
+}
+
+function poolOption(block: Record<string, unknown>, pool: 'forks' | 'threads', key: string): unknown {
+  const options = block['poolOptions'];
+  const forPool: unknown = isRecord(options) ? options[pool] : undefined;
+  return isRecord(forPool) ? forPool[key] : undefined;
+}
+
+/**
+ * Whether files of this project can run one after another in one worker
+ * process: isolation is off, or the pool keeps a single worker.
+ */
+function sharesAProcess(block: Record<string, unknown>): boolean {
+  return (
+    block['isolate'] === false ||
+    poolOption(block, 'forks', 'isolate') === false ||
+    poolOption(block, 'threads', 'isolate') === false ||
+    poolOption(block, 'forks', 'singleFork') === true ||
+    poolOption(block, 'threads', 'singleThread') === true
+  );
+}
+
+/**
+ * The file-boundary rules: every project runs the reset first, and every
+ * project whose files share a process also closes SQLite handles.
+ */
+function fileBoundaryViolations(blocks: ReadonlyArray<Record<string, unknown>>): string[] {
+  const violations: string[] = [];
+  for (const block of blocks) {
+    const name = typeof block['name'] === 'string' ? block['name'] : '(unnamed)';
+    const setupFiles = setupFilesOf(block);
+    if (setupFiles[0] !== FILE_BOUNDARY_RESET) violations.push(`${name}: ${FILE_BOUNDARY_RESET} is not the first setup file`);
+    if (sharesAProcess(block) && !setupFiles.includes(CLOSE_SQLITE)) {
+      violations.push(`${name}: files share a process but ${CLOSE_SQLITE} is not a setup file`);
+    }
+  }
+  return violations;
+}
 
 /** The root config's projects, as `defineConfig` leaves them. */
 function projects(): Array<{
@@ -166,5 +227,40 @@ describe('vitest.config', () => {
         'tools/evals/bench/**/*.bench.ts',
       ]),
     );
+  });
+
+  /** State that one test file leaves must not reach the next file in the same worker (#2030). */
+  it('VitestConfig_EveryProject_ResetsSharedStateAtEveryFileBoundary', () => {
+    const blocks = projectTestBlocks();
+
+    expect(blocks.length).toBeGreaterThanOrEqual(6);
+    expect(existsSync(join(REPO_ROOT, FILE_BOUNDARY_RESET))).toBe(true);
+    expect(existsSync(join(REPO_ROOT, CLOSE_SQLITE))).toBe(true);
+    expect(fileBoundaryViolations(blocks)).toEqual([]);
+  });
+
+  /** The projects that share a process today; a lower bound, so the rule above cannot pass on none. */
+  it('VitestConfig_ProjectsThatShareAProcess_AreTheOnesTheSqliteRuleCovers', () => {
+    const shared = projectTestBlocks()
+      .filter(sharesAProcess)
+      .map((block) => block['name']);
+
+    expect(shared).toEqual(expect.arrayContaining(['core', 'outcome', 'acceptance']));
+  });
+
+  /** A project that skips either rule is named; its compliant twin is not. */
+  it('VitestConfig_FileBoundaryRule_NamesASeededProjectAndPassesItsTwin', () => {
+    const hermetic = './tests/helpers/hermetic-install-identity.ts';
+    const seeded = { name: 'seeded', isolate: false, setupFiles: [hermetic] };
+    const singleFork = { name: 'single', poolOptions: { forks: { singleFork: true } }, setupFiles: [FILE_BOUNDARY_RESET] };
+    const twin = { name: 'twin', isolate: false, setupFiles: [FILE_BOUNDARY_RESET, hermetic, CLOSE_SQLITE] };
+    const isolated = { name: 'isolated', setupFiles: [FILE_BOUNDARY_RESET, hermetic] };
+
+    expect(fileBoundaryViolations([seeded, singleFork])).toEqual([
+      `seeded: ${FILE_BOUNDARY_RESET} is not the first setup file`,
+      `seeded: files share a process but ${CLOSE_SQLITE} is not a setup file`,
+      `single: files share a process but ${CLOSE_SQLITE} is not a setup file`,
+    ]);
+    expect(fileBoundaryViolations([twin, isolated])).toEqual([]);
   });
 });

@@ -16,6 +16,15 @@ import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '../../');
 
+/**
+ * Files[] entries that `npm run build` writes and `prepare` (tsc) does not, so a
+ * checkout that ran only `prepare` lacks them. `dist/bin` comes from `build:binary`.
+ * `dist/release-verify.js` comes from `build:release-verifier`, which
+ * `tests/scripts/installer-verify.test.ts` runs in a sandbox and then packs. That
+ * test no longer leaves the file in the checkout for this one to find (#2030).
+ */
+const BUILD_ONLY_ENTRIES: readonly string[] = ['dist/bin', 'dist/release-verify.js'];
+
 const readJson = (rel: string): Record<string, unknown> =>
   JSON.parse(readFileSync(join(REPO_ROOT, rel), 'utf8')) as Record<string, unknown>;
 
@@ -108,11 +117,8 @@ describe('FilesArray', () => {
     expect(entries.length).toBeGreaterThan(0);
 
     for (const entry of entries) {
-      if (entry === 'dist/bin' || entry.startsWith('dist/bin/')) {
-        // Produced by `build:binary`, not by `prepare`/`tsc`. A typechecked
-        // checkout has `dist/` without this directory.
-        if (!existsSync(join(REPO_ROOT, entry))) continue;
-      }
+      const buildOnly = BUILD_ONLY_ENTRIES.some((built) => entry === built || entry.startsWith(`${built}/`));
+      if (buildOnly && !existsSync(join(REPO_ROOT, entry))) continue;
       expect(existsSync(join(REPO_ROOT, entry)), `files[] entry '${entry}' does not exist`).toBe(
         true,
       );

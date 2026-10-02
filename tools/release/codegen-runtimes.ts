@@ -33,7 +33,7 @@
  * Implements: PR #1213 review-item #4 (CodeRabbit), #1109 §2 (MCP parity).
  */
 
-import { writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadAllRuntimes, REQUIRED_RUNTIME_NAMES } from '../../src/install/runtimes/load.js';
@@ -142,7 +142,9 @@ function repoRoot(): string {
 /**
  * Load every runtime YAML in `runtimesDir`, render the embedded module,
  * and write it to `outFile`. Exported so tests can drive the same code
- * path against a temp directory.
+ * path against a temp directory. A file that already holds the rendered
+ * text is left alone: every build runs this against the tracked copy, and
+ * a rewrite would expose a truncated file to a concurrent reader (#2030).
  */
 export function generateEmbeddedRuntimesModule(opts: {
   runtimesDir: string;
@@ -150,6 +152,7 @@ export function generateEmbeddedRuntimesModule(opts: {
 }): void {
   const runtimes = loadAllRuntimes(opts.runtimesDir);
   const source = renderEmbeddedRuntimesModule(runtimes);
+  if (existsSync(opts.outFile) && readFileSync(opts.outFile, 'utf8') === source) return;
   writeFileSync(opts.outFile, source, 'utf8');
 }
 

@@ -14,10 +14,11 @@
  * unreadable module / usage).
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync, existsSync, writeFileSync, rmSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runScriptCheck, makeFixtureSrc as makeFixtureSrcShared } from '../../tools/audit/gates/test-utils.js';
+import { makeRepoSandbox } from '../../tools/test-helpers/repo-sandbox.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../..');
@@ -198,32 +199,31 @@ describe('check-module-intent CLI (DR-7/DR-8)', () => {
 
   // ── Direction 3: the gate's ROOT SET covers root `src/` (DR-9) ─────────────
 
-  it('DefaultRootSet_CoversRootSrc_NotOnlyTheMcpPackage', () => {
-    // The gate's default root was the MCP package alone, so root `src/` was
-    // outside it entirely. `friction-signal.ts` states in its own header that it
-    // was placed there partly BECAUSE a module elsewhere "would itself register
-    // as dead-in-prod (DR-7)" — relocating out of a gate's reach is not
-    // satisfying the gate, so the reach is what moved.
-    //
-    // Driven through the real CLI: a fresh dead module dropped into root `src/`
-    // must be REPORTED by a default (no `--src-root`) invocation. Naming the
-    // default root list in an assertion would only restate the constant.
-    const orphan = path.join(REPO_ROOT, 'src', 'dr9-root-src-probe.ts');
-    writeFileSync(orphan, 'export const probe = () => 1;\n', 'utf8');
+  /**
+   * The default root set reaches root `src/`, not only the old MCP package. A
+   * dead module dropped into `src/` must fail a run with no `--src-root`. The
+   * gate finds its repository from its own location, so it runs from a sandbox
+   * that holds the gate, its detector and a small `src/` (#2030). The sandbox
+   * scans clean first, so the failure is the probe's.
+   */
+  it('DefaultRootSet_CoversRootSrc_NotOnlyTheMcpPackage', async () => {
+    const sandbox = await makeRepoSandbox({
+      prefix: 'module-intent-root',
+      copy: ['tools/audit/gates/check-module-intent.mjs', 'tools/audit/refgraph.mjs'],
+      files: { 'src/index.ts': 'export const entry = 1;\n' },
+    });
+    const sandboxScript = sandbox.path('tools/audit/gates/check-module-intent.mjs');
     try {
-      const { status, stderr } = runCheck();
+      expect(runScriptCheck(sandboxScript, sandbox.root).status, 'the sandbox must scan clean before the probe').toBe(0);
+      sandbox.write('src/dr9-root-src-probe.ts', 'export const probe = () => 1;\n');
+      const { status, stderr } = runScriptCheck(sandboxScript, sandbox.root);
       expect(status, 'a dead module in root `src/` must fail the DEFAULT invocation').toBe(1);
       expect(stderr).toMatch(/src\/dr9-root-src-probe\.ts/);
       expect(stderr).toMatch(/no RESERVED.*header and no allowlist class/);
     } finally {
-      rmSync(orphan, { force: true });
+      sandbox.remove();
     }
-    // …and removing it restores the clean verdict, so the failure was the probe.
-    expect(runCheck().status).toBe(0);
-    // Two full-tree CLI spawns, where every sibling case spends one. A 2-core
-    // Windows runner needs ~3.4s per scan, so the default 5s budget cannot fit
-    // both — the timeout was arithmetic, not a slow gate.
-  }, 30_000);
+  });
 
   it('FrictionSignal_DeclaresIntentRatherThanEvadingTheGate', () => {
     // The specific module DR-9 names. It lives under `src/install/` after the

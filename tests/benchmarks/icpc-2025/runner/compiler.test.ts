@@ -1,12 +1,13 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { describe, it, expect, afterAll } from 'vitest';
+import { writeFileSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { detectLanguage, compile, execute, runSolution } from './compiler.js';
 import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
-import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
+import { makeRepoSandbox } from '../../../../tools/test-helpers/repo-sandbox.js';
 
-const TEST_DIR = join(dirname(fileURLToPath(import.meta.url)), '.test-fixtures');
+/** Fixtures and their build output live in a temp sandbox, never beside this file (#2030). */
+const fixtures = await makeRepoSandbox({ prefix: 'icpc-compiler' });
+const TEST_DIR = fixtures.root;
 
 async function hasGpp(): Promise<boolean> {
   // `which g++` is not enough: windows-latest runners ship a g++ shim that
@@ -23,14 +24,8 @@ async function hasGpp(): Promise<boolean> {
 
 const describeWithGpp = (await hasGpp()) ? describe : describe.skip;
 
-beforeAll(() => {
-  mkdirSync(TEST_DIR, { recursive: true });
-});
-
 afterAll(() => {
-  if (existsSync(TEST_DIR)) {
-    rmrf(TEST_DIR);
-  }
+  fixtures.remove();
 });
 
 describe('detectLanguage', () => {

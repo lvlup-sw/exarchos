@@ -2741,7 +2741,7 @@
   },
   "tests/scripts/check-module-intent.test.ts": {
     "comments/comment-content": {
-      "count": 12
+      "count": 11
     }
   },
   "tests/scripts/check-no-state-json.test.ts": {
