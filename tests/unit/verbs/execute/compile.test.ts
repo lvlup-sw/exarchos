@@ -104,7 +104,7 @@ describe('compileIntent refusals', () => {
 
   /**
    * The step is registered, local, and valid, but the leaves run through one handler table, so it cannot run.
-   * A refusal at the turn of the leaf comes after the earlier leaves ran, possibly after an effect that cannot be undone.
+   * A refusal that waits until the executor reaches this leaf comes after the earlier leaves ran, possibly after an effect that cannot be undone.
    */
   it('StepWithNoHandlerInTheTable_IsNotClosed', () => {
     const orphan = fixtureAction({ name: 'fixture_no_handler' });
@@ -271,6 +271,7 @@ describe('compileIntent argument construction', () => {
   /**
    * A step that names a variable makes that variable required. The fixture schema leaves `riskTier` optional on purpose.
    * This case is an intent whose schema does not require a variable that its runbook uses. Shipped schemas do not reach it.
+   * The fixture keeps the compiler check from going vacuous as shipped schemas get stricter.
    */
   it('UnboundPlaceholder_RefusesRatherThanDroppingOut', () => {
     const deps = depsFor([fixtureStep('fixture_pass', 'stop', { riskTier: '<riskTier>' })]);

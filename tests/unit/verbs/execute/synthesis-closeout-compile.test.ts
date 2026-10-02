@@ -61,7 +61,7 @@ describe('synthesis-closeout compiles against the live registry', () => {
    * `enforce: true` is a literal of the step. Without it, the section verdict rides the success carrier,
    * where the `stop` policy cannot see it. Then `create_pr` runs on a body that the check rejected.
    * The body check gets no `pr` argument. With a PR number, the check reads the body back from the remote,
-   * and no remote request exists at this point.
+   * and no pull request exists on the remote at this point.
    */
   it('SynthesisCloseout_OnePrBody_BindsOntoBothLeafSpellings', () => {
     const leaves = leavesOf(compileIntent(INTENT, SUBJECT, ARGS, PRODUCTION_COMPILE_DEPS));

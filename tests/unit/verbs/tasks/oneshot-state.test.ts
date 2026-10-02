@@ -100,7 +100,7 @@ describe('resolveOneshotState (shared oneshot validation, DR-10)', () => {
     }
   });
 
-  /** The resolver translates `EVENT_STORE_ERROR` into the `STATE_NOT_FOUND` code that the oneshot handlers expect. */
+  /** `resolveOneshotState` translates `EVENT_STORE_ERROR` into the `STATE_NOT_FOUND` code that the oneshot handlers expect. */
   it('ResolveOneshotState_EventStoreError_TranslatesToStateNotFound', async () => {
     const store = storeThrowing();
 

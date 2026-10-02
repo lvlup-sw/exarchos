@@ -2,7 +2,7 @@
  * Tests for the verification-toolchain doctor check.
  *
  * - Pass: `test`, `typecheck`, and `mutation` resolve. The message also reports `lint`.
- * - Warning: one of these three fields is unresolved. `fix` names `exarchos doctor --fix` and a declaration in `.exarchos.yml` or `toolchains:`.
+ * - Warning: at least one of these three fields is unresolved. `fix` names `exarchos doctor --fix` and a declaration in `.exarchos.yml` or `toolchains:`.
  * - Skipped: detection finds no toolchain. `reason` names what detection looked for.
  *
  * The result carries the source of each of the six policy cells.

@@ -564,9 +564,9 @@ describe('handleMergeOrchestrate (T13 — dry-run path)', () => {
  * Three sites in the handler map known typed errors to codes. Any other error
  * must also return a coded `ToolResult.error`, not a throw that dispatch turns
  * into a generic `INTERNAL_ERROR`. `withStateRetry` retries only the typed
- * errors, so a plain `Error` stops after one call. `bypassSection0a` makes the
- * sibling-worktree probe fail, so the result does not depend on the worktree
- * layout of the host repo.
+ * errors, so a plain `Error` stops after one call. `bypassSection0a` fails each
+ * git call, and a failed call stops the sibling-worktree probe early. Thus the
+ * result does not depend on the worktree layout of the host repo.
  */
 describe('handleMergeOrchestrate (#1706 DR-1 — unknown-error coded envelopes)', () => {
   beforeEach(() => {
@@ -999,8 +999,8 @@ function passingExecuteMerge() {
 /**
  * The guard folds `worktrees@v1` and fails a merge closed when a live foreign
  * lease holds the target ref. The tests use a real `EventStore` and inject only
- * the preflight, executor, and git seams of the handler. `NO_GIT` makes the
- * sibling-worktree probe fail, so the tests isolate the guard.
+ * the preflight, executor, and git seams of the handler. `NO_GIT` fails each git
+ * call, which stops the sibling-worktree probe early, so the tests isolate the guard.
  */
 describe('handleMergeOrchestrate (DR-2 — single-writer lease guard)', () => {
   afterEach(async () => {

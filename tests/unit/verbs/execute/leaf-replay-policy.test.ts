@@ -1,9 +1,9 @@
 // @oracle-sources: ../../../../src/verbs/execute/executor.ts, the rows a real EventStore holds under a leaf's DERIVED operation id — queried back from the store rather than read off the receipt the executor built, so a receipt that claims a leaf ran once cannot satisfy a comparison against rows nobody wrote twice
 //
 // Tests for the `reject-replay` gate of the executor. On a crash-retry, the executor reads the
-// unconditional rows of a leaf under its derived operation id. When all of them are present, it
-// does not call the handler again. These tests use fixture leaves, so the remote precheck of
-// `create_pr` cannot hide the effect of the gate.
+// rows of a leaf under its derived operation id. When each unconditional emission of the leaf is
+// present, it does not call the handler again. These tests use fixture leaves, so the remote
+// precheck of `create_pr` cannot hide the effect of the gate.
 //
 // Each case crashes a later leaf. The retry then runs the segment again under the same
 // operation id, and a completed leaf comes up a second time.
@@ -208,8 +208,9 @@ describe('a reject-replay leaf that already completed', () => {
   });
 
   /**
-   * An empty owed set is always complete. Without this branch, the gate skips the
-   * leaf on its first retry, although the leaf never ran.
+   * The check that each owed event is present is true for an empty owed set. Without
+   * the empty-set branch in `replayElidedRows`, the gate skips this leaf on retry with
+   * no evidence that it ran.
    */
   it('RejectReplayLeaf_DeclaringNoUnconditionalEmission_IsAlwaysInvoked', async () => {
     const silent = fixtureAction({

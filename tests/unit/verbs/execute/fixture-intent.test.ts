@@ -247,8 +247,8 @@ describe('a terminal leaf whose requirement an earlier leaf satisfies', () => {
   /**
    * The control. The declaration, the arguments and the evaluator stay the same.
    * Only the store contents differ, because the earlier leaf has not run.
-   * One admission check before the whole segment asks this question and denies a segment that succeeds in order.
-   * After the predecessor runs alone, the same check admits the leaf.
+   * One admission check for the whole segment, before any leaf runs, asks this question.
+   * It denies a segment that succeeds when its leaves run in order. After the predecessor runs alone, the same check admits the leaf.
    */
   it('SameLeafAdmittedBeforeItsPredecessorRan_IsDenied', async () => {
     const compiled = compileIntent(INTENT, { streamId: STREAM }, { taskId: 't1' }, gatedDeps());

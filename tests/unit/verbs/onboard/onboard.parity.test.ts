@@ -177,8 +177,8 @@ function normalize(value: unknown): unknown {
 
 describe('exarchos onboard CLI/MCP parity (DR-6)', () => {
   /**
-   * Both arms have the same drift: a config `Fail` before apply and green after. The plan has no install step,
-   * so only the surface differs. The plan holds two config steps: the injected `state-dir` drift and the seeded
+   * Both arms have the same drift: a config `Fail` before apply and green after. The plan has no install step.
+   * The only difference between the arms is the surface. The plan holds two config steps: the injected `state-dir` drift and the seeded
    * `verification-command-mutation` step. The node fixture detects `npx stryker run`, and `.exarchos.yml` does not declare it.
    */
   it('Parity_StepsOneToThreeAndFive_IdenticalAcrossSurfaces', async () => {

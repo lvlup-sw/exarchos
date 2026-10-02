@@ -1,6 +1,6 @@
 /**
  * Tests for the `stale-skill-dirs` doctor check. The check reads skill directory
- * names and reports each old skill name that remains after the onboard renames.
+ * names and reports each directory that still has an old skill name after the skill renames.
  */
 
 import { describe, it, expect } from 'vitest';

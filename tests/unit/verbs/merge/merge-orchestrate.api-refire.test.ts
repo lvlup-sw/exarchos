@@ -1,7 +1,7 @@
 /**
  * Tests that an OCC retry does not fire the merge executor again.
  * The executor merge is a side effect that is not idempotent. It runs after the retried `decide` boundary, never inside it.
- * If a change moves the executor call into a `withStateRetry` block, this test fails.
+ * If a change moves the executor call into the retried block ahead of `decide`, this test fails.
  */
 
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';

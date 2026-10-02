@@ -6,7 +6,7 @@
  *
  * The suite checks three properties:
  *   - `OnboardNew_Greenfield_ByteEquivalentToAdopt`: `--new foo` gives the same result as `onboard`
- *     inside an equally seeded empty `foo/`, apart from timestamps and paths.
+ *     inside an equally seeded empty `foo/`, apart from timestamps, paths and the `greenfield` flag.
  *   - `OnboardNew_ExistingNonEmptyDir_RefusesCleanly`: the handler refuses a non-empty target and writes nothing.
  *   - `OnboardNew_EmitsOnboardNewTrigger`: `onboard.requested` carries `trigger: 'onboard-new'`.
  * Tests with injected fs hooks also check `scaffoldNewRepo` without disk access.
@@ -120,8 +120,8 @@ async function repoSnapshot(repoRoot: string): Promise<{ entries: string[]; giti
 
 describe('scaffoldNewRepo (DR-3 — greenfield scaffold helper)', () => {
   /**
-   * For an empty directory, the config resolver finds nothing, so the `.exarchos.yml` seed can write nothing.
-   * The test therefore checks the directory and the `.gitignore`.
+   * For an empty directory, the config resolver finds nothing, and the `.exarchos.yml` seed can skip the write.
+   * Thus the test checks only the directory and the `.gitignore`.
    */
   it('seeds a fresh dir with .exarchos.yml + .gitignore', async () => {
     const fx = await createFixture('scaffold-seed-');

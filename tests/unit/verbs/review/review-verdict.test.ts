@@ -644,7 +644,7 @@ describe('handleReviewVerdict', () => {
       expect(data.report).toContain('3/3');
     });
 
-    /** An APPROVED verdict has no escalation fields and emits no escalation event. */
+    /** After nine prior fix cycles, an APPROVED verdict still has no escalation fields and emits no escalation event. */
     it('SpecReview_Approved_NoEscalationFields', async () => {
       seedPriorFixCycles(9);
       const result = await handleReviewVerdict(

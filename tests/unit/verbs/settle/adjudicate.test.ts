@@ -156,7 +156,7 @@ describe('settlement adjudication', () => {
   });
 
   /**
-   * A settlement that adjudicated nothing and one that adjudicated everything both report zero findings.
+   * A verdict with zero findings can come from a pass that adjudicated nothing or from a pass that adjudicated everything.
    * Only the census on the verdict tells them apart, and a reader cannot compute it without the capsule.
    * The shape pass reads no verification. The final pass reads one for each accepted claim.
    */

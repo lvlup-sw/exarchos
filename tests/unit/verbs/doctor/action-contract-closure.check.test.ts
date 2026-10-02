@@ -1,5 +1,6 @@
 /**
  * Tests the doctor check that reports the ActionId closure verdict to a user.
+ * The roster characterization proves only that the check runs. This file proves that each arm reports the verdict that it reads.
  * Each arm runs against a stubbed evaluator. This includes the empty-denominator arm, which a live tree cannot produce on demand.
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest';

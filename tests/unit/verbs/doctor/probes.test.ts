@@ -143,7 +143,7 @@ describe('buildProbes invariants.resolve — cwd-relative root resolution (#1482
 
   /**
    * The `configured` value does not depend on the phase. A declared user catalog counts as configured with zero entries.
-   * The loader requires the empty `invariants:` array in the frontmatter.
+   * The loader requires an `invariants:` array in the frontmatter, so the fixture declares an empty one.
    */
   it('Resolve_UserCatalogDeclared_ReportsConfiguredRegardlessOfEntries', async () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-user-cat-'));
@@ -166,7 +166,7 @@ describe('buildProbes invariants.resolve — cwd-relative root resolution (#1482
 
   /**
    * A user catalog that claims a reserved id gets an advisory that names the file and the id.
-   * The dev tier owns the reserved prefixes. The probe reports the error and does not crash.
+   * The built-in dev and sdlc catalogs own the reserved `INV-` and `SDLC-` prefixes. The probe reports the error and does not crash.
    */
   it('DoctorInvariantsCatalog_UserSourceReservedId_EmitsAdvisory', async () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-reserved-'));

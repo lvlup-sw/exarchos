@@ -8,7 +8,7 @@ const signal = new AbortController().signal;
 describe('store-path-divergence (DR-11 B-5)', () => {
   /**
    * Without `WORKFLOW_STATE_DIR`, the CLI uses `~/.exarchos/state` and the plugin uses `~/.claude/workflow-state`.
-   * The message checks home-independent substrings. A Warning must carry a fix to pass the schema.
+   * The test checks home-independent substrings of the message. A Warning must carry a fix to pass the schema.
    */
   it('doctor_DivergentStorePaths_DetectedAndReported', async () => {
     const probes = makeStubProbes({ env: {} });

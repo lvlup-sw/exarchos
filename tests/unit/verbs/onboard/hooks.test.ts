@@ -249,7 +249,10 @@ describe('DR-8 SessionStart hook install (#1485, task 012)', () => {
     }
   });
 
-  /** With no settings file, the check fails or warns with a fix. After `installHook` runs, the check passes. */
+  /**
+   * With no settings file, the check fails or warns with a fix. After `installHook` runs, the check passes.
+   * The check probes the SubagentStop binding, not SessionStart. `installHook` writes both in one pass.
+   */
   it('Doctor_DetectsMissingSessionStartHook', async () => {
     const fx = await createFixture();
     try {
