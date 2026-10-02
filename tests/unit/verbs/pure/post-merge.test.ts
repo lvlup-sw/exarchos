@@ -1,10 +1,10 @@
-import type { VcsProvider, CiStatus, CiCheck } from '../../../../src/vcs/provider.js';
-import { checkPostMerge } from '../../../../src/verbs/pure/post-merge.js';
 import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from 'vitest';
-import { join } from 'node:path';
 import { mkdtempSync, writeFileSync } from 'node:fs';
-import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { checkPostMerge } from '../../../../src/verbs/pure/post-merge.js';
+import type { VcsProvider, CiStatus, CiCheck } from '../../../../src/vcs/provider.js';
+import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 function createMockProvider(overrides: {
   checkCi?: CiStatus;

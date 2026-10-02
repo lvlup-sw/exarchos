@@ -3,10 +3,10 @@
  *
  * The `runStaticAnalysis` double returns `skipCount` in each branch, because the handler destructures it from the result.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { join } from 'node:path';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const controls = vi.hoisted(() => ({
   staticStatus: 'pass' as 'pass' | 'fail' | 'skip',

@@ -3,15 +3,17 @@
  * detection results, never overwrites an existing file, and writes YAML that
  * `loadExarchosConfig` reads back.
  */
-import * as path from 'node:path';
+
 import { describe, it, expect, vi } from 'vitest';
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import * as path from 'node:path';
 
 import type { ResolvedVerificationRuntime } from '../../../../src/config/test-runtime-resolver.js';
 import { loadExarchosConfig } from '../../../../src/config/load-exarchos-config.js';
-import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { seedExarchosConfig } from '../../../../src/verbs/init/seed-exarchos-config.js';
+import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
+
 /** A resolver result for an npm project, with `mutation`, `lint` and `contract` set to null. */
 function npmResolve(): ResolvedVerificationRuntime {
   return {

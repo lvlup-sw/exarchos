@@ -3,14 +3,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// `prepare_synthesis` runs its test and typecheck legs by shelling out to
-// `npm run test:run` and `npm run typecheck` in the process's own cwd — which,
-// under this suite, is the MCP package. Unstubbed, the one case that gets past
-// the task-completion short-circuit re-enters the entire vitest run from inside
-// a test and then waits out both subprocess timeouts (120s + 60s). None of that
-// bears on what these cases assert, which is that the evidence scope resolves.
-// Stub the subprocess surface the way `prepare-synthesis.test.ts` does; the gate
-// path under test stays real.
 vi.mock('node:child_process', () => ({
   execSync: vi.fn((command: string, options?: { encoding?: string }) => {
     const text = command.includes('symbolic-ref')
@@ -37,20 +29,6 @@ import { handlePrepareSynthesis } from '../../../src/verbs/team/prepare-synthesi
 import { handleProvenanceChain } from '../../../src/verbs/gates/provenance-chain.js';
 import { handleReviewVerdict } from '../../../src/verbs/review/review-verdict.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
-
-
-// `prepare_synthesis` runs its test and typecheck legs through `npm run` in the
-// process cwd. Unstubbed, a case that passes the task-completion check starts the
-// whole vitest run inside a test and waits out both subprocess timeouts. The
-// `node:child_process` mock stops that, and the gate path stays real.
-vi.mock('node:child_process', () => ({
-  execSync: vi.fn((command: string, options?: { encoding?: string }) => {
-    const text = command.includes('symbolic-ref')
-      ? 'refs/remotes/origin/main'
-      : 'Tests: 1 passed, 0 failed';
-    return options?.encoding === 'utf-8' ? text : Buffer.from(text);
-  execFileSync: vi.fn(() => Buffer.from('')),
-}));
 
 const PHASE_ATTEMPT_ID = 'phase-attempt:task-009';
 
