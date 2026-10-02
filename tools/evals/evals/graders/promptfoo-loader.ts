@@ -2,9 +2,8 @@ import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 
 /**
- * Minimal shape of the promptfoo `assertions` surface the llm graders consume.
- * Declared locally so the graders never depend on promptfoo's own types (which
- * are absent from the default install, DR-3).
+ * The promptfoo `assertions` surface that the llm graders use. The default install does not
+ * hold promptfoo, so this module declares the shape locally.
  */
 export interface PromptfooAssertions {
   matchesLlmRubric(
@@ -22,10 +21,8 @@ export interface PromptfooAssertions {
 }
 
 /**
- * Actionable message shown when an llm-rubric / llm-similarity grader runs
- * without promptfoo installed. promptfoo is an OPT-IN, eval-only dependency
- * (DR-3): it lives ONLY in the eval package, never in the default MCP-server
- * install, so operators must install that package before running these graders.
+ * The error message for an llm-rubric or llm-similarity grader that runs without promptfoo.
+ * Only the opt-in eval package ships promptfoo. The default MCP-server install does not.
  */
 export const PROMPTFOO_INSTALL_HINT =
   'promptfoo is not installed. It ships only with the opt-in eval package, not the ' +
@@ -48,34 +45,22 @@ export function getAssertions(mod: unknown): PromptfooAssertions | null {
 }
 
 /**
- * Resolve promptfoo's `assertions` surface for the llm graders.
+ * Resolves the promptfoo `assertions` surface for the llm graders.
  *
- * Tries two locations in order:
- *   1. A bare `import('promptfoo')` — resolves when promptfoo is hoisted into an
- *      ancestor node_modules, and is the seam vitest's `vi.mock('promptfoo')`
- *      intercepts in the grader unit tests.
- *   2. The opt-in eval package's own node_modules
- *      (tools/evals-pkg), which is where the eval gate installs
- *      promptfoo. Because the eval package is a standalone sibling (not hoisted
- *      into the server closure), a bare specifier can't reach it, so we resolve
- *      it explicitly relative to this module.
+ * It first tries a bare `import('promptfoo')`, which finds promptfoo in an ancestor
+ * `node_modules`. Then it resolves promptfoo from `tools/evals-pkg`, relative to this module.
+ * The eval gate installs promptfoo there, and a bare specifier cannot reach it.
  *
- * Throws {@link PROMPTFOO_INSTALL_HINT} if neither resolves — an actionable
- * install hint rather than an opaque module-not-found crash.
+ * @throws Error with {@link PROMPTFOO_INSTALL_HINT} when neither location gives the surface.
  */
 export async function loadPromptfooAssertions(): Promise<PromptfooAssertions> {
-  // (1) Bare specifier.
   try {
     const mod: unknown = await import('promptfoo');
     const assertions = getAssertions(mod);
     if (assertions) return assertions;
   } catch {
-    // fall through to the eval-package resolution
   }
 
-  // (2) Opt-in eval package (tools/evals-pkg/node_modules).
-  // The relative depth is identical from src/ (vitest) and dist/ (built runner):
-  // graders/ -> evals/ -> {src,dist}/ -> servers/exarchos-mcp/ -> evals-pkg/.
   try {
     const evalPkgManifest = new URL('../../../evals-pkg/package.json', import.meta.url);
     const requireFromEvalPkg = createRequire(evalPkgManifest);
@@ -84,7 +69,6 @@ export async function loadPromptfooAssertions(): Promise<PromptfooAssertions> {
     const assertions = getAssertions(mod);
     if (assertions) return assertions;
   } catch {
-    // not installed — surface the actionable hint below
   }
 
   throw new Error(PROMPTFOO_INSTALL_HINT);

@@ -1,8 +1,7 @@
 /**
- * Extracts text from eval output using an optional dot-notation path.
- * Returns null when a path is specified but does not resolve — callers
- * should treat null as "field not present" and skip grading.
- * Falls back to JSON.stringify of the entire output when no path is given.
+ * Extracts text from eval output with an optional dot-notation path.
+ * It returns null when the path does not resolve. Null means that the field is not present, and the caller must skip the grade.
+ * When no path is given, it returns `JSON.stringify` of the whole output.
  */
 export function extractOutputText(output: Record<string, unknown>, outputPath?: string): string | null {
   if (!outputPath) return JSON.stringify(output);

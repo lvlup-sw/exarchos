@@ -20,11 +20,10 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 export default tseslint.config(
   {
-    // Test files are excluded from the MCP tsconfig's `include` (see
-    // tsconfig.json), so they are not part of the
-    // `ts.Program` `parserOptions.project` builds below — linting them here
-    // would error with "file not in project". They carry no ACTION_HANDLERS
-    // registration surface anyway.
+    /**
+     * `tsconfig.json` excludes test files, so the `parserOptions.project` program below does not
+     * hold them. A lint of a test file stops with "file not in project".
+     */
     ignores: ['src/verbs/**/*.test.ts'],
   },
   {

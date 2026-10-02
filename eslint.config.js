@@ -25,10 +25,10 @@ export default [
     languageOptions: {
       parser: tseslint.parser,
     },
-    // Register the typescript-eslint plugin so the existing inline
-    // `// eslint-disable @typescript-eslint/…` directives resolve to a known
-    // rule — none of its rules are enabled here. Don't flag those directives as
-    // "unused" just because we keep their rules off.
+    /**
+     * With the typescript-eslint plugin, the `@typescript-eslint/*` disable directives name a known
+     * rule. None of its rules are on, so `linterOptions` turns off the report of unused directives.
+     */
     plugins: {
       '@typescript-eslint': tseslint.plugin,
       comments: {
@@ -51,17 +51,20 @@ export default [
       'no-restricted-syntax': [
         'error',
         {
-          // execFile(Sync)('npm'|'npx'|'pnpm'|'yarn'|'corepack', …) — bare
-          // package-manager name. execFile spawns without a shell, so the
-          // `.cmd` shim won't launch on Windows.
+          /**
+           * A bare package-manager name passed to `execFile` or `execFileSync`. `execFile` spawns
+           * without a shell, so it cannot launch the `.cmd` shim on Windows.
+           */
           selector:
             "CallExpression[callee.name=/^execFile(Sync)?$/][arguments.0.value=/^(npm|npx|pnpm|yarn|corepack)$/]",
           message:
             'Spawn package managers via runCommandSync() (src/utils/process.ts): execFile cannot launch a .cmd shim on Windows (#1623).',
         },
         {
-          // new URL(import.meta.url).pathname — yields `/D:/…` on Windows,
-          // which path.resolve doubles to `D:\D:\…`.
+          /**
+           * On Windows, `new URL(import.meta.url).pathname` gives `/D:/…`, and `path.resolve`
+           * then gives `D:\D:\…`.
+           */
           selector:
             "MemberExpression[property.name='pathname'][object.type='NewExpression'][object.callee.name='URL'][object.arguments.0.property.name='url'][object.arguments.0.object.property.name='meta']",
           message:

@@ -17,8 +17,6 @@
 #     "invoke the next skill" directive.
 #   - `mcpPrefix: "mcp__exarchos__"` → canonical stdio-MCP tool prefix used
 #     when exarchos is installed as a bare MCP server (no plugin wrapping).
-#
-# Implements: DR-4, DR-5 (generic branch)
 name: generic
 # preferredFacade: cli — unknown runtimes have no guaranteed MCP client, so
 # CLI is the safest lowest-common-denominator invocation surface.

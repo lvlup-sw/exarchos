@@ -21,7 +21,6 @@ function formatCaseResult(result: EvalResult): string {
 
   if (result.passed) return line;
 
-  // Show failed assertions
   const failedAssertions = result.assertions.filter((a) => !a.passed);
   const assertionLines = failedAssertions.map(
     (a) => `    \u2514\u2500 ${a.name}: ${a.reason}`,

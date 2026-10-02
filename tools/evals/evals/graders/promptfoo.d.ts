@@ -1,19 +1,10 @@
-// Ambient type shim for the OPT-IN, eval-only `promptfoo` dependency (DR-3).
+// Ambient type shim for the opt-in, eval-only `promptfoo` dependency.
 //
-// promptfoo is intentionally absent from the default MCP-server install — it
-// ships only with the opt-in eval package (tools/evals-pkg).
-// This ambient declaration lets the DEFAULT-typechecked server tree compile the
-// graders' dynamic `import('promptfoo')` WITHOUT the package installed, so
-// `tsc --noEmit` stays green on the slim default closure. At runtime the loader
-// (promptfoo-loader.ts) resolves the real module from the eval package or fails
-// with an actionable install hint.
-//
-// Only the narrow `assertions` surface the graders consume is declared. The
-// server tsc never runs with the real promptfoo present (the typecheck lane
-// installs no promptfoo; the eval gate builds the server BEFORE installing the
-// eval package, and that install targets evals-pkg/node_modules, invisible to
-// the server's module resolution), so this shim never collides with the
-// package's own types.
+// Only the eval package (`tools/evals-pkg`) ships promptfoo. The default install does not.
+// With this shim, the graders' dynamic `import('promptfoo')` type-checks without the package.
+// It declares only the `assertions` surface that the graders use. The root package does not
+// declare promptfoo, and the eval gate builds before it installs promptfoo into `tools/evals-pkg`.
+// The root type-check therefore never sees the real package types.
 declare module 'promptfoo' {
   export interface PromptfooAssertionResult {
     pass: boolean;

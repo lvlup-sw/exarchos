@@ -9,8 +9,6 @@ describe('SchemaGrader', () => {
     expect(grader.type).toBe('schema');
   });
 
-  // ─── Valid output ───────────────────────────────────────────────────
-
   it('Grade_ValidTaskDecomposition_ReturnsScoreOne', async () => {
     const result = await grader.grade(
       {},
@@ -33,33 +31,27 @@ describe('SchemaGrader', () => {
     expect(result.passed).toBe(true);
   });
 
-  // ─── Missing field ──────────────────────────────────────────────────
-
   it('Grade_MissingRequiredField_ReturnsScoreZero', async () => {
     const result = await grader.grade(
       {},
-      { taskId: 'T1', title: 'Do the thing' }, // missing status
+      { taskId: 'T1', title: 'Do the thing' },
       {},
       { schema: 'task-decomposition' }
     );
     expect(result.score).toBe(0.0);
     expect(result.passed).toBe(false);
   });
-
-  // ─── Wrong type ─────────────────────────────────────────────────────
 
   it('Grade_WrongFieldType_ReturnsScoreZero', async () => {
     const result = await grader.grade(
       {},
-      { taskId: 123, title: 'Do the thing', status: 'pending' }, // taskId should be string
+      { taskId: 123, title: 'Do the thing', status: 'pending' },
       {},
       { schema: 'task-decomposition' }
     );
     expect(result.score).toBe(0.0);
     expect(result.passed).toBe(false);
   });
-
-  // ─── Extra fields (non-strict) ─────────────────────────────────────
 
   it('Grade_ExtraFieldsNonStrict_ReturnsScoreOne', async () => {
     const result = await grader.grade(
@@ -72,8 +64,6 @@ describe('SchemaGrader', () => {
     expect(result.passed).toBe(true);
   });
 
-  // ─── Extra fields (strict) ─────────────────────────────────────────
-
   it('Grade_ExtraFieldsStrict_ReturnsScoreZero', async () => {
     const result = await grader.grade(
       {},
@@ -85,10 +75,8 @@ describe('SchemaGrader', () => {
     expect(result.passed).toBe(false);
   });
 
-  // ─── Nested validation ─────────────────────────────────────────────
-
+  /** The `title` of `task-decomposition` is a string, so a nested object fails. */
   it('Grade_NestedObjectValidation_Works', async () => {
-    // task-decomposition expects flat strings, passing nested object as title should fail
     const result = await grader.grade(
       {},
       { taskId: 'T1', title: { nested: true }, status: 'done' },
@@ -98,8 +86,6 @@ describe('SchemaGrader', () => {
     expect(result.score).toBe(0.0);
     expect(result.passed).toBe(false);
   });
-
-  // ─── Array validation ──────────────────────────────────────────────
 
   it('Grade_ArrayInsteadOfObject_ReturnsScoreZero', async () => {
     const result = await grader.grade(
@@ -111,27 +97,21 @@ describe('SchemaGrader', () => {
     expect(result.score).toBe(0.0);
   });
 
-  // ─── Unknown schema name ───────────────────────────────────────────
-
   it('Grade_UnknownSchemaName_Throws', async () => {
     await expect(
       grader.grade({}, {}, {}, { schema: 'nonexistent' })
     ).rejects.toThrow();
   });
 
-  // ─── Reason includes field name ─────────────────────────────────────
-
   it('Grade_ValidationError_ReasonIncludesFieldName', async () => {
     const result = await grader.grade(
       {},
-      { taskId: 'T1', title: 'Do it' }, // missing status
+      { taskId: 'T1', title: 'Do it' },
       {},
       { schema: 'task-decomposition' }
     );
     expect(result.reason).toContain('status');
   });
-
-  // ─── Missing config.schema ─────────────────────────────────────────
 
   it('Grade_MissingSchemaConfig_Throws', async () => {
     await expect(grader.grade({}, {}, {}, {})).rejects.toThrow();

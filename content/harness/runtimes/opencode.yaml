@@ -15,8 +15,6 @@
 # `~/.claude/skills/`. OpenCode tools appear under the bare MCP prefix
 # `mcp__exarchos__` because OpenCode does not wrap MCP servers in a plugin
 # namespace.
-#
-# Implements: DR-4, DR-5, OQ-3
 name: opencode
 # preferredFacade: cli — OpenCode's MCP client surface is still thin, so
 # bash-style CLI invocations are the more reliable default.
@@ -39,8 +37,7 @@ capabilities:
   # canonical alias (`/ideate`, `/plan`, ...) — codex's custom prompts are
   # deprecated + namespaced (`/prompts:ideate`), copilot CLI has no autoload,
   # and cursor/generic expose no command surface. The skills build keys
-  # alias emission off this declared capability, not an "opencode" literal
-  # (INV-4). See docs/designs/2026-05-31-cross-harness-canonical-names-plan.md.
+  # alias emission off this declared capability, not an "opencode" literal.
   canonicalCommandAliases: true
 # Fine-grained support matrix consumed by the prose renderer (Tasks 8/9)
 # to gate `<!-- requires:* -->` and `<!-- requires:native:* -->` blocks.
@@ -60,7 +57,7 @@ supportedCapabilities:
   subagent:spawn: native
   mcp:exarchos: native
   mcp:exarchos:readonly: native
-  # isolation:worktree — launcher-managed lifecycle (DR-1/DR-3): `exarchos
+  # isolation:worktree — launcher-managed lifecycle: `exarchos
   # <harness>` owns this harness process and its top-level worktree lifecycle
   # (create → place → observe → teardown). A lifecycle relationship, not a
   # filesystem write guarantee — the launcher composes with whatever isolation
@@ -70,10 +67,10 @@ supportedCapabilities:
 skillsInstallPath: "~/.config/opencode/skills"
 # Directory OpenCode autoloads bare canonical-name slash-command aliases from
 # (global config dir). install-skills copies the generated
-# `command-aliases/opencode/*.md` tree here after installing skills
-# (T3, #1471/#1472). Only set on runtimes that declare
+# `command-aliases/opencode/*.md` tree here after installing skills.
+# Only set on runtimes that declare
 # `capabilities.canonicalCommandAliases` — the install gate keys off this
-# field + the source tree, never an "opencode" literal (INV-4).
+# field + the source tree, never an "opencode" literal.
 commandsInstallPath: "~/.config/opencode/commands"
 detection:
   binaries:

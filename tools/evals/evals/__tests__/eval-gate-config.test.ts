@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-// Navigate from tools/evals/evals/__tests__/ to repo root
+/** The repository root, four levels above `tools/evals/evals/__tests__/`. */
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const WORKFLOW_PATH = path.join(REPO_ROOT, '.github', 'workflows', 'eval-gate.yml');
 
@@ -44,45 +44,36 @@ function findStepBySubstring(steps: WorkflowStep[], substring: string): Workflow
 
 describe('eval-gate.yml — two-step layer configuration', () => {
   it('evalGateYml_ContainsTwoSteps_RegressionAndCapability', () => {
-    // Arrange
     const workflow = loadWorkflow();
     const job = Object.values(workflow.jobs ?? {})[0];
     const steps = job?.steps ?? [];
 
-    // Act
     const regressionStep = findStepBySubstring(steps, '"layer": "regression"');
     const capabilityStep = findStepBySubstring(steps, '"layer": "capability"');
 
-    // Assert
     expect(regressionStep).toBeDefined();
     expect(capabilityStep).toBeDefined();
     expect(regressionStep).not.toBe(capabilityStep);
   });
 
   it('evalGateYml_RegressionStep_BlocksOnFailure', () => {
-    // Arrange
     const workflow = loadWorkflow();
     const job = Object.values(workflow.jobs ?? {})[0];
     const steps = job?.steps ?? [];
 
-    // Act
     const regressionStep = findStepBySubstring(steps, '"layer": "regression"');
 
-    // Assert — regression step should NOT have continue-on-error
     expect(regressionStep).toBeDefined();
     expect(regressionStep!['continue-on-error']).not.toBe(true);
   });
 
   it('evalGateYml_CapabilityStep_ContinuesOnError', () => {
-    // Arrange
     const workflow = loadWorkflow();
     const job = Object.values(workflow.jobs ?? {})[0];
     const steps = job?.steps ?? [];
 
-    // Act
     const capabilityStep = findStepBySubstring(steps, '"layer": "capability"');
 
-    // Assert — capability step should have continue-on-error: true
     expect(capabilityStep).toBeDefined();
     expect(capabilityStep!['continue-on-error']).toBe(true);
   });

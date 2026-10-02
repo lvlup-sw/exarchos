@@ -9,8 +9,8 @@ export function escapeCommandValue(value: string): string {
 }
 
 /**
- * Escape a string for use in a GitHub Actions annotation property (title, file, etc.).
- * Properties additionally need `:` and `,` escaped.
+ * Escapes a string for a GitHub Actions annotation property, such as `title` or `file`. A property
+ * also needs `:` and `,` escaped.
  */
 export function escapeCommandProperty(value: string): string {
   return escapeCommandValue(value).replace(/:/g, '%3A').replace(/,/g, '%2C');
@@ -37,7 +37,6 @@ export function formatCIReport(summaries: RunSummary[]): string {
   const lines: string[] = [];
 
   for (const summary of summaries) {
-    // Error annotations for each failed case
     for (const result of summary.results) {
       if (!result.passed) {
         const title = escapeCommandProperty(`Eval Regression: ${result.caseId}`);
@@ -46,7 +45,6 @@ export function formatCIReport(summaries: RunSummary[]): string {
       }
     }
 
-    // Notice annotation for suite summary
     const scorePct = (summary.avgScore * 100).toFixed(1);
     const skippedSuffix = summary.skipped > 0 ? `, ${summary.skipped} LLM skipped` : '';
     const noticeTitle = escapeCommandProperty(`Eval: ${summary.suiteId}`);
