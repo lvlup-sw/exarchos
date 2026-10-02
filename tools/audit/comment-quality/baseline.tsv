@@ -19104,10 +19104,6 @@ tests/unit/workflow/verification-policy.test.ts	c2ba2097b2f1	1
 tests/unit/workflow/verification-policy.test.ts	c6266c42f0ca	1
 tests/unit/workflow/verification-policy.test.ts	d496f3c3c390	1
 tests/unit/workflow/verification-policy.test.ts	e85e80bbd259	1
-tools/evals/evals/__tests__/calibration-types.test.ts	d2e77aa99a98	1
-tools/evals/evals/benchmarks/exp1-binary-driver.test.ts	ef2f3ec3dac3	1
-tools/evals/evals/benchmarks/seeded-defects/catch-rate-driver.test.ts	629f8ce3af2d	1
-tools/evals/evals/benchmarks/seeded-defects/catch-rate-driver.test.ts	df2144acd505	1
 tools/test-helpers/live-checkout-writes.ts	088cc04f2a81	1
 tools/test-helpers/live-checkout-writes.ts	124d40433a28	1
 tools/test-helpers/live-checkout-writes.ts	7c0aba6e20b9	1
