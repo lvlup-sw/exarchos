@@ -37,12 +37,6 @@ src/runtime/lib/plugin-compat.ts	f5ce873a9055	1
 src/runtime/lib/plugin-compat.ts	f87ff77892d7	1
 src/runtime/lib/plugin-compat.ts	f931f97c3679	1
 src/runtime/lib/plugin-compat.ts	f9b142e6b9b3	1
-src/workflow/state-store.ts	1b38bc6d6b5d	1
-src/workflow/state-store.ts	7cc79fc3d467	2
-src/workflow/state-store.ts	7e46c646fb1a	1
-src/workflow/state-store.ts	86614df406dd	1
-src/workflow/state-store.ts	8d6c08fcd8aa	1
-src/workflow/state-store.ts	a4fea248d6f1	1
 tests/acceptance/action-contract-next-actions.test.ts	cc98dfb3ad14	1
 tests/acceptance/action-contract-vcs-observation.test.ts	d8e9cdeafc87	1
 tests/acceptance/action-postconditions.test.ts	0f46567d6f4d	1
@@ -20945,11 +20939,9 @@ tests/unit/workflow/verification-policy.test.ts	c2ba2097b2f1	1
 tests/unit/workflow/verification-policy.test.ts	c6266c42f0ca	1
 tests/unit/workflow/verification-policy.test.ts	d496f3c3c390	1
 tests/unit/workflow/verification-policy.test.ts	e85e80bbd259	1
-tools/conformance/src/import-cycles.test.ts	6649cb668f99	1
 tools/evals/evals/__tests__/calibration-types.test.ts	d2e77aa99a98	1
 tools/evals/evals/benchmarks/exp1-binary-driver.test.ts	ef2f3ec3dac3	1
 tools/evals/evals/benchmarks/seeded-defects/catch-rate-driver.test.ts	629f8ce3af2d	1
-tools/git-hooks/pre-push.test.ts	f75253c2ee1e	1
 tools/test-helpers/live-checkout-writes.ts	088cc04f2a81	1
 tools/test-helpers/live-checkout-writes.ts	124d40433a28	1
 tools/test-helpers/live-checkout-writes.ts	7c0aba6e20b9	1
