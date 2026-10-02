@@ -1,11 +1,6 @@
-// ─── P07-02 exit-proof (d) — real legacy-state → admission-evidence translation ─
-//
-// Proves the translation produces GENUINE, content-addressed admission evidence
-// records (not the P07-01 scenario proxy), and that the projection reads real
-// legacy state the way the legacy guards do. The load-bearing anti-tautology
-// property is that adjudication is scenario-BLIND: identical legacy state always
-// yields identical evidence and an identical verdict — so a shadow disagreement
-// reflects a genuine legacy/admission divergence, never a proxy label.
+// Tests for the translation of legacy workflow state into admission evidence.
+// The translation mints content-addressed evidence, and the projection reads legacy state as the legacy guards do.
+// Adjudication ignores scenario labels: identical state yields identical evidence and an identical verdict.
 
 import { describe, expect, it } from 'vitest';
 
@@ -67,11 +62,11 @@ describe('projectStateToFacts — reads real legacy state', () => {
     expect(projectStateToFacts({ track: 'hotfix' }).fields['track']).toBe('hotfix');
   });
 
+  /**
+   * These facts are resolved obligations, not raw state reads.
+   * The shared IR reads them and does not hardcode the threshold, so admission does not over-admit on a configured project.
+   */
   it('resolves CONFIG-BEARING obligations from the same injected state the guards read', () => {
-    // The single-authority seam. Each of these facts is a RESOLVED obligation,
-    // not a raw state read — the shared IR consumes them instead of hardcoding
-    // the threshold, so admission cannot drift toward over-admission on a
-    // configured project.
     const configured = projectStateToFacts({
       planReview: { revisionCount: 1 },
       _maxPlanRevisions: 3,
@@ -84,12 +79,12 @@ describe('projectStateToFacts — reads real legacy state', () => {
     expect(defaulted.fields['planReview.revisionsExhausted']).toBe(true);
   });
 
+  /**
+   * The artifact guards accept only a string that is not empty after trim.
+   * The projection gives no presence sentinel for a value that the transition path denies, so admission does not over-admit.
+   * The same rule applies to `rca`, `fixDesign`, `report` and the top-level `plan` fallback.
+   */
   it('projects artifact fields as TYPED REFERENCES, not bare presence', () => {
-    // DR-5 (T-08): `oneshotPlanSet` AND `planArtifactExists` (and the rca /
-    // fixDesign / report guards) now share one contract — a trimmed non-empty
-    // string. The projection must not hand the admission engine a `<present>`
-    // sentinel for a value the shipped transition path denies, or admission
-    // over-admits relative to the legacy authority.
     for (const plan of [true, false, {}, 0, '   ', '']) {
       const facts = projectStateToFacts({ artifacts: { plan } });
       expect(facts.fields['artifacts.planNonEmpty'], JSON.stringify(plan)).toBe(false);
@@ -98,8 +93,6 @@ describe('projectStateToFacts — reads real legacy state', () => {
     const ok = projectStateToFacts({ artifacts: { plan: '  docs/plan.md  ' } });
     expect(ok.fields['artifacts.planNonEmpty']).toBe(true);
     expect(ok.fields['artifacts.plan']).toBe('  docs/plan.md  ');
-    // Same narrowing on every other artifact probe and on the legacy
-    // top-level `plan` fallback.
     for (const field of ['plan', 'rca', 'fixDesign', 'report']) {
       expect(
         projectStateToFacts({ artifacts: { [field]: true } }).fields[`artifacts.${field}`],
@@ -116,9 +109,8 @@ describe('projectStateToFacts — reads real legacy state', () => {
     expect(projectStateToFacts({ plan: 'docs/plan.md' }).fields['plan']).toBe('docs/plan.md');
   });
 
+  /** An `''` sentinel matches no branch, and it denies both outbound edges of `implementing` in the default oneshot flow. */
   it('defaults a missing oneshot synthesis policy to on-request (not a sentinel)', () => {
-    // An `''` sentinel matches NO branch, which denied both outbound edges of
-    // `implementing` and deadlocked the DEFAULT oneshot flow.
     expect(projectStateToFacts({}).fields['oneshot.synthesisPolicy']).toBe(
       'on-request',
     );
@@ -221,14 +213,12 @@ describe('translateEdgeAdmission — mints genuine evidence, not a scenario prox
     expect(ev?.kind).toBe('gate');
     if (ev?.kind !== 'gate') throw new Error('expected gate evidence');
 
-    // Real provenance — a producer, a policy, a fresh timestamp.
     expect(ev.producer.producerId).toBe(TRANSLATION_PRODUCER_ID);
     expect(ev.producer.providerRef).toBe(TRANSLATION_PROVIDER_REF);
     expect(ev.policyId).toBe(TRANSLATION_POLICY_ID);
     expect(ev.createdAt).toBe(EVAL_AT);
     expect(ev.verdict).toBe('pass');
 
-    // Genuine content-addressing — sha256 digests, not a scenario label.
     expect(ev.contentDigest.algorithm).toBe('sha256');
     expect(ev.contentDigest.value).toMatch(HEX64);
     expect(ev.subject.digest.value).toMatch(HEX64);
@@ -249,10 +239,11 @@ describe('translateEdgeAdmission — mints genuine evidence, not a scenario prox
     expect(ev.attributedTo.principalKind).toBe('service');
   });
 
+  /** The obligation stays declared, but no evidence certifies it. */
   it('mints NO satisfying evidence for a fail-shaped state (fails closed)', () => {
     const t = translateEdgeAdmission(gateEdge(), {}, CTX);
-    expect(t.requirements).toHaveLength(1); // the obligation is still declared
-    expect(t.evidence).toHaveLength(0); // but nothing certifies it
+    expect(t.requirements).toHaveLength(1);
+    expect(t.evidence).toHaveLength(0);
     expect(t.presence).toBe('false');
   });
 
@@ -263,7 +254,7 @@ describe('translateEdgeAdmission — mints genuine evidence, not a scenario prox
     const db = b.evidence[0]?.contentDigest.value;
     expect(da).toMatch(HEX64);
     expect(db).toMatch(HEX64);
-    expect(da).not.toBe(db); // content-addressed, not a fixed proxy token
+    expect(da).not.toBe(db);
   });
 
   it('does not throw on any corpus-shaped valid state', () => {
@@ -273,21 +264,19 @@ describe('translateEdgeAdmission — mints genuine evidence, not a scenario prox
     expect(() => translateEdgeAdmission(gateEdge(), {}, CTX)).not.toThrow();
   });
 
+  /**
+   * A schema round trip leaves the evidence subject and the requirement subject unchanged.
+   * The schema rejects a structurally invalid subject.
+   */
   it('builds the evidence subject through the SCHEMA, not an `as` assertion', () => {
-    // The subject used to be produced by `{...} as EvidenceSubjectV1` — an
-    // unchecked assertion that would have let a malformed subject reach minted
-    // evidence. It is now schema-parsed, so the result is genuinely valid.
     const t = translateEdgeAdmission(gateEdge(), { artifacts: { plan: 'x' } }, CTX);
     const ev = t.evidence[0];
     if (ev === undefined) throw new Error('expected minted evidence');
-    // Round-tripping through the schema must be a no-op for a valid subject.
     expect(EvidenceSubjectV1Schema.parse(ev.subject)).toEqual(ev.subject);
     expect(ev.subject.kind).toBe('phase-attempt');
-    // And the requirement carries the same validated subject.
     const req = t.requirements[0];
     if (req === undefined) throw new Error('expected a requirement');
     expect(EvidenceSubjectV1Schema.parse(req.subject)).toEqual(req.subject);
-    // A structurally invalid subject is REJECTED (the parse is real, not a cast).
     expect(() =>
       EvidenceSubjectV1Schema.parse({ kind: 'phase-attempt', phaseAttemptId: 'x' }),
     ).toThrow();

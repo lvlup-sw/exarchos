@@ -1,4 +1,4 @@
-// ─── #1274 — Elicitation sub-schema derivation tests ─────────────────────────
+// Tests for `deriveElicitationSchema`, which derives a JSON Schema for one field of a Zod input schema.
 
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
@@ -6,28 +6,21 @@ import { deriveElicitationSchema } from '../../../../src/workflow/capabilities/e
 import { zodToJsonSchema } from '../../../../src/utils/json-schema.js';
 
 describe('deriveElicitationSchema (#1274)', () => {
+  /**
+   * The helper is `pick` plus `zodToJsonSchema`. The expected value uses the same adapter, so the test pins the wire shape that callers see.
+   */
   it('ElicitationSchema_DerivedViaPick_MatchesInputSchema', () => {
-    // Given a Zod input schema with `featureId` and `target`, calling
-    // `deriveElicitationSchema(schema, 'target')` should return a JSON
-    // Schema with only the `target` field — matching what
-    // `schema.pick({target: true})` would produce.
     const inputSchema = z.object({
       featureId: z.string(),
       target: z.string(),
     });
 
     const derived = deriveElicitationSchema(inputSchema, 'target') as Record<string, unknown>;
-    // Use the same internal adapter so the comparison pins the actual
-    // wire shape that callers will see (draft-2020-12, etc.).
     const expected = zodToJsonSchema(inputSchema.pick({ target: true })) as Record<string, unknown>;
 
-    // Shape comparison: the derived schema must declare the `target`
-    // property and only the `target` property.
     expect(derived.type).toBe('object');
     const properties = derived.properties as Record<string, unknown>;
     expect(Object.keys(properties)).toEqual(['target']);
-    // And the JSON Schema must match a fresh pick().toJSONSchema()
-    // exactly — `deriveElicitationSchema` is just `pick + zodToJsonSchema`.
     expect(derived).toEqual(expected);
   });
 
@@ -41,11 +34,11 @@ describe('deriveElicitationSchema (#1274)', () => {
     expect(a).toEqual(b);
   });
 
+  /**
+   * Zod v4 `.pick({missing: true})` returns an empty schema and does not throw.
+   * The helper must throw, so a wrong field name gives a clear error and not an empty prompt.
+   */
   it('ElicitationSchema_UnknownField_ThrowsExplicitError', () => {
-    // CR PR #1432: Zod v4 `.pick({missing: true})` silently returns an
-    // empty schema rather than throwing. The helper MUST guard against
-    // this so a misnamed field surfaces as an actionable error instead
-    // of an empty elicitation prompt to the client.
     const inputSchema = z.object({
       featureId: z.string(),
       target: z.string(),

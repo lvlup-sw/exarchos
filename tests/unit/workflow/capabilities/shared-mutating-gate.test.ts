@@ -1,37 +1,13 @@
-// The shared-mutating posture gate is removed. This file used to prove it
-// rejected task-isolated and read-only callers of `serialize_merge` /
-// `prune_worktrees`; it now proves the gate stays gone, because "we deleted
-// this" is a guarantee somebody can revoke by accident.
+// The shared-mutating posture gate must stay absent. This file proves that it is gone, because a later edit can add it again by accident.
+// The gate is wrong for three reasons:
 //
-// Three reasons it went, worth keeping because re-adding it sounds reasonable:
+// - Postures are not an authority order. `task-isolated` holds a strict superset of the `shared-mutating` capabilities.
+//   A gate that denies `task-isolated` denies the more capable tier.
+// - The invariants catalog forbids its claim. Write confinement must never come from the launcher cwd or worktree ownership.
+// - Agent postures apply at render time, through `resolveCapabilities` and the `isolation: worktree` frontmatter of the agent.
 //
-// It never ran on real postures. The dispatch resolver is built in
-// `index.ts` and `dispatch/core/context.ts` as `createInMemoryResolver([])` or
-// `[ANTHROPIC_NATIVE_CACHING])` — a response-cache flag that is not even a
-// `Capability`. Nothing feeds agent postures into it. So `has('fs:write')` was
-// always false and the gate denied every caller that reached it, which is how
-// `serialize_merge` came to answer CAPABILITY_DENIED unconditionally. It
-// passed its own suite because the suite hand-built the one input production
-// never supplies. Agent postures do matter, but at RENDER time:
-// `resolveCapabilities` → `adapters/claude.ts` → the agent's
-// `isolation: worktree` frontmatter, which is Claude Code's native isolation.
-// That path is untouched.
-//
-// It was not an authority ordering anyway. `task-isolated` holds a strict
-// superset of `shared-mutating`'s capabilities, so the denied tier was the more
-// capable one — the gate was reading `isolation:worktree` as a location marker,
-// not a permission. Asserted below, since it is the structural reason.
-//
-// INV-11 forbids the claim it made. Write confinement "must never be inferred
-// from the launcher's cwd or worktree ownership", and the catalog says to flag
-// any claim that a task-isolated agent cannot write outside its worktree. The
-// denial message made exactly that claim. Confinement is not ours until a hook
-// standard or kernel sandbox owns the write path.
-//
-// The shared ref is still protected by `serialize_merge`'s single-writer lease,
-// the merge preflight's ancestry check, and launcher-owned placement. State
-// authority still lives in `enforceReadonlyGate` — hence the read-only case
-// below.
+// The `serialize_merge` single-writer lease, the merge preflight ancestry check, and launcher-owned placement protect the shared ref.
+// `enforceReadonlyGate` keeps state authority, so the read-only case below still fails.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -67,7 +43,6 @@ describe('shared-mutating posture gate — removed (INV-11)', () => {
   });
 
   it('SharedMutatingGate_IsNotExported_SoItCannotBeRewired', () => {
-    // Cheapest possible detector: the symbol is gone.
     expect(
       (resolverModule as Record<string, unknown>).enforceSharedMutatingGate,
       'enforceSharedMutatingGate was deleted under INV-11 — see the header of ' +
@@ -75,13 +50,14 @@ describe('shared-mutating posture gate — removed (INV-11)', () => {
     ).toBeUndefined();
   });
 
+  /**
+   * If a posture-table edit makes a capability-ordered gate possible, this test fails.
+   * The size check stops an empty set from passing the subset check.
+   */
   it('PostureCapabilities_TaskIsolated_IsAStrictSupersetOfSharedMutating', () => {
-    // The structural fact that made the gate incoherent. If a posture-table
-    // edit ever makes a capability-ordered gate expressible, it fails here.
     const taskIsolated = capabilitiesForPosture('task-isolated');
     const sharedMutating = capabilitiesForPosture('shared-mutating');
 
-    // Non-empty denominator: an empty set satisfies "subset" vacuously.
     expect(sharedMutating.size).toBeGreaterThan(0);
     for (const cap of sharedMutating) {
       expect(taskIsolated.has(cap), `task-isolated is missing ${cap}`).toBe(true);
@@ -89,20 +65,19 @@ describe('shared-mutating posture gate — removed (INV-11)', () => {
     expect(taskIsolated.size).toBeGreaterThan(sharedMutating.size);
   });
 
+  /**
+   * A `task-isolated` caller of `serialize_merge` must reach the handler and not get CAPABILITY_DENIED.
+   * Admission takes capabilities from the trusted caller, so the context sets `callerIdentity`.
+   * Without an identity the need set is empty, and dispatch denies the call before the handler.
+   * The spy call is the proof, because a result without CAPABILITY_DENIED can still come from an earlier refusal.
+   */
   it('TaskIsolatedCaller_SerializeMerge_ReachesTheHandler', async () => {
-    // The behaviour change: the tier the gate rejected now reaches the handler.
-    // This is what unblocks the real failure — `serialize_merge` answering
-    // CAPABILITY_DENIED and sending the operator to a manual `git merge`.
     const resolver = createInMemoryResolver(taskIsolatedCaps);
     expect(resolver.has('isolation:worktree')).toBe(true);
 
     const taskIsolatedCtx: DispatchContext = {
       ...ctx,
       capabilityResolver: resolver,
-      // Admission snapshots capabilities from the trusted caller, not from
-      // a bare resolver. Without an identity the need set is empty and
-      // `serialize_merge` is denied before the handler the gate-removal
-      // case is proving still runs.
       callerIdentity: deriveLocalOperatorIdentity(tmpDir),
     };
     const compositeSpy = vi.fn(async () => ({ success: true as const, data: {} }));
@@ -121,17 +96,14 @@ describe('shared-mutating posture gate — removed (INV-11)', () => {
       );
 
       expect(result.error?.code).not.toBe('CAPABILITY_DENIED');
-      // Handler entry is the real assertion; a result that merely stopped
-      // saying CAPABILITY_DENIED could still have been refused earlier.
       expect(compositeSpy).toHaveBeenCalled();
     } finally {
       restore();
     }
   });
 
+  /** The absent posture gate must not widen state authority, so the read-only gate still rejects this call. */
   it('ReadOnlyCaller_PruneWorktrees_IsStillRejected_ByTheReadonlyGate', async () => {
-    // Removing the posture gate must not widen state authority. Without this
-    // case, "the posture gate is gone" reads the same as "all gating is gone".
     const resolver = createInMemoryResolver(readOnlyCaps);
     expect(resolver.has('mcp:exarchos:readonly')).toBe(true);
     expect(resolver.has('fs:write')).toBe(false);

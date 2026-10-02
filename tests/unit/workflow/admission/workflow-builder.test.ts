@@ -25,8 +25,7 @@ import {
 } from '../../../../src/workflow/admission/workflow-builder.js';
 import { adjudicateEdge, defaultTranslationContext } from '../../../../src/workflow/admission/legacy-state-translation.js';
 
-// A small, self-contained declaration proving the builder is a GENERAL authoring
-// tool, not hard-wired to the built-in fact vocabulary.
+/** A small, self-contained declaration. It shows that the builder is not tied to the built-in fact vocabulary. */
 const DECL: EdgeConditionDeclaration = {
   fields: {
     'artifacts.plan': 'string',
@@ -116,6 +115,7 @@ describe('workflow-builder connectives compose closed subtrees', () => {
 });
 
 describe('workflow-builder round-trips shared IR losslessly (exit-proof a)', () => {
+  /** The compiler accepts the serialized wire form again and gives byte-identical output, so the lowered AST loses nothing. */
   it('lower → serialize → recompile → serialize is a fixed point', () => {
     const spec = all(
       present('artifacts.plan'),
@@ -125,8 +125,6 @@ describe('workflow-builder round-trips shared IR losslessly (exit-proof a)', () 
     const first = lowerCondition(spec, DECL);
     const json = serializeEdgeCondition(first);
 
-    // Re-compile the serialized wire form and prove it is byte-identical: the
-    // lowered AST is exactly what the compiler re-accepts, with no loss.
     const recompiled = tryCompileEdgeCondition(JSON.parse(json), DECL);
     expect(recompiled.ok).toBe(true);
     if (recompiled.ok) {
@@ -171,11 +169,11 @@ describe('workflow-builder obligation combinators', () => {
 });
 
 describe('workflow-builder enforces closure at lowering time (exit-proof c, runtime leg)', () => {
+  /**
+   * A double cast defeats the type system, but the closed-node validator still rejects the extra `expression` property.
+   * The test pins the `UNKNOWN_PROPERTY` code, so the rejection comes from the escape hatch and not from another fault.
+   */
   it('rejects a smuggled string-expression escape hatch (double-cast bypass)', () => {
-    // A caller who defeats the type system with a double cast still cannot get
-    // an escape hatch past `compileEdgeCondition`: the extra `expression`
-    // property is an UNKNOWN_PROPERTY the closed-node validator rejects — and
-    // rejected for THAT reason (the escape hatch), not incidentally.
     const smuggled = {
       kind: 'factEquals',
       field: 'track',
@@ -196,9 +194,8 @@ describe('workflow-builder enforces closure at lowering time (exit-proof c, runt
     expect(err).toBeInstanceOf(EdgeConditionCompileError);
   });
 
+  /** The declaration is data, so lowering rejects a field that the projector cannot fill. */
   it('rejects a reference to an undeclared field', () => {
-    // The declaration is data, so authoring against a field the projector cannot
-    // populate is caught at lower time, not silently admitted.
     expect(() => lowerCondition(present('not.a.declared.field'), DECL)).toThrow(
       EdgeConditionCompileError,
     );
@@ -226,7 +223,6 @@ describe('buildEdge produces a WorkflowEdgeIR the translation consumes', () => {
       obligation: gate('plan-artifact', any(present('artifacts.plan'), present('plan'))),
     });
 
-    // Consumed by an IR consumer (adjudicateEdge) without adaptation.
     const allowVerdict = adjudicateEdge(
       edge,
       { artifacts: { plan: 'docs/specs/feature.md' } },

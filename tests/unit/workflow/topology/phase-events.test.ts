@@ -1,6 +1,5 @@
-// The phase event contract: its load-time refusals, proven on seeded rows
-// through the real functions; its derivations; and the fact that every event
-// it expects can be folded by the projections that will see it.
+// Tests for the phase event contract.
+// They cover its load-time refusals on seeded rows, its derivations, and the fold of each expected event through the projections.
 
 import { describe, it, expect } from 'vitest';
 import {
@@ -76,18 +75,18 @@ describe('PHASE_EVENT_CONTRACTS — the live table', () => {
   });
 });
 
+/**
+ * `synthesize.requested` is the one disclosure whose firing the model chooses.
+ * The contract row, the oneshot playbook, and the guard remediation must name the same producer action.
+ */
 describe('the disclosed producer is the door the model is sent through', () => {
-  // `synthesize.requested` is the one disclosure whose firing the model chooses.
-  // Three surfaces name the producer — the contract row, the playbook the model
-  // reads, and the remediation a blocked transition hands back — and they used
-  // to disagree: the playbook sent the model to a raw `exarchos_event append`
-  // while the guard and the skill named the orchestrate action whose handler
-  // appends it. One door, named once, or the disclosure is fiction.
   const OPT_IN_ACTION = 'request_synthesize';
 
+  /**
+   * The catalog sources the event as `auto`, so the contract discloses it and the loader refuses an `expects` row for it.
+   * The playbook offers no `exarchos_event` tool, because a raw append is a second producer.
+   */
   it('PhaseEventContracts_SynthesizeRequested_ContractPlaybookAndGuardNameOneProducer', () => {
-    // It is disclosed rather than expected because the catalog sources it
-    // `auto`; an `expects` row for it is refused at load.
     expect(LIVE_REGISTRY.get('synthesize.requested')).toBe('auto');
 
     const disclosed = PHASE_EVENT_CONTRACTS.implementing?.runtimeEmits.find(
@@ -100,8 +99,6 @@ describe('the disclosed producer is the door the model is sent through', () => {
     const door = implementing?.tools.find((entry) => entry.action === OPT_IN_ACTION);
     expect(door?.tool).toBe('exarchos_orchestrate');
     expect(implementing?.compactGuidance).toContain(OPT_IN_ACTION);
-    // No raw-append door back: `exarchos_event append` writes whatever the
-    // caller hands it, which is the second producer this row denies exists.
     expect(implementing?.tools.filter((entry) => entry.tool === 'exarchos_event')).toEqual([]);
 
     const blocked = guards.synthesisOptedIn.evaluate({
@@ -167,9 +164,8 @@ describe('assertPhaseEventContracts — seeded refusals', () => {
     ).toThrow(/lists 'seeded\.model' twice/);
   });
 
+  /** The gate hint holds one sentence per event, and `hintDescriptions` drops a second phrasing. The authority refuses it instead. */
   it('Refuses_OneTypePhrasedTwoWaysAcrossPhases', () => {
-    // The gate's hint is one sentence per event, so a second phrasing would be
-    // silently dropped by `hintDescriptions` — refused at the authority instead.
     const phrased = (second: string): Record<string, PhaseEventContractOf<string>> => ({
       first: contract({ expects: [{ type: 'seeded.model', when: 'After the first thing' }] }),
       second: contract({ expects: [{ type: 'seeded.model', when: second }] }),
@@ -240,10 +236,11 @@ describe('derivations', () => {
 });
 
 describe('every expected event folds', () => {
+  /**
+   * The gate demands these events of the model, so the projections that read the stream must accept them.
+   * A throw here appears as a rehydrate failure after the model obeys the hint.
+   */
   it('PhaseEventContracts_EveryExpectedEvent_FoldsThroughTheReducerAndTheCanonicalProjection', () => {
-    // The gate demands these of the model, so the projections that read the
-    // stream must at least accept them: a throw here would surface as a
-    // rehydrate failure the moment the model did what the hint asked.
     const expected = [...new Set(Object.values(PHASE_EVENT_CONTRACTS).flatMap((c) => c.expects))];
     expect(expected.length).toBeGreaterThan(0);
     let reducerState = rehydrationReducer.initial;
@@ -261,12 +258,11 @@ describe('every expected event folds', () => {
     expect(viewState).toBeDefined();
   });
 
+  /**
+   * The rehydration reducer has no arm for these events, and its `default:` arm returns `state` unchanged.
+   * The fold must return the same object, not an equal copy. A reducer that starts to read one of these events changes this list on purpose.
+   */
   it('PhaseEventContracts_EventsWhoseReducerArmsWereDeleted_FoldAsTheSameState', () => {
-    // The rehydration reducer used to carry a no-op `case` per team event and
-    // for `task.progressed`; they were deleted because the `default:` arm
-    // returns `state` unchanged. This pins that: the fold returns the very
-    // same object, not an equal copy — a reducer that starts reading one of
-    // these events changes this list on purpose, never by drift.
     const FOLDED_BY_THE_DEFAULT_ARM: readonly EventType[] = [
       'team.spawned',
       'team.task.planned',

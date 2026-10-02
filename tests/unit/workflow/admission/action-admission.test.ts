@@ -1,10 +1,9 @@
 // @oracle-sources: ../../../../src/registry/action-contract.ts, the caller facts and clock readings this file varies by hand — chosen to differ in exactly the fields an admission digest must ignore and to agree in the fields it must not
 //
-// An admission digest is stable iff two callers presenting the same trusted
-// facts through different envelopes digest alike, and diverge the moment a
-// LOAD-BEARING fact changes. The contract declares which fields are which; the
-// varied inputs are the author's, so the digest function is never its own
-// witness.
+// Two callers that present the same trusted facts through different envelopes
+// get the same admission digest. A change to a load-bearing fact changes the
+// digest. The contract declares which fields are load-bearing. The test author
+// picks the varied inputs, so the digest function is not its own witness.
 
 import { describe, expect, it } from 'vitest';
 import { declared, none, type ActionContract } from '../../../../src/registry/action-contract.js';

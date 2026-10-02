@@ -1,7 +1,6 @@
-// Exit-proof tests for the requirement-resolution context (P06-03 / Task 017).
-// The load-bearing property: absent / malformed danger signals normalize to
-// their MOST-UNCERTAIN member, never their safest one — missing risk stays
-// `unknown` and can never serialize as `low`.
+// Tests for the requirement-resolution context.
+// An absent or malformed danger signal normalizes to its most uncertain member, not its safest one.
+// A missing risk stays `unknown` and does not serialize as `low`.
 
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -86,13 +85,11 @@ describe('normalizeBoundaryStatus', () => {
     expect(normalizeBoundaryStatus('not-touching')).toBe('not-touching');
   });
 
+  /**
+   * A stringified boolean such as `'false'` is malformed, not decided.
+   * Trust in it lets an untrusted stamp select the weaker ladder cell without evidence.
+   */
   it('maps absent / malformed values to indeterminate, NEVER to not-touching', () => {
-    // T-15 consolidation: the STRINGIFIED booleans join this list. A string
-    // `'false'` is a malformed boolean, not a decided one — believing it would
-    // let an untrusted stamp select the weaker (non-boundary) ladder cell on no
-    // evidence, which is the DR-10 defect in miniature. The ladder-facing
-    // `resolveBoundaryTouching` has always been this strict; consolidating on
-    // one authority applies that strictness to the lattice form too.
     for (const bad of [undefined, null, '', 'true', 'false', 'maybe', 1, 0, {}, []]) {
       const out = normalizeBoundaryStatus(bad);
       expect(out).toBe('indeterminate');
@@ -183,30 +180,22 @@ describe('context danger orderings are total chains topped by the uncertain memb
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// DR-10 (T-15) — normalizer consolidation
-//
-// `requirement-context` and `verification-policy-resolver` used to each own a
-// full copy of the tier/boundary normalization. Two authorities for one
-// normalization is exactly how the two halves drift apart, which is the class
-// of defect DR-10 is about. There is now ONE implementation, in
-// `verification-policy-resolver` (forced direction: `phase-kind` value-imports
-// the resolver, so the reverse edge would close a cycle). These tests pin the
-// consolidation itself, so a future re-fork is a test failure and not a silent
-// divergence.
-// ─────────────────────────────────────────────────────────────────────────────
-
+/**
+ * `verification-policy-resolver` holds the one implementation of the tier and boundary normalizers.
+ * `requirement-context` re-exports it, so a second copy fails these tests.
+ * The resolver owns it because `phase-kind` value-imports the resolver, and the reverse edge closes a cycle.
+ */
 describe('normalizer consolidation (DR-10 / T-15)', () => {
   it('re-exports the canonical implementations by IDENTITY, not by copy', () => {
     expect(normalizeRiskTier).toBe(resolveRiskTier);
     expect(normalizeBoundaryStatus).toBe(canonicalNormalizeBoundaryStatus);
   });
 
+  /**
+   * The lattice separates a known `not-touching` from no claim, so the boolean form is its projection.
+   * The test covers each lattice member and inputs that produce each member.
+   */
   it('derives the boolean boundary form FROM the three-valued lattice', () => {
-    // The lattice is strictly richer (it distinguishes "known not-touching"
-    // from "nobody said"), so the boolean is its projection — never the
-    // reverse. Exhaustive over the lattice, plus the inputs that produce each
-    // member, so the two forms cannot disagree for any input.
     for (const status of BOUNDARY_STATUSES) {
       expect(boundaryStatusTouches(status)).toBe(status !== 'not-touching');
     }
@@ -251,10 +240,8 @@ describe('danger-coordinate join is a monotone floor (DR-10 / T-15)', () => {
     }
   });
 
+  /** `resolveRequirements` is monotone, so a same-call update through the join can only raise the requirement set. */
   it('resolves a joined context to a requirement set at least as strong as both', () => {
-    // The set-level statement of the same property, through the REAL resolver:
-    // `resolveRequirements` is monotone, so a same-call update routed through
-    // the join can only ever RAISE the requirement set.
     const ctx = (risk: ResolvedRiskTier, boundary: DangerCoordinate['boundary']) =>
       buildRequirementContext({ phaseKind: 'REVIEW', risk, boundary, workflowType: 'feature' });
     for (const a of coordinates) {
@@ -267,17 +254,13 @@ describe('danger-coordinate join is a monotone floor (DR-10 / T-15)', () => {
     }
   });
 
+  /**
+   * This test pins why `executeTransition` unions gate sets and does not only join coordinates.
+   * The ladder escalates `'unknown'`, but the review roster reads it as no tier claim and emits fewer dimensions than `'high'`.
+   * `RISK_TIER_DANGER_RANK` puts `'unknown'` on top, so the join of `high` and `unknown` drops `mutation-adequacy`.
+   * The union of the two gate sets keeps it.
+   */
   it('a coordinate join alone CANNOT floor the live resolvers — the gate union must', () => {
-    // The reason `executeTransition` unions gate SETS instead of just joining
-    // coordinates, pinned as an executable fact rather than left in prose.
-    //
-    // The two live resolvers disagree about where `'unknown'` sits: the ladder
-    // escalates it, the review roster reads it as "no tier claim" and so emits
-    // FEWER dimensions than `'high'`. `RISK_TIER_DANGER_RANK` puts `'unknown'`
-    // on top, so the coordinate join of `high` and `unknown` is `unknown` —
-    // and resolving THAT coordinate through the review roster drops
-    // `mutation-adequacy`, which `high` had required. A coordinate-level floor
-    // would therefore weaken the transition it was supposed to protect.
     const hasMutationAdequacy = (risk: ResolvedRiskTier) =>
       resolveGateSet('REVIEW', {
         riskTier: risk,
@@ -291,9 +274,7 @@ describe('danger-coordinate join is a monotone floor (DR-10 / T-15)', () => {
       { risk: 'high', boundary: 'touching' },
       { risk: 'unknown', boundary: 'touching' },
     ).risk).toBe('unknown');
-    // …so the coordinate join is NOT a floor here…
     expect(hasMutationAdequacy(joinRiskTier('high', 'unknown'))).toBe(false);
-    // …while the union of the two resolutions is.
     const union = new Set([
       ...resolveGateSet('REVIEW', { riskTier: 'high', boundaryTouching: true, workflowType: 'feature' }).map((g) => g.gate),
       ...resolveGateSet('REVIEW', { riskTier: 'unknown', boundaryTouching: true, workflowType: 'feature' }).map((g) => g.gate),
@@ -301,22 +282,6 @@ describe('danger-coordinate join is a monotone floor (DR-10 / T-15)', () => {
     expect(union.has('mutation-adequacy')).toBe(true);
   });
 });
-
-// ─────────────────────────────────────────────────────────────────────────────
-// DR-10 acceptance criteria 2 and 3 (T-15), end to end.
-//
-// These run the REAL production path — `handleInit` / `handleSet` →
-// `DefaultHSMTransitionGuard.attempt` → `executeTransition` → the durable
-// `phase.entered` freeze — against a real `EventStore` on disk. Nothing about
-// the resolution is stubbed; the only thing the tests control is the workflow
-// state and the shape of the call.
-//
-// Fixture: the `feature` workflow's `delegate → review` edge. Chosen because
-// REVIEW is the one built-in kind whose resolved gate set is TIER-SENSITIVE in
-// an observable way (`REQUIRED_REVIEWS_BY_TIER.high === ['mutation-adequacy']`),
-// so "the transition was weakened" is a visible difference in the frozen
-// record rather than an inference.
-// ─────────────────────────────────────────────────────────────────────────────
 
 const REVIEW_FEATURE_ID = 'dr10-t15';
 
@@ -351,6 +316,11 @@ async function frozenRecordsFor(
 const gateNames = (record: Record<string, unknown>): string[] =>
   (record.resolvedGates as { gate: string }[]).map((g) => g.gate).sort();
 
+/**
+ * These tests run the production path from `handleSet` to the durable `phase.entered` freeze, against a real `EventStore`.
+ * The fixture is the `delegate → review` edge of the `feature` workflow.
+ * At the `high` tier, REVIEW adds `mutation-adequacy`, so a weakened transition shows in the frozen record.
+ */
 describe('DR-10 frozen requirement set is the authority (T-15)', () => {
   let dir: string;
   let store: EventStore;
@@ -365,16 +335,16 @@ describe('DR-10 frozen requirement set is the authority (T-15)', () => {
     await rmrfAsync(dir);
   });
 
+  /**
+   * The state claims high risk and a boundary touch, and the call stamps a weaker tier.
+   * `handleSet` applies field updates before the phase guard runs, so without the floor the transition freezes at `low`.
+   * The frozen set keeps the high-tier obligation and records the floored coordinate.
+   * The weaker stamp still lands on the state and governs later calls.
+   */
   it('FrozenRequirements_TierSetInSameCall_DoesNotWeakenTransition', async () => {
     const stateFile = await initFeatureAtDelegate(dir, store);
-    // The claim in force when the call begins: this workflow is high risk and
-    // touches a boundary.
     await stampState(stateFile, { riskTier: 'high', boundaryTouching: true });
 
-    // The attack: stamp a WEAKER tier in the very call that performs the
-    // transition. `handleSet` applies field updates before evaluating the
-    // phase guard (deliberately — guards must see the new state), so without
-    // the floor this transition would be resolved, and FROZEN, at `low`.
     const result = await handleSet(
       { featureId: REVIEW_FEATURE_ID, phase: 'review', updates: { riskTier: 'low', boundaryTouching: false } },
       dir,
@@ -385,24 +355,19 @@ describe('DR-10 frozen requirement set is the authority (T-15)', () => {
     const frozen = await frozenRecordsFor(store, 'review');
     expect(frozen).toHaveLength(1);
 
-    // (1) The requirement set frozen for THIS transition still carries the
-    //     high-tier obligation. This is the criterion verbatim.
     expect(gateNames(frozen[0])).toContain('mutation-adequacy');
-    // (2) The coordinate recorded next to it is the FLOORED one, so the record
-    //     is self-describing and a replay cannot mistake it for a low-tier run.
     expect(frozen[0].riskTier).toBe('high');
     expect(frozen[0].boundaryTouching).toBe(true);
-    // (3) The stamp is not swallowed: it lands on the state and governs every
-    //     LATER call. The floor bounds one transition, it does not veto writes.
     const after = JSON.parse(await fs.readFile(stateFile, 'utf-8')) as Record<string, unknown>;
     expect(after.riskTier).toBe('low');
     expect(after.boundaryTouching).toBe(false);
   });
 
+  /**
+   * The call shape matches the same-call floor test, and only the claim before the call differs.
+   * This shows that the floor test depends on the floor, not on REVIEW always emitting `mutation-adequacy`.
+   */
   it('CONTROL: with no stronger prior claim the same call freezes the weak set', async () => {
-    // The non-vacuity partner of the test above. Identical call shape, only the
-    // PRE-call claim differs — so the assertion above is sensitive to the floor
-    // and not merely to REVIEW always emitting `mutation-adequacy`.
     const stateFile = await initFeatureAtDelegate(dir, store);
     await stampState(stateFile, { riskTier: 'low', boundaryTouching: false });
 
@@ -419,21 +384,24 @@ describe('DR-10 frozen requirement set is the authority (T-15)', () => {
     expect(frozen[0].riskTier).toBe('low');
   });
 
+  /**
+   * A left-fold of the durable log through the production projection gives the same `requirementSetDigest` as the live run.
+   * A later, weaker attempt reads the frozen record back as authority, though a re-resolution at `low` is strictly weaker.
+   * The later attempts pass no `priorState`, so the same-call floor is off.
+   * An attempt with no tier claim records `unknown` and keeps the frozen set.
+   * An injected resolver without the high-tier dimension stands in for a policy edit, and the frozen gate sequence still holds.
+   */
   it('FrozenRequirements_Replay_ReconstructsSameRequirementSet', async () => {
     const stateFile = await initFeatureAtDelegate(dir, store);
     await stampState(stateFile, { riskTier: 'high', boundaryTouching: true });
 
-    // ── The live run: enter REVIEW at high risk and freeze. ──────────────
     expect((await handleSet({ featureId: REVIEW_FEATURE_ID, phase: 'review' }, dir, store)).success).toBe(true);
 
     const liveRecord = (await frozenRecordsFor(store, 'review'))[0];
     const liveSet = readFrozenRequirements(liveRecord.resolvedGates as unknown[]);
     expect(liveSet).not.toBeNull();
 
-    // ── Replay: a left-fold of the durable log reconstructs the record. ──
     const allEvents = await store.query(REVIEW_FEATURE_ID);
-    // A literal left-fold of the log through the production projection — the
-    // replay a cold rebuild performs, with no access to the live run's state.
     const projected = allEvents.reduce(
       (view, event) => workflowStateProjection.apply(view, event),
       workflowStateProjection.init(),
@@ -441,9 +409,6 @@ describe('DR-10 frozen requirement set is the authority (T-15)', () => {
     const replayedSet = readFrozenRequirements(projected.phaseObligation?.resolvedGates);
     expect(replayedSet).not.toBeNull();
 
-    // Content-addressed identity, not a shallow deep-equal: the two freeze to
-    // the same `requirementSetDigest`, so the replay reconstructs the same
-    // REQUIREMENT SET (not merely a similar-looking gate list).
     const attemptId = PhaseAttemptIdSchema.parse('phase-attempt-dr10-t15-001');
     const subject = createEvidenceSubject(
       { kind: 'phase-attempt', phaseAttemptId: attemptId },
@@ -457,13 +422,9 @@ describe('DR-10 frozen requirement set is the authority (T-15)', () => {
     expect(digestOf(replayedSet!)).toBe(digestOf(liveSet!));
     expect(projected.phaseObligation?.riskTier).toBe('high');
 
-    // ── The real content: a LATER, WEAKER attempt at the same phase reads
-    //    the frozen record back as authority instead of re-resolving. ─────
     await stampState(stateFile, { phase: 'delegate', riskTier: 'low', boundaryTouching: false });
     const laterState = JSON.parse(await fs.readFile(stateFile, 'utf-8')) as Record<string, unknown>;
     const guard = new DefaultHSMTransitionGuard();
-    // No `priorState`: criterion 2's same-call floor is deliberately OFF here,
-    // isolating criterion 3. Everything the later attempt knows says `low`.
     const later = await guard.attempt(REVIEW_FEATURE_ID, 'delegate', 'review', {
       state: laterState,
       workflowType: 'feature',
@@ -475,10 +436,6 @@ describe('DR-10 frozen requirement set is the authority (T-15)', () => {
     expect(records).toHaveLength(2);
     const laterSet = readFrozenRequirements(records[1].resolvedGates as unknown[]);
     expect(laterSet).not.toBeNull();
-    // The re-resolution alone would have produced a STRICTLY WEAKER set — this
-    // is what makes the assertion below non-vacuous. Compared like-with-like:
-    // the frozen record holds the LIVE path's gate sequence, so the rival is
-    // the live path's resolution at the new, weaker coordinate.
     const reresolved = deepFreezeRequirements({
       ...BOTTOM_REQUIREMENTS,
       gates: resolveGateSet('REVIEW', {
@@ -489,8 +446,6 @@ describe('DR-10 frozen requirement set is the authority (T-15)', () => {
     });
     expect(reresolved.gates.some((g) => g.gate === 'mutation-adequacy')).toBe(false);
     expect(atLeastAsStrong(reresolved, liveSet!)).toBe(false);
-    // …yet the frozen set stands: same digest, and the reconciliation reports
-    // that the weaker re-resolution added nothing.
     expect(digestOf(laterSet!)).toBe(digestOf(liveSet!));
     expect(
       reconcileFrozenRequirements({
@@ -502,13 +457,6 @@ describe('DR-10 frozen requirement set is the authority (T-15)', () => {
     ).toBe('frozen');
     expect(compareStrength(laterSet!, liveSet!)).toBe('eq');
 
-    // ── And the same read-back holds when the later attempt makes NO claim
-    //    at all. This is the third DR-10 collapse site: the freeze boundary
-    //    used to read `(state.riskTier ?? 'low')` / `Boolean(boundary)`, so an
-    //    UNCLASSIFIED workflow minted a frozen record that reads as a
-    //    deliberate low-risk, non-boundary classification — on no evidence,
-    //    and at the one point in the system whose whole job is to be believed
-    //    later. ──────────────────────────────────────────────────────────────
     const unclassified = { ...laterState };
     delete unclassified.riskTier;
     delete unclassified.boundaryTouching;
@@ -521,22 +469,13 @@ describe('DR-10 frozen requirement set is the authority (T-15)', () => {
     expect(third.ok).toBe(true);
 
     const thirdRecord = (await frozenRecordsFor(store, 'review'))[2];
-    // The absence of a claim is recorded AS an absence, never as `'low'`.
     expect(thirdRecord.riskTier).toBe('unknown');
     expect(thirdRecord.boundaryTouching).toBe(true);
-    // …and the frozen obligation still stands, read back off the log rather
-    // than re-resolved from a state that now says nothing.
     expect(gateNames(thirdRecord)).toContain('mutation-adequacy');
     expect(digestOf(readFrozenRequirements(thirdRecord.resolvedGates as unknown[])!)).toBe(
       digestOf(liveSet!),
     );
 
-    // ── Finally: the frozen GATE SEQUENCE is the authority, not a
-    //    re-resolution of the frozen coordinate. Re-resolving would silently
-    //    return whatever the policy table says TODAY and present it as the
-    //    frozen obligation — so an in-flight phase could be weakened by a
-    //    policy edit between two attempts. Injecting a resolver that has
-    //    "lost" the high-tier dimension stands in for that edit. ────────────
     const drifted = await guard.attempt(REVIEW_FEATURE_ID, 'delegate', 'review', {
       state: { ...unclassified },
       workflowType: 'feature',

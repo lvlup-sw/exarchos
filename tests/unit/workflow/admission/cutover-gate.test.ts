@@ -1,14 +1,9 @@
-// ─── P07-01 exit-proof tests — The cutover gate (Transition tasks 027, 051) ────
-//
-// Proves, independently, that enforcement flips ONLY behind four conditions:
-//   (exit-proof b) an unexplained disagreement BLOCKS the gate;
-//   (exit-proof c) fewer than 20 live attempts BLOCKS;
-//   (exit-proof d) a missing phase kind BLOCKS;
-//   (exit-proof e) all-allow or all-deny coverage BLOCKS;
-//   (exit-proof f) a fully satisfied gate permits enforcement;
-//   (event-sourced) enablement is a recorded decision — a satisfied gate yields
-//                   an `approve-enforcement` rollout + an enforcement-enabled
-//                   fact; an unsatisfied gate cannot be event-sourced past.
+// Tests for the cutover gate. Each condition blocks enforcement on its own. The
+// conditions are a clean corpus, the live-attempt threshold, phase-kind
+// coverage, outcome coverage, comparable disagreement classes, and a healthy
+// observer. A satisfied gate gives an `approve-enforcement` rollout decision and
+// an enforcement-enabled fact. An unsatisfied gate cannot produce an
+// enforcement-enabled fact.
 
 import { describe, expect, it } from 'vitest';
 
@@ -40,8 +35,6 @@ import {
   type LiveShadowHealth,
 } from '../../../../src/workflow/admission/live-shadow-observer.js';
 
-// ─── Shared fixtures ───────────────────────────────────────────────────────────
-
 const SHA_A = 'a'.repeat(64);
 const SHA_B = 'b'.repeat(64);
 const AT = '2026-07-21T20:00:00.000Z';
@@ -70,8 +63,6 @@ const policy: CutoverPolicyRef = {
   policyDigest: digest(),
   inputDigest: digest(SHA_B),
 };
-
-// ── Shadow record factories ──
 
 function attempt(phaseKind: PhaseKind = 'IMPLEMENT'): ShadowDecisionRecord['attempt'] {
   return { workflowType: 'feature', fromPhase: 'a', toPhase: 'b', phaseKind };
@@ -113,12 +104,11 @@ function unexplainedDisagreement(): ShadowDecisionRecord {
   };
 }
 
-// ── Live-attempt builder: every phase kind, both outcomes, >= 20 total. ──
-//
-// T-32: every attempt also carries the DISAGREEMENT CLASS the shadow runner
-// assigned it. A comparable class is what makes an attempt spendable as
-// coverage; `shadow-error` / `admission-indeterminate` are not comparisons.
-
+/**
+ * Live attempts that cover every phase kind and both outcomes, padded to the
+ * threshold. Each attempt carries the disagreement class from the shadow runner.
+ * Only a comparable class counts as coverage.
+ */
 function fullLiveCoverage(): LiveShadowAttempt[] {
   const attempts: LiveShadowAttempt[] = [];
   for (const phaseKind of ALL_PHASE_KINDS) {
@@ -129,7 +119,6 @@ function fullLiveCoverage(): LiveShadowAttempt[] {
       disagreementClass: 'legacy-deny-admission-allow',
     });
   }
-  // Pad to the threshold while preserving coverage.
   while (attempts.length < MINIMUM_LIVE_ATTEMPTS) {
     attempts.push({
       phaseKind: 'IMPLEMENT',
@@ -173,8 +162,6 @@ function satisfiedEvidence(): CutoverGateEvidence {
   };
 }
 
-// ─── The gate blocks on each condition independently ───────────────────────────
-
 describe('CutoverGate_Blocking (P07-01 exit-proofs b–e)', () => {
   it('a fully satisfied gate is satisfied with no unmet conditions', () => {
     const report = evaluateCutoverGate(satisfiedEvidence());
@@ -211,10 +198,9 @@ describe('CutoverGate_Blocking (P07-01 exit-proofs b–e)', () => {
     expect(report.satisfied).toBe(true);
   });
 
+  /** The slice can drop a phase kind or an outcome, so the test checks only that the threshold is unmet. */
   it('(c) fewer than 20 live attempts blocks', () => {
     const short = fullLiveCoverage().slice(0, MINIMUM_LIVE_ATTEMPTS - 1);
-    // slice may have dropped a phase kind / outcome; assert the threshold is
-    // specifically among the unmet conditions.
     const report = evaluateCutoverGate({
       ...satisfiedEvidence(),
       liveAttempts: short,
@@ -232,11 +218,11 @@ describe('CutoverGate_Blocking (P07-01 exit-proofs b–e)', () => {
     ).toBe(true);
   });
 
+  /** The test pads the attempts back to the threshold, so the threshold stays met. */
   it('(d) a missing phase kind blocks — and names the missing kind', () => {
     const withoutMerge = fullLiveCoverage().filter(
       (a) => a.phaseKind !== 'MERGE',
     );
-    // Keep the count at/over threshold so ONLY coverage is at fault.
     while (withoutMerge.length < MINIMUM_LIVE_ATTEMPTS) {
       withoutMerge.push({
         phaseKind: 'IMPLEMENT',
@@ -289,6 +275,7 @@ describe('CutoverGate_Blocking (P07-01 exit-proofs b–e)', () => {
     expect(report.hasAllowOutcome).toBe(false);
   });
 
+  /** With no durable evidence and a zero-health observer, the class and observer conditions also fail. */
   it('reports MULTIPLE unmet conditions at once', () => {
     const report = evaluateCutoverGate({
       corpusRecords: [unexplainedDisagreement()],
@@ -305,15 +292,12 @@ describe('CutoverGate_Blocking (P07-01 exit-proofs b–e)', () => {
         'live-attempt-threshold',
         'phase-kind-coverage',
         'outcome-coverage',
-        // T-32: no durable evidence at all, and an observer nobody can vouch for.
         'live-disagreement-class',
         'live-observer-health',
       ]),
     );
   });
 });
-
-// ─── Event-sourced enforcement enablement (exit-proof f + plan Wave E) ─────────
 
 describe('CutoverGate_EnforcementEnablement (P07-01 exit-proof f)', () => {
   it('(f) a satisfied gate approves enforcement and records an enablement fact', () => {
@@ -390,8 +374,6 @@ describe('CutoverGate_EnforcementEnablement (P07-01 exit-proof f)', () => {
   });
 });
 
-// ─── Phase-kind universe is complete ───────────────────────────────────────────
-
 describe('CutoverGate_PhaseKinds', () => {
   it('covers all six phase kinds', () => {
     expect([...ALL_PHASE_KINDS].sort()).toEqual(
@@ -400,27 +382,23 @@ describe('CutoverGate_PhaseKinds', () => {
   });
 });
 
-// ─── DR-23 / T-32 — the two new conditions, driven independently ───────────────
-//
-// The end-to-end proof (twenty attempts whose adjudication really threw) lives
-// in `live-shadow-observer.test.ts`, where the errored attempts can be PRODUCED
-// rather than written down. These tests pin the conditions' independent
-// behaviour: each drives exactly one of them red.
-
+/**
+ * Each test drives one disagreement-class condition red. The end-to-end proof,
+ * with attempts whose adjudication really throws, is in `live-shadow-observer.test.ts`.
+ */
 describe('CutoverGate_DisagreementClass (DR-23 bullet 2)', () => {
+  /** `shadow-error` has no verdict and `admission-indeterminate` has no answer, so neither is a comparison. */
   it('classifies which classes may be spent as coverage', () => {
     expect(isComparableShadowClass('agree')).toBe(true);
     expect(isComparableShadowClass('legacy-allow-admission-deny')).toBe(true);
     expect(isComparableShadowClass('legacy-deny-admission-allow')).toBe(true);
-    // Neither of these is a comparison: one has no verdict, one has no answer.
     expect(isComparableShadowClass('shadow-error')).toBe(false);
     expect(isComparableShadowClass('admission-indeterminate')).toBe(false);
   });
 
+  /** One extra attempt has a thrown adjudication. The other attempts still meet coverage and the threshold. */
   it('a single non-comparable live attempt blocks — and ONLY that condition', () => {
     const attempts = fullLiveCoverage();
-    // One extra attempt whose adjudication threw. Coverage and the threshold are
-    // still met by the other twenty, so the class condition is alone at fault.
     attempts.push({
       phaseKind: 'IMPLEMENT',
       outcome: 'allow',
@@ -526,8 +504,6 @@ describe('CutoverGate_ObserverHealth (DR-23 bullet 3)', () => {
   });
 });
 
-// ─── The durable reader: the gate's substrate is the SIDECAR stream ───────────
-
 describe('CutoverGate_DurableReader (DR-23 — INV-1 substrate)', () => {
   function shadowEvent(
     legacyOutcome: 'allow' | 'deny',
@@ -589,15 +565,14 @@ describe('CutoverGate_DurableReader (DR-23 — INV-1 substrate)', () => {
       async query(streamId: string) {
         seen.push(streamId);
         return [
-          shadowEvent('allow', 'allow'), // agree
-          shadowEvent('allow', 'deny'), // legacy-allow-admission-deny
-          shadowEvent('deny', 'indeterminate'), // admission-indeterminate
+          shadowEvent('allow', 'allow'),
+          shadowEvent('allow', 'deny'),
+          shadowEvent('deny', 'indeterminate'),
         ];
       },
     };
     const facts = await readDurableShadowAttempts(reader, ['feat-1']);
 
-    // The stream it read is the sidecar, not the authoritative feature stream.
     expect(seen).toEqual([liveShadowEvidenceStreamId('feat-1')]);
     expect(seen[0]).not.toBe('feat-1');
     expect(facts.map((f) => f.disagreementClass)).toEqual([

@@ -1,28 +1,14 @@
-// ─── Corpus baseline attestation — the `expected` verdicts are DERIVED, not typed ─
+// The transition-admission corpus records the legacy verdict of each fixture in
+// `fixture.expected.verdict`. The admission agreement checks and the cutover
+// gate condition `deterministic-corpus-clean` compare against these verdicts.
+// One wrong verdict turns a real over-admission into a recorded agreement. This
+// test runs each fixture state through `executeTransition` on the real
+// `getHSMDefinition` HSM, which evaluates the real `guards.ts` closures. The
+// recorded verdict must match.
 //
-// The transition-admission corpus records, per fixture, what the LEGACY guard
-// path decides (`fixture.expected.verdict`). Until now those verdicts were
-// hand-authored via `allow()` / `deny()` helpers and never once compared against
-// the guards they claim to describe. Every downstream soundness claim —
-// "admission agrees with legacy except for N known defects", "every surviving
-// disagreement is in the SAFE direction", and the cutover gate's
-// `deterministic-corpus-clean` condition — is computed against those strings.
-// A single mis-transcribed verdict silently converts a REAL over-admission into
-// a recorded "agreement", so the safety property would be asserted over a
-// baseline that cannot falsify it.
-//
-// This test closes that hole: it drives every fixture's `state` through the REAL
-// legacy authority (`executeTransition` over the real `getHSMDefinition` HSM,
-// which evaluates the real `guards.ts` closures) and asserts the recorded
-// verdict matches. The corpus is thereby MACHINE-DERIVED: it can no longer drift
-// from the guards without this test going red.
-//
-// Note on module boundaries: this is a TEST. It deliberately imports the legacy
-// guard path, which is exactly what makes it an independent cross-check. The
-// production shared-IR modules (`built-in-workflow-ir.ts`,
-// `legacy-state-translation.ts`) remain structurally guard-free — that property
-// is proved separately by `built-in-workflow-ir.structure.test.ts`, which walks
-// the import graph from those two roots only.
+// This test imports the legacy guard path on purpose, as an independent check.
+// `built-in-workflow-ir.structure.test.ts` proves that the shared-IR modules do
+// not import guard code.
 
 import { describe, expect, it } from 'vitest';
 
@@ -59,9 +45,8 @@ function legacyVerdict(fixture: LegacyTransitionFixture): {
 }
 
 describe('corpus baseline is machine-derived from the real legacy guards', () => {
+  /** Every fixture must reach a guard, so the harness cannot pass because each fixture took an invalid transition. */
   it('every fixture resolves to a real HSM transition (harness is not vacuous)', () => {
-    // Guards against a harness that silently "passes" because every fixture
-    // took an INVALID_TRANSITION path rather than actually reaching a guard.
     let reachedAGuard = 0;
     for (const fixture of transitionAdmissionCorpus) {
       const { detail } = legacyVerdict(fixture);
@@ -73,9 +58,8 @@ describe('corpus baseline is machine-derived from the real legacy guards', () =>
     expect(reachedAGuard).toBe(transitionAdmissionCorpus.length);
   });
 
+  /** A harness that only gives `allow` makes the per-fixture check unfalsifiable for each deny fixture. */
   it('the harness observes BOTH verdicts (it can produce a deny)', () => {
-    // A baseline harness that can only ever emit `allow` would make the
-    // per-fixture assertion below unfalsifiable for every deny fixture.
     const verdicts = new Set(
       transitionAdmissionCorpus.map((f) => legacyVerdict(f).verdict),
     );
