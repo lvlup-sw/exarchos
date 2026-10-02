@@ -80,4 +80,25 @@ describe('HSMTransitionGuard custom-guard early-return shadow (P07-02)', () => {
     expect(withObserver).toEqual(withoutObserver);
     expect(withObserver.ok).toBe(false);
   });
+
+  /** The early-return deny path also waits for the observer write (#2026). */
+  it('UnregisteredCustomGuard_ObserverWrite_HasLandedWhenAttemptReturns', async () => {
+    registerWorkflowType(WF, definition);
+    let landed = false;
+    const result = await guard.attempt('feat', 'start', 'end', {
+      state: { phase: 'start' },
+      workflowType: WF,
+      eventStore: null,
+      shadowObserver: () =>
+        new Promise<void>((resolve) => {
+          setTimeout(() => {
+            landed = true;
+            resolve();
+          }, 0);
+        }),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(landed).toBe(true);
+  });
 });

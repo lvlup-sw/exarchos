@@ -2151,7 +2151,7 @@
   },
   "src/workflow/hsm-transition-guard.ts": {
     "comments/comment-content": {
-      "count": 29
+      "count": 25
     }
   },
   "src/workflow/phase-kind.ts": {
