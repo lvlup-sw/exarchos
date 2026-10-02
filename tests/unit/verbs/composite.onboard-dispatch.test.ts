@@ -1,8 +1,8 @@
 /**
  * Regression guard: the `onboard` action must route through `handleOrchestrate`.
  * The onboard unit tests call `handleOnboard` directly, so they stay green when the
- * composite router has no `onboard` branch. Then `{ action: 'onboard' }` falls through to
- * `UNKNOWN_ACTION` on both the CLI and the MCP paths.
+ * composite router has no `onboard` branch. Without that branch, `{ action: 'onboard' }` falls
+ * through to `UNKNOWN_ACTION` on both the CLI and the MCP paths.
  *
  * This file runs the real `handleOnboard` through the real composite router, so no mock can
  * hide a missing branch. It uses an isolated on-disk EventStore and `dryRun: true`.

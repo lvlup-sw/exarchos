@@ -1,7 +1,7 @@
 /**
- * These tests cover `check_invariant_conformance`. The gate evaluates each check-mode
- * invariant against the diff and renders each audit-mode invariant into a
- * prompt. It folds both into the review verdict. A test that passes
+ * These tests cover `check_invariant_conformance`. The gate evaluates each
+ * check-mode invariant against the diff and renders each audit-mode invariant
+ * into a prompt. It folds both into the review verdict. A test that passes
  * `loadInvariantsFn` reads no catalog file.
  *
  * The tests stub the phase-gate runner down to its provider call, because they
@@ -76,8 +76,8 @@ async function gateEvents(eventStore: EventStore, featureId: string) {
 
 /**
  * Writes a repo fixture with a dev catalog at `.exarchos/invariants.md` and an
- * optional user catalog. A test that passes `config` and `repoRoot` with no
- * injected loader runs the real `resolveEffectiveCatalog` path.
+ * optional user catalog. A test that passes `repoRoot` with no injected loader
+ * runs the real `resolveEffectiveCatalog` path.
  */
 async function makeRepoFixture(opts: {
   /** Dev-catalog markdown body (frontmatter + body). */
@@ -400,7 +400,8 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
    * The declared output schema must accept the real handler payload. If it
    * does not, the MCP adapter replaces a correct response with INTERNAL_ERROR.
    * The schema must also reject a payload without `auditPrompt` and
-   * `auditInvariantIds`, so the first parse cannot pass for any object.
+   * `auditInvariantIds`. This proves that the schema does not accept every
+   * object.
    */
   it('CheckInvariantConformance_DeclaredOutputSchema_AcceptsTheRealPayload', async () => {
     const arm = await createArm('inv-conformance-schema-');
@@ -590,8 +591,9 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
 
   /**
    * The action schema has no `config` field, so the gate loads `.exarchos.yml`
-   * from `repoRoot`. The test passes only `repoRoot`, then rewrites the file
-   * with an `enabled: false` override.
+   * from `repoRoot`. The test passes `repoRoot` and no `config`. The first run
+   * gives NEEDS_FIXES. After an `enabled: false` override in the file, the
+   * verdict is APPROVED.
    */
   it('CheckInvariantConformance_DiskConfigOverride_RespectedWithoutArgsConfig', async () => {
     const arm = await createArm('inv-conformance-disk-cfg-');

@@ -3,8 +3,8 @@
 // `validateProvisionedDispatch` refuses a payload that declares a `posture` but no
 // `dispatch` shape. `prepare_review` always emits `dispatch`, so live code gives the
 // guard no failing subject. `fixtures/prepare-review-pre-dr25.json` is a frozen
-// `prepare_review` result from before the fix, with `posture: "read-only"` and no
-// `dispatch`. Never regenerate it. A new capture carries `dispatch` and defeats the test.
+// `prepare_review` result captured before the guard existed, with `posture: "read-only"`
+// and no `dispatch`. Never regenerate it. A new capture carries `dispatch` and defeats the test.
 //
 // The fixture, `dispatch-shape.ts` and the Codex adapter declaration do not import
 // each other, so no side can agree with another by construction.

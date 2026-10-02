@@ -195,8 +195,8 @@ describe('migrated phase gate durable evidence', () => {
 
   /**
    * `prepare_synthesis` is the blocking gate, so a refusal here stops the
-   * synthesize phase. It needs an explicit `repoRoot`. The fixture passes `root`
-   * because `node:child_process` is mocked.
+   * synthesize phase. It needs an explicit `repoRoot`. The fixture passes `root`,
+   * because the file mocks `node:child_process`.
    */
   it('PrepareSynthesis_WorkflowPredatingThePhaseAttemptStamp_IsNotWedged', async () => {
     const result = await runWithDispatchContext(dispatchContext(), () =>

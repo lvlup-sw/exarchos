@@ -287,8 +287,8 @@ describe('prepare — the compilation endpoint', () => {
   });
 
   /**
-   * The verification terms are inputs to the compilation. A policy change for a profile in the batch compiles the next version with the new sequence.
-   * A policy change for a profile outside the batch replays the recorded capsule.
+   * The verification terms are inputs to the compilation. A policy change for a risk tier in the batch compiles the next version with the new gate list.
+   * A policy change for a risk tier outside the batch replays the recorded capsule.
    */
   it('Prepare_AChangedVerificationPolicy_CompilesTheNextVersion', async () => {
     await seedDelegatingFeature(PLAN);

@@ -335,8 +335,8 @@ describe('locateCatalogEntry — a locate that matches nothing REFUSES', () => {
   /**
    * The locator matches a non-empty span on a real catalog, so the refusal tests
    * are not vacuous. The span holds only the entry's own lines, after the `- `
-   * marker. The final newline is stripped because the last span stops at the
-   * closing fence.
+   * marker. The test strips the final newline, because the last span stops at
+   * the closing fence.
    */
   it('locateCatalogEntry_EveryEntry_ResolvesToANonEmptySpanOfItsOwnLines', () => {
     for (const entry of ENTRIES) {

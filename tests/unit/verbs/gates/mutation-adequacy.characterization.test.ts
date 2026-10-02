@@ -1,8 +1,8 @@
 /**
  * These characterization tests pin two rosters: the required reviews for each
- * workflow type and risk tier, and the `exarchos_orchestrate` action set. A change to a
- * roster must update these pins in the same change. Any other drift is a
- * regression.
+ * workflow type and risk tier, and the `exarchos_orchestrate` action set. A
+ * change to a roster must update these pins in the same change. Any other
+ * drift is a regression.
  */
 
 import { describe, it, expect } from 'vitest';

@@ -587,7 +587,7 @@ describe('DR-1 gate-executed signal ownership', () => {
     expect(carrier).toMatchObject({ success: true, data: { passed: true, skipped: true } });
   });
 
-  /** A gate that ran gets no skip markers, so the log tells "did not run" from "passed". */
+  /** A gate that ran gets no skip markers, so the log shows the difference between "did not run" and "passed". */
   it('AppendGateExecutedSignal_GateThatRan_CarriesNoSkipMarkers', async () => {
     await runWithDispatchContext(trusted('dr7-real-pass'), () =>
       runGate(taskRequest('task-dr7-ran'), deps(passingProvider)),

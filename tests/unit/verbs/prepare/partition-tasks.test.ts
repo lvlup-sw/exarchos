@@ -94,8 +94,8 @@ describe('delegation batch partition', () => {
   });
 
   /**
-   * An invalid stamp is refused, not ignored. A derived tier in its place can
-   * judge a high-risk task as medium.
+   * The partition refuses a stamp outside the vocabulary and does not ignore it.
+   * A derived tier in its place can judge a high-risk task as medium.
    */
   it('Partition_APlannerStampOutsideItsVocabulary_IsRefused', () => {
     const outcome = partitionDelegationBatch([{ ...task('T-1', 'pending'), riskTier: 'extreme' }]);

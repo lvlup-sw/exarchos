@@ -134,7 +134,7 @@ describe('WorkflowTransition_GuardFailure (T42, DR-5)', () => {
     });
   });
 
-  /** The CLI and MCP error envelopes are equal after `_perf` is dropped. */
+  /** The CLI and MCP error envelopes are equal after the normalizer drops `_perf`. */
   it('WorkflowTransition_GuardFailure_CliMcpParityByteEquivalent', async () => {
     const cliDir = await fs.mkdtemp(path.join(os.tmpdir(), 'parity-guard-cli-'));
     const mcpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'parity-guard-mcp-'));

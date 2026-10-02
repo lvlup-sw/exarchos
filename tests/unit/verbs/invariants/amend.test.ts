@@ -11,7 +11,7 @@
 // @oracle-sources: ../../../../src/architecture/invariants-loader.js, the hand-written FENCED_CATALOG fixture and per-field expectations in this file
 //
 // The loader and the hand-written fixture are two independent authorities.
-// `amend.ts` imports the loader, so a declaration of `./amend.js` also gives one authority under two names.
+// `amend.ts` imports the loader, so the tag does not name `./amend.js`. It is the same authority under a second name.
 import { describe, it, expect } from 'vitest';
 
 import * as os from 'node:os';
@@ -395,7 +395,7 @@ describe('handleAmend — refusals', () => {
 
   /**
    * The identity stays. A rename makes each reference to the old id stale, so the handler refuses an `id` in the patch.
-   * The catalog never gets the duplicate `U-2` that the rename causes.
+   * The catalog still holds one `U-2`, so the rename to `U-2` wrote no duplicate.
    */
   it('handleAmend_PatchCarriesId_FailsAsImmutable', async () => {
     const fake = makeFakeFs({ [CATALOG_ABS]: FENCED_CATALOG });
@@ -706,7 +706,7 @@ describe('handleAmend — the catalog write returns an envelope, never throws', 
 
 describe('handleAmend — round-trip: the reader accepts what the writer wrote', () => {
   /**
-   * `loadInvariants` is the real reader, which throws `Duplicate invariant ID` on a bad catalog. It must accept the amended file from a real disk.
+   * `loadInvariants` is the real reader, which throws `Duplicate invariant ID` on a repeated id. It must accept the amended file from a real disk.
    * The catalog also loads before the amendment, so a pass does not come from a loader that ignores the file.
    * The un-named fields stay in the loaded entry, not only in the text on disk.
    */

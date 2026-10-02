@@ -1,20 +1,10 @@
 /**
- * T12 — CLI↔MCP facade parity for invariants_scaffold + invariants_add (INV-2).
+ * CLI and MCP facade parity tests for `invariants_scaffold` and `invariants_add`.
  *
- * Both verbs have two facades:
- *   1. MCP — `exarchos_orchestrate { action: 'invariants_scaffold' | 'invariants_add' }`.
- *   2. CLI — the auto-generated `exarchos orch <action>` surface (flags emitted
- *      from each action's Zod schema in registry.ts — no hand-added flags).
- *
- * Both dispatch through the same `exarchos_orchestrate` composite, so for the
- * same args they MUST project byte-identical ToolResult payloads (modulo the
- * wall-clock fields the envelope wrapper injects). This is INV-2.
- *
- * Strategy (mirrors check-invariant-conformance.parity.test.ts): stub the
- * composite via `stubCompositeHandler` and forward to the real handlers with a
- * FRESH in-memory fs per invocation, so the two arms each see identical
- * starting state and produce byte-equal output without touching disk. The add
- * arm uses dryRun (the default) so it is fully deterministic and writes nothing.
+ * MCP calls `exarchos_orchestrate` with the action. The CLI uses `exarchos orch <action>`, with flags from the Zod schema of the action.
+ * Both dispatch through the `exarchos_orchestrate` composite, so the same args must give the same ToolResult, apart from time fields.
+ * The stub sends each call to the real handler with a new in-memory fs.
+ * Thus both arms start from the same state, and the handlers write nothing to disk.
  */
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
@@ -36,18 +26,6 @@ import { handleScaffold } from '../../../../src/verbs/invariants/scaffold.js';
 import type { ScaffoldDeps } from '../../../../src/verbs/invariants/scaffold.js';
 import { handleAdd } from '../../../../src/verbs/invariants/add.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
-
-// ─── Fixtures ────────────────────────────────────────────────────────────────
-
-
-/**
- * CLI and MCP facade parity tests for `invariants_scaffold` and `invariants_add`.
- *
- * MCP calls `exarchos_orchestrate` with the action. The CLI uses `exarchos orch <action>`, with flags from the Zod schema of the action.
- * Both dispatch through the `exarchos_orchestrate` composite, so the same args must give the same ToolResult, apart from time fields.
- * The stub sends each call to the real handler with a new in-memory fs.
- * Thus both arms start from the same state and touch no disk.
- */
 
 const REPO_ROOT = '/parity-repo';
 const CATALOG_REL = '.exarchos/invariants.md';

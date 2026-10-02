@@ -26,6 +26,14 @@ import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 
+/**
+ * Unit tests for the parts of the kill-probe gate.
+ *
+ * `splitHunks` is pure. The snapshot, revert, and restore steps and `runProbe` run against a temporary git repo.
+ * `test-adequacy.integration.test.ts` dispatches through `handleOrchestrate` against real git.
+ */
+
+
 function git(repoRoot: string, args: readonly string[]): Promise<string> {
   return execFileAsync('git', args, { cwd: repoRoot, timeout: 30_000 });
 }

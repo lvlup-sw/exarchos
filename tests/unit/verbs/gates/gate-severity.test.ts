@@ -78,7 +78,7 @@ describe('resolveGateSeverity', () => {
 const LADDER_GATE = VERIFICATION_GATE_NAMES[0];
 
 /**
- * Under an `oneshot` workflow, a ladder gate resolves to `warning`, unless `review.gates[gateName]` sets it.
+ * Under a `oneshot` workflow, a ladder gate resolves to `warning`, unless `review.gates[gateName]` sets it.
  * The data table `WORKFLOW_DEFAULT_SEVERITY` holds the workflow defaults.
  * A non-ladder gate, another workflow, and an omitted `workflowType` resolve without the table.
  */

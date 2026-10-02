@@ -271,7 +271,7 @@ function classify(configPath: string, oldText: string, newText: string): Arm {
 
 describe('DR-18 config promotion — injected failure', () => {
   /**
-   * One case for each step: stage, verify, journal, backup, commit, and finalize.
+   * The cases cover each step: stage, verify, journal, backup, commit, and finalize.
    * `committed` lets a fault fire only after the commit rename. A rejected write is acceptable, but a torn config is not.
    * Both outcomes, old and new, must occur. Otherwise the test does not exercise the commit path.
    */
@@ -483,7 +483,10 @@ describe('DR-18 config promotion — startup/doctor recovery', () => {
     expect(fs.readFileSync(configPath, 'utf8')).toBe(before);
   });
 
-  /** A startup repair that throws aborts onboarding. Thus it reports the failure and keeps the journal for the next run. */
+  /**
+   * A startup repair that throws aborts onboarding. For this reason, `recoverInterruptedConfigPromotions`
+   * reports the failure and keeps the journal for the next run.
+   */
   it('RecoverInterruptedConfigPromotions_RepairFails_ReportsInsteadOfThrowing', async () => {
     const home = makeTempDir();
     const configPath = claudeConfigPath(home);
@@ -506,7 +509,8 @@ describe('DR-18 config promotion — startup/doctor recovery', () => {
 
 describe('DR-18 config promotion — durable ordering (DR-16)', () => {
   /**
-   * The injected seam proves durability, so the assertion also has force on Windows, where a real directory fsync reports `unsupported`.
+   * The test reads durability through the injected seam, so the assertion is not vacuous on Windows.
+   * There, a real directory fsync reports `unsupported`.
    * The journal, backup, and commit renames each get a directory fsync after the rename.
    */
   it('McpJsonWriter_Promotion_FsyncsParentDirectoryAfterEveryRename', async () => {
@@ -635,7 +639,7 @@ describe('DR-18 config promotion — concurrency and idempotency', () => {
 });
 
 describe('DR-18 config promotion — existing merge semantics are unchanged', () => {
-  /** The serialization keeps its trailing newline. */
+  /** Foreign servers and keys survive, and the serialization keeps its trailing newline. */
   it('McpJsonWriter_ExistingForeignServersAndKeys_SurviveThePromotion', async () => {
     const root = makeTempDir();
     const configPath = seedVscodeConfig(root);
@@ -658,7 +662,7 @@ describe('DR-18 config promotion — existing merge semantics are unchanged', ()
     expect(fs.readFileSync(configPath, 'utf8').endsWith('}\n')).toBe(true);
   });
 
-  /** `~/.claude.json` keeps the exact `JSON.stringify(…, 2)` output, without a trailing newline. */
+  /** Foreign servers and keys survive. `~/.claude.json` keeps the exact `JSON.stringify(…, 2)` output, without a trailing newline. */
   it('ClaudeConfigWriter_ExistingForeignServersAndKeys_SurviveThePromotion', async () => {
     const home = makeTempDir();
     const configPath = claudeConfigPath(home);
@@ -731,7 +735,7 @@ describe('DR-18 config promotion — existing merge semantics are unchanged', ()
 });
 
 describe('configPromotionPaths', () => {
-  /** Recovery finds the journal and the backup, so their paths do not vary. */
+  /** The staged copy is unique for each attempt. Recovery must find the journal and the backup, so their paths do not vary. */
   it('ConfigPromotionPaths_StagedCopy_IsUniquePerAttempt', () => {
     const a = configPromotionPaths('/tmp/x/.vscode/mcp.json');
     const b = configPromotionPaths('/tmp/x/.vscode/mcp.json');

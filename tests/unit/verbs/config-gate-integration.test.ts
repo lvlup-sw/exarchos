@@ -74,7 +74,7 @@ describe('withConfigSeverity', () => {
     expect(result.success).toBe(true);
   });
 
-  /** Under an oneshot workflow, a ladder gate has warning severity, so a failure becomes success with a warning. */
+  /** Under a oneshot workflow, a ladder gate has warning severity, so a failure becomes success with a warning. */
   it('GateHandler_OneshotLadderGate_FailureBecomesWarning', async () => {
     const ladderGate = VERIFICATION_GATE_NAMES[0];
     mockGateHandler.mockResolvedValue({
@@ -107,7 +107,8 @@ const LADDER = VERIFICATION_GATE_NAMES[0];
 
 /**
  * A failing ladder gate returns `success: true` with `data.passed: false`.
- * Under warning severity, the helper adds a warning. Otherwise it returns the result unchanged.
+ * Under warning severity, the helper sets `data.passed` to true and adds a warning.
+ * Otherwise it returns the result unchanged.
  */
 describe('applyLadderGateSeverity', () => {
   it('ApplyLadderGateSeverity_OneshotFailingAdvisory_AddsWarning', () => {
@@ -140,7 +141,7 @@ describe('applyLadderGateSeverity', () => {
     expect(result).toEqual(advisory);
   });
 
-  /** An error result stays a failure, also under oneshot warning severity. */
+  /** An error result stays a failure, even under oneshot warning severity. */
   it('ApplyLadderGateSeverity_ErrorResult_Untouched', () => {
     const errored: ToolResult = {
       success: false,

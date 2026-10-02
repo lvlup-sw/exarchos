@@ -1,5 +1,5 @@
 /**
- * Tests for `handleWorkflowDeterminism`. These cases test the provider verdict, so the phase-gate runner is stubbed down to its provider call.
+ * Tests for `handleWorkflowDeterminism`. These cases test the provider verdict, so the file stubs the phase-gate runner down to its provider call.
  * `gate-runner.test.ts` covers the runner against a real store. `unrunbooked-gate-evidence-dispatch.test.ts` covers the evidence over real dispatch.
  * Like the real helper, the `requireGateEvent` stub appends through `mockEmitGateEvent` and withholds the success result when that append throws.
  */
@@ -194,7 +194,7 @@ describe('handleWorkflowDeterminism', () => {
   });
 
   describe('gate event append failure', () => {
-    /** The gate verdict stays readable on `data`. Only the success result is withheld. */
+    /** The gate verdict stays readable on `data`. The handler withholds only the success result. */
     it('WorkflowDeterminism_GateEventAppendFails_WithholdsTheSuccessCarrier', async () => {
       mockGetDiff.mockReturnValue('diff --git a/foo.ts b/foo.ts\n');
       vi.mocked(checkWorkflowDeterminism).mockReturnValue({

@@ -258,8 +258,8 @@ function deriveTaskFixture(): string {
 
 /**
  * Renders the plan template with the task block in place of the task
- * breakdown placeholder. So the plan has a real task entry for the coverage
- * and decomposition gates.
+ * breakdown placeholder. As a result, the plan has a real task entry for the
+ * coverage and decomposition gates.
  */
 function derivePlanFixture(taskBlock: string): string {
   const { blocks } = renderFromTemplate(TEMPLATES.plan);

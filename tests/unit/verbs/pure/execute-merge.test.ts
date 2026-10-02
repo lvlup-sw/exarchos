@@ -578,7 +578,7 @@ describe('executeMerge', () => {
 
   /**
    * The jitter source moves the delay by up to 25 percent.
-   * A pinned value of 1 gives 1.25 times the base delay on each retry.
+   * A pinned value of 1 gives 1.25 times the backoff delay of each retry.
    */
   it('ExecuteMerge_JitterApplied_WidensDelayWithinBand', async () => {
     const vcsMerge = vi.fn(async () => {

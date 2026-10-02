@@ -187,13 +187,14 @@ describe('check_test_adequacy acceptance (kill probe through handleOrchestrate)'
   );
 });
 
-/**
- * The tests call the composite handler directly, not through `dispatch()`. `orchestrate` recreates the
- * trusted dispatch scope and seeds a started workflow with an active phase attempt. Without them each
- * case fails closed with `TRUSTED_CALLER_REQUIRED` or `ACTIVE_PHASE_ATTEMPT_REQUIRED`.
- */
+/** One key for each state directory and feature id, so each new store gets one seed. */
 const seededWorkflows = new Set<string>();
 
+/**
+ * Calls the composite handler directly, not through `dispatch()`. It recreates the trusted dispatch
+ * scope, because without it the gate runner refuses with `TRUSTED_CALLER_REQUIRED`. It also seeds a
+ * started workflow with an active phase attempt, which the gate evidence binds to.
+ */
 async function orchestrate(
   args: Record<string, unknown>,
   ctx: DispatchContext,

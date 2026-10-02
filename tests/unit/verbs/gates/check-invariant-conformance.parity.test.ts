@@ -151,9 +151,9 @@ function buildConformanceCompositeStub(): CompositeHandler {
 }
 
 /**
- * Drop `_perf` and `_meta`, which drift between arms. Placehold evidence ids and
- * digests: each arm is a separate workflow, so they differ by construction. The
- * placeholders keep the reference structure in the comparison.
+ * Drops `_perf` and `_meta`, which drift between arms. It replaces evidence ids
+ * and digests with placeholders, because each arm is a separate workflow and they
+ * differ by construction. The placeholders keep the reference structure in the comparison.
  */
 function normalize(value: unknown): unknown {
   return harnessNormalize(value, {

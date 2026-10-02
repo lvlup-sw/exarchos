@@ -210,7 +210,7 @@ describe('Task 083 — the cutover verbs declare substantive outputSchemas', () 
 describe('Task 083 — the waiver rows left the allowlist', () => {
   /**
    * The counts make a silent re-add visible. The seed holds 112 ids, and four are retired.
-   * The fourth is `exarchos_view.stack_place`, which moved to `exarchos_orchestrate`.
+   * One is `exarchos_view.stack_place`, which moved to `exarchos_orchestrate`.
    * A waiver under the new key is a key swap, which the seed digest rejects.
    */
   it('CutoverVerbs_WaiverSeed_MovedFromAllowlistToRetired', () => {
@@ -239,7 +239,10 @@ describe('Task 083 — the waiver rows left the allowlist', () => {
   });
 });
 
-/** The first live waiver is the subject of a hypothetical next paydown. */
+/**
+ * These tests run the shrink-only ratchet in both directions. The first live
+ * waiver is the subject of a hypothetical next paydown.
+ */
 describe('Task 083 — the shrink-only ratchet, exercised in both directions', () => {
   const someLiveWaiver = VACUITY_ALLOWLIST_IDS[0] ?? '';
 
@@ -316,7 +319,8 @@ describe('Task 083 — the declared contracts match the real emissions', () => {
   /**
    * The emission must parse against the module contract and against the registry schema.
    * The registry schema is that contract after `withCappedShape` adds the capped fallback.
-   * Otherwise the MCP validator turns a correct response into an `INTERNAL_ERROR`.
+   * If the registry schema rejects the emission, the MCP validator turns a correct response
+   * into an `INTERNAL_ERROR`.
    */
   it('CutoverReadiness_ColdStoreEmission_ParsesAgainstTheRegistryDeclaration', async () => {
     const result = await handleCutoverReadiness({}, stateDir, eventStore, EMPTY_DEPS);
@@ -354,8 +358,8 @@ describe('Task 083 — the declared contracts match the real emissions', () => {
   });
 
   /**
-   * A vacuous `data` schema (`z.unknown()`) accepts each of these values.
-   * The real schemas reject them, also a report without the field that the caller branches on.
+   * A vacuous `data` schema (`z.unknown()`) accepts each of these values. The real schemas
+   * reject each one, including a report without the field that the caller branches on.
    */
   it('CutoverVerbs_RegistryDeclarations_RejectWhatTheWaiverAccepted', () => {
     for (const id of [READINESS_ID, DECIDE_ID]) {
@@ -401,7 +405,7 @@ describe('Task 083 — the declared contracts match the real emissions', () => {
 
   /**
    * `satisfied` and `unmet` derive from `conditions`. The schema rejects a report that contradicts itself.
-   * It accepts the two consistent shapes, so it rejects contradiction and not reports.
+   * The two consistent shapes still parse, so the schema rejects only the contradiction.
    */
   it('CutoverGateReport_SelfContradictoryVerdict_IsRefused', () => {
     const base = {

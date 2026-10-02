@@ -1,6 +1,7 @@
 // These tests lower the built-in state machines into the published kernel
 // definition. The expected steps and transitions come from the live machine. A
-// list of steps in this file stays the same when the machine gains a phase.
+// list of steps typed into this file does not change when the machine gains a
+// phase, so it cannot detect the new phase.
 //
 // @oracle-sources: ../../../../src/verbs/prepare/lower-definition.ts, the live state machine states and transitions read through getHSMDefinition and the published kernel definition schema
 

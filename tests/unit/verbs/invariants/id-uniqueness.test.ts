@@ -325,8 +325,8 @@ describe('DR-6 — the writer derives its verdict from the LOADER rule', () => {
   );
 
   /**
-   * The loader rule is exported and total over the id list. This test alone does not detect a second
-   * copy of the rule in the writer. The agreement table above carries that proof.
+   * The loader rule is exported and total over the id list. This test does not detect a second copy of
+   * the rule in the writer. The agreement table above shows only that the two give the same verdicts.
    */
   it('LoaderRule_IsTheSingleAuthority_WriterHasNoSecondCopy', () => {
     expect(findDuplicateInvariantId(['A', 'B', 'A'])).toBe('A');
