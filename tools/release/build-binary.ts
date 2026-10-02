@@ -51,8 +51,9 @@ export { TARGETS };
 export type { Target };
 
 /**
- * Returns the target of the host. An unknown host throws. A Linux binary built on that host
- * cannot run there, and it hides the configuration error.
+ * Returns the target of the host. An unknown host throws, and does not fall back to a supported
+ * target. A Linux binary built on such a host cannot run there, and it hides the configuration
+ * error.
  */
 function getHostTarget(): Target {
   let os: Target['os'];

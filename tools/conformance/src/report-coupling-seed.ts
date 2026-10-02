@@ -42,8 +42,9 @@ export interface ReportCouplingRetiredEntry {
 /**
  * The report-coupled population as measured at guard introduction. The explicit type gives each
  * value its contextual type with no `as const`, so it costs nothing from the type-assertion budget.
- * A type that the event-authority charter flipped to telemetry must not move to an `auto` tier.
- * The partition then files it as governance again with no witness. The flip is its paydown.
+ * A type that the event-authority charter flipped to telemetry (`src/events/partition/demotions.ts`)
+ * must not move to an `auto` tier. The partition then files it as governance again with no
+ * witness. The flip is its paydown.
  */
 export const REPORT_COUPLING_SEED: Readonly<Record<string, ReportCouplingSeedEntry>> = Object.freeze(
   {

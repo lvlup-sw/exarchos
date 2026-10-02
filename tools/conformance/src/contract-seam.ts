@@ -1,8 +1,8 @@
 /**
  * Contract-seam lint. Each top-level exported Zod schema in `invariant-schema.ts` stands in for a
  * future `Strategos.Contracts` TypeSpec model. So each such export must carry a
- * `// contract-shaped: <ModelName>` comment on the line above it. This lint is a source-text
- * check, with no runtime dependency on Strategos.Contracts.
+ * `// contract-shaped: <ModelName>` comment on the nearest non-blank line above it. This lint is
+ * a source-text check, with no runtime dependency on Strategos.Contracts.
  */
 import fs from 'node:fs';
 import type { PluginFinding } from '../../../src/review/check-catalog.js';

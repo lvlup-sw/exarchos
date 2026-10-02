@@ -140,7 +140,7 @@ describe('authority topology — derived boundaries', () => {
     }
   });
 
-  /** When the sdk-generation row is dropped, the bridge must report it, or a boundary hides its unbound representations. */
+  /** Without the sdk-generation row, the bridge must report a finding, or a boundary hides its unbound representations. */
   it('BoundaryDerivations_RequiredBoundaryMissingFromRows_FailsTotality', () => {
     const withoutSdk = topologyRows().filter((row) => row.boundary !== 'sdk-generation');
     const report = checkTopologyTotality(withoutSdk, BOUNDARY_DERIVATIONS);
@@ -181,7 +181,10 @@ describe('authority topology — derived boundaries', () => {
     expect(codesOf(report)).toContain('UNJUSTIFIED_DECLARED_ROW');
   });
 
-  /** A derived row must be required by its bridge. This is the `STALE_DERIVED_PROVENANCE` check over the live table. */
+  /**
+   * A declared row states why it is not derivable. The bridge of a derived row requires that row,
+   * which is the `STALE_DERIVED_PROVENANCE` check over the live table.
+   */
   it('RowProvenance_EveryDeclaredRow_StatesWhyItIsNotDerivable', () => {
     for (const row of topologyRows()) {
       if (row.provenance.kind === 'declared') {
@@ -420,7 +423,7 @@ describe('authority topology — sdk-generation row vs the package manifest', ()
     expect(authoritativeRepresentations(row).length).toBe(generationCount);
   });
 
-  /** The `measured` note records that v2 has zero production import sites, against the "imported directly" claim of the spec table. */
+  /** Pins the word `ZERO` in the `measured` note, which records a disagreement with the "imported directly" claim of the spec table. */
   it('SdkGenerationRow_MeasuredState_RecordsTheDisagreementWithTheSpecTable', () => {
     expect(AUTHORITY_TOPOLOGY['sdk-generation'].measured).toContain('ZERO');
   });

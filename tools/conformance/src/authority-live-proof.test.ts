@@ -646,7 +646,7 @@ describe('authority census — the phase-events row, live', () => {
 
   /**
    * A playbook row or a gate table written back as a literal reopens the binding. A renamed gate
-   * table fails closed and does not measure nothing.
+   * table fails closed. It does not give an empty measurement.
    */
   it('AuthorityCensus_PhaseEventsRow_ASeededBakedRowIsNamed', () => {
     const sources = readPhaseEventsSources();
@@ -693,7 +693,7 @@ describe('authority census — the phase-events row, live', () => {
    * A site that is not a literal is not bound for that reason. A conditional with a baked name, an
    * unrelated helper, or the correct projection from the wrong module each compute a value without
    * the contract. Each reads `opaque` and reopens the binding. With the wrong import, only the
-   * serializer copies of a row still bind.
+   * serializer copies of a row stay `derived`.
    */
   it('AuthorityCensus_PhaseEventsRow_ADerivedSiteNotComputedFromTheContractIsNamed', () => {
     const sources = readPhaseEventsSources();

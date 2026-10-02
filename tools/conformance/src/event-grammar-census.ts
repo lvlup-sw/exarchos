@@ -3,7 +3,7 @@
  *
  * The event-name grammar census and its two-way ratchet. The co-located vitest states the
  * verdict. No production code imports this module, because it governs the event catalog. Delete
- * it when {@link EVENT_GRAMMAR_CONCESSIONS} reaches zero, not before.
+ * it when {@link EVENT_GRAMMAR_CONCESSIONS} has no entries, not before.
  *
  * `tsc` checks the built-in catalog against the grammar type. It cannot check the custom names
  * that `registerEventType` accepts at runtime, so this census enumerates `getValidEventTypes` at

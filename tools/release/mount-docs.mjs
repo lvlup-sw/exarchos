@@ -3,8 +3,8 @@
  * Mounts relocated document subtrees back into this checkout as symlinks.
  *
  * The documents live in an external documents repository. The build, the tests and the shipped
- * package do not need them. The links let an old link or a question about a past decision
- * resolve locally.
+ * package do not need them. With the links, a reader can follow an old link, and an agent can read
+ * a past decision, in the local checkout.
  *
  * The links are not committed. A committed symlink stores the directory layout of one machine,
  * and it dangles on every other machine. Tooling that walks the tree then fails on read. So git

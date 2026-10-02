@@ -83,8 +83,8 @@ interface EffectivePhases {
  * Resolves the phase names in scope for `name`. It follows `extends` through sibling workflows and
  * the known parent phase sets. A cycle stops the walk and marks the set incomplete, but this
  * validator does not report a cycle. A known parent with unknown phases also marks the set
- * incomplete. A parent that does not exist adds no phases and keeps the set complete. Then
- * `from` and `to` still get a check against the own phases.
+ * incomplete. A parent that does not exist adds no phases and keeps the set complete. Then the
+ * check still compares `from` and `to` with the phases that the workflow itself declares.
  */
 function resolveEffectivePhases(
   name: string,
@@ -170,7 +170,7 @@ function checkTransition(
 
 /**
  * Checks one workflow. `extends` must name a known type or a sibling workflow. `initialPhase` must
- * be one of the own declared phases of the workflow, because the workflow starts there.
+ * be a phase that the workflow itself declares, not an inherited phase.
  */
 function checkWorkflow(
   workflow: string,

@@ -1,6 +1,7 @@
 /**
  * Holds the one `createHash` call behind every waiver-ledger key-set pin.
- * The call is in this file so that `waiver-ledger.ts` imports nothing.
+ * The call is in this file so that `waiver-ledger.ts` imports nothing. A guard that needs only
+ * the day rule, such as the CLI-derivation ratchet guard, then takes no hash code.
  * The canonical form of a key set stays in `waiver-ledger.ts`, so all ledgers share one form.
  */
 import { createHash } from 'node:crypto';

@@ -395,9 +395,9 @@ describe('authority census — the two-way ratchet on `bound`', () => {
   });
 
   /**
-   * Two rows carry `PHASE_EXPECTED_EVENTS`. A relabel on one row only satisfies that row, but the
-   * disagreement is `ambiguous` on each row that carries the representation. The finding count thus
-   * goes up from two to three, not down.
+   * Two rows carry `PHASE_EXPECTED_EVENTS`. A relabel on one of the rows removes the `missing`
+   * finding of that row. But the disagreement is `ambiguous` on each row that carries the
+   * representation, so the finding count goes up from two to three, not down.
    */
   it('AuthorityCensus_RepresentationRelabelledOnOneRowOnly_IsAmbiguous', () => {
     const shared = 'PHASE_EXPECTED_EVENTS';
@@ -836,7 +836,8 @@ describe('authority census — the live topology', () => {
   /**
    * A check that every listed event exists cannot see an event that the list omits, so a check is
    * not a binding. Both boundaries that carry the `PHASE_EVENT_CONTRACTS` rows report them as
-   * `missing`. The rows agree, so only the two authority hops are `ambiguous`.
+   * `missing`. The rows agree, so no `binding` hop is `ambiguous`. The only `ambiguous` findings
+   * are on two `authority` hops.
    */
   it('AuthorityCensus_PhaseExpectedEvents_IsReportedUnboundOnBothRowsCarryingIt', () => {
     const report = runAuthorityCensus();

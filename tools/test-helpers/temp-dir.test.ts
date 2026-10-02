@@ -6,8 +6,9 @@ import { EventStore } from '../../src/events/store.js';
 import { SqliteBackend } from '../../src/storage/sqlite-backend.js';
 
 /**
- * The `EBUSY` symptom occurs only on NTFS. The handle lifecycle that prevents
- * it does not depend on the platform, so these tests run on the Linux CI host.
+ * The `EPERM` and `EBUSY` errors occur only on NTFS. The handle lifecycle that
+ * prevents them does not depend on the platform, so these tests run on the
+ * Linux CI host.
  */
 describe('temp-dir helper + SQLite handle lifecycle (#1620)', () => {
   /**

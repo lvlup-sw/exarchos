@@ -551,7 +551,7 @@ export function parseCliArgs(argv: readonly string[], repoRootDefault: string): 
 }
 
 /**
- * Renders the lines that describe a {@link SourceStateReport}. It is apart from
+ * Renders the lines that describe a {@link SourceStateReport}. It is separate from
  * {@link runBuildReleaseManifest}, so a test can assert the lines without stdout capture. A
  * modified state uses the GitHub `::warning::` annotation, so a dirty-checkout release is visible
  * in the Actions log. The manifest step still succeeds. See {@link GENERATED_AT_BUILD_PATHS}.

@@ -40,9 +40,9 @@ function report(label: string, stats: PercentileStats): void {
 
 describe('admission decision-path performance (exit-proof e)', () => {
   /**
-   * Checks that the measurement made real decisions. The 500 ms bound is a tripwire
-   * for a catastrophic regression that is safe on every runner. The tests below
-   * enforce the 15 ms bound outside win32.
+   * Checks that the measurement made real decisions. The 500 ms bound is safe on every
+   * runner, and it catches a catastrophic regression. The tests below enforce the
+   * 15 ms bound outside win32.
    */
   it('AdmissionDecisionPath_MeasuresP99_AndAlwaysReportsTheNumber', () => {
     const single = measureSingleDecision(worstCaseScenario, {

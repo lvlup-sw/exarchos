@@ -84,8 +84,8 @@ describe('Wave 1 exit — the five guards (task 027, DR-6 / DR-24)', () => {
    * blocking finding must belong to a row due at `wave-1`.
    *
    * A seeded unbound representation must add exactly one blocking finding, the seed itself.
-   * Binding the live unbound representations must shrink the population, so the baseline is not a
-   * one-way ratchet.
+   * Binding the unbound representations of `response-shape` must shrink the population, so the
+   * baseline is not a one-way ratchet.
    */
   it('Wave1Exit_AllFiveGuards_BlockOnSeededViolation', () => {
     const live = runAuthorityCensus(topologyRows(), { atWave: 'wave-1' });
@@ -180,8 +180,8 @@ describe('Wave 1 exit — the five guards (task 027, DR-6 / DR-24)', () => {
 
   /**
    * A guard failure must not pass as success. A guard that runs directly in a job must have its
-   * self-test in the same job. A broken guard then fails the job that runs it. Every guard needs
-   * a self-test host, because for G3, G4 and G5 the test file is the guard.
+   * self-test in the same job. A broken guard then fails the job that runs it. Each of the five
+   * guards needs a self-test host, because for G3, G4 and G5 the test file is the guard.
    */
   it('Wave1Exit_EachGuardSelfTest_RunsInSameCiJob', () => {
     const inventory = buildGuardInventory();
@@ -203,8 +203,8 @@ describe('Wave 1 exit — the five guards (task 027, DR-6 / DR-24)', () => {
   });
 
   /**
-   * A path-filtered job is skipped as passed on the pull requests that it polices. Every guard
-   * thus needs a host with no path filter, and it must block.
+   * A path-filtered job is skipped as passed on the pull requests that it polices. Each of the
+   * five guards thus needs a host with no path filter, and its enforcement must be `blocks`.
    */
   it('Wave1Exit_AllGuardsOnUnfilteredPaths', () => {
     const inventory = buildGuardInventory();

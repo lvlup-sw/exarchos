@@ -452,9 +452,9 @@ export interface CensusFinding {
 
 /**
  * The direction that an enforcement instrument checks.
- * G5 is a claim about a population: each other representation names what binds it.
+ * The closure rule is a claim about a population: each other representation names what binds it.
  * `authority-to-representation` walks from the authority outward, so it cannot see an orphan representation.
- * `representation-to-authority` can see one, so only it or `both` discharges G5.
+ * `representation-to-authority` can see one, so only it or `both` discharges the closure rule.
  */
 export type EnforcementDirection =
   | 'authority-to-representation'
@@ -512,7 +512,7 @@ export const ENFORCEMENT_INSTRUMENTS: readonly EnforcementInstrument[] = Object.
   }),
 ]);
 
-/** Does this direction discharge G5's population claim? */
+/** Tells if this direction discharges the population claim of the closure rule. */
 export function coversPopulation(direction: EnforcementDirection): boolean {
   return direction === 'representation-to-authority' || direction === 'both';
 }
@@ -842,10 +842,10 @@ function hopsFor(
 }
 
 /**
- * Evaluates G5 closure over the boundary rows. It is pure and total, and fails closed on an empty subject.
+ * Evaluates closure over the boundary rows. It is pure and total, and fails closed on an empty subject.
  * `ok` needs non-empty row, representation and `binding` populations, and each input row well-formed.
  * It also needs a well-formed table (`checkTopologyTotality`) and zero blocking findings at `atWave`.
- * Findings before the `enforceFrom` of their row are still reported.
+ * The census still reports a finding before the `enforceFrom` of its row.
  *
  * @param rows - `unknown[]`, so a row that the type forbids can come from a store, a fixture or a JSON round trip.
  */

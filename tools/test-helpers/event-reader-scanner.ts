@@ -21,9 +21,8 @@ import type {
 } from '../../src/events/partition/reader-census.js';
 
 /**
- * `parseDiagnostics` is off the public `ts.SourceFile` surface but is the only
- * way to tell a CLEAN parse from a RECOVERED one. A narrowing predicate rather
- * than an assertion, because the cast ratchet scans this directory.
+ * `parseDiagnostics` is not on the public `ts.SourceFile` type, but only it tells a clean parse
+ * from a recovered one. This narrowing predicate reads it with no `as` cast.
  */
 function isDiagnosticArray(value: unknown): value is readonly ts.Diagnostic[] {
   return Array.isArray(value);
