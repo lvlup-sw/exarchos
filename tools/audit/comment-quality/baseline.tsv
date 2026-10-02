@@ -140,6 +140,12 @@ tests/architecture/artifact-kind-classification.test.ts	470ae41b74ea	1
 tests/architecture/artifact-kind-classification.test.ts	5247fc9b9913	1
 tests/architecture/artifact-kind-classification.test.ts	c06001aa0316	1
 tests/architecture/artifact-kind-classification.test.ts	ff34343075be	1
+tests/architecture/atomic-replace.test.ts	55693831b443	1
+tests/architecture/atomic-replace.test.ts	765b6debdcc7	1
+tests/architecture/atomic-replace.test.ts	b9684668ee36	1
+tests/architecture/atomic-replace.test.ts	d3c7a0e98a9f	1
+tests/architecture/atomic-replace.test.ts	dd0785b764fa	1
+tests/architecture/atomic-replace.test.ts	f857f325007c	1
 tests/architecture/baseline-green.test.ts	0bee1097b04d	1
 tests/architecture/baseline-green.test.ts	502e55c6b485	1
 tests/architecture/baseline-green.test.ts	812780a71718	1
@@ -326,6 +332,7 @@ tests/architecture/locality.test.ts	4696f34cc3da	1
 tests/architecture/locality.test.ts	a7f21662fc46	1
 tests/architecture/locality.test.ts	db49a2818e09	1
 tests/architecture/locality.test.ts	f3285bd300c4	1
+tests/architecture/no-live-checkout-writes.test.ts	edd3dde7379e	1
 tests/architecture/package-scripts.test.ts	9463ea9b36e5	1
 tests/architecture/phase-gates-resolve-test-command.test.ts	5b8f2ab50a63	1
 tests/architecture/phase-gates-resolve-test-command.test.ts	c431c499c8e6	1
@@ -419,6 +426,10 @@ tests/architecture/skill-prose-gate-row-agreement.test.ts	a413260fbe46	1
 tests/architecture/skill-prose-gate-row-agreement.test.ts	ad3ffa92fd8a	1
 tests/architecture/skill-prose-gate-row-agreement.test.ts	d6610e152fe6	1
 tests/architecture/skill-prose-gate-row-agreement.test.ts	d6f7489014d7	1
+tests/architecture/sqlite-owner-close-barrier.test.ts	0aa13883a890	1
+tests/architecture/sqlite-owner-close-barrier.test.ts	72e848414d67	1
+tests/architecture/temp-dir-removal.test.ts	4d015d44c9b2	1
+tests/architecture/temp-dir-removal.test.ts	51cbc752116b	1
 tests/architecture/test-inventory.test.ts	0b3601423b86	1
 tests/architecture/test-inventory.test.ts	0bf5d599bee9	1
 tests/architecture/test-inventory.test.ts	16a3627de5a5	1
@@ -481,17 +492,23 @@ tests/architecture/top-level-contract.test.ts	9f878f0f1ca9	1
 tests/architecture/top-level-contract.test.ts	b8d737224e0e	1
 tests/architecture/top-level-contract.test.ts	bc4855967843	1
 tests/architecture/top-level-contract.test.ts	d72496e70ad6	1
+tests/architecture/vitest-config.test.ts	0ca2765c8708	1
 tests/architecture/vitest-config.test.ts	10f3430538b8	1
 tests/architecture/vitest-config.test.ts	4d0eb8a6f781	1
 tests/architecture/vitest-config.test.ts	51bcb717225f	1
 tests/architecture/vitest-config.test.ts	5ad7b15047a9	1
 tests/architecture/vitest-config.test.ts	6686dfed67c2	1
+tests/architecture/vitest-config.test.ts	7d75800a59b8	1
+tests/architecture/vitest-config.test.ts	8332df2323cf	1
 tests/architecture/vitest-config.test.ts	9ece9937f495	1
 tests/architecture/vitest-config.test.ts	cc3b67077913	1
 tests/architecture/vitest-config.test.ts	cec62e250db5	1
 tests/architecture/vitest-config.test.ts	d2cdfdfd7eb2	1
 tests/architecture/vitest-config.test.ts	e6aa53e40e31	1
 tests/architecture/vitest-config.test.ts	e916f7daa900	1
+tests/architecture/worker-loop-and-clock.test.ts	ca45cec46e20	1
+tests/architecture/worker-loop-and-clock.test.ts	d7eb9b2b48d0	1
+tests/architecture/worker-loop-and-clock.test.ts	db66c43aeec5	1
 tests/architecture/worktree-inventory.test.ts	24877e09e41f	1
 tests/architecture/worktree-inventory.test.ts	39c237e528c3	1
 tests/architecture/worktree-inventory.test.ts	3a03a98ddd0f	1
@@ -972,6 +989,7 @@ tests/core/process/_helpers.ts	ba75284b2925	1
 tests/core/process/_helpers.ts	bbd3255425f0	1
 tests/core/process/_helpers.ts	c1f225ad0dae	1
 tests/core/process/_helpers.ts	d0e304156b23	1
+tests/core/process/_helpers.ts	d98e207a201d	1
 tests/core/process/_helpers.ts	dd5164c95c7f	1
 tests/core/process/_helpers.ts	df409c446d2a	1
 tests/core/process/_helpers.ts	e1ecd5dbaf55	1
@@ -1553,6 +1571,7 @@ tests/helpers/hermetic.test.ts	9460479ae969	1
 tests/helpers/hermetic.test.ts	971ad73290e9	1
 tests/helpers/hermetic.test.ts	9afc4faf3e62	1
 tests/helpers/hermetic.test.ts	aa70bf58c4e9	1
+tests/helpers/hermetic.test.ts	d7bc723d0994	1
 tests/helpers/hermetic.test.ts	f3565ba82d71	1
 tests/helpers/hermetic.test.ts	f49ae933e814	1
 tests/helpers/hermetic.ts	290b2f9c4bc5	1
@@ -1643,6 +1662,7 @@ tests/helpers/parity-contract.ts	e6676ec55652	1
 tests/helpers/preflight.test.ts	1d8bc3caa674	1
 tests/helpers/preflight.test.ts	4d6e660f0e86	1
 tests/helpers/preflight.test.ts	55e682c78fed	1
+tests/helpers/preflight.test.ts	5f3a69d93791	1
 tests/helpers/preflight.test.ts	6160a58011cc	1
 tests/helpers/preflight.test.ts	edeac9f4b786	1
 tests/helpers/preflight.test.ts	f27e56f2957f	1
@@ -1650,6 +1670,10 @@ tests/helpers/preflight.ts	89493e1fb376	1
 tests/helpers/preflight.ts	ba5a7d69785a	1
 tests/helpers/preflight.ts	e6af97effbc4	1
 tests/helpers/preflight.ts	eb54e02e22b7	1
+tests/helpers/process-state.test.ts	2e92a5e0a46c	1
+tests/helpers/process-state.test.ts	5b8351fa7b85	1
+tests/helpers/process-state.ts	19926e911185	1
+tests/helpers/process-state.ts	8de834e83ef6	1
 tests/helpers/process-tracker.test.ts	2aee6b0381db	1
 tests/helpers/process-tracker.test.ts	9e4a141ea58e	1
 tests/helpers/process-tracker.test.ts	ab081a7520ee	1
@@ -1667,6 +1691,7 @@ tests/helpers/process-tracker.ts	ccabd7834d47	1
 tests/helpers/process-tracker.ts	d8c17608a08a	1
 tests/helpers/process-tracker.ts	de2385ad5297	1
 tests/helpers/process-tracker.ts	fae835bcd3d4	1
+tests/helpers/reset-process-state.ts	520b1ef31e7d	1
 tests/helpers/saga-driver.test.ts	044daceb01aa	1
 tests/helpers/saga-driver.test.ts	2711c2b4ef32	1
 tests/helpers/saga-driver.test.ts	397e4e1b2ed2	1
@@ -1681,6 +1706,9 @@ tests/helpers/saga-driver.ts	4068c9321d73	1
 tests/helpers/saga-driver.ts	4986c49e5c05	1
 tests/helpers/saga-driver.ts	f8053b917505	1
 tests/helpers/section-0a-bypass.ts	c73b91b09e04	1
+tests/helpers/temp-run-root.test.ts	fddb1343d18c	1
+tests/helpers/yield-between-tests.test.ts	9f0122e11b50	1
+tests/helpers/yield-between-tests.ts	5f54cb569995	1
 tests/integration/action-contract-emissions.test.ts	7f50e7f2cabb	1
 tests/integration/action-replay.test.ts	dac2c81e1c80	1
 tests/integration/cli-parity.test.ts	2e4c4bab72cc	1
@@ -2004,6 +2032,7 @@ tests/outcome/merge-orchestrate-multiworktree.test.ts	ebdc8e7283aa	1
 tests/outcome/onboard.test.ts	22c92f707a48	1
 tests/outcome/onboard.test.ts	c3cde63a5f50	1
 tests/outcome/onboard.test.ts	d19a903ef97a	1
+tests/outcome/onboard.test.ts	d57eb6db371a	1
 tests/outcome/preflight-debug.test.ts	3b21d7aa20d5	1
 tests/outcome/preflight-debug.test.ts	4370f657710d	1
 tests/outcome/preflight-debug.test.ts	7d89d60f7baf	1
@@ -2249,6 +2278,8 @@ tests/scripts/build-release-manifest.test.ts	179a32d86c56	1
 tests/scripts/build-release-manifest.test.ts	1951327ca242	1
 tests/scripts/build-release-manifest.test.ts	1d3bd5e51ca2	1
 tests/scripts/build-release-manifest.test.ts	222486660341	1
+tests/scripts/build-release-manifest.test.ts	22b2eef7bd75	1
+tests/scripts/build-release-manifest.test.ts	2560f4945b3c	1
 tests/scripts/build-release-manifest.test.ts	2fe839879393	1
 tests/scripts/build-release-manifest.test.ts	34d35614d91d	1
 tests/scripts/build-release-manifest.test.ts	3d100e312a61	1
@@ -2287,6 +2318,7 @@ tests/scripts/build-release-manifest.test.ts	e087735a5996	1
 tests/scripts/build-release-manifest.test.ts	ea7e88ec22a2	1
 tests/scripts/build-release-manifest.test.ts	f07cf0425679	1
 tests/scripts/build-release-manifest.test.ts	f12a862fbf58	1
+tests/scripts/build-release-manifest.test.ts	fb75adf042d1	1
 tests/scripts/build-release-manifest.test.ts	fc3b66af131d	1
 tests/scripts/call-shape-census.test.ts	bcb65f948eb0	1
 tests/scripts/check-coverage-ratchet.test.sh	81bc14764f0f	1
@@ -2389,6 +2421,7 @@ tests/scripts/check-module-intent.test.ts	69a9754318a7	1
 tests/scripts/check-module-intent.test.ts	6aef515785e3	1
 tests/scripts/check-module-intent.test.ts	76950a35d9ea	1
 tests/scripts/check-module-intent.test.ts	7ad826475d92	1
+tests/scripts/check-module-intent.test.ts	7d87788daf1f	1
 tests/scripts/check-module-intent.test.ts	8eabd145db45	1
 tests/scripts/check-module-intent.test.ts	9cd87dbe8b28	1
 tests/scripts/check-module-intent.test.ts	a56306459c5e	1
@@ -2496,6 +2529,7 @@ tests/scripts/codegen-runtimes.test.ts	174ca2007bae	1
 tests/scripts/codegen-runtimes.test.ts	1add7f195a02	1
 tests/scripts/codegen-runtimes.test.ts	2495e6306fcf	1
 tests/scripts/codegen-runtimes.test.ts	47c5c5c0c1e5	1
+tests/scripts/codegen-runtimes.test.ts	72ff49a6475a	1
 tests/scripts/codegen-runtimes.test.ts	d56afb57e263	1
 tests/scripts/codegen-runtimes.test.ts	fe4f7b543276	1
 tests/scripts/coderabbit-review-gate.test.sh	2647027e884c	1
@@ -2532,6 +2566,8 @@ tests/scripts/generate-legacy-skill-hashes.test.ts	cf55243be956	1
 tests/scripts/generate-legacy-skill-hashes.test.ts	d451ffcb0e3b	1
 tests/scripts/generate-legacy-skill-hashes.test.ts	d52a39320d76	1
 tests/scripts/generate-legacy-skill-hashes.test.ts	e4baec13a57d	1
+tests/scripts/get-exarchos.ps1.test.ts	03822564641b	1
+tests/scripts/get-exarchos.ps1.test.ts	1b559a9e3c1b	1
 tests/scripts/get-exarchos.ps1.test.ts	523f7bbd5390	1
 tests/scripts/get-exarchos.ps1.test.ts	70714b86c922	1
 tests/scripts/get-exarchos.ps1.test.ts	d41537cb7683	1
@@ -2620,6 +2656,7 @@ tests/scripts/guard-inventory.test.ts	fe42f57356f1	1
 tests/scripts/installer-verify.test.ts	018181d18d9b	1
 tests/scripts/installer-verify.test.ts	08074ad27861	1
 tests/scripts/installer-verify.test.ts	0e23e30c8b29	1
+tests/scripts/installer-verify.test.ts	1758bbc7b105	1
 tests/scripts/installer-verify.test.ts	35327e3ba4fa	1
 tests/scripts/installer-verify.test.ts	47c7156b49c7	1
 tests/scripts/installer-verify.test.ts	4f9e01433ff8	1
@@ -3879,6 +3916,7 @@ tests/unit/cli/envelope-parity.test.ts	63cfa51b8d46	1
 tests/unit/cli/envelope-parity.test.ts	c02fd1b9cbf5	1
 tests/unit/cli/envelope-parity.test.ts	f4e3d4dc5bdc	1
 tests/unit/cli/follow-loop.test.ts	0c1007c496bf	1
+tests/unit/cli/follow-loop.test.ts	166b8bb16516	1
 tests/unit/cli/follow-loop.test.ts	22f20ff66676	1
 tests/unit/cli/follow-loop.test.ts	29d48f802ffc	1
 tests/unit/cli/follow-loop.test.ts	62f8cd9da85e	1
@@ -5353,6 +5391,8 @@ tests/unit/events/admission-event-authorization.test.ts	899455920ac9	1
 tests/unit/events/admission-event-authorization.test.ts	d7a99173e303	1
 tests/unit/events/aggregate-stream.test.ts	07b31b30a038	1
 tests/unit/events/aggregate-stream.test.ts	b75813902e4a	1
+tests/unit/events/append-cost-budget.test.ts	0bfcef05989c	1
+tests/unit/events/appender-close-barrier.test.ts	2db6c0964ed7	1
 tests/unit/events/atomic-append-repair.test.ts	27d8b43b464e	1
 tests/unit/events/atomic-append-repair.test.ts	33ba588058b2	1
 tests/unit/events/atomic-append-repair.test.ts	41a5d89f3c04	1
@@ -5379,6 +5419,7 @@ tests/unit/events/atomic-appender-sqlite.test.ts	6723cafce01d	1
 tests/unit/events/atomic-appender-sqlite.test.ts	6c0ff864f1bb	1
 tests/unit/events/atomic-appender-sqlite.test.ts	a77aa87bf269	1
 tests/unit/events/atomic-appender-sqlite.test.ts	b2f9567613f6	1
+tests/unit/events/atomic-appender-sqlite.test.ts	d03fb7bf963a	1
 tests/unit/events/atomic-appender-sqlite.test.ts	e200cc016416	1
 tests/unit/events/atomic-appender.acceptance.test.ts	17cc78edb6fb	1
 tests/unit/events/atomic-appender.acceptance.test.ts	21fd40ea8c72	1
@@ -5935,6 +5976,7 @@ tests/unit/events/poc.acceptance.test.ts	3dc18e5082e5	1
 tests/unit/events/poc.acceptance.test.ts	4556b36aa60a	1
 tests/unit/events/poc.acceptance.test.ts	d85161b0fea5	1
 tests/unit/events/poc.acceptance.test.ts	de7de8a8390e	1
+tests/unit/events/poc.acceptance.test.ts	e683b8d7eccf	1
 tests/unit/events/provider-area-audit.test.ts	04b1224bd55b	1
 tests/unit/events/provider-area-audit.test.ts	125881398c0e	1
 tests/unit/events/provider-area-audit.test.ts	254e8f6f9040	1
@@ -6489,6 +6531,7 @@ tests/unit/events/secondary-view-telemetry-dependence.test.ts	d4b3eb01851f	1
 tests/unit/events/storage-busy-error.test.ts	b3c88d97880c	1
 tests/unit/events/store.bench.ts	2beb5e927e91	1
 tests/unit/events/store.bench.ts	2d2dd7339376	1
+tests/unit/events/store.bench.ts	545e61f2e8af	1
 tests/unit/events/store.bench.ts	74e8bbd3cd28	1
 tests/unit/events/store.bench.ts	8c56512c3083	1
 tests/unit/events/store.bench.ts	ace544fae8fa	1
@@ -9276,6 +9319,8 @@ tests/unit/projections/telemetry/auto-correction.test.ts	ace00489e520	1
 tests/unit/projections/telemetry/auto-correction.test.ts	b215e28bc0d4	1
 tests/unit/projections/telemetry/auto-correction.test.ts	bcca973050b6	6
 tests/unit/projections/telemetry/auto-correction.test.ts	f2aa384c73c1	1
+tests/unit/projections/telemetry/benchmarks/cold-start.bench.ts	81dff0517c04	1
+tests/unit/projections/telemetry/benchmarks/event-store.bench.ts	a0d16228b59e	1
 tests/unit/projections/telemetry/benchmarks/integration.test.ts	4058032d829f	3
 tests/unit/projections/telemetry/benchmarks/integration.test.ts	5123608c46f9	2
 tests/unit/projections/telemetry/benchmarks/integration.test.ts	5a68493d70bb	1
@@ -12947,6 +12992,20 @@ tests/unit/vcs/provider.test.ts	dc7b4cc86822	1
 tests/unit/vcs/provider.test.ts	f6ecd9599f7b	1
 tests/unit/vcs/provider.test.ts	f878992d8eff	1
 tests/unit/vcs/worktree-provisioner.test.ts	3304539a3d22	1
+tests/unit/verbs/gates/cutover-readiness.test.ts	09a179ca612a	1
+tests/unit/verbs/gates/cutover-readiness.test.ts	b9473cf39c6a	1
+tests/unit/verbs/gates/cutover-readiness.test.ts	c9fbff17f6ea	1
+tests/unit/verbs/gates/gate-event-honesty.test.ts	b65389185b9e	1
+tests/unit/verbs/gates/gate-event-honesty.test.ts	f052382af381	1
+tests/unit/verbs/gates/gate-runner.concurrency.test.ts	15e9a1ca83c0	1
+tests/unit/verbs/gates/gate-runner.concurrency.test.ts	668df2640a50	1
+tests/unit/verbs/gates/test-adequacy.test.ts	ef2362515b11	1
+tests/unit/verbs/init/writers/mcp-json-writer.test.ts	0d315aa3f4fb	1
+tests/unit/verbs/init/writers/mcp-json-writer.test.ts	9e974123b2bd	1
+tests/unit/verbs/init/writers/mcp-json-writer.test.ts	fdfa09f4b9d4	1
+tests/unit/verbs/onboard/install.test.ts	58deefda322b	1
+tests/unit/verbs/onboard/install.test.ts	c47bf91fa4d7	1
+tests/unit/verbs/onboard/install.test.ts	f22ec5145592	1
 tests/unit/verbs/team/dispatch-guard.test.ts	234c68689c95	1
 tests/unit/verbs/team/dispatch-guard.test.ts	2456317adf30	1
 tests/unit/verbs/team/dispatch-guard.test.ts	2c210f53f704	1
@@ -13641,6 +13700,9 @@ tests/unit/verbs/team/worktree-baseref.test.ts	b9473cf39c6a	1
 tests/unit/verbs/team/worktree-baseref.test.ts	df54fd836106	1
 tests/unit/verbs/team/worktree-baseref.test.ts	f5a9ca978e57	1
 tests/unit/verbs/team/worktree-baseref.test.ts	fe57d1b68ce8	1
+tests/unit/verbs/template-roundtrip.test.ts	168ad6942b2b	1
+tests/unit/verbs/template-roundtrip.test.ts	1a180e42a449	1
+tests/unit/verbs/template-roundtrip.test.ts	525f14ad3cf7	1
 tests/unit/verbs/vcs/add-pr-comment.parity.test.ts	00c94b02e81a	1
 tests/unit/verbs/vcs/add-pr-comment.parity.test.ts	019ae69b511c	1
 tests/unit/verbs/vcs/add-pr-comment.parity.test.ts	04fd9dcdba3e	1
@@ -13937,6 +13999,7 @@ tests/unit/verbs/vcs/git-exec-default.test.ts	b739ffa478f3	1
 tests/unit/verbs/vcs/git-exec-default.test.ts	c1cd89cdf10a	1
 tests/unit/verbs/vcs/git-exec-default.test.ts	d1fc14035218	1
 tests/unit/verbs/vcs/git-exec-default.test.ts	e8995536eb31	1
+tests/unit/verbs/vcs/git-exec-default.test.ts	edbf73a06887	1
 tests/unit/verbs/vcs/list-prs.test.ts	0d5561a00c8d	1
 tests/unit/verbs/vcs/list-prs.test.ts	b80ac434b96a	1
 tests/unit/verbs/vcs/list-prs.test.ts	c0da1ea6342b	1
@@ -15472,6 +15535,7 @@ tests/unit/workflow/checkpoint.test.ts	808927875ae5	1
 tests/unit/workflow/checkpoint.test.ts	8ad754dc282a	1
 tests/unit/workflow/checkpoint.test.ts	8b685c2faa1b	1
 tests/unit/workflow/checkpoint.test.ts	93cd14e0418f	1
+tests/unit/workflow/checkpoint.test.ts	a2dbac03ca11	1
 tests/unit/workflow/checkpoint.test.ts	a823b3b8eae1	1
 tests/unit/workflow/checkpoint.test.ts	a9523417e03d	1
 tests/unit/workflow/checkpoint.test.ts	b664e06863e2	1
@@ -15708,6 +15772,7 @@ tests/unit/workflow/compensation.test.ts	4200427bbf37	1
 tests/unit/workflow/compensation.test.ts	424364ca168d	1
 tests/unit/workflow/compensation.test.ts	48723609f70a	1
 tests/unit/workflow/compensation.test.ts	4a9743c7f60d	1
+tests/unit/workflow/compensation.test.ts	4b361a3f2fc5	1
 tests/unit/workflow/compensation.test.ts	4e44b90d544f	1
 tests/unit/workflow/compensation.test.ts	4edb9bd9d23b	1
 tests/unit/workflow/compensation.test.ts	5000f3cf2bac	1
@@ -15757,6 +15822,7 @@ tests/unit/workflow/compensation.test.ts	bdb2d0496ced	1
 tests/unit/workflow/compensation.test.ts	bdb9b208fff3	1
 tests/unit/workflow/compensation.test.ts	be1aa913f31b	1
 tests/unit/workflow/compensation.test.ts	be629f9cbaff	2
+tests/unit/workflow/compensation.test.ts	c205c53036e8	1
 tests/unit/workflow/compensation.test.ts	c323677ded8e	1
 tests/unit/workflow/compensation.test.ts	c4b7cd163443	1
 tests/unit/workflow/compensation.test.ts	c947fbddb3a1	1
@@ -17176,6 +17242,7 @@ tests/unit/workflow/state-store.test.ts	542515d8aabf	1
 tests/unit/workflow/state-store.test.ts	5634c0504325	1
 tests/unit/workflow/state-store.test.ts	58e8c8410e37	1
 tests/unit/workflow/state-store.test.ts	5b562728f560	1
+tests/unit/workflow/state-store.test.ts	5bcf4f203089	1
 tests/unit/workflow/state-store.test.ts	5e5fa267f0d4	1
 tests/unit/workflow/state-store.test.ts	5f029350c4bd	1
 tests/unit/workflow/state-store.test.ts	5fbcf3af221d	1
@@ -17722,3 +17789,22 @@ tests/unit/workflow/verification-policy.test.ts	c2ba2097b2f1	1
 tests/unit/workflow/verification-policy.test.ts	c6266c42f0ca	1
 tests/unit/workflow/verification-policy.test.ts	d496f3c3c390	1
 tests/unit/workflow/verification-policy.test.ts	e85e80bbd259	1
+tools/evals/evals/__tests__/calibration-types.test.ts	d2e77aa99a98	1
+tools/evals/evals/benchmarks/exp1-binary-driver.test.ts	ef2f3ec3dac3	1
+tools/evals/evals/benchmarks/seeded-defects/catch-rate-driver.test.ts	629f8ce3af2d	1
+tools/evals/evals/benchmarks/seeded-defects/catch-rate-driver.test.ts	df2144acd505	1
+tools/test-helpers/live-checkout-writes.ts	088cc04f2a81	1
+tools/test-helpers/live-checkout-writes.ts	124d40433a28	1
+tools/test-helpers/live-checkout-writes.ts	7c0aba6e20b9	1
+tools/test-helpers/live-checkout-writes.ts	f95751c037b5	1
+tools/test-helpers/repo-sandbox.test.ts	c5c088062c5a	1
+tools/test-helpers/repo-sandbox.ts	bc1eda3ab8e2	1
+tools/test-helpers/runner-dependence-scanner.ts	97e13a46f474	1
+tools/test-helpers/scratch-sweep.ts	60af9400c323	1
+tools/test-helpers/scratch-sweep.ts	966692c37ba5	1
+tools/test-helpers/spawn.test.ts	18674ddb6a9a	1
+tools/test-helpers/spawn.ts	16178102668a	1
+tools/test-helpers/spawn.ts	2e6cbd45d3db	1
+tools/test-helpers/spawn.ts	4bc26fad36e0	1
+tools/test-helpers/spawn.ts	cf4daab2ef45	1
+tools/test-helpers/temp-run-root.ts	b8028739feb2	1
