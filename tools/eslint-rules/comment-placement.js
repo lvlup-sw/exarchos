@@ -11,7 +11,8 @@ import { analysisFor } from './comment-context.js';
 import { PLACEMENT_RULE } from '../audit/lib/comment-placement.mjs';
 
 /**
- * The block rewritten as a `/** *\/` comment, at the indentation of its first line.
+ * The block rewritten as a `/** *\/` comment, at the indentation of its first line. A `*\/` in
+ * the text becomes `*\\/`, so it cannot close the new comment early.
  *
  * @param {string} raw
  * @param {string} indent
@@ -20,7 +21,13 @@ import { PLACEMENT_RULE } from '../audit/lib/comment-placement.mjs';
 export function toJsdoc(raw, indent) {
   const lines = raw
     .split('\n')
-    .map((line) => line.replace(/^\s*(?:\/\/+|\/\*+|\*+(?!\/))\s?/, '').replace(/\s*\*+\/\s*$/, '').trimEnd());
+    .map((line) =>
+      line
+        .replace(/^\s*(?:\/\/+|\/\*+|\*+(?!\/))\s?/, '')
+        .replace(/\s*\*+\/\s*$/, '')
+        .trimEnd()
+        .replaceAll('*/', '*\\/'),
+    );
   while (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
   while (lines.length > 0 && lines[0] === '') lines.shift();
   if (lines.length <= 1) return `/** ${lines[0] ?? ''} */`;
