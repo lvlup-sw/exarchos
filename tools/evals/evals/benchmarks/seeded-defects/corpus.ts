@@ -4,7 +4,8 @@
  *
  * Five classes target an `exarchos_orchestrate` gate (see `GATE_FOR_CLASS`). The
  * `dropped-edge-case` class has no production gate. The eval-side hidden oracle
- * ({@link runDroppedEdgeOracle}) detects it, and it is never a row in the catch-rate table.
+ * ({@link runDroppedEdgeOracle}) detects it. The catch-rate report records it as an `ungated` row,
+ * and no per-gate aggregate counts it.
  *
  * Fixtures are JSON file maps under `fixtures/`, one file per class. The typecheck and the lint
  * exclude that directory, so broken defect content cannot fail repo CI. The production classifier
