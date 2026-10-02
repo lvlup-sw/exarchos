@@ -1,5 +1,5 @@
 /**
- * P06-04 — Scoped expiring waiver unit tests.
+ * Unit tests for the scoped expiring waiver.
  *
  * Each applicability gate is exercised in isolation: issuance-only, waivable
  * floor, declared requirement, subject scope, expiry, and authorization. Also
@@ -153,8 +153,8 @@ describe('waiver applicability', () => {
     expect(result.applies === false && result.reason).toBe('expired');
   });
 
+  /** `evaluatedAt` equals `expiresAt`. A waiver applies only strictly before expiry, so it is expired. */
   it('Waiver_ExpiryIsStrict_AtInstantIsExpired', () => {
-    // evaluatedAt exactly equals expiresAt: not strictly before ⇒ expired.
     const result = evaluateWaiver(
       waiver({ expiresAt: EVAL_AT }),
       target,
@@ -187,6 +187,7 @@ describe('waiver scope coverage', () => {
     ).toBe(false);
   });
 
+  /** A workflow scope never covers a task target, because coverage does not infer from the graph. */
   it('Waiver_WorkflowScope_OnlyCoversWorkflowSubject', () => {
     const workflowTarget: WaiverTarget = {
       requirementId: 'req-wf' as RequirementId,
@@ -196,7 +197,6 @@ describe('waiver scope coverage', () => {
     expect(
       waiverScopeCovers({ kind: 'workflow', workflowId: 'wf-1' as never }, workflowTarget),
     ).toBe(true);
-    // A task target is never covered by a workflow scope (no graph inference).
     expect(waiverScopeCovers({ kind: 'workflow', workflowId: 'wf-1' as never }, target)).toBe(false);
   });
 

@@ -1,12 +1,7 @@
-// ─── P07-02 exit-proof (b) — shared-IR structural independence ────────────────
-//
-// The shared-IR workflow definitions (and the translation that consumes them)
-// must have NO import path — direct or transitive — to any LEGACY GUARD module.
-// The legacy guard remains the authoritative decider until P07-05; what must be
-// true NOW is that the new IR does not reach back into legacy guard code. This
-// is proved STRUCTURALLY by walking the transitive relative-import graph from
-// the IR roots and asserting no forbidden module is reachable — a guarantee a
-// behavioural test cannot give.
+// The shared-IR workflow definitions and the translation that reads them must
+// have no import path, direct or transitive, to a legacy guard module. The test
+// walks the relative-import graph from the IR roots and checks that no
+// forbidden module is reachable. A behavioral test cannot give this guarantee.
 
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -22,11 +17,11 @@ import {
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
-/** Legacy guard modules the shared IR must never reach. */
+/** Legacy guard modules the shared IR must never reach. `state-machine.ts` imports `guards.ts`. */
 const FORBIDDEN = [
   'workflow/guards.ts',
   'workflow/hsm-definitions.ts',
-  'workflow/state-machine.ts', // imports guards.ts transitively
+  'workflow/state-machine.ts',
   'config/guards.ts',
   'config/register.ts',
 ];
@@ -42,13 +37,14 @@ function importSpecifiers(source: string): readonly string[] {
   return specs;
 }
 
+/** Resolves a relative specifier to its `.ts` path. A bare specifier cannot be a local guard, so it gives null. */
 function resolveTs(fromFile: string, spec: string): string | null {
-  if (!spec.startsWith('.')) return null; // bare import — cannot be a local guard
+  if (!spec.startsWith('.')) return null;
   const base = resolve(dirname(fromFile), spec);
   return base.replace(/\.js$/, '.ts');
 }
 
-/** Transitive closure of relative-import targets reachable from the roots. */
+/** Transitive closure of relative-import targets reachable from the roots. The walk skips a target that it cannot read. */
 function reachableModules(roots: readonly string[]): ReadonlySet<string> {
   const visited = new Set<string>();
   const queue = [...roots];
@@ -60,7 +56,7 @@ function reachableModules(roots: readonly string[]): ReadonlySet<string> {
     try {
       source = readFileSync(file, 'utf8');
     } catch {
-      continue; // unresolved (e.g. .json / type-only phantom) — nothing to walk
+      continue;
     }
     for (const spec of importSpecifiers(source)) {
       const target = resolveTs(file, spec);
@@ -77,9 +73,8 @@ describe('shared-IR structural independence (exit-proof b)', () => {
   ];
   const reachable = reachableModules(roots);
 
+  /** A broken walker that visits nothing proves independence trivially, so the walk must reach known modules. */
   it('reaches at least the known dependency graph (walker is not vacuous)', () => {
-    // Sanity: the walk actually traversed edges (otherwise a broken walker
-    // would trivially "prove" independence).
     const asPosix = [...reachable].map((f) => f.replace(/\\/g, '/'));
     expect(asPosix.some((f) => f.endsWith('workflow/admission/edge-condition.ts'))).toBe(
       true,

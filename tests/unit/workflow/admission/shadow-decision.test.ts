@@ -1,18 +1,10 @@
-// ─── P07-01 exit-proof tests — Shadow decisions (Transition tasks 027, 051) ────
+// Tests for shadow decisions.
 //
-// Proves, independently:
-//   (classifier)          every legacy/admission pair maps to exactly one typed
-//                         disagreement class, including the distinct
-//                         `admission-indeterminate` and `shadow-error` classes;
-//   (exit-proof a)        the deterministic P06-01 corpus runs BOTH the real
-//                         legacy engine (`executeTransition`) and the real
-//                         admission engine (`evaluatePolicy`) side by side, and
-//                         every disagreement is classified and dispositioned —
-//                         with ZERO unexplained disagreements;
-//   (exit-proof g)        shadow mode never alters the authoritative legacy
-//                         decision, even when the shadow adjudication throws;
-//   (events)              recorded disagreements/attempts map onto the
-//                         registered admission event schemas.
+// Each legacy and admission pair maps to one typed disagreement class, which includes `admission-indeterminate` and `shadow-error`.
+// The corpus runs the legacy engine (`executeTransition`) and the admission engine (`evaluatePolicy`) side by side.
+// Each disagreement gets a class and a disposition, and no disagreement stays unexplained.
+// Shadow mode does not change the legacy decision, even when the shadow adjudication throws.
+// Recorded disagreements and attempts map onto the registered admission event schemas.
 
 import { describe, expect, it } from 'vitest';
 
@@ -62,8 +54,6 @@ import {
   type ShadowProvenance,
 } from '../../../../src/workflow/admission/shadow-decision.js';
 
-// ─── Shared fixtures ───────────────────────────────────────────────────────────
-
 const SHA_A = 'a'.repeat(64);
 const SHA_B = 'b'.repeat(64);
 const EVAL_AT = '2026-07-21T20:00:00.000Z';
@@ -106,9 +96,8 @@ const authorization: AuthorizationSnapshotV1 = {
 const provenance: ShadowProvenance = { caller, authorization };
 
 /**
- * Genuinely exercise P06-04: a single gate-evidence requirement, satisfied iff
- * evidence is present. `evaluatePolicy` returns `allow` (present, satisfied),
- * `deny` (absent, missing) or `indeterminate` (an indeterminate gate verdict).
+ * Runs `evaluatePolicy` on one gate-evidence requirement.
+ * The verdict is `allow` when the evidence is present, `deny` when it is absent, and `indeterminate` for an indeterminate gate verdict.
  */
 function admissionVerdictFor(
   evidencePresent: boolean,
@@ -155,8 +144,6 @@ function admissionVerdictFor(
   };
   return evaluatePolicy(input).verdict;
 }
-
-// ─── Classifier — every pair maps to exactly one typed class ───────────────────
 
 describe('ShadowDecision_Classifier (P07-01)', () => {
   const evaluated = (verdict: 'allow' | 'deny' | 'indeterminate') =>
@@ -208,31 +195,26 @@ describe('ShadowDecision_Classifier (P07-01)', () => {
   });
 });
 
-// ─── Corpus: intended-admission model + P06-01 explanation ─────────────────────
-
 /**
- * Whether the evidence the admission engine requires is genuinely present for a
- * fixture. `representative-pass` carries it; `representative-fail` lacks it. The
- * `bypass` scenario is heterogeneous, so each bypass's evidence-presence is
- * modelled explicitly with its rationale — this is exactly the legacy/admission
- * contrast the shadow exists to surface, and the seam P07-02 replaces with the
- * real legacy-state → admission-evidence translation.
+ * Tells if the evidence that admission requires is present for each `bypass` fixture.
+ * A `representative-pass` fixture carries the evidence, and a `representative-fail` fixture lacks it.
+ * The `bypass` fixtures differ from each other, so this table sets each one with its reason.
  */
 const BYPASS_EVIDENCE_PRESENT: Readonly<Record<string, boolean>> = {
-  // Empty task array: no completed-task evidence exists (vacuous legacy pass).
+  /** An empty task array holds no completed-task evidence. The legacy pass is vacuous. */
   'bypass-empty-task-collection-is-complete': false,
-  // implementation.complete=false: no implementation evidence (no-op legacy guard).
+  /** `implementation.complete` is false, so no implementation evidence exists. The legacy guard is a no-op. */
   'bypass-always-pass-implementation-ignores-fail-shaped-state': false,
-  // Patched approval boolean is NOT a typed approval — evidence absent.
+  /** A patched approval boolean is not a typed approval. */
   'bypass-patched-plan-approval-is-authoritative': false,
-  // Patched review-status object is NOT typed review evidence — evidence absent.
+  /** A patched review-status object is not typed review evidence. */
   'bypass-patched-review-status-is-authoritative': false,
-  // The plan artifact IS present; legacy merely ignores the orthogonal risk tier.
-  // An evidence-backed check on the plan requirement therefore ALSO admits — the
-  // two AGREE. This distinguishes an orthogonal-signal bypass from a
-  // guard-soundness bypass.
+  /**
+   * The plan artifact is present, and legacy only ignores the orthogonal risk tier.
+   * An evidence-backed check on the plan requirement also admits, so the two engines agree.
+   */
   'bypass-unknown-risk-does-not-block-plan-edge': true,
-  // Only gate evidence is a STALE failing event; no fresh passing evidence exists.
+  /** The only gate evidence is a stale failing event. No fresh passing evidence exists. */
   'bypass-stale-gate-event-is-not-consulted': false,
 };
 
@@ -243,7 +225,7 @@ function evidencePresentFor(fixture: LegacyTransitionFixture): boolean {
   return mapped ?? false;
 }
 
-/** The flagged P06-01 guard component behind a (possibly composite) guard id. */
+/** The flagged guard component behind a guard id. The id can be a composite joined with `+`. */
 function flaggedComponent(guardId: string | undefined) {
   if (!guardId) return undefined;
   for (const component of guardId.split('+')) {
@@ -254,11 +236,9 @@ function flaggedComponent(guardId: string | undefined) {
 }
 
 /**
- * A `legacy-allow-admission-deny` disagreement is EXPLAINED when the fixture is
- * a documented permissive-legacy characterization: either an explicit `bypass`
- * fixture, or a `representative-fail` whose recorded legacy verdict is
- * nonetheless `allow` (a permissive/no-op guard). Everything else is unexplained
- * — the thing the gate blocks on.
+ * A `legacy-allow-admission-deny` disagreement is explained when the fixture documents a permissive legacy guard.
+ * That is a `bypass` fixture, or a `representative-fail` fixture whose recorded legacy verdict is `allow`.
+ * Every other disagreement is unexplained.
  */
 function explainCorpusDisagreement(
   fixture: LegacyTransitionFixture,
@@ -297,10 +277,10 @@ function phaseKindOf(
   return state && state.type === 'atomic' ? state.kind : undefined;
 }
 
+/** Runs the real legacy engine and the real `evaluatePolicy` over each corpus fixture. The legacy decision is authoritative. */
 function runCorpusShadow(): readonly ShadowDecisionRecord[] {
   return legacyTransitionCorpus.map((fixture) => {
     const hsm = getHSMDefinition(fixture.workflowType);
-    // Legacy decision: the REAL legacy engine, authoritative.
     const legacyResult = executeTransition(
       hsm,
       { ...fixture.state, phase: fixture.from },
@@ -330,7 +310,6 @@ function runCorpusShadow(): readonly ShadowDecisionRecord[] {
     const { record } = runShadowDecision({
       attempt,
       legacy,
-      // Admission decision: the REAL P06-04 evaluator over translated evidence.
       adjudicateAdmission: () => admissionVerdictFor(evidencePresentFor(fixture)),
       explain: explainCorpusDisagreement(fixture, guardId),
     });
@@ -349,11 +328,8 @@ describe('ShadowDecision_Corpus (P07-01 exit-proof a)', () => {
     }
   });
 
+  /** The legacy side must match the recorded corpus baseline. Otherwise a legacy regression shows as a disagreement. */
   it('the legacy engine reproduces the frozen corpus baseline exactly', () => {
-    // The legacy side of the shadow is the genuine legacy engine; it must match
-    // the recorded v2.12 baseline (otherwise a legacy regression is masquerading
-    // as a disagreement). Zero surprises here is what makes the disagreement set
-    // trustworthy.
     for (const [i, fixture] of legacyTransitionCorpus.entries()) {
       expect(records[i]?.legacyOutcome).toBe(fixture.expected.verdict);
     }
@@ -379,14 +355,15 @@ describe('ShadowDecision_Corpus (P07-01 exit-proof a)', () => {
     }
   });
 
+  /**
+   * Four permissive `representative-fail` guards and five bypass fixtures without the required evidence disagree.
+   * `bypass-unknown-risk-does-not-block-plan-edge` agrees, because the plan artifact is present.
+   */
   it('the disagreement finding matches the P06-01 permissive-legacy inventory', () => {
     const disagreeing = records
       .filter((r) => isDisagreement(r.disagreementClass))
       .map((r) => r.attempt.attemptId)
       .sort();
-    // 4 permissive `representative-fail` guards (implementation-complete ×3,
-    // escalation-required ×1) + 5 bypass fixtures whose required evidence is
-    // genuinely absent. `bypass-unknown-risk-...` AGREES (plan artifact present).
     expect(disagreeing).toEqual(
       [
         'debug-debug-implement-to-debug-validate-fail',
@@ -419,8 +396,6 @@ describe('ShadowDecision_Corpus (P07-01 exit-proof a)', () => {
   });
 });
 
-// ─── Behaviour preservation (exit-proof g) ─────────────────────────────────────
-
 describe('ShadowDecision_BehaviourPreservation (P07-01 exit-proof g)', () => {
   const attempt: ShadowAttempt = {
     workflowType: 'feature',
@@ -433,6 +408,7 @@ describe('ShadowDecision_BehaviourPreservation (P07-01 exit-proof g)', () => {
     reason: 'test',
   });
 
+  /** The returned decision is the same reference as the input. */
   it('returns the authoritative legacy decision byte-identical (allow)', () => {
     const legacy: LegacyDecision = { outcome: 'allow', idempotent: false };
     const { legacy: out } = runShadowDecision({
@@ -441,10 +417,11 @@ describe('ShadowDecision_BehaviourPreservation (P07-01 exit-proof g)', () => {
       adjudicateAdmission: () => 'deny',
       explain: alwaysExplained,
     });
-    expect(out).toBe(legacy); // same reference — cannot have been rewritten
+    expect(out).toBe(legacy);
     expect(out.outcome).toBe('allow');
   });
 
+  /** The legacy decision stays the same reference. The shadow records the failure and does not throw it. */
   it('a THROWING shadow adjudication never alters the legacy decision', () => {
     const legacy: LegacyDecision = { outcome: 'allow', detail: 'guard passed' };
     const result = runShadowDecision({
@@ -455,10 +432,8 @@ describe('ShadowDecision_BehaviourPreservation (P07-01 exit-proof g)', () => {
       },
       explain: alwaysExplained,
     });
-    // Production decision preserved …
     expect(result.legacy).toBe(legacy);
     expect(result.legacy.outcome).toBe('allow');
-    // … and the failure is RECORDED, not propagated.
     expect(result.record.admission).toEqual({
       status: 'error',
       error: 'admission engine exploded',
@@ -480,8 +455,6 @@ describe('ShadowDecision_BehaviourPreservation (P07-01 exit-proof g)', () => {
     expect(record.explained).toBe(false);
   });
 });
-
-// ─── Event producers (event-sourced recording) ─────────────────────────────────
 
 describe('ShadowDecision_EventProducers (P07-01)', () => {
   const disagreement: ShadowDecisionRecord = {

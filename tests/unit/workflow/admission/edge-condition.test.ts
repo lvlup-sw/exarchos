@@ -1,12 +1,8 @@
 /**
- * Exit-proof tests for P06-02 — closed edge-condition AST and compile/import
- * time validation (Transition task 009).
- *
- * Proves:
- *   (a) an unsupported / unknown node kind is rejected at compile/import time;
- *   (b) an arbitrary executable expression (function value, or a string
- *       expression escape hatch) is rejected at compile/import time;
- *   plus prototype-pollution, undeclared references, and shape closedness.
+ * Tests for the closed edge-condition AST and its compile-time checks. Compile
+ * rejects an unknown node kind and an executable value, such as a function or a
+ * string expression. It also rejects prototype pollution and undeclared
+ * references, and the node shapes are closed.
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -54,6 +50,7 @@ describe('closed AST shape', () => {
     expect(new Set(EDGE_CONDITION_NODE_KINDS).size).toBe(7);
   });
 
+  /** The serialized form parses as JSON and holds only inert data. */
   it('compiles each of the seven node kinds and round-trips serialization', () => {
     const condition = compileEdgeCondition(
       {
@@ -74,7 +71,6 @@ describe('closed AST shape', () => {
     );
     expect(Object.isFrozen(condition)).toBe(true);
     expect(Object.isFrozen(condition.node)).toBe(true);
-    // Serialization is total and holds only inert data.
     const json = serializeEdgeCondition(condition);
     expect(() => JSON.parse(json)).not.toThrow();
     expect(json).not.toContain('function');
@@ -108,7 +104,6 @@ describe('(a) unsupported node kinds are rejected at compile time', () => {
 });
 
 describe('(b) arbitrary executable expressions are rejected at compile time', () => {
-  // Named exit-proof: EdgeConditionAst_ExecutableLeaf_IsRejected
   it('EdgeConditionAst_ExecutableLeaf_IsRejected: a function-valued leaf is rejected', () => {
     expectReject(
       { kind: 'factEquals', field: 'phaseKind', value: (): boolean => true },

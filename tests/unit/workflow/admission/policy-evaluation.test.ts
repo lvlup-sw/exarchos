@@ -1,18 +1,9 @@
 /**
- * P06-04 exit-proof tests — Policy and waiver evaluation.
+ * Tests for policy and waiver evaluation.
  *
- * Proves, independently:
- *   - missing / stale / contradictory / malformed / unauthorized / failed
- *     evidence each DENIES;
- *   - an indeterminate gate produces the first-class `indeterminate` verdict,
- *     distinct from deny, and a waiver never rescues it;
- *   - a waiver scoped to subject A does NOT waive subject B;
- *   - a waiver scoped to requirement R1 does NOT waive R2;
- *   - an expired waiver does not apply;
- *   - an unauthorized waiver does not apply;
- *   - a non-waivable obligation set refuses every waiver;
- *   - a VALID waiver permits admission WHILE the failed evidence stays recorded
- *     and reported (the load-bearing "no rewrite of failed evidence" invariant).
+ * Each kind of unsound evidence denies. An indeterminate gate gives the `indeterminate` verdict, and a waiver does not rescue it.
+ * A waiver applies only inside its subject, requirement, expiry and authority scope, and not to a non-waivable obligation set.
+ * A valid waiver admits the transition, but the failed evidence stays recorded.
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -32,18 +23,18 @@ import {
 } from '../../../../src/workflow/admission/policy-authority.js';
 import { evaluatePolicy, type PolicyEvaluationInput } from '../../../../src/workflow/admission/policy-evaluation.js';
 
-// ─── Fixtures ────────────────────────────────────────────────────────────────
-
 const SHA_A = 'a'.repeat(64);
 const SHA_B = 'b'.repeat(64);
 const SHA_C = 'c'.repeat(64);
 
 const EVAL_AT = '2026-07-21T20:00:00.000Z';
-const FRESH_AT = '2026-07-21T19:45:00.000Z'; // 15 min before eval
-const STALE_AT = '2026-07-21T10:00:00.000Z'; // 10 h before eval
+/** Inside the one-hour freshness horizon. */
+const FRESH_AT = '2026-07-21T19:45:00.000Z';
+/** Outside the one-hour freshness horizon. */
+const STALE_AT = '2026-07-21T10:00:00.000Z';
 const EXPIRES_FUTURE = '2026-07-22T20:00:00.000Z';
 const EXPIRES_PAST = '2026-07-21T19:00:00.000Z';
-const HORIZON_MS = 60 * 60 * 1000; // 1 hour
+const HORIZON_MS = 60 * 60 * 1000;
 
 const digest = (value = SHA_A) => ({ algorithm: 'sha256' as const, value });
 const taskSubject = (taskId = 'task-1', value = SHA_A) => ({
@@ -229,8 +220,6 @@ function baseInput(
   };
 }
 
-// ─── Baseline: a passing, fresh, authorized gate allows ──────────────────────
-
 describe('PolicyEvaluation baseline', () => {
   it('PolicyEvaluation_PassingGate_Allows', () => {
     const result = evaluatePolicy(
@@ -248,8 +237,6 @@ describe('PolicyEvaluation baseline', () => {
   });
 });
 
-// ─── Every unsound input denies ──────────────────────────────────────────────
-
 describe('PolicyEvaluation denies on unsound evidence', () => {
   it('PolicyEvaluation_MissingEvidence_Denies', () => {
     const result = evaluatePolicy(baseInput({ activeEvidence: [] }));
@@ -259,8 +246,8 @@ describe('PolicyEvaluation denies on unsound evidence', () => {
     expect(disposition?.status === 'denied' && disposition.reason).toBe('missing');
   });
 
+  /** A passing gate that is too old does not admit. */
   it('PolicyEvaluation_StaleEvidence_Denies', () => {
-    // A PASSING gate that is simply too old must not admit.
     const result = evaluatePolicy(
       baseInput({
         activeEvidence: [gate({ evidenceId: 'ev-1', verdict: 'pass', createdAt: STALE_AT })],
@@ -271,8 +258,8 @@ describe('PolicyEvaluation denies on unsound evidence', () => {
     expect(disposition?.status === 'denied' && disposition.reason).toBe('stale');
   });
 
+  /** The selector flags the two passing gates as contradictory. */
   it('PolicyEvaluation_ContradictoryEvidence_Denies', () => {
-    // Two passing gates that the selector flagged as contradictory: deny.
     const result = evaluatePolicy(
       baseInput({
         activeEvidence: [
@@ -287,8 +274,8 @@ describe('PolicyEvaluation denies on unsound evidence', () => {
     expect(disposition?.status === 'denied' && disposition.reason).toBe('contradictory');
   });
 
+  /** The evidence names the requirement but binds a different subject. */
   it('PolicyEvaluation_MalformedEvidence_Denies', () => {
-    // Evidence tagged with the requirement id but bound to a DIFFERENT subject.
     const result = evaluatePolicy(
       baseInput({
         activeEvidence: [
@@ -301,8 +288,8 @@ describe('PolicyEvaluation denies on unsound evidence', () => {
     expect(disposition?.status === 'denied' && disposition.reason).toBe('malformed');
   });
 
+  /** The subject kind and id match, but the subject digest differs. */
   it('PolicyEvaluation_BadDigestEvidence_Denies', () => {
-    // Same subject kind + id, but a different content digest is a malformed match.
     const result = evaluatePolicy(
       baseInput({
         activeEvidence: [
@@ -315,8 +302,8 @@ describe('PolicyEvaluation denies on unsound evidence', () => {
     expect(disposition?.status === 'denied' && disposition.reason).toBe('malformed');
   });
 
+  /** The gate passes and is fresh, but its producer holds no capability. */
   it('PolicyEvaluation_UnauthorizedIssuer_Denies', () => {
-    // A passing, fresh, well-formed gate from a producer with NO capability.
     const result = evaluatePolicy(
       baseInput({
         activeEvidence: [
@@ -339,8 +326,6 @@ describe('PolicyEvaluation denies on unsound evidence', () => {
   });
 });
 
-// ─── Indeterminate is a first-class, fail-closed verdict ─────────────────────
-
 describe('PolicyEvaluation indeterminate', () => {
   it('PolicyEvaluation_IndeterminateGate_IsIndeterminate_NotDeny', () => {
     const result = evaluatePolicy(
@@ -352,8 +337,8 @@ describe('PolicyEvaluation indeterminate', () => {
     expect(disposition?.status === 'indeterminate' && disposition.code).toBe('EVALUATOR_FAILED');
   });
 
+  /** One requirement has no evidence and one is indeterminate. The deny wins. */
   it('PolicyEvaluation_DenyDominatesIndeterminate', () => {
-    // One requirement missing (sound deny), one indeterminate: deny wins.
     const result = evaluatePolicy(
       baseInput({
         requirements: [gateRequirement('req-a'), gateRequirement('req-b')],
@@ -377,11 +362,9 @@ describe('PolicyEvaluation indeterminate', () => {
   });
 });
 
-// ─── Waiver scoping ──────────────────────────────────────────────────────────
-
 describe('PolicyEvaluation waiver scoping', () => {
+  /** The requirement and the failed evidence are on subject B. The waiver covers subject A. */
   it('PolicyEvaluation_WaiverScopedToSubjectA_DoesNotWaiveSubjectB', () => {
-    // Requirement + failed evidence on subject B; waiver scoped to subject A.
     const subjectB = taskSubject('task-B');
     const result = evaluatePolicy(
       baseInput({
@@ -461,8 +444,6 @@ describe('PolicyEvaluation waiver scoping', () => {
   });
 });
 
-// ─── The load-bearing invariant: a waiver never rewrites failed evidence ─────
-
 describe('PolicyEvaluation valid waiver preserves the failure', () => {
   it('PolicyEvaluation_ValidWaiver_Allows_WhileFailureStaysRecorded', () => {
     const result = evaluatePolicy(
@@ -472,13 +453,11 @@ describe('PolicyEvaluation valid waiver preserves the failure', () => {
       }),
     );
 
-    // Admission is permitted…
     expect(result.verdict).toBe('allow');
     const disposition = result.requirementEvaluations[0];
     expect(disposition?.status).toBe('waived');
     expect(disposition?.status === 'waived' && disposition.waiverId).toBe('waiver-42');
 
-    // …but the failure it waived is STILL on record, not erased.
     expect(result.recordedFailures).toHaveLength(1);
     const failure = result.recordedFailures[0];
     expect(failure?.requirementId).toBe('req-gate');
@@ -489,8 +468,6 @@ describe('PolicyEvaluation valid waiver preserves the failure', () => {
     expect(result.appliedWaiverIds).toEqual(['waiver-42']);
   });
 });
-
-// ─── Approvals as typed, authorized artifacts ────────────────────────────────
 
 describe('PolicyEvaluation approvals', () => {
   it('PolicyEvaluation_AuthorizedApproval_Satisfies', () => {

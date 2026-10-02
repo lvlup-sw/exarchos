@@ -1,11 +1,8 @@
 /**
- * Exit-proof tests for P06-02 — pure, total, three-valued edge-condition
- * evaluation (Transition task 010).
- *
- * Proves:
- *   (c) the evaluator performs no I/O and is total (deterministic, never
- *       throws, mutates nothing); an unknown or malformed fact is
- *       `indeterminate`; and De Morgan's laws hold under Kleene K3.
+ * Tests for the pure three-valued edge-condition evaluator. It does no I/O,
+ * gives the same result for equal inputs, never throws, and changes nothing.
+ * An unknown or malformed fact is `indeterminate`. De Morgan's laws hold under
+ * Kleene K3.
  */
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
@@ -83,8 +80,9 @@ describe('Kleene connectives', () => {
     expect(evaluateEdgeCondition(compile({ kind: 'any', operands: [] }), { fields: {}, events: [] })).toBe('false');
   });
 
+  /** With empty facts the factEquals leaf is indeterminate, but a false or true sibling still decides the result. */
   it('all short-circuits to false, any short-circuits to true, indeterminate otherwise', () => {
-    const facts: EdgeConditionFacts = { fields: {}, events: [] }; // both leaves indeterminate
+    const facts: EdgeConditionFacts = { fields: {}, events: [] };
     const present = compile({ kind: 'factEquals', field: 'phaseKind', value: 'review' });
     const alwaysFalse = compile({ kind: 'any', operands: [] });
     const alwaysTrue = compile({ kind: 'all', operands: [] });
@@ -94,20 +92,20 @@ describe('Kleene connectives', () => {
         compile({ kind: 'all', operands: [{ kind: 'any', operands: [] }, { kind: 'factEquals', field: 'phaseKind', value: 'review' }] }),
         facts,
       ),
-    ).toBe('false'); // a false makes all false even though sibling is indeterminate
+    ).toBe('false');
     expect(
       evaluateEdgeCondition(
         compile({ kind: 'any', operands: [{ kind: 'all', operands: [] }, { kind: 'factEquals', field: 'phaseKind', value: 'review' }] }),
         facts,
       ),
-    ).toBe('true'); // a true makes any true even though sibling is indeterminate
+    ).toBe('true');
     expect(evaluateEdgeCondition(present, facts)).toBe('indeterminate');
     void alwaysFalse;
     void alwaysTrue;
   });
 });
 
-// Deterministic leaves that realise each three-valued outcome from facts alone.
+/** Selectors for leaves that give each three-valued outcome from facts alone. */
 type Sel = 'true' | 'false' | 'absent';
 const SELECTORS: readonly Sel[] = ['true', 'false', 'absent'];
 
@@ -186,9 +184,9 @@ describe('determinism, totality, and no mutation', () => {
 });
 
 describe('(c) the evaluator source performs no I/O', () => {
+  /** The test strips block comments first, so documentation prose does not cause a false match. */
   it('imports no filesystem, process, clock, or randomness source', () => {
     const source = readFileSync(new URL('../../../../src/workflow/admission/edge-condition-evaluate.ts', import.meta.url), 'utf8');
-    // Strip the block-comment header so documentation prose is not scanned.
     const code = source.replace(/\/\*[\s\S]*?\*\//g, '');
     expect(code).not.toMatch(/from\s+['"](node:)?(fs|child_process|process|os|net|http|https)['"]/);
     expect(code).not.toMatch(/require\s*\(/);

@@ -54,6 +54,7 @@ const remediation = {
 } as const;
 
 describe('admission runtime domain', () => {
+  /** A record with a field of another outcome, or with an unknown field, must fail the schema. */
   it('AdmissionDomain_InvalidOutcome_IsRejected', () => {
     const invalidMixedOutcomes: readonly unknown[] = [
       {
@@ -61,7 +62,6 @@ describe('admission runtime domain', () => {
         outcome: 'allow',
         satisfiedRequirementIds: ['requirement-001'],
         waivedRequirementIds: [],
-        // A denial-only field must not be accepted on an allow record.
         unsatisfiedRequirements: [
           { requirementId: 'requirement-002', reason: 'failed' },
         ],
@@ -74,7 +74,6 @@ describe('admission runtime domain', () => {
           { requirementId: 'requirement-001', reason: 'missing' },
         ],
         remediation: [remediation],
-        // An indeterminate-only field must not be accepted on a deny record.
         errors: [{ code: 'EVALUATOR_FAILED', message: 'provider did not answer' }],
       },
       {
@@ -83,7 +82,6 @@ describe('admission runtime domain', () => {
         unresolvedRequirementIds: ['requirement-001'],
         errors: [{ code: 'EVIDENCE_MALFORMED', message: 'digest is invalid' }],
         remediation: [remediation],
-        // A deny-only field must not be accepted on an indeterminate record.
         unsatisfiedRequirements: [
           { requirementId: 'requirement-001', reason: 'malformed' },
         ],
@@ -348,13 +346,14 @@ describe('admission runtime domain', () => {
     expect(WaiverProvenanceV1Schema.safeParse(unattributedIssue).success).toBe(false);
   });
 
+  /**
+   * `unauthorized` is one of the `PolicyDenyReasons` of `evaluatePolicy`, so the deny record must persist it.
+   * The other reasons stay accepted, and a foreign reason fails closed.
+   */
   it('AdmissionDomain_UnsatisfiedReason_IncludesUnauthorizedAndPersistsInDenyRecord', () => {
-    // Additive P06-05: `unauthorized` is a first-class sound deny reason (it is
-    // one of evaluatePolicy's PolicyDenyReasons) and MUST be persistable.
     expect(UnsatisfiedRequirementReasonSchema.safeParse('unauthorized').success).toBe(
       true,
     );
-    // The pre-existing members remain accepted (no regression / narrowing).
     for (const reason of [
       'missing',
       'failed',
@@ -365,11 +364,8 @@ describe('admission runtime domain', () => {
     ]) {
       expect(UnsatisfiedRequirementReasonSchema.safeParse(reason).success).toBe(true);
     }
-    // A genuinely foreign reason still fails closed.
     expect(UnsatisfiedRequirementReasonSchema.safeParse('unknown').success).toBe(false);
 
-    // And a full deny record carrying `unauthorized` round-trips through the
-    // persisted decision schema.
     const denyWithUnauthorized = {
       ...decisionBase,
       outcome: 'deny',

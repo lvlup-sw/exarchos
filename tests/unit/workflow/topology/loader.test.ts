@@ -1,15 +1,11 @@
 /**
- * T44 — Topology loader unit tests.
+ * Unit tests for `loadTopology()`. The loader:
+ * - parses `topology.yaml` through the typed Zod schema
+ * - returns a frozen `Topology` object
+ * - caches the result, so later calls return the same instance
+ * - exposes `getTopology()`, which throws before the first load
  *
- * Asserts that `loadTopology()`:
- *   - reads and parses `topology.yaml` through the typed Zod schema
- *   - returns an immutable (frozen) `Topology` object
- *   - caches the result so subsequent calls return the same instance
- *   - exposes `getTopology()` accessor that throws when called before load
- *
- * The loader takes the path as an explicit option to keep the module
- * testable in isolation. T58 (Phase 8) will wire this into `lifecycle.ts`
- * with the canonical project topology path.
+ * The loader takes the path as an explicit option, so the tests can run it in isolation.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import * as fs from 'node:fs';
@@ -61,14 +57,11 @@ describe('TopologyLoader_LoadOnce_ReturnsImmutableTopology', () => {
     expect(topology.phases.design.staleness?.expectedMaxDwellMinutes).toBe(60);
     expect(topology.phases.implement.staleness?.freshnessRequires).toBe('any');
 
-    // Object is frozen.
     expect(Object.isFrozen(topology)).toBe(true);
     expect(Object.isFrozen(topology.phases)).toBe(true);
     expect(Object.isFrozen(topology.phases.design)).toBe(true);
 
-    // Mutation attempts are silently ignored or throw in strict mode.
     expect(() => {
-      // Cast through unknown to bypass readonly types — runtime freeze should reject the write.
       (topology.phases as unknown as Record<string, unknown>).newPhase = {};
     }).toThrow();
   });
@@ -91,16 +84,7 @@ describe('TopologyLoader_LoadOnce_ReturnsImmutableTopology', () => {
   });
 });
 
-// ─── T71: concurrent first-load must not duplicate parse work ─────────────────
-//
-// v2.10 history (CodeRabbit finding #11): two concurrent first-time callers
-// could both parse `topology.yaml` and both emit advisory
-// `phase.contract_missing` events. v2.11 (DR-7) deletes the advisory branch
-// entirely — the loader THROWS on missing contracts (see
-// `loader.dr7-removal.test.ts`). The Promise-cached singleton pattern is
-// preserved here for the happy-path: concurrent first-loads on a
-// well-formed topology must converge on a single parse and a single
-// `Topology` instance.
+/** Concurrent first loads of a well-formed topology share one cached Promise and return one `Topology` instance. */
 describe('Topology_ConcurrentFirstLoad_SharesPromiseAndReturnsOneInstance', () => {
   beforeEach(() => {
     __resetTopologyCacheForTesting();

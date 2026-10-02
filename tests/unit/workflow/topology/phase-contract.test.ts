@@ -1,21 +1,6 @@
 /**
- * T45 — `PhaseContractSchema` malformed-input rejection.
- *
- * Ensures the Zod schema rejects malformed contracts at load time with
- * structured errors that reference the phase name and the offending
- * field. The acceptance criterion (DR-7) is:
- *
- *   "Schema validation rejects malformed contracts at load time with a
- *    structured error referencing the phase name and the specific
- *    malformed field."
- *
- * Tests:
- *   - well-formed contract validates
- *   - missing required field fails (errors include the field name and
- *     the phase name when validated through TopologySchema)
- *   - wrong-type field fails
- *   - unknown signal `name` fails (T45 GREEN narrows the open string to
- *     a known-signal enum)
+ * `PhaseContractSchema` rejects malformed contracts at load time.
+ * The structured error names the malformed field. Through `TopologySchema`, the error path also names the phase.
  */
 import { describe, it, expect } from 'vitest';
 import {
@@ -92,19 +77,18 @@ describe('PhaseContractSchema_validation', () => {
     expect(result.success).toBe(false);
     if (!result.success) {
       const flatPaths = result.error.issues.map((i) => i.path.join('.'));
-      // The signal name lives at signals.0.name
       expect(flatPaths.some((p) => p.endsWith('name'))).toBe(true);
     }
   });
 });
 
 describe('TopologySchema_validation_includes_phase_name_in_errors', () => {
+  /** The `design` contract lacks `expectedMaxDwellMinutes`. */
   it('error path references the phase name when a contract is malformed', () => {
     const result = TopologySchema.safeParse({
       phases: {
         design: {
           staleness: {
-            // missing expectedMaxDwellMinutes
             freshnessRequires: 'all',
             signals: [{ name: 'lastActivity', thresholdMinutes: 60 }],
           },
@@ -113,7 +97,6 @@ describe('TopologySchema_validation_includes_phase_name_in_errors', () => {
     });
     expect(result.success).toBe(false);
     if (!result.success) {
-      // The structured Zod error path includes the phase name.
       const issuePaths = result.error.issues.map((i) => i.path.join('.'));
       expect(issuePaths.some((p) => p.includes('design'))).toBe(true);
     }

@@ -1,11 +1,6 @@
-// Exit-proof + monotonicity property tests for monotonic requirement resolution
-// (P06-03 / Task 018). Proves, across the full input lattice:
-//   (a) raising risk never weakens the requirement set,
-//   (b) raising boundary-touching never weakens it,
-//   (c) reliability uncertainty / degradation never weakens it,
-//   (d) `unknown` risk resolves at least as strong as `high` and never as `low`,
-//   (e) the resolved set is complete and deeply frozen,
-// plus totality, determinism, and the "reliability only adds corroboration" rule.
+// Property tests for monotonic requirement resolution across the full input lattice.
+// Higher risk, boundary touching and reliability doubt never weaken the resolved set.
+// `unknown` risk resolves at least as strong as `high`. The resolved set is complete and deeply frozen.
 
 import { describe, expect, it } from 'vitest';
 import type { PhaseKind, ResolvedGate } from '../../../../src/workflow/phase-kind.js';
@@ -130,7 +125,6 @@ describe('(c) reliability uncertainty / degradation never weakens the requiremen
       const reliable = resolveRequirements(makeCtx({ phaseKind, risk: 'high', reliability: 'reliable' }));
       const degraded = resolveRequirements(makeCtx({ phaseKind, risk: 'high', reliability: 'degraded' }));
       const unknown = resolveRequirements(makeCtx({ phaseKind, risk: 'high', reliability: 'unknown' }));
-      // identical gates and approvals; only corroboration may rise.
       expect(gateKeys(degraded)).toEqual(gateKeys(reliable));
       expect(gateKeys(unknown)).toEqual(gateKeys(reliable));
       expect(degraded.minimumApprovals).toBe(reliable.minimumApprovals);
@@ -142,6 +136,7 @@ describe('(c) reliability uncertainty / degradation never weakens the requiremen
 });
 
 describe('(d) unknown risk resolves at least as strong as high, never as low', () => {
+  /** The gate keys of `unknown` are a superset of the gate keys of `high`. */
   it('unknown ≥ high and unknown is STRICTLY stronger than low, for every kind', () => {
     for (const phaseKind of KINDS) {
       const low = resolveRequirements(makeCtx({ phaseKind, risk: 'low' }));
@@ -149,7 +144,6 @@ describe('(d) unknown risk resolves at least as strong as high, never as low', (
       const unknown = resolveRequirements(makeCtx({ phaseKind, risk: 'unknown' }));
       expect(atLeastAsStrong(unknown, high)).toBe(true);
       expect(compareStrength(unknown, low)).toBe('stronger');
-      // the gate obligations of unknown are a SUPERSET of the strongest known tier's
       expect(new Set(gateKeys(high)).size).toBeLessThanOrEqual(new Set(gateKeys(unknown)).size);
       for (const key of gateKeys(high)) expect(gateKeys(unknown)).toContain(key);
     }
@@ -223,6 +217,7 @@ describe('resolver — pinned gate wiring (IMPLEMENT verification ladder)', () =
     );
   });
 
+  /** With `not-touching`, the ladder holds no boundary gate. */
   it('unknown + not-touching resolves to the high-tier base ladder plus corroboration', () => {
     const r = resolveRequirements(makeCtx({ phaseKind: 'IMPLEMENT', risk: 'unknown', boundary: 'not-touching' }));
     const ladder = r.gates.filter((g) => g.family === 'ladder').map((g) => g.gate);
@@ -233,9 +228,9 @@ describe('resolver — pinned gate wiring (IMPLEMENT verification ladder)', () =
         'check_integration_suite',
       ]),
     );
-    expect(ladder).not.toContain('check_mock_boundary'); // not-touching ⇒ no boundary gates
+    expect(ladder).not.toContain('check_mock_boundary');
     expect(r.minimumApprovals).toBeGreaterThanOrEqual(1);
-    expect(r.minimumCorroboratingSources).toBeGreaterThanOrEqual(2); // unknown ⇒ corroboration
+    expect(r.minimumCorroboratingSources).toBeGreaterThanOrEqual(2);
   });
 });
 
