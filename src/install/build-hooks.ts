@@ -1,37 +1,11 @@
 /**
- * Per-runtime binding + lifecycle-hook renderer (#1485, evolved from #1476 T8).
+ * Renders the binding block and the lifecycle-hook artifacts for each runtime. It is a sibling of `buildAllSkills`.
+ * The binding directive `content/harness/binding/binding.md` has no placeholders.
+ * Thus one block at `<bindingOutDir>/standard/block.md` serves the always-loaded instructions file of each harness.
  *
- * A sibling to `buildAllSkills`. Renders two things from a single source of
- * truth each:
- *
- *  1. **Binding block** (universal, runtime-neutral — DR-5) — the orientation
- *     directive (`content/harness/binding/binding.md`) is now placeholder-free logical
- *     prose (`exarchos:exarchos_*`), so it collapses to ONE block that serves
- *     every harness's always-loaded instructions surface. Output lands at a
- *     single `<bindingOutDir>/standard/block.md` (no per-runtime fork); consumer
- *     writers place it into `CLAUDE.md` (Claude) / `AGENTS.md` (everyone else).
- *
- *  2. **Active hook artifact** — post-shrink (DR-7) the ONE active artifact is
- *     the Claude plugin bundle's `hooks.json`; the launcher's `launch.*` events
- *     are now the session-lifecycle authority, so `SessionEnd`, the codex hooks
- *     artifact, and the opencode lifecycle plugin are all retired. Dispatch is
- *     keyed on the declared `capabilities.hooks.profile` (INV-4), with a single
- *     documented harness fact — the Claude plugin bundle is the sole consumer of
- *     the well-known `<outDir>/hooks.json` autoload path:
- *       - `claude-json` + `claude` → `hooks.json` (`SubagentStop` token-
- *                             attribution seam + the auto-loaded `SessionStart`
- *                             on-ramp carrying the neutral binding `--directive`).
- *                             No `SessionEnd`.
- *       - `claude-json` + non-Claude (Codex) → a `HOOKS.md` note (its native hook
- *                             artifact is retired; the launcher owns lifecycle).
- *       - `opencode-plugin` (opencode) → a `HOOKS.md` note (lifecycle plugin
- *                             retired; the launcher owns lifecycle).
- *       - `cursor-json` / `copilot-json` → a `HOOKS.md` note (renderer deferred;
- *                             the AGENTS.md binding is active now).
- *       - `none`            → a `HOOKS.md` note (no hook system; AGENTS.md only).
- *
- * ADR: docs/adrs/2026-05-24-hook-layer-observe-only.md (observe-only, fail-open);
- * DR-7 (docs/specs/2026-07-04-harness-conform-and-shrink.md) — hook shrink.
+ * The one active hook artifact is the `hooks.json` of the Claude plugin bundle. The `launch.*` events of the launcher own the session lifecycle.
+ * Dispatch uses the declared `capabilities.hooks.profile`, not a runtime name.
+ * The one exception is a harness fact: only the Claude plugin bundle reads `<outDir>/hooks.json`. Each other runtime gets a `HOOKS.md` note.
  */
 
 import {
@@ -52,31 +26,27 @@ import { resolveMainDeps, type MainDeps } from './cli-helpers.js';
 export const HOOKS_SOURCE_FILE = 'hooks.json';
 
 /**
- * Byte cap on the baked SessionStart `--directive` payload (DR-7: "≤ 4 KiB").
- * The neutral binding block is ~0.5 KiB today; the guard fails the build loudly
- * if a future edit to `content/harness/binding/binding.md` blows past the on-ramp budget
- * rather than silently shipping an oversized hook command.
+ * Byte cap on the baked SessionStart `--directive` payload.
+ * When an edit to `content/harness/binding/binding.md` goes over the cap, the build fails. It does not ship an oversized hook command.
  */
 export const MAX_DIRECTIVE_BYTES = 4096;
 
 /** Counts returned so callers (CLI, tests, guard) can report without rescanning. */
 export interface HooksBuildReport {
-  /**
-   * Runtime-neutral binding blocks written. Post-collapse (DR-5) this is
-   * always 1 — a single `binding/standard/block.md` serves every harness.
-   */
+  /** Runtime-neutral binding blocks written. It is always 1, because one `binding/standard/block.md` serves every harness. */
   bindingBlocksWritten: number;
-  /**
-   * Runtimes that emitted an executable `hooks.json`. Post-shrink (DR-7) this
-   * is the Claude plugin bundle only — always 1.
-   */
+  /** Runtimes that emitted an executable `hooks.json`. Only the Claude runtime does, so the count is 1 when it is loaded. */
   hooksJsonWritten: number;
   /** Runtimes that emitted a `HOOKS.md` note (deferred / retired / `none`). */
   notesWritten: number;
 }
 
 /**
- * Render binding blocks + active hook artifacts for every runtime.
+ * Render the binding block and the active hook artifacts for every runtime.
+ * `render(directiveBody, {})` throws on a stray `{{TOKEN}}`, so no literal token ships.
+ * The same directive goes into `binding/standard/block.md` and into the `--directive` payload of the Claude on-ramp.
+ * The profile map is a `Record<HooksProfile, ...>`, so a new profile is a build error until it has a renderer.
+ * Codex also declares `claude-json`, but it gets a `HOOKS.md` note, because the launcher owns its lifecycle.
  *
  * @param opts.srcDir        Hook templates root (`content/harness/hooks/`).
  * @param opts.bindingSrcDir Binding directive root (`content/harness/binding/`).
@@ -115,17 +85,8 @@ export function buildAllHooks(opts: {
     notesWritten: 0,
   };
 
-  // The binding directive is runtime-neutral (DR-5): one block, one directive,
-  // rendered ONCE from placeholder-free logical prose and shared by every
-  // harness. `render(directiveBody, {})` (via the neutral helpers) guards
-  // against a stray `{{TOKEN}}` reintroduction — it throws rather than shipping
-  // a literal token in either surface. This is the same content source as
-  // `binding/standard/block.md` (one source, two delivery mechanisms — DR-6),
-  // baked into the Claude on-ramp's `--directive` payload below.
   const directiveOneLine = oneLineDirective(render(directiveBody, {}));
 
-  // DR-7 cap: the baked on-ramp directive must be ≤ 4 KiB. Fail the build loudly
-  // rather than ship an oversized hook command.
   const directiveBytes = Buffer.byteLength(directiveOneLine, 'utf8');
   if (directiveBytes > MAX_DIRECTIVE_BYTES) {
     throw new Error(
@@ -134,9 +95,6 @@ export function buildAllHooks(opts: {
     );
   }
 
-  // ── Universal binding block (written once) ──────────────────────────────────
-  // Post-collapse there is no per-runtime fork: a single `binding/standard/block.md`
-  // serves every harness's always-loaded instructions surface.
   writeArtifact(
     join(opts.bindingOutDir, STANDARD_TREE_NAME, 'block.md'),
     renderBindingBlock(directiveBody),
@@ -144,12 +102,6 @@ export function buildAllHooks(opts: {
   );
   report.bindingBlocksWritten = 1;
 
-  // Active-artifact strategy map keyed on the declared `hooks.profile` (INV-4).
-  // Typing it `Record<HooksProfile, …>` gives compile-time exhaustiveness: adding
-  // a profile to the union is a build error until a renderer is wired, instead of
-  // silently falling into the note branch. The `claude-json` renderer carries the
-  // single documented harness-fact carve-out (the Claude plugin bundle) — see its
-  // comment; every other branch stays profile-driven.
   const emitNote = (rt: RuntimeMap): void => {
     writeArtifact(
       join(opts.outDir, rt.name, 'HOOKS.md'),
@@ -160,14 +112,6 @@ export function buildAllHooks(opts: {
   };
   const renderers: Record<HooksProfile, (rt: RuntimeMap) => void> = {
     'claude-json': (rt) => {
-      // Post-shrink (DR-7) the only active hook artifact is the CLAUDE plugin
-      // bundle's `hooks.json`. This is the one documented harness fact the hook
-      // renderer keys on: the Claude plugin bundle is the sole consumer of the
-      // well-known `<outDir>/hooks.json` autoload path (mirrors the existing
-      // name-literals in `hooksJsonPathFor` / `instructionsFileFor`). Codex also
-      // declares `claude-json`, but its native hooks artifact is retired — the
-      // launcher's `launch.*` events own its lifecycle now — so it falls through
-      // to the deferred HOOKS.md note instead of emitting a stale hooks.json.
       if (rt.name !== 'claude') {
         emitNote(rt);
         return;
@@ -176,18 +120,13 @@ export function buildAllHooks(opts: {
       writeArtifact(hooksJsonPathFor(opts.outDir, rt.name), json, writtenHooks);
       report.hooksJsonWritten++;
     },
-    // Lifecycle plugin retired (DR-7): the launcher owns opencode's lifecycle;
-    // opencode's binding rides AGENTS.md → deferred HOOKS.md note.
     'opencode-plugin': emitNote,
-    // Renderers deferred → AGENTS.md binding + an accurate HOOKS.md note.
     'cursor-json': emitNote,
     'copilot-json': emitNote,
     'none': emitNote,
   };
 
   for (const rt of runtimes) {
-    // Active hook artifact (dispatch on declared profile). The binding block is
-    // no longer per-runtime — it was written once above.
     renderers[rt.capabilities.hooks?.profile ?? 'none'](rt);
   }
 
@@ -213,30 +152,12 @@ export function oneLineDirective(rendered: string): string {
 }
 
 /**
- * Build the Claude plugin bundle's `hooks.json` (DR-7) — the single active hook
- * artifact post-shrink. The source template (`content/harness/hooks/hooks.json`) already
- * carries exactly what the bundle ships: the `SubagentStop` token-attribution
- * seam and the auto-loaded `SessionStart` on-ramp; `SessionEnd` was dropped from
- * the source because the launcher's `launch.*` events are now the session-
- * lifecycle authority. The one transform here is baking the runtime-neutral
- * binding directive into the SessionStart command as `--directive`.
+ * Build the `hooks.json` of the Claude plugin bundle from `content/harness/hooks/hooks.json`.
+ * The template holds the `SubagentStop` token-attribution hook and the `SessionStart` on-ramp. The only change bakes the directive into the SessionStart command as `--directive`.
+ * The function reads no `canInjectContext` capability. Only the Claude runtime reaches it, and its SessionStart hook can always return context.
  *
- * This is **claude-template-hardcoded**: there is NO `canInjectContext` capability
- * lookup (that consumption is retired — the field is deprecated in
- * `content/harness/runtimes/types.ts`). Only the Claude runtime reaches this renderer, and the
- * Claude plugin's SessionStart hook can always return orientation context, so the
- * directive is baked unconditionally.
- *
- * Binary resolution — DECISION: the hook command invokes **bare `exarchos`**
- * (PATH resolution). Exarchos installs its single-file CLI globally (the
- * documented install path: `scripts/get-exarchos.{sh,ps1}`), so `exarchos`
- * resolves in the plugin-hook shell without knowing the plugin's on-disk layout.
- * The `${CLAUDE_PLUGIN_ROOT}`-relative form
- * (`"${CLAUDE_PLUGIN_ROOT}/<bin>/exarchos session-start"`) was evaluated as the
- * more robust alternative for bundle-only installs where the binary ships INSIDE
- * the plugin and is absent from PATH; it is deferred (a tracked follow-up)
- * because it couples the hook command to the plugin's internal directory layout,
- * whereas the current install contract already guarantees a PATH binary.
+ * The command calls bare `exarchos` from PATH, because the installer puts the single-file CLI on PATH.
+ * It does not use a `${CLAUDE_PLUGIN_ROOT}`-relative path, because that path couples the command to the internal layout of the plugin.
  */
 function renderClaudePluginHooks(template: string, directiveOneLine: string): string {
   const base = JSON.parse(template) as {
@@ -254,7 +175,7 @@ function renderClaudePluginHooks(template: string, directiveOneLine: string): st
   return JSON.stringify(base, null, 2) + '\n';
 }
 
-/** The `HOOKS.md` note for deferred (`cursor-json`/`copilot-json`) and `none` profiles. */
+/** The `HOOKS.md` note for each runtime that gets no `hooks.json`. The `none` profile has its own text. */
 function hooksNote(rt: RuntimeMap, profile: string): string {
   if (profile === 'none') {
     return `# Hooks — ${rt.name}
@@ -290,13 +211,8 @@ function writeArtifact(path: string, content: string, written: Set<string>): voi
 }
 
 /**
- * Remove artifacts not written this run. Scope is narrow: the top-level Claude
- * hooks.json, per-runtime hook subtrees (hooks.json / HOOKS.md / plugin), and
- * the now-legacy per-runtime binding blocks — never unrelated files under the
- * roots. Post-collapse (DR-5) no per-runtime binding block is written, so the
- * `binding/<rt>/AGENTS.md`/`CLAUDE.md` sweep here deletes the stale committed
- * forks; the single `binding/standard/block.md` is in `keepBinding` and is
- * never a cleanup candidate.
+ * Remove the artifacts that this run did not write. The scope is the top-level `hooks.json`, the known files of each runtime hook subtree, and the per-runtime binding blocks.
+ * The build writes no per-runtime binding block, so the `binding/<rt>/AGENTS.md` and `CLAUDE.md` sweep removes old forks. Other files under the roots stay.
  */
 function cleanStaleArtifacts(
   outDir: string,
@@ -324,10 +240,6 @@ function cleanStaleArtifacts(
     }
   }
 }
-
-// -----------------------------------------------------------------------------
-// CLI entry (`npm run build:hooks`)
-// -----------------------------------------------------------------------------
 
 export type { MainDeps } from './cli-helpers.js';
 

@@ -1,54 +1,14 @@
 /**
- * Launcher teardown safety + recovery edges (DR-6).
+ * Launcher teardown safety and crash recovery. {@link runLifecycle} accepts this module through its injectable `teardown` dependency.
+ * On each catchable exit of a supervised launch, teardown does four steps in this order:
+ *   1. It emits the `launch.executed` terminal through {@link emitLaunchExecuted}. A refused release thus still gets a terminal.
+ *   2. It fails closed on a target that is not a git worktree, or on a configured `origin` that is unreachable.
+ *   3. It holds a worktree that a live process occupies. The in-use probe ignores the parent-PID ancestry of the launcher.
+ *   4. It releases the reservation through {@link WorktreeManager.release}, an event-only append that keeps uncommitted work.
  *
- * This is the self-contained teardown seam {@link runLifecycle} already accepts
- * via its injectable `teardown` dependency. It composes shipped substrate — it
- * reshapes NOTHING in `lifecycle-core.ts` — to guarantee the DR-6 teardown-safety
- * and recovery contract on every catchable exit of a supervised launch:
- *
- *   1. **Guaranteed terminal (every catchable path).** The FIRST thing teardown
- *      does is route the `launch.executed` terminal through the idempotent
- *      Task-006 {@link emitLaunchExecuted} seam. It runs BEFORE any safety gate,
- *      so the terminal is emitted even when the release is later refused, and it
- *      is at-most-once even when a signal path (Task 011) already fired it — the
- *      seam's `appended` flag surfaces which call actually wrote the row.
- *   2. **Fail-closed on a non-git target / unreachable origin.** Before reclaiming
- *      anything, teardown proves the target is a real git worktree and — when an
- *      `origin` remote IS configured — that it is reachable. The reachability
- *      check is the one NETWORK round-trip, so it runs through the async,
- *      NON-BLOCKING {@link OriginReachableFn} seam (never a blocking `spawnSync`
- *      that would freeze the teardown event loop). A non-git target or a
- *      configured-but-unreachable origin fail CLOSED with a structured
- *      {@link TeardownOriginError}: no release, no destructive git. A worktree
- *      with no origin at all is a local-only launch and is NOT a fail-closed case.
- *   3. **cwd-drift-aware in-use probe (#1577 protected-ancestry).** Whether the
- *      worktree is still occupied is decided by {@link probeWorktreeUsage}, which
- *      subtracts the launcher's OWN full parent-PID ancestry from the occupant
- *      set. So the supervisor's own cwd drifting into the worktree never marks it
- *      in-use — teardown does not refuse to release over its own cwd. A live
- *      NON-ancestry occupant DOES hold the worktree (its work may be live), which
- *      surfaces as `recoveryError: 'worktree-in-use'` — never a destructive reset.
- *   4. **Release, never `git reset --hard`.** The reservation is relinquished
- *      through the shipped WLM {@link WorktreeManager.release} — an event-only
- *      append, so uncommitted work on disk is always preserved. An unclean release
- *      (the WLM refuses because a different live owner holds it) reuses the WLM
- *      release discriminator ({@link ReleaseResult}) and surfaces as
- *      `recoveryError: 'release-rejected-foreign-owner'` (INV-14): the indeterminate
- *      outcome is reported, never papered over with a `reset --hard`.
- *
- * Teardown NEVER shells `git reset --hard` on ANY path — that is the data-loss
- * footgun (Claude Code #55724) this slice exists to eliminate.
- *
- * ## Crash-mid-spawn recovery (DR-2 precheck reuse)
- *
- * {@link recoverCrashedLaunch} closes the "crash after `worktree.create.requested`
- * before/after spawn" hole: it finishes any half-created worktree via the shipped
- * DR-2 precheck ({@link recoverPendingCreations}) so the INV-13 create pair is 1:1
- * and the worktree is fully tracked, then reclaims the crashed launcher's now-dead
- * reservation via the ground-truth {@link WorktreeManager.probeAndReclaim} probe.
- * Because the launcher RESERVES before `git worktree add`, even a crash leaves the
- * worktree tracked in `worktrees@v1` — so no orphaned half-created worktree ever
- * escapes GC. The reclaim is event-only; it too never `reset --hard`s.
+ * A worktree with no `origin` is a local-only launch, and step 2 passes it.
+ * Teardown never runs `git reset --hard` on any path, because that command loses data.
+ * {@link recoverCrashedLaunch} recovers a launcher that crashed during spawn.
  */
 
 import { spawn } from 'node:child_process';
@@ -74,43 +34,28 @@ import {
   recoverPendingCreations,
   type RecoveredCreation,
 } from './create-worktree.js';
-// Type-only import (erased at runtime — no runtime edge back into the core the
-// task forbids reshaping): the injectable-seam shapes teardown conforms to.
 import type {
   LifecycleTeardown,
   LifecycleTeardownContext,
 } from './lifecycle-core.js';
 
-// ============================================================
-// Discriminators
-// ============================================================
-
 /**
- * INV-14 discriminator on an UNCLEAN teardown release — the closed set of
- * indeterminate outcomes that could NOT be cleanly relinquished. Absent on a
- * clean teardown. Mirrors the merge-orchestrator's `recoveryError` shape (a
- * closed enum a consumer branches on without parsing prose), reusing the WLM
- * release verdict rather than reinventing a recovery ladder.
+ * The closed set of unclean release outcomes. It is absent on a clean teardown.
+ *   - `worktree-in-use` — a live process outside the launcher ancestry occupies the worktree, so its work can be live.
+ *   - `release-rejected-foreign-owner` — the WLM refused the release, because a different live owner holds the reservation.
  */
 export type TeardownRecoveryError =
-  /** A live, non-ancestry process still occupies the worktree — work may be live. */
   | 'worktree-in-use'
-  /** The WLM refused the release: the worktree is reserved by a different live owner. */
   | 'release-rejected-foreign-owner';
 
 /**
- * Structured fail-closed reason when teardown cannot trust the git target. On
- * either value teardown reclaims NOTHING and runs no destructive git.
+ * The fail-closed reason when teardown cannot trust the git target. On either value, teardown releases nothing and runs no destructive git.
+ *   - `non-git-target` — `git rev-parse` failed.
+ *   - `origin-unreachable` — an `origin` remote is configured, but `git ls-remote` failed.
  */
 export type TeardownOriginError =
-  /** The target is not a git worktree (`git rev-parse` failed). */
   | 'non-git-target'
-  /** An `origin` remote is configured but unreachable (`git ls-remote` failed). */
   | 'origin-unreachable';
-
-// ============================================================
-// Seams
-// ============================================================
 
 /** The WLM release seam — defaults to a manager over the launch's event store. */
 export type ReleaseFn = (
@@ -119,18 +64,13 @@ export type ReleaseFn = (
 ) => Promise<ReleaseResult>;
 
 /**
- * The async origin-reachability probe seam (DR-6). Resolves `true` iff the
- * configured `origin` remote is reachable. It is deliberately ASYNC — the sync
- * {@link GitRunner} would run the `git ls-remote origin` NETWORK round-trip on a
- * blocking `spawnSync`, freezing the launcher's event loop (its signal handling
- * and terminal emission) for the whole network latency. An async spawn lets
- * teardown `await` the reachability check while the event loop stays live. Any
- * non-zero exit / spawn error resolves `false` → fail-closed as
- * `origin-unreachable`. Defaults to {@link defaultOriginReachable}.
+ * The async origin-reachability probe. It resolves `true` only when the configured `origin` remote is reachable.
+ * It is async because the sync {@link GitRunner} blocks the event loop for the network round-trip. That block stops signal handling and terminal emission.
+ * Defaults to {@link defaultOriginReachable}.
  */
 export type OriginReachableFn = (worktreePath: string) => Promise<boolean>;
 
-/** The idempotent Task-006 terminal emitter (guaranteed at-most-once). */
+/** The idempotent terminal emitter. It writes at most one terminal per launch. */
 export type EmitExecutedFn = typeof emitLaunchExecuted;
 
 /**
@@ -145,7 +85,7 @@ export interface TeardownContext {
   readonly worktreePath: string;
   /** Child exit code, or `null` when terminated by signal / not captured. */
   readonly exitCode: number | null;
-  /** Idempotent Task-006 terminal emitter; defaults to {@link emitLaunchExecuted}. */
+  /** Idempotent terminal emitter. Defaults to {@link emitLaunchExecuted}. */
   readonly emitExecuted?: EmitExecutedFn;
 }
 
@@ -172,9 +112,8 @@ export interface TeardownDeps {
   /** Git runner for the non-git / origin safety gate. Defaults to {@link defaultGitRunner}. */
   readonly gitRunner?: GitRunner;
   /**
-   * ASYNC origin-reachability probe (DR-6) — the NON-BLOCKING `git ls-remote
-   * origin` check. Defaults to {@link defaultOriginReachable}; injected so tests
-   * drive reachability deterministically without a real network round-trip.
+   * The async, non-blocking `git ls-remote origin` probe. Defaults to {@link defaultOriginReachable}.
+   * Tests inject it to avoid a real network round-trip.
    */
   readonly originReachable?: OriginReachableFn;
   /**
@@ -192,24 +131,19 @@ export interface TeardownOutcome {
   readonly terminalAppended: boolean;
   /** True iff the reservation was cleanly released. */
   readonly released: boolean;
-  /** INV-14 discriminator on an unclean release; absent on a clean teardown. */
+  /** The discriminator on an unclean release. It is absent on a clean teardown. */
   readonly recoveryError?: TeardownRecoveryError;
   /** Human-readable detail paired with {@link recoveryError} (triage only). */
   readonly recoveryErrorDetail?: string;
-  /** Structured fail-closed reason when the git target could not be trusted. */
+  /** The fail-closed reason when teardown cannot trust the git target. */
   readonly originError?: TeardownOriginError;
   /** Live, non-ancestry occupant PIDs when `recoveryError === 'worktree-in-use'`. */
   readonly occupantPids?: readonly number[];
 }
 
-// ============================================================
-// Teardown core
-// ============================================================
-
 /**
- * Run the guaranteed teardown for one supervised launch: emit the `launch.executed`
- * terminal (always, first), then — fail-closed — reclaim the reservation without
- * ever discarding uncommitted work. See the module header for the DR-6 contract.
+ * Run the teardown for one supervised launch, in the order that the module header gives.
+ * The terminal comes first, and uncommitted work is never discarded.
  */
 export async function teardownLaunch(
   ctx: TeardownContext,
@@ -224,27 +158,20 @@ export async function teardownLaunch(
   const release = deps.release ?? defaultRelease(eventStore, gitRunner, realpath);
   const originReachable = deps.originReachable ?? defaultOriginReachable;
 
-  // ── (1) Guaranteed terminal — FIRST, on every catchable path, idempotent. ──
   const terminal = await emitExecuted(eventStore, { worktreeId, exitCode });
   const base = { worktreeId, exitCode, terminalAppended: terminal.appended };
 
-  // ── (2) Fail-closed safety gate: non-git target / unreachable origin. The
-  //     origin-reachability probe is AWAITED through the async, NON-BLOCKING
-  //     seam so the network round-trip never freezes the teardown event loop. ──
   const originError = await probeOriginSafety(gitRunner, worktreePath, originReachable);
   if (originError !== null) {
     return { ...base, released: false, originError };
   }
 
-  // ── (3) cwd-drift-aware in-use probe (#1577 protected-ancestry subtraction). ──
   const [usage] = probeWorktreeUsage(
     { worktreePaths: [worktreePath], selfPid },
     processTableSource,
     realpath,
   );
   if (usage !== undefined && usage.inUse) {
-    // A live non-ancestry process holds the worktree — its work may be live.
-    // Hold it (never reset --hard); surface the indeterminate outcome.
     return {
       ...base,
       released: false,
@@ -256,7 +183,6 @@ export async function teardownLaunch(
     };
   }
 
-  // ── (4) Release the reservation (event-only). Unclean ⇒ recoveryError. ──
   const result = await release(worktreeId, deps.owner);
   if (!result.released) {
     return {
@@ -272,11 +198,8 @@ export async function teardownLaunch(
 }
 
 /**
- * Adapt {@link teardownLaunch} to the {@link LifecycleTeardown} seam
- * {@link runLifecycle} injects. The lifecycle context supplies the idempotent
- * terminal emitter; the structured outcome is intentionally discarded (the seam
- * is `Promise<void>`) — every observable effect (terminal, release, safety gate)
- * is a side effect on the injected substrate.
+ * Adapt {@link teardownLaunch} to the {@link LifecycleTeardown} seam of {@link runLifecycle}. The lifecycle context supplies the terminal emitter.
+ * The seam returns `Promise<void>`, so the structured outcome is discarded. Each effect lands on the injected substrate.
  */
 export function makeLifecycleTeardown(deps: TeardownDeps = {}): LifecycleTeardown {
   return async (lifecycleCtx: LifecycleTeardownContext): Promise<void> => {
@@ -293,15 +216,11 @@ export function makeLifecycleTeardown(deps: TeardownDeps = {}): LifecycleTeardow
   };
 }
 
-// ============================================================
-// Crash-mid-spawn recovery
-// ============================================================
-
 /** Injectable dependencies for {@link recoverCrashedLaunch}. */
 export interface RecoverCrashedLaunchDeps {
   /** WLM manager whose probe reclaims the dead-owner reservation. Defaults to a fresh one. */
   readonly manager?: WorktreeManager;
-  /** Git runner for the DR-2 create precheck. Defaults to {@link defaultGitRunner}. */
+  /** Git runner for the create precheck. Defaults to {@link defaultGitRunner}. */
   readonly gitRunner?: GitRunner;
   /** Symlink-resolver for canonical keying. Defaults to {@link defaultRealpath}. */
   readonly realpath?: RealpathResolver;
@@ -311,7 +230,7 @@ export interface RecoverCrashedLaunchDeps {
 
 /** Outcome of a {@link recoverCrashedLaunch} pass. */
 export interface RecoverCrashedLaunchResult {
-  /** Half-created worktrees finished by the DR-2 precheck (create pair now 1:1). */
+  /** The half-created worktrees that the create precheck finished. */
   readonly recoveredCreations: readonly RecoveredCreation[];
   /** `worktreeId`s whose dead-owner reservation was reclaimed (`worktree.released`). */
   readonly reclaimed: readonly string[];
@@ -320,16 +239,11 @@ export interface RecoverCrashedLaunchResult {
 }
 
 /**
- * Recover a crash mid-spawn so no orphaned half-created worktree escapes GC.
+ * Recover a launcher that crashed during spawn, so no half-created worktree escapes GC.
+ *   1. {@link recoverPendingCreations} finishes each `worktree.create.requested` that has no paired `worktree.create.executed`.
+ *   2. {@link WorktreeManager.probeAndReclaim} releases the reservations of dead owners. The supervisor ancestry is excluded.
  *
- * Two composed, shipped, event-only steps (neither `git reset --hard`s):
- *   1. {@link recoverPendingCreations} — the DR-2 precheck: finish any
- *      `worktree.create.requested` with no paired `worktree.create.executed`, so
- *      the INV-13 create pair is 1:1 and the worktree is fully tracked on disk.
- *   2. {@link WorktreeManager.probeAndReclaim} — the #1577 ground-truth probe:
- *      release the crashed launcher's now-provably-dead reservation (owner PID
- *      gone), cwd-drift aware (the supervisor's own ancestry is excluded). The
- *      released worktree becomes a GC candidate.
+ * The launcher reserves before `git worktree add`, so a crash still leaves the worktree tracked in `worktrees@v1`.
  */
 export async function recoverCrashedLaunch(
   eventStore: EventStore,
@@ -350,24 +264,13 @@ export async function recoverCrashedLaunch(
   return { recoveredCreations, reclaimed: released, orphaned };
 }
 
-// ============================================================
-// Internal helpers
-// ============================================================
-
 /**
- * The fail-closed git-target safety verdict, or `null` when the target is a
- * trustworthy git worktree (reachable origin OR no origin configured at all —
- * a local-only launch). The two LOCAL, fast git reads (`rev-parse`,
- * `remote get-url`) go through the sync runner; the origin-reachability check is
- * the one NETWORK round-trip, so it is awaited through the async, non-blocking
- * {@link OriginReachableFn} seam — never a blocking `spawnSync` on the teardown
- * event loop (DR-6):
+ * Return the fail-closed verdict for the git target, or `null` when the target is trustworthy.
+ *   - `git rev-parse --is-inside-work-tree` fails: `non-git-target`.
+ *   - `origin` is configured, but `originReachable` resolves `false`: `origin-unreachable`.
+ *   - No `origin` is configured: a local-only launch, so `null`.
  *
- *   - `git rev-parse --is-inside-work-tree` non-zero ⇒ `'non-git-target'`.
- *   - `origin` configured (`git remote get-url origin` zero) BUT unreachable
- *     (async `originReachable` resolves `false`) ⇒ `'origin-unreachable'`.
- *   - no `origin` configured ⇒ local-only ⇒ trustworthy (`null`), never a
- *     fail-closed (mirrors the WLM `no-upstream → mutable` verdict).
+ * The two local git reads use the sync runner. The network check uses the async probe, so the event loop does not block.
  */
 async function probeOriginSafety(
   gitRunner: GitRunner,
@@ -380,7 +283,7 @@ async function probeOriginSafety(
   const originConfigured =
     gitRunner.run(['remote', 'get-url', 'origin'], worktreePath).status === 0;
   if (!originConfigured) {
-    return null; // local-only launch — nothing external to be stale against.
+    return null;
   }
   if (!(await originReachable(worktreePath))) {
     return 'origin-unreachable';
@@ -389,33 +292,23 @@ async function probeOriginSafety(
 }
 
 /**
- * Bound (ms) for the single origin-reachability network round-trip on teardown.
- * `git ls-remote` against an unreachable or hung remote can otherwise never
- * emit `close`, leaving {@link defaultOriginReachable}'s promise pending forever
- * — and `teardownLaunch` AWAITS it on the shutdown path, so the whole teardown
- * would wedge. On expiry the probe is killed and the verdict fails CLOSED
- * (`origin-unreachable`), exactly as a non-zero exit does.
+ * The bound in ms for the origin-reachability round-trip on teardown.
+ * Against a hung remote, `git ls-remote` can never emit `close`, and `teardownLaunch` awaits the probe on the shutdown path.
+ * On expiry the probe is killed, and the verdict fails closed as `origin-unreachable`.
  */
 export const ORIGIN_PROBE_TIMEOUT_MS = 5_000;
 
-/**
- * Injected seams for {@link defaultOriginReachable}: the real `spawn` and the
- * {@link ORIGIN_PROBE_TIMEOUT_MS} bound by default, overridden in tests to drive
- * the timeout path deterministically without a real hung remote.
- */
+/** Injected seams for {@link defaultOriginReachable}. Tests use them to drive the timeout path without a hung remote. */
 export interface OriginReachableDeps {
   readonly spawnFn?: typeof spawn;
   readonly timeoutMs?: number;
 }
 
 /**
- * Default async origin-reachability probe: spawn `git ls-remote origin` WITHOUT
- * blocking the event loop (DR-6). Resolves `true` iff git exits 0 (origin
- * reachable); any non-zero exit, spawn error (git missing, bad cwd), OR a probe
- * that exceeds {@link ORIGIN_PROBE_TIMEOUT_MS} resolves `false`, so the teardown
- * fails CLOSED as `origin-unreachable` rather than proceeding on — or hanging
- * on — an unverifiable origin. `git` is a real binary (never a win32 `.cmd`
- * shim), so a bare `spawn` is portable and shell-injection-free.
+ * The default origin-reachability probe. It spawns `git ls-remote origin` and does not block the event loop.
+ * It resolves `true` only when git exits 0. A non-zero exit, a spawn error, or a timeout resolves `false`, so teardown fails closed.
+ * The first outcome wins, and the timer does not keep the event loop alive.
+ * `git` is a real binary, not a win32 `.cmd` shim, so a bare `spawn` is portable and free of shell injection.
  */
 export function defaultOriginReachable(
   worktreePath: string,
@@ -430,17 +323,16 @@ export function defaultOriginReachable(
     });
     let settled = false;
     const finish = (reachable: boolean): void => {
-      if (settled) return; // first outcome wins — timer vs. close/error race.
+      if (settled) return;
       settled = true;
       clearTimeout(timer);
       resolve(reachable);
     };
-    // Bound the one network round-trip: a hung remote must never wedge teardown.
     const timer = setTimeout(() => {
-      child.kill('SIGTERM'); // reap the stalled probe, then fail closed.
+      child.kill('SIGTERM');
       finish(false);
     }, timeoutMs);
-    timer.unref?.(); // a pending probe timer must not keep the loop alive.
+    timer.unref?.();
     child.on('error', () => finish(false));
     child.on('close', (code) => finish(code === 0));
   });

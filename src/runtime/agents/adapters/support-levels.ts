@@ -1,23 +1,9 @@
-// ─── Support-level helpers ─────────────────────────────────────────────────
-//
-// Small DRY utility for adapters that share the non-Claude classification
-// shape: most capabilities are native, `isolation:worktree` is advisory,
-// and a small set of Claude-specific primitives (Agent Teams, signal
-// hooks, session resume) are unsupported.
-//
-// See `types.ts` for the `SupportLevel` contract and Task 4f in
-// docs/designs/archive/2026-04-25-delegation-runtime-parity.md §4.
-// ────────────────────────────────────────────────────────────────────────────
+/** Support-level helper for the runtime adapters. `types.ts` holds the `SupportLevel` contract. */
 
 import { Capability } from '../capabilities.js';
 import type { SupportLevel } from './types.js';
 
-/**
- * Build a `Record<Capability, SupportLevel>` by starting from `defaultLevel`
- * and applying `overrides`. Guarantees exhaustiveness over every value of
- * the `Capability` enum (the type system already requires it, but this
- * function is the canonical builder).
- */
+/** Build a support level for each `Capability` value: the override when one exists, else `defaultLevel`. */
 export function buildSupportMap(
   defaultLevel: SupportLevel,
   overrides: Partial<Record<Capability, SupportLevel>> = {},

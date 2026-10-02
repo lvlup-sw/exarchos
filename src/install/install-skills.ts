@@ -1,36 +1,15 @@
 /**
- * `installSkills()` — programmatic entry point for the `exarchos install-skills`
- * CLI subcommand. Given a target agent name (or auto-detection, added in
- * task 020), resolves the matching runtime map and shells out to
- * `npx skills add github:lvlup-sw/exarchos --skill '*' --agent <id> -y -g --copy`
- * so that an agent's skills directory is populated from the rendered output.
+ * `installSkills()` is the programmatic entry point for `exarchos install-skills`.
+ * It resolves the runtime map for the target agent, or detects the agent.
+ * Then it copies the rendered skills from a local source tree, or it runs
+ * `npx skills add github:lvlup-sw/exarchos --skill '*' --agent <id> -y -g --copy`.
  *
- * Non-interactive correctness (#1217 — v2.9 GA blocker): the upstream
- * `skills` CLI uses `@clack/prompts` for skill/agent selection. Without
- * `--yes` plus explicit `--skill`/`--agent` flags, the prompts return
- * "no selection" when stdin is closed (CI, scripts, automation, the T4.3
- * test harness) and the command exits 0 with zero files written. The
- * earlier argv shape (`skills/<runtime>` positional + `--target <path>`)
- * was also not recognized by upstream — it was silently ignored after the
- * prompt cancellation. Path 1 of the #1217 decision tree: pass the
- * upstream non-interactive flags directly. Tightest fix that gets us
- * back to a working install on the v2.9 GA timeline.
+ * The upstream `skills` CLI selects skills and agents with `@clack/prompts`.
+ * Without `--yes` and explicit `--skill` and `--agent` flags, a closed stdin gives
+ * "no selection", and the command exits 0 with no files written.
  *
- * MCP registration: after a successful skills install for the `claude`
- * runtime, `installSkills()` also writes (or merges) the
- * `mcpServers.exarchos` entry into `~/.claude.json` so Claude Code
- * discovers the Exarchos MCP server on next launch. Other runtimes
- * register MCP servers through their own config formats and are out of
- * scope for this writer (T4.3 only pins the claude path; future work can
- * generalize when a second runtime's contract is needed).
- *
- * All side effects (spawn, logging, home-dir resolution, MCP registration)
- * are injected so that unit tests can verify behavior without touching the
- * host system. The CLI wiring lives in the binary entry point
- * (src/index.ts).
- *
- * Implements: DR-7 (install-skills CLI), DR-9 (docs surface), DR-10 (error paths).
- *             Fixes #1217 (non-interactive no-op + missing MCP registration).
+ * For the `claude` runtime, `installSkills()` also merges `mcpServers.exarchos` into `~/.claude.json`.
+ * All side effects are injected, so unit tests do not touch the host system.
  */
 
 import { spawn as nodeSpawn, type SpawnOptions } from 'node:child_process';
@@ -54,19 +33,15 @@ import {
 import { atomicWriteFile } from '../utils/atomic-write.js';
 
 /**
- * Result shape returned by the injected spawn function. We intentionally keep
- * this small: `installSkills` only needs to know whether the child exited
- * cleanly and to surface stderr verbatim on failure (task 021).
+ * Result of the injected spawn function: the exit code, and stderr to show
+ * as it is on failure.
  */
 export interface SpawnResult {
   code: number;
   stderr: string;
 }
 
-/**
- * Injectable spawn signature. The default implementation wraps
- * `child_process.spawn` but tests swap it for a fake that records calls.
- */
+/** Injectable spawn signature. The default wraps `child_process.spawn`. Tests inject a fake. */
 export type SpawnFn = (
   cmd: string,
   args: string[],
@@ -74,16 +49,15 @@ export type SpawnFn = (
 ) => Promise<SpawnResult>;
 
 /**
- * All dependencies of `installSkills`. Every side effect is optional so tests
- * can inject fakes and so callers can run the function with sensible defaults
- * (wrapping `child_process.spawn`, `os.homedir`, `console.log`, etc.).
+ * Options and dependencies of `installSkills`. Each side effect is optional,
+ * so tests can inject fakes and other callers get the real defaults.
  */
 export interface InstallSkillsOpts {
-  /** Target agent name. If absent, task 020 auto-detection kicks in. */
+  /** Target agent name. If absent, the runtime is auto-detected. */
   agent?: string;
   /** The set of known runtime maps (normally produced by `loadAllRuntimes`). */
   runtimes?: RuntimeMap[];
-  /** Injected spawn; defaults to a wrapper over `child_process.spawn`. */
+  /** Injected spawn. The default wraps `child_process.spawn`. */
   spawn?: SpawnFn;
   /** Where informational output goes. Default: `console.log`. */
   log?: (msg: string) => void;
@@ -92,111 +66,70 @@ export interface InstallSkillsOpts {
   /** Used for tilde expansion in `skillsInstallPath`. Default: `os.homedir`. */
   homeDir?: () => string;
   /**
-   * Injected detection dependencies forwarded to `detectRuntime()` when
-   * auto-detection runs (i.e. when `agent` is unset). Defaults to real PATH
-   * + process.env lookups.
+   * Detection dependencies for `detectRuntime()` when `agent` is unset.
+   * The default reads the real PATH and `process.env`.
    */
   detectDeps?: DetectDeps;
   /**
-   * Whether stdin is a TTY and the user can respond to prompts. Defaults to
-   * `process.stdout.isTTY && !process.env.NON_INTERACTIVE`. In
-   * non-interactive mode, ambiguous runtime detection becomes a hard error
-   * with a remediation hint rather than a prompt.
+   * Whether the user can respond to prompts. Defaults to
+   * `process.stdout.isTTY && !process.env.NON_INTERACTIVE`. In non-interactive
+   * mode, an ambiguous detection throws an error with a remediation hint.
    */
   isInteractive?: boolean;
   /**
-   * Prompt the user to choose from a list of candidate strings. Used for
-   * disambiguation when auto-detection finds multiple matching runtimes.
-   * Default wraps `@inquirer/prompts.select`.
+   * Prompt the user to choose one candidate when auto-detection finds more than
+   * one runtime. The default wraps `@inquirer/prompts.select`.
    */
   prompt?: (question: string, choices: string[]) => Promise<string>;
   /**
-   * Register the Exarchos MCP server entry in `~/.claude.json`. Default
-   * wraps `registerExarchosInClaudeJson` (real filesystem write). Tests
-   * inject a no-op or recorder to avoid touching disk. Only invoked for
-   * the `claude` runtime.
+   * Register the Exarchos MCP server in `~/.claude.json`, for the `claude` runtime only.
+   * The default is `registerExarchosInClaudeJson`, which writes the real file.
    */
   registerMcp?: (home: string) => void;
   /**
-   * Optional explicit path to the per-runtime skills source tree (the
-   * directory that contains `<runtime>/<skill>/SKILL.md` children — i.e.
-   * the repo's `skills/` directory). When provided and the resolved
-   * `<skillsSource>/<runtime.name>/` exists, `installSkills()` performs
-   * a direct local-disk copy of every skill directory in that subtree
-   * to `runtime.skillsInstallPath` and skips the upstream `npx skills
-   * add` shell-out entirely. This is the #1355 fix path: the upstream
-   * CLI mis-installed for every non-claude runtime because it (a)
-   * cloned the repo and walked only the root level (missing the
-   * per-runtime trees) and (b) used its own per-agent home-dir mapping
-   * (`github-copilot` → `~/.agents/skills`) that does not align with
-   * our `content/harness/runtimes/*.yaml` `skillsInstallPath` values. Copying locally
-   * sidesteps both bugs.
+   * Path to the rendered skills tree, with `standard/` and `<runtime>/` subtrees.
+   * When it gives a non-empty skill set for the runtime, `installSkills()` copies
+   * the skills from local disk and does not run `npx skills add`. The upstream CLI installs only the
+   * repo root level, and its home-dir mapping does not match `skillsInstallPath`.
    *
-   * When `undefined`, `installSkills()` does NOT auto-detect — the
-   * function falls straight through to the legacy `npx skills add`
-   * shell-out path. Auto-detection is strictly the caller's job:
-   * `install-skills-bridge.js` invokes the exported `findSkillsSourceDir()`
-   * (which checks `<cwd>/skills`, then `<binary-dir>/../../skills`) and
-   * passes the result as `opts.skillsSource`. Library-level callers and
-   * the existing unit tests that assert on the upstream spawn argv
-   * (`src/install-skills.test.ts`) pass no `skillsSource`, so the spawn
-   * path stays the default for them and the upstream invocation contract
-   * remains under test. To opt into the local-copy fast path, call
-   * `findSkillsSourceDir()` yourself and thread the result through here.
+   * `installSkills()` does not detect this path. A detection from the repo root finds
+   * `rendered/skills`, and then the tests of the spawn argv skip the spawn.
+   * The install-skills bridge passes `findSkillsSourceDir()`. Without it, the `npx skills add` path runs.
    */
   skillsSource?: string;
   /**
-   * Injectable recursive directory copy. Default wraps
-   * `fs.cpSync(src, dest, { recursive: true })`. Tests inject a
-   * recorder so they can assert what was copied without touching disk.
-   * Only invoked when the local-copy fast path runs (see `skillsSource`).
+   * Recursive directory copy for the local-copy path (see `skillsSource`).
+   * The default wraps `fs.cpSync(src, dest, { recursive: true })`.
    */
   copyDir?: (src: string, dest: string) => void;
   /**
-   * Optional explicit path to the per-runtime command-alias source tree
-   * (the directory that contains `<runtime>/<canonical>.md` children — i.e.
-   * the repo's `command-aliases/` directory, a build artifact emitted by
-   * `build-command-aliases.ts`). When provided AND the resolved runtime
-   * declares `commandsInstallPath` AND `<aliasesSource>/<runtime.name>/`
-   * exists, `installSkills()` copies every alias `*.md` file into the
-   * expanded `commandsInstallPath` so the bare canonical names (`/ideate`,
-   * `/plan`, ...) autoload off the Claude path (T3, #1471/#1472).
-   *
-   * The copy runs regardless of which skills-install transport ran (the
-   * local-copy fast path or the upstream `npx skills add` shell-out) — it
-   * is gated purely on the presence of `commandsInstallPath` + a viable
-   * source tree, never a runtime-name literal (INV-4). When `undefined`,
-   * `installSkills()` does NOT auto-detect — the bridge supplies
-   * `findCommandAliasesSourceDir()` explicitly, mirroring `skillsSource`.
+   * Path to the command-alias tree with `<runtime>/<canonical>.md` files, emitted by
+   * `build-command-aliases.ts`. When the runtime declares `commandsInstallPath` and
+   * `<aliasesSource>/<runtime.name>/` exists, the alias files go to that path.
+   * The copy runs after either skills transport, and no runtime name is hard-coded.
+   * `installSkills()` does not detect this path. The bridge passes `findCommandAliasesSourceDir()`.
    */
   aliasesSource?: string;
   /**
-   * Injectable single-file copy used by the command-alias install. Default
-   * wraps `fs.copyFileSync(src, dest)`. Tests inject a recorder so they can
-   * assert what was copied without touching disk. Only invoked when the
-   * command-alias copy runs (see `aliasesSource`).
+   * Single-file copy for the command-alias install (see `aliasesSource`).
+   * The default wraps `fs.copyFileSync(src, dest)`.
    */
   copyFile?: (src: string, dest: string) => void;
   /**
-   * Host platform, used only to fork the canonical-layout placement between
-   * symlink (POSIX) and file copy (`win32`) — INV-16. Defaults to
-   * `process.platform`. Injected by tests to exercise the win32 copy-mode
-   * branch on a non-Windows CI runner without a real Windows host (Task 010;
-   * the real Windows lane is Task 021).
+   * Host platform. It selects symlinks (POSIX) or file copies (`win32`) for the
+   * canonical layout, and the case-insensitivity default. Defaults to `process.platform`.
+   * Tests set it to run the win32 copy branch on a non-Windows runner.
    */
   platform?: NodeJS.Platform;
   /**
-   * Injectable directory symlink used by the canonical-layout placement on
-   * POSIX (`fs.symlinkSync(target, linkPath)`). Never invoked on `win32`
-   * (INV-16: Windows copies). Tests inject a recorder to assert copy-not-symlink.
+   * Directory symlink for the canonical layout on POSIX. The default wraps
+   * `fs.symlinkSync(target, linkPath)`. It is never called on `win32`, which copies.
    */
   symlink?: (target: string, linkPath: string) => void;
   /**
-   * Install scope for the canonical `.agents/skills` convention path + the
-   * provenance manifest. `user` (default) → `~/.agents/skills` (global, the
-   * `-g` model the runtime maps use); `project` → `<projectRoot>/.agents/skills`
-   * (onboard threads this so `doctor` can detect drift per project). The
-   * per-harness native dirs (`runtime.skillsInstallPath`) are scope-independent.
+   * Scope for the canonical `.agents/skills` path and the provenance manifest.
+   * `user` (default) gives `~/.agents/skills`. `project` gives `<projectRoot>/.agents/skills`.
+   * The native dir of each harness (`runtime.skillsInstallPath`) does not depend on the scope.
    */
   scope?: SkillsInstallScope;
   /**
@@ -205,9 +138,8 @@ export interface InstallSkillsOpts {
    */
   projectRoot?: string;
   /**
-   * Exarchos version recorded in the provenance manifest. Defaults to the root
-   * `package.json` `version` (the single source of truth; Task 022 bumps it),
-   * or `'unknown'` when unreadable. Tests inject a literal for determinism.
+   * Exarchos version for the provenance manifest. Defaults to the root
+   * `package.json` `version`, or `'unknown'` when that file cannot be read.
    */
   version?: string;
   /**
@@ -217,25 +149,15 @@ export interface InstallSkillsOpts {
   caseInsensitiveFs?: boolean;
 }
 
-/**
- * Augmented Error type the CLI main() can catch to propagate the child
- * process's non-zero exit code. Using a discriminated property (`exitCode`)
- * avoids defining a new Error subclass for a single field.
- */
+/** Error with the non-zero exit code of the child process, so the CLI can exit with it. */
 export interface InstallSkillsError extends Error {
   exitCode?: number;
 }
 
 /**
- * Expand a leading `~` or `$HOME` in a path to the user's home directory.
- * We do not use `os.homedir()` directly so tests can pass a deterministic
- * home. Handles the no-marker case (returns input unchanged), a bare `~`
- * or `$HOME` (returns home), and the `~/...` / `$HOME/...` prefixes. The
- * `$HOME` form is recognized because `content/harness/runtimes/codex.yaml` and any future
- * shell-literal-style entry will not otherwise be expanded by the
- * local-copy fast path (the upstream shell-out used to mask this because
- * its child shell expanded `$HOME` itself, but the in-process copy never
- * sees a shell).
+ * Expand a leading `~` or `$HOME` in `p` to `home`. A path without a marker is
+ * returned unchanged. The `$HOME` form matters because the in-process copy has no
+ * shell to expand it, and `content/harness/runtimes/codex.yaml` uses it.
  */
 export function expandTilde(p: string, home: string): string {
   if (p === '~') return home;
@@ -246,36 +168,17 @@ export function expandTilde(p: string, home: string): string {
 }
 
 /**
- * Auto-detect the local skills source directory — the parent of
- * `<runtime>/<skill>/SKILL.md` (i.e. the repo's `skills/` directory).
- *
- * Resolution order:
- *   1. `<process.cwd()>/skills` — the outcome-test invocation path
- *      (vitest runs from REPO_ROOT, so `process.cwd()` equals the
- *      repo root and `skills/` is one level below).
- *   2. `<dirname(process.execPath)>/../../skills` — the compiled-binary
- *      install layout where the executable lives at
- *      `<repo>/dist/bin/exarchos-<os>-<arch>`. Two `..` hops climb from
- *      `dist/bin/` back to the repo root.
- *   3. `<dirname(import.meta.url)>/../skills` — the Node-import dev
- *      path. `src/install-skills.ts` is one directory below the repo
- *      root, so a single `..` resolves to the `skills/` sibling.
- *
- * Returns the first candidate that exists as a directory, or `undefined`
- * when none do. The caller (installSkills) falls back to the legacy
- * upstream shell-out when this returns `undefined`.
- *
- * Implements: #1355 fix — auto-detection seam so the binary's local-copy
- * fast path works in both the test harness and a developer-checkout
- * production install.
+ * Find the local rendered skills tree. The candidates, in order:
+ *   1. `<cwd>/rendered/skills`, for a run from the repo root.
+ *   2. `<dirname(process.execPath)>/../../rendered/skills`, for a binary at `<repo>/dist/bin/`.
+ *   3. `rendered/skills` two levels above this module, for a run from `src/`.
+ * Return the first candidate that is a directory, or `undefined`.
  */
 export function findSkillsSourceDir(): string | undefined {
   const candidates: string[] = [];
 
-  // Candidate 1: process.cwd()/skills.
   candidates.push(path.join(process.cwd(), 'rendered', 'skills'));
 
-  // Candidate 2: <binary-dir>/../../skills (dist/bin/ layout).
   try {
     if (typeof process.execPath === 'string' && process.execPath.length > 0) {
       candidates.push(
@@ -283,17 +186,14 @@ export function findSkillsSourceDir(): string | undefined {
       );
     }
   } catch {
-    // process.execPath is always defined under Node/Bun, but guard anyway.
   }
 
-  // Candidate 3: <this-file-dir>/../skills (src/ layout under tsx/ts-node).
   try {
     if (typeof import.meta.url === 'string' && import.meta.url.startsWith('file:')) {
       const here = path.dirname(fileURLToPath(import.meta.url));
       candidates.push(path.resolve(here, '../../rendered/skills'));
     }
   } catch {
-    // import.meta.url may be a non-file: URL inside bun-compile output.
   }
 
   for (const c of candidates) {
@@ -301,34 +201,21 @@ export function findSkillsSourceDir(): string | undefined {
       const st = fs.statSync(c);
       if (st.isDirectory()) return c;
     } catch {
-      // Candidate doesn't exist — try next.
     }
   }
   return undefined;
 }
 
-/**
- * Recursively copy `src` to `dest` using `fs.cpSync`. Pulled into a
- * named helper so `installSkills` can default `opts.copyDir` to a
- * stable function reference and tests can inject a recorder. Errors
- * propagate to the caller — the upstream loop decides whether to
- * partial-fail or abort.
- */
+/** Default recursive copy with `fs.cpSync`. Errors go to the caller. */
 function defaultCopyDir(src: string, dest: string): void {
   fs.cpSync(src, dest, { recursive: true });
 }
 
 /**
- * Copy every skill directory under `sourceDir` (a directory containing
- * `<skill>/SKILL.md` children) into `destDir`, creating `destDir` if
- * needed. Returns the list of skill directory names that were copied
- * so the caller can log a manifest.
- *
- * Idempotent at the directory-replace level: each skill subdir is
- * removed from `destDir` before re-copy so stale files (left over from
- * a previous install of an older version) are cleaned up. Files outside
- * of a skill subdir under `destDir` are left untouched — we never
- * blow away `destDir` itself in case the user keeps other skills there.
+ * Copy each skill directory under `sourceDir` (a directory with a `SKILL.md`)
+ * into `destDir`, and return the copied names.
+ * Each skill directory is removed from `destDir` before the copy, so no stale files stay.
+ * Other content of `destDir` stays, because the user can keep other skills there.
  */
 export function copyLocalSkills(
   sourceDir: string,
@@ -352,9 +239,6 @@ export function copyLocalSkills(
   for (const skill of skillDirs) {
     const src = path.join(sourceDir, skill);
     const dest = path.join(destDir, skill);
-    // Remove any prior copy so the install is byte-stable across runs.
-    // `force: true` makes ENOENT a no-op; `recursive: true` follows into
-    // subdirectories (reference files etc.).
     fs.rmSync(dest, { recursive: true, force: true });
     copyDir(src, dest);
   }
@@ -362,28 +246,15 @@ export function copyLocalSkills(
   return skillDirs;
 }
 
-/**
- * Default single-file copy: wraps `fs.copyFileSync`. Pulled into a named
- * helper so `installSkills` can default `opts.copyFile` to a stable
- * reference and tests can inject a recorder.
- */
+/** Default single-file copy with `fs.copyFileSync`. */
 function defaultCopyFile(src: string, dest: string): void {
   fs.copyFileSync(src, dest);
 }
 
 /**
- * Copy every `*.md` alias file under `sourceDir` (a directory of flat
- * `<canonical>.md` command-alias files) into `destDir`, creating `destDir`
- * if needed. Returns the list of file names copied so the caller can log a
- * manifest.
- *
- * Only top-level `*.md` files are copied — the alias tree is flat by
- * construction (`build-command-aliases.ts` emits `<runtime>/<name>.md`).
- * Existing files in `destDir` are overwritten (the alias content is a pure
- * function of the canonical command map, so a re-copy is byte-stable); other
- * files the user keeps in their commands dir are left untouched.
- *
- * Used by the T3 command-alias install (#1471/#1472).
+ * Copy each top-level `*.md` alias file in `sourceDir` into `destDir`, and return
+ * the copied names. The alias tree is flat. A copy overwrites a file of the same
+ * name. Other files in `destDir` stay.
  */
 export function copyCommandAliases(
   sourceDir: string,
@@ -405,29 +276,19 @@ export function copyCommandAliases(
 }
 
 /**
- * Auto-detect the local command-alias source directory — the parent of
- * `<runtime>/<canonical>.md` (i.e. the repo's `command-aliases/`
- * directory). Mirrors {@link findSkillsSourceDir}'s candidate resolution
- * (cwd, compiled-binary `dist/bin/../..`, src-relative dev path) so the
- * binary's command-alias install works in both the test harness and a
- * developer checkout.
- *
- * Returns the first candidate that exists as a directory, or `undefined`
- * when none do (the caller skips the alias copy). T3, #1471/#1472.
- */
-/**
- * True for the only errors a path *probe* is allowed to swallow: the
- * candidate simply isn't there (`ENOENT`) or a path component isn't a
- * directory (`ENOTDIR`). Anything else (`EACCES`, `EIO`, a non-`file:`
- * URL passed to `fileURLToPath`, ...) is a real fault that must surface
- * rather than be silently treated as "candidate missing" — per the repo's
- * no-silent-catches guideline.
+ * True for the errors that a path probe can ignore: `ENOENT` and `ENOTDIR`.
+ * Other errors, such as `EACCES` or `EIO`, are real faults and must surface.
  */
 function isIgnorablePathProbeError(err: unknown): boolean {
   const code = (err as NodeJS.ErrnoException | undefined)?.code;
   return code === 'ENOENT' || code === 'ENOTDIR';
 }
 
+/**
+ * Find the local command-alias tree. The candidates are in the same order as
+ * {@link findSkillsSourceDir}, under `rendered/command-aliases`.
+ * Return the first candidate that is a directory, or `undefined`.
+ */
 export function findCommandAliasesSourceDir(): string | undefined {
   const candidates: string[] = [];
   candidates.push(path.join(process.cwd(), 'rendered', 'command-aliases'));
@@ -442,8 +303,6 @@ export function findCommandAliasesSourceDir(): string | undefined {
       candidates.push(path.resolve(here, '../../rendered/command-aliases'));
     }
   } catch (err) {
-    // A genuine non-file: URL under bun-compile output is benign; anything
-    // else is unexpected and should not be hidden.
     if (!isIgnorablePathProbeError(err)) throw err;
   }
   for (const c of candidates) {
@@ -451,26 +310,16 @@ export function findCommandAliasesSourceDir(): string | undefined {
       if (fs.statSync(c).isDirectory()) return c;
     } catch (err) {
       if (!isIgnorablePathProbeError(err)) throw err;
-      // Candidate doesn't exist — try next.
     }
   }
   return undefined;
 }
 
 /**
- * Install canonical command aliases for `runtime`, when applicable, and
- * return the expanded destination path so the caller can include it in the
- * post-install summary.
- *
- * The copy is gated purely on (a) the runtime declaring
- * `commandsInstallPath`, (b) `opts.aliasesSource` being supplied, and (c)
- * `<aliasesSource>/<runtime.name>/` existing as a directory — never a
- * runtime-name literal (INV-4). It runs regardless of which skills-install
- * transport ran, so opencode gets its `/ideate`, `/plan`, ... aliases
- * whether skills came via the local-copy fast path or the upstream shell-out.
- *
- * Returns the expanded commands destination if files were copied, else
- * `undefined`. T3, #1471/#1472.
+ * Install the command aliases for `runtime`. The copy needs `commandsInstallPath`
+ * on the runtime, `opts.aliasesSource`, and a `<aliasesSource>/<runtime.name>/` directory.
+ * No runtime name is hard-coded. A missing alias directory is normal. Other I/O errors throw.
+ * Return the expanded destination when files were copied, or `undefined`.
  */
 function installCommandAliases(
   runtime: RuntimeMap,
@@ -486,7 +335,6 @@ function installCommandAliases(
   try {
     sourceIsViable = fs.statSync(runtimeAliasDir).isDirectory();
   } catch (err) {
-    // No alias subtree for this runtime is expected; surface real I/O faults.
     if (!isIgnorablePathProbeError(err)) throw err;
     sourceIsViable = false;
   }
@@ -504,10 +352,8 @@ function installCommandAliases(
 }
 
 /**
- * Print the post-install summary: skills destination, commands destination
- * (when aliases were installed), and a restart hint so the user reloads the
- * runtime to pick up the new content. Kept concise and routed through the
- * injected `log` so tests can assert on it (the #1471 nice-to-have).
+ * Print the post-install summary through `log`: the skills destination, the commands
+ * destination when aliases were installed, and a restart hint.
  */
 function printInstallSummary(
   log: (msg: string) => void,
@@ -525,9 +371,8 @@ function printInstallSummary(
 }
 
 /**
- * Default spawn wrapper: wires `child_process.spawn` into the `SpawnFn` shape
- * used by `installSkills`. Captures stderr so callers can surface it verbatim
- * on failure (task 021). Not used in unit tests — they inject a fake.
+ * Default spawn: wraps `child_process.spawn` as a `SpawnFn`. It captures stderr
+ * for the failure message and also writes it live to the real stderr.
  */
 const defaultSpawn: SpawnFn = (cmd, args, opts) => {
   return new Promise<SpawnResult>((resolve, reject) => {
@@ -535,7 +380,6 @@ const defaultSpawn: SpawnFn = (cmd, args, opts) => {
     let stderr = '';
     child.stderr?.on('data', (chunk: Buffer) => {
       stderr += chunk.toString('utf8');
-      // Also surface to the real stderr so users see live output.
       process.stderr.write(chunk);
     });
     child.on('error', (err) => reject(err));
@@ -543,23 +387,15 @@ const defaultSpawn: SpawnFn = (cmd, args, opts) => {
   });
 };
 
-/**
- * Find a runtime by name. Returns `undefined` if the name is not present in
- * the provided array — the caller decides whether to throw or fall back.
- */
+/** Find a runtime by name, or return `undefined`. The caller decides what to do on a miss. */
 function findRuntime(runtimes: RuntimeMap[], name: string): RuntimeMap | undefined {
   return runtimes.find((r) => r.name === name);
 }
 
 /**
- * Map our internal runtime name to the upstream `skills` CLI agent
- * identifier. The two namespaces differ — e.g. our `claude` corresponds
- * to upstream `claude-code`, our `copilot` to upstream `github-copilot`,
- * our `generic` to upstream `universal`. Unknown runtime names pass
- * through unchanged so future runtimes work as long as their name
- * matches an upstream agent ID.
- *
- * Implements: #1217 fix (non-interactive install argv).
+ * Map an Exarchos runtime name to the agent id of the upstream `skills` CLI:
+ * `claude` to `claude-code`, `copilot` to `github-copilot`, and `generic` to `universal`.
+ * Other names pass through unchanged.
  */
 export function mapRuntimeToSkillsCliAgent(runtimeName: string): string {
   switch (runtimeName) {
@@ -574,19 +410,11 @@ export function mapRuntimeToSkillsCliAgent(runtimeName: string): string {
   }
 }
 
-// ─── Canonical layout + provenance manifest (DR-4, DR-8) ─────────────────────
-//
-// DR-4 aligns installs to the cross-client `.agents/skills/` convention: the
-// canonical skill set (procedural skills rendered once to `skills/standard/`
-// plus the per-runtime orchestration skills under `skills/<runtime>/`) is
-// placed BOTH at the convention path (`~/.agents/skills` user / `.agents/skills`
-// project) AND at each harness's native dir (`runtime.skillsInstallPath`). Every
-// such install writes/updates a provenance manifest — one per scope — enumerating
-// the per-harness placement paths, the installed skill names, the exarchos
-// version, and newline-normalized (CRLF→LF) content hashes so `doctor` can flag
-// a stale/modified canonical copy read-only.
-
-/** Install scope for the canonical convention path + provenance manifest. */
+/**
+ * Install scope for the canonical skill layout and its provenance manifest.
+ * The canonical skill set goes to the cross-client `.agents/skills` path and to
+ * the native dir of the harness. A provenance manifest for each scope records both.
+ */
 export type SkillsInstallScope = 'user' | 'project';
 
 /** Which placement a manifest record describes. */
@@ -595,15 +423,13 @@ export type SkillPlacementKind = 'canonical' | 'native';
 /** Filename of the per-scope provenance manifest, at the `.agents/` root. */
 export const SKILLS_MANIFEST_FILENAME = '.exarchos-skills.json';
 
-/** Schema tag stamped into every manifest so future readers can version-gate. */
+/** Schema tag in each manifest, so a reader can check the version. */
 export const SKILLS_MANIFEST_SCHEMA = 'exarchos-skills-provenance/v1';
 
 /**
- * One placed skill tree for a single harness. `path` is the POSIX-normalized
- * destination directory (containing `<skill>/…` children). `hashes` maps each
- * installed skill name to the newline-normalized content digest of the SOURCE
- * bytes at install time — the provenance baseline `doctor` compares the on-disk
- * copy against.
+ * One placed skill tree for one harness. `path` is the POSIX-normalized destination
+ * directory. `hashes` maps each skill name to the newline-normalized digest of the
+ * source content at install time. {@link detectLayoutDrift} compares the copy on disk with it.
  */
 export interface SkillPlacementRecord {
   harness: string;
@@ -613,11 +439,9 @@ export interface SkillPlacementRecord {
 }
 
 /**
- * The per-scope provenance manifest. Directory-name keys (placement `path`s and
- * skill names) are folded case-insensitively when merging/deduping on a
- * case-insensitive filesystem (macOS/Windows) — see {@link foldDirKey} — so a
- * re-install that differs only in path casing updates the existing record
- * instead of appending a phantom duplicate.
+ * The provenance manifest for one scope. On a case-insensitive filesystem, placement
+ * paths and skill names are folded to lowercase for the merge (see {@link foldDirKey}).
+ * A re-install that differs only in path case thus updates the record and adds no duplicate.
  */
 export interface SkillsProvenanceManifest {
   schema: string;
@@ -634,19 +458,16 @@ function toPosixPath(p: string): string {
 }
 
 /**
- * Normalize CRLF → LF before hashing so a Windows checkout (or a `.gitattributes`
- * autocrlf copy) hashes identically to a POSIX one — the manifest is
- * newline-agnostic by construction (INV-16).
+ * Normalize CRLF to LF before hashing, so a Windows checkout and a POSIX
+ * checkout give the same hash.
  */
 function normalizeNewlines(content: string): string {
   return content.replace(/\r\n/g, '\n');
 }
 
 /**
- * Whether directory-name keys should be folded to lowercase for manifest
- * dedup/merge. Heuristic: `win32` and `darwin` default to case-insensitive
- * filesystems (NTFS / APFS-insensitive). Callers may override via
- * `opts.caseInsensitiveFs` when they know the real filesystem semantics.
+ * Whether to fold directory-name keys to lowercase for the manifest merge.
+ * The heuristic is `true` for `win32` and `darwin`. `opts.caseInsensitiveFs` overrides it.
  */
 export function defaultCaseInsensitiveFs(platform: NodeJS.Platform): boolean {
   return platform === 'win32' || platform === 'darwin';
@@ -664,10 +485,8 @@ function defaultSymlink(target: string, linkPath: string): void {
 }
 
 /**
- * List the skill directory names directly under `parentDir` — a directory is a
- * skill iff it contains a top-level `SKILL.md`. Missing `parentDir` → `[]` (a
- * source tree that lacks `skills/standard/` or `skills/<runtime>/` simply
- * contributes nothing).
+ * List the skill directory names directly under `parentDir`. A directory is a skill
+ * when it contains a top-level `SKILL.md`. An unreadable `parentDir` gives `[]`.
  */
 function listSkillDirs(parentDir: string): string[] {
   let entries: fs.Dirent[];
@@ -689,11 +508,9 @@ function listSkillDirs(parentDir: string): string[] {
 }
 
 /**
- * The canonical skill set for `runtimeName`: procedural skills from
- * `<skillsSource>/standard/` unioned with the runtime's orchestration skills
- * from `<skillsSource>/<runtimeName>/`. Deduped by folded name (the two trees
- * are disjoint after the DR-1 collapse; a collision keeps the first — procedural).
- * Returns `{ name, dir }` for each skill so callers can copy/hash the SOURCE.
+ * The canonical skill set for `runtimeName`: the procedural skills in
+ * `<skillsSource>/standard/` and the orchestration skills in `<skillsSource>/<runtimeName>/`.
+ * On a name collision, the procedural skill stays. Each item gives the source `dir`.
  */
 export function collectCanonicalSkillSet(
   skillsSource: string,
@@ -738,11 +555,9 @@ export function resolveSkillsManifestPath(
 }
 
 /**
- * Hash a skill directory's content: a stable digest over every file under
- * `skillDir` (sorted by POSIX relative path), each newline-normalized before
- * hashing. Reads THROUGH symlinks (so a canonical entry symlinked at its native
- * copy hashes to the same value). Throws if `skillDir` is absent — callers that
- * probe on-disk placements guard for that (a missing dir is `drift: 'missing'`).
+ * Hash the content of a skill directory: one digest over each file, sorted by relative
+ * path and newline-normalized. It follows symlinks, so a canonical symlink and its
+ * native copy give the same hash. It throws when `skillDir` is absent.
  */
 export function hashSkillDirContent(skillDir: string): string {
   const rels: string[] = [];
@@ -750,7 +565,6 @@ export function hashSkillDirContent(skillDir: string): string {
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
       const childRel = rel ? `${rel}/${e.name}` : e.name;
       const abs = path.join(dir, e.name);
-      // stat (not lstat) so symlinked children resolve to their target kind.
       const st = fs.statSync(abs);
       if (st.isDirectory()) walk(abs, childRel);
       else if (st.isFile()) rels.push(childRel);
@@ -770,10 +584,9 @@ export function hashSkillDirContent(skillDir: string): string {
 }
 
 /**
- * Copy each skill in `set` into `destDir` (real bytes), replacing any prior copy
- * so the install is byte-stable across runs. Used for the per-harness NATIVE dir
- * (always a real copy — its content is what the harness loads) and for the
- * canonical dir on `win32` (INV-16: Windows copies, never symlinks).
+ * Copy each skill in `set` into `destDir`, and replace a prior copy.
+ * The native dir always gets a real copy, because the harness loads it.
+ * The canonical dir gets a copy on `win32`.
  */
 function copySkillSetToDir(
   set: Array<{ name: string; dir: string }>,
@@ -789,13 +602,10 @@ function copySkillSetToDir(
 }
 
 /**
- * Place the canonical `.agents/skills` convention copy. On POSIX each entry is a
- * symlink pointing at the harness's real native copy (the cross-client dir
- * dedups to one content source); on `win32` each entry is a full file copy from
- * the SOURCE (INV-16 — Windows symlinks need elevated privileges / Developer
- * Mode and break copy-based distribution). No-ops when the canonical dir IS the
- * native dir (e.g. the `generic` runtime whose native path already is
- * `~/.agents/skills`) — the native copy already satisfies the convention.
+ * Place the canonical `.agents/skills` entries. On POSIX, each entry is a symlink to
+ * the native copy. On `win32`, each entry is a copy from the source, because Windows
+ * symlinks need elevated privileges or Developer Mode.
+ * When the canonical dir is the native dir, as for `generic`, the function does nothing.
  */
 function placeCanonicalSkillSet(
   set: Array<{ name: string; dir: string }>,
@@ -821,7 +631,7 @@ function placeCanonicalSkillSet(
   }
 }
 
-/** Build the provenance record for one placement — hashes come from the SOURCE. */
+/** Build the provenance record for one placement. The hashes come from the source. */
 function buildPlacementRecord(
   harness: string,
   kind: SkillPlacementKind,
@@ -833,13 +643,13 @@ function buildPlacementRecord(
   return { harness, kind, path: toPosixPath(dirPath), hashes };
 }
 
-/** Atomically write JSON: a unique temp file in the target dir, then rename over target. */
+/** Write JSON atomically: a unique temp file in the target dir, then a rename over the target. */
 function atomicWriteJson(target: string, obj: unknown): void {
   fs.mkdirSync(path.dirname(target), { recursive: true });
   atomicWriteFile(target, `${JSON.stringify(obj, null, 2)}\n`);
 }
 
-/** Type guard: does a parsed value look like a provenance manifest we can merge into? */
+/** Type guard for a parsed value with the shape of a provenance manifest. */
 function isProvenanceManifest(v: unknown): v is SkillsProvenanceManifest {
   if (v === null || typeof v !== 'object') return false;
   const m = v as Record<string, unknown>;
@@ -847,11 +657,10 @@ function isProvenanceManifest(v: unknown): v is SkillsProvenanceManifest {
 }
 
 /**
- * Read-modify-write the per-scope provenance manifest, atomically. This install's
- * placements (canonical + native, unless they coincide) replace any prior record
- * for the same folded path; a second harness installing to the same scope merges
- * its placements in rather than clobbering the file. Skill names are unioned
- * (folded dedup, original casing preserved, sorted). INV-16: atomic temp+rename.
+ * Read, merge and atomically write the provenance manifest of a scope.
+ * The new placements replace a prior record with the same folded path.
+ * Records with other paths stay. A missing or malformed manifest starts empty.
+ * Skill names are merged, deduplicated by folded name, and sorted.
  */
 export function writeSkillsProvenanceManifest(args: {
   scope: SkillsInstallScope;
@@ -872,21 +681,18 @@ export function writeSkillsProvenanceManifest(args: {
     raw = fs.readFileSync(manifestPath, 'utf8');
   } catch (err) {
     if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') throw err;
-    // ENOENT → no manifest yet, start fresh.
   }
   if (raw !== undefined) {
     try {
       const parsed: unknown = JSON.parse(raw);
       if (isProvenanceManifest(parsed)) existing = parsed;
     } catch {
-      // Malformed JSON → start fresh.
     }
   }
 
   const newPlacements: SkillPlacementRecord[] = [
     buildPlacementRecord(harness, 'canonical', canonicalDir, set),
   ];
-  // Native == canonical (e.g. `generic`) → one placement suffices.
   if (toPosixPath(path.resolve(nativeDir)) !== toPosixPath(path.resolve(canonicalDir))) {
     newPlacements.push(buildPlacementRecord(harness, 'native', nativeDir, set));
   }
@@ -929,11 +735,9 @@ export interface LayoutDriftFinding {
 }
 
 /**
- * Read-only layout-drift detector (the `doctor` DR-4 surface): re-hash every
- * placement recorded in the scope manifest and compare against the recorded
- * provenance hash. A missing skill dir → `missing`; a content-hash mismatch →
- * `modified`. Absent/malformed manifest → `[]` (nothing to check). Performs NO
- * writes — safe to run from `doctor`.
+ * Read-only layout-drift detector. It hashes each recorded placement again and
+ * compares the result with the recorded hash. A skill dir that cannot be
+ * hashed gives `missing`. A hash mismatch gives `modified`. A missing or malformed manifest gives `[]`.
  */
 export function detectLayoutDrift(
   opts: {
@@ -992,29 +796,15 @@ export function detectLayoutDrift(
   return findings;
 }
 
-// ─── Multi-release legacy-render hash provenance (DR-8, Task 023 consumer) ────
-//
-// The onboard rename migration (Task 011, DR-3/DR-8) deletes a stale OLD-NAME
-// skill dir from a consumer install ONLY when it can prove the dir came from us.
-// Two provenance sources establish that (either suffices):
-//   (a) the Task 010 install provenance manifest (`.exarchos-skills.json`),
-//       whose per-placement `hashes[skill]` are whole-dir digests
-//       ({@link hashSkillDirContent}); and
-//   (b) the Task 023 multi-release legacy-render hash manifest
-//       (`tools/migrations/legacy-skill-render-hashes.json`), whose entries are the
-//       newline-normalized (CRLF→LF) sha256 of every per-runtime `SKILL.md`
-//       render ACROSS historical release tags — so a pre-existing install of any
-//       prior release, even a CRLF checkout, still hash-matches.
-//
-// These helpers are the single format-consumers for both provenance sources; the
-// onboard migration (server package, isolated by the MCP server's tsc
-// `rootDir: "./src"`) mirrors the two hashers and is drift-guarded against these
-// by a co-located cross-package test.
-
-/** Filename of the committed multi-release legacy-render hash manifest (Task 023). */
+/**
+ * Filename of the committed legacy-render hash manifest under `tools/migrations/`.
+ * Its entries are the newline-normalized SHA-256 of each per-runtime `SKILL.md` render
+ * across past releases. The onboard rename migration deletes a stale old-name skill dir
+ * only when this manifest or the install provenance manifest proves that Exarchos placed it.
+ */
 export const LEGACY_HASH_MANIFEST_FILENAME = 'legacy-skill-render-hashes.json';
 
-/** One historical per-runtime render hash in the Task 023 manifest. */
+/** One past per-runtime render hash in the legacy-render manifest. */
 export interface LegacySkillRenderEntry {
   release: string;
   runtime: string;
@@ -1023,7 +813,7 @@ export interface LegacySkillRenderEntry {
   hash: string;
 }
 
-/** The committed Task 023 legacy-render hash manifest (real on-disk shape). */
+/** The committed legacy-render hash manifest, in its on-disk shape. */
 export interface LegacySkillRenderManifest {
   algorithm: string;
   normalization: string;
@@ -1035,20 +825,17 @@ export interface LegacySkillRenderManifest {
 }
 
 /**
- * Newline-normalized (CRLF→LF) sha256 hex of a single `SKILL.md` render's
- * content. MUST stay byte-identical to the Task 023 generator's `normalizeAndHash`
- * (`tools/release/generate-legacy-skill-hashes.mjs`) so a consumer file that differs
- * only in line endings still hash-matches the manifest — the cross-format
- * equality is pinned by `install-skills.test.ts`.
+ * Newline-normalized SHA-256 hex of one `SKILL.md` render. It must give the same result
+ * as `normalizeAndHash` in `tools/release/generate-legacy-skill-hashes.mjs`, so a file
+ * that differs only in line endings still matches the manifest.
  */
 export function hashSkillMdContent(content: string): string {
   return createHash('sha256').update(normalizeNewlines(content), 'utf8').digest('hex');
 }
 
 /**
- * Hash the `SKILL.md` inside `skillDir` for legacy-render provenance. Reads
- * THROUGH symlinks (so a symlinked install hashes to its target's render).
- * Returns `undefined` when the dir carries no `SKILL.md` (not a skill dir).
+ * Hash the `SKILL.md` in `skillDir` for legacy-render provenance. It follows symlinks.
+ * Return `undefined` when the file cannot be read.
  */
 export function hashSkillMdFile(
   skillDir: string,
@@ -1061,7 +848,7 @@ export function hashSkillMdFile(
   }
 }
 
-/** Type guard for a parsed value shaped like the Task 023 legacy-render manifest. */
+/** Type guard for a parsed value with the shape of the legacy-render manifest. */
 export function isLegacySkillRenderManifest(v: unknown): v is LegacySkillRenderManifest {
   if (v === null || typeof v !== 'object') return false;
   const m = v as Record<string, unknown>;
@@ -1069,10 +856,9 @@ export function isLegacySkillRenderManifest(v: unknown): v is LegacySkillRenderM
 }
 
 /**
- * Index a Task 023 manifest by skill name → the set of every historical render
- * hash for that skill (across all runtimes and releases). A stale old-name dir is
- * legacy-provenance-matched when its `SKILL.md` hash is a member of its skill's
- * set, for ANY release — the union is exactly the "matches any release" contract.
+ * Index the legacy-render manifest by skill name. Each skill maps to the set of its
+ * render hashes across all runtimes and releases. A stale old-name dir matches when
+ * the hash of its `SKILL.md` is in the set of its skill.
  */
 export function indexLegacyHashesBySkill(
   manifest: LegacySkillRenderManifest,
@@ -1090,12 +876,10 @@ export function indexLegacyHashesBySkill(
 }
 
 /**
- * Resolve the committed legacy-render hash manifest on disk. Mirrors
- * {@link findSkillsSourceDir}'s candidate order (cwd, compiled-binary
- * `dist/bin/../..`, src-relative dev path) but rooted at `tools/migrations/`. Returns
- * the first existing candidate, or `undefined` when none exist (the migration
- * then simply has no legacy provenance to match against — the conservative
- * PRESERVE default, never a spurious deletion).
+ * Find the committed legacy-render hash manifest under `tools/migrations/`, from the cwd,
+ * from two levels above the binary, or from one level above this module.
+ * Return the first file found, or `undefined`. When the result is `undefined`, the
+ * migration has no legacy provenance, and it keeps the directories.
  */
 export function findLegacyHashManifestPath(): string | undefined {
   const candidates: string[] = [
@@ -1132,10 +916,9 @@ export function findLegacyHashManifestPath(): string | undefined {
 }
 
 /**
- * Load + index the legacy-render hash manifest for provenance matching. Resolves
- * the manifest path via {@link findLegacyHashManifestPath} (overridable), parses
- * it, and returns the by-skill hash index. Returns `undefined` when the manifest
- * is absent or unparseable — provenance (b) is then simply unavailable (PRESERVE).
+ * Load the legacy-render hash manifest and return its index by skill.
+ * The path defaults to {@link findLegacyHashManifestPath}.
+ * Return `undefined` when the manifest is absent or does not parse.
  */
 export function loadLegacyHashIndex(
   opts: {
@@ -1156,13 +939,9 @@ export function loadLegacyHashIndex(
 }
 
 /**
- * Does any placement in the supplied install provenance manifests (Task 010
- * format) vouch for a skill dir whose whole-dir content hash is `dirHash`? A
- * manifest records `placements[].hashes[skill]` as the newline-normalized
- * whole-dir digest at install time; a match proves the on-disk dir is an
- * unmodified copy of exactly what we placed. Skill-name keys are folded
- * case-insensitively when `caseInsensitive` is set (matching the manifest's own
- * dedup semantics).
+ * Return `true` when a placement in `manifests` records `dirHash` for `skillName`.
+ * A match proves that the dir on disk is an unchanged copy of what Exarchos placed.
+ * When `caseInsensitive` is set, skill names compare in lowercase.
  */
 export function installManifestVouchesForDir(
   manifests: readonly SkillsProvenanceManifest[],
@@ -1182,13 +961,12 @@ export function installManifestVouchesForDir(
   return false;
 }
 
-/**
- * Resolve the exarchos version recorded in the provenance manifest. Reads the
- * root `package.json` `version` (the single source of truth) relative to this
- * module; falls back to `'unknown'` when the file cannot be read (e.g. a bundled
- * binary whose `package.json` is not on disk). Cached after first resolution.
- */
 let cachedExarchosVersion: string | undefined;
+/**
+ * Resolve the Exarchos version for the provenance manifest from the root `package.json`.
+ * Return `'unknown'` when the file cannot be read, as in a bundled binary.
+ * The result is cached after the first call.
+ */
 export function readDefaultExarchosVersion(): string {
   if (cachedExarchosVersion !== undefined) return cachedExarchosVersion;
   cachedExarchosVersion = 'unknown';
@@ -1200,31 +978,22 @@ export function readDefaultExarchosVersion(): string {
       if (typeof parsed.version === 'string') cachedExarchosVersion = parsed.version;
     }
   } catch {
-    // Keep the 'unknown' fallback.
   }
   return cachedExarchosVersion;
 }
 
 /**
- * Install skills for a specific agent runtime.
+ * Install skills for one agent runtime.
  *
- * High-level flow:
- *   1. Resolve the target runtime via `opts.agent` → `runtimes.find(...)`.
- *   2. Build the `npx skills add ...` argv with non-interactive flags
- *      (`--skill '*' --agent <id> -y -g --copy`).
- *   3. Print the full command via `log` BEFORE spawning, so users can
- *      copy it for a manual retry.
- *   4. Spawn it via the injected `spawn` function with `FORCE_COLOR=0`
- *      and `CI=true` env so the upstream spinner doesn't flood the pipe.
- *   5. On success, register the Exarchos MCP server in `~/.claude.json`
- *      for the claude runtime (T4.3 contract).
- *
- * Failure modes:
- *   - Unknown agent → throws with the supported list.
- *   - Ambiguous detection in non-interactive mode → throws with hint.
- *   - Child non-zero exit → throws `InstallSkillsError` with `exitCode`.
- *   - MCP registration failure (post-skills) → logged to errLog but does
- *     not fail the whole install (skills are already on disk).
+ *   1. Resolve the runtime from `opts.agent`, or detect it. If no runtime is detected,
+ *      use `generic`. If detection is ambiguous, prompt, or throw in non-interactive mode.
+ *   2. If `opts.skillsSource` has skills for the runtime, copy them to the native dir,
+ *      place the canonical layout, and write the provenance manifest.
+ *   3. If not, log and spawn `npx skills add` with `FORCE_COLOR=0` and `CI=true`.
+ *      `--copy` writes real files, because symlinks into the npm cache break when the cache is cleaned.
+ *      A non-zero exit throws an `InstallSkillsError` with `exitCode`.
+ *   4. Install the command aliases. For `claude`, register the MCP server. A registration
+ *      failure is logged and does not fail the install. Then print the summary.
  */
 export async function installSkills(opts: InstallSkillsOpts): Promise<void> {
   const runtimes = opts.runtimes ?? [];
@@ -1237,11 +1006,6 @@ export async function installSkills(opts: InstallSkillsOpts): Promise<void> {
     opts.isInteractive ??
     (Boolean(process.stdout.isTTY) && !process.env.NON_INTERACTIVE);
 
-  // Resolve target runtime.
-  //   - If `agent` is set, look it up and throw on miss.
-  //   - If `agent` is unset, run auto-detection. A null result falls back to
-  //     `generic`; an AmbiguousRuntimeError is handled below by either
-  //     prompting (interactive) or surfacing remediation (non-interactive).
   let runtime: RuntimeMap | undefined;
   if (opts.agent !== undefined) {
     runtime = findRuntime(runtimes, opts.agent);
@@ -1256,7 +1020,6 @@ export async function installSkills(opts: InstallSkillsOpts): Promise<void> {
       if (detected) {
         runtime = detected;
       } else {
-        // No agent detected — fall back to generic with a clear message.
         runtime = findRuntime(runtimes, 'generic');
         if (!runtime) {
           throw new Error(missingGenericFallbackMessage());
@@ -1288,35 +1051,11 @@ export async function installSkills(opts: InstallSkillsOpts): Promise<void> {
     }
   }
 
-  // #1355 fix — local-copy fast path.
-  //
-  // The upstream `npx skills add github:lvlup-sw/exarchos ...` shell-out
-  // mis-installed for every non-claude runtime: it cloned the repo and
-  // walked only the root level (finding just `design-invariants`,
-  // missing every skill under `skills/<runtime>/`) and used its own
-  // per-agent home-dir mapping that does not match our
-  // `content/harness/runtimes/*.yaml` `skillsInstallPath` values. We sidestep both
-  // bugs by copying the rendered per-runtime tree directly to the
-  // runtime's canonical install path when a local skills source is
-  // available. The shell-out path below is retained as a fallback so
-  // existing unit tests (which never set `opts.skillsSource`) keep
-  // verifying the upstream invocation contract.
-  //
-  // `skillsSource` is strictly opt-in: callers (the install-skills
-  // bridge) explicitly supply `findSkillsSourceDir()` when they want
-  // the fast path. Library-level callers and the existing unit tests
-  // that assert on the upstream spawn argv (`src/install-skills.test.ts`)
-  // pass no `skillsSource`, so the spawn path stays the default. Doing
-  // implicit auto-detection inside `installSkills()` itself would
-  // regress those unit tests every time they ran from REPO_ROOT.
   const skillsSource = opts.skillsSource;
   if (skillsSource) {
     const platform = opts.platform ?? process.platform;
     const caseInsensitive =
       opts.caseInsensitiveFs ?? defaultCaseInsensitiveFs(platform);
-    // The canonical set = procedural (`skills/standard/`) + this runtime's
-    // orchestration skills (`skills/<runtime>/`). Empty ⇒ no local tree ⇒ fall
-    // through to the upstream `npx skills add` shell-out.
     const set = collectCanonicalSkillSet(skillsSource, runtime.name, caseInsensitive);
     if (set.length > 0) {
       const home = homeDirFn();
@@ -1326,21 +1065,14 @@ export async function installSkills(opts: InstallSkillsOpts): Promise<void> {
       const copyDir = opts.copyDir ?? defaultCopyDir;
       const symlink = opts.symlink ?? defaultSymlink;
 
-      // Per-harness NATIVE dir: always a real copy (its bytes are what the
-      // harness loads). This preserves the pre-DR-4 copy contract.
       const nativeDir = expandTilde(runtime.skillsInstallPath, home);
-      // Cross-client CANONICAL dir: `.agents/skills` (scope-resolved).
       const canonicalDir = resolveCanonicalSkillsDir(scope, home, projectRoot);
 
       log(`Installing ${set.length} skill${set.length === 1 ? '' : 's'} → ${nativeDir}`);
       copySkillSetToDir(set, nativeDir, copyDir);
-      // Convention path: POSIX symlinks to the native copy; win32 copies
-      // (INV-16). No-op when canonicalDir === nativeDir (e.g. `generic`).
       placeCanonicalSkillSet(set, canonicalDir, nativeDir, platform, copyDir, symlink);
       log(`Installed: ${set.map((s) => s.name).join(', ')}`);
 
-      // Provenance manifest — one per scope, atomic write, enumerating the
-      // canonical + native placement paths with newline-normalized hashes.
       writeSkillsProvenanceManifest({
         scope,
         manifestPath: resolveSkillsManifestPath(scope, home, projectRoot),
@@ -1352,15 +1084,8 @@ export async function installSkills(opts: InstallSkillsOpts): Promise<void> {
         caseInsensitive,
       });
 
-      // Install canonical command aliases (T3, #1471/#1472) — gated on the
-      // runtime declaring `commandsInstallPath` + a viable alias source tree,
-      // never a runtime-name literal (INV-4).
       const commandsDest = installCommandAliases(runtime, opts, home, log);
 
-      // Mirror the post-success MCP registration that the spawn path
-      // performs for the `claude` runtime — install-skills' contract
-      // is "skills land + claude gets MCP wired up", regardless of
-      // which install transport ran.
       if (runtime.name === 'claude') {
         try {
           registerMcp(home);
@@ -1378,28 +1103,7 @@ export async function installSkills(opts: InstallSkillsOpts): Promise<void> {
     }
   }
 
-  // Build the command. We map our runtime name to the upstream `skills`
-  // CLI agent identifier (e.g. our `claude` → upstream `claude-code`)
-  // and pass non-interactive flags so the install completes unattended
-  // in CI / scripts / non-TTY environments.
-  //
-  //   * `--yes` (npx) — auto-install the `skills` package without prompting.
-  //   * `skills add <source>` — the upstream subcommand.
-  //   * `--skill '*'` — select every skill in the source repo. Without
-  //     this flag the upstream CLI prompts for selection and silently
-  //     exits 0 with no writes when stdin is closed (#1217 root cause).
-  //   * `--agent <id>` — scope writes to the runtime's canonical home dir
-  //     (~/.claude/skills for claude-code, etc.).
-  //   * `-y` — skip the global vs project confirmation prompt.
-  //   * `-g` — install to the user's global home dir, which matches what
-  //     `runtime.skillsInstallPath` describes (`~/.claude/skills`).
-  //   * `--copy` — materialize real files instead of symlinks. Symlinks
-  //     pointing into npm's cache disappear if the cache is GC'd; copies
-  //     survive across sessions and are byte-stable for idempotence.
   const home = homeDirFn();
-  // The expanded skills destination. No longer needed in the argv (`--target`
-  // is not a valid upstream flag), but reused below for the post-install
-  // summary so the user sees where skills landed.
   const skillsDest = expandTilde(runtime.skillsInstallPath, home);
 
   const skillsAgentId = mapRuntimeToSkillsCliAgent(runtime.name);
@@ -1421,15 +1125,7 @@ export async function installSkills(opts: InstallSkillsOpts): Promise<void> {
 
   log(`Running: ${commandString}`);
 
-  // Execute and handle failure:
-  //   - Surface stderr verbatim so the user gets full diagnostics.
-  //   - Echo the exact command for manual retry.
-  //   - Throw an Error carrying the child's exitCode so the CLI main() can
-  //     forward it to process.exit(code).
   const result = await spawn(cmd, args, {
-    // Force the upstream CLI off colorized output and into a CI-friendly
-    // mode so its progress spinner does not write thousands of escape
-    // sequences when run under a pipe. Pure cosmetics; functionally a no-op.
     env: { ...process.env, FORCE_COLOR: '0', CI: 'true' },
   });
   if (result.code !== 0) {
@@ -1441,17 +1137,10 @@ export async function installSkills(opts: InstallSkillsOpts): Promise<void> {
     throw error;
   }
 
-  // Register the Exarchos MCP server in ~/.claude.json so Claude Code
-  // discovers it on next launch. Only the `claude` runtime uses
-  // `~/.claude.json`; other runtimes have their own config formats and
-  // are out of scope for this writer (T4.3 / #1217 pin the claude path).
   if (runtime.name === 'claude') {
     try {
       registerMcp(home);
     } catch (err) {
-      // Don't fail the whole install on MCP-registration trouble — the
-      // skills are already on disk. Surface the failure clearly so users
-      // can re-run with `claude mcp add` or edit ~/.claude.json directly.
       errLog(
         `install-skills: skills installed, but failed to register MCP server in ~/.claude.json: ${
           err instanceof Error ? err.message : String(err)
@@ -1460,18 +1149,13 @@ export async function installSkills(opts: InstallSkillsOpts): Promise<void> {
     }
   }
 
-  // Install canonical command aliases (T3, #1471/#1472) on the shell-out
-  // path too — gated on `commandsInstallPath` + a viable alias source tree,
-  // never a runtime-name literal (INV-4). Then print the post-install summary.
   const commandsDest = installCommandAliases(runtime, opts, home, log);
   printInstallSummary(log, skillsDest, commandsDest, runtime.name);
 }
 
 /**
- * Default prompt implementation. Lazy-loads `@inquirer/prompts` so that unit
- * tests never import it (tests inject their own `prompt` and take this path
- * out of play). Keeps the hot path free of inquirer's startup cost in cases
- * where the CLI doesn't need interactive disambiguation.
+ * Default prompt. It loads `@inquirer/prompts` on first use, so a run that does not
+ * prompt does not pay its startup cost.
  */
 const defaultPrompt = async (
   question: string,
@@ -1485,27 +1169,15 @@ const defaultPrompt = async (
 };
 
 /**
- * Write (or merge) the `mcpServers.exarchos` entry into `~/.claude.json`.
- *
- * Uses a merge-rather-than-overwrite policy so we never clobber unrelated
- * MCP servers a user has already configured. Idempotent: if the existing
- * entry is structurally identical to what we'd write, the function
- * returns without touching the file (mtime preserved). Otherwise it
- * writes the merged config.
- *
- * The MCP entry shape mirrors `.claude-plugin/plugin.json` (the canonical
- * source of truth for how Exarchos is invoked as an MCP server) — `command:
- * 'exarchos'`, `args: ['mcp']`, plus `WORKFLOW_STATE_DIR` env so workflow
- * events land in the user's home rather than a transient cwd.
- *
- * Implements: T4.3 contract (~/.claude.json contains MCP registration),
- *             #1217 fix.
+ * Merge the `mcpServers.exarchos` entry into `~/.claude.json`. Other MCP servers stay.
+ * When the existing entry is the same, the function does not write, so the mtime stays.
+ * The entry follows `.claude-plugin/plugin.json`: `command: 'exarchos'`, `args: ['mcp']`,
+ * and a `WORKFLOW_STATE_DIR` under the home directory. A missing file starts empty.
  */
 export function registerExarchosInClaudeJson(home: string): void {
   const configPath = path.join(home, '.claude.json');
   const workflowStateDir = path.join(home, '.claude', 'workflow-state');
 
-  // Read existing config (if any) and parse. ENOENT → start from empty.
   let config: Record<string, unknown> = {};
   try {
     const raw = fs.readFileSync(configPath, 'utf8');
@@ -1532,9 +1204,6 @@ export function registerExarchosInClaudeJson(home: string): void {
     },
   };
 
-  // Idempotence short-circuit: if the existing entry is structurally
-  // identical to what we'd write, skip the write entirely so the file's
-  // mtime is preserved across repeated install-skills invocations.
   const existingEntry = existingMcp.exarchos;
   if (
     existingEntry &&

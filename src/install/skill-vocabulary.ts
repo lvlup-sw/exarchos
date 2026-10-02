@@ -1,70 +1,42 @@
-// Skill-source vocabulary: the placeholder tokens a skill may reference, and
-// the classification derived from them.
-//
-// Extracted from `build-skills.ts` to break a runtime import cycle with
-// `placeholder-lint.ts`. The lint must see PRECISELY the tokens the renderer
-// would substitute, so the two cannot each own a copy — but the renderer also
-// calls the lint, which made the shared ownership circular. One module owns
-// the vocabulary; the renderer and the lint both depend on it, and neither
-// depends on the other for it.
+/**
+ * Skill-source vocabulary: the placeholder tokens that a skill can reference, and the skill class that they give.
+ * The renderer and `placeholder-lint.ts` must see the same tokens. The renderer also calls the lint.
+ * Thus this module owns the vocabulary, and both depend on it without an import cycle.
+ */
 import type { RuntimeTokenName } from './runtimes/types.js';
 import { RuntimeTokenKey } from './runtimes/types.js';
 
 /**
- * Matches `{{TOKEN}}` and `{{TOKEN arg1="..." arg2="..."}}` placeholder
- * tokens. Capture groups:
- *   1. token name (identifier)
- *   2. raw arg string (optional, may be undefined)
+ * Matches `{{TOKEN}}` and `{{TOKEN arg1="..." arg2="..."}}`. Group 1 is the token name. Group 2 is the raw arg string, or undefined.
+ * The arg body `[^}]*` forbids `}`, so a stray `}}` cannot go into an arg string.
+ * The renderer and the placeholder lint share this one pattern, so the two cannot drift.
  *
- * The token identifier is `\w+` so `{{FOO_BAR}}`, `{{CHAIN}}`, `{{abc123}}`
- * all match. The arg body is `[^}]*` — it intentionally forbids `}` so that
- * a stray `}}` cannot land inside an arg string and confuse the matcher.
- *
- * Exported so `src/placeholder-lint.ts` can use the exact same pattern
- * the renderer uses — the lint must see precisely the tokens the
- * renderer would otherwise substitute, and duplicating the regex in
- * two files would let them drift.
- *
- * WARNING: this is a stateful `/g` instance. Callers MUST either use a
- * local `.matchAll()` iterator or reset `lastIndex = 0` before and
- * after an `.exec()` loop so state does not leak into later call
- * sites.
+ * WARNING: this is a stateful `/g` instance. A caller must use a local `.matchAll()` iterator,
+ * or reset `lastIndex = 0` before and after an `.exec()` loop.
  */
 export const PLACEHOLDER_REGEX = /\{\{(\w+)(?:\s+([^}]*))?\}\}/g;
 
 /**
- * Matches `{{CALL tool action {json}}}` macro tokens in skill source bodies.
+ * Matches `{{CALL tool action {json}}}` macros. Group 1 is `tool action {json}`, the `raw` input of `parseCallMacro()`.
+ * The inner `.+` is greedy, so a JSON arg that holds `}` does not end the capture too early.
+ * Thus two CALL macros on one line give one match, so put each CALL macro on its own line. The placeholder lint and the renderer share this pattern.
  *
- * Capture group 1: full content after `CALL ` — i.e. `tool action {json}`.
- * The captured string is what `parseCallMacro()` expects as its `raw` input.
- *
- * The inner `.+` is greedy (not `.+?`) so that JSON args containing `}`
- * are captured correctly. E.g. `{{CALL tool act {"k":"v"}}}` — with a
- * non-greedy match the first `}}` inside the JSON would terminate the
- * capture prematurely. The greedy variant backtracks to let `\}\}` anchor
- * at the true closing delimiter. One CALL macro per line is the expected
- * usage; multiple CALL macros on the same line should be placed on
- * separate lines instead.
- *
- * Exported so:
- *   - The placeholder lint (task 010) can detect CALL macros without
- *     duplicating the pattern.
- *   - The render pipeline (tasks 007/008) can locate macros for expansion.
- *
- * WARNING: this is a stateful `/g` instance — same caveats as
- * `PLACEHOLDER_REGEX`. Use `.matchAll()` or reset `lastIndex` manually.
+ * WARNING: this is a stateful `/g` instance, with the same rules as `PLACEHOLDER_REGEX`.
  */
 export const CALL_MACRO_REGEX = /\{\{CALL\s+(.+)\}\}/g;
 
 export const REQUIRES_OPEN_REGEX = /<!--\s*requires:(native:)?([a-z0-9:-]+)\s*-->/g;
 
+/**
+ * The class of a skill, from the placeholder tokens that its source uses.
+ * A `procedural` skill uses no orchestration token and has one render for all runtimes.
+ * An `orchestration` skill uses at least one, so it keeps a render for each runtime.
+ */
 export type SkillClass = 'procedural' | 'orchestration';
 
 /**
- * Prefix tokens — declared by every runtime YAML. They differ per harness
- * only in the leading MCP/command-prefix string, so a source that references
- * *only* these still renders identically-shaped prose on every runtime and
- * stays procedural. Prefix tokens are explicitly NOT orchestration tokens.
+ * Prefix tokens. Each runtime YAML declares them, and their values differ only in the MCP or command prefix.
+ * Thus a source that references only these tokens stays procedural.
  */
 export const PREFIX_TOKENS: ReadonlySet<RuntimeTokenName> = new Set<RuntimeTokenName>([
   'MCP_PREFIX',
@@ -72,13 +44,8 @@ export const PREFIX_TOKENS: ReadonlySet<RuntimeTokenName> = new Set<RuntimeToken
 ]);
 
 /**
- * Orchestration tokens — the agent-spawning primitives whose values genuinely
- * fork per harness: `TASK_TOOL`, `CHAIN`, `SPAWN_AGENT_CALL`, and the
- * `SUBAGENT_*` family (`SUBAGENT_COMPLETION_HOOK`, `SUBAGENT_RESULT_API`).
- * Derived as `RuntimeTokenKey` minus `PREFIX_TOKENS` so a new canonical token
- * added to the vocabulary is classified as orchestration automatically unless
- * it is also declared a prefix token — the classification never drifts from
- * the canonical vocabulary in `src/runtimes/types.ts`.
+ * Orchestration tokens: the agent-spawning primitives whose values differ per harness.
+ * The set is `RuntimeTokenKey` minus `PREFIX_TOKENS`. Thus a new canonical token is an orchestration token unless it is also a prefix token.
  */
 export const ORCHESTRATION_TOKENS: ReadonlySet<RuntimeTokenName> =
   new Set<RuntimeTokenName>(
@@ -93,19 +60,12 @@ function isRuntimeToken(name: string): name is RuntimeTokenName {
   return RUNTIME_TOKEN_SET.has(name);
 }
 
-/** True when `body` contains any `<!-- requires:* -->` capability guard. */
+/** True when `body` contains a `<!-- requires:* -->` capability guard. It uses a new regex, because `REQUIRES_OPEN_REGEX` is a stateful `/g` singleton. */
 function hasRequiresGuard(body: string): boolean {
-  // Fresh instance — REQUIRES_OPEN_REGEX is a stateful /g singleton.
   return new RegExp(REQUIRES_OPEN_REGEX.source).test(body);
 }
 
-/**
- * The renderer's per-skill model. Surfaces the token-derived classification
- * plus the evidence behind it (which canonical tokens the source references,
- * which of those are orchestration tokens, and whether the source carries a
- * capability guard) so the build-time assertion and future consumers can act
- * on the exact surface a source declares without re-scanning it.
- */
+/** The per-skill model of the renderer: the skill class and the evidence for it, so that consumers do not scan the source again. */
 export interface SkillModel {
   /** Canonical `RuntimeTokenKey` tokens the source references. */
   readonly tokensUsed: ReadonlySet<RuntimeTokenName>;
@@ -118,20 +78,11 @@ export interface SkillModel {
 }
 
 /**
- * Classify a skill source body by the placeholder tokens it references.
+ * Classify a skill source body by its placeholder tokens. A source with an orchestration token is `orchestration`, and other sources are `procedural`.
+ * Only canonical `RuntimeTokenKey` names count. Handlebar literals such as `{{next}}` and unknown `{{...}}` names do not count.
  *
- * A source that references only prefix tokens (or no canonical tokens at all)
- * is `procedural`; a source that references any orchestration token is
- * `orchestration`. Only canonical `RuntimeTokenKey` identifiers participate —
- * CALL-macro args, handlebar template literals (e.g. `{{next}}`,
- * `{{#each hints}}`), and unknown `{{...}}` identifiers are ignored because
- * they are not part of the per-harness forking surface.
- *
- * The returned model also records whether the source carries a
- * `<!-- requires:* -->` capability guard. Guards are an orchestration-only
- * construct that the build-time assertion (`assertProceduralSkill`) rejects in
- * procedural sources, but they are not placeholder tokens and therefore do not
- * themselves drive classification (which is derived from token usage only).
+ * The model also records a `<!-- requires:* -->` capability guard. `assertProceduralSkill` rejects a guard in a procedural source, but a guard does not change the class.
+ * The function uses a new regex, because `PLACEHOLDER_REGEX` is a stateful `/g` singleton.
  *
  * @param body - Raw skill source body (SKILL.md or a Markdown reference).
  * @returns The derived `SkillModel`.
@@ -140,7 +91,6 @@ export function classifySkill(body: string): SkillModel {
   const tokensUsed = new Set<RuntimeTokenName>();
   const orchestrationTokensUsed = new Set<RuntimeTokenName>();
 
-  // Fresh instance — PLACEHOLDER_REGEX is a stateful /g singleton.
   const regex = new RegExp(PLACEHOLDER_REGEX.source, 'g');
   let match: RegExpExecArray | null;
   while ((match = regex.exec(body)) !== null) {

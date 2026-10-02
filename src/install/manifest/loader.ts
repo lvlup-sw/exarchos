@@ -1,9 +1,4 @@
-/**
- * Manifest loader and validation for the Exarchos installer.
- *
- * Reads a JSON manifest file from disk, validates its structure,
- * and returns a strongly-typed {@link Manifest} object.
- */
+/** Manifest loader for the Exarchos installer. It reads a JSON manifest from disk and validates its structure. */
 
 import * as fs from 'node:fs';
 import type {
@@ -43,18 +38,15 @@ export function loadManifest(filePath: string): Manifest {
 }
 
 /**
- * Extract the default wizard selections from a manifest.
- *
- * Returns the IDs of components marked as `default: true` and
- * the default model. Required servers are excluded — they are
- * always installed regardless of selection.
+ * Extract the default wizard selections from a manifest: the IDs of components with `default: true`, and the default model.
+ * The selection holds no MCP servers. Optional servers have no `default` flag, and the installer always installs required servers.
  *
  * @param manifest - A validated manifest.
  * @returns Default {@link WizardSelections}.
  */
 export function getDefaultSelections(manifest: Manifest): WizardSelections {
   return {
-    mcpServers: [], // Optional servers have no `default` flag; none selected by default
+    mcpServers: [],
     plugins: manifest.components.plugins
       .filter((p) => p.default)
       .map((p) => p.id),
@@ -84,8 +76,6 @@ export function getRequiredComponents(manifest: Manifest): {
       .map((p) => p.id),
   };
 }
-
-// ─── Validation helpers ──────────────────────────────────────────────────────
 
 /**
  * Validate that an unknown value conforms to the {@link Manifest} shape.

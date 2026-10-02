@@ -1,18 +1,10 @@
-/**
- * Prerequisite detection and runtime checks for the Exarchos installer.
- *
- * Detects which JavaScript runtime is available (bun or node),
- * verifies tool versions, and checks all installation prerequisites.
- */
+/** Prerequisite checks for the Exarchos installer: the JavaScript runtime, tool versions, and the full prerequisite list. */
 
 import { execSync } from 'node:child_process';
 
 /**
- * Detect the available JavaScript runtime for MCP server execution.
- *
- * Prefers node over bun. The MCP server bundle targets Node (--target node),
- * uses Node shebangs, and depends on Node-native modules (better-sqlite3).
- * Bun is used only as a build tool, not as the runtime.
+ * Detect the JavaScript runtime for the MCP server. Node comes first, and bun is the fallback.
+ * The server bundle targets Node and needs Node-native modules such as better-sqlite3. Bun is only a build tool.
  *
  * @returns The detected runtime identifier.
  * @throws If neither node nor bun is available.
@@ -22,14 +14,12 @@ export function detectRuntime(): 'node' | 'bun' {
     execSync('node --version', { stdio: 'pipe' });
     return 'node';
   } catch {
-    // node not available, try bun as fallback
   }
 
   try {
     execSync('bun --version', { stdio: 'pipe' });
     return 'bun';
   } catch {
-    // bun not available either
   }
 
   throw new Error(
@@ -38,13 +28,10 @@ export function detectRuntime(): 'node' | 'bun' {
 }
 
 /**
- * Get the version string for a command.
+ * Get the `major.minor.patch` version of a command. The function strips a leading `v`, as in the node output `v20.11.0`.
  *
- * Runs the command with the given arguments, trims the output,
- * and validates it looks like a semver-ish version string.
- *
- * @param command - The command to run (e.g., 'bun', 'node', 'gt').
- * @param args - Arguments to pass (e.g., ['--version']).
+ * @param command - The command to run, for example 'bun' or 'node'.
+ * @param args - Arguments to pass, for example ['--version'].
  * @returns The parsed version string, or null if the command fails or output is invalid.
  */
 export function getVersion(command: string, args: string[]): string | null {
@@ -52,12 +39,9 @@ export function getVersion(command: string, args: string[]): string | null {
     const output = execSync(`${command} ${args.join(' ')}`, { stdio: 'pipe' });
     const trimmed = output.toString().trim();
 
-    // Strip leading 'v' if present (e.g., node outputs "v20.11.0")
     const cleaned = trimmed.startsWith('v') ? trimmed.slice(1) : trimmed;
 
-    // Validate it looks like a version (digits.digits.digits, possibly with extra)
     if (/^\d+\.\d+\.\d+/.test(cleaned)) {
-      // Return just the major.minor.patch portion
       const match = cleaned.match(/^(\d+\.\d+\.\d+)/);
       return match?.[1] ?? null;
     }
@@ -69,12 +53,10 @@ export function getVersion(command: string, args: string[]): string | null {
 }
 
 /**
- * Check whether an actual version meets a minimum version requirement.
+ * Check whether an actual version meets a minimum version, with a numeric comparison of `major.minor.patch`.
  *
- * Performs simple numeric comparison of major.minor.patch components.
- *
- * @param actual - The actual version string (e.g., "1.3.4").
- * @param minimum - The minimum required version (e.g., "1.0.0").
+ * @param actual - The actual version string, for example "1.3.4".
+ * @param minimum - The minimum required version, for example "1.0.0".
  * @returns True if actual >= minimum.
  */
 export function meetsMinVersion(actual: string, minimum: string): boolean {
@@ -91,13 +73,11 @@ export function meetsMinVersion(actual: string, minimum: string): boolean {
   return aPatch >= mPatch;
 }
 
-// ─── Prerequisite checking ────────────────────────────────────────────────────
-
 /** Definition of a single prerequisite tool. */
 export interface Prerequisite {
-  /** The command to check (e.g., 'bun', 'gt'). */
+  /** The command to check, for example 'bun'. */
   readonly command: string;
-  /** Arguments to get the version (e.g., ['--version']). */
+  /** Arguments to get the version, for example ['--version']. */
   readonly args: string[];
   /** Whether this prerequisite is required for installation to proceed. */
   readonly required: boolean;
@@ -122,10 +102,7 @@ export interface PrerequisiteResult {
 }
 
 /**
- * Check a single prerequisite tool.
- *
- * Runs the command to detect its version and, if a minimum version
- * is specified, verifies the installed version meets the requirement.
+ * Check a single prerequisite tool: its version, and the minimum version when one is set.
  *
  * @param prereq - The prerequisite definition to check.
  * @returns The check result.
@@ -154,8 +131,6 @@ export function checkPrerequisite(prereq: Prerequisite): PrerequisiteResult {
     installHint: prereq.installHint,
   };
 }
-
-// ─── Full prerequisite suite ──────────────────────────────────────────────────
 
 /** Aggregated report from checking all prerequisites. */
 export interface PrerequisiteReport {

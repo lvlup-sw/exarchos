@@ -1,21 +1,10 @@
 /**
- * CI `hooks:guard` check (#1476 T10) — detects drift between the
- * `content/harness/hooks/` source and the committed `hooks/` generated tree.
+ * The hooks guard: detects drift between the hook sources under `content/harness/` and the committed
+ * `hooks/` and `binding/` trees.
  *
- * Mirrors `skills-guard.ts`: runs `buildAllHooks()` in-process against the
- * project root, then invokes `git diff --exit-code hooks/`. A non-empty diff
- * means either:
- *
- *   1. A developer changed `content/harness/hooks/` but forgot to run
- *      `npm run build:hooks` and commit the regenerated output, or
- *   2. A developer hand-edited a generated file under `hooks/` (which the
- *      build has just overwritten).
- *
- * Either way the guard fails with a remediation message pointing at
- * `npm run build:hooks`.
- *
- * Exported `runHooksGuard()` is testable — tests hand it a temp project root.
- * The CLI at the bottom wires it to `process.cwd()` / `process.exit()`.
+ * Like `skills-guard.ts`, it runs `buildAllHooks()` in process and then runs `git diff --exit-code` on the
+ * output. A diff means that a source changed with no rebuild, or that someone edited a generated file. The
+ * failure message points at `npm run build:hooks`.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -37,9 +26,9 @@ const REMEDIATION =
   "Generated hooks are stale. Run 'npm run build:hooks' and commit the result.";
 
 /**
- * Run the hooks build and verify the generated `hooks/` tree matches what is
- * committed in git. Does not modify anything outside `opts.cwd` and does not
- * call `process.exit` — the CLI wrapper handles exit.
+ * Runs the hooks build and checks that the generated `hooks/` and `binding/` trees match git. A build error
+ * is a guard failure, because CI must not pass when the sources do not render. It writes only under
+ * `opts.cwd` and does not call `process.exit`.
  *
  * @param opts.cwd - Absolute path to the project root. Must contain
  *   `content/harness/hooks/`, `content/harness/runtimes/`, and a git repo whose HEAD tracks the current
@@ -48,8 +37,6 @@ const REMEDIATION =
 export function runHooksGuard(opts: HooksGuardOptions): HooksGuardResult {
   const { cwd } = opts;
 
-  // Step 1: regenerate `hooks/`. A build failure is a guard failure because
-  // CI must not pass if the source tree can't even render.
   let buildFailed = false;
   let buildDetail = '';
   try {
@@ -73,7 +60,6 @@ export function runHooksGuard(opts: HooksGuardOptions): HooksGuardResult {
     };
   }
 
-  // Step 2: diff the generated `hooks/` + `binding/` trees vs HEAD.
   const diff = checkGitDiff(cwd, 'hooks/', 'binding/');
   if (diff !== null) {
     return { ok: false, exitCode: 1, message: diff };
@@ -87,8 +73,8 @@ export function runHooksGuard(opts: HooksGuardOptions): HooksGuardResult {
 }
 
 /**
- * Run `git diff --exit-code -- <pathspec>` against `cwd`. Returns `null` when
- * the tree is clean (exit 0); otherwise a formatted failure message.
+ * Runs `git diff --exit-code -- <pathspec>` in `cwd`. Returns `null` when the tree is clean (exit 0), or a
+ * failure message.
  */
 function checkGitDiff(cwd: string, ...pathspecs: string[]): string | null {
   try {
@@ -146,12 +132,12 @@ function getExecErrorStderr(err: unknown): string {
   return '';
 }
 
-// -----------------------------------------------------------------------------
-// CLI entry (`npm run hooks:guard`)
-// -----------------------------------------------------------------------------
-
 export type { MainDeps } from './cli-helpers.js';
 
+/**
+ * CLI entry: `node dist/install/hooks-guard.js`. The guard after it calls `main()` only when Node runs this
+ * file directly.
+ */
 export function main(_argv: string[], deps: MainDeps = {}): void {
   const { cwd, exit, log, errLog } = resolveMainDeps(deps);
   const result = runHooksGuard({ cwd: cwd() });
@@ -163,8 +149,6 @@ export function main(_argv: string[], deps: MainDeps = {}): void {
   exit(result.exitCode);
 }
 
-// Self-invocation guard: only run `main()` when this file is executed
-// directly (e.g. `node dist/hooks-guard.js`).
 if (import.meta.url === `file://${process.argv[1]}`) {
   main(process.argv.slice(2));
 }

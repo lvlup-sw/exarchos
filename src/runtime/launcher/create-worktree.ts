@@ -1,41 +1,16 @@
 /**
- * Launcher top-level, task-less worktree creation (DR-2, DR-5).
+ * Creates the top-level, task-less worktree of the harness launcher. It is a different kind from a delegation task worktree.
+ * It is tracked through `worktree.reserved` and the launch liveness pair, not the task-scoped `worktree.created` terminal.
+ * That terminal requires a `taskId`, and a task-less worktree has none.
+ * The steps run in this order, and each append goes to the `worktrees` stream:
+ *   1. The topology guard ({@link deriveWorktreePath} and {@link guardWorktreeContainment}) refuses a nested or escaping target.
+ *   2. {@link WorktreeManager.reserve} emits `worktree.reserved`, so the worktree is tracked before it exists on disk. A concurrent adopt or prune thus cannot race it.
+ *   3. `worktree.create.requested` records the durable intent.
+ *   4. `git worktree add` runs through the {@link GitRunner} seam.
+ *   5. `worktree.create.executed` records the terminal.
  *
- * The harness launcher's worktree is a **top-level, task-less** harness-process
- * worktree — a distinct kind from a delegation task worktree. It is therefore
- * tracked through the WLM lifecycle family the `worktrees@v1` projection already
- * folds (`worktree.reserved` + the launch liveness pair), NOT through the
- * task-scoped `worktree.created` terminal (which requires `taskId` + `branch`
- * and would give the launcher zero `ps` visibility — see the DR-2 correction in
- * the spec). This module performs the actual creation in the exact ordering the
- * spec pins, with EVERY append on the singleton `worktrees` stream:
- *
- *   1. **`reserve` FIRST — before `git worktree add`.** {@link WorktreeManager.reserve}
- *      emits a single `worktree.reserved` ownership event so the worktree is
- *      tracked in `worktrees@v1` (state `reserved`) BEFORE it exists on disk —
- *      closing the untracked-on-disk window a concurrent `adopt`/prune would race.
- *   2. **`worktree.create.requested`** — the INV-13 durable intent, idempotency
- *      key `worktree.create.requested:<operationId>`.
- *   3. **`git worktree add`** — routed through the manager's {@link GitRunner}
- *      seam (never a scattered `execFile`). The DR-5 topology guard
- *      ({@link deriveWorktreePath} + {@link guardWorktreeContainment}) runs
- *      BEFORE the add; a nested/escaping target is refused with a structured error.
- *   4. **`worktree.create.executed`** — the INV-13 shared-stem terminal.
- *
- * ## Crash-precheck (idempotent resume)
- *
- * A crash between the intent and the terminal is recovered by an idempotent
- * precheck: if the worktree is already registered on disk the add is skipped and
- * the terminal records `created: false`; otherwise the add is re-run. The
- * `<eventType>:<operationId>` idempotency key makes the appends idempotent (the
- * event-append lock serializes the *appends*, not the git side-effect between
- * intent and terminal — INV-7). {@link recoverPendingCreations} resumes any
- * `worktree.create.requested` with no paired `worktree.create.executed`.
- *
- * The `worktree.create.*` pair is INV-13 creation **audit**, correlated by
- * `operationId` for crash recovery — a `worktrees@v1` reducer no-op like
- * `worktree.remove.requested`, NOT a projection input. Launcher `ps` visibility
- * comes from `worktree.reserved` + `launch.*`.
+ * The `worktree.create.*` pair is creation audit, correlated by `operationId` for crash recovery. The `worktrees@v1` reducer ignores it.
+ * After a crash, {@link recoverPendingCreations} resumes each intent that has no terminal.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -64,16 +39,12 @@ import {
   type WorktreePathRefused,
 } from './topology.js';
 
-/** The launcher's top-level worktree INTENT (INV-13). */
+/** The intent event for the creation of a launcher top-level worktree. */
 export const CREATE_REQUESTED = 'worktree.create.requested';
-/** The launcher's top-level worktree TERMINAL (INV-13, shared stem). */
+/** The terminal event for the creation of a launcher top-level worktree. It shares the stem of the intent. */
 export const CREATE_EXECUTED = 'worktree.create.executed';
 
-/**
- * The DR-5 containment guard seam. Structurally identical to
- * {@link guardWorktreeContainment}; injected so a test can spy on invocation
- * order (guard-before-add) without reaching into the topology internals.
- */
+/** The containment guard seam, with the shape of {@link guardWorktreeContainment}. Tests inject it to spy on the order of the guard and the add. */
 export type ContainmentGuard = (
   base: string,
   target: string,
@@ -82,9 +53,9 @@ export type ContainmentGuard = (
 
 /** Arguments for {@link createLauncherWorktree}. */
 export interface CreateLauncherWorktreeInput {
-  /** Absolute path of the base worktree the new sibling is derived off (DR-5). */
+  /** Absolute path of the base worktree that the new sibling path derives from. */
   readonly baseWorktree: string;
-  /** Single path-segment sibling id (e.g. the launch id). */
+  /** Single path-segment sibling id, for example the launch id. */
   readonly id: string;
   /** Owning feature id, or `null` when the launch is unattached. */
   readonly featureId: string | null;
@@ -99,15 +70,13 @@ export interface CreateLauncherWorktreeInput {
 /** Injectable seams for {@link createLauncherWorktree}. */
 export interface CreateLauncherWorktreeDeps {
   /**
-   * The single git seam ALL worktree-mutating git routes through (`git worktree
-   * add`, the registration precheck). Injected so a test can record the exact
-   * argument vectors and assert nothing bypasses it; defaults to the real,
-   * portable {@link defaultGitRunner}.
+   * The git seam for the worktree git calls (`git worktree add` and the registration precheck).
+   * Tests inject it to record the argument vectors. Defaults to {@link defaultGitRunner}.
    */
   readonly gitRunner?: GitRunner;
   /** The WLM manager whose `reserve` records ownership. Defaults to a fresh one. */
   readonly manager?: WorktreeManager;
-  /** The DR-5 containment guard. Defaults to {@link guardWorktreeContainment}. */
+  /** The containment guard. Defaults to {@link guardWorktreeContainment}. */
   readonly guard?: ContainmentGuard;
   /** Symlink-resolver used for canonical keying. Defaults to {@link defaultRealpath}. */
   readonly realpath?: RealpathResolver;
@@ -116,9 +85,8 @@ export interface CreateLauncherWorktreeDeps {
   /** Reserving process PID. Defaults to `process.pid`. */
   readonly selfPid?: number;
   /**
-   * Reserving process create-time fingerprint. Defaults to the probed value —
-   * `null` (NEVER `''`) when the platform cannot resolve it, so the emitted
-   * `worktree.reserved` honors the null-ready `ownerStartedAt` contract (DR-5).
+   * Create-time fingerprint of the reserving process. Defaults to the probed value.
+   * It is `null`, never `''`, when the platform cannot resolve it, as the `ownerStartedAt` field of `worktree.reserved` requires.
    */
   readonly selfStartedAt?: string | null;
   /** Idempotency correlator for the create pair. Defaults to a fresh uuid. */
@@ -133,15 +101,15 @@ export type CreateLauncherWorktreeResult =
       readonly worktreeId: string;
       /** Absolute path of the created (or already-present) worktree. */
       readonly worktreePath: string;
-      /** The INV-13 create-pair correlator. */
+      /** The correlator of the create pair. */
       readonly operationId: string;
-      /** True if this call created it; false if it was already on disk (idempotent). */
+      /** True when this call created the worktree, and false when it was already on disk. */
       readonly created: boolean;
     }
   | {
       readonly ok: false;
       readonly reason: 'containment-refused';
-      /** The structured DR-5 refusal (nested-inside-base / escapes-containment). */
+      /** The structured containment refusal: nested inside the base, or escaping containment. */
       readonly refusal: WorktreePathRefused;
     }
   | {
@@ -159,11 +127,8 @@ export type CreateLauncherWorktreeResult =
     };
 
 /**
- * Create the launcher's top-level, task-less worktree in the spec-pinned order:
- * DR-5 guard → `reserve` → `worktree.create.requested` → `git worktree add` →
- * `worktree.create.executed`. All appends land on the singleton `worktrees`
- * stream. Idempotent under crash: a re-run with the same `operationId` (or
- * {@link recoverPendingCreations}) resumes an unfinished create.
+ * Create the launcher top-level worktree in the order of the module header: guard, `reserve`, intent, `git worktree add`, terminal.
+ * A failed add leaves the intent open for a recovery pass. A re-run with the same `operationId`, or {@link recoverPendingCreations}, resumes an unfinished create.
  */
 export async function createLauncherWorktree(
   eventStore: EventStore,
@@ -179,7 +144,6 @@ export async function createLauncherWorktree(
     new WorktreeManager({ eventStore, realpath, gitRunner, processSource });
   const repoRoot = input.repoRoot ?? input.baseWorktree;
 
-  // ── Step A (DR-5): derive the sibling path + guard containment BEFORE add. ──
   const derived = deriveWorktreePath(input.baseWorktree, input.id);
   const guardResult = guard(input.baseWorktree, derived, realpath);
   if (!guardResult.ok) {
@@ -188,10 +152,6 @@ export async function createLauncherWorktree(
   const worktreePath = guardResult.path;
   const worktreeId = canonicalWorktreeId(worktreePath, realpath);
 
-  // ── Step B (DR-2): RESERVE FIRST — before git worktree add. ──
-  // The worktree is tracked in `worktrees@v1` (state `reserved`) BEFORE it
-  // exists on disk, closing the untracked-on-disk window a concurrent adopt
-  // would otherwise race.
   const selfPid = deps.selfPid ?? process.pid;
   const selfStartedAt =
     deps.selfStartedAt ?? resolveSelfStartedAt(selfPid, processSource);
@@ -206,7 +166,6 @@ export async function createLauncherWorktree(
     return { ok: false, reason: 'reserve-conflict', conflict: reserve.conflict };
   }
 
-  // ── Step C (INV-13): intent → add → terminal, all on the worktrees stream. ──
   const operationId = deps.operationId ?? randomUUID();
   await appendCreateRequested(eventStore, operationId, worktreePath, worktreeId, {
     ...(input.newBranch !== undefined ? { branch: input.newBranch } : {}),
@@ -221,8 +180,6 @@ export async function createLauncherWorktree(
     realpath,
   );
   if (!outcome.ok) {
-    // Genuine add failure (e.g. non-git target): leave the durable intent
-    // unclosed so a recovery pass re-attempts. Never emit the terminal here.
     return { ok: false, reason: 'git-add-failed', worktreePath, stderr: outcome.stderr };
   }
 
@@ -241,7 +198,7 @@ export interface RecoveredCreation {
   readonly operationId: string;
   readonly worktreePath: string;
   readonly worktreeId: string | null;
-  /** True if the resume re-ran the add; false if the worktree was already on disk. */
+  /** True when the resume ran the add, and false when the worktree was already on disk. */
   readonly created: boolean;
 }
 
@@ -250,12 +207,8 @@ export interface RecoverPendingCreationsDeps {
   readonly gitRunner?: GitRunner;
   readonly realpath?: RealpathResolver;
   /**
-   * Reconstruct the `git worktree add` argument vector for a resumed creation.
-   * The `worktree.create.requested` intent now carries the original `branch`/
-   * `startPoint` (INV-13), so the default replays the FULL command
-   * ({@link composeAddArgs}) — including `-b <branch>` — instead of deriving a
-   * branch from the path basename. The recovered `spec` is passed as the second
-   * argument.
+   * Rebuild the `git worktree add` argument vector for a resumed creation, from the recovered `spec`.
+   * The intent carries the original `branch` and `startPoint`, so the default ({@link composeAddArgs}) replays the full command, `-b <branch>` included.
    */
   readonly rebuildAddArgs?: (
     worktreePath: string,
@@ -264,12 +217,9 @@ export interface RecoverPendingCreationsDeps {
 }
 
 /**
- * Finish any crashed creation: a `worktree.create.requested` on the `worktrees`
- * stream with no paired `worktree.create.executed`. For each, run the SAME
- * idempotent precheck ({@link ensureWorktreeCreated}) — worktree on disk? emit
- * the terminal (`created: false`) : re-run the add — and emit the missing
- * `worktree.create.executed` REUSING the original `operationId`, so the audit
- * pair stays 1:1 and the entry is created exactly once across the crash.
+ * Finish each crashed creation: a `worktree.create.requested` with no paired `worktree.create.executed`.
+ * For each, the precheck ({@link ensureWorktreeCreated}) skips the add when the worktree is on disk, or runs the add again.
+ * Then it emits the missing terminal with the original `operationId`. An add that fails again leaves the intent for a later pass.
  */
 export async function recoverPendingCreations(
   eventStore: EventStore,
@@ -286,7 +236,7 @@ export async function recoverPendingCreations(
   const handled = new Set<string>();
   const recovered: RecoveredCreation[] = [];
   for (const { operationId, worktreePath, worktreeId, branch, startPoint } of pending) {
-    if (handled.has(operationId)) continue; // one executed per operationId
+    if (handled.has(operationId)) continue;
     handled.add(operationId);
     const outcome = ensureWorktreeCreated(
       gitRunner,
@@ -298,7 +248,7 @@ export async function recoverPendingCreations(
       }),
       realpath,
     );
-    if (!outcome.ok) continue; // still unrecoverable — leave the intent for later.
+    if (!outcome.ok) continue;
     await appendCreateExecuted(
       eventStore,
       operationId,
@@ -311,8 +261,6 @@ export async function recoverPendingCreations(
   return recovered;
 }
 
-// ─── Internal helpers ────────────────────────────────────────────────────────
-
 /** The `-b`/start-point spec threaded through the create pair for faithful replay. */
 interface AddArgsSpec {
   /** New branch to create with `-b` (omit to let git derive one from the path). */
@@ -322,12 +270,8 @@ interface AddArgsSpec {
 }
 
 /**
- * The single `git worktree add` argument-vector composer, shared by the initial
- * create ({@link buildAddArgs}) and crash-resume ({@link recoverPendingCreations}).
- * Centralizing it guarantees recovery replays the EXACT command the durable intent
- * recorded (INV-13) — a `-b <branch>` or start-point is never silently dropped on
- * resume, so a resumed create can never diverge to a different branch derived from
- * the path basename.
+ * The one `git worktree add` argument composer, for the first create ({@link buildAddArgs}) and for the resume ({@link recoverPendingCreations}).
+ * Thus a resume replays the exact recorded command and never drops a `-b <branch>` or a start point.
  */
 function composeAddArgs(worktreePath: string, spec: AddArgsSpec): string[] {
   const args: string[] = ['worktree', 'add'];
@@ -354,12 +298,9 @@ type EnsureOutcome =
   | { readonly ok: false; readonly stderr: string };
 
 /**
- * Idempotent precheck + add. Registered on disk already ⇒ skip the add
- * (`created: false`, an idempotent success). Otherwise run `git worktree add`
- * via the injected runner; a non-zero status that nonetheless left the worktree
- * registered (a concurrent create won the race) also downgrades to
- * `created: false`. A genuine failure (still unregistered) surfaces as
- * `{ ok: false }` so the caller can leave the INV-13 intent open for resume.
+ * An idempotent precheck and add. When the worktree is already registered, it skips the add with `created: false`.
+ * When the add fails but the worktree is then registered, a concurrent create won the race, and the result is also `created: false`.
+ * A genuine failure returns `{ ok: false }` with the stderr of git, or stdout when stderr is empty. The caller then leaves the intent open.
  */
 function ensureWorktreeCreated(
   gitRunner: GitRunner,
@@ -374,12 +315,8 @@ function ensureWorktreeCreated(
   const { status, stdout, stderr } = gitRunner.run(addArgs, repoRoot);
   if (status === 0) return { ok: true, created: true };
   if (isWorktreeRegistered(gitRunner, repoRoot, worktreePath, realpath)) {
-    return { ok: true, created: false }; // raced into existence — idempotent.
+    return { ok: true, created: false };
   }
-  // `git worktree add` writes its failure diagnostic (permission denied, invalid
-  // path, branch collision, …) to stderr, not stdout — surface it so a
-  // WORKTREE_CREATE_FAILED carries a meaningful message. Fall back to stdout only
-  // for a runner that leaves stderr unpopulated (e.g. a legacy test double).
   const diagnostic = stderr !== undefined && stderr.trim().length > 0 ? stderr : stdout;
   return { ok: false, stderr: diagnostic };
 }
@@ -399,7 +336,10 @@ function isWorktreeRegistered(
   );
 }
 
-/** Append the INV-13 intent (idempotency key `worktree.create.requested:<operationId>`). */
+/**
+ * Append the creation intent with idempotency key `worktree.create.requested:<operationId>`.
+ * It records `branch` and `startPoint` when they are set, so a resume replays the original command.
+ */
 async function appendCreateRequested(
   eventStore: EventStore,
   operationId: string,
@@ -412,9 +352,6 @@ async function appendCreateRequested(
       WORKTREES_STREAM,
       {
         type: CREATE_REQUESTED,
-        // Persist branch/startPoint in the durable intent so a crash-resume
-        // replays the ORIGINAL command faithfully (INV-13) — omitted when
-        // unset so the event stays minimal (git derives the branch from path).
         data: {
           operationId,
           worktreePath,
@@ -428,7 +365,7 @@ async function appendCreateRequested(
   );
 }
 
-/** Append the INV-13 terminal (idempotency key `worktree.create.executed:<operationId>`). */
+/** Append the creation terminal with idempotency key `worktree.create.executed:<operationId>`. */
 async function appendCreateExecuted(
   eventStore: EventStore,
   operationId: string,
@@ -488,7 +425,6 @@ async function listPendingCreations(
     if (operationId === null || worktreePath === null) continue;
     if (executedOps.has(operationId)) continue;
     const worktreeId = eventStringField(event, 'worktreeId');
-    // The original -b branch / start-point, replayed verbatim on resume (INV-13).
     const branch = eventStringField(event, 'branch');
     const startPoint = eventStringField(event, 'startPoint');
     pending.push({
@@ -503,12 +439,9 @@ async function listPendingCreations(
 }
 
 /**
- * Resolve the reserving process's create-time fingerprint via the injected
- * {@link ProcessSource}; `null` (NEVER the empty string `''`) when it cannot be
- * probed — still a well-formed reservation, it just cannot defeat PID reuse.
- * `null` threads through the null-ready `ownerStartedAt` contract (DR-5); `''`
- * would be the `''`-vs-`.min(1)` invalid-raw-event class. Mirrors the
- * self-identity resolution in `merge-serializer.ts` / `handlers.ts`.
+ * Resolve the create-time fingerprint of the reserving process through the injected {@link ProcessSource}.
+ * When the probe fails, it returns `null`, never `''`, because the `ownerStartedAt` schema accepts `null` but not an empty string.
+ * The reservation stays valid, but it cannot detect PID reuse.
  */
 function resolveSelfStartedAt(pid: number, source: ProcessSource): string | null {
   const probe = source.getStartTime(pid);

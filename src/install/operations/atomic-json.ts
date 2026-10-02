@@ -1,38 +1,16 @@
 /**
- * Atomic JSON configuration I/O (EFF-008).
+ * Atomic JSON configuration I/O for `~/.claude.json` and the Exarchos config.
+ * A truncated write destroys a user-owned file, so a partial write is worse
+ * than no write. The writer does these steps:
  *
- * `~/.claude.json` and the Exarchos config are user-owned files that a failed
- * write can destroy: a truncated `writeFileSync` leaves the target neither the
- * old configuration nor the new one, and the next read fails on a file the user
- * never edited. Configuration writes are the one effect class where "partially
- * applied" is strictly worse than "not applied".
- *
- * Both writers route through this module so the durability rules live in one
- * place:
- *
- *   1. serialize, and refuse a value `JSON.stringify` cannot represent;
- *   2. write to a temp file in the SAME directory (rename is only atomic within
- *      a filesystem), LOOPING on the byte count `writeSync` reports — a short
- *      write is completed, and a write that makes no forward progress throws;
- *   3. `fsync` the data before promoting, so a crash cannot leave a
- *      rename-visible but empty file;
- *   4. re-read the temp file FROM DISK and require it to be byte-identical to
- *      what we serialized, and to parse — this is the promotion gate;
- *   5. `rename` over the target, which is atomic, then `fsync` the directory so
- *      the new link survives a crash (best-effort: see `fsyncDirectory`);
- *   6. on any failure, unlink the temp file and rethrow — the target keeps its
- *      previous contents.
- *
- * Step 4 is the one that earns the module's name, and it is deliberately a disk
- * read. Parsing back the in-memory string `JSON.stringify` just produced tests
- * nothing that can fail; the real hazard is a short `writeSync` whose return
- * value is discarded, leaving a truncated temp file that is then fsync'd and
- * renamed over good data. Both a truncating filesystem and a stalled write are
- * caught here rather than at the user's next read.
- *
- * Reads fail with a typed {@link ConfigParseError} rather than a silent default,
- * because silently treating a corrupt config as "absent" is how a user's MCP
- * server list gets quietly erased on the next write.
+ *   1. Serialize, and refuse a value that `JSON.stringify` cannot represent.
+ *   2. Write a temp file in the same directory, because a rename is atomic only in one
+ *      filesystem. Loop on the byte count from `writeSync`. A write that makes no progress throws.
+ *   3. `fsync` the data, so that a crash cannot leave an empty file after the rename.
+ *   4. Read the temp file back from disk. It must equal the serialized bytes and
+ *      parse as JSON. This check stops a short write before the rename.
+ *   5. `rename` over the target, then `fsync` the directory where possible.
+ *   6. On failure, unlink the temp file and rethrow. The target keeps its content.
  */
 
 import * as crypto from 'node:crypto';
@@ -41,11 +19,9 @@ import * as path from 'node:path';
 import { publishTempFileSync, type DirectorySyncOutcome } from '../../utils/atomic-write.js';
 
 /**
- * A configuration file exists but does not contain readable JSON.
- *
- * Distinct from "absent": absent is a normal first-run state a caller may
- * default for, corrupt is an operator-visible fault that must not be papered
- * over by writing a fresh file on top of it.
+ * A configuration file exists but does not hold readable JSON. An absent file
+ * is a normal first-run state. A corrupt file is a fault that a new write must
+ * not hide.
  */
 export class ConfigParseError extends Error {
   override readonly name = 'ConfigParseError';
@@ -84,11 +60,8 @@ export function readJsonConfig<T>(filePath: string): T | null {
 }
 
 /**
- * The bytes that reached disk are not the bytes we serialized.
- *
- * Raised before promotion, so the target still holds its previous contents.
- * Distinct from {@link ConfigParseError}: that one reports a file that is
- * already unreadable, this one reports that we declined to make one.
+ * The writer refused to promote a write. It throws before the rename, so the
+ * target keeps its previous content.
  */
 export class AtomicWriteError extends Error {
   override readonly name = 'AtomicWriteError';
@@ -113,10 +86,9 @@ export interface AtomicJsonFs {
   mkdirSync: typeof fs.mkdirSync;
   openSync: typeof fs.openSync;
   /**
-   * Write `length` bytes of `data` starting at `offset`, returning the number
-   * actually written. The return value is load-bearing — the caller loops on it
-   * — so an implementation must report the truth, exactly as `fs.writeSync`
-   * does. Discarding it is the bug this seam exists to make visible.
+   * Write `length` bytes of `data` from `offset`, and return the count actually
+   * written. The caller loops on this count, so it must be true, as in
+   * `fs.writeSync`.
    */
   writeSync: (fd: number, data: Buffer, offset: number, length: number) => number;
   fsyncSync: typeof fs.fsyncSync;
@@ -139,21 +111,16 @@ const nodeFs: AtomicJsonFs = {
 };
 
 /**
- * Serialize `value` and replace `filePath` atomically.
- *
- * Parent directories are created. The target is only ever replaced by bytes
- * that were read back from disk and found identical to what we serialized; a
- * failure at any step leaves the previous file untouched and removes the temp
- * artifact.
+ * Serialize `value` and replace `filePath` atomically. This function creates
+ * parent directories. Only a temp file whose bytes on disk equal the serialized
+ * bytes replaces the target. On failure, the previous file stays and the temp
+ * file is removed.
  */
 export function writeJsonConfigAtomic(
   filePath: string,
   value: unknown,
   io: AtomicJsonFs = nodeFs,
 ): void {
-  // `JSON.stringify` returns `undefined` for a value it cannot represent (a bare
-  // `undefined`, a function, a symbol). Catch that here, directly, rather than
-  // via a parse of the string we just built.
   const body = JSON.stringify(value, null, 2);
   if (body === undefined) {
     throw new AtomicWriteError(filePath, 'value has no JSON representation');
@@ -180,10 +147,6 @@ export function writeJsonConfigAtomic(
   }
   closeQuietly(io, fd);
 
-  // The promotion gate. Everything above reports success through a return value
-  // or the absence of a throw; this reads the candidate back and compares it to
-  // the source bytes, so a filesystem that accepted less than it acknowledged
-  // cannot reach `rename`.
   try {
     assertPromotable(io, tmpPath, serialized, filePath);
   } catch (err: unknown) {
@@ -203,13 +166,9 @@ export function writeJsonConfigAtomic(
 }
 
 /**
- * Write every byte of `data`, looping on the count `writeSync` reports.
- *
- * A single `writeSync` may transfer fewer bytes than requested — that is the
- * documented contract, not an error condition — so the previous "call it once
- * and discard the result" shape produced a truncated file that the rest of the
- * pipeline then treated as complete. A call that transfers nothing is not short
- * but stalled, and gets no retry budget: looping on it would spin forever.
+ * Write each byte of `data`, and loop on the count that `writeSync` reports.
+ * One call can write fewer bytes than requested. A call that writes nothing is
+ * stalled, so it throws and does not retry.
  */
 function writeFully(io: AtomicJsonFs, fd: number, data: Buffer, filePath: string): void {
   let written = 0;
@@ -247,11 +206,10 @@ function assertPromotable(
 }
 
 /**
- * Flush the directory entry so a crash cannot lose the rename itself.
- *
- * Best-effort: a host may refuse to open or fsync a directory. The rename has
- * already landed, so a completed write must never be reported as a failure.
- * Every refusal is therefore reported as `unsupported`, with its errno.
+ * Flush the directory entry so that a crash cannot lose the rename. This step is
+ * best-effort, because a host can refuse to open or fsync a directory. The rename
+ * has already landed, so a completed write is never reported as a failure. Each
+ * refusal is reported as `unsupported`, with its errno.
  */
 function fsyncDirectory(io: AtomicJsonFs, dir: string): DirectorySyncOutcome {
   let dirFd: number;
@@ -278,18 +236,18 @@ function errnoCode(err: unknown): string {
   return 'UNKNOWN';
 }
 
+/** Close `fd` and ignore an error, so that a close failure never hides the original failure. */
 function closeQuietly(io: AtomicJsonFs, fd: number): void {
   try {
     io.closeSync(fd);
   } catch {
-    /* best-effort: never mask the original failure */
   }
 }
 
+/** Remove `target` and ignore an error. A leftover temp file is recoverable, but a lost config is not. */
 function unlinkQuietly(io: AtomicJsonFs, target: string): void {
   try {
     io.unlinkSync(target);
   } catch {
-    /* best-effort: a leftover temp file is recoverable, a lost config is not */
   }
 }

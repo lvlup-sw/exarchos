@@ -1,24 +1,11 @@
 /**
- * advisory-kill-probes — the executable kill fixtures for the governed
- * advisories in {@link ADVISORY_REGISTRY} (P07-07).
+ * Kill fixtures for the governed advisories in {@link ADVISORY_REGISTRY}.
+ * Each fixture is a seeded violation plus a seeded clean control. The real advisory must fire on the violation and stay silent on the control.
+ * `verifyAdvisoryRatchet` reads the {@link KillProbeResult} values. It fails when a probe misses the violation or fires on the control.
  *
- * A kill fixture is a SEEDED VIOLATION plus a SEEDED CLEAN CONTROL: running the
- * real advisory against them must FIRE on the violation and stay SILENT on the
- * control. That discriminating pair is the one real guarantee that an advisory
- * is not theatre. `verifyAdvisoryRatchet` (in `advisory-registry.ts`) consumes
- * the {@link KillProbeResult}s these probes produce and fails if any registered
- * advisory's kill fixture no longer fires.
- *
- * The probes run the REAL advisory control wherever that is portable:
- *   - `lint-inv6`             — spawns the real `tools/audit/gates/lint-inv6.mjs` (Node,
- *     fully portable) against a seeded SKILL.md pair.
- *   - `benchmark-regression`  — runs the real `tools/audit/gates/check-benchmark-regression.sh`
- *     when `bash` + `jq` are present; otherwise it evaluates the same seeded
- *     (results, baselines) fixtures with a faithful in-process port AND
- *     structurally asserts the real script still declares its regression branch,
- *     so a gutted/deleted advisory is still caught. (The real script hard-requires
- *     `jq`, which is absent on the Windows dev box; on CI Linux the real script
- *     runs. See the module report for the jq portability follow-up.)
+ * The `lint-inv6` probe spawns the real `tools/audit/gates/lint-inv6.mjs` against a seeded SKILL.md pair.
+ * The `benchmark-regression` probe runs the real `check-benchmark-regression.sh` when `bash` and `jq` are present.
+ * Otherwise it runs an in-process port, and it checks that the real script still holds its regression branch.
  */
 
 import { spawnSync } from 'node:child_process';
@@ -29,8 +16,6 @@ import { join } from 'node:path';
 import type { AdvisoryEntry, KillProbeResult } from './advisory-registry.js';
 import { spawnCommandSync } from '../utils/process.js';
 
-// ─── Options ─────────────────────────────────────────────────────────────────
-
 export interface RunKillProbeOptions {
   /** Absolute repo root (the directory containing `tools/audit/`). */
   readonly repoRoot: string;
@@ -40,17 +25,10 @@ export interface RunKillProbeOptions {
   readonly hasJq?: boolean;
 }
 
-// ─── Tool detection ──────────────────────────────────────────────────────────
-
 /**
- * Whether an external tool answers on PATH.
- *
- * The bin is a LITERAL at each spawn rather than a parameter. A resolved command
- * variable can land on a `.cmd`/`.ps1` shim that raw `spawnSync` cannot launch
- * on Windows (CVE-2024-27980), which is why the portability gate refuses a
- * variable bin in shipped `src/` at all — and this module compiles into `dist/`
- * like the rest of it. `bash` and `jq` are real executables wherever this probe
- * runs, so naming them directly is both correct and legible to the gate.
+ * Return true when the named tool answers on PATH. Each spawn names its binary as a literal.
+ * The portability gate rejects a variable binary in `src/`. A variable can resolve to a `.cmd` or `.ps1` shim,
+ * which raw `spawnSync` cannot launch on Windows (CVE-2024-27980).
  */
 function toolAvailable(tool: 'bash' | 'jq'): boolean {
   try {
@@ -64,8 +42,6 @@ function toolAvailable(tool: 'bash' | 'jq'): boolean {
   }
 }
 
-// ─── lint-inv6 kill fixture ──────────────────────────────────────────────────
-
 interface LintFinding {
   readonly file: string;
   readonly rule: string;
@@ -76,11 +52,9 @@ interface LintOutput {
 }
 
 /**
- * Seeded SKILL.md pair, run through the REAL `tools/audit/gates/lint-inv6.mjs`:
- *   - `flagged/`: a workflow-typed literal in the body, NO `workflow-type` in
- *     frontmatter → the lint MUST report ≥1 finding (fires);
- *   - `clean/`:   the same literal, but with `metadata.workflow-type` declared →
- *     the lint MUST report 0 findings (silent).
+ * Run the real `lint-inv6.mjs` on a seeded SKILL.md pair.
+ * The `flagged/` skill has a workflow-typed literal and no `workflow-type` in its frontmatter, so the lint must report a finding.
+ * The `clean/` skill has the same literal and declares `metadata.workflow-type`, so the lint must report no finding.
  */
 function probeLintInv6(advisory: AdvisoryEntry, opts: RunKillProbeOptions): KillProbeResult {
   const script = join(opts.repoRoot, 'tools', 'audit', 'gates', 'lint-inv6.mjs');
@@ -174,9 +148,7 @@ function probeLintInv6(advisory: AdvisoryEntry, opts: RunKillProbeOptions): Kill
   }
 }
 
-// ─── benchmark-regression kill fixture ───────────────────────────────────────
-
-/** A faithful in-process port of the script's core regression comparison. */
+/** An in-process port of the regression comparison in `check-benchmark-regression.sh`. */
 function detectsRegression(
   results: Record<string, Record<string, number>>,
   baselines: Record<string, Record<string, number>>,
@@ -194,14 +166,10 @@ function detectsRegression(
 }
 
 /**
- * Seeded (results, baselines) fixtures for `check-benchmark-regression.sh`:
- *   - violation: `latency.p95Ms` measured 200 vs baseline 100 (+100% > 10%)  → FAIL;
- *   - clean:     `latency.p95Ms` measured 105 vs baseline 100 (+5% ≤ 10%)    → PASS.
- *
- * When bash + jq are present, the REAL script decides via its exit code. When
- * they are not, the port decides, guarded by a structural assertion that the
- * real script still contains its regression branch — so the probe cannot pass
- * against a deleted or gutted advisory.
+ * Run seeded results and baselines through `check-benchmark-regression.sh` with a 10% threshold.
+ * The baseline for `latency.p95Ms` is 100. The violation measures 200 and must fail. The clean control measures 105 and must pass.
+ * When `bash` and `jq` are present, the exit code of the real script decides.
+ * Otherwise the port decides, and the violation counts as a fire only when the real script still holds its regression branch.
  */
 function probeBenchmarkRegression(
   advisory: AdvisoryEntry,
@@ -266,7 +234,6 @@ function probeBenchmarkRegression(
     }
   }
 
-  // Portable fallback: port + structural binding to the real advisory.
   const src = readFileSync(script, 'utf8');
   const structurallyIntact = src.includes('IS_REGRESSION') && src.includes('Result: FAIL');
   const firedOnViolation =
@@ -282,8 +249,6 @@ function probeBenchmarkRegression(
       `real script regression branch ${structurallyIntact ? 'present' : 'MISSING'}`,
   };
 }
-
-// ─── Dispatch ────────────────────────────────────────────────────────────────
 
 type ProbeRunner = (advisory: AdvisoryEntry, opts: RunKillProbeOptions) => KillProbeResult;
 

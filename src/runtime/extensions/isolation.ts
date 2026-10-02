@@ -1,18 +1,12 @@
-// ─── Extension isolation policy (P03-08) ──────────────────────────────────
-//
-// Isolation is a declared, typed, testable policy — not ambient trust. The
-// manifest states, up front, exactly which capabilities the extension may
-// reach and what filesystem/network posture it assumes. Admission enforces two
-// invariants, both fail-closed:
-//   1. The requested capabilities are a SUBSET of the host posture's capability
-//      set (the canonical trust-boundary table in `capabilities/posture-
-//      mapping.ts`). An extension can never widen the trust tier it runs under.
-//   2. The declared reach is internally consistent — declaring filesystem reach
-//      without the corresponding `fs:read` capability is a malformed,
-//      over-reaching policy.
-// This reuses the existing posture→capability model rather than inventing a
-// parallel one, so extensions ride inside the same three-tier trust boundary as
-// agents instead of bypassing it.
+/**
+ * The declared isolation policy of an extension. The manifest states the
+ * capabilities that the extension can use, and its filesystem and network
+ * reach. Admission enforces two fail-closed rules:
+ *   1. The requested capabilities are a subset of the host posture capabilities
+ *      in `workflow/capabilities/posture-mapping.ts`. Thus an extension cannot
+ *      widen its trust tier. Extensions use the same posture model as agents.
+ *   2. Filesystem reach needs the `fs:read` capability.
+ */
 
 import { z } from 'zod';
 import { Capability } from '../agents/capabilities.js';

@@ -1,19 +1,10 @@
-// ─── Agent Spec Types ──────────────────────────────────────────────────────
-//
-// Defines the shape of agent specifications for subagent dispatch. Specs
-// declare a `posture` (DR-6 trust tier); the capability resolver
-// (`capabilities/posture-mapping.ts:resolveCapabilities`) derives the
-// effective capability set from posture + agentId. Runtime tool naming
-// (e.g. Claude tool arrays) belongs in adapters, which call the resolver
-// at render time.
-//
-// v2.10-preview.1 (#1333): the legacy runtime-interface field
-// `capabilities: readonly Capability[]` was dropped — the resolver is the
-// single source of truth.
-//
-// See docs/designs/archive/2026-04-25-delegation-runtime-parity.md §3 and
-// docs/designs/archive/2026-05-09-v2-10-0-preview-1-substrate-stabilization.md.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Shape of the agent specs for subagent dispatch. A spec declares a `posture`
+ * trust tier, and `resolveCapabilities` in
+ * `src/workflow/capabilities/posture-mapping.ts` derives the effective
+ * capabilities from the posture and the agent id. Runtime tool names belong in
+ * the adapters, which call the resolver at render time.
+ */
 
 /** A skill that can be loaded into an agent's context. */
 export interface AgentSkill {
@@ -31,7 +22,7 @@ export interface AgentValidationRule {
 /** Canonical agent spec IDs. */
 export type AgentSpecId = 'implementer' | 'fixer' | 'reviewer' | 'scaffolder';
 
-/** Three canonical capability postures (DR-6 of #1259). */
+/** The canonical capability postures. */
 export type AgentPosture = 'read-only' | 'task-isolated' | 'shared-mutating';
 
 /** Complete specification for a subagent. */
@@ -40,10 +31,9 @@ export interface AgentSpec {
   readonly description: string;
   readonly systemPrompt: string;
   /**
-   * Capability posture (DR-6). The single declarative authority on a
-   * spec's capability surface; the resolver derives the effective
-   * capability set from posture + agentId, then layers the runtime
-   * handshake on top.
+   * Capability posture, the declared source of the capabilities of the spec.
+   * The resolver derives the effective set from the posture and the agent id,
+   * and then adds the runtime handshake.
    */
   readonly posture: AgentPosture;
   readonly disallowedTools?: readonly string[];

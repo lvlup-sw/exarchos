@@ -1,18 +1,10 @@
-// ─── Launcher on-ramp — Claude Code harness (DR-1, DR-4) ─────────────────────
-//
-// A *thin, declarative* per-harness on-ramp. The exported value is typed as
-// `HarnessDescriptor`, so it inherits the compile-time pure-data pin asserted in
-// `harness-registry.type-test.ts` (`HasFunctionDeep<HarnessDescriptor>` — a
-// green `tsc`): a function-valued field, or any behavior hook, cannot hide in an
-// on-ramp. There is **no per-harness control-flow** here — an on-ramp is data,
-// never behavior.
-//
-// The descriptor data has a single source of truth in `HARNESS_DESCRIPTORS`
-// (`harness-registry.ts`); this module is the per-harness *on-ramp surface* the
-// lifecycle core spawns through and that the single-abstraction structural guard
-// scans. Adding a Tier-1 harness is a new on-ramp module + a registry entry, not
-// a branch in the lifecycle core (INV-4).
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * The launcher on-ramp for the Claude Code harness.
+ * An on-ramp is data, not behavior, so this module holds no per-harness control flow.
+ * The value has type `HarnessDescriptor`, so the pure-data type test also covers it.
+ * The descriptor data comes from `HARNESS_DESCRIPTORS` in `harness-registry.ts`.
+ * A new Tier-1 harness needs a new on-ramp module and a registry entry, not a branch in the lifecycle core.
+ */
 
 import { HARNESS_DESCRIPTORS, type HarnessDescriptor } from '../harness-registry.js';
 

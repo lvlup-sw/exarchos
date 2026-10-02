@@ -1,14 +1,10 @@
-// ─── Launcher on-ramp — OpenCode CLI harness (DR-1, DR-4) ────────────────────
-//
-// A *thin, declarative* per-harness on-ramp. The exported value is typed as
-// `HarnessDescriptor`, so it inherits the compile-time pure-data pin asserted in
-// `harness-registry.type-test.ts`: no function-valued field or behavior hook can
-// hide in an on-ramp, and there is **no per-harness control-flow** here.
-//
-// The descriptor data has a single source of truth in `HARNESS_DESCRIPTORS`
-// (`harness-registry.ts`); this module is the per-harness on-ramp surface the
-// lifecycle core spawns through (INV-4 — no harness branching in logic).
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Launcher on-ramp for the OpenCode CLI harness.
+ *
+ * The export has the `HarnessDescriptor` type, so the pure-data check in `harness-registry.type-test.ts`
+ * covers it. No function-valued field or behavior hook can hide here. The data comes from
+ * `HARNESS_DESCRIPTORS` in `harness-registry.ts`, and this module adds no harness-specific logic.
+ */
 
 import { HARNESS_DESCRIPTORS, type HarnessDescriptor } from '../harness-registry.js';
 

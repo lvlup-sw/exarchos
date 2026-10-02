@@ -1,20 +1,10 @@
 /**
- * Shared CLI helpers for `src/*` entry points.
- *
- * Each CLI module in this package (e.g. `build-skills.ts`, `skills-guard.ts`)
- * exposes a `main(argv, deps)` function that accepts the same set of
- * injectable side-effecting collaborators so tests can capture output
- * and suppress process exit. Keeping `MainDeps` and the default
- * resolver in one place means a future CLI module only needs to
- * `import { MainDeps, resolveMainDeps } from './cli-helpers.js'`
- * instead of reinventing the shape.
+ * Shared helpers for the CLI entry points of this package.
+ * A CLI module, for example `build-skills.ts`, exposes `main(argv, deps)` with these injectable collaborators.
+ * Tests use them to capture output and to stop the process exit.
  */
 
-/**
- * Injectable side-effecting collaborators for a CLI `main()` function.
- * Every field is optional — tests override what they care about and
- * let `resolveMainDeps` fill the rest with real `process` wiring.
- */
+/** Injectable side-effecting collaborators for a CLI `main()` function. `resolveMainDeps` fills each missing field with a real `process` function. */
 export interface MainDeps {
   cwd?: () => string;
   exit?: (code: number) => never;
@@ -22,11 +12,7 @@ export interface MainDeps {
   errLog?: (msg: string) => void;
 }
 
-/**
- * Same shape as `MainDeps` but with every field required. `main()`
- * callers should treat this as the post-defaults view of their deps
- * so the body never has to re-check for undefined.
- */
+/** `MainDeps` with each field required, after the defaults are applied. */
 export interface ResolvedMainDeps {
   cwd: () => string;
   exit: (code: number) => never;
@@ -34,11 +20,7 @@ export interface ResolvedMainDeps {
   errLog: (msg: string) => void;
 }
 
-/**
- * Fill in the real-process defaults for any `MainDeps` field that
- * the caller left undefined. The returned object is safe to mutate;
- * it shares no references with `deps`.
- */
+/** Fill each undefined `MainDeps` field with its real-process default. The result is a new object, so a change to it does not change `deps`. */
 export function resolveMainDeps(deps: MainDeps = {}): ResolvedMainDeps {
   return {
     cwd: deps.cwd ?? (() => process.cwd()),

@@ -1,19 +1,10 @@
-// ─── The single render guard ─────────────────────────────────────────────────
-//
-// One guard over everything the build generates. It replaces three that each
-// covered a slice: one for the rendered artifact trees, one for the hook and
-// binding output, one for the embedded runtime module.
-//
-// Three guards meant three chances for a scope to go stale unnoticed, and no
-// single place that answered "is the generated tree in sync with its sources".
-// Consolidating them also consolidates the liveness question: this guard
-// declares its scope as data, and a scope that matches no files on disk is
-// itself a failure. A guard covering nothing passes every time, which is worse
-// than the three narrow guards it replaced.
-//
-// The guard does not decide *how* anything is generated — it composes the
-// existing generators and then diffs what they wrote against git.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * The render guard: one check that the generated trees match their sources.
+ *
+ * It composes the skills guard and the hooks guard, which regenerate their trees and compare them with git.
+ * It also declares its scopes as data and fails on a scope that holds no files, because a guard over an
+ * empty path always passes. The guard generates nothing itself.
+ */
 
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -40,9 +31,10 @@ export const RENDER_SCOPES: readonly RenderScope[] = [
   { path: 'rendered/command-aliases', producer: 'build-command-aliases' },
   { path: 'rendered/agents', producer: 'generate-agents' },
   { path: 'hooks', producer: 'build-hooks' },
-  // `.claude/agents/` is deliberately absent: it holds a hand-authored agent,
-  // not generator output, and diffing it here would report a human edit as
-  // drift. The other harness directories are written by the adapters.
+  /**
+   * `.claude/agents/` is not in this list. It holds a hand-authored agent, so a diff of it reports a human
+   * edit as drift. The adapters write the other harness directories.
+   */
   { path: '.codex/agents', producer: 'generate-agents' },
   { path: '.cursor/agents', producer: 'generate-agents' },
   { path: '.opencode/agents', producer: 'generate-agents' },
@@ -61,7 +53,7 @@ export interface RenderGuardOptions {
   regenerateAgents?: SkillsGuardOptions['regenerateAgents'];
 }
 
-/** Files directly under `dir`, recursively. Empty when `dir` is absent. */
+/** The number of files under `dir`, recursively. Zero when `dir` is absent. */
 function fileCount(dir: string): number {
   if (!existsSync(dir)) return 0;
   let n = 0;
@@ -73,22 +65,17 @@ function fileCount(dir: string): number {
 }
 
 /**
- * Report every declared scope that covers nothing.
- *
- * This is the check the consolidation makes possible and also makes necessary.
- * A drift diff over a path that does not exist is trivially clean, so without
- * this the guard reports success precisely when it has stopped working.
+ * Returns each declared scope that holds no files. A drift diff over a missing path is always clean.
+ * Without this check, the guard passes exactly when it stops working.
  */
 export function findEmptyScopes(cwd: string): RenderScope[] {
   return RENDER_SCOPES.filter((scope) => fileCount(join(cwd, scope.path)) === 0);
 }
 
 /**
- * Re-render everything and verify the generated trees match what is committed.
- *
- * Composes the skills leg (rendered artifact trees plus the per-harness agent
- * directories) and the hooks leg (plugin-root hooks and the binding block),
- * then adds the scope-liveness assertion neither of them could make alone.
+ * Re-renders everything and checks that the generated trees match the committed trees. It runs the skills
+ * guard (rendered trees and per-harness agent directories) and the hooks guard (plugin-root hooks and the
+ * binding block). Then it adds the empty-scope check.
  */
 export function runRenderGuard(opts: RenderGuardOptions): RenderGuardResult {
   const { cwd } = opts;

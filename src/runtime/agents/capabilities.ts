@@ -17,11 +17,8 @@ export const Capability = z.enum([
 export type Capability = z.infer<typeof Capability>;
 
 /**
- * Canonical source for tests and adapters that need to enumerate or validate
- * against the full capability vocabulary. Mutators are replaced with
- * throwing stubs so runtime widening of the trust boundary is impossible —
- * `Object.freeze(set)` alone is insufficient because Set internal slots
- * ignore the frozen flag and `.add()` still mutates.
+ * Replaces `add`, `delete` and `clear` with stubs that throw, then freezes the set. `Object.freeze` alone
+ * does not stop a `Set` from changing, because its entries live in internal slots.
  */
 function freezeCapabilityKeys(set: Set<Capability>): ReadonlySet<Capability> {
   const throwImmutable = (): never => {
@@ -33,6 +30,7 @@ function freezeCapabilityKeys(set: Set<Capability>): ReadonlySet<Capability> {
   return Object.freeze(set);
 }
 
+/** The full capability vocabulary, for callers that list or validate capabilities. It cannot change at runtime. */
 export const CAPABILITY_KEYS: ReadonlySet<Capability> = freezeCapabilityKeys(
   new Set(Capability.options),
 );

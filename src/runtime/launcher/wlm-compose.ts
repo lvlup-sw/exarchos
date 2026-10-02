@@ -1,41 +1,16 @@
 /**
- * Launcher ⇄ WLM composition (DR-3).
+ * Composes the harness launcher with the Worktree Lifecycle Manager (WLM).
  *
- * The harness launcher is a **producer / actuator** — it makes worktrees and
- * asks for merges — while the shipped Worktree Lifecycle Manager (WLM) remains
- * the single owner of *tracking*, *verifying*, and *serializing*, **including**
- * for worktrees the launcher did NOT create. This module is the thin seam that
- * WIRES the launcher's producer surface onto the WLM's shipped entry points; it
- * re-homes nothing and reimplements nothing.
+ * The launcher creates worktrees and asks for merges. The WLM tracks, verifies, and serializes them,
+ * including worktrees that the launcher did not create. This module wires the launcher onto the WLM entry
+ * points and reimplements nothing.
  *
- * ## What composes here (and what deliberately does not)
- *
- *   - **Producer wiring.** {@link LauncherWlm.createWorktree} delegates to the
- *     Task-005 {@link createLauncherWorktree}, whose `reserve` step emits the
- *     ownership event `worktree.reserved` that the `worktrees@v1` projection
- *     folds — so the launcher is a *producer the projection consumes*, giving
- *     `exarchos_view{worktrees|ps}` launcher visibility with no fresh scan. (The
- *     `worktree.create.*` pair is INV-13 creation **audit**, correlated by
- *     `operationId`, a `worktrees@v1` reducer no-op — NOT a projection input.)
- *   - **Retain adopt / reconcile.** {@link LauncherWlm.adopt} /
- *     {@link LauncherWlm.reconcile} stay reachable and delegate straight to the
- *     shipped {@link WorktreeManager}. The launcher does NOT assume sole
- *     ownership of worktree creation: a **harness-created nested worktree**
- *     (a Claude Code `.claude/worktrees/agent-*`, a Codex/Cursor worktree, a
- *     hand-made `git worktree add`) is tracked through `adopt`. A
- *     **launcher-created worktree** — already `reserved` — is NOT re-adopted when
- *     a concurrent `adopt`/prune enumerates `git worktree list`, because
- *     `adopt`'s "already tracked → skip" backstop leaves it untouched. Both
- *     paths share ONE event store, so the create-vs-adopt boundary is decided by
- *     the folded state, not by who holds a manager instance.
- *   - **Serialize merges.** {@link LauncherWlm.serializeIntegrationMerge}
- *     delegates to the shipped {@link serializeMerge} optimistic lease, which
- *     composes `merge_orchestrate` UNCHANGED. The launcher is a *caller*: it
- *     re-homes neither `merge_orchestrate` nor the WLM projections, and it never
- *     bypasses the lease with a direct merge.
- *
- * The WLM itself (`manager.ts`, `merge-serializer.ts`, `projections/worktrees.ts`)
- * is untouched by this module — composition, not replacement (DR-3).
+ * - `createWorktree` emits `worktree.reserved` through {@link createLauncherWorktree}, so the
+ *   `worktrees@v1` projection tracks the worktree with no new scan. The `worktree.create.*` events are a
+ *   creation audit that the reducer ignores.
+ * - `adopt` and `reconcile` delegate to {@link WorktreeManager}. `adopt` tracks a worktree that a harness
+ *   or a person created, and skips a worktree that is already tracked.
+ * - `serializeIntegrationMerge` goes through the {@link serializeMerge} lease and never merges directly.
  */
 
 import type { DispatchContext } from '../../dispatch/core/dispatch.js';
@@ -62,37 +37,31 @@ import {
 /** Construction dependencies for {@link LauncherWlm}. */
 export interface LauncherWlmDeps {
   /**
-   * The dispatch context whose `eventStore` is the single append substrate every
-   * composed WLM path (produce / adopt / reconcile / serialize-merge) writes to,
-   * and which {@link serializeMerge} threads to the composed `merge_orchestrate`.
+   * The dispatch context. Its `eventStore` takes the appends of each composed path, and
+   * {@link serializeMerge} passes the context on to `merge_orchestrate`.
    */
   readonly ctx: DispatchContext;
   /**
-   * The shipped WLM facade. Injected so a caller (or test) can share a
-   * pre-built manager; defaults to a fresh {@link WorktreeManager} over
-   * `ctx.eventStore` with the same `realpath` / `gitRunner` seams the producer
-   * path uses, so `adopt` and the launcher's `reserve` canonicalize a worktree
-   * path to the SAME `worktreeId` key (the create-vs-adopt boundary depends on it).
+   * The WLM facade. The default is a new {@link WorktreeManager} over `ctx.eventStore` with the same
+   * `realpath` and `gitRunner` as the producer path. Thus `adopt` and `reserve` derive the same
+   * `worktreeId` for a path, and the boundary between create and adopt depends on that.
    */
   readonly manager?: WorktreeManager;
   /**
-   * Symlink-resolving canonicalizer shared by the manager AND the producer path
-   * so both derive an identical `worktreeId`. Defaults to the manager/producer
-   * defaults (`defaultRealpath`).
+   * Symlink-resolving canonicalizer that the manager and the producer path share, so both derive the same
+   * `worktreeId`. The default is `defaultRealpath`.
    */
   readonly realpath?: RealpathResolver;
   /**
-   * Low-level git runner shared by the manager AND the producer's
-   * `git worktree add` / registration precheck. Defaults to the shipped
-   * `defaultGitRunner`.
+   * Git runner that the manager and the producer path share, for `git worktree add` and the registration
+   * precheck. The default is `defaultGitRunner`.
    */
   readonly gitRunner?: GitRunner;
 }
 
 /**
- * The launcher's composition facade over the shipped WLM (DR-3). Holds no state
- * of its own beyond the shared {@link WorktreeManager} + dispatch context; every
- * method delegates to an already-shipped WLM entry point.
+ * The composition facade of the launcher over the WLM. It keeps no state other than its dependencies, and
+ * each method delegates to a WLM entry point.
  */
 export class LauncherWlm {
   private readonly ctx: DispatchContext;
@@ -113,18 +82,16 @@ export class LauncherWlm {
       });
   }
 
-  /** The shipped WLM facade this composition wires — exposed for advanced callers. */
+  /** The WLM facade that this composition uses. */
   get worktreeManager(): WorktreeManager {
     return this.manager;
   }
 
   /**
-   * PRODUCER wiring: create the launcher's top-level, task-less worktree via the
-   * shipped {@link createLauncherWorktree}. Its `reserve` step emits the
-   * `worktree.reserved` ownership event the `worktrees@v1` projection folds, so
-   * the created worktree is tracked (state `reserved`) with no fresh scan. Shares
-   * this facade's {@link WorktreeManager} + `realpath` / `gitRunner` seams so the
-   * reserved `worktreeId` matches what a later {@link adopt} would derive.
+   * Creates the top-level, task-less worktree of the launcher through {@link createLauncherWorktree}. Its
+   * `reserve` step emits `worktree.reserved`, so the projection tracks the worktree with no new scan. It
+   * shares the manager, `realpath`, and `gitRunner` of this facade, so a later {@link adopt} derives the
+   * same `worktreeId` and skips the worktree.
    */
   createWorktree(
     input: CreateLauncherWorktreeInput,
@@ -139,38 +106,29 @@ export class LauncherWlm {
   }
 
   /**
-   * RETAIN adopt: track every on-disk worktree the launcher did NOT create by
-   * delegating to the shipped {@link WorktreeManager.adopt}. A harness-created
-   * nested worktree is folded into `worktree.adopted`; a launcher-created worktree
-   * that is already `reserved` is left untouched by adopt's "already tracked →
-   * skip" backstop. Pure delegation — the launcher owns no adoption logic.
+   * Delegates to {@link WorktreeManager.adopt}. It emits `worktree.adopted` for each on-disk worktree that
+   * has no tracking entry, such as a nested worktree from a harness. A worktree that the launcher reserved
+   * is already tracked, so `adopt` skips it.
    */
   adopt(repoRoot: string): Promise<AdoptResult> {
     return this.manager.adopt(repoRoot);
   }
 
   /**
-   * RETAIN reconcile: heal every reservation whose owning process is provably
-   * dead, by delegating to the shipped {@link WorktreeManager.reconcile}. Kept
-   * reachable so the launcher's producer activity never strands a dead-owner
-   * reservation the WLM could not reap.
+   * Delegates to {@link WorktreeManager.reconcile}, which releases each reservation whose owner process is
+   * provably dead. It stays reachable, so launcher activity cannot strand the reservation of a dead owner.
    */
   reconcile(): Promise<ReconcileResult> {
     return this.manager.reconcile();
   }
 
   /**
-   * CALLER of the merge serializer: route an integration merge through the
-   * shipped {@link serializeMerge} optimistic lease (which composes
-   * `merge_orchestrate` UNCHANGED). The launcher never merges directly — the
-   * lease is the single serialization point, so at most one in-flight merge runs
-   * per `integrationRef`. Threads this facade's dispatch context so the composed
-   * merge writes to the same substrate.
+   * Runs an integration merge through the {@link serializeMerge} lease, which composes `merge_orchestrate`.
+   * The lease allows at most one in-flight merge per `integrationRef`. The merge writes to the dispatch
+   * context of this facade.
    *
-   * DR-1 default-flip safety: `serialize_merge` now DEFAULTS to dry-run, so this
-   * integration-merge surface pins `dryRun: false` (an EXECUTE) unless the caller
-   * explicitly asked for a dry-run preview — otherwise the new default would
-   * silently no-op a real integration merge.
+   * It passes `dryRun: false` unless the caller asks for a dry run. The `serialize_merge` handler defaults
+   * to dry run, but this method calls {@link serializeMerge} directly.
    */
   serializeIntegrationMerge(
     input: SerializeMergeInput,
@@ -180,10 +138,7 @@ export class LauncherWlm {
   }
 }
 
-/**
- * Construct a {@link LauncherWlm} composition facade. Thin factory kept for
- * call-site symmetry with the other launcher building blocks.
- */
+/** Builds a {@link LauncherWlm}, in the same call style as the other launcher building blocks. */
 export function createLauncherWlm(deps: LauncherWlmDeps): LauncherWlm {
   return new LauncherWlm(deps);
 }

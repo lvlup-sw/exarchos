@@ -1,22 +1,12 @@
 /**
- * AgentEnvironmentDetector — "which agent runtime configs exist in this
- * project?"
+ * Detects which agent runtime configs exist in this project.
  *
- * Separation from `src/runtimes/detect.ts`: that module answers a
- * different question — "which runtime binary is installed on PATH" for
- * `exarchos install-skills` targeting (DR-7). This module inspects the
- * filesystem for runtime config files (`~/.claude.json`,
- * `.cursor/mcp.json`, `.codex/`, etc.) so that `exarchos doctor` can
- * report per-runtime config presence/validity and so the enhanced
- * `exarchos init` (#1091) can offer targeted remediation. The two
- * primitives compose but never duplicate: one asks "is the agent
- * installed on this host?", the other "is the agent configured in this
- * project?". A host can have claude-code on PATH without a project
- * `.claude.json`, and vice versa. Consolidation, if it ever makes sense,
- * is a dedicated hygiene PR — not a drive-by edit here.
+ * `src/install/runtimes/detect.ts` answers a different question: which runtime
+ * binary is on PATH. This module reads runtime config files (`~/.claude.json`,
+ * `.cursor/mcp.json`, `.codex/`, and more) for `exarchos doctor` and for onboarding.
+ * A host can have claude-code on PATH without a project config, and the opposite.
  *
- * All side effects (`fs`, HOME, cwd) are injected via `DetectorDeps`
- * with `process.*` defaults (DIM-1). No module-global state.
+ * All side effects (`fs`, HOME, cwd) come through `DetectorDeps`, with `process.*` defaults.
  */
 
 import { promises as nodeFs } from 'node:fs';
@@ -68,12 +58,10 @@ const RUNTIMES: readonly AgentRuntimeName[] = [
 ];
 
 /**
- * Inspect the filesystem (via injected `deps.fs`) and return one record
- * per known runtime describing config presence, validity, and whether
- * exarchos is registered as an MCP server. Pure with respect to
- * injected deps; no cache. If `signal` fires, the promise rejects with
- * an AbortError-shaped exception. Non-abort probe failures collapse to
- * `configPresent: false` — absence is never a runtime error.
+ * Return one record for each known runtime: config presence, config validity, and
+ * whether exarchos is registered as an MCP server. There is no cache.
+ * If `signal` fires, the promise rejects with an `AbortError`.
+ * A missing path gives `configPresent: false`. Other read errors reject the promise.
  */
 export async function detectAgentEnvironments(
   deps?: DetectorDeps,
@@ -100,6 +88,10 @@ function throwIfAborted(signal?: AbortSignal): void {
   }
 }
 
+/**
+ * Probe one runtime. Codex has no known JSON config file, so its probe checks only
+ * that `.codex/` exists. Copilot is present when either of its two instruction files exists.
+ */
 async function probeRuntime(
   name: AgentRuntimeName,
   fs: DetectorFs,
@@ -126,12 +118,10 @@ async function probeRuntime(
     return { name, configPath, ...probed };
   }
   if (name === 'codex') {
-    // Presence-only: codex has no well-known JSON config file yet.
     const present = await dirExists(fs, configPath);
     return { name, configPath, configPresent: present, configValid: present, mcpRegistered: false };
   }
   if (name === 'copilot') {
-    // Two documented instruction paths; either signals project targets copilot.
     const vscode = toPosix(path.join(cwd, '.vscode', 'copilot-instructions.md'));
     const github = toPosix(path.join(cwd, '.github', 'copilot-instructions.md'));
     const hit = (await fileExists(fs, vscode)) ? vscode
@@ -149,9 +139,10 @@ async function probeRuntime(
   return _exhaustive;
 }
 
-/** Read a JSON config file and report presence, JSON validity, and
- * whether `mcpServers.exarchos` is registered. Used by claude-code,
- * cursor, and opencode probes. */
+/**
+ * Read a JSON config file and report presence, JSON validity, and whether
+ * `mcpServers.exarchos` is registered. The claude-code, cursor and opencode probes use it.
+ */
 async function probeJsonMcpConfig(
   fs: DetectorFs,
   configPath: string,
@@ -177,17 +168,11 @@ async function probeJsonMcpConfig(
 }
 
 /**
- * Plugin-marketplace install is exarchos's primary distribution path for
- * claude-code. When installed via marketplace, the MCP server is wired
- * through the plugin manifest (`<installPath>/.claude-plugin/plugin.json`
- * → `mcpServers.exarchos`), never through the top-level `~/.claude.json`.
- * This probe inspects `installed_plugins.json` + the per-plugin manifest
- * so `exarchos doctor` doesn't false-negative the common install path.
- *
- * Returns `true` iff at least one installed plugin named `exarchos@*` has
- * a manifest declaring `mcpServers.exarchos`. Returns `false` on any
- * failure (missing file, malformed JSON, etc.) — absence is never a
- * runtime error.
+ * Return `true` when an installed plugin named `exarchos@*` has a manifest that
+ * declares `mcpServers.exarchos`. A marketplace install wires the MCP server in
+ * `<installPath>/.claude-plugin/plugin.json`, not in `~/.claude.json`.
+ * Without this probe, `exarchos doctor` reports a false negative for that install.
+ * Any read or parse failure gives `false`.
  */
 async function probeExarchosPluginInstall(fs: DetectorFs, home: string): Promise<boolean> {
   const installedPluginsPath = toPosix(path.join(home, '.claude', 'plugins', 'installed_plugins.json'));
@@ -281,9 +266,11 @@ async function dirExists(fs: DetectorFs, p: string): Promise<boolean> {
   }
 }
 
+/**
+ * Default config path for a runtime, in POSIX form. Callers compare these paths
+ * with config keys and show them in results, so the separator must be the same on each platform.
+ */
 function configPathFor(name: AgentRuntimeName, home: string, cwd: string): string {
-  // POSIX-normalize: these paths are compared against config keys / surfaced
-  // in detection results, so they must be separator-agnostic across platforms.
   switch (name) {
     case 'claude-code': return toPosix(path.join(home, '.claude.json'));
     case 'cursor':      return toPosix(path.join(cwd, '.cursor', 'mcp.json'));

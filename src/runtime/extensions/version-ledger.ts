@@ -1,14 +1,9 @@
-// ─── Anti-rollback version ledger (P03-08) ────────────────────────────────
-//
-// Anti-rollback needs durable memory: the highest version ever *admitted* for
-// each extension identity. Admission rejects any manifest whose version is
-// below that high-water mark, so a signed-but-older build cannot replace a
-// newer one that was already accepted (a downgrade attack). The ledger is
-// monotonic — `recordAdmitted` only ever raises the recorded version.
-//
-// A corrupt persisted ledger fails closed (the load throws) rather than
-// silently resetting to empty: silently forgetting the high-water mark would
-// re-open exactly the downgrade window the ledger exists to close.
+/**
+ * The anti-rollback version ledger. It keeps the highest admitted version of
+ * each extension. Admission rejects a manifest below that mark, so an older
+ * signed build cannot replace a newer one. `recordAdmitted` only raises the
+ * recorded version.
+ */
 
 import { readFile } from 'node:fs/promises';
 import { z } from 'zod';
@@ -18,7 +13,7 @@ import { atomicWriteFile } from '../../utils/atomic-write.js';
 export interface VersionLedger {
   /** Highest version ever admitted for `extensionId`, or `undefined` if none. */
   highestAdmitted(extensionId: string): Promise<number | undefined>;
-  /** Record `version` as admitted; only raises the stored high-water mark. */
+  /** Record `version` as admitted. It only raises the stored high-water mark. */
   recordAdmitted(extensionId: string, version: number): Promise<void>;
 }
 
@@ -44,13 +39,12 @@ const LedgerFileSchema = z.record(
 );
 
 /**
- * File-backed ledger persisting the high-water marks as JSON so the anti-
- * rollback boundary survives process restarts. Reads the file on every call so
- * an out-of-band update is observed; writes go through the repository's atomic
- * temp+fsync+rename primitive so a crash never leaves a torn ledger.
+ * A ledger that keeps the high-water marks in a JSON file, so they survive a
+ * restart. Each call reads the file, so it sees an outside update. Writes are
+ * atomic, so a crash cannot leave a torn ledger. The ledger assumes one writer.
  *
- * A single owning writer is assumed (as with the repository's other atomic-file
- * callers): cross-process write ordering is out of scope.
+ * A corrupt file makes the load throw. It does not reset to empty, because a
+ * lost mark opens the downgrade window again.
  */
 export class FileVersionLedger implements VersionLedger {
   constructor(private readonly filePath: string) {}
@@ -65,8 +59,6 @@ export class FileVersionLedger implements VersionLedger {
       }
       throw error;
     }
-    // A parse or shape failure throws — a corrupt ledger must fail closed
-    // rather than silently drop the anti-rollback high-water marks.
     const record = LedgerFileSchema.parse(JSON.parse(text));
     return new Map(Object.entries(record));
   }

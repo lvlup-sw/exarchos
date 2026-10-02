@@ -3,24 +3,6 @@ import { z } from 'zod';
 
 import { atomicWriteFile } from '../../utils/atomic-write.js';
 
-/**
- * Zod schema for `.claude-plugin/plugin.json`.
- *
- * Source of truth for plugin manifest validation across the MCP server.
- * Mirrors the live shape of the manifest. `.passthrough()` is applied so
- * forward-compat fields the generator does not manage are preserved when
- * we round-trip the file.
- *
- * Required fields are tightly typed; the rest are optional/passthrough so
- * we tolerate evolving Claude Code plugin manifests without churning the
- * schema.
- *
- * Consumers:
- *   - readPluginManifest (typed read helper)
- *   - writePluginManifest (atomic write helper)
- *   - generate-agents.ts will rewire preflight + update via these helpers (T16)
- */
-
 /** Canonical agent path: `./rendered/agents/<kebab-id>.md`. */
 const AgentPathSchema = z.string().regex(/^\.\/rendered\/agents\/[a-z0-9-]+\.md$/);
 
@@ -41,6 +23,10 @@ const McpServerSchema = z
   })
   .passthrough();
 
+/**
+ * Zod schema for `.claude-plugin/plugin.json`.
+ * Only `name` and `agents` are required. `.passthrough()` keeps the fields that the generator does not manage when the file is written back.
+ */
 export const PluginManifestSchema = z
   .object({
     name: z.string().min(1),
@@ -62,13 +48,8 @@ export const PluginManifestSchema = z
 export type PluginManifest = z.infer<typeof PluginManifestSchema>;
 
 /**
- * Reads `.claude-plugin/plugin.json` (or any file matching the schema)
- * from disk, parses JSON, and validates against {@link PluginManifestSchema}.
- *
- * Throws a descriptive `Error` (always including the file path) for:
- *   - read failures (missing file, permissions, etc.)
- *   - JSON syntax errors (preserves parse-position info from `JSON.parse`)
- *   - schema violations (full Zod issue list, JSON-formatted)
+ * Read a plugin manifest from disk, parse the JSON, and validate it against {@link PluginManifestSchema}.
+ * It throws an `Error` that names the path for a read failure, a JSON syntax error, or a schema violation.
  */
 export function readPluginManifest(path: string): PluginManifest {
   let raw: string;
@@ -97,14 +78,8 @@ export function readPluginManifest(path: string): PluginManifest {
 }
 
 /**
- * Atomically write a plugin manifest to disk.
- *
- * Validates `manifest` via {@link PluginManifestSchema} BEFORE any disk I/O.
- * On valid input the JSON is staged to a sibling temp file (via
- * {@link atomicWriteFile}: temp + fsync + rename), so concurrent readers
- * either see the prior contents or the new contents — never a partial
- * write. On rename failure the temp is best-effort cleaned up and the
- * original error is rethrown.
+ * Validate `manifest` against {@link PluginManifestSchema}, then write it with {@link atomicWriteFile}.
+ * The validation occurs before any disk I/O. A concurrent reader sees the old or the new contents, never a partial write.
  */
 export function writePluginManifest(filePath: string, manifest: PluginManifest): void {
   const validated = PluginManifestSchema.parse(manifest);

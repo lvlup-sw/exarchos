@@ -1,66 +1,34 @@
 // RESERVED(issue: #1764, owner: exarchos, expires: 2027-02-28) — dormant orchestration
-// telemetry: no production importer, kept alive only by its own test. Deletion is due at
-// expiry if unadopted (DR-7 module-intent gate).
+// telemetry with no production importer. Only its own test keeps it alive. The
+// module-intent gate requires its deletion at expiry if no caller adopts it.
 /**
- * friction-signal — a stop-and-simplify signal for repeated INFRASTRUCTURE
- * failure (P07-07; dogfood exit criteria 10/14/15).
+ * A stop-and-simplify signal for repeated infrastructure failure.
+ * When a tool is broken, a retry does not help. The correct response is to stop and simplify.
+ * {@link classifyFailure} and the {@link INFRA_SIGNATURES} catalog tell an infrastructure failure from a genuine test failure.
+ * A signal occurs only when the same operation fails again and again with the same infrastructure cause.
+ * A red test is a signal to fix the code, so it never produces this signal.
  *
- * When a tool is genuinely broken, retrying it is futile: the correct response
- * is to STOP grinding and simplify (use an alternative, clean up, or escalate).
- * This module watches a stream of failed operations, distinguishes an
- * INFRASTRUCTURE failure from a GENUINE TEST failure, and — only when the SAME
- * operation fails REPEATEDLY with the SAME typed infrastructure cause — emits a
- * `stop-and-simplify` {@link FrictionSignal}. A single genuine test failure (a
- * real red test) never produces a stop-and-simplify signal: a red test is a
- * signal to fix the code, not to abandon the tool.
- *
- * The distinction is the load-bearing part, so it is a pure, tested function
- * ({@link classifyFailure}) driven by an explicit catalog of infrastructure
- * signatures ({@link INFRA_SIGNATURES}) drawn from real failures observed on
- * this very program run:
- *   - the npm registry unreachable (SSL/TLS handshake failure) — retries are
- *     futile; use the junctioned `node_modules`;
- *   - a non-atomic `setup_worktree` leaving orphan worktrees/branches on disk;
- *   - a vitest worker RPC timeout that exits non-zero with ZERO failing tests —
- *     an infra flake that must NOT be mistaken for a real red test.
- *
- * Placement note (P07-07): this lives in `src/install/` beside
- * `advisory-registry.ts` rather than in `src/telemetry/`
- * because the failures it watches are ORCHESTRATION-level infrastructure
- * operations (npm, worktree setup, the whole-suite test runner), not MCP tool
- * invocations. That half of the original note stands.
- *
- * The other half does not, and is recorded here rather than quietly dropped: the
- * note also gave "a telemetry module with no production importer would itself
- * register as dead-in-prod (DR-7)" as a reason for the placement. Root `src/`
- * was outside the module-intent gate's root at the time, so the module was not
- * exempt from DR-7 — it was out of reach of the instrument. Relocating out of a
- * gate's reach is not satisfying the gate, and the gate now scans both source
- * trees, so the RESERVED marker above states the real position: this is dormant
- * code with a deletion date, not code that answered the rule.
+ * The module watches orchestration-level operations (npm, worktree setup, the test runner), not MCP tool calls.
  */
-
-// ─── Failure classification ──────────────────────────────────────────────────
 
 /**
  * The class of a failed operation.
- *   - `infrastructure` — a broken tool/environment; retrying is futile.
- *   - `test-failure`   — a genuine red test; fix the code, don't simplify the tool.
- *   - `unknown`        — unclassified; never on its own triggers stop-and-simplify.
+ *   - `infrastructure` — a broken tool or environment. A retry does not help.
+ *   - `test-failure`   — a genuine red test. The code needs a fix, not the tool.
+ *   - `unknown`        — not classified. It never triggers stop-and-simplify on its own.
  */
 export type FailureClass = 'infrastructure' | 'test-failure' | 'unknown';
 
 /** A raw observation of a failed operation. */
 export interface FailureObservation {
-  /** The operation that failed, e.g. `npm install`, `setup_worktree`, `vitest run`. */
+  /** The operation that failed, for example `npm install`, `setup_worktree`, or `vitest run`. */
   readonly operation: string;
   /** The raw error text / log output produced by the failure. */
   readonly message: string;
   /**
-   * How many tests were reported as FAILING, when the operation is a test run.
-   * The vitest-worker-RPC infra flake is defined by exiting non-zero with ZERO
-   * failing tests; any positive count means a genuine red test dominates and the
-   * failure is classified `test-failure` regardless of message.
+   * The number of failing tests, when the operation is a test run.
+   * A positive count classifies the failure as `test-failure`, whatever the message.
+   * The vitest worker RPC flake exits non-zero with zero failing tests.
    */
   readonly failingTests?: number;
 }
@@ -85,10 +53,7 @@ export interface InfraSignature {
   readonly matches: (text: string) => boolean;
 }
 
-/**
- * The catalog of known infrastructure-failure signatures. Each was observed on
- * this program run. Ordered most-specific first; the first match wins.
- */
+/** The catalog of known infrastructure-failure signatures. The first match wins. */
 export const INFRA_SIGNATURES: readonly InfraSignature[] = [
   {
     cause: 'npm-registry-unreachable',
@@ -125,12 +90,9 @@ export const INFRA_SIGNATURES: readonly InfraSignature[] = [
 ];
 
 /**
- * Classify a failed operation. Pure and total.
- *
- * A run that reports ≥1 failing test is a GENUINE `test-failure` regardless of
- * the message (a real red test is never "infrastructure"). Otherwise the first
- * matching {@link INFRA_SIGNATURES} entry classifies it as `infrastructure`
- * with that typed cause; if nothing matches, the class is `unknown`.
+ * Classify a failed operation.
+ * A run with one or more failing tests is a `test-failure`, whatever the message.
+ * Otherwise the first matching {@link INFRA_SIGNATURES} entry gives `infrastructure` with its cause. With no match, the class is `unknown`.
  */
 export function classifyFailure(obs: FailureObservation): ClassifiedFailure {
   if (obs.failingTests !== undefined && obs.failingTests > 0) {
@@ -148,8 +110,6 @@ export function classifyFailure(obs: FailureObservation): ClassifiedFailure {
 export function infraSignatureFor(cause: string): InfraSignature | undefined {
   return INFRA_SIGNATURES.find((s) => s.cause === cause);
 }
-
-// ─── The stop-and-simplify signal ────────────────────────────────────────────
 
 /**
  * The number of consecutive same-(operation, cause) infrastructure failures at
@@ -173,15 +133,9 @@ const KEY_SEP = '\u0000';
 const streakKey = (operation: string, cause: string): string => `${operation}${KEY_SEP}${cause}`;
 
 /**
- * Stateful monitor over a stream of failures. Tracks the consecutive run of
- * same-(operation, cause) infrastructure failures and emits a
- * {@link FrictionSignal} the moment that run reaches {@link FRICTION_THRESHOLD}
- * (and on every subsequent same-cause failure, with a growing `occurrences`).
- *
- * A `test-failure` or `unknown` observation for an operation RESETS that
- * operation's infra streaks — a run that failed for a non-infra reason is not
- * evidence that the *tool* is broken — so a single genuine test failure never
- * yields a stop-and-simplify signal.
+ * A stateful monitor over a stream of failures. It counts the infrastructure failures for each operation and cause.
+ * It emits a {@link FrictionSignal} when a count reaches {@link FRICTION_THRESHOLD}, and again on each later failure with that cause.
+ * A `test-failure` or `unknown` result, or a success, clears each streak of that operation.
  */
 export class FrictionMonitor {
   private readonly streaks = new Map<string, number>();
@@ -194,8 +148,6 @@ export class FrictionMonitor {
     const verdict = classifyFailure(obs);
 
     if (verdict.class !== 'infrastructure') {
-      // Non-infra outcome for this operation clears its infra streaks: the tool
-      // is not (yet) demonstrably broken.
       this.clearOperation(verdict.operation);
       return null;
     }
@@ -237,11 +189,7 @@ export class FrictionMonitor {
   }
 }
 
-/**
- * Fold a whole sequence of observations through a fresh {@link FrictionMonitor}
- * and return every stop-and-simplify signal emitted, in order. Pure over its
- * input — useful for batch analysis of a run log and for tests.
- */
+/** Pass each observation through a new {@link FrictionMonitor}, and return the emitted signals in order. */
 export function evaluateFrictionRun(
   observations: readonly FailureObservation[],
 ): FrictionSignal[] {
