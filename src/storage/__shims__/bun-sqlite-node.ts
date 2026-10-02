@@ -70,10 +70,69 @@ if (process.env.VITEST === undefined) {
   process.once('exit', closeOpenDatabases);
 }
 
+/**
+ * The SQLite work of the connections opened while a meter runs. The append
+ * cost budget test reads it to count what one store operation asks of SQLite.
+ */
+export interface SqliteWorkMeter {
+  /** Each statement SQLite ran, as the driver logged it, BEGIN and COMMIT included. */
+  readonly executed: string[];
+  /** Each SQL text compiled through `prepare` or `query`. */
+  readonly prepared: string[];
+}
+
+/**
+ * The running meter lives on globalThis for the same reason as the handle
+ * registry: the alias and the `.js` specifier evaluate two copies of this module.
+ */
+const ACTIVE_METER_KEY = '__exarchosSqliteWorkMeter' as const;
+type MeterSlot = typeof globalThis & { [ACTIVE_METER_KEY]?: SqliteWorkMeter | undefined };
+
+/**
+ * Start a meter. Every connection opened while it runs records into it for
+ * the rest of its life. Only one meter runs at a time.
+ */
+export function startSqliteWorkMeter(): SqliteWorkMeter {
+  const slot: MeterSlot = globalThis;
+  if (slot[ACTIVE_METER_KEY] !== undefined) {
+    throw new Error('a SQLite work meter is already running');
+  }
+  const meter: SqliteWorkMeter = { executed: [], prepared: [] };
+  slot[ACTIVE_METER_KEY] = meter;
+  return meter;
+}
+
+/** Stop the running meter. Connections opened after this are not metered. */
+export function stopSqliteWorkMeter(): void {
+  const slot: MeterSlot = globalThis;
+  slot[ACTIVE_METER_KEY] = undefined;
+}
+
+/** Record each SQL text the connection compiles, then compile it as before. */
+function meterPrepare(db: InstanceType<typeof BetterSqlite3>, meter: SqliteWorkMeter): void {
+  const prepare = db.prepare.bind(db);
+  Object.defineProperty(db, 'prepare', {
+    configurable: true,
+    writable: true,
+    value: (source: string) => {
+      meter.prepared.push(source);
+      return prepare(source);
+    },
+  });
+}
+
 export const Database = class TrackingDatabase extends BetterSqlite3 {
   constructor(filename: string, options?: ConstructorParameters<typeof BetterSqlite3>[1]) {
-    super(filename, options);
+    const slot: MeterSlot = globalThis;
+    const meter = slot[ACTIVE_METER_KEY];
+    super(
+      filename,
+      meter === undefined
+        ? options
+        : { ...options, verbose: (sql: unknown) => meter.executed.push(String(sql)) },
+    );
     openDatabases.add(this);
+    if (meter !== undefined) meterPrepare(this, meter);
   }
 
   override close(): this {

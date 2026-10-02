@@ -1,11 +1,11 @@
 /**
- * EventStore micro-benchmarks on the SQLite substrate.
+ * EventStore micro-benchmarks on the SQLite substrate. Advisory only.
  *
- * `bench()` only observes; it cannot fail CI. The append throughput SLA of
- * 1000 ops/sec per stream (5000 sequential `appendUnkeyed` calls on one
- * stream) is the `AppendUnkeyed_5000Sequential_SqliteBackend` arm below. It
- * moved here from `poc.acceptance.test.ts`, whose verdict measured the host
- * rather than the code (#2029).
+ * `bench()` only observes; it cannot fail CI. The merge gate for append
+ * throughput is `append-cost-budget.test.ts`: it counts the statements and
+ * transactions of each append and fails on any extra one, so its verdict does
+ * not depend on the runner (#2029). The `AppendUnkeyed_5000Sequential_SqliteBackend`
+ * arm below reports the old 1000 ops/sec per stream figure as a measurement.
  *
  * Run: `npm run bench`, or `npx vitest bench --run store.bench`.
  */

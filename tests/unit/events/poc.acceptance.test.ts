@@ -8,9 +8,9 @@ import { fileURLToPath } from 'node:url';
  *
  * AtomicAppender consumers are unchanged: the files under `src/` that name
  * `AtomicAppender` must be exactly the consumers the design pins, so swapping
- * the appender body needs no change outside it. The append throughput SLA
- * (1000 ops/sec per stream) is measured by the
- * `AppendUnkeyed_5000Sequential_SqliteBackend` arm in `store.bench.ts` (#2029).
+ * the appender body needs no change outside it. Append throughput is gated by
+ * the exact statement counts in `append-cost-budget.test.ts`; `store.bench.ts`
+ * still measures the old 1000 ops/sec per stream figure, as advice (#2029).
  */
 
 // v2.11 (DR-6, Phase 5b): `src/agents/spec.ts` was previously listed here
