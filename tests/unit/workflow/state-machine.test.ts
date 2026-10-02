@@ -276,7 +276,7 @@ describe('executeTransition resolve-then-freeze (DR-13)', () => {
 
   /**
    * `plan-review` is a PLAN phase, and every `phase.entered` into a PLAN phase freezes `designDepth`.
-   * A `designDepth` on the state is frozen as is. Without one, the freeze records `standard`.
+   * The freeze records a `designDepth` from the state unchanged. Without one, the freeze records `standard`.
    * A non-PLAN `phase.entered` omits `designDepth`.
    */
   it('PhaseEntered_PlanPhase_FreezesDesignDepth', () => {
@@ -332,7 +332,8 @@ describe('executeTransition resolve-then-freeze (DR-13)', () => {
 
   /**
    * IMPLEMENT records no phase-level gate sequence, because the wave stamp holds its per-task sequences.
-   * The event and `result.resolvedGates` both hold an empty array. The resolver, posture and mode are still frozen.
+   * The event and `result.resolvedGates` both hold an empty array, so a replay consumer cannot read a default ladder as the per-task set.
+   * The resolver, posture and mode are still frozen.
    */
   it('executeTransition_ImplementKind_FreezesEmptyResolvedGatesSequence', () => {
     const hsm = getHSMDefinition('oneshot');
@@ -747,6 +748,7 @@ describe('Overhaul HSM plan-review bound (DR-1 parity — RVC-R8)', () => {
  * The overhaul revise edge and the delegate fix-cycle edge keep their counters.
  */
 describe('plan-review bound retirement is edge-scoped (WLM-6 DR-2, task 005)', () => {
+  /** The overhaul plan-review loop is a human checkpoint and does not go through `prepare_review`, so only its edge counter counts it. */
   it('Overhaul_EdgeBound_StillFires', () => {
     const hsm = createRefactorHSM();
     const state = {

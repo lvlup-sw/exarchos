@@ -945,9 +945,10 @@ describe('handleRehydrate — in-flight backward-compat (DR-9, task 020)', () =>
 describe('rehydration snapshot round-trip survives the global-scope retirement (DR-1)', () => {
   /**
    * The snapshot sequence is the sequence of the `workflow.checkpoint` event.
-   * The handler appends `workflow.checkpoint_written` after the snapshot write, so the tip is one past it.
+   * `handleCheckpoint` appends `workflow.checkpoint_written` after the snapshot write, so the tip is one past it.
    * `task.*` folds are idempotent by task id, so only `projectionSequence` shows a tail that a reader applies twice.
-   * The handler composes `phasePlaybook` and the snapshot does not hold it, so the comparison drops that field.
+   * `handleRehydrate` composes `phasePlaybook` and the snapshot does not hold it, so the comparison drops that field.
+   * `handleRehydrate` runs after the other reads, because it appends `workflow.rehydrated` to the log.
    */
   it('RehydrationCheckpoint_AfterGlobalPathRemoval_RoundTripsUnchanged', async () => {
     const featureId = 'roundtrip-after-global-removal';

@@ -147,7 +147,7 @@ describe('exarchos_workflow CLI/MCP parity (DR-3)', () => {
 
   /**
    * `handleRehydrate` composes a non-null `phasePlaybook` for a delegate-phase workflow.
-   * The CLI and MCP envelopes must be equal after normalization, and `data.phasePlaybook` with them.
+   * The CLI and MCP envelopes must be equal after normalization. The test also compares `data.phasePlaybook` alone.
    * The test calls `harnessCallMcp` directly, because the fixture holds the `{ action, ...args }` shape.
    * The non-null checks give a clear message before the large deep-equal diff.
    */

@@ -471,7 +471,7 @@ describe('HandleQuery edge cases', () => {
     expect(entry!.nativeStatus).toBe('completed');
   });
 
-  /** handleGet resolves dot-path fields and skips a path that has a segment that starts with an underscore. */
+  /** handleGet resolves dot-path fields and skips a field path that starts with an underscore. */
   it('HandleQuery_NestedDotPathProjection_ReturnsCorrectFields', async () => {
     configureStateStoreBackend(undefined);
 

@@ -316,7 +316,7 @@ describe('MCP Server Entry Point', () => {
       }
     });
 
-    /** `resolveStateDir` returns a POSIX path, so the expected path is POSIX too. Else the test fails on Windows. */
+    /** `resolveStateDir` returns a POSIX path. The expected path must also be POSIX, or the test fails on Windows. */
     it('should fallback to ~/.exarchos/state when no env vars are set', async () => {
       const { resolveStateDir } = await import('../../../src/index.js');
       const { homedir } = await import('node:os');

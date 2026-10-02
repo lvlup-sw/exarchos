@@ -165,7 +165,7 @@ async function runAttempt(
 
 /**
  * Decides and runs one step for the first action that still needs work.
- * A plan that is not satisfied, blocked, execute, or retry escalates to manual intervention.
+ * An `escalate-manual` plan appends `cancel.manual-intervention-required`.
  */
 async function stepSaga(
   store: EventStore,

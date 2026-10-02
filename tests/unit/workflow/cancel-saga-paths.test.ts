@@ -194,7 +194,7 @@ describe('handleCancel saga paths', () => {
       expect(data.phase).toBe('cancelled');
     });
 
-    /** The transition trail is one atomic `appendTrailAtomically` transaction, so the failure goes there. */
+    /** The transition trail is one atomic `appendTrailAtomically` transaction, so the test injects the failure there. */
     it('v2 workflow propagates transition event append failures', async () => {
       const eventStore = new EventStore(tmpDir);
       await handleInit({ featureId: 'v2-trans', workflowType: 'feature' }, tmpDir, eventStore);

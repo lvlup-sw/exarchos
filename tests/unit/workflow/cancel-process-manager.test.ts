@@ -129,8 +129,8 @@ describe('v2.12 cancellation process manager (DR-7)', () => {
   });
 
   /**
-   * Compensation outcomes go through the fenced `AtomicAppender.decideOnce`, so the crash goes there.
-   * It fires after the first completion is durable and before the second, and the retry must not repeat the first.
+   * Compensation outcomes go through the fenced `AtomicAppender.decideOnce`, so the test injects the crash there.
+   * The crash fires after the first completion is durable and before the second. The retry must not repeat the first.
    * The `operationId` holds the action, attempt, and kind, so the match is exact.
    */
   it('CancelRetry_CompletedCompensation_IsNotRepeated', async () => {

@@ -182,7 +182,7 @@ describe('plan-structure resolver (DR-9)', () => {
   });
 
   /**
-   * No resolved gate set holds `check_design_completeness`. `check_plan_coverage` reports its acceptance-criteria finding.
+   * The REVIEW and PLAN gate sets do not hold `check_design_completeness`. `check_plan_coverage` reports its acceptance-criteria finding.
    * It stays only as a deprecated registry action that is not bound to the plan phases.
    */
   it('GateChains_DesignCompletenessExcised_AbsentFromSpecReviewChain', () => {

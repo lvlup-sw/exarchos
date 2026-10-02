@@ -173,7 +173,7 @@ describe('handleCancel', () => {
   });
 
   describe('event-first error propagation (v2)', () => {
-    /** The whole cancellation trail commits in one `appendTrailAtomically` transaction, so the storage failure goes there. */
+    /** The whole cancellation trail commits in one `appendTrailAtomically` transaction, so the test injects the storage failure there. */
     it('handleCancel_EventAppendFails_ReturnsErrorNotMutatesState', async () => {
       const eventStore = new EventStore(tmpDir);
 
@@ -318,7 +318,7 @@ describe('handleCancel', () => {
 
   describe('cancel retry idempotency (property)', () => {
     /**
-     * In each run, the first attempt fails the atomic trail append and leaves the state unchanged.
+     * In each run, the first attempt fails the atomic trail append.
      * The retry succeeds, and the stream holds no duplicate events.
      */
     it('handleCancel_RetryAfterFailure_NoDuplicateEvents', async () => {

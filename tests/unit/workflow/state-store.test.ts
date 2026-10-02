@@ -917,7 +917,7 @@ describe('StateStoreError reserved-field data (#1360)', () => {
 describe('temp-file naming and orphan sweep', () => {
   let tempDir: string;
 
-  /** The file path is under test, and a configured backend skips it. */
+  /** These tests cover the file path. A configured backend bypasses that path, so the hook clears the backend. */
   beforeEach(async () => {
     configureStateStoreBackend(undefined);
     tempDir = await mkdtemp(path.join(tmpdir(), 'statestore-tmpname-'));

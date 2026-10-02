@@ -240,7 +240,7 @@ describe('cancellation process-manager — integration exit proofs (P04-02)', ()
   /**
    * The integration-branch compensation fails on every attempt.
    * Cancellation never reports ready, and after three attempts the saga records a manual-intervention terminal.
-   * The completion plan is blocked, not only absent.
+   * `planCancelCompletion` then returns a `blocked` plan.
    */
   it('ExitProof_RetryExhaustion_BlocksReadiness_AndLandsInManualIntervention', async () => {
     branchDeleteFails = true;

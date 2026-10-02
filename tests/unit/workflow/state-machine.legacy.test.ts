@@ -643,7 +643,7 @@ describe('HSM Transition Algorithm', () => {
       expect(result.errorCode).toBe('CIRCUIT_OPEN');
     });
 
-    /** An array-like `tasks` object makes the `allTasksComplete` guard throw. The transition returns GUARD_FAILED and does not throw. */
+    /** An array-like `tasks` object is not an array, so the `allTasksComplete` guard fails. The transition returns GUARD_FAILED and does not throw. */
     it('ExecuteTransition_GuardThrows_ReturnsGuardFailed (Bug 7)', () => {
       const hsm = getHSMDefinition('feature');
       const state: Record<string, unknown> = {
@@ -2429,6 +2429,7 @@ describe('universal cleanup transition', () => {
     expect(result.newPhase).toBe('completed');
   });
 
+  /** `review` has no normal transition to `completed`, so the fall-through fails. */
   it('should fall through to normal transition when mergeVerified is false', () => {
     const hsm = getHSMDefinition('feature');
     const state = { phase: 'review', _cleanup: { mergeVerified: false }, _events: [], _history: {} };

@@ -28,8 +28,8 @@ afterEach(async () => {
 /** `handleSet` loads the stored events into `_events` before it evaluates the transition guards. */
 describe('handleSet_EventInjection', () => {
   /**
-   * The orchestrator appends `team.spawned` and `team.disbanded`. `handleSet` loads these events
-   * before the guards run, so the `delegate` to `review` transition passes.
+   * The test appends `team.spawned` and `team.disbanded`, as the orchestrator does. `handleSet` loads
+   * these events before the guards run, so the `delegate` to `review` transition passes.
    */
   it('handleSet_DelegateToReview_InjectsEventsFromJSONLStore', async () => {
     const eventStore = new EventStore(tmpDir);

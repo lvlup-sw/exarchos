@@ -12,7 +12,7 @@ const WORKFLOW_TYPES = ['feature', 'debug', 'refactor'] as const;
 /** Generate a random workflow type. */
 const arbWorkflowType = fc.constantFrom(...WORKFLOW_TYPES);
 
-/** Generate a valid (workflowType, phase) pair from the HSM definition. */
+/** Generate a phase from the states of the HSM definition. */
 function arbPhaseForHSM(hsm: HSMDefinition): fc.Arbitrary<string> {
   const phases = Object.keys(hsm.states);
   return fc.constantFrom(...phases);

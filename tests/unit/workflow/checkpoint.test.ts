@@ -557,7 +557,7 @@ describe('handleCheckpoint — handoff dispatch wiring (T4, #1240)', () => {
 
   /**
    * Two checkpoints in the same phase with different handoffs land two events.
-   * The idempotency key holds a SHA-256 digest of the handoff, so the two keys differ.
+   * The idempotency key holds a truncated SHA-256 digest of the handoff, so the two keys differ.
    */
   it('handleCheckpoint_RefinementSamePhase_LandsSecondEvent_1228Regression', async () => {
     const featureId = 'wf-t4-refinement-1228';

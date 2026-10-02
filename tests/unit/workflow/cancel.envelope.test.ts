@@ -38,7 +38,7 @@ async function downgradeToV1(stateDir: string, featureId: string): Promise<void>
 
 /**
  * The tracking issue and expiry date of the waiver for the two skipped envelope tests.
- * The waiver test fails after the expiry date.
+ * The waiver test fails on and after the expiry date.
  */
 const CANCEL_CORRELATION_WAIVER = Object.freeze({
   issue: '#1789',

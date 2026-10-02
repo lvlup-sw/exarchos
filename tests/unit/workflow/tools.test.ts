@@ -387,8 +387,9 @@ describe('HandleCheckpoint_PhasePlaybook (T-23, rehydration-machinery-refactor)'
   });
 
   /**
-   * A custom workflow type has no playbook entries, so `composePhasePlaybook` returns `null` for each of its
-   * phases.
+   * The feature, debug and refactor types have a playbook for each phase, and `readStateFile` rejects a phase
+   * outside the schema enum. A custom workflow type has no playbook entries, so `composePhasePlaybook` returns
+   * `null` for each of its phases.
    */
   it('handleCheckpoint_unregisteredPhase_attachesPhasePlaybookNull', async () => {
     const { handleInit, handleCheckpoint } = await import('../../../src/workflow/tools.js');
@@ -522,7 +523,7 @@ describe('HandleCheckpoint_HandoffLint (#1244)', () => {
     expect(handoffWarnings).toEqual([]);
   });
 
-  /** The handler lints each of the three fields. It does not stop after the first field with a finding. */
+  /** The handler lints `context`, `nextSteps` and `suggestions`. It does not stop after the first field with a finding. */
   it('HandoffLint_ScansAllThreeFields_FindingsCoverEachSource', async () => {
     const { handleInit, handleCheckpoint } = await import('../../../src/workflow/tools.js');
     const store = new EventStore(tempDir);
@@ -658,7 +659,7 @@ describe('HandleInit_RepoKeyParameter (DR-5)', () => {
  */
 describe('requirement resolution is monotonic and fail-safe (DR-10, T-14)', () => {
   /**
-   * An invalid tier resolves to `unknown`, never to `low`. A project can bind `low` to an empty gate list in
+   * An absent or invalid tier resolves to `unknown`, never to `low`. A project can bind `low` to an empty gate list in
    * `.exarchos.yml`.
    */
   it('ResolveRiskTier_AbsentTier_DoesNotResolveLow', () => {
@@ -712,8 +713,8 @@ describe('requirement resolution is monotonic and fail-safe (DR-10, T-14)', () =
   });
 
   /**
-   * Only an explicit boolean sets `boundaryTouching`. The string `'false'` resolves to `true`, like any other
-   * value.
+   * Only an explicit boolean sets `boundaryTouching`. The string `'false'` resolves to `true`, like every other
+   * value that is not a boolean.
    */
   it('ResolveBoundaryTouching_UnknownState_FailsSafeToTrue', () => {
     for (const raw of [undefined, null, '', 'false', 'true', 0, 1, {}, [], NaN]) {
