@@ -11,11 +11,14 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
+import { EventEmitter } from 'node:events';
+import type { ChildProcess, SpawnOptions } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { RuntimeMap } from '../../../src/install/runtimes/types.js';
 import {
+  createDefaultSpawn,
   installSkills,
   mapRuntimeToSkillsCliAgent,
   registerExarchosInClaudeJson,
@@ -38,6 +41,7 @@ import {
 import { normalizeAndHash } from '../../../tools/release/generate-legacy-skill-hashes.mjs';
 import { expandTilde } from '../../../src/install/install-skills.js';
 import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
+import type { ChildSpawn } from '../../../src/utils/process.js';
 
 /**
  * Minimal valid runtime map factory for unit-test use. Overrides let each
@@ -1057,5 +1061,67 @@ describe('legacy-render + install-manifest provenance helpers', () => {
     } finally {
       rmrf(dir);
     }
+  });
+});
+
+/**
+ * A {@link ChildSpawn} double for {@link createDefaultSpawn}. It records each launch, and the child
+ * closes with exit code 0 and no stderr.
+ */
+function recordingChildSpawn(): {
+  readonly calls: Array<{ command: string; args: readonly string[]; options: SpawnOptions }>;
+  readonly spawn: ChildSpawn;
+} {
+  const calls: Array<{ command: string; args: readonly string[]; options: SpawnOptions }> = [];
+  const spawn: ChildSpawn = (command, args, options) => {
+    calls.push({ command, args, options });
+    const child = Object.assign(new EventEmitter(), { stderr: new EventEmitter() });
+    setImmediate(() => child.emit('close', 0));
+    return child as unknown as ChildProcess;
+  };
+  return { calls, spawn };
+}
+
+describe('installSkills default spawn', () => {
+  it('InstallSkills_DefaultSpawnOnWin32_RunsTheNpxShimThroughTheShell', async () => {
+    const recorder = recordingChildSpawn();
+
+    await installSkills({
+      agent: 'claude',
+      runtimes: ALL_RUNTIMES,
+      spawn: createDefaultSpawn({ platform: 'win32', spawn: recorder.spawn }),
+      log: () => {},
+      homeDir: () => '/home/tester',
+      registerMcp: () => {},
+    });
+
+    expect(recorder.calls).toEqual([
+      {
+        command: 'npx',
+        args: expect.arrayContaining(['github:lvlup-sw/exarchos']),
+        options: expect.objectContaining({
+          shell: true,
+          stdio: ['inherit', 'inherit', 'pipe'],
+          env: expect.objectContaining({ FORCE_COLOR: '0', CI: 'true' }),
+        }),
+      },
+    ]);
+  });
+
+  it('InstallSkills_DefaultSpawnOnPosix_RunsNpxWithNoShell', async () => {
+    const recorder = recordingChildSpawn();
+
+    await installSkills({
+      agent: 'claude',
+      runtimes: ALL_RUNTIMES,
+      spawn: createDefaultSpawn({ platform: 'linux', spawn: recorder.spawn }),
+      log: () => {},
+      homeDir: () => '/home/tester',
+      registerMcp: () => {},
+    });
+
+    expect(recorder.calls.map((call) => call.command)).toEqual(['npx']);
+    expect(recorder.calls.map((call) => call.options.shell)).toEqual([undefined]);
+    expect(recorder.calls.flatMap((call) => call.args)).toContain('github:lvlup-sw/exarchos');
   });
 });

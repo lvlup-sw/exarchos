@@ -531,7 +531,7 @@
   },
   "src/install/install-skills.ts": {
     "comments/comment-content": {
-      "count": 41
+      "count": 40
     }
   },
   "src/install/onramp/managed-block.ts": {
