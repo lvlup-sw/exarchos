@@ -1720,7 +1720,10 @@ describe('handleAssessStack', () => {
       expect(resolveCommentWindow(10, 5)).toEqual({ limit: 10, offset: 5 });
     });
 
-    /** A fractional limit floors to 0, which gives an empty page. It must get the default. */
+    /**
+     * A fractional limit below 1 floors to 0, which gives an empty page. It must
+     * fall back to the default of 20.
+     */
     it('resolveCommentWindow_FractionalLimit_FallsBackToDefaultNotEmpty', () => {
       expect(resolveCommentWindow(0.5).limit).toBe(20);
       expect(resolveCommentWindow(0.9).limit).toBe(20);

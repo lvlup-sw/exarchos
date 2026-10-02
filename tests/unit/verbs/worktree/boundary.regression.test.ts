@@ -51,7 +51,7 @@ describe('WorktreeBoundaryGuard #1301 leak-shape regression (real linked worktre
   }
 
   /**
-   * `realpathSync` removes the macOS `/tmp` symlink, so the containment check compares canonical paths.
+   * `realpathSync` resolves the macOS `/tmp` symlink, so the containment check compares canonical paths.
    * The committed `src.txt` gives the absolute-path leak a real target in the main worktree.
    * The two linked worktrees have their own toplevels, as native isolation makes them.
    */

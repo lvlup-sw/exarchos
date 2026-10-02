@@ -305,9 +305,9 @@ describe('handleCreateIssue', () => {
   });
 
   /**
-   * When the recovery query fails, the handler must return `PRECHECK_FAILED`.
-   * After a crash, a fresh UUID does not match the old body marker. Then the
-   * scan misses the issue, and the handler creates a duplicate.
+   * When the recovery query fails, the handler must return `PRECHECK_FAILED`
+   * and not make a fresh UUID. After a crash, a fresh UUID does not match the
+   * old body marker, so the scan misses the issue and a duplicate results.
    */
   it('CreateIssue_RecoverOperationIdQueryFailure_ReturnsPrecheckFailedWithoutCallingProvider', async () => {
     const failingQueryCtx: DispatchContext = {

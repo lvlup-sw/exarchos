@@ -336,7 +336,7 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
 
   /**
    * `feat/A` and `feat/B` both sit at the initial commit. W1 stays there, so it is merged into `feat/A`.
-   * W2 gets an extra commit, so it is not merged into `feat/B`. A shared or swapped ref flips these verdicts.
+   * W2 gets an extra commit, so it is not merged into `feat/B`.
    */
   it('Prune_ResolvesIntegrationRefPerWorktreeFromFeatureId', async () => {
     const repo = await initRepoWithOrigin(workdir, 'repo');

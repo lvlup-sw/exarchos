@@ -1,6 +1,6 @@
 // Tests that the VCS actions are in `TOOL_REGISTRY` and that `composite.ts`
-// registers and imports their handlers. The handler checks read the
-// `composite.ts` source as text and do not import it.
+// has a handler key for each one. The key check reads the `composite.ts`
+// source as text and does not import it.
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';

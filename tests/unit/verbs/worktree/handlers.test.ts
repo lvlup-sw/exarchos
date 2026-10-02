@@ -430,7 +430,7 @@ describe('ps — in-flight liveness read (DR-4)', () => {
   /**
    * The supervisor died with no teardown, so no `launch.executed` exists and `ps` folds the launch as in-flight.
    * A supported, empty process table makes the holder provably dead. `ps` is a read and leaves the phantom alone.
-   * The reconcile runs the reservation reclaim and writes one `launch.executed` in the same pass.
+   * The reconcile runs the reservation reclaim and writes one `launch.executed` in the same call.
    * Its response must report the launch column after the heal, so a healed phantom is not also in-flight.
    * The test calls the handler directly, because the orchestrate composite does not pass the process-table seam.
    */
@@ -649,7 +649,7 @@ describe('ps — in-flight prune surface (DR-3)', () => {
 });
 
 describe("wait — until: 'idle' prune-idle poll (DR-3)", () => {
-  /** The injected sleep folds the prune terminal on its first call, so the next fold finds no in-flight prune and resolves. */
+  /** The injected sleep appends the prune terminal on its first call, so the next fold finds no in-flight prune and resolves. */
   it('Wait_UntilIdle_ResolvesOnPruneTerminal', async () => {
     const arm = await createArm();
     await seedPruneStarted(arm, {

@@ -533,10 +533,10 @@ describe('CreatePr_Body_ReferencesIntent (DR-1 task 006)', () => {
 
 /**
  * Only the initial synthesize creates a PR. The shepherd loop runs in the same
- * phase, so a phase check cannot block it. When the projected state records a
- * PR in `artifacts.pr` or `synthesis.prUrl`, the handler refuses with
- * `PR_ALREADY_OWNED` and has no side effect. The `listPrs` guard covers the
- * crash window before the state records the PR.
+ * phase, so a phase check cannot block a create from that loop. When the
+ * projected state records a PR in `artifacts.pr` or `synthesis.prUrl`, the
+ * handler refuses with `PR_ALREADY_OWNED` and has no side effect. The `listPrs`
+ * guard covers the crash window before the state records the PR.
  */
 describe('CreatePr_SinglePrOwnerGuard (DR-4 task 007)', () => {
   function prPatchEvent(patch: Record<string, unknown>) {

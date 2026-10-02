@@ -105,9 +105,9 @@ describe('isPathWithin', () => {
   });
 
   /**
-   * Uses the default resolver on a real symlink. A candidate through the symlink
-   * is within the worktree at the resolved path. If the OS refuses the symlink
-   * with `EPERM`, as Windows does without Developer Mode, the test returns early.
+   * The test uses the default resolver on a real symlink. A candidate through the
+   * symlink is within the worktree at the resolved path. If the OS refuses the
+   * symlink with `EPERM`, as Windows does without Developer Mode, the test returns early.
    */
   it('defaultRealpath resolves a real symlinked root and matches', () => {
     const base = fs.mkdtempSync(path.join(os.tmpdir(), 'wlm-pathcontain-'));

@@ -199,7 +199,8 @@ describe('handleAddPrComment', () => {
   /**
    * The post succeeds, but the verification scan finds nothing. The schema of
    * `pr.comment.executed` requires a `commentId` above 0, so the handler fails
-   * and writes no sentinel. The posted marker lets a later call recover.
+   * and does not append that event with `commentId: 0`. The posted marker lets a
+   * later call recover.
    */
   it('AddPrComment_PostSucceededButVerificationLookupMissed_ReturnsFailureAndDoesNotEmitExecuted', async () => {
     const failingProvider = makeMockProvider({
@@ -252,8 +253,8 @@ describe('handleAddPrComment — B2.2 Phase-A retry non-refire', () => {
 
   /**
    * The first intent append throws `SqliteBusyExhaustedError`, the raw class that
-   * `EventStore.append` raises on contention. A `ConcurrencyError` mock skips the
-   * mapping in `translateStorageError`.
+   * `EventStore.append` raises on contention. A mock that throws `ConcurrencyError`
+   * does not exercise the mapping in `translateStorageError`.
    */
   it('AddPrComment_PhaseARetry_DoesNotRefireGhPrComment', async () => {
     const stateDir = await fs.mkdtemp(path.join(os.tmpdir(), 'b2-refire-'));
