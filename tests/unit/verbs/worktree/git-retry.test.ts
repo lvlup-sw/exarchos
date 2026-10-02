@@ -107,7 +107,8 @@ describe('git-retry — index.lock contention resilience (DR-8)', () => {
 
   /**
    * The burst stagger stays in `[100, 500]` ms: the midpoint at jitter 0 and
-   * the edges at -1 and +1. Jitter outside that range is clamped.
+   * the edges at -1 and +1. For a jitter outside that range, the delay is
+   * clamped to the band.
    * `burstStagger` sleeps the computed delay and returns it.
    */
   it('GitRetry_BurstCreationJitter_AssertedDeterministically', async () => {

@@ -316,10 +316,10 @@ describe('HandleOrchestrate_PrepareDelegation_StampsRiskTierBoundaryAndVerificat
 
   /**
    * The test overrides the dispatch-guard mock, so the dispatch is not blocked on the
-   * protected branch. `t-high` edits a schema file that is not a boundary glob.
+   * protected branch. `t-high` edits a schema file that matches no boundary glob.
    * The `acceptance` layer gives a high, boundary-touching task. The `integration`
-   * layer gives a medium, boundary-touching task. A medium or high boundary task
-   * appends `check_contract_drift` and then `check_mock_boundary` to its base sequence.
+   * layer gives a medium, boundary-touching task. For a medium or high boundary task,
+   * the policy appends `check_contract_drift` and then `check_mock_boundary` to the base sequence.
    */
   it('stamps riskTier, boundaryTouching, and an ordered verificationSequence per task', async () => {
     const ctxStore = new EventStore(tmpDir);
@@ -542,7 +542,8 @@ describe('HandleOrchestrate_PrepareDelegation_PersistsWorkflowRiskTier (DR-2)', 
 
   /**
    * Every derivation appends a `state.patched` event, and the projection keeps the last
-   * value. An idempotency key on the tier value drops the second `high` and leaves `medium`.
+   * value. The event has no idempotency key on the tier value, because such a key drops
+   * the second `high` and leaves `medium`.
    * The test closes the store before `afterEach` removes `tmpDir`, because an open SQLite
    * handle blocks removal on Windows.
    */

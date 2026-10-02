@@ -68,9 +68,9 @@ function defaultReadFileSync(p: unknown): string {
 
 describe('handleSetupWorktree', () => {
   /**
-   * The resolver calls `readdirSync` for a `.csproj` fallback, so it returns an
-   * empty list. The provisioner fake defaults to a full success. Tests for an
-   * existing branch or worktree override it.
+   * Toolchain detection calls `readdirSync` for an extension marker such as
+   * `.csproj`, so the mock returns an empty list. The provisioner fake defaults to
+   * a full success. Tests for an existing branch or worktree override it.
    */
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -437,7 +437,10 @@ describe('handleSetupWorktree', () => {
     expect(result.error?.code).toBe('INVALID_INPUT');
   });
 
-  /** The worktree exists, so the install step runs, but it holds no `package.json` and no lockfile. */
+  /**
+   * The worktree exists, so the install step runs, but the worktree holds no
+   * `package.json` and no lockfile.
+   */
   it('runInstallStep_NoPackageJson_SkipsWithReason', async () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
       const cmdStr = String(cmd).replace(/\.cmd$/, '');

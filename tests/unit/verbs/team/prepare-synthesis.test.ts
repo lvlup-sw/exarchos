@@ -714,7 +714,7 @@ describe('handlePrepareSynthesis', () => {
 
   /**
    * A relative `repoRoot` resolves against the server cwd, so the handler refuses it.
-   * A non-string that reads as absolute after string conversion also gets `INVALID_INPUT`.
+   * A non-string `repoRoot` also gets `INVALID_INPUT`, even when its string form looks absolute.
    * No refusal starts a process through `execSync` or `execFileSync`. An absolute path
    * still passes the check.
    */

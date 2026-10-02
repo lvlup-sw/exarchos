@@ -192,8 +192,8 @@ describe('handlePostDelegationCheck', () => {
   });
 
   /**
-   * The event store is the authoritative state source. A missing state file and a
-   * store that cannot answer give `EVENT_STORE_ERROR`.
+   * The event store is the authoritative state source. A store that cannot answer
+   * gives `EVENT_STORE_ERROR`, and the missing state file does not change the result.
    */
   it('stateSourceUnreadable_returnsError', async () => {
     mockExistsSync.mockReturnValue(false);

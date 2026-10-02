@@ -40,7 +40,10 @@ const FIXTURE_ALL_RESOLVED: PrComment[] = [
   { id: 4, author: 'bob', body: 'Done', createdAt: '2026-01-01T00:03:00Z', path: 'src/bar.ts', line: 20 },
 ];
 
-/** Three review comments. Comment 3 has no answer. */
+/**
+ * Three review comments. Comment 3 has no answer. The handler does not pair
+ * answers with comments, so it counts all three as unaddressed.
+ */
 const FIXTURE_UNRESOLVED: PrComment[] = [
   { id: 1, author: 'alice', body: 'Please fix this', createdAt: '2026-01-01T00:00:00Z', path: 'src/foo.ts', line: 10 },
   { id: 2, author: 'bob', body: 'Fixed!', createdAt: '2026-01-01T00:01:00Z', path: 'src/foo.ts', line: 10 },

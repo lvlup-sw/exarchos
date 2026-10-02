@@ -315,11 +315,11 @@ describe('handlePrepareReview', () => {
 });
 
 /**
- * An agent calls `prepare_review` with `scope: 'plan'` to get a plan review, so this
- * action bounds the revision loop. Each call appends a `workflow.plan-review-dispatched`
+ * An agent must call `prepare_review` with `scope: 'plan'` to get a plan review, so this
+ * action can bound the revision loop. Each call appends a `workflow.plan-review-dispatched`
  * event with an ordinal. The projection folds the highest ordinal into
- * `planReview.revisionCount`, which the `revisionsExhausted` guard reads. A call past
- * the cap is refused with a `blocked` next action.
+ * `planReview.revisionCount`, which the `revisionsExhausted` guard reads. The action
+ * refuses a call past the cap and offers `blocked` as the next action.
  */
 describe('plan-review bound at the provisioning seam (WLM-6 DR-2, task 004)', () => {
   const DISPATCH_EVENT = 'workflow.plan-review-dispatched';
@@ -387,7 +387,7 @@ describe('plan-review bound at the provisioning seam (WLM-6 DR-2, task 004)', ()
     expect(await revisionCount(featureId)).toBe(1);
   });
 
-  /** The event key holds the feature ID and the ordinal, so the store drops a second append of the same ordinal. */
+  /** The idempotency key holds the feature ID and the ordinal, so the store drops a second append of the same ordinal. */
   it('PrepareReviewPlan_CrashRetrySameOrdinal_IdempotentByKey', async () => {
     const featureId = 'dr2-idempotent';
     await callPrepareReview(planArgs(featureId));

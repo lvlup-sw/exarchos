@@ -496,7 +496,7 @@ describe('handlePrepareDelegation', () => {
   });
 
   /**
-   * The plan-artifact blocker comes only from the readiness projection, and the handler adds no blocker of its own.
+   * The plan-artifact blocker comes only from the readiness projection. The handler adds no plan-artifact check of its own.
    * The test replays one stream through `delegationReadinessProjection`, which readies both worktrees but records no plan artifact.
    * The handler gets that view, and its blockers must equal the projection blockers.
    * Without `tasks`, the wave scoping passes the blockers through unchanged.
@@ -1234,7 +1234,7 @@ describe('handlePrepareDelegation', () => {
     expect(protectedBlocked).toBeUndefined();
   });
 
-  /** Without `synthesis.integrationBranch`, the ancestry check uses the current branch and never the feature id. */
+  /** Without `synthesis.integrationBranch`, the ancestry check uses the current branch when it is known, and not the feature id. */
   it('handlePrepareDelegation_IntegrationBranchUnset_UsesCurrentBranchNotFeatureId', async () => {
     const state = readyWorkflowState() as ReturnType<typeof readyWorkflowState> & {
       synthesis?: { integrationBranch?: string };
@@ -1794,7 +1794,7 @@ describe('handlePrepareDelegation', () => {
 
   /**
    * `classifyTask` selects the implementer prompt by tier, and never uses a fixed medium default.
-   * The default classification carries only `verificationNoteKey`.
+   * The default classification carries `verificationNoteKey` and not the full prompt.
    * The full prompt is inline only when the caller passes `includeImplementerPrompt: true`.
    */
   describe('classifyTask — per-task implementer prompt rendering (#1586 / DR-4)', () => {
@@ -2185,7 +2185,7 @@ describe('handlePrepareDelegation', () => {
 
     /**
      * The handler appends one `task.assigned` with a per-task key for each task that the stream has not announced.
-     * It skips an announced task, because the projection reads a second row as a return to `assigned`.
+     * It skips an announced task, because the projection reads a second `task.assigned` event as a return to `assigned`.
      * The title comes from the workflow state, which is the authority on the plan. The append guard is the tail that the read saw.
      */
     it('PrepareDelegation_AnnouncesEachTaskTheStreamHasNotHeardOf_BeforeReadiness', async () => {
@@ -2432,7 +2432,7 @@ describe.skipIf(!fs.existsSync(path.join(path.dirname(fileURLToPath(import.meta.
   }
 
   /**
-   * Each task gets the default model of its tier. The corpus holds at least 20 tasks in at least 2 tiers, so the check is not vacuous.
+   * Each task gets the default model of its tier. The test requires at least 20 tasks in at least 2 tiers, so the check is not vacuous.
    * The default tier models are distinct, so each model count equals the count of its tier, and no model covers the whole corpus.
    */
   it('PrepareDelegation_StampedCorpus_ModelMixTracksTierDistribution', () => {
@@ -2467,7 +2467,7 @@ describe.skipIf(!fs.existsSync(path.join(path.dirname(fileURLToPath(import.meta.
 });
 
 /**
- * `computeScopedWorktrees` compares task ids after `canonicaliseTaskId`, so the prefixed, unprefixed and plain-number forms match.
+ * `computeScopedWorktrees` compares task ids after `canonicaliseTaskId`, so the hyphenated, unhyphenated and plain-number spellings of one id match.
  * A strict string comparison gives false `<N> worktrees pending` blockers.
  */
 describe('computeScopedWorktrees', () => {

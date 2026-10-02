@@ -488,7 +488,7 @@ function makeEventStoreStub(): {
 
 /**
  * Build a DI bundle with stubs. By default the safeguards pass, the branch name
- * is `feat/x`, and the second staleness signals are absent.
+ * is `feat/x`, and the phase-transition and branch-activity signals are absent.
  */
 function makeDeps(overrides: Partial<PruneHandlerDeps> = {}): PruneHandlerDeps & {
   listSpy: ReturnType<typeof vi.fn>;
@@ -546,7 +546,10 @@ describe('handlePruneStaleWorkflows', () => {
     vi.restoreAllMocks();
   });
 
-  /** The handler logs a warning with the same reason and cancels nothing. */
+  /**
+   * The handler returns `aborted` with the reason `topology_not_loaded`. It logs a
+   * warning with that reason and cancels nothing.
+   */
   it('PruneStaleWorkflows_TopologyYamlFailedToLoad_SkipsPruningWithLoggedReason', async () => {
     const { ctx } = makeEventStoreStub();
     const deps = makeDeps();
@@ -981,9 +984,9 @@ describe('handlePruneStaleWorkflows', () => {
   });
 
   /**
-   * The handler does not prune a `handleList` entry that lacks a required field.
-   * It reports the entry in `malformed` and logs a warning, so a broken
-   * `handleList` cannot cancel every workflow.
+   * The handler does not prune a `handleList` entry that lacks a required field
+   * or has a timestamp that does not parse. It reports the entry in `malformed`
+   * and logs a warning, so a broken `handleList` cannot cancel every workflow.
    */
   it('handlePruneStaleWorkflows_malformedEntries_excludedFromCandidates', async () => {
     const { ctx } = makeEventStoreStub();
@@ -1835,11 +1838,11 @@ describe('handlePruneStaleWorkflows', () => {
   /**
    * One apply run with a 30-day topology threshold and the config
    * `phaseExclusions: ['ideate']`, `malformedHandling: 'include'`, `maxBatchSize: 5`,
-   * and `requireDryRun: false`. Seven entries qualify, and the cap keeps the five
-   * most stale. The malformed entry has infinite staleness, so it sorts first.
+   * and `requireDryRun: false`. The custom exclusions replace the default list, so
+   * `delegate-40d` qualifies. Seven entries qualify, and the cap keeps the five most
+   * stale. The malformed entry has infinite staleness, so it sorts first.
    */
   it('handlePrune_FullConfigApplied_AllKnobsEffective', async () => {
-
     const append = vi.fn().mockResolvedValue({ sequence: 1, type: 'workflow.pruned' });
     const ctx = {
       eventStore: { append },

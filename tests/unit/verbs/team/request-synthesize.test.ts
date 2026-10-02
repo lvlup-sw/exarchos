@@ -100,7 +100,7 @@ describe('handleRequestSynthesize', () => {
     expect(resultData.eventAppended).toBe(true);
   });
 
-  /** Each call appends an event. The guard checks only that one event exists, so a repeated request is safe. */
+  /** Each call appends an event. The guard checks only that at least one event exists, so a repeated request is safe. */
   it('handleRequestSynthesize_isIdempotentAcrossMultipleCalls', async () => {
     const { store, calls } = makeMockEventStore(oneshotEvents('implementing'));
 

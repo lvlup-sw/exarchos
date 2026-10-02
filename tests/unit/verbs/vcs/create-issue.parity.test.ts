@@ -2,8 +2,8 @@
  * CLI and MCP parity for the `create_issue` action. Both carriers must record
  * `issue.create.requested` and then `issue.create.executed`, with one
  * operation id per arm and the same issue data. Each arm has its own state
- * directory, a stub VCS provider, and a composite stub that calls the real
- * `handleCreateIssue`.
+ * directory. Both arms use a stub VCS provider and a composite stub that calls
+ * the real `handleCreateIssue`.
  */
 
 import { describe, it, expect, afterEach, vi } from 'vitest';

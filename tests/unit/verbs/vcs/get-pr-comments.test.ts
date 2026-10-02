@@ -81,8 +81,8 @@ describe('handleGetPrComments', () => {
   /**
    * A provider with `getPrCommentsPage` gets the limit, offset and fields
    * unchanged, and the handler does not read the full feed. When more pages
-   * remain, the next-page command keeps `--fields`. Without it, page 2 returns
-   * full comments.
+   * remain, the next-page command keeps `--fields`. Without `--fields`, page 2
+   * returns full comments.
    */
   it('handleGetPrComments_ThreadsWindowOpts_ToProvider', async () => {
     const page = {

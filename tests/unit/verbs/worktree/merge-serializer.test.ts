@@ -86,7 +86,7 @@ const EMPTY_TABLE: ProcessTableSource = { list: () => [] };
 /**
  * An unsupported process table, as on a platform with no enumerator. `list()`
  * is `[]` and `isSupported()` is `false`, so a probed PID reads as `'unknown'`.
- * The lease must keep a holder that this table probes.
+ * The serializer must not reclaim a holder that it probes against this table.
  */
 const UNSUPPORTED_TABLE: ProcessTableSource = {
   list: () => [],
@@ -314,9 +314,10 @@ describe('serialize_merge — cross-process OCC', () => {
   /**
    * Two `EventStore` instances over one database file race as two processes.
    * The merge stub holds the lease for 120 ms, longer than the first retry
-   * backoff of the loser, so the loser folds a live holder. The sleep yields a
-   * macrotask, so the loser does not starve the winner. A walk of the committed
-   * log then checks that no two claims for the ref are open at once.
+   * backoff of the loser. The loser then folds a live holder, so a broken guard
+   * commits a second claim and the test fails. The sleep yields a macrotask, so
+   * the loser does not starve the winner. A walk of the committed log then
+   * checks that no two claims for the ref are open at once.
    */
   it('SerializeMerge_ConcurrentClaims_OccResolvesSingleHolderCrossProcess', async () => {
     const armA = await createArm();
@@ -382,8 +383,8 @@ describe('serialize_merge — cross-process OCC', () => {
 
 describe('serialize_merge — composition', () => {
   /**
-   * Runs the serialized path through `handleOrchestrate` with `dryRun: false`,
-   * so `merge_orchestrate` runs. Runs the direct `handleMergeOrchestrate` path
+   * The serialized path goes through `handleOrchestrate` with `dryRun: false`,
+   * so `merge_orchestrate` runs. The direct path runs `handleMergeOrchestrate`
    * on an equal second repo. The `merge.*` events of the feature stream must
    * match without ids, timestamps, sequences, and commit SHAs.
    */
@@ -693,7 +694,7 @@ const GUARD_PASSING_PREFLIGHT: MergePreflightResult = {
   drift: { clean: true, uncommittedFiles: [], indexStale: false, detachedHead: false },
 };
 
-/** A `gitExec` that fails each call, so the git worktree probe of `merge_orchestrate` finds nothing. */
+/** A `gitExec` that fails each call, so `merge_orchestrate` skips its check for a sibling worktree on the target branch. */
 const GUARD_NO_GIT: GitExec = () => ({ exitCode: 1, stdout: '', stderr: '' });
 
 /**
@@ -730,8 +731,8 @@ function realMergeCapturingLease(
 /**
  * `merge_orchestrate` fails closed when another live holder has the lease on the
  * target ref. The serializer holds its own lease first, so it must pass that
- * `operationId` as `leaseOperationId`. Otherwise the guard blocks the own claim
- * of the serializer as a foreign holder.
+ * `operationId` as `leaseOperationId`. Otherwise the guard blocks the claim of
+ * the serializer itself as a foreign holder.
  */
 describe('serialize_merge — DR-2 lease threading through the guard', () => {
   /**

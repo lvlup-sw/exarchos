@@ -6,7 +6,8 @@
 // An exhausted index.lock retry reaches the caller as `IndexLockContentionError`, and the lease is released.
 //
 // The serializer runs no `git reset --hard` and passes a `recoveryError` from `merge_orchestrate` through unchanged.
-// The tests run against a real SQLite EventStore, and the prune test also uses a real git repo.
+// The tests use a real SQLite EventStore, because its stream-version check inside the transaction is the cross-process guard.
+// The prune test also uses a real git repo.
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';

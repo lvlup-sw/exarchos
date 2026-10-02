@@ -198,8 +198,8 @@ describe('assertCurrentBranchNotProtected', () => {
 });
 
 /**
- * All worktrees of a repository share one stash. A stash entry can bring the work
- * of a sibling agent into the worktree under dispatch.
+ * All worktrees of a repository share one stash. So a pop of an existing entry can
+ * bring the work of a sibling agent into the worktree under dispatch.
  */
 describe('probeStashAndEmit', () => {
   it('DispatchGuard_StashObservedInWorktree_EmitsStashDetected', async () => {
