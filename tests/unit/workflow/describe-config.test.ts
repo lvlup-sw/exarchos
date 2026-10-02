@@ -114,7 +114,7 @@ describe('buildConfigDescription', () => {
     expect(result.prune.requireDryRun.source).toBe('default');
   });
 
-  /** The prune section of the description must hold no `staleAfterDays` key, but it keeps the other keys. */
+  /** The prune section of the description must hold no `staleAfterDays` key, but it keeps `maxBatchSize`. */
   it('DescribeConfig_StaleAfterDaysRemoved_OmitsAnnotatedField', () => {
     const result = buildConfigDescription(DEFAULTS);
     expect('staleAfterDays' in result.prune).toBe(false);

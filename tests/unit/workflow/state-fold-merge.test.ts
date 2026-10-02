@@ -130,7 +130,7 @@ describe('ES v2 get — the fold merged with the file', () => {
 describe('why the state file is not re-materialized from the fold', () => {
   /**
    * The fold applies a `state.patched` task as it is, with no validation and no defaults.
-   * A partial task, such as one with no title, thus fails `TaskSchema`, so a state file written from the fold fails the next read.
+   * So a partial task, such as one with no title, fails `TaskSchema`, and a state file written from the fold fails the next read.
    * If this test fails, the two shapes agree, and a write of the state file from the fold can return.
    */
   it('WorkflowStateFold_PatchedTask_ViolatesStateSchema', () => {

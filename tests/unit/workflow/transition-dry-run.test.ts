@@ -39,8 +39,8 @@ async function eventTypes(): Promise<string[]> {
 
 /**
  * Parks a feature workflow at `plan` with its plan artifact set, so the HSM guard allows
- * `plan → plan-review`. A blocked transition also appends no `workflow.transition`. The setup asserts its own
- * log, so the later checks start from a known stream.
+ * `plan → plan-review`. A blocked transition also appends no `workflow.transition`, so without the artifact
+ * the tests pass for the wrong reason. The setup asserts its own log, so the later checks start from a known stream.
  */
 beforeEach(async () => {
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'transition-dry-run-'));

@@ -18,7 +18,7 @@ import type { EventType as ExternalEventType } from '../../../src/events/schemas
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 import { execFileAsync } from '../../../tools/test-helpers/spawn.js';
 
-/** `readRawState` and `writeRawState` skip the Zod parse, so the raw file keeps fields that the schema strips. */
+/** `readRawState` and `writeRawState` read and write the state file directly, without the migration and the Zod parse of `readStateFile`. */
 describe('Integration', () => {
   let stateDir: string;
 
@@ -470,7 +470,7 @@ describe('Integration', () => {
   });
 
   describe('Migration_V1_0StateFile_MigratesOnRead', () => {
-    /** The state schema has no `_events` or `_eventSequence` field, so a query for either returns undefined. */
+    /** The fixture holds no `_events` or `_eventSequence` field, and the migration adds neither, so a query for either returns undefined. */
     it('should migrate a v1.0 state file when read via handleGet', async () => {
       const v10State = {
         version: '1.0',

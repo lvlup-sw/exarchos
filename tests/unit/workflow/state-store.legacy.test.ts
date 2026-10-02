@@ -658,7 +658,10 @@ describe('State Store', () => {
   });
 
   describe('initStateFile_WriteFailsNonEEXIST_ThrowsFileIOError', () => {
-    /** POSIX only. A read-only directory makes `writeFile` fail with `EACCES`, not `EEXIST`, but on Windows it does not block the owner. */
+    /**
+     * A read-only directory makes `writeFile` fail with `EACCES`, not `EEXIST`.
+     * On Windows, a read-only directory does not block the owner, so the test runs on POSIX only.
+     */
     it.skipIf(process.platform === 'win32')('should throw StateStoreError with FILE_IO_ERROR when writeFile fails with non-EEXIST error', async () => {
       const readOnlyDir = path.join(tmpDir, 'readonly-dir');
       await fs.mkdir(readOnlyDir);

@@ -79,7 +79,7 @@ const LOCKED_CLASSIFICATION: Record<string, Record<string, PhaseKind>> = {
   },
 };
 
-/** The implement state of each HSM track. Each one must have the kind IMPLEMENT. */
+/** The six implement states of the HSM tracks. Each one must have the kind IMPLEMENT. */
 const IMPLEMENT_SNOWFLAKES: ReadonlyArray<{ hsm: string; state: string }> = [
   { hsm: 'feature', state: 'delegate' },
   { hsm: 'refactor', state: 'overhaul-delegate' },

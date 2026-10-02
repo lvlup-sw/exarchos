@@ -1,4 +1,4 @@
-// The `child_process` mock holds only `execFile`.
+// The `child_process` mock holds only `execFile`, so compensation runs no real shell command.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Event } from '../../../src/workflow/types.js';

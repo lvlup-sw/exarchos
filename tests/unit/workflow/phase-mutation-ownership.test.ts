@@ -24,7 +24,7 @@ const PHASE_MUTATION_PRIMITIVE = 'executeTransition';
 /**
  * The modules that can reference the primitive in shipped source.
  * `state-machine.ts` defines the primitive.
- * `hsm-transition-guard.ts` is the one production authority, so each phase mutation goes through it, `cancel` and `cleanup` included.
+ * `hsm-transition-guard.ts` is the one production authority. Each phase mutation goes through it, `cancel` and `cleanup` included.
  * `cancel.ts` and `cleanup.ts` are not owners, so a live reference in either trips `UNAUTHORIZED_PHASE_MUTATION`.
  */
 const PHASE_MUTATION_OWNERS: readonly string[] = Object.freeze([
