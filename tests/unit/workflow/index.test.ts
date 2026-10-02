@@ -1,6 +1,15 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+/**
+ * Tests `createServer` and the other exports of `src/index.ts`.
+ * The tests mock `contract/sdk/seam.ts`, not the SDK packages, because production reaches the SDK only through the seam.
+ * The mock keeps the real seam constants, so a typo in a method name fails here.
+ * The mock server has a `server` object, because `createMcpServer` sets `oninitialized` and calls `setNotificationHandler` on it.
+ *
+ * The composite handlers are mocked, so nothing appends an event.
+ * The post-dispatch emission verifier still runs and expects `workflow.started` after `workflow.init`.
+ * So the `EventStore` double returns that event for a query with an `operationId` and no `type`.
+ */
 
-// ─── Hoisted Mocks ──────────────────────────────────────────────────────────
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const {
   toolRegistrations,
@@ -19,23 +28,7 @@ const {
   mockHandleView: vi.fn().mockResolvedValue({ success: true, data: {} }),
 }));
 
-// ─── Module Mocks ────────────────────────────────────────────────────────────
-
-// ── The mock boundary is the SEAM, not the SDK (task 049) ───────────────────
-//
-// This used to mock `@modelcontextprotocol/sdk/server/{mcp,stdio}.js` directly.
-// Two things made that wrong once DR-0's migration landed: production no longer
-// imports those paths (so the mock intercepted nothing and every registration
-// assertion silently saw an empty map), and naming an SDK package outside
-// `contract/sdk/seam.ts` is exactly what DR-26's `SDK_SEAM_BOUNDARY` rule forbids.
-//
-// Mocking the seam is also the more durable boundary on its own merits: the
-// next SDK move changes one module rather than every test that stubs it, which
-// is the whole reason the seam exists.
 vi.mock('../../../src/contract/sdk/seam.js', async (importOriginal) => {
-  // Constants (method names, protocol version) are pass-through: they are
-  // vocabulary, not behaviour, and stubbing them would let a typo in the real
-  // module pass here.
   const actual = await importOriginal<typeof import('../../../src/contract/sdk/seam.js')>();
   return {
     ...actual,
@@ -54,11 +47,6 @@ vi.mock('../../../src/contract/sdk/seam.js', async (importOriginal) => {
         },
       ),
       connect: vi.fn().mockResolvedValue(undefined),
-      // #1290 — createMcpServer wires `oninitialized` + `setNotificationHandler`
-      // for the roots/list_changed capability snapshot. The real McpServer
-      // exposes these via `.server` (the underlying SDK Server instance).
-      // The mock mirrors that surface so the production code path doesn't
-      // throw "Cannot set properties of undefined" when running under vitest.
       server: {
         oninitialized: undefined,
         getClientCapabilities: vi.fn().mockReturnValue({}),
@@ -70,7 +58,6 @@ vi.mock('../../../src/contract/sdk/seam.js', async (importOriginal) => {
   };
 });
 
-// Mock composite handlers
 vi.mock('../../../src/workflow/composite.js', () => ({
   handleWorkflow: mockHandleWorkflow,
 }));
@@ -87,22 +74,10 @@ vi.mock('../../../src/projections/views/composite.js', () => ({
   handleView: mockHandleView,
 }));
 
-// Mock remaining module-level configuration functions
 vi.mock('../../../src/workflow/cleanup.js', () => ({
   configureCleanupSnapshotStore: vi.fn(),
 }));
 
-// The composite handlers above are mocked, so nothing in this file appends.
-// The post-dispatch emission verifier still runs, and `workflow.init` declares
-// `workflow.started` unconditionally — so this double has to stand in for a
-// handler that kept that promise, or the envelope assertions fail on an
-// emission verdict rather than on what they are about. The operation-scoped
-// read (`type` absent AND `operationId` present) is the verifier's read, so
-// that is the arm that answers with the declared event; an unscoped query
-// (neither filter, e.g. a stream read) falls through to the type-filtered arm
-// instead of being handed the same synthetic event. `append` exists so a
-// verdict is recordable rather than faulting the assessment into
-// `indeterminate`.
 vi.mock('../../../src/events/store.js', () => ({
   EventStore: vi.fn().mockImplementation(() => ({
     initialize: vi.fn().mockResolvedValue(undefined),
@@ -122,16 +97,12 @@ vi.mock('../../../src/projections/views/snapshot-store.js', () => ({
   SnapshotStore: vi.fn(),
 }));
 
-// Mock telemetry middleware (pass-through by default)
 vi.mock('../../../src/projections/telemetry/middleware.js', () => ({
   withTelemetry: vi.fn((handler: unknown) => handler),
 }));
 
-// Import after mocks are set up
 import { createServer } from '../../../src/index.js';
 import { TOOL_REGISTRY } from '../../../src/registry.js';
-
-// ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe('MCP Server Entry Point', () => {
   beforeEach(() => {
@@ -156,7 +127,6 @@ describe('MCP Server Entry Point', () => {
         expect(toolRegistrations.has(toolName)).toBe(true);
       }
 
-      // Hidden tools should NOT be registered
       expect(toolRegistrations.has('exarchos_sync')).toBe(false);
     });
 
@@ -181,28 +151,20 @@ describe('MCP Server Entry Point', () => {
       }
     });
 
+    /**
+     * Slim registration is the default. The description lists the action names and points to the `describe` action.
+     * It does not inline signatures such as `init(...)`. `registry.test.ts` tests the full mode of `buildToolDescription`.
+     */
     it('should enumerate action names and point to describe (slim registration, DR-6/INV-5a)', async () => {
       await createServer('/tmp/test-state-dir');
 
-      // DR-6 (task 015): slim registration is the production default. The
-      // tools/list description enumerates action NAMES briefly and points at
-      // the `describe` action for per-action schemas/signatures — it does NOT
-      // inline the full `init(...)` signatures. INV-5a: per-action detail
-      // (schemas + negative-space "Do NOT use for …" guidance) lives behind
-      // `describe`, the on-demand full-detail path. Full-mode signature
-      // rendering by `buildToolDescription` is still unit-covered in
-      // registry.test.ts ('buildToolDescription dual mode').
       const workflow = toolRegistrations.get('exarchos_workflow')!;
       expect(workflow.description).toContain('Actions:');
       expect(workflow.description).toContain('init');
       expect(workflow.description).toContain('get');
-      // T5a.1/DR-4 (#1259, v2.11): `set` removed; `transition` is the
-      // canonical phase-mutation action and the natural successor here.
       expect(workflow.description).toContain('transition');
       expect(workflow.description).toContain('cancel');
-      // The pointer to the on-demand full-detail alternative (INV-5a).
       expect(workflow.description).toContain('describe');
-      // Slim: no inlined per-action signatures (the flip's whole point).
       expect(workflow.description).not.toContain('init(');
     });
 
@@ -210,7 +172,6 @@ describe('MCP Server Entry Point', () => {
       await createServer('/tmp/test-state-dir');
       for (const [, registration] of toolRegistrations) {
         expect(registration.schema).toBeDefined();
-        // Schema is a strict ZodObject; check the shape for the action field
         const schema = registration.schema as { shape: Record<string, unknown> };
         expect(schema.shape).toHaveProperty('action');
       }
@@ -323,14 +284,13 @@ describe('MCP Server Entry Point', () => {
   });
 
   describe('telemetry integration', () => {
+    /** The telemetry wrap happens at dispatch, not at registration, so the test calls a handler. */
     it('should wrap handlers with withTelemetry when EXARCHOS_TELEMETRY is not false', async () => {
       const { withTelemetry } = await import('../../../src/projections/telemetry/middleware.js');
       const originalEnv = process.env.EXARCHOS_TELEMETRY;
       try {
         delete process.env.EXARCHOS_TELEMETRY;
         await createServer('/tmp/test-state-dir');
-        // Telemetry wrapping now happens during dispatch (tool invocation),
-        // not during registration. Invoke a handler to trigger withTelemetry.
         await toolRegistrations.get('exarchos_workflow')!.handler({
           action: 'init', featureId: 'test-feat', workflowType: 'feature',
         });
@@ -356,6 +316,7 @@ describe('MCP Server Entry Point', () => {
       }
     });
 
+    /** `resolveStateDir` returns a POSIX path. The expected path must also be POSIX, or the test fails on Windows. */
     it('should fallback to ~/.exarchos/state when no env vars are set', async () => {
       const { resolveStateDir } = await import('../../../src/index.js');
       const { homedir } = await import('node:os');
@@ -371,8 +332,6 @@ describe('MCP Server Entry Point', () => {
         const result = await resolveStateDir();
         const { join } = await import('node:path');
         const { toPosix } = await import('../../../src/utils/paths.js');
-        // resolveStateDir POSIX-normalizes its output (#1620), so the expected
-        // must too — otherwise this asserts native separators on Windows.
         expect(result).toBe(toPosix(join(homedir(), '.exarchos', 'state')));
       } finally {
         if (originalEnv === undefined) { delete process.env.WORKFLOW_STATE_DIR; }
@@ -393,11 +352,8 @@ describe('MCP Server Entry Point', () => {
       expect(SERVER_NAME).toBe('exarchos-mcp');
     });
 
+    /** The test compares with `package.json`, not a literal. `tools/release/sync-versions.sh` keeps the two versions the same. */
     it('should export SERVER_VERSION matching package.json', async () => {
-      // Asserts the contract — exported version tracks the manifest — rather
-      // than a literal that has to be hand-edited on every bump (and didn't
-      // get hand-edited reliably; cf. PR #1176 review-finding-2). The lockstep
-      // is now fully owned by `tools/release/sync-versions.sh`.
       const { readFileSync } = await import('node:fs');
       const { resolve } = await import('node:path');
       const { fileURLToPath } = await import('node:url');

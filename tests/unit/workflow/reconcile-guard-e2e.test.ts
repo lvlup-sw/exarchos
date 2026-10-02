@@ -24,17 +24,11 @@ describe('ReconcileGuardE2E', () => {
     await rmrfAsync(stateDir);
   });
 
-  /**
-   * Read raw state JSON from disk, bypassing Zod validation.
-   */
   async function readRawState(featureId: string): Promise<Record<string, unknown>> {
     const stateFile = path.join(stateDir, `${featureId}.state.json`);
     return JSON.parse(await fs.readFile(stateFile, 'utf-8')) as Record<string, unknown>;
   }
 
-  /**
-   * Write raw state JSON to disk, bypassing Zod validation.
-   */
   async function writeRawState(
     featureId: string,
     state: Record<string, unknown>,
@@ -43,9 +37,6 @@ describe('ReconcileGuardE2E', () => {
     await fs.writeFile(stateFile, JSON.stringify(state, null, 2), 'utf-8');
   }
 
-  /**
-   * Set up a feature workflow at delegate phase with tasks complete.
-   */
   async function setupAtDelegate(featureId: string): Promise<void> {
     await handleInit({ featureId, workflowType: 'feature' }, stateDir, eventStore);
     await handleSet(
@@ -73,11 +64,13 @@ describe('ReconcileGuardE2E', () => {
     );
   }
 
+  /**
+   * Reconcile hydrates `_events` from the event stream, also when the team events change no other state field.
+   * The guard on the transition to review reads `_events`.
+   */
   it('ReconcileGuardE2E_DelegateToReview_SucceedsAfterReconcile', async () => {
-    // Arrange: Set up workflow at delegate phase
     await setupAtDelegate('e2e-success');
 
-    // Append team events to the JSONL store (simulating orchestrator behavior)
     await eventStore.append('e2e-success', {
       type: 'team.spawned' as EventType,
       correlationId: 'e2e-success',
@@ -96,53 +89,42 @@ describe('ReconcileGuardE2E', () => {
       },
     });
 
-    // Reconcile to populate _events from event stream.
-    // Note: reconciled may be false because team events don't mutate state
-    // (applyEventToState only handles workflow.started/transition/checkpoint).
-    // But _events hydration still runs after the event application loop.
     await reconcileFromEvents(stateDir, 'e2e-success', eventStore);
 
-    // Verify _events was populated after reconcile
     const rawState = await readRawState('e2e-success');
     const events = rawState._events as Array<Record<string, unknown>>;
     expect(events).toBeDefined();
     expect(events.some((e) => e.type === 'team.disbanded')).toBe(true);
 
-    // Act: Transition delegate -> review
     const result = await handleSet(
       { featureId: 'e2e-success', phase: 'review' },
       stateDir,
       eventStore,
     );
 
-    // Assert: Transition succeeds (guard passes because _events was hydrated)
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
     expect(data.phase).toBe('review');
   });
 
+  /** With no team events in the stream, as in subagent mode, the team guard passes. */
   it('ReconcileGuardE2E_DelegateToReview_NoTeamSpawned_SkipsGuard', async () => {
-    // Arrange: Set up workflow at delegate without team events (subagent mode)
     await setupAtDelegate('e2e-no-team');
 
-    // Reconcile (no team events in stream)
     await reconcileFromEvents(stateDir, 'e2e-no-team', eventStore);
 
-    // Act: Transition delegate -> review
     const result = await handleSet(
       { featureId: 'e2e-no-team', phase: 'review' },
       stateDir,
       eventStore,
     );
 
-    // Assert: Transition succeeds (guard auto-passes when no team was spawned)
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
     expect(data.phase).toBe('review');
   });
 
   it('ReconcileGuardE2E_DelegateToReview_TeamSpawnedButNotDisbanded_Fails', async () => {
-    // Arrange: Set up workflow at delegate with team.spawned but NOT team.disbanded
     await setupAtDelegate('e2e-no-disband');
 
     await eventStore.append('e2e-no-disband', {
@@ -152,17 +134,14 @@ describe('ReconcileGuardE2E', () => {
       data: { featureId: 'e2e-no-disband', agentCount: 2 },
     });
 
-    // Reconcile to populate _events
     await reconcileFromEvents(stateDir, 'e2e-no-disband', eventStore);
 
-    // Act: Attempt transition delegate -> review
     const result = await handleSet(
       { featureId: 'e2e-no-disband', phase: 'review' },
       stateDir,
       eventStore,
     );
 
-    // Assert: Transition fails because team was spawned but not disbanded
     expect(result.success).toBe(false);
     expect(result.error).toBeDefined();
     const error = result.error as Record<string, unknown>;

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-// Hoisted config for controlling fs.link mock in crash-safety tests
+/** The hoisted switch for the `fs.link` mock in the crash-safety tests. */
 const linkMockConfig = vi.hoisted(() => ({
   shouldFail: false,
   error: null as Error | null,
@@ -69,12 +69,10 @@ describe('State Store', () => {
         prFeedback: [],
       });
       expect(state._history).toEqual({});
-      // _events and _eventSequence removed — events now in external JSONL store
       expect(state._checkpoint).toBeDefined();
       expect(state._checkpoint.phase).toBe('plan');
       expect(state._checkpoint.summary).toBe('Workflow initialized');
 
-      // Verify file was written to disk
       const raw = await fs.readFile(stateFile, 'utf-8');
       const parsed = JSON.parse(raw);
       expect(parsed.featureId).toBe('my-feature');
@@ -102,8 +100,6 @@ describe('State Store', () => {
       ).rejects.toThrow(ErrorCode.STATE_ALREADY_EXISTS);
     });
   });
-
-  // ─── #775: explore field initialization ──────────────────────────────────
 
   describe('InitStateFile_RefactorWorkflow_IncludesExploreField', () => {
     it('should include explore: {} in refactor workflow initial state', async () => {
@@ -135,15 +131,12 @@ describe('State Store', () => {
     it('should allow setting explore.scopeAssessment on initialized refactor state', async () => {
       const { stateFile, state } = await initStateFile(tmpDir, 'refactor-scope', 'refactor');
 
-      // Set explore.scopeAssessment via applyDotPath (simulating exarchos_workflow set)
       const stateRecord = state as unknown as Record<string, unknown>;
       applyDotPath(stateRecord, 'explore.scopeAssessment', 'Files assessed: 5 modules');
 
-      // Verify the value was set
       const explore = stateRecord.explore as Record<string, unknown>;
       expect(explore.scopeAssessment).toBe('Files assessed: 5 modules');
 
-      // Write back and re-read to verify persistence
       await writeStateFile(stateFile, state);
       const reloaded = await readStateFile(stateFile);
       const reloadedRecord = reloaded as unknown as Record<string, unknown>;
@@ -167,16 +160,13 @@ describe('State Store', () => {
     it('should write state file atomically using tmp-then-rename', async () => {
       const { stateFile, state } = await initStateFile(tmpDir, 'atomic-test', 'feature');
 
-      // Modify state and write
       const updatedState = { ...state, updatedAt: new Date().toISOString() };
       await writeStateFile(stateFile, updatedState);
 
-      // Verify the file was written
       const raw = await fs.readFile(stateFile, 'utf-8');
       const parsed = JSON.parse(raw);
       expect(parsed.updatedAt).toBe(updatedState.updatedAt);
 
-      // Verify no leftover temp files
       const files = await fs.readdir(tmpDir);
       const tmpFiles = files.filter((f) => f.includes('.tmp.'));
       expect(tmpFiles).toHaveLength(0);
@@ -277,7 +267,6 @@ describe('State Store', () => {
       const featureIds = results.valid.map((r) => r.featureId).sort();
       expect(featureIds).toEqual(['feature-a', 'feature-b', 'feature-c']);
 
-      // Each entry should have stateFile and state
       for (const entry of results.valid) {
         expect(entry.stateFile).toContain('.state.json');
         expect(entry.state).toBeDefined();
@@ -294,7 +283,6 @@ describe('State Store', () => {
 
     it('should ignore non-state files', async () => {
       await initStateFile(tmpDir, 'real-state', 'feature');
-      // Write a non-state file
       await fs.writeFile(path.join(tmpDir, 'readme.md'), '# Notes', 'utf-8');
 
       const results = await listStateFiles(tmpDir);
@@ -371,7 +359,6 @@ describe('State Store', () => {
           { id: '3', status: 'in-progress', title: 'Task 3' },
         ],
       };
-      // Arrays are replaced entirely — old entries do not persist
       applyDotPath(obj, 'tasks', [{ id: '3', status: 'complete' }]);
       const tasks = obj.tasks as Array<Record<string, unknown>>;
       expect(tasks).toHaveLength(1);
@@ -437,20 +424,16 @@ describe('State Store', () => {
       });
       const explore = obj.explore as Record<string, unknown>;
       const scope = explore.scopeAssessment as Record<string, unknown>;
-      expect(scope.filesAffected).toBe(5);         // preserved from original
-      expect(scope.testCoverage).toBe('excellent'); // overwritten by source
-      expect(scope.riskLevel).toBe('low');          // new key from source
-      expect(explore.startedAt).toBe('2025-01-15T10:00:00Z'); // sibling preserved
+      expect(scope.filesAffected).toBe(5);
+      expect(scope.testCoverage).toBe('excellent');
+      expect(scope.riskLevel).toBe('low');
+      expect(explore.startedAt).toBe('2025-01-15T10:00:00Z');
     });
   });
 
-  // ─── Edge Cases and Error Paths ──────────────────────────────────────────
-
   describe('listStateFiles_CorruptFile_SkipsAndReturnValid', () => {
     it('should skip corrupt state files and return only valid ones', async () => {
-      // Create a valid state file
       await initStateFile(tmpDir, 'valid-feature', 'feature');
-      // Create a corrupt state file (invalid JSON)
       await fs.writeFile(
         path.join(tmpDir, 'corrupt.state.json'),
         'invalid json{{{',
@@ -493,13 +476,12 @@ describe('State Store', () => {
   });
 
   describe('listStateFiles_NonENOENTError_ThrowsStateStoreError', () => {
+    /** `readdir` on a regular file fails with `ENOTDIR`, which is not `ENOENT`. */
     it('should throw StateStoreError with FILE_IO_ERROR for non-ENOENT readdir errors', async () => {
-      // Use a regular file as the "directory" path — readdir on a file gives ENOTDIR, not ENOENT
       const filePath = path.join(tmpDir, 'not-a-directory');
       await fs.writeFile(filePath, 'just a file', 'utf-8');
 
       await expect(listStateFiles(filePath)).rejects.toThrow(ErrorCode.FILE_IO_ERROR);
-      // Verify it's a StateStoreError instance
       try {
         await listStateFiles(filePath);
       } catch (err) {
@@ -554,24 +536,20 @@ describe('State Store', () => {
 
   describe('listStateFiles_OrphanedTempCleanup', () => {
     it('ListStateFiles_OrphanedTmpFromDeadPid_CleansUp', async () => {
-      // Create an orphaned temp file with a dead PID
       const tmpFile = path.join(tmpDir, 'test.state.json.tmp.999999');
       await fs.writeFile(tmpFile, '{}', 'utf-8');
 
       await listStateFiles(tmpDir);
 
-      // Verify temp file was cleaned up
       await expect(fs.access(tmpFile)).rejects.toThrow();
     });
 
     it('ListStateFiles_TmpFromLivePid_Preserved', async () => {
-      // Create a temp file with our own PID (alive)
       const tmpFile = path.join(tmpDir, `test.state.json.tmp.${process.pid}`);
       await fs.writeFile(tmpFile, '{}', 'utf-8');
 
       await listStateFiles(tmpDir);
 
-      // Verify temp file was NOT cleaned up
       await expect(fs.access(tmpFile)).resolves.toBeUndefined();
     });
 
@@ -626,7 +604,6 @@ describe('State Store', () => {
       (mutated.worktrees as Record<string, unknown>)['bad-wt'] = {
         branch: 'feat/bad',
         status: 'active',
-        // Missing both taskId and tasks
       };
 
       await expect(
@@ -636,10 +613,10 @@ describe('State Store', () => {
   });
 
   describe('writeStateFile_FailurePath_ThrowsStateStoreError', () => {
+    /** A path under a regular file makes the write fail with `ENOTDIR` or `ENOENT`. */
     it('should throw StateStoreError with FILE_IO_ERROR when writing to an invalid path', async () => {
       const { state } = await initStateFile(tmpDir, 'write-fail-test', 'feature');
 
-      // Try to write to a path under a file (not a directory) — causes ENOTDIR or ENOENT
       const blocker = path.join(tmpDir, 'blocker');
       await fs.writeFile(blocker, 'I am a file', 'utf-8');
       const invalidStateFile = path.join(blocker, 'nested', 'state.json');
@@ -647,7 +624,6 @@ describe('State Store', () => {
       await expect(writeStateFile(invalidStateFile, state)).rejects.toThrow(
         ErrorCode.FILE_IO_ERROR,
       );
-      // Verify it's a StateStoreError instance
       try {
         await writeStateFile(invalidStateFile, state);
       } catch (err) {
@@ -655,18 +631,16 @@ describe('State Store', () => {
       }
     });
 
-    // chmod(0o444) on a directory does not block file creation for the owner on
-    // Windows, so the write succeeds and never throws there. The production
-    // temp-file-cleanup-on-failure behavior is platform-agnostic; only this
-    // read-only-dir way of forcing the failure is POSIX-specific. (#1620)
+    /**
+     * On Windows, `chmod(0o444)` on a directory does not block file creation for the owner, so the write succeeds.
+     * The cleanup after a failure is the same on every platform. Only this way to force the failure is POSIX-specific.
+     */
     it.skipIf(process.platform === 'win32')('should not leave temp files behind after write failure', async () => {
       const { state } = await initStateFile(tmpDir, 'cleanup-test', 'feature');
 
-      // Write to a read-only directory to cause rename failure
       const readOnlyDir = path.join(tmpDir, 'readonly');
       await fs.mkdir(readOnlyDir);
       const stateFile = path.join(readOnlyDir, 'test.state.json');
-      // Make directory read-only so temp file write fails
       await fs.chmod(readOnlyDir, 0o444);
 
       try {
@@ -674,11 +648,9 @@ describe('State Store', () => {
           ErrorCode.FILE_IO_ERROR,
         );
       } finally {
-        // Restore permissions for cleanup
         await fs.chmod(readOnlyDir, 0o755);
       }
 
-      // Verify no temp files left behind
       const files = await fs.readdir(readOnlyDir);
       const tmpFiles = files.filter((f) => f.includes('.tmp.'));
       expect(tmpFiles).toHaveLength(0);
@@ -686,10 +658,11 @@ describe('State Store', () => {
   });
 
   describe('initStateFile_WriteFailsNonEEXIST_ThrowsFileIOError', () => {
-    // POSIX-only: a read-only dir (chmod 0o444) does not block writes for the
-    // owner on Windows, so writeFile never fails there. (#1620)
+    /**
+     * A read-only directory makes `writeFile` fail with `EACCES`, not `EEXIST`.
+     * On Windows, a read-only directory does not block the owner, so the test runs on POSIX only.
+     */
     it.skipIf(process.platform === 'win32')('should throw StateStoreError with FILE_IO_ERROR when writeFile fails with non-EEXIST error', async () => {
-      // Create a read-only directory so writeFile fails with EACCES, not EEXIST
       const readOnlyDir = path.join(tmpDir, 'readonly-dir');
       await fs.mkdir(readOnlyDir);
       await fs.chmod(readOnlyDir, 0o444);
@@ -698,7 +671,6 @@ describe('State Store', () => {
         await expect(
           initStateFile(readOnlyDir, 'write-blocked', 'feature'),
         ).rejects.toThrow(ErrorCode.FILE_IO_ERROR);
-        // Verify it's a StateStoreError
         try {
           await initStateFile(readOnlyDir, 'write-blocked2', 'feature');
         } catch (err) {
@@ -732,22 +704,22 @@ describe('State Store', () => {
       );
     });
 
+    /** A missing segment becomes an array when the next segment is numeric, and an object when the next segment is a name. */
     it('should create intermediate array when navigating numeric segments', () => {
       const obj: Record<string, unknown> = {};
 
-      // tasks -> create as array (next segment is numeric), [0] -> create as object (next segment is string)
       applyDotPath(obj, 'tasks[0].name', 'task-1');
 
       expect(Array.isArray(obj.tasks)).toBe(true);
       expect((obj.tasks as Array<Record<string, unknown>>)[0].name).toBe('task-1');
     });
 
+    /** `parsePath` needs a dot between two brackets, so the path is `matrix[2].[0]`. */
     it('should create intermediate array for undefined array segment via dot notation', () => {
       const obj: Record<string, unknown> = {
         matrix: [[1, 2], [3, 4]],
       };
 
-      // Access matrix[2].[0] where matrix[2] doesn't exist — parsePath needs dot between brackets
       applyDotPath(obj, 'matrix[2].[0]', 99);
 
       expect((obj.matrix as number[][])[2][0]).toBe(99);
@@ -755,13 +727,12 @@ describe('State Store', () => {
   });
 
   describe('readStateFile_NonENOENTReadError_ThrowsFileIOError', () => {
+    /** A read of a directory fails with `EISDIR`, which is not `ENOENT`. */
     it('should throw StateStoreError with FILE_IO_ERROR for non-ENOENT read errors', async () => {
-      // Use a directory path as the file — reading a directory gives EISDIR, not ENOENT
       const dirPath = path.join(tmpDir, 'a-directory');
       await fs.mkdir(dirPath);
 
       await expect(readStateFile(dirPath)).rejects.toThrow(ErrorCode.FILE_IO_ERROR);
-      // Verify it's a StateStoreError
       try {
         await readStateFile(dirPath);
       } catch (err) {
@@ -774,7 +745,6 @@ describe('State Store', () => {
   describe('readStateFile_MigrationFails_ThrowsStateCorrupt', () => {
     it('should throw STATE_CORRUPT when migration fails due to unknown version', async () => {
       const stateFile = path.join(tmpDir, 'bad-version.state.json');
-      // Write a file with a version that has no migration path
       await fs.writeFile(
         stateFile,
         JSON.stringify({
@@ -810,7 +780,6 @@ describe('State Store', () => {
       );
 
       await expect(readStateFile(stateFile)).rejects.toThrow(ErrorCode.STATE_CORRUPT);
-      // Verify it's a StateStoreError
       try {
         await readStateFile(stateFile);
       } catch (err) {
@@ -821,7 +790,6 @@ describe('State Store', () => {
 
     it('should migrate versionless state by treating missing version as v1.0', async () => {
       const stateFile = path.join(tmpDir, 'no-version.state.json');
-      // Write a complete v1.0 state without a version field
       await fs.writeFile(
         stateFile,
         JSON.stringify({
@@ -853,17 +821,13 @@ describe('State Store', () => {
     });
   });
 
-  // ─── CAS Versioning ──────────────────────────────────────────────────────
-
   describe('writeStateFile_AutoIncrementsVersion', () => {
     it('should initialize state with _version 1 and increment to 2 on write', async () => {
       const { stateFile } = await initStateFile(tmpDir, 'cas-auto-inc', 'feature');
 
-      // Read the initial state — _version should default to 1
       const state1 = await readStateFile(stateFile);
       expect(state1._version).toBe(1);
 
-      // Write back (no expectedVersion) — _version should increment to 2
       await writeStateFile(stateFile, state1);
       const state2 = await readStateFile(stateFile);
       expect(state2._version).toBe(2);
@@ -875,7 +839,6 @@ describe('State Store', () => {
       let state = await readStateFile(stateFile);
       expect(state._version).toBe(1);
 
-      // Write 3 times
       for (let i = 2; i <= 4; i++) {
         await writeStateFile(stateFile, state);
         state = await readStateFile(stateFile);
@@ -889,10 +852,8 @@ describe('State Store', () => {
       const { stateFile } = await initStateFile(tmpDir, 'cas-conflict', 'feature');
 
       const state = await readStateFile(stateFile);
-      // Write once to increment to version 2
       await writeStateFile(stateFile, state);
 
-      // Now try to write with expectedVersion: 1 (stale) — should fail
       const staleState = await readStateFile(stateFile);
       await expect(
         writeStateFile(stateFile, staleState, { expectedVersion: 1 }),
@@ -903,7 +864,6 @@ describe('State Store', () => {
       const { stateFile } = await initStateFile(tmpDir, 'cas-match', 'feature');
 
       const state = await readStateFile(stateFile);
-      // Current version is 1, pass expectedVersion: 1
       await expect(
         writeStateFile(stateFile, state, { expectedVersion: 1 }),
       ).resolves.toBeUndefined();
@@ -916,7 +876,7 @@ describe('State Store', () => {
       const { stateFile } = await initStateFile(tmpDir, 'cas-error-info', 'feature');
 
       const state = await readStateFile(stateFile);
-      await writeStateFile(stateFile, state); // now version 2
+      await writeStateFile(stateFile, state);
 
       const staleState = await readStateFile(stateFile);
       try {
@@ -934,14 +894,12 @@ describe('State Store', () => {
     it('should succeed regardless of current version when no expectedVersion is given', async () => {
       const { stateFile } = await initStateFile(tmpDir, 'cas-compat', 'feature');
 
-      // Write 3 times, re-reading each time to get the current _version
       for (let i = 0; i < 3; i++) {
         const state = await readStateFile(stateFile);
         await writeStateFile(stateFile, state);
       }
 
       const final = await readStateFile(stateFile);
-      // Each write increments: 1 -> 2 -> 3 -> 4
       expect(final._version).toBe(4);
     });
   });
@@ -950,12 +908,10 @@ describe('State Store', () => {
     it('should default _version to 1 when reading a state file without _version', async () => {
       const { stateFile, state } = await initStateFile(tmpDir, 'cas-legacy', 'feature');
 
-      // Manually write a state file without _version (simulating legacy)
       const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
       delete raw._version;
       await fs.writeFile(stateFile, JSON.stringify(raw, null, 2), 'utf-8');
 
-      // Reading should default _version to 1
       const loaded = await readStateFile(stateFile);
       expect(loaded._version).toBe(1);
     });
@@ -963,7 +919,6 @@ describe('State Store', () => {
     it('should increment from default 1 to 2 on first write of legacy file', async () => {
       const { stateFile } = await initStateFile(tmpDir, 'cas-legacy-write', 'feature');
 
-      // Remove _version to simulate legacy
       const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
       delete raw._version;
       await fs.writeFile(stateFile, JSON.stringify(raw, null, 2), 'utf-8');
@@ -987,34 +942,27 @@ describe('State Store', () => {
     });
   });
 
-  // ─── T16: skipValidation option for writeStateFile ─────────────────────
-
   describe('writeStateFile_SkipValidation', () => {
+    /** The write skips the Zod parse but still increments `_version`. */
     it('WriteStateFile_SkipValidation_WritesWithoutZodParse', async () => {
       const { stateFile, state } = await initStateFile(tmpDir, 'skip-val-test', 'feature');
 
-      // Write with skipValidation: true should succeed
       const updated = { ...state, updatedAt: new Date().toISOString() };
       await writeStateFile(stateFile, updated, { skipValidation: true });
 
-      // Verify the file was written
       const raw = await fs.readFile(stateFile, 'utf-8');
       const parsed = JSON.parse(raw);
       expect(parsed.updatedAt).toBe(updated.updatedAt);
-      // _version should still be auto-incremented
       expect(parsed._version).toBe(2);
     });
 
     it('WriteStateFile_SkipValidation_StillPerformsCAS', async () => {
       const { stateFile, state } = await initStateFile(tmpDir, 'skip-val-cas', 'feature');
 
-      // Write once to increment version to 2
       await writeStateFile(stateFile, state);
 
-      // Read fresh state
       const freshState = await readStateFile(stateFile);
 
-      // Now try with skipValidation + stale expectedVersion — should still fail CAS
       await expect(
         writeStateFile(stateFile, freshState, { expectedVersion: 1, skipValidation: true }),
       ).rejects.toThrow(VersionConflictError);
@@ -1026,17 +974,13 @@ describe('State Store', () => {
       (mutated.worktrees as Record<string, unknown>)['bad-wt'] = {
         branch: 'feat/bad',
         status: 'active',
-        // Missing both taskId and tasks — schema violation
       };
 
-      // Without skipValidation — should reject
       await expect(
         writeStateFile(stateFile, mutated as typeof state),
       ).rejects.toThrow(ErrorCode.INVALID_INPUT);
     });
   });
-
-  // ─── Reconcile From Events ──────────────────────────────────────────────
 
   describe('reconcileFromEvents', () => {
     let eventStore: EventStore;
@@ -1046,7 +990,6 @@ describe('State Store', () => {
     });
 
     it('should rebuild state from events when no state file exists', async () => {
-      // Arrange: append workflow.started + workflow.transition events
       await eventStore.append('my-feature', {
         type: 'workflow.started',
         data: { featureId: 'my-feature', workflowType: 'feature' },
@@ -1056,10 +999,8 @@ describe('State Store', () => {
         data: { from: 'ideate', to: 'plan', trigger: 'execute-transition', featureId: 'my-feature' },
       });
 
-      // Act
       const result = await reconcileFromEvents(tmpDir, 'my-feature', eventStore);
 
-      // Assert
       expect(result.reconciled).toBe(true);
       expect(result.eventsApplied).toBe(2);
 
@@ -1071,7 +1012,6 @@ describe('State Store', () => {
     });
 
     it('should replay transition events to reach correct phase', async () => {
-      // Arrange: create state at ideate, then append transition events
       await initStateFile(tmpDir, 'replay-test', 'feature');
       await eventStore.append('replay-test', {
         type: 'workflow.started',
@@ -1082,10 +1022,8 @@ describe('State Store', () => {
         data: { from: 'ideate', to: 'plan', trigger: 'execute-transition', featureId: 'replay-test' },
       });
 
-      // Act
       const result = await reconcileFromEvents(tmpDir, 'replay-test', eventStore);
 
-      // Assert
       expect(result.reconciled).toBe(true);
       expect(result.eventsApplied).toBe(2);
 
@@ -1095,7 +1033,6 @@ describe('State Store', () => {
     });
 
     it('should apply checkpoint events', async () => {
-      // Arrange: create state, append started + transition + checkpoint events
       await initStateFile(tmpDir, 'cp-test', 'feature');
       await eventStore.append('cp-test', {
         type: 'workflow.started',
@@ -1110,10 +1047,8 @@ describe('State Store', () => {
         data: { counter: 0, phase: 'plan', featureId: 'cp-test' },
       });
 
-      // Act
       const result = await reconcileFromEvents(tmpDir, 'cp-test', eventStore);
 
-      // Assert
       expect(result.reconciled).toBe(true);
       expect(result.eventsApplied).toBe(3);
 
@@ -1124,7 +1059,6 @@ describe('State Store', () => {
     });
 
     it('should be idempotent — second call with no new events returns unchanged', async () => {
-      // Arrange
       await eventStore.append('idem-test', {
         type: 'workflow.started',
         data: { featureId: 'idem-test', workflowType: 'feature' },
@@ -1134,26 +1068,21 @@ describe('State Store', () => {
         data: { from: 'ideate', to: 'plan', trigger: 'execute-transition', featureId: 'idem-test' },
       });
 
-      // Act: first reconciliation
       const result1 = await reconcileFromEvents(tmpDir, 'idem-test', eventStore);
       expect(result1.reconciled).toBe(true);
       expect(result1.eventsApplied).toBe(2);
 
-      // Act: second reconciliation — no new events
       const result2 = await reconcileFromEvents(tmpDir, 'idem-test', eventStore);
 
-      // Assert
       expect(result2.reconciled).toBe(false);
       expect(result2.eventsApplied).toBe(0);
 
-      // State should be identical
       const stateFile = path.join(tmpDir, 'idem-test.state.json');
       const state = await readStateFile(stateFile);
       expect(state.phase).toBe('plan');
     });
 
     it('should preserve event timestamps when creating state from workflow.started', async () => {
-      // Arrange: append workflow.started with a specific past timestamp
       const pastTimestamp = '2024-06-15T10:30:00.000Z';
       await eventStore.append('ts-test', {
         type: 'workflow.started',
@@ -1161,10 +1090,8 @@ describe('State Store', () => {
         data: { featureId: 'ts-test', workflowType: 'feature' },
       });
 
-      // Act
       const result = await reconcileFromEvents(tmpDir, 'ts-test', eventStore);
 
-      // Assert: timestamps should match the event, not "now"
       expect(result.reconciled).toBe(true);
       const stateFile = path.join(tmpDir, 'ts-test.state.json');
       const state = await readStateFile(stateFile);
@@ -1174,8 +1101,11 @@ describe('State Store', () => {
       expect(state._checkpoint.lastActivityTimestamp).toBe(pastTimestamp);
     });
 
+    /**
+     * Reconcile reads the state at `_version` 999 and writes version 1000.
+     * The test forces no race, so it shows only that the write increments the version that reconcile read.
+     */
     it('should use CAS versioning when writing reconciled state', async () => {
-      // Arrange: create state and append events
       await eventStore.append('cas-test', {
         type: 'workflow.started',
         data: { featureId: 'cas-test', workflowType: 'feature' },
@@ -1185,45 +1115,29 @@ describe('State Store', () => {
         data: { from: 'ideate', to: 'plan', trigger: 'execute-transition', featureId: 'cas-test' },
       });
 
-      // Act: first reconciliation creates the state file
       await reconcileFromEvents(tmpDir, 'cas-test', eventStore);
 
-      // Read the state and verify version was incremented (init creates v1, writeStateFile increments to v2)
       const stateFile = path.join(tmpDir, 'cas-test.state.json');
       const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
-      expect(raw._version).toBe(2); // init writes v1, reconcile write increments to v2
+      expect(raw._version).toBe(2);
 
-      // Now tamper with the version to simulate a concurrent write
       raw._version = 999;
       await fs.writeFile(stateFile, JSON.stringify(raw, null, 2), 'utf-8');
 
-      // Append a new event to force reconciliation to try writing again
       await eventStore.append('cas-test', {
         type: 'workflow.transition',
         data: { from: 'plan', to: 'delegate', trigger: 'execute-transition', featureId: 'cas-test' },
       });
 
-      // Act: second reconciliation should fail with VersionConflictError
-      // because the state was read at v999 but the expectedVersion captured
-      // before applying events was v2 (from the first reconcile) — wait, no.
-      // Actually, reconcileFromEvents reads the current state (v999) and
-      // captures that version, then writes with expectedVersion=999.
-      // The file on disk is also 999, so it would succeed.
-      // We need to simulate the race: read state, then change file, then write.
-      // This is hard to test without mocking. Instead, verify the version is
-      // passed by checking the file was written with an incremented version.
       const result2 = await reconcileFromEvents(tmpDir, 'cas-test', eventStore);
       expect(result2.reconciled).toBe(true);
 
-      // The write should have used CAS: read v999, write with expectedVersion=999, increment to 1000
       const raw2 = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
       expect(raw2._version).toBe(1000);
     });
 
     it('should use sinceSequence optimization when state has _eventSequence', async () => {
-      // Arrange: create state file and append events
       await initStateFile(tmpDir, 'since-test', 'feature');
-      // Append several events
       await eventStore.append('since-test', {
         type: 'workflow.started',
         data: { featureId: 'since-test', workflowType: 'feature' },
@@ -1233,27 +1147,21 @@ describe('State Store', () => {
         data: { from: 'ideate', to: 'plan', trigger: 'execute-transition', featureId: 'since-test' },
       });
 
-      // First reconciliation applies both events
       const result1 = await reconcileFromEvents(tmpDir, 'since-test', eventStore);
       expect(result1.eventsApplied).toBe(2);
 
-      // Append one more event
       await eventStore.append('since-test', {
         type: 'workflow.transition',
         data: { from: 'plan', to: 'delegate', trigger: 'execute-transition', featureId: 'since-test' },
       });
 
-      // Spy on eventStore.query to verify sinceSequence is used
       const querySpy = vi.spyOn(eventStore, 'query');
 
-      // Act: second reconciliation should only query new events
       const result2 = await reconcileFromEvents(tmpDir, 'since-test', eventStore);
 
-      // Assert
       expect(result2.reconciled).toBe(true);
       expect(result2.eventsApplied).toBe(1);
 
-      // Verify sinceSequence was used in the query
       expect(querySpy).toHaveBeenCalledWith('since-test', { sinceSequence: 2 });
 
       const stateFile = path.join(tmpDir, 'since-test.state.json');
@@ -1264,7 +1172,6 @@ describe('State Store', () => {
     });
 
     it('should track _eventSequence on state file', async () => {
-      // Arrange: append 3 events
       await eventStore.append('seq-test', {
         type: 'workflow.started',
         data: { featureId: 'seq-test', workflowType: 'feature' },
@@ -1278,25 +1185,20 @@ describe('State Store', () => {
         data: { counter: 0, phase: 'plan', featureId: 'seq-test' },
       });
 
-      // Act
       const result = await reconcileFromEvents(tmpDir, 'seq-test', eventStore);
       expect(result.eventsApplied).toBe(3);
 
-      // Assert: read raw state file to check _eventSequence
       const stateFile = path.join(tmpDir, 'seq-test.state.json');
       const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
       expect(raw._eventSequence).toBe(3);
 
-      // Second reconcile with no new events
       const result2 = await reconcileFromEvents(tmpDir, 'seq-test', eventStore);
       expect(result2.eventsApplied).toBe(0);
       expect(result2.reconciled).toBe(false);
     });
 
-    // ─── T8: Phase reconciliation check (ARCH-7) ───────────────────────────
-
+    /** The test sets the phase back to `ideate` and keeps `_eventSequence`. Reconcile must take the phase from the last transition in the delta. */
     it('should use event-derived phase when delta contains a transition after state tampering', async () => {
-      // Arrange: create state, do a normal reconciliation to 'plan'
       await initStateFile(tmpDir, 'mismatch-test', 'feature');
       await eventStore.append('mismatch-test', {
         type: 'workflow.started',
@@ -1307,33 +1209,26 @@ describe('State Store', () => {
         data: { from: 'ideate', to: 'plan', trigger: 'execute-transition', featureId: 'mismatch-test' },
       });
 
-      // First reconciliation — state phase becomes 'plan', _eventSequence = 2
       await reconcileFromEvents(tmpDir, 'mismatch-test', eventStore);
 
-      // Now tamper with state: revert phase back to 'ideate' but keep _eventSequence = 2
-      // This simulates a corrupted state file where phase is out of sync with events
       const stateFile = path.join(tmpDir, 'mismatch-test.state.json');
       const rawState = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
-      rawState.phase = 'ideate'; // Corrupt: events say 'plan', state says 'ideate'
+      rawState.phase = 'ideate';
       await fs.writeFile(stateFile, JSON.stringify(rawState, null, 2), 'utf-8');
 
-      // Append a new transition event so the delta scan picks it up
       await eventStore.append('mismatch-test', {
         type: 'workflow.transition',
         data: { from: 'plan', to: 'delegate', trigger: 'execute-transition', featureId: 'mismatch-test' },
       });
 
-      // Act: reconcile should correct the phase from the delta transition
       const result = await reconcileFromEvents(tmpDir, 'mismatch-test', eventStore);
       expect(result.reconciled).toBe(true);
 
-      // Assert: phase comes from the last delta transition ('delegate'), not the corrupted 'ideate'
       const state = await readStateFile(stateFile);
       expect(state.phase).toBe('delegate');
     });
 
     it('should not correct phase when state matches last transition', async () => {
-      // Arrange: create state and advance it via events
       await eventStore.append('match-test', {
         type: 'workflow.started',
         data: { featureId: 'match-test', workflowType: 'feature' },
@@ -1343,36 +1238,27 @@ describe('State Store', () => {
         data: { from: 'ideate', to: 'plan', trigger: 'execute-transition', featureId: 'match-test' },
       });
 
-      // First reconciliation creates state at phase 'plan'
       await reconcileFromEvents(tmpDir, 'match-test', eventStore);
       const stateFile = path.join(tmpDir, 'match-test.state.json');
       const state1 = await readStateFile(stateFile);
       expect(state1.phase).toBe('plan');
 
-      // Append another transition
       await eventStore.append('match-test', {
         type: 'workflow.transition',
         data: { from: 'plan', to: 'delegate', trigger: 'execute-transition', featureId: 'match-test' },
       });
 
-      // Act: reconcile picks up the new event
       const result = await reconcileFromEvents(tmpDir, 'match-test', eventStore);
       expect(result.reconciled).toBe(true);
 
-      // Assert: phase should be 'delegate' (consistent with events)
       const state2 = await readStateFile(stateFile);
       expect(state2.phase).toBe('delegate');
     });
 
-    // ─── T9: applyEventToState phase mapping confidence test (ARCH-7) ───────
-
+    /** Reconcile sets the phase from the `to` field of a `workflow.transition` event. */
     it('should set phase from workflow.transition event to field', async () => {
-      // This test verifies the existing behavior of applyEventToState
-      // when processing workflow.transition events.
-      // We test via reconcileFromEvents since applyEventToState is not exported.
       await initStateFile(tmpDir, 'apply-phase-test', 'feature');
 
-      // Append events including a transition
       await eventStore.append('apply-phase-test', {
         type: 'workflow.started',
         data: { featureId: 'apply-phase-test', workflowType: 'feature' },
@@ -1382,18 +1268,14 @@ describe('State Store', () => {
         data: { from: 'ideate', to: 'plan', trigger: 'execute-transition', featureId: 'apply-phase-test' },
       });
 
-      // Reconcile and verify phase was set from the transition event
       const result = await reconcileFromEvents(tmpDir, 'apply-phase-test', eventStore);
       expect(result.reconciled).toBe(true);
 
       const stateFile = path.join(tmpDir, 'apply-phase-test.state.json');
       const state = await readStateFile(stateFile);
-      // Phase should come from the 'to' field of workflow.transition
       expect(state.phase).toBe('plan');
     });
   });
-
-  // ─── Task 5: applyDotPath Sparse Array Bounds Guard ─────────────────────
 
   describe('applyDotPath_SparseArrayBounds', () => {
     it('ApplyDotPath_SparseArrayIndex_ThrowsInvalidInput', () => {
@@ -1407,16 +1289,16 @@ describe('State Store', () => {
       expect((obj.tasks as string[])[2]).toBe('c');
     });
 
+    /** Index 2 on an array of length 1 is a gap of one, which `MAX_ARRAY_GAP` allows. */
     it('ApplyDotPath_NextGapIndex_Succeeds', () => {
       const obj: Record<string, unknown> = { tasks: ['a'] };
-      // index 2 when length is 1 → gap of 1 → allowed
       applyDotPath(obj, 'tasks[2]', 'c');
       expect((obj.tasks as unknown[])[2]).toBe('c');
     });
 
+    /** The missing `items` becomes an empty array, and index 100 is far past its length. */
     it('ApplyDotPath_IntermediateSparseArray_ThrowsInvalidInput', () => {
       const obj: Record<string, unknown> = {};
-      // 'items' doesn't exist → auto-created as empty array → index 100 >> length 0
       expect(() => applyDotPath(obj, 'items[100].name', 'x')).toThrow(ErrorCode.INVALID_INPUT);
     });
 
@@ -1425,8 +1307,6 @@ describe('State Store', () => {
       expect(() => applyDotPath(obj, 'items[50]', 99)).toThrow(ErrorCode.INVALID_INPUT);
     });
   });
-
-  // ─── Task 6: writeStateFile CAS Corrupt File Handling ───────────────────
 
   describe('writeStateFile_CASCorruptHandling', () => {
     it('WriteStateFile_CorruptExistingFile_ThrowsStateCorrupt', async () => {
@@ -1440,11 +1320,11 @@ describe('State Store', () => {
       ).rejects.toThrow(ErrorCode.STATE_CORRUPT);
     });
 
+    /** A missing file counts as version 1 for the CAS check. */
     it('WriteStateFile_MissingFile_CASDefaultsToVersion1', async () => {
       const stateFile = path.join(tmpDir, 'nonexistent.state.json');
       const { state } = await initStateFile(tmpDir, 'test-feature', 'feature');
 
-      // Should not throw — ENOENT defaults to version 1, expectedVersion=1 matches
       await expect(
         writeStateFile(stateFile, state, { expectedVersion: 1 }),
       ).resolves.toBeUndefined();
@@ -1452,7 +1332,6 @@ describe('State Store', () => {
 
     it('WriteStateFile_ValidFile_CASSucceeds', async () => {
       const { stateFile, state } = await initStateFile(tmpDir, 'test-feature', 'feature');
-      // initStateFile writes with _version: 1
 
       await expect(
         writeStateFile(stateFile, state, { expectedVersion: 1 }),
@@ -1461,7 +1340,6 @@ describe('State Store', () => {
 
     it('WriteStateFile_ValidFile_CASConflict_ThrowsVersionConflict', async () => {
       const { stateFile, state } = await initStateFile(tmpDir, 'test-feature', 'feature');
-      // State is at version 1, but we claim version 5
 
       await expect(
         writeStateFile(stateFile, state, { expectedVersion: 5 }),
@@ -1469,13 +1347,10 @@ describe('State Store', () => {
     });
   });
 
-  // ─── Task 7: initStateFile Crash Safety (temp+link) ─────────────────────
-
   describe('initStateFile_CrashSafety', () => {
     it('InitStateFile_Success_NoTempFileRemains', async () => {
       await initStateFile(tmpDir, 'test-feature', 'feature');
 
-      // Verify no .init.PID temp files remain
       const entries = await fs.readdir(tmpDir);
       const initTmpFiles = entries.filter((f) => f.includes('.init.'));
       expect(initTmpFiles).toHaveLength(0);
@@ -1484,14 +1359,13 @@ describe('State Store', () => {
     it('InitStateFile_ExistingFile_ThrowsAlreadyExists', async () => {
       await initStateFile(tmpDir, 'test-feature', 'feature');
 
-      // Second init should fail with STATE_ALREADY_EXISTS
       await expect(
         initStateFile(tmpDir, 'test-feature', 'feature'),
       ).rejects.toThrow(ErrorCode.STATE_ALREADY_EXISTS);
     });
 
+    /** The loser gets `STATE_ALREADY_EXISTS` from the `EEXIST` of `link`. The test also accepts `FILE_IO_ERROR`. */
     it('InitStateFile_ConcurrentInit_OneSucceedsOneFailsEEXIST', async () => {
-      // Launch two inits concurrently
       const results = await Promise.allSettled([
         initStateFile(tmpDir, 'race-feature', 'feature'),
         initStateFile(tmpDir, 'race-feature', 'feature'),
@@ -1504,16 +1378,14 @@ describe('State Store', () => {
       expect(failures).toHaveLength(1);
 
       const failureReason = (failures[0] as PromiseRejectedResult).reason;
-      // Race loser may get STATE_ALREADY_EXISTS (EEXIST from link) or
-      // FILE_IO_ERROR (ENOENT if temp file cleanup races with link) — both valid
       const msg = failureReason.message;
       expect(
         msg.includes(ErrorCode.STATE_ALREADY_EXISTS) || msg.includes(ErrorCode.FILE_IO_ERROR),
       ).toBe(true);
     });
 
+    /** The `fs.link` mock fails with `ENOSPC`. The init must throw `FILE_IO_ERROR`, remove its temp file, and create no state file. */
     it('InitStateFile_SimulatedCrashBeforeLink_OnlyTempExists', async () => {
-      // Arrange: configure fs.link mock to throw a non-EEXIST error (ENOSPC)
       linkMockConfig.shouldFail = true;
       linkMockConfig.error = Object.assign(
         new Error('ENOSPC: no space left on device'),
@@ -1521,21 +1393,17 @@ describe('State Store', () => {
       );
 
       try {
-        // Act & Assert: initStateFile should throw FILE_IO_ERROR
         await expect(
           initStateFile(tmpDir, 'crash-test', 'feature'),
         ).rejects.toThrow(ErrorCode.FILE_IO_ERROR);
 
-        // Assert: temp file (.init.PID) is cleaned up by the finally block
         const entries = await fs.readdir(tmpDir);
         const initTmpFiles = entries.filter((f) => f.includes('.init.'));
         expect(initTmpFiles).toHaveLength(0);
 
-        // Assert: state file does NOT exist
         const stateFile = path.join(tmpDir, 'crash-test.state.json');
         await expect(fs.access(stateFile)).rejects.toThrow();
       } finally {
-        // Reset mock config so other tests are unaffected
         linkMockConfig.shouldFail = false;
         linkMockConfig.error = null;
       }

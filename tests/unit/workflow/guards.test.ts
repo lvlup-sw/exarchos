@@ -2,8 +2,6 @@ import { describe, it, expect } from 'vitest';
 import { collectReviewStatuses, guards } from '../../../src/workflow/guards.js';
 import type { GuardFailure } from '../../../src/workflow/guards.js';
 
-// ─── teamDisbandedEmitted Guard Tests ───────────────────────────────────────
-
 describe('teamDisbandedEmitted', () => {
   it('teamDisbandedEmitted_EventExists_ReturnsTrue', () => {
     const state: Record<string, unknown> = {
@@ -50,7 +48,6 @@ describe('teamDisbandedEmitted', () => {
     const failure = result as GuardFailure;
     expect(failure.passed).toBe(false);
 
-    // expectedShape should describe the team.disbanded event structure
     expect(failure.expectedShape).toBeDefined();
     expect(failure.expectedShape!.type).toBe('team.disbanded');
     const data = failure.expectedShape!.data as Record<string, string>;
@@ -58,14 +55,12 @@ describe('teamDisbandedEmitted', () => {
     expect(data.tasksCompleted).toBe('number');
     expect(data.tasksFailed).toBe('number');
 
-    // suggestedFix should point to the exarchos_event tool
     expect(failure.suggestedFix).toBeDefined();
     expect(failure.suggestedFix!.tool).toBe('exarchos_event');
     expect(failure.suggestedFix!.params.action).toBe('append');
   });
 
-  // ─── #786: Subagent-mode tests (no team spawned) ────────────────────────
-
+  /** Subagent mode spawns no team, so the guard passes without `team.disbanded`. */
   it('teamDisbandedEmitted_NoTeamSpawned_ReturnsTrue', () => {
     const state: Record<string, unknown> = {
       featureId: 'test-feature',
@@ -119,8 +114,6 @@ describe('teamDisbandedEmitted', () => {
   });
 });
 
-// ─── Task 3: escalationRequired Guard Tests ─────────────────────────────────
-
 describe('escalationRequired', () => {
   it('escalationRequired_EscalateTrue_ReturnsTrue', () => {
     const state: Record<string, unknown> = {
@@ -170,18 +163,13 @@ describe('escalationRequired', () => {
   });
 });
 
-// ─── Task 4: revisionsExhausted Guard Tests ─────────────────────────────────
-
+/**
+ * The cap is `state._maxPlanRevisions`, which the set handler injects from config. Without it, the
+ * cap is `DEFAULT_MAX_PLAN_REVISIONS` (1). `revisionCount` is an event-sourced fact, but the cap is
+ * policy and is not event-sourced.
+ */
 describe('revisionsExhausted', () => {
-  // DR-1: the cap is `state._maxPlanRevisions` (injected from
-  // `.exarchos.yml workflow.maxPlanRevisions` in tools.ts) and falls back to
-  // DEFAULT_MAX_PLAN_REVISIONS (1) when not injected. `revisionCount` is the
-  // event-sourced fact; the cap is injected policy, never event-sourced (INV-1).
-
-  // ── Default cap (no `_maxPlanRevisions` injected) = 1 ──
   it('revisionsExhausted_DefaultCap_CountAtOne_ReturnsTrue', () => {
-    // Flagged behavior change: default cap is now 1 (was 3), so one revision
-    // reaches the cap.
     const state: Record<string, unknown> = { planReview: { revisionCount: 1 } };
     expect(guards.revisionsExhausted.evaluate(state)).toBe(true);
   });
@@ -214,7 +202,6 @@ describe('revisionsExhausted', () => {
     expect(failure.reason).toContain('0/1');
   });
 
-  // ── Injected cap (`_maxPlanRevisions`) honored — `.exarchos.yml` override ──
   it('revisionsExhausted_InjectedCap_CountBelowCap_ReturnsFailure', () => {
     const state: Record<string, unknown> = {
       planReview: { revisionCount: 1 },
@@ -237,8 +224,8 @@ describe('revisionsExhausted', () => {
     expect(guards.revisionsExhausted.evaluate(state)).toBe(true);
   });
 
+  /** With cap 2, one revision stays below the cap and the second reaches it. */
   it('revisionsExhausted_InjectedCap_BoundaryAtTwo', () => {
-    // Cap 2: one revision is allowed, the second reaches the cap.
     const below: Record<string, unknown> = {
       planReview: { revisionCount: 1 },
       _maxPlanRevisions: 2,
@@ -252,8 +239,8 @@ describe('revisionsExhausted', () => {
     expect(guards.revisionsExhausted.evaluate(at)).toBe(true);
   });
 
+  /** A malformed injected cap must not disable the bound, so the guard falls back to 1. */
   it('revisionsExhausted_NonFiniteInjectedCap_FallsBackToDefault', () => {
-    // A malformed injected cap must not disable the bound — fall back to 1.
     const state: Record<string, unknown> = {
       planReview: { revisionCount: 1 },
       _maxPlanRevisions: Number.NaN,
@@ -261,8 +248,6 @@ describe('revisionsExhausted', () => {
     expect(guards.revisionsExhausted.evaluate(state)).toBe(true);
   });
 });
-
-// ─── Task 8: prRequested Guard Tests ────────────────────────────────────────
 
 describe('prRequested', () => {
   it('prRequested_SynthesisRequestedTrue_ReturnsTrue', () => {
@@ -311,8 +296,6 @@ describe('prRequested', () => {
     expect(failure.passed).toBe(false);
   });
 });
-
-// ─── synthesizeRetryable Guard Tests ─────────────────────────────────────────
 
 describe('synthesizeRetryable', () => {
   it('synthesizeRetryable_HasErrorAndRetriesRemaining_ReturnsTrue', () => {
@@ -426,11 +409,8 @@ describe('synthesizeRetryable', () => {
   });
 });
 
-// ─── T-16: Guards branch gap coverage ────────────────────────────────────────
-
 describe('planReviewComplete', () => {
   it('PlanReviewApproved_MissingPlanReviewField_ReturnsFailed', () => {
-    // State without planReview field at all
     const state: Record<string, unknown> = {
       featureId: 'test-feature',
     };
@@ -450,7 +430,6 @@ describe('planReviewComplete', () => {
 
 describe('allTasksComplete', () => {
   it('AllTasksCompleted_MixedTaskStatuses_ReturnsFailed', () => {
-    // State with tasks array containing completed + in-progress tasks
     const state: Record<string, unknown> = {
       featureId: 'test-feature',
       tasks: [
@@ -466,9 +445,7 @@ describe('allTasksComplete', () => {
     const failure = result as GuardFailure;
     expect(failure.passed).toBe(false);
     expect(failure.reason).toContain('all-tasks-complete');
-    // Should list the count of incomplete tasks
     expect(failure.reason).toContain('2 task(s) incomplete');
-    // Should include suggested fix
     expect(failure.suggestedFix).toBeDefined();
     expect(failure.suggestedFix!.tool).toBe('exarchos_workflow');
   });
@@ -476,13 +453,11 @@ describe('allTasksComplete', () => {
 
 
 describe('allReviewsPassed (synthesis ready)', () => {
+  /** `reviews` exists but holds no entry with a known status field. */
   it('SynthesisReadyGuard_MissingReviewVerdicts_ReturnsFailed', () => {
-    // State at review phase without review verdicts
-    // The allReviewsPassed guard checks that all reviews have passed status
     const state: Record<string, unknown> = {
       featureId: 'test-feature',
       phase: 'review',
-      // reviews exists but has no entries with recognizable status fields
       reviews: {},
     };
 
@@ -491,13 +466,11 @@ describe('allReviewsPassed (synthesis ready)', () => {
     expect(result).not.toBe(true);
     const failure = result as GuardFailure;
     expect(failure.passed).toBe(false);
-    // Should indicate no recognizable review entries
     expect(failure.reason).toContain('no recognizable review entries');
     expect(failure.expectedShape).toBeDefined();
   });
 
   it('SynthesisReadyGuard_MissingReviewsField_ReturnsFailed', () => {
-    // State without reviews field at all
     const state: Record<string, unknown> = {
       featureId: 'test-feature',
       phase: 'review',
@@ -511,8 +484,8 @@ describe('allReviewsPassed (synthesis ready)', () => {
     expect(failure.reason).toContain('state.reviews is missing');
   });
 
+  /** The agent sets one review, but two are required. */
   it('SynthesisReadyGuard_MissingRequiredDimensions_ReturnsFailed', () => {
-    // Agent sets only one review but two are required
     const state: Record<string, unknown> = {
       featureId: 'test-feature',
       phase: 'review',
@@ -548,12 +521,12 @@ describe('allReviewsPassed (synthesis ready)', () => {
     expect(result).toBe(true);
   });
 
+  /**
+   * At the high tier, `mutation-adequacy` is a required dimension. The projection folds a
+   * no-toolchain skip-pass into it with status `pass`. The recorded run satisfies the presence
+   * requirement, so review to synthesize is not dead-locked.
+   */
   it('SynthesisReadyGuard_MutationAdequacySkipPassPresent_Passes_DR2a', () => {
-    // DR-2a dead-lock fix: at HIGH tier mutation-adequacy is a required dimension.
-    // The projection folds the mutation gate.executed (incl. a no-toolchain
-    // skip-pass) into reviews['mutation-adequacy'] with status 'pass', so the
-    // presence requirement is satisfied by the recorded run — review→synthesize
-    // is no longer dead-locked.
     const state: Record<string, unknown> = {
       featureId: 'test-feature',
       phase: 'review',
@@ -567,10 +540,8 @@ describe('allReviewsPassed (synthesis ready)', () => {
     expect(guards.allReviewsPassed.evaluate(state)).toBe(true);
   });
 
+  /** When the mutation gate never ran, the dimension is absent. A required gate that did not run must block. */
   it('SynthesisReadyGuard_MutationAdequacyRequiredButNeverRun_Blocks_DR2a', () => {
-    // The complement: a toolchain-present repo where the mutation gate never ran
-    // leaves the dimension absent → the guard still blocks (a required gate that
-    // did not execute must not silently pass).
     const state: Record<string, unknown> = {
       featureId: 'test-feature',
       phase: 'review',
@@ -583,7 +554,6 @@ describe('allReviewsPassed (synthesis ready)', () => {
     expect((result as GuardFailure).reason).toContain('mutation-adequacy');
   });
 
-  // ── DR-3: mutation score enforcement (Check 4, injected values only) ──
   const mutationBase = (
     score: number,
     inject: Record<string, unknown>,
@@ -619,8 +589,8 @@ describe('allReviewsPassed (synthesis ready)', () => {
     ).toBe(true);
   });
 
+  /** Without an injected mode, the default is advisory, so a low score does not block. */
   it('MutationEnforcement_AdvisoryDefault_SubThresholdNeverBlocks_DR3', () => {
-    // No injected mode (advisory default) → a sub-threshold score does not block.
     expect(guards.allReviewsPassed.evaluate(mutationBase(0.01, {}))).toBe(true);
     expect(
       guards.allReviewsPassed.evaluate(
@@ -629,24 +599,24 @@ describe('allReviewsPassed (synthesis ready)', () => {
     ).toBe(true);
   });
 
+  /** A no-toolchain skip-pass has no real score, so block mode does not enforce it. */
   it('MutationEnforcement_SkipPassRun_NeverEnforced_DR3', () => {
-    // A no-toolchain skip-pass carries no real score → not enforced even in block mode.
     const state = mutationBase(0, { _mutationEnforcement: 'block', _mutationThreshold: 0.4 }, { skipped: true });
     expect(guards.allReviewsPassed.evaluate(state)).toBe(true);
   });
 
+  /** The guard reads only injected values. Block mode without a finite threshold does not enforce. */
   it('MutationEnforcement_BlockModeButNoThresholdInjected_NotEnforced_DR3', () => {
-    // Guard reads injected values only: mode without a finite threshold is inert.
     const state = mutationBase(0.01, { _mutationEnforcement: 'block' });
     expect(guards.allReviewsPassed.evaluate(state)).toBe(true);
   });
 
+  /**
+   * A degraded run carries `skipped: true` and `degraded: true`: the toolchain is present, but the
+   * runner crashed or wrote an unparseable report. The run has no verifiable score, so block mode
+   * must fail closed. The no-toolchain skip-pass stays advisory.
+   */
   it('MutationEnforcement_BlockModeDegradedRun_Blocks_RVC_R1', () => {
-    // RVC-R1: a DEGRADED run (toolchain present but the runner crashed or emitted
-    // an unparseable report) carries skipped:true AND degraded:true. It produced
-    // no verifiable score, so under block enforcement it must fail CLOSED —
-    // distinct from the no-toolchain skip-pass (below), which stays advisory. The
-    // shared skipped:true marker alone must NOT be read as "score verified".
     const state = mutationBase(
       0,
       { _mutationEnforcement: 'block', _mutationThreshold: 0.4 },
@@ -657,10 +627,11 @@ describe('allReviewsPassed (synthesis ready)', () => {
     expect((result as GuardFailure).reason).toContain('degraded');
   });
 
+  /**
+   * A NaN score comes from a 0/0 ratio when every mutant is uncovered, and it cannot be verified.
+   * `NaN < threshold` is always false, so block mode must fail closed for it.
+   */
   it('MutationEnforcement_BlockModeNonFiniteScore_Blocks_RVC_R6', () => {
-    // RVC-R6 (CodeRabbit): a present-but-non-finite score (NaN from a 0/0 mutation
-    // ratio when every mutant was uncovered) is unverifiable. `NaN < threshold` is
-    // always false, which would silently pass under block — fail it closed.
     const state = mutationBase(Number.NaN, {
       _mutationEnforcement: 'block',
       _mutationThreshold: 0.4,
@@ -670,10 +641,11 @@ describe('allReviewsPassed (synthesis ready)', () => {
     expect((result as GuardFailure).reason).toContain('non-finite');
   });
 
+  /**
+   * Fail-closed applies only in block mode. In advisory mode, default or explicit, a degraded run
+   * satisfies the presence requirement and does not block.
+   */
   it('MutationEnforcement_DegradedRun_AdvisoryDefault_NeverBlocks_RVC_R1', () => {
-    // The fail-closed behavior is scoped to block enforcement. Under advisory
-    // (the default, and explicit) a degraded run still satisfies the presence
-    // requirement and does not block — no secondary dead-lock.
     expect(
       guards.allReviewsPassed.evaluate(mutationBase(0, {}, { skipped: true, degraded: true })),
     ).toBe(true);
@@ -688,16 +660,12 @@ describe('allReviewsPassed (synthesis ready)', () => {
     ).toBe(true);
   });
 
-  // ── DR-6: mutation NoCoverage enforcement (Check 4b — orthogonal axis) ──
-  // Reads the pre-resolved `_maxNoCoverage` injection and the folded dimension's
-  // `noCoverage` count. Blocks under block mode when noCoverage exceeds the
-  // budget — independently of the score axis (Check 4a). `mutationScore` stays
-  // untouched (INV-5b).
-
+  /**
+   * The guard compares the `noCoverage` count of the dimension with `_maxNoCoverage`. In block mode,
+   * a count above the budget blocks, apart from the score check. Here the score of 1.0 passes, but
+   * 2 uncovered mutants exceed the budget of 0.
+   */
   it('GuardCheckFour_NoCoverageExceedsBudget_BlocksUnderEnforcement', () => {
-    // Score PASSES (1.0 >= 0.4) yet 2 uncovered mutants exceed the budget of 0 —
-    // the orthogonal axis blocks the transition anyway (the exact 5-killed +
-    // NoCoverage-at-1.0 hole DR-6 closes).
     const state = mutationBase(
       1.0,
       { _mutationEnforcement: 'block', _mutationThreshold: 0.4, _maxNoCoverage: 0 },
@@ -711,7 +679,6 @@ describe('allReviewsPassed (synthesis ready)', () => {
   });
 
   it('GuardCheckFour_AllCovered_PassesUnchanged', () => {
-    // Same passing score, zero NoCoverage → the transition passes (both axes ok).
     const state = mutationBase(
       1.0,
       { _mutationEnforcement: 'block', _mutationThreshold: 0.4, _maxNoCoverage: 0 },
@@ -720,9 +687,8 @@ describe('allReviewsPassed (synthesis ready)', () => {
     expect(guards.allReviewsPassed.evaluate(state)).toBe(true);
   });
 
+  /** No threshold is injected, so the score check does not run. A block here comes from the NoCoverage check. */
   it('GuardCheckFour_NoCoverageAxisIsOrthogonalToScore', () => {
-    // With NO threshold injected the score axis (4a) is inert, so a block here can
-    // ONLY come from the NoCoverage axis (4b) — proving orthogonality.
     const state = mutationBase(
       1.0,
       { _mutationEnforcement: 'block', _maxNoCoverage: 0 },
@@ -734,7 +700,6 @@ describe('allReviewsPassed (synthesis ready)', () => {
   });
 
   it('GuardCheckFour_NoCoverageWithinExplicitBudget_Passes', () => {
-    // Budget of 5 with 3 uncovered mutants → within budget → passes.
     const state = mutationBase(
       1.0,
       { _mutationEnforcement: 'block', _mutationThreshold: 0.4, _maxNoCoverage: 5 },
@@ -743,9 +708,8 @@ describe('allReviewsPassed (synthesis ready)', () => {
     expect(guards.allReviewsPassed.evaluate(state)).toBe(true);
   });
 
+  /** NoCoverage enforcement applies only in block mode. In advisory mode, uncovered mutants do not block. */
   it('GuardCheckFour_AdvisoryMode_NoCoverageNeverBlocks', () => {
-    // NoCoverage enforcement is scoped to block mode. Under advisory a diff with
-    // uncovered mutants still passes review→synthesize (no secondary dead-lock).
     const state = mutationBase(
       1.0,
       { _mutationEnforcement: 'advisory', _maxNoCoverage: 0 },
@@ -754,9 +718,8 @@ describe('allReviewsPassed (synthesis ready)', () => {
     expect(guards.allReviewsPassed.evaluate(state)).toBe(true);
   });
 
+  /** Block mode without an injected `_maxNoCoverage` does not enforce the NoCoverage check. */
   it('GuardCheckFour_NoBudgetInjected_NoCoverageNotEnforced', () => {
-    // The guard reads injected values only: block mode without a `_maxNoCoverage`
-    // injection leaves the NoCoverage axis inert (mirrors the threshold contract).
     const state = mutationBase(
       1.0,
       { _mutationEnforcement: 'block' },
@@ -765,9 +728,8 @@ describe('allReviewsPassed (synthesis ready)', () => {
     expect(guards.allReviewsPassed.evaluate(state)).toBe(true);
   });
 
+  /** A skip-pass run has no verifiable NoCoverage count, so the NoCoverage check does not block it. */
   it('GuardCheckFour_SkipPassWithNoCoverage_NotEnforced', () => {
-    // A skip-pass run carries no verifiable NoCoverage count — the axis reads only
-    // a real run, so a skipped dimension is never blocked by 4b.
     const state = mutationBase(
       0,
       { _mutationEnforcement: 'block', _maxNoCoverage: 0 },
@@ -776,15 +738,15 @@ describe('allReviewsPassed (synthesis ready)', () => {
     expect(guards.allReviewsPassed.evaluate(state)).toBe(true);
   });
 
+  /**
+   * A real run, not skipped and not degraded, has no `noCoverage` field. In block mode with a
+   * budget, it must fail closed, because `undefined > budget` is false.
+   */
   it('GuardCheckFour_RealRunMissingNoCoverage_FailsClosed', () => {
-    // A REAL (non-skipped, non-degraded) dimension under block mode with a budget
-    // injected but NO verifiable NoCoverage count (undefined here) must fail
-    // closed — `undefined > budget` is silently false, which would pass the axis
-    // by default (#1719, mirrors the non-finite-score guard).
     const state = mutationBase(
       1.0,
       { _mutationEnforcement: 'block', _maxNoCoverage: 0 },
-      {}, // scored, non-skipped, non-degraded, but no `noCoverage` field
+      {},
     );
     const result = guards.allReviewsPassed.evaluate(state);
     expect(result).not.toBe(true);
@@ -792,7 +754,6 @@ describe('allReviewsPassed (synthesis ready)', () => {
   });
 
   it('GuardCheckFour_RealRunNegativeOrFractionalNoCoverage_FailsClosed', () => {
-    // A negative or fractional NoCoverage is not a valid count — fail closed.
     for (const bad of [-1, 2.5]) {
       const state = mutationBase(
         1.0,
@@ -805,13 +766,11 @@ describe('allReviewsPassed (synthesis ready)', () => {
     }
   });
 
+  /**
+   * A negative budget blocks every nontrivial diff, and a fractional budget means nothing for a
+   * count. The guard ignores such a budget and does not enforce the NoCoverage check.
+   */
   it('GuardCheckFour_NegativeOrFractionalBudget_NotEnforced', () => {
-    // #1719 (Sentry): a misconfigured budget that is negative (would block every
-    // nontrivial diff — `2 > -1` is true) or fractional (meaningless for a count)
-    // is not a valid budget. The guard rejects it and leaves the NoCoverage axis
-    // inert rather than blocking a valid transition — matching `resolveMaxNoCoverage`
-    // and the count-side `isInteger && >= 0` check (governing INV-2 — the budget
-    // contract is single-sourced in the core, so both readers inherit one decision).
     for (const badBudget of [-1, 1.5]) {
       const state = mutationBase(
         1.0,
@@ -842,8 +801,8 @@ describe('allReviewsPassed (synthesis ready)', () => {
     expect(failure.reason).toContain('quality-review');
   });
 
+  /** Without `_requiredReviews`, any passing review satisfies the guard. */
   it('SynthesisReadyGuard_NoRequiredReviewsConfigured_FallsBackToExistingBehavior', () => {
-    // Without _requiredReviews, any passing reviews should satisfy the guard
     const state: Record<string, unknown> = {
       featureId: 'test-feature',
       phase: 'review',
@@ -856,11 +815,10 @@ describe('allReviewsPassed (synthesis ready)', () => {
     expect(result).toBe(true);
   });
 
-  // ─── Regression: #1075 case-insensitive verdict handling ───────────────
-  // Reviewer agents copy check_review_verdict's uppercase return values
-  // ('APPROVED' | 'NEEDS_FIXES' | 'BLOCKED') directly into state. The guard
-  // must normalize case before set-membership check so uppercase verdicts
-  // don't silently fail.
+  /**
+   * Reviewer agents copy the uppercase verdicts of `check_review_verdict` into state. The guard
+   * must match a verdict without regard to case.
+   */
   it('SynthesisReadyGuard_UppercaseVerdictPass_Accepts', () => {
     const state: Record<string, unknown> = {
       featureId: 'test-feature',
@@ -876,8 +834,8 @@ describe('allReviewsPassed (synthesis ready)', () => {
     expect(result).toBe(true);
   });
 
+  /** Uppercase values must also pass in the `status` field. */
   it('SynthesisReadyGuard_UppercaseStatusApproved_Accepts', () => {
-    // Even when the field is `status` (not `verdict`), uppercase must be accepted.
     const state: Record<string, unknown> = {
       featureId: 'test-feature',
       phase: 'review',
@@ -892,16 +850,12 @@ describe('allReviewsPassed (synthesis ready)', () => {
     expect(result).toBe(true);
   });
 
-  // ─── Regression: #1074 aggregated failure reporting ────────────────────
-  // When multiple contract violations exist, the guard must report all of
-  // them in a single error message so agents can fix everything in one
-  // retry instead of peeling failures one layer at a time.
+  /** The guard must report all violations in one message, so the agent can fix them in one retry. */
   it('SynthesisReadyGuard_MissingDimensionsAndFailedStatus_AggregatesIntoSingleError', () => {
     const state: Record<string, unknown> = {
       featureId: 'test-feature',
       phase: 'review',
       reviews: {
-        // Stray entry from earlier round — legitimately failing
         'stray-review': { status: 'fail' },
       },
       _requiredReviews: ['spec-review', 'quality-review'],
@@ -912,7 +866,6 @@ describe('allReviewsPassed (synthesis ready)', () => {
     expect(result).not.toBe(true);
     const failure = result as GuardFailure;
     expect(failure.passed).toBe(false);
-    // Both failure modes must appear in the same reason string
     expect(failure.reason).toContain('Missing required review dimensions');
     expect(failure.reason).toContain('spec-review');
     expect(failure.reason).toContain('quality-review');
@@ -920,17 +873,13 @@ describe('allReviewsPassed (synthesis ready)', () => {
     expect(failure.reason).toContain('stray-review');
   });
 
-  // ─── Regression: empty review object must be treated as missing.
-  // Before the hardening, `!reviews[key]` treated `{}` as present (truthy),
-  // silently satisfying the missing-dimensions check. The guard then
-  // skipped the empty entry in collectReviewStatuses and returned true.
-  // CodeRabbit finding on PR #1076.
+  /** An empty review object has no status, so it must count as a missing dimension. */
   it('SynthesisReadyGuard_RequiredDimensionPresentButEmptyObject_TreatedAsMissing', () => {
     const state: Record<string, unknown> = {
       featureId: 'test-feature',
       phase: 'review',
       reviews: {
-        'spec-review': {}, // present key but no status / verdict / passed
+        'spec-review': {},
         'quality-review': { status: 'pass' },
       },
       _requiredReviews: ['spec-review', 'quality-review'],
@@ -944,11 +893,11 @@ describe('allReviewsPassed (synthesis ready)', () => {
     expect(failure.reason).toContain('spec-review');
   });
 
-  // ─── Regression: prototype-pollution keys must not satisfy the check.
-  // If a caller passes `_requiredReviews: ['__proto__']` and no actual
-  // reviews are set, the `__proto__` key is inherited on every object
-  // and would previously have tricked `reviews[key]` into returning a
-  // truthy value. Guard must skip UNSAFE_KEYS and treat them as missing.
+  /**
+   * A required `__proto__` key must count as missing, because every object inherits it. The
+   * `expectedShape` and the `suggestedFix` must hold no unsafe key, so an agent that applies the
+   * fix cannot pollute the prototype.
+   */
   it('SynthesisReadyGuard_RequiredDimensionIsProtoPollution_TreatedAsMissing', () => {
     const state: Record<string, unknown> = {
       featureId: 'test-feature',
@@ -964,14 +913,8 @@ describe('allReviewsPassed (synthesis ready)', () => {
     expect(result).not.toBe(true);
     const failure = result as GuardFailure;
     expect(failure.reason).toContain('Missing required review dimensions');
-    // __proto__ is an unsafe key — guard must treat it as missing
     expect(failure.reason).toContain('__proto__');
 
-    // ALSO: the emitted expectedShape and suggestedFix must NOT contain
-    // `__proto__` (or any UNSAFE_KEY) as an own property. Even though
-    // the reason reports the missing dim, an agent blindly applying
-    // suggestedFix.params.updates must not be tricked into assigning
-    // `reviews.__proto__.status = 'pass'` — that's prototype pollution.
     const reviewsShape = (failure.expectedShape?.reviews ?? {}) as Record<string, unknown>;
     expect(Object.prototype.hasOwnProperty.call(reviewsShape, '__proto__')).toBe(false);
 
@@ -984,20 +927,17 @@ describe('allReviewsPassed (synthesis ready)', () => {
     }
   });
 
-  // ─── Regression: suggestedFix must cover BOTH missing and failing reviews.
-  // An agent applying the fix should be able to resolve the guard in ONE
-  // retry for mixed states (some missing, some present-but-failing).
-  // CodeRabbit finding on PR #1076.
+  /**
+   * The `suggestedFix` must cover the missing review and both failing reviews, a required one and a
+   * stray one. One retry can then satisfy the guard.
+   */
   it('SynthesisReadyGuard_MixedFailures_SuggestedFixCoversMissingAndFailing', () => {
     const state: Record<string, unknown> = {
       featureId: 'test-feature',
       phase: 'review',
       reviews: {
-        // One required dim present but failing
         'spec-review': { status: 'fail' },
-        // One stray that's also failing (not required, but guard sees it)
         'stray-review': { status: 'needs_fixes' },
-        // quality-review is missing
       },
       _requiredReviews: ['spec-review', 'quality-review'],
     };
@@ -1008,15 +948,11 @@ describe('allReviewsPassed (synthesis ready)', () => {
     const failure = result as GuardFailure;
     expect(failure.suggestedFix).toBeDefined();
     const updates = failure.suggestedFix!.params.updates as Record<string, unknown>;
-    // Missing dimension patch
     expect(updates['reviews.quality-review.status']).toBe('pass');
-    // Failing dimension patches (both required and stray)
     expect(updates['reviews.spec-review.status']).toBe('pass');
     expect(updates['reviews.stray-review.status']).toBe('pass');
   });
 });
-
-// ─── synthesisOptedIn / synthesisOptedOut Guard Tests ───────────────────────
 
 describe('synthesisOptedIn', () => {
   it('synthesisOptedIn_policyAlways_returnsTrue', () => {
@@ -1080,8 +1016,8 @@ describe('synthesisOptedIn', () => {
     expect(failure.reason).toContain('synthesize.requested');
   });
 
+  /** Without an `oneshot` field, the guard must use the `on-request` policy. */
   it('synthesisOptedIn_policyDefaultsToOnRequest_whenFieldMissing', () => {
-    // No `oneshot` field at all — must default to 'on-request' semantics
     const stateWithoutEvent: Record<string, unknown> = {
       featureId: 'test-feature',
       workflowType: 'oneshot',
@@ -1104,10 +1040,11 @@ describe('synthesisOptedIn', () => {
 });
 
 describe('synthesisOptedOut', () => {
+  /**
+   * The table holds each policy with and without the event, plus the default with no `oneshot`
+   * field. For each of the 8 rows, exactly one of the two guards must pass.
+   */
   it('synthesisOptedOut_isInverseOfSynthesisOptedIn', () => {
-    // Table-driven: 8 combinations of (policy ∈ {always, never, on-request}) ×
-    // (event present ∈ {true, false}), plus the default (no oneshot field) case.
-    // For every row, exactly one of the two guards must return true.
     type Row = {
       label: string;
       oneshot: Record<string, unknown> | undefined;
@@ -1141,7 +1078,6 @@ describe('synthesisOptedOut', () => {
       const inPassed = inResult === true;
       const outPassed = outResult === true;
 
-      // Mutual exclusivity: exactly one is true
       expect(
         inPassed !== outPassed,
         `row "${row.label}": expected exactly one guard to pass (in=${inPassed}, out=${outPassed})`,
@@ -1204,12 +1140,10 @@ describe('synthesisOptedOut', () => {
   });
 });
 
-// ─── oneshotPlanSet Guard Tests (T9) ────────────────────────────────────────
-// Tightened (post CodeRabbit review on PR #1078): the guard now requires
-// `state.artifacts.plan` as the primary condition. `oneshot.planSummary`
-// remains useful as a pipeline-view label but is no longer accepted as a
-// plan substitute on its own. These tests are flipped accordingly.
-
+/**
+ * The guard requires `state.artifacts.plan`. `oneshot.planSummary` is a pipeline-view label, and
+ * it does not satisfy the guard alone.
+ */
 describe('oneshotPlanSet', () => {
   it('oneshotPlanSet_planSummaryAloneIsInsufficient', () => {
     const state: Record<string, unknown> = {
@@ -1231,10 +1165,8 @@ describe('oneshotPlanSet', () => {
     expect(guards.oneshotPlanSet.evaluate(state)).toBe(true);
   });
 
+  /** The guard passes because `artifacts.plan` is set. It does not need `planSummary`. */
   it('oneshotPlanSet_bothPlanSummaryAndArtifactsPlan_returnsTrue', () => {
-    // artifacts.plan is sufficient; planSummary is allowed alongside as
-    // a pipeline-view label but is not required. The guard passes because
-    // artifacts.plan is set, not because planSummary is.
     const state: Record<string, unknown> = {
       featureId: 'test-feature',
       oneshot: { synthesisPolicy: 'always', planSummary: 'summary' },
@@ -1244,7 +1176,6 @@ describe('oneshotPlanSet', () => {
   });
 
   it('oneshotPlanSet_emptyArtifactsPlan_fallsThrough', () => {
-    // An empty artifacts.plan string must NOT count as set.
     const state: Record<string, unknown> = {
       featureId: 'test-feature',
       oneshot: { synthesisPolicy: 'on-request', planSummary: 'summary' },
@@ -1270,7 +1201,6 @@ describe('oneshotPlanSet', () => {
     expect(failure.suggestedFix).toBeDefined();
     expect(failure.suggestedFix!.tool).toBe('exarchos_workflow');
     expect(failure.suggestedFix!.params.featureId).toBe('fix-readme');
-    // The suggested fix now points at artifacts.plan, not oneshot.planSummary.
     const updates = failure.suggestedFix!.params.updates as Record<string, unknown>;
     expect(updates).toHaveProperty('artifacts.plan');
   });
@@ -1283,10 +1213,8 @@ describe('oneshotPlanSet', () => {
     expect(result).not.toBe(true);
   });
 
+  /** A whitespace-only plan has a length but no content, so the guard must reject it. */
   it('oneshotPlanSet_rejectsWhitespaceOnlyPlan', () => {
-    // Shepherd iter 2 (CodeRabbit F3): whitespace-only plan strings are
-    // not real plan artifacts. `'   '` satisfies `.length > 0` but carries
-    // no content — the guard must reject it on `.trim().length > 0`.
     const state: Record<string, unknown> = {
       featureId: 'test-feature',
       oneshot: { synthesisPolicy: 'on-request', planSummary: 'summary' },
@@ -1300,7 +1228,6 @@ describe('oneshotPlanSet', () => {
   });
 
   it('oneshotPlanSet_rejectsPlanWithOnlyNewlinesAndTabs', () => {
-    // Defensive: "\n\t\n " is whitespace-only too. Same rejection.
     const state: Record<string, unknown> = {
       featureId: 'test-feature',
       artifacts: { plan: '\n\t\n ' },
@@ -1309,16 +1236,11 @@ describe('oneshotPlanSet', () => {
     expect(result).not.toBe(true);
   });
 
-  // F23 (#1213): align guard with the `delegationReadinessProjection`
-  // contract — `artifacts.plan` MUST be a non-empty string (plan
-  // contents or path). Non-string truthy values (true, objects,
-  // numbers) used to satisfy the guard, which diverged from the
-  // projection's `artifactPresent = typeof === 'string' && .length > 0`
-  // narrowing. Now both surfaces enforce the same shape.
+  /**
+   * `artifacts.plan` must pass `isTypedArtifactReference`, the same check that the delegation
+   * readiness view uses. A boolean, a number, an object or an array must fail.
+   */
   it('oneshotPlanSet_rejectsNonStringTruthyValues', () => {
-    // Patches that wrote `artifacts.plan = true` or `= 1` or `= {}`
-    // previously silently advanced the workflow. None of these are
-    // valid plan artifacts; all must fail the guard.
     const cases: ReadonlyArray<{ label: string; plan: unknown }> = [
       { label: 'boolean true', plan: true },
       { label: 'number 1', plan: 1 },
@@ -1342,8 +1264,6 @@ describe('oneshotPlanSet', () => {
     }
   });
 });
-
-// ─── Discovery Workflow Guard Tests (#1080) ────────────────────────────────
 
 describe('sourcesCollected', () => {
   it('sourcesCollected_PassesWhenArtifactsSourcesNonEmpty', () => {
@@ -1380,20 +1300,14 @@ describe('reportArtifactExists', () => {
   });
 });
 
-// ─── DR-24 / Task 057: shape narrowing replaces shape assertion ─────────────
-//
-// The guard table used to ASSERT the shape of untyped projection fields
-// (`state.tasks as Array<{ status: string }>`, `state.reviews as Record<…>`).
-// An assertion cannot fail, so malformed state reached property access with the
-// checker's blessing and surfaced only as a runtime TypeError that the state
-// machine caught and relabelled. These tests pin the narrowed behaviour: the
-// guard DECIDES on the shape and reports, rather than throwing.
-
+/**
+ * The guards check the shape of untyped state fields at runtime, not with a type assertion. A
+ * malformed field gives a structured failure or an ignored entry, not a runtime `TypeError`.
+ */
 describe('guards — malformed state is narrowed, not asserted (DR-24)', () => {
   describe('allTasksComplete', () => {
+    /** An array-like object has `.length` but no `.every`. The guard must reject it without a throw. */
     it('AllTasksComplete_TasksIsArrayLikeNotArray_ReturnsStructuredFailureWithoutThrowing', () => {
-      // An array-LIKE object has `.length` but no `.every`. Under the old
-      // assertion this threw; the guard must instead reject it in-band.
       const state: Record<string, unknown> = {
         featureId: 'f1',
         tasks: { length: 1, 0: { status: 'pending' } },
@@ -1407,9 +1321,8 @@ describe('guards — malformed state is narrowed, not asserted (DR-24)', () => {
       expect(failure.reason).toContain('must be an array');
     });
 
+    /** Unusable `tasks` must not read as an empty list, because that turns corrupt state into a passing gate. */
     it('AllTasksComplete_TasksIsNonArrayScalar_DoesNotReadAsZeroTasksComplete', () => {
-      // The dangerous failure mode: treating unusable `tasks` as "empty, so all
-      // complete" would turn corrupt state into a green gate.
       for (const corrupt of ['pending', 7, true]) {
         const result = guards.allTasksComplete.evaluate({ featureId: 'f1', tasks: corrupt });
         expect(result).not.toBe(true);
@@ -1456,9 +1369,8 @@ describe('guards — malformed state is narrowed, not asserted (DR-24)', () => {
   });
 
   describe('object-shaped state fields', () => {
+    /** `Object.entries('pending')` gives index and character pairs, so a string must not reach the collector. */
     it('AllReviewsPassed_ReviewsIsString_ReportsMissingRatherThanMiningCharacters', () => {
-      // `Object.entries('pending')` yields index/character pairs. The old
-      // assertion handed that string to the collector as if it were a record.
       const result = guards.allReviewsPassed.evaluate({ featureId: 'f1', reviews: 'pending' });
 
       expect(result).not.toBe(true);
@@ -1482,9 +1394,8 @@ describe('guards — malformed state is narrowed, not asserted (DR-24)', () => {
   });
 
   describe('collectReviewStatuses', () => {
+    /** An array entry is not a review entry. The nested walk must not make an `a.0` status from it. */
     it('CollectReviewStatuses_ArrayEntry_IsIgnoredNotIndexWalked', () => {
-      // An array entry used to be walked by the nested branch, minting a
-      // `a.0` status out of a shape that is not a review entry at all.
       expect(collectReviewStatuses({ a: [{ status: 'pass' }] })).toEqual([]);
     });
 
@@ -1503,9 +1414,8 @@ describe('guards — malformed state is narrowed, not asserted (DR-24)', () => {
   });
 
   describe('list-shaped state fields', () => {
+    /** A non-list `_events` holds no `team.spawned`, so the guard takes the no-team pass. */
     it('TeamDisbandedEmitted_EventsIsNonArray_DoesNotThrowAndPassesVacuously', () => {
-      // `_events` not being a list means no `team.spawned` was observed, which
-      // is the existing "no team to disband" pass. Previously `.some` threw.
       expect(guards.teamDisbandedEmitted.evaluate({ featureId: 'f1', _events: 'nope' })).toBe(true);
     });
 
@@ -1518,9 +1428,8 @@ describe('guards — malformed state is narrowed, not asserted (DR-24)', () => {
       expect(guards.teamDisbandedEmitted.evaluate(state)).not.toBe(true);
     });
 
+    /** A filter of non-string entries makes the requirement set smaller, and this guard must never do that. */
     it('AllReviewsPassed_RequiredReviewsHasNonStringEntry_StaysReportedAsMissing', () => {
-      // Filtering non-strings out of the requirement list would SHRINK the
-      // requirement set — the one direction this guard must never move.
       const state: Record<string, unknown> = {
         featureId: 'f1',
         reviews: { spec: { status: 'pass' } },

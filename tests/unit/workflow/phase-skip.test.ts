@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { applyPhaseSkips } from '../../../src/workflow/phase-skip.js';
 import type { HSMDefinition, State, Transition } from '../../../src/workflow/state-machine.js';
 
+/** `testHsm` is the chain A, B, C, D, and D is final. */
 describe('applyPhaseSkips', () => {
-  // Minimal test HSM: A → B → C → D(final)
   const testHsm: HSMDefinition = {
     id: 'test',
     states: {
@@ -27,7 +27,6 @@ describe('applyPhaseSkips', () => {
 
   it('applyPhaseSkips_SkipMiddlePhase_ReroutesTransitions', () => {
     const result = applyPhaseSkips(testHsm, ['B']);
-    // A should now go directly to C, B transitions removed
     const aTransition = result.transitions.find(t => t.from === 'A');
     expect(aTransition?.to).toBe('C');
     expect(result.transitions.find(t => t.from === 'B')).toBeUndefined();
@@ -35,20 +34,18 @@ describe('applyPhaseSkips', () => {
 
   it('applyPhaseSkips_SkipMultiplePhases_ReroutesAll', () => {
     const result = applyPhaseSkips(testHsm, ['B', 'C']);
-    // A should now go directly to D
     const aTransition = result.transitions.find(t => t.from === 'A');
     expect(aTransition?.to).toBe('D');
   });
 
   it('applyPhaseSkips_SkippedPhaseGuard_InheritedByPredecessor', () => {
-    // B→C has a guard. If B is skipped, A→C should inherit that guard
     const result = applyPhaseSkips(testHsm, ['B']);
     const aTransition = result.transitions.find(t => t.from === 'A');
     expect(aTransition?.guard?.id).toBe('b-to-c-guard');
   });
 
+  /** A has no incoming transition, so the skip treats it as the initial phase. */
   it('applyPhaseSkips_InitialPhase_RejectedWithError', () => {
-    // First state in the HSM (A) has no incoming transitions, so it's the initial phase
     expect(() => applyPhaseSkips(testHsm, ['A'])).toThrow(/cannot skip initial/i);
   });
 
@@ -81,13 +78,10 @@ describe('applyPhaseSkips', () => {
     const result = applyPhaseSkips(hsmWithCompound, ['impl']);
     const startTransition = result.transitions.find(t => t.from === 'start');
     expect(startTransition?.to).toBe('done');
-    // Child transitions should also be removed
     expect(result.transitions.find(t => t.from === 'delegate')).toBeUndefined();
   });
 
   it('applyPhaseSkips_PredecessorGuardPreserved_WhenSkippedHasNoGuard', () => {
-    // When the skipped phase's outgoing transition has no guard,
-    // the predecessor's existing guard should be preserved
     const hsmWithGuardOnPredecessor: HSMDefinition = {
       id: 'test-guard-preserve',
       states: {
@@ -97,14 +91,13 @@ describe('applyPhaseSkips', () => {
       },
       transitions: [
         { from: 'X', to: 'Y', guard: { id: 'x-guard', description: 'predecessor guard', evaluate: () => true as const } },
-        { from: 'Y', to: 'Z' }, // no guard on outgoing
+        { from: 'Y', to: 'Z' },
       ],
     };
 
     const result = applyPhaseSkips(hsmWithGuardOnPredecessor, ['Y']);
     const xTransition = result.transitions.find(t => t.from === 'X');
     expect(xTransition?.to).toBe('Z');
-    // Should keep the predecessor's guard since skipped phase has no outgoing guard
     expect(xTransition?.guard?.id).toBe('x-guard');
   });
 
@@ -115,8 +108,6 @@ describe('applyPhaseSkips', () => {
   });
 
   it('applyPhaseSkips_MultiBranch_AllOutgoingTransitionsPreserved', () => {
-    // HSM where B has two outgoing transitions (e.g., success and failure paths)
-    // A → B, B → C (success), B → E (failure), C → D(final), E → D(final)
     const multiBranchHsm: HSMDefinition = {
       id: 'test-multi-branch',
       states: {
@@ -137,7 +128,6 @@ describe('applyPhaseSkips', () => {
 
     const result = applyPhaseSkips(multiBranchHsm, ['B']);
 
-    // A should now have transitions to both C and E
     const aTransitions = result.transitions.filter(t => t.from === 'A');
     expect(aTransitions).toHaveLength(2);
 
@@ -146,11 +136,9 @@ describe('applyPhaseSkips', () => {
     expect(toC).toBeDefined();
     expect(toE).toBeDefined();
 
-    // Guards should be inherited from the skipped phase's outgoing transitions
     expect(toC?.guard?.id).toBe('success-guard');
     expect(toE?.guard?.id).toBe('failure-guard');
 
-    // No transitions from B should remain
     expect(result.transitions.find(t => t.from === 'B')).toBeUndefined();
   });
 });

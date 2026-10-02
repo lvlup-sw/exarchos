@@ -1,27 +1,11 @@
-// ─── DR-7 kill fixture — a dryRun transition must not move the workflow ─────
+// A `transition` call with `dryRun` must not move the workflow. The composite input
+// schema carries `dryRun` for `cancel` and `cleanup`, but `transition` does not
+// declare it, so dispatch refuses the parameter.
 //
-// Found live: a dry-run probe of `review → synthesize` on
-// `internal-mechanics-overhaul` advanced the phase for real.
-// `exarchos_workflow`'s composite input schema carries `dryRun` because
-// `cancel` and `cleanup` declare it; `transition` does not, so dispatch
-// stripped it and ran the transition. `success: true` came back either way.
-//
-// Every assertion here is made against the EVENT STREAM, not the response.
-// The response is precisely what lied — a test that only reads `result.success`
-// or `data.phase` reproduces the original defect instead of catching it, since
-// both were populated and both were wrong. `workflow.transition` /
-// `phase.exited` / `phase.entered` landing in the log is the observable that
-// cannot be faked by a well-shaped envelope.
-//
-// The expected stream is WRITTEN OUT below rather than snapshotted before the
-// call and compared after. A snapshot compared against itself cannot disagree
-// with itself; the hand-written list is the independent authority, and it also
-// catches the failure mode a snapshot cannot — a setup that emitted nothing,
-// which would make "unchanged" trivially true.
-//
-// The suite runs through `dispatch()` rather than `handleWorkflow()` because
-// the parameter-acceptance seam lives in dispatch — a direct composite call
-// never sees the flattened-parent payload an MCP caller actually sends.
+// The tests assert against the event stream, because a well-shaped response can
+// hide a real transition. The expected stream is written out, not snapshotted, so
+// a setup that emits nothing cannot pass. The suite calls `dispatch()`, because the
+// parameter check runs there and not in `handleWorkflow()`.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -34,9 +18,8 @@ import { EventStore } from '../../../src/events/store.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 /**
- * The whole log after setup, hand-written. `init` emits `workflow.started`;
- * the `update` that populates the plan artifact emits `state.patched`. A dry
- * run must leave exactly this and nothing more.
+ * The whole log after setup, written by hand. `init` appends `workflow.started`, and the `update` that sets
+ * the plan artifact appends `state.patched`. A dry run must leave this log unchanged.
  */
 const SETUP_STREAM = ['workflow.started', 'state.patched'];
 
@@ -55,10 +38,9 @@ async function eventTypes(): Promise<string[]> {
 }
 
 /**
- * A feature workflow parked at `plan` with its plan artifact populated, so
- * `plan → plan-review` is a transition the HSM guard would ALLOW. Without
- * this the fixture would be green for the wrong reason: a blocked transition
- * also appends no `workflow.transition`.
+ * Parks a feature workflow at `plan` with its plan artifact set, so the HSM guard allows
+ * `plan → plan-review`. A blocked transition also appends no `workflow.transition`, so without the artifact
+ * the tests pass for the wrong reason. The setup asserts its own log, so the later checks start from a known stream.
  */
 beforeEach(async () => {
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'transition-dry-run-'));
@@ -76,8 +58,6 @@ beforeEach(async () => {
   );
   expect(update.success).toBe(true);
 
-  // Premise, stated: the fixture's later "nothing was appended" assertions are
-  // only meaningful if setup wrote what it claims to have written.
   const seeded = await eventTypes();
   expect(seeded).toEqual(SETUP_STREAM);
 });
@@ -88,6 +68,10 @@ afterEach(async () => {
 });
 
 describe('exarchos_workflow.transition — dryRun (DR-7, task 090)', () => {
+  /**
+   * The call must fail with `INVALID_INPUT`, so the caller does not get a success envelope for a dropped
+   * parameter.
+   */
   it('TransitionDryRun_AppendsNoPhaseEvent_AssertedAgainstTheEventStream', async () => {
     const result = await dispatch(
       'exarchos_workflow',
@@ -95,14 +79,10 @@ describe('exarchos_workflow.transition — dryRun (DR-7, task 090)', () => {
       ctx,
     );
 
-    // THE kill assertion: the log still holds exactly what setup put there.
-    // Not "the response said no" — nothing was written.
     const after = await eventTypes();
     expect(after).toEqual(SETUP_STREAM);
     for (const type of PHASE_TRAIL) expect(after).not.toContain(type);
 
-    // And the caller is told, rather than handed a success envelope for a
-    // parameter that was thrown away.
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('INVALID_INPUT');
     expect(result.error?.message).toContain('dryRun');
@@ -120,11 +100,11 @@ describe('exarchos_workflow.transition — dryRun (DR-7, task 090)', () => {
     expect((get.data as { phase?: unknown }).phase).toBe('plan');
   });
 
+  /**
+   * This control proves that the transition works without `dryRun`. Without it, the dry-run tests also pass
+   * when `transition` is broken or the guard denies the edge.
+   */
   it('TransitionWithoutDryRun_StillAppendsThePhaseTrail', async () => {
-    // Control arm — without it the two assertions above would also pass on a
-    // build where `transition` was broken outright, or where the guard
-    // happened to deny this edge. The fixture's premise is that this exact
-    // transition DOES work when asked honestly.
     const result = await dispatch(
       'exarchos_workflow',
       { action: 'transition', featureId, target: 'plan-review' },
@@ -139,10 +119,11 @@ describe('exarchos_workflow.transition — dryRun (DR-7, task 090)', () => {
     expect((get.data as { phase?: unknown }).phase).toBe('plan-review');
   });
 
+  /**
+   * A caller that sends `dryRun: false` believes that the parameter exists. Dispatch refuses it the same way
+   * as `dryRun: true`.
+   */
   it('TransitionDryRunFalse_IsRefusedToo_TheParameterIsNotHalfSupported', async () => {
-    // `dryRun:false` is the reading where a caller believes the parameter is
-    // understood and is opting OUT of the dry run. Accepting it would publish
-    // a knob that does not exist; the refusal is the same either way.
     const result = await dispatch(
       'exarchos_workflow',
       { action: 'transition', featureId, target: 'plan-review', dryRun: false },
@@ -154,26 +135,24 @@ describe('exarchos_workflow.transition — dryRun (DR-7, task 090)', () => {
     expect(after).toEqual(SETUP_STREAM);
   });
 
+  /** The refusal names the actions that declare `dryRun` and the parameters that `transition` accepts. */
   it('TransitionRefusal_NamesTheActionsThatDoDeclareDryRun', async () => {
     const result = await dispatch(
       'exarchos_workflow',
       { action: 'transition', featureId, target: 'plan-review', dryRun: true },
       ctx,
     );
-    // Derived from the registry, so the pointer cannot go stale against a
-    // rename: the message tells the caller where `dryRun` is actually honoured.
     expect(result.error?.message).toContain('exarchos_workflow.cancel');
     expect(result.error?.message).toContain('target');
   });
 });
 
 describe('exarchos_workflow.cancel — reason (DR-7 sweep, second instance)', () => {
+  /**
+   * `handleCancel` reads `input.reason`, so the action schema must declare it, or dispatch drops it. The test
+   * checks the event payload, because the response does not show a dropped reason.
+   */
   it('CancelReason_ReachesTheCancelRequestedEvent_NotDroppedInDispatch', async () => {
-    // `handleCancel` has always read `input.reason`; the action schema did not
-    // declare it, so dispatch discarded it and the cancel-requested event
-    // recorded no reason while the call reported success. Asserted on the
-    // event payload for the same reason as above — the response never showed
-    // the loss.
     const result = await dispatch(
       'exarchos_workflow',
       { action: 'cancel', featureId, reason: 'operator stated cause' },

@@ -1,3 +1,8 @@
+/**
+ * Tests the `feedback` handler: the local write, the optional upstream POST, the idempotency window
+ * and input validation. One test sends `feedback` through `handleWorkflow` and checks the envelope.
+ * `feedback.parity.test.ts` pins CLI and MCP parity.
+ */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
@@ -16,14 +21,6 @@ import { handleWorkflow } from '../../../src/workflow/composite.js';
 import type { DispatchContext } from '../../../src/dispatch/core/dispatch.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
-// ─── #1319 — feedback action: agent→runtime friction back-channel ────────────
-//
-// Verification ladder (high risk + boundary-touching): unit coverage of the
-// handler contract (local-only write, optional upstream POST, windowed
-// idempotency, input validation) + an integration assertion that the dispatch
-// seam (handleWorkflow → handleFeedback) preserves the INV-5b envelope carrier.
-// CLI⇄MCP parity (INV-2) is pinned separately in `feedback.parity.test.ts`.
-
 let stateDir: string;
 let store: EventStore;
 
@@ -36,9 +33,10 @@ afterEach(async () => {
   await rmrfAsync(stateDir);
 });
 
-/** Options that never touch the real config file or network — the default for
- *  most cases. `resolveUpstream` returns undefined (no endpoint), `now` is
- *  pinned so the idempotency bucket is deterministic. */
+/**
+ * Options that touch no config file and no network. `resolveUpstream` returns no endpoint, and
+ * `now` is fixed, so the idempotency bucket is deterministic.
+ */
 function localOnlyOptions(overrides?: Partial<FeedbackOptions>): FeedbackOptions {
   return {
     now: () => 1_000_000_000_000,
@@ -51,6 +49,7 @@ function localOnlyOptions(overrides?: Partial<FeedbackOptions>): FeedbackOptions
 }
 
 describe('handleFeedback — local write contract', () => {
+  /** The event must land on the shared meta stream, not a feature stream, and match its schema. */
   it('Feedback_LocalOnly_RecordsEventOnMetaStream', async () => {
     const result = await handleFeedback(
       { message: 'rehydrate dropped taskProgress when projection lagged' },
@@ -67,7 +66,6 @@ describe('handleFeedback — local write contract', () => {
     expect(data.configuredEndpoint).toBeNull();
     expect(data.upstreamDelivered).toBe(false);
 
-    // The durable event landed on the shared meta stream, NOT a feature stream.
     const events = await store.query(FEEDBACK_STREAM_ID);
     expect(events).toHaveLength(1);
     expect(events[0].type).toBe('feedback.recorded');
@@ -76,7 +74,6 @@ describe('handleFeedback — local write contract', () => {
       configuredEndpoint: null,
       upstreamDelivered: false,
     });
-    // Event payload validates against the registered data schema.
     expect(() => FeedbackRecordedData.parse(events[0].data)).not.toThrow();
   });
 
@@ -107,16 +104,15 @@ describe('handleFeedback — local write contract', () => {
 });
 
 describe('handleFeedback — input validation (M-A discipline)', () => {
+  /** The error must carry a structured `suggestedFix`, and the handler must write no event. */
   it('Feedback_EmptyMessage_ReturnsStructuredInvalidInput', async () => {
     const result = await handleFeedback({ message: '' }, stateDir, store, localOnlyOptions());
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('INVALID_INPUT');
-    // Structured retry affordance, not just a message string.
     expect(result.error?.suggestedFix).toEqual({
       tool: 'exarchos_workflow',
       params: { action: 'feedback', message: '<your report>' },
     });
-    // No event written on rejection.
     const events = await store.query(FEEDBACK_STREAM_ID);
     expect(events).toHaveLength(0);
   });
@@ -161,6 +157,10 @@ describe('handleFeedback — optional upstream POST (offline-first / INV-15)', (
     });
   });
 
+  /**
+   * `postUpstream` returns `false` to act as a failed POST. The local write is the primary effect,
+   * so it must succeed when the POST fails.
+   */
   it('Feedback_UpstreamFails_StillRecordsLocallyAsUndelivered', async () => {
     const result = await handleFeedback(
       { message: 'report while endpoint is down' },
@@ -169,13 +169,10 @@ describe('handleFeedback — optional upstream POST (offline-first / INV-15)', (
       {
         now: () => 1_000_000_000_000,
         resolveUpstream: () => 'https://down.test/feedback',
-        // Simulates a network failure swallowed into `false`.
         postUpstream: async () => false,
       },
     );
 
-    // The local write is the primary effect — it MUST succeed even when the
-    // upstream POST does not (offline-first).
     expect(result.success).toBe(true);
     const events = await store.query(FEEDBACK_STREAM_ID);
     expect(events).toHaveLength(1);
@@ -187,13 +184,12 @@ describe('handleFeedback — optional upstream POST (offline-first / INV-15)', (
 });
 
 describe('handleFeedback — windowed idempotency (no log spam)', () => {
+  /** The same idempotency key within the window returns the first event, so the stream holds one row. */
   it('Feedback_DuplicateWithinWindow_CollapsesToOneEvent', async () => {
     const opts = localOnlyOptions({ now: () => 5_000_000 });
     const first = await handleFeedback({ message: 'same painful affordance' }, stateDir, store, opts);
     const second = await handleFeedback({ message: 'same painful affordance' }, stateDir, store, opts);
 
-    // Same windowed idempotency key → second append is a cache-hit returning
-    // the first event. Only one row in the stream.
     const events = await store.query(FEEDBACK_STREAM_ID);
     expect(events).toHaveLength(1);
     expect((first.data as { sequence: number }).sequence).toBe((second.data as { sequence: number }).sequence);
@@ -207,10 +203,10 @@ describe('handleFeedback — windowed idempotency (no log spam)', () => {
     expect(events).toHaveLength(2);
   });
 
+  /** The second call is past the idempotency window, so its bucket changes. */
   it('Feedback_SameMessageDifferentWindow_RecordsSeparateEvents', async () => {
     const base = 5_000_000;
     await handleFeedback({ message: 'recurring friction' }, stateDir, store, localOnlyOptions({ now: () => base }));
-    // Advance past the idempotency window so the bucket changes.
     await handleFeedback(
       { message: 'recurring friction' },
       stateDir,
@@ -227,6 +223,10 @@ describe('feedback dispatch seam — handleWorkflow envelope (INV-5b)', () => {
     return { stateDir: dir, eventStore: new EventStore(dir), enableTelemetry: false };
   }
 
+  /**
+   * The envelope must carry `next_actions`, and the event must reach the meta stream through the
+   * real dispatch path.
+   */
   it('Feedback_ThroughComposite_ReturnsEnvelopeWithNextActions', async () => {
     const ctx = makeCtx(stateDir);
     const result = await handleWorkflow(
@@ -235,23 +235,20 @@ describe('feedback dispatch seam — handleWorkflow envelope (INV-5b)', () => {
     );
 
     expect(result.success).toBe(true);
-    // INV-5b: the carrier shape is preserved — `next_actions` is present on
-    // every successful composite response (defaults to [] with no workflow ctx).
     expect(Array.isArray(result.next_actions)).toBe(true);
     expect((result.data as { recorded: boolean }).recorded).toBe(true);
 
-    // The event reached the shared meta stream through the real dispatch path.
     const events = await ctx.eventStore.query(FEEDBACK_STREAM_ID);
     expect(events).toHaveLength(1);
     expect(events[0].type).toBe('feedback.recorded');
   });
 
+  /** The list of valid actions in the error must include `feedback`. */
   it('Feedback_UnknownAction_StillRejectsWithValidActions', async () => {
     const ctx = makeCtx(stateDir);
     const result = await handleWorkflow({ action: 'nonsense' }, ctx);
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('UNKNOWN_ACTION');
-    // The new action is enumerated in the self-correction list.
     expect(result.error?.validActions).toContain('feedback');
   });
 });

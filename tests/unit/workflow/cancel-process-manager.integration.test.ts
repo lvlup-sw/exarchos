@@ -1,17 +1,6 @@
-// ─── Cancellation process-manager integration exit proofs (P04-02 / EFF-005) ─
-//
-// These proofs drive the saga through the PUBLIC cancel entry point
-// (`handleCancel`) — not the engine in isolation — so they pin the shipped
-// behavior of transition task 053:
-//   (A) restart mid-cancel does not repeat a completed compensation;
-//   (B) takeover by a second instance does not repeat a completed compensation,
-//       and the fenced-out (stale-epoch) instance's writes are rejected;
-//   (C) cancellation cannot report complete before every outcome is recorded,
-//       and retry exhaustion lands in a queryable manual-intervention terminal.
-//
-// The engine-level proofs live in `cancel-process-manager.saga.test.ts`; these
-// prove the wiring actually delivers those guarantees to a real user-initiated
-// cancellation.
+// Integration proofs for the cancellation process manager.
+// They drive the saga through the public `handleCancel` entry point, not through the engine alone.
+// The engine-level proofs are in `cancel-process-manager.saga.test.ts`.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
@@ -53,6 +42,10 @@ const REQUIRED_ACTION_IDS = [
   'delegate:delete-feature-branches',
 ] as const;
 
+/**
+ * `crashOnSecondCompletion` throws on the first attempt to record the `delegate:cleanup-worktrees` completion.
+ * The `delegate:delete-integration-branch` completion is durable before that crash.
+ */
 describe('cancellation process-manager — integration exit proofs (P04-02)', () => {
   let stateDir: string;
   let store: EventStore;
@@ -146,7 +139,6 @@ describe('cancellation process-manager — integration exit proofs (P04-02)', ()
     };
   }
 
-  /** Crash the first attempt to record `delegate:cleanup-worktrees` completion. */
   function crashOnSecondCompletion(): void {
     const appender = store.getAppender();
     const originalDecideOnce = appender.decideOnce.bind(appender);
@@ -166,7 +158,10 @@ describe('cancellation process-manager — integration exit proofs (P04-02)', ()
     );
   }
 
-  // ── (A) Restart mid-cancel does not repeat a completed compensation ────────
+  /**
+   * The restart drops all in-memory state and opens the durable log again.
+   * The completed `branch -D` compensation does not run a second time.
+   */
   it('ExitProof_RestartMidCancel_DoesNotRepeatCompletedCompensation', async () => {
     crashOnSecondCompletion();
 
@@ -175,7 +170,6 @@ describe('cancellation process-manager — integration exit proofs (P04-02)', ()
     expect(branchDeleteCalls).toBe(1);
     expect(completedFor(await events(), 'delegate:delete-integration-branch')).toHaveLength(1);
 
-    // Genuine restart: drop all in-memory state and reopen the durable log.
     vi.restoreAllMocks();
     store.close();
     store = new EventStore(stateDir);
@@ -184,7 +178,6 @@ describe('cancellation process-manager — integration exit proofs (P04-02)', ()
     const resumed = await handleCancel({ featureId }, stateDir, store);
     expect(resumed.success).toBe(true);
 
-    // The completed compensation (branch -D) was NOT repeated across restart.
     expect(branchDeleteCalls).toBe(1);
     expect(completedFor(await events(), 'delegate:delete-integration-branch')).toHaveLength(1);
 
@@ -194,10 +187,12 @@ describe('cancellation process-manager — integration exit proofs (P04-02)', ()
     expect(persisted.phase).toBe('cancelled');
   });
 
-  // ── (B) Takeover fences the stale instance and never repeats compensation ──
+  /**
+   * Instance A completes the first compensation under epoch 1 and then crashes.
+   * Instance B takes over through `handleCancel` with a higher epoch and skips the completed compensation.
+   * A write with the stale epoch then fails with `StaleEpochError` and appends nothing.
+   */
   it('ExitProof_Takeover_FencesStaleInstance_AndDoesNotRepeatCompletedCompensation', async () => {
-    // Instance A: cancel far enough to durably complete the first compensation
-    // (branch -D) under epoch 1, then crash before finishing. A keeps epoch 1.
     crashOnSecondCompletion();
     const instanceA = await handleCancel({ featureId }, stateDir, store);
     expect(instanceA).toMatchObject({ success: false, error: { code: 'EVENT_APPEND_FAILED' } });
@@ -208,24 +203,16 @@ describe('cancellation process-manager — integration exit proofs (P04-02)', ()
     const staleEpoch = (await queryCancelSaga(store, featureId, cancelId)).currentEpoch;
     expect(staleEpoch).toBe(1);
 
-    // Instance B TAKES OVER via the same public entry point. It acquires a
-    // strictly-higher epoch, folds the durable log, and MUST skip the
-    // already-completed compensation rather than re-run it.
     vi.restoreAllMocks();
     const instanceB = await handleCancel({ featureId }, stateDir, store);
     expect(instanceB.success).toBe(true);
 
-    // Not repeated: branch -D still ran exactly once, and there is still exactly
-    // one durable completion for the integration-branch compensation.
     expect(branchDeleteCalls).toBe(1);
     expect(completedFor(await events(), 'delegate:delete-integration-branch')).toHaveLength(1);
 
-    // B minted a higher epoch than the fenced-out A.
     const sagaAfterB = await queryCancelSaga(store, featureId, cancelId);
     expect(sagaAfterB.currentEpoch).toBeGreaterThan(staleEpoch);
 
-    // The stale instance A (epoch 1) is now fenced out: an attempted write with
-    // its epoch is rejected with a typed error, and nothing lands.
     const before = (await events()).length;
     await expect(
       appendFencedCancelEvent(store, {
@@ -250,9 +237,13 @@ describe('cancellation process-manager — integration exit proofs (P04-02)', ()
     expect(after).toBe(before);
   });
 
-  // ── (C) No premature completion + retry exhaustion → manual intervention ───
+  /**
+   * The integration-branch compensation fails on every attempt.
+   * Cancellation never reports ready, and after three attempts the saga records a manual-intervention terminal.
+   * `planCancelCompletion` then returns a `blocked` plan.
+   */
   it('ExitProof_RetryExhaustion_BlocksReadiness_AndLandsInManualIntervention', async () => {
-    branchDeleteFails = true; // the integration-branch compensation fails forever
+    branchDeleteFails = true;
 
     const result = await handleCancel({ featureId }, stateDir, store);
 
@@ -262,11 +253,9 @@ describe('cancellation process-manager — integration exit proofs (P04-02)', ()
     expect(message).toContain('delegate:delete-integration-branch');
 
     const all = await events();
-    // Cancellation was NEVER reported complete — no readiness, no terminal cancel.
     expect(all.some((e) => e.type === 'cancel.ready')).toBe(false);
     expect(all.some((e) => e.type === 'workflow.cancel')).toBe(false);
 
-    // Bounded retries: 3 attempts (branch -D x3), 2 retry-scheduled, 3 failures.
     expect(branchDeleteCalls).toBe(3);
     const retries = all.filter(
       (e) =>
@@ -284,7 +273,6 @@ describe('cancellation process-manager — integration exit proofs (P04-02)', ()
     );
     expect(failures).toHaveLength(3);
 
-    // A REAL, queryable manual-intervention terminal was recorded.
     expect(all).toContainEqual(
       expect.objectContaining({
         type: 'cancel.manual-intervention-required',
@@ -295,7 +283,6 @@ describe('cancellation process-manager — integration exit proofs (P04-02)', ()
       }),
     );
 
-    // The completion gate is structurally blocked (not merely absent).
     const { cancelId } = await readCancelIdentity();
     const saga = await queryCancelSaga(store, featureId, cancelId);
     const plan = planCancelCompletion(saga, REQUIRED_ACTION_IDS);
@@ -306,22 +293,14 @@ describe('cancellation process-manager — integration exit proofs (P04-02)', ()
     }
   });
 
-  // ── (D) A trusted CLI caller can cancel end-to-end ─────────────────────────
-  // Regression for the packaged-proof defect (P05-02): the CLI trusted-caller
-  // path wires NO runtime capability resolver, so `handleCancel` built a
-  // cancellation authorization snapshot with an EMPTY `capabilityIds` array,
-  // which `AuthorizationSnapshotV1Schema.capabilityIds.min(1)` rejects BEFORE
-  // any event is appended — `exarchos wf cancel` failed for every CLI user
-  // with EVENT_APPEND_FAILED. The identity layer now GRANTS the trusted
-  // local-operator its baseline capabilities, so the snapshot is schema-valid
-  // and cancellation proceeds.
+  /**
+   * The CLI path builds a local-operator identity from the state directory and wires no capability resolver.
+   * The identity layer grants that trusted operator its baseline capabilities.
+   * The authorization snapshot then passes `AuthorizationSnapshotV1Schema`, which needs at least one `capabilityIds` entry.
+   */
   it('ExitProof_TrustedCliCaller_CanCancelWithGrantedCapabilities', async () => {
-    // The CLI's dispatch context: a local-operator identity (derived solely
-    // from the adapter-owned state dir) with NO capability resolver — exactly
-    // what `createCliDispatchContext` + `dispatch()` produce for `wf cancel`.
     const identity = deriveLocalOperatorIdentity(stateDir);
     const authorization = snapshotCallerAuthorization(identity, undefined);
-    // The pre-fix defect: without the identity-layer grant this array is empty.
     expect(authorization.capabilities.length).toBeGreaterThanOrEqual(1);
 
     const result = await runWithDispatchContext(
@@ -337,8 +316,6 @@ describe('cancellation process-manager — integration exit proofs (P04-02)', ()
     const recorded = (requested?.data as Record<string, unknown>).authorization as
       | Record<string, unknown>
       | undefined;
-    // The authorization snapshot was recorded with a non-empty, schema-valid
-    // capability set attributed to the trusted operator.
     expect(recorded).toBeDefined();
     expect(Array.isArray(recorded?.capabilityIds)).toBe(true);
     expect((recorded?.capabilityIds as unknown[]).length).toBeGreaterThanOrEqual(1);
@@ -354,15 +331,14 @@ describe('cancellation process-manager — integration exit proofs (P04-02)', ()
     expect(persisted.phase).toBe('cancelled');
   });
 
-  // ── (E) An unauthorized caller is still denied (fail-closed) ───────────────
-  // The grant is scoped to the trusted local-operator identity, which a remote
-  // caller can never forge. A remote `mcp-session`/agent caller with no
-  // resolver capabilities keeps an EMPTY set and is rejected at schema
-  // validation — the ≥1 `capabilityIds` requirement is NOT weakened.
+  /**
+   * The grant applies only to the trusted local-operator identity.
+   * A remote MCP caller with no resolver capabilities keeps an empty set.
+   * Schema validation rejects it before any event reaches the log.
+   */
   it('ExitProof_UnauthorizedCaller_IsDeniedBeforeAnyWrite', async () => {
     const identity = deriveMcpCallerIdentity({ sessionId: 'untrusted-remote-agent' });
     const authorization = snapshotCallerAuthorization(identity, undefined);
-    // No grant for a non-operator identity: the capability set stays empty.
     expect(authorization.capabilities).toHaveLength(0);
 
     const result = await runWithDispatchContext(
@@ -375,7 +351,6 @@ describe('cancellation process-manager — integration exit proofs (P04-02)', ()
     expect(message).toContain('malformed');
     expect(message).toContain('capabilityIds');
 
-    // Fail-closed: the unauthorized request never reached the durable log.
     const all = await events();
     expect(all.some((e) => e.type === 'cancel.requested')).toBe(false);
     expect(all.some((e) => e.type === 'workflow.cancel')).toBe(false);

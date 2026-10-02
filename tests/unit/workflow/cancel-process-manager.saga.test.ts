@@ -1,15 +1,9 @@
-// ─── Cancellation process-manager saga (P04-02 / EFF-005) exit proofs ────────
-//
-// Drives the replayable saga engine (`cancel-process-manager.ts`) against a
-// REAL `EventStore` to prove the four exit properties of transition task 053:
-//   (a) restart mid-saga does not repeat a completed compensation;
-//   (b) takeover by a second instance does not repeat it, and the fenced-out
-//       instance's writes are rejected with a typed error;
-//   (c) cancellation cannot report complete before all outcomes are recorded;
-//   (d) retry exhaustion lands in a queryable manual-intervention-required state.
-//
-// Plus focused unit tests that pin each pure decision so the kill-probe can
-// turn a reverted guard red.
+// Exit proofs for the cancellation saga engine in `cancel-process-manager.ts`, against a real `EventStore`.
+// - A restart in the middle of the saga does not repeat a completed compensation.
+// - A takeover does not repeat it, and a write from the stale instance fails with a typed error.
+// - Cancellation does not report complete before it records all outcomes.
+// - Retry exhaustion ends in a manual-intervention-required state that a query can find.
+// Unit tests also pin each pure decision, so a kill-probe that reverts a guard turns a test red.
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
@@ -35,8 +29,6 @@ import {
   type FoldableCancelEvent,
 } from '../../../src/workflow/cancel-process-manager.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
-
-// ─── Fixtures ────────────────────────────────────────────────────────────────
 
 type CompensationOutcome = 'executed' | 'skipped' | 'failed';
 
@@ -171,7 +163,10 @@ async function runAttempt(
   }
 }
 
-/** One decision + action for the first action that still needs work. */
+/**
+ * Decides and runs one step for the first action that still needs work.
+ * An `escalate-manual` plan appends `cancel.manual-intervention-required`.
+ */
 async function stepSaga(
   store: EventStore,
   ctx: SagaContext,
@@ -217,7 +212,6 @@ async function stepSaga(
       await runAttempt(store, ctx, actionId, plan.nextAttempt, epoch, effect);
       return 'progressed';
     }
-    // escalate-manual
     await appendFencedCancelEvent(store, {
       featureId: ctx.featureId,
       cancelId: ctx.cancelId,
@@ -292,8 +286,6 @@ async function appendRequestedIntent(
     operationId: `${ctx.featureId}:${ctx.cancelId}:requested`,
   });
 }
-
-// ─── Pure unit tests (discriminating decision pins) ──────────────────────────
 
 describe('foldCancelSaga', () => {
   function ev(type: string, data: Record<string, unknown>, sequence: number): FoldableCancelEvent {
@@ -424,13 +416,13 @@ describe('fencing guards', () => {
     expect(nextCancelEpoch(s1)).toBe(5);
   });
 
+  /** A stale epoch throws. The current owner, with an equal epoch, passes. */
   it('AssertEpochCurrent_RejectsStaleWriterWithTypedError', () => {
     const saga = foldCancelSaga(
       [{ type: 'cancel.ownership-acquired', data: { cancelId: 'c', epoch: 2, instanceId: 'B' }, sequence: 1 }],
       'c',
     );
     expect(() => assertEpochCurrent(saga, 1)).toThrow(StaleEpochError);
-    // The reigning owner (equal epoch) is allowed.
     expect(() => assertEpochCurrent(saga, 2)).not.toThrow();
   });
 });
@@ -502,8 +494,6 @@ describe('planCancelCompletion / buildCancelReadiness (no premature completion)'
   });
 });
 
-// ─── Store-backed exit proofs ────────────────────────────────────────────────
-
 describe('cancellation process-manager exit proofs (against a real EventStore)', () => {
   let stateDir: string;
   let store: EventStore;
@@ -522,6 +512,10 @@ describe('cancellation process-manager exit proofs (against a real EventStore)',
   const policy: CancelRetryPolicy = { maxAttempts: 3 };
   const actions = ['alpha', 'beta', 'gamma'] as const;
 
+  /**
+   * The test completes alpha, closes the store to simulate a crash, and opens the durable log again.
+   * Alpha does not run a second time.
+   */
   it('ExitProof_A_RestartMidSaga_DoesNotRepeatCompletedCompensation', async () => {
     const ctx = makeContext();
     const counters = { alpha: { count: 0 }, beta: { count: 0 }, gamma: { count: 0 } };
@@ -541,19 +535,16 @@ describe('cancellation process-manager exit proofs (against a real EventStore)',
     expect(epoch).toBe(1);
     await appendRequestedIntent(store, ctx, epoch);
 
-    // Partial progress: complete alpha only, then simulate a crash.
     await stepSaga(store, ctx, actions, effects, policy, epoch);
     expect(isCompensationSatisfied(await queryCancelSaga(store, ctx.featureId, ctx.cancelId), 'alpha')).toBe(true);
     expect(counters.alpha.count).toBe(1);
 
-    // Restart: drop the in-memory store, reopen the durable log, resume.
     store.close();
     store = new EventStore(stateDir);
     await store.initialize();
 
     await driveSaga(store, ctx, actions, effects, policy, epoch);
 
-    // The completed compensation (alpha) is NOT re-executed across the restart.
     expect(counters.alpha.count).toBe(1);
     expect(counters.beta.count).toBe(1);
     expect(counters.gamma.count).toBe(1);
@@ -568,6 +559,10 @@ describe('cancellation process-manager exit proofs (against a real EventStore)',
     expect(planCancelCompletion(saga, [...actions]).kind).toBe('ready');
   });
 
+  /**
+   * Instance A completes alpha under epoch 1. Instance B takes over with epoch 2 and does not run alpha again.
+   * A later write with epoch 1 fails with `StaleEpochError` and appends nothing.
+   */
   it('ExitProof_B_Takeover_DoesNotRepeatAndFencesOutStaleInstance', async () => {
     const ctx = makeContext();
     const counters = { alpha: { count: 0 }, beta: { count: 0 }, gamma: { count: 0 } };
@@ -577,7 +572,6 @@ describe('cancellation process-manager exit proofs (against a real EventStore)',
       ['gamma', countingEffect(counters.gamma, 'executed')],
     ]);
 
-    // Instance A acquires epoch 1 and completes alpha, then stalls.
     const a = await acquireCancelOwnership(store, {
       featureId: ctx.featureId,
       cancelId: ctx.cancelId,
@@ -587,10 +581,9 @@ describe('cancellation process-manager exit proofs (against a real EventStore)',
     });
     expect(a.epoch).toBe(1);
     await appendRequestedIntent(store, ctx, a.epoch);
-    await stepSaga(store, ctx, actions, effects, policy, a.epoch); // completes alpha
+    await stepSaga(store, ctx, actions, effects, policy, a.epoch);
     expect(counters.alpha.count).toBe(1);
 
-    // Instance B takes over — acquires a strictly higher epoch (fencing token).
     const b = await acquireCancelOwnership(store, {
       featureId: ctx.featureId,
       cancelId: ctx.cancelId,
@@ -600,20 +593,17 @@ describe('cancellation process-manager exit proofs (against a real EventStore)',
     });
     expect(b.epoch).toBe(2);
 
-    // B folds the log: alpha is already satisfied, so B does not re-run it.
     await driveSaga(store, ctx, actions, effects, policy, b.epoch);
-    expect(counters.alpha.count).toBe(1); // NOT repeated by the takeover
+    expect(counters.alpha.count).toBe(1);
     expect(counters.beta.count).toBe(1);
     expect(counters.gamma.count).toBe(1);
 
-    // The fenced-out instance A (epoch 1) cannot write anymore: a stale-epoch
-    // write is rejected atomically with a typed error, and nothing lands.
     const before = (await store.query(ctx.featureId)).length;
     await expect(
       appendFencedCancelEvent(store, {
         featureId: ctx.featureId,
         cancelId: ctx.cancelId,
-        writerEpoch: a.epoch, // stale
+        writerEpoch: a.epoch,
         type: 'cancel.compensation-failed',
         data: {
           eventVersion: '1.0',
@@ -630,7 +620,6 @@ describe('cancellation process-manager exit proofs (against a real EventStore)',
       }),
     ).rejects.toBeInstanceOf(StaleEpochError);
 
-    // No stray event landed, and beta remains a single successful outcome.
     const after = await store.query(ctx.featureId);
     expect(after).toHaveLength(before);
     const betaOutcomes = after.filter(
@@ -645,6 +634,10 @@ describe('cancellation process-manager exit proofs (against a real EventStore)',
     expect(planCancelCompletion(saga, [...actions]).kind).toBe('ready');
   });
 
+  /**
+   * After only alpha completes, readiness fails and the log holds no `cancel.ready`.
+   * After every compensation completes, readiness passes and the test appends one `cancel.ready`.
+   */
   it('ExitProof_C_CannotReportCompleteBeforeAllOutcomesRecorded', async () => {
     const ctx = makeContext();
     const counters = { alpha: { count: 0 }, beta: { count: 0 }, gamma: { count: 0 } };
@@ -670,7 +663,6 @@ describe('cancellation process-manager exit proofs (against a real EventStore)',
       caller: CALLER as unknown as Record<string, unknown>,
     };
 
-    // Only alpha completed so far — readiness MUST be refused.
     await stepSaga(store, ctx, actions, effects, policy, epoch);
     const partialSaga = await queryCancelSaga(store, ctx.featureId, ctx.cancelId);
     expect(planCancelCompletion(partialSaga, [...actions]).kind).toBe('blocked');
@@ -679,10 +671,8 @@ describe('cancellation process-manager exit proofs (against a real EventStore)',
     if (!premature.ok) {
       expect(premature.plan.kind).toBe('blocked');
     }
-    // No cancel.ready in the durable log yet.
     expect((await store.query(ctx.featureId)).some((e) => e.type === 'cancel.ready')).toBe(false);
 
-    // Finish every compensation, THEN readiness is granted and durably recorded.
     await driveSaga(store, ctx, actions, effects, policy, epoch);
     const fullSaga = await queryCancelSaga(store, ctx.featureId, ctx.cancelId);
     const ready = buildCancelReadiness(fullSaga, [...actions], params);
@@ -702,6 +692,10 @@ describe('cancellation process-manager exit proofs (against a real EventStore)',
     expect(readyEvents).toHaveLength(1);
   });
 
+  /**
+   * The effect runs exactly `maxAttempts` times, then the saga escalates.
+   * The manual-intervention state blocks completion and readiness.
+   */
   it('ExitProof_D_RetryExhaustion_LandsInManualInterventionRequired', async () => {
     const ctx = makeContext();
     const flaky = { count: 0 };
@@ -719,7 +713,6 @@ describe('cancellation process-manager exit proofs (against a real EventStore)',
 
     await driveSaga(store, ctx, ['flaky'], effects, policy, epoch);
 
-    // Bounded: exactly maxAttempts effect invocations, then escalation.
     expect(flaky.count).toBe(policy.maxAttempts);
 
     const events = await store.query(ctx.featureId);
@@ -729,7 +722,6 @@ describe('cancellation process-manager exit proofs (against a real EventStore)',
     expect(manual).toHaveLength(1);
     expect((manual[0]?.data as Record<string, unknown>).reason).toBe('retries-exhausted');
 
-    // The terminal state is real and queryable, and blocks completion.
     const saga = await queryCancelSaga(store, ctx.featureId, ctx.cancelId);
     expect(saga.actions.get('flaky')?.status).toBe('manual-intervention');
     const manualActions: readonly CompensationActionState[] = manualInterventionActions(saga);

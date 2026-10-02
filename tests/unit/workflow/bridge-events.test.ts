@@ -9,8 +9,6 @@ import type { EventType as ExternalEventType } from '../../../src/events/schemas
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 describe('Bridge Events Fixes', () => {
-  // ─── Fix 6: getRecentEventsFromStore guards non-positive count ───────────
-
   describe('getRecentEventsFromStore', () => {
     let tmpDir: string;
     let eventStore: EventStore;
@@ -24,8 +22,8 @@ describe('Bridge Events Fixes', () => {
       await rmrfAsync(tmpDir);
     });
 
+    /** The stream holds one event, so the empty result comes from the count guard. */
     it('should return empty array when count is 0', async () => {
-      // Seed some events so we can confirm they are NOT returned
       await eventStore.append('test-stream', {
         type: 'workflow.transition' as ExternalEventType,
         data: { from: 'ideate', to: 'plan', trigger: 'test', featureId: 'test-stream' },
@@ -55,16 +53,12 @@ describe('Bridge Events Fixes', () => {
       expect(result).toHaveLength(1);
       expect(result[0]).toHaveProperty('type');
       expect(result[0]).toHaveProperty('timestamp');
-      // Should NOT have extra properties like sequence, data, etc.
       expect(Object.keys(result[0])).toEqual(['type', 'timestamp']);
     });
   });
 
-  // ─── Fix 4: recentEvents shape consistency ──────────────────────────────
-
   describe('recentEvents shape consistency', () => {
     it('in-memory getRecentEvents returns full Event objects (before fix)', () => {
-      // getRecentEvents returns Event[] which has type, timestamp, AND other fields
       const events = [
         {
           sequence: 1,
@@ -78,14 +72,11 @@ describe('Bridge Events Fixes', () => {
       ];
 
       const recent = getRecentEvents(events, 5);
-      // The in-memory version returns full Event objects
       expect(recent[0]).toHaveProperty('sequence');
       expect(recent[0]).toHaveProperty('type');
       expect(recent[0]).toHaveProperty('timestamp');
     });
   });
-
-  // ─── Fix 1: Cancel event uses distinct type ─────────────────────────────
 
   describe('mapInternalToExternalType', () => {
     it('should map "cancel" to "workflow.cancel"', () => {
