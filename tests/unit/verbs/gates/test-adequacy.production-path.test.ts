@@ -4,7 +4,7 @@
  * durable gate producer, and `runProbe`. `test-adequacy.false-advisory.test.ts`
  * calls `runProbe()` directly and does not cover this path.
  *
- * The tests pin two facts. The probe adds the toolchain test globs to the
+ * Two facts are central. The probe adds the toolchain test globs to the
  * co-located defaults, so a co-located `*.test.ts` file is a test file. A
  * skipped probe reports `skipped: true` and a `disposition`, so it never reads
  * as proof of test adequacy.
@@ -33,21 +33,6 @@ import {
   DEFAULT_TEST_GLOBS,
   type AdequacyDiscriminant,
 } from '../../../../src/verbs/gates/test-adequacy.js';
-
-
-import { execFileSync } from 'node:child_process';
-
-/**
- * These tests run `check_test_adequacy` against a real git repo through the
- * production path: `dispatch()`, `handleOrchestrate`, `handleTestAdequacy`, the
- * durable gate producer, and `runProbe`. `test-adequacy.false-advisory.test.ts`
- * calls `runProbe()` directly and does not cover this path.
- *
- * Two facts are central. The probe adds the toolchain test globs to the
- * co-located defaults, so a co-located `*.test.ts` file is a test file. A
- * skipped probe reports `skipped: true` and a `disposition`, so it never reads
- * as proof of test adequacy.
- */
 
 
 function git(repoRoot: string, args: readonly string[]): Promise<string> {
@@ -83,7 +68,6 @@ function dataOf(result: { readonly data?: unknown }): AdequacyData {
   return data as AdequacyData;
 }
 
-/** `sourceOnlyBranch` builds a task branch that changes only source, so the probe has nothing to kill. */
 describe('check_test_adequacy production path', () => {
   const cleanups: Array<() => void> = [];
 
@@ -109,6 +93,7 @@ describe('check_test_adequacy production path', () => {
     } as DispatchContext);
   }
 
+  /** A task branch that changes ONLY source — nothing for the probe to kill. */
   async function sourceOnlyBranch(prefix: string): Promise<string> {
     const repoRoot = await initRepo(prefix);
     cleanups.push(() => rmrf(repoRoot));

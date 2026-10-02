@@ -1,14 +1,15 @@
 // Behavioral parity of `checkPostMerge` with `check-post-merge.sh`. The gate has
 // two checks, CI status and the test suite, and reports PASS only when both pass.
 // A CI check passes on `pass` or `skipped`.
+
+import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { checkPostMerge } from '../../../../src/verbs/pure/post-merge.js';
 import type { CommandResult } from '../../../../src/verbs/pure/post-merge.js';
 import type { VcsProvider, CiStatus } from '../../../../src/vcs/provider.js';
-import { checkPostMerge } from '../../../../src/verbs/pure/post-merge.js';
-import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
-import { join } from 'node:path';
-import { mkdtempSync, writeFileSync } from 'node:fs';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
-import { tmpdir } from 'node:os';
 
 const PR_URL = 'https://github.com/org/repo/pull/42';
 const MERGE_SHA = 'abc1234def5678';
