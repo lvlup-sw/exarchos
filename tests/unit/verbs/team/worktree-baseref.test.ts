@@ -5,8 +5,6 @@ import {
   assertWorktreeBaseRefPinned,
 } from '../../../../src/verbs/team/worktree-baseref.js';
 
-// ─── Fixtures ─────────────────────────────────────────────────────────────────
-
 const CWD = '/repo';
 const HOME = '/home/u';
 
@@ -14,15 +12,13 @@ const PROJECT = path.join(CWD, '.claude', 'settings.json');
 const LOCAL = path.join(CWD, '.claude', 'settings.local.json');
 const USER = path.join(HOME, '.claude', 'settings.json');
 
-/** Build an injectable reader from a path→contents map; missing paths → null. */
+/** Returns a file reader over a map of paths to contents. A path that is not in the map gives `null`. */
 function reader(files: Record<string, string>): (p: string) => string | null {
   return (p: string) => (p in files ? files[p]! : null);
 }
 
 const headSettings = JSON.stringify({ worktree: { baseRef: 'head' } });
 const freshSettings = JSON.stringify({ worktree: { baseRef: 'fresh' } });
-
-// ─── resolveWorktreeBaseRef ─────────────────────────────────────────────────
 
 describe('resolveWorktreeBaseRef', () => {
   it('resolves "head" from the project .claude/settings.json', () => {
@@ -102,8 +98,6 @@ describe('resolveWorktreeBaseRef', () => {
     expect(result.effective).toBeNull();
   });
 });
-
-// ─── assertWorktreeBaseRefPinned ────────────────────────────────────────────
 
 describe('assertWorktreeBaseRefPinned', () => {
   it('passes when baseRef is pinned to "head"', () => {

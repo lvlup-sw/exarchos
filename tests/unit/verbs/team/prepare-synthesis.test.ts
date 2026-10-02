@@ -1,5 +1,3 @@
-// ─── Prepare Synthesis Composite Action Tests ───────────────────────────────
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
@@ -7,16 +5,12 @@ import * as os from 'node:os';
 import type { ToolResult } from '../../../../src/format.js';
 import type { EventStore } from '../../../../src/events/store.js';
 
-// ─── Mock child_process ────────────────────────────────────────────────────
-
 vi.mock('node:child_process', () => ({
   execSync: vi.fn(),
   execFileSync: vi.fn(),
 }));
 
 import { execSync, execFileSync } from 'node:child_process';
-
-// ─── Mock views/tools to control materializer and event store ──────────────
 
 vi.mock('../../../../src/projections/views/tools.js', () => ({
   getOrCreateMaterializer: vi.fn(),
@@ -47,8 +41,6 @@ vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
 
 import { getOrCreateMaterializer } from '../../../../src/projections/views/tools.js';
 
-// ─── Import handler under test ─────────────────────────────────────────────
-
 import {
   handlePrepareSynthesis,
   evaluateDocumentLeg,
@@ -57,8 +49,6 @@ import {
 } from '../../../../src/verbs/team/prepare-synthesis.js';
 import type { ResolvedProjectConfig } from '../../../../src/config/resolve.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
-
-// ─── Test Helpers ──────────────────────────────────────────────────────────
 
 const STATE_DIR = '/tmp/test-state-prepare-synthesis';
 
@@ -176,26 +166,18 @@ describe('handlePrepareSynthesis', () => {
     await rmrfAsync(tmpDir).catch(() => {});
   });
 
-  // ─── Test 1: Missing featureId ────────────────────────────────────────────
-
   it('PrepareSynthesis_MissingFeatureId_ReturnsInvalidInput', async () => {
-    // Arrange
     const args = {} as { featureId: string; repoRoot: string };
 
-    // Act
     const result = await handlePrepareSynthesis(args, STATE_DIR, createMockEventStore() as unknown as EventStore);
 
-    // Assert
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('INVALID_INPUT');
     expect(result.error?.message).toContain('featureId');
   });
 
-  // ─── Test 2: Tasks incomplete returns blockers ────────────────────────────
-
+  /** The event log completes `t1` and only assigns `t2` and `t3`, so `t2` and `t3` block synthesis. */
   it('PrepareSynthesis_TasksIncomplete_ReturnsBlockers', async () => {
-    // Arrange — drive task status through the canonical event log (#1536):
-    // t1 completed, t2/t3 only assigned (pending) → t2/t3 block synthesis.
     const mockStore = createMockEventStore(
       tasksToEvents({
         t1: { status: 'completed' },
@@ -204,10 +186,8 @@ describe('handlePrepareSynthesis', () => {
       }),
     );
 
-    // Act
     const result = await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
 
-    // Assert
     expect(result.success).toBe(true);
     const data = result.data as { ready: boolean; blockers: string[] };
     expect(data.ready).toBe(false);
@@ -217,17 +197,16 @@ describe('handlePrepareSynthesis', () => {
     expect(data.blockers.some((b: string) => b.includes('t3'))).toBe(true);
   });
 
-  // ─── #1536: readiness derives from the canonical event log, not materializer ─
+  /**
+   * The task-detail materializer reports task `024` in progress, but the event log
+   * completes it. Readiness reads the event log through `resolveWorkflowState`, so no
+   * blocker names `024`.
+   */
   it('PrepareSynthesis_MaterializerDisagreesWithEventLog_NoPhantomBlocker', async () => {
-    // #1536: the task-detail materializer reported tasks in-progress while the
-    // canonical event log (resolveWorkflowState — what exarchos_workflow get
-    // reads) showed them complete. Synthesis phantom-blocked. Readiness MUST
-    // derive from the canonical source, so the phantom must not appear.
     const phantomView = mockTaskDetailView({ '024': { status: 'in-progress' } });
     vi.mocked(getOrCreateMaterializer).mockReturnValue(
       createMockMaterializer(phantomView) as unknown as ReturnType<typeof getOrCreateMaterializer>,
     );
-    // Canonical event log: task 024 assigned then completed.
     const mockStore = createMockEventStore(tasksToEvents({ '024': { status: 'completed' } }));
     stubLegs({ test: 'Tests: 1 passed, 0 failed' });
 
@@ -241,10 +220,7 @@ describe('handlePrepareSynthesis', () => {
     expect((data.blockers ?? []).some((b: string) => b.includes('024'))).toBe(false);
   });
 
-  // ─── Test 3: Tests run and emit test result event ─────────────────────────
-
   it('PrepareSynthesis_TestsRun_EmitsTestResultEvent', async () => {
-    // Arrange
     const taskView = mockTaskDetailView({
       't1': { status: 'completed' },
     });
@@ -253,10 +229,8 @@ describe('handlePrepareSynthesis', () => {
     vi.mocked(getOrCreateMaterializer).mockReturnValue(mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>);
     stubLegs({ test: 'Tests: 10 passed, 0 failed' });
 
-    // Act
     await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
 
-    // Assert — verify gate.executed event emitted for test-suite
     const appendCalls = mockStore.append.mock.calls;
     const testGateCall = appendCalls.find(
       (call: unknown[]) => {
@@ -270,10 +244,7 @@ describe('handlePrepareSynthesis', () => {
     expect(testEvent.data.layer).toBe('CI');
   });
 
-  // ─── Test 4: Typecheck run and emit typecheck event ───────────────────────
-
   it('PrepareSynthesis_TypecheckRun_EmitsTypecheckEvent', async () => {
-    // Arrange
     const taskView = mockTaskDetailView({
       't1': { status: 'completed' },
     });
@@ -282,10 +253,8 @@ describe('handlePrepareSynthesis', () => {
     vi.mocked(getOrCreateMaterializer).mockReturnValue(mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>);
     stubLegs();
 
-    // Act
     await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
 
-    // Assert — verify gate.executed event emitted for typecheck
     const appendCalls = mockStore.append.mock.calls;
     const typecheckGateCall = appendCalls.find(
       (call: unknown[]) => {
@@ -299,10 +268,7 @@ describe('handlePrepareSynthesis', () => {
     expect(typecheckEvent.data.layer).toBe('CI');
   });
 
-  // ─── Test 4b: Test-suite gate event includes phase ──────────────────────
-
   it('PrepareSynthesis_TestSuiteGateEvent_IncludesPhaseInDetails', async () => {
-    // Arrange
     const taskView = mockTaskDetailView({
       't1': { status: 'completed' },
     });
@@ -311,10 +277,8 @@ describe('handlePrepareSynthesis', () => {
     vi.mocked(getOrCreateMaterializer).mockReturnValue(mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>);
     stubLegs({ test: 'Tests: 10 passed, 0 failed' });
 
-    // Act
     await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
 
-    // Assert — test-suite gate event includes phase: 'synthesize'
     const appendCalls = mockStore.append.mock.calls;
     const testGateCall = appendCalls.find(
       (call: unknown[]) => {
@@ -327,10 +291,7 @@ describe('handlePrepareSynthesis', () => {
     expect(testEvent.data.details.phase).toBe('synthesize');
   });
 
-  // ─── Test 4c: Typecheck gate event includes phase ─────────────────────
-
   it('PrepareSynthesis_TypecheckGateEvent_IncludesPhaseInDetails', async () => {
-    // Arrange
     const taskView = mockTaskDetailView({
       't1': { status: 'completed' },
     });
@@ -339,10 +300,8 @@ describe('handlePrepareSynthesis', () => {
     vi.mocked(getOrCreateMaterializer).mockReturnValue(mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>);
     stubLegs();
 
-    // Act
     await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
 
-    // Assert — typecheck gate event includes phase: 'synthesize'
     const appendCalls = mockStore.append.mock.calls;
     const typecheckGateCall = appendCalls.find(
       (call: unknown[]) => {
@@ -355,10 +314,7 @@ describe('handlePrepareSynthesis', () => {
     expect(typecheckEvent.data.details.phase).toBe('synthesize');
   });
 
-  // ─── Test 5: Stack checked uses git log, not gt log ─────────────────────
-
   it('verifyStack_UsesGitLog_NotGtLog', async () => {
-    // Arrange
     const taskView = mockTaskDetailView({
       't1': { status: 'completed' },
     });
@@ -368,10 +324,8 @@ describe('handlePrepareSynthesis', () => {
     stubLegs({ test: 'Tests: 5 passed' });
     stubGit({ log: '* abc1234 feat: add feature\n* def5678 fix: bug fix' });
 
-    // Act
     const result = await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
 
-    // Assert — verify git log was called (not gt log)
     const execCalls = vi.mocked(execSync).mock.calls;
     const stackCall = execCalls.find(
       (call) => typeof call[0] === 'string' && call[0].includes('log'),
@@ -380,17 +334,13 @@ describe('handlePrepareSynthesis', () => {
     expect(stackCall![0]).toContain('git log');
     expect(stackCall![0]).not.toContain('gt log');
 
-    // Stack result should still be healthy
     const data = result.data as { stack: { healthy: boolean; branches: string[] } };
     expect(data.stack).toBeDefined();
     expect(data.stack.healthy).toBe(true);
     expect(data.stack.branches).toBeDefined();
   });
 
-  // ─── Test 5b: Non-main default branch propagates to git log command ──────
-
   it('verifyStack_NonMainDefaultBranch_UsesDetectedBranch', async () => {
-    // Arrange
     const taskView = mockTaskDetailView({
       't1': { status: 'completed' },
     });
@@ -400,10 +350,8 @@ describe('handlePrepareSynthesis', () => {
     stubLegs({ test: 'Tests: 5 passed' });
     stubGit({ defaultBranch: 'trunk', log: '* abc1234 feat: add feature' });
 
-    // Act
     await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
 
-    // Assert — git log command uses 'trunk' not 'main'
     const execCalls = vi.mocked(execSync).mock.calls;
     const gitLogCall = execCalls.find(
       (call) => typeof call[0] === 'string' && call[0].includes('git log'),
@@ -413,10 +361,7 @@ describe('handlePrepareSynthesis', () => {
     expect(gitLogCall![0]).not.toContain('main..HEAD');
   });
 
-  // ─── Test 6: All green returns ready ──────────────────────────────────────
-
   it('PrepareSynthesis_AllGreen_ReturnsReady', async () => {
-    // Arrange
     const taskView = mockTaskDetailView({
       't1': { status: 'completed' },
       't2': { status: 'completed' },
@@ -427,10 +372,8 @@ describe('handlePrepareSynthesis', () => {
     stubLegs({ test: 'Tests: 10 passed, 0 failed' });
     stubGit({ log: 'main\n  feature-branch' });
 
-    // Act
     const result = await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
 
-    // Assert
     expect(result.success).toBe(true);
     const data = result.data as {
       ready: boolean;
@@ -444,10 +387,7 @@ describe('handlePrepareSynthesis', () => {
     expect(data.stack.healthy).toBe(true);
   });
 
-  // ─── Test 7: Valid input returns readiness state ──────────────────────────
-
   it('PrepareSynthesis_ValidInput_ReturnsReadiness', async () => {
-    // Arrange
     const taskView = mockTaskDetailView({
       't1': { status: 'completed' },
     });
@@ -456,10 +396,8 @@ describe('handlePrepareSynthesis', () => {
     vi.mocked(getOrCreateMaterializer).mockReturnValue(mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>);
     stubLegs();
 
-    // Act
     const result = await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
 
-    // Assert
     expect(result.success).toBe(true);
     const data = result.data as {
       ready: boolean;
@@ -474,10 +412,8 @@ describe('handlePrepareSynthesis', () => {
     expect(data.stack).toBeDefined();
   });
 
-  // ─── Test 8: Tests run emits gate.executed for flywheel ───────────────────
-
+  /** The `gate.executed` event for the test suite feeds `CodeQualityView`. */
   it('PrepareSynthesis_TestsRun_EmitsGateExecutedEvent', async () => {
-    // Arrange
     const taskView = mockTaskDetailView({
       't1': { status: 'completed' },
     });
@@ -486,10 +422,8 @@ describe('handlePrepareSynthesis', () => {
     vi.mocked(getOrCreateMaterializer).mockReturnValue(mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>);
     stubLegs({ test: 'Tests: 5 passed, 2 failed' });
 
-    // Act
     await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
 
-    // Assert — gate.executed event for test-suite feeds CodeQualityView flywheel
     const appendCalls = mockStore.append.mock.calls;
     const gateCall = appendCalls.find(
       (call: unknown[]) => {
@@ -500,10 +434,8 @@ describe('handlePrepareSynthesis', () => {
     expect(gateCall).toBeDefined();
   });
 
-  // ─── Test 9: Typecheck run emits gate.executed for flywheel ───────────────
-
+  /** The `gate.executed` event for the typecheck feeds `CodeQualityView`. */
   it('PrepareSynthesis_TypecheckRun_EmitsGateExecutedEvent', async () => {
-    // Arrange
     const taskView = mockTaskDetailView({
       't1': { status: 'completed' },
     });
@@ -512,10 +444,8 @@ describe('handlePrepareSynthesis', () => {
     vi.mocked(getOrCreateMaterializer).mockReturnValue(mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>);
     stubLegs();
 
-    // Act
     await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
 
-    // Assert — gate.executed event for typecheck feeds CodeQualityView flywheel
     const appendCalls = mockStore.append.mock.calls;
     const gateCall = appendCalls.find(
       (call: unknown[]) => {
@@ -526,10 +456,7 @@ describe('handlePrepareSynthesis', () => {
     expect(gateCall).toBeDefined();
   });
 
-  // ─── Test 10: Test failure sets passed=false ──────────────────────────────
-
   it('PrepareSynthesis_TestsFail_ReturnsNotReady', async () => {
-    // Arrange
     const taskView = mockTaskDetailView({
       't1': { status: 'completed' },
     });
@@ -542,20 +469,15 @@ describe('handlePrepareSynthesis', () => {
     stubLegs({ test: testError });
     stubGit({ log: 'main' });
 
-    // Act
     const result = await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
 
-    // Assert
     expect(result.success).toBe(true);
     const data = result.data as { ready: boolean; tests: { passed: boolean } };
     expect(data.ready).toBe(false);
     expect(data.tests.passed).toBe(false);
   });
 
-  // ─── Test 11: Typecheck failure sets passed=false ─────────────────────────
-
   it('PrepareSynthesis_TypecheckFails_ReturnsNotReady', async () => {
-    // Arrange
     const taskView = mockTaskDetailView({
       't1': { status: 'completed' },
     });
@@ -568,10 +490,8 @@ describe('handlePrepareSynthesis', () => {
     stubLegs({ test: 'Tests: 5 passed', typecheck: typecheckError });
     stubGit({ log: 'main' });
 
-    // Act
     const result = await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
 
-    // Assert
     expect(result.success).toBe(true);
     const data = result.data as { ready: boolean; typecheck: { passed: boolean; errorCount: number } };
     expect(data.ready).toBe(false);
@@ -665,12 +585,11 @@ describe('handlePrepareSynthesis', () => {
     expect(data.ready).toBe(false);
   });
 
-  // ─── DR-2 (#1594): document-readiness leg ─────────────────────────────────
-
+  /**
+   * The diff holds a source file on a doc-bearing surface and no doc change, and the
+   * leg is blocking. The test also passes `projectConfig` to the handler as the adapter does.
+   */
   it('PrepareSynthesis_DocBearingSurfaceNoDocChange_FailsDocumentLeg', async () => {
-    // Arrange — tasks complete; git diff returns a doc-bearing source file with
-    // no doc change; config marks **/*.ts a surface, severity blocking. Also
-    // exercises the adapter-equivalent projectConfig threading at the handler.
     const mockMaterializer = createMockMaterializer(mockTaskDetailView({ t1: { status: 'completed' } }));
     const mockStore = createMockEventStore(tasksToEvents({ t1: { status: 'completed' } }));
     vi.mocked(getOrCreateMaterializer).mockReturnValue(
@@ -678,7 +597,6 @@ describe('handlePrepareSynthesis', () => {
     );
     stubLegs({ diff: 'src/registry.ts\n' });
 
-    // Act
     const result = await handlePrepareSynthesis(
       {
         featureId: 'test-feature',
@@ -693,7 +611,6 @@ describe('handlePrepareSynthesis', () => {
       mockStore as unknown as EventStore,
     );
 
-    // Assert — document-coverage gate emitted passed:false; synthesis blocked.
     const docGate = mockStore.append.mock.calls.find((call: unknown[]) => {
       const e = call[1] as { type: string; data: { gateName: string } };
       return e.type === 'gate.executed' && e.data.gateName === 'document-coverage';
@@ -706,9 +623,8 @@ describe('handlePrepareSynthesis', () => {
     expect(data.ready).toBe(false);
   });
 
+  /** The advisory severity is the default. The gate records `passed: false`, but `documentReady` stays true. */
   it('PrepareSynthesis_AdvisoryUncoveredDoc_EmitsGateButDoesNotBlock', async () => {
-    // Same surface gap, but advisory severity (the default) ⇒ gate records
-    // passed:false (visible) yet documentReady stays true (warns, never blocks).
     const mockMaterializer = createMockMaterializer(mockTaskDetailView({ t1: { status: 'completed' } }));
     const mockStore = createMockEventStore(tasksToEvents({ t1: { status: 'completed' } }));
     vi.mocked(getOrCreateMaterializer).mockReturnValue(
@@ -739,14 +655,8 @@ describe('handlePrepareSynthesis', () => {
     expect(data.readiness.documentReady).toBe(true);
   });
 
-  // ─── DR-8 (#1756): repoRoot is threaded to every subprocess leg ───────────
-
+  /** Every leg runs with `cwd` set to `repoRoot`, which differs from `process.cwd()`. */
   it('PrepareSynthesis_RepoRootDiffersFromCwd_LegsRunAgainstRepoRoot', async () => {
-    // Arrange — a repo root that provably differs from process.cwd(): the
-    // suite runs from inside servers/exarchos-mcp, but the gate is told to
-    // judge an unrelated temp tree. Before the fix every leg below ran with
-    // no `cwd` at all — i.e. against process.cwd() — so this assertion fails
-    // on the pre-change code (no leg's options carry a `cwd` key).
     expect(tmpDir).not.toBe(process.cwd());
     const taskView = mockTaskDetailView({ t1: { status: 'completed' } });
     const mockMaterializer = createMockMaterializer(taskView);
@@ -760,7 +670,6 @@ describe('handlePrepareSynthesis', () => {
         : Buffer.from('Tests: 1 passed, 0 failed')) as unknown as typeof execSync);
     vi.mocked(execFileSync).mockReturnValue(Buffer.from('src/foo.ts\n'));
 
-    // Act
     await handlePrepareSynthesis(
       { featureId: 'test-feature', repoRoot: tmpDir },
       tmpDir,
@@ -782,11 +691,8 @@ describe('handlePrepareSynthesis', () => {
     }
   });
 
+  /** A caller can reach the handler without `repoRoot` through an unchecked cast. The handler refuses it and runs no leg. */
   it('PrepareSynthesis_RepoRootMissingAfterTasksComplete_RefusesRatherThanDefaultingToCwd', async () => {
-    // A caller that reaches the handler without repoRoot — e.g. through an
-    // unchecked cast, since TypeScript alone can't stop every runtime path
-    // (composite.ts's action dispatch casts `args as unknown as T`) — must be
-    // refused outright, never silently answered for process.cwd().
     const taskView = mockTaskDetailView({ t1: { status: 'completed' } });
     const mockMaterializer = createMockMaterializer(taskView);
     const mockStore = createMockEventStore();
@@ -803,15 +709,16 @@ describe('handlePrepareSynthesis', () => {
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('INVALID_INPUT');
     expect(result.error?.message).toContain('repoRoot');
-    // No leg ran — a missing repoRoot must not silently produce a verdict.
     expect(vi.mocked(execSync)).not.toHaveBeenCalled();
   });
 
+  /**
+   * A relative `repoRoot` resolves against the server cwd, so the handler refuses it.
+   * A non-string that reads as absolute after string conversion also gets `INVALID_INPUT`.
+   * No refusal starts a process through `execSync` or `execFileSync`. An absolute path
+   * still passes the check.
+   */
   it('PrepareSynthesis_RelativeRepoRoot_IsRefusedLikeAMissingOne', async () => {
-    // `repoRoot: '.'` satisfies the presence check and is still the ambient-cwd
-    // fallback wearing a value: a relative path handed to a subprocess as `cwd`
-    // resolves against the SERVER, so the legs would measure whatever tree the
-    // server sits in while reporting a verdict about the caller's feature.
     const taskView = mockTaskDetailView({ t1: { status: 'completed' } });
     const mockMaterializer = createMockMaterializer(taskView);
     const mockStore = createMockEventStore();
@@ -821,9 +728,6 @@ describe('handlePrepareSynthesis', () => {
 
     for (const relative of ['.', '..', 'some/repo', './repo']) {
       vi.mocked(execSync).mockClear();
-      // Both spawn surfaces, not just the shell one: the changed-files leg
-      // shells out through execFileSync, so a regression that reached IT
-      // before returning would slip past an execSync-only oracle.
       vi.mocked(execFileSync).mockClear();
       const result = await handlePrepareSynthesis(
         { featureId: 'test-feature', repoRoot: relative },
@@ -838,10 +742,6 @@ describe('handlePrepareSynthesis', () => {
       expect(vi.mocked(execFileSync)).not.toHaveBeenCalled();
     }
 
-    // `RegExp.test()` stringifies, so a non-string that LOOKS absolute once
-    // coerced (`['/repo']` → `/repo`) used to clear the shape check and reach a
-    // subprocess as a non-string `cwd`, returning PREPARE_SYNTHESIS_FAILED —
-    // a run-failure code for what is really malformed caller input.
     for (const nonString of [['/repo'], 42, { path: '/repo' }, true]) {
       vi.mocked(execSync).mockClear();
       vi.mocked(execFileSync).mockClear();
@@ -859,10 +759,6 @@ describe('handlePrepareSynthesis', () => {
       expect(vi.mocked(execFileSync)).not.toHaveBeenCalled();
     }
 
-    // The negative twin: an absolute path is still accepted, so the guard is
-    // rejecting relativeness rather than rejecting everything. Asserting the
-    // CODE (not just the absence of a word in the message) keeps this from
-    // passing when the fixture fails validation for some unrelated reason.
     vi.mocked(execSync).mockClear();
     const accepted = await handlePrepareSynthesis(
       { featureId: 'test-feature', repoRoot: tmpDir },
@@ -873,8 +769,6 @@ describe('handlePrepareSynthesis', () => {
     expect(accepted.error?.code).not.toBe('INVALID_INPUT');
   });
 });
-
-// ─── DR-2 (#1594): document-leg pure evaluation ─────────────────────────────
 
 describe('evaluateDocumentLeg (DR-2)', () => {
   const cfg = (over: Partial<DocumentLegConfig> = {}): DocumentLegConfig => ({

@@ -1,26 +1,13 @@
-// ─── WorktreeManager — prune (GC) handler: adopt-gate + safety ladder + the
-// INV-13 two-event deletion (DR-6, Task 007)
+// Tests for `WorktreeManager.prune` against a real git repo and a real EventStore, with no mock of git.
+// A dry run is the default. It reports candidates, reclaimable bytes, and skip reasons, and deletes nothing.
 //
-// HIGH-tier integration suite across the git ↔ event-store seam: every assertion
-// drives the REAL EventStore / SQLite substrate AND a REAL git repo (per-test
-// tmp dirs), so the prune flow is pinned against actual `git status` /
-// `git merge-base` / `git worktree remove` ground truth — not a mock.
+// An adopt step tracks each on-disk worktree before the safety ladder runs, so an unadopted active worktree is skipped.
+// Eligibility depends on state (`released` or `orphan`), never on mtime.
+// Each worktree resolves its integration ref from its `featureId`, and a missing ref fails closed.
+// Uncommitted or untracked changes, an unreachable origin, and an orphan without `pruneOrphans` and `yes` block deletion.
 //
-// Contract under test:
-//   - dry-run is the DEFAULT — report candidates + reclaimable bytes + grouped
-//     skip reasons, delete nothing, run no recovery side effects.
-//   - step-0 adopt-gate tracks every on-disk worktree BEFORE the ladder, so an
-//     unadopted active worktree enters as `adopted` (skipped), closing #55724.
-//   - eligibility is STATE-BASED (`released` / `orphan` only) — never mtime.
-//   - integration ref is resolved PER-WORKTREE from the entry's `featureId` →
-//     that workflow's `synthesis.integrationBranch`; null/unresolvable fails
-//     closed.
-//   - uncommitted OR untracked changes are never deleted (untracked-aware).
-//   - orphans delete only under explicit `--prune-orphans --yes`.
-//   - origin-unreachable fails closed.
-//   - deletion is the INV-13 two-event split (requested → executed), resumes a
-//     crash idempotently, re-verifies under the stream lock, and NEVER
-//     `git reset --hard`s.
+// A deletion writes `worktree.remove.requested` and then `worktree.remove.executed`.
+// It resumes a crash with no duplicate event, re-verifies under the stream lock, and never runs `git reset --hard`.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { randomUUID } from 'node:crypto';
@@ -46,14 +33,12 @@ import type { WorktreesProjection } from '../../../../src/verbs/worktree/project
 import { canonicalWorktreeId } from '../../../../src/verbs/worktree/pure/path-containment.js';
 import { IndexLockContentionError, type SleepFn } from '../../../../src/verbs/worktree/git-retry.js';
 
-// ─── git + event-store helpers ──────────────────────────────────────────────
-
 /** Run `git <args>` from `cwd`, returning trimmed stdout (throws on failure). */
 async function git(cwd: string, args: readonly string[]): Promise<string> {
   return (await execFileAsync('git', args, { cwd })).trim();
 }
 
-/** Init a real repo on branch `work` with one commit; returns its canonical path. */
+/** Creates a real repo on branch `work` with one commit and returns its canonical path. */
 async function initRepo(dir: string): Promise<string> {
   await mkdir(dir, { recursive: true });
   await git(dir, ['init', '-q', '-b', 'work']);
@@ -136,15 +121,11 @@ function orphanWorktree(wtPath: string): void {
   rmrf(match[1].trim());
 }
 
-// ─── Suite ──────────────────────────────────────────────────────────────────
-
-// skipIf(win32): every test here builds WorktreeManager with the DEFAULT process
-// table, whose win32 enumeration (Get-CimInstance, DR-5) is nondeterministic on the
-// shared CI runner — a live process' cwd may transiently resolve inside a temp
-// worktree, flipping prune occupancy verdicts ('in-use' vs 'dirty'/'delete-eligible')
-// at random. These tests predate win32 enumeration (they assumed the off-Linux
-// 'unknown' path). Gated off win32 until #1641 injects a deterministic
-// ProcessTableSource to restore meaningful win32 coverage; Linux coverage unchanged.
+/**
+ * Skipped on win32. Each test uses the default process table, and its win32 enumeration is nondeterministic on the shared CI runner.
+ * A live process cwd can resolve inside a temp worktree and flip prune occupancy verdicts at random (#1641).
+ * `makeReleased` reserves and releases a worktree, so it folds to `released`, which delete-eligibility requires.
+ */
 describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git + real event store)', () => {
   let stateDir: string;
   let workdir: string;
@@ -162,10 +143,6 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
     await rmrfAsync(workdir);
   });
 
-  /**
-   * Reserve→release a worktree so it folds to `released` with `featureId` set —
-   * the precondition for delete-eligibility. Returns the canonical id.
-   */
   async function makeReleased(
     manager: WorktreeManager,
     wtPath: string,
@@ -183,29 +160,28 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
     return wtId;
   }
 
-  // ─── dry-run default: deletes nothing, reports candidates + bytes ─────────
-
+  /**
+   * With no apply flag, prune is a dry run.
+   * The worktree branch is at the integration ref, so the worktree is merged and delete-eligible, but it stays on disk.
+   */
   it('Prune_DefaultInvocation_DeletesNothing_ReportsCandidatesAndBytes', async () => {
     const repo = await initRepoWithOrigin(workdir, 'repo');
-    await git(repo, ['branch', 'feat/integ']); // integration ref at HEAD
+    await git(repo, ['branch', 'feat/integ']);
     const wtPath = path.join(workdir, 'wt-eligible');
-    await addWorktree(repo, wtPath, 'wbranch'); // HEAD == feat/integ → merged
+    await addWorktree(repo, wtPath, 'wbranch');
     await setIntegrationBranch(store, 'feat-1', 'feat/integ');
 
     const manager = new WorktreeManager({ eventStore: store });
     const wtId = await makeReleased(manager, wtPath, 'feat-1');
 
-    // No explicit apply flag ⇒ dry-run.
     const result = await manager.prune({ repoRoot: repo });
 
     expect(result.dryRun).toBe(true);
     expect(result.deleted).toEqual([]);
-    // Nothing was removed: no remove events, the worktree is still on disk.
     expect(eventsOfType(store, 'worktree.remove.requested')).toHaveLength(0);
     expect(eventsOfType(store, 'worktree.remove.executed')).toHaveLength(0);
     expect((await projection(store)).worktrees[wtId]).toBeDefined();
 
-    // The eligible candidate is reported with reclaimable bytes > 0.
     const report = result.candidates.find((c) => c.worktreeId === wtId);
     expect(report?.classification.action).toBe('delete-eligible');
     expect(report?.deleted).toBe(false);
@@ -213,22 +189,20 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
     expect(result.reclaimableBytes).toBeGreaterThan(0);
   });
 
-  // ─── adopt-gate runs before the ladder ────────────────────────────────────
-
+  /**
+   * The worktree has no `worktrees@v1` entry before prune.
+   * The adopt step folds it to `adopted` before classification, so the ladder skips it as `active`.
+   */
   it('Prune_AdoptGate_ReconcilesUnadoptedWorktreesBeforeLadder', async () => {
     const repo = await initRepo(path.join(workdir, 'repo'));
     const wtPath = path.join(workdir, 'unadopted');
     const wtId = await addWorktree(repo, wtPath, 'unadopted-branch');
 
-    // No prior reserve/adopt: the worktree has NO worktrees@v1 entry yet.
     expect((await projection(store)).worktrees[wtId]).toBeUndefined();
 
     const manager = new WorktreeManager({ eventStore: store });
-    const result = await manager.prune({ repoRoot: repo }); // dry-run
+    const result = await manager.prune({ repoRoot: repo });
 
-    // Step-0 adopt-gate folded it to `adopted` BEFORE classification, so it is
-    // a tracked candidate (state `adopted`, skipped `active`) — never a
-    // no-adoption-record the ladder would have to defend against blind.
     const adopted = eventsOfType(store, 'worktree.adopted').filter(
       (e) => (e.data as { worktreeId?: unknown }).worktreeId === wtId,
     );
@@ -238,8 +212,10 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
     expect(report?.classification).toEqual({ action: 'skip', reason: 'active' });
   });
 
-  // ─── eligibility is state-based ───────────────────────────────────────────
-
+  /**
+   * The test makes one worktree in each state: adopted, reserved, released, and orphan.
+   * Live owner 777 makes the reserved worktree `in-use`, not only `active`.
+   */
   it('Prune_OnlyReleasedOrOrphanState_IsDeletionEligible', async () => {
     const repo = await initRepoWithOrigin(workdir, 'repo');
     await git(repo, ['branch', 'feat/integ']);
@@ -254,13 +230,11 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
     const releasedId = await addWorktree(repo, releasedPath, 'b-released');
     const orphanId = await addWorktree(repo, orphanPath, 'b-orphan');
 
-    // Live owner so the reserved one is provably in-use (not just `active`).
     const manager = new WorktreeManager({
       eventStore: store,
       processSource: sourceFrom({ 777: 'boot-777' }),
     });
 
-    // adopted
     await store.append(WORKTREES_STREAM, {
       type: 'worktree.adopted',
       data: {
@@ -272,7 +246,6 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
         operationId: randomUUID(),
       },
     });
-    // reserved (live)
     await manager.reserve({
       worktreeId: reservedId,
       path: reservedPath,
@@ -280,9 +253,7 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
       ownerPid: 777,
       ownerStartedAt: 'boot-777',
     });
-    // released
     await makeReleased(manager, releasedPath, 'feat-x');
-    // orphan: detected + backing admin dir removed
     await store.append(WORKTREES_STREAM, {
       type: 'worktree.orphan_detected',
       data: {
@@ -296,10 +267,9 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
     });
     orphanWorktree(orphanPath);
 
-    const result = await manager.prune({ repoRoot: repo }); // dry-run
+    const result = await manager.prune({ repoRoot: repo });
     const byId = new Map(result.candidates.map((c) => [c.worktreeId, c]));
 
-    // Only released / orphan are deletion-eligible; adopted / reserved are not.
     expect(byId.get(adoptedId)?.classification).toEqual({
       action: 'skip',
       reason: 'active',
@@ -312,30 +282,26 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
     expect(byId.get(orphanId)?.classification.action).toBe('orphan-unverifiable');
   });
 
-  // ─── #55724: an unadopted clean worktree is never deleted ─────────────────
-
+  /**
+   * A recency GC deletes a clean worktree with no adoption record and loses the checkout of an active agent (#55724).
+   * Even with `apply`, the adopt step folds it to `adopted` and the ladder skips it as `active`.
+   */
   it('Prune_UnadoptedCleanWorktree_NotDeleted_ReproducesAndBlocks55724', async () => {
     const repo = await initRepo(path.join(workdir, 'repo'));
     const wtPath = path.join(workdir, 'agent-clean');
     const wtId = await addWorktree(repo, wtPath, 'agent-clean-branch');
-    // Clean working tree, NO adoption record — the exact #55724 shape a naive
-    // recency GC would reclaim, losing an active agent's checkout.
 
     const manager = new WorktreeManager({ eventStore: store });
-    // Even an explicit apply run must not delete it.
     const result = await manager.prune({ repoRoot: repo, apply: true });
 
     expect(result.deleted).not.toContain(wtId);
     expect(eventsOfType(store, 'worktree.remove.executed')).toHaveLength(0);
-    // The adopt-gate folded it to `adopted` and the ladder skipped it `active`.
     const report = result.candidates.find((c) => c.worktreeId === wtId);
     expect(report?.classification).toEqual({ action: 'skip', reason: 'active' });
-    // Still on disk + still tracked.
     expect((await projection(store)).worktrees[wtId].state).toBe('adopted');
   });
 
-  // ─── state-based, NOT mtime ───────────────────────────────────────────────
-
+  /** The files have a very old mtime, but a live owner holds the reservation. Prune skips it as `in-use` and does not delete it. */
   it('Prune_LongRunningUnreleasedWorktree_StaleMtime_NotDeleted', async () => {
     const repo = await initRepoWithOrigin(workdir, 'repo');
     await git(repo, ['branch', 'feat/integ']);
@@ -343,8 +309,6 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
     const wtPath = path.join(workdir, 'long-runner');
     const wtId = await addWorktree(repo, wtPath, 'lr-branch');
 
-    // A long-running agent: its files have a very old mtime, but it is reserved
-    // by a LIVE owner — a naive mtime/recency GC would reclaim it mid-flight.
     const old = new Date('2000-01-01T00:00:00Z');
     utimesSync(path.join(wtPath, 'README.md'), old, old);
     utimesSync(wtPath, old, old);
@@ -363,7 +327,6 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
 
     const result = await manager.prune({ repoRoot: repo, apply: true });
 
-    // Skipped on STATE (in-use) despite the stale mtime — never deleted.
     const report = result.candidates.find((c) => c.worktreeId === wtId);
     expect(report?.classification).toEqual({ action: 'skip', reason: 'in-use' });
     expect(result.deleted).not.toContain(wtId);
@@ -371,13 +334,12 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
     expect((await projection(store)).worktrees[wtId].state).toBe('reserved');
   });
 
-  // ─── per-worktree integration ref resolution ──────────────────────────────
-
+  /**
+   * `feat/A` and `feat/B` both sit at the initial commit. W1 stays there, so it is merged into `feat/A`.
+   * W2 gets an extra commit, so it is not merged into `feat/B`. A shared or swapped ref flips these verdicts.
+   */
   it('Prune_ResolvesIntegrationRefPerWorktreeFromFeatureId', async () => {
     const repo = await initRepoWithOrigin(workdir, 'repo');
-    // feat/A sits at the initial commit; feat/B too. W1 (feat-a) stays at the
-    // initial commit → merged into feat/A. W2 (feat-b) gains an extra commit →
-    // NOT merged into feat/B. Each worktree must resolve ITS OWN feature's ref.
     await git(repo, ['branch', 'feat/A']);
     await git(repo, ['branch', 'feat/B']);
     await setIntegrationBranch(store, 'feat-a', 'feat/A');
@@ -385,9 +347,8 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
 
     const w1Path = path.join(workdir, 'wt-a');
     const w2Path = path.join(workdir, 'wt-b');
-    await addWorktree(repo, w1Path, 'wa'); // at initial commit
+    await addWorktree(repo, w1Path, 'wa');
     await addWorktree(repo, w2Path, 'wb');
-    // W2 advances past feat/B with an unmerged commit.
     await writeFile(path.join(w2Path, 'extra.txt'), 'unmerged work\n');
     await git(w2Path, ['add', '.']);
     await git(w2Path, ['commit', '-q', '-m', 'unmerged']);
@@ -396,11 +357,9 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
     const w1Id = await makeReleased(manager, w1Path, 'feat-a');
     const w2Id = await makeReleased(manager, w2Path, 'feat-b');
 
-    const result = await manager.prune({ repoRoot: repo }); // dry-run
+    const result = await manager.prune({ repoRoot: repo });
     const byId = new Map(result.candidates.map((c) => [c.worktreeId, c]));
 
-    // W1 resolves feat/A (merged) → eligible; W2 resolves feat/B (unmerged) →
-    // skipped. A swapped/global ref would flip these — this pins per-worktree.
     expect(byId.get(w1Id)?.classification.action).toBe('delete-eligible');
     expect(byId.get(w2Id)?.classification).toEqual({
       action: 'skip',
@@ -408,8 +367,10 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
     });
   });
 
-  // ─── null featureId / unresolvable branch fails closed ────────────────────
-
+  /**
+   * One worktree has a null `featureId`, and the workflow of `feat-set` has no `integrationBranch`.
+   * Both fail closed at the integration-ref rung, so prune deletes neither.
+   */
   it('Prune_NullFeatureIdOrUnresolvableBranch_FailsClosed', async () => {
     const repo = await initRepoWithOrigin(workdir, 'repo');
     await git(repo, ['branch', 'feat/integ']);
@@ -417,16 +378,14 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
     const noBranchPath = path.join(workdir, 'wt-nobranch');
     await addWorktree(repo, nullPath, 'null-branch');
     await addWorktree(repo, noBranchPath, 'nobranch-branch');
-    // `feat-set` has a featureId but its workflow never set an integrationBranch.
 
     const manager = new WorktreeManager({ eventStore: store });
-    const nullId = await makeReleased(manager, nullPath, null); // unattached
+    const nullId = await makeReleased(manager, nullPath, null);
     const noBranchId = await makeReleased(manager, noBranchPath, 'feat-set');
 
     const result = await manager.prune({ repoRoot: repo, apply: true });
     const byId = new Map(result.candidates.map((c) => [c.worktreeId, c]));
 
-    // Both fail closed at the integration-ref rung — neither is deleted.
     expect(byId.get(nullId)?.classification).toEqual({
       action: 'skip',
       reason: 'unverifiable-integration-ref',
@@ -439,18 +398,16 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
     expect(eventsOfType(store, 'worktree.remove.executed')).toHaveLength(0);
   });
 
-  // ─── #55724 Fix 2: untracked / uncommitted work is never deleted ──────────
-
+  /** The worktree is merged and otherwise eligible. Only an untracked file makes it dirty, so the dirty probe must count untracked files. */
   it('Prune_UncommittedOrUntracked_NeverDeleted', async () => {
     const repo = await initRepoWithOrigin(workdir, 'repo');
     await git(repo, ['branch', 'feat/integ']);
     await setIntegrationBranch(store, 'feat-dirty', 'feat/integ');
     const wtPath = path.join(workdir, 'wt-dirty');
-    await addWorktree(repo, wtPath, 'dirty-branch'); // HEAD merged → otherwise eligible
+    await addWorktree(repo, wtPath, 'dirty-branch');
 
     const manager = new WorktreeManager({ eventStore: store });
     const wtId = await makeReleased(manager, wtPath, 'feat-dirty');
-    // ONLY an untracked file — proves the dirty probe is `--untracked-files=all`.
     await writeFile(path.join(wtPath, 'scratch.txt'), 'unsaved agent work\n');
 
     const result = await manager.prune({ repoRoot: repo, apply: true });
@@ -462,8 +419,10 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
     expect((await projection(store)).worktrees[wtId]).toBeDefined();
   });
 
-  // ─── orphan deletion is gated on --prune-orphans --yes ────────────────────
-
+  /**
+   * With `apply` alone, prune reports the orphan and does not delete it.
+   * With `pruneOrphans` and `yes`, it deletes the orphan with the two-event split.
+   */
   it('Prune_Orphan_OnlyDeletedWithExplicitPruneOrphansYes', async () => {
     const repo = await initRepoWithOrigin(workdir, 'repo');
     await git(repo, ['branch', 'feat/integ']);
@@ -486,7 +445,6 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
 
     const manager = new WorktreeManager({ eventStore: store });
 
-    // apply WITHOUT the orphan opt-in: the orphan is reported but NOT deleted.
     const guarded = await manager.prune({ repoRoot: repo, apply: true });
     expect(guarded.deleted).not.toContain(wtId);
     expect(eventsOfType(store, 'worktree.remove.requested')).toHaveLength(0);
@@ -495,7 +453,6 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
         .action,
     ).toBe('orphan-unverifiable');
 
-    // apply WITH --prune-orphans --yes: the orphan IS deleted (two-event split).
     const opted = await manager.prune({
       repoRoot: repo,
       apply: true,
@@ -508,16 +465,17 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
     expect((await projection(store)).worktrees[wtId]).toBeUndefined();
   });
 
-  // ─── origin unreachable fails closed ──────────────────────────────────────
-
+  /**
+   * The `origin` remote points to a path that does not exist, so `git ls-remote origin` fails.
+   * The worktree is clean and merged, so only the origin check blocks it.
+   */
   it('Prune_OriginUnreachable_FailsClosed', async () => {
     const repo = await initRepo(path.join(workdir, 'repo'));
-    // An origin that points nowhere — `git ls-remote origin` fails fast.
     await git(repo, ['remote', 'add', 'origin', path.join(workdir, 'no-such-origin.git')]);
     await git(repo, ['branch', 'feat/integ']);
     await setIntegrationBranch(store, 'feat-unreach', 'feat/integ');
     const wtPath = path.join(workdir, 'wt-unreach');
-    await addWorktree(repo, wtPath, 'unreach-branch'); // clean + merged → only origin blocks
+    await addWorktree(repo, wtPath, 'unreach-branch');
 
     const manager = new WorktreeManager({ eventStore: store });
     const wtId = await makeReleased(manager, wtPath, 'feat-unreach');
@@ -533,8 +491,10 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
     expect(eventsOfType(store, 'worktree.remove.executed')).toHaveLength(0);
   });
 
-  // ─── INV-13 two-event deletion ────────────────────────────────────────────
-
+  /**
+   * `worktree.remove.requested` comes before `worktree.remove.executed`, and both carry the same `operationId`.
+   * The worktree leaves the projection and the disk.
+   */
   it('Prune_Deletion_EmitsRemoveRequestedThenExecuted', async () => {
     const repo = await initRepoWithOrigin(workdir, 'repo');
     await git(repo, ['branch', 'feat/integ']);
@@ -552,17 +512,14 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
     const executed = eventsOfType(store, 'worktree.remove.executed');
     expect(requested).toHaveLength(1);
     expect(executed).toHaveLength(1);
-    // requested is durable intent emitted BEFORE the side-effect's executed.
     expect((requested[0].sequence as number)).toBeLessThan(
       executed[0].sequence as number,
     );
-    // Same operationId correlates the pair (1:1), and the worktree was removed.
     const reqOp = (requested[0].data as { operationId?: unknown }).operationId;
     const exeData = executed[0].data as { operationId?: unknown; removed?: unknown };
     expect(typeof reqOp).toBe('string');
     expect(exeData.operationId).toBe(reqOp);
     expect(exeData.removed).toBe(true);
-    // Entry dropped from the projection; gone from disk.
     expect((await projection(store)).worktrees[wtId]).toBeUndefined();
     const stillListed = (await git(repo, ['worktree', 'list', '--porcelain'])).includes(
       wtId,
@@ -570,8 +527,11 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
     expect(stillListed).toBe(false);
   });
 
-  // ─── INV-10 prune-run liveness pair (DR-3) ────────────────────────────────
-
+  /**
+   * A prune pass writes one `prune.executing_started` and one `prune.executed` with the same `operationId`.
+   * The started event carries the repo root and holder PID, and comes before the remove events. The terminal comes after them.
+   * The terminal reports the deleted count and clears `inFlightPrunes`.
+   */
   it('PruneWorktrees_Run_EmitsStartedAndTerminalExactlyOnce', async () => {
     const repo = await initRepoWithOrigin(workdir, 'repo');
     await git(repo, ['branch', 'feat/integ']);
@@ -585,13 +545,11 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
     const result = await manager.prune({ repoRoot: repo, apply: true });
     expect(result.deleted).toContain(wtId);
 
-    // Exactly one started + one terminal — the INV-10 1:1 liveness pair.
     const started = eventsOfType(store, 'prune.executing_started');
     const executed = eventsOfType(store, 'prune.executed');
     expect(started).toHaveLength(1);
     expect(executed).toHaveLength(1);
 
-    // Same operationId correlates the pair.
     const startData = started[0].data as {
       operationId?: unknown;
       repoRoot?: unknown;
@@ -603,13 +561,10 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
     };
     expect(typeof startData.operationId).toBe('string');
     expect(endData.operationId).toBe(startData.operationId);
-    // Started carries the live-holder identity + the governed repo root.
     expect(startData.repoRoot).toBe(repo);
     expect(startData.holderPid).toBe(process.pid);
-    // Terminal reports how many worktrees the pass deleted (one here).
     expect(endData.deletedCount).toBe(1);
 
-    // Started BRACKETS the whole pass: before the deletion intent, terminal after.
     const removeReq = eventsOfType(store, 'worktree.remove.requested')[0];
     const removeExe = eventsOfType(store, 'worktree.remove.executed')[0];
     expect(started[0].sequence as number).toBeLessThan(
@@ -619,35 +574,32 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
       removeExe.sequence as number,
     );
 
-    // The terminal CLEARED the in-flight marker — no phantom prune survives.
     expect((await projection(store)).inFlightPrunes).toEqual({});
   });
 
+  /** A dry run also runs the adopt step and git probes, so it writes the liveness pair for `ps` and `wait`. The terminal reports 0 deleted. */
   it('PruneWorktrees_DryRun_AlsoEmitsLivenessPairSoPsSeesIt', async () => {
-    // A dry-run prune still runs the adopt-gate + per-candidate git probes, so it
-    // too must be `ps`/`wait`-visible — emission is NOT gated on `apply`.
     const repo = await initRepoWithOrigin(workdir, 'repo');
     const wtPath = path.join(workdir, 'wt-dry');
     await addWorktree(repo, wtPath, 'dry-branch');
 
     const manager = new WorktreeManager({ eventStore: store });
-    const result = await manager.prune({ repoRoot: repo }); // default ⇒ dry-run
+    const result = await manager.prune({ repoRoot: repo });
     expect(result.dryRun).toBe(true);
 
     const started = eventsOfType(store, 'prune.executing_started');
     const executed = eventsOfType(store, 'prune.executed');
     expect(started).toHaveLength(1);
     expect(executed).toHaveLength(1);
-    // Nothing deleted on a dry-run ⇒ terminal reports 0.
     expect((executed[0].data as { deletedCount?: unknown }).deletedCount).toBe(0);
-    // In-flight marker cleared after the pass.
     expect((await projection(store)).inFlightPrunes).toEqual({});
   });
 
+  /**
+   * When the git probe throws during the pass, a `finally` block still writes one terminal with the same `operationId` and 0 deleted.
+   * No in-flight prune stays behind.
+   */
   it('PruneWorktrees_LadderThrows_StillEmitsTerminal_PairStays1To1', async () => {
-    // INV-10 phantom-safety: even when the ladder throws mid-pass, the `finally`
-    // emits the paired terminal, so a failed prune never strands a phantom
-    // in-flight prune. The started fired; the terminal must too — exactly once.
     const repo = await initRepo(path.join(workdir, 'repo'));
     const boom: GitWorktreeProbe = {
       listWorktrees() {
@@ -667,18 +619,18 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
     const executed = eventsOfType(store, 'prune.executed');
     expect(started).toHaveLength(1);
     expect(executed).toHaveLength(1);
-    // The terminal correlates to the started even on the failure path.
     const startOp = (started[0].data as { operationId?: unknown }).operationId;
     expect((executed[0].data as { operationId?: unknown }).operationId).toBe(
       startOp,
     );
-    // Deleted nothing ⇒ terminal reports 0; in-flight cleared (no phantom).
     expect((executed[0].data as { deletedCount?: unknown }).deletedCount).toBe(0);
     expect((await projection(store)).inFlightPrunes).toEqual({});
   });
 
-  // ─── crash between requested and executed resumes idempotently ────────────
-
+  /**
+   * This simulates a crash: `worktree.remove.requested` is committed and git removed the worktree, but no `executed` event exists.
+   * The recovery pass writes one `executed` with the same `operationId` and `removed: false`, and no second `requested`.
+   */
   it('Prune_CrashBetweenRequestedAndDelete_ResumesIdempotently_SingleExecuted', async () => {
     const repo = await initRepo(path.join(workdir, 'repo'));
     const wtPath = path.join(workdir, 'wt-crash');
@@ -688,33 +640,30 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
       return makeReleased(manager, wtPath, null);
     })();
 
-    // Simulate a crashed real run: the durable intent (requested) was committed
-    // and the git side-effect ran, but the process died BEFORE `executed`.
     const operationId = randomUUID();
     await store.append(
       WORKTREES_STREAM,
       { type: 'worktree.remove.requested', data: { operationId, worktreePath: wtPath } },
       { idempotencyKey: `worktree.remove.requested:${operationId}` },
     );
-    await git(repo, ['worktree', 'remove', '--force', wtPath]); // side-effect already happened
+    await git(repo, ['worktree', 'remove', '--force', wtPath]);
 
-    // Resume: prune's recovery pass finishes the orphaned requested idempotently.
     await manager.prune({ repoRoot: repo, apply: true });
 
     const requested = eventsOfType(store, 'worktree.remove.requested');
     const executed = eventsOfType(store, 'worktree.remove.executed');
-    // Exactly one of each, same operationId — no duplicate requested minted.
     expect(requested).toHaveLength(1);
     expect(executed).toHaveLength(1);
     const exeData = executed[0].data as { operationId?: unknown; removed?: unknown };
     expect(exeData.operationId).toBe(operationId);
-    // Worktree already absent ⇒ executed once with removed:false (idempotent).
     expect(exeData.removed).toBe(false);
     expect((await projection(store)).worktrees[wtId]).toBeUndefined();
   });
 
-  // ─── concurrent with reconcile: re-verify under lock, no double-free ──────
-
+  /**
+   * Each owner is dead, so `reconcile` releases `wt-dead` while prune deletes `wt-del` on the same stream lock.
+   * `wt-dead` has no `featureId`, so it is never delete-eligible. Prune removes `wt-del` exactly once.
+   */
   it('Prune_ConcurrentWithReconcile_ReverifiesUnderLock_NoDoubleFree', async () => {
     const repo = await initRepoWithOrigin(workdir, 'repo');
     await git(repo, ['branch', 'feat/integ']);
@@ -725,15 +674,11 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
     await addWorktree(repo, delPath, 'del-branch');
     await addWorktree(repo, deadPath, 'dead-branch');
 
-    // Every owner is dead so reconcile WILL write (release wt-dead) concurrently
-    // with prune deleting wt-del, stressing the shared `worktrees` stream lock.
     const manager = new WorktreeManager({
       eventStore: store,
       processSource: ALL_DEAD,
     });
     const delId = await makeReleased(manager, delPath, 'feat-cc');
-    // wt-dead: reserved with a dead owner + NO featureId → reconcile releases it
-    // but it is never delete-eligible (fails closed), so prune never touches it.
     const deadId = canonicalWorktreeId(deadPath);
     await manager.reserve({
       worktreeId: deadId,
@@ -748,7 +693,6 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
       manager.reconcile(),
     ]);
 
-    // wt-del removed EXACTLY once — one executed with removed:true, no double-free.
     const executedTrue = eventsOfType(store, 'worktree.remove.executed').filter(
       (e) => (e.data as { removed?: unknown }).removed === true,
     );
@@ -759,28 +703,26 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
     expect(pruneResult.deleted).toContain(delId);
 
     const proj = await projection(store);
-    expect(proj.worktrees[delId]).toBeUndefined(); // dropped
-    expect(proj.worktrees[deadId].state).toBe('released'); // reconcile healed it
+    expect(proj.worktrees[delId]).toBeUndefined();
+    expect(proj.worktrees[deadId].state).toBe('released');
   });
 
-  // ─── fix 1: a dirty-probe FAILURE (backing present) fails closed ──────────
-
+  /**
+   * The backing repo is present, but `git status` exits non-zero for the worktree, as with a locked index.
+   * Cleanliness is then unknown, so the probe must fail closed as `dirty` and not read as clean.
+   */
   it('Prune_DirtyProbeFails_BackingPresent_FailsClosed_NotDeleted', async () => {
     const repo = await initRepoWithOrigin(workdir, 'repo');
     await git(repo, ['branch', 'feat/integ']);
     await setIntegrationBranch(store, 'feat-probe', 'feat/integ');
     const wtPath = path.join(workdir, 'wt-probe');
-    const wtId = await addWorktree(repo, wtPath, 'probe-branch'); // clean + merged → otherwise eligible
+    const wtId = await addWorktree(repo, wtPath, 'probe-branch');
     const canonicalWt = canonicalWorktreeId(wtPath);
 
-    // The worktree's backing repo is PRESENT, but `git status` ERRORS (non-zero)
-    // — a locked index / transient failure. Cleanliness is unverifiable, so the
-    // probe must fail CLOSED (treat as dirty, skip), never read as clean and
-    // proceed to delete-eligible (the data-loss hole). Other git ops pass through.
     const statusErrorsRunner: GitRunner = {
       run(args, cwd) {
         if (args[0] === 'status' && canonicalWorktreeId(cwd) === canonicalWt) {
-          return { status: 128, stdout: '' }; // git status failed.
+          return { status: 128, stdout: '' };
         }
         return defaultGitRunner.run(args, cwd);
       },
@@ -802,22 +744,19 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
     expect((await projection(store)).worktrees[wtId]).toBeDefined();
   });
 
-  // ─── TOCTOU: goes dirty between plan and under-lock commit → not deleted ──
-
+  /**
+   * The runner reports the worktree clean on the first `git status` and dirty on each later call.
+   * The plan sees it eligible, and the re-verify under the lock sees it dirty and aborts.
+   * `entry.state` is still `released`, so a re-check of state alone does not catch the change.
+   */
   it('Prune_GoesDirtyBetweenPlanAndCommit_NotDeleted', async () => {
     const repo = await initRepoWithOrigin(workdir, 'repo');
     await git(repo, ['branch', 'feat/integ']);
     await setIntegrationBranch(store, 'feat-toctou', 'feat/integ');
     const wtPath = path.join(workdir, 'wt-toctou');
-    const wtId = await addWorktree(repo, wtPath, 'toctou-branch'); // clean + merged → eligible
+    const wtId = await addWorktree(repo, wtPath, 'toctou-branch');
     const canonicalWt = canonicalWorktreeId(wtPath);
 
-    // A runner that reports the TARGET worktree CLEAN on the first `git status`
-    // (the planning classification) but DIRTY on every subsequent one (the
-    // under-lock re-verify inside executeDeletion). This is the TOCTOU window:
-    // the worktree became dirty AFTER it was classified delete-eligible. The
-    // re-check under the lock must catch it and abort — `entry.state` alone is
-    // still `released`, so a state-only re-check (the bug) would delete it.
     let targetStatusCalls = 0;
     const flipToDirtyRunner: GitRunner = {
       run(args, cwd) {
@@ -826,7 +765,6 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
         if (isTargetStatus) {
           targetStatusCalls += 1;
           if (targetStatusCalls > 1) {
-            // Second+ status on the target → pretend an untracked file appeared.
             return { status: 0, stdout: '?? scratch.txt\n' };
           }
         }
@@ -843,24 +781,22 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
 
     const result = await manager.prune({ repoRoot: repo, apply: true });
 
-    // Planning saw it eligible, but the under-lock re-verify saw it dirty and
-    // aborted: nothing deleted, NO durable remove intent committed, entry intact.
     expect(result.deleted).not.toContain(wtId);
     expect(eventsOfType(store, 'worktree.remove.requested')).toHaveLength(0);
     expect(eventsOfType(store, 'worktree.remove.executed')).toHaveLength(0);
     expect((await projection(store)).worktrees[wtId]).toBeDefined();
-    // Confirm the re-verify actually ran a second status probe on the target.
     expect(targetStatusCalls).toBeGreaterThan(1);
   });
 
-  // ─── recovery path never uses `git reset --hard` ──────────────────────────
-
+  /**
+   * A crashed deletion leaves the worktree registered, so recovery must run `git worktree remove`.
+   * No git call in the flow is `git reset --hard`.
+   */
   it('Prune_RecoveryPath_NeverUsesResetHard', async () => {
     const repo = await initRepo(path.join(workdir, 'repo'));
     const wtPath = path.join(workdir, 'wt-recover');
     await addWorktree(repo, wtPath, 'recover-branch');
 
-    // Record every git argument vector the prune flow issues.
     const recorded: string[][] = [];
     const recordingRunner: GitRunner = {
       run(args, cwd) {
@@ -874,8 +810,6 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
     });
     const wtId = await makeReleased(manager, wtPath, null);
 
-    // A crashed deletion whose worktree is STILL registered — forces the
-    // recovery path to actually run `git worktree remove` (not a no-op).
     const operationId = randomUUID();
     await store.append(
       WORKTREES_STREAM,
@@ -885,28 +819,15 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
 
     await manager.prune({ repoRoot: repo, apply: true });
 
-    // The recovery + deletion path drives `git worktree remove` and NEVER
-    // `git reset --hard` (the data-loss command this slice exists to forbid).
     expect(recorded.some((a) => a[0] === 'worktree' && a[1] === 'remove')).toBe(
       true,
     );
     expect(
       recorded.some((a) => a[0] === 'reset' && a.includes('--hard')),
     ).toBe(false);
-    // The crashed deletion was completed: entry dropped.
     expect((await projection(store)).worktrees[wtId]).toBeUndefined();
   });
 
-  // ─── DR-1: the prune remove path is wrapped in the index.lock retry kernel ──
-  //
-  // These tests prove the manager ITSELF retries on transient `.git/index.lock`
-  // contention (DR-1 wiring of the DR-8 `withIndexLockRetry` kernel) — not a
-  // stub. They drive the real `removeWorktreeIfRegistered` mutation and inject a
-  // `gitRunner` that simulates `index.lock` contention on the `git worktree
-  // remove` attempts, with the backoff `sleep` injected so the retry sequence is
-  // deterministic and incurs no real wall-clock wait.
-
-  /** A no-op injected sleep that records the backoff delays passed to it. */
   function recordingSleep(): { sleep: SleepFn; delays: number[] } {
     const delays: number[] = [];
     return {
@@ -917,21 +838,23 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
     };
   }
 
-  /** The exact lock-contention diagnostic git writes to stderr under #55724. */
   const INDEX_LOCK_STDERR =
     "fatal: Unable to create '/repo/.git/index.lock': File exists.\n" +
     'Another git process seems to be running in this repository.';
 
+  /**
+   * The manager wraps `git worktree remove` in the index.lock retry kernel.
+   * The runner fails the first two remove attempts with status 128 and the git lock message in `INDEX_LOCK_STDERR`.
+   * `recordingSleep` records each backoff with no real wait, and zero jitter gives delays of 200 and 400 ms.
+   * The third attempt runs real git and removes the worktree.
+   */
   it('PruneExecutor_TransientIndexLock_RetriesWithBackoffThenRemoves', async () => {
     const repo = await initRepoWithOrigin(workdir, 'repo');
-    await git(repo, ['branch', 'feat/integ']); // integration ref at HEAD → merged
+    await git(repo, ['branch', 'feat/integ']);
     await setIntegrationBranch(store, 'feat-lock', 'feat/integ');
     const wtPath = path.join(workdir, 'wt-lock-retry');
     const wtId = await addWorktree(repo, wtPath, 'lock-retry-branch');
 
-    // Fail the FIRST two `git worktree remove` attempts with an index.lock
-    // contention error (status 128 + the lock diagnostic on stderr), then let
-    // the real git remove run on the third attempt and succeed.
     let removeAttempts = 0;
     const contendingRunner: GitRunner = {
       run(args, cwd) {
@@ -951,35 +874,32 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
       eventStore: store,
       gitRunner: contendingRunner,
       sleep,
-      jitter: () => 0, // zero jitter → deterministic [200, 400, 800] backoff base
+      jitter: () => 0,
     });
     const releasedId = await makeReleased(manager, wtPath, 'feat-lock');
     expect(releasedId).toBe(wtId);
 
-    // Drive the real deletion path: `removeWorktreeIfRegistered` must retry past
-    // the two transient lock failures and ultimately remove the worktree.
     await manager.prune({ repoRoot: repo, apply: true });
 
-    // Retried exactly twice (3 total attempts), then succeeded.
     expect(removeAttempts).toBe(3);
-    // Two backoff sleeps were applied (zero jitter ⇒ 200ms, 400ms).
     expect(delays).toEqual([200, 400]);
-    // The worktree was actually removed: one executed event with removed:true.
     const executedTrue = eventsOfType(store, 'worktree.remove.executed').filter(
       (e) => (e.data as { removed?: unknown }).removed === true,
     );
     expect(executedTrue).toHaveLength(1);
-    // And the projection entry is dropped.
     expect((await projection(store)).worktrees[wtId]).toBeUndefined();
   });
 
+  /**
+   * Each remove attempt fails with the lock message, and `maxIndexLockRetries: 2` allows three attempts.
+   * A crashed deletion with the worktree still registered makes recovery run `git worktree remove` outside the ladder.
+   * The exhausted retry throws `IndexLockContentionError`. No `executed` event is written, so the entry stays tracked.
+   */
   it('PruneExecutor_ExhaustedIndexLockRetry_PropagatesStructuredErrorNoDelete', async () => {
     const repo = await initRepo(path.join(workdir, 'repo'));
     const wtPath = path.join(workdir, 'wt-lock-exhaust');
     const wtId = await addWorktree(repo, wtPath, 'lock-exhaust-branch');
 
-    // EVERY `git worktree remove` attempt loses the index.lock race — the
-    // contention never clears, so the bounded retry budget is exhausted.
     let removeAttempts = 0;
     const alwaysContendingRunner: GitRunner = {
       run(args, cwd) {
@@ -998,13 +918,10 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
       gitRunner: alwaysContendingRunner,
       sleep,
       jitter: () => 0,
-      maxIndexLockRetries: 2, // shrink the budget: 3 total attempts then exhaust
+      maxIndexLockRetries: 2,
     });
     const releasedId = await makeReleased(manager, wtPath, null);
 
-    // A crashed deletion whose worktree is STILL registered forces the recovery
-    // path to actually run `git worktree remove` (the DR-1 retry seam),
-    // independent of the eligibility ladder.
     const operationId = randomUUID();
     await store.append(
       WORKTREES_STREAM,
@@ -1015,14 +932,10 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
       { idempotencyKey: `worktree.remove.requested:${operationId}` },
     );
 
-    // Exhausted retries surface a STRUCTURED error, never a silent no-op (DR-1).
     await expect(manager.prune({ repoRoot: repo, apply: true })).rejects.toThrow(
       IndexLockContentionError,
     );
-    // Initial attempt + 2 retries = 3 total before exhaustion.
     expect(removeAttempts).toBe(3);
-    // The remove mutation failed, so NO executed event committed — the entry is
-    // still tracked (no half-state false-drop).
     expect(eventsOfType(store, 'worktree.remove.executed')).toHaveLength(0);
     expect((await projection(store)).worktrees[wtId]).toBeDefined();
   });

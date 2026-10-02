@@ -15,8 +15,6 @@ import { createVcsProvider } from '../../../../src/vcs/factory.js';
 import { handleAddPrComment } from '../../../../src/verbs/vcs/add-pr-comment.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
-// ─── Shared mock factories ──────────────────────────────────────────────────
-
 function makeMockProvider(overrides: Partial<VcsProvider> = {}): VcsProvider {
   return {
     name: 'github',
@@ -46,29 +44,22 @@ function makeMockCtx(eventStoreOverride?: Partial<EventStore>): DispatchContext 
   };
 }
 
-// ─── Original handleAddPrComment unit tests (updated for two-event split) ──
-
 describe('handleAddPrComment', () => {
   let mockProvider: VcsProvider;
   let ctx: DispatchContext;
 
+  /**
+   * The first `getPrComments` call is the marker pre-check and returns no
+   * comments. Later calls return one comment with the last body that
+   * `addComment` posted, so the verification scan finds it.
+   */
   beforeEach(() => {
     vi.clearAllMocks();
-    // Provide a getPrComments that returns the posted comment on the SECOND
-    // call (Phase C verification scan). First call is the idempotency
-    // pre-check and returns []. This mirrors the real eventual-consistency
-    // expectation: by the time we re-query after addComment succeeds, the
-    // comment is visible.
     let getCallCount = 0;
     mockProvider = makeMockProvider({
       getPrComments: vi.fn().mockImplementation(async () => {
         getCallCount += 1;
         if (getCallCount === 1) return [];
-        // Verification scan — return a comment whose body will contain the marker
-        // injected by the handler. We can't know the marker here, so return
-        // a comment whose body contains a wildcard marker pattern; the handler
-        // calls .includes(marker) which matches if the body contains it.
-        // Capture the body actually sent via addComment.
         const calls = vi.mocked(mockProvider.addComment).mock.calls;
         const lastBody = calls.length > 0 ? (calls[calls.length - 1][1] as string) : '';
         return [{
@@ -88,7 +79,6 @@ describe('handleAddPrComment', () => {
 
     await handleAddPrComment(args, ctx);
 
-    // addComment is still called; body now includes the operationId marker
     expect(mockProvider.addComment).toHaveBeenCalledTimes(1);
     const [calledPrId, calledBody] = vi.mocked(mockProvider.addComment).mock.calls[0];
     expect(calledPrId).toBe('42');
@@ -103,12 +93,11 @@ describe('handleAddPrComment', () => {
     expect(result.success).toBe(true);
   });
 
-  // ─── threadId routes through the provider-agnostic addReply (T9 / #1165) ───
-
+  /**
+   * With a `threadId`, the body goes through the provider-agnostic `addReply`,
+   * not `addComment`.
+   */
   it('handleAddPrComment_ThreadId_RoutesThroughAddReplyNotAddComment', async () => {
-    // With threadId present the body must go through addReply (the thread-aware
-    // sibling), NOT addComment — that's the whole point of keeping shepherd's
-    // per-thread reply step on the provider-agnostic surface (INV-2).
     const replyProvider = makeMockProvider({
       addReply: vi.fn().mockResolvedValue({ id: 778899 }),
     });
@@ -121,19 +110,19 @@ describe('handleAddPrComment', () => {
     );
 
     expect(result.success).toBe(true);
-    // addReply called with the PR id, thread id, and marker-embedded body.
     expect(replyProvider.addReply).toHaveBeenCalledTimes(1);
     const [calledPrId, calledThreadId, calledBody] = vi.mocked(replyProvider.addReply).mock.calls[0];
     expect(calledPrId).toBe('42');
     expect(calledThreadId).toBe('201');
     expect(calledBody).toContain('Addressed in latest push.');
-    // addComment must NOT be called on the reply path.
     expect(replyProvider.addComment).not.toHaveBeenCalled();
   });
 
+  /**
+   * The executed event carries the id that `addReply` returns. The reply path
+   * does not query the comments again after the post.
+   */
   it('handleAddPrComment_ThreadId_EmitsExecutedWithReplyId', async () => {
-    // The executed event carries the id addReply returned directly — no Phase-C
-    // re-query, because addReply hands back the new reply's commentId.
     const replyProvider = makeMockProvider({
       addReply: vi.fn().mockResolvedValue({ id: 778899 }),
     });
@@ -185,20 +174,21 @@ describe('handleAddPrComment', () => {
     expect(mockProvider.addReply).not.toHaveBeenCalled();
   });
 
+  /**
+   * The intent uses the plain `append`, so the row carries the ambient dispatch
+   * operation id.
+   */
   it('handleAddPrComment_Success_EmitsTwoEventSequence', async () => {
     const args = { prId: '42', body: 'Review comment' };
 
     await handleAddPrComment(args, ctx);
 
-    // Phase A — pr.comment.requested must be committed via a plain append,
-    // so the ambient dispatch operation id gets stamped onto the row.
     expect(ctx.eventStore.append).toHaveBeenCalledWith(
       'vcs',
       expect.objectContaining({ type: 'pr.comment.requested' }),
       expect.anything(),
     );
 
-    // Phase C — pr.comment.executed must also be appended
     expect(ctx.eventStore.append).toHaveBeenCalledWith(
       'vcs',
       expect.objectContaining({ type: 'pr.comment.executed' }),
@@ -206,14 +196,12 @@ describe('handleAddPrComment', () => {
     );
   });
 
-  // ─── CodeRabbit #3224596442/#3224631230: verification miss must NOT write
-  // a schema-violating pr.comment.executed (commentId: 0).
-  // ─────────────────────────────────────────────────────────────────────────
+  /**
+   * The post succeeds, but the verification scan finds nothing. The schema of
+   * `pr.comment.executed` requires a `commentId` above 0, so the handler fails
+   * and writes no sentinel. The posted marker lets a later call recover.
+   */
   it('AddPrComment_PostSucceededButVerificationLookupMissed_ReturnsFailureAndDoesNotEmitExecuted', async () => {
-    // Override getPrComments so BOTH the pre-check and the verification scan
-    // return []. addComment succeeds (the post landed on GitHub) but we can't
-    // verify it — the schema for pr.comment.executed requires commentId > 0,
-    // so we surface the failure rather than writing commentId: 0.
     const failingProvider = makeMockProvider({
       getPrComments: vi.fn().mockResolvedValue([]),
     });
@@ -222,20 +210,15 @@ describe('handleAddPrComment', () => {
 
     const result = await handleAddPrComment({ prId: '42', body: 'verify-miss' }, failCtx);
 
-    // The handler surfaces the failure rather than corrupting the event stream.
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('VCS_VERIFICATION_FAILED');
 
-    // Critical: pr.comment.executed was NOT emitted (would have been
-    // schema-violating with commentId: 0).
     const appendCalls = vi.mocked(failCtx.eventStore.append).mock.calls;
     const executedAppend = appendCalls.find(
       (call) => (call[1] as { type: string }).type === 'pr.comment.executed',
     );
     expect(executedAppend).toBeUndefined();
 
-    // The addComment side effect DID fire — the comment is posted with the
-    // marker, so a subsequent invocation can recover via the idempotent scan.
     expect(failingProvider.addComment).toHaveBeenCalledTimes(1);
   });
 
@@ -252,15 +235,10 @@ describe('handleAddPrComment', () => {
   });
 });
 
-// ─── B2.2 — Non-refire fixture (Task B2.2, RED first) ──────────────────────
-//
-// The two-event split's load-bearing property: the non-idempotent side
-// effect (`addComment`) lives BETWEEN Phase A (`pr.comment.requested` append)
-// and Phase C (`pr.comment.executed` append), but is NEVER inside a retry
-// boundary. If Phase A's plain append throws a retryable substrate signal,
-// withStateRetry must catch it and retry Phase A. addComment must be called
-// AT MOST ONCE across the entire retry cycle (not during Phase A retries).
-
+/**
+ * `addComment` runs between the intent append and the executed append, outside
+ * the retry boundary. A retried intent append must not post the comment again.
+ */
 describe('handleAddPrComment — B2.2 Phase-A retry non-refire', () => {
   const scratchRoots: string[] = [];
 
@@ -272,13 +250,12 @@ describe('handleAddPrComment — B2.2 Phase-A retry non-refire', () => {
     scratchRoots.length = 0;
   });
 
+  /**
+   * The first intent append throws `SqliteBusyExhaustedError`, the raw class that
+   * `EventStore.append` raises on contention. A `ConcurrencyError` mock skips the
+   * mapping in `translateStorageError`.
+   */
   it('AddPrComment_PhaseARetry_DoesNotRefireGhPrComment', async () => {
-    // Arrange: set up a real-ish event store whose plain append throws on the
-    // first Phase-A attempt, then succeeds. The thrown class is what the real
-    // `EventStore.append` actually raises for storage contention — the raw
-    // `SqliteBusyExhaustedError` cause (`src/events/store.ts` `delegateAppend`),
-    // NOT `ConcurrencyError`. A mock throwing `ConcurrencyError` here would
-    // pass without exercising `translateStorageError`'s mapping at all.
     const stateDir = await fs.mkdtemp(path.join(os.tmpdir(), 'b2-refire-'));
     scratchRoots.push(stateDir);
 
@@ -308,10 +285,6 @@ describe('handleAddPrComment — B2.2 Phase-A retry non-refire', () => {
       enableTelemetry: false,
     };
 
-    // getPrComments: empty on the pre-check, populated on the verification
-    // scan after addComment runs. The handler's verification lookup MUST
-    // succeed for it to emit pr.comment.executed (else returns
-    // VCS_VERIFICATION_FAILED — see CodeRabbit #3224596442/#3224631230).
     let getCallCount = 0;
     const mockProvider = makeMockProvider({
       getPrComments: vi.fn().mockImplementation(async () => {
@@ -329,26 +302,21 @@ describe('handleAddPrComment — B2.2 Phase-A retry non-refire', () => {
     });
     vi.mocked(createVcsProvider).mockResolvedValue(mockProvider);
 
-    // Act
     const result = await handleAddPrComment({ prId: '42', body: 'test body' }, mockCtx);
 
-    // Assert — handler succeeded overall
     expect(result.success).toBe(true);
 
-    // Assert — Phase A retried (withStateRetry engaged)
     expect(phaseAAttempts).toBeGreaterThanOrEqual(2);
 
-    // Assert — addComment fired AT MOST ONCE (not re-fired during Phase A retries)
     expect(mockProvider.addComment).toHaveBeenCalledTimes(1);
   });
 
+  /**
+   * Every intent append throws `SqliteBusyExhaustedError`. The handler must try
+   * the append `MAX_STATE_RETRIES` times, then return `STORAGE_BUSY`, not a
+   * generic `VCS_ERROR`.
+   */
   it('AddPrComment_PhaseABusyBudgetExhausted_ReturnsStorageBusyNotGenericVcsError', async () => {
-    // Every attempt throws the raw substrate cause `EventStore.append` raises
-    // for storage contention. Pre-fix, `translateStorageError` did not exist:
-    // `isRetryable` did not recognize `SqliteBusyExhaustedError`, so the first
-    // throw propagated straight to the outer catch and surfaced as a generic
-    // `VCS_ERROR` naming a VCS failure for an append that never reached the
-    // VCS. This proves the busy-specific STORAGE_BUSY envelope survives.
     const appendMock = vi.fn().mockImplementation(
       async (_streamId: string, event: { type: string }) => {
         if (event.type === 'pr.comment.requested') {
@@ -367,34 +335,29 @@ describe('handleAddPrComment — B2.2 Phase-A retry non-refire', () => {
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('STORAGE_BUSY');
-    // withStateRetry attempted the append MAX_STATE_RETRIES times before
-    // exhausting, proving the busy signal was actually retried rather than
-    // failing on the first attempt.
     expect(appendMock).toHaveBeenCalledTimes(3);
   });
 });
 
-// ─── B2.3 — Idempotent side-effect check fixture (Task B2.3, RED first) ────
-//
-// INV-1 MEDIUM audit requirement: if pr.comment.requested was committed but
-// execution was interrupted before pr.comment.executed, a retry invocation
-// must detect the already-posted comment via operationId marker in the body
-// and emit pr.comment.executed with the existing comment's data — WITHOUT
-// calling addComment again.
-
+/**
+ * If `pr.comment.requested` committed but the run stopped before
+ * `pr.comment.executed`, a retry with the same `operationId` finds the marker
+ * in the posted comment. It appends `pr.comment.executed` and posts nothing.
+ */
 describe('handleAddPrComment — B2.3 Idempotent operationId marker check', () => {
   afterEach(() => {
     vi.clearAllMocks();
   });
 
+  /**
+   * The caller injects the committed `operationId`. The real store deduplicates
+   * the intent by its idempotency key, so this mock append only resolves.
+   */
   it('AddPrComment_RequestedEventCommittedButExecutionInterrupted_RecoversWithoutDuplicate', async () => {
-    // Seed: a pr.comment.requested was already committed with operationId 'op-uuid-1234'
     const seededOperationId = '00000000-0000-4000-8000-000000001234';
     const existingCommentId = 99001;
     const markerInBody = `<!-- exarchos-op:${seededOperationId} -->`;
 
-    // The idempotency check: getPrComments returns one comment whose body
-    // contains the marker matching the seeded operationId.
     const existingComment: PrComment = {
       id: existingCommentId,
       author: 'bot',
@@ -411,9 +374,6 @@ describe('handleAddPrComment — B2.3 Idempotent operationId marker check', () =
     });
     vi.mocked(createVcsProvider).mockResolvedValue(mockProvider);
 
-    // Phase A is a plain, idempotency-keyed append — the store's own
-    // idempotencyKey dedup is what makes a re-invocation with the seeded
-    // operationId a no-op on re-append; the mock here just needs to resolve.
     const appendMock = vi.fn().mockResolvedValue({
       sequence: 2,
       type: 'pr.comment.executed',
@@ -421,8 +381,6 @@ describe('handleAddPrComment — B2.3 Idempotent operationId marker check', () =
       timestamp: new Date().toISOString(),
     });
 
-    // Provide the seeded operationId via DI so the handler uses the SAME
-    // UUID that was committed in Phase A — not a freshly generated one.
     const mockCtx: DispatchContext = {
       stateDir: '/tmp/b2-idem-test',
       eventStore: {
@@ -431,19 +389,15 @@ describe('handleAddPrComment — B2.3 Idempotent operationId marker check', () =
       enableTelemetry: false,
     };
 
-    // Act — invoke handler with an injectable operationId matching the seed
     const result = await handleAddPrComment(
       { prId: '42', body: 'Automated review', operationId: seededOperationId },
       mockCtx,
     );
 
-    // Assert — success
     expect(result.success).toBe(true);
 
-    // Assert — addComment NOT called (idempotent path: comment already exists)
     expect(mockProvider.addComment).not.toHaveBeenCalled();
 
-    // Assert — pr.comment.executed was emitted with the existing comment data
     expect(appendMock).toHaveBeenCalledWith(
       'vcs',
       expect.objectContaining({
@@ -457,10 +411,11 @@ describe('handleAddPrComment — B2.3 Idempotent operationId marker check', () =
     );
   });
 
+  /**
+   * On recovery of a thread reply, the executed URL uses the `#discussion_r`
+   * anchor of the review thread, not `#issuecomment-`.
+   */
   it('AddPrComment_ReplyRecovery_UsesDiscussionAnchorNotIssueComment', async () => {
-    // Reply crash-recovery: a pr.comment.requested for a THREAD REPLY (threadId set)
-    // was committed, then execution was interrupted. On recovery the emitted URL must
-    // use the #discussion_r anchor (review-inline thread), not #issuecomment-.
     const seededOperationId = '00000000-0000-4000-8000-000000005678';
     const existingCommentId = 99002;
     const markerInBody = `<!-- exarchos-op:${seededOperationId} -->`;
@@ -501,7 +456,6 @@ describe('handleAddPrComment — B2.3 Idempotent operationId marker check', () =
     );
 
     expect(result.success).toBe(true);
-    // Recovery path: no new reply posted.
     expect(mockProvider.addReply).not.toHaveBeenCalled();
     const executedCall = appendMock.mock.calls.find(
       (call) => (call[1] as { type: string }).type === 'pr.comment.executed',

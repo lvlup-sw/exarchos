@@ -1,14 +1,7 @@
-// ─── git-retry tests (DR-8) ─────────────────────────────────────────────────
-//
-// MEDIUM-tier unit suite over the fully-injected backoff/jitter/sleep seam.
-// Every timing seam is replaced with a deterministic fake (no real timers, no
-// real `Math.random()`), so the retry sequence is asserted EXACTLY. The four
-// named tests pin DR-8's acceptance criteria:
-//   • transient lock → retries → succeeds without surfacing the error
-//   • injected seam → exact backoff sequence [200,400,800] (modulo jitter)
-//   • burst-creation jitter → bounded + deterministic under injection
-//   • exhausted retries → structured error (lock path + attempts), not a no-op
-// ───────────────────────────────────────────────────────────────────────────
+// Tests for the index.lock retry in `git-retry.ts`. Each timing seam is a
+// deterministic fake, with no real timer and no `Math.random()`, so the tests
+// assert the exact retry sequence. The result adapters apply the same backoff
+// to executors that return a failure (`exitCode !== 0`) instead of throwing.
 
 import { describe, it, expect, vi } from 'vitest';
 import {
@@ -29,15 +22,16 @@ import {
   type GitExecLikeResult,
 } from '../../../../src/verbs/worktree/git-retry.js';
 
-// A realistic git lock-creation failure for a given lock path.
+/** A git lock failure for the given lock path. */
 function lockError(lockPath: string): Error {
   return new Error(`fatal: Unable to create '${lockPath}': File exists.`);
 }
 
 const LOCK_PATH = '/tmp/repo/.git/index.lock';
 
-// Deterministic seams: zero jitter → delay == base; recording sleep → no wait.
+/** Zero jitter, so each delay equals its base value. */
 const zeroJitter = () => 0;
+/** A sleep that records each delay and does not wait. */
 function recordingSleep(): { sleep: (ms: number) => Promise<void>; calls: number[] } {
   const calls: number[] = [];
   return {
@@ -49,9 +43,11 @@ function recordingSleep(): { sleep: (ms: number) => Promise<void>; calls: number
 }
 
 describe('git-retry — index.lock contention resilience (DR-8)', () => {
+  /**
+   * One lock failure, then success. The wrapper must retry once after one base
+   * backoff and return the value without the lock error.
+   */
   it('GitRetry_TransientIndexLock_RetriesWithBackoffAndSucceeds', async () => {
-    // One transient index.lock failure, then success. The wrapper must retry
-    // and return the operation's value WITHOUT surfacing the lock error.
     let calls = 0;
     const { sleep, calls: slept } = recordingSleep();
     const op = vi.fn(async () => {
@@ -63,14 +59,16 @@ describe('git-retry — index.lock contention resilience (DR-8)', () => {
     const result = await withIndexLockRetry(op, { sleep, jitter: zeroJitter });
 
     expect(result).toBe('merged-sha');
-    expect(op).toHaveBeenCalledTimes(2); // initial fail + one successful retry
-    expect(slept).toEqual([INDEX_LOCK_BASE_DELAY_MS]); // exactly one backoff: 200ms
+    expect(op).toHaveBeenCalledTimes(2);
+    expect(slept).toEqual([INDEX_LOCK_BASE_DELAY_MS]);
   });
 
+  /**
+   * The first three attempts fail, so all three retries run. With zero jitter
+   * the delays are `[200, 400, 800]`, and `onRetry` sees 1-based attempts. A
+   * jitter of +1 multiplies each delay by 1.25.
+   */
   it('GitRetry_InjectedSeam_AssertsDeterministicRetrySequence', async () => {
-    // With injected sleep/jitter the exact backoff sequence is asserted. Fail
-    // on the first three attempts (the lock clears on the fourth) so all three
-    // configured retries fire and their delays are observed in order.
     const { sleep, calls: slept } = recordingSleep();
     const onRetryInfo: Array<{ attempt: number; delayMs: number; lockPath: string }> = [];
     let calls = 0;
@@ -89,18 +87,14 @@ describe('git-retry — index.lock contention resilience (DR-8)', () => {
     });
 
     expect(result).toBe('ok');
-    // Default budget is 3 retries → zero-jitter backoff sequence [200,400,800].
     expect(MAX_INDEX_LOCK_RETRIES).toBe(3);
     expect(slept).toEqual([200, 400, 800]);
-    // The audit hook sees the same sequence with 1-based ordinals + lock path.
     expect(onRetryInfo).toEqual([
       { attempt: 1, delayMs: 200, lockPath: LOCK_PATH },
       { attempt: 2, delayMs: 400, lockPath: LOCK_PATH },
       { attempt: 3, delayMs: 800, lockPath: LOCK_PATH },
     ]);
 
-    // "modulo injected jitter": a non-zero signed jitter feeds the multiplier
-    // `base * (1 + 0.25 * jitter())`. jitter = +1 → ×1.25 → [250,500,1000].
     const persistent = async () => {
       throw lockError(LOCK_PATH);
     };
@@ -111,30 +105,31 @@ describe('git-retry — index.lock contention resilience (DR-8)', () => {
     expect(jitterSlept).toEqual([250, 500, 1000]);
   });
 
+  /**
+   * The burst stagger stays in `[100, 500]` ms: the midpoint at jitter 0 and
+   * the edges at -1 and +1. Jitter outside that range is clamped.
+   * `burstStagger` sleeps the computed delay and returns it.
+   */
   it('GitRetry_BurstCreationJitter_AssertedDeterministically', async () => {
-    // Burst-creation jitter is bounded to [100,500] and deterministic under an
-    // injected jitter source: midpoint at 0, the band edges at ±1, clamped
-    // beyond ±1 so a misbehaving source can never escape the band.
-    expect(burstStaggerDelayMs(() => 0)).toBe(300); // midpoint of [100,500]
-    expect(burstStaggerDelayMs(() => 1)).toBe(BURST_STAGGER_MAX_MS); // 500
-    expect(burstStaggerDelayMs(() => -1)).toBe(BURST_STAGGER_MIN_MS); // 100
+    expect(burstStaggerDelayMs(() => 0)).toBe(300);
+    expect(burstStaggerDelayMs(() => 1)).toBe(BURST_STAGGER_MAX_MS);
+    expect(burstStaggerDelayMs(() => -1)).toBe(BURST_STAGGER_MIN_MS);
     expect(burstStaggerDelayMs(() => 0.5)).toBe(400);
-    // Out-of-band jitter is clamped, never surfaced.
     expect(burstStaggerDelayMs(() => 5)).toBe(BURST_STAGGER_MAX_MS);
     expect(burstStaggerDelayMs(() => -5)).toBe(BURST_STAGGER_MIN_MS);
 
-    // burstStagger sleeps the computed (injected, deterministic) delay and
-    // returns it — both jitter and sleep are injected, no real timer fires.
     const { sleep, calls: slept } = recordingSleep();
     const applied = await burstStagger({ sleep, jitter: () => 0 });
     expect(applied).toBe(300);
     expect(slept).toEqual([300]);
   });
 
+  /**
+   * Persistent contention uses all retries. The wrapper must throw
+   * `IndexLockContentionError` with the lock path and the attempt count. It
+   * must not resolve and hide the failure.
+   */
   it('GitRetry_ExhaustedRetries_ReturnsStructuredErrorNotSilentNoOp', async () => {
-    // A persistent index.lock contention exhausts the budget. The wrapper MUST
-    // surface a structured error carrying the lock path + attempt count — never
-    // a silent no-op (which would return undefined and swallow the failure).
     const { sleep, calls: slept } = recordingSleep();
     const op = vi.fn(async () => {
       throw lockError(LOCK_PATH);
@@ -151,19 +146,16 @@ describe('git-retry — index.lock contention resilience (DR-8)', () => {
     const structured = caught as IndexLockContentionError;
     expect(structured.code).toBe('INDEX_LOCK_CONTENTION');
     expect(structured.lockPath).toBe(LOCK_PATH);
-    expect(structured.attempts).toBe(MAX_INDEX_LOCK_RETRIES + 1); // 4 total
+    expect(structured.attempts).toBe(MAX_INDEX_LOCK_RETRIES + 1);
     expect(structured.maxRetries).toBe(MAX_INDEX_LOCK_RETRIES);
     expect(structured.delaysMs).toEqual([200, 400, 800]);
     expect(structured.lastError).toBeInstanceOf(Error);
-    // Not a no-op: the op was actually attempted 1 + N times, and every retry
-    // backed off.
     expect(op).toHaveBeenCalledTimes(MAX_INDEX_LOCK_RETRIES + 1);
     expect(slept).toEqual([200, 400, 800]);
   });
 
+  /** A failure that is not a lock error rethrows unchanged on the first attempt, with no sleep. */
   it('GitRetry_NonLockError_RethrowsImmediatelyWithoutRetry', async () => {
-    // A non-lock failure is NOT our concern: rethrow on the first attempt with
-    // zero retries / zero sleeps, surfacing the original error unchanged.
     const { sleep, calls: slept } = recordingSleep();
     const original = new Error('fatal: merge conflict in src/foo.ts');
     const op = vi.fn(async () => {
@@ -177,24 +169,17 @@ describe('git-retry — index.lock contention resilience (DR-8)', () => {
     expect(slept).toEqual([]);
   });
 
+  /** A runner result with a `stderr` field also matches. */
   it('extractLockPath / isIndexLockError recognize the git signature', () => {
     expect(extractLockPath(lockError(LOCK_PATH))).toBe(LOCK_PATH);
     expect(isIndexLockError(lockError(LOCK_PATH))).toBe(true);
-    // Non-throwing git-runner result shape ({ stderr }) is also recognized.
     expect(isIndexLockError({ status: 128, stderr: `Unable to create '${LOCK_PATH}': File exists.` })).toBe(true);
     expect(extractLockPath(new Error('some other failure'))).toBeUndefined();
     expect(isIndexLockError('plain string, no lock')).toBe(false);
   });
 });
 
-// ─── Result-aware adapters (DR-1) ────────────────────────────────────────────
-//
-// The throw-plane wrapper above is inert over executors that RETURN failures
-// (`exitCode !== 0`) instead of throwing. These adapters re-key the same DR-8
-// backoff onto a RESULT predicate. Timing seams are injected so the exact
-// backoff sequence is asserted with no real wait.
-
-// A non-throwing git-runner result carrying a lock-contention message.
+/** A git runner result with a lock failure message. */
 function lockResult(lockPath: string): GitExecLikeResult {
   return {
     exitCode: 128,
@@ -204,31 +189,28 @@ function lockResult(lockPath: string): GitExecLikeResult {
 }
 const okResult: GitExecLikeResult = { exitCode: 0, stdout: 'merged-sha', stderr: '' };
 
-// Synchronous recording sleep — no real blocking wait under test.
+/** A synchronous sleep that records each delay and does not block. */
 function recordingSyncSleep(): { sleep: (ms: number) => void; calls: number[] } {
   const calls: number[] = [];
   return { calls, sleep: (ms: number) => void calls.push(ms) };
 }
 
 describe('git-retry — result-aware predicate (DR-1)', () => {
+  /** An exit code of 0 is never contention, even when the output names a lock file. */
   it('isIndexLockResult / extractLockPathFromResult gate on exitCode !== 0', () => {
-    // Non-zero exit + lock signature → contention.
     expect(isIndexLockResult(lockResult(LOCK_PATH))).toBe(true);
     expect(extractLockPathFromResult(lockResult(LOCK_PATH))).toBe(LOCK_PATH);
-    // exitCode === 0 is NEVER contention, even if the output mentions a *.lock.
     expect(
       isIndexLockResult({ exitCode: 0, stdout: `touched ${LOCK_PATH}`, stderr: '' }),
     ).toBe(false);
     expect(extractLockPathFromResult({ exitCode: 0, stdout: LOCK_PATH })).toBeUndefined();
-    // Non-lock failure → not our concern.
     expect(isIndexLockResult({ exitCode: 1, stderr: 'merge conflict' })).toBe(false);
   });
 });
 
 describe('git-retry — withIndexLockRetrySync (DR-1)', () => {
+  /** Two lock results, then success, so two backoffs run before the third attempt. */
   it('WithIndexLockRetrySync_ContentionResult_RetriesWithBackoffThenSucceeds', () => {
-    // Injected clock/sleep seam: the first N results are lock-contention, then a
-    // success. Assert the backoff sequence + eventual success, with NO real wait.
     const { sleep, calls: slept } = recordingSyncSleep();
     let calls = 0;
     const op = vi.fn((): GitExecLikeResult => {
@@ -240,28 +222,28 @@ describe('git-retry — withIndexLockRetrySync (DR-1)', () => {
 
     expect(result).toBe(okResult);
     expect(result.exitCode).toBe(0);
-    expect(op).toHaveBeenCalledTimes(3); // 2 contention + 1 success
-    // Exactly two backoffs before the successful third attempt: [200, 400].
+    expect(op).toHaveBeenCalledTimes(3);
     expect(slept).toEqual([200, 400]);
   });
 
+  /**
+   * Persistent contention uses all retries. The sync adapter must return the
+   * last contention result and not throw, because a synchronous `GitExec`
+   * does not throw.
+   */
   it('WithIndexLockRetrySync_PersistentContention_ReturnsStructuredResultNotThrow', () => {
-    // A persistent lock exhausts the budget. The sync adapter RETURNS the last
-    // structured contention result (never throws, never a silent success) so the
-    // synchronous GitExec "never throws" contract is preserved.
     const { sleep, calls: slept } = recordingSyncSleep();
     const op = vi.fn((): GitExecLikeResult => lockResult(LOCK_PATH));
 
     const result = withIndexLockRetrySync(op, { sleep, jitter: zeroJitter });
 
     expect(result.exitCode).toBe(128);
-    expect(isIndexLockResult(result)).toBe(true); // structured contention, not a no-op
-    expect(op).toHaveBeenCalledTimes(MAX_INDEX_LOCK_RETRIES + 1); // 4 attempts
-    expect(slept).toEqual([200, 400, 800]); // full backoff budget exhausted
+    expect(isIndexLockResult(result)).toBe(true);
+    expect(op).toHaveBeenCalledTimes(MAX_INDEX_LOCK_RETRIES + 1);
+    expect(slept).toEqual([200, 400, 800]);
   });
 
   it('WithIndexLockRetrySync_NonLockFailure_ReturnsImmediatelyWithoutRetry', () => {
-    // A non-lock failure is returned as-is on the first attempt: never retried.
     const { sleep, calls: slept } = recordingSyncSleep();
     const failure: GitExecLikeResult = { exitCode: 1, stderr: 'merge conflict', stdout: '' };
     const op = vi.fn((): GitExecLikeResult => failure);
@@ -276,8 +258,6 @@ describe('git-retry — withIndexLockRetrySync (DR-1)', () => {
 
 describe('git-retry — withIndexLockRetryResult (DR-1)', () => {
   it('WithIndexLockRetryResult_ContentionResult_RetriesThenSucceeds', async () => {
-    // Async, result-aware: first result is contention, then success. Injected
-    // async sleep records the single backoff; no real timer fires.
     const { sleep, calls: slept } = recordingSleep();
     let calls = 0;
     const op = vi.fn(async (): Promise<GitExecLikeResult> => {
@@ -289,12 +269,11 @@ describe('git-retry — withIndexLockRetryResult (DR-1)', () => {
 
     expect(result).toBe(okResult);
     expect(op).toHaveBeenCalledTimes(2);
-    expect(slept).toEqual([INDEX_LOCK_BASE_DELAY_MS]); // one backoff: 200ms
+    expect(slept).toEqual([INDEX_LOCK_BASE_DELAY_MS]);
   });
 
+  /** Persistent contention returns the last contention result and does not throw. */
   it('WithIndexLockRetryResult_PersistentContention_ReturnsStructuredResultNotThrow', async () => {
-    // Exhaustion returns the last structured contention result — never throws,
-    // never a silent no-op.
     const { sleep, calls: slept } = recordingSleep();
     const op = vi.fn(async (): Promise<GitExecLikeResult> => lockResult(LOCK_PATH));
 

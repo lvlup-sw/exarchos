@@ -7,10 +7,11 @@ import { defaultGitExec } from '../../../../src/verbs/vcs/git-exec-default.js';
 import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
-// #1311 — scoped coverage for the shared merge-orchestrator git executor.
-// The canonical (120s, stderr-capturing) `defaultGitExec` extracted from the
-// two byte-equivalent copies in merge-orchestrate.ts and execute-merge.ts.
-// The 30s gate-utils variant is intentionally separate (different workload).
+/**
+ * The merge orchestrator's `defaultGitExec` returns git stderr separately. On a
+ * failure, it also appends stderr to `stdout`, because some callers read
+ * `stdout` as the failure message.
+ */
 describe('git-exec-default', () => {
   const repoRoot = process.cwd();
 
@@ -18,32 +19,24 @@ describe('git-exec-default', () => {
     const result = defaultGitExec(repoRoot, ['--version']);
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toMatch(/git version/i);
-    // success path captures empty stderr separately (richer #1401 body)
     expect(result.stderr).toBe('');
   });
 
   it('DefaultGitExec_GitFailure_CapturesStderrAndExitCode', () => {
     const result = defaultGitExec(repoRoot, ['this-is-not-a-git-command']);
     expect(result.exitCode).not.toBe(0);
-    // stderr is captured separately (the behavior #1401 added) ...
     expect(result.stderr.length).toBeGreaterThan(0);
-    // ... and also folded into the stdout channel for backwards-compat with
-    // callers that read `stdout` as the failure-message channel.
     expect(result.stdout.length).toBeGreaterThan(0);
   });
 });
 
-// ─── DR-1: index.lock retry is wired into the DEFAULT composition ────────────
-//
-// `defaultGitExec` is `runGitOnce` wrapped in `withIndexLockRetrySync`. These
-// tests exercise the DEFAULT production composition (NOT a DI seam) against a
-// REAL on-disk git repo with a REAL `.git/index.lock` file, proving the retry
-// is actually wired into what production runs — not just present in the kernel.
-//
-// NOTE: the sync retry blocks the MAIN thread (`Atomics.wait`) during each
-// backoff, so a main-thread `setTimeout` would never fire to clear the lock
-// mid-retry. The lock is therefore cleared from a WORKER thread, whose timer
-// runs independently of the main thread's blocking sleep.
+/**
+ * `defaultGitExec` wraps one git run in `withIndexLockRetrySync`. These tests
+ * run that default composition, not a seam, against a real repository with a
+ * real `.git/index.lock` file. The sync retry blocks the main thread with
+ * `Atomics.wait` during each backoff. Thus a worker thread removes the lock,
+ * because a main-thread timer cannot run during the backoff.
+ */
 describe('git-exec-default — DR-1 index.lock retry composition', () => {
   const createdRepos: string[] = [];
 
@@ -53,8 +46,6 @@ describe('git-exec-default — DR-1 index.lock retry composition', () => {
     }
   });
 
-  // A real, initialized git repo with one unstaged file and the path to its
-  // (not-yet-created) index.lock.
   async function makeRepo(): Promise<{ repo: string; file: string; lock: string }> {
     const repo = mkdtempSync(join(tmpdir(), 'exarchos-lockrepo-'));
     createdRepos.push(repo);
@@ -69,9 +60,6 @@ describe('git-exec-default — DR-1 index.lock retry composition', () => {
     return { repo, file, lock: join(repo, '.git', 'index.lock') };
   }
 
-  // Remove `lockPath` off the main thread after `delayMs`. A worker thread is
-  // REQUIRED: the sync backoff blocks the main thread, so only an independent
-  // thread's timer can clear the lock while a retry is pending.
   function scheduleOffThreadRemoval(lockPath: string, delayMs: number): Worker {
     return new Worker(
       `const { unlinkSync } = require('node:fs');
@@ -83,42 +71,41 @@ describe('git-exec-default — DR-1 index.lock retry composition', () => {
     );
   }
 
+  /**
+   * The worker removes the lock during the first backoff, so a retry succeeds,
+   * not the first attempt. Git cannot succeed while the lock exists. The
+   * staged file proves that the retry did real work.
+   */
   it('DefaultGitExecComposition_RealIndexLockFile_RetriesAndSucceeds', async () => {
     const { repo, file, lock } = await makeRepo();
-    // A REAL on-disk lock: `git add` fails until it is removed.
     writeFileSync(lock, '');
     expect(existsSync(lock)).toBe(true);
 
-    // Clear the lock off-thread partway through the first backoff, so a RETRY
-    // (not the initial attempt) is the one that succeeds.
     const remover = scheduleOffThreadRemoval(lock, 100);
     const result = defaultGitExec(repo, ['add', file]);
     await remover.terminate();
 
-    // The DEFAULT composition retried and eventually succeeded. Git cannot
-    // succeed while the lock exists, and only the worker removes it.
     expect(result.exitCode).toBe(0);
     expect(existsSync(lock)).toBe(false);
-    // The file was actually staged — the retried op did real work, not a no-op.
     const status = defaultGitExec(repo, ['status', '--porcelain']);
     expect(status.stdout).toMatch(/^A\s+staged\.txt/m);
   }, 20_000);
 
+  /**
+   * The lock never clears, so the retries run out. The result must be a
+   * non-zero exit with the index.lock message, not a silent success or an
+   * empty failure. The file must stay untracked after the lock goes.
+   */
   it('DefaultGitExecComposition_PersistentLock_ReturnsContentionResultNotSilentFailure', async () => {
     const { repo, file, lock } = await makeRepo();
-    // The lock never clears → the retry budget is exhausted.
     writeFileSync(lock, '');
 
     const result = defaultGitExec(repo, ['add', file]);
 
-    // A STRUCTURED contention result: non-zero exit + the index.lock signature.
-    // NOT a silent success (exitCode 0) and NOT an opaque/empty failure.
     expect(result.exitCode).not.toBe(0);
     expect(`${result.stderr ?? ''}\n${result.stdout}`).toMatch(
       /unable to create '[^']*index\.lock'/i,
     );
-    // The op was a genuine no-op reported honestly: with the lock still present
-    // nothing was staged. Remove the lock and confirm the file is still untracked.
     rmSync(lock, { force: true });
     const status = defaultGitExec(repo, ['status', '--porcelain']);
     expect(status.stdout).toMatch(/^\?\?\s+staged\.txt/m);

@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { handleSetupWorktree } from '../../../../src/verbs/team/setup-worktree.js';
 import { BURST_STAGGER_MIN_MS, BURST_STAGGER_MAX_MS } from '../../../../src/verbs/worktree/git-retry.js';
 
-// Mock node:fs
 vi.mock('node:fs', () => ({
   existsSync: vi.fn(),
   readFileSync: vi.fn(),
@@ -11,7 +10,6 @@ vi.mock('node:fs', () => ({
   appendFileSync: vi.fn(),
 }));
 
-// Mock node:child_process
 vi.mock('node:child_process', () => ({
   execFileSync: vi.fn(),
 }));
@@ -24,14 +22,11 @@ import type {
   WorktreeProvisionOutcome,
 } from '../../../../src/vcs/worktree-provisioner.js';
 
-// ── VCS mutation owner seam (P04-05) ────────────────────────────────────────
-// Branch+worktree creation now routes through the injected WorktreeProvisioner
-// (the single typed VCS mutation owner) instead of bare `execFileSync('git',
-// ['branch'|'worktree', …])`. These tests inject an in-memory fake so creation
-// is asserted without real git or an EventStore: `provisionOutcome` is the
-// configurable result each test drives; `lastProvisionRequest`/`provisionRequests`
-// record what the handler asked for (base/branch), replacing the old assertions
-// that inspected the `git branch`/`git worktree` execFileSync argv.
+/**
+ * The result of the in-memory provisioner fake, which each test can set. The
+ * fake replaces real git and the EventStore. `lastProvisionRequest` and
+ * `provisionRequests` record the branch and base that the handler asks for.
+ */
 let provisionOutcome: WorktreeProvisionOutcome;
 let lastProvisionRequest: WorktreeProvisionRequest | undefined;
 const provisionRequests: WorktreeProvisionRequest[] = [];
@@ -45,10 +40,8 @@ const fakeProvisioner: WorktreeProvisioner = {
 };
 
 /**
- * Invoke the real `handleSetupWorktree` entry point with the fake provisioner
- * injected (a test may still override other seams — sleep/jitter — which merge
- * over the default). Every call site awaits this; the handler is async because
- * the production provisioner is EventStore-backed.
+ * Call the real `handleSetupWorktree` with the fake provisioner. A test can pass
+ * other seams, such as `sleep` and `jitter`, and they merge over the default.
  */
 function callSetup(
   args: Parameters<typeof handleSetupWorktree>[0],
@@ -61,8 +54,7 @@ function callSetup(
   });
 }
 
-// Default valid package.json with test:run script (so the resolver picks the
-// npm path with test:run available — keeps the install step at 'pass').
+/** The default `package.json`. Its `test:run` script gives the npm path a test command. */
 const VALID_PACKAGE_JSON = JSON.stringify({
   name: 'fixture',
   scripts: { 'test:run': 'vitest run', typecheck: 'tsc --noEmit' },
@@ -75,14 +67,15 @@ function defaultReadFileSync(p: unknown): string {
 }
 
 describe('handleSetupWorktree', () => {
+  /**
+   * The resolver calls `readdirSync` for a `.csproj` fallback, so it returns an
+   * empty list. The provisioner fake defaults to a full success. Tests for an
+   * existing branch or worktree override it.
+   */
   beforeEach(() => {
     vi.restoreAllMocks();
-    // readdirSync is used by the resolver for .csproj fallback — keep it safe.
     vi.mocked(readdirSync).mockReturnValue([] as unknown as ReturnType<typeof readdirSync>);
     vi.mocked(readFileSync).mockImplementation(defaultReadFileSync as never);
-    // Reset the injected VCS-provisioner seam to a fresh, fully-successful
-    // creation (branch minted + worktree added). Tests that exercise the
-    // "already exists" (idempotent no-op) or failure paths override this.
     provisionOutcome = { ok: true, branchCreated: true, worktreeCreated: true };
     lastProvisionRequest = undefined;
     provisionRequests.length = 0;
@@ -91,8 +84,6 @@ describe('handleSetupWorktree', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
-
-  // ── Test 9: Derived paths are correct ───────────────────────────────────
 
   it('DerivedPaths_AreCorrect', async () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
@@ -123,8 +114,6 @@ describe('handleSetupWorktree', () => {
     expect(data.worktreePath).toBe('/repo/.worktrees/task-001-user-model');
     expect(data.branchName).toBe('feature/task-001-user-model');
   });
-
-  // ── Test 1: Full setup succeeds ─────────────────────────────────────────
 
   it('FullSetup_AllStepsPass', async () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
@@ -162,12 +151,8 @@ describe('handleSetupWorktree', () => {
     expect(data.checks.pass).toBe(5);
   });
 
-  // ── Test 2: Branch already exists ───────────────────────────────────────
-
+  /** The provisioner reports `branchCreated: false`, so the branch check says "already exists". */
   it('BranchExists_SkipsCreation_StepPasses', async () => {
-    // The branch already exists → the owner's create is an idempotent no-op
-    // for the branch (worktree still freshly added), so the report reads
-    // "already exists" for the branch check.
     provisionOutcome = { ok: true, branchCreated: false, worktreeCreated: true };
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
       const cmdStr = String(cmd).replace(/\.cmd$/, '');
@@ -198,12 +183,8 @@ describe('handleSetupWorktree', () => {
     expect(data.report).toContain('already exists');
   });
 
-  // ── Test 3: Worktree already exists ─────────────────────────────────────
-
+  /** The provisioner reports `worktreeCreated: false`, so the worktree check says "already exists". */
   it('WorktreeExists_SkipsCreation_StepPasses', async () => {
-    // The worktree already exists → the owner's create is an idempotent no-op
-    // for the worktree (branch may still be minted), so the report reads
-    // "already exists" for the worktree check.
     provisionOutcome = { ok: true, branchCreated: true, worktreeCreated: false };
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
       const cmdStr = String(cmd).replace(/\.cmd$/, '');
@@ -233,8 +214,6 @@ describe('handleSetupWorktree', () => {
     expect(data.passed).toBe(true);
     expect(data.report).toContain('already exists');
   });
-
-  // ── Test 4: .worktrees not gitignored → adds to .gitignore ─────────────
 
   it('WorktreesNotGitignored_AddsToGitignore', async () => {
     let gitignoreCheckCallCount = 0;
@@ -283,13 +262,11 @@ describe('handleSetupWorktree', () => {
     );
   });
 
-  // ── #1213 / CodeRabbit #7: gitignore append must preserve line boundary ─
-
+  /**
+   * The `.gitignore` ends with `dist` and no newline. A bare append makes one line,
+   * `dist.worktrees/`, which ignores neither path. So the payload starts with a newline.
+   */
   it('WorktreesNotGitignored_ExistingGitignoreNoTrailingNewline_PrependsNewline', async () => {
-    // Existing .gitignore lacks trailing newline (ends with "dist", no \n).
-    // A bare append would produce "dist.worktrees/\n" — a single
-    // concatenated line that no longer ignores either path. The fix
-    // prepends a newline so the final contents are "dist\n.worktrees/\n".
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
       const cmdStr = String(cmd).replace(/\.cmd$/, '');
       const argsArr = args as string[];
@@ -308,7 +285,6 @@ describe('handleSetupWorktree', () => {
     });
     vi.mocked(readFileSync).mockImplementation((p: unknown) => {
       const path = String(p);
-      // Crucially: NO trailing newline here.
       if (path === '/repo/.gitignore') return 'dist';
       if (path.endsWith('package.json')) return VALID_PACKAGE_JSON;
       return '';
@@ -321,15 +297,11 @@ describe('handleSetupWorktree', () => {
     });
 
     expect(result.success).toBe(true);
-    // The append payload MUST start with \n so the final content is
-    // "dist\n.worktrees/\n", not "dist.worktrees/\n".
     expect(appendFileSync).toHaveBeenCalledWith(
       '/repo/.gitignore',
       '\n.worktrees/\n',
     );
   });
-
-  // ── Test 5: install fails ───────────────────────────────────────────────
 
   it('NpmInstallFails_Step4Fails', async () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
@@ -364,8 +336,6 @@ describe('handleSetupWorktree', () => {
     expect(data.checks.fail).toBeGreaterThanOrEqual(1);
   });
 
-  // ── Test 6: skipTests=true → step 5 skipped ────────────────────────────
-
   it('SkipTests_Step5Skipped', async () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
       const cmdStr = String(cmd).replace(/\.cmd$/, '');
@@ -398,8 +368,6 @@ describe('handleSetupWorktree', () => {
     expect(data.passed).toBe(true);
     expect(data.checks.skip).toBeGreaterThanOrEqual(1);
   });
-
-  // ── Test 7: Tests fail → step 5 fails, overall passed=false ────────────
 
   it('TestsFail_Step5Fails_OverallFails', async () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
@@ -435,8 +403,6 @@ describe('handleSetupWorktree', () => {
     expect(data.checks.fail).toBeGreaterThanOrEqual(1);
   });
 
-  // ── Test 8: Missing repoRoot → error ───────────────────────────────────
-
   it('MissingRepoRoot_ReturnsError', async () => {
     const result = await callSetup({
       repoRoot: '',
@@ -471,8 +437,7 @@ describe('handleSetupWorktree', () => {
     expect(result.error?.code).toBe('INVALID_INPUT');
   });
 
-  // ── T09 install-step tests (resolver-driven, lockfile-aware) ────────────
-
+  /** The worktree exists, so the install step runs, but it holds no `package.json` and no lockfile. */
   it('runInstallStep_NoPackageJson_SkipsWithReason', async () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
       const cmdStr = String(cmd).replace(/\.cmd$/, '');
@@ -480,7 +445,6 @@ describe('handleSetupWorktree', () => {
       if (cmdStr === 'git' && argsArr.includes('check-ignore')) return '';
       if (cmdStr === 'git' && argsArr.includes('show-ref')) return '';
       if (cmdStr === 'git' && argsArr.includes('rev-parse')) return '.git';
-      // npm/pnpm/yarn/bun should NOT be invoked when package.json is absent.
       if (cmdStr === 'npm' || cmdStr === 'pnpm' || cmdStr === 'yarn' || cmdStr === 'bun') {
         throw new Error(`unexpected install invocation: ${cmdStr}`);
       }
@@ -488,7 +452,6 @@ describe('handleSetupWorktree', () => {
     });
     vi.mocked(existsSync).mockImplementation((p: unknown) => {
       const path = String(p);
-      // Worktree exists so step 4 runs; no package.json or lockfiles.
       if (path === '/repo/.worktrees/task-100-empty') return true;
       return false;
     });
@@ -503,7 +466,6 @@ describe('handleSetupWorktree', () => {
     expect(result.success).toBe(true);
     const data = result.data as { report: string; checks: { skip: number } };
     expect(data.checks.skip).toBeGreaterThanOrEqual(1);
-    // Step 4 surfaces the resolver's remediation in the report
     expect(data.report).toMatch(/SKIP.*install/);
   });
 
@@ -556,7 +518,6 @@ describe('handleSetupWorktree', () => {
       if (path === '/repo/.worktrees/task-102-pnpm/pnpm-lock.yaml') return true;
       return false;
     });
-    // pnpm scripts: include "test" (resolver requires "test" for pnpm path).
     vi.mocked(readFileSync).mockImplementation((p: unknown) => {
       const path = String(p);
       if (path.endsWith('package.json')) {
@@ -581,16 +542,14 @@ describe('handleSetupWorktree', () => {
       ['install', '--frozen-lockfile'],
       expect.objectContaining({ cwd: '/repo/.worktrees/task-102-pnpm' }),
     );
-    // Critical: the destructive npm-install path must NOT have been triggered.
     const npmInstallCalls = vi.mocked(execFileSync).mock.calls.filter(
       (call) => call[0] === 'npm' && Array.isArray(call[1]) && (call[1] as string[])[0] === 'install',
     );
     expect(npmInstallCalls).toHaveLength(0);
   });
 
+  /** Without a Berry signal, the resolver picks Yarn Classic, which takes `--frozen-lockfile` and not `--immutable`. */
   it('runInstallStep_YarnClassicLockfilePresent_RunsYarnInstallFrozen', async () => {
-    // No Berry signals → Classic. `--immutable` is Berry-only; Classic must
-    // get `--frozen-lockfile`.
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
       const cmdStr = String(cmd).replace(/\.cmd$/, '');
       const argsArr = args as string[];
@@ -707,8 +666,6 @@ describe('handleSetupWorktree', () => {
     );
   });
 
-  // ── T10 baseline-tests tests (resolver-driven) ─────────────────────────
-
   it('runBaselineTests_PnpmProject_RunsPnpmTest', async () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
       const cmdStr = String(cmd).replace(/\.cmd$/, '');
@@ -823,7 +780,6 @@ describe('handleSetupWorktree', () => {
       if (cmdStr === 'git' && argsArr.includes('check-ignore')) return '';
       if (cmdStr === 'git' && argsArr.includes('show-ref')) return '';
       if (cmdStr === 'git' && argsArr.includes('rev-parse')) return '.git';
-      // npm run test:run must NOT be invoked when no test:run script exists.
       if (cmdStr === 'npm' && argsArr[0] === 'run') {
         throw new Error(`unexpected npm run invocation: ${argsArr.join(' ')}`);
       }
@@ -838,7 +794,6 @@ describe('handleSetupWorktree', () => {
     vi.mocked(readFileSync).mockImplementation((p: unknown) => {
       const path = String(p);
       if (path.endsWith('package.json')) {
-        // npm path (no lockfiles) but package.json lacks "test:run" script.
         return JSON.stringify({
           name: 'fixture-no-testrun',
           scripts: { build: 'tsc' },
@@ -856,7 +811,6 @@ describe('handleSetupWorktree', () => {
     expect(result.success).toBe(true);
     const data = result.data as { report: string; checks: { skip: number } };
     expect(data.checks.skip).toBeGreaterThanOrEqual(1);
-    // Resolver remediation references either .exarchos.yml or test:run.
     expect(data.report).toMatch(/Baseline tests pass.*(test:run|\.exarchos\.yml)/);
   });
 
@@ -872,7 +826,6 @@ describe('handleSetupWorktree', () => {
     vi.mocked(existsSync).mockImplementation((p: unknown) => {
       const path = String(p);
       if (path === '/repo/.worktrees/task-203-python') return true;
-      // No package.json — Python project marker only.
       if (path === '/repo/.worktrees/task-203-python/pyproject.toml') return true;
       return false;
     });
@@ -898,7 +851,6 @@ describe('handleSetupWorktree', () => {
       if (cmdStr === 'git' && argsArr.includes('check-ignore')) return '';
       if (cmdStr === 'git' && argsArr.includes('show-ref')) return '';
       if (cmdStr === 'git' && argsArr.includes('rev-parse')) return '.git';
-      // No test runner should be invoked when no markers are present.
       if (cmdStr === 'npm' || cmdStr === 'pnpm' || cmdStr === 'yarn' || cmdStr === 'bun' || cmdStr === 'pytest' || cmdStr === 'cargo' || cmdStr === 'dotnet') {
         throw new Error(`unexpected test invocation: ${cmdStr}`);
       }
@@ -906,7 +858,6 @@ describe('handleSetupWorktree', () => {
     });
     vi.mocked(existsSync).mockImplementation((p: unknown) => {
       const path = String(p);
-      // Worktree exists but has no project markers.
       if (path === '/repo/.worktrees/task-204-bare') return true;
       return false;
     });
@@ -921,7 +872,6 @@ describe('handleSetupWorktree', () => {
     const data = result.data as { report: string; checks: { skip: number } };
     expect(data.checks.skip).toBeGreaterThanOrEqual(1);
     expect(data.report).toMatch(/SKIP.*Baseline tests pass/);
-    // The unresolved-state remediation mentions .exarchos.yml or override.
     expect(data.report).toMatch(/Baseline tests pass.*(\.exarchos\.yml|override|markers)/);
   });
 
@@ -938,7 +888,6 @@ describe('handleSetupWorktree', () => {
       const path = String(p);
       if (path === '/repo/.worktrees/task-105-priority') return true;
       if (path === '/repo/.worktrees/task-105-priority/package.json') return true;
-      // Both lockfiles present — bun wins per resolver priority chain.
       if (path === '/repo/.worktrees/task-105-priority/bun.lockb') return true;
       if (path === '/repo/.worktrees/task-105-priority/pnpm-lock.yaml') return true;
       return false;
@@ -961,11 +910,12 @@ describe('handleSetupWorktree', () => {
     expect(pnpmCalls).toHaveLength(0);
   });
 
-  // ─── DR-1 (T-07, #1203): direct-read .gitignore, honest PASS message ──
-
+  /**
+   * The gitignore step reads the repository `.gitignore` directly. Its PASS
+   * detail states what it found or changed in that file.
+   */
   describe('ensureGitignored direct-read behavior', () => {
     function setupBaseExecMocks() {
-      // Generic happy-path mocks for show-ref / rev-parse / install / test.
       vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
         const cmdStr = String(cmd).replace(/\.cmd$/, '');
         const argsArr = args as string[];
@@ -1056,13 +1006,12 @@ describe('handleSetupWorktree', () => {
       expect(appendFileSync).toHaveBeenCalledWith('/repo/.gitignore', '.worktrees/\n');
     });
 
+    /**
+     * A global ignore file can make `git check-ignore` match a path that a fresh
+     * clone does not ignore. The step must add the entry to the repository file,
+     * report "added", and never call `git check-ignore`.
+     */
     it('ensureGitignored_GlobalIgnoreOnlyMatch_StillReportsHonestlyAndUpdatesRepoGitignore', async () => {
-      // Critical regression coverage for #1203: a non-repo source (e.g.,
-      // global gitignore, .git/info/exclude) might tell `git check-ignore`
-      // the path is ignored. Repo `.gitignore` itself is empty of this entry
-      // and `git status` from a fresh clone would show .worktrees/ as
-      // untracked. The new contract: PASS message reflects the repo file
-      // state truthfully, and we always update the repo file when needed.
       setupBaseExecMocks();
       vi.mocked(existsSync).mockImplementation((p: unknown) => {
         const path = String(p);
@@ -1073,7 +1022,7 @@ describe('handleSetupWorktree', () => {
       });
       vi.mocked(readFileSync).mockImplementation((p: unknown) => {
         const path = String(p);
-        if (path === '/repo/.gitignore') return 'node_modules/\n'; // .worktrees absent
+        if (path === '/repo/.gitignore') return 'node_modules/\n';
         if (path.endsWith('package.json')) return VALID_PACKAGE_JSON;
         return '';
       });
@@ -1084,11 +1033,8 @@ describe('handleSetupWorktree', () => {
 
       expect(result.success).toBe(true);
       const data = result.data as { report: string };
-      // Even if a global ignore would have matched, the repo file is
-      // missing — function must add and report 'added' truthfully.
       expect(data.report).toMatch(/added/i);
       expect(appendFileSync).toHaveBeenCalledWith('/repo/.gitignore', '.worktrees/\n');
-      // No git check-ignore call — function works directly off the repo file.
       const checkIgnoreCalls = vi.mocked(execFileSync).mock.calls.filter(
         (c) => Array.isArray(c[1]) && (c[1] as string[]).includes('check-ignore'),
       );
@@ -1115,27 +1061,24 @@ describe('handleSetupWorktree', () => {
         repoRoot: '/repo', taskId: 'T-005', taskName: 'b',
       });
 
-      expect(result.success).toBe(true); // overall flow succeeds at I/O level
+      expect(result.success).toBe(true);
       const data = result.data as { passed: boolean; report: string };
       expect(data.report).toMatch(/FAIL.*\.worktrees is gitignored.*EACCES/i);
       expect(data.passed).toBe(false);
     });
   });
 
-  // ─── DR-3 (T-09, #1204): branch-override resolution ───────────────────────
-  //
-  // Resolution priority: args.branch > workflow.tasks[id=<taskId>].branch >
-  // legacy `feature/<id>-<name>` default. The "Branch created" check report
-  // includes a source-attribution suffix indicating which path was taken
-  // (`from arg`, `from workflow state`, or `default`).
-
+  /**
+   * The branch name comes from `args.branch`, then the planned branch of the task
+   * in workflow state, then `feature/<taskId>-<taskName>`. The "Branch created"
+   * check names the source.
+   */
   describe('branch-override resolution (DR-3)', () => {
     function setupHappyPathMocks() {
       vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
         const cmdStr = String(cmd).replace(/\.cmd$/, '');
         const argsArr = args as string[];
         if (cmdStr === 'git' && argsArr.includes('show-ref')) {
-          // Branch does not exist — handler proceeds to create it.
           const error = new Error('not found') as Error & { status: number };
           error.status = 1;
           throw error;
@@ -1149,7 +1092,6 @@ describe('handleSetupWorktree', () => {
       vi.mocked(existsSync).mockImplementation((p: unknown) => {
         const path = String(p);
         if (path === '/repo/.gitignore') return true;
-        // Worktree dir does NOT exist initially — `git worktree add` is invoked.
         if (path.endsWith('/package.json')) return true;
         return false;
       });
@@ -1183,9 +1125,6 @@ describe('handleSetupWorktree', () => {
       const data = result.data as { branchName: string; report: string };
       expect(data.branchName).toBe('feature/foo/t001');
       expect(data.report).toMatch(/Branch created.*from workflow state/i);
-      // The VCS owner was asked to create the PLANNED branch, not the legacy
-      // default — asserted on the provisioner request now that branch creation
-      // routes through the owner instead of a direct `git branch` execFileSync.
       expect(lastProvisionRequest?.branch).toBe('feature/foo/t001');
     });
 
@@ -1231,19 +1170,12 @@ describe('handleSetupWorktree', () => {
     });
   });
 
-  // ── base-branch resolution (#1509/#1501 managed-path parity) ────────────
-  //
-  // The Exarchos-managed (non-native) worktree path must base subagent
-  // worktrees on the INTEGRATION TIP, not a stale `main`. Resolution mirrors
-  // prepare_delegation's integration-branch derivation:
-  //   args.baseBranch > synthesis.integrationBranch > current HEAD > 'main'
-  // The current-HEAD fallback closes the silent `?? 'main'` footgun: the
-  // orchestrator runs setup_worktree from the integration checkout, so HEAD
-  // *is* the integration tip when nothing more specific is supplied.
-
+  /**
+   * The base comes from `args.baseBranch`, then `synthesis.integrationBranch`,
+   * then the current HEAD, then `main`. The orchestrator runs setup from the
+   * integration checkout, so HEAD is the integration tip.
+   */
   describe('base-branch resolution (#1509/#1501)', () => {
-    // Returns `currentBranch` for `git rev-parse --abbrev-ref HEAD`; lets each
-    // test stand the repo on an arbitrary integration branch.
     function setupBaseResolutionMocks(currentBranch: string) {
       vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
         const cmdStr = String(cmd).replace(/\.cmd$/, '');
@@ -1251,12 +1183,12 @@ describe('handleSetupWorktree', () => {
         if (cmdStr === 'git' && argsArr.includes('show-ref')) {
           const error = new Error('not found') as Error & { status: number };
           error.status = 1;
-          throw error; // branch absent → handler creates it
+          throw error;
         }
         if (cmdStr === 'git' && argsArr.includes('rev-parse') && argsArr.includes('--abbrev-ref')) {
           return currentBranch;
         }
-        if (cmdStr === 'git' && argsArr.includes('rev-parse')) return ''; // bare rev-parse HEAD / --git-dir
+        if (cmdStr === 'git' && argsArr.includes('rev-parse')) return '';
         if (cmdStr === 'git' && argsArr.includes('branch')) return '';
         if (cmdStr === 'git' && argsArr.includes('worktree')) return '';
         return '';
@@ -1275,9 +1207,6 @@ describe('handleSetupWorktree', () => {
       });
     }
 
-    // The base ref the handler asked the VCS owner to branch from. Base
-    // resolution now feeds the provisioner request instead of a direct
-    // `git branch <name> <base>` execFileSync, so we inspect the request.
     function createdBranchBase(): string | undefined {
       return lastProvisionRequest?.base;
     }
@@ -1300,9 +1229,8 @@ describe('handleSetupWorktree', () => {
       expect(createdBranchBase()).toBe('feat/int');
     });
 
+    /** With no argument and no synthesis state, a stacked branch at HEAD is the base, not `main`. */
     it('BaseBranch_CurrentHead_WhenNoArgOrSynthesis', async () => {
-      // The regression guard: a stacked integration branch must NOT silently
-      // base on main. With no arg and no synthesis state, HEAD is the tip.
       setupBaseResolutionMocks('feat/stacked');
       await callSetup(
         { repoRoot: '/repo', taskId: 'T1', taskName: 'x', skipTests: true },
@@ -1312,8 +1240,8 @@ describe('handleSetupWorktree', () => {
       expect(createdBranchBase()).not.toBe('main');
     });
 
+    /** When HEAD resolves to neither a branch nor a SHA, the base is `main`. */
     it('BaseBranch_FallsBackToMain_WhenHeadUnresolvable', async () => {
-      // Detached HEAD with no resolvable ref/SHA → safe legacy default.
       setupBaseResolutionMocks('HEAD');
       await callSetup(
         { repoRoot: '/repo', taskId: 'T1', taskName: 'x', skipTests: true },
@@ -1323,19 +1251,12 @@ describe('handleSetupWorktree', () => {
     });
   });
 
-  // ── DR-1: burst-creation stagger at the worktree-creation seam ───────────
-  //
-  // The DR-8 kernel's `burstStagger` is wired into the creation seam so that a
-  // delegate wave's parallel worktree creations don't thundering-herd the git
-  // index. A creation is a "burst" when the enclosing workflow delegates more
-  // than one task (the composite adapter already materializes that `tasks`
-  // list). Both the sleep and jitter seams are injected so the jitter window is
-  // asserted without wall-clock waits.
-
+  /**
+   * When workflow state lists more than one task, each creation first waits a
+   * jittered delay from `burstStagger`. This keeps parallel creations off the git
+   * index at the same time. The tests inject `sleep` and `jitter` and do not wait.
+   */
   describe('DR-1 burst-creation stagger', () => {
-    // Happy-path mocks so `runSetupWorktreeSteps` completes without spawning
-    // real subprocesses or throwing — the stagger runs *before* these steps, so
-    // their pass/fail is irrelevant; only the recorded delays matter.
     function setupCreationMocks() {
       vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
         const cmdStr = String(cmd).replace(/\.cmd$/, '');
@@ -1343,7 +1264,7 @@ describe('handleSetupWorktree', () => {
         if (cmdStr === 'git' && argsArr.includes('show-ref')) {
           const error = new Error('not found') as Error & { status: number };
           error.status = 1;
-          throw error; // branch absent → handler creates it
+          throw error;
         }
         return '';
       });
@@ -1361,24 +1282,20 @@ describe('handleSetupWorktree', () => {
       });
     }
 
+    /** The jitter source sweeps from -1 to 1, so the recorded delays reach both bounds of the window. */
     it('SetupWorktree_BurstCreation_StaggersWithinConfiguredJitterWindow', async () => {
       setupCreationMocks();
 
-      // Injected sleep seam records each stagger delay applied.
       const recorded: number[] = [];
       const sleep = (ms: number): Promise<void> => {
         recorded.push(ms);
         return Promise.resolve();
       };
 
-      // Sweep the signed-jitter source across the full band [-1, 1] so the
-      // recorded delays exercise both edges of the configured window.
       const jitterSweep = [-1, -0.5, 0, 0.5, 1];
       let jitterCall = 0;
       const jitter = (): number => jitterSweep[jitterCall++ % jitterSweep.length];
 
-      // A burst = a multi-task delegation. Each task's creation is one
-      // setup_worktree call racing for the git index; run the whole burst.
       const workflowState = {
         tasks: jitterSweep.map((_, i) => ({ id: `T-00${i + 1}` })),
       };
@@ -1392,24 +1309,21 @@ describe('handleSetupWorktree', () => {
         expect(result.success).toBe(true);
       }
 
-      // Every creation in the burst staggered exactly once…
       expect(recorded.length).toBe(workflowState.tasks.length);
-      // …and every stagger fell inside the configured jitter window.
       for (const delay of recorded) {
         expect(delay).toBeGreaterThanOrEqual(BURST_STAGGER_MIN_MS);
         expect(delay).toBeLessThanOrEqual(BURST_STAGGER_MAX_MS);
       }
-      // The swept jitter maps to distinct in-band delays, hitting both bounds —
-      // proving both the jitter source and the window are actually wired.
       expect(recorded).toEqual([
-        BURST_STAGGER_MIN_MS, // jitter -1  → band floor
+        BURST_STAGGER_MIN_MS,
         200,
         300,
         400,
-        BURST_STAGGER_MAX_MS, // jitter +1  → band ceiling
+        BURST_STAGGER_MAX_MS,
       ]);
     });
 
+    /** A single-task workflow is not a burst, so the handler calls neither `sleep` nor `jitter`. */
     it('SetupWorktree_SingleCreation_NoStaggerDelay', async () => {
       setupCreationMocks();
 
@@ -1418,10 +1332,8 @@ describe('handleSetupWorktree', () => {
         recorded.push(ms);
         return Promise.resolve();
       };
-      // Real jitter must never be consulted — assert it stays untouched too.
       const jitter = vi.fn<[], number>(() => 0);
 
-      // A single-task workflow is not a burst → no stagger.
       const workflowState = { tasks: [{ id: 'T-001' }] };
 
       const result = await callSetup(

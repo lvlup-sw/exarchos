@@ -1,23 +1,10 @@
 /**
- * CLI↔MCP parity tests for the `add_pr_comment` action (Wave B / B2.5).
+ * CLI and MCP parity tests for the `add_pr_comment` action.
  *
- * add_pr_comment has two user-visible facades:
- *   1. MCP — `exarchos_orchestrate { action: 'add_pr_comment' }` over the MCP SDK
- *   2. CLI — `exarchos orch add_pr_comment` (auto-generated subcommand)
- *
- * Both facades MUST observe the same two-event sequence
- * [pr.comment.requested, pr.comment.executed] with identical data.
- *
- * Strategy (mirrors doctor.parity.test.ts / merge-orchestrate.parity.test.ts):
- *   - vi.mock '../../vcs/factory.js' so createVcsProvider returns a
- *     deterministic stub provider in both arms.
- *   - stubCompositeHandler installs the real handleAddPrComment call path
- *     under the 'exarchos_orchestrate' composite — both CLI and MCP dispatch
- *     through this stub, which calls the real handler with the mocked provider.
- *   - Query the event store after both arms run and assert:
- *       [pr.comment.requested, pr.comment.executed] in order, identical data.
- *   - normalize strips wall-clock fields (operationId is a UUID generated
- *     fresh per invocation, so it's also normalized).
+ * The MCP facade (`exarchos_orchestrate`) and the CLI facade (`exarchos orch add_pr_comment`)
+ * must both record `pr.comment.requested` and then `pr.comment.executed`.
+ * The test mocks the VCS factory. A composite stub calls the real
+ * `handleAddPrComment` with a stub provider in each arm.
  */
 
 import { describe, it, expect, afterEach, vi, beforeAll } from 'vitest';
@@ -36,8 +23,6 @@ import {
   normalize as harnessNormalize,
 } from '../../parity-harness.js';
 
-// ─── Mock the VCS factory before importing the real handler ──────────────────
-
 vi.mock('../../../../src/vcs/factory.js', () => ({
   createVcsProvider: vi.fn(),
 }));
@@ -46,19 +31,13 @@ import { createVcsProvider } from '../../../../src/vcs/factory.js';
 import { handleAddPrComment } from '../../../../src/verbs/vcs/add-pr-comment.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
-// ─── Deterministic VCS provider stub ─────────────────────────────────────────
-
 const STUB_COMMENT_ID = 55001;
 const STUB_REPO_INFO: RepoInfo = { nameWithOwner: 'owner/parity-repo', defaultBranch: 'main' };
 
 /**
- * Build a provider stub that: addComment succeeds, getPrComments returns the
- * posted comment (marker detected), getRepository returns stable repo info.
- *
- * We use a closure that captures the `marker` after the handler embeds it so
- * getPrComments (called AFTER addComment) can return a comment body containing
- * the marker. Since we don't know the operationId in advance, we track the
- * last call to addComment and extract the marker from its body argument.
+ * Build a provider stub. `addComment` and `addReply` keep the last posted body,
+ * and `getPrComments` returns it as one comment. The body holds the marker with
+ * the generated `operationId`, so the handler finds its own comment.
  */
 function buildStubProvider(): VcsProvider {
   let lastPostedBody = '';
@@ -79,7 +58,6 @@ function buildStubProvider(): VcsProvider {
     listPrs: vi.fn(),
     getPrComments: vi.fn().mockImplementation(async (): Promise<PrComment[]> => {
       if (!lastPostedBody) return [];
-      // Return the "posted" comment with the body that was passed to addComment.
       return [
         {
           id: STUB_COMMENT_ID,
@@ -96,8 +74,6 @@ function buildStubProvider(): VcsProvider {
 
   return provider;
 }
-
-// ─── Arm helpers ─────────────────────────────────────────────────────────────
 
 interface ArmContext {
   readonly stateDir: string;
@@ -117,8 +93,9 @@ async function createArm(prefix: string): Promise<ArmContext> {
 }
 
 /**
- * Composite stub that forwards add_pr_comment to the real handleAddPrComment
- * with a fresh deterministic stub provider installed on each call.
+ * Build a composite stub that sends `add_pr_comment` to the real
+ * `handleAddPrComment`. Each call installs a fresh stub provider, so both arms
+ * get the same VCS behavior.
  */
 function buildAddPrCommentCompositeStub(): CompositeHandler {
   return async (args, ctx): Promise<ToolResult> => {
@@ -132,9 +109,6 @@ function buildAddPrCommentCompositeStub(): CompositeHandler {
         },
       };
     }
-    // Install a fresh provider stub so both arms share the same deterministic
-    // behaviour (each arm gets its own EventStore but the VCS side-effects
-    // are identical mocks).
     const stubProvider = buildStubProvider();
     vi.mocked(createVcsProvider).mockResolvedValue(stubProvider);
 
@@ -142,12 +116,9 @@ function buildAddPrCommentCompositeStub(): CompositeHandler {
   };
 }
 
-// ─── Normalizer ───────────────────────────────────────────────────────────────
-
 /**
- * Strip wall-clock and per-run opaque fields. operationId is a UUID generated
- * fresh per invocation; commentUrl encodes the operationId; both are normalized.
- * dropKeys removes _perf / _meta envelope fields.
+ * Replace timestamps and UUIDs with placeholders, and drop the `_perf` and
+ * `_meta` keys. Each call generates a fresh `operationId` UUID.
  */
 function normalize(value: unknown): unknown {
   return harnessNormalize(value, {
@@ -157,21 +128,16 @@ function normalize(value: unknown): unknown {
   });
 }
 
-// ─── Parity args ──────────────────────────────────────────────────────────────
-
 const PARITY_ARGS = {
   prId: '42',
   body: 'Parity test comment — both carriers must observe the same event sequence.',
 };
-
-// ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe('exarchos add_pr_comment CLI↔MCP parity (Wave B / B2.5)', () => {
   let arms: ArmContext[] = [];
   let restoreStub: (() => void) | null = null;
 
   beforeAll(() => {
-    // vi.mock is hoisted; no additional setup needed.
   });
 
   afterEach(async () => {
@@ -184,11 +150,11 @@ describe('exarchos add_pr_comment CLI↔MCP parity (Wave B / B2.5)', () => {
     vi.clearAllMocks();
   });
 
+  /**
+   * Each arm must record both events in order, with the same `body` and
+   * `commentId`. The normalized `ToolResult` must be equal across the arms.
+   */
   it('AddPrComment_Parity_BothCarriersObserveTwoEventSequence', async () => {
-    // ── Arrange ─────────────────────────────────────────────────────────────
-    //
-    // Install the composite stub so both CLI and MCP arms go through the
-    // real handleAddPrComment with the deterministic VCS provider.
     restoreStub = stubCompositeHandler(
       'exarchos_orchestrate',
       buildAddPrCommentCompositeStub(),
@@ -199,7 +165,6 @@ describe('exarchos add_pr_comment CLI↔MCP parity (Wave B / B2.5)', () => {
     const mcpArm = await createArm('add-pr-comment-parity-mcp-');
     arms.push(mcpArm);
 
-    // ── Act (CLI arm) ────────────────────────────────────────────────────────
     const { result: cliResult, exitCode: cliExitCode } = await harnessCallCli(
       cliArm.ctx,
       'orch',
@@ -207,18 +172,15 @@ describe('exarchos add_pr_comment CLI↔MCP parity (Wave B / B2.5)', () => {
       PARITY_ARGS,
     );
 
-    // ── Act (MCP arm) ────────────────────────────────────────────────────────
     const mcpResult = await harnessCallMcp(mcpArm.ctx, 'exarchos_orchestrate', {
       action: 'add_pr_comment',
       ...PARITY_ARGS,
     });
 
-    // ── Assert — both surfaces succeed ───────────────────────────────────────
     expect(cliResult.success).toBe(true);
     expect(mcpResult.success).toBe(true);
     expect(cliExitCode).toBe(0);
 
-    // ── Assert — CLI arm event sequence: [pr.comment.requested, pr.comment.executed] ──
     const cliEvents = await cliArm.ctx.eventStore.query('vcs');
     const cliTypes = cliEvents.map((e) => e.type);
     expect(cliTypes).toContain('pr.comment.requested');
@@ -227,7 +189,6 @@ describe('exarchos add_pr_comment CLI↔MCP parity (Wave B / B2.5)', () => {
     const cliIdxExecuted = cliTypes.indexOf('pr.comment.executed');
     expect(cliIdxRequested).toBeLessThan(cliIdxExecuted);
 
-    // ── Assert — MCP arm event sequence: [pr.comment.requested, pr.comment.executed] ──
     const mcpEvents = await mcpArm.ctx.eventStore.query('vcs');
     const mcpTypes = mcpEvents.map((e) => e.type);
     expect(mcpTypes).toContain('pr.comment.requested');
@@ -236,11 +197,6 @@ describe('exarchos add_pr_comment CLI↔MCP parity (Wave B / B2.5)', () => {
     const mcpIdxExecuted = mcpTypes.indexOf('pr.comment.executed');
     expect(mcpIdxRequested).toBeLessThan(mcpIdxExecuted);
 
-    // ── Assert — event data shape is structurally identical across arms ───────
-    //
-    // Normalize timestamps and UUIDs (operationId) so the comparison is
-    // byte-equal modulo non-deterministic values. The commentId (55001) and
-    // pr.comment.requested body field must be identical.
     const normalizePrCommentData = (events: Awaited<ReturnType<typeof cliArm.ctx.eventStore.query>>) => {
       return events
         .filter((e) => e.type === 'pr.comment.requested' || e.type === 'pr.comment.executed')
@@ -253,31 +209,26 @@ describe('exarchos add_pr_comment CLI↔MCP parity (Wave B / B2.5)', () => {
     const cliNorm = normalizePrCommentData(cliEvents);
     const mcpNorm = normalizePrCommentData(mcpEvents);
 
-    // Both must have exactly 2 events in the same order.
     expect(cliNorm).toHaveLength(2);
     expect(mcpNorm).toHaveLength(2);
 
-    // Both must have pr.comment.requested with the same body.
     expect(cliNorm[0].type).toBe('pr.comment.requested');
     expect(mcpNorm[0].type).toBe('pr.comment.requested');
     expect((cliNorm[0].data as Record<string, unknown>).body).toBe(PARITY_ARGS.body);
     expect((mcpNorm[0].data as Record<string, unknown>).body).toBe(PARITY_ARGS.body);
 
-    // Both must have pr.comment.executed with the same commentId.
     expect(cliNorm[1].type).toBe('pr.comment.executed');
     expect(mcpNorm[1].type).toBe('pr.comment.executed');
     expect((cliNorm[1].data as Record<string, unknown>).commentId).toBe(STUB_COMMENT_ID);
     expect((mcpNorm[1].data as Record<string, unknown>).commentId).toBe(STUB_COMMENT_ID);
 
-    // ── Assert — ToolResult parity across surfaces ────────────────────────────
-    //
-    // After stripping UUIDs and timestamps, the ToolResult shape must be
-    // byte-equal across CLI and MCP carriers.
     expect(normalize(cliResult)).toEqual(normalize(mcpResult));
   });
 
-  // T9 / #1165 — the new thread-reply surface (threadId routes through
-  // addReply) MUST also be reachable identically from BOTH carriers (INV-2).
+  /**
+   * With a `threadId`, each arm must record the thread id on the intent and the
+   * stub reply id on the executed event.
+   */
   it('AddPrReply_Parity_BothCarriersRouteThreadReplyThroughAddReply', async () => {
     restoreStub = stubCompositeHandler(
       'exarchos_orchestrate',
@@ -306,7 +257,6 @@ describe('exarchos add_pr_comment CLI↔MCP parity (Wave B / B2.5)', () => {
     expect(mcpResult.success).toBe(true);
     expect(cliExitCode).toBe(0);
 
-    // Both carriers must observe the same two-event sequence with the reply id.
     const collect = async (arm: ArmContext) => {
       const events = await arm.ctx.eventStore.query('vcs');
       return events
@@ -318,14 +268,11 @@ describe('exarchos add_pr_comment CLI↔MCP parity (Wave B / B2.5)', () => {
 
     expect(cliNorm).toHaveLength(2);
     expect(mcpNorm).toHaveLength(2);
-    // requested intent records the reply target on both carriers.
     expect((cliNorm[0].data as Record<string, unknown>).threadId).toBe(201);
     expect((mcpNorm[0].data as Record<string, unknown>).threadId).toBe(201);
-    // executed carries the addReply-returned commentId on both carriers.
     expect((cliNorm[1].data as Record<string, unknown>).commentId).toBe(STUB_COMMENT_ID);
     expect((mcpNorm[1].data as Record<string, unknown>).commentId).toBe(STUB_COMMENT_ID);
 
-    // ToolResult parity across carriers.
     expect(normalize(cliResult)).toEqual(normalize(mcpResult));
   });
 });
