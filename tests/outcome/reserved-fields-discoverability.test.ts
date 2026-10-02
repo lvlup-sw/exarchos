@@ -48,6 +48,7 @@ function reservedFieldData(
   return { ...data };
 }
 import { TOOL_REGISTRY } from '../../src/registry.js';
+import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 
 const workflowTool = TOOL_REGISTRY.find((t) => t.name === 'exarchos_workflow');
 
@@ -143,7 +144,7 @@ describe('reserved-fields discoverability outcome (#1360)', () => {
         expect(altPath.length).toBeGreaterThan(0);
       }
     } finally {
-      await fs.rm(stateDir, { recursive: true, force: true });
+      await rmrfAsync(stateDir);
     }
   });
 
@@ -188,7 +189,7 @@ describe('reserved-fields discoverability outcome (#1360)', () => {
         expect(altPath.length).toBeGreaterThan(0);
       }
     } finally {
-      await fs.rm(stateDir, { recursive: true, force: true });
+      await rmrfAsync(stateDir);
     }
   });
 });

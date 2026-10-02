@@ -33,6 +33,7 @@ import {
   registerExarchosInClaudeJson,
   type SpawnResult,
 } from '../../../src/install/install-skills.js';
+import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 // ─── Fixtures & helpers ─────────────────────────────────────────────────────
 
@@ -97,7 +98,7 @@ function makeSkillsSource(
   }
   return {
     skillsSource,
-    dispose: () => fs.rmSync(tmp, { recursive: true, force: true }),
+    dispose: () => rmrf(tmp),
   };
 }
 
@@ -152,7 +153,7 @@ describe('install-skills characterization (DR-9, task 003)', () => {
       });
     } finally {
       dispose();
-      fs.rmSync(home, { recursive: true, force: true });
+      rmrf(home);
     }
 
     // ── PINNED: local-copy targets ──────────────────────────────────────────
@@ -221,7 +222,7 @@ describe('install-skills characterization (DR-9, task 003)', () => {
       });
     } finally {
       dispose();
-      fs.rmSync(home, { recursive: true, force: true });
+      rmrf(home);
     }
 
     expect(copyDirCalls).toEqual([
@@ -273,7 +274,7 @@ describe('install-skills characterization (DR-9, task 003)', () => {
 
       expect(normalized).toBe(expected);
     } finally {
-      fs.rmSync(home, { recursive: true, force: true });
+      rmrf(home);
     }
   });
 
@@ -315,7 +316,7 @@ describe('install-skills characterization (DR-9, task 003)', () => {
         },
       });
     } finally {
-      fs.rmSync(home, { recursive: true, force: true });
+      rmrf(home);
     }
   });
 });

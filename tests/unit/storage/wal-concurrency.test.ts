@@ -1,9 +1,10 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { WorkflowEvent } from '../../../src/events/schemas.js';
 import { SqliteBackend } from '../../../src/storage/sqlite-backend.js';
+import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -46,7 +47,7 @@ describe('SqliteBackend WAL Concurrency (file-based)', () => {
     backends.length = 0;
 
     if (tempDir) {
-      rmSync(tempDir, { recursive: true });
+      rmrf(tempDir);
     }
   });
 

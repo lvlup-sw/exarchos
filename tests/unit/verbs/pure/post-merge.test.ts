@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { checkPostMerge } from '../../../../src/verbs/pure/post-merge.js';
 import type { VcsProvider, CiStatus, CiCheck } from '../../../../src/vcs/provider.js';
+import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 // ─── Mock VcsProvider Helper ────────────────────────────────────────────────
 
@@ -69,7 +70,7 @@ describe('checkPostMerge', () => {
   });
 
   afterAll(() => {
-    for (const dir of fixtureDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+    for (const dir of fixtureDirs.splice(0)) rmrf(dir);
   });
 
   beforeEach(() => {

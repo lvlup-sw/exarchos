@@ -15,10 +15,11 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { Database } from 'bun:sqlite';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { SqliteBackend } from '../../../src/storage/sqlite-backend.js';
+import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 describe('SqliteBackend connection PRAGMAs', () => {
   let tempDir: string | undefined;
@@ -34,7 +35,7 @@ describe('SqliteBackend connection PRAGMAs', () => {
     }
     backends.length = 0;
     if (tempDir) {
-      rmSync(tempDir, { recursive: true });
+      rmrf(tempDir);
       tempDir = undefined;
     }
   });

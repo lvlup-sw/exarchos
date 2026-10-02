@@ -13,7 +13,7 @@
 //     (approve-enforcement) and THEN `admission.enforcement-enabled`, linked
 //     by `rolloutDecisionId`.
 
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -42,6 +42,7 @@ import {
   handleCutoverReadiness,
   type CutoverVerbDeps,
 } from '../../../../src/verbs/gates/cutover-readiness.js';
+import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -164,7 +165,7 @@ describe('CutoverReadiness / CutoverDecide (#1739)', () => {
 
   afterEach(async () => {
     eventStore.close();
-    await rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   async function seedSatisfiableDurableEvidence(): Promise<void> {

@@ -122,6 +122,7 @@ import { resolveVerificationSequence } from '../../../../src/workflow/verificati
 import type { GateName, RiskTier } from '../../../../src/workflow/verification-policy.js';
 import { resolveVerificationPolicy } from '../../../../src/workflow/verification-policy-resolver.js';
 import { resolveGateSet } from '../../../../src/workflow/phase-kind.js';
+import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 const STATE_DIR = '/tmp/test-state';
 
@@ -2332,7 +2333,7 @@ describe('handlePrepareDelegation', () => {
           renderImplementerPrompt({ riskTier: 'high', boundaryTouching: true }),
         );
       } finally {
-        await fsp.rm(planDir, { recursive: true, force: true });
+        await rmrfAsync(planDir);
       }
     });
 

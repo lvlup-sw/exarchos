@@ -117,6 +117,7 @@ import {
 } from '../../../../src/contract/cli/generated-client.js';
 import { CONTRACT_EXIT_CODES, exitCodeForError } from '../../../../src/contract/error-families.js';
 import { spawnAsync } from '../../../../tools/test-helpers/spawn.js';
+import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 // ─── Test Helpers ────────────────────────────────────────────────────────────
 
@@ -980,8 +981,8 @@ describe.skipIf(!SMOKE_BINARY)(
       // value is in the spawn assertion, not in tempdir hygiene; CI will
       // GC the runner anyway.
       try {
-        fs.rmSync(homeTmp, { recursive: true, force: true });
-        fs.rmSync(stateTmp, { recursive: true, force: true });
+        rmrf(homeTmp);
+        rmrf(stateTmp);
       } catch {
         // ignore
       }

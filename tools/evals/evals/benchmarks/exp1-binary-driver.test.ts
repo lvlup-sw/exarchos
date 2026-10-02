@@ -23,6 +23,7 @@ import {
   type CorpusSpecTasks,
 } from './exp1-binary-driver.js';
 import { ProvenanceError, assertMeasured } from '../provenance.js';
+import { rmrf } from '../../../test-helpers/temp-dir.js';
 
 // ─── Pure diff core: property tests (symmetric + complete) ───────────────────
 
@@ -250,7 +251,7 @@ describe('loadCorpusTasks', () => {
       expect(corpus[0].tasks.map((t) => t.id)).toEqual(['001', '002']);
       expect(corpus[0].tasks[0].title).toBe('Do a thing');
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      rmrf(dir);
     }
   });
 });
@@ -336,6 +337,6 @@ describe.skipIf(!binariesPresent)('Exp1 real-binary fixture pair (causal-before 
     const diffs = diffClassifications(b.classifications, a.classifications);
     expect(diffs.find((d) => d.taskId === '001')?.changed).toBe(true);
 
-    fs.rmSync(workRoot, { recursive: true, force: true });
+    rmrf(workRoot);
   });
 });

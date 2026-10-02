@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { fc } from '@fast-check/vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { WorkflowEvent } from '../../../../../src/events/schemas.js';
@@ -17,6 +17,7 @@ import {
 import { InMemoryBackend } from '../../../../../src/storage/memory-backend.js';
 import { SqliteBackend } from '../../../../../src/storage/sqlite-backend.js';
 import { foldWorkflowSummaries } from '../../../../../src/projections/views/lifecycle/workflow-fold.js';
+import { rmrf } from '../../../../../tools/test-helpers/temp-dir.js';
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -64,7 +65,7 @@ function makeSqlite(): { backend: SqliteBackend; cleanup: () => void } {
     backend,
     cleanup: () => {
       backend.close();
-      rmSync(dir, { recursive: true, force: true });
+      rmrf(dir);
     },
   };
 }

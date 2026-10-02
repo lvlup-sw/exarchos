@@ -12,7 +12,7 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
@@ -21,6 +21,7 @@ import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js'
 import { handleOrchestrate } from '../../../../src/verbs/composite.js';
 import { runAsTrustedCaller, seedActivePhaseAttempt, withTrustedCaller } from '../../../../tools/test-helpers/trusted-context.js';
 import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
+import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 function git(repoRoot: string, args: readonly string[]): Promise<string> {
   return execFileAsync('git', args, { cwd: repoRoot, timeout: 30_000 });
@@ -54,7 +55,7 @@ describe('check_test_adequacy toolchain test-glob threading (FIX-3)', () => {
       // Python-marker repo: tests live under `tests/test_*.py`, the pytest layout
       // — which the co-located defaults do NOT match.
       const repoRoot = await initRepo('test-adequacy-pyglob-');
-      cleanups.push(() => rmSync(repoRoot, { recursive: true, force: true }));
+      cleanups.push(() => rmrf(repoRoot));
 
       writeFileSync(path.join(repoRoot, 'pyproject.toml'), '[project]\nname = "fixture"\n');
       mkdirSync(path.join(repoRoot, 'src'), { recursive: true });
@@ -74,7 +75,7 @@ describe('check_test_adequacy toolchain test-glob threading (FIX-3)', () => {
       await git(repoRoot, ['commit', '-m', 'feat + test', '-q']);
 
       const stateDir = mkdtempSync(path.join(os.tmpdir(), 'test-adequacy-pyglob-state-'));
-      cleanups.push(() => rmSync(stateDir, { recursive: true, force: true }));
+      cleanups.push(() => rmrf(stateDir));
       const eventStore = new EventStore(stateDir);
       await eventStore.initialize();
       const ctx = withTrustedCaller(

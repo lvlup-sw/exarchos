@@ -1,23 +1,13 @@
-// ─── closeOpenUnder must survive path ALIASING (#1699 / #1620) ───────────────
+// closeOpenUnder must survive path aliasing (#1699, #1620).
 //
-// `rmrf()`/`rmrfAsync()` sweep every open SQLite handle under a temp dir before
-// removing it, which is what lets a test delete a tree containing a store some
-// production call opened and the test never named. The sweep decides "is this
-// handle under that dir?" by string prefix, so it is only as good as the two
-// paths agreeing on ONE spelling of the same location.
-//
-// They do not always agree. On the Windows runners `os.tmpdir()` yields the 8.3
-// SHORT name (`C:\Users\RUNNER~1\…`, visible verbatim in the failures) while a
-// long-form normalisation anywhere in the store's construction yields
-// `C:\Users\runneradmin\…`. Same directory, different strings — so `relative()`
-// returns a `..`-path, the sweep skips a handle that IS contained, and `fs.rm`
-// then hits `EBUSY: resource busy or locked, unlink '…\exarchos.db-shm'`. A live
-// `-shm` proves a connection is still open: SQLite unlinks `-wal`/`-shm` when the
-// last one closes, so this is a handle that was never swept, not a retry budget
-// that was too small (see the note on RM_MAX_RETRIES in `test-helpers/temp-dir.ts`).
-//
-// A symlink is the same defect shape reachable on every platform: two paths
-// naming one directory. If the sweep canonicalises, the alias is irrelevant.
+// `rmrf()` and `rmrfAsync()` close every open SQLite handle under a temp dir
+// before they delete it. The sweep decides "is this handle under that dir?" by
+// comparing paths, so both paths must spell the same location the same way.
+// On the Windows runners `os.tmpdir()` can give the 8.3 short name
+// (`C:\Users\RUNNER~1\...`) while the store gives the long name. Then the sweep
+// skips a contained handle, and the delete fails on a live `-shm` file. A
+// symlink is the same defect on every platform: two paths name one directory.
+// If the sweep canonicalises both paths, the alias does not matter.
 import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, symlinkSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';

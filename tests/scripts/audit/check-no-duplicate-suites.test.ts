@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -10,6 +10,7 @@ import {
   EXIT_OK,
   EXIT_FINDING,
 } from '../../../tools/audit/check-no-duplicate-suites.mjs';
+import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 // A synthetic src tree mirroring the real layout: legacy copies under
 // `__tests__/<area>/`, co-located copies under `<area>/`. A "twin" is a subject
@@ -34,7 +35,7 @@ describe('check-no-duplicate-suites (DR-1 ratchet)', () => {
     srcRoot = path.join(root, 'src');
     mkdirSync(srcRoot, { recursive: true });
   });
-  afterEach(() => rmSync(root, { recursive: true, force: true }));
+  afterEach(() => rmrf(root));
 
   const opts = (out: string[], err: string[]) => ({
     srcRoot,

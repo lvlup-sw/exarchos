@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { WorkflowEvent } from '../../../src/events/schemas.js';
@@ -8,6 +8,7 @@ import type { SnapshotRecord } from '../../../src/projections/snapshot-schema.js
 import type { StorageBackend, EventSender } from '../../../src/storage/backend.js';
 import { InMemoryBackend, VersionConflictError } from '../../../src/storage/memory-backend.js';
 import { SqliteBackend } from '../../../src/storage/sqlite-backend.js';
+import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -100,7 +101,7 @@ describe.each([
     backend.initialize();
     return {
       backend,
-      cleanup: () => { backend.close(); rmSync(dir, { recursive: true }); },
+      cleanup: () => { backend.close(); rmrf(dir); },
       advanceClock: (ms: number) => { nowMs += ms; },
     };
   }],
@@ -574,7 +575,7 @@ describe('SqliteBackend outbox retry behavior', () => {
 
   afterEach(() => {
     backend.close();
-    rmSync(dir, { recursive: true });
+    rmrf(dir);
   });
 
   /**
@@ -683,7 +684,7 @@ describe('StorageBackend DR-2 AC3 substitutability witness (T13)', () => {
     } finally {
       memBackend.close();
       sqliteBackend.close();
-      rmSync(dir, { recursive: true });
+      rmrf(dir);
     }
   });
 

@@ -20,9 +20,10 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { rmrf } from '../../tools/test-helpers/temp-dir.js';
 
 describe('initializeBackend (Phase 4 hardening)', () => {
   let tempDir: string;
@@ -35,7 +36,7 @@ describe('initializeBackend (Phase 4 hardening)', () => {
   afterEach(() => {
     vi.doUnmock('../../src/storage/sqlite-backend.js');
     vi.resetModules();
-    rmSync(tempDir, { recursive: true, force: true });
+    rmrf(tempDir);
   });
 
   // ─── T4.1 — hard-fail on missing SQLite drivers ────────────────────────────

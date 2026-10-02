@@ -3,6 +3,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { checkPluginRootCompatibility, compareSemver } from '../../../../src/runtime/lib/plugin-compat.js';
+import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 // ─── Test Suite ─────────────────────────────────────────────────────────────
 
@@ -14,7 +15,7 @@ describe('plugin-compat library', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   // Helper — write a .claude-plugin/plugin.json under the given root.

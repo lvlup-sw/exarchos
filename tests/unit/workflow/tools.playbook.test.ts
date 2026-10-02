@@ -8,6 +8,7 @@ import {
   handleSet,
   } from '../../../src/workflow/tools.js';
 import { getRequiredReviews } from '../../../src/workflow/review-contract.js';
+import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 describe('handleGet playbook field', () => {
   let tmpDir: string;
@@ -17,7 +18,7 @@ describe('handleGet playbook field', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   it('handleGet_PlaybookField_ReturnsPhasePlaybook', async () => {
@@ -147,7 +148,7 @@ describe('review-contract wiring through handleSet', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   /**

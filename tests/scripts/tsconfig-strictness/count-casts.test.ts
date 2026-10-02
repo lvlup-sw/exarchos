@@ -11,10 +11,11 @@
 // lands. Each "still counted" case below exists to make that failure loud.
 
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { countCastsInSource, countCasts } from '../../../tools/audit/tsconfig-strictness/count-casts.js';
+import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 /**
  * The census this task replaced, preserved verbatim. It is the "before" number
@@ -206,7 +207,7 @@ describe('DR-24: cast census counts assertions, not text', () => {
       writeFileSync(join(dir, 'only-tests', 'a.test.ts'), 'const a = x as Foo;\n');
       expect(() => countCasts([{ dir: join(dir, 'only-tests') }])).toThrow(/resolved 0 TypeScript files/);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmrf(dir);
     }
   });
 
@@ -227,7 +228,7 @@ describe('DR-24: cast census counts assertions, not text', () => {
 
       expect(countCasts([{ dir }])).toEqual({ nonNull: 1, asCast: 2, asAny: 1 });
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmrf(dir);
     }
   });
 });

@@ -29,7 +29,7 @@
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
-import { readFileSync, realpathSync, rmSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -37,7 +37,7 @@ import { fileURLToPath } from 'node:url';
 import { EventStore } from '../../../../src/events/store.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
 import type { ToolResult } from '../../../../src/format.js';
-import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
+import { rmrfAsync, rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 
 import { serializeMerge } from '../../../../src/verbs/worktree/merge-serializer.js';
@@ -86,7 +86,7 @@ afterEach(async () => {
   }
   while (repoDirs.length > 0) {
     const dir = repoDirs.pop();
-    if (dir) rmSync(dir, { recursive: true, force: true });
+    if (dir) rmrf(dir);
   }
 });
 

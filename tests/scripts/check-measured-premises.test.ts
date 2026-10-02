@@ -27,7 +27,7 @@
  * on one side, the live `TOOL_REGISTRY` census on the other.
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync, existsSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { readFileSync, existsSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -50,6 +50,7 @@ import {
   EXIT_GAPS,
   // `.mjs` gate with JSDoc types only; `allowJs` reads them for inference.
 } from '../../tools/audit/gates/check-measured-premises.mjs';
+import { rmrf } from '../../tools/test-helpers/temp-dir.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, '../..');
@@ -237,7 +238,7 @@ describe('check-measured-premises (task 054, DR-27)', () => {
         expect(claim.literal).toBe(claim.derived);
       }
     } finally {
-      rmSync(probeDir, { recursive: true, force: true });
+      rmrf(probeDir);
     }
   }, 120_000);
 

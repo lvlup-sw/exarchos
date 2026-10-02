@@ -3,6 +3,7 @@ import { checkRequiredSections, checkMultipleOptions, handleDesignCompleteness }
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 /**
  * Behavioral parity tests for design-completeness.ts against the original
@@ -237,7 +238,7 @@ describe('full evaluation parity', () => {
 
   afterEach(() => {
     if (tmpDir) {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      rmrf(tmpDir);
     }
   });
 

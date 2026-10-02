@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { verifyProvenanceChain } from '../../../../src/verbs/pure/provenance-chain.js';
 import type { ProvenanceResult } from '../../../../src/verbs/pure/provenance-chain.js';
+import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 describe('verifyProvenanceChain', () => {
   let tmpDir: string;
@@ -13,7 +14,7 @@ describe('verifyProvenanceChain', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    rmrf(tmpDir);
   });
 
   // ============================================================

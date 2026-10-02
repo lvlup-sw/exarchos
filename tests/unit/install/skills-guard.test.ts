@@ -21,17 +21,11 @@ import { buildAllSkills, clearRegistryLookup } from '../../../src/install/build-
 import { buildCommandAliases } from '../../../src/install/build-command-aliases.js';
 import { loadAllRuntimes } from '../../../src/install/runtimes/load.js';
 import { COMMAND_TO_SKILL } from '../../../src/install/config/canonical-skills.js';
-import {
-  mkdtempSync,
-  writeFileSync,
-  mkdirSync,
-  rmSync,
-  readFileSync,
-  existsSync,
-} from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileAsync } from '../../../tools/test-helpers/spawn.js';
+import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 const tempDirs: string[] = [];
 
@@ -56,7 +50,7 @@ afterEach(() => {
   while (tempDirs.length > 0) {
     const d = tempDirs.pop()!;
     try {
-      rmSync(d, { recursive: true, force: true });
+      rmrf(d);
     } catch {
       /* best-effort */
     }

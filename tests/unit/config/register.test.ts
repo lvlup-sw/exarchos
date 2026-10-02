@@ -5,9 +5,10 @@ import { getHSMDefinition, unregisterWorkflowType } from '../../../src/workflow/
 import { WorkflowTypeSchema, unextendWorkflowTypeEnum } from '../../../src/workflow/schemas.js';
 import { getValidEventTypes, unregisterEventType } from '../../../src/events/schemas.js';
 import { getFullRegistry, clearCustomTools, hasCustomToolHandlers } from '../../../src/registry.js';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 const TEST_WORKFLOW_NAME = 'test-pipeline';
 
@@ -300,7 +301,7 @@ describe('Tool Registration', () => {
       expect(hasCustomToolHandlers('exarchos_tool_a')).toBe(false);
       expect(hasCustomToolHandlers('exarchos_tool_b')).toBe(false);
     } finally {
-      rmSync(tmpDir, { recursive: true, force: true });
+      rmrf(tmpDir);
     }
   });
 

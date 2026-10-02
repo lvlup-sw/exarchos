@@ -13,6 +13,7 @@ vi.mock('../../../../src/vcs/factory.js', () => ({
 
 import { createVcsProvider } from '../../../../src/vcs/factory.js';
 import { handleAddPrComment } from '../../../../src/verbs/vcs/add-pr-comment.js';
+import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 // ─── Shared mock factories ──────────────────────────────────────────────────
 
@@ -266,7 +267,7 @@ describe('handleAddPrComment — B2.2 Phase-A retry non-refire', () => {
   afterEach(async () => {
     vi.clearAllMocks();
     await Promise.all(
-      scratchRoots.map((p) => fs.rm(p, { recursive: true, force: true })),
+      scratchRoots.map((p) => rmrfAsync(p)),
     );
     scratchRoots.length = 0;
   });

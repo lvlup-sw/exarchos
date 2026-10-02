@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { installBundle } from '../../../../src/install/operations/bundle.js';
+import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 describe('MCP Server Bundle Copy (C4)', () => {
   let tmpDir: string;
@@ -12,7 +13,7 @@ describe('MCP Server Bundle Copy (C4)', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    rmrf(tmpDir);
   });
 
   /** Helper: create a fake bundle source file with given content. */

@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
 import { AtomicAppender } from '../../../src/events/atomic-appender.js';
+import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 /**
  * Stream-version gate behavior (DR-1 / DR-6).
@@ -39,7 +40,7 @@ describe('AtomicAppender stream-version gate', () => {
     for (const appender of trackedAppenders) {
       appender.getSqliteBackend()?.close();
     }
-    await rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   // Construct an appender that is auto-closed in afterEach. Every test builds

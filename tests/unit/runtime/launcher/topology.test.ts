@@ -8,6 +8,7 @@ import {
   type RealpathResolver,
   type WorktreePathGuardResult,
 } from '../../../../src/runtime/launcher/topology.js';
+import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 /** Identity resolver: no symlinks, paths pass through unchanged (POSIX-keyed). */
 const identity: RealpathResolver = (p) => p;
@@ -172,7 +173,7 @@ describe('win32 containment (DR-8 win32-fragile surface)', () => {
         const derivedReal = deriveWorktreePath(baseWt, 'agent-b');
         expect(guardWorktreeContainment(baseWt, derivedReal).ok).toBe(true);
       } finally {
-        fs.rmSync(parent, { recursive: true, force: true });
+        rmrf(parent);
       }
     }
   });

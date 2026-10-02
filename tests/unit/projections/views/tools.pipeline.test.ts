@@ -19,7 +19,7 @@ import { handleView } from '../../../../src/projections/views/composite.js';
 import { deriveRepoKey } from '../../../../src/utils/paths.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
 import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
-import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
+import { rmrfAsync, rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 import type { QualityHintsConfig } from '../../../../src/workflow/capabilities/resolver.js';
 
 let tempDir: string;
@@ -601,8 +601,8 @@ describe('handleViewPipeline — DR-6/DR-7 repo scoping + perceivability (task 0
       expect(ids).toContain('wt-scoped');
       expect(ids).not.toContain('wt-legacy');
     } finally {
-      fs.rmSync(mainRoot, { recursive: true, force: true });
-      fs.rmSync(wtParent, { recursive: true, force: true });
+      rmrf(mainRoot);
+      rmrf(wtParent);
     }
 
     // ── Windows-form: a backslash `C:\…` input normalizes to the POSIX key

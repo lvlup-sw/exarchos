@@ -40,6 +40,7 @@ import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js'
 import { EventStore } from '../../../../src/events/store.js';
 import type { ToolResult } from '../../../../src/format.js';
 import { buildCli, applyExitOverrideRecursively, CLI_EXIT_CODES } from '../../../../src/adapters/cli/cli.js';
+import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 // ─── Fixtures ──────────────────────────────────────────────────────────────
 
@@ -177,7 +178,7 @@ describe('wf checkpoint — handoff convenience flags (T5, #1240)', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   it('CheckpointCli_ContextFlag_BindsToHandoffContext', async () => {

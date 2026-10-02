@@ -30,6 +30,7 @@ import * as os from 'node:os';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { spawnAsync } from '../../../../tools/test-helpers/spawn.js';
+import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 // ─── Locate repo root ──────────────────────────────────────────────────────
 //
@@ -161,7 +162,7 @@ describe('build pipeline wiring (Task 6)', () => {
 
     afterAll(() => {
       if (sandbox && fs.existsSync(sandbox)) {
-        fs.rmSync(sandbox, { recursive: true, force: true });
+        rmrf(sandbox);
       }
     });
 

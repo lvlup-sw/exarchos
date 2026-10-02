@@ -1,5 +1,5 @@
-import { mkdtemp, rm } from 'node:fs/promises';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtemp } from 'node:fs/promises';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -35,6 +35,7 @@ import {
 import { emitGateEvent, SKIPPED_BY_POLICY } from '../../../../src/verbs/gates/gate-utils.js';
 import { seedActivePhaseAttempt, withTrustedCaller } from '../../../../tools/test-helpers/trusted-context.js';
 import { dispatch, type DispatchContext as HandlerContext } from '../../../../src/dispatch/core/dispatch.js';
+import { rmrf, rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 const FIXED_TIME = '2026-07-21T22:30:00.000Z';
 const POLICY_DIGEST: ContentDigestV1 = {
@@ -131,7 +132,7 @@ describe('canonical evidence-producing gate runner', () => {
 
   afterEach(async () => {
     eventStore.close();
-    await rm(root, { recursive: true, force: true });
+    await rmrfAsync(root);
   });
 
   it('GateRunner_Success_PersistsBeforeReturningCompatibleCarrier', async () => {
@@ -432,7 +433,7 @@ describe('DR-1 gate-executed signal ownership', () => {
 
   afterEach(async () => {
     eventStore.close();
-    await rm(root, { recursive: true, force: true });
+    await rmrfAsync(root);
   });
 
   it('GateRunner_PassingTaskGate_EmitsTaskScopedGateExecutedSignal', async () => {
@@ -661,7 +662,7 @@ describe('DR-1 acceptance: check_static_analysis → task_complete', () => {
    */
   function nodeRepo(prefix: string, exitCode: number): string {
     const repoRoot = mkdtempSync(join(tmpdir(), prefix));
-    cleanups.push(() => rmSync(repoRoot, { recursive: true, force: true }));
+    cleanups.push(() => rmrf(repoRoot));
     writeFileSync(
       join(repoRoot, 'package.json'),
       JSON.stringify(
@@ -690,7 +691,7 @@ describe('DR-1 acceptance: check_static_analysis → task_complete', () => {
 
   async function startedWorkflow(featureId: string): Promise<HandlerContext> {
     const stateDir = mkdtempSync(join(tmpdir(), 'dr1-accept-state-'));
-    cleanups.push(() => rmSync(stateDir, { recursive: true, force: true }));
+    cleanups.push(() => rmrf(stateDir));
     const eventStore = new EventStore(stateDir);
     await eventStore.initialize();
     stores.push(eventStore);

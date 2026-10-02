@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { mkdtempSync, readdirSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
@@ -20,6 +20,7 @@ import {
   type ResolvedInjectionChannel,
 } from '../../../../src/runtime/launcher/injection-seam.js';
 import { HARNESS_DESCRIPTORS } from '../../../../src/runtime/launcher/harness-registry.js';
+import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 /** Recursively list every file path under `dir` (empty when the dir is empty). */
 function listFilesDeep(dir: string): string[] {
@@ -41,7 +42,7 @@ describe('injection-seam (DR-7)', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
-    rmSync(repoDir, { recursive: true, force: true });
+    rmrf(repoDir);
   });
 
   it('Injection_Payload_NoRepoWrite', () => {

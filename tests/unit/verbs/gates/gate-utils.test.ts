@@ -27,6 +27,7 @@ import {
 } from '../../../../src/workflow/verification-policy.js';
 import { classifyTask } from '../../../../src/verbs/team/prepare-delegation.js';
 import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
+import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 describe('emitGateEvent', () => {
   // ─── Test 1: Valid input appends gate.executed event ─────────────────────
@@ -490,7 +491,7 @@ describe('getDiff', () => {
       expect(diff!.length).toBeGreaterThan(1024 * 1024);
       expect(diff).toContain('big.txt');
     } finally {
-      fs.rmSync(root, { recursive: true, force: true });
+      rmrf(root);
     }
   });
 
@@ -502,7 +503,7 @@ describe('getDiff', () => {
     try {
       expect(getDiff(root, 'no-such-base-ref')).toBeNull();
     } finally {
-      fs.rmSync(root, { recursive: true, force: true });
+      rmrf(root);
     }
   });
 });

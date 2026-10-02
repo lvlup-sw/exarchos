@@ -1,9 +1,10 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { tmpdir } from 'node:os';
-import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { RunStateManager } from './run-state.js';
 import type { ArmResult } from './types.js';
+import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 function makeTmpDir(): string {
   return mkdtempSync(join(tmpdir(), 'run-state-test-'));
@@ -32,7 +33,7 @@ describe('RunStateManager', () => {
 
   afterEach(() => {
     if (tmpDir && existsSync(tmpDir)) {
-      rmSync(tmpDir, { recursive: true });
+      rmrf(tmpDir);
     }
   });
 

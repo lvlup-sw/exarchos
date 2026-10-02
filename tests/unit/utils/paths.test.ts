@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileAsync } from '../../../tools/test-helpers/spawn.js';
 import { expandTilde, isClaudeCodePlugin, resolveStateDir, resolveTeamsDir, resolveTasksDir, resolveCacheDir, deriveRepoKey, resetRepoKeyMemo, resolveStorePath, computeStorePathDivergence, STORE_DB_FILENAME } from '../../../src/utils/paths.js';
+import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 describe('expandTilde', () => {
   afterEach(() => {
@@ -268,8 +269,8 @@ describe('deriveRepoKey', () => {
       expect(worktreeKey).toMatch(/^(\/|[A-Za-z]:\/)/);
       expect(worktreeKey).not.toContain('\\');
     } finally {
-      fs.rmSync(mainRoot, { recursive: true, force: true });
-      fs.rmSync(wtParent, { recursive: true, force: true });
+      rmrf(mainRoot);
+      rmrf(wtParent);
     }
   }, 20000);
 
@@ -284,7 +285,7 @@ describe('deriveRepoKey', () => {
       expect(key).toBe(fs.realpathSync.native(nonGit).replace(/\\/g, '/'));
       expect(key).not.toContain('\\');
     } finally {
-      fs.rmSync(nonGit, { recursive: true, force: true });
+      rmrf(nonGit);
     }
   }, 20000);
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { fc } from '@fast-check/vitest';
-import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
+import { mkdtemp, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import type { WorkflowEvent } from '../../../src/events/schemas.js';
@@ -1177,7 +1177,7 @@ describe('SqliteBackend Startup Corruption (T10)', () => {
   });
 
   afterEach(async () => {
-    await rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   it('SqliteBackend_StartupCorruptDb_StructuredErrorNoAutoRebuild', async () => {

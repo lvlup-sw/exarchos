@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'node:path';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import {
   handleViewShepherdStatus,
@@ -11,6 +11,7 @@ import {
 import { handleView } from '../../../src/projections/views/composite.js';
 import type { DispatchContext } from '../../../src/dispatch/core/dispatch.js';
 import { EventStore } from '../../../src/events/store.js';
+import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 function makeCtx(stateDir: string): DispatchContext {
   return { stateDir, eventStore: new EventStore(stateDir), enableTelemetry: false };
@@ -30,7 +31,7 @@ afterEach(async () => {
   resetMaterializerCache();
   vi.restoreAllMocks();
   if (tempDir) {
-    await rm(tempDir, { recursive: true, force: true });
+    await rmrfAsync(tempDir);
     tempDir = undefined;
   }
 });

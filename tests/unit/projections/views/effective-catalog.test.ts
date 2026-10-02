@@ -5,6 +5,7 @@ import path from 'node:path';
 import { handleViewInvariantsEffective } from '../../../../src/projections/views/effective-catalog.js';
 import { resolveEffectiveCatalog } from '../../../../src/architecture/resolve-effective-catalog.js';
 import { loadExarchosConfig } from '../../../../src/config/load-exarchos-config.js';
+import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 /**
  * Build a repo fixture with a committed `.exarchos.yml` (a registered user
@@ -85,7 +86,7 @@ function makeRepoFixture(): { repoRoot: string; cleanup: () => void } {
 
   return {
     repoRoot,
-    cleanup: () => fs.rmSync(repoRoot, { recursive: true, force: true }),
+    cleanup: () => rmrf(repoRoot),
   };
 }
 

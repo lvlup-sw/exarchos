@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 
 import { detectV1Install, migrateV1, getV1RepoPath } from '../../../../src/install/operations/migration.js';
+import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 describe('V1 Migration', () => {
   let tmpDir: string;
@@ -25,7 +26,7 @@ describe('V1 Migration', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    rmrf(tmpDir);
   });
 
   describe('detectV1Install', () => {

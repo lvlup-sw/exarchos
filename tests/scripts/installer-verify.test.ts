@@ -44,6 +44,7 @@ import {
   type ReleaseFixture,
   type ReleaseFixtureOptions,
 } from '../../tools/audit/test-fixtures/release-fixture.js';
+import { rmrf } from '../../tools/test-helpers/temp-dir.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, '../..');
@@ -325,7 +326,7 @@ function runShInstaller(run: InstallerRun): Promise<RunResult> {
   if (run.allowModifiedSource === true) args.push('--allow-modified-source');
 
   return runAsync(BASH, args, env).finally(() => {
-    rmSync(preludeDir, { recursive: true, force: true });
+    rmrf(preludeDir);
   });
 }
 
@@ -457,7 +458,7 @@ beforeAll(async () => {
 afterAll(async () => {
   for (const origin of origins) await origin.close();
   origins = [];
-  if (scratch !== undefined) rmSync(scratch, { recursive: true, force: true });
+  if (scratch !== undefined) rmrf(scratch);
 });
 
 // ─── Suite ───────────────────────────────────────────────────────────────────

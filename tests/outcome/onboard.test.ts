@@ -35,6 +35,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileAsync, SpawnFailure } from '../../tools/test-helpers/spawn.js';
+import { rmrf } from '../../tools/test-helpers/temp-dir.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -148,7 +149,7 @@ describe('onboard outcome', () => {
           'idempotent re-run must leave exactly one SubagentStop binding (DR-8).',
         ).toBe(1);
       } finally {
-        fs.rmSync(repo, { recursive: true, force: true });
+        rmrf(repo);
       }
     });
   });

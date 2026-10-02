@@ -31,6 +31,7 @@ import {
   type DispatchContext,
 } from '../../src/dispatch/core/dispatch.js';
 import { EventSourcedTaskStore } from '../../src/projections/task-store/event-sourced-task-store.js';
+import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 
 async function mktemp(label: string): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), `outcome-1273-${label}-`));
@@ -142,7 +143,7 @@ describe('Tasks dispatch-core lifecycle (#1273 / T29)', () => {
       expect(opByType.has('task.polled')).toBe(true);
     } finally {
       restore();
-      await fs.rm(stateDir, { recursive: true, force: true, maxRetries: 3 });
+      await rmrfAsync(stateDir);
     }
   });
 });

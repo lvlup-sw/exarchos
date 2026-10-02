@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -9,6 +9,7 @@ import {
   resolveVerificationRuntime,
 } from '../../../../../src/config/test-runtime-resolver.js';
 import { DesiredStateSchema } from '../../../../../src/dispatch/core/onboarding/types.js';
+import { rmrf } from '../../../../../tools/test-helpers/temp-dir.js';
 
 /**
  * DR-1 / INV-6: `detectDesiredState` must derive `commands` PURELY from the
@@ -30,7 +31,7 @@ describe('DetectDesiredState_DerivesCommands_FromLayeredResolver', () => {
   });
 
   afterEach(() => {
-    rmSync(dir, { recursive: true, force: true });
+    rmrf(dir);
   });
 
   it('derives test/typecheck/install from the layered resolver for a node repo', async () => {
@@ -99,7 +100,7 @@ describe('DetectDesiredState_DerivesCommands_FromLayeredResolver', () => {
       mkdirSync(join(gitDir, '.git'));
       expect((await detectDesiredState(gitDir, { detectRuntimes: async () => [] })).vcs).toBe('git');
     } finally {
-      rmSync(gitDir, { recursive: true, force: true });
+      rmrf(gitDir);
     }
   });
 

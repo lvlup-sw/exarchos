@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -11,6 +11,7 @@ import {
   type Toolchain,
   type HermeticDependencyClass,
 } from '../../../src/config/toolchains.js';
+import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 let dir: string;
 
@@ -18,7 +19,7 @@ beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'toolchains-'));
 });
 afterEach(() => {
-  rmSync(dir, { recursive: true, force: true });
+  rmrf(dir);
 });
 
 function touch(name: string): void {

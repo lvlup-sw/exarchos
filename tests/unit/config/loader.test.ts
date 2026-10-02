@@ -3,6 +3,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { loadConfig } from '../../../src/config/loader.js';
+import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 describe('loadConfig', () => {
   let tmpDir: string;
@@ -12,7 +13,7 @@ describe('loadConfig', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   it('LoadConfig_NoConfigFile_ReturnsEmptyObject', async () => {

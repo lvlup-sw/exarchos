@@ -7,13 +7,14 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
 import type { ResolvedVerificationRuntime } from '../../../../src/config/test-runtime-resolver.js';
 import { loadExarchosConfig } from '../../../../src/config/load-exarchos-config.js';
 import { seedExarchosConfig } from '../../../../src/verbs/init/seed-exarchos-config.js';
+import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 // The seeder resolves the WIDENED verification field set (§4.5-seed): the legacy
 // test/typecheck/install PLUS mutation/lint/contract. These stubs mirror the
@@ -319,7 +320,7 @@ describe('seedExarchosConfig', () => {
       expect(load!.config.mutation).toBe('npx stryker run');
       expect(load!.config.lint).toBe('eslint .');
     } finally {
-      await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+      await rmrfAsync(tempDir).catch(() => {});
     }
   });
 });

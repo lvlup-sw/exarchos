@@ -16,6 +16,7 @@ import {
   scratchNameFor,
   sweepOrphanInstallIdentityDirs,
 } from './hermetic-install-identity.js';
+import { rmrf } from '../../tools/test-helpers/temp-dir.js';
 
 describe('hermetic install identity scratch directory', () => {
   it('InstallIdentityScratch_IsKeyedOnThisRunsHostProcessAndRunId', () => {
@@ -69,7 +70,7 @@ describe('hermetic install identity scratch directory', () => {
         'a non-numeric suffix was parsed as a pid and swept',
       ).toBe(true);
     } finally {
-      fs.rmSync(tmp, { recursive: true, force: true });
+      rmrf(tmp);
     }
   });
 
@@ -95,7 +96,7 @@ describe('hermetic install identity scratch directory', () => {
       expect(removed.sort()).toEqual([earlier, barePid].sort());
       expect(fs.existsSync(path.join(tmp, ours)), 'the current run\'s directory was swept').toBe(true);
     } finally {
-      fs.rmSync(tmp, { recursive: true, force: true });
+      rmrf(tmp);
     }
   });
 });

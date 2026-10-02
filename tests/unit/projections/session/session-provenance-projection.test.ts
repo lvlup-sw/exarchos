@@ -7,6 +7,7 @@ import type {
   SessionTurnEvent,
   SessionSummaryEvent,
 } from '../../../../src/projections/session/types.js';
+import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 describe('Session Provenance Projection', () => {
   let tmpDir: string;
@@ -17,7 +18,7 @@ describe('Session Provenance Projection', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true });
+    await rmrfAsync(tmpDir);
   });
 
   /** Write events to a session JSONL file */

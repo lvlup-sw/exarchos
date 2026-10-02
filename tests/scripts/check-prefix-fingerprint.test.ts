@@ -18,16 +18,11 @@
  * itself is covered by `fingerprint.test.ts`.
  */
 import { describe, it, expect } from 'vitest';
-import {
-  mkdtempSync,
-  rmSync,
-  writeFileSync,
-  readFileSync,
-  existsSync,
-} from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { rmrf } from '../../tools/test-helpers/temp-dir.js';
 
 import { spawnAsync } from '../../tools/test-helpers/spawn.js';
 
@@ -103,7 +98,7 @@ describe('check-prefix-fingerprint CLI (T047, DR-12)', () => {
       expect(stderr).toMatch(/actual/i);
       expect(stderr).toMatch(/0{64}/u);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmrf(dir);
     }
   });
 

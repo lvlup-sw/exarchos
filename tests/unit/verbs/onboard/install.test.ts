@@ -60,7 +60,7 @@ import {
   hashSkillDirContent,
   hashSkillMdContent,
 } from '../../../../src/install/install-skills.js';
-import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
+import { rmrfAsync, rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -442,7 +442,7 @@ describe('onboardMigrate (DR-3/DR-8 — stale old-name skill dir reconcile)', ()
       // The stale dir is gone from disk.
       expect(nodeFs.existsSync(staleDir)).toBe(false);
     } finally {
-      nodeFs.rmSync(fx.base, { recursive: true, force: true });
+      rmrf(fx.base);
     }
   });
 
@@ -468,7 +468,7 @@ describe('onboardMigrate (DR-3/DR-8 — stale old-name skill dir reconcile)', ()
       expect(result.removed.find((r) => r.path === staleDir)?.via).toBe('legacy-hash');
       expect(nodeFs.existsSync(staleDir)).toBe(false);
     } finally {
-      nodeFs.rmSync(fx.base, { recursive: true, force: true });
+      rmrf(fx.base);
     }
   });
 
@@ -494,7 +494,7 @@ describe('onboardMigrate (DR-3/DR-8 — stale old-name skill dir reconcile)', ()
       expect(result.removed.find((r) => r.path === staleDir)?.via).toBe('legacy-hash');
       expect(nodeFs.existsSync(staleDir)).toBe(false);
     } finally {
-      nodeFs.rmSync(fx.base, { recursive: true, force: true });
+      rmrf(fx.base);
     }
   });
 
@@ -528,7 +528,7 @@ describe('onboardMigrate (DR-3/DR-8 — stale old-name skill dir reconcile)', ()
       // …but the symlink TARGET (never followed for removal) survives intact.
       expect(nodeFs.existsSync(path.join(targetDir, 'SKILL.md'))).toBe(true);
     } finally {
-      nodeFs.rmSync(fx.base, { recursive: true, force: true });
+      rmrf(fx.base);
     }
   });
 
@@ -562,7 +562,7 @@ describe('onboardMigrate (DR-3/DR-8 — stale old-name skill dir reconcile)', ()
       expect(result.warnings).toHaveLength(1);
       expect(result.warnings[0]).toContain(staleDir);
     } finally {
-      nodeFs.rmSync(fx.base, { recursive: true, force: true });
+      rmrf(fx.base);
     }
   });
 
@@ -602,7 +602,7 @@ describe('onboardMigrate (DR-3/DR-8 — stale old-name skill dir reconcile)', ()
       expect(nodeFs.existsSync(matchedDir)).toBe(false);
       expect(nodeFs.readFileSync(path.join(modifiedDir, 'SKILL.md'))).toEqual(modifiedBytes);
     } finally {
-      nodeFs.rmSync(fx.base, { recursive: true, force: true });
+      rmrf(fx.base);
     }
   });
 
@@ -629,7 +629,7 @@ describe('onboardMigrate (DR-3/DR-8 — stale old-name skill dir reconcile)', ()
       expect(result.preserved).toEqual([]);
       expect(nodeFs.existsSync(liveDir)).toBe(true);
     } finally {
-      nodeFs.rmSync(fx.base, { recursive: true, force: true });
+      rmrf(fx.base);
     }
   });
 
@@ -648,7 +648,7 @@ describe('onboardMigrate (DR-3/DR-8 — stale old-name skill dir reconcile)', ()
       expect(hashInstalledSkillDir(dir)).toBe(hashSkillDirContent(dir));
       expect(hashInstalledSkillMd(dir)).toBe(hashSkillMdContent('# delegation\r\nline\r\n'));
     } finally {
-      nodeFs.rmSync(base, { recursive: true, force: true });
+      rmrf(base);
     }
   });
 });

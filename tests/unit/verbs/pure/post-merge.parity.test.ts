@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { checkPostMerge } from '../../../../src/verbs/pure/post-merge.js';
 import type { CommandResult } from '../../../../src/verbs/pure/post-merge.js';
 import type { VcsProvider, CiStatus } from '../../../../src/vcs/provider.js';
+import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 /**
  * Behavioral parity tests for post-merge.ts against the original
@@ -55,7 +56,7 @@ describe('behavioral parity with check-post-merge.sh', () => {
   });
 
   afterAll(() => {
-    rmSync(nodeRepo, { recursive: true, force: true });
+    rmrf(nodeRepo);
   });
 
   it('all pass — CI green + tests pass yields PASS (2/2)', async () => {

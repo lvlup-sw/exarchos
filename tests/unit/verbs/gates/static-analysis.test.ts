@@ -61,6 +61,7 @@ vi.mock('../../../../src/projections/views/tools.js', () => ({
 }));
 
 import { handleStaticAnalysis } from '../../../../src/verbs/gates/static-analysis.js';
+import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 const STATE_DIR = '/tmp/test-static-analysis';
 
@@ -474,7 +475,7 @@ describe('runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)', ()
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    rmrf(tmpDir);
   });
 
   /**
@@ -635,7 +636,7 @@ describe('runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)', ()
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    rmrf(tmpDir);
   });
 
   /**
@@ -888,7 +889,7 @@ describe('DR-6 — a skipped constituent renders DEGRADED, never PASS', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    rmrf(tmpDir);
   });
 
   /** A Node fixture declaring exactly the npm scripts given. */

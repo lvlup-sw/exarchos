@@ -44,6 +44,7 @@ import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js'
 import { dispatch, stubCompositeHandler } from '../../../../src/dispatch/core/dispatch.js';
 import { deriveLocalOperatorIdentity } from '../../../../src/dispatch/caller-identity.js';
 import { EventStore } from '../../../../src/events/store.js';
+import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 describe('shared-mutating posture gate — removed (INV-11)', () => {
   let tmpDir: string;
@@ -62,7 +63,7 @@ describe('shared-mutating posture gate — removed (INV-11)', () => {
 
   afterEach(async () => {
     eventStore.close();
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   it('SharedMutatingGate_IsNotExported_SoItCannotBeRewired', () => {

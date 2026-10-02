@@ -26,7 +26,7 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, chmodSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, chmodSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
@@ -35,6 +35,7 @@ import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js'
 import { handleOrchestrate } from '../../../../src/verbs/composite.js';
 import { runAsTrustedCaller, seedActivePhaseAttempt, withTrustedCaller } from '../../../../tools/test-helpers/trusted-context.js';
 import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
+import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 // ─── git fixture helpers ─────────────────────────────────────────────────────
 
@@ -164,7 +165,7 @@ describe('check_contract_drift acceptance (through handleOrchestrate)', () => {
     branch: string,
   ): Promise<{ success: boolean; data: ContractDriftData }> {
     const stateDir = mkdtempSync(path.join(os.tmpdir(), 'contract-drift-state-'));
-    cleanups.push(() => rmSync(stateDir, { recursive: true, force: true }));
+    cleanups.push(() => rmrf(stateDir));
     const eventStore = new EventStore(stateDir);
     await eventStore.initialize();
     const ctx = makeCtx(stateDir, eventStore);
@@ -186,7 +187,7 @@ describe('check_contract_drift acceptance (through handleOrchestrate)', () => {
     'HandleOrchestrate_CheckContractDrift_BreakingSchemaDiff_Fails',
     async () => {
       const repoRoot = await initRepo('contract-drift-breaking-');
-      cleanups.push(() => rmSync(repoRoot, { recursive: true, force: true }));
+      cleanups.push(() => rmrf(repoRoot));
       await writeBaseProject(repoRoot, { wireContract: true, typecheck: 'true' });
 
       // Branch: edit the schema in a way the diff stub flags as breaking.
@@ -214,7 +215,7 @@ describe('check_contract_drift acceptance (through handleOrchestrate)', () => {
     'HandleOrchestrate_CheckContractDrift_CleanRegenAndTypecheck_Passes',
     async () => {
       const repoRoot = await initRepo('contract-drift-clean-');
-      cleanups.push(() => rmSync(repoRoot, { recursive: true, force: true }));
+      cleanups.push(() => rmrf(repoRoot));
       await writeBaseProject(repoRoot, { wireContract: true, typecheck: 'true' });
 
       // Branch: a non-breaking schema edit (no sentinel marker).
@@ -240,7 +241,7 @@ describe('check_contract_drift acceptance (through handleOrchestrate)', () => {
     'HandleOrchestrate_CheckContractDrift_NoToolResolves_SkippedAdvisory',
     async () => {
       const repoRoot = await initRepo('contract-drift-skip-');
-      cleanups.push(() => rmSync(repoRoot, { recursive: true, force: true }));
+      cleanups.push(() => rmrf(repoRoot));
       // No contract commands wired → the gate cannot resolve a tool.
       await writeBaseProject(repoRoot, { wireContract: false, typecheck: 'true' });
 

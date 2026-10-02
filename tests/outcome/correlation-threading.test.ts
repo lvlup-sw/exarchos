@@ -18,6 +18,7 @@ import * as path from 'node:path';
 
 import { EventStore } from '../../src/events/store.js';
 import { dispatch } from '../../src/dispatch/core/dispatch.js';
+import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 
 const tempDirs: string[] = [];
 
@@ -34,7 +35,7 @@ describe('Three-field correlation threading at dispatch boundary (#1291)', () =>
     // the teardown.
     while (tempDirs.length > 0) {
       const dir = tempDirs.pop()!;
-      await fs.rm(dir, { recursive: true, force: true, maxRetries: 3 });
+      await rmrfAsync(dir);
     }
   });
 

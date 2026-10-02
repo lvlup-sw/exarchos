@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   mkdtempSync,
-  rmSync,
   writeFileSync,
   chmodSync,
   existsSync,
@@ -9,6 +8,7 @@ import {
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { rmrf } from '../test-helpers/temp-dir.js';
 
 import { spawnAsync, type SpawnResult } from '../test-helpers/spawn.js';
 
@@ -62,7 +62,7 @@ describe('pre-push ship-gate hook (DR-5, #1597)', () => {
   });
 
   afterEach(() => {
-    rmSync(binDir, { recursive: true, force: true });
+    rmrf(binDir);
   });
 
   it('HookSample_Exists', () => {

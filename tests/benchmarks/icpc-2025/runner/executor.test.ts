@@ -4,8 +4,9 @@ import type { ProblemDefinition, ArmConfig } from './types.js';
 import { EventEmitter } from 'node:events';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 function makeProblem(overrides?: Partial<ProblemDefinition>): ProblemDefinition {
   return {
@@ -85,7 +86,7 @@ describe('executor', () => {
   });
 
   afterEach(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
+    rmrf(tmpDir);
   });
 
   it('spawnSession_VanillaArm_DisablesMcpInEnvironment', async () => {

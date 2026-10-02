@@ -16,6 +16,7 @@ import * as atomicWrite from '../../../src/utils/atomic-write.js';
 import { resolveCacheDir } from '../../../src/utils/paths.js';
 import { InstallIdentitySchema } from '../../../src/install/install-identity.js';
 import { SCHEMA_VERSION } from '../../../src/storage/sqlite-backend.js';
+import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 // Spy-wrap (real implementations retained) so the torn-write regression below
 // can assert the DEFAULT lock write routes through the atomic publish.
@@ -245,7 +246,7 @@ describe('recorded install-identity lock', () => {
       expect(fs.readdirSync(installDir)).toEqual([path.basename(lockPath)]);
     } finally {
       vi.clearAllMocks();
-      fs.rmSync(installDir, { recursive: true, force: true });
+      rmrf(installDir);
     }
   });
 });

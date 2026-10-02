@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
-import { mkdtemp, rm, readFile, readdir } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { PIPELINE_VIEW, PIPELINE_SNAPSHOT_NAME } from '../../../../src/projections/views/pipeline-view.js';
 import { EVENT_SCHEMA_VERSION } from '../../../../src/events/event-migration.js';
+import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 // Track writeFile and rename calls from inside snapshot-store
 const writeFileCalls: { path: string; data: string }[] = [];
@@ -44,7 +45,7 @@ describe('SnapshotStore atomic writes', () => {
   });
 
   afterEach(async () => {
-    await rm(tempDir, { recursive: true, force: true });
+    await rmrfAsync(tempDir);
   });
 
   it('snapshotSave_CrashDuringWrite_DoesNotCorruptExistingSnapshot', async () => {
@@ -116,7 +117,7 @@ describe('SnapshotStore pipeline v2 lineage', () => {
   });
 
   afterEach(async () => {
-    await rm(tempDir, { recursive: true, force: true });
+    await rmrfAsync(tempDir);
   });
 
   it('PipelineSnapshot_V1LineageFile_IgnoredAndFullyRefolded', async () => {

@@ -7,6 +7,7 @@ import { discoverSuites, runSuite, runAll, type DiscoveredSuite } from './harnes
 import { createDefaultRegistry, GraderRegistry } from './graders/index.js';
 import type { EvalSuiteConfig, EvalCase } from './types.js';
 import { JudgeCalibratedDataSchema } from '../../../src/events/schemas.js';
+import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Resolve the repo-root evals/ directory (tools/evals/evals -> ../../../../evals)
@@ -84,7 +85,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tmpDir, { recursive: true, force: true });
+  await rmrfAsync(tmpDir);
 });
 
 // ─── discoverSuites ─────────────────────────────────────────────────────────

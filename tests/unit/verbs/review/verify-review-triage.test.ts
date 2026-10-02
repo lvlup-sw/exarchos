@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os';
 import * as nodePath from 'node:path';
 import { handleVerifyReviewTriage } from '../../../../src/verbs/review/verify-review-triage.js';
 import { EventStore } from '../../../../src/events/store.js';
+import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 const mockExistsSync = vi.mocked(existsSync);
 const mockReadFileSync = vi.mocked(readFileSync);
@@ -298,7 +299,7 @@ describe('handleVerifyReviewTriage', () => {
     const result = await handleVerifyReviewTriage({ featureId, eventStore });
 
     eventStore.close();
-    await fsPromises.rm(eventStoreDir, { recursive: true, force: true });
+    await rmrfAsync(eventStoreDir);
 
     // Must NOT fail with INVALID_INPUT / FILE_NOT_FOUND.
     expect(result.success).toBe(true);

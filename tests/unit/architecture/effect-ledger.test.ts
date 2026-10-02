@@ -1,5 +1,5 @@
 import { describe, it, expect, afterAll } from 'vitest';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -33,6 +33,7 @@ import {
   supersededMaskNonCode,
 } from '../../../tools/test-helpers/superseded-source-lexer.js';
 import { listTrackedFiles, trackedFilesMissedBy } from '../../../tools/test-helpers/tracked-population.js';
+import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 const SRC_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../../src');
 /** The repository root — `src/` is one level down from it. */
@@ -258,7 +259,7 @@ describe('DR-13 kill — the widened detector sees evaded network clients', () =
   };
 
   afterAll(async () => {
-    await Promise.all(roots.map((r) => rm(r, { recursive: true, force: true })));
+    await Promise.all(roots.map((r) => rmrfAsync(r)));
   });
 
   it('CONTROL — an owner-only tree is GREEN (so redness below is caused by the plant)', async () => {

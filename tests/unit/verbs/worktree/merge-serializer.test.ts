@@ -11,7 +11,7 @@
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, readdirSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { EventStore } from '../../../../src/events/store.js';
 import { EVENT_DATA_SCHEMAS } from '../../../../src/events/schemas.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
-import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
+import { rmrfAsync, rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 import { writeStateFile } from '../../../../src/workflow/state-store.js';
 import type { ToolResult } from '../../../../src/format.js';
@@ -70,7 +70,7 @@ afterEach(async () => {
   }
   while (repoDirs.length > 0) {
     const dir = repoDirs.pop();
-    if (dir) rmSync(dir, { recursive: true, force: true });
+    if (dir) rmrf(dir);
   }
 });
 

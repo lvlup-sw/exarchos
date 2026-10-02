@@ -17,6 +17,7 @@ import * as path from 'node:path';
 import { EventStore } from '../../../src/events/store.js';
 import { AtomicAppender } from '../../../src/events/atomic-appender.js';
 import { createGateExecutedEvent } from '../../../tools/evals/benchmarks/event-factories.js';
+import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
@@ -25,7 +26,7 @@ function createTempDir(): string {
 }
 
 function cleanupDir(dir: string): void {
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmrf(dir);
 }
 
 /**

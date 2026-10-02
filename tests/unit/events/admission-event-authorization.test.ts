@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { fc } from '@fast-check/vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
@@ -21,6 +21,7 @@ import {
   AdmissionDisagreementDispositionActionSchema,
   handleAdmissionDisagreementDisposition,
 } from '../../../src/events/tools.js';
+import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 const STREAM = 'phase-gate-v212-proof-substrate';
 const FIXED_TIME = '2026-07-21T21:00:00.000Z';
@@ -61,7 +62,7 @@ describe('reserved admission event authorization (DR-3)', () => {
 
   afterEach(async () => {
     eventStore.close();
-    await rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   it('AdmissionEventAppend_UntrustedCaller_IsRejected', async () => {

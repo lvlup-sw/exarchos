@@ -18,6 +18,7 @@ import { handleInit } from '../../src/workflow/tools.js';
 import { dispatch } from '../../src/dispatch/core/dispatch.js';
 import { createInMemoryResolver } from '../../src/workflow/capabilities/resolver.js';
 import type { RootsClient } from '../../src/runtime/workspace/discovery.js';
+import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 
 async function mktemp(label: string): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), `outcome-1290-${label}-`));
@@ -96,7 +97,7 @@ describe('Roots-based dispatch boundary discovery (#1290)', () => {
       expect(resolved).toBeDefined();
       expect((resolved!.data as { source?: string }).source).toBe('roots');
     } finally {
-      await fs.rm(workspace, { recursive: true, force: true, maxRetries: 3 });
+      await rmrfAsync(workspace);
     }
   });
 });

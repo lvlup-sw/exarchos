@@ -11,6 +11,7 @@ import {
   EXIT_USAGE,
 } from '../../../tools/audit/manifest-gate-ci.mjs';
 import { spawnAsync } from '../../../tools/test-helpers/spawn.js';
+import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 const SRC = 'src';
 
@@ -68,7 +69,7 @@ describe('manifest-gate-ci (temp-git fixtures)', () => {
     await git('config', 'user.name', 'gate');
     await git('config', 'commit.gpgsign', 'false');
   });
-  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+  afterEach(() => rmrf(dir));
 
   const runGate = (base: string) => {
     const out: string[] = [];

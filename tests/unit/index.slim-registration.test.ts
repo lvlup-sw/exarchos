@@ -34,6 +34,7 @@ import {
 import { createServer } from '../../src/index.js';
 import { estimateTokens } from '../../tools/conformance/src/description-budget.js';
 import { TOOL_REGISTRY } from '../../src/registry.js';
+import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 
 // The DR-6 acceptance ceiling for the serialized registration descriptions.
 const SLIM_REGISTRATION_TOKEN_BUDGET = 3_800;
@@ -96,7 +97,7 @@ async function bootProductionClient(): Promise<V2Client> {
     } catch {
       /* ignore */
     }
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
   return client;
 }

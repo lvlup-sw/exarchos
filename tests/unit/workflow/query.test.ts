@@ -9,6 +9,7 @@ import { InMemoryBackend } from '../../../src/storage/memory-backend.js';
 import type { EventStore } from '../../../src/events/store.js';
 import type { WorkflowEvent } from '../../../src/events/schemas.js';
 import type { QueryFilters } from '../../../src/events/store.js';
+import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 // ─── Minimal EventStore mock ──────────────────────────────────────────────
 
@@ -219,7 +220,7 @@ describe('handleReconcile', () => {
 
   afterEach(async () => {
     configureStateStoreBackend(undefined);
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   it('handleReconcile_ValidWorktrees_ReportsAccessible', async () => {
@@ -416,7 +417,7 @@ describe('HandleQuery edge cases', () => {
 
   afterEach(async () => {
     configureStateStoreBackend(undefined);
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   // (Removed HandleQuery_StateStoreNonNotFoundError_Rethrows: both handleSummary

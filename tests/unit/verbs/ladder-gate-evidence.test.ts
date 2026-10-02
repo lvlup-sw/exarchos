@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -106,6 +106,7 @@ import { handleContractDrift } from '../../../src/verbs/gates/contract-drift-han
 import { handleMockBoundary } from '../../../src/verbs/gates/mock-boundary-handler.js';
 import { handleStaticAnalysis } from '../../../src/verbs/gates/static-analysis.js';
 import { handleTestAdequacy } from '../../../src/verbs/gates/test-adequacy-handler.js';
+import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 type GateName =
   | 'static-analysis'
@@ -207,7 +208,7 @@ describe('migrated ladder gate durable evidence', () => {
 
   afterEach(async () => {
     await Promise.all(
-      roots.splice(0).map((path) => rm(path, { recursive: true, force: true })),
+      roots.splice(0).map((path) => rmrfAsync(path)),
     );
   });
 

@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 import { execFileAsync } from '../../../tools/test-helpers/spawn.js';
 
@@ -54,7 +55,7 @@ export async function withTmpGit<T>(fn: (repoPath: string) => Promise<T>): Promi
         );
       }
       try {
-        fs.rmSync(sib, { recursive: true, force: true });
+        rmrf(sib);
       } catch (error) {
         process.stderr.write(
           `[withTmpGit] rmSync failed for sibling ${sib}: ${(error as Error).message}\n`,
@@ -63,7 +64,7 @@ export async function withTmpGit<T>(fn: (repoPath: string) => Promise<T>): Promi
     }
     SIBLING_REGISTRY.delete(repo);
     try {
-      fs.rmSync(repo, { recursive: true, force: true });
+      rmrf(repo);
     } catch (error) {
       process.stderr.write(
         `[withTmpGit] rmSync failed for repo ${repo}: ${(error as Error).message}\n`,

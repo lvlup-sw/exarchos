@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,6 +19,7 @@ import {
   witnessRunnerDurability,
   type OwnershipCensusModel,
 } from '../../../../src/verbs/gates/gate-ownership-census.js';
+import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 const EVIDENCE_TYPE = ADMISSION_EVENT_TYPES.EVIDENCE_RECORDED;
 const SRC_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../../../src');
@@ -384,7 +385,7 @@ describe('real evidence emitter scan', () => {
         }),
       );
     } finally {
-      await rm(root, { recursive: true, force: true });
+      await rmrfAsync(root);
     }
   });
 
@@ -417,7 +418,7 @@ describe('real evidence emitter scan', () => {
         }),
       );
     } finally {
-      await rm(root, { recursive: true, force: true });
+      await rmrfAsync(root);
     }
   });
 });

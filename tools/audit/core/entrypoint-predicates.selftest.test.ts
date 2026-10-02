@@ -60,13 +60,13 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
-  rmSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { rmrf } from '../../test-helpers/temp-dir.js';
 
 import { spawnAsync } from '../../test-helpers/spawn.js';
 
@@ -387,7 +387,7 @@ beforeAll(async () => {
 
 afterAll(() => {
   const spawned = spawnCount;
-  if (scratchDir.length > 0) rmSync(scratchDir, { recursive: true, force: true });
+  if (scratchDir.length > 0) rmrf(scratchDir);
   // NON-EMPTY DENOMINATOR, second half: a run of this file that started no child
   // process proved nothing about execution, however many green ticks it printed.
   const floor = SITES.length * 3;

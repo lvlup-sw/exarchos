@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
@@ -27,6 +27,7 @@ import {
   getDispatchContext,
   mintDispatchContextFromRequest,
 } from '../../../src/dispatch/dispatch-context.js';
+import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 const FIXED_TIME = '2026-07-21T20:00:00.000Z';
 
@@ -41,7 +42,7 @@ const FIXED_TIME = '2026-07-21T20:00:00.000Z';
  */
 const STATE_DIR = mkdtempSync(join(tmpdir(), 'exarchos-caller-identity-'));
 afterAll(() => {
-  rmSync(STATE_DIR, { recursive: true, force: true });
+  rmrf(STATE_DIR);
 });
 
 describe('trusted caller identity and authorization snapshots', () => {

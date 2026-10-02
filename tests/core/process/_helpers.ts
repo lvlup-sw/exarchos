@@ -54,6 +54,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { isPidAlive } from '../../../src/utils/process.js';
 import { spawnAsync } from '../../../tools/test-helpers/spawn.js';
+import { rmrf, rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 // ─── Repo-root discovery ────────────────────────────────────────────────────
 
@@ -383,7 +384,7 @@ export async function ensureBinaryBuilt(
         fs.renameSync(builtPath, binaryPath);
         return { binaryPath, rebuilt: true };
       } finally {
-        fs.rmSync(outDir, { recursive: true, force: true });
+        rmrf(outDir);
       }
     },
     options.lockOptions,
@@ -425,7 +426,7 @@ export async function openFixture(binaryPath: string, repoRoot: string): Promise
     // dependency, invalid env, etc.). The temp dir we just minted would
     // otherwise leak — clean up before rethrowing so successive test
     // runs don't accumulate `/tmp/exarchos-compiled-test-*` directories.
-    await fsp.rm(stateDir, { recursive: true, force: true }).catch(() => undefined);
+    await rmrfAsync(stateDir).catch(() => undefined);
     throw error;
   }
 }
@@ -437,7 +438,7 @@ export async function closeFixture(fx: Fixture): Promise<void> {
     /* ignore — transport already torn down */
   }
   try {
-    await fsp.rm(fx.stateDir, { recursive: true, force: true });
+    await rmrfAsync(fx.stateDir);
   } catch {
     /* ignore — temp dir may have been cleaned by GC */
   }

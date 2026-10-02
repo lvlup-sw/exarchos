@@ -62,6 +62,7 @@ import { tmpdir } from 'node:os';
 import * as nodePath from 'node:path';
 import { handlePreSynthesisCheck } from '../../../../src/verbs/gates/pre-synthesis-check.js';
 import { EventStore } from '../../../../src/events/store.js';
+import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 // ─── Dispatch wiring the gate needs to record its declared evidence ─────────
 //
@@ -650,7 +651,7 @@ describe('handlePreSynthesisCheck', () => {
     );
 
     eventStore.close();
-    await fsPromises.rm(eventStoreDir, { recursive: true, force: true });
+    await rmrfAsync(eventStoreDir);
 
     // Must NOT fail with INVALID_INPUT / FILE_NOT_FOUND / NO_STATE_SOURCE.
     expect(result.success).toBe(true);
@@ -711,7 +712,7 @@ describe('handlePreSynthesisCheck', () => {
     );
 
     eventStore.close();
-    await fsPromises.rm(eventStoreDir, { recursive: true, force: true });
+    await rmrfAsync(eventStoreDir);
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;

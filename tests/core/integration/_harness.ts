@@ -54,6 +54,7 @@ import {
   classifyErrorLayer,
 } from '../../../tools/conformance/src/parity/__tests__/packaged-proof.js';
 import type { FailureLayer } from '../../../src/contract/error-families.js';
+import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 // ─── The registered surface (single source: the live TOOL_REGISTRY) ─────────
 
@@ -444,7 +445,7 @@ export async function createPublicRootHarness(
         /* already closed — teardown is best-effort */
       }
       for (const dir of [stateDir, workspaceDir]) {
-        await fs.rm(dir, { recursive: true, force: true }).catch(() => undefined);
+        await rmrfAsync(dir).catch(() => undefined);
       }
     },
   };

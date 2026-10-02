@@ -55,6 +55,7 @@ import {
   type TestRunFn,
 } from '../../../src/verbs/gates/test-adequacy.js';
 import type { GitExec } from '../../../src/verbs/pure/execute-merge.js';
+import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = path.resolve(__dirname, '../../../');
@@ -321,7 +322,7 @@ export async function gradeAdequacy(
   } catch (err) {
     return { probed: false, redObserved: false, score: null, discriminant: 'setup-failed', error: err instanceof Error ? err.message : String(err) };
   } finally {
-    fs.rmSync(tmp, { recursive: true, force: true });
+    rmrf(tmp);
   }
 }
 

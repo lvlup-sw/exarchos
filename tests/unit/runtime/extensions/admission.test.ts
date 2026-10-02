@@ -1,5 +1,5 @@
 import { createHash, generateKeyPairSync } from 'node:crypto';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, it, expect, vi } from 'vitest';
@@ -19,6 +19,7 @@ import {
 } from '../../../../src/runtime/extensions/revocation.js';
 import { SIGNATURE_ALGORITHM, TrustRootSet } from '../../../../src/runtime/extensions/trust-root.js';
 import { InMemoryVersionLedger } from '../../../../src/runtime/extensions/version-ledger.js';
+import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────
 
@@ -324,7 +325,7 @@ describe('admitExtension — TOCTOU resistance (P03-08)', () => {
   let dir: string;
 
   afterEach(async () => {
-    if (dir) await rm(dir, { recursive: true, force: true });
+    if (dir) await rmrfAsync(dir);
   });
 
   it('Admit_TOCTOU_MutationAfterVerify_ExecutesVerifiedBytesNotMutated', async () => {

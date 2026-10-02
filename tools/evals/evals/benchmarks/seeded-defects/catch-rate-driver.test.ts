@@ -20,6 +20,7 @@ import {
   type GateDispatch,
 } from './catch-rate-driver.js';
 import { loadSeededCorpus, MECHANICAL_GATE_CLASSES, type SeededFixture } from './corpus.js';
+import { rmrf } from '../../../../test-helpers/temp-dir.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, '../../../../..');
@@ -48,7 +49,7 @@ describe('gate catch-rate driver', () => {
   }, 180_000);
 
   afterAll(() => {
-    if (tmpRoot) fs.rmSync(tmpRoot, { recursive: true, force: true });
+    if (tmpRoot) rmrf(tmpRoot);
   });
 
   it('CatchRateDriver_SeededDefectFixture_RecordsGateFail', () => {
@@ -128,7 +129,7 @@ describe('gate catch-rate driver', () => {
       expect(agg!.invalidCells).toBeGreaterThanOrEqual(1);
       expect(agg!.defectsCaught).toBe(0);
     } finally {
-      fs.rmSync(crashTmp, { recursive: true, force: true });
+      rmrf(crashTmp);
     }
   }, 60_000);
 
@@ -165,7 +166,7 @@ describe('gate catch-rate driver', () => {
       expect(agg!.invalidCells).toBeGreaterThanOrEqual(1);
       expect(agg!.defectsCaught).toBe(0);
     } finally {
-      fs.rmSync(matTmp, { recursive: true, force: true });
+      rmrf(matTmp);
     }
   }, 60_000);
 

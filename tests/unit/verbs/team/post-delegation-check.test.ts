@@ -51,6 +51,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { handlePostDelegationCheck } from '../../../../src/verbs/team/post-delegation-check.js';
 import type { EventStore } from '../../../../src/events/store.js';
+import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 const mockExistsSync = vi.mocked(existsSync);
 const mockReadFileSync = vi.mocked(readFileSync);
@@ -130,7 +131,7 @@ describe('handlePostDelegationCheck', () => {
   });
 
   afterEach(() => {
-    for (const dir of fixtureDirs.splice(0)) realFs.rmSync(dir, { recursive: true, force: true });
+    for (const dir of fixtureDirs.splice(0)) rmrf(dir);
   });
 
   // ─── Test 1: All tasks complete, tests pass → passed: true ────────────

@@ -8,6 +8,7 @@ import {
   defaultRealpath,
   type RealpathResolver,
 } from '../../../../../src/verbs/worktree/pure/path-containment.js';
+import { rmrf } from '../../../../../tools/test-helpers/temp-dir.js';
 
 /** Identity resolver: no symlinks, paths pass through unchanged. */
 const identity: RealpathResolver = (p) => p;
@@ -154,7 +155,7 @@ describe('isPathWithin', () => {
       const siblingViaLink = path.join(link, 'wt-sibling', 'file.ts');
       expect(isPathWithin(siblingViaLink, worktree)).toBe(false);
     } finally {
-      fs.rmSync(base, { recursive: true, force: true });
+      rmrf(base);
     }
   });
 });

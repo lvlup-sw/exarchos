@@ -26,7 +26,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { fc } from '@fast-check/vitest';
-import { mkdtemp, rm, readFile, writeFile, mkdir } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { parse as parseYaml } from 'yaml';
@@ -41,6 +41,7 @@ import { resolveVerificationRuntime } from '../../../../../src/config/test-runti
 import type { CheckResult } from '../../../../../src/verbs/doctor/schema.js';
 import { BLOCK_DRIFT_CHECK_NAME } from '../../../../../src/verbs/onboard/block-drift.js';
 import { RETIRED_HOOKS_CHECK_NAME } from '../../../../../src/verbs/onboard/hooks.js';
+import { rmrfAsync } from '../../../../../tools/test-helpers/temp-dir.js';
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -105,7 +106,7 @@ async function createFixture(): Promise<Fixture> {
 }
 
 async function cleanup(fx: Fixture): Promise<void> {
-  await rm(fx.base, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }).catch(
+  await rmrfAsync(fx.base).catch(
     () => {},
   );
 }

@@ -5,8 +5,9 @@ import type { ProblemDefinition, ArmConfig, ArmId, SampleResult } from './types.
 import type { SessionResult } from './executor.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { mkdtempSync, rmSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 function makeProblem(id: string): ProblemDefinition {
   return {
@@ -93,7 +94,7 @@ describe('runner orchestrator', () => {
   });
 
   afterEach(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
+    rmrf(tmpDir);
   });
 
   function makeConfig(overrides?: Partial<RunConfig>): RunConfig {

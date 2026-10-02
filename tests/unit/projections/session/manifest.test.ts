@@ -3,6 +3,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { SessionManifestEntry } from '../../../../src/projections/session/types.js';
+import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 describe('Manifest Writer', () => {
   let tmpDir: string;
@@ -12,7 +13,7 @@ describe('Manifest Writer', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true });
+    await rmrfAsync(tmpDir);
   });
 
   function makeEntry(overrides: Partial<SessionManifestEntry> = {}): SessionManifestEntry {

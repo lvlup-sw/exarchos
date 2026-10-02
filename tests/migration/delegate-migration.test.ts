@@ -33,16 +33,12 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { buildAllSkills } from '../../src/install/build-skills.js';
-import {
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  existsSync,
-} from 'node:fs';
+import { mkdtempSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { skillPath as resolveSkillPath } from '../../tools/test-helpers/content-tree.js';
+import { rmrf } from '../../tools/test-helpers/temp-dir.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -78,7 +74,7 @@ afterEach(() => {
   while (tempDirs.length > 0) {
     const d = tempDirs.pop()!;
     try {
-      rmSync(d, { recursive: true, force: true });
+      rmrf(d);
     } catch {
       // best-effort cleanup
     }

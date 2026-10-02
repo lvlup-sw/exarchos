@@ -32,12 +32,13 @@ import { loadRuntime } from '../../../src/install/runtimes/load.js';
 import { RuntimeTokenKey } from '../../../src/install/runtimes/types.js';
 import type { RuntimeMap, PreferredFacade } from '../../../src/install/runtimes/types.js';
 import { runSkillsGuard } from '../../../src/install/skills-guard.js';
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync, statSync, existsSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, statSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { execFileAsync } from '../../../tools/test-helpers/spawn.js';
+import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -55,7 +56,7 @@ afterEach(() => {
   while (tempDirs.length > 0) {
     const d = tempDirs.pop()!;
     try {
-      rmSync(d, { recursive: true, force: true });
+      rmrf(d);
     } catch {
       // best-effort cleanup
     }

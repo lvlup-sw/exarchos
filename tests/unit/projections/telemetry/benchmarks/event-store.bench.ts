@@ -13,6 +13,7 @@ import * as path from 'node:path';
 import { bench, describe } from 'vitest';
 
 import { EventStore } from '../../../../../src/events/store.js';
+import { rmrf } from '../../../../../tools/test-helpers/temp-dir.js';
 
 const QUERY_STREAM = 'bench-query';
 const QUERY_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'event-store-bench-query-'));
@@ -46,7 +47,7 @@ describe('EventStore telemetry budgets', () => {
         type: 'workflow.started',
         data: { featureId: 'bench-single', workflowType: 'feature' },
       });
-      fs.rmSync(dir, { recursive: true, force: true });
+      rmrf(dir);
     },
     { warmupIterations: 2, iterations: 20 },
   );
@@ -62,7 +63,7 @@ describe('EventStore telemetry budgets', () => {
           data: { taskId: `task-${i}`, title: `Task ${i}`, branch: `feat/bench-${i}` },
         })),
       );
-      fs.rmSync(dir, { recursive: true, force: true });
+      rmrf(dir);
     },
     { warmupIterations: 2, iterations: 20 },
   );
@@ -79,7 +80,7 @@ describe('EventStore telemetry budgets', () => {
           }),
         ),
       );
-      fs.rmSync(dir, { recursive: true, force: true });
+      rmrf(dir);
     },
     { warmupIterations: 2, iterations: 20 },
   );

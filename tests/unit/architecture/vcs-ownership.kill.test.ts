@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -11,6 +11,7 @@ import {
   type VcsOwnershipDiagnostic,
 } from '../../../tools/conformance/src/vcs-ownership.js';
 import { lexModule } from '../../../tools/test-helpers/module-lexer.js';
+import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 const SRC_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../../src');
 
@@ -65,7 +66,7 @@ describe('DR-12 kill — widened census sees merge and branch-create', () => {
   };
 
   afterAll(async () => {
-    await Promise.all(roots.map((r) => rm(r, { recursive: true, force: true })));
+    await Promise.all(roots.map((r) => rmrfAsync(r)));
   });
 
   it('CONTROL — an owner-only tree is GREEN (so redness below is caused by the plant)', async () => {

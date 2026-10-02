@@ -17,7 +17,7 @@
  * arm uses dryRun (the default) so it is fully deterministic and writes nothing.
  */
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { toPosix } from '../../../../src/utils/paths.js';
@@ -35,6 +35,7 @@ import {
 import { handleScaffold } from '../../../../src/verbs/invariants/scaffold.js';
 import type { ScaffoldDeps } from '../../../../src/verbs/invariants/scaffold.js';
 import { handleAdd } from '../../../../src/verbs/invariants/add.js';
+import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -160,7 +161,7 @@ describe('invariants_scaffold + invariants_add CLI↔MCP parity (INV-2)', () => 
     restoreStub?.();
     restoreStub = null;
     for (const arm of arms) {
-      await rm(arm.stateDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+      await rmrfAsync(arm.stateDir);
     }
     arms = [];
     vi.restoreAllMocks();

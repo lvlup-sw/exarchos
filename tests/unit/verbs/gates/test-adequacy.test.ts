@@ -12,14 +12,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import * as fc from 'fast-check';
 import { execFileSync } from 'node:child_process';
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
@@ -34,6 +27,7 @@ import {
 } from '../../../../src/verbs/gates/test-adequacy.js';
 import type { GitExec } from '../../../../src/verbs/pure/execute-merge.js';
 import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
+import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 // ─── real-git helpers (tasks 012/013) ────────────────────────────────────────
 
@@ -187,7 +181,7 @@ describe('snapshot/revert/restore (INV-14: refuse-to-discard recovery)', () => {
   afterEach(() => {
     for (const r of repos.splice(0)) {
       try {
-        rmSync(r, { recursive: true, force: true });
+        rmrf(r);
       } catch {
         /* best-effort */
       }
@@ -365,7 +359,7 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
   afterEach(() => {
     for (const r of repos.splice(0)) {
       try {
-        rmSync(r, { recursive: true, force: true });
+        rmrf(r);
       } catch {
         /* best-effort */
       }

@@ -43,6 +43,7 @@ import {
   ArtifactIdSchema,
   type EvidenceArtifactReferenceV1,
 } from '../../src/workflow/admission/types.js';
+import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 
 const STREAM = 'feature-postconditions';
 const OPERATION = 'operation.postconditions-1';
@@ -304,7 +305,7 @@ describe('durable action postcondition observation — artifact-backed evidence'
   });
 
   afterEach(async () => {
-    await rm(stateDir, { recursive: true, force: true });
+    await rmrfAsync(stateDir);
   });
 
   /** A real reference, persisted through the production store binding. */
@@ -499,7 +500,7 @@ describe('durable action postcondition observation — artifact-backed evidence'
 
       expect(observation.status).toBe('violated');
     } finally {
-      await rm(otherDir, { recursive: true, force: true });
+      await rmrfAsync(otherDir);
     }
   });
 });
@@ -778,7 +779,7 @@ describe('dispatch gates success on applicable ensures', () => {
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('ENSURE_CONTRACT_VIOLATED');
     } finally {
-      await rm(stateDir, { recursive: true, force: true });
+      await rmrfAsync(stateDir);
     }
   });
 
@@ -817,7 +818,7 @@ describe('dispatch gates success on applicable ensures', () => {
 
       expect(result.success, result.error?.message).toBe(true);
     } finally {
-      await rm(stateDir, { recursive: true, force: true });
+      await rmrfAsync(stateDir);
     }
   });
 

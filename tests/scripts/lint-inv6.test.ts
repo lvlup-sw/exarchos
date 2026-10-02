@@ -5,6 +5,7 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { rmrf } from '../../tools/test-helpers/temp-dir.js';
 
 import { spawnAsync } from '../../tools/test-helpers/spawn.js';
 
@@ -87,7 +88,7 @@ describe('lint-inv6', () => {
         expect(f.rule).toBe('workflow-type-literal-without-declaration');
       }
     } finally {
-      fs.rmSync(tmpdir, { recursive: true, force: true });
+      rmrf(tmpdir);
     }
   });
 
@@ -156,7 +157,7 @@ describe('lint-inv6 — literal narrowing (T-22)', () => {
         'prose usage of review/delegate/synthesize/gathering must not be flagged',
       ).toEqual([]);
     } finally {
-      fs.rmSync(tmpdir, { recursive: true, force: true });
+      rmrf(tmpdir);
     }
   });
 
@@ -204,7 +205,7 @@ describe('lint-inv6 — literal narrowing (T-22)', () => {
         true,
       );
     } finally {
-      fs.rmSync(tmpdir, { recursive: true, force: true });
+      rmrf(tmpdir);
     }
   });
 
@@ -242,7 +243,7 @@ describe('lint-inv6 — literal narrowing (T-22)', () => {
         'featureId must never be flagged in any context — it is not a workflow-type literal',
       ).toEqual([]);
     } finally {
-      fs.rmSync(tmpdir, { recursive: true, force: true });
+      rmrf(tmpdir);
     }
   });
 
@@ -269,7 +270,7 @@ describe('lint-inv6 — literal narrowing (T-22)', () => {
         'reviewer/previewing/delegated/reviewed must not trip review/delegate',
       ).toEqual([]);
     } finally {
-      fs.rmSync(tmpdir, { recursive: true, force: true });
+      rmrf(tmpdir);
     }
   });
 
@@ -292,7 +293,7 @@ describe('lint-inv6 — literal narrowing (T-22)', () => {
       const out = JSON.parse(stdout) as LintOutput;
       expect(findingsFor(out, 'declared-skill')).toEqual([]);
     } finally {
-      fs.rmSync(tmpdir, { recursive: true, force: true });
+      rmrf(tmpdir);
     }
   });
 
@@ -322,7 +323,7 @@ describe('lint-inv6 — literal narrowing (T-22)', () => {
       const out = JSON.parse(stdout) as LintOutput;
       expect(out.findings).toEqual([]);
     } finally {
-      fs.rmSync(tmpdir, { recursive: true, force: true });
+      rmrf(tmpdir);
     }
   });
 
@@ -354,7 +355,7 @@ describe('lint-inv6 — literal narrowing (T-22)', () => {
         expect(typeof f.message).toBe('string');
       }
     } finally {
-      fs.rmSync(tmpdir, { recursive: true, force: true });
+      rmrf(tmpdir);
     }
   });
 
@@ -426,7 +427,7 @@ describe('lint-inv6 — literal narrowing (T-22)', () => {
         'declaring workflow-type on every currently-flagged skill must clear all residual findings',
       ).toEqual([]);
     } finally {
-      fs.rmSync(tmpdir, { recursive: true, force: true });
+      rmrf(tmpdir);
     }
   });
 });

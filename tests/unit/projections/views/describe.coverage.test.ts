@@ -17,7 +17,7 @@
 // here immediately.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -25,6 +25,7 @@ import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js'
 import { EventStore } from '../../../../src/events/store.js';
 import { TOOL_REGISTRY } from '../../../../src/registry.js';
 import { handleView } from '../../../../src/projections/views/composite.js';
+import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -167,7 +168,7 @@ describe('ExarchosViewDescribe — registry-vs-dispatch parity (T1, #1446 residu
   });
 
   afterEach(() => {
-    rmSync(tempStateDir, { recursive: true, force: true });
+    rmrf(tempStateDir);
   });
 
   it('ExarchosViewDescribe_ListsAllSeventeenDispatchedActions', async () => {

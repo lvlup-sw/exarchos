@@ -37,6 +37,7 @@ import {
 // install hash-matches the committed legacy manifest.
 import { normalizeAndHash } from '../../../tools/release/generate-legacy-skill-hashes.mjs';
 import { expandTilde } from '../../../src/install/install-skills.js';
+import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 /**
  * Minimal valid runtime map factory for unit-test use. Overrides let each
@@ -488,7 +489,7 @@ describe('registerExarchosInClaudeJson (#1217)', () => {
         },
       });
     } finally {
-      fs.rmSync(home, { recursive: true, force: true });
+      rmrf(home);
     }
   });
 
@@ -519,7 +520,7 @@ describe('registerExarchosInClaudeJson (#1217)', () => {
       expect((parsed.mcpServers as Record<string, unknown>).exarchos).toBeDefined();
       expect(parsed.somethingElse).toBe(42);
     } finally {
-      fs.rmSync(home, { recursive: true, force: true });
+      rmrf(home);
     }
   });
 
@@ -539,7 +540,7 @@ describe('registerExarchosInClaudeJson (#1217)', () => {
       const afterMtime = fs.statSync(configPath).mtimeMs;
       expect(afterMtime).toBe(beforeMtime);
     } finally {
-      fs.rmSync(home, { recursive: true, force: true });
+      rmrf(home);
     }
   });
 });
@@ -608,7 +609,7 @@ describe('installSkills command aliases (T3, #1471/#1472)', () => {
       skillsSource,
       aliasesSource,
       aliasFiles,
-      dispose: () => fs.rmSync(tmp, { recursive: true, force: true }),
+      dispose: () => rmrf(tmp),
     };
   }
 
@@ -635,7 +636,7 @@ describe('installSkills command aliases (T3, #1471/#1472)', () => {
       }
     } finally {
       fx.dispose();
-      fs.rmSync(home, { recursive: true, force: true });
+      rmrf(home);
     }
   });
 
@@ -664,7 +665,7 @@ describe('installSkills command aliases (T3, #1471/#1472)', () => {
       }
     } finally {
       fx.dispose();
-      fs.rmSync(home, { recursive: true, force: true });
+      rmrf(home);
     }
   });
 
@@ -699,7 +700,7 @@ describe('installSkills command aliases (T3, #1471/#1472)', () => {
       expect(fs.existsSync(genericCmds)).toBe(false);
     } finally {
       fx.dispose();
-      fs.rmSync(home, { recursive: true, force: true });
+      rmrf(home);
     }
   });
 
@@ -730,7 +731,7 @@ describe('installSkills command aliases (T3, #1471/#1472)', () => {
       expect(joined.toLowerCase()).toContain('restart');
     } finally {
       fx.dispose();
-      fs.rmSync(home, { recursive: true, force: true });
+      rmrf(home);
     }
   });
 });
@@ -766,7 +767,7 @@ describe('installSkills canonical layout + provenance (Task 010, DR-4/DR-8)', ()
     for (const [rt, skills] of Object.entries(spec.runtimes)) {
       for (const s of skills) writeSkill(rt, s);
     }
-    return { skillsSource, dispose: () => fs.rmSync(tmp, { recursive: true, force: true }) };
+    return { skillsSource, dispose: () => rmrf(tmp) };
   }
 
   function makeTmpHome(): string {
@@ -808,7 +809,7 @@ describe('installSkills canonical layout + provenance (Task 010, DR-4/DR-8)', ()
       }
     } finally {
       src.dispose();
-      fs.rmSync(home, { recursive: true, force: true });
+      rmrf(home);
     }
   });
 
@@ -847,7 +848,7 @@ describe('installSkills canonical layout + provenance (Task 010, DR-4/DR-8)', ()
       expect(copiedIntoNative).toBe(true);
     } finally {
       src.dispose();
-      fs.rmSync(home, { recursive: true, force: true });
+      rmrf(home);
     }
   });
 
@@ -912,7 +913,7 @@ describe('installSkills canonical layout + provenance (Task 010, DR-4/DR-8)', ()
       expect(m2.skills).toEqual(expect.arrayContaining(['ideate', 'plan', 'refactor']));
     } finally {
       src.dispose();
-      fs.rmSync(home, { recursive: true, force: true });
+      rmrf(home);
     }
   });
 
@@ -946,7 +947,7 @@ describe('installSkills canonical layout + provenance (Task 010, DR-4/DR-8)', ()
       expect(findings.some((f) => f.skill === 'plan' && f.drift === 'modified')).toBe(true);
     } finally {
       src.dispose();
-      fs.rmSync(home, { recursive: true, force: true });
+      rmrf(home);
     }
   });
 });
@@ -983,7 +984,7 @@ describe('legacy-render + install-manifest provenance helpers', () => {
       fs.mkdirSync(path.join(dir, 'empty'), { recursive: true });
       expect(hashSkillMdFile(path.join(dir, 'empty'))).toBeUndefined();
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      rmrf(dir);
     }
   });
 
@@ -1054,7 +1055,7 @@ describe('legacy-render + install-manifest provenance helpers', () => {
       // A skill the manifest never recorded is not vouched for.
       expect(installManifestVouchesForDir([manifest], 'discovery', dirHash)).toBe(false);
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      rmrf(dir);
     }
   });
 });

@@ -11,17 +11,11 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { runHooksGuard } from '../../../src/install/hooks-guard.js';
 import { buildAllHooks } from '../../../src/install/build-hooks.js';
-import {
-  mkdtempSync,
-  writeFileSync,
-  mkdirSync,
-  rmSync,
-  readFileSync,
-  existsSync,
-} from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileAsync } from '../../../tools/test-helpers/spawn.js';
+import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 const tempDirs: string[] = [];
 
@@ -35,7 +29,7 @@ afterEach(() => {
   while (tempDirs.length > 0) {
     const d = tempDirs.pop()!;
     try {
-      rmSync(d, { recursive: true, force: true });
+      rmrf(d);
     } catch {
       /* best-effort */
     }

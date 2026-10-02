@@ -10,6 +10,7 @@ import {
   type RemoveResult,
   type SymlinkHealthReport,
 } from '../../../../src/install/operations/symlink.js';
+import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 describe('createSymlink (B4)', () => {
   let tmpDir: string;
@@ -19,7 +20,7 @@ describe('createSymlink (B4)', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    rmrf(tmpDir);
   });
 
   it('createSymlink_NoExistingTarget_CreatesLink', () => {
@@ -98,7 +99,7 @@ describe('removeSymlink (B4)', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    rmrf(tmpDir);
   });
 
   it('removeSymlink_ExistingLink_Removes', () => {
@@ -141,7 +142,7 @@ describe('validateSymlinks (B5)', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    rmrf(tmpDir);
   });
 
   it('validateSymlinks_AllValid_ReturnsHealthy', () => {
@@ -172,7 +173,7 @@ describe('validateSymlinks (B5)', () => {
     // Create link then remove source
     fs.mkdirSync(src);
     fs.symlinkSync(src, tgt);
-    fs.rmSync(src, { recursive: true, force: true });
+    rmrf(src);
 
     const report = validateSymlinks({ [tgt]: src });
 
@@ -211,7 +212,7 @@ describe('validateSymlinks (B5)', () => {
     // Broken: link exists but source was removed
     fs.mkdirSync(brokenSrc);
     fs.symlinkSync(brokenSrc, brokenTgt);
-    fs.rmSync(brokenSrc, { recursive: true, force: true });
+    rmrf(brokenSrc);
 
     // Missing: source exists but link does not
     fs.mkdirSync(missingSrc);

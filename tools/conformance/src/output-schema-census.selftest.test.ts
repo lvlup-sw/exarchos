@@ -74,7 +74,7 @@
 //
 // @oracle-sources: ../../../src/output-schema-vacuity-allowlist.ts, the exit status and stdout/stderr of a separate OS process running the shipped guard entrypoint under tsx
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -82,6 +82,7 @@ import { censusLiveOutputSchemas } from './bindings/output-schema.js';
 import { REPO_ROOT, SUBJECT_PACKAGE_ROOT } from './subject-root.js';
 import { VACUITY_ALLOWLIST_IDS } from '../../../src/output-schema-vacuity-allowlist.js';
 import { spawnAsync } from '../../test-helpers/spawn.js';
+import { rmrf } from '../../test-helpers/temp-dir.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 /** `servers/exarchos-mcp` — the subject package, which is no longer this one. */
@@ -413,7 +414,7 @@ beforeAll(async () => {
 });
 
 afterAll(() => {
-  if (scratchDir.length > 0) rmSync(scratchDir, { recursive: true, force: true });
+  if (scratchDir.length > 0) rmrf(scratchDir);
 });
 
 describe('DR-4 / G2 self-test: guard-execution failure cannot pass as success', () => {

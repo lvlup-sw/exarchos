@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
+import { mkdtemp, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { handleSyncNow } from '../../../src/sync/sync-handler.js';
 import { Outbox } from '../../../src/sync/outbox.js';
 import type { EventSender, OutboxEntry } from '../../../src/sync/types.js';
+import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 describe('handleSyncNow', () => {
   let tempDir: string;
@@ -14,7 +15,7 @@ describe('handleSyncNow', () => {
   });
 
   afterEach(async () => {
-    await rm(tempDir, { recursive: true, force: true });
+    await rmrfAsync(tempDir);
   });
 
   it('should drain pending outbox entries for discovered streams when sender provided', async () => {

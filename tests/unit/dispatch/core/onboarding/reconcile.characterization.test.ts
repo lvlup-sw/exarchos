@@ -35,7 +35,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -49,6 +49,7 @@ import {
   ResolvedCommandsSchema,
   type DesiredState,
 } from '../../../../../src/dispatch/core/onboarding/types.js';
+import { rmrf } from '../../../../../tools/test-helpers/temp-dir.js';
 
 describe('reconcile characterization (T0 baseline)', () => {
   describe('ResolvedCommandsSchema_WidenedFields_Pinned', () => {
@@ -137,7 +138,7 @@ describe('reconcile characterization (T0 baseline)', () => {
     });
 
     afterEach(() => {
-      rmSync(dir, { recursive: true, force: true });
+      rmrf(dir);
     });
 
     it('pins the full DesiredState shape for the fixture repo', async () => {

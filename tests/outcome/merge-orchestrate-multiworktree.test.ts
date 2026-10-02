@@ -26,6 +26,7 @@ import type { DispatchContext } from '../../src/dispatch/core/dispatch.js';
 // registry so the handler's Phase A `decide()` call can resolve the
 // reducer. Mirrors the import in merge-orchestrate.migration.test.ts.
 import '../../src/projections/merge-orchestrator/index.js';
+import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 
 async function gitOut(repo: string, args: string[]): Promise<string> {
   return (await execFileAsync('git', args, { cwd: repo })).trim();
@@ -118,7 +119,7 @@ describe('merge-orchestrate multi-worktree topology outcome (#1356)', () => {
           const postHead = await gitOut(repoPath, ['rev-parse', 'HEAD']);
           expect(postHead).toBe(initialHead);
         } finally {
-          await fs.rm(stateDir, { recursive: true, force: true });
+          await rmrfAsync(stateDir);
         }
       });
     },

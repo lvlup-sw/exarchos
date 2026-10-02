@@ -1,9 +1,10 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { buildAllSkills } from '../../src/install/build-skills.js';
+import { rmrf } from '../../tools/test-helpers/temp-dir.js';
 
 /**
  * The rendered tree is addressed by artifact kind and flat name. The domain a
@@ -56,7 +57,7 @@ describe('Render', () => {
         expect(names).not.toContain('delivery');
       }
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmrf(root);
     }
   });
 
@@ -81,7 +82,7 @@ describe('Render', () => {
         walk(outDir, '');
         return found.sort();
       } finally {
-        rmSync(root, { recursive: true, force: true });
+        rmrf(root);
       }
     };
 
@@ -115,7 +116,7 @@ describe('Render', () => {
       expect(err!.message).toContain('delivery');
       expect(err!.message).toContain('collide');
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmrf(root);
     }
   });
 
@@ -136,7 +137,7 @@ describe('Render', () => {
       const tree = readdirSync(outDir)[0]!;
       expect(readdirSync(join(outDir, tree)).sort()).toEqual(['one', 'three', 'two']);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmrf(root);
     }
   });
 });

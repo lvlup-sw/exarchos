@@ -31,6 +31,7 @@ import { createMcpServer } from '../../src/adapters/mcp/mcp.js';
 import { EventStore } from '../../src/events/store.js';
 import { TOOL_REGISTRY } from '../../src/registry.js';
 import type { DispatchContext } from '../../src/dispatch/core/dispatch.js';
+import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 
 // Per design `docs/designs/archive/2026-05-13-wave-0-carrier-swap.md` §2.6 the
 // advertised tool schemas SHOULD carry the JSON Schema 2020-12 `$schema`
@@ -92,7 +93,7 @@ describe('F.1 — tools/list shape (Wave 0 §7)', () => {
     } catch {
       /* ignore */
     }
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await rmrfAsync(tmpDir);
   });
 
   it('ToolsList_VisibleTools_HaveOutputSchemaAndAnnotations', async () => {

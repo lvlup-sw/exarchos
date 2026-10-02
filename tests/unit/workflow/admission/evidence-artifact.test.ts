@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, open, readdir, readFile, rm, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, open, readdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import fc from 'fast-check';
@@ -19,6 +19,7 @@ import {
 } from '../../../../src/workflow/admission/evidence-artifact.js';
 import { normalizeEvidenceSubjectContent } from '../../../../src/workflow/admission/evidence-subject.js';
 import { EvidenceArtifactReferenceV1Schema } from '../../../../src/workflow/admission/types.js';
+import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 /** Real filesystem IO whose publish rename always fails — simulates a crash
  * between staging the temp file and promoting it over the target. */
@@ -69,7 +70,7 @@ describe('content-addressed evidence artifacts', () => {
   });
 
   afterEach(async () => {
-    await rm(artifactRoot, { recursive: true, force: true });
+    await rmrfAsync(artifactRoot);
   });
 
   it('EvidenceArtifact_RoundTrip_PreservesCanonicalContent', async () => {
@@ -347,7 +348,7 @@ describe('content-addressed evidence artifacts', () => {
         probe: true,
       });
     } finally {
-      await rm(stateDir, { recursive: true });
+      await rmrfAsync(stateDir);
     }
   });
 
@@ -370,7 +371,7 @@ describe('content-addressed evidence artifacts', () => {
         code: 'CONTENT_NOT_FOUND',
       });
     } finally {
-      await rm(stateDir, { recursive: true });
+      await rmrfAsync(stateDir);
     }
   });
 
@@ -394,7 +395,7 @@ describe('content-addressed evidence artifacts', () => {
         code: 'DIGEST_MISMATCH',
       });
     } finally {
-      await rm(stateDir, { recursive: true });
+      await rmrfAsync(stateDir);
     }
   });
 });

@@ -2,7 +2,7 @@
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import fc from 'fast-check';
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,6 +15,7 @@ import {
 import { loadExarchosConfig } from '../../../src/config/load-exarchos-config.js';
 import { ExarchosConfigSchema } from '../../../src/config/exarchos-config-schema.js';
 import { FullExarchosConfigSchema } from '../../../src/config/yaml-schema.js';
+import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 describe('resolveTestRuntime', () => {
   const tmpDirs: string[] = [];
@@ -27,7 +28,7 @@ describe('resolveTestRuntime', () => {
 
   afterEach(() => {
     for (const dir of tmpDirs) {
-      rmSync(dir, { recursive: true, force: true });
+      rmrf(dir);
     }
     tmpDirs.length = 0;
   });
@@ -1027,7 +1028,7 @@ describe('resolveVerificationRuntime', () => {
 
   afterEach(() => {
     for (const dir of tmpDirs) {
-      rmSync(dir, { recursive: true, force: true });
+      rmrf(dir);
     }
     tmpDirs.length = 0;
   });
@@ -1243,7 +1244,7 @@ describe('supported-workspace test-runtime consistency (WFQ-015 / exit-proof c)'
     return dir;
   }
   afterEach(() => {
-    for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true });
+    for (const dir of tmpDirs) rmrf(dir);
     tmpDirs.length = 0;
   });
 
@@ -1294,7 +1295,7 @@ describe('top-level mutation config shape (WFQ-013 / DOC-5)', () => {
     return dir;
   }
   afterEach(() => {
-    for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true });
+    for (const dir of tmpDirs) rmrf(dir);
     tmpDirs.length = 0;
   });
 
@@ -1330,7 +1331,7 @@ describe('resolveRunnableCommand', () => {
     return dir;
   }
   afterEach(() => {
-    for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true });
+    for (const dir of tmpDirs) rmrf(dir);
     tmpDirs.length = 0;
   });
 

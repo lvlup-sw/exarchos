@@ -1,10 +1,11 @@
-import { appendFileSync, cpSync, existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { appendFileSync, cpSync, existsSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { RENDER_SCOPES, findEmptyScopes, runRenderGuard } from '../../src/install/render-guard.js';
 import { execFileAsync } from '../../tools/test-helpers/spawn.js';
+import { rmrf } from '../../tools/test-helpers/temp-dir.js';
 
 /**
  * One guard now covers every generated tree. Consolidation removes two places
@@ -60,22 +61,6 @@ async function makeSandbox(): Promise<string> {
   return root;
 }
 
-/**
- * Remove a sandbox, riding out the churn the guard just finished making in it.
- *
- * `rmSync(recursive, force)` does NOT retry unless `maxRetries` is set, and
- * this tree has just been rendered into: `runSkillsGuard` writes
- * `rendered/skills` under the cwd it is handed, and the out-dir sweep removes
- * and rewrites entries there. Observed as `ENOTEMPTY … /tmp/render-guard-*` on
- * a loaded Linux runner, which is the same transient class the repository's
- * `rmrf` helper documents — that helper cannot be used here, because it closes
- * SQLite handles and so imports `bun:sqlite`, which the `unit` project has no
- * alias for. So the retry budget is inlined rather than shared.
- */
-function removeSandbox(root: string): void {
-  rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
-}
-
 /** Commit an edit to a generated file, so it reads as drift rather than as a
  *  pending edit the next build would overwrite. */
 async function seedDrift(root: string, rel: string, addition: string): Promise<void> {
@@ -117,7 +102,7 @@ describe('RenderGuard', () => {
       expect(drifted.exitCode).not.toBe(0);
       expect(drifted.message).toMatch(/stale|drift/i);
     } finally {
-      removeSandbox(root);
+      rmrf(root);
     }
   }, 300_000);
 
@@ -141,7 +126,7 @@ describe('RenderGuard', () => {
       expect(drifted.ok, 'drift in a harness dot-directory must fail the guard').toBe(false);
       expect(drifted.message).toMatch(/stale|drift/i);
     } finally {
-      removeSandbox(root);
+      rmrf(root);
     }
   }, 300_000);
 });

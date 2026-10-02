@@ -300,10 +300,10 @@ async function driveEveryAction(binaryPath: string): Promise<ActionObservation[]
         timedOut: run.timedOut,
       };
     } finally {
-      await fsp.rm(stateDir, { recursive: true, force: true }).catch(() => undefined);
+      await rmrfAsync(stateDir).catch(() => undefined);
     }
   });
-  await fsp.rm(sharedCwd, { recursive: true, force: true }).catch(() => undefined);
+  await rmrfAsync(sharedCwd).catch(() => undefined);
   return obs;
 }
 
@@ -351,8 +351,8 @@ async function runSweep(binaryPath: string): Promise<SweepResult> {
         exitObservations.push({ label: `toplevel:${verb}`, code: env.error?.code, exit: run.exit });
       }
     } finally {
-      await fsp.rm(stateDir, { recursive: true, force: true }).catch(() => undefined);
-      await fsp.rm(cwd, { recursive: true, force: true }).catch(() => undefined);
+      await rmrfAsync(stateDir).catch(() => undefined);
+      await rmrfAsync(cwd).catch(() => undefined);
     }
   }
 
@@ -373,8 +373,8 @@ async function runSweep(binaryPath: string): Promise<SweepResult> {
       exitObservations.push({ label: 'effect:fs:wf-init', code: env.error?.code, exit: run.exit });
     }
   } finally {
-    await fsp.rm(fsState, { recursive: true, force: true }).catch(() => undefined);
-    await fsp.rm(fsCwd, { recursive: true, force: true }).catch(() => undefined);
+    await rmrfAsync(fsState).catch(() => undefined);
+    await rmrfAsync(fsCwd).catch(() => undefined);
   }
 
   // ── Effect probe: process — `list_prs` spawns a `gh`/`git` child process. ──
@@ -397,8 +397,8 @@ async function runSweep(binaryPath: string): Promise<SweepResult> {
       exitObservations.push({ label: 'effect:proc:list_prs', code: env.error?.code, exit: run.exit });
     }
   } finally {
-    await fsp.rm(procState, { recursive: true, force: true }).catch(() => undefined);
-    await fsp.rm(procCwd, { recursive: true, force: true }).catch(() => undefined);
+    await rmrfAsync(procState).catch(() => undefined);
+    await rmrfAsync(procCwd).catch(() => undefined);
   }
 
   // ── Cancellation probe: cooperative `wf init` → `wf cancel`. ────────────────
@@ -426,8 +426,8 @@ async function runSweep(binaryPath: string): Promise<SweepResult> {
       exitObservations.push({ label: 'cancel:wf-cancel', code: env.error?.code, exit: run.exit });
     }
   } finally {
-    await fsp.rm(cxState, { recursive: true, force: true }).catch(() => undefined);
-    await fsp.rm(cxCwd, { recursive: true, force: true }).catch(() => undefined);
+    await rmrfAsync(cxState).catch(() => undefined);
+    await rmrfAsync(cxCwd).catch(() => undefined);
   }
 
   // ── Assemble the exercise ledger from the observations. ────────────────────
@@ -649,6 +649,7 @@ describe('Ratchet catches a seeded unexercised action against the real ledger (P
 // ─── seeded registry helper (local to the process test) ──────────────────────
 
 import { TOOL_REGISTRY, type CompositeTool, type ToolAction } from '../../../src/registry.js';
+import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 function seededRegistry(): readonly CompositeTool[] {
   return TOOL_REGISTRY.map((tool) => {

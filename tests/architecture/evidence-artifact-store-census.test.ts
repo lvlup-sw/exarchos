@@ -20,7 +20,7 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -28,6 +28,7 @@ import { describe, expect, it } from 'vitest';
 
 import { scanEvidenceStoreConstructions } from '../../tools/test-helpers/evidence-store-construction-census.js';
 import { listTrackedFiles } from '../../tools/test-helpers/tracked-population.js';
+import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const SOURCE_DIR = path.join(REPO_ROOT, 'src');
@@ -177,7 +178,7 @@ describe('EvidenceStoreConstructionCensus — one root for evidence artifacts', 
         },
       ]);
     } finally {
-      await rm(root, { recursive: true });
+      await rmrfAsync(root);
     }
   });
 
@@ -204,7 +205,7 @@ describe('EvidenceStoreConstructionCensus — one root for evidence artifacts', 
         ['src/seeded-alias.ts', 2, 'construct'],
       ]);
     } finally {
-      await rm(root, { recursive: true });
+      await rmrfAsync(root);
     }
   });
 
@@ -233,7 +234,7 @@ describe('EvidenceStoreConstructionCensus — one root for evidence artifacts', 
         ['src/seeded-subclass.ts', 'reference'],
       ]);
     } finally {
-      await rm(root, { recursive: true });
+      await rmrfAsync(root);
     }
   });
 
@@ -274,7 +275,7 @@ describe('EvidenceStoreConstructionCensus — one root for evidence artifacts', 
         ['src/seeded-through-local.ts', 'construct'],
       ]);
     } finally {
-      await rm(root, { recursive: true });
+      await rmrfAsync(root);
     }
   });
 
@@ -318,7 +319,7 @@ describe('EvidenceStoreConstructionCensus — one root for evidence artifacts', 
           ['src/seeded-caller.ts', 'construct'],
         ]);
       } finally {
-        await rm(root, { recursive: true });
+        await rmrfAsync(root);
       }
     },
   );
@@ -364,7 +365,7 @@ describe('EvidenceStoreConstructionCensus — one root for evidence artifacts', 
         ['src/seeded-type-position.ts', 5, 'construct'],
       ]);
     } finally {
-      await rm(root, { recursive: true });
+      await rmrfAsync(root);
     }
   });
 
@@ -390,7 +391,7 @@ describe('EvidenceStoreConstructionCensus — one root for evidence artifacts', 
       expect(seeded.scannedModuleCount).toBe(3);
       expect(seeded.sites).toEqual([]);
     } finally {
-      await rm(root, { recursive: true });
+      await rmrfAsync(root);
     }
   });
 
@@ -430,7 +431,7 @@ describe('EvidenceStoreConstructionCensus — one root for evidence artifacts', 
         ['src/seeded-namespace-through-named.ts', 'construct'],
       ]);
     } finally {
-      await rm(root, { recursive: true });
+      await rmrfAsync(root);
     }
   });
 });

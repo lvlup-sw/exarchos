@@ -39,18 +39,12 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import {
-  existsSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  statSync,
-} from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildAllSkills } from '../../src/install/build-skills.js';
+import { rmrf } from '../../tools/test-helpers/temp-dir.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -290,7 +284,7 @@ describe('task 025 — deterministic regeneration', () => {
         }
       }
     } finally {
-      rmSync(tmpRoot, { recursive: true, force: true });
+      rmrf(tmpRoot);
     }
   });
 });

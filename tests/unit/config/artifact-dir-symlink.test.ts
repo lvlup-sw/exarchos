@@ -13,7 +13,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as nodeFs from 'node:fs';
-import { mkdtemp, mkdir, writeFile, symlink, rm, readdir } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, symlink, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { EventStore } from '../../../src/events/store.js';
@@ -26,6 +26,7 @@ import {
   toPosixPath,
 } from '../../../src/config/artifacts.js';
 import type { ToolResult } from '../../../src/format.js';
+import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 // ─── Artifact directory: symlinks, separators, and existence (DR-6, DR-11) ───
 //
@@ -71,7 +72,7 @@ afterEach(async () => {
   } catch {
     // Already closed or never opened — still have to remove the temp dir.
   }
-  await rm(tempDir, { recursive: true, force: true });
+  await rmrfAsync(tempDir);
 });
 
 describe('ArtifactDir_SymlinkedOutOfTree_ResolvesAndClassifies', () => {
