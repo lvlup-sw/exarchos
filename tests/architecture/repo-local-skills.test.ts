@@ -9,10 +9,10 @@
  * repository, and the Exarchos install fallback depends on that scan to find `rendered/` skills.
  */
 import { describe, it, expect } from 'vitest';
-import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { parse as parseYaml } from 'yaml';
+import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..');
 const CANONICAL_DIR = '.agents/skills';
@@ -20,8 +20,8 @@ const MIRROR_DIR = '.claude/skills';
 const SCANNED_DIRS = [CANONICAL_DIR, MIRROR_DIR, '.github/skills', 'skills'];
 
 /** The tracked files under a directory, relative to it. Untracked output from other tools is out of scope. */
-function trackedUnder(dir: string): string[] {
-  const out = execFileSync('git', ['ls-files', '-z', '--', dir], { cwd: REPO_ROOT, encoding: 'utf8' });
+async function trackedUnder(dir: string): Promise<string[]> {
+  const out = await execFileAsync('git', ['ls-files', '-z', '--', dir], { cwd: REPO_ROOT });
   return out
     .split('\0')
     .filter((file) => file.length > 0)
@@ -37,10 +37,9 @@ function frontmatter(file: string): Record<string, unknown> {
   return parseYaml(match[1]!) as Record<string, unknown>;
 }
 
-const skillFiles = SCANNED_DIRS.flatMap((dir) =>
-  trackedUnder(dir)
-    .filter((file) => path.posix.basename(file) === 'SKILL.md')
-    .map((file) => path.posix.join(dir, file)),
+const skillFiles = (await Promise.all(SCANNED_DIRS.map(async (dir) => ({ dir, files: await trackedUnder(dir) })))).flatMap(
+  ({ dir, files }) =>
+    files.filter((file) => path.posix.basename(file) === 'SKILL.md').map((file) => path.posix.join(dir, file)),
 );
 
 describe('repo-local skills', () => {
@@ -59,9 +58,9 @@ describe('repo-local skills', () => {
   });
 
   /** Claude Code loads the mirror and Codex loads the canonical copy, so a drift gives the two agents different rules. */
-  it('RepoLocalSkills_Mirror_IsByteIdenticalToTheCanonicalCopy', () => {
-    const canonical = trackedUnder(CANONICAL_DIR);
-    const mirror = trackedUnder(MIRROR_DIR);
+  it('RepoLocalSkills_Mirror_IsByteIdenticalToTheCanonicalCopy', async () => {
+    const canonical = await trackedUnder(CANONICAL_DIR);
+    const mirror = await trackedUnder(MIRROR_DIR);
 
     expect(canonical.length).toBeGreaterThan(0);
     expect(mirror).toEqual(canonical);
