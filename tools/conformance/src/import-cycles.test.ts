@@ -28,7 +28,6 @@ import {
 } from './import-cycles.js';
 
 /** depcruise runs from the subject package, so its graph paths stay `src/…`. */
-
 const MCP_PACKAGE_ROOT = SUBJECT_PACKAGE_ROOT;
 const DEPCRUISE_CONFIG = path.join(REPO_ROOT, '.dependency-cruiser.cjs');
 const CYCLE_BASELINE_PATH = path.join(REPO_ROOT, 'tools', 'audit', 'cycle-baseline.json');
