@@ -74,10 +74,9 @@ jobs:
       - name: Install Dependencies
         run: bash "$GITHUB_WORKSPACE/tools/release/npm-ci-retry.sh"
 
-      # Build the server (incl. the eval runner + graders) BEFORE installing the
-      # eval package — the ambient promptfoo shim keeps `tsc` green here without
-      # promptfoo, and building first guarantees the server typecheck never sees
-      # the real package.
+      # Build the server before the eval package is installed, so the server
+      # build never sees the real promptfoo package. The build covers `src/`
+      # only. The eval runner and the graders run from source.
       - name: Build
         run: npm run build
 

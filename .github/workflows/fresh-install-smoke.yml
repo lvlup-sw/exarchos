@@ -11,12 +11,10 @@ name: Fresh Install Smoke
 # flaky under branch-preview load, and the gate here is "did the install
 # story regress" which is fine to observe weekly rather than per-PR.
 #
-# Known caveat: until the first v2.9.0 release is cut post-merge, the
-# bootstrap script's download step will 404 against a non-existent
-# release asset. The test treats that case as an INFO-logged skip, not
-# a failure — see the discriminated-union handling in
-# `tests/e2e/fresh-install-bootstrap.test.ts`. Once v2.9.0 ships, the
-# 404 branch goes dormant and the `pass` branch asserts.
+# When the release asset is missing, the download step of the bootstrap
+# script gets a 404. The test treats that case as a skip with an INFO log,
+# not as a failure (see `tests/e2e/fresh-install-bootstrap.test.ts`).
+# The default version, v2.9.0, is released, so the `pass` branch asserts.
 #
 # To re-target the smoke at a specific release (e.g. an rc tag), dispatch
 # with the `version` input:
@@ -68,9 +66,8 @@ jobs:
           cache: npm
 
       - name: Install test dependencies
-        # Only vitest is needed to execute the test file. Skip the full
-        # install (`npm ci`) to keep the job lean — the smoke deliberately
-        # does not exercise the build pipeline, only the bootstrap script.
+        # Install the dependencies that run the test file. The smoke tests
+        # the bootstrap script, not the build pipeline.
         run: npm ci
 
       - name: Run fresh-install smoke

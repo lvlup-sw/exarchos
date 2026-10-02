@@ -1,5 +1,5 @@
 # Exarchos project configuration
-# See: docs/guide/configuration.md
+# See docs/guide/configuration.md. Run `npm run docs:mount` to link the docs into docs/.
 
 # The mutation-adequacy runner. It points at the repo-local adapter
 # (tools/audit/core/stryker-adapter.mjs), not the built-in `npx stryker run`.
