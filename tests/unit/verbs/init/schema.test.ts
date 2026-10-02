@@ -200,7 +200,6 @@ describe('InitOutputSchema', () => {
           path: '/home/user/.claude.json',
           status: 'failed',
           componentsWritten: [],
-          // Missing error — should fail refinement
         },
       ],
       vcs: null,

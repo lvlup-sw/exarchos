@@ -1,18 +1,9 @@
+// Parity tests that pin `plan-coverage.ts` to the behavior of the bash script `verify-plan-coverage.sh`.
+// The sections come from under `## Technical Design`, and the tasks come from `### Task NNN: Title`
+// headers. Coverage matches each section to the task titles. Full coverage is PASS, and a gap is FAIL.
+
 import { describe, it, expect } from 'vitest';
 import { parseDesignSections, parsePlanTasks, computeCoverage } from '../../../../src/verbs/gates/plan-coverage.js';
-
-/**
- * Behavioral parity tests for plan-coverage.ts against the original
- * scripts/verify-plan-coverage.sh bash script.
- *
- * Bash script behavior (verify-plan-coverage.sh):
- *   - Extracts sections under ## Technical Design
- *   - Extracts tasks from ### Task NNN: Title headers
- *   - Computes coverage matrix: section ↔ task title matching
- *   - exit 0 → all sections covered (PASS), exit 1 → gaps (FAIL)
- */
-
-// ─── Fixtures ────────────────────────────────────────────────────────────────
 
 const DESIGN_FULL_COVERAGE = `# Feature Design
 ## Problem Statement
@@ -79,8 +70,6 @@ const PLAN_MINIMAL = `# Implementation Plan
 ### Task 001: Create Widget Component
 Build the widget rendering layer.
 Design section: Widget Component`;
-
-// ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe('behavioral parity with verify-plan-coverage.sh', () => {
   describe('parseDesignSections', () => {

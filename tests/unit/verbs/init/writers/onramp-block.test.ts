@@ -54,14 +54,16 @@ function realCanonicalBody(): string {
 }
 
 describe('onramp-block writers (Task 013, DR-5)', () => {
+  /**
+   * The canonical block has no build-time placeholders, names the exarchos MCP
+   * tools, and carries no `@import`. The installed block sits between the binding
+   * fence markers and also carries no `@import`.
+   */
   it('writers_AgentsMdBlock_RuntimeNeutralAndNoAtImports', () => {
     const canonicalBody = realCanonicalBody();
 
-    // The canonical block is runtime-neutral: no build-time placeholders, no
-    // per-harness fork, and it names the logical exarchos MCP tools.
     expect(canonicalBody).not.toMatch(/\{\{/);
     expect(canonicalBody).toContain('exarchos_workflow');
-    // Self-contained: the block body carries no @import directive.
     expect(containsAtImport(canonicalBody)).toBe(false);
 
     const { store, deps } = memFs();
@@ -70,16 +72,13 @@ describe('onramp-block writers (Task 013, DR-5)', () => {
 
     const written = store.get(`/proj/${AGENTS_MD_FILENAME}`);
     expect(written).toBeDefined();
-    // The installed block reuses the Task-012 fence constants.
     expect(written).toContain(BINDING_MARKER_START);
     expect(written).toContain(BINDING_MARKER_END);
-    // And its body has no @import line inside the fenced block.
     expect(containsAtImport(stripBindingFences(written as string))).toBe(false);
   });
 
+  /** The installed AGENTS.md block body is byte-identical to the canonical block with fences stripped. */
   it('agentsMdBlock_ByteIdenticalToCanonical', () => {
-    // Boundary contract: the AGENTS.md block body is byte-identical to
-    // binding/standard/block.md (fences stripped) — one content source.
     const expected = realCanonicalBody();
     expect(loadCanonicalBlockBody()).toBe(expected);
 
@@ -89,9 +88,8 @@ describe('onramp-block writers (Task 013, DR-5)', () => {
     expect(installedBody).toBe(expected);
   });
 
+  /** The AGENTS.md block must be self-contained. The `@AGENTS.md` import belongs in the CLAUDE.md shim. */
   it('writers_AgentsMdBlock_RejectsAtImportInBlock', () => {
-    // A body carrying an @import is rejected — the AGENTS.md block must be
-    // self-contained (the shim's @AGENTS.md lives in CLAUDE.md, not here).
     const { deps } = memFs();
     const result = writeAgentsMdBlock(
       { projectRoot: '/proj', canonicalBody: 'orientation\n@AGENTS.md' },
@@ -101,8 +99,8 @@ describe('onramp-block writers (Task 013, DR-5)', () => {
     expect(result.error).toMatch(/self-contained/i);
   });
 
+  /** A target file near the Codex size cap gives a size warning. */
   it('writer_FileNearCodexCap_Warns', () => {
-    // A target file already near the 32 KiB Codex cap yields a size advisory.
     const bigUserContent = 'x'.repeat(31 * 1024);
     const { deps } = memFs({ [`/proj/${AGENTS_MD_FILENAME}`]: bigUserContent });
 
@@ -121,11 +119,11 @@ describe('onramp-block writers (Task 013, DR-5)', () => {
       deps,
     );
     expect(result.ok).toBe(true);
-    // Sanity: a fresh small file is well under the near-cap threshold.
     expect(CODEX_WARN_BYTES).toBeGreaterThan(4 * 1024);
     expect(result.warnings.some((w) => /near the Codex/i.test(w))).toBe(false);
   });
 
+  /** The `@AGENTS.md` import is on its own line between the fence markers, and it is the whole shim payload. */
   it('claudeWriter_Shim_ImportOnOwnLineInsideBlock', () => {
     const { store, deps } = memFs();
     const result = writeClaudeMdShim({ projectRoot: '/proj' }, deps);
@@ -134,7 +132,6 @@ describe('onramp-block writers (Task 013, DR-5)', () => {
     const written = store.get(`/proj/${CLAUDE_MD_FILENAME}`) as string;
     expect(written).toBeDefined();
 
-    // The @AGENTS.md import is on its own line, between the fence markers.
     const startIdx = written.indexOf(BINDING_MARKER_START);
     const endIdx = written.indexOf(BINDING_MARKER_END);
     expect(startIdx).toBeGreaterThanOrEqual(0);
@@ -146,19 +143,16 @@ describe('onramp-block writers (Task 013, DR-5)', () => {
       .some((line) => line.trim() === CLAUDE_MD_IMPORT_LINE);
     expect(ownLine).toBe(true);
 
-    // The shim block's payload is exactly the import (self-contained shim).
     expect(stripBindingFences(written)).toBe(CLAUDE_MD_IMPORT_LINE);
   });
 
+  /**
+   * Claude Code reaches AGENTS.md only through the CLAUDE.md shim. When the shim
+   * write fails, `wrote` is true for the AGENTS.md block, but `failed` is also
+   * true because the on-ramp is incomplete.
+   */
   it('deployOnrampBlocks_ShimWriteFailsAgentsOk_ReportsFailed', () => {
-    // DR-7: Claude Code reaches AGENTS.md ONLY via the CLAUDE.md @AGENTS.md shim
-    // (the spec rejects a symlink in favour of the import). So an AGENTS.md block
-    // that lands while the CLAUDE.md shim write fails still leaves Claude Code with
-    // no reachable on-ramp — `failed` must be true so the onboard gate keeps the
-    // retired SessionStart hooks in place. `failed` tracks BOTH surfaces, not just
-    // AGENTS.md.
     const { deps } = memFs();
-    // AGENTS.md write succeeds; the CLAUDE.md shim write throws (e.g. read-only file).
     const shimFailingDeps: InsertManagedBlockDeps = {
       ...deps,
       writeFileAtomic: (p, content) => {
@@ -174,8 +168,6 @@ describe('onramp-block writers (Task 013, DR-5)', () => {
       shimFailingDeps,
     );
 
-    // The AGENTS.md block DID write (wrote is true), but the shim failure makes the
-    // composed on-ramp incomplete → failed.
     expect(result.wrote).toBe(true);
     expect(result.failed).toBe(true);
     expect(result.warnings.join(' ')).toMatch(/CLAUDE\.md|EACCES|managed block/i);
@@ -191,8 +183,8 @@ describe('onramp-block writers (Task 013, DR-5)', () => {
     expect(result.failed).toBe(false);
   });
 
+  /** A throwing atomic writer gives a structured error, not a throw. */
   it('writeAgentsMdBlock_UnwritableTarget_FailsOpenNoThrow', () => {
-    // A throwing atomic writer surfaces a structured error, never a throw.
     const { deps } = memFs();
     const throwing: InsertManagedBlockDeps = {
       ...deps,

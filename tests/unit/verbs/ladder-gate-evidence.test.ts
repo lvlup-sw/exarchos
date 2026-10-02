@@ -1,7 +1,12 @@
+/**
+ * Tests for the durable evidence that the migrated ladder gates record.
+ *
+ * The `runStaticAnalysis` double returns `skipCount` in each branch, because the handler destructures it from the result.
+ */
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { join } from 'node:path';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const controls = vi.hoisted(() => ({
   staticStatus: 'pass' as 'pass' | 'fail' | 'skip',
@@ -31,9 +36,6 @@ vi.mock('../../../src/verbs/pure/static-analysis.js', async (importActual) => {
             skipReason: 'no-toolchain',
             passCount: 0,
             failCount: 0,
-            // T-09 / DR-6: `skipCount` is part of the StaticAnalysisResult
-            // contract — the handler destructures it, so a double that omits
-            // it drifts from the real pure module.
             skipCount: 0,
           }
         : {

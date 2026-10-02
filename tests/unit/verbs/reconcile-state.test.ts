@@ -1,9 +1,7 @@
-// ─── Reconcile State Handler Tests ──────────────────────────────────────────
+// Tests for `handleReconcileState`, with mocks for `node:fs` and `node:child_process`.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ToolResult } from '../../../src/format.js';
-
-// ─── Mock fs and child_process ──────────────────────────────────────────────
 
 vi.mock('node:fs', () => ({
   existsSync: vi.fn(),
@@ -22,8 +20,6 @@ const mockExistsSync = vi.mocked(existsSync);
 const mockReadFileSync = vi.mocked(readFileSync);
 const mockExecFileSync = vi.mocked(execFileSync);
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
 function makeState(overrides: Record<string, unknown> = {}) {
   return JSON.stringify({
     featureId: 'test-feature',
@@ -34,8 +30,6 @@ function makeState(overrides: Record<string, unknown> = {}) {
     ...overrides,
   });
 }
-
-// ─── Tests ──────────────────────────────────────────────────────────────────
 
 describe('handleReconcileState', () => {
   beforeEach(() => {
@@ -52,7 +46,6 @@ describe('handleReconcileState', () => {
 
     mockExistsSync.mockReturnValue(true);
     mockReadFileSync.mockReturnValue(stateJson);
-    // git rev-parse succeeds for branch
     mockExecFileSync.mockReturnValue(Buffer.from('abc123\n'));
 
     const result: ToolResult = await handleReconcileState({
@@ -109,6 +102,7 @@ describe('handleReconcileState', () => {
     expect(data.report).toContain('nonexistent-phase');
   });
 
+  /** `git rev-parse` resolves the first branch and fails on the second. */
   it('MissingGitBranches_ReturnsNotPassed', async () => {
     const stateJson = makeState({
       tasks: [
@@ -119,7 +113,6 @@ describe('handleReconcileState', () => {
 
     mockExistsSync.mockReturnValue(true);
     mockReadFileSync.mockReturnValue(stateJson);
-    // First branch exists, second doesn't
     mockExecFileSync
       .mockReturnValueOnce(Buffer.from('abc123\n'))
       .mockImplementationOnce(() => {
@@ -137,6 +130,7 @@ describe('handleReconcileState', () => {
     expect(data.report).toContain('feat/task-2');
   });
 
+  /** The mocked `git worktree list --porcelain` output lists only the first worktree. */
   it('MissingWorktrees_ReturnsNotPassed', async () => {
     const stateJson = makeState({
       worktrees: {
@@ -153,7 +147,6 @@ describe('handleReconcileState', () => {
       return false;
     });
     mockReadFileSync.mockReturnValue(stateJson);
-    // git worktree list --porcelain
     mockExecFileSync.mockReturnValue(Buffer.from(
       'worktree /tmp/repo\nHEAD abc123\nbranch refs/heads/main\n\n' +
       'worktree /tmp/worktree-1\nHEAD def456\nbranch refs/heads/feat/wt-1\n\n',

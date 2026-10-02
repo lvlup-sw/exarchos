@@ -1,14 +1,15 @@
-// ─── Workflow Determinism Action Tests ──────────────────────────────────────
+/**
+ * Tests for `handleWorkflowDeterminism`. These cases test the provider verdict, so the phase-gate runner is stubbed down to its provider call.
+ * `gate-runner.test.ts` covers the runner against a real store. `unrunbooked-gate-evidence-dispatch.test.ts` covers the evidence over real dispatch.
+ * Like the real helper, the `requireGateEvent` stub appends through `mockEmitGateEvent` and withholds the success result when that append throws.
+ */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { EventStore } from '../../../../src/events/store.js';
 
-// ─── Mock gate-utils (getDiff + emitGateEvent) ─────────────────────────────
-
 const mockGetDiff = vi.fn<(repoRoot: string, baseBranch: string) => string | null>();
 const mockEmitGateEvent = vi.fn().mockResolvedValue(undefined);
-// Outside a dispatch scope there is no operation for a retry to collapse onto,
-// so the real helper answers `undefined` — the mock says the same thing.
+/** Outside a dispatch scope, no operation exists for a retry to collapse onto. The real helper returns `undefined`, and the mock does the same. */
 const mockSameOperationGateKey = vi.fn<(gateName: string) => string | undefined>(
   () => undefined,
 );
@@ -17,10 +18,6 @@ vi.mock('../../../../src/verbs/gates/gate-utils.js', () => ({
   getDiff: (...args: [string, string]) => mockGetDiff(...args),
   emitGateEvent: (...args: unknown[]) => mockEmitGateEvent(...args),
   sameOperationGateKey: (gateName: string) => mockSameOperationGateKey(gateName),
-  // The handler now calls `requireGateEvent`, not `emitGateEvent`, directly.
-  // This stub mirrors the real helper's semantics — append via the same
-  // mocked `emitGateEvent`, withhold the carrier when the append throws — so
-  // a test controls the failure through `mockEmitGateEvent` exactly as before.
   requireGateEvent: async (
     store: unknown,
     streamId: string,
@@ -47,13 +44,6 @@ vi.mock('../../../../src/verbs/gates/gate-utils.js', () => ({
   },
 }));
 
-// The gate now records durable evidence through the shared phase-gate runner
-// before any success carrier escapes. These cases are about the PROVIDER's
-// verdict, so the runner is stubbed down to its provider call — the same seam
-// every other migrated gate's unit test stubs. What the runner itself
-// guarantees is proven against a real store in `gate-runner.test.ts`, and the
-// evidence a caller actually gets is proven over real dispatch in
-// `unrunbooked-gate-evidence-dispatch.test.ts`.
 vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
   runPhaseGateWithEvidence: vi.fn(async (request) => {
     try {
@@ -77,13 +67,9 @@ vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
   }),
 }));
 
-// ─── Mock pure TS workflow-determinism module ───────────────────────────────
-
 vi.mock('../../../../src/verbs/pure/workflow-determinism.js', () => ({
   checkWorkflowDeterminism: vi.fn(),
 }));
-
-// ─── Mock event store ────────────────────────────────────────────────────────
 
 const mockStore = {
   append: vi.fn().mockResolvedValue(undefined),
@@ -99,16 +85,12 @@ import { handleWorkflowDeterminism } from '../../../../src/verbs/gates/workflow-
 
 const STATE_DIR = '/tmp/test-workflow-determinism';
 
-// ─── Tests ───────────────────────────────────────────────────────────────────
-
 describe('handleWorkflowDeterminism', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockStore.append.mockResolvedValue(undefined);
     mockStore.query.mockResolvedValue([]);
   });
-
-  // ─── Validation ──────────────────────────────────────────────────────────
 
   describe('input validation', () => {
     it('handleWorkflowDeterminism_MissingFeatureId_ReturnsError', async () => {
@@ -119,8 +101,6 @@ describe('handleWorkflowDeterminism', () => {
       expect(result.error?.message).toContain('featureId');
     });
   });
-
-  // ─── Clean Code ────────────────────────────────────────────────────────
 
   describe('clean code', () => {
     it('handleWorkflowDeterminism_CleanCode_ReturnsPassed', async () => {
@@ -144,8 +124,6 @@ describe('handleWorkflowDeterminism', () => {
       expect(data.report).toContain('Result: PASS');
     });
   });
-
-  // ─── Findings Detected ─────────────────────────────────────────────────
 
   describe('findings detected', () => {
     it('handleWorkflowDeterminism_Findings_ReturnsFailWithCount', async () => {
@@ -173,8 +151,6 @@ describe('handleWorkflowDeterminism', () => {
       expect(data.report).toContain('FINDINGS');
     });
   });
-
-  // ─── Gate Event Emission ──────────────────────────────────────────────────
 
   describe('gate event emission', () => {
     it('handleWorkflowDeterminism_EmitsGateEvent_WithD5Dimension', async () => {
@@ -204,8 +180,6 @@ describe('handleWorkflowDeterminism', () => {
     });
   });
 
-  // ─── Git Diff Failure (fail-closed) ───────────────────────────────────────
-
   describe('git diff failure', () => {
     it('handleWorkflowDeterminism_GitDiffFails_ReturnsError', async () => {
       mockGetDiff.mockReturnValue(null);
@@ -219,9 +193,8 @@ describe('handleWorkflowDeterminism', () => {
     });
   });
 
-  // ─── Gate Event Append Failure ─────────────────────────────────────────────
-
   describe('gate event append failure', () => {
+    /** The gate verdict stays readable on `data`. Only the success result is withheld. */
     it('WorkflowDeterminism_GateEventAppendFails_WithholdsTheSuccessCarrier', async () => {
       mockGetDiff.mockReturnValue('diff --git a/foo.ts b/foo.ts\n');
       vi.mocked(checkWorkflowDeterminism).mockReturnValue({
@@ -239,8 +212,6 @@ describe('handleWorkflowDeterminism', () => {
 
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('GATE_EVENT_UNRECORDED');
-      // The gate's own verdict is still readable on `data` — nothing is lost,
-      // only the success carrier is withheld.
       const data = result.data as { passed: boolean; findingCount: number };
       expect(data.passed).toBe(true);
       expect(data.findingCount).toBe(0);

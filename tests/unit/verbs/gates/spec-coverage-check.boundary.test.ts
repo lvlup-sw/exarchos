@@ -1,16 +1,9 @@
-// ─── Spec Coverage Check — dispatch-boundary tests (WFQ-010) ─────────────────
-//
-// `spec-coverage-check.test.ts` calls `handleSpecCoverageCheck` DIRECTLY, which
-// is why WFQ-010's `phase` parameter could be missing from the registry schema
-// without a single one of those tests going red. `dispatch()` forwards only
-// `parsed.data` and Zod v4 strips unknown keys, so an undeclared `phase` never
-// reached the handler: the whole `runPlanSyntaxCheck` branch was unreachable in
-// production while its unit suite passed. A parameter is only delivered if it
-// survives the boundary, so that is what these assertions measure.
-//
-// Deliberately a separate file: the handler suite mocks `node:fs` and
-// `node:child_process` wholesale, and the registry must be imported unmocked.
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Dispatch-boundary tests for `spec_coverage_check`. `dispatch()` forwards only `parsed.data`, and Zod v4 strips unknown keys.
+ * So a parameter reaches the handler only when the registry schema declares it.
+ * `spec-coverage-check.test.ts` calls the handler directly and cannot see this boundary.
+ * This file is separate because that suite mocks `node:fs` and `node:child_process`, and the registry must load unmocked.
+ */
 
 import { describe, it, expect } from 'vitest';
 import type { z } from 'zod';
@@ -26,6 +19,7 @@ function specCoverageSchema(): z.ZodType {
 }
 
 describe('spec_coverage_check — the dispatch boundary (WFQ-010)', () => {
+  /** The strip is silent, so the parse succeeds either way. Only the surviving key shows that the schema declares it. */
   it('registrySchema_PlanPhaseArg_SurvivesTheParse', () => {
     const parsed = specCoverageSchema().safeParse({
       featureId: 'feature-under-test',
@@ -34,8 +28,6 @@ describe('spec_coverage_check — the dispatch boundary (WFQ-010)', () => {
       coveragePhase: 'plan',
     });
     expect(parsed.success).toBe(true);
-    // The strip is SILENT — the parse succeeds either way, so `success` proves
-    // nothing here. Only the surviving key distinguishes declared from dropped.
     expect((parsed.data as { coveragePhase?: string }).coveragePhase).toBe('plan');
   });
 
@@ -50,11 +42,8 @@ describe('spec_coverage_check — the dispatch boundary (WFQ-010)', () => {
     expect((parsed.data as { coveragePhase?: string }).coveragePhase).toBe('post-implementation');
   });
 
+  /** Negative control. A free-form string field passes the two tests above, but the schema must constrain the value. */
   it('registrySchema_UnknownPhaseValue_IsRejected', () => {
-    // Negative control. Without this, a `phase: z.string().optional()` would pass
-    // the two assertions above while leaving the value unconstrained — INV-5a
-    // requires the constraint at the schema level, not a prose hint the handler
-    // re-checks later.
     const parsed = specCoverageSchema().safeParse({
       featureId: 'feature-under-test',
       planFile: 'docs/specs/plan.md',
@@ -64,27 +53,14 @@ describe('spec_coverage_check — the dispatch boundary (WFQ-010)', () => {
     expect(parsed.success).toBe(false);
   });
 
+  /**
+   * `buildRegistrationSchema` flattens the field names of the actions in a tool. One name with two base types throws at server start, before `initialize`.
+   * A field named `phase` collides with the free-form `phase` of `check_test_adequacy`, so this field is `coveragePhase`.
+   * The check runs per tool, because the MCP adapter builds one registration schema for each tool.
+   * The non-empty check keeps the loop from passing on an empty registry.
+   */
   it('registrySchema_BuildsWithoutAFieldCollision', () => {
-    // The field is `coveragePhase`, not `phase`, and this is why.
-    // `buildRegistrationSchema` flattens field names across EVERY action, so two
-    // actions declaring the same name with different base types is a hard error at
-    // server construction — not a warning. Naming this one `phase` collided with
-    // `check_test_adequacy`'s free-form `phase: z.string()` legacy carrier and took
-    // the whole MCP server down: it threw before `initialize`, so every process
-    // test failed with "server process exited before initialize completed" rather
-    // than anything naming the real cause.
-    //
-    // Widening this field to `z.string()` to match would have removed the collision
-    // by removing the constraint, which INV-5a forbids. Hence the rename, and hence
-    // this assertion — the collision is invisible to a unit test that only calls the
-    // handler.
-    // PER TOOL, because that is the registration set the server composes
-    // (`adapters/mcp.ts`: `buildRegistrationSchema(tool.actions)`). Flattening
-    // every tool's actions into one call would invent collisions that cannot
-    // occur — `check_post_merge.prUrl` and `cleanup.prUrl` live in different
-    // tools and legitimately differ — and a test that fails for an impossible
-    // reason teaches people to ignore it.
-    expect(TOOL_REGISTRY.length).toBeGreaterThan(0); // non-empty denominator
+    expect(TOOL_REGISTRY.length).toBeGreaterThan(0);
     for (const tool of TOOL_REGISTRY) {
       expect(
         () => buildRegistrationSchema([...tool.actions]),
@@ -93,11 +69,8 @@ describe('spec_coverage_check — the dispatch boundary (WFQ-010)', () => {
     }
   });
 
+  /** The gate records its evidence on the stream that `featureId` names. So the parse, not the handler, must refuse a call without it. */
   it('registrySchema_FeatureIdOmitted_IsRejected', () => {
-    // The gate's durable-evidence postcondition is recorded against a stream,
-    // and the stream comes from this field. Declaring it optional would let a
-    // caller reach a handler that has no subject to pay the postcondition with,
-    // so the refusal belongs at the parse rather than inside the handler.
     const parsed = specCoverageSchema().safeParse({
       planFile: 'docs/specs/plan.md',
       repoRoot: '.',
@@ -105,9 +78,8 @@ describe('spec_coverage_check — the dispatch boundary (WFQ-010)', () => {
     expect(parsed.success).toBe(false);
   });
 
+  /** `coveragePhase` is optional, so a caller reaches the handler default, `post-implementation`, by omission. */
   it('registrySchema_PhaseOmitted_StillParses', () => {
-    // `phase` stays optional: the handler's documented back-compat default
-    // (post-implementation) must remain reachable by omission.
     const parsed = specCoverageSchema().safeParse({
       featureId: 'feature-under-test',
       planFile: 'docs/specs/plan.md',

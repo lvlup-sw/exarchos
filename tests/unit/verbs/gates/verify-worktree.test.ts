@@ -1,5 +1,3 @@
-// ─── Verify Worktree Action Tests ─────────────────────────────────────────────
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -12,16 +10,15 @@ import { handleVerifyWorktree } from '../../../../src/verbs/gates/verify-worktre
 
 const STATE_DIR = '/tmp/test-verify-worktree';
 
-// Mirror the handler's `toPosix(path.resolve(cwd))`: on Windows path.resolve
-// prefixes the drive, so the raw `/foo/...` input the test passes is NOT what
-// the handler ends up checking against the fs mock or returning (#1620).
+/**
+ * Applies the same `toPosix(path.resolve(cwd))` as the handler.
+ * On Windows, `path.resolve` adds the drive, so the handler checks and returns a path that differs from the raw input.
+ */
 const resolvedOf = (p: string): string => toPosix(path.resolve(p));
 
 beforeEach(() => {
   vi.restoreAllMocks();
 });
-
-// ─── Helper ──────────────────────────────────────────────────────────────────
 
 function mockDirExists(dirPath: string): void {
   const resolved = resolvedOf(dirPath);
@@ -33,8 +30,6 @@ function mockDirExists(dirPath: string): void {
     throw new Error(`ENOENT: no such file or directory, stat '${String(p)}'`);
   });
 }
-
-// ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe('handleVerifyWorktree', () => {
   it('returns passed when path is inside a worktree', async () => {

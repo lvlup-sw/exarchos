@@ -1,15 +1,8 @@
-// ─── check_test_adequacy: toolchain test-glob threading (FIX-3) ───────────────
-//
-// `test-adequacy-handler` never populated `ProbeArgs.testGlobs`, so `splitHunks`
-// always used the co-located defaults (`**/*.test.*`, `**/*.spec.*`,
-// `**/__tests__/**`). A python repo whose tests live under `tests/test_*.py`
-// (NOT `*.test.*`) had EVERY test misclassified as source → spurious
-// `no-new-tests`. FIX-3 threads the resolved toolchain's test-file layout into
-// the probe so `tests/test_foo.py` is classified as a test for a python repo.
-//
-// Dispatched THROUGH `handleOrchestrate`; `runTests` is injected so no real
-// pytest is required, and `defaultGitExec` runs against a real temp-dir repo.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * `check_test_adequacy` must classify test files with the test layout of the resolved toolchain.
+ * The co-located default globs do not match the pytest layout `tests/test_*.py`. With them, every Python test counts as source, and the probe reports `no-new-tests`.
+ * The test dispatches through `handleOrchestrate` and injects `runTests`, so no real pytest runs. Git runs on a real temp repo.
+ */
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
@@ -39,21 +32,23 @@ async function initRepo(prefix: string): Promise<string> {
 describe('check_test_adequacy toolchain test-glob threading (FIX-3)', () => {
   const cleanups: Array<() => void> = [];
 
+  /** Cleanup is best effort. */
   afterEach(() => {
     for (const fn of cleanups.splice(0)) {
       try {
         fn();
       } catch {
-        /* best-effort */
       }
     }
   });
 
+  /**
+   * The Python repo keeps its tests under `tests/test_*.py`, which the co-located defaults do not match.
+   * The injected `runTests` fails on the reverted source, so the probe passes. The test checks only the classification.
+   */
   it(
     'CheckTestAdequacy_PythonTestsLayout_ClassifiedAsTest',
     async () => {
-      // Python-marker repo: tests live under `tests/test_*.py`, the pytest layout
-      // — which the co-located defaults do NOT match.
       const repoRoot = await initRepo('test-adequacy-pyglob-');
       cleanups.push(() => rmrf(repoRoot));
 
@@ -63,7 +58,6 @@ describe('check_test_adequacy toolchain test-glob threading (FIX-3)', () => {
       await git(repoRoot, ['add', '.']);
       await git(repoRoot, ['commit', '-m', 'base', '-q']);
 
-      // Task diff: change source AND add a python test under tests/.
       await git(repoRoot, ['checkout', '-b', 'feature/py', '-q']);
       writeFileSync(path.join(repoRoot, 'src', 'calc.py'), 'def value():\n    return 2\n');
       mkdirSync(path.join(repoRoot, 'tests'), { recursive: true });
@@ -82,8 +76,6 @@ describe('check_test_adequacy toolchain test-glob threading (FIX-3)', () => {
         { stateDir, eventStore, enableTelemetry: false } as DispatchContext,
       );
 
-      // Inject runTests so no real pytest runs — report "failed on reverted source"
-      // to make the probe pass; we only care about CLASSIFICATION here.
       const runTests = async () => ({ passed: false, output: 'red on revert' });
 
       const result = await orchestrate(
@@ -101,9 +93,6 @@ describe('check_test_adequacy toolchain test-glob threading (FIX-3)', () => {
 
       expect(result.success).toBe(true);
       const data = result.data as { probedTests: string[]; discriminant?: string };
-      // The python test under tests/ must be classified as a test (NOT
-      // no-new-tests). Before FIX-3 this misclassified → discriminant
-      // 'no-new-tests' and an empty probedTests.
       expect(data.discriminant).not.toBe('no-new-tests');
       expect(data.probedTests).toEqual(expect.arrayContaining(['tests/test_foo.py']));
     },

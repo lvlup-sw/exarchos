@@ -1,11 +1,12 @@
-// ─── Composite Orchestrate Handler Tests ────────────────────────────────────
+/**
+ * Tests that `handleOrchestrate` routes each action to its handler and wraps a success in the envelope.
+ * The VCS factory stub keeps the `create_issue` precheck away from the real `gh` CLI.
+ */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ToolResult } from '../../../src/format.js';
 import type { DispatchContext } from '../../../src/dispatch/core/dispatch.js';
 import { EventStore } from '../../../src/events/store.js';
-
-// ─── Mock task handler functions ────────────────────────────────────────────
 
 vi.mock('../../../src/verbs/tasks/tools.js', () => ({
   handleTaskClaim: vi.fn(),
@@ -86,9 +87,6 @@ vi.mock('../../../src/verbs/vcs/create-issue.js', () => ({
   handleCreateIssue: vi.fn(),
 }));
 
-// The composite handler for `create_issue` instantiates the VCS provider so it
-// can inject `searchIssuesByMarker` as the recovery precheck dependency
-// (CodeRabbit #3224631237). Stub the factory so we don't hit the real gh CLI.
 vi.mock('../../../src/vcs/factory.js', () => ({
   createVcsProvider: vi.fn().mockResolvedValue({
     searchIssuesByMarker: vi.fn().mockResolvedValue([]),
@@ -160,12 +158,9 @@ function successResult(data: unknown): ToolResult {
 }
 
 /**
- * T038: successful orchestrate responses are wrapped in Envelope<T> at the
- * composite boundary. Each test asserts that the wrapped result preserves
- * the handler's `data` payload and carries the canonical envelope fields
- * (`next_actions: []`, `_meta`, `_perf.ms`). Reference equality
- * (`expect(result).toBe(expected)`) no longer holds because `wrap()`
- * constructs a new object.
+ * Asserts that the composite wraps a success in the envelope.
+ * The result keeps the handler `data` and carries an empty `next_actions`, `_meta` and `_perf.ms`.
+ * `wrap()` builds a new object, so a reference-equality check does not apply.
  */
 function expectEnvelopedSuccess(result: ToolResult, expected: ToolResult): void {
   expect(result.success).toBe(true);
@@ -183,11 +178,8 @@ describe('handleOrchestrate', () => {
     vi.clearAllMocks();
   });
 
-  // ─── Task Actions ───────────────────────────────────────────────────────
-
   describe('task actions', () => {
     it('handleOrchestrate_TaskClaim_DelegatesToHandleTaskClaim', async () => {
-      // Arrange
       const expected = successResult({ streamId: 's1', sequence: 1, type: 'task.claimed' });
       vi.mocked(handleTaskClaim).mockResolvedValue(expected);
       const args = {
@@ -197,10 +189,8 @@ describe('handleOrchestrate', () => {
         streamId: 's1',
       };
 
-      // Act
       const result = await handleOrchestrate(args, CTX);
 
-      // Assert
       expectEnvelopedSuccess(result, expected);
       expect(handleTaskClaim).toHaveBeenCalledWith(
         { taskId: 't1', agentId: 'agent-1', streamId: 's1' },
@@ -210,7 +200,6 @@ describe('handleOrchestrate', () => {
     });
 
     it('handleOrchestrate_TaskComplete_DelegatesToHandleTaskComplete', async () => {
-      // Arrange
       const expected = successResult({ streamId: 's1', sequence: 2, type: 'task.completed' });
       vi.mocked(handleTaskComplete).mockResolvedValue(expected);
       const args = {
@@ -220,10 +209,8 @@ describe('handleOrchestrate', () => {
         streamId: 's1',
       };
 
-      // Act
       const result = await handleOrchestrate(args, CTX);
 
-      // Assert
       expectEnvelopedSuccess(result, expected);
       expect(handleTaskComplete).toHaveBeenCalledWith(
         { taskId: 't1', result: { artifacts: ['file.ts'] }, streamId: 's1' },
@@ -233,7 +220,6 @@ describe('handleOrchestrate', () => {
     });
 
     it('handleOrchestrate_TaskFail_DelegatesToHandleTaskFail', async () => {
-      // Arrange
       const expected = successResult({ streamId: 's1', sequence: 3, type: 'task.failed' });
       vi.mocked(handleTaskFail).mockResolvedValue(expected);
       const args = {
@@ -244,10 +230,8 @@ describe('handleOrchestrate', () => {
         streamId: 's1',
       };
 
-      // Act
       const result = await handleOrchestrate(args, CTX);
 
-      // Assert
       expectEnvelopedSuccess(result, expected);
       expect(handleTaskFail).toHaveBeenCalledWith(
         { taskId: 't1', error: 'something broke', diagnostics: { log: 'details' }, streamId: 's1' },
@@ -257,11 +241,8 @@ describe('handleOrchestrate', () => {
     });
   });
 
-  // ─── Composite Actions ──────────────────────────────────────────────
-
   describe('composite actions', () => {
     it('HandleOrchestrate_PrepareDelegation_DelegatesToHandler', async () => {
-      // Arrange
       const expected = successResult({ ready: true, readiness: { planApproved: true, tasksExist: true } });
       vi.mocked(handlePrepareDelegation).mockResolvedValue(expected);
       const args = {
@@ -270,10 +251,8 @@ describe('handleOrchestrate', () => {
         tasks: [{ id: 't1', title: 'Task 1' }],
       };
 
-      // Act
       const result = await handleOrchestrate(args, CTX);
 
-      // Assert
       expectEnvelopedSuccess(result, expected);
       expect(handlePrepareDelegation).toHaveBeenCalledWith(
         { featureId: 'feat-123', tasks: [{ id: 't1', title: 'Task 1' }] },
@@ -283,7 +262,6 @@ describe('handleOrchestrate', () => {
     });
 
     it('HandleOrchestrate_PrepareSynthesis_DelegatesToHandler', async () => {
-      // Arrange
       const expected = successResult({ ready: true, readiness: { allPassed: true } });
       vi.mocked(handlePrepareSynthesis).mockResolvedValue(expected);
       const args = {
@@ -291,10 +269,8 @@ describe('handleOrchestrate', () => {
         featureId: 'feat-456',
       };
 
-      // Act
       const result = await handleOrchestrate(args, CTX);
 
-      // Assert
       expectEnvelopedSuccess(result, expected);
       expect(handlePrepareSynthesis).toHaveBeenCalledWith(
         { featureId: 'feat-456' },
@@ -304,7 +280,6 @@ describe('handleOrchestrate', () => {
     });
 
     it('Composite_InvariantsScaffold_Dispatches', async () => {
-      // P2/T7: dispatching action:'invariants_scaffold' reaches handleScaffold.
       const expected = successResult({
         catalog: { wrote: true, path: '/repo/.exarchos/invariants.md', reason: 'created' },
         registration: { wrote: true, path: '/repo/.exarchos.yml', reason: 'registered' },
@@ -323,7 +298,6 @@ describe('handleOrchestrate', () => {
 
       expectEnvelopedSuccess(result, expected);
       expect(handleScaffold).toHaveBeenCalledTimes(1);
-      // First positional arg carries the scaffold args (sans `action`).
       const callArgs = vi.mocked(handleScaffold).mock.calls[0]![0];
       expect(callArgs).toMatchObject({
         repoRoot: '/repo',
@@ -332,10 +306,8 @@ describe('handleOrchestrate', () => {
       });
     });
 
+    /** The add handler writes the catalog and emits the events, so dispatch must pass the `DispatchContext` to it. */
     it('Composite_InvariantsAdd_EmitsInvariantAuthored', async () => {
-      // P2/T11: committing (dryRun:false) emits invariant.authored, and the
-      // first registration of a catalog emits catalog.registered (INV-1). The
-      // handler owns the writes + event emission; dispatch threads ctx through.
       const expected = successResult({
         committed: true,
         id: 'U-1',
@@ -365,19 +337,16 @@ describe('handleOrchestrate', () => {
 
       expectEnvelopedSuccess(result, expected);
       expect(handleAdd).toHaveBeenCalledTimes(1);
-      // The add handler must receive the DispatchContext (it emits events).
       const callArgsLen = vi.mocked(handleAdd).mock.calls[0]!.length;
       expect(callArgsLen).toBeGreaterThanOrEqual(2);
     });
 
+    /** The dispatch boundary rejects malformed input before it builds the handler args. The valid tiers are `dev` and `user`. */
     it('Composite_InvariantsScaffold_InvalidTier_ReturnsInvalidInputNoHandlerCall', async () => {
-      // #1487 review: the dispatch boundary must reject malformed input with a
-      // structured INVALID_INPUT envelope BEFORE constructing handler args —
-      // the handler must never be invoked.
       const args = {
         action: 'invariants_scaffold',
         repoRoot: '/repo',
-        tier: 'superuser', // not 'dev' | 'user'
+        tier: 'superuser',
       };
 
       const result = await handleOrchestrate(args, CTX);
@@ -388,8 +357,6 @@ describe('handleOrchestrate', () => {
     });
 
     it('Composite_InvariantsAdd_NonObjectEntry_ReturnsInvalidInputNoHandlerCall', async () => {
-      // #1487 review: a non-object `entry` is rejected at the boundary; the
-      // add handler is never reached.
       const args = {
         action: 'invariants_add',
         repoRoot: '/repo',
@@ -406,7 +373,7 @@ describe('handleOrchestrate', () => {
     it('Composite_InvariantsAdd_NonStringRepoRoot_ReturnsInvalidInputNoHandlerCall', async () => {
       const args = {
         action: 'invariants_add',
-        repoRoot: 42, // not a string
+        repoRoot: 42,
         entry: { dimension: 'd', summary: 's' },
       };
 
@@ -418,7 +385,6 @@ describe('handleOrchestrate', () => {
     });
 
     it('HandleOrchestrate_CheckPostMerge_DelegatesToHandler', async () => {
-      // Arrange
       const expected = successResult({ passed: true, prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234', findings: [], report: '...' });
       vi.mocked(handlePostMerge).mockResolvedValue(expected);
       const args = {
@@ -429,10 +395,8 @@ describe('handleOrchestrate', () => {
         repoRoot: '/repo',
       };
 
-      // Act
       const result = await handleOrchestrate(args, CTX);
 
-      // Assert
       expectEnvelopedSuccess(result, expected);
       expect(handlePostMerge).toHaveBeenCalledWith(
         { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234', repoRoot: '/repo' },
@@ -442,7 +406,6 @@ describe('handleOrchestrate', () => {
     });
 
     it('HandleOrchestrate_AssessStack_DelegatesToHandler', async () => {
-      // Arrange
       const expected = successResult({ status: 'healthy', actionItems: [], recommendation: 'proceed' });
       vi.mocked(handleAssessStack).mockResolvedValue(expected);
       const args = {
@@ -451,10 +414,8 @@ describe('handleOrchestrate', () => {
         prNumbers: [101, 102],
       };
 
-      // Act
       const result = await handleOrchestrate(args, CTX);
 
-      // Assert
       expectEnvelopedSuccess(result, expected);
       expect(handleAssessStack).toHaveBeenCalledWith(
         { featureId: 'feat-789', prNumbers: [101, 102] },
@@ -464,7 +425,6 @@ describe('handleOrchestrate', () => {
     });
 
     it('HandleOrchestrate_CheckDesignCompleteness_DelegatesToHandler', async () => {
-      // Arrange
       const expected = successResult({ passed: true, advisory: true, findings: [] });
       vi.mocked(handleDesignCompleteness).mockResolvedValue(expected);
       const args = {
@@ -473,10 +433,8 @@ describe('handleOrchestrate', () => {
         designPath: '/tmp/design.md',
       };
 
-      // Act
       const result = await handleOrchestrate(args, CTX);
 
-      // Assert
       expectEnvelopedSuccess(result, expected);
       expect(handleDesignCompleteness).toHaveBeenCalledWith(
         { featureId: 'feat-200', designPath: '/tmp/design.md' },
@@ -486,7 +444,6 @@ describe('handleOrchestrate', () => {
     });
 
     it('HandleOrchestrate_CheckPlanCoverage_DelegatesToHandler', async () => {
-      // Arrange
       const expected = successResult({ passed: true, coverage: { covered: 5, gaps: 0, deferred: 0, total: 5 } });
       vi.mocked(handlePlanCoverage).mockResolvedValue(expected);
       const args = {
@@ -496,10 +453,8 @@ describe('handleOrchestrate', () => {
         planPath: '/tmp/plan.md',
       };
 
-      // Act
       const result = await handleOrchestrate(args, CTX);
 
-      // Assert
       expectEnvelopedSuccess(result, expected);
       expect(handlePlanCoverage).toHaveBeenCalledWith(
         { featureId: 'feat-100', designPath: '/tmp/design.md', planPath: '/tmp/plan.md' },
@@ -508,8 +463,6 @@ describe('handleOrchestrate', () => {
       );
     });
   });
-
-  // ─── Removed Team Actions ─────────────────────────────────────────────
 
   describe('removed team actions', () => {
     it('should reject removed team actions', async () => {
@@ -521,17 +474,13 @@ describe('handleOrchestrate', () => {
     });
   });
 
-  // ─── Describe Routing ────────────────────────────────────────────────
-
   describe('describe routing', () => {
+    /** `describe` is not mocked. It reads the schemas from the live registry. */
     it('HandleOrchestrate_Describe_RoutesToDescribeHandler', async () => {
-      // Arrange — describe is not mocked; it resolves schemas from the live registry
       const args = { action: 'describe', actions: ['task_claim'] };
 
-      // Act
       const result = await handleOrchestrate(args, CTX);
 
-      // Assert — verify describe returns schema metadata for the requested action
       expect(result.success).toBe(true);
       const data = result.data as Record<string, unknown>;
       expect(data).toHaveProperty('task_claim');
@@ -541,11 +490,8 @@ describe('handleOrchestrate', () => {
     });
   });
 
-  // ─── Agent Spec Routing ──────────────────────────────────────────────────
-
   describe('agent spec routing', () => {
     it('OrchestrateComposite_AgentSpecAction_RoutesToHandler', async () => {
-      // Arrange
       const expected = successResult({
         agent: 'implementer',
         systemPrompt: 'You are a TDD implementer',
@@ -558,10 +504,8 @@ describe('handleOrchestrate', () => {
         outputFormat: 'full',
       };
 
-      // Act
       const result = await handleOrchestrate(args, CTX);
 
-      // Assert
       expectEnvelopedSuccess(result, expected);
       expect(handleAgentSpec).toHaveBeenCalledWith(
         { agent: 'implementer', outputFormat: 'full' },
@@ -570,43 +514,33 @@ describe('handleOrchestrate', () => {
     });
   });
 
-  // ─── Runbook Routing ──────────────────────────────────────────────────
-
   describe('runbook routing', () => {
     it('HandleOrchestrate_RunbookList_RoutesToHandleRunbook', async () => {
-      // Arrange
       const expected = successResult([{ id: 'task-completion', phase: 'delegate', description: 'Complete a task', stepCount: 3 }]);
       vi.mocked(handleRunbook).mockResolvedValue(expected);
       const args = { action: 'runbook', phase: 'delegate' };
 
-      // Act
       const result = await handleOrchestrate(args, CTX);
 
-      // Assert
       expectEnvelopedSuccess(result, expected);
       expect(handleRunbook).toHaveBeenCalledWith({ phase: 'delegate' });
     });
 
     it('HandleOrchestrate_RunbookDetail_RoutesToHandleRunbook', async () => {
-      // Arrange
       const expected = successResult({ id: 'task-completion', steps: [] });
       vi.mocked(handleRunbook).mockResolvedValue(expected);
       const args = { action: 'runbook', id: 'task-completion' };
 
-      // Act
       const result = await handleOrchestrate(args, CTX);
 
-      // Assert
       expectEnvelopedSuccess(result, expected);
       expect(handleRunbook).toHaveBeenCalledWith({ id: 'task-completion' });
     });
   });
 
-  // ─── Oneshot + Pruning Actions ───────────────────────────────────────────
-
   describe('oneshot and pruning actions', () => {
+    /** The table registers this handler without an adapter, so it receives `(args, stateDir, ctx)`. */
     it('compositeHandler_pruneStaleWorkflowsAction_dispatches', async () => {
-      // Arrange
       const expected = successResult({ candidates: [], skipped: [], pruned: [] });
       vi.mocked(handlePruneStaleWorkflows).mockResolvedValue(expected);
       const args = {
@@ -615,10 +549,8 @@ describe('handleOrchestrate', () => {
         includeOneShot: false,
       };
 
-      // Act
       const result = await handleOrchestrate(args, CTX);
 
-      // Assert — handler is registered directly so it receives (args, stateDir, ctx)
       expectEnvelopedSuccess(result, expected);
       expect(handlePruneStaleWorkflows).toHaveBeenCalledTimes(1);
       const call = vi.mocked(handlePruneStaleWorkflows).mock.calls[0];
@@ -630,8 +562,8 @@ describe('handleOrchestrate', () => {
       expect(call[2]).toBe(CTX);
     });
 
+    /** The adapter copies `stateDir` and `eventStore` from the context into the args. */
     it('compositeHandler_requestSynthesizeAction_dispatches', async () => {
-      // Arrange
       const expected = successResult({ eventAppended: true });
       vi.mocked(handleRequestSynthesize).mockResolvedValue(expected);
       const args = {
@@ -640,13 +572,8 @@ describe('handleOrchestrate', () => {
         reason: 'user requested PR review',
       };
 
-      // Act
       const result = await handleOrchestrate(args, CTX);
 
-      // Assert — adapter injects both stateDir and eventStore from ctx
-      // into args, matching the finalize_oneshot pattern. The stateDir
-      // injection replaces the old hardcoded `.exarchos/state/...`
-      // fallback inside the handler.
       expectEnvelopedSuccess(result, expected);
       expect(handleRequestSynthesize).toHaveBeenCalledTimes(1);
       const call = vi.mocked(handleRequestSynthesize).mock.calls[0][0];
@@ -656,8 +583,8 @@ describe('handleOrchestrate', () => {
       expect(call.stateDir).toBe(STATE_DIR);
     });
 
+    /** The adapter copies `stateDir` and `eventStore` from the context into the args. */
     it('compositeHandler_finalizeOneshotAction_dispatches', async () => {
-      // Arrange
       const expected = successResult({
         featureId: 'feat-oneshot-2',
         previousPhase: 'implementing',
@@ -669,10 +596,8 @@ describe('handleOrchestrate', () => {
         featureId: 'feat-oneshot-2',
       };
 
-      // Act
       const result = await handleOrchestrate(args, CTX);
 
-      // Assert — adapter injects BOTH stateDir and eventStore from ctx into args
       expectEnvelopedSuccess(result, expected);
       expect(handleFinalizeOneshot).toHaveBeenCalledTimes(1);
       const call = vi.mocked(handleFinalizeOneshot).mock.calls[0][0];
@@ -682,11 +607,8 @@ describe('handleOrchestrate', () => {
     });
   });
 
-  // ─── Doctor Routing ─────────────────────────────────────────────────────
-
   describe('doctor routing', () => {
     it('OrchestrateComposite_DispatchDoctorAction_InvokesHandleDoctor', async () => {
-      // Arrange
       const expected = successResult({
         checks: [],
         summary: { passed: 0, warnings: 0, failed: 0, skipped: 0 },
@@ -694,10 +616,8 @@ describe('handleOrchestrate', () => {
       vi.mocked(handleDoctor).mockResolvedValue(expected);
       const args = { action: 'doctor', timeoutMs: 1500 };
 
-      // Act
       const result = await handleOrchestrate(args, CTX);
 
-      // Assert — doctor handler called with args (minus the action) and ctx
       expectEnvelopedSuccess(result, expected);
       expect(handleDoctor).toHaveBeenCalledTimes(1);
       const call = vi.mocked(handleDoctor).mock.calls[0];
@@ -705,20 +625,15 @@ describe('handleOrchestrate', () => {
       expect(call[1]).toBe(CTX);
     });
 
+    /** Dispatch validation reads the orchestrate action registry, so `doctor` must be in it to pass the schema check. */
     it('OrchestrateRegistry_ActionList_IncludesDoctor', () => {
-      // Arrange — the orchestrate action registry is the single source of
-      // truth consulted by dispatch-level validation; doctor must be in it
-      // for `exarchos_orchestrate { action: "doctor" }` to pass schema gate.
       const orchestrate = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate');
       expect(orchestrate).toBeDefined();
 
-      // Assert
       const actionNames = orchestrate!.actions.map((a) => a.name);
       expect(actionNames).toContain('doctor');
     });
   });
-
-  // ─── VCS Actions ─────────────────────────────────────────────────────────
 
   describe('VCS actions', () => {
     it('OrchestrateComposite_CreatePr_RoutesToHandler', async () => {
@@ -811,6 +726,7 @@ describe('handleOrchestrate', () => {
       expect(call[1]).toBe(CTX);
     });
 
+    /** The composite adds a provider-backed `listIssuesByMarker` to the handler args. */
     it('OrchestrateComposite_CreateIssue_RoutesToHandler', async () => {
       const expected = successResult({ number: 1, url: 'https://github.com/repo/issues/1' });
       vi.mocked(handleCreateIssue).mockResolvedValue(expected);
@@ -821,8 +737,6 @@ describe('handleOrchestrate', () => {
       expectEnvelopedSuccess(result, expected);
       expect(handleCreateIssue).toHaveBeenCalledTimes(1);
       const call = vi.mocked(handleCreateIssue).mock.calls[0];
-      // The composite injects `listIssuesByMarker` (provider-backed) into the
-      // handler args — see CodeRabbit #3224631237.
       expect(call[0]).toMatchObject({ title: 'Bug', body: 'Details' });
       expect(typeof (call[0] as { listIssuesByMarker?: unknown }).listIssuesByMarker).toBe('function');
       expect(call[1]).toBe(CTX);
@@ -842,16 +756,9 @@ describe('handleOrchestrate', () => {
     });
   });
 
-  // ─── Init Routing ──────────────────────────────────────────────────────
-
   describe('init routing', () => {
+    /** The registry lists `onboard` and not `init`. The `onboard` action produces the `init` outputs through the GENERATE writers. */
     it('OrchestrateRegistry_ActionList_SwapsInitForOnboard', () => {
-      // Task 011 swap (design line 322): the `init` ACTION was removed from the
-      // registry and `onboard` registered in its place. DR-5 (task 018) then
-      // removed the composite.ts `if (action === 'init')` dispatch branch + the
-      // `handleInit` handler entirely — `onboard` reproduces init's outputs via
-      // the GENERATE writers. `init` is no longer an enumerable registry action
-      // and no longer has a dispatch branch.
       const orchestrate = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate');
       expect(orchestrate).toBeDefined();
       const actionNames = orchestrate!.actions.map((a) => a.name);
@@ -860,11 +767,12 @@ describe('handleOrchestrate', () => {
     });
   });
 
-  // ─── Merge Orchestrate Routing ──────────────────────────────────────────
-
   describe('merge orchestrate routing', () => {
+    /**
+     * The handler is registered through `adaptCtx`, so it receives `(args, ctx)`.
+     * The registry makes `strategy` required with no default, so the test asserts that dispatch forwards it.
+     */
     it('compositeOrchestrate_ActionMergeOrchestrate_RoutesToHandleMergeOrchestrate', async () => {
-      // Arrange
       const expected = successResult({
         phase: 'completed',
         mergeSha: 'a'.repeat(40),
@@ -877,15 +785,11 @@ describe('handleOrchestrate', () => {
         featureId: 'feat-x',
         sourceBranch: 'feat/x',
         targetBranch: 'main',
-        // Required-no-default per registry contract — assert it is forwarded
-        // so a future schema-shape regression cannot silently drop it.
         strategy: 'squash',
       };
 
-      // Act
       const result = await handleOrchestrate(args, CTX);
 
-      // Assert — handler is registered via adaptCtx, so it receives (args, ctx)
       expectEnvelopedSuccess(result, expected);
       expect(handleMergeOrchestrate).toHaveBeenCalledTimes(1);
       const call = vi.mocked(handleMergeOrchestrate).mock.calls[0];
@@ -898,43 +802,32 @@ describe('handleOrchestrate', () => {
       expect(call[1]).toBe(CTX);
     });
 
+    /** Dispatch validation accepts only the actions that the registry lists. */
     it('OrchestrateRegistry_ActionList_IncludesMergeOrchestrate', () => {
-      // Arrange — registry must enumerate merge_orchestrate so dispatch-level
-      // schema validation accepts the action.
       const orchestrate = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate');
       expect(orchestrate).toBeDefined();
 
-      // Assert
       const actionNames = orchestrate!.actions.map((a) => a.name);
       expect(actionNames).toContain('merge_orchestrate');
     });
   });
 
-  // ─── Error Handling ─────────────────────────────────────────────────────
-
   describe('error handling', () => {
     it('handleOrchestrate_UnknownAction_ReturnsError', async () => {
-      // Arrange
       const args = { action: 'unknown_action' };
 
-      // Act
       const result = await handleOrchestrate(args, CTX);
 
-      // Assert
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('UNKNOWN_ACTION');
       expect(result.error?.message).toContain('unknown_action');
     });
   });
 
-  // ─── Optional-eventStore handlers (file-based fallback) ───────────────────
-  //
-  // select_debug_track and investigation_timer resolve state from EITHER a
-  // stateFile OR featureId + event store, so their eventStore param is optional.
-  // Dispatching them through a context WITHOUT an eventStore must NOT throw
-  // (regression: the throwing adaptWithEventStore adapter crashed the file-based
-  // path with "ctx.eventStore required").
-
+  /**
+   * `select_debug_track` and `investigation_timer` resolve state from a `stateFile`, or from `featureId` with the event store.
+   * Their `eventStore` parameter is optional, so dispatch without an event store must not throw.
+   */
   describe('optional-eventStore handlers', () => {
     const ctxNoStore = { stateDir: STATE_DIR, enableTelemetry: false } as unknown as DispatchContext;
 

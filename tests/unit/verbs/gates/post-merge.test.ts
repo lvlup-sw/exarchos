@@ -1,9 +1,10 @@
-// ─── Post-Merge Gate Handler Tests ──────────────────────────────────────────
+/**
+ * Tests for `handlePostMerge`. These cases test the provider verdict, so the phase-gate runner is stubbed down to its provider call.
+ * `gate-runner.test.ts` covers the runner against a real store. `unrunbooked-gate-evidence-dispatch.test.ts` covers the evidence over real dispatch.
+ */
 
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import type { EventStore } from '../../../../src/events/store.js';
-
-// ─── Mock the pure TS post-merge module ──────────────────────────────────────
 
 const mockCheckPostMerge = vi.fn();
 
@@ -16,13 +17,6 @@ vi.mock('../../../../src/utils/process.js', async (importOriginal) => ({
   spawnCommandSync: vi.fn(() => ({ status: 0, stdout: '', stderr: '' })),
 }));
 
-// The gate now records durable evidence through the shared phase-gate runner
-// before any success carrier escapes. These cases are about the PROVIDER's
-// verdict, so the runner is stubbed down to its provider call — the same seam
-// every other migrated gate's unit test stubs. What the runner itself
-// guarantees is proven against a real store in `gate-runner.test.ts`, and the
-// evidence a caller actually gets is proven over real dispatch in
-// `unrunbooked-gate-evidence-dispatch.test.ts`.
 vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
   runPhaseGateWithEvidence: vi.fn(async (request) => {
     try {
@@ -46,8 +40,6 @@ vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
   }),
 }));
 
-// ─── Mock event store ──────────────────────────────────────────────────────
-
 const mockStore = {
   append: vi.fn().mockResolvedValue(undefined),
   query: vi.fn().mockResolvedValue([]),
@@ -57,15 +49,11 @@ vi.mock('../../../../src/projections/views/tools.js', () => ({
   getOrCreateMaterializer: () => ({}),
 }));
 
-// ─── Import after mocks ───────────────────────────────────────────────────
-
 import { handlePostMerge } from '../../../../src/verbs/gates/post-merge.js';
 import { spawnCommandSync } from '../../../../src/utils/process.js';
 
 const STATE_DIR = '/tmp/test-post-merge';
 const REPO_ROOT = '/repo';
-
-// ─── Test Helpers ────────────────────────────────────────────────────────────
 
 function makePassingResult() {
   return {
@@ -102,8 +90,6 @@ function makeFailingResult() {
   };
 }
 
-// ─── Tests ────────────────────────────────────────────────────────────────
-
 describe('handlePostMerge', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -111,20 +97,15 @@ describe('handlePostMerge', () => {
     mockStore.query.mockResolvedValue([]);
   });
 
-  // ─── Test 1: CI passing returns passed ──────────────────────────────────
-
   it('handlePostMerge_CIPassing_ReturnsPassed', async () => {
-    // Arrange
     mockCheckPostMerge.mockReturnValue(makePassingResult());
 
-    // Act
     const result = await handlePostMerge(
       { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234', repoRoot: REPO_ROOT },
       STATE_DIR,
       mockStore as unknown as EventStore,
     );
 
-    // Assert
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; prUrl: string; mergeSha: string; findings: string[]; report: string };
     expect(data.passed).toBe(true);
@@ -134,20 +115,15 @@ describe('handlePostMerge', () => {
     expect(data.report).toContain('PASS');
   });
 
-  // ─── Test 2: Regression returns fail with findings ─────────────────────
-
   it('handlePostMerge_Regression_ReturnsFailWithFindings', async () => {
-    // Arrange
     mockCheckPostMerge.mockReturnValue(makeFailingResult());
 
-    // Act
     const result = await handlePostMerge(
       { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234', repoRoot: REPO_ROOT },
       STATE_DIR,
       mockStore as unknown as EventStore,
     );
 
-    // Assert
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; findings: string[]; report: string };
     expect(data.passed).toBe(false);
@@ -157,20 +133,15 @@ describe('handlePostMerge', () => {
     expect(data.report).toContain('FAIL');
   });
 
-  // ─── Test 3: Emits gate.executed event ─────────────────────────────────
-
   it('handlePostMerge_EmitsGateExecutedEvent', async () => {
-    // Arrange
     mockCheckPostMerge.mockReturnValue(makePassingResult());
 
-    // Act
     await handlePostMerge(
       { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234', repoRoot: REPO_ROOT },
       STATE_DIR,
       mockStore as unknown as EventStore,
     );
 
-    // Assert
     expect(mockStore.append).toHaveBeenCalledTimes(1);
     const [streamId, event] = mockStore.append.mock.calls[0] as [string, { type: string; data: Record<string, unknown> }];
     expect(streamId).toBe('feat-123');
@@ -185,84 +156,66 @@ describe('handlePostMerge', () => {
     expect(details.findings).toEqual([]);
   });
 
-  // ─── Test 3b: Phase in gate event details ───────────────────────────────
-
   it('handlePostMerge_EmitsGateEvent_IncludesPhaseInDetails', async () => {
-    // Arrange
     mockCheckPostMerge.mockReturnValue(makePassingResult());
 
-    // Act
     await handlePostMerge(
       { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234', repoRoot: REPO_ROOT },
       STATE_DIR,
       mockStore as unknown as EventStore,
     );
 
-    // Assert
     expect(mockStore.append).toHaveBeenCalledTimes(1);
     const [, event] = mockStore.append.mock.calls[0] as [string, { type: string; data: Record<string, unknown> }];
     const details = event.data.details as Record<string, unknown>;
     expect(details.phase).toBe('synthesize');
   });
 
-  // ─── Test 4: Missing args returns error ────────────────────────────────
-
   it('handlePostMerge_MissingPrUrl_ReturnsError', async () => {
-    // Arrange & Act
     const result = await handlePostMerge(
       { featureId: 'feat-123', prUrl: '', mergeSha: 'abc1234', repoRoot: REPO_ROOT },
       STATE_DIR,
       mockStore as unknown as EventStore,
     );
 
-    // Assert
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('INVALID_INPUT');
     expect(result.error?.message).toContain('prUrl');
   });
 
   it('handlePostMerge_MissingMergeSha_ReturnsError', async () => {
-    // Arrange & Act
     const result = await handlePostMerge(
       { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: '', repoRoot: REPO_ROOT },
       STATE_DIR,
       mockStore as unknown as EventStore,
     );
 
-    // Assert
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('INVALID_INPUT');
     expect(result.error?.message).toContain('mergeSha');
   });
 
   it('handlePostMerge_MissingFeatureId_ReturnsError', async () => {
-    // Arrange & Act
     const result = await handlePostMerge(
       { featureId: '', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234', repoRoot: REPO_ROOT },
       STATE_DIR,
       mockStore as unknown as EventStore,
     );
 
-    // Assert
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('INVALID_INPUT');
     expect(result.error?.message).toContain('featureId');
   });
 
-  // ─── Test 5: runCommand adapter is passed ──────────────────────────────
-
   it('handlePostMerge_PassesRunCommandAdapter', async () => {
-    // Arrange
     mockCheckPostMerge.mockReturnValue(makePassingResult());
 
-    // Act
     await handlePostMerge(
       { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234', repoRoot: REPO_ROOT },
       STATE_DIR,
       mockStore as unknown as EventStore,
     );
 
-    // Assert
     expect(mockCheckPostMerge).toHaveBeenCalledTimes(1);
     const callArgs = mockCheckPostMerge.mock.calls[0][0] as {
       prUrl: string;
@@ -314,8 +267,6 @@ describe('handlePostMerge', () => {
     }
     expect(mockCheckPostMerge).not.toHaveBeenCalled();
   });
-
-  // ─── Test 6: gate.executed append failure withholds the success carrier ──
 
   it('PostMerge_GateEventAppendFails_WithholdsTheSuccessCarrier', async () => {
     mockCheckPostMerge.mockReturnValue(makePassingResult());

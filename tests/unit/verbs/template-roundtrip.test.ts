@@ -57,6 +57,17 @@ import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 // `__dirname` is undefined under NodeNext/ESM, so resolve REPO_ROOT from this
 // test file's location via import.meta.url. This file lives at
 // src/verbs/<this> → ../../../../ is the repo root.
+
+/**
+ * These tests run the gates on fixtures from the shipped authoring templates.
+ * Each fixture comes from the fenced markdown blocks of a template, with
+ * concrete values in place of the bracketed placeholders. A template edit
+ * changes the fixture, so a template that drifts from its gate parser fails.
+ */
+/**
+ * The repo root, three levels up from `tests/unit/verbs`. The path comes from
+ * `import.meta.url`, because `__dirname` is not defined under ESM.
+ */
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 const TEMPLATES = {
@@ -65,14 +76,10 @@ const TEMPLATES = {
   task: resolve(REPO_ROOT, 'content/design/skills/plan/references/task-template.md'),
 } as const;
 
-// ─── Fenced-block extraction ─────────────────────────────────────────────────
-
 /**
- * Extract every fenced ```markdown … ``` block body from a template file.
- * Returns the inner text of each block (the fence lines themselves stripped),
- * in document order. The shipped templates wrap their canonical example
- * documents in such blocks; we derive our fixtures from these so a template
- * edit changes the fixture text.
+ * Returns the body of each fenced markdown block in a template, in document
+ * order and without the fence lines. The templates hold their example
+ * documents in these blocks.
  */
 function extractMarkdownBlocks(templateSrc: string): string[] {
   const blocks: string[] = [];
@@ -99,15 +106,12 @@ function extractMarkdownBlocks(templateSrc: string): string[] {
   return blocks;
 }
 
-// ─── Placeholder substitution ────────────────────────────────────────────────
-//
-// The point of this shield is that fixtures are DERIVED FROM the live template:
-// we replace bracketed [placeholders] with concrete values. Substitutions are
-// ordered most-specific-first so multi-word placeholders win over the generic
-// "[N]"/"any bracket" fallbacks. Keep this map small and obvious — adding a new
-// template later should only require a couple of entries here.
+/**
+ * Concrete values for the bracketed placeholders of the templates. The order
+ * is most specific first, so a multi-word placeholder matches before the
+ * generic `[N]` fallback.
+ */
 const PLACEHOLDER_SUBSTITUTIONS: ReadonlyArray<readonly [RegExp, string]> = [
-  // Design — option block
   [/\[N\]: \[Name\]/g, '1: Streaming validator'],
   [/\[2-3 sentence description\]/g, 'Validate each record as it streams in, rejecting malformed input early.'],
   [/\[Benefit 1\]/g, 'Low memory footprint'],
@@ -115,18 +119,14 @@ const PLACEHOLDER_SUBSTITUTIONS: ReadonlyArray<readonly [RegExp, string]> = [
   [/\[Drawback 1\]/g, 'Harder to report all errors at once'],
   [/\[Drawback 2\]/g, 'Requires careful stream lifecycle handling'],
   [/\[Scenario where this option excels\]/g, 'Large inputs that must not be buffered'],
-  // Design — document structure
   [/\[Feature Name\]/g, 'Input Validation'],
   [/\[What we're solving and why\]/g, 'Malformed input currently crashes the importer; we must validate before processing.'],
   [/\[Selected option with rationale\]/g, 'Option 1 (streaming validator): bounded memory and fail-fast behavior fit our large inputs.'],
-  // DR-1
   [/### DR-1: \[Requirement name\]/g, '### DR-1: Validate required fields'],
-  // DR-2
   [/### DR-2: \[Requirement name\]/g, '### DR-2: Reject duplicate identifiers'],
   [/\[Description of the requirement\]/g, 'Every incoming record must carry all required fields before it is accepted.'],
   [/\[Description\]/g, 'Identifiers must be unique across the input set.'],
   [/\[Error\/failure\/boundary conditions\]/g, 'Empty input, truncated streams, and oversized records must be handled as errors, not crashes.'],
-  // Acceptance-criteria bodies (Given/When/Then for behavioral DRs)
   [
     /\*\*Acceptance criteria:\*\*\n- \[Criterion 1\]\n- \[Criterion 2\]\n\n### DR-2/g,
     [
@@ -158,14 +158,11 @@ const PLACEHOLDER_SUBSTITUTIONS: ReadonlyArray<readonly [RegExp, string]> = [
       '  Then it reports an error and aborts without crashing',
     ].join('\n'),
   ],
-  // DR-N error/edge-case heading → concrete error/edge DR-3
   [/### DR-N: Error handling and edge cases/g, '### DR-3: Error handling and edge cases'],
-  // Design — body sections
   [/\[Implementation details, data structures, APIs\]/g, 'A streaming `Validator` class consuming records and emitting `ValidationError` on the first failure.'],
   [/\[How this connects to existing code\]/g, 'Wired into the existing importer pipeline ahead of the persistence step.'],
   [/\[How we'll verify it works\]/g, 'Unit tests per validation rule plus an integration test over a malformed fixture stream.'],
   [/\[Decisions deferred or needing input\]/g, 'None.'],
-  // Plan-document placeholders
   [/# Implementation Plan: \[Feature Name\]/g, '# Implementation Plan: Input Validation'],
   [/Link: `docs\/designs\/YYYY-MM-DD-<feature>\.md`/g, 'Link: `docs/designs/2026-05-30-input-validation.md`'],
   [/\[Full design \| Partial: <specific components>\]/g, 'Full design'],
@@ -178,10 +175,10 @@ const PLACEHOLDER_SUBSTITUTIONS: ReadonlyArray<readonly [RegExp, string]> = [
   [/\[Tasks in execution order\]/g, '__TASK_BREAKDOWN__'],
   [/\[Which tasks can run in parallel worktrees\]/g, 'T-01 runs standalone.'],
   [/\[Open questions or design sections not addressed, with rationale\]/g, 'None.'],
-  // Task-template placeholders (the `### Task` block). The brief description
-  // lives IN the heading (the Wave-1 shape); the gate requires the description
-  // span to exceed 10 words, so the concrete value must be long enough on its
-  // own — the heading tail is the only description signal for this shape.
+  /**
+   * The brief description sits in the task heading. The gate needs more than
+   * 10 description words, so this value is long.
+   */
   [
     /### Task \[N\]: \[Brief Description\]/g,
     '### Task 1: Validate that every required field is present on each incoming record before the importer accepts it',
@@ -200,28 +197,20 @@ const PLACEHOLDER_SUBSTITUTIONS: ReadonlyArray<readonly [RegExp, string]> = [
   [/\*\*Parallelizable:\*\* \[Yes\/No\]/g, '**Parallelizable:** Yes'],
 ];
 
-/**
- * Apply the placeholder substitutions to a derived block. Any residual generic
- * `[N]` is mapped to `1` last (after the structural substitutions above have
- * consumed the meaningful brackets).
- */
+/** Applies `PLACEHOLDER_SUBSTITUTIONS` in order, then maps each remaining `[N]` to `1`. */
 function substitutePlaceholders(block: string): string {
   let out = block;
   for (const [pattern, replacement] of PLACEHOLDER_SUBSTITUTIONS) {
     out = out.replace(pattern, replacement);
   }
-  // Generic trailing fallback for any bare numeric placeholder.
   out = out.replace(/\[N\]/g, '1');
   return out;
 }
 
-// ─── renderFromTemplate ──────────────────────────────────────────────────────
-//
-// Single, well-commented helper that turns a shipped template into a minimal
-// valid fixture. Adding a gate/template later is a one-line change: read the
-// template, extract its ```markdown blocks, substitute placeholders, join.
-// `blockJoin` lets callers stitch multiple example blocks (e.g. the design
-// template's "options" block + "structure" block) into one document.
+/**
+ * Reads a template, extracts its markdown blocks, substitutes the placeholders
+ * in each block, and joins the blocks with `blockJoin`.
+ */
 function renderFromTemplate(templatePath: string, blockJoin = '\n\n'): {
   raw: string;
   blocks: string[];
@@ -233,28 +222,18 @@ function renderFromTemplate(templatePath: string, blockJoin = '\n\n'): {
   return { raw, blocks, rendered };
 }
 
-// ─── Derived fixtures ────────────────────────────────────────────────────────
-
 /**
- * Design fixture. The design template ships THREE ```markdown blocks: the
- * option format (one `### Option [N]` block), the full document structure (all
- * 7 sections + the DR blocks), and a small Given/When/Then format illustration
- * under "Requirement Format Rules". We use blocks[0] and blocks[1] for the
- * fixture and intentionally ignore the GWT illustration (blocks[2]); we also
- * duplicate the option block with N=1/N=2 so the design satisfies
- * `checkMultipleOptions`'s ">= 2 options" requirement — the template only ships
- * one example option.
+ * The design template has three markdown blocks: the option format, the full
+ * document structure, and a Given/When/Then example. The fixture uses the
+ * first two blocks. The template has one example option, so the fixture adds a
+ * second option for the two-option minimum of `checkMultipleOptions`.
  */
 function deriveDesignFixture(): string {
   const { blocks } = renderFromTemplate(TEMPLATES.design);
-  // blocks[0] = option-format example, blocks[1] = full document structure,
-  // blocks[2] = GWT format illustration (unused by this fixture).
   expect(blocks.length, 'design-template.md should ship 3 markdown example blocks').toBe(3);
 
   const optionBlockTemplate = blocks[0];
   const option1 = substitutePlaceholders(optionBlockTemplate);
-  // Second option: re-derive from the same template block, but renumber the
-  // heading/name so we get a genuinely distinct `### Option 2`.
   const option2 = substitutePlaceholders(optionBlockTemplate)
     .replace('### Option 1: Streaming validator', '### Option 2: Buffered validator')
     .replace(
@@ -264,18 +243,12 @@ function deriveDesignFixture(): string {
 
   const structure = substitutePlaceholders(blocks[1]);
 
-  // Splice the two options into the document under Chosen Approach so the
-  // single rendered document carries >= 2 `### Option N` headings AND all 7
-  // required `## ` sections.
   return [structure, '## Options Considered', '', option1, '', option2, ''].join('\n');
 }
 
 /**
- * Task fixture — the single `### Task` block from task-template.md, rendered
- * with concrete values. This is the exact shape the task-decomposition gate's
- * `validateTaskStructure` must accept (the Wave-1 brief-description-in-heading
- * fix). Returned standalone so it can be both validated directly AND embedded
- * into the plan document under "## Task Breakdown".
+ * Renders the one `### Task` block of the task template. A test checks it with
+ * `validateTaskStructure`, and the plan fixture embeds it.
  */
 function deriveTaskFixture(): string {
   const { blocks } = renderFromTemplate(TEMPLATES.task);
@@ -284,9 +257,9 @@ function deriveTaskFixture(): string {
 }
 
 /**
- * Plan fixture — the plan-document-template.md example, with the `## Task
- * Breakdown` placeholder replaced by the derived task block so the plan
- * carries a real `### Task 1: …` entry for the coverage/decomposition gates.
+ * Renders the plan template with the task block in place of the task
+ * breakdown placeholder. So the plan has a real task entry for the coverage
+ * and decomposition gates.
  */
 function derivePlanFixture(taskBlock: string): string {
   const { blocks } = renderFromTemplate(TEMPLATES.plan);
@@ -294,8 +267,6 @@ function derivePlanFixture(taskBlock: string): string {
   const rendered = substitutePlaceholders(blocks[0]);
   return rendered.replace('__TASK_BREAKDOWN__', taskBlock);
 }
-
-// ─── tmp-file scaffolding (mirrors design-completeness.test.ts) ──────────────
 
 let tmpDir: string | undefined;
 
@@ -315,11 +286,7 @@ function writeTmp(name: string, content: string): string {
   return p;
 }
 
-// ─── Tests ───────────────────────────────────────────────────────────────────
-
 describe('TemplateRoundTrip_ShippedTemplates_PassTheirGates', () => {
-  // ─── design-template.md → check_design_completeness ─────────────────────────
-
   describe('design-template.md → design-completeness', () => {
     it('DerivedDesign_AllSevenRequiredSectionsPresent', () => {
       const design = deriveDesignFixture();
@@ -339,6 +306,10 @@ describe('TemplateRoundTrip_ShippedTemplates_PassTheirGates', () => {
       ).toBe(true);
     });
 
+    /**
+     * The gate must read the bold acceptance criteria header and the
+     * Given/When/Then lines of the template.
+     */
     it('DerivedDesign_EveryDrHasAcceptanceCriteria', () => {
       const design = deriveDesignFixture();
       const result = checkAcceptanceCriteria(design);
@@ -346,9 +317,6 @@ describe('TemplateRoundTrip_ShippedTemplates_PassTheirGates', () => {
         result.passed,
         `design-template.md → checkAcceptanceCriteria drifted (missing on: ${result.missingCriteria.join(', ')})`,
       ).toBe(true);
-      // Wave-1 shield: the acceptance-criteria advisory MUST be empty — the
-      // template's standalone bold `**Acceptance criteria:**` header + GWT
-      // continuation form must be recognized.
       expect(
         result.missingCriteria.length,
         'design-template.md → acceptance-criteria advisory should be EMPTY',
@@ -363,7 +331,6 @@ describe('TemplateRoundTrip_ShippedTemplates_PassTheirGates', () => {
         result.passed,
         'design-template.md → check_design_completeness drifted',
       ).toBe(true);
-      // No "missing acceptance criteria" advisory finding should appear.
       const advisoryFinding = result.findings.find((f) => /missing acceptance criteria/i.test(f));
       expect(
         advisoryFinding,
@@ -372,9 +339,12 @@ describe('TemplateRoundTrip_ShippedTemplates_PassTheirGates', () => {
     });
   });
 
-  // ─── design + plan → provenance-chain ───────────────────────────────────────
-
   describe('design-template.md + plan-document-template.md → provenance-chain', () => {
+    /**
+     * The plan has one task, which implements the first requirement. The other
+     * requirements are coverage gaps, not orphans. A parser drift shows as an
+     * orphan reference or as an `error` status, so the test asserts neither.
+     */
     it('DerivedDesignAndPlan_NoOrphanOrUncoveredDrs', () => {
       const design = deriveDesignFixture();
       const task = deriveTaskFixture();
@@ -383,12 +353,6 @@ describe('TemplateRoundTrip_ShippedTemplates_PassTheirGates', () => {
       const planFile = writeTmp('plan.md', plan);
 
       const result = verifyProvenanceChain({ designFile, planFile });
-      // The derived plan ships one task implementing DR-1. DR-2 and DR-3 exist
-      // in the design but have no covering task in this minimal fixture, so
-      // they are legitimate (uncovered) gaps — NOT orphans. Provenance "fail"
-      // here would be a coverage gap, not a parser drift. The drift signal we
-      // guard is ORPHAN refs (a plan DR-N the design never declared) and a
-      // parse `error` (no DR-N parsed at all). Assert those are clean.
       expect(
         result.status,
         `design+plan-template → provenance-chain failed to parse (status=${result.status}, error=${result.error ?? ''})`,
@@ -397,7 +361,6 @@ describe('TemplateRoundTrip_ShippedTemplates_PassTheirGates', () => {
         result.orphanRefs,
         `design+plan-template → provenance-chain reported orphan DR refs: ${result.orphanDetails.join('; ')}`,
       ).toBe(0);
-      // The one declared task's DR (DR-1) must be recognized as covered.
       expect(
         result.covered,
         'design+plan-template → provenance-chain did not count the template task\'s DR-1 as covered',
@@ -405,9 +368,12 @@ describe('TemplateRoundTrip_ShippedTemplates_PassTheirGates', () => {
     });
   });
 
-  // ─── design + plan → plan-coverage ──────────────────────────────────────────
-
   describe('design-template.md + plan-document-template.md → plan-coverage', () => {
+    /**
+     * The fixture has one task, so coverage is not full. The parsers must still
+     * find the requirement sections and the task, and match at least one
+     * section. Zero coverage means a parser drift.
+     */
     it('DerivedDesignAndPlan_ComputeCoverageParsesSectionsAndTasks', () => {
       const design = deriveDesignFixture();
       const task = deriveTaskFixture();
@@ -417,9 +383,6 @@ describe('TemplateRoundTrip_ShippedTemplates_PassTheirGates', () => {
       const tasks = parsePlanTasks(plan);
       const deferred = parseDeferredSections(plan);
 
-      // Parser-drift signal: the gate must still find the design's DR
-      // subsections and the plan's `### Task 1:` header from the template
-      // shapes. Empty parses here would be the drift we are shielding against.
       expect(
         designSections.length,
         'design-template.md → parseDesignSections found no DR subsections',
@@ -430,11 +393,6 @@ describe('TemplateRoundTrip_ShippedTemplates_PassTheirGates', () => {
       ).toBeGreaterThanOrEqual(1);
 
       const result = computeCoverage(designSections, tasks, plan, deferred, design);
-      // The minimal fixture ships ONE task (covering DR-1) against three DR
-      // sections, so a full-coverage pass is not expected. We assert the gate
-      // RAN and matched the one declared task's section — i.e. coverage > 0,
-      // not all-GAP. A total wipe-out (covered === 0) would indicate the
-      // section/task parsers drifted out of lockstep with the templates.
       expect(
         result.coverage.total,
         'plan-coverage → computeCoverage produced zero total sections',
@@ -446,16 +404,15 @@ describe('TemplateRoundTrip_ShippedTemplates_PassTheirGates', () => {
     });
   });
 
-  // ─── task-template.md → task-decomposition ──────────────────────────────────
-
   describe('task-template.md → task-decomposition', () => {
+    /**
+     * The task template puts the brief description in the `### Task` heading
+     * and starts the body with a phase field. The gate must read the heading
+     * tail as the description.
+     */
     it('DerivedTask_ValidateTaskStructure_WellDecomposed', () => {
       const task = deriveTaskFixture();
       const result = validateTaskStructure(task);
-      // Wave-1 shield: the task template puts the brief description IN the
-      // `### Task [N]: …` heading and opens the body with `**Phase:**` (a
-      // non-description field). Before the fix this scored 0 description words
-      // and hard-FAILED. The heading-tail derivation must keep it passing.
       expect(
         result.hasDescription,
         `task-template.md → validateTaskStructure lost the heading description (${result.descriptionWordCount} words)`,

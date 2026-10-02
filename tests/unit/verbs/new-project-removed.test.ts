@@ -6,67 +6,43 @@ import { getFullRegistry } from '../../../src/registry.js';
 
 const __dirname = fileURLToPath(new URL('../../../src/verbs/', import.meta.url));
 
-// ─── DR-3 (task 017): retire `new-project` + delete `applyLanguageCustomizations`
-//
-// The greenfield path is now `onboard --new` (task 016). The obsolete
-// `new-project` handler — whose `applyLanguageCustomizations` did an INV-6-
-// violating `npm run …`→dotnet string-rewrite — must be deleted entirely, and
-// its `new_project` orchestrate action unregistered. Task 016 already
-// reproduced the one salvageable `.gitignore` seed in `onboard/new.ts`, so
-// nothing is orphaned.
-//
-// This test is the regression shield: it fails loud if the module/action
-// resurrects, or if any `applyLanguageCustomizations`-style npm→dotnet rewrite
-// re-enters the LIVE onboarding/scaffold path (closes #1508).
-
-// The live onboarding/scaffold source surface (source files only — exclude
-// tests, including this one, which legitimately *name* the forbidden symbols).
-// Comments in these files that document the *absence* of the rewrite (e.g.
-// "the applyLanguageCustomizations npm-rewrite is gone") are fine; the
-// assertions below match executable shapes (a definition / a call / a
-// find-and-replace), not bare prose mentions.
+/**
+ * The source files of the live onboarding and scaffold path, without tests.
+ * The checks match code shapes (a definition, a call, a find-and-replace), so a comment that names the removed function still passes.
+ */
 const LIVE_PATH_FILES: readonly string[] = [
-  // onboard/* (greenfield + reconcile + install + hooks)
+  /** The source files in the `onboard` directory. */
   ...readdirSync(join(__dirname, 'onboard'))
     .filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'))
     .map((f) => join(__dirname, 'onboard', f)),
-  // shared reconcile engine
+  /** The shared reconcile engine. */
   join(__dirname, '../dispatch/core/onboarding/reconcile.ts'),
 ];
 
+/**
+ * Regression guard: the `new-project` handler and its `new_project` orchestrate action must stay removed. The greenfield path is `onboard --new`.
+ * The removed `applyLanguageCustomizations` rewrote `npm run` commands into the commands of another toolchain by string replacement.
+ * That rewrite must not come back into the live onboarding path.
+ */
 describe('new-project removed (DR-3, task 017)', () => {
+  /** The dynamic import uses the sibling path that the test checks on disk. A path into a removed directory rejects for the wrong reason, so it hides a restored module. */
   it('NewProject_HandlerRemoved_NoNpmRewriteRemains', async () => {
-    // 1. The `new-project.ts` module must no longer exist on disk.
     expect(
       existsSync(join(__dirname, 'new-project.ts')),
       'new-project.ts must be deleted',
     ).toBe(false);
 
-    // 2. Importing the deleted module must fail (no dangling handler). The
-    //    specifier is the SIBLING checked above — after task 015 a `../orchestrate/`
-    //    path would reject merely because that directory is gone, which would pass
-    //    even if the module resurrected here.
     await expect(import('../../../src/verbs/new-project.js')).rejects.toBeDefined();
 
-    // 3. The `new_project` orchestrate action must be unregistered.
     const registry = getFullRegistry();
     const orchestrate = registry.find((t) => t.name === 'exarchos_orchestrate');
     expect(orchestrate, 'exarchos_orchestrate tool must exist').toBeDefined();
     const actionNames = orchestrate!.actions.map((a) => a.name);
     expect(actionNames).not.toContain('new_project');
-    // And it must not linger in the slim action listing surfaced to agents.
     expect(orchestrate!.slimDescription ?? '').not.toContain('new_project');
 
-    // 4. Grep-style check over the LIVE path: no `applyLanguageCustomizations`
-    //    as CODE (a definition or a call — bare mentions in comments that
-    //    *document its absence* are fine) and no `npm run …`→toolchain
-    //    string-rewrite. The regexes target executable shapes, not prose, so a
-    //    comment like "the applyLanguageCustomizations npm-rewrite is gone"
-    //    legitimately survives while a real reintroduction fails loud.
     const definesApplyLangCustom = /\bfunction\s+applyLanguageCustomizations\b/;
     const callsApplyLangCustom = /\bapplyLanguageCustomizations\s*\(/;
-    // The headline INV-6 violation: rewriting canonical `npm run …` tokens into
-    // a target toolchain's commands via find-and-replace.
     const npmRunRewrite = /\.replace\(\s*\/npm run/;
     for (const file of LIVE_PATH_FILES) {
       expect(existsSync(file), `expected live-path file to exist: ${file}`).toBe(true);

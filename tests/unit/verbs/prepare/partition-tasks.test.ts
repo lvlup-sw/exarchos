@@ -76,10 +76,11 @@ describe('delegation batch partition', () => {
     expect(batch.joins).toEqual([{ joinId: BATCH_JOIN_ID, waitsFor: ['T-1', 'T-3'] }]);
   });
 
+  /**
+   * A planner stamp wins, the heuristic decides otherwise, and a task with no
+   * signal is medium and not boundary-touching.
+   */
   it('Partition_EveryTask_CarriesItsVerificationTerms', () => {
-    // Resolved the way the delegation stamp resolves them: a planner stamp
-    // wins, the heuristic decides otherwise, and a task with nothing to go on
-    // is medium and off the boundary.
     const batch = batchOf([
       { ...task('T-1', 'pending'), riskTier: 'low', boundaryTouching: true },
       task('T-2', 'pending'),
@@ -92,9 +93,11 @@ describe('delegation batch partition', () => {
     ]);
   });
 
+  /**
+   * An invalid stamp is refused, not ignored. A derived tier in its place can
+   * judge a high-risk task as medium.
+   */
   it('Partition_APlannerStampOutsideItsVocabulary_IsRefused', () => {
-    // Not ignored: silently deriving a tier the planner tried to set is how a
-    // high-risk task ends up judged as a medium one.
     const outcome = partitionDelegationBatch([{ ...task('T-1', 'pending'), riskTier: 'extreme' }]);
     expect(outcome.ok).toBe(false);
     if (!outcome.ok) {

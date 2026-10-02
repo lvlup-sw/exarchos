@@ -1,17 +1,11 @@
 /**
- * CLI↔MCP parity tests for the `check_mock_boundary` action (INV-2).
+ * These tests check CLI and MCP parity for `check_mock_boundary`. The MCP call
+ * and the generated `exarchos orch check_mock_boundary` command dispatch
+ * through the same composite. For one input, they must return the same
+ * `ToolResult`, except for wall-clock fields.
  *
- * `check_mock_boundary` has two user-visible facades:
- *   1. MCP — `exarchos_orchestrate { action: 'check_mock_boundary' }`.
- *   2. CLI — the auto-generated `exarchos orch check_mock_boundary` surface,
- *      emitted from the action's Zod schema in registry.ts.
- *
- * Both dispatch through the same composite, so for a given input they MUST
- * project byte-identical `ToolResult` payloads (modulo wall-clock fields).
- *
- * Strategy mirrors contract-drift.parity.test.ts: stub the composite so the
- * action forwards to the real `handleMockBoundary`, and mock the pure
- * `detectMockFindings` so the gate is deterministic and never shells out to git.
+ * The composite stub forwards the action to the real `handleMockBoundary`. A
+ * mock of `detectMockFindings` keeps the gate deterministic and away from git.
  */
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
@@ -19,7 +13,7 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
-// Mock the mock-boundary core so both arms compute the same deterministic result.
+/** Both arms read this mock, so they compute the same result. */
 const mockDetectMockFindings = vi.fn();
 vi.mock('../../../../src/verbs/gates/mock-boundary.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../../src/verbs/gates/mock-boundary.js')>();
@@ -94,17 +88,16 @@ function buildMockBoundaryCompositeStub(): CompositeHandler {
   };
 }
 
+/**
+ * Drops `evidenceReferences`, because each arm has its own event store and the
+ * gate runner mints a different evidence id in each. The gate integration
+ * suites test evidence persistence.
+ */
 function normalize(value: unknown): unknown {
   return harnessNormalize(value, {
     timestampPlaceholder: '<TS>',
     uuidPlaceholder: '<UUID>',
     keyPlaceholders: { ms: '<MS>' },
-    // videnceReferences carries the durable evidence identity the canonical
-    // gate runner minted for THIS arm. Each arm owns a separate state dir and
-    // event store, so the content-addressed evidenceId necessarily differs —
-    // it is arm-local provenance, not part of the CLI/MCP payload contract
-    // under comparison. Evidence PERSISTENCE is proven by the gate integration
-    // suites, which assert the reference and its digest directly.
     dropKeys: new Set(['_perf', '_meta', 'evidenceReferences']),
   });
 }
@@ -124,8 +117,11 @@ describe('exarchos check_mock_boundary CLI↔MCP parity (INV-2)', () => {
     mockDetectMockFindings.mockReset();
   });
 
+  /**
+   * Runs a clean path, then a path with an unowned finding. An unowned finding
+   * is advisory, so the tool call still succeeds.
+   */
   it('MockBoundary_CliVsMcp_IdenticalResultForSameInput', async () => {
-    // ─── Clean path (no findings) ────────────────────────────────────────────
     mockDetectMockFindings.mockReturnValue(makeCleanFindings());
     restoreStub = stubCompositeHandler(
       'exarchos_orchestrate',
@@ -161,7 +157,6 @@ describe('exarchos check_mock_boundary CLI↔MCP parity (INV-2)', () => {
     expect(normalizedCli).toEqual(normalizedMcp);
     expect(JSON.stringify(normalizedCli)).toEqual(JSON.stringify(normalizedMcp));
 
-    // ─── Unowned-finding path ────────────────────────────────────────────────
     mockDetectMockFindings.mockReturnValue(makeUnownedFindings());
 
     const cliFailArm = await createArm('mock-boundary-parity-cli-finding-');
@@ -180,7 +175,6 @@ describe('exarchos check_mock_boundary CLI↔MCP parity (INV-2)', () => {
       ...PARITY_ARGS,
     });
 
-    // An unowned finding is still a successful tool call (advisory carrier).
     expect(cliFinding.success).toBe(true);
     expect(mcpFinding.success).toBe(true);
     const cliFindingData = cliFinding.data as { findings: Array<{ mockedTarget: string }> };

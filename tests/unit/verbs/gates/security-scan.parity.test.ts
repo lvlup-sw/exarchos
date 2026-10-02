@@ -1,3 +1,13 @@
+// Parity tests that pin `security-scan.ts` to the behavior of the bash script `security-scan.sh`.
+// A clean diff passes. Two hardcoded secrets give two HIGH findings, `eval()` gives one HIGH finding,
+// and an `innerHTML` assignment gives one MEDIUM finding.
+//
+// The gate-utils double includes `sameOperationGateKey`, because a stub module without it swallows a
+// TypeError and leaves the emission unexercised. Its `requireGateEvent` always succeeds, because these
+// cases test the scanner and not the append failure path.
+// The phase-gate runner is a stub that calls only the provider. `gate-runner.test.ts` tests the runner
+// against a real store.
+
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../../../src/projections/views/tools.js', () => ({
@@ -6,11 +16,6 @@ vi.mock('../../../../src/projections/views/tools.js', () => ({
   })),
 }));
 
-// `sameOperationGateKey` belongs in the double alongside the emitter it feeds:
-// a stub module missing it would swallow a TypeError and leave the emission
-// silently unexercised. The handler calls `requireGateEvent`, not
-// `emitGateEvent`, directly — this stub always succeeds, since these parity
-// cases exercise the scanner, not the append failure path.
 vi.mock('../../../../src/verbs/gates/gate-utils.js', () => ({
   emitGateEvent: vi.fn().mockResolvedValue(undefined),
   requireGateEvent: vi.fn().mockResolvedValue(undefined),
@@ -18,11 +23,6 @@ vi.mock('../../../../src/verbs/gates/gate-utils.js', () => ({
   getDiff: vi.fn(),
 }));
 
-// The gate now records durable evidence through the shared phase-gate runner
-// before any success carrier escapes. These cases are about the PROVIDER's
-// verdict, so the runner is stubbed down to its provider call — the same seam
-// every other migrated gate's unit test stubs. What the runner itself
-// guarantees is proven against a real store in `gate-runner.test.ts`.
 vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
   runPhaseGateWithEvidence: vi.fn(async (request) => {
     try {
@@ -47,19 +47,6 @@ vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
 }));
 
 import { handleSecurityScan } from '../../../../src/verbs/gates/security-scan.js';
-
-/**
- * Behavioral parity tests for security-scan.ts against the original
- * scripts/security-scan.sh bash script.
- *
- * Bash script behavior (security-scan.sh):
- *   - Clean diff (exit 0): "**Result: CLEAN** (0 findings)"
- *   - API key    (exit 1): 2 findings — both HIGH: Hardcoded secret/credential
- *   - eval()     (exit 1): 1 finding  — HIGH: eval() usage
- *   - innerHTML  (exit 1): 1 finding  — MEDIUM: innerHTML assignment
- */
-
-// ─── Fixtures ────────────────────────────────────────────────────────────────
 
 const CLEAN_DIFF = `diff --git a/src/utils.ts b/src/utils.ts
 index abc1234..def5678 100644
@@ -99,8 +86,6 @@ index abc1234..def5678 100644
 @@ -1,2 +1,3 @@
 +document.getElementById('output').innerHTML = userContent;
  export function render() {}`;
-
-// ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe('behavioral parity with security-scan.sh', () => {
   const stateDir = '/tmp/test-state';
@@ -148,7 +133,6 @@ describe('behavioral parity with security-scan.sh', () => {
     expect(data.passed).toBe(false);
     expect(data.findingCount).toBe(2);
 
-    // Both findings should be HIGH severity for hardcoded secrets
     for (const finding of data.findings) {
       expect(finding.severity).toBe('HIGH');
       expect(finding.pattern).toBe('Hardcoded secret/credential');

@@ -1,5 +1,3 @@
-// ─── contract-drift core unit tests (task 022) ───────────────────────────────
-
 import { describe, it, expect, vi } from 'vitest';
 import {
   runContractDrift,
@@ -9,9 +7,7 @@ import {
 } from '../../../../src/verbs/gates/contract-drift.js';
 import type { GitExec } from '../../../../src/verbs/pure/execute-merge.js';
 
-// ─── seam builders ──────────────────────────────────────────────────────────
-
-/** A gitExec stub that answers `merge-base` with a fixed sha; everything else 0. */
+/** A gitExec stub. It answers `merge-base` with a fixed sha and every other command with exit code 0. */
 function gitExecWithMergeBase(mergeBaseSha: string, calls: string[][] = []): GitExec {
   return (_repoRoot, args) => {
     calls.push([...args]);
@@ -22,10 +18,7 @@ function gitExecWithMergeBase(mergeBaseSha: string, calls: string[][] = []): Git
   };
 }
 
-/**
- * A command runner stub keyed on which leg is running. The handler runs codegen,
- * then typecheck, then diff — we discriminate by the command string.
- */
+/** A command runner stub. It picks the outcome of each leg from the command string. */
 function makeRunCommand(
   outcomes: {
     codegen?: { exitCode: number; stdout?: string };
@@ -61,9 +54,8 @@ const BASE_ARGS = (
   ...over,
 });
 
-// ─── tests ───────────────────────────────────────────────────────────────────
-
 describe('runContractDrift', () => {
+  /** The baseline comes from `git merge-base <baseRef> HEAD`, not from a raw `baseRef..HEAD` range. */
   it('ContractDrift_Baseline_IsMergeBase', async () => {
     const gitCalls: string[][] = [];
     const diffCalls: string[] = [];
@@ -73,13 +65,12 @@ describe('runContractDrift', () => {
         runCommand: makeRunCommand({ diff: { exitCode: 0 } }, diffCalls),
       }),
     );
-    // The baseline is computed via `git merge-base <baseRef> HEAD`, not a raw
-    // baseRef..HEAD range — mirrors the kill-probe baseline choice.
     const mergeBaseCall = gitCalls.find((c) => c[0] === 'merge-base');
     expect(mergeBaseCall).toBeDefined();
     expect(mergeBaseCall).toEqual(['merge-base', 'main', 'HEAD']);
   });
 
+  /** A codegen failure is a failed leg, not a breaking finding. */
   it('ContractDrift_CodegenFails_ReportsFailureLeg', async () => {
     const result: ContractDriftResult = await runContractDrift(
       BASE_ARGS({
@@ -88,7 +79,6 @@ describe('runContractDrift', () => {
     );
     expect(result.passed).toBe(false);
     expect(result.report).toMatch(/codegen/i);
-    // A codegen failure is a failure leg, not a "breaking" finding.
     expect(result.breaking).toEqual([]);
   });
 
@@ -114,15 +104,14 @@ describe('runContractDrift', () => {
     expect(result.passed).toBe(false);
     expect(result.drift).toBe(true);
     expect(result.breaking.length).toBeGreaterThan(0);
-    // The breaking lines from the diff tool output are surfaced.
     expect(result.breaking.join('\n')).toMatch(/removed field foo/);
   });
 
+  /** With no contract tool, the gate skips as advisory and does not fail. */
   it('ContractDrift_NoToolResolves_SkippedAdvisory', async () => {
     const result = await runContractDrift(
       BASE_ARGS({ contract: null }),
     );
-    // Degrade (INV-4): no contract tool → skipped/advisory, never a hard fail.
     expect(result.passed).toBe(true);
     expect(result.skipped).toBe(true);
     expect(result.drift).toBeFalsy();
@@ -131,7 +120,6 @@ describe('runContractDrift', () => {
 
   it('ContractDrift_CleanAllLegs_Passes_CarrierShape', async () => {
     const result = await runContractDrift(BASE_ARGS());
-    // Carrier shape: { passed, drift, breaking[], report } (+ optional skipped).
     expect(result).toMatchObject({
       passed: true,
       drift: false,
@@ -140,8 +128,8 @@ describe('runContractDrift', () => {
     expect(typeof result.report).toBe('string');
   });
 
+  /** A project can wire only the diff leg. The gate must still run it. */
   it('ContractDrift_DiffOnlyLeg_NoCodegen_StillRunsDiff', async () => {
-    // A project may wire only the diff leg; the gate must still run it.
     const diffCalls: string[] = [];
     const result = await runContractDrift(
       BASE_ARGS({

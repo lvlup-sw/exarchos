@@ -1,13 +1,9 @@
-// ─── Check Event Emissions Action Tests ──────────────────────────────────────
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ToolResult } from '../../../../src/format.js';
 import { EVENT_EMISSION_REGISTRY } from '../../../../src/events/schemas.js';
 import type { EventType } from '../../../../src/events/schemas.js';
 import type { EventStore } from '../../../../src/events/store.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
-
-// ─── Mock event store + materializer ────────────────────────────────────────
 
 const mockStore = {
   append: vi.fn().mockResolvedValue(undefined),
@@ -27,15 +23,11 @@ vi.mock('../../../../src/projections/views/tools.js', () => ({
   queryDeltaEvents: vi.fn().mockResolvedValue([]),
 }));
 
-// #1855 — the gate folds its view to the stream's durable tail through
-// `foldToTail` rather than pairing `queryDeltaEvents` with a bare
-// `materialize`. The fold is the seam a unit test of the VERDICT should stub:
-// what the fold itself guarantees is covered against a real store in
-// `tests/unit/projections/fold-at-tail.test.ts`.
-// `foldToTail` guarantees the fold covers the stream's durable tail, and
-// callers now bound their own evidence to the sequence it reports. These
-// fixtures ARE the stream, so the stub reports a sequence at or past every
-// fixture event; a lower one would assert a lag this file never sets up.
+/**
+ * The gate folds its view to the durable tail of the stream through `foldToTail`, and these tests stub that fold.
+ * `tests/unit/projections/fold-at-tail.test.ts` covers the fold against a real store.
+ * The fixtures are the whole stream, so the stub reports a sequence at or past every fixture event.
+ */
 const AT_TAIL = Number.MAX_SAFE_INTEGER;
 
 vi.mock('../../../../src/projections/fold-at-tail.js', () => ({
@@ -54,8 +46,6 @@ import {
 
 const STATE_DIR = '/tmp/test-check-event-emissions';
 
-// ─── Task 5: PHASE_EXPECTED_EVENTS Registry Tests ──────────────────────────
-
 describe('PHASE_EXPECTED_EVENTS', () => {
   it('PhaseExpectedEvents_DelegatePhase_ExpectsTeamEvents', () => {
     const delegateEvents = PHASE_EXPECTED_EVENTS['delegate'];
@@ -64,30 +54,24 @@ describe('PHASE_EXPECTED_EVENTS', () => {
     expect(delegateEvents).toContain('team.teammate.dispatched');
   });
 
+  /** The runtime emits `review.routed` from `review/tools.ts`, so the model-emitted review set must not list it. */
   it('PhaseExpectedEvents_ReviewPhase_ExpectsReviewEvents', () => {
     const reviewEvents = PHASE_EXPECTED_EVENTS['review'];
     expect(reviewEvents).toBeDefined();
-    // RC2 (#1395): review.routed migrated model → auto (runtime emits it from
-    // review/tools.ts), so it must NOT be in the model-emitted phase set.
     expect(reviewEvents).not.toContain('review.routed');
-    // Team coordination events stay model-emitted (Category C) pending a
-    // runbook-executor seam.
     expect(reviewEvents).toContain('team.spawned');
   });
 
+  /** The contract check at load throws when a phase expects an `auto` event such as `review.routed`. */
   it('CheckEventEmissions_ReviewRouted_NotExpectedFromModel', () => {
-    // review.routed is auto-emitted post-RC2; it must be absent from every
-    // PHASE_EXPECTED_EVENTS entry (the compile-time assertion would throw
-    // otherwise, since an 'auto' event cannot appear in a model-only set).
     for (const [, eventTypes] of Object.entries(PHASE_EXPECTED_EVENTS)) {
       expect(eventTypes).not.toContain('review.routed');
     }
   });
 
+  /** With no events, every expected review event is missing. The auto-emitted `review.routed` must get no hint. */
   it('CheckEventEmissions_ReviewPhase_OmitsRoutedFromMissingHints', async () => {
     mockViewState = { phase: 'review' };
-    // No events present — every model-emitted review-phase event is "missing",
-    // but review.routed (now auto) must NOT appear among the hints.
     mockStore.query.mockResolvedValueOnce([]);
 
     const result: ToolResult = await handleCheckEventEmissions(
@@ -101,12 +85,8 @@ describe('PHASE_EXPECTED_EVENTS', () => {
     expect(data.hints.map((h) => h.eventType)).not.toContain('review.routed');
   });
 
+  /** `stack.submitted` is a telemetry event, so neither the synthesize row nor the hint table lists it. The literal list is pinned on purpose. */
   it('PhaseExpectedEvents_SynthesizePhase_ExpectsShepherdAndNoLongerStackSubmitted', () => {
-    // `stack.submitted` was flipped to telemetry by the first event-authority
-    // charter act (#1599, executing #1876): this row was the only dependency
-    // on it, so the flip IS the deletion of the row and of its hint. The
-    // literal pin is deliberate — re-adding the type here is a re-promotion,
-    // and the partition's declaration conjunct would then demand a witness.
     expect(PHASE_EXPECTED_EVENTS['synthesize']).toEqual([
       'team.spawned',
       'team.disbanded',
@@ -115,9 +95,8 @@ describe('PHASE_EXPECTED_EVENTS', () => {
     expect(Object.keys(EVENT_DESCRIPTIONS)).not.toContain('stack.submitted');
   });
 
+  /** Both tables project the phase event contract, so they cannot drift. The gate suite pins this to state what the gate relies on. */
   it('EventDescriptions_AreTotalOverTheExpectedTypes', () => {
-    // Both tables project the phase event contract, so this cannot drift; the
-    // pin is here so the gate's own suite says what it relies on.
     const expected = new Set(Object.values(PHASE_EXPECTED_EVENTS).flat());
     expect(expected.size).toBeGreaterThan(0);
     expect([...expected].filter((type) => EVENT_DESCRIPTIONS[type] === undefined)).toEqual([]);
@@ -141,13 +120,11 @@ describe('PHASE_EXPECTED_EVENTS', () => {
     }
   });
 
+  /**
+   * A phase that expects an `auto` event must throw at contract load.
+   * The test calls the real `assertPhaseEventContracts` on a seeded row that expects `review.routed`.
+   */
   it('PhaseExpectedEvents_AutoEventListed_IsRefusedWhereTheContractLoads', () => {
-    // Regression guard (#1395, RC2): flipping a registry entry to 'auto'
-    // WITHOUT deleting its expectation must throw. The expectation table is a
-    // projection of the phase event contract, so the refusal lives at the
-    // contract's load — exercised here through the real function on a seeded
-    // row, not a re-implemented copy of the loop. `review.routed` is 'auto'
-    // post-migration, so expecting it is precisely the violation.
     expect(EVENT_EMISSION_REGISTRY['review.routed']).toBe('auto');
     expect(() =>
       assertPhaseEventContracts({
@@ -180,18 +157,11 @@ describe('PHASE_EXPECTED_EVENTS', () => {
     }
   });
 
+  /**
+   * Runs a local copy of a model-only check on a phase set that lists `review.routed`, an `auto` event.
+   * The copy must throw for that set and must pass for `PHASE_EXPECTED_EVENTS`.
+   */
   it('PhaseExpectedEvents_AutoEventListed_ThrowsAtModuleLoad', () => {
-    // Regression guard (#1395, RC2). The module-load assertion in
-    // check-event-emissions.ts is the mechanism that FORCES the three-site
-    // migration to stay consistent: flipping a registry entry to 'auto'
-    // WITHOUT removing it from PHASE_EXPECTED_EVENTS must throw. We cannot
-    // re-import the real module to re-trigger its top-level throw without
-    // breaking this suite's own module load, so we re-implement the exact
-    // assertion loop here and feed it a phase set that (re)introduces an
-    // 'auto' event — proving the invariant fires.
-    //
-    // `review.routed` is now 'auto' (post-migration), so a phase set that
-    // lists it is precisely the violation the guard must catch.
     expect(EVENT_EMISSION_REGISTRY['review.routed']).toBe('auto');
 
     const assertModelOnly = (
@@ -217,12 +187,9 @@ describe('PHASE_EXPECTED_EVENTS', () => {
       /non-model event 'review\.routed'.*source: auto/,
     );
 
-    // And the real, post-migration phase sets must NOT trip the same loop.
     expect(() => assertModelOnly(PHASE_EXPECTED_EVENTS)).not.toThrow();
   });
 });
-
-// ─── Task 6: handleCheckEventEmissions Tests ────────────────────────────────
 
 describe('handleCheckEventEmissions', () => {
   beforeEach(() => {
@@ -265,15 +232,10 @@ describe('handleCheckEventEmissions', () => {
     expect(result.error?.message).toContain('workflowId');
   });
 
+  /** The delegate phase expects five model-emitted events. The runtime appends `task.assigned`, so the phase does not expect it. */
   it('CheckEventEmissions_AllExpectedEventsPresent_ReturnsNoHints', async () => {
     mockViewState = { phase: 'delegate' };
 
-    // Post Fix 3 (#1180), the delegate-phase model-emitted contract is the
-    // SoT registry filtered to model events: team.spawned +
-    // team.task.planned + team.teammate.dispatched + team.disbanded +
-    // task.progressed (5 events — `task.assigned` is the runtime's since
-    // `prepare` and `prepare_delegation` took its append). All must be
-    // present for hints to be empty.
     mockStore.query.mockResolvedValueOnce([
       { type: 'team.spawned', streamId: 'test', sequence: 2, timestamp: '2026-01-01T00:00:00Z' },
       { type: 'team.task.planned', streamId: 'test', sequence: 3, timestamp: '2026-01-01T00:00:00Z' },
@@ -298,12 +260,10 @@ describe('handleCheckEventEmissions', () => {
     });
   });
 
+  /** Seeds every expected delegate event except `team.spawned`. */
   it('CheckEventEmissions_MissingTeamSpawned_ReturnsHint', async () => {
     mockViewState = { phase: 'delegate' };
 
-    // All delegate-phase model events present except `team.spawned` — the
-    // expected-events list (post Fix 3 / #1180) covers task.assigned +
-    // team.* + task.progressed, so we seed every other type explicitly.
     mockStore.query.mockResolvedValueOnce([
       { type: 'task.assigned', streamId: 'test', sequence: 1, timestamp: '2026-01-01T00:00:00Z' },
       { type: 'team.task.planned', streamId: 'test', sequence: 2, timestamp: '2026-01-01T00:00:00Z' },
@@ -330,7 +290,6 @@ describe('handleCheckEventEmissions', () => {
   it('CheckEventEmissions_MissingEvent_IncludesRequiredFields', async () => {
     mockViewState = { phase: 'delegate' };
 
-    // No events present at all — all delegate events missing
     mockStore.query.mockResolvedValueOnce([]);
 
     const result: ToolResult = await handleCheckEventEmissions(
@@ -341,7 +300,6 @@ describe('handleCheckEventEmissions', () => {
 
     expect(result.success).toBe(true);
     const data = result.data as { hints: Array<{ eventType: string; requiredFields?: string[] }> };
-    // team.spawned has required fields: teamSize, teammateNames, taskCount, dispatchMode
     const teamSpawnedHint = data.hints.find(h => h.eventType === 'team.spawned');
     expect(teamSpawnedHint).toBeDefined();
     expect(teamSpawnedHint!.requiredFields).toBeDefined();
@@ -370,11 +328,10 @@ describe('handleCheckEventEmissions', () => {
     });
   });
 
+  /** Seeds every expected delegate event, so the gate event records `passed: true`. */
   it('CheckEventEmissions_EmitsGateEvent_FireAndForget', async () => {
     mockViewState = { phase: 'delegate' };
 
-    // Seed the full delegate-phase model-event contract (post Fix 3 / #1180)
-    // so `passed: true` reflects the all-events-present case.
     mockStore.query.mockResolvedValueOnce([
       { type: 'task.assigned', streamId: 'test', sequence: 1, timestamp: '2026-01-01T00:00:00Z' },
       { type: 'team.spawned', streamId: 'test', sequence: 2, timestamp: '2026-01-01T00:00:00Z' },
@@ -398,6 +355,10 @@ describe('handleCheckEventEmissions', () => {
     expect(event.data.passed).toBe(true);
   });
 
+  /**
+   * The `event-emissions` gate declares `gate.executed`. When the append fails, the handler withholds the success result.
+   * The gate verdict stays readable on `data`.
+   */
   it('CheckEventEmissions_GateEventAppendFails_WithholdsTheSuccessCarrier', async () => {
     mockViewState = { phase: 'delegate' };
 
@@ -410,9 +371,6 @@ describe('handleCheckEventEmissions', () => {
       mockStore as unknown as EventStore,
     );
 
-    // `event-emissions` declares `gate.executed` unconditionally — a dropped
-    // append withholds the success carrier rather than returning one the log
-    // does not back. The gate's own verdict is still readable on `data`.
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('GATE_EVENT_UNRECORDED');
     const data = result.data as { complete: boolean };
@@ -439,8 +397,6 @@ describe('handleCheckEventEmissions', () => {
   });
 });
 
-// ─── Task 7: Handler Registration Test ──────────────────────────────────────
-
 describe('handleOrchestrate integration', () => {
   it('HandleOrchestrate_CheckEventEmissions_HandlerExists', async () => {
     const { handleOrchestrate } = await import('../../../../src/verbs/composite.js');
@@ -458,18 +414,9 @@ describe('handleOrchestrate integration', () => {
         { stateDir: isolatedDir, eventStore, enableTelemetry: false },
       );
 
-      // Should NOT return UNKNOWN_ACTION — meaning the handler is registered
       expect(result.error?.code).not.toBe('UNKNOWN_ACTION');
     } finally {
       rmrf(isolatedDir);
     }
   });
 });
-
-// ─── The expectation surfaces cannot go stale or empty ──────────────────────
-//
-// Three load-time guards keep the expectation tables honest, and each throw
-// path is proven here with a seeded registry rather than trusted: a retired
-// event cannot silently vanish from a derived expectation list, a phase row
-// cannot silently derive to empty, and a description cannot outlive the
-// model-emitted status of its event.

@@ -1,20 +1,7 @@
-// ─── mutation-adequacy — report schema + carrier aggregation (RED→GREEN) ────
-//
-// Task 001 (design §4.1 parse half, §4.6 carrier): an internal Zod schema
-// mirroring Stryker's `mutation-testing-report-schema` (the de-facto
-// cross-language mutation-report standard) plus a pure `aggregate(report)` that
-// folds the per-file mutant lists into the fixed carrier
-// `{ mutationScore, killed, survived, noCoverage, total }`.
-//
-// Mutation score follows the Stryker convention asserted explicitly here:
-//   score = killed / (total − noCoverage)
-// where `killed` counts detected mutants (Killed + Timeout) and `total` counts
-// every mutant with a covered/measurable verdict (NoCoverage excluded from the
-// denominator — uncovered code can't lower the score for tests that exist).
-//
-// Fail-closed: a malformed/empty report returns a typed DEGRADE signal, never a
-// throw — the doctor-grade robustness the action depends on (design §4.1 #4).
-// ────────────────────────────────────────────────────────────────────────────
+// Tests for the Stryker report schema and the carrier aggregation of the mutation-adequacy gate.
+// The score is killed / (total − noCoverage), and Killed and Timeout mutants count as killed.
+// NoCoverage mutants leave the denominator, so uncovered code cannot lower the score.
+// A malformed or empty report gives a typed degrade result and does not throw.
 
 import { describe, it, expect } from 'vitest';
 
@@ -48,16 +35,14 @@ function strykerReport(mutantStatuses: readonly string[]): unknown {
 }
 
 describe('MutationReportSchema (Stryker mutation-testing-report-schema)', () => {
+  /** The score is 3 / (5 − 1). */
   it('MutationReportSchema_ValidStrykerReport_ParsesAndAggregates', () => {
-    // 3 Killed, 1 Survived, 1 NoCoverage across one file.
     const report = strykerReport(['Killed', 'Killed', 'Killed', 'Survived', 'NoCoverage']);
 
     const parsed = MutationReportSchema.safeParse(report);
     expect(parsed.success).toBe(true);
 
     const carrier = aggregate(MutationReportSchema.parse(report));
-    // total = 5; noCoverage = 1; killed = 3; survived = 1
-    // score = killed / (total − noCoverage) = 3 / (5 − 1) = 0.75
     expect(carrier).toEqual({
       mutationScore: 0.75,
       killed: 3,
@@ -67,14 +52,11 @@ describe('MutationReportSchema (Stryker mutation-testing-report-schema)', () => 
     });
   });
 
+  /** Timeout counts as killed, so the score is 2 / (6 − 2). */
   it('AggregateCarrier_MixedMutantStates_ComputesScore', () => {
-    // Timeout counts as killed (detected). CompileError / Ignored / Pending do
-    // not count toward killed or survived but DO count toward total (they have a
-    // measurable, non-NoCoverage verdict), so they pull the score down — they
-    // are not "no coverage", they are unresolved.
     const report = strykerReport([
       'Killed',
-      'Timeout', // detected → killed
+      'Timeout',
       'Survived',
       'Survived',
       'NoCoverage',
@@ -82,8 +64,6 @@ describe('MutationReportSchema (Stryker mutation-testing-report-schema)', () => 
     ]);
 
     const carrier = aggregate(MutationReportSchema.parse(report));
-    // killed = 2 (Killed + Timeout), survived = 2, noCoverage = 2, total = 6
-    // score = 2 / (6 − 2) = 0.5
     expect(carrier.killed).toBe(2);
     expect(carrier.survived).toBe(2);
     expect(carrier.noCoverage).toBe(2);
@@ -91,9 +71,8 @@ describe('MutationReportSchema (Stryker mutation-testing-report-schema)', () => 
     expect(carrier.mutationScore).toBe(0.5);
   });
 
+  /** A zero denominator must give 0, not NaN. A NaN score breaks the threshold comparison. */
   it('AggregateCarrier_AllNoCoverage_ScoreIsZeroNotNaN', () => {
-    // Guard the denominator: total − noCoverage = 0 must yield 0, never NaN
-    // (a NaN score would silently poison the advisory threshold comparison).
     const report = strykerReport(['NoCoverage', 'NoCoverage']);
 
     const carrier = aggregate(MutationReportSchema.parse(report));
@@ -103,9 +82,8 @@ describe('MutationReportSchema (Stryker mutation-testing-report-schema)', () => 
     expect(Number.isNaN(carrier.mutationScore)).toBe(false);
   });
 
+  /** `parseMutationReport` returns a tagged result, so the handler can show a bad report as a Warning. */
   it('MutationReportSchema_MalformedReport_FailsClosed', () => {
-    // A degrade SIGNAL, never a throw. parseMutationReport returns a tagged
-    // result so the handler can map a bad report to a Warning carrier.
     const malformed = { schemaVersion: '1', files: { bad: { mutants: 'not-an-array' } } };
 
     const result = parseMutationReport(malformed);

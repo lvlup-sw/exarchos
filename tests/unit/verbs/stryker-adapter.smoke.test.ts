@@ -1,33 +1,12 @@
-// ─── stryker-adapter — composed-path smoke test (DR-7, task 012) ───────────
-//
-// Exercises the FULL composed path — resolver → handler `defaultRunMutation`
-// → adapter → real pinned Stryker binary → `parseMutationReport` — on a tiny,
-// isolated fixture scope, in both directions the DR-7 acceptance criteria
-// name:
-//
-//   - "runner present" → a real, non-mocked Stryker run over a 2-commit diff
-//     produces a parseable carrier with real mutant counts.
-//   - "devDep absent" → with the local pinned binary hidden, the adapter
-//     fails CLOSED (non-zero exit, nothing parseable on stdout) rather than
-//     silently reporting a false pass. Deleting the real
-//     `@stryker-mutator/core` devDependency reproduces this exact failure
-//     mode, which is also why the FIRST test in this file goes red the
-//     moment that devDep (or its installed binary) disappears — it depends
-//     on the real binary actually running, not a hand-mock.
-//
-// A third direction — a real `git diff` against THIS repo that is genuinely
-// empty (`--since=HEAD`) — proves the "empty mutatable surface" path never
-// invokes Stryker and never degrades. Plus a provenance check that
-// `resolveVerificationRuntime`'s `mutation` field actually resolves to this
-// adapter, not the built-in registry's `npx stryker run` fallback.
-//
-// Boundary-task discipline: nothing here mocks Stryker itself — the "runner
-// present" test spawns the real local pinned binary via the real adapter.
-// The only things doubled are the git-diff filtering (pure-function unit
-// tests below, given an injected file-existence check) and the isolated
-// fixture repo the positive test builds so its runtime is independent of the
-// server package's ~700-file test suite.
-// ─────────────────────────────────────────────────────────────────────────
+// Smoke tests for the Stryker mutation adapter `tools/audit/core/stryker-adapter.mjs`.
+// The composed tests run the real adapter script and parse its output with `parseMutationReport`.
+// Nothing mocks Stryker.
+// - Runner present: a real run over a two-commit diff in an isolated fixture repo gives real mutant
+//   counts. Without the `@stryker-mutator/core` devDependency, this test fails.
+// - Binary absent: the adapter fails closed with a non-zero exit and nothing parseable on stdout.
+// - Empty diff: `--since=HEAD` against this repo prints the empty report and exits 0.
+// A provenance test checks that `resolveVerificationRuntime` resolves the `mutation` field to this
+// adapter and not to the built-in `npx stryker run` fallback.
 
 import { describe, it, expect } from 'vitest';
 import { copyFileSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -47,9 +26,7 @@ import {
 import { execFileAsync, spawnAsync } from '../../../tools/test-helpers/spawn.js';
 import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
-// Task 019 dissolved the nested server package, so the package root and the
-// repository root are now the same directory and the adapter moved under
-// `tools/audit/core/` with the rest of that package's scripts.
+/** The package root, which is also the repository root. */
 const REAL_SERVER_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const REPO_ROOT = REAL_SERVER_DIR;
 const ADAPTER_SCRIPT = path.join(REAL_SERVER_DIR, 'tools', 'audit', 'core', 'stryker-adapter.mjs');
@@ -61,8 +38,6 @@ function runNode(
   return spawnAsync(process.execPath, [ADAPTER_SCRIPT, ...args], { cwd });
 }
 
-// ─── Pure helpers (fast, no subprocess) ─────────────────────────────────────
-
 describe('stryker-adapter pure helpers', () => {
   it('parseSinceArg extracts the value of a handler-appended --since=<base> flag', () => {
     expect(parseSinceArg(['--since=abc123'])).toBe('abc123');
@@ -71,6 +46,7 @@ describe('stryker-adapter pure helpers', () => {
     expect(parseSinceArg(['--other=x'])).toBeUndefined();
   });
 
+  /** A `src/` directory under another root is not the production `src/`. */
   it('isMutatableServerSource restricts to changed src/** production files', () => {
     expect(isMutatableServerSource('src/foo.ts')).toBe(true);
     expect(isMutatableServerSource('src/foo.test.ts')).toBe(false);
@@ -78,20 +54,17 @@ describe('stryker-adapter pure helpers', () => {
     expect(isMutatableServerSource('src/foo.type-test.ts')).toBe(false);
     expect(isMutatableServerSource('src/foo.bench.ts')).toBe(false);
     expect(isMutatableServerSource('tools/audit/core/other.ts')).toBe(false);
-    // A `src/` that is not THE `src/`. Task 019's fold rewrote the old
-    // `servers/exarchos-mcp/src/` prefix everywhere, which collapsed this case
-    // into a contradictory duplicate of the first assertion above; the file was
-    // excluded from the default lane, so nothing noticed until task 030 moved it.
     expect(isMutatableServerSource('tools/conformance/src/foo.ts')).toBe(false);
     expect(isMutatableServerSource('servers/exarchos-mcp/README.md')).toBe(false);
   });
 
+  /** Only `src/foo.ts` qualifies. The others are a test file, a deleted file, and a file outside `src/`. */
   it('computeMutateGlobs filters to still-existing, mutatable files and strips the server prefix', () => {
     const changed = [
-      'src/foo.ts', // qualifies
-      'src/foo.test.ts', // excluded: test file
-      'src/deleted.ts', // excluded: no longer exists
-      'docs/guides/toolchain-resolution.md', // excluded: outside server src
+      'src/foo.ts',
+      'src/foo.test.ts',
+      'src/deleted.ts',
+      'docs/guides/toolchain-resolution.md',
     ];
     const exists = (f: string) => f !== 'src/deleted.ts';
     const { files, truncated, totalQualifying } = computeMutateGlobs(changed, exists);
@@ -120,8 +93,6 @@ describe('stryker-adapter pure helpers', () => {
   });
 });
 
-// ─── resolveVerificationRuntime provenance (DR-7 acceptance criteria) ──────
-
 describe('resolveVerificationRuntime mutation-field provenance (DR-7)', () => {
   it('resolves this repo\'s .exarchos.yml adapter entry, not the built-in npx fallback', () => {
     const runtime = resolveVerificationRuntime(REPO_ROOT);
@@ -129,6 +100,7 @@ describe('resolveVerificationRuntime mutation-field provenance (DR-7)', () => {
     expect(runtime.mutation).not.toBe('npx stryker run');
   });
 
+  /** The built-in node default is `npx stryker run`, and the injected config value must win over it. */
   it('config-tier mutation: beats the built-in node registry default generically', () => {
     const tmp = mkdtempSync(path.join(tmpdir(), 'mutation-provenance-'));
     try {
@@ -139,16 +111,12 @@ describe('resolveVerificationRuntime mutation-field provenance (DR-7)', () => {
           source: path.join(tmp, '.exarchos.yml'),
         }),
       });
-      // Without the injected config, node's built-in registry default is
-      // `npx stryker run` (toolchains.ts) — the config-tier value must win.
       expect(runtime.mutation).toBe('node tools/audit/core/stryker-adapter.mjs');
     } finally {
       rmrf(tmp);
     }
   });
 });
-
-// ─── Composed path — real repo, empty diff (fast, no fixture needed) ──────
 
 describe('stryker-adapter composed path — empty mutatable surface', () => {
   it('a genuinely empty diff (--since=HEAD) prints the empty-valid report and exits 0, never invoking Stryker', async () => {
@@ -162,24 +130,16 @@ describe('stryker-adapter composed path — empty mutatable surface', () => {
   });
 });
 
-// ─── Composed path — devDep absent (fail-closed direction) ─────────────────
-//
-// Linux/macOS only (DR-7 frames the composed-path smoke test as a Linux-only
-// lane). Runs the adapter against an ISOLATED temp root whose server dir has
-// no pinned binary — never renaming the SHARED `node_modules/.bin/stryker`
-// (which would race concurrent test files and leave node_modules corrupted if
-// the process died before restoring it, #1719).
-
+/**
+ * Runs the adapter against an isolated temp root with no pinned binary. The test does not rename the
+ * shared `node_modules/.bin/stryker`, because that races other test files and can corrupt `node_modules`.
+ * The adapter checks for `node_modules/.bin/stryker` under `process.cwd()`. Without `--since` the
+ * adapter starts Stryker at once, with no git diff.
+ */
 describe.skipIf(process.platform === 'win32')('stryker-adapter composed path — devDep absent', () => {
   it('fails CLOSED (non-zero exit, no parseable report) when the local pinned binary is missing', async () => {
-    // The adapter's missing-binary branch fires purely on
-    // `existsSync(<root>/servers/exarchos-mcp/node_modules/.bin/stryker)`, so
-    // an empty temp root exercises it with zero effect on shared state.
     const tmpRoot = mkdtempSync(path.join(tmpdir(), 'stryker-missing-bin-'));
     try {
-      // No `--since`: the full-tree lane, which invokes runStryker immediately
-      // (no diff computation) — the fastest deterministic way to reach the
-      // "binary missing" branch without depending on repo git history.
       const result = await runNode([], tmpRoot);
       expect(result.status).not.toBe(0);
       expect(result.stdout.trim()).toBe('');
@@ -191,16 +151,12 @@ describe.skipIf(process.platform === 'win32')('stryker-adapter composed path —
   });
 });
 
-// ─── Composed path — runner present, real mutant counts ────────────────────
-//
-// Linux/macOS only: builds an isolated fixture repo (own git history, own
-// minimal Stryker + Vitest config, symlinked node_modules so the real pinned
-// binary resolves without a second `npm install`) so the run stays fast and
-// independent of the server package's full test suite. If the real
-// `@stryker-mutator/core` devDependency (or its installed binary) is
-// deleted, THIS test goes red — it runs the genuine local pinned binary via
-// the unmodified, real adapter script, not a hand-mock.
-
+/**
+ * Builds an isolated fixture repo with its own git history and a minimal Stryker and Vitest config.
+ * A symlink to `node_modules` lets the real pinned binary resolve without an install. The fixture runs
+ * a copy of the real adapter script. The head commit adds a covered `double` function, so Stryker has
+ * mutants to kill.
+ */
 describe.skipIf(process.platform === 'win32')('stryker-adapter composed path — runner present', () => {
   it('produces a parseable carrier with real mutant counts over a tiny 2-commit diff', async () => {
     const tmpRoot = mkdtempSync(path.join(tmpdir(), 'stryker-adapter-smoke-'));
@@ -247,8 +203,6 @@ describe.skipIf(process.platform === 'win32')('stryker-adapter composed path —
           '',
         ].join('\n'),
       );
-      // Copy the REAL, unmodified adapter script into the fixture — the
-      // composed path runs the exact file this task ships, not a stand-in.
       copyFileSync(ADAPTER_SCRIPT, path.join(serverDir, 'scripts', 'stryker-adapter.mjs'));
 
       const git = (args: readonly string[]): Promise<string> =>
@@ -260,9 +214,6 @@ describe.skipIf(process.platform === 'win32')('stryker-adapter composed path —
       await git(['commit', '-q', '-m', 'base', '--no-verify']);
       const baseSha = (await git(['rev-parse', 'HEAD'])).trim();
 
-      // A real, behavior-preserving content change to the same file: adds a
-      // second, fully-covered function, so the diff is genuine and Stryker
-      // has real (killable) mutants to work with.
       writeFileSync(
         path.join(serverDir, 'src', 'fixture', 'add.ts'),
         'export function add(a, b) {\n  return a + b;\n}\nexport function double(x) {\n  return x * 2;\n}\n',

@@ -1,26 +1,11 @@
-// ─── Merge-transition exclusivity shield (#1305 T15) ───────────────────────
-//
-// INVARIANT: the merge-orchestrator's `merge-pending` entry/exit phase
-// transitions MUST go through the canonical HSM transition primitive
-// (`handleSet({ phase })` → `hsmTransitionGuard.attempt` → a single
-// `workflow.transition` event). They MUST NOT bypass the event log with a
-// direct top-level-phase mutation (`set({ phase: 'merge-pending' })` or
-// `set({ phase: 'delegate' })`), which would desync the projection from the
-// event store (the SQLite event store is the authoritative existence/phase
-// record — see CLAUDE.md "State surfaces").
-//
-// This is a structural guard: it scans every `.ts` source file under
-// `src/verbs/` and asserts no merge-transition code path applies a
-// bare top-level phase-set for a merge-pending entry/exit. The merge
-// orchestrator is permitted to write its OWN sub-state (`mergeOrchestrator.
-// phase`, an internal pending/executing/completed/rolled-back/aborted
-// marker) — that is NOT the top-level workflow HSM phase and does NOT bypass
-// the transition primitive.
-//
-// NOTE: the forbidden substrings are assembled from fragments at runtime
-// (see `setCall` / `mp` / `dlg` below) so they never appear verbatim in THIS
-// source — otherwise the scan would flag the shield itself.
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Structural guard: the `merge-pending` entry and exit transitions of the merge orchestrator must use the HSM transition primitive.
+ * That path is `handleSet({ phase })`, then `hsmTransitionGuard.attempt`, then one `workflow.transition` event.
+ * A direct top-level phase mutation bypasses the event log and desyncs the projection from the event store.
+ *
+ * The scan reads every `.ts` source file under `src/verbs/`. The merge orchestrator can write its own sub-state, `mergeOrchestrator.phase`.
+ * That sub-state is not the top-level workflow phase.
+ */
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -29,9 +14,7 @@ import { dirname, join } from 'node:path';
 
 const here = fileURLToPath(new URL('../../../src/verbs/', import.meta.url));
 
-// Fragments assembled at runtime so the forbidden literals never appear
-// verbatim in THIS file (otherwise this shield would flag itself, and the
-// repo-wide scan would have a false positive on its own guard).
+/** Fragments of the forbidden literals. The code builds the patterns at runtime from these fragments. */
 const setCall = 'set' + '({ ';
 const setCallTight = 'set' + '({';
 const phaseKey = 'phase';
@@ -39,22 +22,15 @@ const mp = 'merge' + '-pending';
 const dlg = 'delegate';
 
 /**
- * Forbidden patterns: a direct top-level workflow-phase mutation routing a
- * merge-pending entry or exit transition. Each entry is the source substring
- * that, if present in any orchestrate source file, indicates a transition
- * that bypassed the `workflow.transition` primitive.
- *
- * We cover both spacings (`set({ phase` and `set({phase`) and both the
- * entry (`-> merge-pending`) and exit (`-> delegate`) targets a merge
- * transition would set.
+ * Source substrings of a direct top-level phase-set for a merge-pending entry or exit.
+ * Each one marks a transition that bypasses the `workflow.transition` primitive.
  */
 const FORBIDDEN_PATTERNS: readonly string[] = [
   `${setCall}${phaseKey}: '${mp}'`,
   `${setCallTight}${phaseKey}: '${mp}'`,
   `${setCall}${phaseKey}: "${mp}"`,
   `${setCall}${phaseKey}: \`${mp}\``,
-  // The exit target — a merge transition driving `merge-pending -> delegate`
-  // via a bare phase-set rather than the transition primitive.
+  /** The exit target: a bare phase-set for `merge-pending -> delegate`. */
   `${setCall}${phaseKey}: '${dlg}', // merge`,
 ];
 
@@ -73,10 +49,9 @@ function collectTsFiles(dir: string): string[] {
 }
 
 describe('Orchestrate_NoSetPhaseCalls_ForMergeTransitions (#1305 T15)', () => {
+  /** Test files under `src/verbs/` are not production paths, so the scan skips them. */
   it('no orchestrate source applies a bare set({ phase }) for a merge-pending entry/exit transition', () => {
     const files = collectTsFiles(here);
-    // The shield must not flag itself — FORBIDDEN_PATTERNS appears here as
-    // data (assembled at runtime), and test files are not production paths.
     const candidates = files.filter(
       (f) => !f.endsWith('.test.ts') && !f.endsWith('.characterization.test.ts'),
     );
@@ -94,14 +69,11 @@ describe('Orchestrate_NoSetPhaseCalls_ForMergeTransitions (#1305 T15)', () => {
     expect(offenders).toEqual([]);
   });
 
+  /**
+   * The two merge source files must contain no top-level phase-set token, in either spacing.
+   * Their `mergeOrchestrator: { phase }` sub-state is an object key, so it does not match.
+   */
   it('the merge orchestrator source contains no top-level workflow phase-set call at all', () => {
-    // Stronger statement scoped to the two merge-transition-emitting source
-    // files: neither may contain a `set({ phase` token (any spacing). They
-    // legitimately write `mergeOrchestrator: { phase: ... }` sub-state, which
-    // is a DIFFERENT token (object-literal key, not a `set({ phase` call) and
-    // does not match. If a future change introduces a bare top-level phase
-    // mutation on the merge path, this fails before it can desync the
-    // projection.
     const mergeFiles = [
       join(here, 'merge', 'merge-orchestrate.ts'),
       join(here, 'merge', 'execute-merge.ts'),

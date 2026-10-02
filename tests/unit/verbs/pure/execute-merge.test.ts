@@ -1,9 +1,9 @@
-// ─── execute-merge: recordRecoveryPoint tests ──────────────────────────────
-//
-// T08 — pure helper that captures HEAD sha as a rollback point before merge
-// execution (T09/T10 compose executeMerge on top). Must NEVER throw — all
-// failure modes return a structured `{ error }` result.
-// ───────────────────────────────────────────────────────────────────────────
+/**
+ * Tests for `recordRecoveryPoint` and `executeMerge`.
+ *
+ * `recordRecoveryPoint` captures the HEAD sha as a rollback point before a merge.
+ * It never throws: each failure returns a structured `{ error }` result.
+ */
 
 import { describe, it, expect, vi } from 'vitest';
 import { recordRecoveryPoint, executeMerge, type GitExec } from '../../../../src/verbs/pure/execute-merge.js';
@@ -55,6 +55,11 @@ describe('recordRecoveryPoint', () => {
   });
 });
 
+/**
+ * Only a failure in the `timeout` category enters the retry loop, with at most two retries.
+ * Each retry reports its attempt and delay through the `onRetryAttempt` seam.
+ * The retry tests inject the jitter source and `sleep`, so the delays are fixed and the tests do not wait.
+ */
 describe('executeMerge', () => {
   it('executeMerge_MergeSucceeds_ReturnsMergeShaAndPhaseCompleted', async () => {
     const gitExec: GitExec = vi.fn((_repoRoot: string, args: readonly string[]) => {
@@ -122,8 +127,10 @@ describe('executeMerge', () => {
     expect(result.phase).toBe('completed');
   });
 
-  // ─── T10: rollback paths ────────────────────────────────────────────────
-
+  /**
+   * Recovery runs the native `git merge --abort` first and then `git reset --keep`, which refuses to discard work.
+   * It never runs `git reset --hard`.
+   */
   it('executeMerge_VcsMergeRejects_ResetsToRollbackShaWithReasonMergeFailed', async () => {
     const gitCalls: Array<readonly string[]> = [];
     const gitExec: GitExec = vi.fn((_repoRoot: string, args: readonly string[]) => {
@@ -159,15 +166,13 @@ describe('executeMerge', () => {
       recoveryPointSha: 'abc',
       reason: 'merge-failed',
     });
-    // INV-14: native primitive first (`git merge --abort`), then refuse-to-discard
-    // substrate undo (`git reset --keep`). NEVER the destructive `--hard`.
     expect(gitCalls).toContainEqual(['merge', '--abort']);
     expect(gitCalls).toContainEqual(['reset', '--keep', 'abc']);
     expect(gitCalls.some((c) => c[0] === 'reset' && c[1] === '--hard')).toBe(false);
   });
 
+  /** A failure whose message matches `/verification/i` is in the `verification-failed` category. */
   it('executeMerge_VerificationFails_ReasonVerificationFailed', async () => {
-    // Categorization convention: err.message matches /verification/i.
     const gitExec: GitExec = vi.fn((_repoRoot: string, args: readonly string[]) => {
       if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
         return { stdout: 'abc\n', exitCode: 0 };
@@ -202,8 +207,11 @@ describe('executeMerge', () => {
     });
   });
 
+  /**
+   * A failure with the name `TimeoutError` or the code `ETIMEDOUT` is in the `timeout` category, so it starts the retry loop.
+   * The no-op `sleep` and zero jitter keep the test fast. The `ExecuteMerge_Timeout*` tests cover the retry details.
+   */
   it('executeMerge_GitTimeout_ReasonTimeout', async () => {
-    // Categorization convention: err.name === 'TimeoutError' OR (err as any).code === 'ETIMEDOUT'.
     const gitExec: GitExec = vi.fn((_repoRoot: string, args: readonly string[]) => {
       if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
         return { stdout: 'abc\n', exitCode: 0 };
@@ -231,18 +239,10 @@ describe('executeMerge', () => {
       vcsMerge,
       persistState,
       repoRoot: '/some/repo',
-      // T09 (#1308): a timeout now triggers the bounded retry loop before
-      // recovery. Inject a no-op sleep + zero jitter so this assertion still
-      // exercises the timeout→exhaustion→recovery path without paying the
-      // real backoff wall time. The retry mechanics themselves are covered by
-      // the dedicated `ExecuteMerge_Timeout*` tests below.
       sleep: async () => {},
       jitter: () => 0,
     });
 
-    // After exhausting the timeout retries, vcsMerge was called 3 times
-    // (1 initial + MAX_MERGE_RETRIES) and the executor recovers with reason
-    // 'timeout'.
     expect(vcsMerge).toHaveBeenCalledTimes(3);
     expect(result).toEqual({
       phase: 'rolled-back',
@@ -251,10 +251,8 @@ describe('executeMerge', () => {
     });
   });
 
+  /** `git merge --abort` and then `git reset --keep <sha>` run before the executor returns the rolled-back result. */
   it('executeMerge_RollbackPath_AfterReset_PhaseRolledBack', async () => {
-    // INV-14 ordering: `git merge --abort` (native primitive) then
-    // `git reset --keep <sha>` (substrate undo) must run BEFORE the rolled-back
-    // result is returned — and `--hard` must never be invoked.
     const calls: string[] = [];
     const gitExec: GitExec = vi.fn((_repoRoot: string, args: readonly string[]) => {
       if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
@@ -289,7 +287,6 @@ describe('executeMerge', () => {
       repoRoot: '/some/repo',
     });
 
-    // Recovery happens before finalize; native primitive precedes substrate undo.
     const abortIdx = calls.indexOf('merge-abort');
     const resetIdx = calls.indexOf('reset-keep-abc');
     const mergeIdx = calls.indexOf('vcsMerge-rejects');
@@ -302,11 +299,11 @@ describe('executeMerge', () => {
     }
   });
 
+  /**
+   * When `git reset --keep` refuses to discard local work, the tree is indeterminate but intact.
+   * The result reports `reset-keep-blocked`, so the caller can escalate.
+   */
   it('executeMerge_ResetKeepExitsNonZero_SurfacesResetKeepBlocked', async () => {
-    // When `git reset --keep` refuses (exits non-zero) rather than discard
-    // local work, the worktree is indeterminate but NON-destructive. INV-14's
-    // 'reset-keep-blocked' case — surfaced so callers escalate, not silently
-    // treated as a clean rollback.
     const gitExec: GitExec = vi.fn((_repoRoot: string, args: readonly string[]) => {
       if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
         return { stdout: 'abc\n', exitCode: 0 };
@@ -343,9 +340,8 @@ describe('executeMerge', () => {
     }
   });
 
+  /** When `git reset --keep` throws, the tree is indeterminate and the result reports `reset-failed`. */
   it('executeMerge_ResetKeepThrows_SurfacesResetFailed', async () => {
-    // When `git reset --keep` itself throws (e.g. git missing), the worktree is
-    // indeterminate — INV-14's 'reset-failed' case.
     const gitExec: GitExec = vi.fn((_repoRoot: string, args: readonly string[]) => {
       if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
         return { stdout: 'abc\n', exitCode: 0 };
@@ -380,11 +376,11 @@ describe('executeMerge', () => {
     }
   });
 
+  /**
+   * Both recovery commands exit 0, but HEAD does not return to the rollback anchor.
+   * The drift check after recovery sees a different sha.
+   */
   it('executeMerge_RecoveryLeavesDrift_SurfacesUnexpectedMidMergeDrift', async () => {
-    // `git merge --abort` + `git reset --keep` both report success (exit 0) but
-    // HEAD does NOT land on the rollback anchor — INV-14's indeterminate
-    // post-recovery case. First rev-parse records the anchor; the post-recovery
-    // drift check sees a different sha.
     let headCall = 0;
     const gitExec: GitExec = vi.fn((_repoRoot: string, args: readonly string[]) => {
       if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
@@ -420,18 +416,7 @@ describe('executeMerge', () => {
     }
   });
 
-  // ─── T09 (#1308): bounded timeout-retry with backoff + jitter ────────────
-  //
-  // ONLY a `'timeout'`-categorized failure enters the retry loop (max 2 retries
-  // → 3 total vcsMerge calls). Each retry reports its attempt/delay via the
-  // injected `onRetryAttempt` seam (the handler emits `merge.retry_attempt`).
-  // The jitter source is INJECTED (workflow-determinism invariant) so tests
-  // pin a deterministic value rather than relying on Math.random(). `sleep` is
-  // injected too so tests don't actually wait out the backoff.
-
-  // A signed jitter source pinned to 0 → no jitter (delay == base * factor^n).
   const zeroJitter = () => 0;
-  // No-op sleep so tests don't pay the real backoff wall time.
   const noSleep = async () => {};
 
   function makeTimeoutError(message = 'operation timed out'): Error {
@@ -445,15 +430,15 @@ describe('executeMerge', () => {
       if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
         return { stdout: 'abc\n', exitCode: 0 };
       }
-      // merge --abort / reset --keep both succeed via this catch-all.
       return { stdout: '', exitCode: 0 };
     });
   }
 
+  /**
+   * The first call times out and the retry succeeds.
+   * The executor reports one retry and does not run the recovery commands.
+   */
   it('ExecuteMerge_TimeoutOnceThenSuccess_EmitsOneRetryThenExecuted', async () => {
-    // vcsMerge times out on the first call, then succeeds. The executor retries
-    // exactly ONCE, reports exactly ONE retry attempt, and returns
-    // `phase: 'completed'` — NO recovery/rollback ladder runs.
     let call = 0;
     const vcsMerge = vi.fn(async () => {
       call += 1;
@@ -480,19 +465,14 @@ describe('executeMerge', () => {
       onRetryAttempt,
     });
 
-    // Completed — no rollback.
     expect(result).toEqual({
       phase: 'completed',
       mergeSha: 'merge-sha-xyz',
       recoveryPointSha: 'abc',
     });
-    // Exactly two vcsMerge calls: the timeout + the successful retry.
     expect(vcsMerge).toHaveBeenCalledTimes(2);
-    // Exactly ONE retry attempt reported, ordinal 1, reason 'timeout',
-    // delay = base (1000) * factor^0 with zero jitter.
     expect(onRetryAttempt).toHaveBeenCalledTimes(1);
     expect(retries).toEqual([{ attempt: 1, delayMs: 1000, reason: 'timeout' }]);
-    // No recovery ladder — `git merge --abort` / `git reset --keep` never ran.
     const gitCalls = (gitExec as ReturnType<typeof vi.fn>).mock.calls.map(
       (c) => c[1] as readonly string[],
     );
@@ -500,11 +480,8 @@ describe('executeMerge', () => {
     expect(gitCalls.some((a) => a[0] === 'reset')).toBe(false);
   });
 
+  /** A failure outside the `timeout` category does not retry and recovers at once. */
   it('ExecuteMerge_NonTimeoutFailure_DoesNotRetry_RecoversImmediately', async () => {
-    // A non-timeout failure (default 'merge-failed' bucket) must NOT enter the
-    // retry loop — it recovers immediately on the first failure. This guards
-    // the T10/T11 exhaustion behavior from being implemented here while
-    // confirming the existing immediate-recovery path still fires.
     const vcsMerge = vi.fn(async () => {
       throw new Error('merge conflict in foo.ts');
     });
@@ -533,10 +510,8 @@ describe('executeMerge', () => {
     });
   });
 
+  /** A verification failure does not retry. Only a timeout retries. */
   it('ExecuteMerge_VerificationFailed_NoRetry', async () => {
-    // T11: a verification-failed (non-transient) outcome must NOT enter the
-    // retry loop — exactly one vcsMerge attempt, zero retries reported, then
-    // immediate recovery with reason 'verification-failed'. Only 'timeout' retries.
     const vcsMerge = vi.fn(async () => {
       throw new Error('post-merge verification failed: tests red');
     });
@@ -565,10 +540,8 @@ describe('executeMerge', () => {
     });
   });
 
+  /** A persistent timeout gives three calls and two reported retries, and the delay grows from 1000 to 2000 ms. */
   it('ExecuteMerge_TimeoutExhaustsRetries_RecoversWithTimeoutReason', async () => {
-    // Persistent timeout: 3 total vcsMerge calls (initial + 2 retries), 2 retry
-    // attempts reported, then recovery with reason 'timeout'. Backoff grows by
-    // the configured factor (1000 → 2000 with zero jitter).
     const vcsMerge = vi.fn(async () => {
       throw makeTimeoutError();
     });
@@ -591,7 +564,6 @@ describe('executeMerge', () => {
       onRetryAttempt,
     });
 
-    // 1 initial + 2 retries = 3 total attempts.
     expect(vcsMerge).toHaveBeenCalledTimes(3);
     expect(onRetryAttempt).toHaveBeenCalledTimes(2);
     expect(retries).toEqual([
@@ -604,11 +576,11 @@ describe('executeMerge', () => {
     }
   });
 
+  /**
+   * The jitter source moves the delay by up to 25 percent.
+   * A pinned value of 1 gives 1.25 times the base delay on each retry.
+   */
   it('ExecuteMerge_JitterApplied_WidensDelayWithinBand', async () => {
-    // The injected jitter source perturbs the delay by ±25%. A pinned +1
-    // signed-jitter value yields base * (1 + 0.25) = 1250 on the first retry;
-    // -1 yields base * (1 - 0.25) = 750. Proves the jitter seam is wired and
-    // applied to the computed backoff (not a hard-coded inline Math.random).
     const vcsMerge = vi.fn(async () => {
       throw makeTimeoutError();
     });
@@ -626,12 +598,11 @@ describe('executeMerge', () => {
       vcsMerge,
       persistState,
       repoRoot: '/some/repo',
-      jitter: () => 1, // max positive jitter
+      jitter: () => 1,
       sleep: noSleep,
       onRetryAttempt,
     });
 
-    // attempt 1: 1000 * (1 + 0.25) = 1250; attempt 2: 2000 * 1.25 = 2500.
     expect(retries).toEqual([1250, 2500]);
   });
 });
