@@ -4,7 +4,8 @@
  *
  * `runLauncherVerb` validates the input and resolves the harness. An unknown harness gives a structured
  * error with `validTargets`. On `--dry-run`, it derives the worktree path with `topology.deriveWorktreePath`,
- * the guard that creation uses, and returns the event plan with no worktree and no spawn.
+ * as creation does, and returns the event plan with no worktree and no spawn. The dry-run does not run
+ * `topology.guardWorktreeContainment`, so creation can still refuse a previewed path.
  * `renderDryRunPlan` prints that plan with no space, enforcement, or confinement claim.
  *
  * The non-dry-run path runs an explicit `lifecycle` override, or a runner built from `lifecycleDeps`. With
@@ -109,7 +110,8 @@ export function deriveLaunchWorktreeId(harness: HarnessTarget, feature?: string)
 /**
  * The dry-run preview: the derived worktree path and the event plan of a real launch. It carries `base` and
  * `worktreeId`. Thus a consumer can derive the path again with {@link deriveWorktreePath} and confirm that
- * the verb used the same guard as creation.
+ * the verb used the same derivation as creation. The preview does not show that the path passes the
+ * containment check of creation.
  */
 export interface DryRunPlan {
   readonly harness: HarnessTarget;
@@ -196,8 +198,8 @@ function invalidInput(message: string): ToolResult {
  * 1. It resolves the harness with {@link resolveHarness} before the schema runs, so an unknown value gives a
  *    structured `INVALID_INPUT` error with `validTargets`, never a throw.
  * 2. It checks `feature` and `dryRun` with {@link LauncherVerbSchema}.
- * 3. It derives the worktree path with {@link deriveWorktreePath}, the guard that creation uses. A bad id
- *    gives a structured error.
+ * 3. It derives the worktree path with {@link deriveWorktreePath}, as creation does. A bad id gives a
+ *    structured error. This step does not run the containment check in `guardWorktreeContainment`.
  * 4. On `--dry-run`, it returns the {@link DryRunPlan}. An empty or absent payload previews as `null`.
  * 5. Otherwise it runs the explicit `lifecycle`, or a runner from `lifecycleDeps`, or returns `NOT_WIRED`.
  */
