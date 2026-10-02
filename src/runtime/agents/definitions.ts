@@ -289,7 +289,9 @@ export const IMPLEMENTER_PROMPT_TEMPLATE = `${IMPLEMENTER_PROMPT_HEAD}${VERIFICA
  * Build the full implementer prompt of a task from
  * {@link IMPLEMENTER_PROMPT_TEMPLATE} and its verification note. With the note
  * from `buildVerificationNote(ctx)`, the result equals
- * `renderImplementerPrompt(ctx)`.
+ * `renderImplementerPrompt(ctx)` only when `ctx` has no `taskDescription`,
+ * `requirements` or `filePaths`. This function leaves those placeholders
+ * unfilled.
  */
 export function reconstructImplementerPrompt(delta: { readonly verificationNote: string }): string {
   return IMPLEMENTER_PROMPT_TEMPLATE.replaceAll(
