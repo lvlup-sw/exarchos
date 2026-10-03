@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1303,
-    "parsedFiles": 1258,
+    "testFiles": 1304,
+    "parsedFiles": 1259,
     "shellFiles": 45,
-    "cases": 14370,
+    "cases": 14371,
     "dynamicTitles": 162,
     "unparseableFiles": 0
   },
@@ -13261,6 +13261,17 @@
           "suite": "MigrationFollowups_EachDeferredComponent_HasIssue",
           "name": "<dynamic-case-2>",
           "dynamic": true
+        }
+      ]
+    },
+    "tests/scripts/npm-publish-target.test.ts": {
+      "file": "tests/scripts/npm-publish-target.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "npm publish target",
+          "name": "NpmPublish_WithTheRepositoryNpmrc_TargetsNpmjs",
+          "dynamic": false
         }
       ]
     },
