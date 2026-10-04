@@ -3636,7 +3636,7 @@ tests/unit/install/install-skills.test.ts	cc878a1291fe	1
 tests/unit/install/install-skills.test.ts	f234829d6409	1
 tests/unit/install/install-skills.test.ts	f6a070128d65	1
 tests/unit/install/operations/hooks-config.test.ts	a2e396ea1041	1
-tests/unit/install/packaging-consistency.test.ts	b7b029d7cb59	1
+tests/unit/install/packaging-consistency.test.ts	e498dbd6688c	1
 tests/unit/install/placeholder-lint.test.ts	472efd430bac	1
 tests/unit/install/placeholder-lint.test.ts	977bb0b58ea5	1
 tests/unit/install/plugin-validation.test.ts	02d5688c5a98	1
