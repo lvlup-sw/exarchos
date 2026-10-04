@@ -13236,6 +13236,7 @@ tests/scripts/lint-test-first-drift.test.ts	316487341a0e	1
 tests/scripts/lint-test-first-drift.test.ts	e4426092a655	1
 tests/scripts/migration-followups.test.ts	6d778b5b638c	1
 tests/scripts/migration-followups.test.ts	95676dee54df	1
+tests/scripts/npm-publish-target.test.ts	eab267ac1ba3	1
 tests/scripts/pin-trust-root.test.ts	cb219190cedc	1
 tests/scripts/release-workflow.test.ts	03cd575f624e	1
 tests/scripts/release-workflow.test.ts	07773e30f83c	1
