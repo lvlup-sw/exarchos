@@ -423,8 +423,8 @@ describe('runTransitionCommand — single atomic unit (no partial siblings)', ()
   });
 
   /**
-   * (a) A fault between the decision and the commit surfaces.
-   * Both events live in the single `decideOnce` unit, so nothing commits. Two separate appends leave the decision behind.
+   * (a) A fault between the decision and the commit rejects the command.
+   * Both events live in the single `decideOnce` unit, so nothing commits. With two separate appends, the same fault leaves the decision behind.
    */
   it('Atomic_FaultBeforeCommit_LeavesNeitherSibling', async () => {
     const decider = new RecordingDecider('fault-before-commit');

@@ -3,7 +3,7 @@
 // results, the policy identity, a stable reason code, and a remediation for each
 // unsatisfied requirement. A waiver-driven allow shows the waived failure and
 // the waiver ID. The explanation of a deny never gives an allow and does not
-// change the decided input. Each next action passes the live schema.
+// change the decided input. Each next action parses with the `NextAction` schema.
 import { describe, it, expect } from 'vitest';
 
 import type {

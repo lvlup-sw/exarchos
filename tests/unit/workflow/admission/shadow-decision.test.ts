@@ -1,7 +1,8 @@
 // Tests for shadow decisions.
 //
-// Each legacy and admission pair maps to one typed disagreement class, which includes `admission-indeterminate` and `shadow-error`.
-// The corpus runs the legacy engine (`executeTransition`) and the admission engine (`evaluatePolicy`) side by side.
+// Each pair of a legacy outcome and an admission outcome maps to one typed disagreement class.
+// The classes include `admission-indeterminate` and `shadow-error`.
+// The corpus test runs the legacy engine (`executeTransition`) and the admission engine (`evaluatePolicy`) side by side.
 // Each disagreement gets a class and a disposition, and no disagreement stays unexplained.
 // Shadow mode does not change the legacy decision, even when the shadow adjudication throws.
 // Recorded disagreements and attempts map onto the registered admission event schemas.

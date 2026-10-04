@@ -2,7 +2,7 @@
 //
 // (a) The scan reports zero production references for each safe-to-delete authority.
 // (b) A planted production reference changes a safe disposition to blocked-by-live-reference.
-// (c) The cutover gate names its unmet conditions and refuses to event-source enforcement enablement.
+// (c) The cutover gate names its unmet conditions and refuses to build the enforcement-enabled event data.
 // (d) On the real tree, every legacy authority is blocked, so nothing is safe to delete now.
 
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -107,7 +107,7 @@ function explainedDisagreement(): ShadowDecisionRecord {
 
 /**
  * Gate evidence for the current production state. The corpus is clean, with six disagreements that are all explained.
- * The live observer has no attempts, and no durable shadow evidence or observer health exists. The gate weighs all three.
+ * The live attempts and the durable shadow evidence are empty, and the observer health is the zero reading. The gate weighs all three.
  */
 function currentProductionGateEvidence(): CutoverGateEvidence {
   return {

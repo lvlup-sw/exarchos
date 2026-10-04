@@ -1,8 +1,8 @@
 /**
- * Tests for the closed edge-condition AST and its compile-time checks. Compile
- * rejects an unknown node kind and an executable value, such as a function or a
- * string expression. It also rejects prototype pollution and undeclared
- * references, and the node shapes are closed.
+ * Tests for the closed edge-condition AST and its compile-time checks. The
+ * compiler rejects an unknown node kind, a function value, and a string
+ * expression in an extra property. It also rejects prototype-pollution keys,
+ * undeclared references, and a value of the wrong type or shape.
  */
 import { describe, expect, it } from 'vitest';
 import {

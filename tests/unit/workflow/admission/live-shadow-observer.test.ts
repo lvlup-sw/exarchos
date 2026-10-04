@@ -219,10 +219,11 @@ describe('exit-proof (c) — production wiring is behaviour-preserving', () => {
 });
 
 /**
- * These tests read each event back out of a real file-backed `EventStore` after a real transition through the `exarchos_workflow` composite handler.
- * The tests supply only `DispatchContext.eventStore`, the ordinary dispatch contract.
+ * The durable assertions read the events back out of a real file-backed `EventStore`, not out of the in-memory buffer or the appended payload.
+ * The tests that transition through `handleWorkflow` or `dispatch()` supply only `DispatchContext.eventStore`, the ordinary dispatch contract.
  * The path from `ctx.eventStore` through `handleSet`, `GuardContext.eventStore` and `notifyShadowObserver` to `recordLiveTransition` is production code.
- * If `notifyShadowObserver` forwards `null`, these tests fail.
+ * If `notifyShadowObserver` forwards `null`, those tests fail.
+ * `handleCancel` and `handleCleanup` pass their own store to the observer, so each of them has its own test.
  */
 describe('DR-23 / T-31 — durable shadow evidence from the production path', () => {
   let stateDir: string;
@@ -249,7 +250,7 @@ describe('DR-23 / T-31 — durable shadow evidence from the production path', ()
 
   /**
    * The transition runs through the composite handler, `handleSet`, the HSM guard and `GuardContext.shadowObserver`.
-   * The persisted event round-trips through JSONL, and it parses against the registered schema.
+   * The registered schema parses the event that the store returns, not the object that the observer appended.
    * The fact names the attempt that this transition allocated, not the predecessor attempt.
    * An agreement writes no disposition fact, because the disposition enum has no `agree` member.
    * No shadow event appears on the feature stream, where a fire-and-forget append can race the CAS writes in `handleSet`.
@@ -375,7 +376,7 @@ describe('DR-23 / T-31 — durable shadow evidence from the production path', ()
   /**
    * `recordLiveTransition` sets a new `evaluatedAt` from the real clock on each call.
    * The attempt identity does not hash that instant, so a retry of one observation gives one durable row for each fact.
-   * The test uses no pinned clock, and it waits 10 ms between the two calls.
+   * The test uses no pinned clock. It waits 10 ms between the two calls, so the two instants differ.
    * The obsolete-predicate edge makes the test cover both the attempt fact and the disposition fact.
    */
   it('ShadowObserver_RealClockRetry_CollapsesOntoOneDurableRowPerFact', async () => {
@@ -417,7 +418,7 @@ describe('DR-23 / T-31 — durable shadow evidence from the production path', ()
   /**
    * Production callers stamp the attempt for the observed transition as `_pendingPhaseAttemptId` before `attempt()`.
    * They persist `phaseAttemptId` only after success, so a read of the persisted field names the predecessor attempt.
-   * The evidence subject names the same current attempt.
+   * The durable fact and its evidence subject must name the current attempt.
    */
   it('ShadowObserver_PendingAttemptStamped_DurableFactNamesTheCurrentAttempt', async () => {
     const featureId = 'durable-shadow-current-attempt';
@@ -495,7 +496,8 @@ describe('DR-23 / T-31 — durable shadow evidence from the production path', ()
   });
 
   /**
-   * The HSM primitive must hand `GuardContext.eventStore` to the observer. If `notifyShadowObserver` forwards `null`, this test fails alone.
+   * The HSM primitive must hand `GuardContext.eventStore` to the observer. This test is the narrowest check of that wiring.
+   * If `notifyShadowObserver` forwards `null`, this test fails.
    * The test compares identity with the store that it created, not with an observer output.
    */
   it('ShadowObserver_GuardSeam_ForwardsEventStoreFromGuardContext', async () => {
@@ -559,10 +561,14 @@ describe('DR-23 / T-31 — durable shadow evidence from the production path', ()
   }
 
   /**
-   * `handleCancel` builds its guard context with `eventStore: null` and passes its own store to the observer, so the forward probe cannot reach it.
-   * The helper walks a `debug` feature to `investigate`, where the shared IR models a guarded `cancelled` edge.
+   * `handleCancel` builds its guard context with `eventStore: null` and passes its own store to the observer.
+   * Thus a test of the store that `notifyShadowObserver` forwards does not cover this handler.
    * If the handler drops its store argument, the attempt count does not change.
-   * No shadow event appears on the feature stream, where `handleCancel` commits its trail atomically.
+   *
+   * The helper walks a `debug` feature to `investigate`, where the shared IR models a guarded `cancelled` edge.
+   * From a phase with only the universal `cancelled` edge, the observer records nothing.
+   * The helper flushes the evidence of its walk, so only the cancel transition can add the next attempt.
+   * No shadow event appears on the feature stream. A fire-and-forget append there can interleave with the trail that `handleCancel` commits atomically.
    */
   it('ShadowObserver_CancelTransition_EmitsDurableShadowAttempt', async () => {
     const featureId = 'durable-shadow-cancel';
@@ -652,7 +658,8 @@ const ERRORING_CTX = { ...CTX, authority: UNAVAILABLE_AUTHORITY };
 
 /**
  * Six shared-IR edges, one for each {@link PhaseKind}.
- * Each edge carries a gate or approval obligation on a legal route, so the admission engine consults the trust directory on each one.
+ * Each edge carries a gate or approval obligation, and its route is always legal.
+ * Thus the admission engine consults the trust directory on each edge.
  */
 const COVERING_EDGES: ReadonlyArray<{
   readonly edge: Omit<LegacyTransitionObservation, 'legacyOutcome' | 'idempotent'>;
@@ -668,7 +675,7 @@ const COVERING_EDGES: ReadonlyArray<{
   },
   {
     edge: { workflowType: 'feature', fromPhase: 'delegate', toPhase: 'review' },
-    /** The projection derives the task facts from the task array, and `team.disbandedOk` is true when no team exists. */
+    /** The projection derives the task facts from the task array, and `team.disbandedOk` is true when no team was spawned. */
     state: { tasks: [{ status: 'complete' }, { status: 'complete' }] },
   },
   {
@@ -709,7 +716,7 @@ function coveringObservations(featureId: string): ReadonlyArray<{
 
 /**
  * Health counters make a dead observer detectable, and the cutover gate counts only comparable attempts toward its live conditions.
- * Each health reading follows a real transition against a store or an authority that fails, so only production code moves the counters.
+ * No test increments a health counter. Each counter reading follows a `dispatch()` or `observeLiveTransition` call, so only production code moves the counters.
  * `failSidecarAppends` rejects only the sidecar appends and leaves the authoritative appends unchanged.
  */
 describe('DR-23 / T-32 — observer health + gate soundness', () => {
@@ -806,7 +813,7 @@ describe('DR-23 / T-32 — observer health + gate soundness', () => {
     ).toEqual([]);
   });
 
-  /** The drive matches the failing-store test, with a working store. Without it, a counter that always increments satisfies `appendsFailed > 0`. */
+  /** The drive matches the failing-store test, with a working store. Without this test, a counter that always increments satisfies `appendsFailed > 0`. */
   it('ShadowObserver_HealthyStore_CountsLandedAppendsAndStaysHealthy', async () => {
     const featureId = 'shadow-health-healthy';
     const init = await dispatch(
@@ -870,7 +877,7 @@ describe('DR-23 / T-32 — observer health + gate soundness', () => {
   });
 
   /**
-   * A state without `featureId` has no evidence stream. That is a dead observer, and only the `streamUnresolved` field moves.
+   * A state without `featureId` has no evidence stream. This condition counts as a dead observer, and only the `streamUnresolved` field moves.
    * The in-memory cache still records the attempt, but the durable stream holds nothing.
    */
   it('ShadowObserver_UnresolvableStream_IncrementsUnresolvedCounterAlone', async () => {
@@ -960,7 +967,7 @@ describe('DR-23 / T-32 — observer health + gate soundness', () => {
   /**
    * The trust directory is unavailable, so each adjudication throws, and the production classifier assigns `shadow-error`.
    * The clean corpus holds nothing unexplained, so only the live conditions can block.
-   * The gate reads the durable sidecar stream, not the in-memory buffer.
+   * The test reads `durableAttempts` from the durable sidecar stream, not from the in-memory buffer.
    * The attempts cover each phase kind and both legacy outcomes, and the observer is healthy. The gate still blocks, because no attempt is comparable.
    */
   it('CutoverGate_AllAttemptsErrored_DoesNotSatisfyLiveConditions', async () => {

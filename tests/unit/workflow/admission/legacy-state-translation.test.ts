@@ -1,6 +1,7 @@
 // Tests for the translation of legacy workflow state into admission evidence.
 // The translation mints content-addressed evidence, and the projection reads legacy state as the legacy guards do.
 // Adjudication ignores scenario labels: identical state yields identical evidence and an identical verdict.
+// Thus a shadow disagreement shows a real divergence between the legacy guards and admission, not a label.
 
 import { describe, expect, it } from 'vitest';
 
@@ -109,7 +110,7 @@ describe('projectStateToFacts — reads real legacy state', () => {
     expect(projectStateToFacts({ plan: 'docs/plan.md' }).fields['plan']).toBe('docs/plan.md');
   });
 
-  /** An `''` sentinel matches no branch, and it denies both outbound edges of `implementing` in the default oneshot flow. */
+  /** An `''` sentinel matches no branch. Then both outbound edges of `implementing` deny, and the default oneshot flow deadlocks. */
   it('defaults a missing oneshot synthesis policy to on-request (not a sentinel)', () => {
     expect(projectStateToFacts({}).fields['oneshot.synthesisPolicy']).toBe(
       'on-request',
@@ -265,6 +266,7 @@ describe('translateEdgeAdmission — mints genuine evidence, not a scenario prox
   });
 
   /**
+   * An unchecked type assertion lets a malformed subject into minted evidence.
    * A schema round trip leaves the evidence subject and the requirement subject unchanged.
    * The schema rejects a structurally invalid subject.
    */

@@ -6,7 +6,7 @@
  * - `admission-requirement`: proves a precondition, artifact, or event fact before a phase advances.
  * - `bounded-loop-rule`: a numeric cap that ends a revision or retry loop.
  * - `approval`: requires an explicit approval signal from a human or an authorized process.
- * - `waiver`: a scoped bypass. The legacy engine has none.
+ * - `waiver`: a scoped bypass. The legacy engine has none, because its bypass is a direct state mutation and not a typed waiver event.
  * - `obsolete-predicate`: always passes, or no active HSM transition references it.
  *
  * The corpus records current behavior, including permissive no-op guards. It does not define target policy.

@@ -3,11 +3,14 @@
 //
 // - Postures are not an authority order. `task-isolated` holds a strict superset of the `shared-mutating` capabilities.
 //   A gate that denies `task-isolated` denies the more capable tier.
-// - The invariants catalog forbids its claim. Write confinement must never come from the launcher cwd or worktree ownership.
-// - Agent postures apply at render time, through `resolveCapabilities` and the `isolation: worktree` frontmatter of the agent.
+// - Such a gate claims that a `task-isolated` agent cannot write outside its worktree. The invariants catalog forbids that claim.
+//   The launcher cwd and worktree ownership never prove write confinement.
+// - In production, the dispatch resolver holds the capabilities of the local process, not the posture of the calling agent.
+//   Thus a posture gate at dispatch cannot judge that agent.
+//   Agent postures apply at render time, through `resolveCapabilities` and the `isolation: worktree` frontmatter of the agent.
 //
 // The `serialize_merge` single-writer lease, the merge preflight ancestry check, and launcher-owned placement protect the shared ref.
-// `enforceReadonlyGate` keeps state authority, so the read-only case below still fails.
+// `enforceReadonlyGate` keeps state authority, so dispatch still rejects the read-only caller below.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -68,7 +71,7 @@ describe('shared-mutating posture gate — removed (INV-11)', () => {
   /**
    * A `task-isolated` caller of `serialize_merge` must reach the handler and not get CAPABILITY_DENIED.
    * Admission takes capabilities from the trusted caller, so the context sets `callerIdentity`.
-   * Without an identity the need set is empty, and dispatch denies the call before the handler.
+   * Without an identity, admission counts no capability for the caller and refuses the call before the handler.
    * The spy call is the proof, because a result without CAPABILITY_DENIED can still come from an earlier refusal.
    */
   it('TaskIsolatedCaller_SerializeMerge_ReachesTheHandler', async () => {

@@ -83,7 +83,7 @@ describe('the disclosed producer is the door the model is sent through', () => {
   const OPT_IN_ACTION = 'request_synthesize';
 
   /**
-   * The catalog sources the event as `auto`, so the contract discloses it and the loader refuses an `expects` row for it.
+   * The catalog sources the event as `auto`, so the contract discloses it and the load-time check refuses an `expects` row for it.
    * The playbook offers no `exarchos_event` tool, because a raw append is a second producer.
    */
   it('PhaseEventContracts_SynthesizeRequested_ContractPlaybookAndGuardNameOneProducer', () => {
@@ -164,7 +164,7 @@ describe('assertPhaseEventContracts — seeded refusals', () => {
     ).toThrow(/lists 'seeded\.model' twice/);
   });
 
-  /** The gate hint holds one sentence per event, and `hintDescriptions` drops a second phrasing. The authority refuses it instead. */
+  /** `hintDescriptions` keeps the first phrasing of a type and drops any other without an error. Thus the load-time check refuses a second phrasing. */
   it('Refuses_OneTypePhrasedTwoWaysAcrossPhases', () => {
     const phrased = (second: string): Record<string, PhaseEventContractOf<string>> => ({
       first: contract({ expects: [{ type: 'seeded.model', when: 'After the first thing' }] }),
@@ -260,7 +260,8 @@ describe('every expected event folds', () => {
 
   /**
    * The rehydration reducer has no arm for these events, and its `default:` arm returns `state` unchanged.
-   * The fold must return the same object, not an equal copy. A reducer that starts to read one of these events changes this list on purpose.
+   * The fold must return the same object, not an equal copy.
+   * When the reducer starts to read one of these events, remove that event from this list in the same change.
    */
   it('PhaseEventContracts_EventsWhoseReducerArmsWereDeleted_FoldAsTheSameState', () => {
     const FOLDED_BY_THE_DEFAULT_ARM: readonly EventType[] = [

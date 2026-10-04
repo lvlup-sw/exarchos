@@ -4,7 +4,7 @@
  * The resolver snapshot records whether the client declared a `tasks` capability on the initialize handshake.
  * Dispatch checks the snapshot before it calls `runTasksAugmented`.
  * A client without that declaration cannot start a background task with a `task` key in the args.
- * Dispatch ignores the key and returns the one-shot envelope.
+ * Dispatch ignores the key and returns the one-shot envelope, because that client does not poll for a task result.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';

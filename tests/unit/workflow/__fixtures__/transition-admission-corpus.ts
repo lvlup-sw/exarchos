@@ -29,7 +29,8 @@ export interface LegacyTransitionDecision {
 }
 
 /**
- * One recorded legacy decision. A `config-bearing` fixture carries injected config or tier state, or a non-default oneshot synthesis policy.
+ * One transition input and the decision that the legacy path gives for it.
+ * A `config-bearing` fixture carries injected config or tier state, a plan shape, or a oneshot synthesis policy.
  * These fixtures live in {@link configBearingCorpus}, so the frozen {@link legacyTransitionCorpus} keeps one pass and one fail fixture per edge.
  */
 export interface LegacyTransitionFixture {
@@ -665,6 +666,7 @@ export const legacyTransitionCorpus: readonly LegacyTransitionFixture[] = Object
 
 /**
  * Builds a `config-bearing` fixture. The frozen corpus uses default inputs only, where the legacy guards and the admission IR use the same constants.
+ * The two authorities cannot disagree on those inputs, so a safety check over the frozen corpus alone cannot fail.
  * These fixtures carry the injected config and tier state that the guards read, and plan shapes that `oneshot-plan-set` rejects.
  * `admission/corpus-legacy-baseline.test.ts` checks every `expected` verdict against the real guard path.
  */
@@ -985,7 +987,8 @@ const oneshotSynthesisPolicyCases: readonly LegacyTransitionFixture[] = [
 
 /**
  * Fixtures that carry real injected config or tier state.
- * They stay out of {@link legacyTransitionCorpus}, so the per-edge pass and fail check in `hsm-transition-guard.test.ts` holds.
+ * They stay out of {@link legacyTransitionCorpus}, so that corpus keeps exactly one pass and one fail fixture per edge.
+ * `guard-classification.test.ts` and `hsm-transition-guard.test.ts` both check that rule.
  */
 export const configBearingCorpus: readonly LegacyTransitionFixture[] = Object.freeze([
   ...planRevisionCapCases,

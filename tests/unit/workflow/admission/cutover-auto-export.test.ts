@@ -1,10 +1,12 @@
 // Tests for the cutover readiness auto-export. The first satisfied evaluation
 // writes `<stateDir>/admission/cutover-readiness.json` and appends one
 // `admission.cutover-ready` event. Below MINIMUM_LIVE_ATTEMPTS observed
-// attempts, the export does not read the durable store. After readiness, a
-// repeat appends no second event. An in-memory latch stops repeats in one
-// process. After a restart, an idempotency key from the store identity merges
-// the new append into the stored row.
+// attempts, the export does not read the durable store.
+//
+// After readiness, a repeat appends no second event. An in-memory latch stops
+// repeats in one process. After a restart, the export appends again with the
+// same idempotency key, which is a hash of the stateDir path. The store keeps
+// the stored row and adds no new row.
 
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdtemp } from 'node:fs/promises';
@@ -175,7 +177,7 @@ describe('CutoverAutoExport (#1739)', () => {
     });
   });
 
-  /** One attempt below the threshold, the pre-filter stops the export before any durable read. */
+  /** At one attempt below the threshold, the pre-filter stops the export before a durable read. */
   it('AutoExport_BelowPrefilter_NeverRunsFullEvaluation', async () => {
     let durableReads = 0;
     const spyStore: ShadowEvidenceSource & {
@@ -215,8 +217,8 @@ describe('CutoverAutoExport (#1739)', () => {
 
   /**
    * In one process, the latch stops a repeat before evaluation. A reconfigure
-   * resets the latch like a restart, and the deterministic key merges the second
-   * append into the stored row.
+   * resets the latch like a restart, so the export appends again. The key has
+   * no clock or random input, so the store dedupes the second append.
    */
   it('AutoExport_RepeatAttemptsAfterReady_DoNotDuplicateEvent', async () => {
     await seedSatisfiableDurableEvidence();

@@ -315,9 +315,10 @@ describe('content-addressed evidence artifacts', () => {
   });
 
   /**
-   * The artifact subject of the reference schema must be a real object schema.
-   * A `.refine` projects to nothing in JSON Schema, so a sampler never reaches
-   * the artifact shape. A regression then fails here and names the schema.
+   * The artifact subject of the reference schema must be a real object schema,
+   * not a `.refine` over the general subject union. A `.refine` projects to
+   * nothing in JSON Schema, so a sampler never reaches the artifact shape. A
+   * regression then fails here and names the schema.
    */
   it('EvidenceArtifactReference_SampledFromItsJsonSchema_ParsesUnderItself', () => {
     const sample = sampleEventData(EvidenceArtifactReferenceV1Schema);

@@ -347,7 +347,7 @@ describe('admission runtime domain', () => {
   });
 
   /**
-   * `unauthorized` is one of the `PolicyDenyReasons` of `evaluatePolicy`, so the deny record must persist it.
+   * `unauthorized` is a `PolicyDenyReason` of `evaluatePolicy`, so the deny record must persist it.
    * The other reasons stay accepted, and a foreign reason fails closed.
    */
   it('AdmissionDomain_UnsatisfiedReason_IncludesUnauthorizedAndPersistsInDenyRecord', () => {

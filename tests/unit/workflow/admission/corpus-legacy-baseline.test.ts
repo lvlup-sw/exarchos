@@ -45,7 +45,10 @@ function legacyVerdict(fixture: LegacyTransitionFixture): {
 }
 
 describe('corpus baseline is machine-derived from the real legacy guards', () => {
-  /** Every fixture must reach a guard, so the harness cannot pass because each fixture took an invalid transition. */
+  /**
+   * Every fixture must reach a guard. A deny from an invalid transition matches
+   * a recorded `deny` and proves nothing about the guard.
+   */
   it('every fixture resolves to a real HSM transition (harness is not vacuous)', () => {
     let reachedAGuard = 0;
     for (const fixture of transitionAdmissionCorpus) {

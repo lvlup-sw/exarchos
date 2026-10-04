@@ -106,8 +106,8 @@ function unexplainedDisagreement(): ShadowDecisionRecord {
 
 /**
  * Live attempts that cover every phase kind and both outcomes, padded to the
- * threshold. Each attempt carries the disagreement class from the shadow runner.
- * Only a comparable class counts as coverage.
+ * threshold. Each attempt carries a disagreement class, which the shadow runner
+ * assigns in production. Only a comparable class counts as coverage.
  */
 function fullLiveCoverage(): LiveShadowAttempt[] {
   const attempts: LiveShadowAttempt[] = [];
@@ -383,8 +383,9 @@ describe('CutoverGate_PhaseKinds', () => {
 });
 
 /**
- * Each test drives one disagreement-class condition red. The end-to-end proof,
- * with attempts whose adjudication really throws, is in `live-shadow-observer.test.ts`.
+ * Tests for the `live-disagreement-class` condition with hand-written attempts.
+ * The end-to-end proof, with attempts whose adjudication really throws, is in
+ * `live-shadow-observer.test.ts`.
  */
 describe('CutoverGate_DisagreementClass (DR-23 bullet 2)', () => {
   /** `shadow-error` has no verdict and `admission-indeterminate` has no answer, so neither is a comparison. */
@@ -396,7 +397,7 @@ describe('CutoverGate_DisagreementClass (DR-23 bullet 2)', () => {
     expect(isComparableShadowClass('admission-indeterminate')).toBe(false);
   });
 
-  /** One extra attempt has a thrown adjudication. The other attempts still meet coverage and the threshold. */
+  /** The adjudication of one extra attempt threw. The other attempts still meet coverage and the threshold. */
   it('a single non-comparable live attempt blocks — and ONLY that condition', () => {
     const attempts = fullLiveCoverage();
     attempts.push({

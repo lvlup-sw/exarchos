@@ -39,7 +39,8 @@ describe('Posture-to-capability mapping properties (T32, DR-6)', () => {
 /**
  * Capabilities come from `posture` and `id` through `resolveCapabilities`.
  * `EXPECTED_PER_AGENT` pins the audited capability set of each agent.
- * A posture or overlay change that drops a capability fails here. Change this table and `posture-mapping.ts` together.
+ * A posture or overlay change that adds or drops a capability fails here.
+ * When the trust surface must change, change this table and `posture-mapping.ts` in the same commit.
  */
 describe('resolveCapabilities covers every agent literal (#1333)', () => {
   const EXPECTED_PER_AGENT: Readonly<Record<string, ReadonlyArray<string>>> = {

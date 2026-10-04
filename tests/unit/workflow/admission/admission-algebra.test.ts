@@ -1,7 +1,9 @@
 /**
  * Tests for the evidence and admission algebra schemas. Bare booleans do not
  * satisfy a requirement, and malformed subjects and content digests fail.
- * The contradiction, reassessment, and admission event types are closed sets.
+ * Contradiction and reassessment records parse, and a boolean in a typed field
+ * fails. The admission event vocabulary is closed, and so is each set of kinds
+ * and outcomes.
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -598,7 +600,7 @@ describe('admission event vocabulary', () => {
     }
   });
 
-  /** The internal-to-external map and its inverse return each admission type unchanged. */
+  /** The internal-to-external map and its inverse return each admission type unchanged, with no `workflow.` prefix. */
   it('AdmissionAlgebra_EventTypes_RoundTripThroughTypeMap', () => {
     for (const eventType of ADMISSION_EVENT_TYPE_VALUES) {
       const external = mapInternalToExternalType(eventType);

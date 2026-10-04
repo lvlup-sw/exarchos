@@ -1,7 +1,7 @@
 // Each surface that carries phase event facts is a projection of `PHASE_EVENT_CONTRACTS`.
 // This suite reads each surface back and compares it to the contract, for every phase, in both directions.
 //
-// The projection checks compare the gate tables and the playbooks to the contract that computes them.
+// The projection checks compare the gate tables and the playbooks to the contract that they derive from.
 // They are consistency checks, not an oracle. The independent authority is `BEFORE_THE_CONTRACT`.
 // That hand-written golden is the one assertion here that can disagree with the contract on its own.
 //
@@ -41,7 +41,7 @@ describe('the gate table projects the contract', () => {
 
   /**
    * `BEFORE_THE_CONTRACT` holds the six gate rows from before the contract, and no other phase has a gate row.
-   * A row changes only by a deliberate edit here in the same commit, never by drift in the derivation.
+   * A row must change only by a deliberate edit here, in the same commit as the contract change, and never by drift in the derivation.
    * The delegation rows omit `task.assigned`, because the runtime appends it in `prepare` and `prepare_delegation`.
    * Those phases disclose it in `runtimeEmits`.
    */
@@ -123,7 +123,7 @@ describe('the playbooks project the contract', () => {
 
   /**
    * An instruction is for a model-emitted event, and a disclosure is for a runtime-emitted event.
-   * No playbook can put a type on both sides.
+   * A playbook must not put a type on both sides.
    */
   it('Playbooks_NoPhase_InstructsTheModelToEmitARuntimeOwnedEvent', () => {
     for (const { workflowType, playbook } of registered) {

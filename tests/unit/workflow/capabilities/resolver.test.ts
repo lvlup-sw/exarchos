@@ -255,7 +255,7 @@ describe('mintCapabilitiesForKind (POLA bundle, DR-14)', () => {
     expect(denied.capabilities.has('fs:write')).toBe(false);
   });
 
-  /** This test is the runtime half of a type check. `resolver.ts` proves at compile time that a read-only bundle fails. */
+  /** This test is the runtime half of a type check. The type assertions in `resolver.ts` make a read-only bundle a compile error. */
   it('requireMutationCapabilities_AcceptsMutatingBundle', () => {
     const caps = requireMutationCapabilities(mintCapabilitiesForKind('IMPLEMENT'));
     expect(caps.has('fs:write')).toBe(true);

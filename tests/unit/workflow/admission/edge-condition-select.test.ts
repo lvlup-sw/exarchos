@@ -183,12 +183,13 @@ describe('DR-34 — multi-match detection on the live transition path', () => {
   });
 
   /**
-   * The feature topology out of `plan-review` is ambiguous. The `delegate` route
-   * is always legal because its obligation is an approval. While
-   * `planReview.gapsFound` is false, only `delegate` is route-legal. When it is
-   * true, the `plan` route is also true. The transition goes through the HSM
-   * guard and `recordLiveTransition` to `adjudicateEdge`, which calls `selectEdge`.
-   * The decision names the matched edges in priority order and keeps `allow`.
+   * The shipped feature topology out of `plan-review` can be ambiguous. The
+   * `delegate` edge has an approval obligation and no route condition, so its
+   * route is always legal. While `planReview.gapsFound` is false, only
+   * `delegate` is route-legal. When it is true, the `plan` route is also true.
+   * The transition goes through the HSM guard and `recordLiveTransition` to
+   * `adjudicateEdge`, which calls `selectEdge`. The decision names the matched
+   * edges in priority order, and its verdict stays `allow`.
    */
   it('SelectEdge_TwoSimultaneouslyTrueConditions_ReportsMultiMatch', async () => {
     const featureId = 'route-selector-multi-match';

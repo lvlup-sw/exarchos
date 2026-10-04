@@ -262,8 +262,8 @@ describe('oneshot-plan-set: admission demands the same value SHAPE as the guard'
 
   /**
    * The feature edge and the oneshot edge both demand a typed artifact
-   * reference, a trimmed non-empty string. So `artifacts.plan = true` does not
-   * satisfy the phase gate.
+   * reference: a string that is not empty after a trim. So
+   * `artifacts.plan = true` does not satisfy the phase gate.
    */
   it('holds the feature plan-artifact edge to the SAME typed-reference contract', () => {
     const FEATURE_PLAN: EdgeRef = { workflowType: 'feature', from: 'plan', to: 'plan-review' };

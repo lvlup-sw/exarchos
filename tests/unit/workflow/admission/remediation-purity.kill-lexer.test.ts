@@ -1,10 +1,10 @@
 // Kill fixture for the lexer port in `remediation-purity.ts`.
 //
 // The retired character walk for `extractImportSpecifiers` had no regex-literal state.
-// `test-helpers/superseded-site-lexers.ts` keeps that walk. The tests run it and the port over the same inputs and assert both answers.
+// `tools/test-helpers/superseded-site-lexers.ts` keeps that walk. The tests run it and the port over the same inputs and assert both answers.
 //
-// The inputs come from the shared table in `test-helpers/adversarial-lexer-inputs.ts`.
-// They already import `node:fs` and `node:child_process`, which are forbidden import markers, so this file changes no input.
+// The inputs come from the shared table in `tools/test-helpers/adversarial-lexer-inputs.ts`, and no site keeps its own table.
+// They already hold `node:fs` and `node:child_process`, which are in `FORBIDDEN_IMPORT_MARKERS`, so this site needs no `withPayload` call.
 // @oracle-sources: ../../../../src/workflow/admission/remediation-purity.ts, ../../../../tools/test-helpers/superseded-site-lexers.ts
 
 import { describe, it, expect } from 'vitest';

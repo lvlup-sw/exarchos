@@ -1,8 +1,9 @@
 /**
  * Tests for the pure three-valued edge-condition evaluator. It does no I/O,
  * gives the same result for equal inputs, never throws, and changes nothing.
- * An unknown or malformed fact is `indeterminate`. De Morgan's laws hold under
- * Kleene K3.
+ * For `factEquals` and `counterCompare`, an absent field is `indeterminate`. A
+ * counter value that is not a number is also `indeterminate`. De Morgan's laws
+ * hold under Kleene K3.
  */
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';

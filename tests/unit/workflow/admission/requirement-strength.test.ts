@@ -30,7 +30,7 @@ const req = (over: Partial<ResolvedRequirements> = {}): ResolvedRequirements => 
   ...over,
 });
 
-/** Lattice points that set each field, and include incomparable pairs. */
+/** Lattice points that exercise each field. The set includes incomparable pairs. */
 const SAMPLE: readonly ResolvedRequirements[] = [
   BOTTOM_REQUIREMENTS,
   req({ gates: [STATIC] }),

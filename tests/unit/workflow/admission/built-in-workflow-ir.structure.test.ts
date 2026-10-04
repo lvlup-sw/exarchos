@@ -44,7 +44,11 @@ function resolveTs(fromFile: string, spec: string): string | null {
   return base.replace(/\.js$/, '.ts');
 }
 
-/** Transitive closure of relative-import targets reachable from the roots. The walk skips a target that it cannot read. */
+/**
+ * Transitive closure of relative-import targets reachable from the roots. A
+ * target that the walk cannot read stays in the set, but the walk reads no
+ * imports from it.
+ */
 function reachableModules(roots: readonly string[]): ReadonlySet<string> {
   const visited = new Set<string>();
   const queue = [...roots];

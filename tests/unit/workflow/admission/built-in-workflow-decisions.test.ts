@@ -26,7 +26,8 @@ const CTX = defaultTranslationContext('2025-01-01T00:00:00.000Z');
 /**
  * The disagreements that remain under the real translation. Each is a known
  * legacy guard defect: the legacy path admits a fail-shaped state and the
- * evidence-backed engine denies it.
+ * evidence-backed engine denies it. A new disagreement from an IR fault does
+ * not belong here. Correct the IR.
  */
 const EXPECTED_DISAGREEMENTS: ReadonlyMap<string, string> = new Map([
   [

@@ -49,6 +49,7 @@ describe('TopologyLoader_LoadOnce_ReturnsImmutableTopology', () => {
     __resetTopologyCacheForTesting();
   });
 
+  /** The cast bypasses the readonly types, so the runtime freeze is what rejects the write. The write throws because an ES module runs in strict mode. */
   it('reads topology.yaml, parses through Zod, returns frozen object', async () => {
     const file = writeTopology(COMPLETE_TOPOLOGY);
     const topology = await loadTopology({ topologyPath: file });

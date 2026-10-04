@@ -1,14 +1,17 @@
 /**
- * The legacy-state translation evaluates recorded evidence and does not mint
- * it. So it can deny for `stale`, `unauthorized`, `malformed`, `contradictory`,
- * and `failed` evidence, and a scoped waiver can rescue a gate.
+ * For a requirement that a recorded fact claims, the legacy-state translation
+ * evaluates the recorded evidence. It derives an attestation only for an
+ * unclaimed requirement. So admission can deny for `stale`, `unauthorized`,
+ * `malformed`, `contradictory`, and `failed` evidence, and a scoped waiver can
+ * rescue a gate.
  *
  * The tests start at the public root, because a test that calls `adjudicateEdge`
  * or `evaluatePolicy` directly can pass while the live path is wrong. The deny
  * tests run `handleWorkflow` transitions on a real `EventStore` and read the
  * durable `admission.shadow-attempt` record. The waiver tests call
  * `adjudicateOutboundEdges` over state that `hydrateEventsFromStore` builds.
- * The proof facts go into the feature stream, the same as the gate runner.
+ * The tests append the proof facts to the feature stream, as the gate runner
+ * does in production.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
@@ -353,9 +356,9 @@ describe('DR-35 — recorded evidence provenance denies on the LIVE transition p
   });
 
   /**
-   * The same as the contradiction case, except for the supersession link. The
-   * recorded ledger honors the link, so one active record remains and admission
-   * allows.
+   * The two records have opposite verdicts, as in the contradiction case, but
+   * the `pass` record supersedes the `fail` record. The recorded ledger honors
+   * the link, so one active record remains and admission allows.
    */
   it('Admission_SupersededEvidence_IsNotActive_AndAllows', async () => {
     const featureId = 'provenance-supersede';
@@ -409,8 +412,9 @@ describe('DR-35 — recorded evidence provenance denies on the LIVE transition p
 /**
  * Waiver-grant trust is out of band, like evidence-issuance trust. The default
  * translation context declares no grantors, so waivers fail closed until a
- * deployment declares one. The workflow has no plan artifact, so the gate is
- * unsatisfied with `missing` and a waiver has something to rescue.
+ * deployment declares one. `trusting()` declares `WAIVER_ACTOR_ID`. The workflow
+ * has no plan artifact, so the gate is unsatisfied with `missing` and a waiver
+ * has something to rescue.
  */
 describe('DR-35 — the waiver branch is reachable and strictly scoped', () => {
   let stateDir: string;

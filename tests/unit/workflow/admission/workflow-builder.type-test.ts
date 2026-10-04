@@ -53,7 +53,7 @@ void _forged;
 const _forgedObl: ObligationSpec = { kind: 'none' };
 void _forgedObl;
 
-/** The positive controls start here. Each supported authoring form must compile. */
+/** The positive controls start here. Each supported form must compile, so the type errors above do not come from a builder that rejects every form. */
 const _leafOk: ConditionSpec = present('artifacts.plan');
 const _boolOk: ConditionSpec = equals('planReview.approved', true);
 const _strOk: ConditionSpec = equals('track', 'thorough');

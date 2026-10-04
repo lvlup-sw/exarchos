@@ -1,6 +1,6 @@
 // Acceptance test: an agent posture spec resolves to effective capabilities.
 // `resolvePosture(spec, runtime)` returns the posture-derived set unioned with the handshake declarations.
-// This file asserts the union and the posture-derived members. It does not test the override priority.
+// The first suite asserts the union and the posture-derived members. It does not test the override priority.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -56,7 +56,7 @@ describe('Resolver_ReadOnlyCaller_RejectedBeforeMergeHandler (#1305 T14)', () =>
 
   /**
    * The first assertions confirm that the `read-only` posture resolves to the readonly tier only.
-   * The payload is valid, so the call reaches the capability gate and not schema validation.
+   * The payload is valid, so the call passes schema validation and the capability gate is what rejects it.
    */
   it('rejects a read-only caller at the resolver gate without entering the merge handler', async () => {
     const readOnlyCaps = resolvePosture(

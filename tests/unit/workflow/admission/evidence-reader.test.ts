@@ -212,8 +212,8 @@ describe('EvidenceReader — sidecar enumeration and fold', () => {
 
   /**
    * A disagreement with no disposition row folds as unexplained, and the later
-   * of two rows wins. The unexplained disagreement blocks the corpus condition
-   * even when each live condition is met.
+   * of two rows wins. The unexplained disagreement makes the corpus condition
+   * of the gate unmet even when each live condition is met.
    */
   it('EvidenceReader_UndisposedDisagreement_FoldsAsUnexplained_LatestDispositionWins', async () => {
     const source = fakeSource({

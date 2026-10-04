@@ -217,7 +217,7 @@ describe('replay reconstructs the same attempt, requirements, evidence, decision
     expect(fold.attempts[0]?.decision?.decisionId).toBe('decision.1');
   });
 
-  /** Evidence that comes before its requirement resolution still binds. */
+  /** The fold binds evidence and decisions to the frozen set in a last pass, so the order of the three histories does not matter. */
   it('PhaseAttemptFold_CrossStreamOrder_DoesNotChangeReconstruction', () => {
     const forward = foldPhaseAttemptAdmission({
       requirementEvents: [requirementResolved('requirement.typecheck')],

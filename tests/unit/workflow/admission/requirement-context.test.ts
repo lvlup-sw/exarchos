@@ -87,7 +87,7 @@ describe('normalizeBoundaryStatus', () => {
 
   /**
    * A stringified boolean such as `'false'` is malformed, not decided.
-   * Trust in it lets an untrusted stamp select the weaker ladder cell without evidence.
+   * If the normalizer accepts it, an untrusted stamp selects the weaker ladder cell without evidence.
    */
   it('maps absent / malformed values to indeterminate, NEVER to not-touching', () => {
     for (const bad of [undefined, null, '', 'true', 'false', 'maybe', 1, 0, {}, []]) {
@@ -183,7 +183,7 @@ describe('context danger orderings are total chains topped by the uncertain memb
 /**
  * `verification-policy-resolver` holds the one implementation of the tier and boundary normalizers.
  * `requirement-context` re-exports it, so a second copy fails these tests.
- * The resolver owns it because `phase-kind` value-imports the resolver, and the reverse edge closes a cycle.
+ * The resolver owns it because `phase-kind` value-imports the resolver. An import in the reverse direction closes a cycle.
  */
 describe('normalizer consolidation (DR-10 / T-15)', () => {
   it('re-exports the canonical implementations by IDENTITY, not by copy', () => {
@@ -257,8 +257,8 @@ describe('danger-coordinate join is a monotone floor (DR-10 / T-15)', () => {
   /**
    * This test pins why `executeTransition` unions gate sets and does not only join coordinates.
    * The ladder escalates `'unknown'`, but the review roster reads it as no tier claim and emits fewer dimensions than `'high'`.
-   * `RISK_TIER_DANGER_RANK` puts `'unknown'` on top, so the join of `high` and `unknown` drops `mutation-adequacy`.
-   * The union of the two gate sets keeps it.
+   * `RISK_TIER_DANGER_RANK` puts `'unknown'` on top, so the join of `high` and `unknown` is `unknown`.
+   * The review roster then drops `mutation-adequacy`, which `high` requires. The union of the two gate sets keeps it.
    */
   it('a coordinate join alone CANNOT floor the live resolvers — the gate union must', () => {
     const hasMutationAdequacy = (risk: ResolvedRiskTier) =>
@@ -386,9 +386,11 @@ describe('DR-10 frozen requirement set is the authority (T-15)', () => {
 
   /**
    * A left-fold of the durable log through the production projection gives the same `requirementSetDigest` as the live run.
-   * A later, weaker attempt reads the frozen record back as authority, though a re-resolution at `low` is strictly weaker.
+   * A later attempt at `low` reads the frozen record back as authority, though a re-resolution at `low` lacks `mutation-adequacy`.
+   * That re-resolution uses `resolveGateSet`, as the live path does, so the two sets compare like with like.
    * The later attempts pass no `priorState`, so the same-call floor is off.
-   * An attempt with no tier claim records `unknown` and keeps the frozen set.
+   *
+   * An attempt with no tier claim records `unknown` and a boundary touch, not `low`, and keeps the frozen set.
    * An injected resolver without the high-tier dimension stands in for a policy edit, and the frozen gate sequence still holds.
    */
   it('FrozenRequirements_Replay_ReconstructsSameRequirementSet', async () => {

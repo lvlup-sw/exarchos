@@ -1,6 +1,7 @@
 /**
  * Compile-time totality checks for the deny-reason census, the stable-code map and the verdict union.
- * A type checker reports these failures, not vitest.
+ * Vitest strips types, so only a `tsc` program that includes this file reports these failures.
+ * `tests/tsconfig.json` excludes `unit/**`.
  */
 import { it, expect } from 'vitest';
 
@@ -12,8 +13,9 @@ import type { PolicyDenyReason, PolicyVerdict } from '../../../../src/workflow/a
 import type { StableErrorCode } from '../../../../src/contract/error-families.js';
 
 /**
- * The runtime deny-reason census and the `PolicyDenyReason` union contain the same members.
- * The two conditional types check each direction.
+ * The two conditional types compare the element type of `POLICY_DENY_REASONS` with the `PolicyDenyReason` union, one direction each.
+ * The declared element type is `PolicyDenyReason`, so both types are always `true`.
+ * The `satisfies` clause on `DENY_REASON_TABLE` in `remediation.ts` keeps the census total.
  */
 type _CensusCoversUnion = PolicyDenyReason extends (typeof POLICY_DENY_REASONS)[number]
   ? true
