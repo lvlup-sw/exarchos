@@ -1,8 +1,7 @@
-// ─── GitLab VCS Provider ─────────────────────────────────────────────────────
-//
-// Implements VcsProvider by wrapping the `glab` CLI.
-// Requires `glab` to be installed and authenticated.
-// GitLab uses "merge request" (MR) terminology; `number` maps to `iid`.
+/**
+ * The GitLab VcsProvider. It wraps the `glab` CLI, which must be installed and authenticated.
+ * GitLab calls a pull request a "merge request" (MR), and `number` maps to the MR `iid`.
+ */
 
 import type {
   VcsProvider,
@@ -46,11 +45,10 @@ interface GlabReviewResponse {
   readonly approvedBy: readonly GlabReviewer[];
 }
 
-// Raw GitLab REST shapes from `glab api .../discussions`. `glab api` proxies
-// the GitLab API verbatim, so these are snake_case (unlike `glab mr view
-// --json`, whose camelCase serialization is glab's own). Every field is
-// optional/defensive: a real payload always carries id/body/created_at, but we
-// never trust the wire shape.
+/**
+ * Raw GitLab REST shapes from `glab api .../discussions`. They are snake_case, because `glab api` proxies the GitLab API without change.
+ * The code does not trust the wire shape, so most fields are optional.
+ */
 interface GlabDiscussionPosition {
   readonly new_path?: string | null;
   readonly old_path?: string | null;
@@ -97,15 +95,15 @@ function mapGitLabJobStatus(status: string): CiCheck['status'] {
 export class GitLabProvider implements VcsProvider {
   readonly name = 'gitlab' as const;
 
+  /** The provider does not read `_config`. */
   constructor(_config: Record<string, unknown>) {
-    // Config reserved for future use (e.g., custom glab path, self-hosted URL)
   }
 
+  /**
+   * Creates the MR, then reads its `iid` and `webUrl` by the source branch with `glab mr view --json`. `glab mr create` has no `--json` flag and no documented output.
+   * A failed read throws, because `PrResult.number` is required. `handleCreatePr` maps the throw to a VCS_ERROR.
+   */
   async createPr(opts: CreatePrOpts): Promise<PrResult> {
-    // `glab mr create` has NO `--json` flag, and its create stream is
-    // undocumented — so we do not parse its stdout. We issue the create, then
-    // read the freshly created MR's identity with `glab mr view` (which DOES
-    // support `--json` field selection, matching `checkCi`/`getReviewStatus`).
     const args = [
       'mr',
       'create',
@@ -129,9 +127,6 @@ export class GitLabProvider implements VcsProvider {
 
     await exec('glab', args);
 
-    // Resolve the new MR by its source branch. A read failure THROWS (does not
-    // return a partial): `PrResult.number` is non-optional, and the caller
-    // `handleCreatePr` maps the throw to a structured VCS_ERROR.
     const viewOutput = await exec('glab', [
       'mr',
       'view',
@@ -170,21 +165,22 @@ export class GitLabProvider implements VcsProvider {
     };
   }
 
+  /**
+   * Merges the MR. `squash` adds `--squash`, `rebase` adds `--rebase`, and any other strategy uses the default glab merge.
+   * After the merge, it reads the merge commit SHA. If that read fails, the result is still `merged: true`, with no SHA.
+   */
   async mergePr(prId: string, strategy: string): Promise<MergeResult> {
     const args = ['mr', 'merge', prId];
 
-    // glab supports --squash and --rebase; plain merge needs no extra flag
     if (strategy === 'squash') {
       args.push('--squash');
     } else if (strategy === 'rebase') {
       args.push('--rebase');
     }
-    // 'merge' strategy uses the default glab behavior (no flag)
 
     try {
       await exec('glab', args);
 
-      // Fetch the merge commit SHA via glab mr view
       try {
         const viewOutput = await exec('glab', [
           'mr',
@@ -196,7 +192,6 @@ export class GitLabProvider implements VcsProvider {
         const parsed = JSON.parse(viewOutput) as { sha?: string };
         return parsed.sha ? { merged: true, sha: parsed.sha } : { merged: true };
       } catch {
-        // SHA retrieval failed — merge still succeeded
         return { merged: true };
       }
     } catch (err: unknown) {
@@ -209,15 +204,15 @@ export class GitLabProvider implements VcsProvider {
     await exec('glab', ['mr', 'comment', prId, '--message', body]);
   }
 
-  // Per-thread review-comment replies map to GitLab discussion notes
-  // (`POST /projects/:id/merge_requests/:iid/discussions/:discussion_id/notes`),
-  // which `glab` does not expose as a first-class verb. Tracked as a DR-7
-  // follow-up (#1612); throws rather than silently no-op'ing so callers get a
-  // clear capability signal.
+  /**
+   * Throws `UnsupportedOperationError`. A thread reply is a GitLab discussion note, and `glab` has no command for it.
+   * The throw gives callers a clear capability signal, not a silent no-op.
+   */
   async addReply(_prId: string, _threadId: string, _body: string): Promise<ReplyResult> {
     throw new UnsupportedOperationError('gitlab', 'addReply');
   }
 
+  /** The state is `approved` only when there is at least one reviewer and every reviewer approved. */
   async getReviewStatus(prId: string): Promise<ReviewStatus> {
     const output = await exec('glab', [
       'mr',
@@ -235,7 +230,6 @@ export class GitLabProvider implements VcsProvider {
       state: approvedSet.has(r.username) ? 'approved' as const : 'pending' as const,
     }));
 
-    // Overall: approved only if all reviewers have approved and there's at least one
     const allApproved =
       reviewers.length > 0 && reviewers.every((r) => r.state === 'approved');
 
@@ -249,27 +243,18 @@ export class GitLabProvider implements VcsProvider {
     throw new UnsupportedOperationError('gitlab', 'listPrs');
   }
 
+  /**
+   * Reads all MR feedback from the `discussions` endpoint. It reads page after page, 100 per page, because one page of a large MR is not complete.
+   * A cap of 50 pages (5000 discussions) keeps a faulty pager from an endless loop.
+   * A note with a diff `position` and a path becomes `review-inline` with its path and line. Every other note becomes `issue-comment`.
+   * The first non-system note of a discussion is the thread root, and each later note gets it as `parentId`.
+   *
+   * System notes are activity, not feedback, so the method skips them, as the GitHub endpoints do.
+   * A comment carries only contract keys. `resolved` is present only for a resolvable note with a boolean `resolved`, and is never coerced to false.
+   */
   async getPrComments(prId: string): Promise<PrComment[]> {
-    // GitLab collapses ALL merge-request feedback onto ONE endpoint:
-    // `discussions`. Each discussion is either an *individual note* (a
-    // PR-level comment or a standalone diff note) or a *thread* (a root note
-    // plus replies). This mirrors the GitHub provider's fetch → normalize →
-    // tri-state-resolution shape, but GitLab has only TWO sources:
-    //
-    //  - a note carrying a diff `position` → 'review-inline' (path/line).
-    //  - every other note                  → 'issue-comment'.
-    //
-    // There is no 'review-summary' surface — review verdicts are
-    // getReviewStatus's job, not ours.
-    //
-    // We paginate explicitly (GitLab defaults to ~20 notes/page) so large MRs
-    // are never silently truncated. `glab api` proxies the raw GitLab API, so
-    // `:fullpath` is glab's placeholder for the URL-encoded current project
-    // path (same resolution `glab mr` uses).
     const PER_PAGE = 100;
     const discussions: GlabDiscussion[] = [];
-    // Defensive page cap (50 × 100 = 5000 discussions) so a misbehaving pager
-    // can never spin this into an unbounded loop.
     for (let page = 1; page <= 50; page++) {
       const output = await exec('glab', [
         'api',
@@ -284,13 +269,8 @@ export class GitLabProvider implements VcsProvider {
     const comments: PrComment[] = [];
     for (const discussion of discussions) {
       const notes = discussion.notes ?? [];
-      // One-level threading: the first NON-system note in a discussion is the
-      // thread root; every later note replies to it (parentId → root id).
       let rootId: number | undefined;
       for (const note of notes) {
-        // System notes (label changes, description edits, …) are activity, not
-        // feedback. GitHub's comment endpoints never surface these, so we skip
-        // them to keep two-source parity.
         if (note.system === true) continue;
 
         const position = note.position;
@@ -298,8 +278,6 @@ export class GitLabProvider implements VcsProvider {
         const line = position?.new_line ?? position?.old_line ?? undefined;
         const isInline = position != null && typeof path === 'string';
 
-        // Emit ONLY contract keys — never leak a GitLab field name (no
-        // new_path / resolvable / system, etc.).
         const comment: PrComment = {
           id: note.id,
           author: note.author?.username ?? '',
@@ -309,11 +287,6 @@ export class GitLabProvider implements VcsProvider {
           ...(isInline && typeof path === 'string' ? { path } : {}),
           ...(isInline && typeof line === 'number' ? { line } : {}),
           ...(rootId !== undefined ? { parentId: rootId } : {}),
-          // Tri-state resolution, inline on the note: a resolvable note's
-          // boolean `resolved` maps through; a non-resolvable note — or one
-          // whose resolution field is missing/garbled — leaves `resolved`
-          // ABSENT (unknown, never coerced to false). Per-field defensive: a
-          // bad resolution field never drops the rest of the comment.
           ...(note.resolvable === true && typeof note.resolved === 'boolean'
             ? { resolved: note.resolved }
             : {}),

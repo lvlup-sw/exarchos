@@ -1,41 +1,16 @@
-// ─── Audit-delivery closure audit (DR-4/DR-24, task 069) ────────────────────
-//
-// Answers ONE question per obligation declared in `audit-delivery-closure.data.ts`:
-// does the payload field reach a reader that is INSTRUCTED TO ACT ON IT?
-//
-// ── The property this measures, and the proxy it refuses ────────────────────
-// "The field is present on the returned object" is the proxy. It was TRUE for
-// `auditPrompt` throughout the period when nothing read it, so it cannot
-// distinguish a delivered prompt from a stranded one. This module measures two
-// structural facts instead, and fails if either is missing:
-//
-//   1. CONTRACT — the producing action's registered `outputSchema` declares the
-//      field and its enumerator as REQUIRED, TYPED properties of the
-//      success-branch `data`. Read off the live Zod object, not off source text:
-//      a named binding launders a grep, which is the same reason the vacuity
-//      census walks the schema rather than the file.
-//   2. INSTRUCTION — a declared reader document carries, INSIDE A SINGLE
-//      SECTION, every token the obligation derives: the producing action, the
-//      field, the enumerator, and the re-entry action + parameter. The
-//      single-section requirement is what separates an instruction from a
-//      coincidence — a document that mentions `check_review_verdict` in one
-//      place and `auditPrompt` in a footnote three sections away has not told
-//      anybody to do anything.
-//
-// Neither fact alone is sufficient, and that is the point of checking both from
-// one record: wiring a reader to an untyped contract gives the reader nothing to
-// rely on, and typing a contract nobody reads gives the payload nowhere to go.
-//
-// ── What it does NOT claim ──────────────────────────────────────────────────
-// It cannot prove a reader OBEYED the instruction — no repo-local mechanism can
-// observe an agent's judgment. What it proves is that the instruction exists, is
-// co-located, names a re-entry seam that actually accepts the judgment, and
-// stays bound to the field's real name in the real contract. When any of those
-// four decays, this reddens. That is a strictly stronger floor than "the field
-// is present", which is the floor task 069 found.
-//
-// POLICY IS DATA: every rule lives in `audit-delivery-closure.data.ts`. This
-// module enumerates, reads and reports. It decides nothing.
+/**
+ * Audit-delivery closure audit. For each obligation in `audit-delivery-closure.data.ts`, it asks one question.
+ * Does the payload field reach a reader that is told to act on it?
+ * The presence of the field on the returned object proves nothing, because the field can exist while nothing reads it.
+ * The audit checks two facts instead, and fails if either one is missing:
+ *
+ *   1. Contract: the registered `outputSchema` of the producing action declares the field and its enumerator
+ *      as required, typed properties of the success-branch `data`. The audit reads the live Zod object.
+ *   2. Instruction: one section of a declared reader document holds every required token.
+ *      The tokens are the producing action, the field, the enumerator, and the re-entry action and parameter.
+ *
+ * The audit cannot prove that a reader obeyed the instruction. All policy is in the data file.
+ */
 
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -47,8 +22,6 @@ import {
   requiredDirectiveTokens,
   type AuditDeliveryObligation,
 } from './audit-delivery-closure.data.js';
-
-// ─── Inputs ─────────────────────────────────────────────────────────────────
 
 /** Minimal shape of a registered action this audit needs. */
 export interface ClosureAction {
@@ -63,41 +36,32 @@ export interface ClosureTool {
 }
 
 /**
- * Reads a reader document by its repo-relative path.
- *
- * Returns `undefined` when the document does not exist — which is a FINDING, not
- * a skip. A reader that moved is exactly the failure this must not read as
- * clean.
+ * Reads a reader document by its repo-relative path. It returns `undefined` when the document does not exist.
+ * The audit reports that as a finding, not a skip, so a moved reader does not read as clean.
  */
 export type ReadReaderFn = (repoRelativePath: string) => string | undefined;
 
-// ─── Findings ───────────────────────────────────────────────────────────────
-
+/**
+ * Finding codes:
+ *  - `EMPTY_OBLIGATIONS`, `NO_READER_DECLARED`: the audit has no obligations, or an obligation has no reader.
+ *  - `DECLARATION_NOT_FOUND`: no registered action matches the `declarationId`.
+ *  - `UNREADABLE_CONTRACT`, `VACUOUS_CONTRACT`: no success-branch `data`, or a `data` that accepts every value.
+ *  - `FIELD_NOT_IN_CONTRACT`, `FIELD_OPTIONAL_IN_CONTRACT`: `data` does not declare the property, or declares it optional.
+ *  - `READER_MISSING`, `READER_EMPTY`: a declared reader document does not exist, or is empty.
+ *  - `FIELD_NOT_MENTIONED`: the reader does not name the field.
+ *  - `DIRECTIVE_NOT_COLOCATED`: the reader names the field, but no single section holds every token.
+ */
 export type ClosureFindingCode =
-  /** Zero obligations declared — the audit has no subject (non-empty denominator). */
   | 'EMPTY_OBLIGATIONS'
-  /** An obligation names zero reader documents (non-empty denominator, per record). */
   | 'NO_READER_DECLARED'
-  /** The obligation's `declarationId` matches no action in the registry. */
   | 'DECLARATION_NOT_FOUND'
-  /** The action's `outputSchema` has no readable success-branch `data`. */
   | 'UNREADABLE_CONTRACT'
-  /** The success-branch `data` accepts every value — the vacuity DR-4 removes. */
   | 'VACUOUS_CONTRACT'
-  /** `data` does not declare the field (or the enumerator) at all. */
   | 'FIELD_NOT_IN_CONTRACT'
-  /** `data` declares it, but optionally — a reader cannot rely on it. */
   | 'FIELD_OPTIONAL_IN_CONTRACT'
-  /** A declared reader document does not exist. */
   | 'READER_MISSING'
-  /** A declared reader document is empty — an empty doc instructs nobody. */
   | 'READER_EMPTY'
-  /** The reader never names the delivered field. */
   | 'FIELD_NOT_MENTIONED'
-  /**
-   * The reader names every required token, but never all of them inside one
-   * section — scattered mentions, not an instruction.
-   */
   | 'DIRECTIVE_NOT_COLOCATED';
 
 export interface ClosureFinding {
@@ -120,19 +84,10 @@ export interface AuditDeliveryClosureReport {
   readonly findings: readonly ClosureFinding[];
 }
 
-// ─── Section splitting ──────────────────────────────────────────────────────
-
 /**
- * Split a Markdown document into sections at ATX headings.
- *
- * A heading opens a new section; everything up to the next heading of ANY level
- * belongs to it. Deliberately flat rather than nested: nesting would let a
- * top-level heading's section swallow the whole document, which would make the
- * co-location requirement equivalent to a whole-file grep and defeat the point.
- *
- * Exported so the co-located test can drive it directly — the co-location rule
- * is the load-bearing half of the instruction check, and a rule proven only
- * through its caller has been proven about the caller.
+ * Splits a Markdown document into flat sections at ATX headings. A section runs to the next heading of any level.
+ * With nested sections, a top-level section can hold the whole document. Then the co-location check is a whole-file grep.
+ * A `#` line inside a fenced block is code, not a heading. The function is exported so that its test can call it directly.
  */
 export function splitIntoSections(document: string): readonly string[] {
   const lines = document.split('\n');
@@ -140,7 +95,6 @@ export function splitIntoSections(document: string): readonly string[] {
   let inFence = false;
   for (const line of lines) {
     if (/^\s*(```|~~~)/.test(line)) inFence = !inFence;
-    // A `#` inside a fenced block is code, not a heading.
     if (!inFence && /^#{1,6}\s/.test(line)) sections.push([]);
     const current = sections[sections.length - 1];
     if (current !== undefined) current.push(line);
@@ -149,12 +103,8 @@ export function splitIntoSections(document: string): readonly string[] {
 }
 
 /**
- * Does any single section of `document` contain every token in `tokens`?
- *
- * An empty token list would answer `true` for any document, so it answers
- * `false` instead: a directive with no required tokens is not satisfiable
- * evidence of anything (non-empty denominator, pushed into the pure predicate
- * rather than left to the caller).
+ * True when one section of `document` holds every token in `tokens`.
+ * An empty token list gives `false`, because a directive with no required tokens is evidence of nothing.
  */
 export function hasColocatedDirective(
   document: string,
@@ -166,27 +116,21 @@ export function hasColocatedDirective(
   );
 }
 
-// ─── Contract inspection ────────────────────────────────────────────────────
-
-/** What the live `outputSchema` says about one declared property. */
+/**
+ * What the live `outputSchema` says about one declared property.
+ * `vacuous` means that `data` accepts every value. `unreadable` means that no success-branch `data` was found.
+ */
 export type ContractFieldState =
   | 'required'
   | 'optional'
   | 'absent'
-  /** `data` accepts every value — every property is "present" and none is typed. */
   | 'vacuous'
-  /** No success-branch `data` could be located at all. */
   | 'unreadable';
 
 /**
- * Inspect a registered `outputSchema` for one success-branch `data` property.
- *
- * Walks the Zod object, never the source text: `withCappedShape` unions the
- * capped-response fallback into `data`, so the live shape is a union whose
- * FIRST member is the action's own payload. The union is unwrapped by requiring
- * the property on at least one member and treating the capped fallback (which
- * declares none of these fields) as the tolerated alternative — the same
- * "do NOT over-constrain" discipline the schemas themselves follow.
+ * Inspects a registered `outputSchema` for one property of the success-branch `data`. It walks the Zod object, not the source text.
+ * `withCappedShape` adds the capped-response fallback to `data` as a union, so one union member with the property is enough.
+ * An `.optional()` property gives `optional`, because a reader cannot rely on a property that can be absent.
  */
 export function inspectContractField(
   outputSchema: z.ZodType,
@@ -203,8 +147,6 @@ export function inspectContractField(
     const shape: Record<string, unknown> = candidate.shape;
     const field = shape[property];
     if (!(field instanceof z.ZodType)) continue;
-    // `.optional()` is a wrapper; a reader told to iterate a field cannot rely
-    // on one that may be absent, so optionality is reported, not accepted.
     if (field instanceof z.ZodOptional) {
       seen = 'optional';
       continue;
@@ -213,8 +155,6 @@ export function inspectContractField(
   }
   return seen;
 }
-
-// ─── The audit ──────────────────────────────────────────────────────────────
 
 export interface ClosureAuditOptions {
   readonly obligations?: readonly AuditDeliveryObligation[];
@@ -235,13 +175,9 @@ function findAction(
 }
 
 /**
- * Run the closure audit.
- *
- * Defaults to the LIVE obligations and the LIVE {@link TOOL_REGISTRY}; the
- * options are the seam the co-located self-test drives to pose the pre-069 world
- * (a vacuous contract, a reader that only invokes the gate) without editing the
- * real ones. A guard proven only through its seams has been proven about its
- * seams, so the self-test also asserts the live defaults.
+ * Runs the closure audit. By default it uses the live obligations and the live {@link TOOL_REGISTRY}.
+ * The test uses the options to pose a vacuous contract, or a reader that only calls the gate, without changes to the real data.
+ * An empty obligation list is a finding, because an audit with no subject must not report clean.
  */
 export function auditDeliveryClosure(
   options: ClosureAuditOptions = {},
@@ -254,9 +190,6 @@ export function auditDeliveryClosure(
   const closed: string[] = [];
   let readerCount = 0;
 
-  // Non-empty denominator. An audit over zero obligations proves nothing and
-  // must not report clean — that failure mode reads green precisely when the
-  // instrument has lost its subject.
   if (obligations.length === 0) {
     findings.push({
       code: 'EMPTY_OBLIGATIONS',
@@ -374,16 +307,10 @@ function contractFindingCode(state: ContractFieldState): ClosureFindingCode {
 }
 
 /**
- * The production reader loader: resolve a repo-relative path against the repo
- * root, which this module locates from its OWN location rather than from
- * `process.cwd()` (a cwd-relative resolve reads a different tree depending on
- * where the runner was launched).
+ * Production reader loader. It finds the repo root from its own location, not from `process.cwd()`.
+ * The repo root is two levels above `src/architecture/`. A wrong depth gives `READER_MISSING`, not a path error.
  */
 function defaultReadReader(repoRelativePath: string): string | undefined {
-  // `src/architecture/<file>` → repo root is two levels up. It was four while
-  // this module lived inside `servers/exarchos-mcp/`; the fold removed those
-  // two segments. An over-deep walk still names a real directory, so it
-  // surfaces as "declared reader does not exist" rather than as a path error.
   const url = new URL(`../../${repoRelativePath}`, import.meta.url);
   try {
     return readFileSync(fileURLToPath(url), 'utf8');
@@ -391,8 +318,6 @@ function defaultReadReader(repoRelativePath: string): string | undefined {
     return undefined;
   }
 }
-
-// ─── Reporting ──────────────────────────────────────────────────────────────
 
 /** Render the report for a CI log: the count against its denominator, then every finding. */
 export function formatDeliveryClosureReport(

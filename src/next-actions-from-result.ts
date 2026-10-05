@@ -1,17 +1,11 @@
-// ─── Derive NextAction[] from a ToolResult (T041, DR-8) ───────────────────
-//
-// All composite tools (`exarchos_workflow`, `exarchos_event`,
-// `exarchos_orchestrate`, `exarchos_view`) go through this helper at their
-// envelope-wrap boundary. When the handler's response data carries both
-// `phase` and `workflowType` (as the real workflow handlers do — see
-// `workflow/tools.ts` `handleInit` / `handleGet` / `handleSet`), the helper
-// looks up the HSM for that workflow type and returns the outbound
-// transitions computed by `computeNextActions`. Otherwise it yields `[]`.
-//
-// Unknown workflow types fall through to `[]` rather than throwing — the
-// HSM registry is mutable (see `registerWorkflowType`), so stale references
-// are possible and must not poison the envelope. Invoked at most once per
-// composite call.
+/**
+ * Derives the `NextAction[]` of a `ToolResult`. `envelopeWrap` calls it for the four composite
+ * tools. When the payload carries workflow context, the helper looks up the HSM for the workflow
+ * type and returns the outbound transitions from `computeNextActions`. Otherwise it returns `[]`.
+ *
+ * An unknown workflow type gives `[]` and does not throw. The HSM registry is mutable (see
+ * `registerWorkflowType`), so a stale reference must not break the envelope.
+ */
 
 import { z } from 'zod';
 import type { ToolResult } from './format.js';
@@ -31,51 +25,30 @@ import {
 } from './projections/rehydration/schema.js';
 import { getHSMDefinition } from './workflow/state-machine.js';
 
-/**
- * Structured logger child for fail-closed parse warnings (#1238).
- * Exported so unit tests can `vi.spyOn(nextActionsLogger, 'warn')` to assert
- * the malformed-payload fail-closed branch.
- */
+/** Logger for fail-closed parse warnings. It is exported so unit tests can spy on `warn`. */
 export const nextActionsLogger = logger.child({ subsystem: 'next-actions' });
 
-// ─── #1238 ResultDataSchema discriminated union ─────────────────────────────
-//
-// The parser body previously used `Record<string, unknown>` casts and inline
-// `typeof` guards to dig phase / workflowType / featureId / mergeOrchestrator
-// out of `result.data`. #1238 replaces that with a Zod union of two shapes so
-// the contract is declarative and a malformed payload fails closed rather
-// than silently degrading.
-//
-// `.passthrough()` keeps unknown sibling fields (handler payloads carry many
-// extra fields — taskProgress, decisions, etc.) — we only validate the
-// fields this helper reads.
-
-/** Shape 1 — handler payload (`handleInit` / `handleGet` / `handleSet`). */
+/**
+ * Shape 1: the handler payload of `handleInit`, `handleGet` and `handleSet`. `.passthrough()`
+ * keeps the other handler fields, and the schema validates only the fields that this helper reads.
+ */
 export const ShapeOneSchema = z
   .object({
     phase: z.string(),
     workflowType: z.string(),
     featureId: z.string().optional(),
     mergeOrchestrator: RehydrationMergeOrchestratorSchema.optional(),
-    // ── DR-9 (T-13): the widened admission-fact surface ──────────────────────
-    //
-    // These four keys are what makes a payload a FULL workflow-state read
-    // rather than a field projection or a phase-confirmation receipt, and they
-    // are exactly the segments `Guard.evaluate(state)` / the admission
-    // obligations read. They are declared as `unknown` ON PURPOSE: the
-    // authority for their shape is the admission projector
-    // (`workflow/admission/legacy-state-translation.ts::projectStateToFacts`),
-    // and re-declaring it here would (a) fork the fact vocabulary and (b) turn
-    // any state-schema evolution into a "malformed result.data" warning plus an
-    // empty `next_actions` on a payload that is perfectly usable. Declaring
-    // them keeps the widened contract visible in the parse; the structural
-    // guard in `admissionFactsFrom` decides whether they are usable.
+    /**
+     * `updatedAt`, `artifacts`, `tasks` and `reviews` mark a full workflow-state read. They are
+     * `unknown` because `projectStateToFacts` owns their shape. A second declaration here forks
+     * the fact vocabulary, and a state-schema change then empties `next_actions`.
+     * `admissionFactsFrom` decides if they are usable.
+     */
     updatedAt: z.unknown().optional(),
     artifacts: z.unknown().optional(),
     tasks: z.unknown().optional(),
     reviews: z.unknown().optional(),
-    // Workflow-scoped ActionId advertisement inputs. Declared as unknown so
-    // this parse does not fork the admission snapshot vocabulary.
+    /** ActionId advertisement inputs. They are `unknown`, so this parse does not fork the vocabulary. */
     evidence: z.unknown().optional(),
     authorization: z.unknown().optional(),
     stream: z.unknown().optional(),
@@ -83,47 +56,26 @@ export const ShapeOneSchema = z
   })
   .passthrough();
 
-/** Shape 2 — rehydration document (`handleRehydrate`). */
+/** Shape 2: the rehydration document of `handleRehydrate`. */
 export const ShapeTwoSchema = z
   .object({
     workflowState: WorkflowStateSchema,
   })
   .passthrough();
 
-/**
- * The two recognised workflow-context payload shapes. A success-envelope
- * payload that carries a discriminator key but fails this union is treated
- * as malformed (warn + `[]`) at the fail-closed boundary in
- * `nextActionsFromResult`. Payloads without any discriminator key are
- * non-workflow responses (event-store / view composite / describe) and are
- * not parsed against this schema at all.
- */
+/** The two recognized workflow-context payload shapes. */
 export const ResultDataSchema = z.union([ShapeOneSchema, ShapeTwoSchema]);
 
 export type ResultData = z.infer<typeof ResultDataSchema>;
 
 /**
- * Per-shape discriminator keys. A payload is considered to *advertise* a
- * shape when it carries *every* discriminator key for that shape — matching
- * what the shape's schema actually requires. Once advertised, the shape must
- * validate strictly or the helper fails closed (warn + `[]`).
- *
- * Why `every` and not `some` (Sentry #1421 rev2, LOW): handler returns from
- * `handleCheckpoint` and the idempotent branch of `handleSet` legitimately
- * carry `{ phase, ... }` without `workflowType` — they are not workflow-state
- * envelopes, just phase-confirmation receipts. A `some`-based advertise
- * predicate would (mis)mark those as shape-1 advertisements, the strict
- * safeParse would then fail (missing required `workflowType`), and the
- * helper would emit a misleading "malformed result.data" warning on every
- * normal checkpoint/set call. `every` aligns the advertise check with the
- * schema's required-field set, so partial-key payloads silently fall through
- * to the no-actions path instead of being escalated to malformed.
- *
- * The asymmetric-failure pin still holds: a payload that advertises both
- * keys for shape 1 *and* the discriminator for shape 2 must validate against
- * both shapes independently.
+ * Discriminator keys of shape 1. A payload advertises a shape when it carries every key of that
+ * shape, and an advertised shape must then parse. A check on some keys is wrong: `handleCheckpoint`
+ * and the idempotent `handleSet` return `{ phase }` without `workflowType`. Such a receipt then
+ * fails the parse and logs a false "malformed" warning.
  */
 const SHAPE_ONE_DISCRIMINATOR_KEYS = ['phase', 'workflowType'] as const;
+/** Discriminator keys of shape 2. */
 const SHAPE_TWO_DISCRIMINATOR_KEYS = ['workflowState'] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -131,29 +83,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * DR-9 (T-13) — extract the admission fact carrier from a shape-1 payload, or
- * `undefined` when the payload cannot support an admission verdict.
+ * Extracts the admission facts from a shape-1 payload, or `undefined` when the payload is not a
+ * full state read. A `fields` projection or a `query` scalar from `handleGet` lacks the facts that
+ * it did not request. Admission over such a payload denies almost every edge.
+ * `BaseWorkflowStateSchema` requires the four marker keys, so a full state always has them.
  *
- * A shape-1 payload is only usable as admission facts when it is a FULL state
- * read. `handleGet` serves three payload shapes off the same handler — full
- * state, a `fields:[…]` projection, and a dot-path `query` scalar — and the
- * first is the only one whose absent facts genuinely mean "absent". Projecting
- * `{phase, workflowType}` and handing THAT to admission would deny nearly every
- * edge (an unrequested artifact reads as a missing one), silently emptying the
- * affordance list on a read the caller deliberately narrowed. The four marker
- * keys below are present on every full state (`BaseWorkflowStateSchema` makes
- * them required) and absent from a projection that did not ask for them, so
- * they are a sound structural discriminator rather than a heuristic.
- *
- * `updatedAt` doubles as the trusted evaluation instant: it is already in the
- * payload, is a validated RFC3339 datetime on the write side, and keeps this
- * helper deterministic — no clock read, so the same payload always yields the
- * same affordances.
- *
- * `eventLogAvailable` is `false` unconditionally: `workflow/tools.ts` strips
- * `_events` from every handler payload (INTERNAL_FIELDS), so the event log is
- * never present at this seam. Edges decided from the log are therefore reported
- * undecidable and keep being advertised — see `adjudicateOutboundEdges`.
+ * `updatedAt` is the evaluation instant, so the helper reads no clock and stays deterministic.
+ * `eventLogAvailable` is always `false`, because a handler payload does not carry the event log.
+ * Thus `adjudicateOutboundEdges` reports log-decided edges as undecidable and keeps them.
  */
 function admissionFactsFrom(
   data: z.infer<typeof ShapeOneSchema>,
@@ -173,10 +110,9 @@ function admissionFactsFrom(
 }
 
 /**
- * Lift ActionId-advertisement facts from a shape-1 payload. Requires a
- * feature/stream subject and an evidence array; authorization may be
- * absent so capability-gated ActionIds can be omitted rather than
- * fail-open. Shape-2 rehydrate documents stay topology-only.
+ * Extracts the ActionId advertisement facts from a shape-1 payload. It needs a `featureId` and an
+ * `evidence` array. `authorization` can be absent, so capability-gated ActionIds are left out and
+ * do not fail open. A shape-2 rehydration document gives topology only.
  */
 function actionAdmissionFrom(
   data: z.infer<typeof ShapeOneSchema>,
@@ -203,58 +139,21 @@ function actionAdmissionFrom(
 }
 
 /**
- * Extract workflow state from a successful `ToolResult` and compute the
- * outbound `NextAction[]` for the current HSM phase. Returns `[]` whenever
- * the response lacks workflow context (describe/list/status actions,
- * event-store responses, view composites, etc.).
+ * Computes the outbound `NextAction[]` for the HSM phase of a successful `ToolResult`. A payload
+ * without a discriminator key, such as a describe or view response, gives `[]` with no warning.
+ * An advertised shape that fails its parse logs a warning and gives `[]`. The function parses each
+ * advertised shape on its own, because a union parse accepts a valid shape 1 beside a malformed
+ * `workflowState`.
  *
- * Two payload shapes are recognised:
- *
- *   1. **Workflow-handler shape** (`handleInit` / `handleGet` / `handleSet`)
- *      — `{ phase, workflowType, ... }` carried at the top level.
- *   2. **Rehydration-envelope shape** (`handleRehydrate`'s
- *      `RehydrationDocument`) — `{ workflowState: { phase, workflowType,
- *      featureId, mergeOrchestrator } }` nested under the
- *      `workflowState` segment.
- *
- * Pre-fix (#1208) only shape 1 was extracted, so rehydrate envelopes always
- * yielded `next_actions: []` even when a `merge_orchestrate` verb was
- * required by `content/delivery/skills/delegate/SKILL.md` § "Worktree-Bearing Tasks:
- * Auto-Detour to merge-pending". Reading shape 2 lets the merge-pending
- * substate (set by the rehydration reducer when a worktree-bearing
- * task.completed is folded) drive `computeNextActions`'s
- * `merge_orchestrate` surfacing branch.
+ * Shape 1 has precedence. Shape 2 fills the missing fields, so the `mergeOrchestrator` of a
+ * rehydration document can surface `merge_orchestrate`. Admission facts come from shape 1 only:
+ * the rehydration document has no `reviews` and no event log, and facts from it deny legal edges.
  */
 export function nextActionsFromResult(result: ToolResult): readonly NextAction[] {
-  // Legitimate no-actions paths — describe/list/status actions, error
-  // envelopes, view composites. These MUST NOT warn: they're expected to be
-  // empty.
   if (!result.success) return [];
   const data = result.data;
   if (data === null || data === undefined || typeof data !== 'object') return [];
 
-  // Fail-closed parse boundary (#1238 + per-shape advertised-validation
-  // follow-up). Four cases:
-  //
-  //   1. Payload advertises neither shape (no discriminator key from either
-  //      set). It's an event-store / view-composite / describe response —
-  //      return [] silently.
-  //   2. Payload advertises a shape but that shape fails its own safeParse —
-  //      malformed (wrong types, missing required nested fields). Warn and
-  //      return [].
-  //   3. Payload advertises exactly one shape and that shape parses — proceed
-  //      using just that shape.
-  //   4. Payload advertises both shapes and both parse — proceed using both
-  //      (shape-1 precedence; shape-2 backfill for mergeOrchestrator).
-  //
-  // The earlier implementation used a single `ResultDataSchema` (union) parse
-  // here, which accepted asymmetric malformed payloads — e.g. a valid shape-1
-  // alongside a malformed `workflowState` — because the union short-circuits
-  // on the first matching member. `.passthrough()` then let the bad keys
-  // through. Validating each advertised shape independently closes that hole.
-  //
-  // `Reflect.has` is the structural attempt-detector; it does not introspect
-  // value types (that's each shape's safeParse).
   const shapeOneAdvertised = SHAPE_ONE_DISCRIMINATOR_KEYS.every((k) =>
     Reflect.has(data, k),
   );
@@ -305,15 +204,6 @@ export function nextActionsFromResult(result: ToolResult): readonly NextAction[]
     if (mergeOrchestrator === undefined && ws.mergeOrchestrator !== undefined) {
       mergeOrchestrator = ws.mergeOrchestrator;
     }
-    // DR-9 SPLIT (recorded, not an oversight): the rehydration document is NOT
-    // widened here. Its `workflowState` segment carries only featureId / phase /
-    // workflowType / mergeOrchestrator, and the sibling sections expose
-    // `artifacts` + `taskProgress` but no `reviews`, no `_cleanup` and no event
-    // log — so an admission verdict computed from it would deny every
-    // review-gated edge on evidence that exists but was never serialized. That
-    // is the unsafe direction (hiding legal moves), so shape 2 stays
-    // topology-only until the envelope itself carries the facts, which is a
-    // RehydrationDocument schema rev (v:4 → v:5) and out of this task's scope.
   }
 
   if (!phase || !workflowType) return [];
@@ -395,8 +285,8 @@ function nextActionsStateFromResult(result: ToolResult): {
 }
 
 /**
- * Both next-action envelopes from a successful tool result. Control verbs
- * follow HSM topology; registry ActionIds publish only on allow.
+ * Both next-action envelopes from a successful tool result. Control verbs follow HSM topology,
+ * and registry ActionIds publish only on allow.
  */
 export function nextActionEnvelopesFromResult(result: ToolResult): NextActionEnvelopes {
   const parsed = nextActionsStateFromResult(result);

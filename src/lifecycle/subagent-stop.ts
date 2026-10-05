@@ -1,46 +1,17 @@
-// ─── SubagentStop Observer — per-subagent token telemetry (#1525 W2 Half 1) ──
-//
-// Restores the SubagentStop observer removed in #1476, now with a real purpose:
-// attribute LLM output-token usage to the teammate that spent it, so the
-// `team_performance` / `delegation_timeline` views can report it (epic #1515's
-// token-reduction acceptance gate).
-//
-// Why a hook, and why here (W2-1 finding): Claude Code exposes per-subagent token
-// usage NOWHERE in any hook payload — the only source is the subagent's OWN
-// transcript JSONL (`agent_transcript_path`), and SubagentStop is a subagent's
-// only lifecycle hook (subagents share the parent session_id and never fire
-// SessionStart/End). So this handler: (1) sums output tokens from the subagent's
-// own transcript at its stop boundary (NOT the forbidden parent-session-end
-// re-parse), (2) resolves the teammate identity by matching the subagent `cwd` to
-// a dispatched worktree on a feature stream, and (3) appends one correctly-sourced
-// `subagent.tokens_used` atom to that feature stream. The fold (team-performance /
-// delegation-timeline) then stays a clean single-stream left-fold (INV-1).
-//
-// Observe-only / fail-open (ADR docs/adrs/2026-05-24-hook-layer-observe-only.md):
-// it never returns a policy `error` and never blocks the subagent. Any missing
-// input, unreadable transcript, unresolved worktree, or store failure degrades
-// silently to `{ continue: true }`. INV-4: token capture is a Claude-Code-specific
-// seam; runtimes without this hook simply produce no atoms and the views fold
-// what exists (empty per-teammate metrics, never an error).
-//
-// ─── KNOWN COVERAGE GAP — Agent-tool native isolation (#1572 Gap 2) ──────────
-// Attribution resolves the teammate by matching the subagent `cwd` to a
-// `worktreePath` the orchestrator emitted on `team.teammate.dispatched` /
-// `team.task.assigned` BEFORE the agent ran. That only works when the
-// orchestrator OWNS the worktree path — i.e. Exarchos's own agent-team worktree
-// dispatch. It does NOT work for Claude-Code Agent-tool (`Task`) native
-// isolation: the harness assigns each agent an opaque, post-hoc
-// `.claude/worktrees/agent-<id>` cwd the orchestrator cannot pre-declare, and
-// commonly emits a plain `task.assigned` (not the `team.*` variant this hook
-// scans). The hook then fires and fail-opens to no-atom (empirically: 9
-// Agent-tool dispatches on `v2-11-preview2-bundle` produced 0 atoms while the
-// harness metered ~1.04M subagent output tokens). This is a HARNESS limitation,
-// not a defect here — the orchestrator has neither the cwd nor the agent_id
-// ahead of time, so a non-cwd (`agent_id`) attribution path cannot serve that
-// dispatch mode either. **Live token capture therefore requires Exarchos
-// agent-team worktree dispatch.** A future option (not built) is a post-hoc
-// `subagent.tokens_unattributed` record reconciled to a feature stream by a
-// later step. See #1561 (live proof) / #1572 (gaps).
+/**
+ * SubagentStop observer. It records the output tokens of a subagent on the feature stream of its teammate.
+ * The `team_performance` and `delegation_timeline` views read these `subagent.tokens_used` events.
+ *
+ * No Claude Code hook payload carries per-subagent token usage. The only source is the subagent transcript.
+ * SubagentStop is the only lifecycle hook that a subagent fires.
+ *
+ * The hook only observes and fails open. It never blocks the subagent, and every failure returns `{ continue: true }`.
+ * Runtimes without this hook produce no events, and the views fold the events that exist.
+ *
+ * Known gap: attribution works only for Exarchos agent-team worktree dispatch.
+ * Agent-tool native isolation gives each agent a `.claude/worktrees/agent-<id>` cwd that the orchestrator cannot declare first.
+ * Those dispatches produce no event.
+ */
 
 import { z } from 'zod';
 import type { CommandResult } from './types.js';
@@ -48,10 +19,10 @@ import { EventStore } from '../events/store.js';
 import { parseTranscript } from '../projections/session/transcript-parser.js';
 import type { SessionSummaryEvent } from '../projections/session/types.js';
 
-// Input contract for the SubagentStop hook payload. Only `agent_id` +
-// `agent_transcript_path` are load-bearing; the rest aid attribution. Parsed
-// with safeParse so a malformed payload degrades fail-open (never throws, never
-// blocks). `.passthrough()` tolerates extra hook fields without rejecting.
+/**
+ * SubagentStop hook payload. Only `agent_id` and `agent_transcript_path` are required. The other fields help attribution.
+ * `.passthrough()` accepts extra hook fields.
+ */
 const SubagentStopInputSchema = z
   .object({
     agent_id: z.string().min(1),
@@ -70,19 +41,11 @@ export interface ResolvedTeammate {
 }
 
 /**
- * Resolve a teammate (and the feature stream) by matching a subagent's working
- * directory to a dispatched worktree. Scans every stream for `team.task.assigned`
- * (preferred — carries `taskId`) or `team.teammate.dispatched` events whose
- * `worktreePath` equals `cwd`, and returns the MOST RECENT match by
- * (timestamp, sequence). Latest-wins matters because a worktree path can be
- * reused across features over time, so the first match is not necessarily the
- * current owner — taking the first would misattribute tokens to a stale stream
- * (#1560 review). Returns null when nothing matches — the caller treats that as
- * "cannot attribute" and skips the emission.
- *
- * Clean attribution requires worktree-isolated dispatch (so `cwd` is unique to the
- * teammate). A non-isolated subagent shares the parent `cwd`, which matches no
- * dispatched worktree → null → no atom (INV-4 graceful degradation).
+ * Finds the teammate and feature stream whose dispatched `worktreePath` equals `cwd`.
+ * It scans every stream for `team.task.assigned` and `team.teammate.dispatched` events, and returns the latest match.
+ * The latest match wins because a later feature can use the same worktree path again.
+ * A later timestamp wins, then a higher sequence, then a match with a `taskId`.
+ * It returns null when nothing matches. A subagent without its own worktree shares the parent `cwd`, so it matches nothing.
  */
 export async function resolveTeammateByWorktree(
   eventStore: EventStore,
@@ -130,8 +93,6 @@ export async function resolveTeammateByWorktree(
 
   if (candidates.length === 0) return null;
 
-  // Later timestamp wins; ties break by sequence, then prefer a candidate that
-  // carries a taskId (team.task.assigned) over one that does not.
   const isBetter = (c: Candidate, b: Candidate): boolean => {
     if (c.timestamp !== b.timestamp) return c.timestamp > b.timestamp;
     if (c.sequence !== b.sequence) return c.sequence > b.sequence;
@@ -144,7 +105,10 @@ export async function resolveTeammateByWorktree(
     : { featureId: chosen.featureId, teammateName: chosen.teammateName };
 }
 
-/** Default token source: sum `output_tokens` across the subagent's own transcript. */
+/**
+ * Default token source. It sums the output tokens of the subagent transcript.
+ * It returns null when the transcript cannot be parsed, and 0 when the transcript has no summary.
+ */
 async function defaultReadTranscriptOutputTokens(
   transcriptPath: string,
   sessionId: string,
@@ -153,7 +117,7 @@ async function defaultReadTranscriptOutputTokens(
   try {
     parsed = await parseTranscript(transcriptPath, { sessionId });
   } catch {
-    return null; // missing / unreadable transcript → fail-open
+    return null;
   }
   const summary = parsed.find((e): e is SessionSummaryEvent => e.t === 'summary');
   return summary ? summary.tokTotal.out : 0;
@@ -169,10 +133,12 @@ export interface SubagentStopDeps {
 }
 
 /**
- * Handle the `subagent-stop` hook command.
+ * Handles the `subagent-stop` hook command. It always returns `{ continue: true }`.
+ * It appends one `subagent.tokens_used` event when the count is above zero and `cwd` matches a teammate worktree.
+ * A zero-token run has no usage to record, and the `team.*` events already record the run.
+ * The idempotency key `subagent-tokens:<agentId>` drops a retry of the same stop.
  *
- * Expected stdin shape (Claude Code SubagentStop; only `agent_id` +
- * `agent_transcript_path` are load-bearing):
+ * Expected stdin shape (Claude Code SubagentStop):
  * ```json
  * { "agent_id": "...", "agent_type": "...", "agent_transcript_path": "...",
  *   "cwd": "...", "session_id": "..." }
@@ -183,11 +149,8 @@ export async function handleSubagentStop(
   stateDir: string,
   deps: SubagentStopDeps = {},
 ): Promise<CommandResult> {
-  // Observe-only: a single fail-open return shape. Never block the subagent.
   const ok: CommandResult = { continue: true };
 
-  // Validate the hook payload at the boundary. A malformed payload (missing the
-  // load-bearing agent_id / transcript path) degrades fail-open.
   const parsed = SubagentStopInputSchema.safeParse(input);
   if (!parsed.success) return ok;
   const {
@@ -198,7 +161,6 @@ export async function handleSubagentStop(
     agent_type: agentType,
   } = parsed.data;
 
-  // 1. Sum the subagent's own output tokens.
   const readTokens = deps.readTranscriptOutputTokens ?? defaultReadTranscriptOutputTokens;
   let outputTokens: number | null;
   try {
@@ -207,19 +169,13 @@ export async function handleSubagentStop(
     return ok;
   }
   if (outputTokens === null) return ok;
-  // A zero-token run carries no usage signal to attribute. The run itself is
-  // already recorded by team.teammate.dispatched / team.task.completed, so
-  // skipping the atom keeps the token metrics clean without losing provenance
-  // (#1560 review).
   if (outputTokens === 0) return ok;
 
-  // 2. Resolve teammate identity + target feature stream by worktree↔cwd.
-  // 3. Append the correctly-sourced atom. Any failure → fail-open.
   try {
     const eventStore = deps.eventStore ?? new EventStore(stateDir);
     if (!deps.eventStore) await eventStore.initialize();
 
-    if (!cwd) return ok; // no cwd → no worktree to match → cannot attribute
+    if (!cwd) return ok;
     const correlation = await resolveTeammateByWorktree(eventStore, cwd);
     if (!correlation) return ok;
 
@@ -237,7 +193,6 @@ export async function handleSubagentStop(
           ...(cwd ? { cwd } : {}),
         },
       },
-      // Dedupe retries of the same subagent stop (idempotency cache is per-stream).
       { idempotencyKey: `subagent-tokens:${agentId}` },
     );
   } catch {

@@ -1,18 +1,11 @@
-// ─── Review Adapter Registry (Issue #1159) ──────────────────────────────────
-//
-// Single source of truth for the set of provider adapters that interpret
-// PR review comments. The registry is constructed once via the
-// createReviewAdapterRegistry() factory and injected into every consumer
-// (assess_stack, classify_review_items, etc). There is no lazy fallback or
-// late-binding mutation — absence of an adapter is a deterministic
-// undefined return from forReviewer(), and the unknown adapter is always
-// available as the final fallback.
-//
-// detectKind() inspects a comment's author string and routes it to the
-// appropriate ReviewerKind. It is the sole place author-string conventions
-// are encoded; adapters themselves do not branch on author beyond their
-// own self-check.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Registry of the provider adapters that parse PR review comments.
+ * `createReviewAdapterRegistry` builds a frozen registry. `forReviewer` returns
+ * undefined for a kind without an adapter.
+ *
+ * `detectKind` maps a comment author to a `ReviewerKind`. It is the one place
+ * that holds the author-string conventions.
+ */
 
 import type {
   ProviderAdapter,

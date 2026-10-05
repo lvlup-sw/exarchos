@@ -7,22 +7,19 @@ import { logger } from '../logger.js';
 
 const configLogger = logger.child({ subsystem: 'config' });
 
-// ─── Constants ──────────────────────────────────────────────────────────────
-
 const YAML_FILENAMES = ['.exarchos.yml', '.exarchos.yaml'] as const;
 
-// ─── Section-level parsing keys ─────────────────────────────────────────────
-
+/** Top-level sections that the fallback parser validates one at a time. */
 const SECTION_KEYS = ['agents', 'artifacts', 'review', 'vcs', 'workflow', 'tools', 'hooks', 'plugins'] as const;
 
-// ─── Load Project Config ────────────────────────────────────────────────────
-
 /**
- * Loads and validates `.exarchos.yml` (or `.exarchos.yaml`) from the given
- * project root directory. Returns an empty config if no file is found.
+ * Loads and validates `.exarchos.yml` (or `.exarchos.yaml`) from the project root.
+ * It returns an empty config if no file is found, or if the file cannot be read or parsed.
  *
- * When the full config fails validation, attempts section-by-section parsing
- * to preserve valid sections and log warnings for invalid ones.
+ * It validates against `FullExarchosConfigSchema`, not `ProjectConfigSchema`.
+ * Two readers with `.strict()` schemas read the same file, and the merged schema accepts the keys of both.
+ * The merge is also `.strict()`, so it rejects a typo.
+ * If validation fails, it logs a warning and keeps only the sections that pass alone.
  */
 export function loadProjectConfig(projectRoot: string): ProjectConfig {
   for (const filename of YAML_FILENAMES) {
@@ -41,21 +38,9 @@ export function loadProjectConfig(projectRoot: string): ProjectConfig {
 
         if (parsed === null || parsed === undefined) return {};
 
-        // Full-config validation.
-        //
-        // Validate against the RECONCILED schema (#1479), not the narrow
-        // `ProjectConfigSchema`. The same `.exarchos.yml` is read by two paths
-        // whose schemas are both `.strict()`; validating here with only the
-        // project-side schema rejected every legitimate key owned by the other
-        // reader (e.g. the top-level `mutation` runner) and silently degraded a
-        // perfectly valid file to partial section parsing plus a startup
-        // warning. `FullExarchosConfigSchema` is exactly the merge that exists
-        // to make both readers reach the same verdict — a genuine typo is still
-        // rejected, because the merge is `.strict()` too.
         const result = FullExarchosConfigSchema.safeParse(parsed);
         if (result.success) return projectSliceOf(result.data);
 
-        // Section-level fallback: extract valid sections
         configLogger.warn({ issues: result.error.issues }, '.exarchos.yml validation errors');
         return parseSections(parsed);
       } catch (err) {
@@ -68,10 +53,8 @@ export function loadProjectConfig(projectRoot: string): ProjectConfig {
 }
 
 /**
- * Narrows a validated full-config document to the project-config slice this
- * loader returns. Keys are derived from `ProjectConfigSchema`'s own shape
- * rather than a hand-maintained list, so the projection cannot drift from the
- * schema the way the validation path did.
+ * Narrows a validated full-config document to the project-config slice.
+ * The keys come from the shape of `ProjectConfigSchema`, so the slice cannot drift from the schema.
  */
 function projectSliceOf(full: Record<string, unknown>): ProjectConfig {
   const slice: Record<string, unknown> = {};
@@ -81,10 +64,7 @@ function projectSliceOf(full: Record<string, unknown>): ProjectConfig {
   return slice as ProjectConfig;
 }
 
-/**
- * Attempts to parse each top-level section independently, returning
- * only the sections that pass validation.
- */
+/** Validates each top-level section alone against `ProjectConfigSchema` and returns the sections that pass. */
 function parseSections(parsed: unknown): ProjectConfig {
   if (typeof parsed !== 'object' || parsed === null) return {};
 
@@ -93,7 +73,6 @@ function parseSections(parsed: unknown): ProjectConfig {
 
   for (const key of SECTION_KEYS) {
     if (key in raw) {
-      // Try parsing just this section within a valid ProjectConfig shape
       const sectionResult = ProjectConfigSchema.safeParse({ [key]: raw[key] });
       if (sectionResult.success) {
         partial[key] = sectionResult.data[key];
@@ -103,8 +82,6 @@ function parseSections(parsed: unknown): ProjectConfig {
 
   return partial as ProjectConfig;
 }
-
-// ─── Discover Project Root ──────────────────────────────────────────────────
 
 /**
  * Discovers the project root directory using the following precedence:
@@ -117,12 +94,10 @@ function parseSections(parsed: unknown): ProjectConfig {
 export function discoverProjectRoot(cwd?: string): string {
   const startDir = cwd ?? process.cwd();
 
-  // 1. Environment variable takes precedence
   if (process.env.EXARCHOS_PROJECT_ROOT) {
     return process.env.EXARCHOS_PROJECT_ROOT;
   }
 
-  // 2. Walk up looking for config file
   let dir = startDir;
   while (true) {
     for (const filename of YAML_FILENAMES) {
@@ -133,7 +108,6 @@ export function discoverProjectRoot(cwd?: string): string {
     dir = parent;
   }
 
-  // 3. Git root
   try {
     return execSync('git rev-parse --show-toplevel', {
       cwd: startDir,
@@ -141,9 +115,7 @@ export function discoverProjectRoot(cwd?: string): string {
       stdio: ['pipe', 'pipe', 'pipe'],
     }).trim();
   } catch {
-    // Not a git repo — fall through
   }
 
-  // 4. CWD fallback
   return startDir;
 }

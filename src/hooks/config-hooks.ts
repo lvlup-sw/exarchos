@@ -1,8 +1,6 @@
 import { spawn } from 'child_process';
 import type { ResolvedProjectConfig } from '../config/resolve.js';
 
-// ─── Types ───────────────────────────────────────────────────────────────────
-
 export interface WorkflowEvent {
   readonly type: string;
   readonly data: Record<string, unknown>;
@@ -12,33 +10,21 @@ export interface WorkflowEvent {
 
 export type ConfigHookRunner = (event: WorkflowEvent) => Promise<void>;
 
-// ─── Factory ─────────────────────────────────────────────────────────────────
-
 /**
- * Creates a fire-and-forget hook runner bound to the resolved project config.
+ * Creates a fire-and-forget hook runner for the resolved project config. For
+ * each hook in `config.hooks.on[event.type]`, it runs the command with `sh -c`
+ * and writes the event JSON to stdin. It ignores every hook error, so that a
+ * hook cannot block a workflow operation.
  *
- * When an event is fired, the runner looks up matching hooks in
- * `config.hooks.on[event.type]` and spawns each configured command via
- * `sh -c`. The event JSON is written to each process's stdin. Hook
- * failures are silently swallowed so they never block workflow operations.
- *
- * Environment variables injected into each hook process:
- * - EXARCHOS_FEATURE_ID  — the feature stream being operated on
- * - EXARCHOS_PHASE       — current workflow phase (from event.data.phase)
- * - EXARCHOS_EVENT_TYPE  — the event type string
- * - EXARCHOS_WORKFLOW_TYPE — workflow type (from event.data.workflowType)
- *
- * Set EXARCHOS_SKIP_HOOKS=true to disable all hook execution (useful in tests).
- *
- * Integration point: call the returned runner after EventStore.append() in
- * orchestrate handlers to fire hooks on workflow events. Do NOT modify
- * EventStore.append() itself — hooks are an external concern.
+ * Each hook gets `EXARCHOS_FEATURE_ID`, `EXARCHOS_PHASE`, `EXARCHOS_EVENT_TYPE`
+ * and `EXARCHOS_WORKFLOW_TYPE`. `EXARCHOS_SKIP_HOOKS=true` turns off all hooks.
+ * The event tool calls the runner after a successful append. Hooks are external,
+ * so `EventStore.append()` must not call the runner.
  */
 export function createConfigHookRunner(
   config: ResolvedProjectConfig,
 ): ConfigHookRunner {
   return async (event: WorkflowEvent): Promise<void> => {
-    // Skip hooks when env var is set (test/CI environments)
     if (process.env.EXARCHOS_SKIP_HOOKS === 'true') return;
 
     const handlers = config.hooks.on[event.type];
@@ -61,17 +47,13 @@ export function createConfigHookRunner(
         });
 
         proc.stdin.on('error', () => {
-          // Prevent unhandled error events on stdin
         });
         proc.stdin.write(JSON.stringify(event));
         proc.stdin.end();
 
-        // Fire-and-forget — attach error handler to prevent unhandled exceptions
         proc.on('error', () => {
-          // Silently ignore hook errors — hooks must never block workflow
         });
       } catch {
-        // Silently ignore spawn errors — hooks must never block workflow
       }
     }
   };

@@ -1,29 +1,18 @@
-// ─── Quote-aware command tokenizer ───────────────────────────────────────────
-//
-// Splits a command string into argv-style tokens, honoring single quotes,
-// double quotes, and backslash escapes.
-//
-// Used by the orchestrate handlers that take resolver output and feed it to
-// `execFileSync`. With #1199 the resolver can return commands sourced from
-// `.exarchos.yml` or CLI overrides — these may contain quoted arguments
-// (e.g., `pytest -k "slow api"`) that a naive whitespace split would
-// mangle. Detection-sourced commands are simple enough to tokenize either
-// way; the cost of using this for both is negligible.
-//
-// Intentionally NOT a full POSIX shell parser:
-//   * No variable expansion ($FOO, ${FOO}).
-//   * No command substitution, redirects, or piping.
-//   * No globbing.
-// The resolver's SAFE_COMMAND_PATTERN already rejects shell metacharacters,
-// so commands fed to this tokenizer cannot legitimately contain those
-// constructs anyway.
-// ──────────────────────────────────────────────────────────────────────────────
+/**
+ * Quote-aware command tokenizer for the handlers that pass resolver commands to
+ * `execFileSync`. A command from `.exarchos.yml` or a CLI override can hold quoted
+ * arguments, such as `pytest -k "slow api"`, that a whitespace split breaks.
+ *
+ * It is not a POSIX shell parser: it does no variable expansion, command
+ * substitution, redirects, pipes, or globs. `SAFE_COMMAND_PATTERN` in the resolver
+ * rejects shell metacharacters before a command gets here.
+ */
 
 /**
- * Tokenize a command string into argv-style tokens.
- *
- * Honors single quotes, double quotes, and backslash escapes. Whitespace
- * outside quotes separates tokens. Empty tokens are dropped.
+ * Splits a command string into argv-style tokens. It honors single quotes, double
+ * quotes, and backslash escapes. A backslash outside single quotes escapes the next
+ * character. Whitespace outside quotes separates tokens. A run of whitespace gives
+ * no empty token, but a quoted empty string is an empty token.
  *
  * Examples:
  *   tokenizeCommand('pytest -k "slow api"')      → ['pytest', '-k', 'slow api']
@@ -43,7 +32,6 @@ export function tokenizeCommand(input: string): readonly string[] {
     const ch = input[i] ?? '';
 
     if (ch === '\\' && !inSingle) {
-      // Backslash escapes the next character outside single quotes.
       if (i + 1 >= input.length) {
         throw new Error(`tokenizeCommand: trailing backslash in: ${input}`);
       }

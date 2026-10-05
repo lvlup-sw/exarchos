@@ -1,9 +1,6 @@
 /**
- * Event-to-notification content formatter.
- *
- * Converts workflow events into Channel notification payloads with
- * human-readable content and structured meta attributes.
- * Meta keys conform to Channel spec: `[a-zA-Z0-9_]` only.
+ * Converts workflow events into Channel notification payloads.
+ * Meta keys use only the characters `[a-zA-Z0-9_]`, as the Channel spec requires.
  */
 
 import type { NotificationPriority } from '../../events/channel/priority.js';
@@ -40,19 +37,21 @@ export function formatNotification(
   return { content, meta };
 }
 
+/**
+ * Appends `data.error ?? data.reason` to the `[streamId] type` prefix when that value is a string.
+ * Otherwise it appends `data.summary ?? data.message` when that value is a string.
+ */
 function buildContent(
   event: EventLike,
   data: Record<string, unknown>,
 ): string {
   const prefix = `[${event.streamId}] ${event.type}`;
 
-  // Error/failure events: include the error reason
   const error = data.error ?? data.reason;
   if (typeof error === 'string') {
     return `${prefix}: ${error}`;
   }
 
-  // Success events with summary
   const summary = data.summary ?? data.message;
   if (typeof summary === 'string') {
     return `${prefix}: ${summary}`;

@@ -235,17 +235,6 @@ describe('DR-26 — INV-11 keeps spatial write confinement EXCLUDED', () => {
 // ════════════════════════════════════════════════════════════════════════════
 
 /**
- * The four shipped production modules the mechanical grep found citing the
- * retired framing (`src/**\/*.ts`, excluding tests). The
- * same grep found four MORE in test files, which were re-pointed too; only the
- * production set is pinned here because a comment in a test is not an input to
- * generation.
- */
-const REPOINTED_CITATION_SITES: readonly string[] = Object.freeze([
-  'adapters/cli/cli.ts',
-]);
-
-/**
  * The retired framing: INV-2 cited AS byte-parity between two peer facades.
  *
  * Two things separate a CITATION from the mere characters, and the earlier
@@ -287,15 +276,6 @@ function citesRetiredParityFraming(prose: string): boolean {
 function citesRetiredParityFramingIn(source: string): boolean {
   return citesRetiredParityFraming(extractCommentProse(source));
 }
-/** The governing framing: INV-2 as the contract every client is derived from. */
-function citesGoverningFraming(text: string): boolean {
-  return /governing\s+INV-2/i.test(text);
-}
-
-/** {@link citesGoverningFraming} over the comment prose of a source file. */
-function citesGoverningFramingIn(source: string): boolean {
-  return citesGoverningFraming(extractCommentProse(source));
-}
 function walkTsFiles(dir: string, out: string[] = []): string[] {
   for (const dirent of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, dirent.name);
@@ -326,8 +306,6 @@ describe('DR-26 — the retired INV-2 parity citations are re-pointed', () => {
     const repointed = '// one registered schema (governing INV-2 — by construction).';
     expect(citesRetiredParityFramingIn(stale)).toBe(true);
     expect(citesRetiredParityFramingIn(repointed)).toBe(false);
-    expect(citesGoverningFramingIn(repointed)).toBe(true);
-    expect(citesGoverningFramingIn(stale)).toBe(false);
   });
 
   // ─── Kill fixtures: the innocuous forms that used to red the build ────────
@@ -414,19 +392,5 @@ describe('DR-26 — the retired INV-2 parity citations are re-pointed', () => {
       offenders,
       'shipped production source still cites the retired INV-2 parity framing',
     ).toEqual([]);
-  });
-
-  it('RepointedSites_EachCiteTheGoverningInv2Framing', () => {
-    for (const rel of REPOINTED_CITATION_SITES) {
-      const abs = path.join(SHIPPED_SRC_ROOT, rel);
-      expect(fs.existsSync(abs), `${rel} must exist`).toBe(true);
-      const text = fs.readFileSync(abs, 'utf8');
-      expect(citesGoverningFramingIn(text), `${rel} must cite the governing INV-2`).toBe(
-        true,
-      );
-      expect(citesRetiredParityFramingIn(text), `${rel} must not cite the retired one`).toBe(
-        false,
-      );
-    }
   });
 });

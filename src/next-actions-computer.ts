@@ -1,3 +1,8 @@
+/**
+ * Computes the next-action envelopes of a workflow state from the HSM topology and the admission
+ * verdicts. A branch on safety semantics must read `annotations.safety` from the registry through
+ * `findActionInRegistry`. Do not copy the safety enum into this module.
+ */
 import { NextAction, RegistryAdvertisement, isControlOwnedVerb } from './next-action.js';
 import { getFullRegistry } from './registry.js';
 import type { HSMDefinition } from './workflow/state-machine.js';
@@ -10,32 +15,10 @@ import {
   type OutboundEdgeVerdict,
 } from './workflow/admission/legacy-state-translation.js';
 
-// Wave 0 / Task D.8 — safety-semantics consumer contract.
-//
-// Design §2.4 commits that `annotations.safety` is consumed here and by
-// HSM guards. At D.8 implementation time the current logic is purely
-// HSM-topology driven (no in-handler prose infers safety semantics), so
-// no read is needed today. The smoke test
-// `D.8 — annotations.safety is queryable from registry` in
-// `next-actions-computer.test.ts` pins the contract for future
-// consumers: any branch on safety semantics MUST read
-// `findActionInRegistry(toolName, actionName)?.annotations.safety`
-// from `./registry.js` — the registry is the single source of truth
-// (DIM-1 Topology). Do NOT hand-code the safety enum or duplicate
-// the §2.4 table in handler prose.
-
 /**
- * Subset of workflow state inspected by {@link computeNextActions}.
- *
- * Most fields are optional because callers — especially callers that only
- * have a partial / projected view of state — should not be forced to
- * synthesize values they don't have. Missing fields simply mean the
- * corresponding action verb won't be surfaced.
- *
- * T18 / DR-MO-1 added `featureId` and `mergeOrchestrator` so the computer
- * can emit a `merge_orchestrate` verb (with idempotency key) when the
- * workflow is parked in `merge-pending` and the merge orchestrator hasn't
- * already terminated.
+ * The subset of workflow state that {@link computeNextActions} reads. Most fields are optional, so
+ * a caller with a partial view does not invent values. A missing field means that the related verb
+ * does not surface.
  */
 export interface NextActionsState {
   phase?: string | undefined;
@@ -43,45 +26,28 @@ export interface NextActionsState {
   /** Stream identifier — used as the `streamId` segment of merge idempotency keys. */
   featureId?: string | undefined;
   /**
-   * The feature's frozen planning depth (DR-7, #1581 task 018). When `'deep'`
-   * and the current phase is a PLAN-kind authoring phase, the deep-rung
-   * divergent-loop and discover-bridge affordances are surfaced on
-   * `next_actions` (INV-12) — opt-in escalations the author may invoke; they
-   * are never auto-run. Absent / `'thin'` / `'standard'` ⇒ not surfaced.
+   * The frozen planning depth of the feature. When it is `'deep'` and the phase is a PLAN-kind
+   * authoring phase, `next_actions` offers the opt-in `divergent_loop` affordance. The affordance
+   * never runs automatically.
    */
   designDepth?: DesignDepth;
   mergeOrchestrator?: {
     /**
-     * Sub-state of the merge orchestrator. `pending` means the merge has
-     * not yet been executed; values in {@link EXCLUDED_MERGE_PHASES}
-     * (`completed`, `rolled-back`, `aborted`) mean it has terminated and
-     * should not be re-triggered. Any other value is treated as
-     * "not-yet-terminated" — i.e., still actionable.
+     * Sub-state of the merge orchestrator. `pending` means that the merge did not run yet. A value
+     * in {@link EXCLUDED_MERGE_PHASES} means that the merge terminated and must not run again. Any
+     * other value is still actionable.
      */
     phase?: string;
     /**
-     * Identifier of the delegated task whose merge is pending. Surfaced as
-     * the trailing segment of the merge idempotency key so re-invocations
-     * for the same task collapse.
+     * The delegated task whose merge is pending. It is the last segment of the merge idempotency
+     * key, so repeated calls for the same task collapse.
      */
     taskId?: string;
   } | undefined;
   /**
-   * DR-9 (T-13) — the admission-fact carrier.
-   *
-   * Before this field existed the seam was too narrow for the fix to be
-   * possible at all: `NextActionsState` carried only `phase`, `workflowType`,
-   * `featureId`, `designDepth` and `mergeOrchestrator`, deliberately omitting
-   * `artifacts` / `reviews` / `tasks` / `_cleanup` — i.e. exactly what every
-   * guard and every admission obligation reads. So the computer had nothing to
-   * decide with and fell back to `t.guard.description` prose.
-   *
-   * Supplying this widens the seam without breaking purity: the facts are
-   * PASSED IN, never fetched. When present, {@link computeNextActions} asks the
-   * admission projection for a per-edge verdict and omits any verb admission
-   * would deny. When absent, the computer keeps its pre-DR-9 topology-only
-   * behaviour — an affordance list is advisory, and a caller that supplies no
-   * facts must not have its affordances silently emptied.
+   * The admission facts. The caller passes them in, so the computer stays pure. When they are
+   * present, {@link computeNextActions} drops each verb that admission denies. When they are
+   * absent, the computer uses topology only, so a caller with no facts keeps its affordances.
    */
   admission?: AdmissionFacts | undefined;
   /**
@@ -93,41 +59,34 @@ export interface NextActionsState {
 }
 
 /**
- * The legacy-state slice + trusted instant the admission projection needs to
- * decide an edge. Deliberately opaque (`Record<string, unknown>`): the closed
- * fact vocabulary and every state-shape read live in
- * `workflow/admission/legacy-state-translation.ts`, which is the single
- * authority for projecting legacy state into admission facts. Re-declaring the
- * shape here would create a second, driftable copy of that vocabulary.
+ * The legacy-state slice and the trusted instant that the admission projection needs to decide an
+ * edge. The state is opaque, because `workflow/admission/legacy-state-translation.ts` owns the fact
+ * vocabulary. A second shape here can drift from it.
  */
 export interface AdmissionFacts {
   /** The legacy workflow state the admission projection reads its facts from. */
   readonly state: Readonly<Record<string, unknown>>;
   /**
-   * Trusted RFC3339 evaluation instant — never `Date.now()`. Callers thread the
-   * state's own `updatedAt` through, which keeps the computer deterministic:
-   * the same state always yields the same affordances.
+   * Trusted RFC3339 evaluation instant, never `Date.now()`. Callers pass the `updatedAt` of the
+   * state, so the same state always gives the same affordances.
    */
   readonly evaluatedAt: string;
   /**
-   * Whether `state` still carries its event log (`_events`). Defaults to
-   * `false`, the fail-safe direction — see
-   * {@link adjudicateOutboundEdges}: edges whose decision needs the log are
-   * reported undecidable and keep being advertised rather than being
-   * suppressed on facts the caller never supplied.
+   * True when `state` still carries its event log (`_events`). The default is `false`, the safe
+   * direction: {@link adjudicateOutboundEdges} reports log-decided edges as undecidable and keeps
+   * them.
    */
   readonly eventLogAvailable?: boolean;
 }
 
 /**
- * Trusted ActionId-admission inputs for the registry advertisement envelope.
+ * Trusted ActionId-admission inputs for the registry advertisement envelope: the subject, the
+ * persisted evidence, the authorization and the HSM facts. Wall-clock time and the request payload
+ * are not members. Without this carrier, the computer publishes no registry ActionIds.
  *
- * Feature/stream subject, persisted evidence, authorization, and HSM facts
- * only. Wall-clock and request payload are not members. When this carrier
- * is absent the computer publishes no registry ActionIds — topology alone
- * is not an advertisement authority. The named exception is
- * `merge_orchestrate` on the control envelope, which may still surface
- * from recorded merge-pending topology when this carrier is absent.
+ * The exception is `merge_orchestrate` on the control envelope. It is a capability-gated registry
+ * action, and a rehydrate snapshot often has no authorization. Thus the control envelope still
+ * surfaces it from recorded merge-pending topology.
  */
 export interface ActionAdmissionFacts {
   readonly subject: { readonly featureId: string; readonly stream: string };
@@ -135,28 +94,23 @@ export interface ActionAdmissionFacts {
   readonly authorization?: unknown;
   readonly hsmFacts?: { readonly phase: string; readonly phaseAttemptId?: string };
   /**
-   * Optional ActionId subset. When omitted, every contracted, phase-eligible
-   * registry action is considered. Control-owned verbs and phase names are
-   * never candidates.
+   * Optional ActionId subset. When it is absent, the computer considers each contracted,
+   * phase-eligible registry action. Control-owned verbs are never candidates.
    */
   readonly actionIds?: readonly string[];
 }
 
-/** Hint attached to a published verb whose admission verdict was not `allow`. */
+/** Hint for a published verb whose admission verdict is `indeterminate`. */
 const ADMISSION_INDETERMINATE_HINT =
   'admission: indeterminate — the transition guard may still deny this move';
+/** Hint for a published verb whose edge the event log decides. */
 const ADMISSION_UNDECIDABLE_HINT =
   'admission: undecidable — this edge is decided from the workflow event log, which this payload does not carry';
 
 /**
- * DR-9 — ask the admission projection for a verdict per outbound edge.
- *
- * Returns `null` when the caller supplied no admission facts (topology-only
- * mode) or when adjudication is impossible, in which case the computer keeps
- * its pre-DR-9 behaviour. Adjudication faults fail OPEN for affordances: a
- * malformed `evaluatedAt` or an IR/state shape the translation rejects must
- * degrade to "advertise everything the topology allows", never to a silently
- * empty affordance list that would strand the caller.
+ * Asks the admission projection for a verdict on each outbound edge. Returns `null` when the
+ * state has no admission facts or no workflow type, or when adjudication throws. The computer then
+ * uses topology only. A fault fails open, so a bad `evaluatedAt` does not empty the affordance list.
  */
 function admissionVerdicts(
   state: NextActionsState,
@@ -179,31 +133,16 @@ function admissionVerdicts(
 }
 
 /**
- * Pure function: compute the set of valid next actions for a workflow state
- * given the HSM topology. Used to populate the `next_actions` field of
- * HATEOAS rehydration envelopes (DR-8).
+ * Pure function: computes the next actions of a workflow state from the HSM topology. Each
+ * outbound transition gives one `NextAction`, with the target phase as the verb and the guard
+ * description as the reason. An unknown, missing or final phase gives `[]`.
  *
- * Reads outbound transitions from the HSM for the current phase and emits
- * one `NextAction` per transition. Each returned action describes the verb
- * (target phase name — what the caller should transition to) and the reason
- * (the guard description, if any).
- *
- * T18 / DR-MO-1: when the workflow is parked in the `merge-pending`
- * substate and the merge orchestrator has not already terminated, an
- * additional `merge_orchestrate` action verb (carrying an idempotency key)
- * is appended so callers can auto-trigger the subagent worktree merge.
- * Unlike the HSM-derived verbs above, `merge_orchestrate` is an
- * *action* verb, not a phase name.
- *
- * DR-9 (T-13): when `state.admission` carries the fact slice, each HSM-derived
- * verb is checked against the ADMISSION verdict for that edge and dropped when
- * admission would deny it — the runtime no longer advertises moves the
- * transition guard will refuse. Topology and admission remain two distinct
- * authorities: the topology decides which edges EXIST, admission decides which
- * are currently TAKEABLE, and `next-actions-computer.test.ts` cross-checks the
- * published set against the admission verdict computed independently.
- *
- * No I/O, no side effects. Returns `[]` for unknown/missing phase.
+ * - With admission facts, it drops each edge that admission denies and adds a hint to a verdict
+ *   other than `allow`. An edge with no verdict publishes as normal.
+ * - In `merge-pending`, it adds `merge_orchestrate` until the merge orchestrator terminates. The
+ *   idempotency key needs a real `taskId` and `featureId`, so unrelated calls do not share a key.
+ * - At the `deep` rung in a PLAN-kind phase that is not a `-review` phase, it adds `divergent_loop`.
+ * - It validates each action against the `NextAction` schema and throws on drift.
  */
 export function computeNextActions(
   state: NextActionsState,
@@ -225,9 +164,6 @@ export function computeNextActions(
     if (seen.has(t.to)) continue;
     seen.add(t.to);
 
-    // DR-9: an edge admission would DENY is not an affordance. An edge with no
-    // shared-IR entry yields `undefined` — no admission opinion, so the verb is
-    // published exactly as before.
     const verdict = verdicts?.get(t.to);
     if (verdict?.verdict === 'deny') continue;
 
@@ -248,8 +184,6 @@ export function computeNextActions(
         : {}),
     };
 
-    // Defensive: validate every produced NextAction against the Zod schema
-    // so we fail loud on shape drift rather than shipping malformed envelopes.
     const parsed = NextAction.safeParse(candidate);
     if (!parsed.success) {
       throw new Error(
@@ -259,18 +193,10 @@ export function computeNextActions(
     actions.push(parsed.data);
   }
 
-  // Merge-pending still publishes `merge_orchestrate` from recorded
-  // topology. The ActionId is also a registry action, but it is
-  // capability-gated; a rehydrate snapshot often has facts and no
-  // authorization, which omits it from the registry envelope. Topology
-  // keeps the operator affordance visible in that case.
   if (phase === 'merge-pending') {
     const moPhase = state.mergeOrchestrator?.phase;
     const terminated = moPhase !== undefined && EXCLUDED_MERGE_PHASES.has(moPhase);
     if (!terminated) {
-      // Only surface an idempotency key when both segments are real. An
-      // `'unknown'` fallback would collapse unrelated invocations onto the
-      // same key, defeating de-duplication.
       const taskId = state.mergeOrchestrator?.taskId;
       const streamId = state.featureId;
       const candidate: NextAction = {
@@ -291,14 +217,6 @@ export function computeNextActions(
     }
   }
 
-  // DR-7 (#1581 task 018): at the `deep` planning rung, surface the opt-in
-  // divergent-loop + discover-bridge affordances during PLAN authoring. Gated
-  // on the phase's KIND (PLAN), not its name (INV-6), and excludes the *-review
-  // gate phases (the bridge is an authoring escalation, not a review action).
-  // These are affordances the author MAY invoke — INV-12 publishes them via
-  // next_actions; they never auto-run (the discover_bridge handler is
-  // confirm-gated). Other workflow types never freeze `designDepth`, so the
-  // block is inert outside the feature PLAN-authoring path.
   const currentKind = (currentState as { kind?: string }).kind;
   if (state.designDepth === 'deep' && currentKind === 'PLAN' && !phase.endsWith('-review')) {
     const deepAffordances: ReadonlyArray<{ verb: string; reason: string }> = [
@@ -337,10 +255,9 @@ function registryActionId(toolName: string, actionName: string): string {
 }
 
 /**
- * The two next-action envelopes: HSM/control verbs and allow-only registry
- * ActionIds. They are computed together so callers cannot accidentally
- * publish one without applying the other's rule, but they stay distinct
- * arrays — phase and control verbs never become ActionIds.
+ * The two next-action envelopes: HSM control verbs and allow-only registry ActionIds. One call
+ * computes both, so a caller cannot publish one without the rule of the other. Phase and control
+ * verbs never become ActionIds.
  */
 export interface NextActionEnvelopes {
   readonly control: readonly NextAction[];
@@ -358,12 +275,9 @@ export function computeNextActionEnvelopes(
 }
 
 /**
- * Publish registry ActionIds that the shared ActionId evaluator allows.
- *
- * Denied, indeterminate, and evaluation faults are omitted. Missing
- * authorization omits capability-gated ActionIds rather than treating
- * the gap as allow. Host-owned actions may appear when those local
- * checks pass. Topology without this carrier publishes nothing.
+ * Publishes the registry ActionIds that the shared ActionId evaluator allows. A denied or
+ * indeterminate verdict and an evaluation fault give no ActionId. Missing authorization omits each
+ * capability-gated ActionId. Without `actionAdmission`, the function publishes nothing.
  */
 export function computeRegistryAdvertisements(
   state: NextActionsState,
@@ -422,7 +336,6 @@ export function computeRegistryAdvertisements(
         if (!parsed.success) continue;
         advertised.push(parsed.data);
       } catch {
-        // An evaluation fault is not an allow and is not a topology fallback.
       }
     }
   }
