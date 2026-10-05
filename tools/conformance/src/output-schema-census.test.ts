@@ -1,26 +1,13 @@
-// DR-4 (task 016): `outputSchema` vacuity census over the tool registry.
+// `outputSchema` vacuity census over the tool registry. `outputSchema` records presence, not
+// substance: an action can attach a schema that accepts every payload.
 //
-// The census exists because `outputSchema` records presence, not substance:
-// nearly every registered action attaches `EnvelopeSchema(z.unknown())`, which
-// is total over every payload shape including the wrong ones. These tests pin
-// four things the census must never lose:
+// These tests pin four facts. The counts derive from the enumerated subject. An empty subject is a
+// failure. A schema that pins a real `data` shape is substantive. A vacuous schema stays vacuous
+// behind a named binding.
 //
-//   1. the counts are DERIVED from the enumerated subject, never literals;
-//   2. an EMPTY subject is a FAILURE, not a clean run (the non-empty-denominator
-//      guard — without it, a lost registry reads green);
-//   3. a schema that pins a real `data` shape is classified substantive;
-//   4. a vacuous schema stays vacuous even when a named binding hides the
-//      literal `EnvelopeSchema(z.unknown())` text from a source grep.
-//
-// TWO AUTHORITIES. The expected classification is never read back out of the
-// census. It is derived independently from the DECLARATION FORM in the
-// `registry.ts` SOURCE TEXT — which spelling each action wrote — and compared
-// against the census's verdict, which is computed by walking the Zod schema
-// OBJECTS the registry constructs at import time. The two reads are independent
-// by construction: source text cannot see through a named binding, and the
-// object walk cannot see syntax. Where they disagree is exactly the finding
-// this census was built to expose, and that disagreement is pinned below rather
-// than smoothed over.
+// Two authorities. The expected classification comes from the declaration form in the registry
+// source text. The census verdict comes from a walk of the Zod schema objects. Source text cannot
+// see through a named binding, and the object walk cannot see syntax.
 //
 // @oracle-sources: ../../../src/registry.ts, the Zod schema objects the live tool registry constructs at module-import time and the census walks structurally
 import { describe, it, expect } from 'vitest';
@@ -43,43 +30,11 @@ import { acceptsEveryValue } from '../../../src/contract/schemas/schema-totality
 import { TOOL_REGISTRY } from '../../../src/registry.js';
 import { EnvelopeSchema } from '../../../src/contract/schemas/envelope.js';
 
-// ─── Authority A — the declaration form, read from registry source text ──────
-//
-// A declaration site is an `outputSchema:` property assignment inside an object
-// literal, paired with the `name:` of the same literal. Both halves are read
-// from the syntax tree rather than from line shape.
-//
-// The scan used to key off a four-space indent and the nearest preceding
-// `name:` line. Both are properties of how the declarations happen to be
-// FORMATTED, and neither survived the action descriptors gaining a wrapper: 46
-// of 120 sites moved to a six-space indent and became invisible, taking the
-// waiver count from 107 to 66 with nothing red — the count simply reported the
-// part of the tree the regex could still see. Reading the tree costs a parse
-// and removes the whole class. The exclusion the indent was buying comes for
-// free and for the right reason: the `ToolAction.outputSchema` interface field
-// is a property SIGNATURE, not an assignment in an object literal.
-//
-// DR-4 task 055 changed the SPELLING this authority reads, not what it means.
-// Vacuity is now unconstructible: `ToolAction.outputSchema` takes a branded
-// schema, so the 109 sites that wrote `EnvelopeSchema(z.unknown())` literally
-// now route through `vacuityWaiver('<id>')` and the 10 typed ones still spell
-// `withCappedShape(...)`. The two declarations that reach vacuity through a
-// NAMED BINDING pass it as the waiver's second argument, so the source form
-// still distinguishes them — which is what keeps the "aliased vacuity" finding
-// auditable from the source side rather than only from the object walk.
-
 /**
- * The declaration surface. A DIRECTORY, because the declarations are split
- * into a module per action family: reading a single path would enumerate a
- * fraction of the authority and the census would report a clean count of the
- * part it happened to see. `OutputSchemaCensus_ZeroDeclarationsEnumerated_
- * FailsClosed` asserts the denominator, so a TOTAL loss is caught — naming the
- * directory is what also catches a partial one.
- *
- * The whole `registry/` tree, not just `actions/`: the three shared `describe`
- * actions are minted by factories that sit beside the action lists rather than
- * inside them, and scoping to `actions/` alone silently lost exactly those
- * three sites — 107 enumerated against 110 walked.
+ * The declaration surface: the whole `registry/` tree. The declarations sit in a module for each
+ * action family, so a single path reads only part of the authority. The shared `describe` actions
+ * come from factories beside the action lists, so a scan of `actions/` alone misses them.
+ * `OutputSchemaCensus_ZeroDeclarationsEnumerated_FailsClosed` catches a total loss.
  */
 const REGISTRY_DIR = fromSubjectSrc('registry');
 
@@ -97,9 +52,9 @@ function readRegistryActionSources(dir = REGISTRY_DIR): string {
 interface DeclarationSite {
   /** Action name this `outputSchema:` belongs to. */
   readonly action: string;
-  /** Right-hand side, whitespace-collapsed, e.g. `EnvelopeSchema(z.unknown())`. */
+  /** Right-hand side, whitespace-collapsed, for example `EnvelopeSchema(z.unknown())`. */
   readonly rhs: string;
-  /** Callee when the RHS is a direct call, e.g. `vacuityWaiver`. */
+  /** Callee when the RHS is a direct call, for example `vacuityWaiver`. */
   readonly callee: string | undefined;
   /** Argument count of that call. Distinguishes a waiver carrying a named binding. */
   readonly argCount: number;
@@ -112,13 +67,19 @@ function memberName(name: ts.PropertyName): string | undefined {
   return undefined;
 }
 
+/**
+ * Authority A: the declaration sites, read from the syntax tree of the registry source. A site is
+ * an `outputSchema:` property assignment in an object literal, paired with the `name:` of the same
+ * literal. The read does not depend on indent or line shape. The `ToolAction.outputSchema`
+ * interface field is a property signature, not an assignment, so the read excludes it.
+ */
 function readDeclarationSites(): readonly DeclarationSite[] {
   const source = readRegistryActionSources();
   const sourceFile = ts.createSourceFile(
     'registry-tree.ts',
     source,
     ts.ScriptTarget.Latest,
-    /* setParentNodes */ true,
+    true,
   );
   const sites: DeclarationSite[] = [];
   const visit = (node: ts.Node): void => {
@@ -153,31 +114,26 @@ function readDeclarationSites(): readonly DeclarationSite[] {
   return sites;
 }
 
-/** The pre-DR-4 spelling of vacuity. No declaration site may use it any more. */
+/** The literal spelling of vacuity. It does not typecheck at a declaration site. */
 const LITERAL_VACUOUS_RHS = 'EnvelopeSchema(z.unknown())';
 /** The sole substantive constructor. */
 const isCappedShapeRhs = (site: DeclarationSite): boolean => site.callee === 'withCappedShape';
 /** The allowlist escape — vacuity, declared against an owned, expiring entry. */
 const isWaiverRhs = (site: DeclarationSite): boolean => site.callee === 'vacuityWaiver';
 /**
- * A waiver carrying an explicit schema argument: vacuity reached through a
- * NAMED BINDING rather than the default envelope. These are the declarations a
- * source-text detector would score as typed if it only looked for the literal
- * vacuous expression.
+ * A waiver with an explicit schema argument: vacuity through a named binding, not the default
+ * envelope. A source-text detector that looks only for the literal vacuous expression scores
+ * these as typed.
  */
 const isNamedBindingRhs = (site: DeclarationSite): boolean =>
   isWaiverRhs(site) && site.argCount >= 2;
 
-// ─── Synthetic registry fixtures ─────────────────────────────────────────────
-//
-// The census takes `tools` as an injected seam (the `description-budget.ts`
-// idiom), so composition can be varied without touching the live registry. The
-// seam is `CensusableTool`, NOT `CompositeTool`: since DR-4 task 055 narrowed
-// `ToolAction.outputSchema` to a branded type, a seam typed `CompositeTool`
-// would refuse the raw `z.ZodType` subjects below — and refusing them is
-// exactly wrong for a detector whose job is to classify vacuity that arrived
-// WITHOUT going through the blessed constructors.
-
+/**
+ * Builds a synthetic action for the injected `tools` seam. The seam is `CensusableTool`, not
+ * `CompositeTool`, because `ToolAction.outputSchema` takes a branded type. The census must accept
+ * the raw `z.ZodType` subjects below, because it classifies vacuity that skipped the blessed
+ * constructors.
+ */
 function action(name: string, outputSchema: z.ZodType): CensusableAction {
   return { name, outputSchema };
 }
@@ -200,11 +156,13 @@ const WRAPPED_VACUOUS_ENVELOPE = EnvelopeSchema(z.unknown()).and(
 );
 
 describe('DR-4: outputSchema vacuity census', () => {
+  /**
+   * The counts must move with the enumerated subject across distinct compositions, and equal the
+   * partition sizes, so no third bucket hides a declaration. A constant-returning implementation
+   * gives one value for every composition. On the live registry, the denominator is the
+   * enumerated action count.
+   */
   it('OutputSchemaCensus_VacuousDeclarations_AreDerivedNotLiteral', () => {
-    // A census whose numbers are literals reports the same figure regardless of
-    // what it enumerated. The proof of derivation is that the counts MOVE, in
-    // lockstep, when the enumerated subject changes — across several distinct
-    // compositions, none of which matches the live registry's numbers.
     const compositions: ReadonlyArray<{
       tools: readonly CensusableTool[];
       total: number;
@@ -256,21 +214,15 @@ describe('DR-4: outputSchema vacuity census', () => {
       expect(report.total).toBe(composition.total);
       expect(report.vacuousCount).toBe(composition.vacuous);
       expect(report.substantiveCount).toBe(composition.substantive);
-      // The counts are exactly the partition sizes — no third bucket can hide
-      // declarations from the denominator.
       expect(report.vacuous).toHaveLength(composition.vacuous);
       expect(report.substantive).toHaveLength(composition.substantive);
       expect(report.vacuousCount + report.substantiveCount).toBe(report.total);
       expect(report.records).toHaveLength(composition.total);
     }
 
-    // Distinct compositions must yield distinct counts; a constant-returning
-    // implementation collapses them to one value.
     const measured = compositions.map((c) => censusLiveOutputSchemas(c.tools).vacuousCount);
     expect(new Set(measured).size).toBeGreaterThan(1);
 
-    // The same derivation holds on the live registry: the partition is
-    // exhaustive and the denominator is the enumerated action count.
     const live = censusLiveOutputSchemas();
     const liveActions = TOOL_REGISTRY.reduce((n, t) => n + t.actions.length, 0);
     expect(live.total).toBe(liveActions);
@@ -278,51 +230,44 @@ describe('DR-4: outputSchema vacuity census', () => {
     expect(live.vacuousCount).not.toBe(compositions[0]?.vacuous);
   });
 
+  /**
+   * An empty subject must fail with `EMPTY_CENSUS`, because "0 vacuous" there is the instrument
+   * dying green. Tools with no actions are also an empty subject. One declaration clears the guard.
+   * Both authorities confirm that the live subject is not empty.
+   */
   it('OutputSchemaCensus_ZeroDeclarationsEnumerated_FailsClosed', () => {
-    // The non-empty-denominator guard. A moved module, a broken import, or an
-    // emptied registry all present the census with zero declarations. Reporting
-    // "0 vacuous — clean" there would be the instrument silently dying green,
-    // so an empty subject MUST fail.
     const noTools = censusLiveOutputSchemas([]);
     expect(noTools.total).toBe(0);
     expect(noTools.ok).toBe(false);
     expect(noTools.diagnostics.map((d) => d.code)).toContain('EMPTY_CENSUS');
 
-    // Tools present but declaring no actions is the same empty denominator.
     const emptyTools = censusLiveOutputSchemas([tool('t1', []), tool('t2', [])]);
     expect(emptyTools.total).toBe(0);
     expect(emptyTools.ok).toBe(false);
     expect(emptyTools.diagnostics.map((d) => d.code)).toContain('EMPTY_CENSUS');
 
-    // A single declaration is enough to clear the guard — the tooth bites only
-    // on emptiness, not on smallness.
     const oneDeclaration = censusLiveOutputSchemas([tool('t', [action('a', VACUOUS_ENVELOPE)])]);
     expect(oneDeclaration.total).toBe(1);
     expect(oneDeclaration.ok).toBe(true);
     expect(oneDeclaration.diagnostics).toHaveLength(0);
 
-    // The live registry is a live subject — this is what proves the census has
-    // something real to measure rather than an accidentally-empty one. The
-    // second authority independently confirms the subject is non-empty: the
-    // registry source really does carry declaration sites.
     const live = censusLiveOutputSchemas();
     expect(live.total).toBeGreaterThan(0);
     expect(live.ok).toBe(true);
     expect(readDeclarationSites().length).toBeGreaterThan(0);
   });
 
+  /**
+   * A typed declaration must never land in the vacuous bucket. The actions that the source spells
+   * `withCappedShape(...)` must equal the substantive set of the census. A typed `data` stays
+   * substantive after the capped-shape union. `z.unknown()` and `z.any()` are both vacuous.
+   */
   it('OutputSchemaCensus_TypedDeclarations_ClassifiedSubstantive', () => {
-    // The typed declarations are the migration template every vacuous one is
-    // meant to grow into. They must never be swept into the vacuous bucket.
     expect(classifyOutputSchema(TYPED_ENVELOPE, OUTPUT_SCHEMA_PORTS)).toEqual({
       classification: 'substantive',
       reason: 'typed-data',
     });
 
-    // Cross-authority check. Authority A: every action whose registry SOURCE
-    // spells its declaration `withCappedShape(...)` — the only form on the live
-    // tree that supplies a real `data` shape. Authority B: the census's verdict,
-    // computed from the Zod objects. Neither side is read from the other.
     const cappedFromSource = readDeclarationSites()
       .filter((s) => isCappedShapeRhs(s))
       .map((s) => s.action);
@@ -334,16 +279,11 @@ describe('DR-4: outputSchema vacuity census', () => {
     expect(new Set(substantiveFromCensus)).toEqual(new Set(cappedFromSource));
     expect(substantiveFromCensus).toHaveLength(cappedFromSource.length);
 
-    // A typed `data` survives the capped-shape widening: unioning the summary
-    // fallback into `data` must not read as a return to vacuity.
     const capped = EnvelopeSchema(
       z.union([z.object({ items: z.array(z.string()) }), z.object({ summary: z.string() })]),
     );
     expect(classifyOutputSchema(capped, OUTPUT_SCHEMA_PORTS).classification).toBe('substantive');
 
-    // The counterpart to the template: `z.unknown()` and `z.any()` are the two
-    // structural escape hatches, and BOTH are vacuous. Classifying only the
-    // first would leave a trivially reachable evasion.
     expect(acceptsEveryValue(z.unknown())).toBe(true);
     expect(acceptsEveryValue(z.any())).toBe(true);
     expect(acceptsEveryValue(z.object({ items: z.array(z.string()) }))).toBe(false);
@@ -352,32 +292,23 @@ describe('DR-4: outputSchema vacuity census', () => {
     ).toBe('vacuous');
   });
 
+  /**
+   * A named binding hides the vacuous expression from a grep, but the census reads the schema
+   * object. An intersection that constrains only `_meta` leaves `data` vacuous. Each live
+   * declaration that reaches vacuity through a named binding must count as vacuous. If one becomes
+   * typed, re-derive the reconciled counts in the live-registry test.
+   */
   it('OutputSchemaCensus_AliasedVacuousSchema_CountedVacuous', () => {
-    // The evasion a source-text detector cannot see: bind the vacuous
-    // expression to a name and the grep goes quiet while the contract stays
-    // exactly total over every shape. The census reads the schema object, so
-    // the alias resolves to the same verdict.
     expect(classifyOutputSchema(ALIASED_VACUOUS_ENVELOPE, OUTPUT_SCHEMA_PORTS)).toEqual({
       classification: 'vacuous',
       reason: 'unknown-data',
     });
 
-    // Same for an intersection wrapper: constraining `_meta` adds substance to
-    // a DIFFERENT field. The payload contract is untouched, so `data` is still
-    // vacuous — reported apart so the gap stays auditable.
     expect(classifyOutputSchema(WRAPPED_VACUOUS_ENVELOPE, OUTPUT_SCHEMA_PORTS)).toEqual({
       classification: 'vacuous',
       reason: 'wrapped-unknown-data',
     });
 
-    // THE FINDING, made executable. Authority A enumerates the live
-    // declarations whose source reaches vacuity through a NAMED binding rather
-    // than the plain envelope. A detector that only knew the literal vacuous
-    // expression would score those typed. Authority B walks their schema
-    // objects and finds `data` is still `z.unknown()`. Every one of them must be
-    // counted vacuous; if a future change makes one genuinely typed, this
-    // assertion fails and the reconciled arithmetic below has to be re-derived
-    // rather than quietly drifting.
     const namedBindings = readDeclarationSites().filter((s) => isNamedBindingRhs(s));
     expect(namedBindings.length).toBeGreaterThan(0);
 
@@ -389,10 +320,12 @@ describe('DR-4: outputSchema vacuity census', () => {
     expect(byAction.get('update')?.reason).toBe('unknown-data');
   });
 
+  /**
+   * A shape that the census cannot walk is not evidence of substance. So the census counts an
+   * unreadable envelope as vacuous and raises `UNREADABLE_OUTPUT_SCHEMA`. No live declaration
+   * trips this today.
+   */
   it('OutputSchemaCensus_UnreadableEnvelope_FailsClosed', () => {
-    // A shape the census cannot walk is not evidence of substance. Proving
-    // nothing must not read as proving typedness, so an unreadable envelope is
-    // counted vacuous AND raised — the census reports itself untrustworthy.
     const alien = z.object({ whatever: z.string() });
     expect(classifyOutputSchema(alien, OUTPUT_SCHEMA_PORTS)).toEqual({
       classification: 'vacuous',
@@ -404,16 +337,21 @@ describe('DR-4: outputSchema vacuity census', () => {
     expect(report.vacuousCount).toBe(1);
     expect(report.diagnostics.map((d) => d.code)).toContain('UNREADABLE_OUTPUT_SCHEMA');
 
-    // No live declaration trips this today — the census understands every
-    // envelope shape currently registered.
     expect(countByReason(censusLiveOutputSchemas())['unreadable-envelope']).toBe(0);
   });
 
+  /**
+   * The live counts are measured, and they reconcile against the source-text authority. Every site
+   * is a `vacuityWaiver` or a `withCappedShape`, and two waivers carry a named binding.
+   * `makeDescribeAction()` serves two tools from one site, so the registry builds one extra action.
+   * Vacuous is the waivers plus that extra action. Substantive is the capped sites.
+   *
+   * A paydown moves the split, and a new action moves the denominator. The allowlist is
+   * shrink-only, so a new action can only arrive capped. The paid-down ids are named, because the
+   * sums also balance if a different declaration moves. The rendered report must state its
+   * denominator.
+   */
   it('OutputSchemaCensus_LiveRegistry_ReportsMeasuredVacuousCount', () => {
-    // DR-4 requires the census to report the live vacuous count on
-    // introduction — that count is its proof of a live subject. The figures
-    // below were MEASURED, not chosen, and they RECONCILE against the
-    // independent source-text authority rather than restating the census.
     const report = censusLiveOutputSchemas();
     const sites = readDeclarationSites();
     const literalVacuousSites = sites.filter((s) => s.rhs === LITERAL_VACUOUS_RHS).length;
@@ -421,99 +359,19 @@ describe('DR-4: outputSchema vacuity census', () => {
     const waiverSites = sites.filter((s) => isWaiverRhs(s)).length;
     const namedBindingSites = sites.filter((s) => isNamedBindingRhs(s)).length;
 
-    // Authority A: what the source spells. 108 allowlist waivers + 14
-    // withCappedShape = 122 declaration sites, and the two forms are
-    // EXHAUSTIVE — DR-4 task 055 left no third spelling. The literal vacuous
-    // expression is extinct at declaration sites because it no longer
-    // typechecks there, which is the acceptance criterion restated from the
-    // source side.
-    //
-    // THREE movements, by two different routes, and the set is worth reading
-    // together because only two of the routes are paydowns.
-    //
-    //   TASK 069 moved ONE site ACROSS the partition: the seeded split was
-    //   111 waivers / 10 capped, and paying `check_invariant_conformance` down
-    //   spent a waiver to buy a `withCappedShape`. A paydown leaves the SUM
-    //   unchanged — a swap would have moved neither number, and a new vacuous
-    //   declaration would have moved the sum.
-    //
-    //   TASK 068 ADDED one capped site (`invariants_amend`) without touching
-    //   the waiver count, because a NEW action cannot acquire a waiver: the
-    //   allowlist is shrink-only and `vacuityWaiver`'s id is the literal union
-    //   of seeded ids. That legitimately grows the sum.
-    //
-    //   TASK 083 moved TWO more sites across: the #1739 cutover verbs had been
-    //   seeded INTO the allowlist on arrival — the route task 068 correctly
-    //   refused — so paying them down is the repair, and again the sum is flat.
-    //
-    //   THE EFFECT-LEDGER REMEDY moved one more and added one. `stack_place` was
-    //   re-parented from `exarchos_view` to `exarchos_orchestrate`; a waiver is
-    //   keyed by action id, so carrying it across would have swapped one seeded
-    //   key for another — the edit the seed digest reddens — and the only legal
-    //   route was to write the real schema. `reconcile_worktrees` ARRIVED capped,
-    //   the route a new action has to take. So one site crossed and one arrived
-    //   capped, which is why the waiver count falls by one and the sum rises.
-    //
-    //   THE BOUNDED ACTION EXECUTOR added one more capped site (`execute_intent`)
-    //   the same route `reconcile_worktrees` took: a new action, so the
-    //   shrink-only allowlist leaves `withCappedShape` as the only legal
-    //   declaration. The waiver count is untouched and the sum rises again.
-    //
-    //   THE SETTLEMENT ENDPOINT added one more (`settle`) by that same forced
-    //   route. Worth noting rather than tallying: the last three additions all
-    //   arrived capped for a STRUCTURAL reason, not because three authors chose
-    //   well. A shrink-only literal union of waiver ids means a new action has
-    //   no vacuous declaration available to it, which is what turns a
-    //   convention into a property.
-    //
-    // So 111/10/121 became 110/12/122, then 108/14/122, then 107/16/123, then
-    // 107/17/124, then 107/18/125, then — with `prepare`, the compilation
-    // endpoint, arriving capped by the same forced route — 107/19/126.
     expect(sites).toHaveLength(waiverSites + cappedSites);
     expect(literalVacuousSites).toBe(0);
     expect(waiverSites).toBe(107);
     expect(cappedSites).toBe(19);
     expect(waiverSites + cappedSites).toBe(126);
-    // Two of the waivers carry an explicit named binding — the aliased vacuity
-    // this census exists to see through.
     expect(namedBindingSites).toBe(2);
 
-    // Authority B: what the registry actually builds. One MORE action than
-    // there are declaration sites, because `makeDescribeAction()` is a factory
-    // invoked for two composite tools while occupying a single source site.
     const factoryDuplicates = report.total - sites.length;
     expect(factoryDuplicates).toBe(1);
 
-    // The reconciliation. Semantic vacuity = every waived site plus the extra
-    // runtime instance the factory mints. Substantive = exactly the
-    // withCappedShape sites. The two authorities are computed from different
-    // things — the source spelling and the Zod object walk — and still land on
-    // the same partition.
     expect(report.vacuousCount).toBe(waiverSites + factoryDuplicates);
     expect(report.substantiveCount).toBe(cappedSites);
 
-    // The measured figures, pinned so drift shows up as a diff, not silence.
-    // Seeded 2026-08-07 at 112 vacuous / 10 substantive over a denominator of
-    // 122. Three independent movements since, and they are NOT all the same
-    // kind:
-    //
-    //   task 069 PAID ONE DOWN  — 112/10 -> 111/11 with the denominator flat,
-    //     because a declaration changed class and nothing was added or deleted;
-    //   task 068 ADDED ONE      — 111/11 -> 111/12 with the denominator 122 ->
-    //     123, because a new action arrived and, the allowlist being
-    //     shrink-only, the only declaration open to it was a substantive one.
-    //   task 083 PAID TWO DOWN  — 111/12 -> 109/14 with the denominator flat
-    //     again: the two #1739 cutover verbs, whose waivers were seeded on
-    //     arrival rather than inherited.
-    //
-    // A paydown moves the split; an arrival moves the denominator. Reading the
-    // three together is what makes the ratchet legible. `execute_intent`
-    // arriving capped is another denominator move: 108/16 -> 108/17 over 124 ->
-    // 125, vacuousCount flat because nothing paid down or was newly waived.
-    // `settle` is the same move again — 108/17 -> 108/18 over 125 -> 126 — and
-    // for the same structural reason rather than by choice: the waiver id union
-    // is shrink-only, so a new action has no vacuous option to take.
-    // `prepare` repeats it: 108/18 -> 108/19 over 126 -> 127.
     expect(report.total).toBe(127);
     expect(report.vacuousCount).toBe(108);
     expect(report.substantiveCount).toBe(19);
@@ -524,8 +382,6 @@ describe('DR-4: outputSchema vacuity census', () => {
       'unreadable-envelope': 0,
     });
 
-    // The paid-down ids are on the SUBSTANTIVE side now, named explicitly — the
-    // arithmetic above would also balance if some other declaration had moved.
     for (const id of [
       'exarchos_orchestrate.check_invariant_conformance',
       'exarchos_orchestrate.cutover_decide',
@@ -535,20 +391,12 @@ describe('DR-4: outputSchema vacuity census', () => {
       expect(report.vacuous).not.toContain(id);
     }
 
-    // The rendered report states the count against its denominator. A share
-    // without a denominator is the rubber stamp this instrument removes.
     const rendered = formatOutputSchemaCensus(report);
-    // Derived, not literal — the same two movements above land in this string,
-    // and a hard-coded proportion here would red-line on any correct change to
-    // either term. What the assertion is actually for is that the report STATES
-    // its denominator at all: a proportion without one is the rubber stamp DR-4
-    // exists to remove.
     expect(rendered).toContain(
       `${report.vacuousCount} vacuous of ${report.total} declarations`,
     );
     expect(rendered).toContain(`${report.substantiveCount} substantive`);
 
-    // The seed the ratchet consumes is a stable, sorted, deduplicated id list.
     expect(report.vacuous).toHaveLength(report.vacuousCount);
     expect(new Set(report.vacuous).size).toBe(report.vacuousCount);
     expect([...report.vacuous]).toEqual([...report.vacuous].sort());
@@ -556,16 +404,14 @@ describe('DR-4: outputSchema vacuity census', () => {
   });
 });
 
+/**
+ * Totality is a property of what a schema admits, not of its outermost node. `withCappedShape`
+ * wraps `data` in a union, so a check of the outer class can miss an open member. The oracle is a
+ * parse of each schema against a probe set, and the predicate must agree with it. A `.catch()`
+ * accepts every value, because it swallows every failure. An intersection must satisfy both sides,
+ * so one open side does not make it total.
+ */
 describe('acceptsEveryValue — totality is semantic, not spelling', () => {
-  // The predicate used to be `instanceof ZodUnknown || instanceof ZodAny`, which
-  // answered a question about the OUTERMOST NODE rather than about what the schema
-  // admits. `withCappedShape` rewrites `data` to `z.union([base, capped])`, so
-  // `withCappedShape(EnvelopeSchema(z.unknown()))` handed the census a ZodUnion —
-  // neither of the two classes — and it read `substantive` while accepting every
-  // payload, clearing the compile-time brand AND the allowlist audit in one call.
-  //
-  // The oracle here is REALITY, not a second opinion: each schema is parsed against
-  // a probe set, and the predicate must agree with what the schema actually did.
   const PROBES: readonly unknown[] = [{ a: 1 }, 'str', 42, null, [1, 2], true, undefined];
   const admitsEveryProbe = (schema: z.ZodType): boolean =>
     PROBES.every((probe) => schema.safeParse(probe).success);
@@ -579,8 +425,6 @@ describe('acceptsEveryValue — totality is semantic, not spelling', () => {
     ['nullable any', z.any().nullable()],
     ['readonly unknown', z.unknown().readonly()],
     ['defaulted unknown', z.unknown().default(1)],
-    // A catch swallows every failure and yields its fallback, so even a tightly
-    // typed inner schema accepts everything once wrapped.
     ['caught string', z.string().catch('x')],
   ];
 
@@ -588,13 +432,12 @@ describe('acceptsEveryValue — totality is semantic, not spelling', () => {
     ['string', z.string()],
     ['object with a typed field', z.object({ a: z.string() })],
     ['union of typed members', z.union([z.string(), z.number()])],
-    // An intersection must satisfy BOTH sides, so one open side does not widen it.
     ['intersection of unknown and string', z.intersection(z.unknown(), z.string())],
   ];
 
   it.each(TOTAL_FORMS)('acceptsEveryValue_%s_IsTotal', (_label, schema) => {
-    expect(admitsEveryProbe(schema)).toBe(true); // the oracle
-    expect(acceptsEveryValue(schema)).toBe(true); // the predicate must agree
+    expect(admitsEveryProbe(schema)).toBe(true);
+    expect(acceptsEveryValue(schema)).toBe(true);
   });
 
   it.each(CONSTRAINED_FORMS)('acceptsEveryValue_%s_IsNotTotal', (_label, schema) => {
@@ -602,18 +445,16 @@ describe('acceptsEveryValue — totality is semantic, not spelling', () => {
     expect(acceptsEveryValue(schema)).toBe(false);
   });
 
+  /** The laundered shape, built by hand, so the test does not need `withCappedShape` to build it. */
   it('classifyOutputSchema_EnvelopeOverATotalUnion_IsVacuous', () => {
-    // The end-to-end shape of the laundering, built by hand so the assertion does
-    // not depend on `withCappedShape` still being willing to construct it.
     const laundered = EnvelopeSchema(
       z.union([z.unknown(), z.object({ truncated: z.boolean() })]),
     );
     expect(classifyOutputSchema(laundered, OUTPUT_SCHEMA_PORTS)).toMatchObject({ classification: 'vacuous' });
   });
 
+  /** Stacked wrappers stay under the depth ceiling, and the check still finds the open branch. */
   it('acceptsEveryValue_DeeplyNestedTotalBranch_TerminatesAndIsTotal', () => {
-    // Depth guard sanity: wrappers stack without tripping the ceiling, and the
-    // open branch is still found underneath them.
     const nested = z.union([z.unknown().optional().nullable().readonly(), z.string()]);
     expect(admitsEveryProbe(nested)).toBe(true);
     expect(acceptsEveryValue(nested)).toBe(true);

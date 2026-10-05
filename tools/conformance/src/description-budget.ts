@@ -1,32 +1,18 @@
 /**
- * Description token-budget audit (issue #1321, research R-E).
+ * Description token-budget audit. Each MCP tool and action description costs every agent on every
+ * `tools/list` call. This guard audits each description against a per-kind budget and reports the
+ * offenders. So the composite-tool blurbs, slim registrations and action descriptions cannot grow
+ * back to bloat without a failure.
  *
- * MCP tool/action descriptions are a *token budget*: they cost every agent
- * on every `tools/list` call, before any work happens. The Trevin
- * agent-native-CLI evaluation (`docs/research/2026-05-08-trevin-agent-native-cli-evaluation.md`,
- * §R-E) treats this as a first-class budget — Cloudflare's Code Mode serves
- * 3,000+ operations in <1,000 tokens via aggressive collapsing, and "most MCP
- * servers burn 1,000 tokens on a single tool's description". Exarchos already
- * collapses to 4 visible composite tools (INV-5d) with per-action `describe`,
- * but nothing stops the composite-tool blurbs, slim registrations, or per-
- * action descriptions from drifting back to bloat. This module is the
- * mechanical guard: it audits each description against a documented per-kind
- * budget and reports the offenders, mirroring the `assertRuntimeTokenCoverage`
- * pre-flight pattern in the skills renderer (R-E step 2).
- *
- * Designed to be a thin library that the `npm run desc:budget-guard` CLI
- * wrapper (`description-budget-cli.ts`) and the co-located vitest both call —
- * single source of truth for the budgets and the estimate.
+ * The `npm run desc:budget-guard` wrapper (`description-budget-cli.ts`) and the vitest both call
+ * this library, so the budgets and the estimate have one source.
  */
 import type { CompositeTool } from '../../../src/registry.js';
 
 /**
- * How a composite tool's full description is rendered.
- *
- * The registry's own `buildToolDescription` is what this measures in practice,
- * but it arrives as a port rather than an import: this module is conformance
- * code and must not reach into the tree it inspects. The composition root binds
- * the real builder.
+ * Renders the full description of a composite tool. The composition root binds the real
+ * `buildToolDescription` of the registry. It arrives as a port, because conformance code must not
+ * reach into the tree that it inspects.
  */
 export type ToolDescriptionBuilder = (
   tool: CompositeTool,
@@ -34,25 +20,17 @@ export type ToolDescriptionBuilder = (
 ) => string;
 
 /**
- * What a single audited description is. Each composite tool contributes
- * several measured strings; each registered action contributes one.
+ * The kind of one audited description. Each composite tool gives several strings, and each action
+ * gives one. `tool.base` is the standalone blurb (`tool.description`). `tool.slim` is the
+ * `slimDescription` line of slim MCP registration. `action` is the description of one action.
  *
- *   - `tool.base` — the standalone composite-tool blurb (`tool.description`),
- *     shown when an agent reads the tool without its action signatures.
- *   - `tool.slim` — the one-line `slimDescription` used in slim MCP
- *     registration (this IS the `tools/list` line every agent pays for when
- *     slim registration is enabled).
- *   - `action` — a single action's `describe` string. R-E's named unit.
- *   - `tool.full` — the non-slim `tools/list` description produced by
- *     `buildToolDescription` (base + every action signature). This is
- *     *derived* (it concatenates all action descriptions), so it is measured
- *     and reported for visibility but is NOT budget-enforced — the meaningful,
- *     individually-fixable units are `tool.base` / `tool.slim` / `action`.
+ * `tool.full` is the non-slim `tools/list` text from `buildToolDescription`: the base plus every
+ * action signature. It is derived, so the audit measures it but enforces no budget on it.
  */
 export type DescriptionKind = 'tool.full' | 'tool.base' | 'tool.slim' | 'action';
 
 export interface DescriptionEntry {
-  /** Audit kind — selects the applicable budget (and whether it's enforced). */
+  /** The audit kind. It selects the budget, and tells if the audit enforces that budget. */
   readonly kind: DescriptionKind;
   /** Stable identifier: tool name, or `${tool}.${action}` for an action. */
   readonly name: string;
@@ -76,31 +54,11 @@ export interface BudgetReport {
 }
 
 /**
- * Per-kind token budgets (issue #1321, research R-E).
- *
- * RATIONALE for the chosen ceilings — R-E names "~200 tokens per action" as
- * the eventual target, but the live surface already has three gate
- * descriptions over 200 (`mutation-adequacy` ≈265, `check_mock_boundary`
- * ≈252, `check_test_adequacy` ≈205 tokens — intentionally rich gate
- * semantics, NOT to be mass-rewritten in this task). Per the ratchet
- * convention used elsewhere in the repo (skills:guard, coverage thresholds),
- * the budget is set at a *defensible ceiling that is green today* so the guard
- * lands as a regression preventer, then ratchets down toward R-E's 200:
- *
- *   - `action`    → 280. Green today (worst is ~265); ~6% headroom over the
- *                   worst offender catches real new bloat while leaving the
- *                   three intentional gate descriptions in bounds. Ratchet
- *                   target: 200 (R-E).
- *   - `tool.slim` → 300. Green today (worst is `exarchos_orchestrate` ≈282);
- *                   this string is the literal slim `tools/list` line every
- *                   agent pays for, so it earns a tight-but-green ceiling.
- *   - `tool.base` → 60.  The base blurbs are tiny today (worst ≈29); a low
- *                   ceiling is cheap insurance against a one-liner ballooning.
- *
- * `tool.full` has no budget: it is the derived base+all-signatures string
- * (orchestrate's is ~4,500 tokens because it folds 108 action signatures),
- * which cannot be reduced without collapsing actions — out of scope for a
- * description guard. It is measured and surfaced for visibility only.
+ * Per-kind token budgets. Each ceiling passes on the live surface today, so the guard prevents
+ * regressions, and the `action` budget goes down toward {@link ACTION_BUDGET_RATCHET_TARGET}.
+ * `action` is 280, because some gate descriptions carry rich semantics above 200 tokens.
+ * `tool.slim` is 300, because each agent pays for this `tools/list` line. `tool.base` is 60, a
+ * low ceiling for a one-line blurb. `tool.full` has no budget: only fewer actions can reduce it.
  */
 export const DESCRIPTION_BUDGETS: Readonly<Record<DescriptionKind, number | undefined>> = Object.freeze({
   'action': 280,
@@ -109,19 +67,13 @@ export const DESCRIPTION_BUDGETS: Readonly<Record<DescriptionKind, number | unde
   'tool.full': undefined,
 });
 
-/** R-E's eventual target for a single action description, in tokens. The
- *  `action` budget ratchets down toward this as descriptions are trimmed. */
+/** The eventual target for one action description, in tokens. The `action` budget goes down toward it. */
 export const ACTION_BUDGET_RATCHET_TARGET = 200;
 
 /**
- * Deterministic, dependency-free token estimate: ~4 characters per token.
- *
- * This is the standard rule-of-thumb for English/JSON text against the
- * Claude/GPT BPE tokenizers and is intentionally cheap — R-E calls for "a
- * simple, deterministic token estimate", and pulling a real tokenizer in
- * would add a heavy dependency for a CI guard that only needs to catch
- * order-of-magnitude drift. `Math.ceil` so a non-empty string never estimates
- * to 0 tokens.
+ * A deterministic token estimate with no dependency: about 4 characters per token. The guard only
+ * catches order-of-magnitude drift, so it needs no real tokenizer. `Math.ceil` keeps the estimate
+ * of a non-empty string above 0 tokens.
  */
 export function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
@@ -160,11 +112,9 @@ function measureTool(
 }
 
 /**
- * Audit a set of composite tools against {@link DESCRIPTION_BUDGETS}.
- *
- * The `tools` parameter is the seam the co-located test uses to plant an
- * over-budget description without mutating the real registry; the composition
- * root supplies the live registry and its description builder.
+ * Audits a set of composite tools against {@link DESCRIPTION_BUDGETS}. A test passes `tools` to
+ * plant an over-budget description with no change to the real registry. The composition root
+ * supplies the live registry and its description builder.
  */
 export function auditDescriptionBudgets(
   tools: readonly CompositeTool[],

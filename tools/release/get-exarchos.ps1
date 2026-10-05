@@ -7,7 +7,7 @@ Downloads the `exarchos` binary from GitHub Releases, verifies its
 SHA-512 checksum, installs it to the user's install directory, and
 appends that directory to the user's Path environment variable.
 
-Mirrors tools/release/get-exarchos.sh (task 2.5). Both scripts share a
+Mirrors tools/release/get-exarchos.sh. Both scripts share a
 contract: same URL layout, same asset naming, same quality tiers.
 
 Before it installs, the script checks the signed release manifest. When no
@@ -80,7 +80,7 @@ param(
 )
 
 # ---------------------------------------------------------------------------
-# Release verification constants (DR-20)
+# Release verification constants
 # ---------------------------------------------------------------------------
 
 # The signed release manifest published alongside the binaries. Exported as
@@ -749,7 +749,7 @@ function Get-DownloadUrl {
     }
 
     # `$env:EXARCHOS_RELEASE_BASE_URL` retargets the whole release URL space
-    # (internal mirrors; the DR-20 acceptance suite serves a real signed fixture
+    # (internal mirrors; the installer acceptance suite serves a real signed fixture
     # release over loopback). Defaults to GitHub Releases.
     $base = if ([string]::IsNullOrEmpty($env:EXARCHOS_RELEASE_BASE_URL)) {
         'https://github.com/lvlup-sw/exarchos/releases'
@@ -900,7 +900,7 @@ function Install-Binary {
             throw "Checksum mismatch for $AssetName. Refusing to install."
         }
 
-        # ── Signed release manifest verification (DR-20) — MANDATORY ────────
+        # ── Signed release manifest verification — MANDATORY ────────
         # The sidecar above only proves the bytes survived transport: it is
         # served from the same origin as the binary, so anyone who can replace
         # one can replace the other. Everything that makes this release *this*

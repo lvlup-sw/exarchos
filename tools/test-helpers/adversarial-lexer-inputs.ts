@@ -1,47 +1,23 @@
-// ─── DR-2 — the ONE adversarial input table for the lexer port (task 072)
+// The one table of adversarial inputs for the lexer port. The kill fixtures read their inputs
+// from this module, so no site writes its own table.
 //
-// Task 065 wrote this table inside `architecture/effect-ledger.test.ts` because
-// the effect ledger was the only consumer. Task 072 gave the port three more
-// consumers, and DR-2 says what must NOT happen next: *"No fourth adversarial
-// table — reuse the existing one."* So the INPUTS live here, once, and every
-// kill fixture reads them from this module.
+// Only the source text is shared. Each site keeps its expectations next to its own assertion,
+// because each site has its own retired walk and asks its own question.
 //
-// ── Inputs are shared; EXPECTATIONS are not, and cannot be ──────────────────
-// Only the source text is common. What the retired heuristic answered is a fact
-// about each site's own retired walk — `vcs-ownership.stripComments`,
-// `remediation-purity.extractImportSpecifiers` and
-// `delivery-safety.maskLiteralsAndComments` are three different walks and answer
-// differently — and what the parse answers is a fact about each site's question.
-// Both columns therefore stay at the site, next to the assertion that reads
-// them. Sharing them would mean one table asserting four things, which is how a
-// pinned expectation quietly becomes an unpinned average.
-//
-// ── Why two rows are BUILT rather than written ──────────────────────────────
-// Rows 4 and 5 are the two on which the heuristic and a real parse actually
-// disagree, so they are the two every site's kill fixture needs — with the
-// SITE'S OWN payload inside, since a census that looks for `git worktree add`
-// cannot be killed by a hidden `node:fs` import. They are exposed as
-// {@link regexHoldingABacktick} and {@link nestedTemplateSubstitution}, and the
-// rows below are built by calling them. A site instantiating a construct with
-// its own payload is therefore provably exercising the SAME construct this table
-// pins, not a look-alike that drifted.
+// A real parse and the retired heuristic disagree on two constructs. The builders
+// {@link regexHoldingABacktick} and {@link nestedTemplateSubstitution} make them, and the table
+// rows call these builders. A site that builds a construct with its own payload then exercises
+// the same construct that the table pins.
 
 /** One adversarial module source, and the lexical construct it is named for. */
 export interface AdversarialInput {
   readonly name: string;
-  /** The construct as task 065 wrote it, with its own `node:*` import payload. */
+  /** The construct with its own `node:*` import payload. */
   readonly source: string;
   /**
-   * The same construct carrying a DIFFERENT payload — the one the reading site
-   * actually looks for.
-   *
-   * A census that hunts `git worktree add` cannot be killed by a hidden
-   * `node:fs` import, so each site needs the construct to act on its own
-   * subject. Where the payload has to GO is a property of the construct, not of
-   * the site: inside the phantom template for row 4, inside the `${…}`
-   * substitution for row 5, and simply appended for the rows whose defect (or
-   * absence of one) does not depend on position. Encapsulating that here is what
-   * lets four sites share one table instead of each writing a look-alike.
+   * Builds the same construct with a different payload: the text that the reading site looks for.
+   * The construct decides where the payload goes. The backtick-regex row puts it inside the phantom
+   * template, and the nested-template row puts it inside the `${…}` substitution. The other rows append it.
    */
   readonly withPayload: (payload: string) => string;
 }
@@ -52,24 +28,18 @@ const appendPayload =
     [source, payload].join('\n');
 
 /**
- * A regex literal containing a BACKTICK, in a position the retired
- * regex-versus-division heuristic scores as DIVISION.
- *
- * The backtick then opens a phantom template literal, and — unlike `'`/`"`,
- * which are line-bounded — a template is not, so it runs to EOF and swallows
- * every line of `payload`. Whatever the site was supposed to see below this
- * line, it does not see.
+ * Builds a regex literal that holds a backtick, in a position the retired heuristic scores as division.
+ * The backtick then opens a phantom template literal. A template is not line-bounded, so it runs to
+ * EOF and hides every line of `payload`.
  */
 export function regexHoldingABacktick(payload: string): string {
   return ['export function isTick(s: string): boolean { return /`/.test(s); }', payload].join('\n');
 }
 
 /**
- * A template literal nested inside a `${…}` substitution of another one.
- *
- * The retired walks TOGGLE on every backtick, so the nested template's opening
- * backtick reads as the outer one's close and its body is scanned as code. The
- * site sees text that is not code and reports something that is not there.
+ * Builds a template literal nested inside a `${…}` substitution of another one.
+ * The retired walks toggle on every backtick, so the inner opening backtick reads as the outer close.
+ * The walk then scans the inner body as code.
  */
 export function nestedTemplateSubstitution(payload: string): string {
   return `export const doc = \`outer \${ \`inner ${payload} text\` } end\`;`;
@@ -94,7 +64,7 @@ const REGEX_HOLDING_A_QUOTE = [
   'export const read = readFile;',
 ].join('\n');
 
-/** Task 065's adversarial set, as DATA. The only copy. */
+/** The adversarial inputs as data. This is the only copy. */
 export const ADVERSARIAL_INPUTS: readonly AdversarialInput[] = Object.freeze([
   Object.freeze({
     name: 'a `//` comment opener inside a string literal',
@@ -126,11 +96,8 @@ export const ADVERSARIAL_INPUTS: readonly AdversarialInput[] = Object.freeze([
 ]);
 
 /**
- * The source of the named adversarial input.
- *
- * Throws rather than returning `undefined` on a name that is not in the table:
- * a kill fixture handed an empty source passes for the same reason a fixed site
- * does, which is exactly the vacuity these fixtures exist to detect.
+ * Returns the source of the named adversarial input.
+ * Throws on an unknown name, because a kill fixture with an empty source passes vacuously.
  */
 export function adversarialInput(name: string): string {
   const row = ADVERSARIAL_INPUTS.find((input) => input.name === name);

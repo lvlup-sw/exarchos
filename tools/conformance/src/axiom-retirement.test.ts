@@ -1,14 +1,8 @@
-// Retirement guard for the `axiom` plugin dependency (#1477).
+// Guard for the retired `axiom` plugin dependency (#1477).
 //
-// #1477 fully excised axiom: the `plugins.axiom` config block, the review
-// orchestrator's `pluginStatus.axiom` + `axiom:audit` invocation, the
-// `axiom_overlap` / `DIM-*` catalog machinery, and every skill/command that
-// invoked an `axiom:*` skill. This guard pins the excision so axiom cannot
-// quietly return through a *functional* surface. It deliberately matches
-// functional usage (config reads, skill invocations, TS identifiers, YAML
-// fields) and NOT bare prose/comment mentions — historical comments that
-// document the retirement (e.g. "the axiom_overlap field was removed") are
-// legitimate and must not fail the guard.
+// The guard fails when axiom comes back through a functional surface: a config read, a skill
+// invocation, a TS identifier, or a YAML field. It skips comment lines, so a comment that
+// records the retirement does not fail it.
 
 import { describe, it, expect } from 'vitest';
 import { fileURLToPath } from 'node:url';
@@ -16,17 +10,19 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { SUBJECT_SRC_ROOT, fromRepoRoot } from './subject-root.js';
 
-// Live surfaces that must carry zero functional axiom coupling. Dated record
-// trees under docs/ (designs, plans, research, …) are point-in-time artifacts
-// and are intentionally out of scope — see vocabulary-lint scanRepoDefaults.
+/**
+ * Live surfaces that must carry no functional axiom coupling. The scan leaves out the
+ * `docs/` trees, as `scanRepoDefaults` in the vocabulary lint does.
+ */
 const SCAN_ROOTS = [SUBJECT_SRC_ROOT, fromRepoRoot('content'), fromRepoRoot('commands')];
 const CONFIG_FILE = fromRepoRoot('.exarchos.yml');
 
 const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', 'coverage']);
 
-// Functional patterns — these indicate axiom is still *wired in*, not merely
-// named. Comment lines (// or *-leading) are stripped before matching so
-// retirement-documenting comments survive.
+/**
+ * Patterns that show axiom is still wired in, not only named. The scan skips comment
+ * lines before it matches them.
+ */
 const FUNCTIONAL_PATTERNS: { label: string; re: RegExp }[] = [
   { label: 'axiom skill invocation', re: /axiom:(audit|critique|harden|distill|verify|scan|humanize|design|backend-quality|scaffold-invariants)/ },
   { label: 'plugins.axiom config access', re: /plugins\s*[?.]\s*axiom/ },
@@ -35,10 +31,12 @@ const FUNCTIONAL_PATTERNS: { label: string; re: RegExp }[] = [
   { label: 'axiom_overlap YAML field', re: /^\s*axiom_overlap\s*:/ },
 ];
 
+/**
+ * Returns true for a line that starts with `//`, `*`, `/*` or `#`. The `#` prefix covers
+ * YAML comments and Markdown headings, because the scan also reads those files.
+ */
 function isCommentLine(line: string): boolean {
   const t = line.trimStart();
-  // `#` covers YAML comments (e.g. `# axiom_overlap: removed in #1477`) and
-  // markdown headings — both scanned here as .yml/.yaml/.md. //, *, /* cover TS.
   return (
     t.startsWith('//') ||
     t.startsWith('*') ||
@@ -47,6 +45,10 @@ function isCommentLine(line: string): boolean {
   );
 }
 
+/**
+ * Yields the `.ts`, `.md`, `.yml`, `.yaml` and `.json` files under `root`. It skips test files,
+ * because a test names the retired identifiers to assert that they are absent.
+ */
 function* walk(root: string): Generator<string> {
   if (!fs.existsSync(root)) return;
   for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
@@ -55,9 +57,6 @@ function* walk(root: string): Generator<string> {
       yield* walk(path.join(root, entry.name));
     } else if (
       /\.(ts|md|yml|yaml|json)$/.test(entry.name) &&
-      // Test files legitimately name the retired identifiers to assert their
-      // absence (e.g. `expect(entry.axiomOverlap).toBeUndefined()`). The sweep
-      // targets production + content surfaces, not absence-verification tests.
       !/\.test\.ts$/.test(entry.name)
     ) {
       yield path.join(root, entry.name);
@@ -65,17 +64,21 @@ function* walk(root: string): Generator<string> {
   }
 }
 
-// Block-style YAML reintroduction (`plugins:\n  axiom:`) spans lines, so the
-// line-anchored patterns above cannot see it. This whole-file regex catches it
-// in any scanned `.yml`/`.yaml` (not just `.exarchos.yml`).
+/**
+ * Matches a `plugins:` key with an `axiom:` key anywhere after it. This catches the block-style
+ * YAML form, which spans lines, so the line patterns cannot see it.
+ */
 const PLUGINS_AXIOM_YAML_BLOCK = /plugins\s*:[\s\S]*?\baxiom\s*:/;
 
+/**
+ * Returns one entry for each functional axiom reference in the scan roots and in
+ * `.exarchos.yml`. It skips this guard file, which names the patterns that it forbids.
+ */
 function findFunctionalAxiomRefs(): string[] {
   const hits: string[] = [];
   const files = [...SCAN_ROOTS].flatMap((r) => [...walk(r)]);
   if (fs.existsSync(CONFIG_FILE)) files.push(CONFIG_FILE);
   for (const file of files) {
-    // This guard file itself names the patterns it forbids; skip it.
     if (file === fileURLToPath(import.meta.url)) continue;
     const content = fs.readFileSync(file, 'utf8');
     if (/\.(ya?ml)$/.test(file) && PLUGINS_AXIOM_YAML_BLOCK.test(content)) {

@@ -1,40 +1,15 @@
-// ─── Packaged action + CLI proof: coverage engine + ratchet (P05-02) ─────────
+// Packaged action and CLI proof: the pure coverage engine and its ratchet.
 //
-// PROGRAM-05, ART-004 / ART-005 / ART-014. This is the PURE half of the
-// "packaged action and CLI proof": it derives the coverage DENOMINATORS from
-// the LIVE registries (never a hand-maintained list), computes covered/total
-// per dimension against an exercise ledger, and applies a non-regression
-// ratchet against a checked-in baseline.
+// This module derives the coverage denominators from the live registries. It counts the covered
+// items of each dimension against an exercise ledger, and compares the result with a checked-in
+// baseline. The process test spawns the shipped binary and drives real CLI calls to produce the
+// ledger. This module does no spawning and no I/O, so the unit test and the process test share it.
 //
-// The exercise ledger is produced by the COMPILED-PROCESS half — the process
-// test spawns the shipped binary (`tools/release/build-binary.ts` output) and drives
-// real CLI invocations, recording which denominator items the binary genuinely
-// exercised. Keeping this module pure (no spawning, no I/O) makes the
-// denominator derivation + coverage math + ratchet logic unit-testable in
-// isolation, and lets the SAME logic gate both the fast unit test and the
-// compiled-process test.
+// Each denominator comes from an authoritative source at call time. Thus an action that is
+// registered but never exercised through the compiled process drops coverage and fails the ratchet.
 //
-// ── Why the denominators are LIVE, not a static list ─────────────────────────
-// The whole point of ART-004/005 is that coverage is measured against the live
-// registry: an action that is REGISTERED but never exercised through the
-// compiled process must drop coverage below 100% and trip the ratchet. So every
-// denominator here is derived at call time from an authoritative source:
-//   • actions              — the compiled contract's action set
-//                            (`deriveMetaModel().actions`, the compiler's
-//                            registry-derived front-end; cross-checked against
-//                            `compile().proofFixtures` by the unit test).
-//   • presentation aliases — actions whose `presentation.cliAlias` is set.
-//   • host commands        — the composite-tool CLI names + top-level promotions.
-//   • error families       — `FAILURE_LAYERS` (P03-02), each mapping to a stable
-//                            CLI exit code via `exitCodeForError`.
-//   • effect families      — the distinct effect classes in `EFFECT_OWNERSHIP`
-//                            (P04-01: filesystem / process / network).
-//   • cancellation paths   — actions whose `cancellation.cancellable` is set.
-//
-// This module lives under `__tests__/` because it is test/gate infrastructure,
-// never a production import target (refgraph classifies `__tests__/**` as test
-// scope — see `tools/audit/gates/check-module-intent.mjs`).
-// ────────────────────────────────────────────────────────────────────────────
+// It lives under `__tests__/` because it is test infrastructure, not a production import target.
+// `tools/audit/gates/check-module-intent.mjs` treats `__tests__/` as test scope.
 
 import {
   TOOL_REGISTRY,
@@ -50,8 +25,6 @@ import {
 } from '../../../../../src/contract/error-families.js';
 import { EFFECT_OWNERSHIP } from '../../../../../src/architecture/effect-ledger.js';
 
-// ─── Dimensions ──────────────────────────────────────────────────────────────
-
 /** The six coverage dimensions the packaged proof measures. */
 export const COVERAGE_DIMENSIONS = [
   'actions',
@@ -66,8 +39,6 @@ export type CoverageDimension = (typeof COVERAGE_DIMENSIONS)[number];
 
 /** A per-dimension set of item identifiers (denominator OR exercised subset). */
 export type DimensionSets = Readonly<Record<CoverageDimension, readonly string[]>>;
-
-// ─── Denominator derivation (live) ───────────────────────────────────────────
 
 const byString = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 const sortedUnique = (values: readonly string[]): string[] =>
@@ -133,10 +104,10 @@ export function deriveEffectFamilies(): string[] {
 }
 
 /**
- * Derive every dimension's DENOMINATOR from the live registries. Passing a
- * synthetic registry (a seeded/extra action) grows the denominator — that is
- * the exit-proof that coverage is measured against the live surface, not a
- * frozen list.
+ * Derives the denominator of every dimension from the live registries. The sources are the
+ * compiled action set, the CLI aliases, the host commands, `FAILURE_LAYERS`, the effect classes of
+ * `EFFECT_OWNERSHIP`, and the cancellable actions. A synthetic registry with an extra action
+ * grows the denominator. This proves that coverage follows the live surface, not a frozen list.
  */
 export function derivePackagedDenominators(
   registry: readonly CompositeTool[] = TOOL_REGISTRY,
@@ -172,13 +143,10 @@ export function derivePackagedDenominators(
   };
 }
 
-// ─── Error-family / exit-code helpers (through the compiled process) ─────────
-
 /**
- * Classify an observed error code onto its failure LAYER. A code in the stable
- * registry uses its declared layer; an unregistered code is attributed to the
- * `handler` layer — exactly mirroring `exitCodeForError`'s conservative
- * HANDLER_ERROR fallback, so the family attribution and the exit code agree.
+ * Maps an observed error code to its failure layer. A code in the stable registry uses its
+ * declared layer. An unregistered code maps to `handler`, the same fallback that
+ * `exitCodeForError` uses, so the family and the exit code agree.
  */
 export function classifyErrorLayer(code: string): FailureLayer {
   if (code in STABLE_ERROR_REGISTRY) {
@@ -192,13 +160,11 @@ export function expectedExitForCode(code: string | undefined): ContractExitCode 
   return exitCodeForError(code);
 }
 
-// ─── Coverage computation ────────────────────────────────────────────────────
-
 export interface DimensionCoverage {
   readonly dimension: CoverageDimension;
   readonly total: number;
   readonly covered: number;
-  /** covered / total, in [0,1]; `1` when the denominator is empty. */
+  /** covered / total, in [0,1]. The value is `1` when the denominator is empty. */
   readonly ratio: number;
   /** Denominator items with no exercise evidence, sorted. */
   readonly missing: readonly string[];
@@ -247,8 +213,6 @@ export function coverageFor(
   return found;
 }
 
-// ─── The non-regression ratchet ──────────────────────────────────────────────
-
 export interface DimensionBaseline {
   readonly total: number;
   readonly covered: number;
@@ -256,7 +220,7 @@ export interface DimensionBaseline {
 }
 
 export interface CoverageBaseline {
-  /** Free-form provenance note (e.g. how the baseline was captured). */
+  /** Free-form provenance note, such as how the team captured the baseline. */
   readonly note?: string;
   readonly dimensions: Readonly<Record<CoverageDimension, DimensionBaseline>>;
 }
@@ -275,23 +239,15 @@ export interface RatchetResult {
 }
 
 /**
- * Compare a fresh coverage report against the checked-in baseline. A regression
- * is either:
+ * Compares a fresh coverage report with the checked-in baseline. It reports two kinds of
+ * regression:
  *
- *   • `new-gap`       — a denominator item is UNCOVERED now that was not an
- *                       accepted gap in the baseline. This is the load-bearing
- *                       guarantee: adding a registered action (or presentation
- *                       alias, host command, …) without exercising it through
- *                       the compiled process surfaces it as a NEW missing item
- *                       and FAILS the ratchet. It also catches de-exercising a
- *                       previously-covered item.
- *   • `coverage-drop` — the covered COUNT fell by more than the denominator
- *                       shrank, i.e. a covered item stopped being covered for a
- *                       reason the missing-set diff did not already name.
+ * - `new-gap`: a denominator item is uncovered and is not an accepted gap in the baseline. Thus a
+ *   new registered item that the compiled process does not exercise fails the ratchet.
+ * - `coverage-drop`: the covered count fell by more than the denominator shrank.
  *
- * Removing a registered item (the denominator shrinks) is NOT a regression:
- * accepted-gap items that vanish simply drop out, and the coverage-drop guard
- * is slack-adjusted by the shrink amount.
+ * Removal of a registered item is not a regression. The covered floor drops by the amount that
+ * the denominator shrank, so the deletion of a covered item does not count.
  */
 export function checkRatchet(
   report: CoverageReport,
@@ -315,8 +271,6 @@ export function checkRatchet(
       });
     }
 
-    // Slack the covered floor by however much the denominator legitimately
-    // shrank, so deleting a covered item is not miscounted as a regression.
     const shrink = Math.max(0, base.total - current.total);
     if (current.covered < base.covered - shrink) {
       regressions.push({
@@ -340,8 +294,6 @@ export function reportToBaseline(report: CoverageReport, note?: string): Coverag
   }
   return note === undefined ? { dimensions } : { note, dimensions };
 }
-
-// ─── Baseline parsing (fail-closed) ──────────────────────────────────────────
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((v) => typeof v === 'string');

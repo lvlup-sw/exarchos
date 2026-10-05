@@ -1,37 +1,16 @@
-// ─── CLI/MCP Parity Under mcp:exarchos:readonly (Issue #1192, T12) ─────────
+// CLI and MCP parity under `mcp:exarchos:readonly`.
 //
-// Closes the #1109 Constraint 2 (MCP Parity) verification step for the
-// capability ISP work landed in T03–T11. The capability gate
-// (`enforceReadonlyGate`, src/dispatch/core/dispatch.ts) lives in the shared
-// transport-agnostic dispatch entry, so both the CLI adapter
-// (src/adapters/cli.ts) and the MCP adapter (src/adapters/mcp.ts) consult
-// the same `ctx.capabilityResolver` and short-circuit identically when
-// the effective capability set is `{mcp:exarchos:readonly}`.
+// The capability gate `enforceReadonlyGate` lives in the shared dispatch entry
+// (`src/dispatch/core/dispatch.ts`). The CLI and MCP adapters thus consult the same
+// `ctx.capabilityResolver` and stop identically under `{mcp:exarchos:readonly}`. Both arms run
+// with the same readonly resolver and the same state dir:
 //
-// This suite locks that contract in by exercising both arms with the same
-// readonly resolver and asserting:
+//   1. An allowed read action (`exarchos_view pipeline`, CLI `vw ls`) returns equal payloads after
+//      normalization. `exarchos_view` is wholly read-only, so a difference comes from a facade.
+//   2. A denied mutating action (`workflow transition`) returns the same `CAPABILITY_DENIED`
+//      envelope on both facades.
 //
-//   1. ALLOWED action (read-only): both facades return byte-equal payloads
-//      after normalization, and neither surfaces CAPABILITY_DENIED.
-//   2. DENIED action (mutating): both facades return a structurally
-//      identical CAPABILITY_DENIED envelope (`error.code`, `error.tool`,
-//      `error.action` all match).
-//
-// If a future refactor splits the gate into per-facade copies and one
-// drifts, this test fails — which is the whole point of the parity check.
-//
-// Strategy notes:
-//   - Pipeline view (`exarchos_view pipeline`, CLI alias `vw ls`) is the
-//     positive-case action: `exarchos_view` is wholesale read-only
-//     (READ_ONLY_ACTIONS.exarchos_view === '*'), so the gate is a pure
-//     no-op and any divergence has to come from facade-specific shaping.
-//   - `workflow transition` is the negative-case action: it is the
-//     canonical mutating phase-transition operation (post-DR-4 hard-cut
-//     of the prior `set` rerouting surface) and is explicitly outside
-//     READ_ONLY_ACTIONS.exarchos_workflow.
-//   - The stateDir is shared between the two arms so any deterministic
-//     read returns identical materialized output regardless of which
-//     facade is queried first.
+// A gate that splits into per-facade copies and drifts fails this suite.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -51,13 +30,15 @@ import {
 } from '../../../../tests/unit/parity-harness.js';
 import { rmrfAsync } from '../../../test-helpers/temp-dir.js';
 
-// ─── Fixture ──────────────────────────────────────────────────────────────
-
 interface ReadonlyFixture {
   readonly tmpDir: string;
   readonly ctx: DispatchContext;
 }
 
+/**
+ * Creates a temp state dir and a dispatch context. Both facades share its resolver, which grants
+ * only `mcp:exarchos:readonly`.
+ */
 async function setupFixture(): Promise<ReadonlyFixture> {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'readonly-parity-'));
   const eventStore = new EventStore(tmpDir);
@@ -66,8 +47,6 @@ async function setupFixture(): Promise<ReadonlyFixture> {
     stateDir: tmpDir,
     eventStore,
     enableTelemetry: false,
-    // The whole point of the suite: both facades share this resolver, so
-    // both observe `{mcp:exarchos:readonly}` and only `mcp:exarchos:readonly`.
     capabilityResolver: createInMemoryResolver(['mcp:exarchos:readonly']),
   };
   return { tmpDir, ctx };
@@ -77,12 +56,9 @@ async function teardownFixture(f: ReadonlyFixture): Promise<void> {
   await rmrfAsync(f.tmpDir);
 }
 
-// ─── Normalization ────────────────────────────────────────────────────────
-
 /**
- * Mirrors the views parity normalizer (timestamps → `<ISO>`, UUIDs → `<UUID>`,
- * `_perf` dropped) so transient wall-clock / measurement-path drift doesn't
- * register as a parity violation.
+ * Mirrors the views parity normalizer: timestamps become `<ISO>`, UUIDs become `<UUID>`, and
+ * `_perf` goes. Clock and measurement drift is thus not a parity violation.
  */
 function normalize(value: unknown): unknown {
   return harnessNormalize(value, {
@@ -93,14 +69,11 @@ function normalize(value: unknown): unknown {
   });
 }
 
-// ─── Tests ────────────────────────────────────────────────────────────────
-
+/** Each test clears the materializer cache, which keeps projection state across tests. */
 describe('CLI/MCP parity under mcp:exarchos:readonly (Issue #1192, T12)', () => {
   let fixture: ReadonlyFixture;
 
   beforeEach(async () => {
-    // The materializer caches projection state across test runs; clear it
-    // so each tmpDir starts from a clean slate.
     resetMaterializerCache();
     fixture = await setupFixture();
   });
@@ -111,18 +84,12 @@ describe('CLI/MCP parity under mcp:exarchos:readonly (Issue #1192, T12)', () => 
   });
 
   it('Readonly_AllowedReadAction_CLI_AndMCP_ReturnEqualPayload', async () => {
-    // Arrange — `pipeline` is on the wholesale-readonly view tool; the
-    // gate must pass through both facades identically.
     const args = { limit: 10, offset: 0 };
 
-    // Act — invoke the same action through each facade against the shared
-    // ctx (same stateDir, same resolver).
     const mcpResult = await harnessCallMcp(fixture.ctx, 'exarchos_view', {
       action: 'pipeline',
       ...args,
     });
-    // CLI alias for exarchos_view is `vw`; for the `pipeline` action the
-    // registry exposes alias `ls` — see registry.ts line ~1530.
     const { result: cliResult, exitCode } = await harnessCallCli(
       fixture.ctx,
       'vw',
@@ -130,8 +97,6 @@ describe('CLI/MCP parity under mcp:exarchos:readonly (Issue #1192, T12)', () => 
       args,
     );
 
-    // Assert — both succeed, both return equal payloads after normalizing
-    // transient fields, and neither path surfaces CAPABILITY_DENIED.
     expect(exitCode).toBe(CLI_EXIT_CODES.SUCCESS);
     expect(mcpResult.success).toBe(true);
     expect(cliResult.success).toBe(true);
@@ -140,17 +105,17 @@ describe('CLI/MCP parity under mcp:exarchos:readonly (Issue #1192, T12)', () => 
     expect(normalize(cliResult)).toEqual(normalize(mcpResult));
   });
 
+  /**
+   * `READ_ONLY_ACTIONS.exarchos_workflow` omits `transition`, so the gate rejects it on both
+   * facades. The CLI maps the failed dispatch to `HANDLER_ERROR`. The whole normalized envelope
+   * must match, so a field that only one facade adds fails the test.
+   */
   it('Readonly_MutatingAction_RejectsIdentically_From_CLI_AndMCP', async () => {
-    // T5a.1/DR-4 (#1259, v2.11): `workflow transition` is the canonical
-    // mutating action (post-`set` hard-cut). It is explicitly NOT on
-    // READ_ONLY_ACTIONS.exarchos_workflow, so the readonly gate must
-    // reject it on both facades.
     const args = {
       featureId: 'parity-readonly-feature',
       target: 'plan',
     };
 
-    // Act — both facades against the same ctx.
     const mcpResult = await harnessCallMcp(fixture.ctx, 'exarchos_workflow', {
       action: 'transition',
       ...args,
@@ -162,17 +127,10 @@ describe('CLI/MCP parity under mcp:exarchos:readonly (Issue #1192, T12)', () => 
       args,
     );
 
-    // Assert — both reject with structurally identical CAPABILITY_DENIED.
     expect(mcpResult.success).toBe(false);
     expect(cliResult.success).toBe(false);
-    // CLI maps a failed dispatch ToolResult to HANDLER_ERROR (2).
     expect(exitCode).toBe(CLI_EXIT_CODES.HANDLER_ERROR);
 
-    // Error envelope must be byte-equal across the two facades for the
-    // identifying triple (code, tool, action). Message strings are part
-    // of the gate's contract too — they're built from those three fields
-    // by `enforceReadonlyGate` so any divergence in message text would
-    // imply two different gate code paths, defeating the parity check.
     expect(mcpResult.error?.code).toBe('CAPABILITY_DENIED');
     expect(cliResult.error?.code).toBe('CAPABILITY_DENIED');
     expect(mcpResult.error?.tool).toBe('exarchos_workflow');
@@ -180,9 +138,6 @@ describe('CLI/MCP parity under mcp:exarchos:readonly (Issue #1192, T12)', () => 
     expect(mcpResult.error?.action).toBe('transition');
     expect(cliResult.error?.action).toBe('transition');
 
-    // Strongest assertion: the entire normalized error envelope matches.
-    // If a future change adds a facade-specific field (e.g. CLI tacks on
-    // `argv` while MCP omits it), this catches it.
     expect(normalize(cliResult)).toEqual(normalize(mcpResult));
   });
 });

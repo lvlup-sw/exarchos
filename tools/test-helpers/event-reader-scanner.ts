@@ -1,47 +1,17 @@
-// ─── The real resolver behind the fold-external event-reader census ──────────
+// The TypeScript resolver for the census of fold-external event readers.
 //
-// `src/events/partition/reader-census.ts` decides WHAT a fold-external read of
-// an event means for the governance/telemetry partition. It does not, and must
-// not, decide what a piece of TypeScript MEANS — whether `{ type: X }` names an
-// event type is a question about bindings, and the only instrument that cannot
-// disagree with the compiler about bindings is the compiler.
+// `src/events/partition/reader-census.ts` decides what a fold-external read of an event means for
+// the governance and telemetry partition. It must not decide what TypeScript code means. Whether
+// `{ type: X }` names an event type is a question about bindings, so the compiler answers it.
 //
-// ── Why this module is HERE and not next to the policy it serves ─────────────
-// The same reasoning the evidence-emission scanner states for itself:
-// `typescript` is a devDependency, so a shipped `src/` module importing it makes
-// the compiler a runtime dependency of a tree whose shipped artifact resolves
-// only `dependencies`, and the effect ledger enforces exactly that against
-// itself.
+// This module is not in `src/`, because `typescript` is a devDependency and the shipped artifact
+// resolves only `dependencies`.
 //
-// ── Why three forms and not one ─────────────────────────────────────────────
-// A scoped query is the minority spelling. Most correctness-bearing readers in
-// this tree fold a stream unfiltered and compare `.type` downstream, inside a
-// guard or a saga; several switch on it. A census that only read
-// `filters.type` would miss precisely the guard-layer literals that are the
-// clearest dependencies in the tree, and would look complete while doing so.
-//
-//   • `store.query(id, { type: X })` / `store.queryByType(X, …)`;
-//   • `event.type === 'x'`, `e.type !== 'x'`, and the bare `type` / `eventType`
-//     identifiers the same comparison is written with elsewhere;
-//   • `case 'x':` on a switch whose discriminant is one of those shapes;
-//   • `SET.has(event.type)` / `ARRAY.includes(event.type)` — a membership test
-//     against a collection of type literals reads every literal in it;
-//   • `event.type.startsWith('family.')` — a family filter reads the whole
-//     family, and the census expands the prefix against the catalog.
-//
-// The last two are not decoration. Four shipped modules spell their read that
-// way, including a gate whose verdict and a saga verifier whose pass/fail are
-// functions of the types they name; a grammar covering only comparisons reported
-// them as depending on no event at all, which is the fail-open direction.
-//
-// A query call carrying no type filter is reported as an UNSCOPED read rather
-// than as nothing: it depends on the whole type universe, and calling that
-// "reads no event" is the under-report the census refuses.
-//
-// The AST helpers below are deliberately local rather than shared with the
-// evidence scanner: that port answers "what does this module APPEND", this one
-// answers "what does this module READ", and folding them into one traversal
-// would make a change made for one census silently change the other's answer.
+// Most readers fold a stream unfiltered and compare `.type` later. Thus the scanner reads five
+// forms: a query filter, a `.type` comparison, a switch case, a membership test, and a family prefix.
+// A query with no type filter is an unscoped read, because it depends on every type. The AST
+// helpers here are local, not shared with the evidence scanner, so a change for one census does
+// not change the other.
 
 import ts from 'typescript';
 import type {
@@ -51,9 +21,8 @@ import type {
 } from '../../src/events/partition/reader-census.js';
 
 /**
- * `parseDiagnostics` is off the public `ts.SourceFile` surface but is the only
- * way to tell a CLEAN parse from a RECOVERED one. A narrowing predicate rather
- * than an assertion, because the cast ratchet scans this directory.
+ * `parseDiagnostics` is not on the public `ts.SourceFile` type, but only it tells a clean parse
+ * from a recovered one. This narrowing predicate reads it with no `as` cast.
  */
 function isDiagnosticArray(value: unknown): value is readonly ts.Diagnostic[] {
   return Array.isArray(value);
@@ -72,7 +41,7 @@ function parseOrThrow(source: string, fileName: string): ts.SourceFile {
     fileName,
     source,
     ts.ScriptTarget.Latest,
-    /* setParentNodes */ false,
+    false,
     ts.ScriptKind.TS,
   );
   const raw: unknown = Reflect.get(sourceFile, 'parseDiagnostics');
@@ -128,9 +97,9 @@ function collectImportAliases(sourceFile: ts.SourceFile): Map<string, string> {
 /**
  * Every `const NAME = <expression>` in the file, at any nesting depth.
  *
- * Deliberately flat rather than scope-accurate: an over-broad binding table can
- * only make a read MORE resolvable, and a same-named shadow resolving to a
- * different type surfaces as a reader to examine — the fail-loud direction.
+ * The table is flat, not scope-accurate. An over-broad table can only make a read more resolvable.
+ * A same-named shadow that resolves to a different type shows up as a reader to examine, which is
+ * the fail-loud direction.
  */
 function collectConstBindings(sourceFile: ts.SourceFile): Map<string, ts.Expression> {
   const bindings = new Map<string, ts.Expression>();
@@ -155,7 +124,11 @@ interface ResolutionContext {
   readonly knownConstants: ReadonlyMap<string, string>;
 }
 
-/** The string an expression evaluates to, or `undefined` when undecidable. */
+/**
+ * The string an expression evaluates to, or `undefined` when undecidable. It resolves a literal
+ * and an identifier bound to a resolvable value. It also resolves `TABLE.MEMBER` on a known or
+ * local constant table, under any import alias.
+ */
 function resolveString(
   node: ts.Expression,
   ctx: ResolutionContext,
@@ -167,8 +140,6 @@ function resolveString(
     return expr.text;
   }
 
-  // `TABLE.MEMBER` — an exported constant table the census supplied, reached
-  // under whatever local name this file imported it as.
   if (ts.isPropertyAccessExpression(expr) && ts.isIdentifier(expr.expression)) {
     const local = expr.expression.text;
     const canonical = ctx.aliases.get(local) ?? local;
@@ -187,7 +158,6 @@ function resolveString(
     return undefined;
   }
 
-  // A plain identifier bound to a literal (or to another identifier that is).
   if (ts.isIdentifier(expr) && !seen.has(expr.text)) {
     const bound = ctx.bindings.get(expr.text);
     if (bound !== undefined) {
@@ -219,13 +189,12 @@ function ownProperty(
 }
 
 /**
- * The list of strings a collection expression denotes, or `undefined` when the
- * collection is a runtime value.
+ * The list of strings a collection expression denotes, or `undefined` when the collection is a
+ * runtime value.
  *
- * `undefined` and `[]` are deliberately different answers: an unresolvable
- * receiver is reported as an unresolved read, while a receiver that genuinely
- * holds no literal reads nothing. Handles an array literal, a `new Set([…])`,
- * and either of those reached through a `const` binding.
+ * `undefined` and `[]` are different answers. An unresolvable receiver counts as an unresolved
+ * read, and a receiver that holds no literal reads nothing. It handles an array literal, a
+ * `new Set([…])`, and either of those through a `const` binding.
  */
 function resolveStringList(
   node: ts.Expression,
@@ -271,9 +240,8 @@ function asObjectLiteral(
 }
 
 /**
- * Whether an expression is the kind of thing an event-type discriminant is read
- * from: `something.type`, or a bare `type` / `eventType` binding — the last
- * spelling being live in this tree's own event tool surface.
+ * True for an expression that holds an event-type discriminant: `something.type`,
+ * `something['type']`, or a bare `type` or `eventType` binding.
  */
 function isEventTypeReference(node: ts.Expression): boolean {
   const expr = unwrap(node);
@@ -300,8 +268,13 @@ function lineOf(sourceFile: ts.SourceFile, node: ts.Node): number {
 /**
  * Every fold-external read of an event type in one module.
  *
- * `.append` is deliberately NOT inspected: an append is a write, and a census
- * that counted it would report every emitter as a dependency on its own event.
+ * The scan does not inspect `.append`. An append is a write, and a census that counted it reports
+ * every emitter as a reader of its own event.
+ *
+ * A `.query` call with no filter bag, or with a readable filter bag that has no `type`, is an
+ * unscoped read. A membership test reads every literal of its receiver. An unresolvable receiver
+ * gives one unresolved site, because the census cannot decode a set built at runtime. A prefix
+ * filter keeps its prefix, and the census expands it against the catalog.
  */
 export const scanEventReaders: EventReaderScanner = (
   source: string,
@@ -328,7 +301,6 @@ export const scanEventReaders: EventReaderScanner = (
       });
       return;
     }
-    // `.query(streamId, filters?)` — the filter bag is the second argument.
     const filters = node.arguments[1];
     if (filters === undefined) {
       sites.push({ line, kind: 'unscoped-query', discriminant: undefined });
@@ -337,8 +309,6 @@ export const scanEventReaders: EventReaderScanner = (
     const object = asObjectLiteral(filters, ctx);
     const typeProperty = object === undefined ? undefined : ownProperty(object, 'type');
     if (object !== undefined && typeProperty === undefined) {
-      // A readable filter bag that narrows by anything except type still reads
-      // the whole type universe.
       sites.push({ line, kind: 'unscoped-query', discriminant: undefined });
       return;
     }
@@ -349,12 +319,6 @@ export const scanEventReaders: EventReaderScanner = (
     });
   };
 
-  /**
-   * `RECEIVER.has(event.type)` / `RECEIVER.includes(event.type)` — the receiver
-   * is the vocabulary, so every literal in it is read at this site. An
-   * unresolvable receiver yields ONE unresolved site rather than nothing: a
-   * runtime-built set is a read the census could not decode, not an absence.
-   */
   const visitMembership = (node: ts.CallExpression, receiver: ts.Expression): void => {
     const argument = node.arguments[0];
     if (argument === undefined || !isEventTypeReference(argument)) return;
@@ -382,7 +346,6 @@ export const scanEventReaders: EventReaderScanner = (
         sites.push({
           line: lineOf(sourceFile, node),
           kind: 'prefix-filter',
-          // The census owns the expansion — only it knows the catalog.
           discriminant: prefix === undefined || prefix === '' ? undefined : prefix,
         });
       }

@@ -1,110 +1,40 @@
-// ─── DR-26 — the real lexer behind the effect ledger and its siblings (task 065)
-//
-// `architecture/effect-ledger.ts` decides WHICH specifiers are effects, WHICH
-// shapes are ambient globals and WHO owns each occurrence. It does not, and must
-// not, decide what a specifier IS or which characters of a file are code — those
-// are questions about TypeScript's grammar, and the only instrument that cannot
-// disagree with the compiler about them is the compiler.
-//
-// ── Why this module is HERE and not next to the policy it serves ─────────────
-// The obvious home is `architecture/effect-ledger.ts` itself. It is the wrong
-// one, and the reason is measured rather than assumed — task 062 ran the
-// experiment and this task inherits the result:
-//
-//   • `typescript` is a devDependency of this package, not a dependency. A
-//     module under `src/` that imports it makes the compiler a runtime
-//     dependency of a tree whose shipped artifact (`bun build --compile` from
-//     `src/index.ts`) resolves only `dependencies`.
-//   • The effect ledger enforces exactly that, against itself. `typescript` is
-//     not in `INERT_DEPENDENCIES`, so the closed-world rule classifies it
-//     `unvetted-dependency:typescript` — a NETWORK occurrence — under
-//     `architecture/`, a layer that owns no network rule. Adding the import to
-//     the ledger was tried and the live census answered with one
-//     `INDETERMINATE_OWNER`. The guard is real and it is right.
-//   • Vetting `typescript` inert would be FALSE at the granularity the ledger
-//     vets. Its allowlist entries all turn on "the effectful surface is not
-//     reachable from what we import" (see the `@modelcontextprotocol/server`
-//     entry, which names the exact re-exported symbols). `import ts from
-//     'typescript'` puts `ts.sys` — full filesystem and process access — one
-//     property access away, and `ts.createProgram` reads files. That entry could
-//     not be written honestly, so it is not written.
-//
-// `test-helpers/` is the home that costs nothing: `effect-ledger.ts`'s
-// `EXCLUDED_DIRS` skips it (not shipped source), while `tsconfig.json` still
-// INCLUDES it, so this parser is typechecked under the package's own strict
-// settings rather than living in an unchecked corner. The cast ratchet
-// (`tools/audit/tsconfig-strictness/count-casts.ts`) also scans it, which is why the
-// `parseDiagnostics` access below is a type guard rather than the `as` the
-// sibling censuses use.
-//
-// ── Why parse at all ────────────────────────────────────────────────────────
-// The superseded implementation — retained verbatim next door as
-// `superseded-source-lexer.ts`, so the kill fixture can assert both numbers —
-// was a pair of hand-rolled comment/string/regex-aware walks whose own headers
-// admitted the regex-versus-division rule was a heuristic. Two measured
-// disagreements, both reproducible from that file:
-//
-//   • a NESTED template substitution made the heuristic report an import the
-//     module does not have (the census inventing an effect);
-//   • a regex literal containing a backtick, in a position the heuristic scored
-//     as division, opened a phantom template that ran to EOF and hid a real
-//     `node:fs` import (the census missing an effect).
-//
-// Hand-rolling a better stripper is not the fix — it is how the defect arrives,
-// three near-duplicate times in this package alone. A specifier inside a
-// comment, a string or a template is not an import NODE, so the parse excludes
-// it BY CONSTRUCTION; and the mask is computed from the parse's own literal
-// spans, so the two answers cannot drift apart.
-//
-// ── The three survivors, and the third answer they needed (task 072) ────────
-// Task 065 named them and task 072 measured each one on 065's own adversarial
-// inputs. All three were wrong, and two of them in the dangerous direction:
-//
-//   • `workflow/admission/remediation-purity.ts` reported NO imports for a
-//     module that really imports `node:fs` — a forbidden marker — so the purity
-//     census returned `ok: true` for an impure module;
-//   • `architecture/delivery-safety.ts` left a real `catch {}` unseen for the
-//     same reason, and invented one inside a nested template;
-//   • `architecture/vcs-ownership.ts` leaked comment prose into its scan and
-//     charged a module with a `git worktree add` it does not perform.
-//
-// Two of the three wanted `maskedSource` and `imports`, which this parse already
-// answered. The third wanted something it did not: comments gone with STRING
-// LITERALS KEPT, because the tokens `vcs-ownership` matches on (`'worktree'`,
-// `'add'`) are themselves string literals. That is {@link
-// LexedSource.commentMaskedSource} — a third answer off the SAME parse, not a
-// second parser, so it cannot disagree with the other two about the same file.
+/**
+ * The TypeScript-parser lexer behind the effect ledger and its sibling censuses. The ledger decides
+ * which specifiers are effects and who owns them. Which characters are code and what a specifier
+ * is are grammar questions, so the compiler answers them.
+ *
+ * This module is not under `src/`, because `typescript` is a devDependency. A shipped module that
+ * imports it makes the compiler a runtime dependency, and the ledger classifies that import as an
+ * unvetted network dependency. Do not vet `typescript` as inert: `ts.sys` gives file system and
+ * process access.
+ *
+ * One parse gives three answers: the imports, the masked source and the comment-masked source. A
+ * specifier in a comment, a string or a template is not an import node, so the parse excludes it.
+ * The superseded hand-written walks stay in `superseded-source-lexer.ts` for the kill fixture.
+ */
 
 import ts from 'typescript';
 import type { ImportRef, LexedModule } from '../../src/architecture/effect-ledger.js';
 
 /**
- * `parseDiagnostics` is off the public `ts.SourceFile` surface but is the only
- * way to tell a CLEAN parse from a RECOVERED one.
- *
- * Written as a narrowing predicate over `unknown` rather than an `as` cast: the
- * wave's remaining cast budget is five sites for every task combined, and this
- * file is inside the ratchet's scan.
+ * Narrows `parseDiagnostics`, which is off the public `ts.SourceFile` surface. It is the only way to
+ * tell a clean parse from a recovered one. A predicate over `unknown` avoids an `as` cast.
  */
 function isDiagnosticArray(value: unknown): value is readonly ts.Diagnostic[] {
   return Array.isArray(value);
 }
 
 /**
- * Parse one module, refusing a RECOVERED parse.
- *
- * `ts.createSourceFile` never throws: handed broken input it returns a partial
- * tree with nodes silently missing. For an effect census an under-count is the
- * dangerous direction — a module whose imports vanished reads as effect-free and
- * passes the gate clean — so a recovered parse is fatal here rather than quietly
- * averaged in. Same judgement, same reason, as the sibling censuses.
+ * Parses one module and refuses a recovered parse. `ts.createSourceFile` never throws: on broken
+ * input it returns a partial tree with missing nodes. A module whose imports vanished reads as
+ * effect-free, so a recovered parse is fatal here.
  */
 function parseOrThrow(source: string, fileName: string): ts.SourceFile {
   const sourceFile = ts.createSourceFile(
     fileName,
     source,
     ts.ScriptTarget.Latest,
-    /* setParentNodes */ false,
+    false,
     ts.ScriptKind.TS,
   );
   const raw: unknown = Reflect.get(sourceFile, 'parseDiagnostics');
@@ -129,14 +59,10 @@ interface LiteralSpan {
 }
 
 /**
- * Every non-code span the mask must blank, EXCEPT comments.
- *
- * Comments are trivia rather than nodes, so they are not collected here; they
- * are recognised in {@link blankNonCode}, where the literal spans are already
- * known and a `/` outside them is therefore unambiguous. That ordering is what
- * removes the heuristic entirely: the only reason the old walks needed a
- * regex-versus-division rule is that they tried to answer both questions at
- * once.
+ * Every non-code span that the mask blanks, except comments. Comments are trivia, not nodes, so
+ * {@link blankNonCode} finds them after the literal spans are known. A `/` outside a literal span is
+ * then unambiguous. A template expression gives only its text parts, because a `${…}` substitution
+ * is code, nested templates included.
  */
 function collectLiteralSpans(sourceFile: ts.SourceFile): LiteralSpan[] {
   const spans: LiteralSpan[] = [];
@@ -152,9 +78,6 @@ function collectLiteralSpans(sourceFile: ts.SourceFile): LiteralSpan[] {
     ) {
       push(node);
     } else if (ts.isTemplateExpression(node)) {
-      // Only the TEXT parts. `${…}` substitutions are code, including a nested
-      // template inside one — which is precisely where the retired heuristic
-      // inverted its own state and read template text as code.
       push(node.head);
       for (const span of node.templateSpans) push(span.literal);
     }
@@ -165,19 +88,10 @@ function collectLiteralSpans(sourceFile: ts.SourceFile): LiteralSpan[] {
 }
 
 /**
- * Blank every comment and — when `literals` is `'blank'` — every literal span,
- * preserving newlines and length so offsets stay aligned to the original source.
- *
- * Correctness rests on one observation: with the literal spans already known
- * from the parse, a `/` encountered OUTSIDE them can only begin a comment. It
- * cannot be a regex literal (that would be a literal span) and `//` is never
- * division. So the ambiguity the old lexers guessed at does not arise here.
- *
- * `literals: 'keep'` copies literal spans through verbatim instead of blanking
- * them, which is the only difference between the two masks this module returns.
- * The COMMENT half is shared rather than re-derived, so the answer a caller who
- * wants literals cannot drift from the answer a caller who does not gets — the
- * exact drift three near-duplicate hand-rolled walks had by construction.
+ * Blanks every comment, and every literal span when `literals` is `'blank'`. Newlines and length
+ * stay, so offsets match the original source. With the literal spans known, a `/` outside them can
+ * only start a comment. A regex is a literal span, and `//` is never division. With
+ * `literals: 'keep'`, literal spans pass through verbatim. Both masks share the comment logic.
  */
 function blankNonCode(
   source: string,
@@ -224,24 +138,13 @@ function blankNonCode(
 }
 
 /**
- * Every MODULE SPECIFIER the parsed program imports or re-exports, tagged with
- * whether the form is erased at emit.
+ * Every module specifier that the parsed program imports or re-exports, tagged with whether the
+ * form is erased at emit. The forms are `import x from 'p'`, `import type`, `import 'p'`,
+ * `export … from 'p'`, `export type … from 'p'`, `import('p')`, `require('p')`,
+ * `import p = require('p')` and the `import('p').T` type query.
  *
- * Covers every form the tree uses or could use, so the parse cannot under-report
- * where the superseded text walk could not miss:
- *
- *   `import x from 'p'` · `import type { T } from 'p'` · `import 'p'` ·
- *   `export { x } from 'p'` · `export * from 'p'` · `export type { T } from 'p'` ·
- *   `await import('p')` · `require('p')` · `import p = require('p')` ·
- *   the `import('p').T` TYPE QUERY
- *
- * The type query is included, tagged type-only, on purpose and it is the one
- * place this differs from the retired walk in a way that MATTERS. The walk
- * counted `import('…')` type queries as VALUE imports, which was wrong for the
- * effect ledger (they are erased, so they perform nothing) — but dropping them
- * entirely would be wrong for `layer-boundaries-seam.ts`, whose question is "is
- * there an edge", and a type query is one. Tagging it lets both consumers be
- * right: the ledger filters on `typeOnly`, the layering census does not.
+ * The type query is tagged type-only. The effect ledger skips `typeOnly` imports, because an erased
+ * import does nothing. `layer-boundaries-seam.ts` keeps it, because a type query is an edge.
  */
 function collectImports(sourceFile: ts.SourceFile): ImportRef[] {
   const imports: ImportRef[] = [];
@@ -291,27 +194,15 @@ function collectImports(sourceFile: ts.SourceFile): ImportRef[] {
 }
 
 /**
- * Everything {@link lexModule} answers: the {@link LexedModule} surface the
- * effect ledger declared, plus the one answer its two siblings needed and it
- * did not have.
- *
- * A consumer never names this type. Each declares the MINIMAL port it needs —
- * `ModuleLexer` in `effect-ledger.ts` and `delivery-safety.ts`, `CommentLexer`
- * in `vcs-ownership.ts` — and `lexModule` satisfies all of them structurally.
- * That keeps "which lexical question does this census ask" visible at the
- * consumer, where it is a fact about the census, rather than collapsing every
- * consumer onto one wide interface.
+ * Everything that {@link lexModule} answers: the {@link LexedModule} surface plus
+ * `commentMaskedSource`. A consumer never names this type. Each consumer declares the minimal port
+ * that it needs (`ModuleLexer`, `CommentLexer`), and `lexModule` satisfies each one structurally.
  */
 export interface LexedSource extends LexedModule {
   /**
-   * `source` with every comment blanked to spaces (newlines and offsets
-   * preserved) and every string, template and regex literal kept VERBATIM.
-   *
-   * The complement of {@link LexedModule.maskedSource}, and needed for the same
-   * reason that one is: `vcs-ownership.ts` matches on argv literals
-   * (`['worktree', 'add']`), so blanking string bodies would blank its entire
-   * subject, while leaving comments in place charges a module with a mutation
-   * that only its documentation performs.
+   * `source` with every comment blanked to spaces, with newlines and offsets kept. String, template
+   * and regex literals stay verbatim. `vcs-ownership.ts` matches argv literals such as
+   * `['worktree', 'add']`, so it needs the literals and must not see the comments.
    */
   readonly commentMaskedSource: string;
 }
@@ -320,12 +211,9 @@ export interface LexedSource extends LexedModule {
 export type SourceLexer = (source: string, fileName?: string) => LexedSource;
 
 /**
- * The lexer-port implementation: ONE parse, three answers.
- *
- * All three come from the SAME `ts.SourceFile`, which is the structural reason
- * the import surface, the masked-code surface and the comment-stripped surface
- * can no longer disagree about the same file — the failure mode four
- * near-duplicate hand-rolled lexers had by construction.
+ * The lexer-port implementation: one parse, three answers. All three come from the same
+ * `ts.SourceFile`, so the imports, the masked source and the comment-masked source cannot disagree
+ * about a file.
  */
 export const lexModule: SourceLexer = (
   source: string,

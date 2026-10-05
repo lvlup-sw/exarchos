@@ -1,57 +1,22 @@
 /**
- * `outputSchema` vacuity census (DR-4).
+ * The `outputSchema` vacuity census.
  *
- * ── The finding this instrument makes measurable ────────────────────────────
- * `outputSchema` records PRESENCE, not SUBSTANCE. The field is required at the
- * interface boundary (`ToolAction.outputSchema`) and `validateAction` fails the
- * module import without it — yet the overwhelming majority of registered
- * actions attach `EnvelopeSchema(z.unknown())`, whose success branch types
- * `data` with `z.unknown()`. INV-17 names `outputSchema` totality the
- * precondition that makes facade equivalence hold by construction; a vacuous
- * schema satisfies totality TRIVIALLY, because it is total over every shape
- * including the wrong ones. For those actions, INV-2's "schema-checked in
- * addition to byte-checked" reduces to byte-checked plus a tautology.
+ * Each action must declare an `outputSchema`, but many declare `EnvelopeSchema(z.unknown())`. The
+ * success branch of that envelope types `data` as `z.unknown()`. A vacuous schema satisfies the
+ * totality of `outputSchema` trivially, because it accepts every shape, also the wrong ones.
  *
- * This module is the detector. It enumerates every action declaration in the
- * registry and partitions the declarations into VACUOUS and SUBSTANTIVE. It
- * declares no policy and enforces no budget — DR-4's ratchet is built on top of
- * this census, and consumes {@link OutputSchemaCensusReport.vacuous} directly
- * (a sorted, stable id list) so the seed never has to be transcribed by hand.
+ * This module is the detector. It partitions each action declaration into vacuous and substantive.
+ * The ratchet below reads {@link OutputSchemaCensusReport.vacuous}, so nobody transcribes the seed.
  *
- * ── Why the verdict is SEMANTIC, not textual ────────────────────────────────
- * The obvious detector is a grep for the literal string `EnvelopeSchema(z.
- * unknown())`. That detector is defeated by a one-line laundering: bind the
- * same expression to a named constant and the grep goes quiet while the
- * contract stays exactly vacuous. The live tree already contains two such
- * bindings (`WorkflowUpdateOutputSchema`, `WorkflowTransitionOutputSchema`), so
- * this is not a hypothetical evasion — it is the current state.
- *
- * The census therefore reads the SCHEMA OBJECT, not the source text: it walks
- * to the success branch of the `success`-discriminated envelope union and asks
- * whether the `data` sub-schema accepts every value. A named alias, an
- * intersection wrapper, or a future re-export all resolve to the same verdict,
- * because they all resolve to the same `data`.
- *
- * ── Why the count is DERIVED, never written down ────────────────────────────
- * A census whose subject count is a literal is a census of nothing: it reports
- * the same number after the registry is renamed, emptied, or fails to import.
- * Every number this module returns is computed from the enumerated records on
- * each call. The complementary guard is {@link CensusDiagnostic} `EMPTY_CENSUS`
- * — enumerating ZERO declarations is a FAILURE, never a clean run. Without that
- * tooth, a moved module or a broken import reads green, which is the exact
- * failure mode this instrument exists to prevent.
- *
- * Follows the `architecture/description-budget.ts` registry-census idiom: a
- * pure library over an injectable `tools` seam that defaults to the live
- * {@link TOOL_REGISTRY}, plus a formatter, so the co-located vitest and any
- * future CLI wrapper share one source of truth.
+ * The verdict reads the schema object, not the source text, because a grep misses the same
+ * expression bound to a named constant. Each count is derived on each call, and an empty subject
+ * is the `EMPTY_CENSUS` failure. The day rule, the expiry verdict and the key-set digest come from
+ * the shared `waiver-ledger.ts` and `waiver-ledger-digest.ts`. This module re-exports the day rule
+ * and keeps its own nouns.
  */
 import { z } from 'zod';
 import type { VacuityWaiverEntry } from '../../../src/output-schema-vacuity-allowlist.js';
 import { VACUITY_SEED_DIGEST_ALGORITHM } from './output-schema-seed-pin.js';
-// The day rule, the expiry verdict and the key-set canonicalisation are one
-// authority for every ledger in this tree. This module keeps its own NOUNS
-// (`VACUITY_*`, `WAIVER_*`) and hands the ledger the arithmetic.
 import {
   auditWaiverLedger,
   isIsoDay,
@@ -62,11 +27,9 @@ import {
 import { keySetDigest } from './waiver-ledger-digest.js';
 
 /**
- * The shipped schema behaviours this census measures against.
- *
- * They arrive as ports rather than imports: this module is conformance code and
- * must not reach into the tree it inspects, and `registry.ts` is a DR-1
- * declaration store besides. The composition root binds the real functions.
+ * The shipped schema behaviors that this census measures against. They arrive as ports, because
+ * conformance code must not import the tree that it inspects, and `registry.ts` is a declaration
+ * store. The composition root binds the real functions.
  */
 export interface OutputSchemaPorts {
   /** Walk a declared `outputSchema` to its success-branch `data` sub-schema. */
@@ -76,15 +39,11 @@ export interface OutputSchemaPorts {
 }
 
 /**
- * The census's subject, stated STRUCTURALLY rather than as `CompositeTool`.
+ * The subject of the census, stated as a structure and not as `CompositeTool`.
  *
- * DR-4 (task 055) narrowed `ToolAction.outputSchema` to a branded type only two
- * constructors can mint. The census must NOT inherit that narrowing: its job is
- * to classify whatever schema a declaration actually carries, including one
- * that reached the registry through a path the type system does not govern (a
- * forged brand, the out-of-registry escape). A seam that accepted only branded
- * schemas would be unable to see exactly the case the ratchet exists to catch.
- * `CompositeTool` satisfies this shape, so `TOOL_REGISTRY` remains the default.
+ * `ToolAction.outputSchema` is a branded type. The census must not inherit that narrowing. It
+ * classifies the schema that a declaration actually carries, also one that reached the registry
+ * outside the type system, such as a forged brand. `CompositeTool` satisfies this shape.
  */
 export interface CensusableAction {
   readonly name: string;
@@ -99,23 +58,16 @@ export interface CensusableTool {
 export type VacuityClass = 'vacuous' | 'substantive';
 
 /**
- * Why a declaration landed in its partition. The reason is load-bearing for the
- * DR-4 ratchet: `unknown-data` and `wrapped-unknown-data` are both vacuous, but
- * only the first is visible to a source-text grep, so reporting them apart is
- * what makes the "aliased vacuity" gap auditable instead of invisible.
+ * Why a declaration landed in its partition. `unknown-data` and `wrapped-unknown-data` are both
+ * vacuous, but only the first is visible to a source-text grep. Separate reasons make the aliased
+ * vacuity auditable.
  *
- *   - `unknown-data`         — the success-branch `data` is `z.unknown()` /
- *                              `z.any()`. Accepts every payload.
- *   - `wrapped-unknown-data` — the envelope union sits inside an intersection
- *                              wrapper (a `_meta` constraint, for example) but
- *                              its `data` is still `z.unknown()` / `z.any()`.
- *                              The wrapper constrains a different field; the
- *                              payload contract remains vacuous.
- *   - `typed-data`           — `data` pins a real shape. Substantive.
- *   - `unreadable-envelope`  — no success-branch `data` could be located. The
- *                              census cannot prove substance, so it fails
- *                              closed: classified vacuous AND raised in
- *                              {@link OutputSchemaCensusReport.diagnostics}.
+ * - `unknown-data`: the success-branch `data` accepts every value, as `z.unknown()` does.
+ * - `wrapped-unknown-data`: the envelope union is inside an intersection, such as a `_meta`
+ *   constraint, but its `data` still accepts every value.
+ * - `typed-data`: `data` pins a real shape. Substantive.
+ * - `unreadable-envelope`: no success-branch `data` was found. The census fails closed: the
+ *   declaration is vacuous and gets a diagnostic.
  */
 export type VacuityReason =
   | 'unknown-data'
@@ -125,9 +77,9 @@ export type VacuityReason =
 
 /** One enumerated action declaration and its verdict. */
 export interface OutputSchemaRecord {
-  /** Composite tool name, e.g. `exarchos_view`. */
+  /** Composite tool name, for example `exarchos_view`. */
   readonly tool: string;
-  /** Action name within that tool, e.g. `telemetry`. */
+  /** Action name within that tool, for example `telemetry`. */
   readonly action: string;
   /** Stable identifier `${tool}.${action}` — the ratchet's unit of record. */
   readonly id: string;
@@ -158,7 +110,7 @@ export interface OutputSchemaCensusReport {
   readonly vacuousCount: number;
   /** Derived: `substantive.length`. Never a literal. */
   readonly substantiveCount: number;
-  /** Sorted ids of the vacuous declarations — the DR-4 ratchet seed. */
+  /** Sorted ids of the vacuous declarations: the seed of the vacuity ratchet. */
   readonly vacuous: readonly string[];
   /** Sorted ids of the substantive declarations — today's migration template. */
   readonly substantive: readonly string[];
@@ -166,12 +118,6 @@ export interface OutputSchemaCensusReport {
   readonly records: readonly OutputSchemaRecord[];
   readonly diagnostics: readonly CensusDiagnostic[];
 }
-
-// `acceptsEveryValue` used to be re-exported from here so that consumers and
-// `withCappedShape` shared one definition of "accepts everything". The predicate
-// lives in `contract/schemas/schema-totality.ts` and always did; this module now
-// receives it as a port instead, so the re-export would be a second name for a
-// leaf that every consumer can import directly. Consumers take it from there.
 
 /** What {@link readEnvelopeData} recovered from a declared `outputSchema`. */
 interface EnvelopeData {
@@ -181,17 +127,13 @@ interface EnvelopeData {
 }
 
 /**
- * Walk a declared `outputSchema` down to its success-branch `data` sub-schema.
+ * Walks a declared `outputSchema` down to its success-branch `data` sub-schema. It reads a bare
+ * `success`-discriminated envelope union through `ports.extractEnvelopeData`. It also reads that
+ * union inside a `ZodIntersection`, such as `EnvelopeSchema(...).and(...)`, and probes both
+ * operands at any depth. It returns `undefined` when no branch yields `data`.
  *
- * Handles the two live shapes:
- *   1. a bare `success`-discriminated envelope union — delegated to the shipped
- *      {@link extractEnvelopeDataSchema}, which owns the union-option walk;
- *   2. that union inside a `ZodIntersection` (the `EnvelopeSchema(...).and(...)`
- *      form used to register a typed `_meta` slot). Both operands are probed,
- *      recursively, so nesting depth does not matter.
- *
- * Returns `undefined` when neither branch yields a `data` field — the caller
- * fails closed on that.
+ * The intersection operands are typed at the core `$ZodType` base. A runtime `instanceof` check
+ * narrows each one to `z.ZodType`, not a type assertion.
  */
 function readEnvelopeData(
   outputSchema: z.ZodType,
@@ -201,9 +143,6 @@ function readEnvelopeData(
   if (direct !== undefined) return { data: direct, wrapped: false };
 
   if (outputSchema instanceof z.ZodIntersection) {
-    // `def.left` / `def.right` are typed at the core `$ZodType` base, so each
-    // operand is narrowed back to the public `z.ZodType` with a real runtime
-    // `instanceof` guard rather than a type assertion.
     for (const operand of [outputSchema.def.left, outputSchema.def.right]) {
       if (!(operand instanceof z.ZodType)) continue;
       const nested = readEnvelopeData(operand, ports);
@@ -236,12 +175,12 @@ export function classifyOutputSchema(
 }
 
 /**
- * Enumerate every action declaration in `tools` and partition the declared
- * `outputSchema`s into vacuous / substantive.
+ * Enumerates each action declaration in `tools` and partitions the declared `outputSchema`s into
+ * vacuous and substantive. `censusLiveOutputSchemas` passes the live registry. A test passes its
+ * own `tools`, so it can vary the input and pose an empty subject.
  *
- * Defaults to the live {@link TOOL_REGISTRY}. The `tools` parameter is the seam
- * the co-located vitest drives to prove the counts track their input (and to
- * exercise the empty-subject failure) without mutating the real registry.
+ * An empty subject is not a clean run. The census lost its subject, so it fails with
+ * `EMPTY_CENSUS`.
  */
 export function censusOutputSchemas(
   tools: readonly CensusableTool[],
@@ -274,10 +213,6 @@ export function censusOutputSchemas(
   const vacuous = records.filter((r) => r.classification === 'vacuous').map((r) => r.id);
   const substantive = records.filter((r) => r.classification === 'substantive').map((r) => r.id);
 
-  // Non-empty-denominator guard. A census over an empty subject is not a clean
-  // run — it is a census that lost its subject (module moved, import broken,
-  // registry emptied). Detection alone would be insufficient without this: the
-  // failure mode reads green precisely when the instrument has stopped working.
   if (records.length === 0) {
     diagnostics.push({
       code: 'EMPTY_CENSUS',
@@ -315,9 +250,8 @@ export function countByReason(
 }
 
 /**
- * Render the census for a human or an agent. Reports the live vacuous count and
- * the denominator it was measured against — a proportion without its
- * denominator is the same rubber stamp this module exists to remove.
+ * Renders the census for a human or an agent. It reports the vacuous count with its denominator,
+ * because a proportion without a denominator proves nothing.
  */
 export function formatOutputSchemaCensus(report: OutputSchemaCensusReport): string {
   const lines: string[] = [];
@@ -347,19 +281,13 @@ export function formatOutputSchemaCensus(report: OutputSchemaCensusReport): stri
   return lines.join('\n');
 }
 
-// ─── DR-4 ratchet: the shrink-only vacuity allowlist ────────────────────────
-//
-// The census above measures. This is the policy laid over the measurement, and
-// it is the RUNTIME half of DR-4 — the compile-time half lives in
-// `output-schema-declaration.ts`, where `ToolAction.outputSchema` accepts only
-// a branded schema and the waiver escape accepts only a seeded id.
-//
-// Why membership and not a count: a threshold ("no more than 112 vacuous") is
-// satisfied by swapping — pay down `a`, introduce `b`, and the number never
-// moves. The audit below compares SETS in both directions, so a swap surfaces
-// as two findings even though the cardinality is unchanged.
-
-/** A condition that makes the allowlist and the live census disagree. */
+/**
+ * A condition where the allowlist and the live census disagree.
+ *
+ * This is the runtime half of the vacuity ratchet. The compile-time half is in
+ * `src/output-schema-declaration.ts`. The audit compares sets in both directions, not counts, so
+ * a swap of two entries gives two findings.
+ */
 export type VacuityAllowlistFinding =
   | { readonly code: 'EMPTY_CENSUS'; readonly message: string }
   | { readonly code: 'UNTRUSTWORTHY_CENSUS'; readonly message: string }
@@ -375,7 +303,7 @@ export interface VacuityAllowlistAudit {
   readonly vacuous: readonly string[];
   /** Allowlisted ids, sorted — the policy. */
   readonly waived: readonly string[];
-  /** Vacuous today with no waiver. New vacuity; the ratchet's growth tooth. */
+  /** Vacuous today with no waiver: the growth tooth of the ratchet. */
   readonly unwaived: readonly string[];
   /** Waived but no longer vacuous. Paid-down debt that must be DELETED. */
   readonly stale: readonly string[];
@@ -383,26 +311,14 @@ export interface VacuityAllowlistAudit {
 }
 
 /**
- * Audit the shrink-only allowlist against the live census.
+ * Audits the shrink-only allowlist against the live census. `auditLiveVacuityAllowlist` passes the
+ * live pair. A test passes its own pair to pose an emptied subject or a swapped entry.
  *
- * Both arguments default to the live pair, so the production call is
- * `auditVacuityAllowlist()`. They are injectable seams for the same reason the
- * census takes `tools`: the co-located vitest has to drive compositions the
- * live tree cannot produce (an emptied subject, a swapped entry) without
- * touching the real registry or the real seed.
- *
- * Three teeth:
- *   1. NON-EMPTY DENOMINATOR. A census over zero declarations proves nothing;
- *      it is what a moved module or a broken import looks like. It FAILS rather
- *      than reporting "0 unwaived — clean".
- *   2. UNWAIVED_VACUITY. A declaration that is vacuous today and not on the
- *      list. This is the runtime mirror of the compile-time tooth, and it is
- *      what catches vacuity that entered through a path the type system does
- *      not govern (a forged brand, the out-of-registry escape).
- *   3. STALE_WAIVER. A waiver whose declaration is no longer vacuous — fixed,
- *      or deleted outright. There is no way to park a paid-down entry: the
- *      moment the debt is paid, the entry must go. That is what makes the list
- *      shrink-only rather than merely bounded.
+ * - An empty census fails, and does not report zero unwaived declarations as clean.
+ * - `UNWAIVED_VACUITY`: a declaration is vacuous today and has no entry. This catches vacuity that
+ *   entered outside the type system, such as a forged brand.
+ * - `STALE_WAIVER`: a waived declaration is no longer vacuous, or no longer exists. Its entry must
+ *   go at once, so the list only shrinks.
  */
 export function auditVacuityAllowlist(
   report: OutputSchemaCensusReport,
@@ -475,28 +391,14 @@ export function auditVacuityAllowlist(
   });
 }
 
-// ─── DR-4 third tooth: the seed key set is pinned (task 060) ────────────────
-//
-// `auditVacuityAllowlist` above compares the allowlist against TODAY, in both
-// directions. What it structurally cannot see is an IN-PLACE SWAP: drop `a`
-// (genuinely paid down) and add `c` (newly vacuous) in the same edit, and every
-// comparison against today's registry agrees. The cardinality is unchanged, so a
-// count cannot see it either; the compile-time waiver union cannot see it
-// because the union IS the edited file.
-//
-// Detecting "only removals happened" requires PRIOR STATE, and prior state is
-// not derivable — it is written down once, in `output-schema-seed-pin.ts`. The
-// quantity pinned is the union of the live allowlist and the retirement
-// graveyard, which is INVARIANT under the one legal edit (a paydown MOVES an
-// entry from one map to the other). So the pin never changes for legitimate
-// work, and any change to it is by construction someone re-seeding.
-//
-// This is deliberately NOT folded into `auditVacuityAllowlist`: that function's
-// seams are driven with synthetic subjects by its tests, and a seed pin over a
-// synthetic subject would be meaningless. `auditVacuityRatchet()` below is the
-// composition that runs all three teeth against the live triple.
-
-/** A condition that means the SEED's key set is no longer the one that was pinned. */
+/**
+ * A condition where the key set of the seed differs from its pin.
+ *
+ * The allowlist audit compares against today, so it cannot see an in-place swap. A swap drops a
+ * paid-down id and adds a new vacuous id in one edit. The pin in `output-schema-seed-pin.ts`
+ * records prior state. It covers the union of the allowlist and the retired ids. A legal paydown
+ * moves an entry from one map to the other, so it does not change that union.
+ */
 export type VacuitySeedFinding =
   | { readonly code: 'SEED_KEY_SET_DRIFT'; readonly message: string }
   | { readonly code: 'RETIRED_AND_WAIVED'; readonly id: string; readonly message: string };
@@ -516,13 +418,9 @@ export interface VacuitySeedIntegrityAudit {
 }
 
 /**
- * The seed key set's digest: `sha256` over the sorted, deduplicated ids joined
- * by newlines.
- *
- * Order- and duplicate-insensitive on purpose — the pinned quantity is a SET,
- * so re-sorting the allowlist literal or writing an id twice must not move the
- * digest. Only membership does. Both halves of that rule live in the DR-6
- * ledger; only the algorithm label is DR-4's.
+ * The digest of the seed key set, over the sorted, deduplicated ids joined by newlines. The
+ * default algorithm is `sha256`. Order and duplicates do not change the digest, because the
+ * pinned quantity is a set.
  */
 export function vacuitySeedDigest(
   ids: readonly string[],
@@ -532,22 +430,13 @@ export function vacuitySeedDigest(
 }
 
 /**
- * Audit the seed's key set against its frozen pin.
+ * Audits the key set of the seed against its frozen pin. All inputs are injectable, so a test can
+ * pose an in-place swap without an edit to the real seed.
  *
- * All three inputs are injectable for the same reason the census takes `tools`:
- * the co-located vitest has to pose an in-place swap, and a swap cannot be posed
- * against the real seed without editing the real seed.
- *
- * Two findings:
- *   • `SEED_KEY_SET_DRIFT` — the union of waived + retired ids no longer hashes
- *     to the pin. Adding an id trips it; so does deleting one outright instead
- *     of retiring it. The message says what the legal edit is, because the
- *     tempting "fix" (regenerate the pin) is the failure this tooth exists to
- *     prevent.
- *   • `RETIRED_AND_WAIVED` — an id in both maps. Harmless to the digest (a set
- *     union absorbs it) and therefore worth catching separately: it means a
- *     paydown was recorded as a copy rather than a move, which leaves a waiver
- *     alive for a declaration someone believes is retired.
+ * - `SEED_KEY_SET_DRIFT`: the union of waived and retired ids no longer hashes to the pin. An
+ *   added id trips it, and so does a deletion that is not a retirement. Do not regenerate the pin.
+ * - `RETIRED_AND_WAIVED`: an id is in both maps. The digest does not show it, because a set union
+ *   absorbs it. It means that a paydown was a copy, not a move, so a waiver stays alive.
  */
 export function auditVacuitySeedIntegrity(
   waived: readonly string[],
@@ -598,38 +487,15 @@ export function auditVacuitySeedIntegrity(
   });
 }
 
-// ─── DR-4 fourth tooth: the expiry is ENFORCED, not advisory (task 017) ─────
-//
-// DR-4's exceptions row reads: "Allowlist keyed by action id, owner, expiry.
-// Entries expire per wave; expiry is enforced, not advisory." Task 055 wrote
-// `{ owner, expires }` onto all 112 entries and then read NEITHER field. The
-// only thing standing between the seed and a permanent exemption was a date
-// string that no code path consulted — `outputSchema`'s own presence-not-
-// substance defect, reproduced inside the mechanism built to remove it. Two
-// checks existed at the shape level and neither was enforcement: the co-located
-// vitest asserts `expires` MATCHES `/^\d{4}-\d{2}-\d{2}$/`, which is a claim
-// about the string's punctuation, not about the deadline having any effect.
-//
-// This tooth is the effect. It is deliberately separate from the two above
-// because it is the only one that is a function of TIME:
-//
-//   • membership and seed integrity are STRUCTURAL — same verdict forever, for
-//     a fixed pair of inputs. They belong in the unit suite, and they are there.
-//   • expiry is TEMPORAL — the same repository is green today and red in March
-//     2027, which is the entire point of a deadline. A wall-clock read inside
-//     the unit suite would turn "the debt came due" into "the test suite stopped
-//     working", and a developer who cannot run tests fixes the CLOCK, not the
-//     debt. So NOTHING in this module reads `new Date()`: `today` is a required
-//     first parameter, and the single production clock read lives at the CI
-//     guard's entrypoint (`tools/audit/core/output-schema-ratchet-
-//     guard.ts`), which is the artifact that blocks the merge.
-//
-// The arithmetic underneath — the day rule and the four teeth — is DR-6's
-// `waiver-ledger.ts`, shared with every other ledger in this tree. What stays
-// here is DR-4's vocabulary: which noun each neutral code is reported under, and
-// what the legal repair says.
-
-/** A condition that makes an allowlist entry's deadline invalid or past due. */
+/**
+ * A condition that makes the deadline of an allowlist entry invalid or past due.
+ *
+ * The expiry tooth is the only tooth that depends on time. Membership and seed integrity give the
+ * same verdict on every day, so the unit suite asserts them. Nothing in this module reads the
+ * clock, so a due debt does not read as a broken suite. `today` is a required parameter, and the
+ * CI guard `tools/audit/core/output-schema-ratchet-guard.ts` reads the clock. The day rule and the
+ * teeth come from `waiver-ledger.ts`, and this module supplies the vacuity nouns.
+ */
 export type VacuityExpiryFinding =
   | { readonly code: 'EMPTY_ALLOWLIST'; readonly message: string }
   | { readonly code: 'UNREADABLE_CLOCK'; readonly message: string }
@@ -653,22 +519,16 @@ export interface VacuityExpiryAudit {
   readonly beyondHorizon: readonly string[];
   /** Ids with an empty owner or an unparseable `expires`. Fails closed. */
   readonly malformed: readonly string[];
-  /** Whole days from `today` to `horizon`; negative once the horizon itself is past. */
+  /** Whole days from `today` to `horizon`. Negative when the horizon is past. */
   readonly daysToHorizon: number;
   readonly findings: readonly VacuityExpiryFinding[];
 }
 
-/**
- * The day rule, re-exported so DR-4's consumers keep one import site while the
- * definition lives once, in the DR-6 ledger. This module holds no date
- * arithmetic of its own.
- */
 export { isIsoDay, isoDayUtc };
 
 /**
- * DR-4's nouns, handed to the shared ledger. Every sentence here lands verbatim
- * in a finding, and every one of them is specific to `outputSchema` vacuity —
- * which is exactly why the ledger takes them rather than writing them.
+ * The vacuity nouns, handed to the shared ledger. Each sentence lands verbatim in a finding and is
+ * specific to `outputSchema` vacuity, so the ledger takes them and does not write them.
  */
 const VACUITY_LEDGER_SUBJECT: WaiverLedgerSubject = Object.freeze({
   authority: 'DR-4',
@@ -687,30 +547,16 @@ const VACUITY_LEDGER_SUBJECT: WaiverLedgerSubject = Object.freeze({
 });
 
 /**
- * Audit every allowlist entry's deadline as of a NAMED day.
+ * Audits the deadline of each allowlist entry as of a named day. `today` has no default, and
+ * `auditLiveVacuityExpiry` passes the live entries and horizon.
  *
- * `today` is required and has no default — see the section header. Every other
- * input defaults to the live artifact, so the production call is
- * `auditVacuityExpiry(isoDayUtc(new Date()))`.
+ * - An allowlist with zero entries fails. When the debt reaches zero, one commit deletes the
+ *   allowlist module, the pin and this audit.
+ * - An empty owner or an `expires` that is not a real day fails closed.
+ * - An `expires` later than the horizon fails, so an entry cannot renew itself.
+ * - An `expires` before `today` fails. An entry marked `2027-02-28` is live through that day.
  *
- * Four teeth:
- *   1. NON-EMPTY DENOMINATOR. An allowlist that resolves to zero entries makes
- *      "no expired waiver" true for the worst possible reason — a moved module,
- *      a broken import, a renamed export. It FAILS. The legitimate zero state
- *      exists (the debt is fully paid), and it is not this: reaching zero
- *      deletes the allowlist module, the pin and this audit in one commit, which
- *      is stated in `output-schema-vacuity-allowlist.ts`'s own header.
- *   2. WELL-FORMEDNESS. An empty owner or an `expires` that is not a real
- *      calendar day fails closed. An unowned waiver has nobody to come due for,
- *      and an unparseable date cannot be compared — neither may read as "fine".
- *   3. HORIZON. `expires` later than {@link VACUITY_EXPIRY_HORIZON} fails. This
- *      is what stops a waiver from renewing itself: the entry cannot name a date
- *      of its own choosing, so extending the debt means moving ONE pinned
- *      constant in a file of frozen values, not 112 lines in a sorted literal.
- *   4. EXPIRY. `expires` strictly before `today` fails. Inclusive of the expiry
- *      day itself — an entry marked `2027-02-28` is live THROUGH 2027-02-28 and
- *      dead on 2027-03-01, matching the field's documented meaning ("the date
- *      after which the waiver is expired").
+ * The switch over ledger codes is exhaustive, so a new ledger code is a compile error here.
  */
 export function auditVacuityExpiry(
   today: string,
@@ -720,9 +566,6 @@ export function auditVacuityExpiry(
   const ledger = auditWaiverLedger(today, entries, horizon, VACUITY_LEDGER_SUBJECT);
   const findings: VacuityExpiryFinding[] = [];
 
-  // The ledger returns the verdict; this loop returns DR-4's names for it. The
-  // switch is exhaustive rather than a lookup table so a new ledger code is a
-  // compile error here instead of a finding that silently stops being reported.
   for (const finding of ledger.findings) {
     switch (finding.code) {
       case 'EMPTY_LEDGER':
@@ -748,8 +591,6 @@ export function auditVacuityExpiry(
         findings.push({ code: 'EXPIRED_WAIVER', id: finding.id ?? '', message: finding.message });
         break;
       default: {
-        // Same guard as the report-coupling consumer: without it, adding a
-        // seventh ledger code compiles clean and this mapping drops it.
         const unmapped: never = finding.code;
         throw new Error(
           `output-schema-census: unmapped waiver-ledger finding code ${String(unmapped)}. ` +
@@ -789,7 +630,7 @@ export function formatVacuityExpiryAudit(audit: VacuityExpiryAudit): string {
   return lines.join('\n');
 }
 
-/** Every finding DR-4's ratchet can raise, from any half. */
+/** Each finding that the vacuity ratchet can raise, from any half. */
 export type VacuityRatchetFinding =
   | VacuityAllowlistFinding
   | VacuitySeedFinding
@@ -809,19 +650,13 @@ export interface VacuityRatchetVerdict {
 }
 
 /**
- * DR-4's STRUCTURAL ratchet: membership against today's registry PLUS the seed
- * key set against its pin. Defaults to the live pair, so the production call is
- * `auditVacuityRatchet()`.
+ * The structural ratchet: membership against the registry of today, plus the key set of the seed
+ * against its pin. Membership alone misses a swap that edits the seed. The pin alone misses a
+ * waived declaration that stopped being vacuous. Together, the only green path is to fix the
+ * schema and then move the entry.
  *
- * The two halves are complementary, and neither is sufficient:
- *   • membership alone is blind to a swap that edits the seed;
- *   • the pin alone is blind to a waived declaration that stopped being vacuous.
- * Together the only green path is: fix the schema, then move the entry.
- *
- * Time is NOT part of this verdict. Both halves are pure functions of the
- * registry and the seed, so this composition returns the same answer on every
- * day — which is what makes it safe to assert in a unit suite.
- * {@link auditVacuityRatchetAsOf} adds the expiry half at a named instant.
+ * The verdict does not depend on time, so a unit suite can assert it.
+ * {@link auditVacuityRatchetAsOf} adds the expiry half.
  */
 export function auditVacuityRatchet(
   membership: VacuityAllowlistAudit,
@@ -838,13 +673,9 @@ export function auditVacuityRatchet(
 }
 
 /**
- * DR-4's ratchet, WHOLE: the two structural halves plus the expiry half, taken
- * as of a named day. This is what the CI guard runs.
- *
- * `today` is required. The clock is read exactly once, at the guard's
- * entrypoint, and threaded in — so this function, like everything else in this
- * module, is a pure function of its arguments and its verdict is reproducible
- * from the report it prints.
+ * The whole ratchet: the two structural halves plus the expiry half, as of a named day. The CI
+ * guard `tools/audit/core/output-schema-ratchet-guard.ts` runs this function. `today` is required,
+ * so the verdict is a pure function of the arguments and can be reproduced from the report.
  */
 export function auditVacuityRatchetAsOf(
   today: string,

@@ -1,15 +1,11 @@
-// ─── The event-authority corpus: one realistic event of every catalog type ───
+// The event-authority corpus: one realistic event of every catalog type.
 //
-// Shared by the two differentials that both need the same population — the
-// canonical workflow-state fold, and the secondary-view telemetry dependence.
-// One builder, so neither can drift into measuring a different catalog than the
-// other, and so a new event type joins both without anyone editing either.
+// Two differentials share it: the canonical workflow-state fold and the telemetry dependence of
+// the secondary views. One builder keeps both on the same catalog, and a new event type joins both.
 //
-// The payloads are GENERATED from each type's own data schema, never empty. A
-// corpus of empty bags makes a differential nearly unfalsifiable: a reducer arm
-// that reads a field before it mutates cannot fire on an empty bag, so most
-// types fold to a no-op for a reason that has nothing to do with their
-// classification.
+// The payloads come from the data schema of each type, and are never empty. A reducer arm that
+// reads a field before it mutates cannot fire on an empty bag. Thus empty bags make a differential
+// almost impossible to fail.
 
 import type { z } from 'zod';
 import { buildEvent } from '../../src/events/event-factory.js';
@@ -17,10 +13,9 @@ import { EVENT_DATA_SCHEMAS, EventTypes, type WorkflowEvent } from '../../src/ev
 import { sampleEventData } from './event-payload-sample.js';
 
 /**
- * Payloads for the catalog types that declare no data schema, so the corpus has
- * no empty-bag holes for a fold arm to hide behind. `state.patched` is the one
- * that matters — its patch bag is hash-unrecoverable by construction, which is
- * exactly why it has no schema and exactly why it must not fold as a no-op.
+ * Payloads for the catalog types that declare no data schema, so no fold arm sees an empty bag.
+ * `state.patched` is the important one. Its patch bag is hash-unrecoverable by design. That is
+ * why it has no schema, and why it must not fold as a no-op.
  */
 export const UNSCHEMATIZED_PAYLOADS: Readonly<Record<string, Record<string, unknown>>> = {
   'state.patched': { patch: { 'oneshot.synthesisPolicy': 'always' } },
@@ -38,12 +33,12 @@ export const CORPUS_SCHEMAS: Readonly<Record<string, z.ZodType | undefined>> =
   EVENT_DATA_SCHEMAS;
 
 /**
- * Constraints a schema states as a refinement, which JSON Schema cannot carry
- * and the sampler therefore cannot see: a workflow type must be a registered
- * name, and a migration source path must be state-dir relative. These are
- * merged over the sampled payload; the validity assertion in the partition
- * oracle is what keeps this table honest, because a refinement the sampler can
- * suddenly satisfy makes its row here dead cover the next reader should delete.
+ * Constraints that a schema states as a refinement. JSON Schema cannot carry them, so the sampler
+ * cannot see them. A workflow type must be a registered name, and a migration source path must be
+ * relative to the state directory. `payloadFor` merges these values over the sampled payload.
+ *
+ * The validity test in the partition oracle fails when a needed row is absent. When the sampler
+ * can satisfy a refinement, its row here is dead, and you can delete it.
  */
 const REFINEMENT_OVERRIDES: Readonly<Record<string, Record<string, unknown>>> = {
   'workflow.started': { workflowType: 'feature' },
@@ -71,19 +66,14 @@ export const CORPUS_PAYLOADS: ReadonlyMap<string, CorpusPayload> = new Map(
 );
 
 /**
- * One event of every catalog type, in catalog order. Total over the catalog by
- * construction, so it cannot go vacuous when a type is added.
+ * One event of every catalog type, in catalog order. It is total over the catalog, so a new type
+ * cannot make it vacuous. The timestamp is fixed, so the time fields of two folds come from the
+ * events and not from the clock.
  *
- * The timestamp is fixed so two folds compare a state whose time fields came
- * from the events rather than from the clock.
- *
- * KNOWN LIMIT, and it bounds every claim made over this corpus: the identifiers
- * across events do not CORRELATE. Each payload is sampled from its own schema in
- * isolation, so a handler that resolves an id against state an earlier event
- * would have built finds no match and returns the state unchanged. Such a type
- * folds as a no-op here for a reason that is about the corpus, not about the
- * type. Consumers that care must name their blind spots rather than read
- * independence as proof.
+ * Known limit: the identifiers do not correlate across events. Each payload comes from its own
+ * schema, so a handler that looks up an id in state from an earlier event finds no match. Such a
+ * type folds as a no-op because of the corpus, not because of the type. A consumer must name
+ * these blind spots, and must not read a no-op as proof of independence.
  */
 export function buildAuthorityCorpus(streamId: string): readonly WorkflowEvent[] {
   return EventTypes.map((type, index) =>

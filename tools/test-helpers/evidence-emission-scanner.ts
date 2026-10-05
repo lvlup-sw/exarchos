@@ -1,43 +1,14 @@
-// ─── The real append-site resolver behind the evidence-ownership census ──────
+// Resolves the event discriminant of each `.append(...)` call for the evidence-ownership census.
+// `src/verbs/gates/gate-ownership-census.ts` decides who can produce admission evidence.
+// This module reads the TypeScript with the compiler parser to decide which event each call appends.
 //
-// `orchestrate/gate-ownership-census.ts` decides WHO may produce admission
-// evidence. It does not, and must not, decide what a piece of TypeScript MEANS —
-// whether `type: X.Y` names the evidence discriminant is a question about
-// bindings, and the only instrument that cannot disagree with the compiler about
-// bindings is the compiler.
+// The module is under `tools/` because `typescript` is a devDependency. A shipped `src/` module that
+// imports it makes the compiler a runtime dependency. `tests/tsconfig.json` includes this directory.
 //
-// ── Why this module is HERE and not next to the policy it serves ─────────────
-// Identical reasoning to `test-helpers/module-lexer.ts`, and the same measured
-// result: `typescript` is a devDependency, so a shipped `src/` module importing
-// it makes the compiler a runtime dependency of a tree whose shipped artifact
-// resolves only `dependencies` — and the effect ledger enforces exactly that
-// against itself.
-//
-// This directory now lives under `tools/`, outside the root config's
-// `src/**`-only `include`, so `tests/tsconfig.json` names it explicitly. That
-// entry is load-bearing rather than tidy: while it was missing, this file was
-// in NO typecheck program, and the import below pointed at a directory that had
-// not existed since the census moved. Nothing caught it — the census imports
-// only the TYPE of this scanner, and a type-only import is erased before any
-// runner could observe that it no longer resolved.
-//
-// ── Why resolve rather than match ───────────────────────────────────────────
-// The superseded detector matched a RAW STRING LITERAL — `type:
-// 'admission.evidence-recorded'` — inside a balanced `.append(...)`. Every other
-// admission consumer in this package writes the discriminant as
-// `ADMISSION_EVENT_TYPES.EVIDENCE_RECORDED`, so an alternate emitter written the
-// way the codebase writes emitters resolved to the same event and produced no
-// diagnostic at all. A detector that only catches the spelling it already knew is
-// worth nothing; this one answers the question the census is actually asking.
-//
-// Four forms reduce to one answer here:
-//   • `type: 'admission.evidence-recorded'`         — a literal;
-//   • `type: ADMISSION_EVENT_TYPES.EVIDENCE_RECORDED` — an exported constant;
-//   • `import { ADMISSION_EVENT_TYPES as T }` + `type: T.EVIDENCE_RECORDED`;
-//   • `const event = { type: … }` hoisted above `store.append(id, event)`.
-// A `type:` that reduces to none of these is reported UNRESOLVED rather than
-// silently treated as "not evidence" — under-reporting is the dangerous
-// direction for an ownership census.
+// Four forms of `type:` resolve to one answer. They are a string literal, an exported constant
+// (`ADMISSION_EVENT_TYPES.EVIDENCE_RECORDED`), that constant through an import alias, and an event
+// object in a variable above `store.append(id, event)`. A `type:` that does not resolve is reported
+// as unresolved, not as "not evidence", because under-reporting is the dangerous direction.
 
 import ts from 'typescript';
 import type {
@@ -47,28 +18,23 @@ import type {
 } from '../../src/verbs/gates/gate-ownership-census.js';
 
 /**
- * `parseDiagnostics` is off the public `ts.SourceFile` surface but is the only
- * way to tell a CLEAN parse from a RECOVERED one. A narrowing predicate rather
- * than an `as`, because the cast ratchet scans this directory.
+ * Narrows `parseDiagnostics`, which is not on the public `ts.SourceFile` type.
+ * It is a predicate, not an `as` cast, because the cast ratchet scans this directory.
  */
 function isDiagnosticArray(value: unknown): value is readonly ts.Diagnostic[] {
   return Array.isArray(value);
 }
 
 /**
- * Parse one module, refusing a RECOVERED parse.
- *
- * `ts.createSourceFile` never throws: handed broken input it returns a partial
- * tree with nodes silently missing. An emitter whose append call vanished reads
- * as a clean module and passes the census, so a recovered parse is fatal here
- * rather than quietly averaged in.
+ * Parses one module and throws on a recovered parse.
+ * On broken input, `ts.createSourceFile` returns a partial tree, and a missing append call then passes the census.
  */
 function parseOrThrow(source: string, fileName: string): ts.SourceFile {
   const sourceFile = ts.createSourceFile(
     fileName,
     source,
     ts.ScriptTarget.Latest,
-    /* setParentNodes */ false,
+    false,
     ts.ScriptKind.TS,
   );
   const raw: unknown = Reflect.get(sourceFile, 'parseDiagnostics');
@@ -105,9 +71,8 @@ function unwrap(node: ts.Expression): ts.Expression {
 }
 
 /**
- * Local name → the name it was imported under, for every named import in the
- * file. `import { A as B }` records `B → A`, so an aliased constant table still
- * resolves against the canonical dotted paths the census supplies.
+ * Maps the local name of each named import to its imported name.
+ * `import { A as B }` records `B → A`, so an aliased constant table resolves against the dotted paths of the census.
  */
 function collectImportAliases(sourceFile: ts.SourceFile): Map<string, string> {
   const aliases = new Map<string, string>();
@@ -123,13 +88,9 @@ function collectImportAliases(sourceFile: ts.SourceFile): Map<string, string> {
 }
 
 /**
- * Every `const NAME = <expression>` in the file, at any nesting depth.
- *
- * Deliberately flat rather than scope-accurate: an over-broad binding table can
- * only make an append site MORE resolvable, and a same-named shadow that
- * resolved to a different discriminant would surface as an emitter to examine —
- * the fail-loud direction. A scope-accurate table would need the checker, which
- * this port is explicitly not.
+ * Maps each variable name in the file, at any depth, to its first initializer.
+ * The table is flat, not scope-accurate. A flat table can only make a site more resolvable,
+ * and a shadowed name with a different discriminant shows as an emitter to examine.
  */
 function collectConstBindings(sourceFile: ts.SourceFile): Map<string, ts.Expression> {
   const bindings = new Map<string, ts.Expression>();
@@ -154,7 +115,10 @@ interface ResolutionContext {
   readonly knownConstants: ReadonlyMap<string, string>;
 }
 
-/** The string an expression evaluates to, or `undefined` when undecidable. */
+/**
+ * Returns the string an expression evaluates to, or `undefined` when it cannot decide.
+ * It reads literals, identifiers bound to literals, and `TABLE.MEMBER` of a known or same-file constant table.
+ */
 function resolveString(
   node: ts.Expression,
   ctx: ResolutionContext,
@@ -166,14 +130,11 @@ function resolveString(
     return expr.text;
   }
 
-  // `TABLE.MEMBER` — an exported constant table the census supplied, reached
-  // under whatever local name this file imported it as.
   if (ts.isPropertyAccessExpression(expr) && ts.isIdentifier(expr.expression)) {
     const local = expr.expression.text;
     const canonical = ctx.aliases.get(local) ?? local;
     const viaKnown = ctx.knownConstants.get(`${canonical}.${expr.name.text}`);
     if (viaKnown !== undefined) return viaKnown;
-    // A table declared in this same file (`const T = { X: 'v' } as const`).
     const declared = ctx.bindings.get(local);
     if (declared !== undefined && !seen.has(local)) {
       const object = unwrap(declared);
@@ -187,7 +148,6 @@ function resolveString(
     return undefined;
   }
 
-  // A plain identifier bound to a literal (or to another identifier that is).
   if (ts.isIdentifier(expr) && !seen.has(expr.text)) {
     const bound = ctx.bindings.get(expr.text);
     if (bound !== undefined) {
@@ -221,16 +181,9 @@ function lastOwnProperty(
 }
 
 /**
- * The initializer of `name` on an object literal, following one spread level.
- *
- * The spread half was documented but never implemented, so
- * `store.append(id, { ...baseEvent, data })` read as a module that appends
- * nothing — an ordinary spelling, and an emitter invisible to the census.
- *
- * Precedence is source order, the way JS evaluates it: the LAST writer of
- * `name` wins, own property or spread alike. Returning on the first own hit
- * read `{ type: 'old', ...{ type: 'new' } }` as `'old'` — a confident wrong
- * answer, which for this census is worse than no answer.
+ * Returns the initializer of `name` on an object literal, and follows one level of spread.
+ * The last writer of `name` in source order wins, as in JavaScript.
+ * A spread that cannot be read clears the candidate, because it can overwrite the earlier value.
  */
 function findProperty(
   object: ts.ObjectLiteralExpression,
@@ -252,18 +205,11 @@ function findProperty(
       continue;
     }
     if (ts.isSpreadAssignment(property)) {
-      // ONE level: a spread of a spread is not followed.
       const spreadObject = ctx === undefined ? undefined : asEventObject(property.expression, ctx);
       if (spreadObject === undefined) {
-        // An unreadable spread sits AFTER whatever is held, so it may or may
-        // not overwrite it — and there is no way to tell from here. Poison the
-        // candidate rather than let a superseded value win: `discriminant:
-        // undefined` is the unresolved marker, and under-reporting a rogue
-        // emitter is the direction this census refuses to fail in.
         candidate = undefined;
         continue;
       }
-      // A spread that does not mention `name` leaves the standing value alone.
       const inner = lastOwnProperty(spreadObject, name);
       if (inner !== undefined) candidate = inner;
     }
@@ -271,11 +217,7 @@ function findProperty(
   return candidate;
 }
 
-/**
- * The object literal an `.append(...)` argument denotes: written inline, or
- * hoisted into a `const` above the call — the shape the census's own runner
- * would take if a rogue emitter were factored the way production code is.
- */
+/** Returns the object literal that an `.append(...)` argument denotes: inline, or in a variable above the call. */
 function asEventObject(
   node: ts.Expression,
   ctx: ResolutionContext,
@@ -293,12 +235,10 @@ function asEventObject(
 }
 
 /**
- * Every `.append(...)` call site with its event discriminant resolved.
- *
- * Only `.append` is inspected, so a `.query(streamId, { type: … })` READ filter
- * is excluded by construction rather than by a second regex; and only the `type`
- * property counts, so a metadata surface keyed `event:` is likewise not an
- * emission.
+ * Returns each `.append(...)` call site with its event discriminant resolved.
+ * Only `.append` and only the `type` property count, so a `.query` filter or an `event:` key is not an emission.
+ * The event argument is the second argument, or the first when the call has one argument.
+ * An event argument that cannot be read gives `discriminant: undefined`, the unresolved marker.
  */
 export const scanEvidenceEmission: EvidenceEmissionScanner = (
   source: string,
@@ -321,17 +261,6 @@ export const scanEvidenceEmission: EvidenceEmissionScanner = (
     ) {
       const line =
         sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
-      // An `.append(…)` whose event argument cannot be read is UNRESOLVED, not
-      // absent. Skipping it dropped the site entirely, so
-      // `store.append(id, buildEvent(record))` — a call that certainly appends —
-      // read as a module that appends nothing. Under-reporting is the dangerous
-      // direction for this census, which is the line the module header draws;
-      // the loop was not holding it. `discriminant: undefined` IS the unresolved
-      // marker the consumer already understands.
-      //
-      // Only the event argument (the second) can carry a `type`; the stream id
-      // is a string. Reporting one site per call keeps a single append from
-      // appearing twice.
       const eventArgument = node.arguments[1] ?? node.arguments[0];
       if (eventArgument !== undefined) {
         const object = asEventObject(eventArgument, ctx);

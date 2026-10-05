@@ -6,20 +6,19 @@ import { EventStore } from '../../src/events/store.js';
 import { SqliteBackend } from '../../src/storage/sqlite-backend.js';
 
 /**
- * These assert the *mechanism* behind the Windows-portability fix (#1620).
- * The EPERM/EBUSY symptom only reproduces on NTFS, but the handle-lifecycle
- * logic these cover — registry add/remove, idempotent close, durability
- * across close, and `rmrf` closing leaked handles before removal — is
- * platform-independent and therefore verifiable on the Linux CI host.
+ * The `EPERM` and `EBUSY` errors occur only on NTFS. The handle lifecycle that
+ * prevents them does not depend on the platform, so these tests run on the
+ * Linux CI host.
  */
 describe('temp-dir helper + SQLite handle lifecycle (#1620)', () => {
+  /**
+   * The test does not close `store`. This is the leaked handle that blocks
+   * the removal on Windows.
+   */
   it('Rmrf_ClosesLeakedSqliteHandleUnderDir_ThenRemoves', async () => {
     const dir = makeTempDir('exarchos-rmrf-leak-');
     const store = new EventStore(dir);
     await store.initialize();
-    // Force the SQLite handle open via a write; the test deliberately does
-    // NOT close `store` — this is the leaked-handle case that blocks rm on
-    // Windows.
     await store.append('s1', { type: 'task.assigned', data: { taskId: 't1' } });
 
     const openWhileLeaked = SqliteBackend.openHandleCount();
@@ -27,7 +26,6 @@ describe('temp-dir helper + SQLite handle lifecycle (#1620)', () => {
 
     rmrf(dir);
 
-    // rmrf must have closed the leaked handle (count drops) and removed the dir.
     expect(SqliteBackend.openHandleCount()).toBe(openWhileLeaked - 1);
     expect(fs.existsSync(dir)).toBe(false);
   });
@@ -42,7 +40,6 @@ describe('temp-dir helper + SQLite handle lifecycle (#1620)', () => {
       const before = SqliteBackend.openHandleCount();
       store.close();
       expect(SqliteBackend.openHandleCount()).toBe(before - 1);
-      // Second close must not throw (no double driver close).
       expect(() => store.close()).not.toThrow();
       expect(SqliteBackend.openHandleCount()).toBe(before - 1);
     } finally {
@@ -50,6 +47,7 @@ describe('temp-dir helper + SQLite handle lifecycle (#1620)', () => {
     }
   });
 
+  /** `close()` releases only the connection. It never loses committed data. */
   it('EventStoreClose_PreservesDurability_ReopenReadsCommittedEvents', async () => {
     const dir = makeTempDir('exarchos-close-durable-');
     try {
@@ -58,8 +56,6 @@ describe('temp-dir helper + SQLite handle lifecycle (#1620)', () => {
       await store.append('s1', { type: 'task.assigned', data: { taskId: 't1' } });
       store.close();
 
-      // A fresh store against the same dir must still read the committed event
-      // — proving close() only releases the connection, never data (INV-1).
       const reopened = new EventStore(dir);
       await reopened.initialize();
       const events = await reopened.query('s1');
@@ -83,11 +79,9 @@ describe('temp-dir helper + SQLite handle lifecycle (#1620)', () => {
       await storeB.append('s', { type: 'task.assigned', data: { taskId: 'b' } });
 
       const before = SqliteBackend.openHandleCount();
-      // Closing under dirA must not touch the handle under dirB.
       SqliteBackend.closeOpenUnder(dirA);
       expect(SqliteBackend.openHandleCount()).toBe(before - 1);
 
-      // storeB still usable.
       const events = await storeB.query('s');
       expect(events).toHaveLength(1);
       storeB.close();
