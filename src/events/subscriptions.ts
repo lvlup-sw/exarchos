@@ -1,51 +1,25 @@
+/**
+ * The cursor-pump subscription primitive. A subscription is a cursor over the committed event log.
+ * Each delivery is a drain: read the matching events after the cursor, deliver them in order, and
+ * advance the cursor. Every wake signal runs the same drain, so delivery is exactly once and in
+ * order, whatever signal fires.
+ *
+ * Two wake tiers call {@link Subscription.requestDrain}. In Tier 1, the post-commit hook of the
+ * appender calls {@link SubscriptionRegistry.wake} in the same process. In Tier 2, a poll loop on
+ * the {@link SubscriptionClock} reads {@link SubscriptionEventReader.dataVersion} every `floorMs`.
+ * It drains only when the token changes, which is when a different process commits. SQLite
+ * `PRAGMA data_version` ignores the commits of the observer itself.
+ */
 import { randomUUID } from 'node:crypto';
 import type { WorkflowEvent } from './schemas.js';
 
 /**
- * DR-1 — Cursor-pump subscription primitive (#1315).
+ * The match predicate for a subscription.
  *
- * A subscription is a cursor over the committed event log. Delivery is
- * ALWAYS a cursor-driven drain: read matching events after the cursor,
- * deliver them in global sequence order, advance the cursor. The cursor is
- * the load-bearing invariant — every wake signal (Tier-1 in-process
- * post-commit hook; the Tier-2 `dataVersion()` poll floor) merely triggers
- * the SAME drain, so exactly-once, in-order delivery holds by construction
- * regardless of which signal fired or how many fired.
- *
- * Two wake tiers converge on {@link Subscription.requestDrain}:
- *  - Tier-1 (in-process): the appender's post-commit hook fans out through
- *    {@link SubscriptionRegistry.wake} the instant this process commits.
- *  - Tier-2 (cross-process poll floor): a loop on the injectable
- *    {@link SubscriptionClock} re-reads {@link SubscriptionEventReader.dataVersion}
- *    every `floorMs` and drains ONLY when the token changed — i.e. when a
- *    FOREIGN process committed (SQLite's `PRAGMA data_version` ignores the
- *    observer's own commits, which Tier-1 already delivers). The floor
- *    guarantees a bounded worst-case latency for events this process did not
- *    itself write; the cursor guarantees those events are never delivered
- *    twice even when both tiers fire for the same commit.
- *
- * No-gap / no-double across the tiers: the baseline `dataVersion()` is
- * captured at registration BEFORE the initial drain, so any commit not
- * covered by the initial drain necessarily bumps the token above baseline
- * and is picked up by a later tick; and because every signal re-enters the
- * same per-stream cursor drain, a Tier-1 wake at seq N+1 that sweeps up a
- * not-yet-seen foreign event at seq N delivers N before N+1, and a
- * subsequent tick for that same foreign commit re-drains to a no-op.
- */
-
-// ─── Public contract ─────────────────────────────────────────────────────────
-
-/**
- * Match predicate for a subscription.
- *
- * - `streamId` — when set, the subscription observes exactly one stream and
- *   its cursor is that stream's per-stream sequence (the clean, common case
- *   consumed by `wait`/`inspect`, which are always feature-scoped). When
- *   omitted, the subscription observes every stream (cross-stream fold).
- * - `eventTypes` — when set, only events whose `type` is in the list are
- *   delivered. Non-matching events still advance the cursor (they are read,
- *   just not delivered) so a stream dense with non-matching events never
- *   re-scans.
+ * - `streamId`: when set, the subscription observes one stream, and its cursor is the per-stream
+ *   sequence. When omitted, the subscription observes every stream.
+ * - `eventTypes`: when set, the subscription delivers only events of these types. Other events
+ *   still advance the cursor, so a stream with many of them needs no second scan.
  */
 export interface SubscriptionFilter {
   readonly streamId?: string;
@@ -57,25 +31,18 @@ export type SubscriptionListener = (event: WorkflowEvent) => void;
 
 export interface SubscribeOptions {
   /**
-   * Start the cursor at this sequence instead of the stream head, so a
-   * subscriber sees events committed AT OR AFTER `fromSequence + 1`. Only
-   * meaningful for a single-stream filter (`filter.streamId` set); ignored
-   * for cross-stream filters, whose baseline is the current head of every
-   * known stream.
+   * Start the cursor at this sequence instead of the stream head, so the subscriber sees the
+   * events after `fromSequence`. Only a single-stream filter uses it. A cross-stream filter starts
+   * at the current head of every known stream.
    */
   readonly fromSequence?: number;
-  /**
-   * Per-call override of the Tier-2 poll-floor interval (task-002). Captured
-   * at registration; unused by the Tier-1 path in this module.
-   */
+  /** Override of the Tier-2 poll-floor interval for this call, captured at registration. */
   readonly floorMs?: number;
 }
 
 /**
- * Ephemeral handle returned by {@link SubscriptionRegistry.subscribe}.
- *
- * INV-15: subscriptions are per-dispatch and are disposed by the dispatch
- * that registered them — there is no daemon. `dispose()` is idempotent.
+ * The handle that {@link SubscriptionRegistry.subscribe} returns. The dispatch that registers a
+ * subscription disposes it, and no daemon exists. `dispose()` is idempotent.
  */
 export interface SubscriptionHandle {
   readonly id: string;
@@ -105,36 +72,23 @@ export interface SubscriptionEventReader {
   /** Every stream id known to the backend (for cross-stream subscriptions). */
   listStreams(): readonly string[];
   /**
-   * Tier-2 poll-floor change token (see `StorageBackend.dataVersion`). The
-   * floor loop compares successive reads: an unchanged value means no
-   * foreign commit and the loop skips the (more expensive) cursor drain
-   * entirely. MUST be near-free and MUST NOT retain an open read cursor
-   * across calls, or it would pin a snapshot that hides the very foreign
-   * commit it is polling for.
+   * The Tier-2 change token (see `StorageBackend.dataVersion`). An unchanged value means no
+   * foreign commit, so the floor loop skips the drain. The read must cost almost nothing. It must
+   * not keep a read cursor open across calls, because that pins a snapshot that hides the commit.
    */
   dataVersion(): number;
 }
 
 /**
- * Injectable clock seam (INV-16). The Tier-1 drain is signal-driven and uses
- * no wall-clock time; the Tier-2 poll floor schedules its ticks through
- * {@link scheduleInterval} so tests drive them deterministically (no
- * `Date.now()`, no real `setTimeout` sleeps).
+ * The injectable clock. The Tier-1 drain uses no wall-clock time. The Tier-2 poll floor schedules
+ * its ticks through {@link scheduleInterval}, so tests drive them deterministically.
  */
 export interface SubscriptionClock {
   now(): number;
   /**
-   * Schedule `tick` to run every `intervalMs` until the returned canceller
-   * is invoked. This is the ONLY timing seam the Tier-2 floor uses.
-   *
-   * OPTIONAL by design: when a clock omits it, the subscription runs with NO
-   * Tier-2 floor (Tier-1 only). The registry's auto-created default clock
-   * supplies a real, `unref`'d host-timer implementation so production
-   * subscriptions get the floor; a test that injects a bare `{ now }` clock
-   * opts out of real timers, and a test that injects a manual scheduler
-   * drives the floor tick-by-tick.
-   *
-   * The canceller MUST be idempotent and stop all further ticks.
+   * Schedule `tick` to run every `intervalMs` until the caller invokes the returned canceller.
+   * When a clock omits this method, the subscription has no Tier-2 floor. The default clock of
+   * the registry supplies a host timer. The canceller must be idempotent and stop all ticks.
    */
   scheduleInterval?(tick: () => void, intervalMs: number): () => void;
 }
@@ -143,18 +97,15 @@ export interface SubscriptionClock {
 export const DEFAULT_FLOOR_MS = 250;
 
 /**
- * The registry's default clock when none is injected. Wall-clock `now` plus a
- * host-timer `scheduleInterval` whose handle is `unref`'d so the Tier-2 floor
- * never keeps the process alive on its own (the dispatch that owns the
- * subscription is what keeps the process live; the floor is a passive poll).
+ * The default clock of the registry: wall-clock `now` and a host-timer `scheduleInterval`. The
+ * code calls `unref` on the timer, so the Tier-2 floor never keeps the process alive. The DOM lib
+ * types do not declare `unref`, so the call is guarded.
  */
 function defaultSubscriptionClock(): SubscriptionClock {
   return {
     now: () => Date.now(),
     scheduleInterval: (tick, intervalMs) => {
       const timer = setInterval(tick, intervalMs);
-      // `unref` exists on Node/Bun timer handles but not in the DOM lib types;
-      // guard so this stays portable across the type surfaces.
       (timer as unknown as { unref?: () => void }).unref?.();
       return () => clearInterval(timer);
     },
@@ -184,19 +135,11 @@ export interface SubscriptionRegistryOptions {
   readonly defaultFloorMs?: number;
 }
 
-// ─── Global-order comparator ────────────────────────────────────────────────
-
 /**
- * Deterministic global ordering for a merged drain batch.
- *
- * Within a single stream the per-stream `sequence` is the authoritative
- * total order, so same-stream events compare purely by sequence — this makes
- * the single-stream delivery guarantee (the only ordering the DR-1
- * acceptance criteria assert) exact and independent of timestamp ties. Across
- * streams there is no shared sequence space, so `(timestamp, streamId,
- * sequence)` is the deterministic global proxy; exactly-once is guaranteed by
- * the per-stream cursor advance regardless, so the cross-stream order only
- * affects presentation.
+ * A deterministic global order for a merged drain batch. Events in one stream compare by
+ * `sequence`, which is the total order of that stream. Across streams, the order is
+ * `(timestamp, streamId, sequence)`. The per-stream cursor gives exactly-once delivery, so the
+ * cross-stream order affects only presentation.
  */
 function compareGlobalOrder(a: WorkflowEvent, b: WorkflowEvent): number {
   if (a.streamId === b.streamId) return a.sequence - b.sequence;
@@ -207,8 +150,6 @@ function compareGlobalOrder(a: WorkflowEvent, b: WorkflowEvent): number {
   return a.sequence - b.sequence;
 }
 
-// ─── Subscription ────────────────────────────────────────────────────────────
-
 class Subscription {
   readonly id = randomUUID();
   disposed = false;
@@ -217,48 +158,41 @@ class Subscription {
   private readonly cursors = new Map<string, number>();
   /** Re-entrancy guard so at most one drain runs at a time per subscription. */
   private draining = false;
-  /** Set when a wake arrives mid-drain; coalesces into a single re-run. */
+  /** Set when a wake arrives during a drain. The wakes merge into one more run. */
   private rerun = false;
 
   /**
-   * Last-observed Tier-2 change token. Captured at registration BEFORE the
-   * initial drain (see the constructor ordering note) and advanced by each
-   * tick that drains, so a tick fires the cursor drain only on a real change.
+   * The last Tier-2 change token. The constructor captures it before the initial drain, and each
+   * tick that drains advances it.
    */
   private floorVersion = 0;
-  /** Cancels the Tier-2 floor loop; undefined when no floor loop is active. */
+  /** Cancels the Tier-2 floor loop. It is `undefined` when no floor loop runs. */
   private cancelFloor?: (() => void) | undefined;
   /** Tier-2 telemetry (surfaced via {@link perf}). */
   private floorTicks = 0;
   private floorDrains = 0;
 
+  /**
+   * Registration runs in a fixed order, which gives the no-gap guarantee across the two tiers.
+   * It captures the cursor, then the `dataVersion()` baseline, then runs the initial drain, then
+   * starts the floor loop. A foreign commit between the cursor and the baseline has a sequence
+   * above the cursor, so the initial drain delivers it. A later commit that the drain misses
+   * moves the token, so a later tick drains it.
+   *
+   * A clock with no scheduler runs Tier 1 only. The floor loop does not start when a listener
+   * disposes the subscription during the initial drain.
+   */
   constructor(
     private readonly filter: SubscriptionFilter,
     private readonly listener: SubscriptionListener,
     private readonly reader: SubscriptionEventReader,
-    /** Injectable clock (INV-16) — drives the Tier-2 poll floor. */
+    /** The injectable clock that drives the Tier-2 poll floor. */
     private readonly clock: SubscriptionClock,
     /** Effective Tier-2 poll-floor interval (per-call override or registry default). */
     readonly floorMs: number,
     fromSequence: number | undefined,
     private readonly onDispose: (sub: Subscription) => void,
   ) {
-    // Registration is atomic AND ordered: cursor first, THEN the Tier-2
-    // baseline, THEN the initial drain, THEN the floor loop. The ordering is
-    // load-bearing for the no-gap guarantee across the two wake tiers:
-    //
-    //   1. Capture the cursor(s) (T1). headSequence is read synchronously.
-    //   2. Capture the dataVersion baseline (T2) — AFTER the cursor so a
-    //      foreign commit landing between T1 and T2 is reflected in the
-    //      baseline (its event has seq > cursor, so the initial drain still
-    //      delivers it, and no future tick re-delivers it). If the baseline
-    //      were captured BEFORE the cursor, such a commit would be past the
-    //      cursor yet above no future token — a gap.
-    //   3. Run the unconditional initial drain (T3) — covers everything with
-    //      seq > cursor committed by now. Because T2 < T3, any commit not
-    //      covered by the drain necessarily bumps the token above the
-    //      baseline and is caught by a later tick — no gap.
-    //   4. Start the floor loop (if the clock can schedule one).
     if (this.filter.streamId !== undefined) {
       this.cursors.set(
         this.filter.streamId,
@@ -271,50 +205,31 @@ class Subscription {
     }
     this.floorVersion = this.reader.dataVersion();
     this.requestDrain();
-    // The Tier-2 floor is opt-in on the clock: a bare `{ now }` clock (no
-    // scheduler) runs Tier-1 only. Guard the schedule with the disposed flag
-    // in case an initial-drain listener disposed synchronously.
     if (!this.disposed) {
       this.cancelFloor = this.clock.scheduleInterval?.(() => this.floorTick(), this.floorMs);
     }
   }
 
   /**
-   * One Tier-2 poll-floor tick. Near-free by design: a single
-   * {@link SubscriptionEventReader.dataVersion} read (no open statement held
-   * across ticks) that re-enters the cursor drain ONLY when the token
-   * changed — i.e. a foreign process committed. Own commits are delivered by
-   * the Tier-1 hook and (for SQLite) do not bump the token, so a
-   * no-foreign-commit tick never touches the event log.
+   * One Tier-2 poll tick. It reads {@link SubscriptionEventReader.dataVersion} once and drains only
+   * when the token changed, which is when a foreign process committed.
+   *
+   * The tick advances the baseline before the drain, so a commit during the drain moves the token
+   * again and the next tick drains it. The tick catches every error, because it runs in a native
+   * `setInterval` callback and `requestDrain()` lets read errors through. On an error, the
+   * baseline goes back so that the next tick tries again. The cursor prevents a second delivery.
    */
   private floorTick(): void {
     if (this.disposed) return;
     this.floorTicks++;
-    // Isolate tick-level failures exactly as `wake()` isolates Tier-1 drains.
-    // This body runs inside a native `setInterval` callback (see
-    // `defaultSubscriptionClock`), so an escaping throw — a transient
-    // `dataVersion()` read error, or a listener that throws through
-    // `requestDrain()` (which is try/FINALLY, not try/catch, so it propagates)
-    // — would surface as an unhandled process-level exception rather than
-    // being contained to this one subscription.
     const baseline = this.floorVersion;
     try {
       const current = this.reader.dataVersion();
-      if (current === baseline) return; // no foreign commit → no re-read
-      // Advance the baseline BEFORE draining: a commit that lands during this
-      // drain bumps the token past `current`, so the next tick still fires for
-      // it (an extra harmless, cursor-guarded drain) rather than being folded
-      // into the baseline and lost. Never a gap; at worst one redundant tick.
+      if (current === baseline) return;
       this.floorVersion = current;
       this.floorDrains++;
       this.requestDrain();
     } catch {
-      // Contained. Roll the baseline back so the commit this tick failed to
-      // drain is retried by the next tick instead of being folded into the
-      // baseline and lost — preserving the same no-gap guarantee the
-      // constructor's T1/T2/T3 ordering establishes. The retry is safe: the
-      // per-stream cursor advance still guarantees exactly-once, so a
-      // re-drain never double-delivers events the failed drain did emit.
       this.floorVersion = baseline;
     }
   }
@@ -328,7 +243,7 @@ class Subscription {
     };
   }
 
-  /** True when a commit on `streamId` could produce a matching event. */
+  /** True when a commit on `streamId` can produce a matching event. */
   matchesStream(streamId: string): boolean {
     return this.filter.streamId === undefined || this.filter.streamId === streamId;
   }
@@ -366,20 +281,18 @@ class Subscription {
     }
   }
 
+  /**
+   * Read every stream, then advance the cursors, then deliver. When a read throws, no cursor
+   * moves, so the next drain reads from the same positions and skips no event. Each cursor moves
+   * past every event read, matching or not, so non-matching events cause no second scan. The drain
+   * ignores a listener error and continues the batch, because delivery is a best-effort observation.
+   */
   private drainOnce(): void {
     const streams =
       this.filter.streamId !== undefined
         ? [this.filter.streamId]
         : this.unionStreams();
 
-    // Assemble the FULL cross-stream batch BEFORE mutating any cursor. For a
-    // cross-stream subscription a later stream's `readStreamAfter` throwing must
-    // not leave EARLIER streams' cursors advanced past events that were never
-    // delivered (DR-1 "no gaps"): the assembled batch is discarded on a mid-loop
-    // throw, so any cursor already advanced would silently skip its events on the
-    // next drain. Stage each stream's cursor target and apply the advances only
-    // once every read has succeeded — a throw leaves every cursor untouched, so
-    // the next drain re-reads from the same positions and redelivers.
     const batch: WorkflowEvent[] = [];
     const pendingCursors: Array<[streamId: string, tailSequence: number]> = [];
     for (const streamId of streams) {
@@ -387,13 +300,9 @@ class Subscription {
       const events = this.reader.readStreamAfter(streamId, cursor);
       if (events.length === 0) continue;
       for (const event of events) batch.push(event);
-      // STAGE (do not yet apply) the advance PAST every event read (matching or
-      // not) so trailing non-matching events never force a re-scan. Contiguous
-      // per-stream sequences make the tail the last element.
       pendingCursors.push([streamId, events[events.length - 1]?.sequence ?? cursor]);
     }
 
-    // Every read succeeded — now it is safe to commit the cursor advances.
     for (const [streamId, tailSequence] of pendingCursors) {
       this.cursors.set(streamId, tailSequence);
     }
@@ -404,12 +313,9 @@ class Subscription {
     for (const event of batch) {
       if (this.disposed) return;
       if (!this.matchesEvent(event)) continue;
-      // Listener isolation: a throw on one event must not drop the rest of
-      // the batch, affect sibling subscriptions, or reach the appender.
       try {
         this.listener(event);
       } catch {
-        // Intentionally swallowed — delivery is best-effort observation.
       }
     }
   }
@@ -421,44 +327,39 @@ class Subscription {
     return [...streams];
   }
 
+  /** Stop the Tier-2 floor loop first, so no tick runs after the owning dispatch ends. */
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    // Stop the Tier-2 floor loop first so no tick fires after disposal
-    // (INV-15: a subscription does no work past the dispatch that owns it).
     this.cancelFloor?.();
     this.cancelFloor = undefined;
     this.onDispose(this);
   }
 }
 
-// ─── Registry ────────────────────────────────────────────────────────────────
-
 /**
- * Owns the set of live subscriptions and routes Tier-1 wakes to them.
- *
- * The registry is the single guard on the append hot path: {@link wake}
- * early-returns on an empty registry, so a zero-subscriber append does no
- * listener work beyond one size check.
+ * Owns the live subscriptions and sends Tier-1 wakes to them. {@link wake} returns early on an
+ * empty registry, so an append with no subscriber costs one size check.
  */
 export class SubscriptionRegistry {
   private readonly subscriptions = new Map<string, Subscription>();
   private readonly reader: SubscriptionEventReader;
-  /** Injectable clock (INV-16) — retained for the task-002 Tier-2 floor. */
+  /** The injectable clock for the Tier-2 floor. */
   readonly clock: SubscriptionClock;
-  /** Default poll-floor interval — retained for the task-002 Tier-2 floor. */
+  /** The default poll-floor interval. */
   readonly defaultFloorMs: number;
 
+  /**
+   * The default clock supplies a real `scheduleInterval`, so production subscriptions get the
+   * Tier-2 floor. An injected clock without a scheduler gives no floor.
+   */
   constructor(reader: SubscriptionEventReader, options?: SubscriptionRegistryOptions) {
     this.reader = reader;
-    // The default clock supplies a real, unref'd `scheduleInterval` so
-    // production subscriptions get the Tier-2 floor. An injected clock is
-    // used verbatim — a bare `{ now }` clock opts out of the floor entirely.
     this.clock = options?.clock ?? defaultSubscriptionClock();
     this.defaultFloorMs = options?.defaultFloorMs ?? DEFAULT_FLOOR_MS;
   }
 
-  /** Number of live subscriptions (INV-15 leak assertions read this). */
+  /** The number of live subscriptions. Leak checks read this value. */
   get size(): number {
     return this.subscriptions.size;
   }
@@ -491,27 +392,22 @@ export class SubscriptionRegistry {
   }
 
   /**
-   * Tier-1 wake. Called by the append path AFTER the transaction commits and
-   * AFTER the per-stream mutex releases (never inside the lock). Fans out to
-   * every subscription whose filter could match `streamId`, each drain
-   * isolated so one failing subscription cannot affect siblings or the
-   * append that triggered the wake.
+   * The Tier-1 wake. The append path calls it after the commit, outside the per-stream mutex.
+   * Each matching subscription drains in isolation, so a failure cannot reach siblings or the
+   * append. The loop iterates a copy, because a listener can register or dispose a subscription.
    */
   wake(streamId: string): void {
     if (this.subscriptions.size === 0) return;
-    // Snapshot: a listener that appends may register/dispose subscriptions
-    // synchronously mid-iteration.
     for (const sub of [...this.subscriptions.values()]) {
       if (sub.disposed || !sub.matchesStream(streamId)) continue;
       try {
         sub.requestDrain();
       } catch {
-        // Isolate subscription-level failures from the append result.
       }
     }
   }
 
-  /** Dispose every live subscription (dispatch teardown — INV-15). */
+  /** Dispose every live subscription at dispatch teardown. */
   disposeAll(): void {
     for (const sub of [...this.subscriptions.values()]) sub.dispose();
     this.subscriptions.clear();

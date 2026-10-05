@@ -1,11 +1,8 @@
 import type { NdjsonEncoder } from './encoder.js';
 
 /**
- * NDJSON heartbeat emitter (DR-9, T028).
- *
- * Schedules a `heartbeat` frame to be written to the given encoder every
- * `intervalMs` milliseconds (default 30s). Returns a cancel function that
- * stops further emissions.
+ * Write a `heartbeat` frame to `encoder` every `intervalMs` milliseconds
+ * (default 30 s). Returns a function that stops the heartbeat.
  */
 export function startHeartbeat(
   encoder: NdjsonEncoder,

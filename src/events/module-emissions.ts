@@ -1,93 +1,44 @@
 /**
  * Emitters that are NOT dispatched actions.
  *
- * ── The gap this closes ─────────────────────────────────────────────────────
+ * The emission model reads only the `autoEmits` of actions. A wrapper that runs around
+ * every action is the effect of no single action, so its append needs a row here.
  *
- * The emission model knows exactly one shape: an action declares `autoEmits`
- * and the registry walk turns that into `(event, action, declaringTool)`. Every
- * check downstream reads that population, so an append performed by anything
- * other than a dispatched action is invisible to all of them — it cannot be
- * declared, which means it cannot be checked, which means it reads as an event
- * nothing emits.
+ * A row says: THIS module appends THIS event, for THIS structural reason. A row whose site
+ * the census does not see is a `PHANTOM_MODULE_EMISSION`. A measured append that neither an
+ * action edge nor a row explains is an `UNDECLARED_APPEND_SITE`.
  *
- * A wrapper that runs around EVERY action is the clearest case. Declaring its
- * append on all of them would assert that each action independently emits the
- * telemetry row, which is false in every instance and would put a hundred-odd
- * edges into the comparison naming one append site. Declaring it on one action
- * is worse: it would be arbitrary and it would read as that action's effect.
- * Neither is a modelling problem with the wrapper. It is a modelling problem
- * with a vocabulary that has only one word.
- *
- * ── What a row asserts, and how it is falsified ─────────────────────────────
- *
- * A row says: THIS module appends THIS event, for THIS structural reason. Both
- * halves are checkable against the tree rather than against another table.
- *
- *   • The module must actually appear in the measured append-site census for
- *     that event. A row whose site is gone is a `PHANTOM_MODULE_EMISSION` — the
- *     same no-stale-cover ratchet the rest of this layer uses, because a
- *     declaration that outlives its subject is a claim the tree does not
- *     support.
- *   • Conversely, a measured append site explained by neither an action edge
- *     nor a row here is an `UNDECLARED_APPEND_SITE`. That direction is what
- *     makes the accounting TOTAL: without it, this table would only ever
- *     describe what somebody remembered to write down.
- *
- * `trigger` is a CLOSED union on purpose, and for the reason `SubstrateRationale`
- * is closed: if it were free text, `{ trigger: 'because' }` would be
- * constructible for any module and the whole channel would collapse into an
- * escape hatch for "an action could not be found". Claiming a trigger means
- * claiming one of these specific mechanisms.
- *
- * The union may still GROW, and that is not a loophole: a new member is a
- * mechanism argued once, in a comment, for every row that will ever use it.
- * What the closure buys is that the argument has to be made at the type before
- * a row can be written, rather than improvised per row in free text.
+ * `trigger` is a closed union, so each row claims a specific mechanism. A new member argues
+ * its mechanism once, at the type.
  */
 
 /**
- * How a module comes to append an event without being a dispatched action.
+ * How a module appends an event without being a dispatched action. No member can be the
+ * declared effect of an action.
  *
- * Each member names a mechanism that structurally cannot be an action's
- * declared effect — not merely a case where nobody has declared one yet.
+ * - `dispatch-wrapper`: wraps the handler of EVERY action.
+ * - `dispatch-interceptor`: runs in the dispatch pipeline around a handler, for any action.
+ * - `success-hook`: fires when another durable append succeeds.
+ * - `observer-drain`: drains an observer sink that process wiring installs.
+ * - `process-hook`: the harness or the runtime lifecycle fires it.
+ * - `read-path-publisher`: a shared read path reports what it saw about state that others wrote.
+ * - `store-internal`: a store keeps its own record for a protocol surface that is not an action.
+ * - `shared-resolver`: a library that unrelated entry points call records what it resolved.
  */
 export type ModuleEmitterTrigger =
-  /** Wraps the handler for EVERY action; the append is the wrapper's effect, not any action's. */
   | 'dispatch-wrapper'
-  /** Runs inside the dispatch pipeline around a handler, independent of which action ran. */
   | 'dispatch-interceptor'
-  /** Fires when a durable append succeeds — triggered by another event landing, not a call. */
   | 'success-hook'
-  /** Drains an observer sink installed at process wiring; records what it observed. */
   | 'observer-drain'
-  /** Fired by the harness or runtime lifecycle rather than by a dispatch. */
   | 'process-hook'
-  /**
-   * Published from a shared path that every read of its kind traverses. The
-   * append REPORTS what the read observed about state somebody else wrote, so
-   * it is the read path's effect and no reader's.
-   */
   | 'read-path-publisher'
-  /**
-   * A store keeping its own record, driven by a protocol surface that is not
-   * the registry's action surface — so there is no action to declare it on.
-   */
   | 'store-internal'
-  /**
-   * A shared resolution library that several unrelated entry points call. The
-   * append records what resolution concluded; picking one caller to own it
-   * would silence the row while asserting a false owner.
-   */
   | 'shared-resolver';
 
 export interface ModuleEmission {
   /** The event type appended. */
   readonly event: string;
-  /**
-   * The module performing the append, relative to the governed source root
-   * (`src/`), forward-slashed — the same identity the append-site census uses,
-   * so the two can be compared without a translation step.
-   */
+  /** The module that appends, relative to `src/` and forward-slashed, as the census names it. */
   readonly module: string;
   readonly trigger: ModuleEmitterTrigger;
   /** Why no action can carry this edge. States the mechanism, not the absence of a declaration. */
@@ -131,12 +82,9 @@ const SHADOW_OBSERVER =
   'reading from the other side — a caller-minted one is refused.';
 
 /**
- * The declared non-action emitters.
- *
- * SHRINK-ONLY in the sense that matters: a row may only be deleted when its
- * append genuinely moves under an action, and the phantom check fails any row
- * whose site is gone. It GROWS legitimately whenever a real non-action emitter
- * is identified, which is not debt — it is the model catching up with the tree.
+ * The declared non-action emitters. Delete a row only when its append moves under an
+ * action. The phantom check fails each row whose site is gone. A new row for a real
+ * non-action emitter is not debt.
  */
 export const MODULE_EMISSIONS: readonly ModuleEmission[] = Object.freeze([
   {

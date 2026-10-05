@@ -1,35 +1,13 @@
 /**
- * Is every append in the tree explained by something that declares it?
+ * Checks that every append in the tree has a declaration, and every declaration has an append.
  *
- * ── Why a closure check and not another census ──────────────────────────────
+ * Two surfaces declare emitters: the `autoEmits` of an action, and {@link MODULE_EMISSIONS}
+ * for emitters that are not actions. The measured append-site census is the other side.
  *
- * Two declaration surfaces name emitters: an action's `autoEmits`, and
- * {@link MODULE_EMISSIONS} for emitters that are not actions. Each can be
- * checked for internal consistency and still leave the important question
- * unanswered, because both only describe what somebody wrote down.
+ * - `UNDECLARED_APPEND_SITE`: the tree appends an event that no surface claims.
+ * - `PHANTOM_MODULE_EMISSION`: a declared module emitter has no append in the tree.
  *
- * The measured append-site census answers the other direction. Comparing the
- * two makes the accounting TOTAL:
- *
- *   • `UNDECLARED_APPEND_SITE` — the tree appends an event that neither surface
- *     claims. This is the direction a declaration table can never find on its
- *     own, and it is where the real gap lives.
- *   • `PHANTOM_MODULE_EMISSION` — a declared module emitter whose append is not
- *     in the tree. Same no-stale-cover ratchet the rest of this layer uses: a
- *     declaration that outlives its subject is a claim the tree does not
- *     support, and it would otherwise sit there looking like coverage.
- *
- * Both arms matter and neither substitutes for the other. Only the first tells
- * you the model is incomplete; only the second tells you the model is stale.
- *
- * ── The scan root is part of the verdict ────────────────────────────────────
- *
- * The census reads the governed source tree. A declared emitter OUTSIDE that
- * root cannot be confirmed or refuted by it, so such a row is reported as
- * {@link UnverifiableModuleEmission} rather than silently accepted — "the
- * census could not look here" and "the census looked and agreed" are different
- * answers, and collapsing them is how a scan under-reports while appearing
- * complete.
+ * A declared emitter outside the scan root is {@link UnverifiableModuleEmission}, not accepted.
  */
 
 import { TOOL_REGISTRY, normalizeActionContract, type CompositeTool } from '../registry.js';
@@ -54,7 +32,7 @@ export interface PhantomModuleEmission {
   readonly message: string;
 }
 
-/** A declared module emitter the census could not reach. */
+/** A declared module emitter that the census did not reach. */
 export interface UnverifiableModuleEmission {
   readonly event: string;
   readonly module: string;
@@ -70,7 +48,7 @@ export interface PhantomActionEmission {
   readonly message: string;
 }
 
-/** An allowance row that no longer describes the tree. */
+/** An allowance row that does not describe the tree. */
 export interface StaleUnresolvedAllowance {
   readonly code: 'STALE_UNRESOLVED_ALLOWANCE';
   readonly event: string;
@@ -87,33 +65,13 @@ export interface UnverifiableActionEmission {
 /**
  * Declared action emissions whose append site the census cannot resolve.
  *
- * An action edge names an event, never a file, so the only measurement the
- * census can offer is "some module appends this event". These events fail even
- * that, and for one of TWO reasons rather than the one this note used to give.
+ * Most of these events use an append with a runtime `type:` value, so the site is in
+ * `unresolved` without an event name. The settlement records `orchestrate.intent_executed`
+ * and `execution.settled` commit through `decideOnce`, which is not an `.append(...)`
+ * call. The scan does not see them.
  *
- * Most ride an append whose `type:` discriminant is a runtime value, so the
- * site lands in the census's `unresolved` bucket, which carries no event name.
- *
- * The two settlement records — `orchestrate.intent_executed` and
- * `execution.settled` — are invisible for a different reason, and it is worth
- * stating because a literal discriminant does not fix it. Both commit through
- * `decideOnce`, and the scanner behind this census inspects `.append(...)` call
- * sites; a `decideOnce` commit is not one, so its events are ABSENT from the
- * scan rather than unresolved within it. Measured on `execution.settled` by
- * writing the literal and watching the finding stand.
- *
- * Either way the census genuinely cannot tell these apart from a declaration
- * whose append was deleted.
- *
- * So the distinction is pinned here and held to the tree in BOTH directions,
- * the same ratchet every declared surface in this file carries. SHRINK-ONLY: a
- * row leaves when its append becomes resolvable (it then confirms like any
- * other event, and keeping the row is reported as stale) or when the last edge
- * declaring the event is retired (a row covering no declaration is reported as
- * stale). A row must never be ADDED to silence a phantom finding without first
- * confirming the new append really is one the parser cannot read — that is
- * what this list is for, and using it for anything else re-opens the hole it
- * closes.
+ * SHRINK-ONLY. A row is stale when its append resolves, or when no edge declares the
+ * event. Add a row only after you confirm that the parser cannot read the new append.
  */
 export const UNRESOLVED_ACTION_EVENT_ALLOWANCE: readonly string[] = Object.freeze([
   'deviation.decided',
@@ -172,15 +130,15 @@ function moduleIndex(rows: readonly ModuleEmission[]): ReadonlyMap<string, Reado
 }
 
 /**
- * Reconcile the measured append sites against both declaration surfaces. Pure
- * and total: returns a verdict, never throws.
+ * Reconciles the measured append sites against both declaration surfaces. The function
+ * returns a verdict and does not throw.
  *
- * An action edge explains EVERY site for its event rather than a particular
- * module. That is deliberate and it is the honest limit of the action surface:
- * `autoEmits` names an action, never a file, so it cannot say which of two
- * modules performed the append. Claiming otherwise would invent precision the
- * declaration does not carry — the provider-area audit is where an event
- * appended from somewhere unexpected is caught.
+ * An action edge explains EVERY site for its event, because `autoEmits` names an action
+ * and not a file. The provider-area audit catches an append from an unexpected module.
+ *
+ * An action emission is confirmed when some module appends the event. It is unverifiable
+ * when {@link UNRESOLVED_ACTION_EVENT_ALLOWANCE} covers it, and phantom otherwise. A module
+ * row is unverifiable when the census did not scan its module.
  */
 export function auditEmitterClosure(
   census: AppendSiteCensus,
@@ -226,7 +184,6 @@ export function auditEmitterClosure(
   for (const row of moduleEmissions) {
     const measured = census.modulesByEvent.get(row.event);
     if (measured?.includes(row.module) === true) continue;
-    // A row whose module the census never scanned is unanswered, not refuted.
     if (!census.scannedModules.includes(row.module)) {
       unverifiable.push({ event: row.event, module: row.module, reason: 'outside-scan-root' });
       continue;
@@ -244,21 +201,6 @@ export function auditEmitterClosure(
     });
   }
 
-  // ── The action arm's stale-cover direction ────────────────────────────────
-  //
-  // The loops above answer "is every measured append declared?" and "is every
-  // module declaration live?". Nothing yet answers it for the ACTION surface: a
-  // contract emission naming an event with zero append sites anywhere never
-  // enters `census.modulesByEvent`, so both loops walk past it. An edge like
-  // that is the same stale cover the module arm refuses — a claim the tree does
-  // not support, sitting there looking like coverage.
-  //
-  // The census cannot refute such an edge outright, because an append whose
-  // discriminant is a runtime value lands in `unresolved` without an event
-  // name. So the verdict is three-way: confirmed (some module appends the
-  // event), covered by the pinned {@link UNRESOLVED_ACTION_EVENT_ALLOWANCE}
-  // (unverifiable, not refuted), or phantom. The allowance itself is held to
-  // the tree in both directions so it cannot rot into a mute list.
   const allowance = new Set(unresolvedAllowance);
   const declaredBy = new Map<string, Set<string>>();
   for (const edge of actionEdges) {
@@ -343,42 +285,6 @@ export function auditEmitterClosure(
   });
 }
 
-// ─── The action arm: attribution, not just anonymity ────────────────────────
-//
-// The closure above indexes declared edges by event NAME alone, which is the
-// honest limit of that comparison — an edge names an action, never a file. The
-// consequence is that an action which reasons "I emit nothing" while a module it
-// reaches appends a catalog event shows up only as one more anonymous undeclared
-// row. The row says a file appends something unexplained; it cannot say WHO
-// should have explained it, and the reasoned abstention that is actually wrong
-// reads as innocent.
-//
-// This arm supplies the missing side. It needs one fact the declarations do not
-// carry: which appends an action answers for.
-//
-// ── Why ownership is declared here rather than derived ──────────────────────
-//
-// The action-to-handler-module correspondence exists only inside the composite
-// routers' closures (a handler table entry, plus the import that binds the
-// identifier). It is code, not data — the same obstacle that forced the
-// reachability layer to SOURCE-SCAN its routers, and that scan resolves action
-// NAMES, not the modules behind them. Deriving it here would mean a second
-// scanner, and a one-hop import walk would attribute every append in a handler's
-// neighbourhood to it, which invents ownership rather than measuring it.
-//
-// So the relation is written down — and then held to the tree in BOTH
-// directions, the same posture {@link MODULE_EMISSIONS} carries. A row naming an
-// append the census does not see is stale and reported; a row whose append no
-// registry edge backs is reported; and a row whose action declares a reasoned
-// `none` is reported under its own code, with the reason quoted, because that
-// one is a false statement rather than an omission.
-//
-// Rows are event-SCOPED on purpose. A module-wide claim would hand an action
-// every append in the file, including ones nothing on its path reaches — which
-// is how `verbs/team/dispatch-guard.ts` used to read, back when a second,
-// uninvoked emitter still sat beside the stash probe `prepare_delegation` does
-// reach.
-
 /** An append an action answers for: the module that performs it, and the event. */
 export interface ActionAppendOwnership {
   /** The registered action accountable for the append. */
@@ -447,11 +353,8 @@ export interface ActionOwnedAppendAudit {
 }
 
 /**
- * Every registered action whose contract reasons that it emits nothing.
- *
- * Reads the registry as a VALUE, exactly as the edge flattener does. An action
- * whose contract cannot be normalized contributes nothing: an unreadable
- * declaration is an unanswered question, not an abstention.
+ * Every registered action whose contract reasons that it emits nothing. An action whose
+ * contract does not normalize adds nothing, because an unreadable contract is not an abstention.
  */
 export function reasonedAbstentions(
   registry: readonly CompositeTool[] = TOOL_REGISTRY,
@@ -484,11 +387,12 @@ export function reasonedAbstentions(
 }
 
 /**
- * The appends the actions in this tree answer for.
+ * The appends that the actions in this tree answer for. Each row states the wiring, so
+ * a reader can check the claim in two files.
  *
- * A row leaves when its append leaves; a row arrives when an append is traced to
- * the action that reaches it. Every row states the wiring, so the claim is
- * checkable by reading two files.
+ * The link from an action to its handler module exists only inside router closures, so
+ * this list declares it. A one-hop import walk invents ownership. Rows are event-scoped,
+ * so an action does not get every append in its module.
  */
 export const ACTION_APPEND_OWNERSHIP: readonly ActionAppendOwnership[] = Object.freeze([
   {
@@ -608,13 +512,16 @@ export const ACTION_APPEND_OWNERSHIP: readonly ActionAppendOwnership[] = Object.
 ]);
 
 /**
- * Reconcile the owned appends against the tree, the registry, and the actions'
- * own abstentions. Pure and total: returns a verdict, never throws.
+ * Reconciles the owned appends against the tree, the registry, and the abstentions of
+ * the actions. The function returns a verdict and does not throw.
  *
- * Three independent faults, reported together. `stale` says the ownership claim
- * has outlived its subject; `unbacked` says the action owns an append it never
- * declared; `falseAbstentions` is the subset of `unbacked` where the action did
- * not merely omit the edge but positively reasoned that there was none.
+ * The closure audit keys edges by event name, so it cannot name the action that owes an
+ * undeclared append. This audit names it.
+ * - `stale`: the census does not confirm the row.
+ * - `unbacked`: the action owns an append, declares no edge for it, and has no reasoned `none`.
+ * - `falseAbstentions`: the action declares a reasoned `none` for an append that it owns.
+ *
+ * Keys are `declaringTool.action`, because two tools can register the same action name.
  */
 export function auditActionOwnedAppends(
   census: AppendSiteCensus,
@@ -622,12 +529,6 @@ export function auditActionOwnedAppends(
   abstentions: readonly ActionAbstention[] = reasonedAbstentions(),
   ownership: readonly ActionAppendOwnership[] = ACTION_APPEND_OWNERSHIP,
 ): ActionOwnedAppendAudit {
-  // Qualified `declaringTool.action` — not the bare action name. Two tools
-  // (built-in registry action names are unique today, but a custom registry
-  // is not required to keep it that way) can register an action of the same
-  // name; keying on the name alone would let one overwrite the other's
-  // abstention reason and would join an ownership row against whichever tool
-  // happened to win the collision.
   const qualify = (declaringTool: string, action: string): string => `${declaringTool}.${action}`;
   const declaredByAction = new Set(
     actionEdges.map((edge) => `${qualify(edge.declaringTool, edge.action)} ${edge.event}`),
@@ -642,8 +543,6 @@ export function auditActionOwnedAppends(
   let confirmed = 0;
 
   for (const row of ownership) {
-    // A module the census never read can neither confirm nor refute the row —
-    // the same distinction the module arm draws, for the same reason.
     const qualified = qualify(row.declaringTool, row.action);
     if (!census.scannedModules.includes(row.module)) {
       stale.push({

@@ -3,9 +3,8 @@ import path from 'node:path';
 export type ArtifactPathErrorCode = 'PATH_TRAVERSAL';
 
 /**
- * Fail-closed error raised when an artifact key or path segment would resolve
- * outside its store root. Never thrown for a benign miss — only for an input
- * that would escape containment if it were resolved.
+ * Fail-closed error for an artifact key or path segment that resolves outside
+ * its store root. A benign miss never throws it.
  */
 export class ArtifactPathError extends Error {
   constructor(
@@ -28,14 +27,10 @@ function reject(message: string): never {
 /**
  * Assert that `segment` is a single, benign path component.
  *
- * Rejects anything that could redirect a join to a different directory: empty
- * segments, `.`/`..`, embedded separators (either style), Windows
- * drive-qualified prefixes (`C:` / `C:foo`), and NUL bytes. This validates a
- * *component*, so a caller that splits a slash-delimited key applies it to each
- * piece — which is why UNC (`\\host\share`) and absolute (`/etc`) keys are
- * caught: they split into empty components. Percent-encoded traversal such as
- * `%2e%2e` is deliberately treated as an ordinary literal name, never decoded,
- * so it cannot become `..` after the fact.
+ * It rejects empty segments, `.` and `..`, separators of either style, Windows
+ * drive prefixes (`C:`), and NUL bytes. A split UNC or absolute key gives an empty
+ * component, so it fails. Percent-encoded traversal such as `%2e%2e` stays a
+ * literal name and is never decoded.
  */
 export function assertSafeArtifactSegment(segment: string): void {
   if (segment === '') reject('artifact path segment must not be empty');
@@ -54,11 +49,9 @@ export function assertSafeArtifactSegment(segment: string): void {
 }
 
 /**
- * Split a caller-supplied artifact key into components and assert each is a
- * benign single segment. Accepts both separator styles so a `key` copied from
- * either platform is validated identically; every escaping shape — `..`,
- * absolute, drive-relative, UNC, mixed separators — collapses to a rejected
- * component.
+ * Split a caller-supplied artifact key on either separator style, and assert
+ * that each component is a benign single segment. Every escaping shape gives a
+ * rejected component.
  */
 export function assertSafeArtifactKey(key: string): void {
   if (key === '') reject('artifact key must not be empty');
@@ -71,13 +64,11 @@ export function assertSafeArtifactKey(key: string): void {
 }
 
 /**
- * Join validated `segments` under `root` and prove the result stays inside it.
+ * Join validated `segments` under `root` and prove that the result stays inside it.
  *
- * Each segment is checked structurally, then the resolved path is re-derived
- * with `path.relative` as a second, independent guard: if the relative path
- * climbs out (`..`) or is absolute (a different drive/root), the join is
- * rejected rather than returned. Both checks must agree, so weakening either
- * one alone still fails closed.
+ * After the segment checks, `path.relative` checks the resolved path again. A
+ * relative path that climbs out (`..`) or is absolute fails. The two checks are
+ * independent, so one weak check alone does not open an escape.
  */
 export function resolveContainedArtifactPath(
   root: string,

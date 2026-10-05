@@ -1,11 +1,8 @@
-import { z } from 'zod';
-
 /**
- * NDJSON streaming frame schema (DR-9).
- *
- * A single NDJSON line on the wire is one of these four frame types,
- * discriminated by the `type` field.
+ * NDJSON streaming frame schema. Each line on the wire is one of four frame
+ * types, discriminated by the `type` field.
  */
+import { z } from 'zod';
 
 export const EventFrame = z.object({
   type: z.literal('event'),

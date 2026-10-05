@@ -12,24 +12,13 @@ export interface EventMigration {
 }
 
 /**
- * Registry of event migrations. Add new migrations here when the event schema evolves.
- * Migrations are applied in chain order: 1.0 → 1.1 → 1.2, etc.
+ * Registry of event migrations. Add a migration here when the event schema
+ * changes. Migrations apply in chain order, for example 1.0 → 1.1 → 1.2.
  *
- * NOTE: This registry tracks per-event payload `schemaVersion` (string,
- * e.g. '1.0'), independent of the SQLite DDL `SCHEMA_VERSION` integer in
- * `storage/sqlite-backend.ts`. The durable-substrate plan's V2 -> V3
- * migration is a SQLite DDL transition (T01) — see `migrateV2ToV3` in
- * `sqlite-backend.ts`. T12 will register the first per-event tolerant
- * deserialization migration here once new event types (T02-T04) are
- * appended under V3.
+ * This registry tracks the per-event payload `schemaVersion` string. It is
+ * independent of the SQLite DDL `SCHEMA_VERSION` integer in `storage/sqlite/schema.ts`.
  */
 export const eventMigrations: readonly EventMigration[] = [
-  // Future migrations go here. Example:
-  // {
-  //   from: '1.0', to: '1.1',
-  //   eventTypes: ['task.completed'],
-  //   migrate: (e) => ({ ...e, schemaVersion: '1.1', data: { ...e.data, duration: 0 } }),
-  // },
 ];
 
 /**
@@ -51,7 +40,6 @@ export function migrateEvent(
 
   while (currentVersion !== EVENT_SCHEMA_VERSION) {
     if (iterations >= maxIterations) {
-      // No complete path — return as-is for forward compatibility
       return current;
     }
 
@@ -62,7 +50,6 @@ export function migrateEvent(
     );
 
     if (!migration) {
-      // No migration path — return as-is (forward compat)
       return current;
     }
 
@@ -75,19 +62,14 @@ export function migrateEvent(
 }
 
 /**
- * Batch read-time upcasting seam (#1556).
+ * Apply the registered migrations to a batch of rows at read time.
  *
- * `EventStore.query` / `queryByType` route every backend row through here so a
- * registered migration is applied uniformly to *every* reader (rehydrate,
- * reconcile, views, `resolveWorkflowState`). This is the single choke point
- * the no-bypass CI gate enforces — no reader constructs a `WorkflowEvent` from
- * a raw backend row outside it.
+ * `EventStore.query` and `queryByType` route every backend row through here, so
+ * every reader sees the same upcast events. A CI gate checks that no reader
+ * builds a `WorkflowEvent` from a raw backend row outside this function.
  *
- * Identity-preserving fast path: with no migrations registered (the state
- * today, `eventMigrations === []`), the *same array reference* and every
- * element reference are returned unchanged, so the hot read path stays
- * allocation-free until read-time schema evolution is actually needed. The
- * moment a migration registers, the map fires and old rows fold upcasted.
+ * With no migrations registered, it returns the same array reference, so the
+ * hot read path does not allocate.
  */
 export function migrateEvents<T extends Record<string, unknown>>(
   events: readonly T[],
@@ -100,14 +82,9 @@ export function migrateEvents<T extends Record<string, unknown>>(
 }
 
 /**
- * Build-time version-coverage assertion (#1556 structural guard b).
- *
- * Every per-event `schemaVersion` strictly below `currentVersion` that appears
- * as a migration `from` must chain all the way to `currentVersion`; a dangling
- * source version (a migration whose `to` no version can continue from, while
- * still below current) means a reader could observe an event it cannot upcast.
- * Bumping `EVENT_SCHEMA_VERSION` or adding a migration without completing the
- * chain throws here, failing the build before the gap reaches production.
+ * Assert that every migration source version chains to `currentVersion`. A gap
+ * means a reader can see an event that it cannot upcast. A unit test runs this
+ * check against the live registry, so a gap fails CI.
  *
  * @throws Error listing the version(s) with no path to `currentVersion`.
  */
@@ -115,7 +92,6 @@ export function assertMigrationCoverage(
   currentVersion: string = EVENT_SCHEMA_VERSION,
   migrations: readonly EventMigration[] = eventMigrations,
 ): void {
-  // Forward edges: from -> set of reachable next versions.
   const edges = new Map<string, Set<string>>();
   for (const m of migrations) {
     if (!edges.has(m.from)) edges.set(m.from, new Set());
@@ -135,7 +111,6 @@ export function assertMigrationCoverage(
     return false;
   };
 
-  // Every declared source version below current must reach current.
   const sources = new Set<string>(migrations.map((m) => m.from));
   const dangling = [...sources].filter((v) => v !== currentVersion && !reaches(v));
   if (dangling.length > 0) {

@@ -1,45 +1,19 @@
 /**
- * Where every event is actually appended, measured from the source tree.
+ * Where every event is appended, measured from the source tree.
  *
- * ── Why this exists ─────────────────────────────────────────────────────────
+ * A `capability` registration names a `provider`, and a provider names an area
+ * of the tree. The module that appends the event must live inside that area.
+ * The provider check in `registration-validate.ts` compares two declarations and
+ * never reads the append site. Thus agreement between the two declarations proves
+ * nothing about the append site. This census reads the append sites.
  *
- * A `capability` registration names a `provider`, and a provider names an AREA
- * of the tree (`EFFECT_PROVIDERS` maps `exarchos_orchestrate → verbs/`). The
- * claim a provider makes is therefore checkable: the module that appends the
- * event should live inside that area.
+ * The population comes from a parse of the tree, not from a maintained table.
+ * The caller injects the parser, because `typescript` is a devDependency and
+ * must not become a runtime dependency. The implementation is
+ * `tools/test-helpers/evidence-emission-scanner.ts`.
  *
- * Nothing checked it. The provider comparison in `registration-validate.ts`
- * compares the declared provider against the DECLARING TOOL — declaration
- * against declaration — and never looks at the append site. So a provider
- * naming the wrong area is invisible to it, and worse, "repairing" a
- * disagreement by adopting the declaring tool buys agreement while asserting an
- * append site that does not exist. That is the comparison agreeing with itself
- * rather than with the tree, and it is the failure mode this census closes.
- *
- * ── Measured, not declared ──────────────────────────────────────────────────
- *
- * The population comes from PARSING the tree, not from a table somebody
- * maintains alongside it. A declared append-site table would drift the moment
- * an append moved, and would drift silently, because the only thing that could
- * detect the drift is the measurement it replaced.
- *
- * ── The scanner is a port, for a reason that is not stylistic ───────────────
- *
- * Resolving what `type:` MEANS is a question about bindings, and the only
- * instrument that cannot disagree with the compiler about bindings is the
- * compiler. But `typescript` is a devDependency, and a shipped `src/` module
- * importing it would make the compiler a runtime dependency of a tree whose
- * shipped artifact resolves only `dependencies` — which the effect ledger
- * enforces against itself. So the policy lives here and the parser is injected;
- * the implementation is `tools/test-helpers/evidence-emission-scanner.ts`.
- *
- * ── Unresolved is not "no" ──────────────────────────────────────────────────
- *
- * An append whose discriminant does not reduce to a string is reported, never
- * dropped. "The census could not read this" and "this module appends nothing"
- * are different answers, and collapsing them is how a scan under-reports while
- * looking complete — the exact defect the evidence scanner was once repaired
- * for.
+ * The census reports an append whose discriminant does not reduce to a string, and
+ * never drops it.
  */
 
 import { readdir, readFile } from 'node:fs/promises';
@@ -48,12 +22,8 @@ import { join, relative } from 'node:path';
 import type { EvidenceEmissionScanner } from '../verbs/gates/gate-ownership-census.js';
 
 /**
- * The append-site scanner port, under the name that describes what it does.
- *
- * Structurally identical to the evidence census's port and deliberately the
- * same type rather than a parallel one: two port types would mean two answers
- * to "what is an append site", and one implementation would eventually satisfy
- * only one of them.
+ * The append-site scanner port. It is the same type as the evidence census port,
+ * so one definition of an append site serves both.
  */
 export type AppendSiteScanner = EvidenceEmissionScanner;
 
@@ -65,17 +35,15 @@ export interface UnresolvedAppendSite {
   readonly line: number;
 }
 
-/** Every module that appends a given event, and every site that could not be read. */
+/** Every module that appends each event, and every site that the scan cannot read. */
 export interface AppendSiteCensus {
   /** Event type → the modules that append it, sorted and de-duplicated. */
   readonly modulesByEvent: ReadonlyMap<string, readonly string[]>;
   /** Append sites whose discriminant is a runtime value. */
   readonly unresolved: readonly UnresolvedAppendSite[];
   /**
-   * Every module the scan read, sorted. Carried in full, not merely counted,
-   * because a consumer needs to distinguish "this module was scanned and does
-   * not append" from "this module was never in scope" — collapsing those turns
-   * an unanswered question into a refutation.
+   * Every module the scan read, sorted. A consumer uses it to tell a module
+   * that appends nothing from a module that was never in scope.
    */
   readonly scannedModules: readonly string[];
   /** Modules scanned — the DENOMINATOR, so a shrunken scan cannot read as a clean tree. */
@@ -83,10 +51,8 @@ export interface AppendSiteCensus {
 }
 
 /**
- * Every non-test TypeScript module under `root`, sorted.
- *
- * The suffix filter is a BUILD property, not a named subtree: a file the build
- * never emits cannot be a shipped append site.
+ * Every non-test TypeScript module under `root`, sorted. The filter matches file
+ * suffixes, because a file that the build never emits cannot be a shipped append site.
  */
 async function collectSources(root: string): Promise<string[]> {
   const files: string[] = [];
@@ -116,9 +82,8 @@ async function collectSources(root: string): Promise<string[]> {
 
 /**
  * Scan `root` and group every resolved append site by the event it appends.
- *
- * Pure with respect to its inputs beyond the read: same tree and same scanner
- * produce the same census, and nothing here decides whether a site is a fault.
+ * The same tree and scanner give the same census. This function does not judge
+ * whether a site is a fault.
  */
 export async function scanAppendSites(
   root: string,

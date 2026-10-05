@@ -1,3 +1,8 @@
+/**
+ * Thrown by `atomicAppend` when SQLITE_BUSY persists past the retry budget. The
+ * last driver error is the `cause`. `AtomicAppender` maps this error to
+ * `storage_busy`, and it treats a generic `SqliteError` as an io-error.
+ */
 export class SqliteBusyExhaustedError extends Error {
   override readonly name = 'SqliteBusyExhaustedError';
   readonly code = 'SQLITE_BUSY_EXHAUSTED';
@@ -10,20 +15,14 @@ export class SqliteBusyExhaustedError extends Error {
 }
 
 /**
- * Thrown by the in-transaction stream-version gate (`allocateSequence`)
- * when the caller's `expectedSequence` does not match the stream's durable
- * tail. This is the convergent event-store OCC primitive (Marten `mt_streams`,
- * SQLStreamStore `Streams`, EventStoreDB stream metadata, EventFabric
- * `stream_versions`): the version is assigned **and** checked atomically
- * inside `BEGIN IMMEDIATE`, so the conflict signal carries the real
- * `expected`/`actual` directly — no post-hoc PRIMARY KEY violation, no
- * regex translation of a constraint-error string.
+ * Thrown by the stream-version gate (`allocateSequence`) when `expectedSequence`
+ * does not match the durable stream tail. The gate assigns and checks the
+ * version atomically inside `BEGIN IMMEDIATE`, so the error carries the real
+ * `expected` and `actual` values.
  *
- * Thrown inside the transaction body so the wrapping `db.transaction`
- * rolls the whole append back (the gate bump, the events, the claim) as a
- * unit. `atomicAppend` lets it propagate past the SQLITE_BUSY retry loop
- * (it is not a busy error) and the caller (`AtomicAppender`) maps it to the
- * typed `sequence-conflict` AppendResult.
+ * It is thrown inside the transaction, so the whole append rolls back.
+ * `atomicAppend` does not retry it, and `AtomicAppender` maps it to the
+ * `sequence-conflict` result.
  */
 export class SequenceGateConflictError extends Error {
   override readonly name = 'SequenceGateConflictError';
@@ -56,15 +55,10 @@ export class OperationDigestConflictError extends Error {
 }
 
 /**
- * Thrown by `initialize()` when the SQLite driver does not expose the
- * `transaction(fn).immediate()` variant. Cross-process write correctness
- * depends on `BEGIN IMMEDIATE` acquiring the write lock up-front: a deferred
- * `BEGIN` that reads then upgrades to a write is the classic SQLite
- * lock-upgrade deadlock that `busy_timeout` cannot resolve, and it reopens
- * the very TOCTOU window the stream-version gate closes. Rather than
- * silently degrade to that path, the substrate refuses to start — fail-fast,
- * operator-visible (DR-3). Both supported drivers (`bun:sqlite` in
- * production, `better-sqlite3` via the test shim) expose `.immediate`.
+ * Thrown by `initialize()` when the SQLite driver has no
+ * `transaction(fn).immediate()`. Cross-process writes need `BEGIN IMMEDIATE` to
+ * take the write lock first. A deferred `BEGIN` can deadlock on the lock upgrade,
+ * so the substrate refuses to start. `bun:sqlite` and `better-sqlite3` both have it.
  */
 export class SqliteImmediateUnsupportedError extends Error {
   override readonly name = 'SqliteImmediateUnsupportedError';
@@ -81,17 +75,10 @@ export class SqliteImmediateUnsupportedError extends Error {
 }
 
 /**
- * Thrown by `initialize()` when the SQLite database file cannot be
- * opened or read because its bytes are not a valid SQLite database
- * (`SQLITE_NOTADB`) or are structurally broken (`SQLITE_CORRUPT`).
- * The substrate makes corruption a non-recoverable, operator-visible
- * event by design (#1259, T10, DR-12) — auto-rebuilding would silently
- * destroy the evidence operators need to diagnose root cause and would
- * mask data-loss surfaces.
- *
- * The message is deliberately operator-facing: it names the file path
- * and instructs the operator to inspect manually. Consumers should not
- * catch this error and continue — it terminates lifecycle startup.
+ * Thrown by `initialize()` when the database file is not a SQLite database
+ * (`SQLITE_NOTADB`) or is corrupt (`SQLITE_CORRUPT`). The substrate never rebuilds
+ * it, because a rebuild destroys the evidence for diagnosis. It stops lifecycle
+ * startup, and consumers must not catch it and continue.
  */
 export class SqliteCorruptError extends Error {
   override readonly name = 'SqliteCorruptError';
@@ -109,18 +96,10 @@ export class SqliteCorruptError extends Error {
 }
 
 /**
- * Thrown by `initialize()` when the event store's persisted schema identity is
- * NEWER than the schema version this binary understands (`SCHEMA_VERSION`). A
- * store written by a newer Exarchos release must NOT be silently opened by an
- * older one: the older binary would re-stamp its own (lower) version alongside
- * the newer marker and operate against a schema whose invariants it does not
- * know, risking silent data corruption (P05-04, ART-009).
- *
- * The directional policy is asymmetric by design and mirrors the forward-only
- * migration machinery: an OLDER store (version < SCHEMA_VERSION) is
- * forward-migrated on open; a NEWER store (version > SCHEMA_VERSION) is refused
- * because downgrade is not a supported operation. Like {@link SqliteCorruptError},
- * this terminates lifecycle startup — consumers must not catch it and continue.
+ * Thrown by `initialize()` when the persisted schema version is newer than
+ * `SCHEMA_VERSION`. An older binary must not open a newer store, because it does
+ * not know the newer invariants. An older store migrates forward on open. Like
+ * {@link SqliteCorruptError}, this error stops lifecycle startup.
  */
 export class SchemaVersionTooNewError extends Error {
   override readonly name = 'SchemaVersionTooNewError';
