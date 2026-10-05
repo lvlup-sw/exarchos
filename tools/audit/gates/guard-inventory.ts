@@ -36,6 +36,8 @@ export {
   needsList,
   pathFilterKeys,
   pathFilterGlobs,
+  lanePathsFromManifest,
+  lanePathsFromToml,
   type WorkflowStep,
   type WorkflowJob,
   type Workflow,

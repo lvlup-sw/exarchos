@@ -191,7 +191,7 @@ export const ADVISORY_REGISTRY: readonly AdvisoryEntry[] = [
     ciPathFiltered: true,
     ciFilterRationale:
       'Reaches CI only through `npm run skills:guard` in ci.yml\'s `test-root` job, ' +
-      'which is gated by `needs.changes.outputs.root == \'true\'` — a dorny/paths-filter ' +
+      'which is gated by lane `root` via ci-lanes (`fromJSON(needs.plan.outputs.lanes).root`) ' +
       'path filter. A PR touching only servers/** therefore never runs this lint at all. ' +
       'The pre-DR-15 registry claimed this ciPath was UNFILTERED; that claim was false and ' +
       'was only ever checked for filename shape. Moving it to the unfiltered grep-gates ' +
@@ -248,8 +248,8 @@ export const ADVISORY_REGISTRY: readonly AdvisoryEntry[] = [
     ciStepMatch: 'tools/audit/gates/check-mutation-gate.mjs',
     ciPathFiltered: true,
     ciFilterRationale:
-      'Hosted by ci.yml\'s `test-mcp` job, gated by `needs.changes.outputs.mcp == \'true\'` ' +
-      '(a dorny/paths-filter path filter) AND by a step-level ' +
+      'Hosted by ci.yml\'s `test-mcp` job, gated by lane `mcp` via ci-lanes ' +
+      '(`fromJSON(needs.plan.outputs.lanes).mcp`) AND by a step-level ' +
       '`if: github.event_name == \'pull_request\'`. A PR touching only root files never ' +
       'runs it. Compounding that, `--observe` collapses every failing verdict to exit 0 ' +
       '(the gate\'s own self-test, direction 9, `NoCoverageFailure_ObserveNeverBlocks`), so ' +

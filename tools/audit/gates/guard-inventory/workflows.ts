@@ -1,3 +1,4 @@
+import { parse as parseToml } from '@iarna/toml';
 import { default as yaml } from 'js-yaml';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -7,6 +8,10 @@ import { REPO_ROOT } from './paths.js';
 export const AGGREGATOR_JOB = 'ci-gate';
 /** The workflow that hosts the aggregator. */
 export const CI_WORKFLOW = '.github/workflows/ci.yml';
+/** The manifest of the org `ci-lanes` action. It holds the path globs of each lane. */
+const CI_LANES_MANIFEST = '.github/ci-lanes.toml';
+/** The lane that matches each path. The inventory reads a job on this lane as unfiltered. */
+const ALWAYS_LANE = 'always';
 
 export interface WorkflowStep {
   readonly name?: string;
@@ -72,24 +77,34 @@ export function needsList(job: WorkflowJob | undefined): string[] {
 }
 
 /**
- * The `changes.outputs.<key>` set a job's `if:` gates on, parsed out of the raw
- * `if:` text. Never a hardcoded job→key table — the same derivation
- * `tests/scripts/ci-topology.test.ts` uses, for the same reason.
+ * The lane keys a job's `if:` gates on, parsed out of the raw `if:` text.
+ * Accepts both the ci-lanes canonical skip
+ * (`fromJSON(needs.plan.outputs.lanes).<lane>`) and the retired
+ * `needs.changes.outputs.<key>` form used by fixtures. Lane `always` is
+ * omitted: it matches every path, so it is not a skip-as-passed filter.
  */
 export function pathFilterKeys(job: WorkflowJob | undefined): string[] {
   const ifText = job?.if ?? '';
-  const pattern = /needs\.changes\.outputs\.([A-Za-z0-9_-]+)/g;
   const keys = new Set<string>();
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(ifText)) !== null) {
-    const key = match[1];
-    if (key !== undefined) keys.add(key);
+  const patterns = [
+    /fromJSON\(\s*needs\.plan\.outputs\.lanes\s*\)\.([A-Za-z0-9_]+)/g,
+    /needs\.changes\.outputs\.([A-Za-z0-9_-]+)/g,
+  ];
+  for (const pattern of patterns) {
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(ifText)) !== null) {
+      const key = match[1];
+      if (key !== undefined && key !== ALWAYS_LANE) keys.add(key);
+    }
   }
   return [...keys].sort();
 }
 
-/** Recovers the `dorny/paths-filter` glob lists from the `changes` job. */
-export function pathFilterGlobs(workflow: Workflow): Record<string, string[]> {
+/** Recovers lane glob lists from `.github/ci-lanes.toml`, with a dorny fallback. */
+export function pathFilterGlobs(workflow: Workflow, repoRoot: string = REPO_ROOT): Record<string, string[]> {
+  const fromManifest = lanePathsFromManifest(repoRoot);
+  if (Object.keys(fromManifest).length > 0) return fromManifest;
+
   const job = workflow.jobs?.['changes'];
   const filterStep = (job?.steps ?? []).find(
     (s) => typeof s.uses === 'string' && s.uses.startsWith('dorny/paths-filter'),
@@ -105,4 +120,42 @@ export function pathFilterGlobs(workflow: Workflow): Record<string, string[]> {
     }
   }
   return out;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string');
+}
+
+/**
+ * Reads the `paths` globs of each `[lanes.<key>]` table from the text of a ci-lanes
+ * manifest. Text that is not valid TOML throws. A lane whose `paths` is not an array
+ * of strings also throws. The audit thus cannot read a broken lane as a lane with no globs.
+ */
+export function lanePathsFromToml(text: string): Record<string, string[]> {
+  const lanes: unknown = parseToml(text)['lanes'];
+  if (!isRecord(lanes)) return {};
+  const out: Record<string, string[]> = {};
+  for (const [key, lane] of Object.entries(lanes)) {
+    const paths: unknown = isRecord(lane) ? lane['paths'] : undefined;
+    if (!isStringArray(paths)) {
+      throw new Error(`${CI_LANES_MANIFEST}: lanes.${key}.paths must be an array of strings`);
+    }
+    out[key] = paths;
+  }
+  return out;
+}
+
+/** Reads the lane globs of the ci-lanes manifest in `repoRoot`. An absent manifest gives `{}`. */
+export function lanePathsFromManifest(repoRoot: string = REPO_ROOT): Record<string, string[]> {
+  let text: string;
+  try {
+    text = readFileSync(join(repoRoot, CI_LANES_MANIFEST), 'utf8');
+  } catch {
+    return {};
+  }
+  return lanePathsFromToml(text);
 }

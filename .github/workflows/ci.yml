@@ -39,123 +39,33 @@ jobs:
   # not restate it here. `pr-body-check.yml` is a separate workflow, outside the
   # contract of this aggregator.
   # ─────────────────────────────────────────────────────────────────────
-  changes:
-    name: Detect Changes
-    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
+  plan:
     runs-on: ubuntu-latest
     outputs:
-      root: ${{ steps.filter.outputs.root }}
-      mcp: ${{ steps.filter.outputs.mcp }}
-      prompts: ${{ steps.filter.outputs.prompts }}
+      lanes: ${{ steps.plan.outputs.lanes }}
     steps:
       - uses: actions/checkout@v4
-
-      - uses: dorny/paths-filter@v3
-        id: filter
         with:
-          filters: |
-            root:
-              - 'src/**'
-              # Task 030 moved every co-located suite out of `src/`, so a PR
-              # that changes only a test now touches `tests/**` and nothing
-              # else. Without this the jobs policing that test are skipped —
-              # and a skipped required job reads as passed (#1711). Deliberately
-              # the whole tree rather than a tier list, because a new tier would
-              # otherwise be un-triggered until someone noticed.
-              - 'tests/**'
-              - 'content/**'
-              - 'content/harness/runtimes/**'
-              # Projection roots (DR-22): these directories/files are part of
-              # the shipped surface (see `files` in package.json) and are
-              # regenerated + drift-checked by `skills:guard` / `hooks:guard`
-              # in the `test-root` job below. Without an entry here, a PR
-              # that ONLY touches one of these paths never flips `root` to
-              # 'true' — `test-root` (and both guards) never runs, and the
-              # deletion/mutation of a shipped agent, command alias, or hook
-              # passes CI green, unobserved (the gap this filter closes).
-              # `rendered/` IS those roots. The DR-4 block folded `agents/`,
-              # `command-aliases/`, `commands/`, `rules/` and `skills/` into one
-              # generated tree and this list kept naming the old five, so all of
-              # them matched nothing — reopening the exact gap the comment above
-              # says this filter closes, since a PR touching only generated
-              # output stopped flipping `root` and `render:guard` stopped
-              # running on the PR that caused the drift.
-              - 'rendered/**'
-              - 'hooks/**'
-              - 'content/harness/hooks/**'
-              - 'binding/**'
-              - 'content/harness/binding/**'
-              - '.claude-plugin/**'
-              # The agent-generator sources under the MCP workspace feed the
-              # rendered `agents/**` projection above; a change there must
-              # trigger the root suite's `skills:guard` drift check on the
-              # CAUSING PR, not only on a later PR that happens to touch the
-              # rendered output.
-              - 'src/runtime/agents/**'
-              - 'AGENTS.md'
-              - 'package.json'
-              - 'tsconfig.json'
-              - '.github/workflows/ci.yml'
-              # `tests/scripts/release-workflow.test.ts` (root suite) parses
-              # release.yml — a release.yml-only PR must run the root suite
-              # or the workflow's own contract test never fires on the PR
-              # that changes it.
-              - '.github/workflows/release.yml'
-              # Task 036 gathered every gate, build and publish script under
-              # `tools/`. They were `scripts/**`, deliberately outside this
-              # filter, with unfiltered jobs re-asserting them. Naming the tree
-              # is the simpler guarantee: a PR that weakens a gate now triggers
-              # the lane that runs it, instead of relying on a second job to
-              # notice. The whole tree, so a new `tools/` root is not
-              # un-triggered until someone spots it.
-              - 'tools/**'
-              # Fail-open registers the architecture liveness closer reads.
-              # A PR that only edits one of these never flipped `root`, so
-              # `test-root` (and the live-oracle teeth) skipped while the
-              # register could evaporate. The same class is already documented
-              # for `rendered/` above.
-              - '.github/CODEOWNERS'
-              - 'knip.json'
-              - '.exarchos/**'
-              - 'manifest.json'
-              - 'eslint.config.js'
-              - 'CLAUDE.md'
-              - '.claude/**'
-              - '.agents/**'
-            mcp:
-              - 'src/**'
-              # `tests/unit/**` and `tests/integration/**` are the core suite's
-              # own tests after task 030 — same reason as the `root` filter.
-              - 'tests/**'
-              # Was `scripts/core/**`. Widened to the whole tree by task 036 for
-              # the same reason as the `root` filter above: this lane hosts
-              # gates whose sources moved into sibling `tools/` roots, and a
-              # gate outside every filter of its own hosting job is exactly what
-              # the guard inventory's reachability proof rejects.
-              - 'tools/**'
-              - 'tools/test-helpers/**'
-              - 'vitest.config.ts'
-              - 'package.json'
-              - '.github/workflows/ci.yml'
-            prompts:
-              # Authored sources and the tree they render to. These were
-              # `skills/`, `commands/` and `rules/` until the DR-4 block moved
-              # them, after which this lane fired on prompt changes only by
-              # accident — through `tests/evals/**`.
-              - 'content/**'
-              - 'rendered/**'
-              - 'tests/evals/**'
-              - 'tools/evals/evals/**'
-              # Opt-in eval package (DR-3): owns the promptfoo dep the graders
-              # dynamic-import. A change here must still fire RUN_EVALS / the
-              # eval gate, so it is named alongside the eval sources above.
-              - 'tools/evals-pkg/**'
-              - 'src/workflow/playbooks.ts'
+          fetch-depth: 0
+          filter: blob:none
+      - id: plan
+        uses: lvlup-sw/.github/actions/ci-lanes@v1
+
+  # Untargeted contract check: prove the manifest and this workflow still agree.
+  # Not in CI Gate (the gate may only cover jobs that need `plan`).
+  lanes-check:
+    name: CI Lanes Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: lvlup-sw/.github/actions/ci-lanes@v1
+        with:
+          mode: check
 
   test-root:
     name: Root Package
-    needs: changes
-    if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && needs.changes.outputs.root == 'true'
+    needs: plan
+    if: ${{ always() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).root != 'false') }}
     runs-on: ubuntu-latest
     steps:
       # fetch-depth: 0 — the legacy-hash manifest test
@@ -248,11 +158,11 @@ jobs:
 
   test-mcp:
     name: Exarchos MCP Server
-    needs: changes
-    if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && needs.changes.outputs.mcp == 'true'
+    needs: plan
+    if: ${{ always() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).mcp != 'false') }}
     runs-on: ubuntu-latest
     env:
-      RUN_EVALS: ${{ needs.changes.outputs.prompts == 'true' && '1' || '' }}
+      RUN_EVALS: '1'
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     steps:
       - uses: actions/checkout@v4
@@ -328,17 +238,15 @@ jobs:
 
       # Eval lane: it runs the RUN_EVALS-gated eval tests (evals/harness.test.ts,
       # evals/graders/llm-rubric.test.ts) with RUN_EVALS=1, outside the coverage
-      # instrument. No other CI step runs these tests with RUN_EVALS set. It fires when
-      # `needs.changes.outputs.prompts == 'true'`, the same predicate that sets the
-      # job-level RUN_EVALS. Host class: deps, filtered on `mcp`.
+      # instrument. No other CI step runs these tests with RUN_EVALS set. The prompts
+      # paths are in the `mcp` lane, so this job is the eval host and the step runs
+      # each time the job runs. A targeted job can read only one lane, so the step has
+      # no second prompts predicate. Host class: deps, filtered on `mcp`.
       # See docs/guides/ci-gate-hosting.md.
-      - name: Eval lane (RUN_EVALS-gated, prompts-touching PRs only) (DR-5)
-        # `!cancelled() &&` the SAME prompts predicate: the eval lane is the
-        # preserved evidence surface for the RUN_EVALS-gated tests — a red
-        # coverage suite above must not silently skip it on a prompts-touching
-        # PR. The prompts predicate is unchanged (only prompts-touching PRs run
-        # it); adding `!cancelled()` only lets it survive an earlier step failure.
-        if: ${{ !cancelled() && needs.changes.outputs.prompts == 'true' }}
+      - name: Eval lane (RUN_EVALS-gated) (DR-5)
+        # `!cancelled()`: the eval lane is the evidence surface for the RUN_EVALS-gated
+        # tests, so a red coverage suite above must not skip it.
+        if: ${{ !cancelled() }}
         env:
           RUN_EVALS: '1'
         run: npx vitest run tools/evals/evals/harness.test.ts tools/evals/evals/graders/llm-rubric.test.ts
@@ -395,11 +303,9 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────
   test-windows:
     name: Windows Unit (MCP)
-    needs: changes
-    # Always on a push to main, same baseline argument as Windows Unit (Root).
-    if: >-
-      (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request')
-      && (needs.changes.outputs.mcp == 'true' || github.event_name == 'push')
+    needs: plan
+    # Push / non-PR events already run every lane; the skip is byte-exact.
+    if: ${{ always() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).mcp != 'false') }}
     runs-on: windows-latest
     env:
       EXARCHOS_PREFLIGHT_DEBUG: '1'
@@ -478,9 +384,8 @@ jobs:
   # sibling `test-windows` lane covers only the `core` project, so this lane catches
   # root-side path and OS regressions.
   #
-  # On PRs, `changes.outputs.root` gates it, the same path filter as the Linux
-  # `test-root` lane. It feeds the blocking `ci-gate` aggregator below, which licenses
-  # its skip only when `root` is not 'true'.
+  # Lane `root` gates it, the same path set as the Linux `test-root` lane. It feeds
+  # the blocking `ci-gate` aggregator below.
   #
   # Install prerequisites mirror `test-root`. The root `unit` project includes
   # `tests/scripts/build-binary.test.ts`, which runs `bun build --compile`, so bun and
@@ -494,16 +399,10 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────
   test-windows-root:
     name: Windows Unit (Root)
-    needs: changes
-    # Path-filtered on PRs, but ALWAYS on a push to main (#1699). The filter
-    # skipped this lane on 4/4 recent main runs, so it had no green baseline and
-    # every PR failure was ambiguous by construction — indistinguishable between
-    # "this PR broke Windows" and "Windows was already red". A lane whose red is
-    # unattributable gets re-run until it passes, which is how a real regression
-    # would slip through. `push` only fires on main (see `on:` above).
-    if: >-
-      (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request')
-      && (needs.changes.outputs.root == 'true' || github.event_name == 'push')
+    needs: plan
+    # Push / non-PR events already run every lane (#1699 baseline is the
+    # default-branch push). The skip is byte-exact.
+    if: ${{ always() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).root != 'false') }}
     runs-on: windows-latest
     env:
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
@@ -638,7 +537,8 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────
   validate-no-legacy:
     name: Validate No Legacy
-    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
+    needs: plan
+    if: ${{ always() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).always != 'false') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -675,7 +575,8 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────
   manifest-gate:
     name: Manifest Gate (textual case-preservation)
-    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
+    needs: plan
+    if: ${{ always() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).always != 'false') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -724,7 +625,8 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────
   grep-gates:
     name: Grep Gates (idempotency + substrate)
-    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
+    if: ${{ always() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).always != 'false') }}
+    needs: plan
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -1345,7 +1247,8 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────
   outcome-tests:
     name: Outcome Tests (linux-x64)
-    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
+    needs: plan
+    if: ${{ always() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).always != 'false') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -1381,155 +1284,22 @@ jobs:
       - name: Run outcome-tier suite
         run: npm run test:outcome
 
+  # Always-on jobs (validate-no-legacy, manifest-gate, grep-gates, outcome-tests)
+  # are targeted on lane `always` (paths: ** ) so this required check still
+  # aggregates them. binary-matrix and e2e-process stay untargeted (non-blocking).
+  # lanes-check is untargeted; its failure still fails the workflow run.
   ci-gate:
     name: CI Gate
     runs-on: ubuntu-latest
-    needs: [changes, test-root, test-mcp, test-windows, test-windows-root, validate-no-legacy, manifest-gate, grep-gates, outcome-tests]
-    if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && always()
+    needs: [plan, test-root, test-mcp, test-windows, test-windows-root, validate-no-legacy, manifest-gate, grep-gates, outcome-tests]
+    if: always()
     steps:
-      # A lane's execution is not optional.
-      #
-      # The lane list is not written out below. `NEEDS_JSON` is `toJSON(needs)`, so
-      # every lane in the `needs:` of this job appears in it, and the policy applies to
-      # whatever that context holds. No second list of lane names exists here to fall
-      # out of step with the first.
-      #
-      # `LICENSED_SKIPS` names the only lanes that can report `skipped`, each paired with
-      # the `changes` output that must be non-'true' to license it. Every other lane,
-      # present or future, takes the strict default arm, where a skip is a hard failure.
-      # A missing entry can only over-constrain (loudly), never open a hole.
-      # `tests/scripts/ci-topology.test.ts` runs this exact script over synthetic
-      # `needs` contexts and asserts that the list matches the set derived from the
-      # `if:` expressions of the lanes, so the licences cannot drift from the path
-      # filters.
-      #
-      # Nothing below interpolates `${{ }}`: every GitHub value arrives through `env:`.
-      # This keeps context data out of the shell parse, and lets the conformance test
-      # run the shipped script verbatim.
-      - name: Evaluate results
-        env:
-          NEEDS_JSON: ${{ toJSON(needs) }}
-          LICENSED_SKIPS: |
-            test-root=root
-            test-mcp=mcp
-            test-windows=mcp
-            test-windows-root=root
-        run: |
-          set -euo pipefail
+      # The verdict reads `.github/ci-lanes.toml` from the checkout. Without this step the
+      # action cannot read the manifest, and the required check fails on each PR.
+      - uses: actions/checkout@v4
+      - uses: lvlup-sw/.github/actions/ci-lanes@v1
+        with:
+          mode: verdict
+          gate: ci-gate
+          needs: ${{ toJSON(needs) }}
 
-          # Lane list and per-lane result, straight from the needs context.
-          if ! lane_results="$(node -e '
-            const needs = JSON.parse(process.env.NEEDS_JSON || "");
-            if (needs === null || typeof needs !== "object" || Array.isArray(needs)) {
-              throw new Error("needs context did not parse to an object");
-            }
-            const lanes = Object.keys(needs).sort();
-            if (lanes.length === 0) throw new Error("needs context is empty");
-            for (const lane of lanes) {
-              const entry = needs[lane];
-              const result = entry && typeof entry === "object" ? entry.result : undefined;
-              const value = typeof result === "string" && result !== "" ? result : "unknown";
-              process.stdout.write(lane + "\t" + value + "\n");
-            }
-          ')"; then
-            echo "::error::CI Gate could not read the needs context, so it cannot prove any lane ran — failing closed."
-            exit 1
-          fi
-
-          changes_result="$(node -e '
-            const needs = JSON.parse(process.env.NEEDS_JSON || "{}");
-            const entry = needs.changes;
-            const result = entry && typeof entry === "object" ? entry.result : undefined;
-            process.stdout.write(typeof result === "string" ? result : "");
-          ')"
-
-          # Value of one `changes` job output, as seen by this aggregator.
-          changes_output() {
-            node -e '
-              const needs = JSON.parse(process.env.NEEDS_JSON || "{}");
-              const entry = needs.changes;
-              const outputs = entry && typeof entry === "object" && entry.outputs ? entry.outputs : {};
-              const value = outputs[process.argv[1]];
-              process.stdout.write(value === undefined || value === null ? "" : String(value));
-            ' "$1"
-          }
-
-          # Whether `changes` DECLARES the output at all — which `changes_output`
-          # cannot tell you, because an undeclared key and a declared `'false'`
-          # both come back as the empty string, and the aggregator honours both
-          # as a licence. Renaming or dropping a key in the `changes` `outputs:`
-          # block would therefore license test-root, test-mcp, test-windows and
-          # test-windows-root to skip together, with CI Gate reporting success.
-          # LICENSED_SKIPS names that key; this is what ties the two together.
-          changes_declares() {
-            node -e '
-              const needs = JSON.parse(process.env.NEEDS_JSON || "{}");
-              const entry = needs.changes;
-              const outputs = entry && typeof entry === "object" && entry.outputs ? entry.outputs : {};
-              process.stdout.write(
-                Object.prototype.hasOwnProperty.call(outputs, process.argv[1]) ? "true" : "false",
-              );
-            ' "$1"
-          }
-
-          # The `changes` output that licenses a skip for this lane, or empty
-          # if the lane has no licensed skip.
-          licensed_skip_key() {
-            local lane="$1" line entry
-            while IFS= read -r line; do
-              entry="${line%%#*}"
-              entry="${entry//[[:space:]]/}"
-              [ -n "$entry" ] || continue
-              if [ "${entry%%=*}" = "$lane" ]; then
-                printf '%s' "${entry#*=}"
-                return 0
-              fi
-            done <<< "${LICENSED_SKIPS:-}"
-            printf ''
-          }
-
-          violations=0
-
-          echo "Lane results (enumerated from the needs context):"
-          while IFS=$'\t' read -r lane result; do
-            [ -n "$lane" ] || continue
-            printf '  %s = %s\n' "$lane" "$result"
-
-            case "$result" in
-              success)
-                ;;
-              failure|cancelled)
-                echo "::error::Lane '$lane' reported '$result'."
-                violations=$((violations + 1))
-                ;;
-              skipped)
-                key="$(licensed_skip_key "$lane")"
-                if [ -z "$key" ]; then
-                  echo "::error::Lane '$lane' was SKIPPED but declares no legitimate skip condition. A lane that can silently not-run is a guard that cannot fail (DR-10). If this lane has genuinely gained a path filter, license it in LICENSED_SKIPS alongside the filter that justifies it."
-                  violations=$((violations + 1))
-                elif [ "$changes_result" != "success" ]; then
-                  echo "::error::Lane '$lane' was SKIPPED and its licence rests on the 'changes' lane, which reported '$changes_result'. No skip is licensed when change detection itself did not succeed."
-                  violations=$((violations + 1))
-                elif [ "$(changes_declares "$key")" != "true" ]; then
-                  echo "::error::Lane '$lane' was SKIPPED under a licence keyed on changes.outputs.$key, but the 'changes' job declares no such output. An undeclared key reads exactly like a declared 'false', so this would otherwise license the skip silently — rename the key in LICENSED_SKIPS to match the 'changes' outputs block, or restore the output."
-                  violations=$((violations + 1))
-                elif [ "$(changes_output "$key")" = "true" ]; then
-                  echo "::error::Lane '$lane' was SKIPPED even though changes.outputs.$key == 'true' — a path-filter or matrix regression dropped coverage this PR required."
-                  violations=$((violations + 1))
-                else
-                  printf '      skip licensed: changes.outputs.%s is not true\n' "$key"
-                fi
-                ;;
-              *)
-                echo "::error::Lane '$lane' reported the unrecognised result '$result'. CI Gate fails closed on anything it cannot classify."
-                violations=$((violations + 1))
-                ;;
-            esac
-          done <<< "$lane_results"
-
-          if [ "$violations" -ne 0 ]; then
-            echo "::error::CI Gate: $violations lane(s) violated the execution policy."
-            exit 1
-          fi
-
-          echo "All checks passed (every lane ran, or skipped under a licensed condition)"

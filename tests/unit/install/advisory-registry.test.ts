@@ -900,7 +900,17 @@ describe('analyzeCiPathFilters (path-filter modelling)', () => {
     expect(isNonFilteringIf('always()')).toBe(true);
     expect(isNonFilteringIf('!cancelled()')).toBe(true);
     expect(isNonFilteringIf(`(${FORK_GUARD}) && always()`)).toBe(true);
+    expect(
+      isNonFilteringIf(
+        "${{ always() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).always != 'false') }}",
+      ),
+    ).toBe(true);
     expect(isNonFilteringIf("needs.changes.outputs.mcp == 'true'")).toBe(false);
+    expect(
+      isNonFilteringIf(
+        "${{ always() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).mcp != 'false') }}",
+      ),
+    ).toBe(false);
     expect(isNonFilteringIf("github.event_name == 'pull_request'")).toBe(false);
   });
 });

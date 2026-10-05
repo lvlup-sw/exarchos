@@ -11,6 +11,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { lanePathsFromManifest } from '../../tools/audit/gates/guard-inventory.js';
 import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -35,7 +36,7 @@ const DECLARED_PACKAGES: Readonly<
   'tools/evals-pkg/package.json': {
     role: 'tool',
     disposition: 'retained',
-    why: 'RETAINED (task 011a). Opt-in promptfoo eval harness, isolated so the heavy eval-only dependency stays OUT of the default product install (DR-3). The graders resolve promptfoo from THIS package at runtime, and ci.yml names it in the prompts: paths-filter so a change here still fires RUN_EVALS. Retiring it would delete a live eval capability and orphan that filter.',
+    why: 'RETAINED (task 011a). Opt-in promptfoo eval harness, isolated so the heavy eval-only dependency stays OUT of the default product install (DR-3). The graders resolve promptfoo from THIS package at runtime, and `.github/ci-lanes.toml` names it in lane `mcp` so a change here still runs the eval lane. Retiring it would delete a live eval capability and orphan that glob.',
   },
 };
 
@@ -98,11 +99,15 @@ describe('ManifestSet_EveryTrackedPackageJson_IsClassifiedRetainedOrRetired', ()
    * never fires reads as green.
    */
   it('a retired package leaves no CI paths-filter behind', () => {
-    const ci = readFileSync(path.join(REPO_ROOT, '.github/workflows/ci.yml'), 'utf8');
+    const lanes = lanePathsFromManifest(REPO_ROOT);
+    expect(Object.keys(lanes), 'the lane manifest declares no lanes').not.toEqual([]);
     for (const [manifest, meta] of Object.entries(DECLARED_PACKAGES)) {
       if (meta.disposition !== 'retired') continue;
       const dir = path.dirname(manifest);
-      expect(ci, `${manifest} is retired but ci.yml still filters on ${dir}`).not.toContain(dir);
+      for (const [lane, globs] of Object.entries(lanes)) {
+        const stale = globs.filter((glob) => glob === dir || glob.startsWith(`${dir}/`));
+        expect(stale, `${manifest} is retired but lane ${lane} still filters on ${dir}`).toEqual([]);
+      }
     }
   });
 
@@ -115,8 +120,7 @@ describe('ManifestSet_EveryTrackedPackageJson_IsClassifiedRetainedOrRetired', ()
   it('evals-pkg is retained, and the CI filter that depends on it still exists', () => {
     const meta = DECLARED_PACKAGES['tools/evals-pkg/package.json'];
     expect(meta?.disposition).toBe('retained');
-    const ci = readFileSync(path.join(REPO_ROOT, '.github/workflows/ci.yml'), 'utf8');
-    expect(ci).toContain('tools/evals-pkg/**');
+    expect(lanePathsFromManifest(REPO_ROOT)['mcp'] ?? []).toContain('tools/evals-pkg/**');
 
     const manifest = JSON.parse(
       readFileSync(path.join(REPO_ROOT, 'tools/evals-pkg/package.json'), 'utf8'),

@@ -35,6 +35,8 @@ import {
   isPathShaped,
   isTestArtifact,
   joinShellContinuations,
+  lanePathsFromManifest,
+  lanePathsFromToml,
   loadSuiteConfigs,
   loadWorkflows,
   manifestPrimaries,
@@ -672,6 +674,38 @@ describe('Derivations the inventory rests on', () => {
     expect(globMatches('src/**', 'src/x.ts')).toBe(true);
     expect(globMatches('src/**', 'tools/audit/gates/lint-inv6.mjs')).toBe(false);
     expect(globMatches('AGENTS.md', 'AGENTS.md')).toBe(true);
+  });
+
+  /**
+   * The manifest is TOML, so each valid string form must give the same globs.
+   * A reader that knows only one quote style gives a lane with no globs, and the audit then omits that lane.
+   */
+  it('LanePaths_EachTomlStringForm_GivesTheSameGlobs', () => {
+    const expected = { root: ['src/**', 'AGENTS.md'] };
+    expect(lanePathsFromToml('[lanes.root]\npaths = ["src/**", "AGENTS.md"]\n')).toEqual(expected);
+    expect(lanePathsFromToml("[lanes.root]\npaths = ['src/**', 'AGENTS.md']\n")).toEqual(expected);
+    expect(
+      lanePathsFromToml('[lanes.root]\npaths = [\n  "src/**", # a comment with "quotes"\n  "AGENTS.md",\n]\n'),
+    ).toEqual(expected);
+    expect(lanePathsFromToml('schema_version = 1\n')).toEqual({});
+  });
+
+  /** A broken lane must not read as a lane with no globs, and a broken manifest must not read as no lanes. */
+  it('LanePaths_BrokenLaneOrManifest_Throws', () => {
+    expect(() => lanePathsFromToml('[lanes.root]\npaths = "src/**"\n')).toThrow(/lanes\.root\.paths/);
+    expect(() => lanePathsFromToml('[lanes.root]\nworkflows = ["ci.yml"]\n')).toThrow(/lanes\.root\.paths/);
+    expect(() => lanePathsFromToml('[lanes.root]\npaths = ["src/**", 1]\n')).toThrow();
+    expect(() => lanePathsFromToml('[lanes.root\npaths = ["src/**"]\n')).toThrow();
+  });
+
+  /** An empty read passes each check that loops over the lanes, so the live manifest must give globs for each lane. */
+  it('LanePaths_LiveManifest_GivesGlobsForEachLane', () => {
+    const lanes = lanePathsFromManifest();
+    expect(Object.keys(lanes).length).toBeGreaterThan(0);
+    for (const [lane, globs] of Object.entries(lanes)) {
+      expect(globs.length, `lane ${lane} holds no globs`).toBeGreaterThan(0);
+    }
+    expect(lanePathsFromManifest(join(REPO_ROOT, 'tests'))).toEqual({});
   });
 
   /** The repository has one suite. A collected test must resolve to it, and any other path must resolve to null. */
