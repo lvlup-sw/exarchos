@@ -8,7 +8,8 @@
  * - The content scan of shell, YAML and PowerShell comments.
  * - Baseline integrity, and baseline admission against the base branch.
  * `baseline prune` removes entries that no longer match. `baseline seed` adds entries after a
- * policy change, only for comment text that existed at the base. `report` prints every finding.
+ * policy change, only for comment text that existed at the base. `report` prints every finding
+ * in a set of files or directories.
  *
  * Exit 0 is clean and exit 1 is findings. Exit 2 is fail-closed: a missing tool, an unreadable
  * policy or baseline, an unexpected ESLint status, or a pull request without its base branch.
@@ -25,13 +26,14 @@ import {
   BaselineError,
   DEFAULT_BASELINE_PATH,
   countTextOccurrences,
-  groupBlocks,
   parseBaseline,
   serializeBaseline,
 } from '../lib/comment-baseline.mjs';
+import { CommentParseError, parseCommentFile } from '../lib/comment-parse.mjs';
+import { textLines } from '../lib/comment-ste.mjs';
 import { analyzeFile, liveEntries } from '../lib/comment-analysis.mjs';
-import { sourceBlocks, sourceLanguage } from '../lib/comment-sources.mjs';
-import { LINT_EXTENSIONS, LINT_GLOBS, globsMatch, isInLintScope } from '../lib/lint-scope.mjs';
+import { sourceLanguage } from '../lib/comment-sources.mjs';
+import { LINT_GLOBS, globsMatch, isInLintScope } from '../lib/lint-scope.mjs';
 import { GitBaseError, diffFromRef, readAtRef, resolveBase, trackedFiles } from '../lib/git-base.mjs';
 
 /** The repository that holds this gate. */
@@ -61,7 +63,7 @@ class FailClosed extends Error {}
 const USAGE = `Usage:
   node tools/audit/gates/lint-comments.mjs [run] [--base <ref>] [--no-admission] [--files <path>]...
   node tools/audit/gates/lint-comments.mjs baseline prune|seed [--base <ref>]
-  node tools/audit/gates/lint-comments.mjs report <path>...
+  node tools/audit/gates/lint-comments.mjs report <file-or-directory>...
 Testability flags: --baseline <path>, --config <path>, --files <path>.
 `;
 
@@ -150,37 +152,17 @@ function runEslint(args) {
 /**
  * The comment blocks of one file, and its syntax tree for JavaScript and TypeScript.
  *
- * The parser is the one that the ESLint rules use, so the blocks and placements match.
- *
  * @param {string} relPath
  * @param {string} text
- * @returns {{ blocks: import('../lib/comment-baseline.mjs').CommentBlock[], syntax?: import('../lib/comment-analysis.mjs').FileSyntax }}
+ * @returns {ReturnType<typeof parseCommentFile>}
  */
 function parseFile(relPath, text) {
-  if (sourceLanguage(relPath) !== undefined) return { blocks: sourceBlocks(relPath, text) };
-  if (!isInLintScope(relPath)) return { blocks: [] };
-  const { Linter } = require('eslint');
-  const { parser } = require('typescript-eslint');
-  const linter = new Linter({ configType: 'flat', cwd: REPO_ROOT });
-  const config = {
-    files: [`**/*.{${LINT_EXTENSIONS.join(',')}}`],
-    languageOptions: { parser },
-    linterOptions: { reportUnusedDisableDirectives: 'off' },
-  };
-  const messages = linter.verify(text, [config], {
-    filename: path.join(REPO_ROOT, relPath),
-  });
-  const fatal = messages.find((m) => m.fatal === true || m.message.startsWith('No matching configuration'));
-  if (fatal !== undefined) throw new FailClosed(`${relPath} did not parse: ${fatal.message}`);
-  const sourceCode = linter.getSourceCode();
-  if (sourceCode === null) throw new FailClosed(`${relPath}: ESLint produced no source code.`);
-  const comments = sourceCode.getAllComments().map((c) => ({
-    type: String(c.type),
-    value: c.value,
-    range: /** @type {[number, number]} */ (c.range ?? [0, 0]),
-  }));
-  const ast = /** @type {import('../lib/comment-placement.mjs').EsNode} */ (/** @type {unknown} */ (sourceCode.ast));
-  return { blocks: groupBlocks(comments, sourceCode.text), syntax: { ast, comments, text: sourceCode.text } };
+  try {
+    return parseCommentFile(relPath, text, REPO_ROOT);
+  } catch (error) {
+    if (error instanceof CommentParseError) throw new FailClosed(error.message);
+    throw error;
+  }
 }
 
 /**
@@ -499,7 +481,10 @@ function commandSeed(args) {
 }
 
 /**
- * `report`: print every finding in the named files, with its baseline state.
+ * `report`: print every finding in the named files and directories, with its baseline state. The
+ * last line gives the lines of text in headers and descriptions, so a cleanup can show the drop. The
+ * repository root names every tracked file. A path that does not exist, or a directory with no
+ * tracked files, fails closed.
  *
  * @param {Args} args
  * @returns {number}
@@ -507,10 +492,26 @@ function commandSeed(args) {
 function commandReport(args) {
   const policy = loadPolicy(args.policyPath);
   const { baseline } = readBaseline(args, { allowMissing: true });
+  const tracked = trackedFiles(REPO_ROOT);
+  const files = args.paths.map(rel).flatMap((target) => {
+    const prefix = target.replace(/\/+$/, '');
+    const inside = tracked.filter((file) => prefix === '' || file.startsWith(`${prefix}/`));
+    if (inside.length > 0) return inside.filter((file) => isInLintScope(file) || sourceLanguage(file) !== undefined);
+    const stat = fs.statSync(path.join(REPO_ROOT, target), { throwIfNoEntry: false });
+    if (stat === undefined) throw new FailClosed(`${target} does not exist.`);
+    if (stat.isDirectory()) throw new FailClosed(`${target} is a directory with no tracked files.`);
+    return [target];
+  });
   let count = 0;
-  for (const file of args.paths.map(rel)) {
+  let headerLines = 0;
+  let docLines = 0;
+  for (const file of files) {
     const { analyzed } = analyzeOnDisk(file, policy, baseline.get(file));
     for (const item of analyzed) {
+      if (item.placement?.allowed === true) {
+        if (item.placement.kind === 'header') headerLines += textLines(item.block.raw);
+        else docLines += textLines(item.block.raw);
+      }
       for (const finding of item.findings) {
         count += 1;
         const state = item.suppressed ? 'baselined' : 'new';
@@ -518,7 +519,9 @@ function commandReport(args) {
       }
     }
   }
-  process.stdout.write(`lint-comments: ${count} finding(s).\n`);
+  process.stdout.write(
+    `lint-comments: ${count} finding(s) in ${files.length} file(s). Headers hold ${headerLines} line(s) of text, and descriptions ${docLines}.\n`,
+  );
   return EXIT_CLEAN;
 }
 

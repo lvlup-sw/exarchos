@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Self-test for tools/audit/gates/lint-comments.mjs. It drives the real gate over seeded fixtures:
 # a clean file, a new violation, a baselined block, a swap, a duplicate, a stale entry, a comment
-# inside a function, a shell comment after a heredoc, a hand-grown baseline entry, a missing
-# config, and a pull request run without its base branch. The trap restores every changed file.
+# inside a function, a description that breaks an STE rule, a shell comment after a heredoc, a
+# hand-grown baseline entry, a missing config, a pull request run without its base branch, and a
+# report on the repository root, an empty directory or a missing path.
+# The trap restores every changed file.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -74,6 +76,10 @@ printf '/** Count to one. */\nexport function one() {\n  // step one\n  return 1
 check "LintComments_CommentInsideAFunction_ExitsOne" 1 "$(gate --files "$FX" --no-admission --baseline "$TMP/empty.tsv")"
 expect_output "LintComments_CommentInsideAFunction_NamesThePlacementRule" "comments/comment-placement"
 
+printf '/** The retry budget should be three; the caller reads it. */\nexport const a = 1;\n' > "$FX"
+check "LintComments_DescriptionBreaksAnSteRule_ExitsOne" 1 "$(gate --files "$FX" --no-admission --baseline "$TMP/empty.tsv")"
+expect_output "LintComments_DescriptionBreaksAnSteRule_NamesTheProseRule" "comments/comment-prose"
+
 printf '#!/usr/bin/env bash\ncat <<EOF\nit'"'"'s a body\nEOF\n# wave 3 cleanup\necho done\n' > "$FX_DIR/fixture.sh"
 check "LintComments_ShellCommentAfterHeredoc_ExitsOne" 1 "$(gate --files "$FX_DIR/fixture.sh" --no-admission --baseline "$TMP/empty.tsv")"
 rm -f "$FX_DIR/fixture.sh"
@@ -97,6 +103,15 @@ check "LintComments_MissingConfig_ExitsTwo" 2 "$(gate --files "$FX" --no-admissi
 check "LintComments_PullRequestWithoutBase_ExitsTwo" 2 \
   "$(GITHUB_EVENT_NAME=pull_request GITHUB_BASE_REF='' node "$GATE" --files "$FX" --baseline "$TMP/empty.tsv" >"$TMP/out" 2>&1; echo $?)"
 expect_output "LintComments_PullRequestWithoutBase_NamesTheCause" "GITHUB_BASE_REF is not set"
+
+check "LintComments_ReportOnRepositoryRoot_ExitsZero" 0 "$(gate report .)"
+expect_output "LintComments_ReportOnRepositoryRoot_CoversTheTrackedFiles" "finding\\(s\\) in [0-9]{4,} file\\(s\\)"
+
+mkdir -p "$FX_DIR/empty"
+check "LintComments_ReportOnEmptyDirectory_ExitsTwo" 2 "$(gate report "$FX_DIR/empty")"
+expect_output "LintComments_ReportOnEmptyDirectory_NamesTheCause" "is a directory with no tracked files"
+check "LintComments_ReportOnMissingPath_ExitsTwo" 2 "$(gate report "$FX_DIR/missing.ts")"
+expect_output "LintComments_ReportOnMissingPath_NamesTheCause" "does not exist"
 
 echo "lint-comments self-test: $pass passed, $fail failed"
 [[ "$fail" == "0" ]]

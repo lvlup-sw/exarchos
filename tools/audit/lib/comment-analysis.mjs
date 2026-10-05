@@ -10,6 +10,7 @@ import { isExempt } from './comment-policy.mjs';
 import { classifyText } from './comment-classifier.mjs';
 import { withOccurrences, isSuppressed } from './comment-baseline.mjs';
 import { classifyPlacements, PLACEMENT_RULE } from './comment-placement.mjs';
+import { PROSE_RULE, steFindings, textLines } from './comment-ste.mjs';
 
 /** The roster name of the content rule. */
 export const CONTENT_RULE = 'comment-content';
@@ -101,6 +102,44 @@ function placementFindings(placement, policy) {
 }
 
 /**
+ * The prose findings of each block. Only an allowed block has prose findings: a header or a description.
+ *
+ * Every header block shares one line budget, so each header block reports when the header as a whole
+ * is over it.
+ *
+ * @param {string} relPath
+ * @param {readonly import('./comment-baseline.mjs').CommentBlock[]} blocks
+ * @param {readonly (import('./comment-placement.mjs').Placement | undefined)[]} placements
+ * @param {ReturnType<typeof import('./comment-policy.mjs').loadPolicy>} policy
+ * @returns {BlockFinding[][]}
+ */
+function proseFindingsFor(relPath, blocks, placements, policy) {
+  const prose = policy.prose;
+  if (prose === undefined || isExempt(policy, relPath, PROSE_RULE)) return blocks.map(() => []);
+  const headerLines = blocks.reduce((sum, block, index) => {
+    const placement = placements[index];
+    return placement?.allowed === true && placement.kind === 'header' ? sum + textLines(block.raw) : sum;
+  }, 0);
+  return blocks.map((block, index) => {
+    const placement = placements[index];
+    if (placement === undefined || !placement.allowed) return [];
+    const lines = placement.kind === 'header' ? headerLines : textLines(block.raw);
+    const budget = prose.budgets.get(placement.kind === 'header' ? 'header-lines' : 'doc-lines');
+    /** @type {BlockFinding[]} */
+    const findings = steFindings(block.raw, prose.steChecks).map((finding) => ({ rule: PROSE_RULE, ...finding }));
+    if (budget !== undefined && budget.enabled && lines > budget.lines) {
+      const what = placement.kind === 'header' ? 'The file header' : 'The description';
+      findings.push({
+        rule: PROSE_RULE,
+        checkId: placement.kind === 'header' ? 'header-lines' : 'doc-lines',
+        message: `${what} has ${lines} lines of text. The budget is ${budget.lines}. ${budget.remedy}`,
+      });
+    }
+    return findings;
+  });
+}
+
+/**
  * Analyze one file's blocks against every rule and the file's baseline entries.
  *
  * @param {object} input
@@ -114,11 +153,16 @@ function placementFindings(placement, policy) {
 export function analyzeFile({ relPath, blocks, policy, entries, syntax }) {
   const contentApplies = !isExempt(policy, relPath, CONTENT_RULE);
   const placements = placementsFor(relPath, blocks, policy, syntax);
+  const prose = proseFindingsFor(relPath, blocks, placements, policy);
   /** @type {Map<string, number>} */
   const live = new Map();
   const analyzed = withOccurrences(blocks).map(({ block, hash, occurrence }, index) => {
     const placement = placements[index];
-    const findings = [...(contentApplies ? contentFindings(block, policy) : []), ...placementFindings(placement, policy)];
+    const findings = [
+      ...(contentApplies ? contentFindings(block, policy) : []),
+      ...placementFindings(placement, policy),
+      ...(prose[index] ?? []),
+    ];
     const violating = live.get(hash) ?? 0;
     if (findings.length > 0) live.set(hash, violating + 1);
     return {
