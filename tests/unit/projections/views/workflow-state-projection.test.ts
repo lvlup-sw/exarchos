@@ -90,8 +90,9 @@ describe('WorkflowStateProjection workflow lifecycle', () => {
     });
 
     /**
-     * A second fold of `workflow.started` must keep the stamped `createdAt`, so a reconcile replay
-     * is idempotent. `updatedAt` still moves.
+     * `reconcileFromEvents` replays from sequence 0 when a state has no `_eventSequence`. Thus
+     * `workflow.started` can fold onto a stamped view, and that fold must keep `createdAt`.
+     * `updatedAt` still moves.
      */
     it('should preserve an existing createdAt when workflow.started is re-folded (reconcile idempotency)', () => {
       const created = '2026-02-19T10:00:00.000Z';
@@ -853,7 +854,10 @@ describe('WorkflowStateProjection mutation-adequacy dimension (DR-2a)', () => {
     expect(next).toEqual(state);
   });
 
-  /** The fold keeps `noCoverage` from the event details, and does not change `mutationScore`. */
+  /**
+   * The fold keeps `noCoverage` from the event details, because `allReviewsPassed` reads it from
+   * the dimension under block enforcement. The fold copies `mutationScore` as the event gives it.
+   */
   it('Fold_MutationEventWithNoCoverage_CarriesField', () => {
     const state = workflowStateProjection.init();
     const next = workflowStateProjection.apply(
@@ -1167,8 +1171,8 @@ describe('WorkflowStateProjection phase.entered / phase.exited', () => {
 });
 
 /**
- * The fold of the terminal merge events into `mergeOrchestrator`, so `resolveWorkflowState` can
- * rebuild that block.
+ * The fold records each terminal merge event in `mergeOrchestrator`, so `resolveWorkflowState`
+ * can rebuild that block.
  */
 describe('WorkflowStateProjection mergeOrchestrator fold', () => {
   it('MergeExecuted_FoldsCompletedBlock', () => {
@@ -1283,7 +1287,10 @@ describe('WorkflowStateProjection plan-revision count (DR-1)', () => {
     expect(planReview.revisionCount).toBe(1);
   });
 
-  /** The count derives only from events. A replay from `init()` gives the same count, so a rebuild cannot drift. */
+  /**
+   * The count derives only from events, so a rebuild from `init()` must give the same count.
+   * The test folds one log two times from `init()` and compares the two results.
+   */
   it('Apply_PlanRevision_CountIsEventDerivedAndSurvivesReplay', () => {
     const events: WorkflowEvent[] = [
       makeEvent('workflow.started', { featureId: 'f', workflowType: 'feature' }),

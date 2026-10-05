@@ -2,7 +2,7 @@
  * End-to-end test of the `output_tokens_high` hint. A `turn.completed` event above
  * the output-token threshold makes the `telemetry` view return one `checkpoint`
  * entry in `next_actions`. A turn below the threshold returns none. The test uses
- * the real `envelopeWrap`, so a break between the projection and the envelope fails.
+ * the real `envelopeWrap`, so a break between the projection and the envelope fails the test.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';

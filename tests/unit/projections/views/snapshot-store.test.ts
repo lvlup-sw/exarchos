@@ -28,7 +28,7 @@ vi.mock('node:fs/promises', async () => {
   };
 });
 
-/** A dynamic import, so the module loads after the mock setup. */
+/** The import is dynamic, so the module loads after the mock setup. */
 const { SnapshotStore } = await import('../../../../src/projections/views/snapshot-store.js');
 
 describe('SnapshotStore atomic writes', () => {
@@ -145,7 +145,7 @@ describe('SnapshotStore pipeline v2 lineage', () => {
 
   /**
    * `EVENT_SCHEMA_VERSION` controls event migration, not view snapshots. A change to the snapshot
-   * name must not move it. `event-migration.test.ts` holds the primary pin.
+   * name must not change that version. `event-migration.test.ts` holds the primary pin.
    */
   it('EventSchemaVersion_Untouched_Remains1_0', () => {
     expect(EVENT_SCHEMA_VERSION).toBe('1.0');

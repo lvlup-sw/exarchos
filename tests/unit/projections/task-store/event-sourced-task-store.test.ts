@@ -512,7 +512,8 @@ describe('EventSourcedTaskStore (#1272)', () => {
   /**
    * A terminal event restarts the TTL from its own timestamp, in the writer cache and in a replay.
    * The TTL is 1000 ms and the result lands at `T0 + 500`, so the expiry is `T0 + 1500`. Both
-   * stores must see the task at `T0 + 1200` and must not see it at `T0 + 1600`.
+   * stores must see the task at `T0 + 1200`, which is past the creation-time expiry of `T0 + 1000`.
+   * Both must not see it at `T0 + 1600`.
    */
   it('terminalTransition_ExpiresAtConsistent_AcrossWriterAndReplayer', async () => {
     vi.useFakeTimers();
@@ -706,7 +707,8 @@ describe('EventSourcedTaskStore (#1272)', () => {
 
   /**
    * Two stores cancel the same task at the same time. `cancelled` is the only `updateTaskStatus`
-   * transition that appends an event, so the stream shows the conflict check: one `task.cancelled` event.
+   * transition that appends an event, so it is the only one with a sequence check. The stream
+   * must hold one `task.cancelled` event.
    */
   it('updateTaskStatus_ConcurrentCallersToConflictingStates_ExactlyOneSucceeds', async () => {
     const storeA = new EventSourcedTaskStore(eventStore);
@@ -775,7 +777,8 @@ describe('EventSourcedTaskStore (#1272)', () => {
 
   /**
    * `append` throws `SequenceConflictError` on each call. After the first try and three retries,
-   * `commitWithOcc` logs one warning and throws `ConcurrencyError`.
+   * `commitWithOcc` logs one warning and throws `ConcurrencyError`. The two numbers in the
+   * `SequenceConflictError` are arbitrary.
    */
   it('commitWithOcc_RetryBudgetExhausted_ThrowsConcurrencyError', async () => {
     const task = await store.createTask(

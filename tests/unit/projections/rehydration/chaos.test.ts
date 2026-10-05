@@ -3,15 +3,16 @@
  * 70% are valid task events, and 15% have a known type with malformed `data`. 10% have an unknown
  * type, and 5% have no `type` or a non-object `data`. The seed is a constant, so a failure is reproducible.
  *
- * The test pins three properties. The reducer throws on none of the events. The heap grows by
+ * The test pins four properties. The reducer throws on none of the events. The heap grows by
  * less than 50 MB. The final document parses with `RehydrationDocumentSchema`.
+ * `projectionSequence` is above 0 and at most the event count.
  */
 import { describe, it, expect } from 'vitest';
 import { rehydrationReducer } from '../../../../src/projections/rehydration/reducer.js';
 import { RehydrationDocumentSchema, type RehydrationDocument } from '../../../../src/projections/rehydration/schema.js';
 import type { WorkflowEvent } from '../../../../src/events/schemas.js';
 
-/** A linear congruential generator with the Numerical Recipes constants. It returns a float in [0, 1) and is not cryptographic. */
+/** Returns a linear congruential generator with the Numerical Recipes constants. Each call of the generator returns a float in [0, 1). It is not cryptographic. */
 function makeRng(seed: number): () => number {
   let state = seed >>> 0;
   return () => {

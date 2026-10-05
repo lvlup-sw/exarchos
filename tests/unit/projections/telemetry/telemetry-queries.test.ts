@@ -1,7 +1,7 @@
 /**
- * Unit tests for the mapping from the telemetry view to runtime metrics. The fold
- * is the seam, so the suite stubs `foldToTail`. A real store proves the fold in
- * `tests/unit/projections/fold-at-tail.test.ts`.
+ * Unit tests for the telemetry query API, which maps the telemetry view to runtime
+ * metrics. The fold is the seam, so the suite stubs `foldToTail`.
+ * `tests/unit/projections/fold-at-tail.test.ts` tests the fold against a real store.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';

@@ -248,7 +248,7 @@ describe('handleViewTasks limit', () => {
     expect(data[0].taskId).toBe('t1');
   });
 
-  /** The filter runs before the limit: three tasks match, and the limit keeps two. */
+  /** Three of the four tasks match the filter, and the limit keeps two of them. */
   it('handleViewTasks_FilterAndLimit_AppliesBoth', async () => {
     await store.append('wf-both', {
       type: 'task.assigned',
@@ -571,9 +571,9 @@ describe('handleViewPipeline', () => {
   });
 
   /**
-   * The event store accepts stream ids that the projection path cannot snapshot: `__`-prefixed sentinels and two-segment slash ids.
-   * The pipeline handler skips those streams, because `materialize` throws on them.
-   * The view then succeeds and omits them.
+   * The event store accepts stream ids that are not safe snapshot names: `__`-prefixed sentinels and two-segment slash ids.
+   * `SnapshotStore` rejects an unsafe id with `Invalid streamId`, so the pipeline handler drops those ids with `isSnapshotSafeId`.
+   * The view then succeeds and omits those streams.
    */
   it('excludes discovered streams with non-snapshot-safe IDs instead of crashing', async () => {
     await populateWorkflow('wf-001');

@@ -4,7 +4,8 @@ import type { ProjectionReducer } from '../../../src/projections/types.js';
 
 /**
  * `assertReducerImmutable` deep-freezes the initial state of the reducer and each result of `apply`.
- * A reducer that mutates its state in place throws, and a pure reducer passes.
+ * A reducer that mutates its state in place then throws a `TypeError`.
+ * The one test here proves only that a pure reducer passes.
  */
 describe('assertReducerImmutable', () => {
   interface State {

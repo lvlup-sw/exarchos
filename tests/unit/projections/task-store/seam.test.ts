@@ -8,8 +8,9 @@
 //   - Wire. The v1 SDK served `tasks/get`, `tasks/result`, `tasks/list` and `tasks/cancel` from
 //     the injected store. The v2 SDK serves none of them.
 //
-// A naive migration gives a server that persists tasks and serves no Tasks method. These tests
-// make the attachment show that gap.
+// A naive migration gives a server that persists tasks and serves no Tasks method. The first test
+// proves that persistence survives, and that the gap that `attach.ts` declares matches a live v2
+// server. The second test compares `isTaskTerminal` with the recorded verdicts of the v1 `isTerminal`.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
@@ -96,8 +97,8 @@ describe('DR-0 / task 051 — replacement Tasks-store seam', () => {
 
   /**
    * BLOCKING ARM: a new store over the same `EventStore` must read back a task that the v2
-   * attachment wrote. It shares no memory with the writer, so `status`, `pollInterval` and the
-   * result come from the durable stream. Without the `task.created` payload, `pollInterval` is 1000.
+   * attachment wrote. It shares no task cache with the writer, so `status`, `pollInterval` and the
+   * result come from the durable stream. Without the `task.created` payload, `pollInterval` is 1000, not 250.
    *
    * NEGATIVE TWIN: an unknown task id returns `null`, so the store does not give a task for each id.
    * On the wire, `ping` succeeds on the connection that answers `-32601`, so the code shows the

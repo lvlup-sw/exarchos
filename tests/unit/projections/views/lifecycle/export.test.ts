@@ -1,5 +1,6 @@
 // Tests for the `export` lifecycle verb. Each test uses a real `EventStore` and
-// a temporary directory, and reads the written zip back from disk.
+// a temporary directory. A test of the bundle content reads the written zip back
+// from disk. The property test alone calls `buildExportBundle` and writes no zip.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { fc } from '@fast-check/vitest';
@@ -24,8 +25,8 @@ let eventStore: EventStore;
 let ctx: DispatchContext;
 
 /**
- * The handler resolves the default output path and each artifact path against `cwd`. As a result,
- * every file stays in the temporary directory.
+ * The handler resolves the default output path and each artifact reference against `cwd`. As a
+ * result, every file stays in the temporary directory.
  */
 beforeEach(async () => {
   tempDir = await mkdtemp(path.join(tmpdir(), 'export-test-'));
@@ -185,8 +186,8 @@ describe('export (DR-6 diagnostic bundle)', () => {
 
   /**
    * The test seeds an intent with the storage key that the handler derives, with no result and no zip.
-   * The handler appends that key again, and the store keeps one intent. A later run starts a new
-   * pair and skips the write, because the zip on disk already matches the bundle.
+   * The handler appends the intent again with that key, and the store keeps one intent. A later run
+   * starts a new pair and skips the write, because the zip on disk already matches the bundle.
    */
   it('Export_CrashBetweenPair_PrecheckCompletesWithoutDuplicateIntent', async () => {
     const featureId = 'crash-feature';

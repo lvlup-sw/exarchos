@@ -449,7 +449,7 @@ describe('View Handlers', () => {
   /**
    * `code_quality` and `delegation_timeline` must pass the `operationId`, `correlationId` and `causationId` filters to the event query.
    * These tests use a real `EventStore`, because `composite.test.ts` mocks the handlers and cannot observe the filter.
-   * `projections/telemetry/tools.test.ts` covers the `telemetry` action.
+   * `tests/unit/projections/telemetry/tools.test.ts` covers the `telemetry` action.
    */
   describe('Wave 5 — ViewActions_GroupA_AcceptCorrelationFilters_ScopeResultsCorrectly', () => {
     it('handleViewCodeQuality_WithCorrelationIdFilter_ReturnsOnlyMatchingEvents', async () => {
@@ -663,7 +663,7 @@ describe('View Handlers', () => {
 
   /**
    * `eval_results`, `quality_correlation` and `quality_attribution` must pass the same three filters to their event queries.
-   * `quality_correlation` and `quality_attribution` read two projections, and both reads must apply the filter.
+   * `quality_correlation` and `quality_attribution` fold two projections, and each fold must use only the filtered events.
    */
   describe('Wave 5 — ViewActions_GroupB_AcceptCorrelationFilters_ScopeResultsCorrectly', () => {
     it('handleViewEvalResults_WithCorrelationIdFilter_ReturnsOnlyMatchingEvents', async () => {
@@ -872,6 +872,10 @@ describe('View Handlers', () => {
       expect(skills['delegation'].gatePassRate).toBe(1);
     });
 
+    /**
+     * The seed holds gate events and eval events for both correlations.
+     * The assertions read only the entry keys, and `attributeBySkill` takes those keys from the code-quality view.
+     */
     it('handleViewQualityAttribution_WithCorrelationIdFilter_AttributesOnlyMatchingSlice', async () => {
       const store = new EventStore(tmpDir);
       const streamId = 'qa-wf';
@@ -1178,7 +1182,7 @@ describe('View Handlers', () => {
 
   /**
    * The view handlers read `<featureId>.state.json` for facts that the event projection cannot derive.
-   * The `Fix 2` suites cover the review status, the review findings, the task count and the task list.
+   * The five `Fix 2` suites cover the review status, the task count, the task list, the blockers for unmeasured checks and the review findings.
    * They write the state file with `writeStateJson` and use a real `EventStore`.
    */
   describe('Fix 2 — synthesis_readiness sources review status from state.json', () => {
@@ -1295,7 +1299,7 @@ describe('View Handlers', () => {
   describe('Fix 2 — synthesis_readiness distinguishes null (not measured) from false (failed)', () => {
     /**
      * With no test result and no typecheck result, the projection holds `null` for both.
-     * The blockers must say "not measured", because "not passing" is false for a check that never ran.
+     * The blockers must say "not measured", because "not passing" is not true for a check that never ran.
      * The single task is complete in the state file and in the stream, so no task blocker hides the assertion.
      */
     it('SynthesisReadiness_TestsAndTypecheckNeverRan_ReportsNotMeasuredBlockers', async () => {
@@ -1344,8 +1348,9 @@ describe('View Handlers', () => {
 
   describe('Fix 2 — convergence falls back to state.reviews.findingsByDimension', () => {
     /**
-     * The state file holds findings for D1 and D2, and the stream holds no `gate.executed` event for them.
-     * The view must count both dimensions as checked. Other dimensions can stay unchecked.
+     * The state file holds a findings list for D1 and for D2, and the D2 list is empty.
+     * The stream holds no `gate.executed` event, so the view must count both dimensions as checked from the state file.
+     * Other dimensions can stay unchecked.
      */
     it('Convergence_StateFindingsCoverDimensions_RemovesFromUnchecked', async () => {
       const featureId = 'wf-fix2-convergence';
@@ -1748,7 +1753,8 @@ describe('ViewTelemetry_OutputSchema_IncludesActionErrorFields', () => {
 
   /**
    * The schema must declare the two fields on the per-tool entry, not only accept them inside a `z.unknown()` payload.
-   * The test reads the `JSON.stringify` form of the schema, which holds the field names only when the schema declares them.
+   * The test searches the `JSON.stringify` form of the schema for the two names, at any depth.
+   * That form holds a field name only when the schema declares the field.
    */
   it('per-tool data shape advertised by the outputSchema includes actionErrors + actionErrorBreakdown', () => {
     const viewTool = TOOL_REGISTRY.find((t) => t.name === 'exarchos_view');

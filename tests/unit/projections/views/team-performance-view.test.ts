@@ -171,7 +171,7 @@ describe('TeamPerformanceView', () => {
       expect(state.modules['auth'].totalTasks).toBe(2);
     });
 
-    /** The completed task comes first, so the module has a `totalTasks` above zero. */
+    /** The completed task comes first, because the fix-cycle rate stays 0 while `totalTasks` is 0. */
     it('apply_WorkflowFixCycle_IncrementsModuleFixCycleRate', () => {
       let state = teamPerformanceProjection.init();
 

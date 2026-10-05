@@ -3,7 +3,7 @@
  * So each consumer answers from the tail, and a durable `projection.degraded` row cannot block it.
  * `CONSUMERS` lists the surfaces that a change to `src/projections/fold-at-tail.ts` must keep covered.
  *
- * No test mocks a reader. Each test warms a fold through the view handler on a real `EventStore`.
+ * No test mocks a reader. To inject a stale fold, a test warms a fold through the view handler on a real `EventStore`.
  * Then it rewinds the high-water mark of that fold with `materializer.loadState`.
  * `publishProjectionFreshness` writes the durable row from the comparison of the live cursor with the tail.
  */
@@ -200,7 +200,7 @@ describe('#1855 — every readiness/workflow/reliability consumer answers', () =
 });
 
 describe('#1855 — the reserved code still separates its neighbours', () => {
-  /** A stream with no events gives a true answer about the tail, not a failure to read it. */
+  /** The store answers truly that a stream has no events. So `get` must not report `PROJECTION_DEGRADED` for that stream. */
   it('DegradedResult_IsNotConfusableWithNoData', async () => {
     const empty = await handleWorkflow({ action: 'get', featureId: 'never-written' }, ctx);
     expect(errorCode(empty)).not.toBe(PROJECTION_DEGRADED_ERROR_CODE);

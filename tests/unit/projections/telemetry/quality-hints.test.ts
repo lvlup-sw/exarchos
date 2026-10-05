@@ -31,7 +31,7 @@ describe('QualityHintCatalog', () => {
     expect(hint).toBeUndefined();
   });
 
-  /** The reason text must name output tokens, so the agent that reads the hint understands it. */
+  /** The reason template must name output tokens, so the agent that reads the rendered reason understands the hint. */
   it('QualityHint_OutputTokensHighType_ReasonTemplateReferencesTokens', () => {
     const hint = getQualityHintType('output_tokens_high');
     expect(hint).toBeDefined();

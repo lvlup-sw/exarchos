@@ -1,7 +1,8 @@
-// Tests for the `wait` lifecycle verb. Each test uses a real event store, the
-// real subscription primitive and the real liveness registry. A manual clock
-// drives the poll floor, and a captured `scheduleTimeout` fires the deadline,
-// so no test sleeps.
+// Tests for the `wait` lifecycle verb. The handler tests use a real event
+// store, the real subscription primitive and the real liveness registry. A
+// manual clock drives the poll floor, and a captured `scheduleTimeout` fires the
+// deadline, so no test sleeps. The property tests call the predicates directly,
+// with no store.
 
 import { describe, it, expect, afterEach } from 'vitest';
 import fc from 'fast-check';

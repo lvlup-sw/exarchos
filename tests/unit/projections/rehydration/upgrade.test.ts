@@ -46,7 +46,7 @@ const baseVolatileV1 = {
 };
 
 describe('upgradeHandoffEntryV1toV2 (T3, #1246, DR-18)', () => {
-  /** The inner `eventRef` of the v:2 entry schema is strict, so it rejects an `id` that stays. */
+  /** The inner `eventRef` of the v:2 entry schema is strict. If the upgrade keeps the `id`, the schema check fails. */
   it('upgradeHandoffEntryV1toV2_ValidEntry_DropsIdKeepsSequence', () => {
     const v1Entry = HandoffEntrySchemaV1.parse({
       context: 'handoff context',

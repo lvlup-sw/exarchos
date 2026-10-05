@@ -1,7 +1,7 @@
 // Contract tests for the `ps` lister. `scope: 'all'` (the default) returns the
 // workflows section and the operations section, and `scope: 'workflow'` returns
 // only the workflows section. `scope: 'worktree'` returns the worktree fold.
-// Every scope is a pure read. Each test uses the real folds.
+// Every scope is a pure read. No test replaces a fold with a mock.
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
@@ -322,9 +322,9 @@ describe('ps scope:"worktree" — WLM-6 capabilities preserved (consumed, not du
   });
 
   /**
-   * `reconcile_worktrees` heals a merge lease whose holder is dead. `ps` must not: it reports the
-   * log, and the log shows the merge in flight until an event ends it. The empty process table
-   * makes every holder read as dead, and the result still has no `probe` block.
+   * `reconcile_worktrees` heals a merge lease whose holder is dead. `ps` must not heal it. `ps`
+   * reports the log, and the log shows the merge in flight until an event ends it. The empty
+   * process table makes every holder read as dead, and the result still has no `probe` block.
    */
   it('Ps_WorktreeScope_DeadHolder_StaysInFlightUnhealed', async () => {
     const { ctx } = await createRealArm();

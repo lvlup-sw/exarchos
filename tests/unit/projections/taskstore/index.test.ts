@@ -1,6 +1,7 @@
 /**
  * The import of the `projections/taskstore` barrel registers `task-store@v1` with `defaultRegistry`.
- * The barrel registers at module load, so a caller can resolve the reducer by id after any import.
+ * The barrel registers at module load, not on first use. Thus a caller can resolve the reducer by id
+ * after any module in the dependency graph imports the barrel.
  */
 import { describe, it, expect } from 'vitest';
 

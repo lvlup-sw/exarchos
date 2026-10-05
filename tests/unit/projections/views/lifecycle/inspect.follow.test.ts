@@ -210,7 +210,7 @@ describe('inspect --follow — CLI NDJSON carrier (DR-4)', () => {
 
   /**
    * The heartbeat calls the sink of the caller inside a timer tick, where a throw becomes an
-   * uncaught process error. The tick must contain the throw. After the event frame, the first tick
+   * uncaught process error. The tick must catch the throw. After the event frame, the first tick
    * emits nothing, because the event counts as activity. The second tick emits a heartbeat.
    */
   it('InspectFollow_HeartbeatSinkThrows_ContainedAndLaterFramesStillFlow', async () => {

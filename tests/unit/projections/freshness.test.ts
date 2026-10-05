@@ -1,9 +1,9 @@
 /**
  * Tests for projection freshness: the comparison of one projection cursor with the durable event tail.
  * `assessProjectionFreshness` is pure, and its verdict is for one named fold, not for a stream.
- * `planRehydrationSource` consumes the verdict and repairs the fold.
- * It folds a lagging fold forward, and it discards and replays a contradictory fold.
- * `src/projections/fold-at-tail.ts` runs that decision before each read that answers from a projection.
+ * `planRehydrationSource` calls it and plans the repair.
+ * The plan folds a lagging fold forward, and discards and replays a contradictory fold.
+ * `src/projections/fold-at-tail.ts` runs that plan before each read that answers from a projection.
  */
 
 import { mkdtemp } from 'node:fs/promises';
@@ -65,7 +65,7 @@ describe('projection freshness comparison (EFF-002)', () => {
   });
 
   /**
-   * The verdict is for one named fold. A read advances one fold only, so a verdict for the whole stream is a false obligation.
+   * The verdict is for one named fold. A read advances one fold only, so no read can make every fold of a stream fresh.
    * A sibling fold of the same stream is judged separately and can be fresh at the same time.
    */
   it('Freshness_IsPerFold_NotPerStream', () => {
@@ -198,13 +198,13 @@ describe('view chokepoint marks degraded reads (EFF-002)', () => {
 });
 
 /**
- * The cursor and tail verdict is also published as `projection.degraded` and `projection.recovered` events.
+ * `publishProjectionFreshness` also writes the cursor and tail verdict as `projection.degraded` and `projection.recovered` events.
  * The events go to the durable `meta/projection-health` stream, and `readProjectionDegradedState` folds them back.
  * `_meta.projectionDegraded` stays a per-response annotation and is not the state of record.
  *
  * `JUDGED_VIEW` is the one named fold that these cases judge.
  * `warmFoldAndSetCursor` warms a fold through the view handler, then sets its high-water mark to `cursor`.
- * It rewinds one fold only, because a read advances exactly one fold.
+ * It changes one fold only, because a read advances exactly one fold.
  * `assessLive` compares the live cursor with the tail of the real store.
  */
 describe('durable projection-degraded state (DR-4)', () => {
@@ -373,7 +373,10 @@ describe('durable projection-degraded state (DR-4)', () => {
     expect(persisted).toHaveLength(2);
   });
 
-  /** An append to the assessed stream moves the tail that the verdict compares against, so each read appends again without end. */
+  /**
+   * The publish must not append to the assessed stream.
+   * Such an append moves the tail that the verdict compares against, so each read appends again without end.
+   */
   it('ProjectionDegraded_PublishedOnMetaStream_LeavesAssessedStreamTailUntouched', async () => {
     await seedEvents(4);
     await warmFoldAndSetCursor(1);

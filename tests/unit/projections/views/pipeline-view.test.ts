@@ -8,7 +8,7 @@ import { describe, it, expect } from 'vitest';
 import { pipelineProjection, type PipelineViewState } from '../../../../src/projections/views/pipeline-view.js';
 import type { WorkflowEvent } from '../../../../src/events/schemas.js';
 
-/** Builds a minimal `WorkflowEvent`. The projection reads only `type` and `data`. */
+/** Builds a minimal `WorkflowEvent`. The assertions depend only on `type` and `data`. */
 function makeEvent<T extends Record<string, unknown>>(
   type: string,
   data: T,
@@ -56,7 +56,7 @@ describe('pipelineProjection — state.patched fold (#1359 / PR4 T13)', () => {
     expect(view.failedCount).toBe(0);
   });
 
-  /** A `state.patched` and a `task.completed` that complete the same task count it one time. */
+  /** When a `state.patched` and a `task.completed` both complete one task, the view counts that task one time. */
   it('PipelineProjection_StatePatchedThenTaskCompleted_DoesNotDoubleCount', () => {
     const initial = pipelineProjection.init();
     const started = makeEvent(
@@ -85,7 +85,7 @@ describe('pipelineProjection — state.patched fold (#1359 / PR4 T13)', () => {
 
   /**
    * A later `state.patched` with status `pending` must not move a failed task down.
-   * The plan sends the full task list, and events carry the execution result.
+   * The planner sends the full task list many times, and events carry the execution result.
    */
   it('PipelineProjection_TaskFailedThenStatePatchedPending_DoesNotRegress', () => {
     const initial = pipelineProjection.init();

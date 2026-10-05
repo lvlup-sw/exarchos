@@ -55,8 +55,8 @@ afterEach(async () => {
 describe('handleViewWorkflowStatus asOf (T7, #1555)', () => {
   /**
    * The live read fills the cache at sequence 3. A bounded read that uses the cache reports
-   * `delegate`, so the bounded phases prove the bypass. The last live read proves that a bounded
-   * read does not write the cache.
+   * `delegate`, so the bounded phases prove the bypass. The last live read checks that the bounded
+   * reads left the live result intact.
    */
   it('handleView_asOf_boundsEventsAndBypassesCache', async () => {
     await seedStream();

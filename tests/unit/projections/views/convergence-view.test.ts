@@ -32,15 +32,16 @@ describe('ConvergenceView', () => {
   });
 
   /**
-   * Pins the cost of a `gate.executed` row that names a dimension, from the side
-   * of the reader. Each producer of such a row must know this cost.
+   * These tests pin the hazard at the reader. A failed `gate.executed` row that
+   * names a dimension blocks that dimension until the same gate name passes. A
+   * producer must not append such a row under a gate name that nothing runs again.
    */
   describe('the unrecoverable-dimension hazard', () => {
     /**
-     * Characterization, not a defect. `isDimensionConverged` keeps the latest result
-     * for each gate name, and each name must pass. That is correct for a gate that
-     * runs again. A failing row under a name that never runs again blocks its
-     * dimension permanently.
+     * This test is a characterization, not a defect report. `isDimensionConverged`
+     * keeps the latest result for each gate name, and each name must pass. That is
+     * correct for a gate that runs again. A failing row under a name that never
+     * runs again blocks its dimension permanently.
      */
     it('ConvergenceView_FailedGateNameThatNeverReRuns_PinsTheDimensionForever', () => {
       const pass = (seq: number) =>

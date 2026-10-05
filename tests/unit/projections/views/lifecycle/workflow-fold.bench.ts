@@ -1,6 +1,7 @@
-// Cold-read benchmark for the workflow-fold view. `vitest bench` collects this
-// file, and `vitest run` does not. `tools/audit/benchmark-baseline.json` holds
-// the regression threshold of each bench.
+// Cold-read benchmark for the workflow-fold view. The SLA is p95 < 250 ms over
+// the 10k-event corpus. `vitest bench` collects this file, and `vitest run`
+// does not. `tools/audit/benchmark-baseline.json` holds the regression
+// threshold of each bench.
 //
 // The corpus is 200 workflows with 50 events each, in one in-memory SQLite
 // database. The workflows cycle through three workflow types and six phases.

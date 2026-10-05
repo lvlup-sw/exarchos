@@ -254,7 +254,7 @@ describe('rehydration document serializer — stable-before-volatile order (T050
 });
 
 describe('WorkflowCheckpointData handoff field (T1, #1240)', () => {
-  /** The test also rejects a `context` of 2049 characters and a `nextSteps` list of 11 entries, which exceed the caps. */
+  /** The schema must also reject a `context` of 2049 characters and a `nextSteps` list of 11 entries, because both exceed the caps. */
   it('WorkflowCheckpointData_HandoffField_AcceptsValidPayload', () => {
     const validInput = {
       counter: 5,

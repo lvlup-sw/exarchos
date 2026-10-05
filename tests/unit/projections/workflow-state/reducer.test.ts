@@ -212,8 +212,9 @@ describe('workflow-state@v1 initial phase from HSM (#1554-3)', () => {
   });
 
   /**
-   * Pins the fold of a typical feature log, so a fold change must update the expected value.
-   * The reducer fold must also equal the `workflowStateProjection` fold of the same log.
+   * Pins the fold of a typical feature log. A change to the fold result fails the test until an
+   * editor updates the expected value. The reducer fold must also equal the
+   * `workflowStateProjection` fold of the same log.
    */
   it('goldenReplay_FeatureLifecycle_ByteEqualSnapshot', () => {
     const view = fold([

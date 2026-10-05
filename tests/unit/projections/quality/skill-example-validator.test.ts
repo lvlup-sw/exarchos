@@ -12,7 +12,7 @@ import {
 } from '../../../../src/projections/quality/skill-example-validator.js';
 
 /**
- * A hand-built oracle, so these tests do not depend on the live action set.
+ * The oracle is hand-built, so the tests that use it do not depend on the live action set.
  * The `run` action has one property of each constrained class: string, bounded integer, closed enum and a ratio from 0 to 1.
  */
 const fakeOracle: SchemaOracle = {

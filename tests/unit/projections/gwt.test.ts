@@ -66,7 +66,7 @@ describe('given-when-then harness (T044, DR-10)', () => {
   /**
    * A fold must not mutate the initial state or an intermediate state.
    * So the same events must also pass `assertReducerImmutable`.
-   * The cast widens the reducer type, as the rehydration barrel does for the registry.
+   * The cast is redundant, because `rehydrationReducer` already has that type.
    */
   it('GivenWhenThen_HelperPreservesImmutability', () => {
     const events: readonly WorkflowEvent[] = [

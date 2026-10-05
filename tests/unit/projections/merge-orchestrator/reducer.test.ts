@@ -246,7 +246,7 @@ describe('mergeOrchestratorReducer.apply — phase transitions (Wave 2B.2)', () 
 
   /**
    * A rollback that fails leaves the worktree in an unknown state.
-   * The closed `recoveryError` enum must report that failure, and not hide it as a success.
+   * The projection must carry the closed `recoveryError` value, so the failure does not look like a success.
    */
   it('Apply_MergeRollback_FoldsRecoveryErrorDiscriminator', () => {
     const state: MergeOrchestratorState = mergeOrchestratorReducer.apply(

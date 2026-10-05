@@ -113,7 +113,7 @@ describe('CodeQualityView', () => {
     const observed = (check: string, passed: boolean, seq = 1): WorkflowEvent =>
       makeEvent('ci.check_observed', { pr: 42, check, passed, skill: 'shepherd' }, seq);
 
-    /** The check name is one of the gate names of this repository, so a fold into `state.gates` is visible. */
+    /** The check name equals a gate name of this repository, which is the collision that `state.gates` must not receive. */
     it('CodeQuality_CiCheckObserved_NeverEntersTheGateNamespace', () => {
       const state = codeQualityProjection.apply(
         codeQualityProjection.init(),
@@ -225,7 +225,7 @@ describe('CodeQualityView', () => {
       expect(state.regressions[0].lastFailureCommit).toBe('commit-3');
     });
 
-    /** Two failures, one pass, then two failures. No run of three failures occurs, so there is no regression. */
+    /** The test folds two failures, one pass, then two failures. No run of three failures occurs, so there is no regression. */
     it('Apply_GatePass_ResetsFailureCounter', () => {
       let state = codeQualityProjection.init();
 
@@ -700,7 +700,7 @@ describe('CodeQualityView - mutation-score trend (W2-6, #1525)', () => {
  * `_failureTrackers` and `_remediationCounts` are non-enumerable, so `toEqual` and
  * `JSON.stringify` do not see them. An object spread in a handler also drops them,
  * with no error: the counters restart and the public shape stays the same. These
- * tests cover that property directly.
+ * tests check directly that both trackers survive each fold step.
  */
 describe('CodeQualityView - internal trackers survive the fold', () => {
   const fold = (events: readonly WorkflowEvent[]): CodeQualityViewState =>
@@ -774,8 +774,8 @@ describe('CodeQualityView - internal trackers survive the fold', () => {
   /**
    * The test finds the handled event types by measurement: the view returns the
    * same object for a type that it ignores. The pinned list makes a new handler a
-   * visible edit. `VALID_PAYLOAD` holds one payload for each type that reaches the
-   * handler body, because a rejected payload exercises only the early return.
+   * visible edit. For each handled type, `VALID_PAYLOAD` holds one payload that
+   * reaches the handler body, because a rejected payload exercises only the early return.
    */
   it('CodeQuality_EveryHandledEventType_KeepsBothTrackers', () => {
     const seeded = fold([failure(1), remediation(2)]);

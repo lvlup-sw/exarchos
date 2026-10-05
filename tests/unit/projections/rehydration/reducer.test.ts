@@ -19,7 +19,7 @@ function makeEvent<T extends Record<string, unknown>>(
   } as WorkflowEvent;
 }
 
-/** A feature workflow in the `delegate` phase. The detour tests start from it, because only a feature workflow can detour. */
+/** Returns a document for a feature workflow in the `delegate` phase. The detour tests start from it, because only a feature workflow can detour. */
 function featureInDelegate(featureId = 'wf-test') {
   let s = rehydrationReducer.apply(
     rehydrationReducer.initial,
@@ -291,7 +291,7 @@ describe('rehydration reducer — artifacts fold (T025, DR-3)', () => {
     expect(RehydrationDocumentSchema.safeParse(next).success).toBe(true);
   });
 
-  /** The fold removes a key that a later patch sets to `null`. Otherwise a rehydrate keeps the stale path. */
+  /** The fold removes a key that a later patch sets to `null`. Otherwise the rehydration document keeps the stale path. */
   it('Rehydration_Given_StatePatchedArtifactsNullForExistingKey_When_Fold_Then_KeyDeleted', () => {
     const initial = rehydrationReducer.initial;
     const seeded = rehydrationReducer.apply(
@@ -427,7 +427,7 @@ describe('rehydration reducer — blockers fold (T025, DR-3)', () => {
 
 /**
  * No `decision.*` event type is registered, so the reducer has no decisions fold.
- * The test asserts that premise. It fails when such a type is registered, and then shows the missing fold.
+ * The test asserts that premise. When such a type is registered, the test fails and its message asks for the fold.
  */
 describe('rehydration reducer — decisions fold (T025, DR-3)', () => {
   it('RehydrationReducer_DecisionsFold_HasNoRegisteredEventSourceToFold', () => {
@@ -1356,7 +1356,10 @@ describe('rehydration reducer — workflow.handoff_summarized fold (#1242)', () 
     expect(foldOnce.latestHandoff?.source).toBe('operator');
   });
 
-  /** A `latestHandoff` with no `source` counts as an operator entry, so the summary must not replace it. */
+  /**
+   * The summarized fold always writes `source: 'auto'`, so a `latestHandoff` with no `source` is an operator entry.
+   * The summary must not replace it.
+   */
   it('Summarized_LegacyEntryWithoutSource_TreatedAsOperator', () => {
     const legacyState = {
       ...rehydrationReducer.initial,

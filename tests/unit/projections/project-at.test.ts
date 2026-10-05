@@ -67,7 +67,7 @@ function foldOracle(
 
 /**
  * Appends `n` events to `streamId` and returns them in order. The timestamps are one second apart.
- * Without them, a tight append loop can put every event in one millisecond.
+ * Without these explicit timestamps, a tight append loop can put every event in one millisecond.
  * Then an `untilTimestamp` bound keeps all events.
  */
 async function seedStream(
@@ -290,7 +290,7 @@ describe('projectAt — snapshot warm-start equivalence (T3)', () => {
 
   /**
    * A single-stream `query` orders by sequence, not by timestamp. Here sequence 2 has the latest timestamp.
-   * So a bound at `t1` keeps sequences 1 and 3, which is not a prefix of the log.
+   * So a bound at `tsAt(1)` keeps sequences 1 and 3, which is not a prefix of the log.
    * The snapshot at sequence 2 passes the sequence check (2 is at or below 3), but it holds the excluded event.
    * `projectAt` must skip the warm start and fold the bounded slice cold.
    */

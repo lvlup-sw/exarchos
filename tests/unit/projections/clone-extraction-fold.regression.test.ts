@@ -1,6 +1,6 @@
 /**
  * Regression test for the extractors that the rehydration and task-store reducers share.
- * The golden strings pin the fold output of `src/projections/shared/event-data-extractors.ts`.
+ * The golden strings pin the output of both folds, which read event data through `src/projections/shared/event-data-extractors.ts`.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -24,8 +24,8 @@ function evt(
 }
 
 /**
- * A log that reaches every shared extractor through both reducers.
- * `task.completed` carries the `duration` number and the `artifacts` string array.
+ * A log that reaches each shared extractor in each reducer that calls it.
+ * Only the task-store reducer reads the `duration` number and the `artifacts` string array of `task.completed`.
  * `state.patched` reaches the decoders that only the rehydration reducer has.
  */
 const FIXTURE_LOG: readonly WorkflowEvent[] = [

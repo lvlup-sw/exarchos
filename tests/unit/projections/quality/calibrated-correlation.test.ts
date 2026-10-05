@@ -58,7 +58,8 @@ function makeEvalResults(
 
 /**
  * The thresholds are a true-positive rate of 0.85, a true-negative rate of 0.80, 10 eval runs and 20 gate executions.
- * A judge below a rate threshold gives `low`. A calibrated judge with too little data gives `medium`.
+ * A judge that is not calibrated, or is below a rate threshold, gives `low`.
+ * A calibrated judge with too little data gives `medium`.
  */
 describe('deriveSignalConfidence', () => {
   it('DeriveSignalConfidence_AllThresholdsMet_ReturnsHigh', () => {

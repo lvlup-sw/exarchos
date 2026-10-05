@@ -1,6 +1,7 @@
-// Tests for the `inspect` lifecycle verb. Each test uses a real `EventStore`.
-// An unknown featureId gives a success result with `workflowExists: false` and
-// appends no event. `inspect` is an action of `exarchos_view`, not a visible tool.
+// Tests for the `inspect` lifecycle verb. The handler tests use a real
+// `EventStore`, and the last test reads only the tool registry. An unknown
+// featureId gives a success result with `workflowExists: false` and appends no
+// event. `inspect` is an action of `exarchos_view`, not a visible tool.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';

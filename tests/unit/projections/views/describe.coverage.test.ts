@@ -19,7 +19,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 /**
  * Returns the sorted action names of the `case` arms in the view action switch of `composite.ts`, without `describe`.
  * The regex starts at the `handleView` declaration, takes the first `switch (action)` block after it, and stops at the `default:` arm.
- * `default:` is a stable end marker, because a closing brace also ends each inner block.
+ * A closing brace cannot mark the end of the switch, because each inner block also ends with one.
  */
 function collectDispatchedActionNames(): string[] {
   const source = readFileSync(resolve(__dirname, '../../../../src/projections/views/composite.ts'), 'utf-8');
@@ -119,7 +119,7 @@ describe('ExarchosViewDescribe — registry-vs-dispatch parity (T1, #1446 residu
   /**
    * The dispatched set must hold `session_provenance` and `provenance`, so an empty parse cannot pass.
    * `describe` returns `UNKNOWN_ACTION` for the first unregistered name, so one missing registration fails the call.
-   * The key check is a superset check: the registry must cover each dispatched name.
+   * The last loop is a superset check: the `describe` response must hold a key for each dispatched name.
    */
   it('ExarchosViewDescribe_ListsAllSeventeenDispatchedActions', async () => {
     const dispatched = collectDispatchedActionNames();

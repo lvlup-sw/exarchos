@@ -3,7 +3,8 @@
  *
  * `state.patched` events from `handleSet` skip the `TaskStatusSchema` preprocess, so old events
  * keep the legacy status words. `normalizeTaskStatus` must map those words. If it does not, the
- * tasks fall back to `pending` and the task counts go wrong.
+ * tasks fall back to `pending` and the task counts go wrong. An orchestrator can then dispatch
+ * finished work again.
  */
 
 import { describe, it, expect } from 'vitest';

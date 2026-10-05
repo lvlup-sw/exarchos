@@ -75,14 +75,15 @@ export const probe: ProjectionReducer<{ n: number }, { type: string }> = {
 }
 
 /**
- * Pins the compile-time rule in the `scope` docstring of `projections/types.ts`.
+ * This suite pins the compile-time rule in the `scope` docstring of `src/projections/types.ts`.
  * `tsconfig.json` excludes test files, and vitest does not run its typecheck mode.
- * Thus `expectTypeOf` proves nothing here, and the probe calls the TypeScript compiler API.
+ * As a result, `expectTypeOf` proves nothing here, so the probe calls the TypeScript compiler API.
  */
 describe('ProjectionScope — compile-time scope guard', () => {
   /**
-   * The `'stream'` control must compile with no diagnostic. Without the control, a
-   * broken probe passes the `'global'` case, because every source fails.
+   * The `'stream'` control must compile with no diagnostic. The control proves that
+   * the probe resolves `./types.js` and reports real diagnostics. Without it, the
+   * `'global'` case can pass for a wrong reason.
    * TS2322 is the "not assignable" diagnostic.
    */
   it('ProjectionScope_ReducerAuthoredGlobal_FailsTypecheck', () => {

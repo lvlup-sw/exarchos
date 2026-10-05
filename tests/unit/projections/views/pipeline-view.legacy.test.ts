@@ -32,7 +32,7 @@ describe('PipelineView', () => {
   });
 
   describe('MultipleWorkflows_AggregatesAll', () => {
-    /** Each stream materializes its own pipeline view. */
+    /** The materializer keeps a separate pipeline view for each stream. The test reads each view and aggregates nothing. */
     it('should aggregate workflow events from multiple streams into the pipeline view', () => {
       const stream1Events = [
         makeEvent(1, 'workflow.started', { featureId: 'feat-a', workflowType: 'feature' }, 'wf-001'),

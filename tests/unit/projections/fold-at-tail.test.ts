@@ -1,10 +1,10 @@
 /**
  * Each read that answers from a projection folds its own view to the durable tail first.
- * A fold behind the tail folds forward. A fold ahead of the tail is discarded and replayed from the log.
+ * A fold behind the tail folds forward. The read discards a fold ahead of the tail and replays it from the log.
  * `PROJECTION_DEGRADED` means only that a fold ended short of its pinned tail.
  *
- * No test mocks a reader. Each test uses a real `EventStore` in a temporary directory and the composite handlers.
- * A test injects a fault with `loadState`, which rewinds a materialized cursor.
+ * No test mocks a reader. The tests use a real `EventStore` in a temporary directory and the real composite handlers.
+ * A test injects a stale or contradictory fold with `loadState`, which sets a materialized cursor.
  */
 
 import { mkdtemp } from 'node:fs/promises';
@@ -36,8 +36,9 @@ import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 type WorkflowStatusLike = Record<string, unknown>;
 
 /**
- * A store that appends one event between the tail pin and a query of the fold, as a concurrent writer does.
- * Without that event the bound has nothing to exclude, and a test stays green when the bound is removed.
+ * A store that appends one event before its query number `raceOnQuery`, as a concurrent writer does.
+ * The event lands after the fold pins the tail. Without it, the pinned-tail filter has nothing to exclude.
+ * Then a test stays green when the filter is removed.
  */
 class RacingEventStore extends EventStore {
   private queries = 0;
@@ -213,7 +214,7 @@ describe('#1855 — a read never answers from a fold behind the tail', () => {
 
   /**
    * The cursor is past the tail and the payload is corrupt (`projection-ahead`).
-   * A re-fold filtered by the high-water mark applies no event, so the fold must be discarded and replayed.
+   * A re-fold filtered by the high-water mark applies no event, so the read must discard the fold and replay it.
    */
   it('FoldAtTail_ContradictoryFold_IsDiscardedAndReplayedFromTheLog', async () => {
     await seedWorkflow();
@@ -323,6 +324,8 @@ describe('#1855 — a committed mutation is never reported as a failure', () => 
   /**
    * `update` must report a committed write as a success when the store claims a tail that the log cannot produce.
    * A healthy read then sees the write.
+   * `handleSet` reads no tail and folds no view, and no handler gets the local `materializer`.
+   * So the unprovable tail does not reach the `update` path in this test.
    */
   it('WorkflowUpdate_CoverageUnprovable_StillReportsTheCommittedWrite', async () => {
     const materializer = new ViewMaterializer();
@@ -350,7 +353,10 @@ describe('#1855 — a committed mutation is never reported as a failure', () => 
     expect(data?.riskTier ?? data?.data?.riskTier).toBe('low');
   });
 
-  /** A read against the same store must throw and not answer. `PROJECTION_DEGRADED` reports exactly this condition. */
+  /**
+   * A read through a store whose tail outruns its log must throw and not answer.
+   * `PROJECTION_DEGRADED` reports exactly this condition, so only the write path tolerates it.
+   */
   it('FoldAtTail_UnprovableCoverage_ThrowsRatherThanAnswering', async () => {
     await seedWorkflow();
 

@@ -193,8 +193,8 @@ describe('OperationsFold — generic in-flight operations (DR-3)', () => {
 
   /**
    * The reference model is a set of compound keys. A start adds a key and a terminal removes it.
-   * A `feature`-scope surface keys on the stream and the instance key. A `worktrees`-scope surface
-   * keys on the instance key alone. The model reads only `surface` and `streamScope` from the registry.
+   * Each key holds the surface and the instance key. The key of a `feature`-scope surface also
+   * holds the stream. The model reads only `surface` and `streamScope` from the registry.
    */
   it('OperationsFold_InFlightListing_MatchesReferenceModelOverArbitraryStreamInterleavings', () => {
     const keyAlphabet = ['A', 'B', 'C'] as const;

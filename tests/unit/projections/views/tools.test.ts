@@ -444,7 +444,7 @@ describe('DR-8 analytic view contract (Task 024)', () => {
     expect(estimateOutputTokens(compact.data)).toBeLessThanOrEqual(effectiveBudget('code_quality'));
   });
 
-  /** A skill filter also gives the scope `filtered`. */
+  /** The test also checks that a skill filter gives the scope `filtered`. */
   it('viewsContract_EvalResults_StaysUnderEffectiveBudget_StripsCalibrationsByDefault', async () => {
     const streamId = 'er';
     await seedEvalRun(streamId, 'delegation', 'run-1');

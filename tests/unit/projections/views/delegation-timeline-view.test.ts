@@ -166,7 +166,7 @@ describe('DelegationTimelineView', () => {
       expect(state.tasks[199].taskId).toBe('task-209');
     });
 
-    /** `hasMore` stays false at exactly 200 tasks. The next assignment evicts one task and sets it. */
+    /** `hasMore` stays false at exactly 200 tasks. The next assignment evicts one task and sets `hasMore` to true. */
     it('ViewState_HasEvicted_HasMoreIsTrue', () => {
       let state = delegationTimelineProjection.init();
 

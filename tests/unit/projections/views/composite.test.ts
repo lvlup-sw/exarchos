@@ -200,8 +200,8 @@ describe('handleView', () => {
     /**
      * `stack_place` appends `stack.position-filled`, so it is an `exarchos_orchestrate`
      * action and not a view action. The view router must not reach the writer.
-     * `tests/unit/registry.test.ts` requires a handler route for each registered
-     * action, so this file does not repeat that check.
+     * `tests/unit/registry.test.ts` proves the orchestrate route: it requires a
+     * handler entry for each registered orchestrate action.
      */
     it('ViewComposite_StackPlace_NoLongerRouted', async () => {
       const args = {
@@ -882,9 +882,9 @@ describe('ps — launcher-session liveness (DR-7, Task 018)', () => {
 
   /**
    * The launcher reserves the worktree first, and then `launch.executing_started`
-   * records the claim of the child. Without `probe`, `ps` must not list processes,
-   * so the process table is a spy. After `launch.executed`, the launch column and
-   * its hint clear.
+   * records the claim of the child. `ps` is a pure read and must not list
+   * processes, so the process table is a spy. After `launch.executed`, the launch
+   * column and its hint clear.
    */
   it('psView_LauncherSpawnedSession_AnswersFromLaunchEventsAlone', async () => {
     const ctx = await makeLiveCtx();

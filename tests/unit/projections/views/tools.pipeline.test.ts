@@ -134,7 +134,7 @@ describe('handleViewPipeline — projectionAsOf + projectionLag (#1359 / PR4)', 
 /**
  * A stream with events but no `workflow.started` folds to a row with an empty `featureId`. That row
  * must not show in the page, and `total` must not count it. `includeCompleted: true` turns the
- * terminal-phase filter off, so only this filter can drop the row.
+ * terminal-phase filter off, so only the empty-`featureId` filter can drop the row.
  */
 describe('handleViewPipeline — DR-4 phantom exclusion (task 004)', () => {
   it('Pipeline_StreamWithoutStarted_ExcludedFromPageAndTotals', async () => {
@@ -195,7 +195,7 @@ describe('handleViewPipeline — DR-4 phantom exclusion (task 004)', () => {
  * A pipeline row holds summary fields by default and omits the unbounded `tasksById` map.
  * `detail: true` restores the full row. The row `hasMore`, which is the stack eviction flag, stays
  * in a compact row. The `summary.firstPage` rows are compact in the same way.
- * `TINY_THRESHOLD` is so small that each response takes the summary fallback.
+ * Each payload exceeds `TINY_THRESHOLD`, so a call that passes it takes the summary fallback.
  */
 describe('handleViewPipeline — DR-1 compact entries + detail flag (task 005)', () => {
   const TINY_THRESHOLD: QualityHintsConfig = { qualityHints: { outputTokenThreshold: 0.00001 } };
@@ -395,11 +395,14 @@ describe('handleViewPipeline — DR-1 compact entries + detail flag (task 005)',
 });
 
 /**
- * Scope order: `scope: 'all'` gives no filter. Then an explicit `repoRoot` filters to its repo key,
- * then the caller key from the composite filters. A direct call with no key is unscoped, and
- * `scope: 'repo'` with no key is an error. Each response holds `data.scope` and
- * `data.unscopedTotal`. A hint for `--scope all` shows when `unscopedTotal` exceeds `total`.
- * The tests that spawn git have a 20 s timeout.
+ * Scope order: `scope: 'all'` gives no filter. Next, an explicit `repoRoot` filters to its repo
+ * key. Next, the handler filters to the caller key that the composite supplies. A direct call with
+ * no key is unscoped, and `scope: 'repo'` with no key is an error. Each response holds
+ * `data.scope` and `data.unscopedTotal`. A hint for `--scope all` shows when `unscopedTotal`
+ * exceeds `total`.
+ *
+ * The tests that spawn git have a 20 s timeout. On a loaded machine, a git spawn can exceed the
+ * default test timeout.
  */
 describe('handleViewPipeline — DR-6/DR-7 repo scoping + perceivability (task 007)', () => {
   type Row = { featureId: string };
@@ -541,7 +544,7 @@ describe('handleViewPipeline — DR-6/DR-7 repo scoping + perceivability (task 0
   /**
    * `deriveRepoKey` gives a linked worktree the key of its main checkout. Thus a worktree path as
    * `repoRoot` matches a row with the main key, and excludes a row with no `repoRoot`. A Windows
-   * path with backslashes becomes the POSIX key form before the compare.
+   * path with backslashes becomes the POSIX key form before the handler compares the keys.
    */
   it('Pipeline_ExplicitRepoRoot_NormalizedBeforeMatch', async () => {
     const mainRoot = fs.mkdtempSync(path.join(tmpdir(), 'pipe-drk-main-'));

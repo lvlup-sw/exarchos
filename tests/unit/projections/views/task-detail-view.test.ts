@@ -1,5 +1,5 @@
 /**
- * Shape parity between `TaskDetailView` and the task-store reducer.
+ * Shape parity between the task-detail view and the task-store reducer.
  *
  * The view `apply` calls `taskStoreReducer.apply`. The view materializer and a direct reducer fold
  * over the same stream must give the same task shape. Both sides fold one stream, because the

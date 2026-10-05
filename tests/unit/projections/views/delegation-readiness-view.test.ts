@@ -424,8 +424,8 @@ describe('DelegationReadinessView', () => {
     });
 
     /**
-     * Readiness judges plan presence with `isTypedArtifactReference`, the trimmed check that the workflow guards use.
-     * A whitespace-only plan is absent for the guards, so it must be absent for readiness too.
+     * Readiness judges plan presence with `isTypedArtifactReference`, the same check that the workflow guards use.
+     * That check trims the string, so a whitespace-only plan is absent for the guards and for readiness.
      */
     it('Apply_StatePatched_WhitespaceOnlyPlan_ReportsArtifactAbsent', () => {
       const state = delegationReadinessProjection.init();

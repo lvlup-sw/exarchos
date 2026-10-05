@@ -369,7 +369,7 @@ describe('toToolEntry — action-error fields (Sentry follow-up #1364)', () => {
     await rmrfAsync(stateDir);
   });
 
-  /** No action error is seeded, so both fields are present with zero values. */
+  /** The test seeds no action error, so both fields are present with zero values. */
   it('handleViewTelemetry_CompactEntry_IncludesActionErrorFields', async () => {
     await seedTelemetryEvents(stateDir, [
       { tool: 'workflow_get', durationMs: 10, responseBytes: 200, tokenEstimate: 50 },
@@ -414,7 +414,7 @@ describe('toToolEntry — action-error fields (Sentry follow-up #1364)', () => {
  * With a correlation filter, `handleViewTelemetry` passes `operationId`,
  * `correlationId` and `causationId` to `EventStore.query` on the telemetry stream.
  * The view then folds only the events of that dispatch boundary.
- * `TELEMETRY_STREAM_NAME` copies `TELEMETRY_STREAM` of `constants.ts`.
+ * `TELEMETRY_STREAM_NAME` must equal `TELEMETRY_STREAM` in `constants.ts`.
  */
 describe('Wave 5 — handleViewTelemetry honors correlation filters (#1437)', () => {
   let stateDir: string;

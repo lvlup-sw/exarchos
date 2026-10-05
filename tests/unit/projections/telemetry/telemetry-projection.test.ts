@@ -49,8 +49,9 @@ describe('TelemetryProjection', () => {
 
   /**
    * A breach is a per-tool runtime measurement, so this view holds it. It is not a
-   * gate row on the feature stream. The convergence view keys gate results by name
-   * and nothing runs this gate again, so a breach there keeps Context Economy false.
+   * gate row on the feature stream. The convergence view keeps the latest result for
+   * each gate name, and no gate run clears a breach row. As a result, such a row
+   * keeps Context Economy false.
    */
   describe('apply - tool.budget_exceeded', () => {
     const breach = (tool: string, seq: number): WorkflowEvent =>
@@ -91,7 +92,8 @@ describe('TelemetryProjection', () => {
 
     /**
      * The `tool.completed` arm lists each `ToolMetrics` field and does not spread
-     * `existing`. If the arm omits a counter, the next completion of the tool resets it.
+     * `existing`. If the arm does not copy a counter from `existing`, the next
+     * completion of the tool resets it.
      */
     it('TelemetryProjection_BudgetExceeded_SurvivesTheNextCompletion', () => {
       const state = fold([breach('exarchos_view', 1), completed('exarchos_view', 2)]);
@@ -100,8 +102,9 @@ describe('TelemetryProjection', () => {
     });
 
     /**
-     * `toBe`, not `toEqual`. The arm returns the object of the caller. A rebuilt
-     * equal object passes `toEqual`, but loses the structural sharing of the identity arms.
+     * The test uses `toBe`, not `toEqual`. The arm returns the object of the caller.
+     * A rebuilt equal object passes `toEqual`, but it loses the structural sharing
+     * that the identity arms keep.
      */
     it('TelemetryProjection_BudgetExceededWithoutATool_IsIdentity', () => {
       const before = telemetryProjection.init();
@@ -112,7 +115,7 @@ describe('TelemetryProjection', () => {
       expect(after).toBe(before);
     });
 
-    /** The second arm of the guard: no payload at all, not a payload without `tool`. */
+    /** This test covers the second arm of the guard: an event with no payload, not a payload without `tool`. */
     it('TelemetryProjection_BudgetExceededWithoutData_IsIdentity', () => {
       const before = telemetryProjection.init();
       const after = telemetryProjection.apply(before, {
@@ -578,7 +581,7 @@ describe('TelemetryProjection_OutputTokenHint', () => {
     expect(hints[0].verb).toBe('checkpoint');
   });
 
-  /** A crossing that ends before the latest turn gives no hint. */
+  /** A streak that ends before the latest turn gives no hint. */
   it('TelemetryProjection_MultipleTurns_LatestBelowThreshold_EmitsNoHint', () => {
     let state = telemetryProjection.init();
     state = telemetryProjection.apply(

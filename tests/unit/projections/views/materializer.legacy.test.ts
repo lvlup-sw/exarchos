@@ -261,7 +261,7 @@ describe('ViewMaterializer', () => {
   });
 
   describe('materialize_WithoutSnapshotStore', () => {
-    /** The default materializer has no snapshot store. The 100 events pass the default snapshot interval of 50. */
+    /** The default materializer has no snapshot store. The 100 events are more than the default snapshot interval of 50. */
     it('should work correctly without a snapshot store configured', () => {
       materializer.register('counter', counterProjection);
 

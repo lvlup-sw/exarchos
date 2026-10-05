@@ -137,6 +137,7 @@ describe('rebuildProjection — full replay from sequence 0 (T029, DR-1, DR-18)'
   /**
    * An unregistered id raises an error and does not return the initial state.
    * The test pins both the error class and the `unknown projection id:` message prefix.
+   * No other test pins that prefix.
    */
   it('Rebuild_UnknownProjectionId_Throws', async () => {
     const streamId = 'wf-missing-id';
