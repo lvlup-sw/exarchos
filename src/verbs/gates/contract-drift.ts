@@ -1,23 +1,13 @@
-// ─── check_contract_drift — contract-drift gate core (task 022) ───────────────
-//
-// Verification-ladder slice 1, Bundle B3. Proves a task's schema-boundary
-// changes don't silently break the contract: regenerate bindings (codegen),
-// typecheck the regen, then run a breaking-change diff against the MERGE-BASE.
-//
-// This is a DRIFT GATE, not a write-lock: it reports findings (drift + breaking
-// list), never mutates the working tree or holds a lock. The composition is
-// pure-ish — git and the command runner are injected — so the verdict logic is
-// unit-testable without shelling out.
-//
-// Baseline (INV-parity with the kill probe): the breaking-diff baseline is the
-// `git merge-base <baseRef> HEAD` commit, not a raw `baseRef..HEAD` range — the
-// merge-base is the common ancestor the branch actually diverged from, so the
-// diff measures only what THIS branch changed.
-//
-// Degrade (INV-4): when no contract tool resolves — including managed /
-// non-native worktrees where a tool simply isn't wired — the gate returns a
-// skipped/advisory PASS, never a hard fail.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * The core of the check_contract_drift gate. It checks that the schema-boundary
+ * changes of a task do not break the contract. It runs codegen, then a
+ * typecheck of the output, then a breaking-change diff.
+ *
+ * The gate reports findings. It does not change the working tree or hold a
+ * lock. Git and the command runner are injected, so unit tests run no shell
+ * command. When no contract command resolves, the gate gives an advisory pass
+ * with `skipped: true`, not a fail.
+ */
 
 import type { GitExec } from '../pure/execute-merge.js';
 import type { ContractCommands } from '../../config/toolchains.js';
@@ -63,18 +53,16 @@ export interface ContractDriftResult {
   readonly breaking: string[];
   /** Human-readable summary of what the gate did and found. */
   readonly report: string;
-  /** True when no contract tool resolved → skipped/advisory (INV-4). */
+  /** True when no contract command resolved, which gives an advisory pass. */
   readonly skipped?: boolean;
-  /** The merge-base sha used as the diff baseline (when computed). */
+  /** The merge-base sha, when git computes it. The report shows it, but the diff command does not use it. */
   readonly baseline?: string;
 }
 
 /**
- * Extract breaking-change lines from a diff tool's stdout. Only meaningful on
- * the drift path (non-zero exit) — a clean tool may legitimately print "no
- * breaking changes", which must NOT be mistaken for a finding. We match lines
- * that affirmatively flag a breaking change: a `BREAKING` prefix (the common
- * oasdiff/buf convention) or an `ERR`/`error` severity marker.
+ * Extracts the breaking-change lines from the stdout of a diff tool. A line
+ * that starts with `breaking`, `err`, or `error`, in any case, matches. A clean
+ * line such as "no breaking changes" does not match.
  */
 function extractBreaking(stdout: string): string[] {
   return stdout
@@ -84,9 +72,8 @@ function extractBreaking(stdout: string): string[] {
 }
 
 /**
- * Compute the merge-base baseline via `git merge-base <baseRef> HEAD`.
- * Returns null on git failure (the gate then reports the diff couldn't be
- * baselined rather than crashing).
+ * Computes `git merge-base <baseRef> HEAD`. It returns null when git fails,
+ * and the report then says that the gate cannot compute the baseline.
  */
 function computeMergeBase(gitExec: GitExec, repoRoot: string, baseRef: string): string | null {
   const result = gitExec(repoRoot, ['merge-base', baseRef, 'HEAD']);
@@ -96,19 +83,13 @@ function computeMergeBase(gitExec: GitExec, repoRoot: string, baseRef: string): 
 }
 
 /**
- * Run the contract-drift gate.
- *
- * Sequence:
- *   1. If no contract tool resolves → skipped/advisory PASS (INV-4).
- *   2. Compute the merge-base baseline (`git merge-base baseRef HEAD`).
- *   3. codegen leg (if wired): non-zero exit → failure leg (passed:false).
- *   4. typecheck leg (if wired): non-zero exit → failure leg.
- *   5. diff leg (if wired): non-zero exit OR breaking lines → drift, passed:false,
- *      breaking[] populated. Exit 0 with no breaking lines → clean.
- *
- * A codegen / typecheck failure is a FAILURE LEG (broken regen), distinct from
- * a BREAKING finding (the diff tool reporting incompatible schema changes) —
- * the carrier reports both shapes via `report` + `breaking`.
+ * Runs the contract-drift gate. Each leg runs only when its command is set.
+ *   1. With no codegen and no diff command, it gives a skipped advisory pass.
+ *   2. It writes the merge-base of `baseRef` and HEAD to the report.
+ *   3. A non-zero codegen or typecheck exit fails the gate with `drift: false`.
+ *   4. A non-zero diff exit or a breaking line is drift and fails the gate.
+ *      Diff tools exit non-zero on a breaking change. With no breaking line,
+ *      the raw output becomes the finding, so the finding is not empty.
  */
 export async function runContractDrift(args: ContractDriftArgs): Promise<ContractDriftResult> {
   const { repoRoot, baseRef, contract, typecheck, gitExec, runCommand } = args;
@@ -116,7 +97,6 @@ export async function runContractDrift(args: ContractDriftArgs): Promise<Contrac
   const codegen = contract?.codegen ?? null;
   const diff = contract?.diff ?? null;
 
-  // 1. No tool resolves → skipped/advisory (degrade per INV-4).
   if (
     (codegen === null || codegen.trim().length === 0) &&
     (diff === null || diff.trim().length === 0)
@@ -132,7 +112,6 @@ export async function runContractDrift(args: ContractDriftArgs): Promise<Contrac
     };
   }
 
-  // 2. Merge-base baseline.
   const baseline = computeMergeBase(gitExec, repoRoot, baseRef);
   const reportLines: string[] = [];
   reportLines.push(
@@ -141,7 +120,6 @@ export async function runContractDrift(args: ContractDriftArgs): Promise<Contrac
       : `baseline = merge-base(${baseRef}, HEAD) could not be computed`,
   );
 
-  // 3. codegen leg.
   if (codegen !== null && codegen.trim().length > 0) {
     const cg = await runCommand({ repoRoot, command: codegen });
     if (cg.exitCode !== 0) {
@@ -157,7 +135,6 @@ export async function runContractDrift(args: ContractDriftArgs): Promise<Contrac
     reportLines.push('codegen ok');
   }
 
-  // 4. typecheck leg.
   if (typecheck && typecheck.trim().length > 0) {
     const tc = await runCommand({ repoRoot, command: typecheck });
     if (tc.exitCode !== 0) {
@@ -173,16 +150,11 @@ export async function runContractDrift(args: ContractDriftArgs): Promise<Contrac
     reportLines.push('typecheck ok');
   }
 
-  // 5. breaking-diff leg.
   if (diff !== null && diff.trim().length > 0) {
     const df = await runCommand({ repoRoot, command: diff });
     const breaking = extractBreaking(df.stdout);
-    // A non-zero exit OR explicit breaking lines counts as drift. (Diff tools
-    // like oasdiff/buf-breaking exit non-zero on breaking changes by convention.)
     const isDrift = df.exitCode !== 0 || breaking.length > 0;
     if (isDrift) {
-      // When the tool exited non-zero but emitted no parseable breaking line,
-      // surface the raw output so the finding is never empty.
       const surfaced =
         breaking.length > 0
           ? breaking
@@ -199,7 +171,6 @@ export async function runContractDrift(args: ContractDriftArgs): Promise<Contrac
     reportLines.push('breaking-diff clean');
   }
 
-  // All wired legs passed.
   return {
     passed: true,
     drift: false,

@@ -1,9 +1,7 @@
-// ─── Plan Coverage Composite Action ─────────────────────────────────────────
-//
-// Pure TypeScript plan-to-design coverage verification. Replaces the
-// bash script `scripts/verify-plan-coverage.sh` with native logic.
-// Emits gate.executed events for the plan->plan-review boundary.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * The plan coverage gate at the boundary between plan and plan-review. It checks that the plan
+ * tasks cover each design section, and records the gate result.
+ */
 
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
@@ -14,8 +12,6 @@ import { acceptanceCriteriaFinding } from '../pure/design-completeness.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
 import { runPhaseGateWithEvidence } from './gate-runner.js';
 import { designRegion } from '../pure/provenance-chain.js';
-
-// ─── Result Types ──────────────────────────────────────────────────────────
 
 interface CoverageMetrics {
   readonly covered: number;
@@ -49,31 +45,19 @@ export interface AcceptanceTestTask {
   readonly implementsDrs: readonly string[];
 }
 
-// ─── Stop Words ──────────────────────────────────────────────────────────
-
+/** The words that {@link extractKeywords} ignores. */
 const STOP_WORDS = new Set([
   'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from',
   'has', 'have', 'in', 'is', 'it', 'of', 'on', 'or', 'the', 'this',
   'to', 'was', 'were', 'will', 'with',
 ]);
 
-// ─── Design Section Parsing ─────────────────────────────────────────────
-
 /**
- * Parse `DR-N` requirement headings from the design region of a unified spec.
+ * Parses the `DR-N` requirement headings (`###` or `####`) from the design region of a unified
+ * spec. The decomposition traces against these ids, so they are the coverage sections.
  *
- * WFQ-006: the current unified template declares design requirements as
- * `### DR-N …` / `#### DR-N …` headings under `## Design & Rationale`
- * (`### Requirements (DR-N)`). These identifiers are the single source the
- * decomposition traces against, so they — not the surrounding rationale
- * subsections (Problem Statement, Technical Design, …) — are the coverage
- * sections.
- *
- * Extraction is scoped to the design region (everything before the
- * decomposition boundary) so a task's `**Implements:** DR-N` *reference* is
- * never mistaken for a DR-N *definition*. Bullet-form DR-N entries are
- * intentionally NOT treated as requirement sections — only headings define a
- * traceable requirement.
+ * The scan stops at the decomposition boundary, so an `**Implements:** DR-N` reference does not
+ * count as a definition. A bullet `DR-N` entry does not define a requirement.
  */
 export function parseDesignRequirements(markdown: string): string[] {
   const sections: string[] = [];
@@ -93,10 +77,8 @@ export function parseDesignRequirements(markdown: string): string[] {
 }
 
 /**
- * Map each `DR-N` requirement to the plan task ids that declare it via a
- * `**Implements:** DR-N[, DR-M]` line. Mirrors the authoritative provenance
- * signal (`check_provenance_chain`) so DR-N design sections resolve coverage
- * from the decomposition's explicit references, not fuzzy keyword overlap.
+ * Maps each `DR-N` to the ids of the plan tasks that declare it in an `**Implements:**` line. It
+ * reads the same signal as `check_provenance_chain`.
  */
 function extractImplementsByDr(planContent: string): Map<string, string[]> {
   const byDr = new Map<string, string[]>();
@@ -127,19 +109,12 @@ function extractImplementsByDr(planContent: string): Map<string, string[]> {
 }
 
 /**
- * Parse design sections from a markdown document.
- * Extracts ### subsections under `## Technical Design`, `## Design Requirements`,
- * or `## Requirements` headers (case-insensitive).
- *
- * When a ### section has #### children, the #### headers are used instead
- * (more granular). When a ### has no #### children, the ### itself is used.
+ * Parses the design sections from a markdown document. The `DR-N` requirement headings take
+ * precedence when present. Otherwise it reads the `###` subsections under `## Technical Design`,
+ * `## Design Requirements`, or `## Requirements` (case-insensitive). A `###` section with `####`
+ * children gives the `####` headings instead.
  */
 export function parseDesignSections(markdown: string): string[] {
-  // WFQ-006: the canonical unified spec places design requirements as `DR-N`
-  // subsections under `## Design & Rationale` (via `### Requirements (DR-N)`),
-  // NOT under the legacy `## Technical Design` heading. Prefer the DR-N source
-  // when present so current-template specs stop tripping NO_DESIGN_SECTIONS and
-  // no longer need an artificial duplicate compatibility heading.
   const requirements = parseDesignRequirements(markdown);
   if (requirements.length > 0) {
     return requirements;
@@ -155,7 +130,6 @@ export function parseDesignSections(markdown: string): string[] {
   const designHeaderPattern = /^##\s+(technical\s+design|design\s+requirements|requirements)\s*$/i;
 
   for (const line of lines) {
-    // Detect start of design section (case-insensitive)
     if (designHeaderPattern.test(line)) {
       inDesignSection = true;
       continue;
@@ -165,13 +139,11 @@ export function parseDesignSections(markdown: string): string[] {
       continue;
     }
 
-    // Detect next ## section (end of design section) -- must NOT be ### or ####
     if (/^##\s/.test(line) && !/^###/.test(line)) {
       inDesignSection = false;
       continue;
     }
 
-    // Collect #### headers under current ### (check BEFORE ### to avoid overwrite)
     const h4Match = line.match(/^####\s+(.+)/);
     if (h4Match && h4Match[1] !== undefined && currentH3Index >= 0) {
       const subsectionName = h4Match[1].trim();
@@ -180,7 +152,6 @@ export function parseDesignSections(markdown: string): string[] {
       continue;
     }
 
-    // Collect ### headers
     const h3Match = line.match(/^###\s+(.+)/);
     if (h3Match && h3Match[1] !== undefined) {
       const sectionName = h3Match[1].trim();
@@ -191,7 +162,6 @@ export function parseDesignSections(markdown: string): string[] {
     }
   }
 
-  // Build sections: prefer #### when available, fall back to ###
   const sections: string[] = [];
   for (let i = 0; i < h3Headers.length; i++) {
     const subs = h4ByH3[i];
@@ -206,19 +176,14 @@ export function parseDesignSections(markdown: string): string[] {
   return sections;
 }
 
-// ─── Plan Task Parsing ──────────────────────────────────────────────────
-
 /**
- * Extract task headers from a plan markdown document.
- * Matches `### Task <id>: <title>` where id can be numeric (001)
- * or alphanumeric with dashes (T-01).
+ * Extracts the task headers (`### Task <id>: <title>`) from a plan. The id holds letters, digits,
+ * and dashes, for example `001` or `A-01`.
  */
 export function parsePlanTasks(markdown: string): PlanTask[] {
   const tasks: PlanTask[] = [];
   const lines = markdown.split('\n');
 
-  // Match: ### Task <id>: <title>
-  // id can be: 001, 1, T-01, T-05, etc.
   const taskPattern = /^###\s+Task\s+([A-Za-z0-9-]+):\s+(.+)/;
 
   for (const line of lines) {
@@ -235,10 +200,9 @@ export function parsePlanTasks(markdown: string): PlanTask[] {
 }
 
 /**
- * Extract task body content from a plan markdown document.
- * Each body is the text between consecutive `### Task` headers.
- * Used for fallback coverage matching — restricts search to task
- * blocks only, avoiding false positives from intro/summary prose.
+ * Extracts the task bodies from a plan. A body runs from a `### Task` header to the next task
+ * header or `##` heading. The fallback coverage match reads only these bodies, so intro and
+ * summary prose gives no false positives.
  */
 function extractTaskBodies(markdown: string): string[] {
   const bodies: string[] = [];
@@ -256,7 +220,6 @@ function extractTaskBodies(markdown: string): string[] {
       inTask = true;
       continue;
     }
-    // Stop at next ## section (not ### or ####)
     if (inTask && /^##\s/.test(line) && !/^###/.test(line)) {
       bodies.push(currentBody.join('\n'));
       currentBody = [];
@@ -274,8 +237,6 @@ function extractTaskBodies(markdown: string): string[] {
   return bodies;
 }
 
-// ─── Keyword Extraction ─────────────────────────────────────────────────
-
 /**
  * Extract significant keywords from text. Converts to lowercase,
  * splits on non-alpha characters, filters stop words and short words (< 3 chars).
@@ -284,8 +245,6 @@ export function extractKeywords(text: string): string[] {
   const words = text.toLowerCase().replace(/[^a-z]+/g, ' ').trim().split(/\s+/);
   return words.filter(w => w.length >= 3 && !STOP_WORDS.has(w));
 }
-
-// ─── Keyword Matching ───────────────────────────────────────────────────
 
 /**
  * Check if target text contains enough matching keywords.
@@ -299,27 +258,22 @@ export function keywordMatch(sectionKeywords: string[], targetText: string): boo
   let matchCount = 0;
 
   for (const kw of sectionKeywords) {
-    // Word-boundary matching using regex
     const pattern = new RegExp(`\\b${kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
     if (pattern.test(targetLower)) {
       matchCount++;
     }
   }
 
-  // Require at least 2 matches, or all keywords if only 1
   if (sectionKeywords.length <= 1) {
     return matchCount >= 1;
   }
   return matchCount >= 2;
 }
 
-// ─── Deferred Section Parsing ───────────────────────────────────────────
-
 /**
- * Parse deferred section names from the plan's traceability table.
- * Rows containing "Deferred" (case-insensitive) in any column are treated
- * as explicitly deferred. The first column's text (with leading number
- * prefixes like "1.4 " stripped) is the design section name.
+ * Parses the deferred section names from the `## Traceability` or `## Spec Traceability` table of
+ * a plan. A row with "Deferred" in any column is deferred. Its first column, without a number
+ * prefix like "1.4 ", is the design section name. Separator and header rows are skipped.
  */
 export function parseDeferredSections(planContent: string): string[] {
   const deferred: string[] = [];
@@ -327,39 +281,32 @@ export function parseDeferredSections(planContent: string): string[] {
   let inTraceabilityTable = false;
 
   for (const line of lines) {
-    // Detect traceability table section start
     if (/^##\s+(spec\s+traceability|traceability)\s*$/i.test(line)) {
       inTraceabilityTable = true;
       continue;
     }
-    // Stop at next ## section (but not ### subsections)
     if (inTraceabilityTable && /^##\s/.test(line) && !/^###/.test(line)) {
       inTraceabilityTable = false;
     }
 
-    // Only parse rows within the traceability table
     if (!inTraceabilityTable) continue;
 
-    // Must contain "Deferred" (case-insensitive) and pipe delimiters
     if (!/deferred/i.test(line) || !line.includes('|')) {
       continue;
     }
 
-    // Skip separator rows (|-----|)
     if (/^\|[\s-]+\|/.test(line.trim())) {
       continue;
     }
 
-    // Skip header rows
     if (/^\|\s*(Design Section|Section)/i.test(line.trim())) {
       continue;
     }
 
-    // Extract first column: strip leading pipe, trim, strip number prefix
     const firstCol = line
-      .replace(/^\s*\|\s*/, '')     // strip leading pipe + spaces
-      .replace(/\s*\|.*/, '')        // strip everything after first pipe
-      .replace(/^\d+(?:\.\d+)*\s+/, '') // strip number prefix like "1.4 "
+      .replace(/^\s*\|\s*/, '')
+      .replace(/\s*\|.*/, '')
+      .replace(/^\d+(?:\.\d+)*\s+/, '')
       .trim();
 
     if (firstCol) {
@@ -370,13 +317,10 @@ export function parseDeferredSections(planContent: string): string[] {
   return deferred;
 }
 
-// ─── Acceptance Test Detection ───────────────────────────────────────────
-
 /**
- * Detect design sections that contain Given/When/Then acceptance criteria.
- * Scans ### sections under design headers and checks their body text
- * for the presence of **Given**, **When**, **Then** keywords.
- * Returns the section names (### header text) that have GWT criteria.
+ * Detects the design sections with Given/When/Then acceptance criteria. It scans the `###` sections
+ * under the design headers. A section counts when its body holds all three keywords, in bold, list,
+ * or label form. It returns the `###` header text of each such section.
  */
 export function detectGwtSections(markdown: string): string[] {
   const lines = markdown.split('\n');
@@ -387,7 +331,6 @@ export function detectGwtSections(markdown: string): string[] {
   let currentSectionName: string | null = null;
   let hasGwt = false;
 
-  // Match bolded (**Given**), plain list (- Given), or label (Given:) forms
   const gwtPattern = /(?:\*\*(Given|When|Then)\*\*|^[-*]\s+(Given|When|Then)\b|^\s+[-*]\s+(Given|When|Then)\b|(Given|When|Then)\s*:)/i;
 
   function extractGwtKeyword(line: string): string | null {
@@ -400,7 +343,6 @@ export function detectGwtSections(markdown: string): string[] {
   let seenKeywords = new Set<string>();
 
   for (const line of lines) {
-    // Detect start of design section
     if (designHeaderPattern.test(line)) {
       inDesignSection = true;
       continue;
@@ -410,9 +352,7 @@ export function detectGwtSections(markdown: string): string[] {
       continue;
     }
 
-    // Detect next ## section (end of design section)
     if (/^##\s/.test(line) && !/^###/.test(line)) {
-      // Flush current section — require all three keywords
       if (currentSectionName && seenKeywords.size === 3) {
         gwtSections.push(currentSectionName);
       }
@@ -422,10 +362,8 @@ export function detectGwtSections(markdown: string): string[] {
       continue;
     }
 
-    // New ### section
     const h3Match = line.match(/^###\s+(.+)/);
     if (h3Match && h3Match[1] !== undefined) {
-      // Flush previous section
       if (currentSectionName && seenKeywords.size === 3) {
         gwtSections.push(currentSectionName);
       }
@@ -434,7 +372,6 @@ export function detectGwtSections(markdown: string): string[] {
       continue;
     }
 
-    // Check for GWT keywords in body
     if (currentSectionName) {
       const kw = extractGwtKeyword(line);
       if (kw) {
@@ -443,7 +380,6 @@ export function detectGwtSections(markdown: string): string[] {
     }
   }
 
-  // Flush last section
   if (currentSectionName && seenKeywords.size === 3) {
     gwtSections.push(currentSectionName);
   }
@@ -452,9 +388,8 @@ export function detectGwtSections(markdown: string): string[] {
 }
 
 /**
- * Parse plan tasks that have `**Test Layer:** acceptance`.
- * For each such task, also extracts the `**Implements:** DR-N` references.
- * Returns structured objects mapping task to the DRs it covers.
+ * Parses the plan tasks with `**Test Layer:** acceptance`, with the comma-separated
+ * `**Implements:**` references of each task.
  */
 export function parseAcceptanceTestTasks(planContent: string): AcceptanceTestTask[] {
   const result: AcceptanceTestTask[] = [];
@@ -482,7 +417,6 @@ export function parseAcceptanceTestTasks(planContent: string): AcceptanceTestTas
   for (const line of lines) {
     const taskMatch = line.match(taskPattern);
     if (taskMatch && taskMatch[1] !== undefined && taskMatch[2] !== undefined) {
-      // Flush previous task
       flushTask();
       currentTaskId = taskMatch[1].trim();
       currentTaskTitle = taskMatch[2].trim();
@@ -499,7 +433,6 @@ export function parseAcceptanceTestTasks(planContent: string): AcceptanceTestTas
 
     const implMatch = line.match(implementsPattern);
     if (implMatch && implMatch[1] !== undefined) {
-      // Parse comma-separated DR references like "DR-1, DR-2"
       implementsDrs = implMatch[1]
         .split(/,\s*/)
         .map(dr => dr.trim())
@@ -507,22 +440,21 @@ export function parseAcceptanceTestTasks(planContent: string): AcceptanceTestTas
     }
   }
 
-  // Flush last task
   flushTask();
 
   return result;
 }
 
-// ─── Coverage Computation ───────────────────────────────────────────────
-
 /**
- * Compute coverage of design sections against plan tasks.
- * Returns pass/fail result with metrics and gap details.
+ * Computes the coverage of the design sections by the plan tasks.
  *
- * When `designContent` is provided, also checks that design requirements
- * with Given/When/Then acceptance criteria have corresponding acceptance
- * test tasks in the plan. Missing acceptance test tasks produce advisory
- * findings (non-blocking).
+ * A section that matches a deferred name counts as deferred, not as a gap. A `DR-N` section first
+ * resolves through the `**Implements:**` references. Then come substring and keyword matches on
+ * the task titles, and then on the task bodies without table rows. A section without a match is a
+ * gap.
+ *
+ * With `designContent`, it also adds advisories for Given/When/Then requirements without an
+ * acceptance test task. Advisories do not change the verdict.
  */
 export function computeCoverage(
   designSections: string[],
@@ -541,7 +473,6 @@ export function computeCoverage(
   for (const section of designSections) {
     const sectionKeywords = extractKeywords(section);
 
-    // Check if section is deferred first
     const isDeferred = isDeferredSection(section, sectionKeywords, deferredSections);
     if (isDeferred) {
       matrixRows.push({
@@ -553,13 +484,8 @@ export function computeCoverage(
       continue;
     }
 
-    // Try matching against task titles
     const matchedTasks: string[] = [];
 
-    // WFQ-006 (unified spec): a DR-N design section resolves coverage from the
-    // decomposition's explicit `**Implements:** DR-N` references — the same
-    // authoritative signal check_provenance_chain uses — before any fuzzy
-    // keyword overlap. A DR-N with no implementing task stays an uncovered GAP.
     const drMatch = section.match(/\bDR-\d+\b/i);
     if (drMatch) {
       for (const id of implementsByDr.get(drMatch[0].toUpperCase()) ?? []) {
@@ -569,7 +495,6 @@ export function computeCoverage(
 
     if (matchedTasks.length === 0) {
       for (const task of tasks) {
-        // Exact case-insensitive substring match
         if (task.title.toLowerCase().includes(section.toLowerCase())) {
           matchedTasks.push(task.title);
           continue;
@@ -578,19 +503,15 @@ export function computeCoverage(
           matchedTasks.push(task.title);
           continue;
         }
-        // Keyword match
         if (keywordMatch(sectionKeywords, task.title)) {
           matchedTasks.push(task.title);
         }
       }
     }
 
-    // If no task title matches, check individual task bodies only
-    // (not arbitrary plan prose, to avoid intro/summary false positives)
     if (matchedTasks.length === 0) {
       const taskBodies = extractTaskBodies(planContent);
       for (const body of taskBodies) {
-        // Strip table rows within task body
         const cleanBody = body
           .split('\n')
           .filter((line) => !line.trimStart().startsWith('|'))
@@ -626,12 +547,10 @@ export function computeCoverage(
   const total = covered + gaps + deferredCount;
   const passed = gaps === 0;
 
-  // Check acceptance test coverage for GWT sections (advisory only)
   const advisories = designContent
     ? checkAcceptanceTestCoverage(designContent, planContent)
     : [];
 
-  // Build report
   const report = buildReport(matrixRows, covered, gaps, deferredCount, total, gapSections);
 
   return {
@@ -643,15 +562,13 @@ export function computeCoverage(
   };
 }
 
-// ─── Deferred Check Helper ──────────────────────────────────────────────
-
+/** True when a deferred name matches the section by substring in either direction, or by keywords. */
 function isDeferredSection(
   section: string,
   sectionKeywords: string[],
   deferredSections: string[],
 ): boolean {
   for (const deferred of deferredSections) {
-    // Exact case-insensitive substring match (both directions)
     if (deferred.toLowerCase().includes(section.toLowerCase())) {
       return true;
     }
@@ -659,7 +576,6 @@ function isDeferredSection(
       return true;
     }
 
-    // Keyword match
     const deferredKeywords = extractKeywords(deferred);
     if (keywordMatch(deferredKeywords, section) || keywordMatch(sectionKeywords, deferred)) {
       return true;
@@ -667,8 +583,6 @@ function isDeferredSection(
   }
   return false;
 }
-
-// ─── Acceptance Test Coverage Check ──────────────────────────────────────
 
 /**
  * Pure helper: checks whether design requirements with Given/When/Then
@@ -687,11 +601,9 @@ export function checkAcceptanceTestCoverage(
   const advisories: string[] = [];
 
   for (const gwtSection of gwtSections) {
-    // Extract the DR identifier (e.g., "DR-1" from "DR-1: User Authentication")
     const drId = gwtSection.match(/^(DR-\d+)/i)?.[1];
     if (!drId) continue;
 
-    // Check if any acceptance test task implements this DR
     const hasAcceptanceTest = acceptanceTasks.some(task =>
       task.implementsDrs.some(dr => dr.toUpperCase() === drId.toUpperCase()),
     );
@@ -705,8 +617,6 @@ export function checkAcceptanceTestCoverage(
 
   return advisories;
 }
-
-// ─── Report Builder ─────────────────────────────────────────────────────
 
 function buildReport(
   rows: CoverageMatrixRow[],
@@ -764,14 +674,11 @@ function buildReport(
   return lines.join('\n');
 }
 
-// ─── Handler ─────────────────────────────────────────────────────────────
-
 export async function handlePlanCoverage(
   args: { featureId: string; designPath: string; planPath: string },
   stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
-  // Input validation
   if (!args.featureId) {
     return {
       success: false,
@@ -832,17 +739,19 @@ export async function handlePlanCoverage(
   });
 }
 
+/**
+ * Parses the design and the plan, computes the coverage, and records the gate event.
+ *
+ * It also adds the acceptance-criteria finding of the design-completeness check as an advisory,
+ * through the shared `acceptanceCriteriaFinding`. That advisory does not change `passed`. The
+ * other design-completeness checks are not here, because the spec template owns them.
+ */
 async function executePlanCoverage(
   args: { featureId: string; designPath: string; planPath: string },
   designContent: string,
   planContent: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
-  // The YAML gate-sidecar layer (#1298) was abandoned in #1494 — SQLite is
-  // the authoritative structured record, so markdown parsing is the
-  // permanent authoring-gate path.
-
-  // Parse design sections
   const designSections = parseDesignSections(designContent);
   if (designSections.length === 0) {
     return {
@@ -854,7 +763,6 @@ async function executePlanCoverage(
     };
   }
 
-  // Parse plan tasks
   const tasks = parsePlanTasks(planContent);
   if (tasks.length === 0) {
     return {
@@ -866,22 +774,10 @@ async function executePlanCoverage(
     };
   }
 
-  // Parse deferred sections
   const deferredSections = parseDeferredSections(planContent);
 
-  // Compute coverage (pass designContent for acceptance test advisory checks)
   const result = computeCoverage(designSections, tasks, planContent, deferredSections, designContent);
 
-  // DR-6 gate fold (#1581 task 011): the design+plan collapse retires the
-  // standalone `check_design_completeness` gate (tasks 013/014). Reproduce its
-  // acceptance-criteria ("error-coverage") finding here, on the unified
-  // `docs/specs/` artifact, so no coverage is lost when it leaves the chain.
-  // The fold is ADVISORY — it rides in `advisories` and never flips
-  // plan-coverage's `passed` (design-completeness was advisory-only too). One
-  // shared finding-string source (`acceptanceCriteriaFinding`) keeps the two
-  // gates from drifting. Only the acceptance-criteria check folds (DR-6 scope):
-  // required-sections / multiple-options are authoring-template concerns owned
-  // by the depth-scaled spec template (DR-5), not the runtime coverage gate.
   const designAcceptanceFinding = acceptanceCriteriaFinding(designContent);
   const foldedAdvisories = [
     ...(result.advisories ?? []),

@@ -28,10 +28,8 @@ export interface DurableGateScope {
 }
 
 /**
- * The requirement a ladder gate's evidence is recorded under. Exported so a
- * reader resolving a cited gate class — settlement, checking a claim's
- * reference — names the requirement the producer stamped rather than a
- * second spelling of it.
+ * The requirement id under which a ladder gate records its evidence.
+ * It is exported so that a reader of a cited gate class, such as settlement, uses the same spelling as the producer.
  */
 export function ladderRequirementId(gateClass: string): string {
   return `verification-ladder:${gateClass}`;
@@ -41,14 +39,16 @@ function scopeError(code: string, message: string): ToolResult {
   return { success: false, error: { code, message } };
 }
 
+/**
+ * Uses the same resolver as the phase-gate adapter in `gate-runner`.
+ * A workflow with no phase-attempt stamp thus gets a derived attempt id, not an error.
+ */
 async function activePhaseAttemptId(
   featureId: string,
   eventStore: EventStore,
 ): Promise<string | ToolResult> {
   const resolved = await resolveWorkflowState({ featureId, eventStore });
   if ('error' in resolved) return resolved.error;
-  // Shared with `gate-runner`'s phase-gate adapter — see the module header there
-  // for why a hard failure on a missing stamp wedges pre-v2.12 workflows.
   return resolveActivePhaseAttemptId(featureId, resolved.state);
 }
 
@@ -68,10 +68,9 @@ function fallbackArtifactId(scope: DurableGateScope, phaseAttemptId: string): st
 }
 
 /**
- * Select the immutable proof target. Per-task ladder runs are always task
- * subjects; cumulative runs bind to HEAD when available and otherwise to an
- * explicit artifact target rather than pretending that mutable workflow state
- * is a commit.
+ * Selects the immutable proof target. A run with a `taskId` binds to a task subject.
+ * Other runs bind to the `HEAD` commit. When `HEAD` does not resolve, they bind to an artifact target.
+ * Mutable workflow state is not a commit, so the producer never uses it as one.
  */
 function selectSubject(
   scope: DurableGateScope,

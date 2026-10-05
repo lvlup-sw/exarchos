@@ -1,9 +1,6 @@
 /**
- * makeStubProbes — test helper producing a DoctorProbes bundle where
- * every field throws by default (DIM-4/T-4.2). Check tests override only
- * the probes they actually exercise, so accidental dependencies on
- * unstubbed probes surface as loud failures rather than silent
- * pass-through. No module-global state (DIM-1).
+ * Test helper that builds a `DoctorProbes` bundle in which each probe function throws.
+ * A check test overrides only the probes it uses. A call to a probe that the test does not override throws an error.
  */
 
 import { DEFAULT_CHECK_BUDGET_MS, type DoctorProbes } from '../../probes.js';

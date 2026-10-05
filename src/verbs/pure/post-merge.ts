@@ -1,23 +1,13 @@
 /**
- * Post-Merge Regression Check
- *
- * Gate check for the synthesize -> cleanup boundary.
- * Verifies CI passed on the merge commit and runs the test suite
- * to detect regressions. CI status is queried via VcsProvider.
- *
- * Exit code semantics (when used as a gate):
- *   0 = pass (CI green, tests pass)
- *   1 = findings (CI failure or test regression)
+ * Post-merge regression check for the synthesize-to-cleanup boundary. It reads the CI status of
+ * the PR through the `VcsProvider`, then runs `npm run test:run`. The status is `fail` when
+ * either check fails.
  */
 
 import type { VcsProvider, CiStatus, CiCheck as VcsCiCheck } from '../../vcs/provider.js';
 import { createVcsProvider } from '../../vcs/factory.js';
 import { runCommandSync } from '../../utils/process.js';
 import { resolveRunnableCommand } from '../../config/test-runtime-resolver.js';
-
-// ============================================================
-// Types
-// ============================================================
 
 export interface CommandResult {
   readonly exitCode: number;
@@ -50,10 +40,6 @@ export interface PostMergeResult {
   report: string;
 }
 
-// ============================================================
-// Default command runner using child_process
-// ============================================================
-
 function defaultCommandRunner(
   cmd: string,
   args: readonly string[],
@@ -76,16 +62,9 @@ function defaultCommandRunner(
   }
 }
 
-// ============================================================
-// CI check status mapping
-// ============================================================
-
 const PASSING_STATUSES: ReadonlySet<VcsCiCheck['status']> = new Set(['pass', 'skipped']);
 
-// ============================================================
-// Core logic
-// ============================================================
-
+/** Runs the CI check and the test suite, and builds the report. A PR with no CI checks passes the CI check. */
 export async function checkPostMerge(options: PostMergeOptions): Promise<PostMergeResult> {
   const { prUrl, mergeSha, repoRoot } = options;
   const runCommand =
@@ -110,9 +89,6 @@ export async function checkPostMerge(options: PostMergeOptions): Promise<PostMer
     failCount++;
   }
 
-  // --------------------------------------------------------
-  // CHECK 1: CI Status via VcsProvider
-  // --------------------------------------------------------
   async function checkCiStatus(): Promise<void> {
     let ciStatus: CiStatus;
     try {
@@ -130,7 +106,6 @@ export async function checkPostMerge(options: PostMergeOptions): Promise<PostMer
     }
 
     if (ciStatus.checks.length === 0) {
-      // No checks found — treat as pass (no CI configured)
       checkPass('CI green (no checks configured)');
       return;
     }
@@ -151,9 +126,6 @@ export async function checkPostMerge(options: PostMergeOptions): Promise<PostMer
     checkPass('CI green (all checks SUCCESS, SKIPPED, or NEUTRAL)');
   }
 
-  // --------------------------------------------------------
-  // CHECK 2: Test Suite
-  // --------------------------------------------------------
   function checkTestSuite(): void {
     const resolved = resolveRunnableCommand(repoRoot, 'test');
     if (resolved.kind !== 'runnable') {
@@ -177,11 +149,9 @@ export async function checkPostMerge(options: PostMergeOptions): Promise<PostMer
     checkPass(`Test suite (${resolved.command} passed)`);
   }
 
-  // Execute checks
   await checkCiStatus();
   checkTestSuite();
 
-  // Build structured report
   const reportLines: string[] = [];
   reportLines.push('## Post-Merge Regression Report');
   reportLines.push('');

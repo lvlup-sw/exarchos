@@ -1,36 +1,20 @@
 /**
- * Static Analysis Gate
+ * Static analysis gate: runs lint, typecheck, and quality checks for the
+ * review workflow and reports a structured result. The caller injects the
+ * command runner as a `RunCommandFn`.
  *
- * Runs static analysis tools (lint, typecheck, quality-check) with structured
- * pass/fail output for the review workflow.
- *
- * Port of scripts/static-analysis-gate.sh. Retains external tool invocation
- * via a configurable RunCommandFn but moves orchestration, output parsing,
- * and result formatting to TypeScript.
- *
- * Exit code semantics (mapped to status field):
- *   'pass'  = EVERY applicable check ran and passed (warnings OK)
- *   'fail'  = errors found in one or more tools
- *   'skip'  = the gate is inconclusive. Two reasons produce it:
- *             'no-toolchain'        — no recognized project type at all
- *                                     (DR-4, docs/plans/archive/2026-05-04-v290-dogfood-bundle.md).
- *             'constituent-skipped' — a toolchain WAS detected and at least one
- *                                     constituent check did not run (missing
- *                                     npm script, or a --skip-* flag) while no
- *                                     check failed (DR-6). The dimension is
- *                                     DEGRADED, never PASS: a check that never
- *                                     ran is not evidence that it would pass.
- *             The `skipReason` field carries the reason code.
- *   'error' = usage error (missing repo root, no package.json)
+ * Status values:
+ *   - `pass`: every applicable check ran and passed. Warnings are allowed.
+ *   - `fail`: one or more checks failed.
+ *   - `skip`: the result is inconclusive. `skipReason` is `no-toolchain` when
+ *     no supported project type is found, or `constituent-skipped` when a
+ *     check did not run and no check failed.
+ *   - `error`: a usage error, such as a missing or invalid repo root.
  */
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { detectToolchain, BUILTIN_TOOLCHAINS } from '../../config/toolchains.js';
-
-// ============================================================
-// PUBLIC TYPES
-// ============================================================
 
 /** Result of running an external command. */
 export interface CommandResult {
@@ -38,21 +22,14 @@ export interface CommandResult {
   readonly stdout: string;
   readonly stderr: string;
   /**
-   * Set when the command could not be SPAWNED at all (ENOENT/EACCES/…) — the
-   * process never ran, so `exitCode`/`stdout` are not authoritative. Distinct
-   * from a normal non-zero exit (the process ran and failed). Optional;
-   * unset on a successful spawn. Consumed by the integration-suite gate to
-   * separate a runner-spawn failure from a JSON-shape mismatch (#1537).
+   * Set when the command did not start (ENOENT, EACCES). The process did not
+   * run, so `exitCode` and `stdout` are not authoritative. The integration-suite
+   * gate uses it to tell a spawn error from a JSON-shape mismatch.
    */
   readonly spawnError?: string;
 }
 
-/**
- * Signature for the external command runner.
- *
- * Abstracted to allow mocking in tests while retaining real execFileSync
- * in production use.
- */
+/** Signature of the external command runner, so that tests can inject a fake. */
 export type RunCommandFn = (
   cmd: string,
   args: readonly string[],
@@ -71,28 +48,22 @@ export interface StaticAnalysisInput {
 }
 
 /**
- * Reason code for a 'skip' status.
- *
- * - 'no-toolchain'        — no recognized project files in repoRoot (DR-4).
- * - 'constituent-skipped' — a toolchain was detected but at least one
- *                           constituent check did not run (DR-6). The gate is
- *                           DEGRADED/inconclusive: it may not report PASS.
+ * Reason code for a `skip` status.
+ * - `no-toolchain`: no supported project type in `repoRoot`.
+ * - `constituent-skipped`: a toolchain was detected, but a check did not run.
+ *   The result is inconclusive and cannot be a pass.
  */
 export type StaticAnalysisSkipReason = 'no-toolchain' | 'constituent-skipped';
 
 export interface StaticAnalysisResult {
   /**
    * Overall status.
-   *
-   * - 'pass'  — EVERY applicable check ran and passed. A single skipped
-   *             constituent forbids this value (DR-6).
-   * - 'fail'  — one or more checks failed
-   * - 'skip'  — inconclusive; see `skipReason` for the reason code. Distinct
-   *             from 'pass' so the gate does not falsely-green a repo with no
-   *             recognized toolchain (DR-4) or with a check that never ran
-   *             (DR-6). See DR-4 in v2.9 dogfood plan, DR-6 in
-   *             docs/specs/2026-08-04-wiring-closure-and-unified-integration-suite.md.
-   * - 'error' — usage error (missing/invalid repo root, etc.)
+   * - `pass`: every applicable check ran and passed. One skipped check
+   *   prevents this value.
+   * - `fail`: one or more checks failed.
+   * - `skip`: inconclusive, see `skipReason`. A repo with no supported
+   *   toolchain, or with a check that did not run, is not reported as a pass.
+   * - `error`: a usage error, such as a missing or invalid repo root.
    */
   readonly status: 'pass' | 'fail' | 'skip' | 'error';
   /** Structured markdown report. */
@@ -106,54 +77,13 @@ export interface StaticAnalysisResult {
   /** Number of checks that failed. */
   readonly failCount: number;
   /**
-   * Number of constituent checks that did NOT run (missing script or
-   * --skip-* flag). Non-zero forces the aggregate away from 'pass' (DR-6).
+   * Number of checks that did not run, because of a missing script or a skip
+   * flag. A non-zero count prevents `pass`.
    */
   readonly skipCount: number;
   /** Detected project type (undefined if no recognized project). */
   readonly projectType?: string | undefined;
 }
-
-// ============================================================
-// IMPORT-BOUNDARY LINT (SIV-3 Layer A, task 027)
-// ============================================================
-//
-// The boundary-lint leg rides the static-analysis gate to enforce
-// architectural import boundaries (e.g. "domain core must not import the IO
-// facade"). It is Layer A of SIV-3: a *structural* boundary check on the
-// module import graph.
-//
-// Decision (made at plan time): the leg is built on **dependency-cruiser**,
-// NOT eslint-plugin-boundaries. This repo carries no ESLint infrastructure,
-// so a standalone CLI (`npx depcruise --validate`) rides the gate cleanly
-// without dragging an entire ESLint toolchain into the dependency tree. The
-// rule set lives in a committed `.dependency-cruiser.cjs` at the repo root —
-// the same file an author edits to add boundaries.
-//
-// Layer B (taint analysis — "no raw IO into core", a *dataflow* check) ships
-// alongside, as `runRawIoTaint` below. dependency-cruiser only sees the import
-// graph, not the flow of tainted values through it, so Layer B is a SEPARATE
-// leg driven by a resolved taint engine (Semgrep) over a committed ruleset.
-//
-// Implementation decision (SIV-3B, #1529): the taint leg is driven by an
-// EXTERNAL resolved engine (Semgrep), not a hand-rolled TypeScript-compiler AST
-// walk. Rationale: (1) bundling the TS compiler into the shipped runtime to
-// re-implement dataflow is disproportionate; (2) one engine (Semgrep) serves
-// TS *and* the non-TS degrade the research names (CodeQL is the heavier
-// alternative), so the guarantee is language-agnostic with a single per-runtime
-// implementation (INV-4 parity) rather than a TS-only primary + a separate
-// degrade; (3) the ruleset — not code — encodes BOTH halves of the invariant:
-// (a) raw IO (`JSON.parse` / `response.json()` / `req.body` / `fs.read*`) whose
-// result is not consumed by a registered parser, AND (b) out-of-band
-// `as Brand` / `as any` casts downstream (Zod `.brand()` is compile-time-only;
-// one stray cast defeats the scheme). The registered-parser surface is a
-// resolved convention (`parsers: ['src/parse/**']`) referenced by the ruleset,
-// not baked into this module.
-//
-// INV-4 degrade discipline: a repo with no `.dependency-cruiser.cjs` (or with
-// dependency-cruiser absent from the toolchain) yields a SKIP leg, never a
-// hard failure — exactly like the gate's "no lint script" SKIP. The leg only
-// blocks when a real config is present AND a real violation is found.
 
 /** Candidate config filenames for the boundary lint, in resolution order. */
 const BOUNDARY_CONFIG_FILENAMES: readonly string[] = [
@@ -172,14 +102,13 @@ export interface BoundaryLintInput {
   /** External command runner (dependency injection). */
   readonly runCommand: RunCommandFn;
   /**
-   * Source dirs/files to validate. Defaults to `['.']` (whole repoRoot) — the
-   * config's own `from`/`to` path rules narrow the actual surface, so passing
-   * the repoRoot is sufficient and matches how authors run depcruise locally.
+   * Source paths to validate. The default is `['.']`, because the `from` and
+   * `to` rules in the config narrow the real surface.
    */
   readonly sources?: readonly string[];
 }
 
-/** Verdict of the import-boundary leg. SKIP is the INV-4 advisory degrade. */
+/** Verdict of the import-boundary leg. `SKIP` is advisory and does not block. */
 export interface BoundaryLintResult {
   readonly status: 'PASS' | 'FAIL' | 'SKIP';
   /** Human detail: the violation summary on FAIL, the skip reason on SKIP. */
@@ -187,11 +116,9 @@ export interface BoundaryLintResult {
 }
 
 /**
- * Locate a `.dependency-cruiser.*` config in `repoRoot`. Returns the bare
- * filename (relative to repoRoot) of the first match, or null when none
- * exists. Detection is via a single directory listing so a test fs-mock that
- * stubs `readdirSync` to `[]` (the parity suite) correctly reports "no config"
- * even when `existsSync` is stubbed always-true.
+ * Finds a dependency-cruiser config in `repoRoot` and returns its file name,
+ * or null. It uses one directory listing, so a test that stubs `readdirSync`
+ * to `[]` gets "no config" even when `existsSync` always returns true.
  */
 function findBoundaryConfig(repoRoot: string): string | null {
   let entries: string[];
@@ -205,19 +132,13 @@ function findBoundaryConfig(repoRoot: string): string | null {
 }
 
 /**
- * Run the dependency-cruiser import-boundary lint over `repoRoot`.
- *
- * - No `.dependency-cruiser.*` config present → SKIP (advisory; depcruise is
- *   NOT invoked).
- * - Config present, `depcruise --validate` exits 0 → PASS.
- * - Config present, `depcruise --validate` exits non-zero → FAIL with the
- *   violation summary in `detail`.
- *
- * The runner is invoked as `npx depcruise --validate <config> <sources...>`
- * with `cwd: repoRoot` — `npx` resolves the locally-installed binary (or skips
- * to PASS-equivalent SKIP if the runner cannot find it; a runner throw is
- * treated as a SKIP, not a FAIL, to honor the degrade discipline when the tool
- * is simply absent).
+ * Runs the import-boundary lint with `npx depcruise --validate` over
+ * `repoRoot`. The leg checks the module import graph against the rules in a
+ * committed dependency-cruiser config.
+ * - No config: `SKIP`, and depcruise does not run.
+ * - Exit 0: `PASS`.
+ * - Non-zero exit: `FAIL`, with the violation summary in `detail`.
+ * - The runner throws: `SKIP`, because a missing tool is not a failure.
  */
 export function runBoundaryLint(input: BoundaryLintInput): BoundaryLintResult {
   const { repoRoot, runCommand, sources = ['.'] } = input;
@@ -238,7 +159,6 @@ export function runBoundaryLint(input: BoundaryLintInput): BoundaryLintResult {
       { cwd: repoRoot },
     );
   } catch {
-    // Tool absent / not resolvable → degrade to SKIP, never a hard failure.
     return { status: 'SKIP', detail: 'dependency-cruiser not available' };
   }
 
@@ -252,23 +172,6 @@ export function runBoundaryLint(input: BoundaryLintInput): BoundaryLintResult {
     'dependency-cruiser reported a boundary violation';
   return { status: 'FAIL', detail };
 }
-
-// ============================================================
-// BOUNDARY-PARSE TAINT (SIV-3 Layer B, #1529)
-// ============================================================
-//
-// "No raw IO into the core": untrusted input must cross a registered parser
-// before entering the domain core, and no out-of-band cast may forge a branded
-// type downstream. This is a DATAFLOW concern dependency-cruiser cannot express
-// (it sees imports, not value flow), so it rides its own resolved engine.
-//
-// The engine is Semgrep (resolved, not bundled — see the decision note above).
-// The leg follows the exact INV-4 degrade discipline as Layer A: it only runs
-// when a repo OPTS IN by committing a taint ruleset at a known path, and a
-// missing ruleset OR a missing engine yields an advisory SKIP, never a hard
-// FAIL. A repo that declares no parse boundary is simply not subject to the
-// leg — keeping the gate noise-free for the majority of repos and never
-// breaking a build that has not adopted the convention.
 
 /** Candidate taint-ruleset filenames, in resolution order. */
 const TAINT_RULESET_FILENAMES: readonly string[] = [
@@ -285,14 +188,13 @@ export interface RawIoTaintInput {
   /** External command runner (dependency injection). */
   readonly runCommand: RunCommandFn;
   /**
-   * Core source dirs to scan. Defaults to `['.']` — the ruleset's own `paths`
-   * include/exclude narrows the real surface, so passing the repoRoot is
-   * sufficient and matches how authors run semgrep locally.
+   * Core source paths to scan. The default is `['.']`, because the `paths`
+   * filters in the ruleset narrow the real surface.
    */
   readonly coreSources?: readonly string[];
 }
 
-/** Verdict of the boundary-parse taint leg. SKIP is the INV-4 advisory degrade. */
+/** Verdict of the boundary-parse taint leg. `SKIP` is advisory and does not block. */
 export interface RawIoTaintResult {
   readonly status: 'PASS' | 'FAIL' | 'SKIP';
   /** Human detail: the violation summary on FAIL, the skip reason on SKIP. */
@@ -300,10 +202,9 @@ export interface RawIoTaintResult {
 }
 
 /**
- * Locate a taint ruleset in `repoRoot`. Returns the relative path of the first
- * match, or null when none exists. Detection mirrors `findBoundaryConfig`: a
- * single directory listing of the `.semgrep` dir, so an fs-mock that stubs
- * `readdirSync` correctly reports "no ruleset" without invoking the engine.
+ * Finds a taint ruleset in `repoRoot` and returns its relative path, or null.
+ * Like `findBoundaryConfig`, it lists the `.semgrep` directory, so a test that
+ * stubs `readdirSync` gets "no ruleset" and the engine does not run.
  */
 function findTaintRuleset(repoRoot: string): string | null {
   for (const rel of TAINT_RULESET_FILENAMES) {
@@ -319,19 +220,14 @@ function findTaintRuleset(repoRoot: string): string | null {
 }
 
 /**
- * Run the boundary-parse taint leg over `repoRoot`.
- *
- * - No taint ruleset committed → SKIP (advisory; the engine is NOT invoked).
- * - Ruleset present, `semgrep` finds no violations (exit 0) → PASS.
- * - Ruleset present, `semgrep` reports findings (exit 1) → FAIL with the
- *   finding summary in `detail`.
- * - Ruleset present but the engine is absent or errors (throw / exit ≥2) →
- *   SKIP (degrade discipline: a missing/mis-resolving tool is inconclusive,
- *   never a hard failure).
- *
- * Invoked as `semgrep --error --quiet --config <ruleset> <coreSources...>` with
- * `cwd: repoRoot`. The `--error` flag makes findings exit non-zero so a FAIL is
- * unambiguous; `--quiet` keeps the report compact.
+ * Runs the boundary-parse taint leg with
+ * `semgrep --error --quiet --config <ruleset> <coreSources...>`. The ruleset
+ * checks that untrusted input passes a registered parser before it enters the
+ * core. Import rules cannot see value flow, so this leg uses a dataflow engine.
+ * - No ruleset: `SKIP`, and the engine does not run.
+ * - Exit 0: `PASS`. Exit 1: `FAIL`, with the findings in `detail`.
+ * - A throw, a `spawnError`, or any other exit code: `SKIP`. An engine error
+ *   or a killed process is not evidence of a violation.
  */
 export function runRawIoTaint(input: RawIoTaintInput): RawIoTaintResult {
   const { repoRoot, runCommand, coreSources = ['.'] } = input;
@@ -352,16 +248,10 @@ export function runRawIoTaint(input: RawIoTaintInput): RawIoTaintResult {
       { cwd: repoRoot },
     );
   } catch {
-    // Engine absent / not resolvable → degrade to SKIP, never a hard failure.
     return { status: 'SKIP', detail: 'semgrep not available' };
   }
 
   if (result.spawnError) {
-    // The runner reports an unspawnable engine (ENOENT/EACCES) via `spawnError`
-    // rather than throwing — when it does, `exitCode` is NOT authoritative, so a
-    // coincidental `1` must not read as a boundary finding. Degrade to SKIP,
-    // the same INV-4 discipline as the throw path above (and the contract the
-    // integration-suite gate already honors, #1537).
     return {
       status: 'SKIP',
       detail: result.spawnError.trim() || 'semgrep not available',
@@ -372,11 +262,6 @@ export function runRawIoTaint(input: RawIoTaintInput): RawIoTaintResult {
     return { status: 'PASS' };
   }
 
-  // Exit 1 = findings (a real boundary violation) ⇒ FAIL. ANY OTHER non-zero
-  // code is inconclusive, not a violation ⇒ degrade to SKIP (INV-4), the same
-  // discipline as a missing tool: semgrep exit ≥2 is an engine/config error,
-  // and a negative code is signal death (a SIGKILL'd engine) — neither is
-  // evidence of a boundary violation, so neither may hard-FAIL the build.
   if (result.exitCode !== 1) {
     return {
       status: 'SKIP',
@@ -391,10 +276,6 @@ export function runRawIoTaint(input: RawIoTaintInput): RawIoTaintResult {
   return { status: 'FAIL', detail };
 }
 
-// ============================================================
-// INTERNAL TYPES
-// ============================================================
-
 type CheckStatus = 'PASS' | 'FAIL' | 'SKIP';
 
 interface CheckResult {
@@ -402,10 +283,6 @@ interface CheckResult {
   readonly status: CheckStatus;
   readonly detail?: string;
 }
-
-// ============================================================
-// HELPERS
-// ============================================================
 
 /**
  * Check if an npm script exists in the package.json scripts field.
@@ -433,41 +310,21 @@ function readPackageJson(
   }
 }
 
-// ============================================================
-// FAIL-DETAIL CAP (DR-7a — counts-not-transcripts)
-// ============================================================
-//
-// A failing lint/typecheck run can emit hundreds of lines of transcript. Echoing
-// the whole dump into the gate response is the O-3 unbounded-echo the token-
-// economy audit named (DR-7): the reviewer pays for a 500-line wall of text when
-// a first page + counts + a re-run hint is enough to triage. This caps the raw
-// detail to `FAIL_DETAIL_MAX_LINES`, then appends:
-//   (a) the total line count (so the reader knows how much was elided),
-//   (b) a per-file failure breakdown naming EVERY distinct failing file with its
-//       line count — computed over the FULL raw output, not just the kept head —
-//       so triage never has to re-run the uncapped path to answer "what failed",
-//   (c) a steering suffix pointing at the escape hatch (re-run for full output).
-//
-// Fidelity over brevity for the file list: the head is capped, but the complete
-// set of failing files is always named. Short details (≤ cap) pass through
-// byte-identically so existing single-line FAIL messages keep their exact shape.
-
 /** Maximum raw transcript lines kept in a FAIL detail before the cap engages. */
 export const FAIL_DETAIL_MAX_LINES = 50;
 
 /**
- * Maximum distinct failing files enumerated in the per-file breakdown. Without
- * this cap a large cascade appends one line per file, so the "capped" detail can
- * still blow the DR-7 response budget the line cap exists to protect.
+ * Maximum distinct failing files in the per-file list. Without this cap, a
+ * large cascade adds one line for each file, and the capped detail can still
+ * exceed the response budget.
  */
 export const FAIL_DETAIL_MAX_FILES = 20;
 
 /**
- * Path-like token ending in a recognized source extension. Used to attribute
- * each transcript line to a failing file. Matches tsc (`src/foo.ts(12,5):`),
- * eslint stylish headers (`/abs/src/foo.ts`), eslint unix/compact
- * (`src/foo.ts:12:5:`), and bare-root files (`foo.ts`). A leading `/`, `./`, or
- * `../` is captured when present; intermediate directories are optional.
+ * A path-like token that ends in a known source extension. It attributes each
+ * transcript line to a file. It matches tsc (`src/foo.ts(12,5):`), eslint
+ * stylish headers (`/abs/src/foo.ts`), eslint unix output (`src/foo.ts:12:5:`),
+ * and bare file names (`foo.ts`).
  */
 const FILE_TOKEN_RE =
   /(?:\.{0,2}\/)?(?:[\w.-]+\/)*[\w.-]+\.(?:tsx?|jsx?|mts|cts|mjs|cjs|cs|go|rs|py|json|vue|svelte)\b/;
@@ -478,11 +335,7 @@ function extractFileToken(line: string): string | null {
   return m ? m[0] : null;
 }
 
-/**
- * Count transcript lines attributable to each distinct failing file, over the
- * FULL raw output. Insertion order preserved for files with equal counts, so
- * output is deterministic given the input.
- */
+/** Counts the transcript lines for each failing file. The map keeps first-seen order. */
 function fileFailureCounts(lines: readonly string[]): Map<string, number> {
   const counts = new Map<string, number>();
   for (const line of lines) {
@@ -493,11 +346,11 @@ function fileFailureCounts(lines: readonly string[]): Map<string, number> {
 }
 
 /**
- * Cap a verbose FAIL `detail` (raw lint/typecheck transcript) to the first
- * `FAIL_DETAIL_MAX_LINES` lines plus a total count, a per-file failing breakdown
- * (itself capped at `FAIL_DETAIL_MAX_FILES` with an elided-count line), and a
- * steering suffix. Returns the detail unchanged when it already fits within the
- * cap (preserving the exact shape of short single-line messages).
+ * Caps a long FAIL `detail` (a raw lint or typecheck transcript). It keeps the
+ * first `FAIL_DETAIL_MAX_LINES` lines and adds the total line count, the
+ * failing files, and a re-run hint. The file list comes from the full output,
+ * sorted by line count with ties in first-seen order, and is capped at
+ * `FAIL_DETAIL_MAX_FILES`. A detail that fits is returned unchanged.
  *
  * @param rawDetail    the full (already-trimmed) tool transcript
  * @param rerunCommand the command the reviewer re-runs for the uncapped output
@@ -518,7 +371,6 @@ export function capFailDetail(rawDetail: string, rerunCommand: string): string {
   );
 
   if (fileCounts.size > 0) {
-    // Highest line count first; ties broken by first-seen order (Map iteration).
     const ordered = [...fileCounts.entries()].sort((a, b) => b[1] - a[1]);
     parts.push(`Failing files (${fileCounts.size}):`);
     const shown = ordered.slice(0, FAIL_DETAIL_MAX_FILES);
@@ -533,10 +385,6 @@ export function capFailDetail(rawDetail: string, rerunCommand: string): string {
   parts.push(`Re-run \`${rerunCommand}\` for the full output.`);
   return parts.join('\n');
 }
-
-// ============================================================
-// CHECK RUNNERS
-// ============================================================
 
 function runNpmCheck(
   name: string,
@@ -572,18 +420,12 @@ function runNpmCheck(
   }
 }
 
-// ============================================================
-// PROJECT TYPE DETECTION
-// ============================================================
-
 type ProjectType = 'Node.js' | '.NET' | 'Rust' | 'Go';
 
 /**
- * Toolchain ids this gate has check-runners for, mapped to their report label.
- * Detection itself is delegated to the shared registry (single source of truth
- * for markers — this is where `.slnx`/`.sln` are recognized, #1507). The
- * registry detects many more toolchains; this gate only *runs checks* for the
- * four it has runners for and SKIPs the rest (honest no-toolchain).
+ * The toolchain ids that this gate has check runners for, mapped to the report
+ * label. The shared registry does the detection. A toolchain without a runner
+ * here gives `skip`.
  */
 const SUPPORTED_TOOLCHAINS: Readonly<Record<string, ProjectType>> = {
   node: 'Node.js',
@@ -611,10 +453,6 @@ function detectProjectType(repoRoot: string): ProjectType | undefined {
   }
   return undefined;
 }
-
-// ============================================================
-// GENERIC CHECK RUNNER
-// ============================================================
 
 function runGenericCheck(
   name: string,
@@ -644,10 +482,6 @@ function runGenericCheck(
     return { name, status: 'FAIL', detail: message };
   }
 }
-
-// ============================================================
-// PLATFORM-SPECIFIC CHECK RUNNERS
-// ============================================================
 
 function runNodeChecks(
   repoRoot: string,
@@ -702,10 +536,13 @@ function runRustChecks(
   ];
 }
 
-// ============================================================
-// MAIN FUNCTION
-// ============================================================
-
+/**
+ * Runs the checks for the detected project type and builds the report. The
+ * boundary-lint and taint legs join the checks only when they do not give
+ * `SKIP`, so a repo without their config sees no change. A skipped check
+ * counts as a result. The precedence is FAIL, then DEGRADED (`skip`), then
+ * PASS, so PASS needs every check to run and pass.
+ */
 export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisResult {
   const { repoRoot, skipLint = false, skipTypecheck = false, runCommand } = input;
 
@@ -720,7 +557,6 @@ export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisRes
     };
   }
 
-  // Validate repoRoot exists on disk
   try {
     if (!fs.existsSync(repoRoot) || !fs.statSync(repoRoot).isDirectory()) {
       return {
@@ -744,14 +580,9 @@ export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisRes
     };
   }
 
-  // Detect project type
   const projectType = detectProjectType(repoRoot);
 
   if (!projectType) {
-    // T-10 / DR-4: no recognized toolchain returns 'skip' (inconclusive),
-    // NOT 'pass'. A pass would falsely-green any repo missing a toolchain
-    // marker. Callers (handler + convergence view) translate this into a
-    // skipped/inconclusive gate result rather than a passing one.
     const output = [
       '## Static Analysis Report',
       '',
@@ -775,7 +606,6 @@ export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisRes
     };
   }
 
-  // Run platform-specific checks
   let checks: CheckResult[];
   switch (projectType) {
     case 'Node.js':
@@ -792,13 +622,6 @@ export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisRes
       break;
   }
 
-  // SIV-3 Layer A (task 027): fold the import-boundary leg into the report
-  // ONLY when a `.dependency-cruiser.*` config is actually present. An absent
-  // config produces an advisory SKIP from runBoundaryLint that we deliberately
-  // do NOT append — the leg simply does not apply to repos that declare no
-  // boundaries, keeping the report free of noise (and preserving the gate's
-  // existing output for the overwhelming majority of repos). When a config IS
-  // present, the leg's PASS/FAIL is a first-class check counted in the totals.
   const boundary = runBoundaryLint({ repoRoot, runCommand });
   if (boundary.status !== 'SKIP') {
     checks.push({
@@ -808,11 +631,6 @@ export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisRes
     });
   }
 
-  // SIV-3 Layer B (#1529): fold the boundary-parse taint leg in on the same
-  // terms as Layer A — only when a repo has opted in with a committed taint
-  // ruleset. An absent ruleset (or an unresolved engine) yields an advisory
-  // SKIP we deliberately do NOT append, so the leg is invisible to repos that
-  // have not adopted the parse-at-edge convention and never breaks their build.
   const taint = runRawIoTaint({ repoRoot, runCommand });
   if (taint.status !== 'SKIP') {
     checks.push({
@@ -822,13 +640,6 @@ export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisRes
     });
   }
 
-  // Tally results.
-  //
-  // DR-6: SKIP is tallied as a FIRST-CLASS outcome, not discarded. The gate
-  // previously counted only PASS/FAIL, so a constituent that never ran was
-  // invisible to the verdict — a repo with no `lint` and no `quality-check`
-  // script rendered `PASS (2/2)` off a single real check. A check that never
-  // ran is not evidence that it would have passed.
   let passCount = 0;
   let failCount = 0;
   let skipCount = 0;
@@ -839,7 +650,6 @@ export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisRes
     if (check.status === 'SKIP') skipCount++;
   }
 
-  // Build structured output
   const outputLines: string[] = [
     '## Static Analysis Report',
     '',
@@ -863,11 +673,6 @@ export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisRes
   outputLines.push('---');
   outputLines.push('');
 
-  // DR-6 precedence: FAIL ≻ DEGRADED ≻ PASS.
-  //
-  // A real failure still dominates (an operator must see the failure first);
-  // otherwise ANY skipped constituent degrades the dimension. PASS is
-  // reachable only when every constituent actually ran and passed.
   if (failCount > 0) {
     outputLines.push(`**Result: FAIL** (${failCount}/${total} checks failed)`);
   } else if (skipCount > 0) {

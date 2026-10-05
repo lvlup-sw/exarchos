@@ -1,10 +1,6 @@
 /**
- * Context Economy checker — pure TypeScript port of check-context-economy.sh.
- *
- * Analyzes a unified diff for code complexity patterns that impact LLM context
- * consumption: oversized files, wide diffs, and large generated files.
- *
- * Operates in diff-only mode (no filesystem access required).
+ * The context-economy checker. It reads a unified diff for patterns that cost LLM context: oversized source files, wide diffs, and large generated files.
+ * It reads only the diff and does not access the file system.
  */
 
 /** Severity levels for findings. */
@@ -28,10 +24,6 @@ export interface ContextEconomyResult {
   readonly findings: readonly ContextEconomyFinding[];
 }
 
-// ============================================================
-// Internal: diff parsing
-// ============================================================
-
 interface ParsedFile {
   readonly name: string;
   readonly addedLines: readonly string[];
@@ -51,7 +43,6 @@ function parseDiff(diff: string): ParsedFile[] {
   for (const line of diff.split('\n')) {
     const headerMatch = line.match(/^diff --git a\/(.+?) b\//);
     if (headerMatch) {
-      // Flush previous file
       if (currentName) {
         files.push({ name: currentName, addedLines: currentAdded });
       }
@@ -60,18 +51,15 @@ function parseDiff(diff: string): ParsedFile[] {
       continue;
     }
 
-    // Skip +++ header lines (e.g. "+++ b/file.ts")
     if (line.startsWith('+++ ')) {
       continue;
     }
 
-    // Count added lines (all lines starting with +, header already filtered)
     if (line.startsWith('+')) {
       currentAdded.push(line.slice(1));
     }
   }
 
-  // Flush last file
   if (currentName) {
     files.push({ name: currentName, addedLines: currentAdded });
   }
@@ -83,10 +71,6 @@ function parseDiff(diff: string): ParsedFile[] {
 function isSourceFile(name: string): boolean {
   return name.endsWith('.ts') || name.endsWith('.js');
 }
-
-// ============================================================
-// Individual checks
-// ============================================================
 
 const SOURCE_FILE_LENGTH_THRESHOLD = 400;
 const DIFF_BREADTH_THRESHOLD = 30;
@@ -118,11 +102,8 @@ function checkSourceFileLength(files: readonly ParsedFile[]): {
 }
 
 /**
- * Check 2: Function/method length — skipped in diff-only mode.
- *
- * The bash script only performs this check in --repo-root mode because it
- * requires access to actual files for brace-counting. In the pure-diff
- * TypeScript port we always pass this check.
+ * Check 2: function and method length. It needs the files for brace counting, so it always passes in diff-only mode.
+ * `checkContextEconomy` does not call it.
  */
 function checkFunctionLength(): {
   findings: ContextEconomyFinding[];
@@ -185,12 +166,9 @@ function checkLargeGeneratedFiles(files: readonly ParsedFile[]): {
   return { findings, passed: findings.length === 0 };
 }
 
-// ============================================================
-// Public API
-// ============================================================
-
 /**
- * Run all context-economy checks on a unified diff string.
+ * Runs the context-economy checks on a unified diff string.
+ * The function-length check needs file system access, so it does not run and is not counted in `checksRun` or `checksPassed`.
  *
  * @param diff - A unified diff string (as produced by `git diff`).
  * @returns The aggregated check result.
@@ -202,8 +180,6 @@ export function checkContextEconomy(diff: string): ContextEconomyResult {
 
   const files = parseDiff(diff);
 
-  // Function-length check requires filesystem access (brace-counting) and is
-  // skipped in diff-only mode — not counted in checksRun/checksPassed.
   const checks = [
     checkSourceFileLength(files),
     checkDiffBreadth(files),

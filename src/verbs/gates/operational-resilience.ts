@@ -1,9 +1,10 @@
-// ─── Operational Resilience Gate ──────────────────────────────────────────────
-//
-// Orchestrates operational resilience checking by calling the pure TypeScript
-// checkOperationalResilience function and emitting gate.executed events for
-// quality-layer gate checks.
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * The operational resilience gate. It runs `checkOperationalResilience` over
+ * the branch diff through `runPhaseGateWithEvidence`. The runner records
+ * durable gate evidence before a success result returns, and the provider
+ * appends the quality-layer `gate.executed` event. If git cannot produce the
+ * diff, the gate fails closed.
+ */
 
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
@@ -11,8 +12,6 @@ import { createEvidenceSubject } from '../../workflow/admission/evidence-subject
 import { runPhaseGateWithEvidence } from './gate-runner.js';
 import { getDiff, requireGateEvent, sameOperationGateKey } from './gate-utils.js';
 import { checkOperationalResilience } from '../pure/operational-resilience.js';
-
-// ─── Types ─────────────────────────────────────────────────────────────────
 
 interface OperationalResilienceArgs {
   readonly featureId: string;
@@ -26,14 +25,11 @@ interface OperationalResilienceResult {
   readonly report: string;
 }
 
-// ─── Handler ───────────────────────────────────────────────────────────────
-
 export async function handleOperationalResilience(
   args: OperationalResilienceArgs,
   stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
-  // Guard clause: validate required inputs
   if (!args.featureId) {
     return {
       success: false,
@@ -41,11 +37,6 @@ export async function handleOperationalResilience(
     };
   }
 
-  // Durable gate evidence is a declared postcondition here, and a bare
-  // `gate.executed` append does not pay it — the observer reads
-  // `admission.evidence-recorded`. The shared phase-gate runner records that
-  // before any success carrier escapes; the declared signal is still minted by
-  // the provider closure below.
   return runPhaseGateWithEvidence({
     streamId: args.featureId,
     gateClass: 'operational-resilience',
@@ -69,7 +60,6 @@ async function executeOperationalResilience(
   const repoRoot = args.repoRoot || process.cwd();
   const baseBranch = args.baseBranch || 'main';
 
-  // Get the diff — fail-closed if git is unavailable
   const diff = getDiff(repoRoot, baseBranch);
   if (diff === null) {
     return {
@@ -82,7 +72,6 @@ async function executeOperationalResilience(
   const passed = tsResult.pass;
   const findingCount = tsResult.findingCount;
 
-  // Build report from structured result
   const reportLines: string[] = [];
   if (findingCount > 0) {
     for (const f of tsResult.findings) {
@@ -95,7 +84,6 @@ async function executeOperationalResilience(
   }
   const report = reportLines.join('\n');
 
-  // Return structured result
   const result: OperationalResilienceResult = {
     passed,
     findingCount,

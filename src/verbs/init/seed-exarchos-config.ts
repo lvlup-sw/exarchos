@@ -1,14 +1,7 @@
 /**
- * seedExarchosConfig — T14 (#1199 Stage 2).
- *
- * Writes a starter `.exarchos.yml` at the repo root from current
- * detection results so users have a discoverable config to edit.
- *
- * Contract:
- *   - Idempotent: never overwrites an existing `.exarchos.yml`.
- *   - Empty-detection no-op: skips writing when nothing was detected
- *     (test/typecheck/install all null).
- *   - Pure-by-default with injected fs hooks for tests.
+ * Writes a starter `.exarchos.yml` at the repo root from the current detection results.
+ * It never overwrites an existing file, and it writes nothing when no field resolves.
+ * The hooks in {@link SeedOptions} replace the real file system and resolver in tests.
  */
 
 import { existsSync, writeFileSync } from 'node:fs';
@@ -33,18 +26,12 @@ const HEADER = `# .exarchos.yml — Exarchos project configuration.
 # Docs: https://github.com/lvlup-sw/exarchos/issues/1199
 `;
 
-// Commented onboarding stanza for the architectural-invariants surface
-// (#1479). Emitted as comments so seeding documents the opt-in WITHOUT
-// changing behaviour: no catalog loads until the operator uncomments the
-// block and registers a real path. Authoring guide:
-// docs/guides/authoring-invariants.md; inspect the resolved catalog with
-// `exarchos view invariants_effective`.
-//
-// DR-31 / T-43 — the stanza MUST NOT mention `devCatalog`, even commented
-// out. That boolean is retired; a freshly-onboarded repo that copies a
-// commented `devCatalog:` line into an active config would be writing a
-// deprecated key that `doctor` then flags. Registration in `catalogs:` is the
-// one and only opt-in, so that is the only thing onboarding teaches.
+/**
+ * Commented-out onboarding block for architectural invariants.
+ * It documents the opt-in and changes no behavior, because no catalog loads until the operator uncomments it.
+ * The block must not mention `devCatalog`, even as a comment. That key is deprecated, and `doctor` flags it in an active config.
+ * Registration in `catalogs:` is the only opt-in that onboarding teaches.
+ */
 const INVARIANTS_STANZA = `
 # Architectural invariants (opt-in). Authoring guide:
 # docs/guides/authoring-invariants.md. After uncommenting, validate with
@@ -61,11 +48,11 @@ const INVARIANTS_STANZA = `
 `;
 
 export interface SeedResult {
-  /** Did we write a new config file? */
+  /** True when the function wrote a new file. */
   wrote: boolean;
-  /** Path of the file we wrote (or considered). */
+  /** Path of the target file. */
   path: string;
-  /** Why we did or didn't write. */
+  /** Why the function wrote the file or did not write it. */
   reason: 'created' | 'already-exists' | 'unresolved-no-fields';
 }
 
@@ -78,6 +65,12 @@ export interface SeedOptions {
   resolve?: (repoRoot: string) => ResolvedVerificationRuntime;
 }
 
+/**
+ * Seeds `.exarchos.yml` from `resolveVerificationRuntime`, which resolves `test`, `typecheck`, `install`, `mutation`, and `lint`.
+ * The no-op check includes `mutation` and `lint`, because they can resolve when the other three do not.
+ * The YAML holds only the resolved commands, in that order, as top-level keys that override detection.
+ * It never writes a `verification:` policy block, because that block freezes the current builtin policy into consumer config.
+ */
 export function seedExarchosConfig(
   repoRoot: string,
   options?: SeedOptions,
@@ -85,10 +78,6 @@ export function seedExarchosConfig(
   const target = path.join(repoRoot, CONFIG_FILENAME);
   const exists = options?.exists ?? existsSync;
   const write = options?.write ?? ((p, contents) => writeFileSync(p, contents, 'utf8'));
-  // Widened resolver (verification-ladder slice 2, §4.5-seed): resolves the
-  // legacy test/typecheck/install PLUS the verification commands mutation/lint,
-  // so the seeded `.exarchos.yml` pins what onboarding/doctor resolved across the
-  // whole verification surface — the same per-field layered precedence.
   const resolve = options?.resolve ?? ((root: string) => resolveVerificationRuntime(root));
 
   if (exists(target)) {
@@ -97,11 +86,6 @@ export function seedExarchosConfig(
 
   const result = resolve(repoRoot);
 
-  // Nothing resolved across the WIDENED field set ⇒ no fields to seed. mutation
-  // and lint can resolve even when the legacy triple is unresolved (e.g. a
-  // toolchain with a mutation runner but no conventional test command), so the
-  // no-op gate must consider them too — otherwise a resolvable verification
-  // command would be silently dropped.
   if (
     result.source === 'unresolved' &&
     result.test === null &&
@@ -113,15 +97,6 @@ export function seedExarchosConfig(
     return { wrote: false, path: target, reason: 'unresolved-no-fields' };
   }
 
-  // Build YAML body from non-null fields only — preserves ordering for
-  // human readability (test, typecheck, install, then the verification-ladder
-  // commands mutation, lint). These are top-level DIRECT keys (tier 2) the
-  // resolver honors above detection.
-  //
-  // NEGATIVE GUARANTEE (§4.5): only resolved COMMANDS are written. No
-  // `verification:` policy block is ever emitted — seeding the resolved policy
-  // default would freeze today's builtin table into consumer config (the
-  // gen-time-bake trap, #1483). Policy is surfaced read-only via doctor.
   const body: Record<string, string> = {};
   if (result.test !== null) body.test = result.test;
   if (result.typecheck !== null) body.typecheck = result.typecheck;

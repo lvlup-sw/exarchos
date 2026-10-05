@@ -1,27 +1,16 @@
-// ─── #1739 — the cutover promotion verbs ─────────────────────────────────────
-//
-// Two actions on `exarchos_orchestrate` (INV-5d — no new visible tool):
-//
-//   `cutover_readiness` — READ-ONLY. Assembles the six-condition evidence from
-//   ONE local store (durable sidecar fold via `evidence-reader.ts` + the
-//   process-level live sink/health) and returns the full `CutoverGateReport`
-//   with every unmet condition named. No side effects: no append, no write.
-//
-//   `cutover_decide` — OPERATOR-GATED (the T-03 pattern: the ambient
-//   DispatchContext authorization must carry `role: 'operator'` with a
-//   non-read-only posture; a delegated agent can never clear this bar no
-//   matter what it passes). Event-sources the rollout decision:
-//   `admission.rollout-decision` is ALWAYS appended (its outcome is a function
-//   of the evidence via `decideRollout`), and `admission.enforcement-enabled`
-//   is appended ONLY when the gate is satisfied — the gate module refuses to
-//   build the fact otherwise, and that refusal surfaces here in a typed
-//   `CUTOVER_GATE_NOT_SATISFIED` error naming the unmet conditions.
-//
-// Both facts land on the reserved `exarchos-admission` infrastructure stream:
-// they describe the STORE's cutover posture, not one feature workflow. Both
-// idempotency keys are natural identities (INV-8 / T-49): pure functions of
-// the operation + evidence digest, never clock- or random-derived, so a
-// retried append collapses onto the stored row.
+/**
+ * The cutover promotion verbs on `exarchos_orchestrate`.
+ *
+ * `cutover_readiness` is read-only. It assembles the evidence from the local store and the live
+ * sink, and returns the full `CutoverGateReport` with each unmet condition.
+ * `cutover_decide` needs an operator identity with a mutating posture. It always appends
+ * `admission.rollout-decision`, and appends `admission.enforcement-enabled` only when the gate
+ * is satisfied. Both facts go to the `exarchos-admission` infrastructure stream, because they
+ * describe the cutover posture of the store, not one workflow.
+ *
+ * The response schemas are in `cutover-readiness-schema.ts`, so that the registry can import
+ * them without this module.
+ */
 
 import { createHash } from 'node:crypto';
 import { ZodError } from 'zod';
@@ -30,10 +19,6 @@ import { ADMISSION_STREAM_ID } from '../../dispatch/core/infra-streams.js';
 import { getDispatchContext } from '../../dispatch/dispatch-context.js';
 import type { EventStore } from '../../events/store.js';
 import type { ToolResult } from '../../format.js';
-// The two verbs' response contracts, paid down from `vacuityWaiver` to real
-// `data` schemas. Held in their own module so the registry can import them
-// without this file's closure (event store, dispatch context, admission
-// provenance parsers) coming along.
 import type { DurableEvidenceSummary } from './cutover-readiness-schema.js';
 import {
   CutoverGateNotSatisfiedError,
@@ -67,12 +52,9 @@ import {
   PolicyIdSchema,
 } from '../../workflow/admission/types.js';
 
-// ─── Shared assembly ──────────────────────────────────────────────────────────
-
 /**
- * Test seam for the process-level live inputs. Production dispatches never
- * pass it — the composite adapter calls the handlers with three positional
- * args, so the defaults (the real sink + health counter) always apply there.
+ * Test seam for the process-level live inputs. The composite adapter passes three positional
+ * arguments, so production uses the real sink and health counter.
  */
 export interface CutoverVerbDeps {
   readonly liveAttempts?: () => readonly LiveShadowAttempt[];
@@ -90,13 +72,8 @@ function liveInputs(deps?: CutoverVerbDeps): {
 }
 
 /**
- * Project the durable fold onto the summary both verbs advertise.
- *
- * The return type is the CONTRACT's inferred shape, not `Record<string,
- * unknown>`: that is what binds this construction site to
- * `DurableEvidenceSummarySchema`, so widening or renaming a field there is a
- * compile error here rather than a response the D.5 validator rejects at run
- * time.
+ * Projects the durable fold onto the summary that both verbs return. The return type is
+ * inferred from `DurableEvidenceSummarySchema`, so a schema change is a compile error here.
  */
 function durableSummary(durable: DurableShadowEvidence): DurableEvidenceSummary {
   return {
@@ -106,12 +83,7 @@ function durableSummary(durable: DurableShadowEvidence): DurableEvidenceSummary 
   };
 }
 
-// ─── cutover_readiness (read-only) ────────────────────────────────────────────
-
-/**
- * Assemble the evidence and return the full gate report. Read-only: queries
- * the store, appends nothing, writes nothing.
- */
+/** Assembles the evidence and returns the full gate report. It appends and writes nothing. */
 export async function handleCutoverReadiness(
   _args: Record<string, unknown>,
   _stateDir: string,
@@ -142,15 +114,13 @@ export async function handleCutoverReadiness(
   }
 }
 
-// ─── cutover_decide (operator-gated, event-sourced) ───────────────────────────
-
 const CUTOVER_POLICY: CutoverPolicyRef = Object.freeze({
   policyId: PolicyIdSchema.parse(TRANSLATION_POLICY_ID),
   policyVersion: TRANSLATION_PROVIDER_VERSION,
   policyDigest: contentDigestOf(
     `${TRANSLATION_POLICY_ID}@${TRANSLATION_PROVIDER_VERSION}`,
   ),
-  // Refined per call with the actual evidence digest — see below.
+  /** A placeholder. `handleCutoverDecide` replaces it with the evidence digest on each call. */
   inputDigest: contentDigestOf('cutover-decide:unbound'),
 });
 
@@ -158,17 +128,21 @@ function sha256Hex(value: string): string {
   return createHash('sha256').update(value, 'utf8').digest('hex');
 }
 
+/**
+ * Records the rollout decision, then the enablement when the gate is satisfied.
+ * The operator check reads the ambient dispatch authorization, whose role the transport sets.
+ * It fails closed: a call with no dispatch context has no operator.
+ *
+ * The ids and idempotency keys derive only from the operation id and the evidence digest.
+ * Thus a retry collapses onto the stored rows. The gate module throws for an unsatisfied gate.
+ * That refusal returns `CUTOVER_GATE_NOT_SATISFIED`, and the recorded rollout decision stands.
+ */
 export async function handleCutoverDecide(
   _args: Record<string, unknown>,
   _stateDir: string,
   eventStore: EventStore,
   deps?: CutoverVerbDeps,
 ): Promise<ToolResult> {
-  // T-03 operator capability: taken from the SAME trust-tier mechanism that
-  // produces CAPABILITY_DENIED for shared-mutating actions — the ambient
-  // DispatchContext authorization, whose `identity.role` is derived by the
-  // transport and can never be self-asserted. Fails closed: no dispatch
-  // context (direct in-process call) ⇒ no operator.
   const dispatchContext = getDispatchContext();
   const authorization = dispatchContext?.authorization;
   const hasOperatorCapability =
@@ -199,10 +173,6 @@ export async function handleCutoverDecide(
       liveInputs(deps),
     );
 
-    // Natural identities (INV-8 / T-49): pure functions of the deciding
-    // operation and the evidence it weighed — nothing random, nothing
-    // wall-clock. A same-dispatch retry recomputes the same ids/keys and its
-    // appends collapse onto the stored rows.
     const shadowEvidenceDigest = contentDigestOf(JSON.stringify(report));
     const decisionIdentity = sha256Hex(
       `${dispatchContext.operationId}:${shadowEvidenceDigest.value}`,
@@ -234,8 +204,6 @@ export async function handleCutoverDecide(
       }),
     };
 
-    // The rollout decision is ALWAYS recorded — a `continue-shadow` verdict is
-    // a governance fact no less than an approval.
     const rolloutData = toRolloutDecisionData({
       report,
       rolloutDecisionId,
@@ -257,11 +225,6 @@ export async function handleCutoverDecide(
       { idempotencyKey: rolloutDecisionId },
     );
 
-    // The enablement fact is built by the gate module, which THROWS for an
-    // unsatisfied gate — the structural guarantee that enforcement cannot be
-    // event-sourced past an unmet condition. That refusal becomes the
-    // typed error below, WITH the already-recorded rollout decision attached
-    // (the `continue-shadow` fact stands; only the enablement is refused).
     let enablementData: ReturnType<typeof toEnforcementEnabledData>;
     try {
       enablementData = toEnforcementEnabledData({
@@ -338,5 +301,4 @@ export async function handleCutoverDecide(
   }
 }
 
-/** The report type, re-exported for callers of the verbs' typed results. */
 export type { CutoverGateReport };

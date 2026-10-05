@@ -1,9 +1,6 @@
-// ─── Context Economy Gate ────────────────────────────────────────────────────
-//
-// Orchestrates context-economy checking by calling the pure TypeScript
-// checkContextEconomy function and emitting gate.executed events for
-// quality-layer gate checks.
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * The context-economy gate. It runs the pure `checkContextEconomy` check over the branch diff and records a quality-layer `gate.executed` event.
+ */
 
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
@@ -13,8 +10,6 @@ import { getDiff, requireGateEvent, sameOperationGateKey } from './gate-utils.js
 import { checkContextEconomy } from '../pure/context-economy.js';
 import { queryRuntimeMetrics } from '../../projections/telemetry/telemetry-queries.js';
 import type { RuntimeMetrics } from '../../projections/telemetry/telemetry-queries.js';
-
-// ─── Types ─────────────────────────────────────────────────────────────────
 
 interface ContextEconomyArgs {
   readonly featureId: string;
@@ -29,14 +24,15 @@ interface ContextEconomyResult {
   readonly runtimeMetrics?: RuntimeMetrics;
 }
 
-// ─── Handler ───────────────────────────────────────────────────────────────
-
+/**
+ * Runs the gate through the shared phase-gate runner, which records the durable gate evidence before a success result returns.
+ * The postcondition observer reads that evidence as `admission.evidence-recorded`. The provider still appends its own `gate.executed` row.
+ */
 export async function handleContextEconomy(
   args: ContextEconomyArgs,
   stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
-  // Guard clause: validate required inputs
   if (!args.featureId) {
     return {
       success: false,
@@ -44,12 +40,6 @@ export async function handleContextEconomy(
     };
   }
 
-  // The gate declares durable gate evidence as a postcondition and paid it with
-  // a bare `gate.executed` append, which is a different record on a different
-  // axis — the observer reads `admission.evidence-recorded`. Routing the verdict
-  // through the shared phase-gate runner records that evidence before any
-  // success carrier escapes; the provider keeps minting its own declared
-  // `gate.executed` row from inside the closure below.
   return runPhaseGateWithEvidence({
     streamId: args.featureId,
     gateClass: 'context-economy',
@@ -66,6 +56,9 @@ export async function handleContextEconomy(
   });
 }
 
+/**
+ * Checks the diff against `baseBranch` and builds the report. If git cannot give a diff, the gate fails closed.
+ */
 async function executeContextEconomy(
   args: ContextEconomyArgs,
   stateDir: string,
@@ -74,7 +67,6 @@ async function executeContextEconomy(
   const repoRoot = args.repoRoot || process.cwd();
   const baseBranch = args.baseBranch || 'main';
 
-  // Get the diff — fail-closed if git is unavailable
   const diff = getDiff(repoRoot, baseBranch);
   if (diff === null) {
     return {
@@ -87,7 +79,6 @@ async function executeContextEconomy(
   const passed = tsResult.pass;
   const findingCount = tsResult.findings.length;
 
-  // Build report from structured result
   const reportLines: string[] = [];
   if (findingCount > 0) {
     for (const f of tsResult.findings) {
@@ -102,10 +93,8 @@ async function executeContextEconomy(
 
   const store = eventStore;
 
-  // Query runtime metrics via telemetry query abstraction (graceful degradation on failure)
   const runtimeMetrics = await queryRuntimeMetrics(store, stateDir);
 
-  // Return structured result
   const result: ContextEconomyResult = {
     passed,
     findingCount,

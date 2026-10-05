@@ -1,21 +1,14 @@
-// ─── Design Completeness — Pure TypeScript Validation ───────────────────────
-//
-// Ported from scripts/verify-ideate-artifacts.sh — validates design document
-// completeness at the ideate->plan boundary. No bash/execFileSync dependency.
-//
-// Exported functions:
-//   resolveDesignFile      — locate the design document via explicit path, state file, or docs dir
-//   checkRequiredSections  — verify 7 required markdown sections (case-insensitive)
-//   checkMultipleOptions   — verify >= 2 option headings
-//   checkAcceptanceCriteria — verify DR-N entries have acceptance criteria (Given/When/Then or bullet-point)
-//   checkStateDesignPath   — read artifacts.design from state JSON
-//   handleDesignCompleteness — orchestrate all checks, return structured result
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Design completeness checks for a design document. They read files but run no shell command.
+ *
+ * {@link handleDesignCompleteness} runs the checks. It resolves the design file, then checks the
+ * required sections, the option count, the design path in the state, and the acceptance criteria.
+ * The `check_design_completeness` action does not call it. That action delegates to
+ * `check_plan_coverage`, which uses only {@link acceptanceCriteriaFinding} from this module.
+ */
 
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-
-// ─── Result Types ───────────────────────────────────────────────────────────
 
 export interface SectionsResult {
   readonly passed: boolean;
@@ -47,8 +40,6 @@ export interface DesignCompletenessResult {
   readonly failCount: number;
 }
 
-// ─── Required Sections ──────────────────────────────────────────────────────
-
 const REQUIRED_SECTIONS = [
   'Problem Statement',
   'Requirements',
@@ -59,35 +50,29 @@ const REQUIRED_SECTIONS = [
   'Open Questions',
 ] as const;
 
-// ─── resolveDesignFile ──────────────────────────────────────────────────────
-
 export interface ResolveDesignFileArgs {
   readonly designFile?: string | undefined;
   readonly stateFile?: string | undefined;
   readonly docsDir?: string | undefined;
   /**
-   * Pre-resolved `artifacts.design` path from the workflow state, supplied by
-   * the orchestrate layer after materializing state via `resolveWorkflowState`
-   * (file → event-store fallback). When provided, it takes precedence over
-   * re-reading `stateFile` from disk, so the gate works for MCP-only workflows
-   * that never wrote a `.state.json` stamp (INV-1). `null` means "state was
-   * resolved but recorded no design path"; `undefined` means "not supplied —
-   * fall back to reading `stateFile`".
+   * The `artifacts.design` path that the orchestrate layer resolved from the workflow state. It
+   * takes precedence over a read of `stateFile`, so the gate works for a workflow without a
+   * `.state.json` file. `null` means that the state has no design path. `undefined` means that
+   * the caller did not supply it, so the check reads `stateFile`.
    */
   readonly designPathFromState?: string | null | undefined;
 }
 
 /**
- * Resolve the path to a design document using a priority chain:
- *   1. Explicit --design-file path
- *   2. artifacts.design (pre-resolved from event-store state, or read from the
- *      state file)
- *   3. Latest YYYY-MM-DD-*.md in docs directory
+ * Resolves the design document path in this order:
+ *   1. The explicit `designFile` path.
+ *   2. `artifacts.design`, from `designPathFromState` or else from the state file.
+ *   3. The latest `YYYY-MM-DD-*.md` file in the docs directory, by name.
  *
- * Returns the resolved path, or undefined if no design file can be found.
+ * It returns `undefined` when it finds no design file. A missing explicit path also gives
+ * `undefined`, with no fallback.
  */
 export function resolveDesignFile(args: ResolveDesignFileArgs): string | undefined {
-  // 1. Explicit design file path
   if (args.designFile) {
     if (existsSync(args.designFile)) {
       return args.designFile;
@@ -95,7 +80,6 @@ export function resolveDesignFile(args: ResolveDesignFileArgs): string | undefin
     return undefined;
   }
 
-  // 2a. Pre-resolved artifacts.design from event-store state (INV-1).
   if (args.designPathFromState !== undefined) {
     if (
       args.designPathFromState &&
@@ -105,20 +89,17 @@ export function resolveDesignFile(args: ResolveDesignFileArgs): string | undefin
       return args.designPathFromState;
     }
   } else if (args.stateFile) {
-    // 2b. Legacy: read artifacts.design from the state file on disk.
     const stateResult = checkStateDesignPath(args.stateFile);
     if (stateResult.passed && stateResult.designPath && existsSync(stateResult.designPath)) {
       return stateResult.designPath;
     }
   }
 
-  // 3. Search docs dir for YYYY-MM-DD-*.md pattern, return latest by date
   if (args.docsDir && existsSync(args.docsDir)) {
     const datePattern = /^\d{4}-\d{2}-\d{2}-.+\.md$/;
     const entries = readdirSync(args.docsDir).filter((f) => datePattern.test(f));
 
     if (entries.length > 0) {
-      // Sort descending by filename (date prefix sorts lexicographically)
       entries.sort((a, b) => b.localeCompare(a));
       const latest = entries[0];
       if (latest !== undefined) return join(args.docsDir, latest);
@@ -128,17 +109,14 @@ export function resolveDesignFile(args: ResolveDesignFileArgs): string | undefin
   return undefined;
 }
 
-// ─── checkRequiredSections ──────────────────────────────────────────────────
-
 /**
- * Check that all 7 required design sections are present in the content.
- * Matching is case-insensitive and looks for `## Section Name` markdown headings.
+ * Checks that the 7 required design sections are present. A match is a case-insensitive heading of
+ * level 2 or deeper that starts with the section name.
  */
 export function checkRequiredSections(content: string): SectionsResult {
   const missing: string[] = [];
 
   for (const section of REQUIRED_SECTIONS) {
-    // Match ## (or ###, ####) followed by optional whitespace then section name, case-insensitive
     const pattern = new RegExp(`^#{2,}\\s+${escapeRegex(section)}`, 'im');
     if (!pattern.test(content)) {
       missing.push(section);
@@ -156,13 +134,11 @@ function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-// ─── checkMultipleOptions ───────────────────────────────────────────────────
-
 /**
- * Count option headings (e.g. `### Option 1`, `### Option 2`) and verify >= 2.
+ * Counts option headings, for example `### Option 1` or `## Option [2]`. The check passes at 2 or
+ * more.
  */
 export function checkMultipleOptions(content: string): OptionsResult {
-  // Match headings like: ### Option 1, ## Option 2, ### Option [1]
   const optionPattern = /^#{1,}\s+option\s+\[?\d+/gim;
   const matches = content.match(optionPattern);
   const count = matches ? matches.length : 0;
@@ -173,33 +149,18 @@ export function checkMultipleOptions(content: string): OptionsResult {
   };
 }
 
-// ─── checkAcceptanceCriteria ─────────────────────────────────────────────────
-
-/** Pattern matching a design requirement line — list item (`- DR-1:`) or heading (`### DR-1:`). */
+/** Matches a design requirement line, as a list item (`- DR-N:`) or a heading (`### DR-N:`). */
 const DR_LINE_PATTERN = /(?:^[-*]\s+(DR-\d+):|^#{1,}\s+(DR-\d+):)/i;
 
-/**
- * Acceptance-criteria header shapes, in parity with the shell checker
- * `scripts/check-design-completeness.sh` (line ~149):
- *   grep -qiE '^\*\*[Aa]cceptance [Cc]riteri|^#+\s*[Aa]cceptance [Cc]riteri|^-\s*\*\*[Aa]cceptance'
- *
- * The template (content/design/skills/ideate/references/design-template.md, lines 51/87)
- * mandates the standalone bold `**Acceptance criteria:**` header, so we MUST accept
- * it. We also keep the pre-existing bullet-prefixed form (`- Acceptance Criteria:`)
- * that the TS parser historically recognized.
- */
+/** The acceptance-criteria header shapes, matched case-insensitively. */
 const ACCEPTANCE_CRITERIA_HEADER_SHAPES = [
-  // Standalone bold header — `**Acceptance criteria:**` (template-mandated)
-  // Parity: `^\*\*[Aa]cceptance [Cc]riteri`
+  /** Bold header: `**Acceptance criteria:**`. The design template requires this shape. */
   /^\s*\*\*\s*acceptance\s+criteri/im,
-  // Heading form — `#### Acceptance criteria`
-  // Parity: `^#+\s*[Aa]cceptance [Cc]riteri`
+  /** Heading: a markdown heading of any level with the text `Acceptance criteria`. */
   /^\s*#{1,}\s*acceptance\s+criteri/im,
-  // Bullet-bold form — `- **Acceptance criteria**`
-  // Parity: `^-\s*\*\*[Aa]cceptance`
+  /** Bold bullet: `- **Acceptance criteria**`. */
   /^\s*[-*]\s*\*\*\s*acceptance/im,
-  // Pre-existing bullet-prefixed form — `- Acceptance Criteria:` (indented or plain)
-  // (No direct shell analogue; retained so prior TS behavior is preserved.)
+  /** Plain bullet: `- Acceptance Criteria:`, indented or not. */
   /^\s*[-*]\s+acceptance\s+criteria\s*:?/im,
 ] as const;
 
@@ -207,25 +168,16 @@ const ACCEPTANCE_CRITERIA_HEADER_SHAPES = [
 const SECTION_HEADING_PATTERN = /^#{1,}\s+/;
 
 /**
- * Check that each DR-N entry in the Requirements section has acceptance criteria.
+ * Checks that each `DR-N` entry in the document has acceptance criteria. Accepted forms:
+ *   1. A header in {@link ACCEPTANCE_CRITERIA_HEADER_SHAPES}.
+ *   2. Given/When/Then on one bullet, as three bullets, or as a `- Given` bullet with indented
+ *      `When` and `Then` lines.
  *
- * Accepts (in parity with scripts/check-design-completeness.sh and the
- * design-template.md mandated shapes):
- *   1. Structural header — bold `**Acceptance criteria:**`, heading
- *      `#### Acceptance criteria`, bullet-bold `- **Acceptance criteria**`,
- *      or the legacy bullet `- Acceptance Criteria:` form.
- *   2. Given/When/Then — single-line (`- Given …, when …, then …`),
- *      three separate `- Given` / `- When` / `- Then` bullets, OR a bulleted
- *      `- Given …` with non-bulleted indented `When …` / `Then …` continuation
- *      lines (the template-preferred form).
- *
- * Returns the list of DR-N identifiers that lack any acceptance criteria.
- * If no DR-N entries are found, the check passes vacuously.
+ * It returns the `DR-N` ids without criteria. A document without `DR-N` entries passes.
  */
 export function checkAcceptanceCriteria(content: string): AcceptanceCriteriaResult {
   const lines = content.split('\n');
 
-  // Collect all DR-N entries with their line positions
   const drEntries: Array<{ id: string; lineIndex: number }> = [];
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -262,14 +214,9 @@ export function checkAcceptanceCriteria(content: string): AcceptanceCriteriaResu
 }
 
 /**
- * The advisory finding string for DR-N entries lacking acceptance criteria
- * (Given/When/Then, or a structural acceptance-criteria header), or `null` when
- * every DR-N entry carries criteria — or there are no DR-N entries at all.
- *
- * Extracted as the SINGLE source of this finding string so the standalone
- * design-completeness gate (Check 5 in {@link handleDesignCompleteness}) and
- * `check_plan_coverage`'s folded reproduction of it on the unified
- * `docs/specs/` artifact (DR-6 gate fold, #1581 task 011) cannot drift apart.
+ * The advisory finding for `DR-N` entries without acceptance criteria, or `null` when there are
+ * none. It is the one source of this string for {@link handleDesignCompleteness} and for the same
+ * check in `check_plan_coverage`.
  */
 export function acceptanceCriteriaFinding(content: string): string | null {
   const result = checkAcceptanceCriteria(content);
@@ -280,9 +227,8 @@ export function acceptanceCriteriaFinding(content: string): string | null {
 }
 
 /**
- * Heading level of a line — number of leading `#` for a markdown heading, or 0
- * if the line is not a (non-indented) heading. A bullet-form DR (`- DR-1:`) has
- * level 0; a heading-form DR (`### DR-1:`) has its hash count.
+ * The heading level of a line: the count of leading `#`, or 0 when the line is not a non-indented
+ * heading. A bullet entry (`- DR-N:`) thus has level 0.
  */
 function headingLevel(line: string): number {
   const match = /^(#{1,})\s+/.exec(line);
@@ -290,14 +236,11 @@ function headingLevel(line: string): number {
 }
 
 /**
- * Find the end line of a DR-N block: the next DR-N entry, a sibling/parent
- * section heading, or EOF.
+ * Finds the end line of a `DR-N` block: the next `DR-N` entry, a sibling or parent heading, or the
+ * end of the file. `drLevel` is the heading level of the entry, 0 for a bullet.
  *
- * `drLevel` is the heading level of the DR entry itself (0 for bullet-form DRs).
- * A heading DEEPER than the DR (e.g. `#### Acceptance criteria` under a
- * `### DR-1:`) is a child of the DR and does NOT terminate the block — this is
- * what lets the template's `#### Acceptance criteria` sub-heading stay inside
- * the DR block. Bullet-form DRs (level 0) terminate at any top-level heading.
+ * A deeper heading, for example `#### Acceptance criteria` under `### DR-N:`, stays inside the
+ * block. A bullet entry ends at the next non-indented heading.
  */
 function findBlockEnd(
   lines: readonly string[],
@@ -306,14 +249,11 @@ function findBlockEnd(
   currentIdx: number,
   drLevel: number,
 ): number {
-  // If there's a subsequent DR-N entry, its line is the boundary
   const nextEntry = drEntries[currentIdx + 1];
   if (nextEntry !== undefined) {
     return nextEntry.lineIndex;
   }
 
-  // Otherwise, scan for the next sibling/parent section heading. A deeper
-  // sub-heading (level > drLevel) belongs to this DR and is not a boundary.
   for (let j = startLine; j < lines.length; j++) {
     const lineJ = lines[j];
     if (lineJ === undefined) continue;
@@ -323,7 +263,6 @@ function findBlockEnd(
         return j;
       }
       if (drLevel === 0) {
-        // Bullet-form DR: any non-indented heading terminates the block.
         return j;
       }
     }
@@ -336,27 +275,26 @@ function findBlockEnd(
 const SINGLE_LINE_GWT_PATTERN = /^\s*[-*]\s+given\b.*\bwhen\b.*\bthen\b/im;
 
 /**
- * Continuation-line When/Then — a non-bulleted, indented continuation of a
- * preceding `- Given …` bullet (the template's preferred GWT form, see
- * design-template.md). E.g. `  When …` / `  Then …` with leading whitespace
- * and NO list marker.
+ * An indented `When` line with no list marker, which continues a `- Given` bullet. The design
+ * template prefers this form.
  */
 const CONTINUATION_WHEN_PATTERN = /^\s+when\b/im;
+/** An indented `Then` line with no list marker. */
 const CONTINUATION_THEN_PATTERN = /^\s+then\b/im;
 
-/** Test whether a text block contains any recognized acceptance criteria format. */
+/**
+ * True when a text block holds a recognized acceptance-criteria form. The indented `When` and `Then`
+ * lines count only when the block also has a `- Given` bullet.
+ */
 function hasAcceptanceCriteria(block: string): boolean {
-  // 1. Structural acceptance-criteria header (bold / heading / bullet-bold / bullet).
   if (ACCEPTANCE_CRITERIA_HEADER_SHAPES.some((pattern) => pattern.test(block))) {
     return true;
   }
 
-  // 2. Single-line GWT — `- Given …, when …, then …` on one bullet.
   if (SINGLE_LINE_GWT_PATTERN.test(block)) {
     return true;
   }
 
-  // 3. Three separate GWT bullets — `- Given`, `- When`, `- Then` (legacy form).
   const hasGivenBullet = /(?:^|\n)(?:\s+[-*]\s+|[-*]\s+)given\b/im.test(block);
   if (hasGivenBullet) {
     const hasWhenBullet = /(?:^|\n)(?:\s+[-*]\s+|[-*]\s+)when\b/im.test(block);
@@ -364,8 +302,6 @@ function hasAcceptanceCriteria(block: string): boolean {
     if (hasWhenBullet && hasThenBullet) {
       return true;
     }
-    // 4. Continuation-line GWT — bulleted Given followed by non-bulleted,
-    //    indented When/Then continuation lines (template-preferred form).
     if (CONTINUATION_WHEN_PATTERN.test(block) && CONTINUATION_THEN_PATTERN.test(block)) {
       return true;
     }
@@ -373,8 +309,6 @@ function hasAcceptanceCriteria(block: string): boolean {
 
   return false;
 }
-
-// ─── checkStateDesignPath ───────────────────────────────────────────────────
 
 /**
  * Read a state JSON file and extract `artifacts.design`.
@@ -399,7 +333,6 @@ export function checkStateDesignPath(stateFile: string): StateDesignPathResult {
     return { passed: false, error: `Invalid JSON in state file: ${stateFile}` };
   }
 
-  // Navigate to artifacts.design safely
   if (
     typeof parsed === 'object' &&
     parsed !== null &&
@@ -417,8 +350,6 @@ export function checkStateDesignPath(stateFile: string): StateDesignPathResult {
   return { passed: false, error: 'artifacts.design is empty or missing' };
 }
 
-// ─── handleDesignCompleteness ───────────────────────────────────────────────
-
 export interface HandleDesignCompletenessArgs {
   readonly stateFile?: string;
   readonly designFile?: string;
@@ -432,21 +363,19 @@ export interface HandleDesignCompletenessArgs {
 }
 
 /**
- * Orchestrate all design-completeness checks and return a structured result.
- *
- * Checks:
- *   1. Design document exists (resolved via priority chain)
- *   2. Required sections present (7 sections, case-insensitive)
- *   3. Multiple options evaluated (>= 2)
- *   4. State file has design path recorded
- *   5. Acceptance criteria present on DR-N entries (advisory — does not fail the check)
+ * Runs the design-completeness checks and returns a structured result:
+ *   1. The design document exists. Without it, the run stops.
+ *   2. The 7 required sections are present.
+ *   3. The document has at least 2 option headings.
+ *   4. The state records a design path, from `designPathFromState` or else from `stateFile`. The
+ *      check does not run when the caller supplies neither.
+ *   5. Each `DR-N` entry has acceptance criteria. This check is advisory and fails nothing.
  */
 export function handleDesignCompleteness(args: HandleDesignCompletenessArgs): DesignCompletenessResult {
   const findings: string[] = [];
   let passCount = 0;
   let failCount = 0;
 
-  // Check 1: Resolve design file
   const designPath = resolveDesignFile({
     designFile: args.designFile,
     stateFile: args.stateFile,
@@ -457,7 +386,6 @@ export function handleDesignCompleteness(args: HandleDesignCompletenessArgs): De
   if (!designPath) {
     failCount++;
     findings.push('Design document not found');
-    // Cannot continue without a design file
     return {
       passed: false,
       advisory: true,
@@ -470,7 +398,6 @@ export function handleDesignCompleteness(args: HandleDesignCompletenessArgs): De
 
   passCount++;
 
-  // Read design content (guard against race between existsSync and readFileSync)
   let content: string;
   try {
     content = readFileSync(designPath, 'utf-8');
@@ -488,7 +415,6 @@ export function handleDesignCompleteness(args: HandleDesignCompletenessArgs): De
     };
   }
 
-  // Check 2: Required sections
   const sectionsResult = checkRequiredSections(content);
   if (sectionsResult.passed) {
     passCount++;
@@ -497,7 +423,6 @@ export function handleDesignCompleteness(args: HandleDesignCompletenessArgs): De
     findings.push(`Required sections missing: ${sectionsResult.missing.join(', ')}`);
   }
 
-  // Check 3: Multiple options
   const optionsResult = checkMultipleOptions(content);
   if (optionsResult.passed) {
     passCount++;
@@ -506,9 +431,6 @@ export function handleDesignCompleteness(args: HandleDesignCompletenessArgs): De
     findings.push(`Found ${optionsResult.count} option(s), expected at least 2`);
   }
 
-  // Check 4: State records a design path
-  // Prefer the pre-resolved value from event-store state (INV-1); fall back
-  // to reading the state file when the orchestrate layer didn't supply one.
   if (args.designPathFromState !== undefined) {
     if (args.designPathFromState && args.designPathFromState.length > 0) {
       passCount++;
@@ -526,9 +448,6 @@ export function handleDesignCompleteness(args: HandleDesignCompletenessArgs): De
     }
   }
 
-  // Check 5: Acceptance criteria on DR-N entries (advisory — does not affect
-  // pass/fail). Routed through the shared finding-string source so the folded
-  // `check_plan_coverage` reproduction (DR-6, #1581 task 011) cannot drift.
   const acFinding = acceptanceCriteriaFinding(content);
   if (acFinding) {
     findings.push(acFinding);

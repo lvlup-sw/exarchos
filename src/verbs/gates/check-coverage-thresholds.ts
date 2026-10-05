@@ -1,10 +1,7 @@
-// ─── Check Coverage Thresholds ───────────────────────────────────────────────
-//
-// Parses Istanbul/Jest coverage-summary.json files, compares line/branch/function
-// percentages against thresholds, and produces a markdown report with pass/fail.
-//
-// TypeScript port of scripts/check-coverage-thresholds.sh — no jq/awk needed.
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Parses an Istanbul or Jest `coverage-summary.json` file and compares the line, branch, and function percentages with thresholds.
+ * The result carries a markdown report and the pass or fail verdict.
+ */
 
 import { createHash } from 'node:crypto';
 
@@ -13,8 +10,6 @@ import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
 import { runPhaseGateWithEvidence } from './gate-runner.js';
-
-// ─── Types ───────────────────────────────────────────────────────────────────
 
 interface CheckCoverageThresholdsArgs {
   /** The stream the gate's durable evidence is recorded against. */
@@ -47,13 +42,9 @@ interface CoverageSummary {
   readonly total: CoverageSummaryTotal;
 }
 
-// ─── Defaults (match bash script) ────────────────────────────────────────────
-
 const DEFAULT_LINE_THRESHOLD = 80;
 const DEFAULT_BRANCH_THRESHOLD = 70;
 const DEFAULT_FUNCTION_THRESHOLD = 100;
-
-// ─── Validation ──────────────────────────────────────────────────────────────
 
 function isCoverageSummary(value: unknown): value is CoverageSummary {
   if (typeof value !== 'object' || value === null) return false;
@@ -68,8 +59,11 @@ function isCoverageSummary(value: unknown): value is CoverageSummary {
   return true;
 }
 
-// ─── Handler ─────────────────────────────────────────────────────────────────
-
+/**
+ * Runs the coverage gate through the shared phase-gate runner, which records the durable gate evidence before a success result returns.
+ * The runner is the only append. This action declares no catalog emissions, so it writes no `gate.executed` row of its own.
+ * The evidence subject binds the coverage file as well as the phase attempt. The digest of the path tells two runs over different files apart.
+ */
 export async function handleCheckCoverageThresholds(
   args: CheckCoverageThresholdsArgs,
   stateDir: string,
@@ -82,16 +76,6 @@ export async function handleCheckCoverageThresholds(
     };
   }
 
-  // The gate declares durable gate evidence as a postcondition and used to
-  // append nothing at all, so every postcondition-observing caller read a
-  // success carrier that had broken its own contract. Routing through the
-  // shared phase-gate runner records the evidence before any success carrier
-  // escapes. The runner is the only append here: this action declares no
-  // catalog emissions, so it still mints no `gate.executed` row of its own.
-  //
-  // The subject binds the coverage FILE as well as the phase attempt: two runs
-  // of this gate over different coverage summaries are two different facts, and
-  // the digest of the path is what tells them apart.
   const coverageDigest = createHash('sha256')
     .update(args.coverageFile, 'utf8')
     .digest('hex')
@@ -125,7 +109,6 @@ function executeCheckCoverageThresholds(
   const branchThreshold = args.branchThreshold ?? DEFAULT_BRANCH_THRESHOLD;
   const functionThreshold = args.functionThreshold ?? DEFAULT_FUNCTION_THRESHOLD;
 
-  // Validate file exists
   if (!existsSync(coverageFile)) {
     return {
       success: false,
@@ -136,7 +119,6 @@ function executeCheckCoverageThresholds(
     };
   }
 
-  // Read and parse JSON
   let parsed: unknown;
   try {
     const raw = readFileSync(coverageFile, 'utf-8');
@@ -151,7 +133,6 @@ function executeCheckCoverageThresholds(
     };
   }
 
-  // Validate structure
   if (!isCoverageSummary(parsed)) {
     return {
       success: false,
@@ -162,14 +143,12 @@ function executeCheckCoverageThresholds(
     };
   }
 
-  // Extract metrics
   const coverage: CoverageMetrics = {
     lines: parsed.total.lines.pct,
     branches: parsed.total.branches.pct,
     functions: parsed.total.functions.pct,
   };
 
-  // Check thresholds
   const checks: Array<{ metric: string; actual: number; threshold: number; passed: boolean }> = [
     { metric: 'lines', actual: coverage.lines, threshold: lineThreshold, passed: coverage.lines >= lineThreshold },
     { metric: 'branches', actual: coverage.branches, threshold: branchThreshold, passed: coverage.branches >= branchThreshold },
@@ -181,7 +160,6 @@ function executeCheckCoverageThresholds(
   const failCount = checks.filter((c) => !c.passed).length;
   const total = checks.length;
 
-  // Build markdown report
   const lines: string[] = [];
   lines.push('## Coverage Threshold Report');
   lines.push('');

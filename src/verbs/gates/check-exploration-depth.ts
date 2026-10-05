@@ -1,20 +1,9 @@
-// ─── check_exploration_depth Gate (DR-4, Gap B) ─────────────────────────────
-//
-// Verifies that a `deep`-`designDepth` spec carries the template-required
-// `### Exploration` section citing a `/exarchos:discover` research pass — a
-// report PATH and a `correlationId` (the "deep only" section in
-// `content/design/skills/plan/references/spec-template.md`). When the
-// section is absent (or present but not citing the discover pass) the gate
-// FAILS (`data.passed: false`, the advisory-carrier blocking signal the
-// verification-ladder gates use).
-//
-// The gate SELF-SKIPS at `thin`/`standard` depth — the Exploration section is a
-// deep-only obligation, so a non-`deep` spec is not held to it. The skip is
-// keyed on the frozen `state.designDepth` stamp (parity with how
-// `resolvePolicySkip` self-routes a per-task gate off its `riskTier` stamp): the
-// gate records its routing decision as a `gate.executed` event and returns a
-// skip-passing envelope rather than touching the artifact.
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * The `check_exploration_depth` gate. A `deep` spec must have the `### Exploration` section of
+ * the spec template, and the section must cite a `/exarchos:discover` report path and a
+ * `correlationId`. Otherwise the gate returns `data.passed: false`.
+ * At any other `designDepth` stamp, the gate records a skip and does not read the spec.
+ */
 
 import { readFile } from 'node:fs/promises';
 import type { ToolResult } from '../../format.js';
@@ -32,24 +21,17 @@ export const SKIPPED_BY_DEPTH = 'skipped-by-depth';
 const EXPLORATION_HEADER = /^###\s+Exploration\b/i;
 
 /**
- * A path-like citation: `dir/file.ext` (at least one slash + a file extension),
- * matching a bare path, a backticked path, or a markdown link target — e.g.
- * `docs/research/2026-06-29-foo.md`, `` `docs/research/foo.md` ``, or
- * `[report](docs/research/foo.md)`.
+ * A path-like citation with at least one slash and a file extension. It matches a bare path,
+ * a backticked path, or a markdown link target, for example `[report](docs/research/foo.md)`.
  */
 const PATH_CITATION = /[\w.-]+\/[\w./-]*\.[a-z0-9]+/i;
 
-/**
- * A `correlationId` citation: either the literal `correlationId` token (the word
- * the template asks the author to cite) or the deterministic stitch value the
- * discover bridge derives (`discover-bridge:<featureId>`).
- */
+/** A `correlationId` citation: the `correlationId` word, or a `discover-bridge:<featureId>` value. */
 const CORRELATION_ID_CITATION = /correlation[\s_-]?id|discover-bridge:/i;
 
 /**
- * Extract the body of the `### Exploration` section (the lines under the header
- * up to the next `#`/`##`/`###` heading — `####` subsections stay in the body).
- * Returns `null` when the section header is absent.
+ * Returns the lines under the `### Exploration` header, up to the next h1, h2, or h3 heading.
+ * An h4 subsection stays in the body. Returns `null` when the header is absent.
  */
 export function extractExplorationSection(markdown: string): string | null {
   const lines = markdown.split('\n');
@@ -58,8 +40,6 @@ export function extractExplorationSection(markdown: string): string | null {
 
   const body: string[] = [];
   for (let i = start + 1; i < lines.length; i++) {
-    // Stop at the next heading of level h1–h3 (a `####` h4 is a child of the
-    // Exploration section and stays in the body).
     const bodyLine = lines[i] ?? '';
     if (/^#{1,3}\s+/.test(bodyLine)) break;
     body.push(bodyLine);
@@ -77,11 +57,8 @@ export interface ExplorationCheckResult {
 }
 
 /**
- * Pure check: does the `deep` spec carry an `### Exploration` section that cites
- * a `/exarchos:discover` pass by PATH and `correlationId`?
- *
- * Fails when the section is absent OR present but missing either citation — the
- * section's whole purpose is the cross-document provenance link.
+ * Pure check of a `deep` spec. It fails when the `### Exploration` section is absent, or when
+ * the section does not cite both a report path and a `correlationId`.
  */
 export function checkExplorationDepth(markdown: string): ExplorationCheckResult {
   const section = extractExplorationSection(markdown);
@@ -117,11 +94,8 @@ export function checkExplorationDepth(markdown: string): ExplorationCheckResult 
 }
 
 /**
- * Decide whether the gate should self-skip given the frozen `designDepth` stamp.
- *
- * The Exploration section is a DEEP-ONLY obligation, so any depth other than
- * `deep` (including an absent/unknown stamp) self-skips — the gate has teeth
- * only at `deep`. Mirrors the `{ reason } | null` shape of `resolvePolicySkip`.
+ * Returns a skip reason for each `designDepth` other than `deep`, an absent stamp included.
+ * Returns `null` at `deep`. The shape matches `resolvePolicySkip`.
  */
 export function resolveExplorationSkip(
   designDepth: DesignDepth | undefined,
@@ -134,11 +108,9 @@ export function resolveExplorationSkip(
   };
 }
 
-// ─── Handler ─────────────────────────────────────────────────────────────────
-
 interface CheckExplorationDepthArgs {
   readonly featureId: string;
-  /** Path to the unified `docs/specs/` artifact. Resolved from state when absent. */
+  /** Path to the unified spec. Resolved from state when absent. */
   readonly designPath?: string;
   /** Frozen `designDepth` stamp. Resolved from `state.designDepth` when absent. */
   readonly designDepth?: DesignDepth;
@@ -147,10 +119,9 @@ interface CheckExplorationDepthArgs {
 }
 
 /**
- * Resolve `designDepth` and the unified-artifact path from explicit args, then
- * fall back to the workflow-state projection. Mirrors
- * `handleDesignCompleteness`'s artifact resolution (artifacts.plan preferred —
- * the unified spec under the design+plan collapse — then artifacts.design).
+ * Takes `designDepth` and the spec path from the arguments, then from workflow state.
+ * The path comes from `artifacts.plan`, then `artifacts.design`. A state resolution miss is not
+ * fatal: the arguments stand, and the deep path refuses an unresolved path with `INVALID_INPUT`.
  */
 async function resolveDepthAndPath(
   args: CheckExplorationDepthArgs,
@@ -169,8 +140,6 @@ async function resolveDepthAndPath(
     ...(args.stateFile ? { stateFile: args.stateFile } : {}),
   });
   if ('error' in resolved) {
-    // A resolution miss is not fatal here — the caller's explicit args (if any)
-    // stand, and an unresolved deep-path surfaces as INVALID_INPUT downstream.
     return { designDepth, designPath };
   }
 
@@ -193,10 +162,9 @@ async function resolveDepthAndPath(
 }
 
 /**
- * `check_exploration_depth` gate handler (DR-4). Self-skips at non-`deep` depth;
- * at `deep` it reads the unified spec and verifies the `### Exploration` section
- * cites the discover pass by path + correlationId. Emits a `gate.executed`
- * (gate `exploration-depth`, layer `planning`, dimension D1) on every path.
+ * The `check_exploration_depth` gate handler. It runs through the shared phase-gate runner,
+ * which records durable gate evidence before a success carrier returns. The provider records
+ * a gate event for gate `exploration-depth`, layer `planning`, on the skip and verdict paths.
  */
 export async function handleCheckExplorationDepth(
   args: CheckExplorationDepthArgs,
@@ -213,11 +181,6 @@ export async function handleCheckExplorationDepth(
     return { success: false, error: { code: 'INVALID_INPUT', message: 'featureId is required' } };
   }
 
-  // Durable gate evidence is a declared postcondition here, and a bare
-  // `gate.executed` append does not pay it — the observer reads
-  // `admission.evidence-recorded`. The shared phase-gate runner records that
-  // before any success carrier escapes; the declared signal is still minted by
-  // the provider closure below, on the skip path as well as the deep one.
   return runPhaseGateWithEvidence({
     streamId: args.featureId,
     gateClass: 'exploration-depth',
@@ -234,13 +197,13 @@ export async function handleCheckExplorationDepth(
   });
 }
 
+/** Records a skip below `deep` depth. At `deep`, reads the spec and records the verdict. */
 async function executeCheckExplorationDepth(
   args: CheckExplorationDepthArgs,
   eventStore: EventStore,
 ): Promise<ToolResult> {
   const { designDepth, designPath } = await resolveDepthAndPath(args, eventStore);
 
-  // ── Deep-only self-skip (parity with resolvePolicySkip stamp routing) ──────
   const skip = resolveExplorationSkip(designDepth);
   if (skip) {
     const carrier: ToolResult = {
@@ -274,7 +237,6 @@ async function executeCheckExplorationDepth(
     return carrier;
   }
 
-  // ── Deep depth — the Exploration citation is required ──────────────────────
   if (!designPath) {
     return {
       success: false,

@@ -1,7 +1,8 @@
-// ─── Gate Utils ──────────────────────────────────────────────────────────────
-//
-// Shared utility for emitting gate.executed events across gate handlers.
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Shared helpers for gate handlers: git shell-outs, `gate.executed` appends, verdict
+ * normalization, evidence references, `repoRoot` resolution, graduation modes, severity
+ * wrappers, and policy skips.
+ */
 
 import { execFileSync } from 'node:child_process';
 import { getDispatchContext } from '../../dispatch/dispatch-context.js';
@@ -21,27 +22,16 @@ import type { EvidenceArtifactReferenceV1 } from '../../workflow/admission/evide
 import type { AdmissionEvidenceRecorded } from '../../events/schemas.js';
 
 /**
- * Output ceiling for the git shell-outs below.
- *
- * Node defaults `maxBuffer` to 1 MiB and raises ENOBUFS past it. A review-sized
- * `git diff main...HEAD` blows through that easily — a 902-file wave measured
- * 13.4 MB — and because ENOBUFS arrives as a thrown error it read as "git is
- * unavailable", taking three blocking review gates (context-economy,
- * operational-resilience, workflow-determinism) offline on exactly the large
- * changes they exist to judge. The ceiling stays finite so a genuinely runaway
- * command still fails rather than exhausting memory.
+ * Output ceiling for the git shell-outs in this module. The Node default of 1 MiB raises
+ * ENOBUFS on a large review diff, and the gates then read git as unavailable. The ceiling stays
+ * finite, so a runaway command still fails.
  */
 const GIT_MAX_BUFFER_BYTES = 256 * 1024 * 1024;
 
 /**
- * Shared production git executor for the per-task gate handlers (FIX-4 dedupe).
- *
- * Shells out to `git` from `repoRoot` with a 30s ceiling and captures the
- * combined stdout/stderr. NEVER throws on a non-zero exit — a failed git command
- * surfaces as `{ stdout: <combined output>, exitCode: <status> }` so each gate
- * reads the exit code as a leg verdict (a diff/checkout that legitimately fails
- * is a finding, not a tool crash). Was byte-identical in test-adequacy-handler,
- * contract-drift-handler, and mock-boundary-handler before this consolidation.
+ * Shared production git executor for the per-task gate handlers. It runs `git` in `repoRoot`
+ * with a 30-second timeout and returns the combined stdout and stderr. It does not throw on a
+ * non-zero exit, so each gate reads the exit code as a finding, not as a tool crash.
  */
 export const defaultGitExec: GitExec = (repoRoot, args) => {
   try {
@@ -63,12 +53,8 @@ export const defaultGitExec: GitExec = (repoRoot, args) => {
 };
 
 /**
- * Fetch the unified diff between baseBranch and HEAD.
- * Returns null on failure so callers can distinguish "no diff" from "error".
- *
- * The failure reason is logged rather than discarded: every caller collapses
- * `null` to one generic DIFF_ERROR envelope, so a swallowed cause sent readers
- * hunting a git problem when the real answer was an output-size ceiling.
+ * Returns the unified diff from `baseBranch` to HEAD, or null on failure. It logs the failure
+ * cause, because the callers report only a generic `DIFF_ERROR`.
  */
 export function getDiff(repoRoot: string, baseBranch: string): string | null {
   try {
@@ -94,14 +80,16 @@ export function getDiff(repoRoot: string, baseBranch: string): string | null {
 }
 
 /**
- * Emit a gate.executed event to the event store.
+ * Appends a `gate.executed` event to the event store.
  *
  * @param store - The event store to append to
  * @param streamId - The stream (feature) ID
- * @param gateName - Name of the gate (e.g. 'test-suite', 'typecheck', 'design-completeness')
- * @param layer - The workflow layer (e.g. 'CI', 'design', 'planning', 'testing', 'post-merge')
+ * @param gateName - Name of the gate, for example 'test-suite' or 'typecheck'
+ * @param layer - The workflow layer, for example 'CI', 'design', or 'planning'
  * @param passed - Whether the gate passed
  * @param details - Optional details payload
+ * @param idempotencyKey - Optional key. A second append with the same key collapses onto the
+ *   first row. Omit it for a gate that emits one row per call.
  */
 export async function emitGateEvent(
   store: EventStore,
@@ -110,12 +98,6 @@ export async function emitGateEvent(
   layer: string,
   passed: boolean,
   details?: Record<string, unknown>,
-  /**
-   * Optional idempotency key (INV-8). When supplied, a second emission with the
-   * same key collapses to the first row instead of appending a duplicate — so a
-   * gate re-run under the same operationId leaves a single `gate.executed`.
-   * Omit it for legacy gates that intentionally emit one row per call.
-   */
   idempotencyKey?: string,
 ): Promise<void> {
   const event = {
@@ -127,9 +109,6 @@ export async function emitGateEvent(
       ...(details !== undefined ? { details } : {}),
     },
   };
-  // Only thread the AppendOptions arg when an idempotency key is present, so
-  // callers that don't opt into idempotency see the unchanged 2-arg append
-  // signature (no spurious `undefined` third argument).
   if (idempotencyKey !== undefined) {
     await store.append(streamId, event, { idempotencyKey });
   } else {
@@ -138,29 +117,16 @@ export async function emitGateEvent(
 }
 
 /**
- * Append `gate.executed` and make its landing a precondition of the gate's own
- * success carrier, for the gates that declare the event unconditionally
- * (`emissions: gate.executed always`). A handler that swallows the append and
- * still returns a success carrier is asserting a fact — "this run produced the
- * declared durable row" — that the log does not hold; the two are only kept
- * from disagreeing by making the append part of the result, not a side note.
+ * Appends `gate.executed` and makes its landing a precondition of the success carrier, for a
+ * gate that declares the event unconditionally. It wraps {@link emitGateEvent} and does not
+ * repeat the append literal, because the producer census in `check-gate-runner-ownership.mjs`
+ * counts literals for each file.
  *
- * Wraps {@link emitGateEvent} rather than re-implementing the append, so the
- * `gate.executed` literal stays owned by exactly one call site per handler
- * (the per-file producer census in `check-gate-runner-ownership.mjs` counts
- * literals, not call graphs).
+ * Returns `undefined` when the row landed. When the append throws, it returns a
+ * `GATE_EVENT_UNRECORDED` failure that keeps the gate verdict on `data`.
  *
- * Returns `undefined` when the row landed — the caller proceeds to its own
- * success return. On a thrown append it returns a failure envelope carrying
- * the gate's own result data through on `data` (the verdict the gate reached
- * is still true and still worth reading) with `error.code`
- * `GATE_EVENT_UNRECORDED`, mirroring how `EMISSION_CONTRACT_VIOLATED`
- * preserves `result.data` for a completed operation whose bookkeeping failed
- * (`src/dispatch/core/dispatch.ts`) — the effect happened, only the durable
- * record of it did not.
- *
- * @param carrier - the `ToolResult` the caller would otherwise have returned;
- *   only its `data` rides into the failure envelope.
+ * @param carrier - The `ToolResult` that the caller returns otherwise. Only its `data` goes into
+ *   the failure envelope.
  */
 export async function requireGateEvent(
   store: EventStore,
@@ -193,30 +159,15 @@ export async function requireGateEvent(
 }
 
 /**
- * The key that collapses a self-emitted `gate.executed` row onto the one the
- * first attempt of the SAME operation already wrote.
- *
- * A gate that mints its own row instead of letting the canonical runner mint
- * one is still re-executed by a same-operation retry: the runner runs the
- * provider before it can discover that the operation already produced
- * evidence, so the provider's append fires twice while the evidence row —
- * keyed on its own deterministic id — collapses to one. Unkeyed, that leaves
- * two rows describing one gate run, and every reader that folds the log
- * (receipts, convergence, prior-fix-cycle counts) sees the duplicate.
- *
- * Keyed on the operation identity a retry deliberately reuses, so two distinct
- * calls still leave two rows and only a retry collapses.
- *
- * `undefined` outside a dispatch scope: there is no operation for a second
- * append to be the same as, and a constant key would collapse calls that have
- * nothing to do with each other.
+ * The idempotency key that collapses a self-emitted `gate.executed` row onto the row of the
+ * first attempt of the same operation. A same-operation retry runs the provider again, so an
+ * unkeyed append leaves two rows for one gate run. The key includes the operation id, so only a
+ * retry collapses. Returns `undefined` outside a dispatch scope, because no operation exists there.
  */
 export function sameOperationGateKey(gateName: string): string | undefined {
   const operationId = getDispatchContext()?.operationId;
   return operationId === undefined ? undefined : `gate.executed:${gateName}:${operationId}`;
 }
-
-// ─── Canonical gate-runner result helpers ───────────────────────────────────
 
 /** Compact durable references added to (but never substituted for) gate data. */
 export interface GateEvidenceReference {
@@ -228,29 +179,21 @@ export interface GateEvidenceReference {
 }
 
 /**
- * The skip facts a gate carrier declares about itself.
- *
- * Read by {@link normalizeGateVerdict} to decide the proof verdict AND carried
- * into the durable `gate.executed` row, so the two can never disagree about
- * whether the gate ran.
+ * The skip facts that a gate carrier declares about itself. {@link normalizeGateVerdict} reads
+ * them, and the runner copies them into the `gate.executed` row, so the two agree.
  */
 export interface GateSkipDescriptor {
   readonly skipped: true;
-  /** e.g. {@link SKIPPED_BY_POLICY}; absent when the producer declared none. */
+  /** For example {@link SKIPPED_BY_POLICY}. Absent when the producer declared none. */
   readonly discriminant?: string;
   /** Human-readable cause, when the producer supplied one. */
   readonly reason?: string;
 }
 
 /**
- * THE authority on "did this carrier declare itself skipped?".
- *
- * One predicate, consumed by both the verdict normalizer and the runner's
- * signal minting, because a carrier the verdict calls a skip and the signal
- * calls a run is exactly the disagreement DR-7 exists to remove.
- *
- * `skipped === true` is the whole test — deliberately NOT conditioned on
- * `passed`. See {@link normalizeGateVerdict} for why.
+ * Reads the skip descriptor of a carrier. The verdict normalizer and the runner signal both use
+ * it, so they agree on whether the gate ran. The test is `skipped === true` only, and it does
+ * not depend on `passed`.
  */
 export function readGateSkipDescriptor(result: ToolResult): GateSkipDescriptor | undefined {
   const data = result.data;
@@ -267,33 +210,14 @@ export function readGateSkipDescriptor(result: ToolResult): GateSkipDescriptor |
 }
 
 /**
- * Normalize the existing gate carriers to the proof verdict vocabulary.
+ * Maps a gate carrier to the proof verdict. It reads boolean `passed`, then boolean `ready`, then
+ * a `verdict` of `APPROVED`, `NEEDS_FIXES` or `BLOCKED`. A provider error, a non-object data
+ * value, or data with none of these values gives `indeterminate`.
  *
- * A provider error is indeterminate, while advisory carriers retain their
- * established `data.passed` contract. A success carrier without a boolean
- * verdict is also indeterminate rather than being promoted to passing proof.
- *
- * DR-7: an explicitly-skipped carrier is `indeterminate` REGARDLESS of
- * `passed`. The gate did not run to a conclusion, so it produced neither proof
- * nor a finding — `fail` would name a failure that was never observed, and
- * `pass` would mint proof that was never produced.
- *
- * The `passed !== true` qualifier this guard used to carry made it unreachable
- * for the carrier that most needed it. Three ladder gates (test-adequacy,
- * contract-drift, mock-boundary) emit `{ passed: true, skipped: true }` when the
- * verification policy routes them out of the sequence, so the durable evidence
- * row recorded `verdict: 'pass'` and `gate.executed` was minted `passed: true`
- * for a gate that never ran — proof manufactured from a skip. "Advisory skips
- * satisfy a presence requirement" was the old rationale; presence is satisfied
- * by the row EXISTING, not by it claiming to have passed.
- *
- * Indeterminate is NOT lenient: it fails closed downstream exactly as a deny
- * does (policy-evaluation's `evaluateGate` → `indeterminate('EVALUATOR_FAILED')`
- * → `PolicyVerdict 'indeterminate'` → `transition-command` records the attempt
- * and leaves the phase UNCHANGED; a waiver never rescues it). It is also not a
- * blocker for the ladder: the ToolResult carrier the orchestrator reads is
- * returned verbatim, so a policy-skipped gate still reports `data.passed: true`
- * to its runbook chain. Only the PROOF changes, which is the point.
+ * A skipped carrier is `indeterminate`, even with `passed: true`, because the gate produced no
+ * proof and no finding. Ladder gates return `{ passed: true, skipped: true }` when the policy
+ * excludes them. `indeterminate` fails closed in transition admission. The carrier does not
+ * change, so the runbook still reads `data.passed: true`.
  */
 export function normalizeGateVerdict(result: ToolResult): 'pass' | 'fail' | 'indeterminate' {
   if (!result.success) return 'indeterminate';
@@ -317,9 +241,8 @@ export function normalizeGateVerdict(result: ToolResult): 'pass' | 'fail' | 'ind
 }
 
 /**
- * Preserve the provider envelope and its data fields while adding proof refs.
- * Gate data is object-shaped in the owned provider registry; the fallback
- * keeps an unusual primitive carrier available under `result`.
+ * Adds proof references to the provider envelope and keeps its data fields. A defined data value
+ * that is not a plain object, an array included, moves under `result`.
  */
 export function attachGateEvidence(
   result: ToolResult,
@@ -336,14 +259,9 @@ export function attachGateEvidence(
   return { ...result, data };
 }
 
-// ─── Worktree-Aware repoRoot Resolution (#1330) ─────────────────────────────
-
 /**
- * The literal value that requests dynamic resolution of `repoRoot` to the
- * calling delegation's agent worktree, rather than a fixed path or
- * `process.cwd()`. See #1330: when the orchestrator gate omits `repoRoot`, the
- * gate runs against the orchestrator's main worktree (which lacks the agent's
- * diff), making it a coin-flip.
+ * The `repoRoot` value that requests resolution to the agent worktree of the calling delegation.
+ * Without it, a gate runs in the main worktree of the orchestrator, which lacks the agent diff.
  */
 export const AUTO_REPO_ROOT = 'auto';
 
@@ -358,31 +276,17 @@ export type ResolveRepoRootResult =
  */
 interface WorktreeCreatedData {
   readonly taskId?: string;
-  /**
-   * Absolute worktree path. Must match the canonical `WorktreeCreatedData`
-   * schema field name (`path`) — see event-store/schemas.ts. Reading any other
-   * key here silently never matches a real event (INV-1 projection/contract
-   * divergence; was `worktreePath`, fixed for #1330).
-   */
+  /** Absolute worktree path. The key must match the `path` field of the canonical schema. */
   readonly path?: string;
 }
 
 /**
- * Resolve a gate's `repoRoot` input to a concrete filesystem path, honoring the
- * worktree-aware `'auto'` mode (#1330).
- *
- * Resolution rules:
- * - A falsy `repoRoot` → `process.cwd()` (unchanged default for non-delegation callers).
- * - A literal path (anything other than {@link AUTO_REPO_ROOT}) → returned verbatim.
- * - {@link AUTO_REPO_ROOT} → the agent worktree path, resolved in order:
- *     1. the explicit `worktreePath` arg, when present and non-empty;
- *     2. otherwise the latest `worktree.created` event for `taskId` on the
- *        `featureId` stream.
- *   If neither yields a path, returns `{ ok: false }` rather than silently
- *   falling back to `process.cwd()` — the silent fallback is the #1330
- *   coin-flip this resolver eliminates.
- *
- * Pure aside from the injected event-store query (testable via a stub store).
+ * Resolves the `repoRoot` input of a gate to a path.
+ * - Empty: `process.cwd()`.
+ * - A path other than {@link AUTO_REPO_ROOT}: returned as given.
+ * - {@link AUTO_REPO_ROOT}: the `worktreePath` argument, then the latest `worktree.created`
+ *   event for `taskId` on the `featureId` stream. If neither gives a path, it returns
+ *   `{ ok: false }` and does not fall back to `process.cwd()`.
  */
 export async function resolveRepoRoot(
   args: {
@@ -403,12 +307,10 @@ export async function resolveRepoRoot(
     return { ok: true, repoRoot };
   }
 
-  // 'auto' — prefer the explicit worktreePath arg.
   if (worktreePath && worktreePath.trim().length > 0) {
     return { ok: true, repoRoot: worktreePath };
   }
 
-  // Fall back to the latest worktree.created event for this task.
   if (taskId) {
     const events = await store.query(featureId, { type: 'worktree.created' });
     for (let i = events.length - 1; i >= 0; i--) {
@@ -427,44 +329,17 @@ export async function resolveRepoRoot(
   };
 }
 
-// ─── Implement-phase graduation mode (DR-6) ─────────────────────────────────
-//
-// The audit→enforce graduation knob for the IMPLEMENT-kind phase obligation
-// surface. Distinct from SEVERITY (advisory vs blocking): mode is whether a
-// failing gate is *consulted at all* as a transition blocker, or only RECORDED
-// (the handler's `gate.executed` finding is emitted in BOTH modes; audit just
-// never lets a failure re-assert a blocking verdict).
-//
-// CRITICAL INV-6: this map is WORKFLOW-specific, NOT kind-universal. It lives
-// here next to the KIND_OBLIGATIONS *consumers* — it must NEVER move into
-// `KIND_OBLIGATIONS` (phase-kind.ts), because an obligation that attaches to a
-// kind composes across every workflow type, whereas a graduation mode is a
-// per-workflow rollout decision.
-
-/** The audit→enforce graduation mode for an IMPLEMENT-phase gate binding. */
+/**
+ * The graduation mode of an IMPLEMENT-phase gate binding. In `audit` mode, a failing gate
+ * records its finding but does not block a transition. Mode is separate from severity.
+ */
 export type ImplementMode = 'audit' | 'enforce';
 
 /**
- * Per-workflow IMPLEMENT-phase graduation mode (DR-6).
- *
- * A DATA TABLE — not branching prose — keyed by workflow type. Mode is the
- * audit→enforce rollout axis; SEVERITY (advisory vs blocking) is the orthogonal
- * axis resolved by {@link resolveGateSeverity}. The two compose: a phase blocks
- * only when its mode is `enforce` AND its severity is `blocking`.
- *
- * Live defaults per the epic severity policy + DR-6 acceptance criteria:
- *   - `oneshot`  (oneshot:implementing) → audit
- *       Its severity is already advisory (WORKFLOW_DEFAULT_SEVERITY.oneshot), so
- *       audit is the natural rollout home: findings recorded, never blocking.
- *   - `feature`  (delegate)             → enforce  (already covered pre-DR-4)
- *   - `debug`    (debug-implement)      → enforce  (DR-6 AC: "blocks (enforce mode)")
- *   - `refactor` (polish-implement)     → enforce  (epic policy: blocking)
- *
- * The `audit` mode itself is a first-class, exercised mechanism (a phase can be
- * graduated/demoted by editing one cell here); a workflow type without an entry
- * falls back to `enforce` (the safe default — a missing entry must NEVER
- * silently stop a gate from blocking). Adding a workflow type is a single-line
- * ADDITION, never new control flow in {@link resolveImplementMode}.
+ * IMPLEMENT-phase graduation mode by workflow type. A phase blocks only when its mode is
+ * `enforce` and its severity from {@link resolveGateSeverity} is `blocking`. `oneshot` is in
+ * `audit`, because its severity is already advisory. An unmapped workflow type gets `enforce`.
+ * The table is per workflow, so it must not move into the kind-universal `KIND_OBLIGATIONS`.
  */
 export const IMPLEMENT_PHASE_MODE: Readonly<Record<string, ImplementMode>> =
   Object.freeze({
@@ -474,48 +349,28 @@ export const IMPLEMENT_PHASE_MODE: Readonly<Record<string, ImplementMode>> =
     refactor: 'enforce',
   });
 
-/**
- * Resolve the IMPLEMENT-phase graduation mode for a workflow type.
- *
- * Reads {@link IMPLEMENT_PHASE_MODE}; an unmapped workflow type defaults to
- * `'enforce'` so a phase is never silently downgraded by an unknown type.
- */
+/** Returns the IMPLEMENT-phase mode for a workflow type, or `enforce` for an unmapped type. */
 export function resolveImplementMode(workflowType: string): ImplementMode {
   return IMPLEMENT_PHASE_MODE[workflowType] ?? 'enforce';
 }
 
 /**
- * Resolve the graduation MODE for a phase kind's gates (DR-16, #1546).
- *
- * IMPLEMENT is the only kind with an audit→enforce graduation — per-workflow,
- * via {@link resolveImplementMode} — because audit-first was correct ONLY for
- * S2's genuinely-new IMPLEMENT coverage. The migrated PLAN/REVIEW/SYNTHESIZE
- * gates already BLOCKED under the pre-binding playbooks, so they bind DIRECTLY
- * to `'enforce'` (behavior-preserving). GATHER carries no gates; `'enforce'` is
- * the safe default so an unexpected kind never silently downgrades a gate.
- *
- * This stays a workflow/kind-keyed function in the orchestrate layer (next to
- * `IMPLEMENT_PHASE_MODE`) — NOT in `KIND_OBLIGATIONS`, because graduation is a
- * per-workflow rollout decision, not a kind-universal obligation (INV-6).
+ * Returns the graduation mode for the gates of a phase kind. Only IMPLEMENT has a per-workflow
+ * mode. Each other kind gets `enforce`, so an unknown kind cannot downgrade a gate. This
+ * function stays out of `KIND_OBLIGATIONS`, because graduation is a per-workflow decision.
  */
 export function resolvePhaseMode(kind: PhaseKind, workflowType: string): ImplementMode {
   return kind === 'IMPLEMENT' ? resolveImplementMode(workflowType) : 'enforce';
 }
 
-// ─── Config-Aware Gate Wrapper ──────────────────────────────────────────────
-
 /**
  * Wraps a gate handler with config-aware severity resolution.
+ * - **disabled**: skips the handler and returns success with `skipped: true`.
+ * - **warning**: runs the handler and converts a failure to success with a warning.
+ * - **blocking**: runs the handler, and a failure stays a failure.
  *
- * - **disabled**: Skips execution entirely, returns success with `skipped: true`
- * - **warning**: Executes handler; converts failures to success with a warning
- * - **blocking**: Executes handler; failures remain failures (default behaviour)
- *
- * When `config` is `undefined`, defaults to blocking (backwards compatible).
- *
- * `workflowType` (task 005) is threaded to {@link resolveGateSeverity} so a
- * verification-ladder gate can pick up its per-workflow default severity (e.g.
- * oneshot → warning). Omitting it preserves the pre-task-005 resolution.
+ * With no `config`, the handler result returns unchanged. `workflowType` goes to
+ * {@link resolveGateSeverity} for the per-workflow default severity of a ladder gate.
  */
 export async function withConfigSeverity(
   gateName: string,
@@ -524,7 +379,6 @@ export async function withConfigSeverity(
   handler: () => Promise<ToolResult>,
   workflowType?: string,
 ): Promise<ToolResult> {
-  // When no config, default to blocking (backwards compat)
   if (!config) {
     return handler();
   }
@@ -540,10 +394,8 @@ export async function withConfigSeverity(
 
   const result = await handler();
 
-  // If gate passed, return as-is regardless of severity
   if (result.success) return result;
 
-  // If severity is 'warning', convert failure to success with warning
   if (severity === 'warning') {
     return {
       success: true,
@@ -552,49 +404,18 @@ export async function withConfigSeverity(
     };
   }
 
-  // Blocking: return failure as-is
   return result;
 }
 
 /**
- * Apply per-workflow severity to a verification-LADDER gate's ADVISORY-carrier
- * result (task 005).
+ * Applies per-workflow severity to the advisory carrier of a verification-ladder gate. A ladder
+ * gate reports failure as `{ success: true, data: { passed: false } }`, so this helper clears
+ * `data.passed` where {@link withConfigSeverity} clears `success`.
  *
- * Ladder gates (INV-5b) never return `success:false` for a gate-failure verdict
- * — a failing gate is `{ success: true, data: { passed: false } }`, where
- * `data.passed:false` is the blocking signal the orchestrator reads. So
- * {@link withConfigSeverity}'s `success:false`-only conversion does not apply;
- * the ladder analogue is to clear `data.passed` (false → true) the same way the
- * sibling clears `success`.
- *
- * This helper DOWNGRADES a failing advisory verdict (`data.passed === false`) to
- * non-blocking — clearing the blocking signal (`data.passed → true`) AND
- * attaching an explanatory warning — when EITHER:
- *   - the binding's graduation `mode` is `'audit'` (DR-6) — an audit-mode gate
- *     RECORDS its finding (the handler already emitted `gate.executed`) but is
- *     never consulted as a transition blocker, regardless of severity OR config.
- *     Audit mode is resolved from the workflow type (config-INDEPENDENT), so this
- *     downgrade applies even on the no-config path; OR
- *   - a config is present and the resolved severity (via {@link resolveGateSeverity},
- *     threading `workflowType`) is `'warning'`.
- *
- * The truthful failing verdict survives in the `gate.executed` event the handler
- * emitted before this post-processing; only the returned ToolResult's block
- * signal is normalized — so an audit/warning gate cannot still block on a stale
- * `data.passed:false`.
- *
- * In every other case the result is returned UNCHANGED:
- *   - `mode === 'enforce'` (or omitted) AND `severity !== 'warning'` (e.g.
- *     blocking for a feature workflow) → unchanged, so the orchestrator still
- *     reads `data.passed:false` and blocks;
- *   - `mode !== 'audit'` AND `config` absent → unchanged (legacy / no-config
- *     severity passthrough — severity reads `config.review.gates.*`);
- *   - a passing verdict → unchanged;
- *   - a real error envelope (`success:false`) → unchanged (an INVALID_INPUT /
- *     MISWIRED_CONTEXT must never be downgraded to a warning).
- *
- * `mode` defaults to `'enforce'`, so legacy callers that don't thread it see
- * exactly the pre-DR-6 severity-only resolution.
+ * A failing verdict becomes `passed: true` with a warning in two cases: `mode` is `audit`, or
+ * config resolves the severity to `warning`. Audit mode does not need config. The handler event
+ * keeps the true verdict. Each other result returns unchanged, an error envelope included, so
+ * `INVALID_INPUT` is never softened. `mode` defaults to `enforce`.
  */
 export function applyLadderGateSeverity(
   gateName: string,
@@ -604,26 +425,14 @@ export function applyLadderGateSeverity(
   workflowType?: string,
   mode: ImplementMode = 'enforce',
 ): ToolResult {
-  // A real error envelope (success:false) or a non-advisory shape — leave as-is.
-  // An INVALID_INPUT / MISWIRED_CONTEXT must never be softened to a warning.
   if (!result.success) return result;
 
   const data = result.data as { passed?: unknown } | undefined;
-  // Only an explicit failing verdict is a candidate for downgrade. A passing or
-  // shape-less advisory carrier is returned verbatim.
   if (!data || data.passed !== false) return result;
 
-  // Audit mode is resolved from the workflow type (IMPLEMENT_PHASE_MODE) — it is
-  // CONFIG-INDEPENDENT, so it downgrades a failing verdict whether or not a
-  // project config is present. The handler already emitted its `gate.executed`
-  // finding; audit mode only stops that failure from re-asserting a blocking
-  // verdict. This MUST precede the `!config` guard below (DR-6 fix): severity
-  // reads `config`, but mode does not.
   if (mode === 'audit') {
     return {
       ...result,
-      // Clear the blocking signal — `data.passed:false` is what the orchestrator
-      // reads to block, so the warning alone would not actually unblock.
       data: { ...(data as Record<string, unknown>), passed: true },
       warnings: [
         ...(result.warnings ?? []),
@@ -632,15 +441,12 @@ export function applyLadderGateSeverity(
     };
   }
 
-  // Severity-based downgrade reads `config.review.gates.*`, so it requires a
-  // resolved config; absent one, this is the legacy / no-config passthrough.
   if (!config) return result;
   const severity = resolveGateSeverity(gateName, dimension, config, workflowType);
   if (severity !== 'warning') return result;
 
   return {
     ...result,
-    // Clear the blocking signal alongside the warning (see the audit branch).
     data: { ...(data as Record<string, unknown>), passed: true },
     warnings: [
       ...(result.warnings ?? []),
@@ -649,35 +455,15 @@ export function applyLadderGateSeverity(
   };
 }
 
-// ─── Verification-ladder self-routing (FIX-1a) ──────────────────────────────
-
 /** The discriminant carried by a gate skipped because the policy excludes it. */
 export const SKIPPED_BY_POLICY = 'skipped-by-policy';
 
 /**
- * Decide whether a gate should self-skip given the task's stamped verification
- * profile.
- *
- * The SINGLE SOURCE OF TRUTH for which gates run is the config-resolved policy
- * ({@link resolveVerificationPolicy}, the declared only composer of config +
- * the frozen built-in table) — this helper reads it, it does NOT re-derive
- * sequences or touch the table directly. Consuming the SAME resolver the
- * delegation stamp uses ({@link classifyTask}) guarantees stamp and skip can
- * never disagree: a `.exarchos.yml` `verification:` cell that excludes a gate
- * makes BOTH the stamp drop it AND this helper skip it.
- *
- * When `config` is omitted (or its relevant cell is unset) the resolver
- * delegates to the built-in table, so the skip decision is byte-identical to
- * the pre-config behavior.
- *
- * Returns a skip decision ONLY when BOTH stamped fields are present AND the
- * resolved sequence for that profile does not contain `gateName`. When either
- * stamp is absent (legacy callers that don't thread the profile) it returns
- * `null` → the handler runs unconditionally, preserving current behavior
- * EXACTLY (config presence does not change the absent-stamp path).
- *
- * The skip `reason` names the policy SOURCE (`config` vs `builtin`) so a
- * config-induced skip is never mistaken for a built-in decision.
+ * Returns a skip reason when the stamped profile of the task excludes `gateName`. It reads the
+ * config-resolved policy from {@link resolveVerificationPolicy}, the same policy that the
+ * delegation stamp uses, so the stamp and the skip agree. When a stamp field is absent, it
+ * returns `null` before any config read, and the handler runs. The reason names the policy
+ * source, `config` or `builtin`.
  */
 export function resolvePolicySkip(args: {
   readonly gateName: GateName;
@@ -686,9 +472,6 @@ export function resolvePolicySkip(args: {
   readonly config?: ResolvedProjectConfig | undefined;
 }): { readonly reason: string } | null {
   const { gateName, riskTier, boundaryTouching, config } = args;
-  // Both stamps required — a partial stamp is treated as "no stamp" so we never
-  // skip on a half-resolved profile. This guard runs BEFORE any config read so
-  // the absent-stamp path is byte-identical regardless of config presence.
   if (riskTier === undefined || boundaryTouching === undefined) {
     return null;
   }

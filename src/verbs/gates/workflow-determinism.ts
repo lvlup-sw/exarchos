@@ -1,9 +1,10 @@
-// ─── Workflow Determinism Gate ────────────────────────────────────────────────
-//
-// Orchestrates workflow determinism checking by calling the pure TypeScript
-// checkWorkflowDeterminism function and emitting gate.executed events for
-// quality-layer gate checks.
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * The workflow determinism gate. It runs `checkWorkflowDeterminism` over the
+ * branch diff through `runPhaseGateWithEvidence`. The runner records durable
+ * gate evidence before a success result returns, and the provider appends the
+ * quality-layer `gate.executed` event. If git cannot produce the diff, the
+ * gate fails closed.
+ */
 
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
@@ -11,8 +12,6 @@ import { createEvidenceSubject } from '../../workflow/admission/evidence-subject
 import { runPhaseGateWithEvidence } from './gate-runner.js';
 import { getDiff, requireGateEvent, sameOperationGateKey } from './gate-utils.js';
 import { checkWorkflowDeterminism } from '../pure/workflow-determinism.js';
-
-// ─── Types ─────────────────────────────────────────────────────────────────
 
 interface WorkflowDeterminismArgs {
   readonly featureId: string;
@@ -26,14 +25,11 @@ interface WorkflowDeterminismResult {
   readonly report: string;
 }
 
-// ─── Handler ───────────────────────────────────────────────────────────────
-
 export async function handleWorkflowDeterminism(
   args: WorkflowDeterminismArgs,
   stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
-  // Guard clause: validate required inputs
   if (!args.featureId) {
     return {
       success: false,
@@ -41,11 +37,6 @@ export async function handleWorkflowDeterminism(
     };
   }
 
-  // Durable gate evidence is a declared postcondition here, and a bare
-  // `gate.executed` append does not pay it — the observer reads
-  // `admission.evidence-recorded`. The shared phase-gate runner records that
-  // before any success carrier escapes; the declared signal is still minted by
-  // the provider closure below.
   return runPhaseGateWithEvidence({
     streamId: args.featureId,
     gateClass: 'workflow-determinism',
@@ -69,7 +60,6 @@ async function executeWorkflowDeterminism(
   const repoRoot = args.repoRoot || process.cwd();
   const baseBranch = args.baseBranch || 'main';
 
-  // Get the diff — fail-closed if git is unavailable
   const diff = getDiff(repoRoot, baseBranch);
   if (diff === null) {
     return {
@@ -82,7 +72,6 @@ async function executeWorkflowDeterminism(
   const passed = tsResult.status === 'pass';
   const findingCount = tsResult.findingCount;
 
-  // Return structured result
   const result: WorkflowDeterminismResult = {
     passed,
     findingCount,

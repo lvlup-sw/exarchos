@@ -1,29 +1,26 @@
-// ─── Verify Worktree Orchestrate Action ──────────────────────────────────────
-//
-// Verifies that the current or provided working directory is inside a git
-// worktree (path contains '.worktrees/').
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Orchestrate action that verifies the working directory is inside a git worktree.
+ * The test is a substring match: the resolved path must contain `.worktrees/`.
+ */
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { toPosix } from '../../utils/paths.js';
 import type { ToolResult } from '../../format.js';
 
-// ─── Types ──────────────────────────────────────────────────────────────────
-
 interface VerifyWorktreeArgs {
   readonly cwd?: string;
 }
 
-// ─── Handler ────────────────────────────────────────────────────────────────
-
+/**
+ * Checks `args.cwd`, or the process directory when it is absent.
+ * The path is converted to POSIX form first, so the substring test and the returned path are the same on Windows.
+ */
 export async function handleVerifyWorktree(
   args: VerifyWorktreeArgs,
   _stateDir: string,
 ): Promise<ToolResult> {
   const rawPath = args.cwd ?? process.cwd();
-  // Normalize to POSIX so the `.worktrees/` substring check and the returned
-  // path are separator-agnostic (path.resolve emits backslashes on Windows).
   const resolvedPath = toPosix(path.resolve(rawPath));
 
   if (!fs.existsSync(resolvedPath)) {

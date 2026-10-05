@@ -1,35 +1,19 @@
 /**
- * retired-hooks-present — are DR-7 retired lifecycle hooks still installed in the
- * agent-host settings (the uninstall-reachability check)?
+ * retired-hooks-present: reports retired Exarchos lifecycle hooks that are
+ * still installed in the agent-host settings. The launcher owns the session
+ * lifecycle, so the SessionStart directive and the SessionEnd observer are
+ * retired. SubagentStop stays for token attribution.
  *
- * DR-7 makes the launcher the lifecycle authority, so the onboard-installed
- * SessionStart directive + SessionEnd observer are retired (SubagentStop is
- * retained for token attribution). A round-2 audit showed the existing
- * `session-start-hook` check PASSES for exactly the consumers who already have
- * the binding installed — so it never lands a reconcile step that could reach and
- * remove them. This check fills that gap: it is REMEDIABLE (Warning + `fix`)
- * exactly when provenance-matched retired hooks exist, so `diff` lands a
- * `retired-hooks-present` PlanStep (CHECK_CLASSIFICATION → `kind:'hook'`) that
- * `apply` routes to `removeRetiredHooks` — but only AFTER the on-ramp block write
- * (the reconciler's cross-step ordering keeps a consumer from ever transitioning
- * through hook-less + block-less).
+ * A `Warning` with `fix` makes `diff` plan a removal step. `apply` routes that
+ * step to `removeRetiredHooks` after the on-ramp block write. If that write
+ * fails, the hooks stay, so the consumer always keeps the hooks or the block.
+ * A hook matches only when its command carries one of the
+ * {@link RETIRED_HOOK_MARKERS}. Missing or unreadable settings, or no home
+ * directory, give `Pass`. Settings that do not parse give `Skipped`, because a
+ * removal step over an unparsed file is not safe.
  *
- * Provenance is command-marker only ({@link RETIRED_HOOK_MARKERS}) — the same
- * markers the installer writes, never an invented one. USER-authored hooks are
- * provably outside the set, so this check never flags them.
- *
- *   - retired hooks present               ⇒ Warning (+ `fix`) — remediable
- *   - clean settings / no retired hooks   ⇒ Pass
- *   - settings absent / home unresolvable ⇒ Pass (nothing installed to remove)
- *   - settings present but unparseable    ⇒ Skipped (cannot confirm retired hooks
- *                                           without reading the file; never a
- *                                           spurious removal step over a file we
- *                                           could not parse)
- *
- * CRITICAL: the `name` MUST equal {@link RETIRED_HOOKS_CHECK_NAME} — that string
- * is the key CHECK_CLASSIFICATION maps to the removal step AND the key
- * `installHook` dispatches to `removeRetiredHooks`; renaming it silently strands
- * the uninstall.
+ * The `name` must equal {@link RETIRED_HOOKS_CHECK_NAME}. The reconciler and
+ * `installHook` use that key to route the removal.
  */
 
 import { join } from 'node:path';
@@ -53,8 +37,6 @@ export const retiredHooksPresent: CheckFn = async (probes): Promise<CheckResult>
   const home = probes.env.HOME ?? probes.env.USERPROFILE;
 
   if (!home) {
-    // No resolvable home → no settings file to hold retired hooks → nothing to
-    // remove. Pass (not a Warning): there is no remediation to land.
     return {
       ...BASE,
       status: 'Pass',
@@ -69,8 +51,6 @@ export const retiredHooksPresent: CheckFn = async (probes): Promise<CheckResult>
   try {
     raw = await probes.fs.readFile(settingsPath);
   } catch {
-    // Absent (or unreadable) settings → the retired hooks are not installed →
-    // nothing to remove. Pass, no step.
     return {
       ...BASE,
       status: 'Pass',
@@ -83,9 +63,6 @@ export const retiredHooksPresent: CheckFn = async (probes): Promise<CheckResult>
   try {
     parsed = JSON.parse(raw);
   } catch {
-    // The host owns this file; without a parse we cannot confirm the retired
-    // hooks are present, and triggering a removal step over an unparseable file
-    // would be unsafe. Skip (with a reason) rather than Warn.
     return {
       ...BASE,
       status: 'Skipped',

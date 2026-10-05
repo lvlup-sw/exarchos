@@ -1,22 +1,13 @@
-// ─── Workflow State Resolution ──────────────────────────────────────────────
-//
-// Unified state resolution. The SQLite event store is the source of truth; the
-// on-disk `.state.json` is a derived stamp consulted only when no event store
-// is available. Resolution order (event-store-first, #1504):
-//   1. Event store materialization (when featureId + eventStore are supplied)
-//   2. State file on disk (fallback — legacy / CLI paths with no event store)
-//   3. Error if neither source is available
-//
-// Replaces inline parseStateFile / existsSync patterns in
-// post-delegation-check.ts and reconcile-state.ts.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Resolves workflow state for a feature.
+ * The SQLite event store is the source of truth. The `.state.json` file on disk is a derived stamp.
+ * The resolver reads the file only when the caller does not supply both `featureId` and an event store.
+ */
 
 import { existsSync, readFileSync } from 'node:fs';
 import type { EventStore } from '../events/store.js';
 import type { ToolResult } from '../format.js';
 import { workflowStateProjection } from '../projections/views/workflow-state-projection.js';
-
-// ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface ResolveOpts {
   /** Path to a JSON state file on disk. */
@@ -40,19 +31,12 @@ export type ResolveResult =
  */
 export type StateFileStatus = 'absent' | 'missing' | 'malformed' | 'ok';
 
-// ─── State File Classification ────────────────────────────────────────────────
-
 /**
- * Classify an explicit `stateFile` path WITHOUT mutating anything.
- *
- * {@link resolveWorkflowState} silently falls back to the event store when a
- * supplied `stateFile` is missing OR unparseable. That is the right behavior
- * for a *missing* derived stamp (INV-1: `.state.json` is optional), but it
- * masks a *corrupt* file the caller explicitly provided. Callers that need to
- * surface an explicit-file error should consult this first and report
- * `'malformed'` (and, when no event-store fallback exists, `'missing'`) rather
- * than letting the silent fallback collapse it into a misleading downstream
- * message.
+ * Classifies an explicit `stateFile` path and changes nothing.
+ * {@link resolveWorkflowState} ignores the file when `featureId` and an event store are supplied.
+ * Otherwise, it reports a malformed file as `NO_STATE_SOURCE`, the same as a missing file.
+ * A missing `.state.json` is normal, but a corrupt file that the caller supplied is an error.
+ * A caller that must report that error calls this function first.
  */
 export function classifyStateFile(stateFile: string | undefined): StateFileStatus {
   if (!stateFile) return 'absent';
@@ -65,27 +49,16 @@ export function classifyStateFile(stateFile: string | undefined): StateFileStatu
   }
 }
 
-// ─── State Resolution ───────────────────────────────────────────────────────
-
 /**
- * Resolve workflow state from the best available source.
+ * Resolves workflow state from the best available source, in this order:
+ * 1. With `featureId` and `eventStore`, it folds the stream through `workflowStateProjection`. A store failure gives `EVENT_STORE_ERROR`.
+ * 2. Else it parses `stateFile` when the file exists.
+ * 3. Else it returns a `NO_STATE_SOURCE` error. A file that does not parse gives the same error.
  *
- * Resolution order (event-store-first, #1504):
- * 1. If `featureId` and `eventStore` are provided, materialize state from the
- *    event store via projection — the authoritative source of truth.
- * 2. Otherwise, if a `stateFile` is provided and exists on disk, read and parse
- *    it (legacy / CLI fallback when no event store is available).
- * 3. If neither source is available, return a NO_STATE_SOURCE error.
+ * The file can go stale, so it never shadows the projection when the caller supplies both inputs of step 1.
+ * A caller that must compare the file with the projection reads the file directly.
  */
 export async function resolveWorkflowState(opts: ResolveOpts): Promise<ResolveResult> {
-  // ── Event store FIRST (#1504, INV-1) ──────────────────────────────────────
-  // The SQLite event log is the source of truth; the on-disk `.state.json` is a
-  // derived stamp that can go stale and silently SHADOW the authoritative
-  // projection (the bug #1504 fixes). When the event store is available,
-  // materialize from it. The file is a fallback ONLY when no event store is
-  // supplied (CLI/legacy paths). For a caller that explicitly needs the on-disk
-  // file (e.g. a file↔projection drift comparison), read it directly rather
-  // than relying on resolution order.
   if (opts.featureId && opts.eventStore) {
     try {
       const events = await opts.eventStore.query(opts.featureId);
@@ -111,19 +84,14 @@ export async function resolveWorkflowState(opts: ResolveOpts): Promise<ResolveRe
     }
   }
 
-  // ── Fallback: file-only resolution (no event store available) ─────────────
-
   if (opts.stateFile && existsSync(opts.stateFile)) {
     try {
       const raw = readFileSync(opts.stateFile, 'utf-8');
       const parsed = JSON.parse(raw) as Record<string, unknown>;
       return { state: parsed };
     } catch {
-      // File exists but is unreadable or invalid JSON — fall through to error
     }
   }
-
-  // ── No source available ───────────────────────────────────────────────────
 
   return {
     error: {
