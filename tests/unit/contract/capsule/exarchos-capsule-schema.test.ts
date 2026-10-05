@@ -1,9 +1,9 @@
 // The checked-in capsule artifact and the authored schema must not disagree.
 //
-// Four properties, because "regenerate and commit" only works if a stale
-// artifact is loud: the bytes on disk match a fresh generation, generation is
-// deterministic, the serialization is canonical with a trailing newline, and
-// the bytes actually compile as a JSON Schema.
+// A stale artifact must fail a test, so the suite pins four properties. The
+// bytes on disk match a fresh generation. Generation is deterministic. The
+// serialization is canonical JSON with a trailing newline. The bytes compile
+// as a JSON Schema.
 //
 // @oracle-sources: ../../../../src/contract/capsule/generated/exarchos-capsule.schema.json, the Ajv 2020 compiler which reads those bytes with no knowledge of the Zod source that emitted them
 
@@ -40,8 +40,8 @@ describe('the capsule JSON Schema artifact', () => {
     expect(() => ajv.compile(parsed as object)).not.toThrow();
   });
 
+  /** A schema that accepts every document satisfies each other test in this suite. */
   it('CapsuleSchemaArtifact_IsNotVacuous', () => {
-    // A schema that accepts everything would satisfy every assertion above.
     const schema = exarchosCapsuleJsonSchema();
     expect(schema.additionalProperties).toBe(false);
     expect(Object.keys(schema.properties as Record<string, unknown>).sort()).toEqual([

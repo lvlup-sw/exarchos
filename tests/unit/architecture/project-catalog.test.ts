@@ -3,10 +3,8 @@ import { projectCatalog } from '../../../src/architecture/project-catalog.js';
 import type { InvariantEntry } from '../../../src/architecture/invariants-loader.js';
 
 /**
- * Minimal `InvariantEntry` factory for tests. Only the fields the
- * projection reads (`axis`, `appliesTo`, `phaseAffinity`, `workflowAffinity`)
- * are meaningful; the rest are filled with benign defaults so the shape
- * type-checks.
+ * Builds a minimal `InvariantEntry`. The projection reads only `axis`, `appliesTo`, `phaseAffinity`
+ * and `workflowAffinity`. The other fields hold defaults that satisfy the type.
  */
 function entry(id: string, overrides: Partial<InvariantEntry> = {}): InvariantEntry {
   return {
@@ -23,6 +21,7 @@ function entry(id: string, overrides: Partial<InvariantEntry> = {}): InvariantEn
 }
 
 describe('projectCatalog', () => {
+  /** An entry with no phase affinity applies to every phase. */
   it('ProjectCatalog_PhaseReview_ExcludesIdeateOnlyEntries', () => {
     const ideateOnly = entry('INV-ideate', { phaseAffinity: ['ideate'] });
     const reviewScoped = entry('INV-review', { phaseAffinity: ['review'] });
@@ -34,23 +33,20 @@ describe('projectCatalog', () => {
     });
 
     const ids = result.map((e) => e.id);
-    // Entry scoped to `ideate` only is excluded for a `review` projection.
     expect(ids).not.toContain('INV-ideate');
-    // Entry that lists `review` is included.
     expect(ids).toContain('INV-review');
-    // Absent phase-affinity ⇒ applies to all phases.
     expect(ids).toContain('INV-any');
   });
 
+  /**
+   * A `discovery` projection excludes a substrate invariant that has no explicit workflow affinity.
+   * As a result, the review gate does not fire on code dimensions. An authoring invariant stays.
+   */
   it('ProjectCatalog_DiscoverySubstrateInvariant_Excluded', () => {
-    // DR-4: the canonical workflow-type token is `'discovery'`. A substrate
-    // (code-axis) invariant with NO explicit workflow-affinity is excluded from
-    // a discovery-workflow projection via the revived axis-substrate branch.
     const codeAxis = entry('INV-code', {
       axis: 'substrate',
       appliesTo: ['src/**'],
     });
-    // An authoring-axis invariant — survives a `discovery` projection.
     const authoringAxis = entry('DIM-8', {
       axis: 'authoring',
       appliesTo: ['docs/**'],
@@ -62,19 +58,16 @@ describe('projectCatalog', () => {
     });
 
     const ids = result.map((e) => e.id);
-    // For `discovery`, substrate code-axis invariants are excluded so the
-    // review gate does not fire on code dimensions.
     expect(ids).not.toContain('INV-code');
     expect(ids).toContain('DIM-8');
   });
 
+  /** The touched file matches only the `appliesTo` patterns of the docs invariant. */
   it('ProjectCatalog_DelegateDocsOnlyTask_NoCodeInvariantInjection', () => {
-    // Code invariant whose appliesTo are source modules.
     const codeInvariant = entry('INV-src', {
       axis: 'substrate',
       appliesTo: ['src/**', 'servers/**'],
     });
-    // Docs invariant whose appliesTo cover docs.
     const docsInvariant = entry('DIM-docs', {
       axis: 'authoring',
       appliesTo: ['docs/**'],
@@ -87,9 +80,7 @@ describe('projectCatalog', () => {
     });
 
     const ids = result.map((e) => e.id);
-    // A docs-only task injects no code invariant.
     expect(ids).not.toContain('INV-src');
-    // The docs invariant matches the touched files and is injected.
     expect(ids).toContain('DIM-docs');
   });
 });

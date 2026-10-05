@@ -1,20 +1,13 @@
 /**
- * F-05 — `runSessionMachineryConsumedInterceptor` swallow-path observability.
- *
- * The interceptor is documented as "logged-and-swallowed" — failures must
- * never propagate into the dispatch return path. Prior to F-05 the catch
- * was bare (`catch {}`), making T-12 regressions invisible to oncall.
- * This test pins the warn emission so the swallow path stays observable.
- *
- * Plan: docs/plans/archive/2026-05-09-rehydration-machinery-fixes.md (F-05)
+ * Tests for the swallow path of `runSessionMachineryConsumedInterceptor`. The interceptor must
+ * keep a store failure out of the dispatch result, and it must log a warning for that failure.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// IMPORTANT: mock the logger module BEFORE importing the SUT so the
-// interceptor closure captures the spy reference, not the real pino child.
-// `vi.hoisted` is required because `vi.mock` is hoisted above module-level
-// `const` declarations — without it the spy would be in the TDZ when the
-// factory runs.
+/**
+ * The logger mock must exist before the import of the interceptor, so the interceptor gets this
+ * spy. `vi.hoisted` is necessary because `vi.mock` runs before module-level `const` declarations.
+ */
 const { warnSpy } = vi.hoisted(() => ({ warnSpy: vi.fn() }));
 vi.mock('../../../../../src/logger.js', () => ({
   workflowLogger: {
@@ -43,27 +36,25 @@ describe('runSessionMachineryConsumedInterceptor — F-05 swallow-path warn', ()
       append: vi.fn(),
     } as unknown as EventStore;
 
-    // The interceptor MUST NOT propagate the error.
     await expect(
       runSessionMachineryConsumedInterceptor(failingStore, 'feature-xyz', 'task_complete'),
     ).resolves.toBeUndefined();
 
-    // The swallow path MUST emit a structured warn so oncall sees regressions.
     expect(warnSpy).toHaveBeenCalledTimes(1);
     const [ctx, message] = warnSpy.mock.calls[0];
     expect(ctx).toMatchObject({
       streamId: 'feature-xyz',
       actionVerb: 'task_complete',
     });
-    // Structured `err` field — same convention as handleRehydrate / buildDegradedResponse.
     expect(ctx).toHaveProperty('err');
     expect(typeof message).toBe('string');
     expect(message).toMatch(/session-machinery interceptor swallowed error/i);
   });
 
+  /** The empty query result holds no `workflow.rehydrated` event, so the interceptor returns early. */
   it('does not emit warn on the happy path (no rehydrated event present)', async () => {
     const cleanStore = {
-      query: vi.fn().mockResolvedValue([]), // no workflow.rehydrated → early return
+      query: vi.fn().mockResolvedValue([]),
       append: vi.fn(),
     } as unknown as EventStore;
 

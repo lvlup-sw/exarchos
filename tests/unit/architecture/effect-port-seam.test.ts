@@ -49,8 +49,8 @@ describe('runEffectPortCensus — verdict logic', () => {
     expect(broad && 'module' in broad && broad.module).toBe('w/feedback.ts');
   });
 
+  /** With no occurrence, the declared `network` class covers nothing. */
   it('flags a port declaring an unperformed class (or a gone module) as STALE_EFFECT_PORT', () => {
-    // No occurrences ⇒ the declared `network` class is phantom cover.
     const result = runEffectPortCensus([], rules);
     expect(result.ok).toBe(false);
     expect(result.diagnostics.map((d) => d.code)).toContain('STALE_EFFECT_PORT');
@@ -65,17 +65,17 @@ describe('runEffectPortCensus — verdict logic', () => {
 });
 
 describe('EXIT PROOF — live narrow effect ports', () => {
+  /** The diagnostics assertion comes first, so a failure prints each diagnostic. */
   it('(a) every curated module holds exactly its declared narrow port', async () => {
     const result = await auditEffectPorts(SRC_ROOT, lexModule);
-    // Surfacing the diagnostics array makes any regression self-describing.
     expect(result.diagnostics).toEqual([]);
     expect(result.ok).toBe(true);
     expect(result.ruleCount).toBeGreaterThan(0);
   });
 
+  /** `workflow/feedback.ts` declares a network-only port, so the planted process effect is outside its port. */
   it('(b) a planted broad effect on a narrow-port module FAILS against the live footprints', async () => {
     const occurrences = await scanEffectOccurrences(SRC_ROOT, lexModule);
-    // workflow/feedback.ts is the network-only owner; plant a process effect on it.
     const planted: EffectOccurrence = {
       module: 'workflow/feedback.ts',
       effectClass: 'process',
@@ -105,12 +105,10 @@ describe('EXIT PROOF — live narrow effect ports', () => {
   });
 });
 
-// ── The same proof over the extracted conformance package (task 018a) ────────
-//
-// Two curated port modules moved out of the subject tree. The census keys a
-// module relative to the root it scans, so governing them means a second pass
-// over the second root — not a shorter rule table. Both teeth are asserted
-// here exactly as above: no diagnostic, and no phantom rule.
+/**
+ * The same proof for the port modules of the conformance package.
+ * The census keys a module relative to the root that it scans, so these modules need a second pass over their root.
+ */
 describe('EXIT PROOF — live narrow effect ports (conformance package)', () => {
   it('(a) every curated conformance module holds exactly its declared narrow port', async () => {
     const result = await auditEffectPorts(CONFORMANCE_SRC_ROOT, lexModule, CONFORMANCE_EFFECT_PORTS);

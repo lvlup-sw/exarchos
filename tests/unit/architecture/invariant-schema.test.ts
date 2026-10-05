@@ -8,8 +8,7 @@ import {
 } from '../../../src/architecture/invariant-schema.js';
 
 describe('InvariantEntryV3Schema', () => {
-  // A minimal entry carrying only the v2-required fields must parse cleanly;
-  // every v3 field is optional and resolves to `undefined` when absent.
+  /** A minimal entry holds only the required fields. Each absent v3 field parses to `undefined`. */
   it('InvariantSchemaV3_AllFieldsOptional_ParsesMinimalEntry', () => {
     const minimal = {
       id: 'INV-1',
@@ -26,7 +25,6 @@ describe('InvariantEntryV3Schema', () => {
     expect(parsed.id).toBe('INV-1');
     expect(parsed.axis).toBe('substrate');
     expect(parsed['cost-of-load']).toBe('always-load');
-    // All v3 additions absent ⇒ undefined, no validation error.
     expect(parsed['phase-affinity']).toBeUndefined();
     expect(parsed['workflow-affinity']).toBeUndefined();
     expect(parsed['state-affinity']).toBeUndefined();
@@ -35,10 +33,8 @@ describe('InvariantEntryV3Schema', () => {
     expect(parsed['integrity-class']).toBeUndefined();
   });
 
+  /** The schema accepts the workflow token `discovery` and rejects `discover`, which matches no workflow type. */
   it('InvariantSchema_WorkflowAffinityDiscovery_Validates', () => {
-    // DR-4: `workflow-affinity: ['discovery']` (the canonical token) validates,
-    // AND the pre-DR-4 dead `'discover'` no longer does — so the schema and the
-    // runtime projection agree on ONE token.
     const base = {
       id: 'INV-9',
       dimension: 'Discovery affinity',
@@ -56,6 +52,7 @@ describe('InvariantEntryV3Schema', () => {
     ).toBe(false);
   });
 
+  /** The rich entry does not declare `axiom-overlap`, and it must still parse. */
   it('InvariantSchemaV3_AcceptsAllV3Fields_ParsesRichEntry', () => {
     const rich = {
       id: 'INV-4',
@@ -66,8 +63,6 @@ describe('InvariantEntryV3Schema', () => {
       summary: 'Enforcement is declarative-only.',
       references: ['docs/architecture/invariants.md'],
       citations: ['some-paper-2024'],
-      // axiom-overlap excised (#1477): a rich entry that does NOT declare it
-      // must still parse cleanly.
       'phase-affinity': ['delegate', 'review'],
       'workflow-affinity': ['feature', 'refactor'],
       'state-affinity': ['delegated', 'in-review'],
@@ -92,7 +87,7 @@ describe('InvariantEntryV3Schema', () => {
 });
 
 describe('EnforcementSchema', () => {
-  // An `all-of` of two grep leaves is a valid combinator tree.
+  /** An `all-of` node with two grep leaves is a valid combinator tree. */
   it('EnforcementSchema_CheckMode_AcceptsCombinatorTree', () => {
     const enforcement = {
       mode: 'check',
@@ -114,8 +109,7 @@ describe('EnforcementSchema', () => {
     expect(() => EnforcementSchema.parse(enforcement)).not.toThrow();
   });
 
-  // INV-4 sandbox guarantee: a leaf carrying an embedded executable
-  // (`script`/`exec`/`code`) must fail `.strict()` validation.
+  /** A check leaf is strict, so a leaf with an embedded executable key such as `script` fails validation. */
   it('EnforcementSchema_RejectsEmbeddedExecutable', () => {
     const malicious = {
       mode: 'check',
@@ -126,8 +120,7 @@ describe('EnforcementSchema', () => {
 });
 
 describe('CheckNodeSchema fail-closed', () => {
-  // T-07: an unknown leaf `kind` must throw a typed UnknownCheckKindError
-  // at parse/load time — never reach the evaluator.
+  /** An unknown leaf `kind` throws `UnknownCheckKindError` at parse time, before the evaluator can run. */
   it('EvaluateTree_UnknownKind_ThrowsAtLoadNotEval', () => {
     const bogus = { kind: 'bogus', pattern: 'foo' };
     expect(() => CheckNodeSchema.parse(bogus)).toThrow(UnknownCheckKindError);

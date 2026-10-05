@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const SCHEMA_PATH = path.join(here, '../../../src/architecture/invariant-schema.ts');
-// docs/ lives at the repo root, four levels up from src/architecture/.
+/** The contract-seam note, in the docs corpus that mounts at the repository root. */
 const DOC_PATH = path.join(
   here,
   '../../../docs/architecture/invariants-v3-contract-seam.md');
@@ -20,9 +20,7 @@ function exportedSchemaNames(source: string): string[] {
 }
 
 describe('invariants-v3 contract-seam doc', () => {
-  // The contract-seam note lives in the mounted docs corpus. When docs are
-  // unmounted (CI and this checkout) the file is absent and the check is
-  // skipped rather than fail-closed on a missing mount.
+  /** When the docs corpus is not mounted, the note is absent and this test skips. CI does not mount it. */
   it.skipIf(!fs.existsSync(DOC_PATH))('ContractSeamDoc_EnumeratesEveryV3Type', () => {
     const schemaSource = fs.readFileSync(SCHEMA_PATH, 'utf8');
     const names = exportedSchemaNames(schemaSource);

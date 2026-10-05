@@ -9,8 +9,6 @@ import { compile, activeChangeClasses } from '../../../../src/contract/compiler/
 import type { CompilerDiagnostic } from '../../../../src/contract/compiler/compile.js';
 import { derivePolicy } from '../../../../src/contract/compiler/meta-model.js';
 
-// ─── Authority-verdict stubs ─────────────────────────────────────────────────
-
 const okVerdict: AuthorityVerdict = { ok: true, violations: [], report: 'ok (stub)' };
 const blockedVerdict: AuthorityVerdict = {
   ok: false,
@@ -18,8 +16,6 @@ const blockedVerdict: AuthorityVerdict = {
   report: 'contract authority BLOCKED — 1 violation(s)',
 };
 const OK = { verifyAuthority: () => okVerdict } as const;
-
-// ─── Mutable-clone helpers (no `any`) ────────────────────────────────────────
 
 function cloneAsUnknown(mm: MetaModel): unknown {
   return JSON.parse(JSON.stringify(mm)) as unknown;
@@ -33,8 +29,6 @@ function firstEntry(mm: unknown): Record<string, unknown> {
   if (!Array.isArray(actions) || actions.length === 0) throw new Error('no actions');
   return rec(actions[0]);
 }
-
-// ─── Synthetic registry (for line-ending stability at the compile boundary) ──
 
 function makeAction(overrides: Partial<ToolAction> & { name: string }): ToolAction {
   return {
@@ -56,8 +50,6 @@ function makeAction(overrides: Partial<ToolAction> & { name: string }): ToolActi
 function makeTool(name: string, actions: readonly ToolAction[]): CompositeTool {
   return { name, description: `tool ${name}`, actions };
 }
-
-// ─── Exit proof (a) — repeated generation is byte-identical ──────────────────
 
 describe('compile — deterministic byte-stable generation (exit proof a)', () => {
   it('ProducesByteIdenticalOutputWhenCompiledTwice', () => {
@@ -84,8 +76,6 @@ describe('compile — deterministic byte-stable generation (exit proof a)', () =
     }
   });
 });
-
-// ─── Exit proof (b) — a missing policy field FAILS compilation ───────────────
 
 describe('compile — missing policy field fails (exit proof b)', () => {
   it('RejectsAnEntryMissingARequiredPolicyField', () => {
@@ -121,8 +111,6 @@ describe('compile — missing policy field fails (exit proof b)', () => {
     }
   });
 });
-
-// ─── Exit proof (c) — an incompatible schema field FAILS compilation ─────────
 
 describe('compile — incompatible surface binding fails (exit proof c)', () => {
   it('RejectsAnUnknownStableErrorCode', () => {
@@ -180,15 +168,12 @@ describe('compile — incompatible surface binding fails (exit proof c)', () => 
   });
 });
 
-// ─── Exit proof (d) — a floating/unapproved authority BLOCKS generation ──────
-
 describe('compile — authority freeze blocks generation (exit proof d)', () => {
+  /** The authority gate runs before validation, so a valid model gives exactly one `AUTHORITY_BLOCKED` diagnostic. */
   it('RefusesToCompileAValidModelWhenAuthorityIsNotOk', () => {
     const r = compile(deriveMetaModel(), { verifyAuthority: () => blockedVerdict });
     expect(r.ok).toBe(false);
     if (!r.ok) {
-      // The gate runs BEFORE validation: a valid model yields exactly the one
-      // authority block, nothing else.
       expect(r.diagnostics).toHaveLength(1);
       expect(r.diagnostics[0]?.code).toBe('AUTHORITY_BLOCKED');
       expect(r.diagnostics[0]?.message).toContain('BLOCKED');
@@ -205,15 +190,12 @@ describe('compile — authority freeze blocks generation (exit proof d)', () => 
     }
   });
 
+  /** The default gate is the real `verifyContractAuthority()`, which reads the approved lockfile in this tree. */
   it('CompilesAgainstTheRealCheckedInAuthorityFreeze', () => {
-    // Integration: the default gate is the real verifyContractAuthority(), which
-    // reads the approved lockfile in this tree.
     const r = compile(deriveMetaModel());
     expect(r.ok).toBe(true);
   });
 });
-
-// ─── Exit proof (e) — stable across key-order & line-ending differences ──────
 
 describe('compile — stable across key-order and platform differences (exit proof e)', () => {
   it('IsInsensitiveToEntryKeyInsertionOrder', () => {
@@ -257,8 +239,6 @@ describe('compile — stable across key-order and platform differences (exit pro
   });
 });
 
-// ─── Diagnostics are deterministic ───────────────────────────────────────────
-
 describe('compile — diagnostics are deterministically ordered', () => {
   it('ReturnsIdenticalDiagnosticsAcrossRuns', () => {
     const build = (): unknown => {
@@ -279,8 +259,6 @@ describe('compile — diagnostics are deterministically ordered', () => {
     }
   });
 });
-
-// ─── Compatibility report ────────────────────────────────────────────────────
 
 describe('activeChangeClasses — policy-gated change-class activation', () => {
   it('OmitsMutationClassesForAReadOnlyAction', () => {

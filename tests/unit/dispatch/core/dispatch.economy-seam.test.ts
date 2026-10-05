@@ -12,16 +12,15 @@ const DISPATCH_PATH = path.join(here, '../../../../src/dispatch/core/dispatch.ts
 const MIDDLEWARE_PATH = path.join(here, '../../../../src/projections/telemetry/middleware.ts');
 
 describe('economy-seam no-bypass gate (INV-17 Axis-2)', () => {
-  // The live proof: every result-producing branch of the real dispatch() and
-  // the withTelemetry seam route through enforceResponseEconomy. Would fail if
-  // a new execution mode shipped an un-capped branch (the class of defect the
-  // tool-token-economy-remediation review caught).
+  /**
+   * The live check. Each result branch of the real `dispatch()`, and the
+   * `withTelemetry` seam, must go through `enforceResponseEconomy`.
+   */
   it('EconomySeam_RealDispatchAndMiddleware_NoBypass', () => {
     expect(lintEconomySeam(DISPATCH_PATH, MIDDLEWARE_PATH)).toEqual([]);
   });
 
-  // The exact regression class the review caught: a telemetry-OFF leaf that
-  // returns the raw handler result WITHOUT the seam.
+  /** A telemetry-off branch returns the raw handler result and has no seam call. */
   it('EconomySeam_UnguardedTelemetryOffBranch_Flagged', () => {
     const source = [
       'export async function dispatch() {',
@@ -45,8 +44,7 @@ describe('economy-seam no-bypass gate (INV-17 Axis-2)', () => {
     expect(findings[0].message).toContain('outside the response-economy seam');
   });
 
-  // Proximity is not proof (CodeRabbit 3568453403): an UNRELATED preceding
-  // enforceResponseEconomy call must NOT launder a bare coreHandler call.
+  /** A seam call on a nearby line is not proof. It does not cover a bare `coreHandler` call. */
   it('EconomySeam_ProximityNotProof_Flagged', () => {
     const source = [
       'export async function dispatch() {',
@@ -63,7 +61,7 @@ describe('economy-seam no-bypass gate (INV-17 Axis-2)', () => {
     expect(findings[0].message).toContain('proximity');
   });
 
-  // A guarded telemetry-OFF branch (the shipped fix) produces no finding.
+  /** A guarded telemetry-off branch gives no finding. */
   it('EconomySeam_GuardedTelemetryOffBranch_Clean', () => {
     const source = [
       'export async function dispatch() {',
@@ -82,7 +80,7 @@ describe('economy-seam no-bypass gate (INV-17 Axis-2)', () => {
     expect(lintDispatchEconomyBypass(DISPATCH_PATH, source)).toEqual([]);
   });
 
-  // Robust to a wrapped multi-line call: the enclosing enforce spans lines.
+  /** A seam call that spans lines still encloses the `coreHandler` call. */
   it('EconomySeam_MultiLineWrappedCall_Clean', () => {
     const source = [
       'export async function dispatch() {',
@@ -99,7 +97,11 @@ describe('economy-seam no-bypass gate (INV-17 Axis-2)', () => {
     expect(lintDispatchEconomyBypass(DISPATCH_PATH, source)).toEqual([]);
   });
 
-  // Axis B: if withTelemetry returns the raw result, flag it.
+  /**
+   * Axis B. The wrapper has no `JSON.stringify(result)` and no
+   * `injectPerf(result)`, so the gate cannot prove that the return value comes
+   * from the seam output.
+   */
   it('EconomySeam_MiddlewareReturnsRaw_Flagged', () => {
     const source = [
       'export function withTelemetry(handler, toolName, store) {',
@@ -111,14 +113,12 @@ describe('economy-seam no-bypass gate (INV-17 Axis-2)', () => {
       '}',
     ].join('\n');
 
-    // Missing JSON.stringify(result)/injectPerf(result) — derivation unproven.
     const findings = lintMiddlewareEconomySeam(MIDDLEWARE_PATH, source);
     expect(findings.length).toBeGreaterThanOrEqual(1);
     expect(findings.some((f) => f.message.includes('derived from'))).toBe(true);
   });
 
-  // Axis B, sharper (CodeRabbit 3568453414): the cap is COMPUTED and measured,
-  // but the wrapper still returns the un-capped rawResult.
+  /** Axis B. The wrapper computes and measures the capped result, but returns `rawResult`. */
   it('EconomySeam_MiddlewareComputesCapButReturnsRaw_Flagged', () => {
     const source = [
       'export function withTelemetry(handler, toolName, store) {',
@@ -136,7 +136,7 @@ describe('economy-seam no-bypass gate (INV-17 Axis-2)', () => {
     expect(findings.some((f) => f.message.includes('un-capped'))).toBe(true);
   });
 
-  // Anchor liveness: a renamed coreHandler must fail loudly, not pass vacuously.
+  /** A renamed `coreHandler` must give a finding. Zero matches must not pass. */
   it('EconomySeam_RenamedAnchor_Flagged', () => {
     const source = [
       'export async function dispatch() {',

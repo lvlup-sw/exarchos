@@ -2,11 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { mergeCatalogs, applyOverrides, ReservedNamespaceError } from '../../../src/architecture/catalog-merge.js';
 import type { InvariantEntry } from '../../../src/architecture/invariants-loader.js';
 
-/**
- * Minimal `InvariantEntry` factory for tests. Only the fields the
- * catalog-merge / override-floor logic reads are meaningful; the rest are
- * filled with benign defaults so the shape type-checks.
- */
+/** Builds an `InvariantEntry`. Only the fields that the merge and the override floor read need real values. */
 function entry(id: string, overrides: Partial<InvariantEntry> = {}): InvariantEntry {
   return {
     id,
@@ -22,6 +18,7 @@ function entry(id: string, overrides: Partial<InvariantEntry> = {}): InvariantEn
 }
 
 describe('mergeCatalogs', () => {
+  /** A dev entry keeps its integrity-class. An sdlc entry and a user entry get the class of their layer. */
   it('MergeCatalogs_DevSdlcUser_PreservesLayerOrigin', () => {
     const dev = [entry('INV-1', { integrityClass: 'substrate' })];
     const sdlc = [entry('SDLC-1')];
@@ -30,11 +27,8 @@ describe('mergeCatalogs', () => {
     const merged = mergeCatalogs({ dev, sdlc, user });
 
     const byId = new Map(merged.map((e) => [e.id, e]));
-    // Dev layer entries keep whatever integrity-class they already carry.
     expect(byId.get('INV-1')?.integrityClass).toBe('substrate');
-    // SDLC layer entries are tagged `sdlc`.
     expect(byId.get('SDLC-1')?.integrityClass).toBe('sdlc');
-    // User layer entries are tagged `user`.
     expect(byId.get('my-rule')?.integrityClass).toBe('user');
     expect(merged).toHaveLength(3);
   });
@@ -48,13 +42,11 @@ describe('mergeCatalogs', () => {
     ).toThrow(/SDLC-5/);
   });
 
-  // ─── P1 T4: reserved-namespace keyed off the source tier ──────────────────
-
+  /**
+   * The dev catalog owns the `INV-*` namespace, so a dev entry with that id merges with no error.
+   * The merged entry has `tier: 'dev'`, so a consumer can read its source.
+   */
   it('mergeCatalogs_InvIdInDevTier_Accepted', () => {
-    // An INV-* id carried by a dev-tier entry is legitimate (the dev catalog
-    // owns the INV-* namespace) and must merge without ReservedNamespaceError.
-    // The merged entry carries an explicit `tier: 'dev'` tag so downstream
-    // consumers (doctor, conformance) can reason about provenance.
     const merged = mergeCatalogs({
       dev: [entry('INV-1', { integrityClass: 'substrate' })],
       sdlc: [],
@@ -65,15 +57,14 @@ describe('mergeCatalogs', () => {
     expect(inv1?.tier).toBe('dev');
   });
 
+  /** A user entry with a reserved id throws. A user entry with a free id gets `tier: 'user'`. */
   it('mergeCatalogs_InvIdInUserTier_Rejected', () => {
-    // INV-* / SDLC-* in a user-tier entry remains reserved → throws.
     expect(() =>
       mergeCatalogs({ dev: [], sdlc: [], user: [entry('INV-7')] }),
     ).toThrow(ReservedNamespaceError);
     expect(() =>
       mergeCatalogs({ dev: [], sdlc: [], user: [entry('SDLC-2')] }),
     ).toThrow(ReservedNamespaceError);
-    // Non-reserved user-tier entries are tagged `tier: 'user'`.
     const merged = mergeCatalogs({
       dev: [],
       sdlc: [],
@@ -82,10 +73,8 @@ describe('mergeCatalogs', () => {
     expect(merged.find((e) => e.id === 'team-rule')?.tier).toBe('user');
   });
 
+  /** Only the sdlc layer can hold an `SDLC-*` id, and that entry gets `tier: 'sdlc'`. The user layer cannot. */
   it('mergeCatalogs_SdlcId_ReservedOutsideBuiltin', () => {
-    // SDLC-* belongs ONLY to the inline sdlc layer. The inline sdlc layer
-    // carries it legitimately (tagged tier:sdlc); any non-builtin (user) source
-    // claiming SDLC-* is rejected.
     const merged = mergeCatalogs({
       dev: [],
       sdlc: [entry('SDLC-1')],
@@ -99,6 +88,7 @@ describe('mergeCatalogs', () => {
 });
 
 describe('applyOverrides', () => {
+  /** The sdlc floor is `advisory`, so `enabled: false` clamps the entry and does not remove it. */
   it('ApplyOverrides_DisableBelowFloor_ClampsToAdvisoryWithWarning', () => {
     const merged = mergeCatalogs({
       dev: [],
@@ -111,16 +101,16 @@ describe('applyOverrides', () => {
     });
 
     const resolved = entries.find((e) => e.id === 'SDLC-1');
-    // sdlc floor is `advisory`: a disable is clamped, not honored.
     expect(resolved).toBeDefined();
     expect(resolved?.severity?.default).toBe('advisory');
     expect(warnings.some((w) => w.includes('SDLC-1'))).toBe(true);
   });
 
+  /**
+   * The clamp must drop the `by-phase` and `by-workflow` maps. `resolveSeverity` ranks them above
+   * `default`, so a kept map makes the clamped invariant blocking again in that context.
+   */
   it('ApplyOverrides_DisableBelowFloor_ClampNeutralizesByPhaseAndByWorkflow', () => {
-    // A clamp-to-advisory must be TOTAL: a shipped by-phase/by-workflow map
-    // must not survive and silently re-escalate the clamped invariant to
-    // blocking (resolveSeverity ranks by-phase > by-workflow > default).
     const merged = mergeCatalogs({
       dev: [],
       sdlc: [
@@ -141,15 +131,15 @@ describe('applyOverrides', () => {
 
     const resolved = entries.find((e) => e.id === 'SDLC-1');
     expect(resolved?.severity?.default).toBe('advisory');
-    // The context maps are dropped, so NO context can resolve to blocking.
     expect(resolved?.severity?.['by-phase']).toBeUndefined();
     expect(resolved?.severity?.['by-workflow']).toBeUndefined();
   });
 
+  /**
+   * A `severity` override must apply in every context, so it also drops the `by-phase` and
+   * `by-workflow` maps. The sdlc floor is `advisory`, which permits an override to `advisory`.
+   */
   it('ApplyOverrides_SeverityOverride_ReplacesContextMaps', () => {
-    // A scalar `severity` override must apply in EVERY context: a shipped
-    // by-phase/by-workflow map must not survive and silently ignore the
-    // override (resolveSeverity ranks by-phase > by-workflow > default).
     const merged = mergeCatalogs({
       dev: [],
       sdlc: [
@@ -164,7 +154,6 @@ describe('applyOverrides', () => {
       user: [],
     });
 
-    // sdlc floor is advisory ⇒ lowering to advisory is permitted.
     const { entries } = applyOverrides(merged, {
       'SDLC-1': { severity: 'advisory' },
     });
@@ -175,14 +164,16 @@ describe('applyOverrides', () => {
     expect(resolved?.severity?.['by-workflow']).toBeUndefined();
   });
 
+  /**
+   * With no registered dev catalog, the dev layer is empty and no entry is substrate-class.
+   * An override for an absent substrate id changes nothing and adds a warning.
+   * An operator reads that warning, so it must give the real cause: no catalog registers the id.
+   * It must not blame the `devCatalog` key, which has no effect.
+   */
   it('ApplyOverrides_DevSubstrate_NotPresentWhenNoDevCatalogRegistered', () => {
-    // No `tier: dev` catalog registered ⇒ empty dev layer ⇒ no
-    // substrate-class entries. (T-43: the dev layer is empty because nothing
-    // registered it, not because a boolean was flipped off.)
     const merged = mergeCatalogs({ dev: [], sdlc: [entry('SDLC-1')], user: [] });
     expect(merged.some((e) => e.integrityClass === 'substrate')).toBe(false);
 
-    // An override naming a (now-absent) substrate id is a no-op + warning.
     const { entries, warnings } = applyOverrides(merged, {
       'INV-1': { severity: 'advisory' },
     });
@@ -190,12 +181,6 @@ describe('applyOverrides', () => {
     const warning = warnings.find((w) => w.includes('INV-1'));
     expect(warning).toBeDefined();
 
-    // USER-FACING OUTPUT GUARD (T-43). This warning is read by an operator
-    // deciding why their override did nothing. It used to blame the retired
-    // `devCatalog` gate — a mechanism that no longer exists, so an operator
-    // following it would look for a switch there is no switch for. Coverage
-    // above only checked the id appeared, so the stale explanation was
-    // unobserved; pin that it explains the real cause (nothing registered).
     expect(warning!.toLowerCase()).not.toContain('devcatalog');
     expect(warning).toContain('registering');
   });

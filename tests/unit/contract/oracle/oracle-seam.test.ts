@@ -1,3 +1,9 @@
+/**
+ * The oracle compares the declared contract with the observed behavior, on a route that is
+ * independent of the generation pipeline. The live system passes. The oracle catches each seeded
+ * break with a diagnostic that names the action and the axis. Generation-consistency sees none of
+ * the breaks, and that proves the independence.
+ */
 import { z } from 'zod';
 import { describe, it, expect } from 'vitest';
 import {
@@ -33,29 +39,23 @@ import {
   seededBreak,
 } from '../../../../src/contract/oracle/fixtures.js';
 
-// The oracle compares the DECLARED contract against OBSERVED behavior, by a
-// route independent of the generation pipeline. These tests are the API-010
-// exit proof: (a) the live system passes; (b)–(f) each seeded break is caught
-// with a diagnostic naming the action + axis; (g) each seeded break is invisible
-// to generation-consistency — which is what proves the independence.
-
 describe('P03-09 oracle — (a) the live system passes the oracle', () => {
+  /** The suite must observe the live surface: at least 100 actions. */
   it('EveryRealActionOutputContractAdmitsTheRuntimeErrorEnvelope', async () => {
     const subjects = liveOutputSubjects();
-    // Sanity: the whole live surface is under observation, not a token slice.
     expect(subjects.length).toBeGreaterThanOrEqual(100);
 
     const suite = await runOracleSuite(subjects);
-    // A single-glance diagnostic if the live system ever regresses.
     expect(suite.failures.map((f) => `${f.actionId}/${f.axis}: ${f.diagnostic}`)).toEqual([]);
     expect(suite.ok).toBe(true);
   });
 
+  /**
+   * Most actions accept the success envelope over empty data. An action with a typed `data` shape
+   * rejects it and goes into `skipped`. The error-envelope test above observes those actions.
+   */
   it('EveryDataAgnosticActionAdmitsTheRuntimeSuccessEnvelope', async () => {
     const { subjects, skipped } = liveSuccessOutputSubjects();
-    // Most actions carry an `EnvelopeSchema(z.unknown())`; only a handful pin a
-    // typed `data` shape that rejects empty data (those are output-observed via
-    // the error branch above). Assert the split is as expected, not silent.
     expect(subjects.length).toBeGreaterThanOrEqual(100);
     expect(skipped.length).toBeLessThan(subjects.length);
 
@@ -64,10 +64,10 @@ describe('P03-09 oracle — (a) the live system passes the oracle', () => {
     expect(suite.ok).toBe(true);
   });
 
+  /** Each axis must reach `pass`. A `not-observed` verdict fails this test. */
   it('TheCorrectBaselineSubjectPassesAllFiveAxes', async () => {
     const report = await runOracle(correctBaselineSubject());
     expect(report.ok).toBe(true);
-    // Every axis is actively observed (none merely skipped) and passes.
     const byAxis = new Map(report.verdicts.map((v) => [v.axis, v]));
     for (const axis of ORACLE_AXES) {
       expect(byAxis.get(axis)?.status, `${axis}: ${summarizeReport(report)}`).toBe('pass');
@@ -76,21 +76,21 @@ describe('P03-09 oracle — (a) the live system passes the oracle', () => {
 });
 
 describe('P03-09 oracle — (b)–(f) each seeded break is caught', () => {
+  /**
+   * The correct twin has the same declaration and passes. The broken handler fails on this axis
+   * only. The failure and the summary both name the action and the axis.
+   */
   it.each(ORACLE_AXES)(
     'catches the seeded %s break with a diagnostic naming the action and the axis',
     async (axis: OracleAxis) => {
       const { correct, broken } = seededBreak(axis);
 
-      // The correct counterpart — same declaration, faithful behavior — passes.
       const correctReport = await runOracle(correct);
       expect(correctReport.ok, summarizeReport(correctReport)).toBe(true);
 
-      // The broken handler is caught.
       const report = await runOracle(broken);
       expect(report.ok, summarizeReport(report)).toBe(false);
 
-      // The failure is on EXACTLY this axis (per-axis isolation), and it names
-      // the offending action and axis.
       const failedAxes = report.verdicts.filter((v) => v.status === 'fail').map((v) => v.axis);
       expect(failedAxes).toEqual([axis]);
 
@@ -100,7 +100,6 @@ describe('P03-09 oracle — (b)–(f) each seeded break is caught', () => {
       expect(failure?.axis).toBe(axis);
       expect(failure?.diagnostic.length).toBeGreaterThan(0);
 
-      // The human-readable summary carries both identifiers.
       const summary = summarizeReport(report);
       expect(summary).toContain(seedActionId(axis));
       expect(summary).toContain(axis);
@@ -109,14 +108,16 @@ describe('P03-09 oracle — (b)–(f) each seeded break is caught', () => {
 });
 
 describe('P03-09 oracle — (g) each seeded break is INVISIBLE to generation-consistency', () => {
+  /**
+   * The generation route reads only the declaration. The broken subject and the correct subject
+   * share one declaration, so the generated descriptor and the consistency digest are equal.
+   * Only the behavioral oracle tells the two subjects apart.
+   */
   it.each(ORACLE_AXES)(
     'the %s break leaves the generated artifact byte-identical, yet the oracle distinguishes it',
     async (axis: OracleAxis) => {
       const { correct, broken } = seededBreak(axis);
 
-      // 1. The generation route sees ONLY the declaration. Broken and correct
-      //    share a byte-identical declaration, so the generated descriptor is
-      //    byte-identical — "the generated files all agree".
       const correctGen = serializeGeneratedDescriptor(
         deriveGeneratedDescriptor(correct.declaration),
       );
@@ -125,15 +126,12 @@ describe('P03-09 oracle — (g) each seeded break is INVISIBLE to generation-con
       );
       expect(brokenGen).toBe(correctGen);
 
-      // 2. A generation/drift guard is green for BOTH (identical digest). No
-      //    function of the generated artifacts can tell them apart.
       const correctConsistency = checkGenerationConsistency(correct.declaration);
       const brokenConsistency = checkGenerationConsistency(broken.declaration);
       expect(correctConsistency.ok).toBe(true);
       expect(brokenConsistency.ok).toBe(true);
       expect(brokenConsistency.digest).toBe(correctConsistency.digest);
 
-      // 3. Yet the behavioral oracle DOES tell them apart.
       const correctReport = await runOracle(correct);
       const brokenReport = await runOracle(broken);
       expect(correctReport.ok).toBe(true);
@@ -142,16 +140,17 @@ describe('P03-09 oracle — (g) each seeded break is INVISIBLE to generation-con
     },
   );
 
+  /**
+   * The oracle catches each broken subject, on five distinct axes. Generation-consistency passes
+   * each broken subject, and its digest equals the digest of the correct twin.
+   */
   it('the whole seeded-break suite fails behaviorally but agrees under generation-consistency', async () => {
     const brokenSubjects = ORACLE_AXES.map((axis) => seededBreak(axis).broken);
 
-    // Behaviorally: every broken subject is caught (five distinct failing axes).
     const suite = await runOracleSuite(brokenSubjects);
     expect(suite.ok).toBe(false);
     expect(new Set(suite.failures.map((f) => f.axis))).toEqual(new Set(ORACLE_AXES));
 
-    // Under generation-consistency: every broken subject is green and matches
-    // its correct twin — the drift guards would wave all five through.
     for (const axis of ORACLE_AXES) {
       const { correct, broken } = seededBreak(axis);
       expect(checkGenerationConsistency(broken.declaration).ok).toBe(true);
@@ -161,8 +160,6 @@ describe('P03-09 oracle — (g) each seeded break is INVISIBLE to generation-con
     }
   });
 });
-
-// ─── Discriminating unit tests for each axis check (pin the contract) ────────
 
 describe('P03-09 oracle — per-axis check discrimination', () => {
   it('incorrect-handler: fails on non-idempotent output, passes on stable output', async () => {
@@ -202,17 +199,15 @@ describe('P03-09 oracle — per-axis check discrimination', () => {
     expect(checkMalformedOutput(correct.declaration, correctObs).status).toBe('pass');
   });
 
-  // Renamed under DR-24. The old name ("…when the contract declares no roles")
-  // described the VACUITY this change removed: live subjects used to carry a
-  // hard-coded `requiredRoles: []`. They now carry the REAL registry roles, so
-  // the axis is `not-observed` for an honest reason — either the registry
-  // declares the open-role marker (no restrictive requirement to enforce) or
-  // the subject exposes no authorization surface to withhold a principal at.
+  /**
+   * A live subject carries the roles of the registry, so `requiredRoles` is not empty.
+   * The axis is `not-observed` for one of two reasons: the registry declares the open-role marker,
+   * or the subject has no authorization surface.
+   */
   it('missing-authorization axis is not-observed for a live subject that carries real registry roles', async () => {
     const subject = liveOutputSubjects()[0];
     expect(subject).toBeDefined();
     if (subject === undefined) return;
-    // The declaration is no longer vacuous: it names the registry's roles.
     expect(subject.declaration.requiredRoles).not.toEqual([]);
     const obs = await observeBehavior(subject);
     const verdict = checkMissingAuthorization(subject.declaration, obs);
@@ -220,15 +215,6 @@ describe('P03-09 oracle — per-axis check discrimination', () => {
     expect(verdict.diagnostic).toMatch(/open-role marker|no authorization surface/);
   });
 });
-
-// ─── The emission axis observes the append, not the declaration ────────
-//
-// This axis's evidence must be an OBSERVED append (the emission recorder
-// `observeBehavior` mints and injects), never a re-read of
-// `ContractDeclaration.declaredEmissions` — that would be tautological. These
-// subjects are built locally rather than via `fixtures.ts` so the declared
-// `{event, condition}` set can be varied per case; the live registry-derived
-// declarations are exercised over in `fixtures.test.ts`.
 
 const EMISSION_EVENT_TYPE = 'oracle_probe.appended';
 const EMISSION_EVIDENCE = 'store.append:oracle-probe-stream';
@@ -274,7 +260,18 @@ function appendingHandler(...events: readonly string[]): ObservableHandler {
   };
 }
 
+/**
+ * The evidence of the emission axis is an observed append in the recorder that `observeBehavior`
+ * injects. A read of `declaredEmissions` is not evidence. These subjects are local, so each case
+ * can vary the declared `{event, condition}` set. `fixtures.test.ts` covers the registry
+ * declarations.
+ */
 describe('P03-09 oracle — emission axis observes the append, not the declaration', () => {
+  /**
+   * `observeBehavior` calls the handler three times: two authorized calls for the idempotency pair
+   * and one unauthorized call. Each call gets a new recorder, and the caller supplies none.
+   * The axis reads the append of the first authorized call.
+   */
   it('OracleEmission_Recorder_IsMintedAndInjectedLikeTheEffectRecorder', async () => {
     const seenRecorders: (EmissionRecorder | undefined)[] = [];
     const capturingHandler: ObservableHandler = (_input, ctx) => {
@@ -285,34 +282,28 @@ describe('P03-09 oracle — emission axis observes the append, not the declarati
     const subject = emissionProbeSubject(capturingHandler);
     const obs = await observeBehavior(subject);
 
-    // observeBehavior invokes the handler three times (authorized ×2 for the
-    // idempotency pair, unauthorized once); a fresh recorder is minted and
-    // injected at each site — exactly the idiom the effect recorder uses at
-    // its own three mint sites. No recorder is caller-supplied.
     expect(seenRecorders.length).toBe(3);
     for (const rec of seenRecorders) {
       expect(rec).toBeDefined();
       expect(typeof rec?.record).toBe('function');
     }
-    // Freshly minted per invocation, not one shared instance leaking state.
     expect(new Set(seenRecorders).size).toBe(3);
 
-    // The primary (first authorized) invocation's append is what the axis
-    // reads — an OBSERVED append, not a re-read of the declaration.
     expect(obs.performedEmissions).toEqual([
       { eventType: EMISSION_EVENT_TYPE, evidence: EMISSION_EVIDENCE },
     ]);
     expect(checkDeclaredEmission(subject.declaration, obs).status).toBe('pass');
   });
 
+  /**
+   * The two subjects share one declaration, so their generated artifacts are equal.
+   * The handler that appends passes. The handler that never appends fails on the emission axis
+   * only, and the suite failures carry that verdict.
+   */
   it('Oracle_DeclaredButUnappended_FailsWhenGeneratedFilesAgree', async () => {
     const correctSubject = emissionProbeSubject(emittingHandler);
     const brokenSubject = emissionProbeSubject(silentHandler);
 
-    // The declaration is byte-identical between the correct and broken
-    // subjects (only the handler body differs), so the generation route —
-    // a pure function of the declaration — produces a byte-identical
-    // artifact for both: "the generated files agree".
     const correctGen = serializeGeneratedDescriptor(
       deriveGeneratedDescriptor(correctSubject.declaration),
     );
@@ -325,25 +316,20 @@ describe('P03-09 oracle — emission axis observes the append, not the declarati
       checkGenerationConsistency(correctSubject.declaration).digest,
     );
 
-    // The handler that genuinely appends passes the axis and the whole run.
     const correctReport = await runOracle(correctSubject);
     expect(correctReport.emissionVerdict.status, summarizeReport(correctReport)).toBe('pass');
     expect(correctReport.ok, summarizeReport(correctReport)).toBe(true);
 
-    // The handler that declares the emission but never appends is caught —
-    // and it is caught EVEN THOUGH the generated files agree with each other.
     const brokenReport = await runOracle(brokenSubject);
     expect(brokenReport.emissionVerdict.status, summarizeReport(brokenReport)).toBe('fail');
     expect(brokenReport.emissionVerdict.diagnostic).toContain(EMISSION_EVENT_TYPE);
     expect(brokenReport.ok, summarizeReport(brokenReport)).toBe(false);
 
-    // Per-axis isolation: the emission axis is the ONLY failing verdict.
     const failedAxes = [...brokenReport.verdicts, brokenReport.emissionVerdict]
       .filter((v) => v.status === 'fail')
       .map((v) => v.axis);
     expect(failedAxes).toEqual([EMISSION_AXIS]);
 
-    // It surfaces in the suite's failures too, not only the per-report verdict.
     const suite = await runOracleSuite([brokenSubject]);
     expect(suite.ok).toBe(false);
     expect(suite.failures).toContainEqual(brokenReport.emissionVerdict);
@@ -396,20 +382,16 @@ describe('P03-09 oracle — emission axis observes the append, not the declarati
     expect(suite.clean).toBe(false);
   });
 
-  // ── The condition half of the shared emission vocabulary ────────────────
-  //
-  // The registry declares `{event, condition}`, the compiler compiles both
-  // halves and the dispatch verifier requires only the `always` half. These
-  // two cases pin the oracle to the same rule from either side: a conditional
-  // edge can never produce a fault, and an unconditional one always can.
-
+  /**
+   * The oracle requires only an `always` edge, as the dispatch verifier does.
+   * A conditional edge that did not fire is not a fault. It is also not a pass, because the run
+   * collected no evidence. When the branch fires, the observed append gives `pass`.
+   */
   it('DeclaredEmission_MissingConditionalEdge_DoesNotFail', async () => {
     const declaration = emissionProbeDeclaration([
       { event: BRANCH_EVENT_TYPE, condition: 'conditional' },
     ]);
 
-    // The branch was not taken, so nothing landed. That is not a fault — and
-    // not a pass either, since no evidence was collected in either direction.
     const unfired = checkDeclaredEmission(
       declaration,
       await observeBehavior({ declaration, handler: silentHandler, probeInput: {} }),
@@ -418,8 +400,6 @@ describe('P03-09 oracle — emission axis observes the append, not the declarati
     expect(unfired.status).not.toBe('fail');
     expect(unfired.diagnostic).toContain(BRANCH_EVENT_TYPE);
 
-    // The edge is not inert, though: once the branch IS taken, the observed
-    // append is positive evidence and carries the axis to `pass` on its own.
     const fired = checkDeclaredEmission(
       declaration,
       await observeBehavior({
@@ -432,6 +412,10 @@ describe('P03-09 oracle — emission axis observes the append, not the declarati
     expect(fired.diagnostic).toContain(BRANCH_EVENT_TYPE);
   });
 
+  /**
+   * A missing `always` edge fails. A conditional edge that fired cannot replace it.
+   * The same declaration passes when the handler also appends the `always` event.
+   */
   it('DeclaredEmission_MissingAlwaysEdge_Fails', async () => {
     const declaration = emissionProbeDeclaration([ALWAYS_EDGE]);
     const verdict = checkDeclaredEmission(
@@ -441,9 +425,6 @@ describe('P03-09 oracle — emission axis observes the append, not the declarati
     expect(verdict.status, verdict.diagnostic).toBe('fail');
     expect(verdict.diagnostic).toContain(EMISSION_EVENT_TYPE);
 
-    // A conditional edge that DID fire cannot stand in for a missing
-    // unconditional one, or a handler could buy a pass with the cheap half of
-    // its contract.
     const mixed = emissionProbeDeclaration([
       ALWAYS_EDGE,
       { event: BRANCH_EVENT_TYPE, condition: 'conditional' },
@@ -459,8 +440,6 @@ describe('P03-09 oracle — emission axis observes the append, not the declarati
     expect(masked.status, masked.diagnostic).toBe('fail');
     expect(masked.diagnostic).toContain(EMISSION_EVENT_TYPE);
 
-    // Discriminating rather than blanket: the same declaration passes once the
-    // unconditional edge is honored.
     const honored = checkDeclaredEmission(
       mixed,
       await observeBehavior({
@@ -474,40 +453,35 @@ describe('P03-09 oracle — emission axis observes the append, not the declarati
   });
 });
 
-// ─── Axis selection: a real six-axis choice, not a silent no-op ─────────────
-//
-// `RunOracleOptions.axes` now draws from `ALL_AXES` (the five `ORACLE_AXES`
-// plus `declared-emission`), and an empty array is a caller error rather than
-// a run that quietly produces zero verdicts.
-
+/**
+ * `RunOracleOptions.axes` selects from `ALL_AXES`: the five `ORACLE_AXES` and `declared-emission`.
+ * An empty array is a caller error, not a run with zero verdicts.
+ */
 describe('P03-09 oracle — axis selection', () => {
   it('RunOracle_EmptyAxisSelection_RejectsCall', async () => {
     const subject = correctBaselineSubject();
     await expect(runOracle(subject, { axes: [] })).rejects.toThrow(EmptyAxisSelectionError);
-    // runOracleSuite rejects too, and before observing any subject — a broken
-    // handler in `subjects` must not be able to mask the rejection.
     await expect(runOracleSuite([subject], { axes: [] })).rejects.toThrow(EmptyAxisSelectionError);
   });
 
+  /**
+   * With the standard axes only, no report carries an emission verdict. With the emission axis
+   * only, each subject gets one emission verdict and no standard verdict.
+   * By default, each subject gets one emission verdict and all the standard verdicts.
+   */
   it('RunOracle_StandardOnly_DoesNotEnterEmissionCensus', async () => {
     const subjects = [correctBaselineSubject(), correctBaselineSubject(), correctBaselineSubject()];
 
-    // Standard-only: the emission axis is neither executed nor selected — no
-    // report carries a verdict for it, so it cannot enter an emission census.
     const standardOnly = await runOracleSuite(subjects, { axes: ORACLE_AXES });
     expect(standardOnly.reports.filter(emissionWasSelected).length).toBe(0);
     expect(standardOnly.reports.every((r) => r.emissionVerdict === undefined)).toBe(true);
     expect(standardOnly.selectedAxes).not.toContain(EMISSION_AXIS);
 
-    // Emission-only: executed exactly once per subject (not zero, not
-    // duplicated into `verdicts`) — no standard axis ran at all.
     const emissionOnly = await runOracleSuite(subjects, { axes: [EMISSION_AXIS] });
     expect(emissionOnly.reports.filter(emissionWasSelected).length).toBe(subjects.length);
     expect(emissionOnly.reports.every((r) => r.verdicts.length === 0)).toBe(true);
     expect(emissionOnly.selectedAxes).toEqual([EMISSION_AXIS]);
 
-    // Default-all: also executed exactly once per subject, alongside every
-    // standard axis.
     const defaultAll = await runOracleSuite(subjects);
     expect(defaultAll.reports.filter(emissionWasSelected).length).toBe(subjects.length);
     expect(defaultAll.reports.every((r) => r.verdicts.length === ORACLE_AXES.length)).toBe(true);

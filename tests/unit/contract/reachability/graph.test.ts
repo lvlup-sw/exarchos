@@ -1,3 +1,8 @@
+/**
+ * Unit tests for the pure closure model. Small hand-built inputs give one assertion for each
+ * seeded break class and each ambiguity, with no filesystem access.
+ * `collect.test.ts` holds the proof over the live tree.
+ */
 import { describe, it, expect } from 'vitest';
 import {
   HOP_AUTHORITIES,
@@ -13,21 +18,11 @@ import {
   type ReachabilityInputs,
 } from '../../../../src/contract/reachability/graph.js';
 
-// ─── The closure model, unit-isolated ────────────────────────────────────────
-//
-// These drive the pure closure core with tiny hand-built inputs so each seeded
-// break class and each ambiguity is a crisp, discriminating assertion with no
-// filesystem. The LIVE exit proof (all 120 real public actions closed, and the
-// five breaks seeded on the real tree) lives in `collect.test.ts`; here we pin
-// the mechanics the live proof relies on.
-
 /**
- * A fully-closed two-action tree: one MUTATING (owner applies) + one PURE.
+ * A fully closed tree with two actions: one mutating action and one pure action.
  *
- * The mutating action also EMITS, so the `event` hop is applicable on it and
- * not-applicable on the pure one — the same split `owner` has. A base fixture
- * where no action emitted would leave the hop permanently not-applicable, and
- * every assertion below it would pass over nothing.
+ * The mutating action also emits, so the `event` hop applies to it and not to the pure action,
+ * like the `owner` hop. If no action emits, the hop never applies and its assertions check nothing.
  */
 function baseInputs(): ReachabilityInputs {
   return {
@@ -78,12 +73,11 @@ describe('reachability closure — the complete path', () => {
     expect(report.actions.every((a) => a.closed)).toBe(true);
   });
 
+  /**
+   * `event` is the last hop. It asks if the event that an action claims to raise is registered.
+   * That question assumes the answers of the existence hops before it.
+   */
   it('the hop order is authored ActionId → schema → route → handler → owner → output → artifact → fixture → event', () => {
-    // `event` sits at the END, after the shipped-artifact hops, because it asks
-    // the last question in the chain: given an action that exists, routes, is
-    // handled and ships, is the effect it claims to raise a REGISTERED event?
-    // Ordering it earlier would put a coupling question ahead of the existence
-    // questions it presupposes. The sibling `consumer` hop lands after it.
     expect([...REACHABILITY_HOPS]).toEqual([
       'schema',
       'route',
@@ -96,23 +90,22 @@ describe('reachability closure — the complete path', () => {
     ]);
   });
 
+  /**
+   * A hop that reads the `compile()` output behind `inputs.actions` resolves to one for each action
+   * and cannot fail. Each hop must name a runtime authority or a shipped-artifact authority.
+   * `kill-fixtures.test.ts` proves that each authority can fail the census.
+   */
   it('every hop declares an authority INDEPENDENT of the compile pass that supplies the denominator', () => {
-    // The anti-tautology invariant, stated in the pure model: a hop re-derived
-    // from the same `compile()` output as `inputs.actions` resolves to exactly
-    // one for every action by construction and can never fail. `collect.ts` must
-    // therefore resolve each hop against real runtime wiring or a shipped
-    // artifact from a different generation pass; `kill-fixtures.test.ts` proves
-    // each of those can actually drop the census.
     expect(Object.keys(HOP_AUTHORITIES).sort()).toEqual([...REACHABILITY_HOPS].sort());
     for (const hop of REACHABILITY_HOPS) {
       expect(['runtime', 'shipped-artifact'], `hop '${hop}'`).toContain(HOP_AUTHORITIES[hop]);
     }
   });
 
+  /** A pure action with no declared owner is still closed, because the hop does not apply. */
   it('the effect-owner hop is conditional — a PURE action skips it (not-applicable)', () => {
     expect(hopStatus(baseInputs(), 't.read', 'owner')).toBe('not-applicable');
     expect(hopStatus(baseInputs(), 't.mutate', 'owner')).toBe('ok');
-    // A pure action with no owner declared is STILL closed — the hop does not apply.
     const noOwners = withInputs({ owners: [] });
     const read = evaluateClosure(noOwners).actions.find((a) => a.actionId === 't.read');
     expect(read?.closed).toBe(true);
@@ -120,8 +113,9 @@ describe('reachability closure — the complete path', () => {
 });
 
 describe('reachability closure — seeded break classes each fail closed', () => {
+  /** The seeded routes hold only `t.read`, so `t.mutate` has no route. */
   it('(b) missing route breaks closure at the route hop, naming the action', () => {
-    const seeded = withInputs({ routes: [{ actionId: 't.read', tool: 't' }] }); // t.mutate route removed
+    const seeded = withInputs({ routes: [{ actionId: 't.read', tool: 't' }] });
     const report = evaluateClosure(seeded);
     expect(report.ok).toBe(false);
     const diag = report.diagnostics.find((d) => d.actionId === 't.mutate' && d.hop === 'route');
@@ -146,7 +140,6 @@ describe('reachability closure — seeded break classes each fail closed', () =>
     expect(ownerDiags).toHaveLength(1);
     expect(ownerDiags[0]?.actionId).toBe('t.mutate');
     expect(ownerDiags[0]?.kind).toBe('missing');
-    // The pure action is untouched by the missing owner.
     expect(report.actions.find((a) => a.actionId === 't.read')?.closed).toBe(true);
   });
 
@@ -163,8 +156,9 @@ describe('reachability closure — seeded break classes each fail closed', () =>
     expect(report.diagnostics.some((d) => d.actionId === 't.mutate' && d.hop === 'output')).toBe(true);
   });
 
+  /** The seeded fixtures hold only `t.read`, so `t.mutate` has no fixture. */
   it('(f) missing fixture breaks closure at the packaged-fixture hop', () => {
-    const seeded = withInputs({ fixtures: [{ actionId: 't.read' }] }); // t.mutate fixture removed
+    const seeded = withInputs({ fixtures: [{ actionId: 't.read' }] });
     const report = evaluateClosure(seeded);
     expect(report.ok).toBe(false);
     expect(hopStatus(seeded, 't.mutate', 'fixture')).toBe('missing');
@@ -175,9 +169,11 @@ describe('reachability closure — seeded break classes each fail closed', () =>
     expect(hopStatus(withInputs({ artifacts: [{ actionId: 't.read' }] }), 't.mutate', 'artifact')).toBe('missing');
   });
 
+  /**
+   * The ActionId matches, but the routing arm belongs to a different tool.
+   * This guards against registration drift across tools.
+   */
   it('a route filed under ANOTHER tool does not resolve the action (the route hop matches tool too)', () => {
-    // The ActionId matches, but the routing arm belongs to a different tool —
-    // so it is not this action's route. Guards cross-tool registration drift.
     const seeded = withInputs({
       routes: [
         { actionId: 't.mutate', tool: 'other_tool' },
@@ -210,7 +206,6 @@ describe('reachability closure — ambiguity is a closure failure, not just abse
     const report = evaluateClosure(seeded);
     expect(report.ok).toBe(false);
     expect(hopStatus(seeded, 't.mutate', 'owner')).toBe('ambiguous');
-    // The pure action still does not care about the ambiguous owner.
     expect(report.actions.find((a) => a.actionId === 't.read')?.closed).toBe(true);
   });
 });
@@ -222,14 +217,14 @@ describe('reachability closure — governed exceptions are a two-way ratchet', (
     const report = evaluateClosure(seeded);
     expect(report.ok).toBe(true);
     expect(report.honouredExceptions).toEqual([exc]);
-    // The excepted action is not counted as a closure failure.
     expect(report.diagnostics).toEqual([]);
     expect(report.actions.find((a) => a.actionId === 't.mutate')?.closed).toBe(true);
   });
 
+  /** The owner hop resolves, so the exception for it is stale. */
   it('a STALE exception (the hop is actually ok) is itself a diagnostic', () => {
     const exc: ClosureException = { actionId: 't.mutate', hop: 'owner', reason: 'no longer needed' };
-    const seeded = withInputs({ exceptions: [exc] }); // owner IS resolved → exception is stale
+    const seeded = withInputs({ exceptions: [exc] });
     const report = evaluateClosure(seeded);
     expect(report.ok).toBe(false);
     const diag = report.diagnostics.find((d) => d.kind === 'stale-exception');
@@ -254,25 +249,24 @@ describe('reachability graph — deterministic artifact + explicit nodes/edges',
     });
   });
 
+  /**
+   * The mutating action has the origin node and one node for each hop. The pure action has no
+   * `owner` node and no `event` node, because it does not mutate and does not emit.
+   * The edge count of the pure action is the hop count minus those two skipped hops.
+   * Thus the assertion stays correct when the hop list grows.
+   */
   it('expands to explicit nodes/edges, OMITTING the not-applicable owner node of a pure action', () => {
     const graph = buildReachabilityGraph(baseInputs());
     const nodes = reachabilityNodes(graph);
     const edges = reachabilityEdges(graph);
 
-    // The mutating action carries origin + every hop node; the pure action skips
-    // owner AND event, because it neither mutates nor emits.
     expect(nodes.filter((n) => n.actionId === 't.mutate')).toHaveLength(1 + REACHABILITY_HOPS.length);
     expect(nodes.some((n) => n.actionId === 't.read' && n.kind === 'owner')).toBe(false);
     expect(nodes.some((n) => n.actionId === 't.read' && n.kind === 'event')).toBe(false);
     expect(nodes.some((n) => n.actionId === 't.read' && n.kind === 'handler')).toBe(true);
 
-    // Every edge on this fully-closed tree is complete, and the chain is contiguous.
     expect(edges.every((e) => e.complete)).toBe(true);
     const readEdges = edges.filter((e) => e.from.startsWith('t.read::') || e.from === 't.read::origin');
-    // origin→schema→route→handler→output→artifact→fixture = 6 edges. Two hops are
-    // skipped on a pure non-emitting action (owner, event), so the count is stated
-    // against those exclusions rather than against the hop total — which is what
-    // keeps it meaningful as the hop list grows.
     const skippedOnPureRead = 2;
     expect(readEdges).toHaveLength(REACHABILITY_HOPS.length - skippedOnPureRead);
   });

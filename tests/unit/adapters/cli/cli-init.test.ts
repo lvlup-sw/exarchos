@@ -1,22 +1,15 @@
 /**
- * Tests for the top-level `exarchos init` CLI surface.
+ * Tests for the top-level `exarchos init` verb, a rename stub.
  *
- * Task 011 swap (design line 322: "init action → onboard action"): the `init`
- * action was removed from the registry and the `init` CLI verb is now a
- * one-release DR-5 **rename stub**. It prints `renamed → use 'exarchos onboard'`
- * and exits non-zero (HANDLER_ERROR=2, NOT "command not found"), runs NO
- * onboarding side effect, and dispatches nothing. The init handler
- * (`handleInitWithWriters`) + `init.executed` event were fully removed in DR-5
- * (task 018) — `onboard` reproduces init's outputs via the GENERATE writers.
+ * The stub prints `renamed → use 'exarchos onboard'` and exits with HANDLER_ERROR (2), not with
+ * "command not found". It dispatches nothing and runs no onboarding side effect.
  *
- * These tests drive the CLI programmatically (buildCli + parseAsync) rather than
- * spawning a subprocess, mirroring the pattern in cli-doctor.test.ts.
+ * The tests drive `buildCli` and `parseAsync` in-process, with `dispatch` and `cli-format` mocked.
+ * A `vi.mock` factory replaces the whole module, so the `cli-format` mock also supplies `toCliResult`.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { ToolResult } from '../../../../src/format.js';
-
-// ─── Mocks ──────────────────────────────────────────────────────────────────
 
 vi.mock('../../../../src/dispatch/core/dispatch.js', () => ({
   dispatch: vi.fn<(tool: string, args: Record<string, unknown>, ctx: unknown) => Promise<ToolResult>>(
@@ -24,11 +17,6 @@ vi.mock('../../../../src/dispatch/core/dispatch.js', () => ({
   ),
 }));
 
-// PR-B (#1368): `emitResult`'s `--json` route resolves `toCliResult`
-// from this module; vi.mock factories REPLACE the module, so omitting
-// the export crashes the action callback. Provide a real-passthrough
-// impl that mirrors the production `toCliResult(env, 'json')` behavior
-// so stdout assertions still see envelope JSON.
 vi.mock('../../../../src/adapters/cli/cli-format.js', () => ({
   prettyPrint: vi.fn(),
   printError: vi.fn(),
@@ -39,13 +27,9 @@ vi.mock('../../../../src/adapters/cli/cli-format.js', () => ({
   }),
 }));
 
-// ─── Test Imports ───────────────────────────────────────────────────────────
-
 import { buildCli, CLI_EXIT_CODES } from '../../../../src/adapters/cli/cli.js';
 import { dispatch } from '../../../../src/dispatch/core/dispatch.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
 
 function createTestContext(): DispatchContext {
   return {
@@ -54,8 +38,6 @@ function createTestContext(): DispatchContext {
     enableTelemetry: false,
   };
 }
-
-// ─── Tests ──────────────────────────────────────────────────────────────────
 
 describe('exarchos init CLI (DR-5 rename stub)', () => {
   let ctx: DispatchContext;
@@ -78,9 +60,7 @@ describe('exarchos init CLI (DR-5 rename stub)', () => {
 
     await program.parseAsync(['node', 'exarchos', 'init']);
 
-    // No onboarding side effect runs from the stub (DR-5 acceptance criterion).
     expect(dispatch).not.toHaveBeenCalled();
-    // Non-zero, not "command not found".
     expect(process.exitCode).toBe(CLI_EXIT_CODES.HANDLER_ERROR);
 
     stderrSpy.mockRestore();
@@ -99,9 +79,8 @@ describe('exarchos init CLI (DR-5 rename stub)', () => {
     stderrSpy.mockRestore();
   });
 
+  /** The stub accepts the legacy `--runtime <id>` flag and ignores it. */
   it('CliInit_LegacyRuntimeFlag_StillStubsAndDoesNotDispatch', async () => {
-    // The legacy `--runtime <id>` flag is accepted (allowUnknownOption /
-    // allowExcessArguments) but ignored — there is no init action to route to.
     const program = buildCli(ctx);
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
 

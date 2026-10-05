@@ -45,10 +45,10 @@ describe('resolveSchemaRef', () => {
 });
 
 describe('listSchemas', () => {
+  /** `transition` is the phase-mutation action of the workflow tool. The surface holds no `set` action. */
   it('ListSchemas_ReturnsAllToolsAndActions', () => {
     const schemas = listSchemas();
 
-    // All 5 tools present
     expect(schemas).toHaveLength(5);
 
     const toolNames = schemas.map((s) => s.tool);
@@ -58,12 +58,8 @@ describe('listSchemas', () => {
     expect(toolNames).toContain('exarchos_view');
     expect(toolNames).toContain('exarchos_sync');
 
-    // Check workflow has expected actions
     const workflow = schemas.find((s) => s.tool === 'exarchos_workflow')!;
     const actionNames = workflow.actions.map((a) => a.name);
-    // T5a.1/DR-4 (#1259, v2.11): `set` removed; `transition` is now the
-    // canonical phase-mutation action exposed in the schema introspection
-    // surface.
     expect(actionNames).toContain('init');
     expect(actionNames).toContain('get');
     expect(actionNames).toContain('transition');
@@ -72,7 +68,6 @@ describe('listSchemas', () => {
     expect(actionNames).toContain('reconcile');
     expect(actionNames).not.toContain('set');
 
-    // Each action has description
     for (const tool of schemas) {
       for (const action of tool.actions) {
         expect(action.name).toBeTruthy();
@@ -81,10 +76,10 @@ describe('listSchemas', () => {
     }
   });
 
-  // Bug #1218: the CLI introspection surface lists the FULL registry
-  // (including tools that MCP `tools/list` filters out). To keep that
-  // asymmetry visible — without breaking anything — every entry now carries
-  // a `hidden` flag so renderers can mark hidden tools as operator-only.
+  /**
+   * The CLI surface lists the full registry, with the tools that MCP `tools/list` hides.
+   * Each entry carries a `hidden` flag, so a renderer can mark those tools as operator-only.
+   */
   it('ListSchemas_TagsHiddenTools_PreservingTierModel', () => {
     const schemas = listSchemas();
 
@@ -92,7 +87,6 @@ describe('listSchemas', () => {
     expect(sync, 'exarchos_sync must remain in the CLI introspection surface').toBeDefined();
     expect(sync!.hidden).toBe(true);
 
-    // All currently visible composite tools must report hidden === false.
     for (const visibleName of [
       'exarchos_workflow',
       'exarchos_event',

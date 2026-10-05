@@ -6,7 +6,6 @@ describe('globToRegExp (shared, FIX-3)', () => {
     const re = globToRegExp('*.ts');
     expect(re.test('foo.ts')).toBe(true);
     expect(re.test('bar.tsx')).toBe(false);
-    // single `*` must NOT cross a path separator.
     expect(re.test('src/foo.ts')).toBe(false);
   });
 
@@ -17,14 +16,14 @@ describe('globToRegExp (shared, FIX-3)', () => {
     expect(re.test('lib/foo.ts')).toBe(false);
   });
 
+  /** The compiled source shows the escaped separator. */
   it('GlobToRegExp_EscapesPathSeparator', () => {
-    // `/` is escaped to a literal separator: the compiled source proves it.
     expect(globToRegExp('a/b').source).toBe('^a\\/b$');
     expect(globToRegExp('a/b').test('a/b')).toBe(true);
   });
 
+  /** A dot in the glob matches only a literal dot. */
   it('GlobToRegExp_EscapesRegexSpecials', () => {
-    // A dot is a literal, not "any char".
     const re = globToRegExp('file.ts');
     expect(re.test('file.ts')).toBe(true);
     expect(re.test('fileXts')).toBe(false);
@@ -42,15 +41,16 @@ describe('globToRegExp (shared, FIX-3)', () => {
     expect(re.test('servers/a/b/c.ts')).toBe(true);
   });
 
+  /**
+   * A double star with a slash after it matches zero or more segments, so a file directly in `servers/` must match.
+   * An expansion to a bare `.*\/` excludes that zero-depth case.
+   * The pattern stays anchored: a path with a different first segment must not match.
+   */
   it('GlobToRegExp_DoubleStarSlash_MatchesZeroDepth', () => {
-    // `**/` means "zero or more leading segments, including none", so a file
-    // directly under `servers/` must match — not just nested files. Regression
-    // guard: a bare `.*\/` expansion silently excludes the zero-depth case.
     const re = globToRegExp('servers/**/*.ts');
     expect(re.test('servers/foo.ts')).toBe(true);
     expect(re.test('servers/a/foo.ts')).toBe(true);
     expect(re.test('servers/a/b/foo.ts')).toBe(true);
-    // still anchored: a sibling prefix must not match.
     expect(re.test('other/foo.ts')).toBe(false);
   });
 });

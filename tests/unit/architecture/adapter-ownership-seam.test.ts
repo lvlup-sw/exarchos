@@ -52,9 +52,9 @@ describe('runAdapterOwnershipCensus — verdict logic', () => {
 });
 
 describe('EXIT PROOF — live adapter ownership', () => {
+  /** The diagnostics assertion comes first, so a failure prints each diagnostic. */
   it('(a) the live shipped source confines every declared adapter to its owner surface', async () => {
     const result = await auditAdapterOwnership(SRC_ROOT, lexModule);
-    // Surfacing the diagnostics array makes any regression self-describing.
     expect(result.diagnostics).toEqual([]);
     expect(result.ok).toBe(true);
     expect(result.ruleCount).toBeGreaterThan(0);

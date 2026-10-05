@@ -1,9 +1,9 @@
+/**
+ * Tests the hook command router. The hook layer holds three lifecycle observers and no
+ * enforcement handler. The three lifecycle handlers and the state-store module are mocks.
+ */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// #1476 + #1485: the hook layer is observe-only. The enforcement/control
-// handlers (guard, task-gate, teammate-gate, subagent-context) stay retired.
-// #1525 W2 Half 1: the `subagent-stop` observer is RESTORED (now three lifecycle
-// observers) to capture per-subagent token telemetry — still observe-only.
 vi.mock('../../../../src/lifecycle/session-end.js', () => ({
   handleSessionEnd: vi.fn(),
 }));
@@ -14,7 +14,6 @@ vi.mock('../../../../src/lifecycle/subagent-stop.js', () => ({
   handleSubagentStop: vi.fn(),
 }));
 
-// Mock the workflow state-store module (re-exports resolveStateDir)
 vi.mock('../../../../src/workflow/state-store.js', () => ({
   resolveStateDir: vi.fn(),
 }));
@@ -27,26 +26,23 @@ describe('isHookCommand', () => {
   });
 
   it('isHookCommand_SessionStart_ReturnsTrue', () => {
-    // #1485: SessionStart is the new observe-only binding hook.
     expect(isHookCommand('session-start')).toBe(true);
   });
 
+  /** `subagent-stop` is the observer that records the token telemetry of each subagent. */
   it('isHookCommand_SubagentStop_ReturnsTrue', () => {
-    // #1525 W2 Half 1: restored as an observe-only token-telemetry hook.
     expect(isHookCommand('subagent-stop')).toBe(true);
   });
 
   it('isHookCommand_RetiredEnforcementHooks_ReturnFalse', () => {
-    // #1476: these enforcement/control hooks were retired.
     expect(isHookCommand('guard')).toBe(false);
     expect(isHookCommand('task-gate')).toBe(false);
     expect(isHookCommand('teammate-gate')).toBe(false);
     expect(isHookCommand('subagent-context')).toBe(false);
   });
 
+  /** `pre-compact` is a retired hook, so it is not a hook command. */
   it('isHookCommand_T40RemovedHooks_ReturnFalse', () => {
-    // pre-compact stays retired (auto-resume driver, T-40). session-start is
-    // now re-added as observe-only orientation (#1485) — see above.
     expect(isHookCommand('pre-compact')).toBe(false);
   });
 
@@ -173,9 +169,8 @@ describe('handleHookCommand', () => {
     expect(outputJson).toHaveBeenCalledWith({ continue: true });
   });
 
+  /** The router reads `--directive` from argv and passes it to the handler as `{ directive }`. */
   it('handleHookCommand_SessionStart_ForwardsDirective', async () => {
-    // Exercises the argv `--directive` parse + `{ directive }` passthrough so the
-    // binding-injection contract is locked.
     const { handleSessionStart } = await import('../../../../src/lifecycle/session-start.js');
     await handleHookCommand(
       'session-start',

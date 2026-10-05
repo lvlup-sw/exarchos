@@ -1,10 +1,6 @@
 /**
- * RF-3 (#1510 review): tests for the SHARED onboard event seam,
- * `buildOnboardEventCtx`. This logic was previously DUPLICATED in
- * `verbs/doctor/index.ts` and `verbs/doctor/index.ts`; it is the
- * most safety-critical code in the feature (the CAS-pin idempotency trap is
- * sidestepped by construction). These tests run it against a REAL on-disk
- * EventStore so the tail-cut + plain-append behavior is locked in ONE place.
+ * Tests for `buildOnboardEventCtx`, the shared onboard event seam. They use a real on-disk
+ * `EventStore`, so one file pins the plain append and the tail cut.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -60,24 +56,23 @@ describe('buildOnboardEventCtx (shared seam, RF-3 #1510)', () => {
     );
   });
 
+  /** A plain append has no expected sequence, so a second emit cannot cause a CAS conflict. */
   it('emit appends to the onboard stream as a PLAIN append (no CAS pin)', async () => {
     const seam = buildOnboardEventCtx(fx.ctx);
     await seam.emit({ type: 'onboard.requested', data: requested('k1') });
 
     const events = await fx.eventStore.query(ONBOARD_STREAM_ID);
     expect(events.map((e) => e.type)).toEqual(['onboard.requested']);
-    // Plain append: a second emit never reproduces a CAS conflict.
     await expect(
       seam.emit({ type: 'onboard.executed', data: executed('k1') }),
     ).resolves.toBeUndefined();
   });
 
+  /** The completed `old` pair sits before the cut. The dangling `new` request after it is the tail. */
   it('readStreamTail returns the FRESH tail after the last onboard.executed', async () => {
     const seam = buildOnboardEventCtx(fx.ctx);
-    // A completed prior run (requested + executed) — must be BELOW the cut.
     await seam.emit({ type: 'onboard.requested', data: requested('old') });
     await seam.emit({ type: 'onboard.executed', data: executed('old') });
-    // A fresh dangling request AFTER the last executed — must be in the tail.
     await seam.emit({ type: 'onboard.requested', data: requested('new') });
 
     const tail = await seam.readStreamTail();
@@ -85,13 +80,15 @@ describe('buildOnboardEventCtx (shared seam, RF-3 #1510)', () => {
     expect((tail[0].data as OnboardRequested).idempotencyKey).toBe('new');
   });
 
+  /**
+   * The pair of a completed run sits before the cut. Thus a new run sees an empty tail and
+   * reconciles the current drift.
+   */
   it('readStreamTail is empty when the most recent event is an onboard.executed', async () => {
     const seam = buildOnboardEventCtx(fx.ctx);
     await seam.emit({ type: 'onboard.requested', data: requested('done') });
     await seam.emit({ type: 'onboard.executed', data: executed('done') });
 
-    // A completed run's pair sits BELOW the cut → fresh runs see an empty tail
-    // (so they reconcile drift rather than idempotency-collapsing).
     const tail = await seam.readStreamTail();
     expect(tail).toHaveLength(0);
   });

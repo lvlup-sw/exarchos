@@ -1,10 +1,10 @@
-// Structural validity and referential soundness are two different questions,
-// and this file's job is to prove they are two.
+// Structural validity and referential soundness are two different questions.
+// This file proves that they are different.
 //
-// Every bend below is a document the SCHEMA accepts. If any of them were also
-// rejected structurally, the resolver would be redundant and this module should
-// not exist. Each test therefore asserts the pair — the schema says yes, the
-// resolver says no, and names the one reference it broke.
+// The schema must accept every case in `REFERENCE_CASES`. If the schema
+// rejects a case, the resolver is redundant for that case. Thus each case has
+// two tests: the schema accepts the document, and the resolver rejects it and
+// names the broken reference.
 //
 // @oracle-sources: ../../../../src/contract/capsule/exarchos-capsule.ts, the published workflow kernel read from node_modules whose own graph rules decide every delegation case and are not reimplemented here
 
@@ -21,7 +21,7 @@ import {
   resolveCapsuleReferences,
 } from '../../../../src/contract/capsule/capsule-references.js';
 
-/** A kernel definition the published contract accepts, carrying one named step. */
+/** A kernel definition that the published contract accepts, with one step for each id. */
 function kernelDefinition(stepIds: readonly string[]): unknown {
   return {
     schemaVersion: '1.0',
@@ -237,9 +237,11 @@ const REFERENCE_CASES: readonly ReferenceCase[] = [
     (b) => b,
     kernelDefinition(['step-compile']),
   ),
+  /**
+   * The kernel accepts this definition by structure and rejects it by its own reference rule.
+   * Only delegation to the kernel shows that defect.
+   */
   bend(
-    // The kernel accepts this document STRUCTURALLY and rejects it on its own
-    // reference rule. Only delegation can see that, which is the point.
     'a pinned definition whose transition names no step',
     'unsound-kernel-definition',
     'identity.definitionVersion',
@@ -254,9 +256,8 @@ const REFERENCE_CASES: readonly ReferenceCase[] = [
 ];
 
 describe('capsule reference integrity', () => {
+  /** Without this test, a resolver that rejects every document satisfies each rejecting case. */
   it('CapsuleReferences_TheBaseFixture_IsSound', () => {
-    // The denominator. A resolver that reported everything broken would satisfy
-    // every rejecting case below without this one.
     const verdict = resolveCapsuleReferences(baseValidCapsule());
     expect(verdict.violations).toEqual([]);
     expect(verdict.ok).toBe(true);
@@ -269,11 +270,11 @@ describe('capsule reference integrity', () => {
     expect(verdict.violations).toEqual([]);
   });
 
-  // `$name` must END the title: vitest reads `$name_Suffix` as one property
-  // path and renders it `undefined`, which silently erases every case name.
+  /**
+   * `$name` must end the title. Vitest reads `$name_Suffix` as one property path and renders `undefined`.
+   * If this test fails, the schema already rejects the document, and the resolver verdict proves nothing.
+   */
   it.each(REFERENCE_CASES)('CapsuleReferences_IsStructurallyValid_$name', ({ document }) => {
-    // If this fails, the schema already refuses the document and the resolver
-    // proves nothing by also refusing it.
     const parsed = ExarchosCapsuleV1Schema.safeParse(document);
     expect(parsed.success, JSON.stringify(parsed.error?.issues ?? [])).toBe(true);
   });
@@ -298,8 +299,8 @@ describe('capsule reference integrity', () => {
     ).toEqual([]);
   });
 
+  /** The resolver does not stop at the first violation: one run reports every violation. */
   it('CapsuleReferences_ManyBrokenReferences_AreAllReported', () => {
-    // The pass must not short-circuit: one run, every violation.
     const base = baseValidCapsule();
     const verdict = resolveCapsuleReferences({
       ...base,
@@ -314,9 +315,8 @@ describe('capsule reference integrity', () => {
     expect(verdict.violations.map((v) => v.ref).sort()).toEqual(['task-ghost-a', 'task-ghost-b']);
   });
 
+  /** Every task in a cycle can reach that cycle. One report for each task reads as three defects. */
   it('CapsuleReferences_OneCycle_IsReportedOnce', () => {
-    // Every member of a loop can reach it. Reporting the same loop three times
-    // would read as three defects.
     const base = baseValidCapsule();
     const verdict = resolveCapsuleReferences({
       ...base,
@@ -337,8 +337,8 @@ describe('capsule reference integrity', () => {
     expect(cycles[0]?.message).toContain('task-third');
   });
 
+  /** A self-edge on an undeclared task gets the dangling diagnosis for each endpoint and no cycle diagnosis. */
   it('CapsuleReferences_ADanglingEndpoint_IsNotAlsoReportedAsACycle', () => {
-    // A broken edge must produce ONE diagnosis, not two.
     const base = baseValidCapsule();
     const verdict = resolveCapsuleReferences({
       ...base,
@@ -347,9 +347,8 @@ describe('capsule reference integrity', () => {
     expect(verdict.violations.map((v) => v.kind)).toEqual(['dangling-task-ref', 'dangling-task-ref']);
   });
 
+  /** A capsule pins its definition by digest. Without the definition, the resolver has no target for a step id. */
   it('CapsuleReferences_WithNoDefinitionSupplied_StepRefsAreNotResolved', () => {
-    // Stated rather than incidental: a capsule pins its definition by digest,
-    // so without the definition there is nothing to resolve a step id against.
     const base = baseValidCapsule();
     const document: ExarchosCapsuleV1 = {
       ...base,
@@ -364,11 +363,11 @@ describe('capsule reference integrity', () => {
     ).toBe(false);
   });
 
+  /**
+   * The kernel builds its definition schema on `z.looseObject`, so an accepted definition can keep unknown objects.
+   * A `stepId` in such an object must not resolve a capsule task: that reports a dangling reference as sound.
+   */
   it('CapsuleReferences_AStepIdSmuggledOntoALooseObject_DoesNotResolve', () => {
-    // The kernel's definition schema is built on `z.looseObject`, so a
-    // definition it ACCEPTS may retain arbitrary unknown objects. One carrying a
-    // `stepId` must not make a capsule task resolvable — that would be a
-    // dangling reference reported as sound, which is worse than no check.
     const base = baseValidCapsule();
     const definition = {
       ...(kernelDefinition(['step-compile']) as Record<string, unknown>),
@@ -379,11 +378,12 @@ describe('capsule reference integrity', () => {
     expect(verdict.violations[0]?.ref).toBe('step-verify');
   });
 
+  /**
+   * The unknown object holds a `steps` key, which is the name of a real step collection.
+   * A walk that matches key names collects this step.
+   * A walk that follows the kernel schema refuses it, because the kernel declares no `notes` field.
+   */
   it('CapsuleReferences_AStepCollectionNestedInALooseObject_DoesNotResolve', () => {
-    // The same smuggling one level deeper, under a key that DOES name a step
-    // collection. A walk that matched key names over the document would collect
-    // this; only a walk that follows the kernel's schema refuses it, because
-    // `notes` is no field the kernel declares.
     const base = baseValidCapsule();
     const definition = {
       ...(kernelDefinition(['step-compile']) as Record<string, unknown>),
@@ -394,10 +394,11 @@ describe('capsule reference integrity', () => {
     expect(verdict.violations[0]?.ref).toBe('step-verify');
   });
 
+  /**
+   * The kernel nests steps in a loop body, so a task that names such a step must resolve.
+   * A rule that reads only the top-level `steps` array reports this task as dangling.
+   */
   it('CapsuleReferences_AStepNestedInsideTheKernelsOwnStructures_DoesResolve', () => {
-    // And the narrowing is not over-tight: the kernel nests steps in a loop
-    // body, so a task naming one of those has to resolve. A rule that only read
-    // the top-level `steps` array would report this as dangling.
     const base = baseValidCapsule();
     const definition = {
       ...(kernelDefinition(['step-compile']) as Record<string, unknown>),
@@ -422,10 +423,11 @@ describe('capsule reference integrity', () => {
     expect(resolveCapsuleReferences(base, { definition }).violations).toEqual([]);
   });
 
+  /**
+   * A definition that fails the kernel contract is not a reference target.
+   * A dangling-step report against it blames the capsule for the defect of the definition.
+   */
   it('CapsuleReferences_AnUnsoundDefinition_SuppressesStepResolution', () => {
-    // A definition that failed the kernel contract cannot be a reference target.
-    // Reporting dangling steps against it too would blame the capsule for the
-    // definition's defect.
     const verdict = resolveCapsuleReferences(baseValidCapsule(), {
       definition: {
         ...(kernelDefinition(['step-compile']) as Record<string, unknown>),

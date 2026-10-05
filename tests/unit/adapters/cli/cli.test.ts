@@ -1,3 +1,17 @@
+// Tests for the CLI adapter: the command tree of `buildCli`, the exit codes, `runCli`, and the
+// relation between the CLI and the compiled contract.
+//
+// File-wide mocks:
+// - `dispatch` records calls, so no real handler runs.
+// - `cli-format` stops table and tree output. A `vi.mock` factory replaces the whole module, so
+//   the mock supplies a `toCliResult` that writes the `--json` envelope to stdout, as production does.
+// - The SDK seam mock is partial. It stubs only `createV2StdioServerTransport`, the stdio transport
+//   of the `mcp` sub-command, because a real transport takes the stdio streams of the test process.
+//   `adapters/mcp/mcp.ts` also imports the seam, and the real-handler block needs its real
+//   `createV2McpServer`.
+//
+// The real-handler block is last in the file, because it resets the module registry.
+
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -5,9 +19,6 @@ import * as os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import type { ToolResult } from '../../../../src/format.js';
 
-// ─── Mocks ──────────────────────────────────────────────────────────────────
-
-// Mock dispatch to capture calls without invoking real handlers
 vi.mock('../../../../src/dispatch/core/dispatch.js', () => ({
   dispatch: vi.fn<(tool: string, args: Record<string, unknown>, ctx: unknown) => Promise<ToolResult>>(
     async () => ({
@@ -17,12 +28,6 @@ vi.mock('../../../../src/dispatch/core/dispatch.js', () => ({
   ),
 }));
 
-// Mock cli-format to avoid real stdout writes (table/tree paths). The
-// `toCliResult` mock mirrors the real impl for the `--json` path so
-// stdout assertions still see envelope JSON — without the mock entry,
-// `emitResult`'s `toCliResult(toEnvelope(result), 'json')` call fails
-// with "No 'toCliResult' export is defined on the './cli-format.js' mock"
-// because vi.mock() factories REPLACE the module rather than extending it.
 vi.mock('../../../../src/adapters/cli/cli-format.js', () => ({
   prettyPrint: vi.fn(),
   printError: vi.fn(),
@@ -33,7 +38,6 @@ vi.mock('../../../../src/adapters/cli/cli-format.js', () => ({
   }),
 }));
 
-// Mock schema-introspection
 vi.mock('../../../../src/adapters/cli/schema-introspection.js', () => ({
   listSchemas: vi.fn(() => [
     {
@@ -56,31 +60,16 @@ vi.mock('../../../../src/adapters/cli/schema-introspection.js', () => ({
   })),
 }));
 
-// Mock MCP adapter and transport for mcp command test
 vi.mock('../../../../src/adapters/mcp/mcp.js', () => ({
   createMcpServer: vi.fn(() => ({
     connect: vi.fn(async () => {}),
   })),
 }));
 
-// DR-26 (task 053): the `mcp` sub-command now draws its stdio transport from
-// the owned SDK seam, so this mock follows the production import. It is
-// PARTIAL on purpose — `adapters/mcp/mcp.ts` also imports the seam, and stubbing
-// the module wholesale would replace `createV2McpServer` too, breaking the
-// DR-25 real-handler block at the bottom of this file. Only the transport
-// constructor is stubbed, which is exactly what the superseded
-// `@modelcontextprotocol/sdk/server/stdio.js` mock stubbed.
-//
-// Re-pointed rather than deleted: the `mcp` action's transport is the one
-// thing in this suite that would seize the real stdio streams if it were ever
-// invoked, and a mock left aimed at a module the production path no longer
-// imports is stale cover — it reads as a defense and defends nothing.
 vi.mock('../../../../src/contract/sdk/seam.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../../src/contract/sdk/seam.js')>();
   return { ...actual, createV2StdioServerTransport: vi.fn(() => ({})) };
 });
-
-// ─── Test Imports ────────────────────────────────────────────────────────────
 
 import {
   buildCli,
@@ -119,8 +108,6 @@ import { CONTRACT_EXIT_CODES, exitCodeForError } from '../../../../src/contract/
 import { spawnAsync } from '../../../../tools/test-helpers/spawn.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
-// ─── Test Helpers ────────────────────────────────────────────────────────────
-
 function createTestContext(): DispatchContext {
   return {
     stateDir: '/tmp/test-state',
@@ -128,8 +115,6 @@ function createTestContext(): DispatchContext {
     enableTelemetry: false,
   };
 }
-
-// ─── Task 11: CLI Command Tree Generator ─────────────────────────────────────
 
 describe('buildCli', () => {
   let ctx: DispatchContext;
@@ -140,11 +125,9 @@ describe('buildCli', () => {
   });
 
   it('BuildCli_RegistersAllToolGroups', () => {
-    // Arrange & Act
     const program = buildCli(ctx);
     const commandNames = program.commands.map((c) => c.name());
 
-    // Assert — all 5 tools registered with their CLI aliases
     expect(commandNames).toContain('wf');
     expect(commandNames).toContain('ev');
     expect(commandNames).toContain('orch');
@@ -152,15 +135,12 @@ describe('buildCli', () => {
     expect(commandNames).toContain('sy');
   });
 
+  /** The `get` action has the CLI alias `status`. `transition` is the phase-mutation action, and no `set` action exists. */
   it('BuildCli_GeneratesActionSubcommands', () => {
-    // Arrange & Act
     const program = buildCli(ctx);
     const workflowCmd = program.commands.find((c) => c.name() === 'wf');
     const actionNames = workflowCmd?.commands.map((c) => c.name()) ?? [];
 
-    // Assert — workflow actions (get is aliased to 'status')
-    // T5a.1/DR-4 (#1259, v2.11): `set` removed; `transition` is the
-    // canonical phase-mutation action and replaces it in CLI coverage.
     expect(actionNames).toContain('init');
     expect(actionNames).toContain('status');
     expect(actionNames).toContain('transition');
@@ -170,15 +150,11 @@ describe('buildCli', () => {
     expect(actionNames).not.toContain('set');
   });
 
+  /** Each tool group uses its `cli.alias`, or its name without the `exarchos_` prefix. */
   it('BuildCli_UsesCliAlias_WhenProvided', () => {
-    // Arrange — find a tool with an alias or verify alias mechanism works
-    // We test that if a tool had cli.alias, it would be used.
-    // Since the registry may not have aliases, we verify the naming falls
-    // through to the stripped name correctly.
     const program = buildCli(ctx);
     const commandNames = program.commands.map((c) => c.name());
 
-    // Each tool gets its name with exarchos_ stripped
     for (const tool of TOOL_REGISTRY) {
       const expectedName = tool.cli?.alias ?? tool.name.replace(/^exarchos_/, '');
       expect(commandNames).toContain(expectedName);
@@ -186,13 +162,10 @@ describe('buildCli', () => {
   });
 
   it('BuildCli_ActionDispatchesCorrectly', async () => {
-    // Arrange
     const program = buildCli(ctx);
 
-    // Capture stdout to avoid polluting test output
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
 
-    // Act — parse a workflow init command (using 'wf' alias)
     await program.parseAsync([
       'node',
       'exarchos',
@@ -204,7 +177,6 @@ describe('buildCli', () => {
       'feature',
     ]);
 
-    // Assert — dispatch was called with correct tool name and args
     expect(dispatch).toHaveBeenCalledWith(
       'exarchos_workflow',
       expect.objectContaining({
@@ -242,12 +214,11 @@ describe('buildCli', () => {
     expect(trusted.callerIdentity?.subjectId).not.toBe('forged');
   });
 
+  /** The CLI writes the envelope as multi-line JSON, so the text holds `"success": true` with a space after the colon. */
   it('BuildCli_JsonFlag_OutputsRawJson', async () => {
-    // Arrange
     const program = buildCli(ctx);
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
 
-    // Act — parse with --json flag (using 'wf' alias)
     await program.parseAsync([
       'node',
       'exarchos',
@@ -260,11 +231,6 @@ describe('buildCli', () => {
       '--json',
     ]);
 
-    // Assert — stdout should carry the envelope JSON. Post-PR-B the CLI
-    // emits `JSON.stringify(env, null, 2)` (pretty), so the colon-space
-    // is part of the wire shape now ("success": true rather than
-    // "success":true). The substring assertion holds either way as long
-    // as we don't require the compact form.
     expect(stdoutSpy).toHaveBeenCalledWith(
       expect.stringContaining('"success": true'),
     );
@@ -272,20 +238,6 @@ describe('buildCli', () => {
     stdoutSpy.mockRestore();
   });
 
-  // ─── #1440 Op 1 (T7): --follow expansion to additional view actions ──────
-  //
-  // The `isViewFollow` predicate currently inlines a two-arm disjunction
-  // over `workflow_status | shepherd_status`. Expansion adds three more
-  // pure ViewProjection-backed actions (`pipeline`, `convergence`,
-  // `delegation_timeline`) per the T1 orchestrator-inline idempotency
-  // audit. These tests pin that the `--follow` option is REGISTERED for
-  // each of the five actions through the Commander tree — they fail
-  // BEFORE expansion because the predicate rejects the new three, so the
-  // `actionCmd.option('--follow', ...)` registration call is skipped and
-  // the option simply doesn't exist on the command.
-
-  // Map (action.name in registry) → (CLI subcommand name, after action.cli.alias resolution).
-  // Only `pipeline` carries an alias (`ls`); the others register under their full name.
   const FOLLOW_ACTION_CLI_NAMES: ReadonlyArray<{ readonly action: string; readonly cliName: string }> = [
     { action: 'workflow_status', cliName: 'workflow_status' },
     { action: 'shepherd_status', cliName: 'shepherd_status' },
@@ -295,8 +247,11 @@ describe('buildCli', () => {
   ];
 
   for (const { action, cliName } of FOLLOW_ACTION_CLI_NAMES) {
+    /**
+     * Each action in `VIEW_FOLLOW_ACTIONS` registers `--follow` on its `vw` subcommand.
+     * Only `pipeline` has a CLI alias (`ls`), so the table maps each action name to its subcommand name.
+     */
     it(`BuildCli_ViewFollow_${action}_RegistersFollowFlag`, () => {
-      // Arrange — locate the `vw <cliName>` subcommand via the Commander tree.
       const program = buildCli(ctx);
       const viewCmd = program.commands.find((c) => c.name() === 'vw');
       expect(viewCmd, 'exarchos vw tool group not registered').toBeDefined();
@@ -306,7 +261,6 @@ describe('buildCli', () => {
         `exarchos vw ${cliName} subcommand not registered (action.name: ${action})`,
       ).toBeDefined();
 
-      // Assert — the `--follow` option is present on the subcommand.
       const optionFlags = actionCmd?.options.map((o) => o.flags) ?? [];
       expect(
         optionFlags.some((f) => f.includes('--follow')),
@@ -315,12 +269,8 @@ describe('buildCli', () => {
     });
   }
 
+  /** Negative control: `vw tasks` is a one-shot view outside `VIEW_FOLLOW_ACTIONS`, so it must not register `--follow`. */
   it('BuildCli_ViewFollow_NonFollowAction_DoesNotRegisterFollowFlag', () => {
-    // Negative control: `view tasks` is a one-shot detail view that the
-    // T7 expansion deliberately leaves out of `VIEW_FOLLOW_ACTIONS`. The
-    // predicate must continue to gate `--follow` registration to the
-    // members of the set — a stray addition (or a typo) should NOT
-    // silently register the flag on every view action.
     const program = buildCli(ctx);
     const viewCmd = program.commands.find((c) => c.name() === 'vw');
     const tasksCmd = viewCmd?.commands.find((c) => c.name() === 'tasks');
@@ -329,8 +279,6 @@ describe('buildCli', () => {
     expect(optionFlags.some((f) => f.includes('--follow'))).toBe(false);
   });
 });
-
-// ─── Task 12: Schema Command ─────────────────────────────────────────────────
 
 describe('schema command', () => {
   let ctx: DispatchContext;
@@ -341,14 +289,11 @@ describe('schema command', () => {
   });
 
   it('SchemaCommand_NoArgs_ListsAllActions', async () => {
-    // Arrange
     const program = buildCli(ctx);
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
 
-    // Act
     await program.parseAsync(['node', 'exarchos', 'schema']);
 
-    // Assert — should list tool names
     const output = stdoutSpy.mock.calls.map(([s]) => s).join('');
     expect(output).toContain('exarchos_workflow');
     expect(output).toContain('init');
@@ -356,19 +301,16 @@ describe('schema command', () => {
     stdoutSpy.mockRestore();
   });
 
-  // Bug #1218: hidden tools (e.g. exarchos_sync) MUST stay in the CLI
-  // schema listing — the asymmetry with MCP `tools/list` is intentional —
-  // but they should be marked `(hidden)` so the operator can see they are
-  // not part of the model-facing contract.
+  /**
+   * The CLI schema listing keeps hidden tools such as `exarchos_sync` and marks each one `(hidden)`.
+   * The MCP `tools/list` omits them, and that difference is intended.
+   */
   it('SchemaCommand_NoArgs_MarksHiddenTools', async () => {
-    // Arrange
     const program = buildCli(ctx);
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
 
-    // Act
     await program.parseAsync(['node', 'exarchos', 'schema']);
 
-    // Assert
     const output = stdoutSpy.mock.calls.map(([s]) => s).join('');
     expect(output).toMatch(/^exarchos_workflow:$/m);
     expect(output).toMatch(/^exarchos_sync \(hidden\):$/m);
@@ -377,7 +319,6 @@ describe('schema command', () => {
   });
 
   it('SchemaCommand_InvalidRef_PrintsErrorGracefully', async () => {
-    // Arrange — make resolveSchemaRef throw for this test only
     const { resolveSchemaRef } = await import('../../../../src/adapters/cli/schema-introspection.js');
     vi.mocked(resolveSchemaRef).mockImplementationOnce(() => {
       throw new Error('Unknown schema ref: "bogus.ref"');
@@ -385,10 +326,8 @@ describe('schema command', () => {
 
     const program = buildCli(ctx);
 
-    // Act
     await program.parseAsync(['node', 'exarchos', 'schema', 'bogus.ref']);
 
-    // Assert — printError called with error info
     const { printError } = await import('../../../../src/adapters/cli/cli-format.js');
     expect(printError).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -399,14 +338,11 @@ describe('schema command', () => {
   });
 
   it('SchemaCommand_WithRef_PrintsJsonSchema', async () => {
-    // Arrange
     const program = buildCli(ctx);
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
 
-    // Act
     await program.parseAsync(['node', 'exarchos', 'schema', 'workflow.init']);
 
-    // Assert — should print JSON schema
     const output = stdoutSpy.mock.calls.map(([s]) => s).join('');
     const parsed = JSON.parse(output);
     expect(parsed).toHaveProperty('type', 'object');
@@ -415,8 +351,6 @@ describe('schema command', () => {
     stdoutSpy.mockRestore();
   });
 });
-
-// ─── Task 13: MCP Command ────────────────────────────────────────────────────
 
 describe('mcp command', () => {
   let ctx: DispatchContext;
@@ -427,17 +361,14 @@ describe('mcp command', () => {
   });
 
   it('McpCommand_Exists', () => {
-    // Arrange & Act
     const program = buildCli(ctx);
     const commandNames = program.commands.map((c) => c.name());
 
-    // Assert
     expect(commandNames).toContain('mcp');
   });
 });
 
-// ─── Bug #1216: version subcommand reads from package.json ──────────────────
-
+/** The `version` subcommand and the `--version` flag both print the `version` field of the repository `package.json`. */
 describe('version subcommand', () => {
   let ctx: DispatchContext;
 
@@ -446,11 +377,6 @@ describe('version subcommand', () => {
     ctx = createTestContext();
   });
 
-  /**
-   * Read the package.json the CLI is built from. The cli.ts module
-   * lives at `<repo>/src/adapters/cli.ts`, so the
-   * MCP server's package.json is at `<repo>/package.json`.
-   */
   function readPkgVersion(): string {
     const here = path.dirname(fileURLToPath(import.meta.url));
     const pkgPath = path.resolve(here, '../../../../package.json');
@@ -459,7 +385,6 @@ describe('version subcommand', () => {
   }
 
   it('VersionSubcommand_PrintsPackageJsonVersion_NotHardcodedLiteral', async () => {
-    // Arrange — capture stdout writes during `exarchos version`.
     const program = buildCli(ctx);
     const writes: string[] = [];
     const stdoutSpy = vi
@@ -469,10 +394,8 @@ describe('version subcommand', () => {
         return true;
       });
 
-    // Act — invoke the version subcommand without flags.
     await program.parseAsync(['node', 'exarchos', 'version']);
 
-    // Assert — printed value matches package.json.version exactly.
     const expected = readPkgVersion();
     const printed = writes.join('').trim();
     expect(printed).toBe(expected);
@@ -481,8 +404,6 @@ describe('version subcommand', () => {
   });
 
   it('VersionSubcommand_MatchesProgramVersionFlag', async () => {
-    // The subcommand and `--version` flag must agree — they both
-    // describe the same running binary.
     const program = buildCli(ctx);
     const writes: string[] = [];
     const stdoutSpy = vi
@@ -502,15 +423,11 @@ describe('version subcommand', () => {
   });
 });
 
-// ─── Task 25: Init Scaffolding Command ────────────────────────────────────────
-
+/**
+ * `init` is a rename stub. It prints `renamed → use 'exarchos onboard'`, exits non-zero, and
+ * dispatches nothing.
+ */
 describe('init command (DR-5 rename stub)', () => {
-  // Task 011 swap (design line 322): the `init` action is removed and the `init`
-  // CLI verb is now a one-release error stub — it prints `renamed → use
-  // 'exarchos onboard'` and exits non-zero, running NO onboarding side effect and
-  // dispatching nothing. The init handler (`handleInitWithWriters`) +
-  // `init.executed` event were fully removed in DR-5 (task 018); `onboard`
-  // reproduces init's outputs via the GENERATE writers.
   let ctx: DispatchContext;
   let originalExitCode: number | string | undefined;
 
@@ -526,8 +443,6 @@ describe('init command (DR-5 rename stub)', () => {
   });
 
   it('InitCommand_IsRenameStub_DoesNotDispatch', async () => {
-    // The stub must NOT dispatch to exarchos_orchestrate (no onboarding side
-    // effect runs from the stub — DR-5 acceptance criterion).
     const program = buildCli(ctx);
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
 
@@ -552,9 +467,8 @@ describe('init command (DR-5 rename stub)', () => {
     stderrSpy.mockRestore();
   });
 
+  /** The stub accepts the legacy `--runtime` flag and ignores it. */
   it('InitCommand_WithRuntimeFlag_StillStubsAndDoesNotDispatch', async () => {
-    // Even with the legacy `--runtime` flag, the stub does not dispatch — the
-    // flag is accepted (allowUnknownOption) but ignored; no init action exists.
     const program = buildCli(ctx);
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
 
@@ -572,18 +486,16 @@ describe('init command (DR-5 rename stub)', () => {
 
     await program.parseAsync(['node', 'exarchos', 'init']);
 
-    // Non-zero per DR-5 (HANDLER_ERROR=2), not a Commander unknown-command exit.
     expect(process.exitCode).toBe(CLI_EXIT_CODES.HANDLER_ERROR);
 
     stderrSpy.mockRestore();
   });
 });
 
-// ─── Task 013: CLI Exit-Code Mapping + Error-Shape Alignment (DR-3) ──────────
-// These tests define the contract between the CLI adapter and the MCP
-// ToolResult shape. Exit codes are load-bearing for downstream parity tests
-// (tasks 014-017) which import CLI_EXIT_CODES directly.
-
+/**
+ * The exit codes are the contract between the CLI adapter and the `ToolResult` shape.
+ * Parity tests import `CLI_EXIT_CODES` directly.
+ */
 describe('CLI exit-code mapping (DR-3)', () => {
   let ctx: DispatchContext;
   let originalExitCode: number | string | undefined;
@@ -600,10 +512,8 @@ describe('CLI exit-code mapping (DR-3)', () => {
   });
 
   it('CLI_ExitCodesTable_IsExported', async () => {
-    // Arrange & Act — downstream tasks 014-017 import this table directly.
     const { CLI_EXIT_CODES } = await import('../../../../src/adapters/cli/cli.js');
 
-    // Assert — canonical mapping for success / input / handler / uncaught.
     expect(CLI_EXIT_CODES).toEqual({
       SUCCESS: 0,
       INVALID_INPUT: 1,
@@ -612,8 +522,11 @@ describe('CLI exit-code mapping (DR-3)', () => {
     });
   });
 
+  /**
+   * `--json` writes the envelope, which wraps `data` and adds `next_actions`, `_meta` and `_perf`.
+   * `cli-format.test.ts` tests those fields directly, so this test uses `toMatchObject`.
+   */
   it('CliInvocation_SuccessCase_Returns0AndStructuredPayload', async () => {
-    // Arrange — dispatch returns a success ToolResult
     vi.mocked(dispatch).mockResolvedValueOnce({
       success: true,
       data: { featureId: 'test-feature', phase: 'init' },
@@ -622,7 +535,6 @@ describe('CLI exit-code mapping (DR-3)', () => {
     const program = buildCli(ctx);
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
 
-    // Act
     await program.parseAsync([
       'node',
       'exarchos',
@@ -635,12 +547,6 @@ describe('CLI exit-code mapping (DR-3)', () => {
       '--json',
     ]);
 
-    // Assert — exit 0 (success) and envelope JSON on stdout (post-PR-B
-    // emitResult routes `--json` through `toCliResult(toEnvelope(...))`).
-    // The envelope wraps the ToolResult's `data` and adds `next_actions`,
-    // `_meta`, `_perf` siblings; assert the data + success shape via
-    // `objectContaining` so the extra envelope fields don't need to be
-    // enumerated literally (they're tested directly in cli-format.test.ts).
     expect(process.exitCode ?? 0).toBe(0);
 
     const stdoutText = stdoutSpy.mock.calls.map(([s]) => s).join('');
@@ -654,13 +560,11 @@ describe('CLI exit-code mapping (DR-3)', () => {
     stdoutSpy.mockRestore();
   });
 
+  /** An invalid `workflowType` fails the Zod validation of the action schema in the CLI, before dispatch. */
   it('CliInvocation_InvalidInput_Returns1WithInvalidInputCode', async () => {
-    // Arrange — invalid workflowType should fail the action schema's Zod
-    // validation at the CLI layer, before dispatch is ever called.
     const program = buildCli(ctx);
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
 
-    // Act — "BOGUS" is not a valid workflow type
     await program.parseAsync([
       'node',
       'exarchos',
@@ -673,7 +577,6 @@ describe('CLI exit-code mapping (DR-3)', () => {
       '--json',
     ]);
 
-    // Assert — exit 1, dispatch never reached, ToolResult with INVALID_INPUT
     expect(process.exitCode).toBe(1);
     expect(dispatch).not.toHaveBeenCalled();
 
@@ -691,7 +594,6 @@ describe('CLI exit-code mapping (DR-3)', () => {
   });
 
   it('CliInvocation_HandlerReportedError_Returns2WithErrorCode', async () => {
-    // Arrange — dispatch returns a ToolResult with success=false
     vi.mocked(dispatch).mockResolvedValueOnce({
       success: false,
       error: {
@@ -703,7 +605,6 @@ describe('CLI exit-code mapping (DR-3)', () => {
     const program = buildCli(ctx);
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
 
-    // Act
     await program.parseAsync([
       'node',
       'exarchos',
@@ -716,7 +617,6 @@ describe('CLI exit-code mapping (DR-3)', () => {
       '--json',
     ]);
 
-    // Assert — exit 2 (handler error), ToolResult echoed verbatim
     expect(process.exitCode).toBe(2);
 
     const stdoutText = stdoutSpy.mock.calls.map(([s]) => s).join('');
@@ -731,8 +631,8 @@ describe('CLI exit-code mapping (DR-3)', () => {
     stdoutSpy.mockRestore();
   });
 
+  /** The message of the exception must appear in the error result. */
   it('CliInvocation_UncaughtException_Returns3', async () => {
-    // Arrange — dispatch throws synchronously (bypasses its internal catch)
     vi.mocked(dispatch).mockImplementationOnce(async () => {
       throw new Error('boom: unexpected runtime failure');
     });
@@ -740,7 +640,6 @@ describe('CLI exit-code mapping (DR-3)', () => {
     const program = buildCli(ctx);
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
 
-    // Act
     await program.parseAsync([
       'node',
       'exarchos',
@@ -753,7 +652,6 @@ describe('CLI exit-code mapping (DR-3)', () => {
       '--json',
     ]);
 
-    // Assert — exit 3 (uncaught exception), normalized error payload
     expect(process.exitCode).toBe(3);
 
     const stdoutText = stdoutSpy.mock.calls.map(([s]) => s).join('');
@@ -762,23 +660,20 @@ describe('CLI exit-code mapping (DR-3)', () => {
       error?: { code: string; message: string };
     };
     expect(parsed.success).toBe(false);
-    // The exception message should surface in the normalized ToolResult
     expect(parsed.error?.message).toContain('boom');
 
     stdoutSpy.mockRestore();
   });
 });
 
-// ─── F-024-CMDR: commanderErrorToResult mapping-table parity ────────────────
-//
-// Keep the Commander-error → INVALID_INPUT set explicit so future Commander
-// upgrades don't silently introduce a new validation-ish code that falls
-// through the default branch and gets mis-mapped as UNCAUGHT_EXCEPTION.
-// Every code listed in these fixtures MUST be recognized as a validation
-// failure.
+/**
+ * The set of Commander codes that map to INVALID_INPUT is explicit. A Commander upgrade can add
+ * a validation code, and a code outside the set maps to UNCAUGHT_EXCEPTION.
+ * `commander.conflictingOption` comes from the option-conflict check of Commander.
+ * `commander.invalidOptionArgument` is an older code that a custom argument parser can still throw.
+ */
 describe('commanderErrorToResult mapping table (F-024-CMDR)', () => {
   const invalidInputCodes: ReadonlyArray<string> = [
-    // Originally covered (task 024 initial green):
     'commander.missingMandatoryOptionValue',
     'commander.missingArgument',
     'commander.optionMissingArgument',
@@ -786,14 +681,12 @@ describe('commanderErrorToResult mapping table (F-024-CMDR)', () => {
     'commander.unknownCommand',
     'commander.unknownOption',
     'commander.excessArguments',
-    // F-024-CMDR additions — emitted by Commander's native option-conflict
-    // check and a legacy `<value>` type-mismatch code path preserved for
-    // backward-compatibility with older Commander releases / plugins.
     'commander.invalidOptionArgument',
     'commander.conflictingOption',
   ];
 
   for (const code of invalidInputCodes) {
+    /** The result keeps the Commander message, so the user sees which option or command failed. */
     it(`CommanderErrorMapping_${code}_MapsToInvalidInput`, () => {
       const err = new CommanderError(1, code, `synthetic error for ${code}`);
       const { result, exitCode } = commanderErrorToResult(err);
@@ -801,8 +694,6 @@ describe('commanderErrorToResult mapping table (F-024-CMDR)', () => {
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('INVALID_INPUT');
       expect(exitCode).toBe(CLI_EXIT_CODES.INVALID_INPUT);
-      // Message should be preserved verbatim so CLI users still see which
-      // option/command failed.
       expect(result.error?.message).toContain('synthetic error');
     });
   }
@@ -816,10 +707,8 @@ describe('commanderErrorToResult mapping table (F-024-CMDR)', () => {
     }
   });
 
+  /** A code outside both sets maps to UNCAUGHT_EXCEPTION, so the user can tell it from a validation error. */
   it('CommanderErrorMapping_UnknownCode_MapsToUncaughtException', () => {
-    // Codes not in the whitelist fall through to UNCAUGHT_EXCEPTION so the
-    // exit-code table (task 013) remains correct and users see a distinct
-    // failure mode from plain validation errors.
     const err = new CommanderError(1, 'commander.fabricatedCode', 'unknown signal');
     const { result, exitCode } = commanderErrorToResult(err);
     expect(result.success).toBe(false);
@@ -827,18 +716,15 @@ describe('commanderErrorToResult mapping table (F-024-CMDR)', () => {
     expect(exitCode).toBe(CLI_EXIT_CODES.UNCAUGHT_EXCEPTION);
   });
 
+  /**
+   * Every `--json` failure path must write the same envelope shape: a handler error, a validation
+   * error and a Commander parse error. A raw `ToolResult` has no `_meta` or `_perf`, so the test
+   * looks for those fields after an unknown-option error.
+   */
   it('RunCli_CommanderErrorJsonPath_EmitsEnvelopeShape', async () => {
-    // INV-2 (facade equivalence): every `--json` failure path — handler,
-    // validation, AND Commander parse error — must emit the same envelope
-    // shape. CodeRabbit MAJOR on PR #1369: runCli previously did
-    // `process.stdout.write(JSON.stringify(result))` for CommanderError,
-    // producing a raw `ToolResult` shape that diverged from the envelope
-    // emitted by `emitResult`. Route both through `toCliResult(toEnvelope)`
-    // so consumers see one shape.
     const program = buildCli(createTestContext());
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
 
-    // Trigger an unknown-option Commander error in --json mode.
     await runCli(program, [
       'node',
       'exarchos',
@@ -852,9 +738,6 @@ describe('commanderErrorToResult mapping table (F-024-CMDR)', () => {
       '--json',
     ]);
 
-    // Assert envelope shape on stdout: `success: false` + canonical
-    // envelope fields (`_meta`, `_perf`, `error`). The raw ToolResult
-    // would lack `_meta`/`_perf` so this catches the divergence.
     const calls = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
     expect(calls).toContain('"success": false');
     expect(calls).toContain('"error"');
@@ -864,20 +747,16 @@ describe('commanderErrorToResult mapping table (F-024-CMDR)', () => {
   });
 });
 
-// ─── DR-5 (task 018): install-skills CLI subcommand → rename stub ─────────────
-//
-// `install-skills` was consolidated into `onboard` (DR-5). The verb is now a
-// one-release **rename stub**: it stays REGISTERED (so `exarchos install-skills`
-// prints an actionable rename message instead of Commander's bare unknown-command
-// error), prints `renamed → use 'exarchos onboard'`, exits non-zero, and never
-// reaches the bridge. The dedicated stub-behavior coverage lives in
-// `cli-install-skills.test.ts`; here we only assert the verb is present + that
-// the bridge is never dispatched to.
-
 vi.mock('../../../../src/lifecycle/install-skills-bridge.js', () => ({
   runInstallSkills: vi.fn(async () => {}),
 }));
 
+/**
+ * `install-skills` is a rename stub. The verb stays registered, so the user gets the rename
+ * message and not the unknown-command error of Commander.
+ * `cli-install-skills.test.ts` covers the stub. This block asserts only that the verb exists and
+ * never calls the bridge.
+ */
 describe('install-skills subcommand (DR-5 rename stub)', () => {
   let ctx: DispatchContext;
 
@@ -887,9 +766,6 @@ describe('install-skills subcommand (DR-5 rename stub)', () => {
   });
 
   it('cli_InstallSkillsSubcommand_StillRegistered_ForRenameMessage', () => {
-    // The verb must still be present on the Commander program so that
-    // `exarchos install-skills` resolves to the rename stub instead of
-    // producing `error: unknown command 'install-skills'`.
     const program = buildCli(ctx);
     const installSkillsCmd = program.commands.find(
       (c) => c.name() === 'install-skills',
@@ -900,9 +776,8 @@ describe('install-skills subcommand (DR-5 rename stub)', () => {
     expect(helpText).toContain('onboard');
   });
 
+  /** The stub exits with HANDLER_ERROR and never calls the bridge, also with the legacy `--agent` flag. */
   it('cli_InstallSkillsSubcommand_NeverDispatchesToBridge', async () => {
-    // The stub runs NO install side effect — the bridge is never reached, and
-    // the verb exits non-zero (HANDLER_ERROR), even with a legacy `--agent` flag.
     const program = buildCli(ctx);
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
     const originalExitCode = process.exitCode;
@@ -927,19 +802,10 @@ describe('install-skills subcommand (DR-5 rename stub)', () => {
   });
 });
 
-// ─── DR-5 (task 018): install-skills binary smoke (conditional) ──────────────
-//
-// Cheap end-to-end probe against the compiled binary at
-// `dist/bin/exarchos-<os>-<arch>`. Skipped when the binary is absent so
-// developers without a local build don't see a phantom failure; CI runs
-// `npm run build` before tests, so the binary IS present there.
-//
-// `install-skills` is now a DR-5 rename stub. We assert `--help` exits 0 and
-// shows the verb + the rename hint, proving Commander still registered the verb
-// inside the bundled binary (so a user gets the actionable rename message, not
-// `error: unknown command 'install-skills'`) and that the rename description
-// survives through `bun build --compile`.
-
+/**
+ * Returns the path of the compiled host binary, or null when no build exists.
+ * It uses `fileURLToPath`, because `URL().pathname` gives `/C:/...` on Windows, which breaks `path.resolve`.
+ */
 function findHostBinary(): string | null {
   const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
   const platform =
@@ -952,10 +818,6 @@ function findHostBinary(): string | null {
           : null;
   if (!platform) return null;
   const ext = platform === 'windows' ? '.exe' : '';
-  // cli.test.ts lives at src/adapters/, so the repo
-  // root is four directories up. CodeRabbit #3 (#1213): use fileURLToPath
-  // not URL().pathname — on Windows the latter yields `/C:/...` (leading
-  // slash) which breaks path.resolve.
   const repoRoot = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
     '../../../..');
@@ -965,6 +827,12 @@ function findHostBinary(): string | null {
 
 const SMOKE_BINARY = findHostBinary();
 
+/**
+ * An end-to-end probe of the compiled binary at `dist/bin/exarchos-<os>-<arch>`. The block skips
+ * when the binary is absent.
+ * `install-skills --help` must exit 0 and show the verb with the rename hint. Thus the stub and
+ * its description are present in the output of `bun build --compile`.
+ */
 describe.skipIf(!SMOKE_BINARY)(
   'install-skills binary smoke (DR-5 rename stub)',
   () => {
@@ -976,15 +844,12 @@ describe.skipIf(!SMOKE_BINARY)(
       stateTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-T18-state-'));
     });
 
+    /** Best-effort cleanup. The value of the smoke test is the spawn assertion, so the hook ignores a cleanup error. */
     afterEach(() => {
-      // Best-effort cleanup. Errors are swallowed because the smoke test's
-      // value is in the spawn assertion, not in tempdir hygiene; CI will
-      // GC the runner anyway.
       try {
         rmrf(homeTmp);
         rmrf(stateTmp);
       } catch {
-        // ignore
       }
     });
 
@@ -994,8 +859,6 @@ describe.skipIf(!SMOKE_BINARY)(
         timeout: 30_000,
         env: { ...process.env, HOME: homeTmp, WORKFLOW_STATE_DIR: stateTmp },
       });
-      // `--help` is a Commander built-in: exits 0 and prints the (rename-stub)
-      // description, proving the verb is still registered in the bundled binary.
       expect(result.status).toBe(0);
       expect(result.stdout).toContain('install-skills');
       expect(result.stdout.toLowerCase()).toContain('renamed');
@@ -1004,14 +867,13 @@ describe.skipIf(!SMOKE_BINARY)(
   },
 );
 
-// ─── DR-7: top-level CLI promotion mechanism (CliActionHints.topLevel) ────────
-//
-// These tests exercise the GENERIC promotion mechanism + its collision guard
-// over the REAL registry + CLI wiring (no hand-mocked registry): they stamp
-// `cli.topLevel` onto a real registry action and assert `buildCli` hoists it to
-// a top-level command that shares the subcommand's code path + Zod schema. The
-// lifecycle-verb re-map (which actions actually declare `topLevel`) is a
-// follow-on — this task ships only the mechanism.
+/**
+ * The generic promotion mechanism and its collision guard, over the real registry and CLI wiring.
+ * `registryWithTopLevel` clones the real registry and stamps `cli.topLevel` on one action. The
+ * schema, the description and the dispatch wiring of that action stay real.
+ * `buildCli` must hoist the action to a top-level command with the code path and the Zod schema
+ * of the subcommand.
+ */
 describe('CLI top-level promotion (DR-7)', () => {
   let ctx: DispatchContext;
 
@@ -1020,10 +882,6 @@ describe('CLI top-level promotion (DR-7)', () => {
     ctx = createTestContext();
   });
 
-  // Clone the REAL registry (getFullRegistry) and stamp `cli.topLevel` onto one
-  // action. Everything else — the action's Zod schema, description, dispatch
-  // wiring — stays the real thing, so the mechanism is proven against real
-  // registry data, not a fabricated fixture.
   function registryWithTopLevel(
     toolName: string,
     actionName: string,
@@ -1043,21 +901,19 @@ describe('CLI top-level promotion (DR-7)', () => {
     );
   }
 
+  /**
+   * Promotes the real `exarchos_view` `ps` action to a top-level `ps`. The hoisted command has the
+   * same flags as `vw ps` and dispatches the same tool and action.
+   * `--scope` is the witness for a schema-derived flag. The schema does not declare `probe`, so
+   * neither form shows `--probe`.
+   */
   it('Promotion_TopLevelStamp_CommandRegisteredAndDispatches', async () => {
-    // Arrange — promote the real `exarchos_view` `ps` action to top-level `ps`.
     const registry = registryWithTopLevel('exarchos_view', 'ps', 'ps');
     const program = buildCli(ctx, { registry });
 
-    // Assert (registration) — a NEW top-level `ps` command exists alongside the
-    // untouched `vw` tool group.
     const topLevelNames = program.commands.map((c) => c.name());
     expect(topLevelNames).toContain('ps');
 
-    // Assert (same Zod schema) — the hoisted command's flag set is IDENTICAL to
-    // the `vw ps` subcommand's, and carries a schema-derived flag. `--scope` is
-    // the witness rather than `--probe`: `probe` left the schema when the reclaim
-    // and reconcilers moved to `reconcile_worktrees`, and a flag the schema no
-    // longer declares cannot demonstrate that flags derive FROM the schema.
     const topLevelPs = program.commands.find((c) => c.name() === 'ps');
     const vwPs = program.commands
       .find((c) => c.name() === 'vw')
@@ -1068,13 +924,9 @@ describe('CLI top-level promotion (DR-7)', () => {
     const subFlags = (vwPs?.options ?? []).map((o) => o.flags).sort();
     expect(topLevelFlags).toEqual(subFlags);
     expect(topLevelFlags.some((f) => f.includes('--scope'))).toBe(true);
-    // ...and the retired flag is gone from BOTH forms, so the hoist cannot
-    // keep advertising a parameter the action would refuse.
     expect(topLevelFlags.some((f) => f.includes('--probe'))).toBe(false);
     expect(subFlags.some((f) => f.includes('--probe'))).toBe(false);
 
-    // Assert (same dispatch path) — running `exarchos ps` dispatches the SAME
-    // tool + action the subcommand form would, through the shared handler.
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
     await program.parseAsync(['node', 'exarchos', 'ps']);
     stdoutSpy.mockRestore();
@@ -1089,35 +941,30 @@ describe('CLI top-level promotion (DR-7)', () => {
     );
   });
 
+  /**
+   * A `topLevel` name that collides with a top-level command makes `buildCli` throw, before any
+   * argv parse or command action. `wf` is the name of the workflow group and `workflow` is its alias.
+   * A name with no collision must not throw, so the guard rejects only collisions.
+   */
   it('Promotion_CollidingName_FailsRegistrationNotRuntime', () => {
-    // A `topLevel` that collides with an existing top-level command must fail at
-    // REGISTRATION (build time) — the throw happens inside `buildCli`, before any
-    // argv is parsed or any command action runs. `wf` is the workflow tool
-    // group's top-level name.
     const collideName = registryWithTopLevel('exarchos_view', 'ps', 'wf');
     expect(() => buildCli(ctx, { registry: collideName })).toThrow(
       /topLevel 'wf'.*collides with the existing top-level command 'wf'/,
     );
 
-    // The guard also catches a clash with a top-level command's ALIAS, not just
-    // its primary name: `workflow` is registered as an alias of `wf`.
     const collideAlias = registryWithTopLevel('exarchos_view', 'ps', 'workflow');
     expect(() => buildCli(ctx, { registry: collideAlias })).toThrow(
       /topLevel 'workflow'.*collides with the existing top-level command/,
     );
 
-    // Guard specificity: a non-colliding name must NOT throw (proves the guard
-    // rejects clashes, not every promotion).
     const noCollide = registryWithTopLevel('exarchos_view', 'ps', 'ps');
     expect(() => buildCli(ctx, { registry: noCollide })).not.toThrow();
 
-    // Dispatch was never invoked — the failure is at registration, not runtime.
     expect(dispatch).not.toHaveBeenCalled();
   });
 
+  /** A promotion must not change the `<tool> <action>` form: `vw ps` still registers and dispatches. */
   it('Promotion_SubcommandForm_StillWorks', async () => {
-    // Promoting an action to top-level must NOT disturb its `<tool> <action>`
-    // subcommand form: `vw ps` still registers and still dispatches.
     const registry = registryWithTopLevel('exarchos_view', 'ps', 'ps');
     const program = buildCli(ctx, { registry });
 
@@ -1140,41 +987,12 @@ describe('CLI top-level promotion (DR-7)', () => {
   });
 });
 
-
-// ═══════════════════════════════════════════════════════════════════════════
-//  T-34 / DR-25 — the CLI/MCP relationship under the GOVERNING INV-2
-// ═══════════════════════════════════════════════════════════════════════════
-//
-// The governing framing makes the CLI a GENERATED client of the compiled
-// contract, equal to the MCP surface BY CONSTRUCTION. DR-25 first recorded the
-// adapter's hand-assembled dispatch path as a governed, expiring deviation;
-// the PRIMARY resolution has since landed and this suite pins the constructed
-// state:
-//
-//   1. `Cli_ApiAction_HasNoDirectDispatchPath` — `adapters/cli.ts` no longer
-//      reaches the shared handler at all. The only CLI-side dispatch site is
-//      the generated client (`contract/cli/generated-client.ts`), a contract
-//      PROJECTION; the deviation ledger is empty, and every way a future
-//      record could rot still fails the census closed (kill arms below run
-//      against a SYNTHETIC fixture row, since no live row remains).
-//   2. `Cli_EveryAddressedActionId_ExistsInDerivedSurface` — every ActionId
-//      the adapter can address exists in `deriveCliSurface(compileForCli())`,
-//      so a renamed/removed action reddens the build instead of surfacing as
-//      a runtime addressing failure.
-//   3. `Cli_GeneratedClient_AgreesWithMcpViaRealHandler` — agreement is proven
-//      through a REAL registered handler over BOTH seams (the real Commander
-//      tree, now addressing through the production generated client, and the
-//      real MCP server over a real transport), never a mock.
-// ───────────────────────────────────────────────────────────────────────────
-
 /** A synthetic deviating module for the ledger kill arms (no live counterpart). */
 const FIXTURE_DEVIANT_MODULE = 'cli-commands/fixture-direct-dispatch.ts';
 
 /**
- * A fully governed SYNTHETIC ledger row. The live ledger is empty (the DR-25
- * deviation retired with the generated client), so the kill arms exercise the
- * census machinery against this fixture instead of a real row — the arms must
- * stay armed for the NEXT candidate deviation, not rot with the retired one.
+ * A fully governed synthetic ledger row. The live ledger is empty, so the kill arms run the census
+ * against this row. Thus the arms stay active for the next candidate deviation.
  */
 function fixtureDeviation(): ContractDeviation {
   return {
@@ -1201,7 +1019,7 @@ function fixtureSites(): DispatchSite[] {
   return [...CONTRACT_PROJECTIONS.map((module) => ({ module })), { module: FIXTURE_DEVIANT_MODULE }];
 }
 
-/** The acknowledgement the synthetic module would export, agreeing with its row. */
+/** The acknowledgement that the synthetic module exports. It agrees with the fixture row. */
 function fixtureAnnotations(): DeviationAnnotationSite[] {
   const row = fixtureDeviation();
   return [
@@ -1217,11 +1035,19 @@ function fixtureAnnotations(): DeviationAnnotationSite[] {
   ];
 }
 
+/**
+ * The CLI is a generated client of the compiled contract, so it equals the MCP surface by
+ * construction. The CLI adapter does not import the runtime `dispatch`. The only CLI-side
+ * dispatch site is `contract/cli/generated-client.ts`, a contract projection.
+ * The deviation ledger is empty, so the ledger kill arms run against a synthetic fixture row.
+ */
 describe('DR-25: CLI api-action dispatch path is generated, and the deviation is retired', () => {
+  /**
+   * Every live dispatch site is a contract projection, and the generated client is the only
+   * CLI-side site. No deviation admits a site: the live ledger is empty, no module exports an
+   * acknowledgement, and the full live census reports nothing.
+   */
   it('Cli_ApiAction_HasNoDirectDispatchPath', async () => {
-    // ── The DR-25 primary resolution, structurally: the adapter no longer
-    //    reaches the shared handler at all. The only CLI-side dispatch site is
-    //    the generated client, and every live site is a contract PROJECTION.
     const sites = await scanDispatchSites();
     const moduleNames = sites.map((s) => s.module);
     expect(moduleNames).not.toContain('adapters/cli.ts');
@@ -1230,31 +1056,26 @@ describe('DR-25: CLI api-action dispatch path is generated, and the deviation is
     expect([...moduleNames].sort()).toEqual([...AUTHORIZED_DISPATCH_PROJECTIONS].sort());
     expect(CONTRACT_PROJECTIONS).toContain('contract/cli/generated-client.ts');
 
-    // ── Nothing is admitted by deviation any more: the live ledger is EMPTY,
-    //    no module exports an acknowledgement, and the ledger census over the
-    //    real sites is green with that empty ledger.
     expect(CLI_CONTRACT_DEVIATIONS).toEqual([]);
     const annotations = await collectDeviationAnnotations();
     expect(annotations).toEqual([]);
     expect(runDeviationLedgerCensus(sites, CLI_CONTRACT_DEVIATIONS, annotations)).toEqual([]);
 
-    // ── The whole live census (all three collectors) is green.
     const audit = await auditCliContract();
     expect(audit.diagnostics).toEqual([]);
     expect(audit.ok).toBe(true);
   });
 
+  /**
+   * The ledger holds no row, and the adapter has no dispatch site.
+   * A new row for the adapter covers no live site, so the census reports `STALE_DEVIATION`. Thus
+   * the ledger cannot admit the direct path again unless the import returns.
+   */
   it('CliDeviation_LedgerIsEmpty_AndTheRetiredRowCannotQuietlyReturn', async () => {
-    // The inversion of the old `CliDeviation_IsOwnedJustifiedAndUnexpired`
-    // pin: there is no longer a row to own, justify, or expire — retirement
-    // means the ledger is empty and the adapter has no dispatch site.
     expect(CLI_CONTRACT_DEVIATIONS).toEqual([]);
     const sites = await scanDispatchSites();
     expect(sites.map((s) => s.module)).not.toContain('adapters/cli.ts');
 
-    // Re-recording the retired row against today's tree fails closed as
-    // STALE_DEVIATION (it would cover no live site) — the ledger cannot be
-    // used to quietly re-admit the direct path without the import coming back.
     const resurrected = runDeviationLedgerCensus(
       sites,
       mutateDeviation({ id: 'cli-direct-dispatch', module: 'adapters/cli.ts' }),
@@ -1263,21 +1084,21 @@ describe('DR-25: CLI api-action dispatch path is generated, and the deviation is
     expect(resurrected.map((d) => d.code)).toContain('STALE_DEVIATION');
   });
 
+  /**
+   * Every arm runs against the synthetic fixture row and fabricated sites. The baseline passes
+   * first, so each failing arm comes from its one mutation.
+   * The arms cover a missing row, a second bypass, a past or malformed expiry, and a blank owner
+   * or rationale. They also cover a stale row, a missing or different site acknowledgement, and a
+   * module in both lists.
+   * A ledger row governs one named module, so the second bypass stays unacknowledged.
+   */
   it('CliDeviation_EveryWayTheRecordCouldRot_FailsClosed', () => {
-    // All arms run against the SYNTHETIC fixture row + fabricated sites: the
-    // live ledger is empty, but the machinery must stay armed for the next
-    // candidate deviation. Baseline first — a fully governed fixture passes,
-    // so each red arm below is attributable to its single mutation.
     const sites = fixtureSites();
     const annotations = fixtureAnnotations();
     const codes = (diags: readonly { readonly code: string }[]): string[] =>
       diags.map((d) => d.code);
     expect(runDeviationLedgerCensus(sites, [fixtureDeviation()], annotations)).toEqual([]);
 
-    // (a) Drop the ledger row — the fixture's direct path becomes
-    //     UNACKNOWLEDGED. This is the arm that proves the acknowledgement is
-    //     load-bearing: with no record, the governing INV-2 is violated and
-    //     the census says so.
     const unrecorded = runDeviationLedgerCensus(sites, [], annotations);
     expect(unrecorded).toContainEqual(
       expect.objectContaining({
@@ -1286,8 +1107,6 @@ describe('DR-25: CLI api-action dispatch path is generated, and the deviation is
       }),
     );
 
-    // (b) A SECOND bypass elsewhere is unacknowledged too — a ledger row
-    //     governs one named module, it does not amnesty the whole tree.
     const planted = runDeviationLedgerCensus(
       [...sites, { module: 'cli-commands/rogue-direct-dispatch.ts' }],
       [fixtureDeviation()],
@@ -1300,29 +1119,22 @@ describe('DR-25: CLI api-action dispatch path is generated, and the deviation is
       }),
     );
 
-    // (c) A past expiry fails — the exception cannot run forever.
     expect(
       codes(runDeviationLedgerCensus(sites, mutateDeviation({ expires: '2020-01-01' }), annotations)),
     ).toContain('EXPIRED_DEVIATION');
 
-    // (d) A malformed expiry fails — "someday" is not a deadline.
     expect(
       codes(runDeviationLedgerCensus(sites, mutateDeviation({ expires: 'when-generated' }), annotations)),
     ).toContain('UNGOVERNED_DEVIATION');
 
-    // (e) A blank owner fails — nobody accountable means nobody retires it.
     expect(
       runDeviationLedgerCensus(sites, mutateDeviation({ owner: '  ' }), annotations),
     ).toContainEqual(expect.objectContaining({ code: 'UNGOVERNED_DEVIATION', field: 'owner' }));
 
-    // (f) A blank rationale fails — an unexplained exception is laundering.
     expect(
       runDeviationLedgerCensus(sites, mutateDeviation({ rationale: '' }), annotations),
     ).toContainEqual(expect.objectContaining({ code: 'UNGOVERNED_DEVIATION', field: 'rationale' }));
 
-    // (g) Stale cover fails — a row for a module that no longer reaches the
-    //     seam. This is the arm that retired the real DR-25 row when the CLI
-    //     became genuinely generated.
     expect(
       codes(
         runDeviationLedgerCensus(
@@ -1333,8 +1145,6 @@ describe('DR-25: CLI api-action dispatch path is generated, and the deviation is
       ),
     ).toContain('STALE_DEVIATION');
 
-    // (h) A missing site acknowledgement fails — the ledger alone is not
-    //     enough; the deviating module must own its deviation.
     const unannotated: DeviationAnnotationSite[] = [
       { module: FIXTURE_DEVIANT_MODULE, annotation: undefined },
     ];
@@ -1342,8 +1152,6 @@ describe('DR-25: CLI api-action dispatch path is generated, and the deviation is
       codes(runDeviationLedgerCensus(sites, [fixtureDeviation()], unannotated)),
     ).toContain('DEVIATION_ANNOTATION_MISMATCH');
 
-    // (i) A site acknowledgement that DISAGREES with the ledger fails — the two
-    //     records cannot drift apart silently.
     const [agreeing] = fixtureAnnotations();
     const drifted: DeviationAnnotationSite[] = [
       {
@@ -1355,9 +1163,6 @@ describe('DR-25: CLI api-action dispatch path is generated, and the deviation is
       codes(runDeviationLedgerCensus(sites, [fixtureDeviation()], drifted)),
     ).toContain('DEVIATION_ANNOTATION_MISMATCH');
 
-    // (j) Claiming the module is ALSO fully compliant fails — "compliance"
-    //     cannot be used to launder a known deviation (the pre-DR-25 shape,
-    //     where `adapters/cli.ts` simply sat in the authorized list).
     expect(
       codes(
         runDeviationLedgerCensus(sites, [fixtureDeviation()], annotations, new Date(), [
@@ -1369,39 +1174,32 @@ describe('DR-25: CLI api-action dispatch path is generated, and the deviation is
   });
 });
 
-// ═══════════════════════════════════════════════════════════════════════════
-//  T-34 / DR-25 — the generated client addresses only compiled actions
-// ═══════════════════════════════════════════════════════════════════════════
-//
-// The "generated" property, pinned at the production seam: an ActionId is
-// dispatchable if and only if the compiled contract contains it. These run
-// over the file-wide MOCKED `dispatch` — they pin the seam's ADDRESSING
-// contract (verify → split → dispatch payload shape), not handler behavior,
-// which `Cli_GeneratedClient_AgreesWithMcpViaRealHandler` proves below over
-// the real graph.
-// ───────────────────────────────────────────────────────────────────────────
-
+/**
+ * An ActionId is dispatchable only when the compiled contract holds it. These tests run over the
+ * file-wide mocked `dispatch`. They pin how the seam addresses an action: it verifies the id,
+ * splits it, and builds the dispatch payload.
+ * The real-handler block at the end of the file covers handler behavior.
+ */
 describe('DR-25: generated client addresses only compiled contract actions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
+  /**
+   * The loop reads the promoted ids from `CLI_PROMOTED_ACTION_IDS`, so the test holds no count.
+   * Each `<tool>.<action>` id of the registry must also be in the compiled surface. Thus a renamed
+   * or removed action fails here, and not at runtime as an `UNKNOWN_ACTION` error.
+   * The id set of the production seam must equal the derived surface.
+   */
   it('Cli_EveryAddressedActionId_ExistsInDerivedSurface', async () => {
     const surfaceIds = new Set(
       deriveCliSurface(compileForCli()).commands.map((c) => c.actionId),
     );
 
-    // The hard-wired top-level promotions (`CLI_PROMOTED_ACTION_IDS`) address
-    // by these literal ids — the loop iterates whatever the table holds, so
-    // its size is read from the export, never transcribed here.
     for (const actionId of Object.values(CLI_PROMOTED_ACTION_IDS)) {
       expect(surfaceIds.has(actionId), `${actionId} missing from the derived surface`).toBe(true);
     }
 
-    // Every registry-derived `<tool>.<action>` id the auto-generated command
-    // tree can address exists in the compiled surface — a renamed or removed
-    // action reddens the build HERE instead of surfacing at runtime as an
-    // UnknownContractActionError.
     for (const tool of getFullRegistry()) {
       for (const action of tool.actions) {
         const actionId = `${tool.name}.${action.name}`;
@@ -1412,18 +1210,16 @@ describe('DR-25: generated client addresses only compiled contract actions', () 
       }
     }
 
-    // The production seam verifies against this same derivation — its id set
-    // and the freshly derived surface cannot disagree.
     expect([...(await contractActionIds())].sort()).toEqual([...surfaceIds].sort());
   });
 
+  /**
+   * An unknown id gives a typed error envelope with the stable code `UNKNOWN_ACTION`, and no throw.
+   * An escaped exception ends the compiled binary with exit 3. The dispatch core gives the same
+   * code for an action that it cannot route, so the exit code is HANDLER_ERROR.
+   * The message names the id, because the cause is build drift and not user input. Nothing dispatches.
+   */
   it('GeneratedClient_UnknownActionId_FailsLoud_WithoutDispatching', async () => {
-    // Fail LOUD = a TYPED contract error envelope with a stable code, never an
-    // uncaught throw (an escaped exception crashes the compiled binary with
-    // exit 3 — the P05-02 packaged proof pins that class out). The code is
-    // UNKNOWN_ACTION — the same stable answer the dispatch core gives an
-    // unroutable action — so `resolveExitCode`/`exitCodeForError` maps it to
-    // the stable HANDLER_ERROR exit.
     const result = await invokeContractAction(
       'exarchos_workflow.no_such_action',
       {},
@@ -1431,23 +1227,19 @@ describe('DR-25: generated client addresses only compiled contract actions', () 
     );
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('UNKNOWN_ACTION');
-    // The message carries the build-drift diagnostic (this is a drift bug, not
-    // a user-input condition), naming the offending id.
     expect(result.error?.message).toContain('exarchos_workflow.no_such_action');
     expect(result.error?.message).toContain('compiled contract surface');
     expect(new UnknownContractActionError('exarchos_workflow.no_such_action').message).toBe(
       result.error?.message,
     );
     expect(exitCodeForError(result.error?.code)).toBe(CONTRACT_EXIT_CODES.HANDLER_ERROR);
-    // Fail LOUD means fail BEFORE the shared handler: nothing was dispatched.
     expect(dispatch).not.toHaveBeenCalled();
   });
 
+  /** The tool and the action come from the verified id. The payload has the shape `{ action, ...args }` that the shared handler expects. */
   it('GeneratedClient_SplitsVerifiedActionId_AndDispatchesTheContractPayload', async () => {
     const ctx = createTestContext();
     const result = await invokeContractAction('exarchos_workflow.get', { featureId: 'wcfix' }, ctx);
-    // The (tool, action) pair comes from the VERIFIED id, and the payload is
-    // the `{ action, ...args }` shape the shared handler expects.
     expect(dispatch).toHaveBeenCalledTimes(1);
     expect(dispatch).toHaveBeenCalledWith(
       'exarchos_workflow',
@@ -1458,38 +1250,32 @@ describe('DR-25: generated client addresses only compiled contract actions', () 
   });
 });
 
-// ═══════════════════════════════════════════════════════════════════════════
-//  T-34 / DR-25 — CLI ⇄ MCP agreement over a REAL registered handler
-// ═══════════════════════════════════════════════════════════════════════════
-//
-// The pre-existing agreement proof (`contract/cli/differential-fixtures.test.ts`)
-// drives both surfaces with `dispatch` REPLACED by `vi.mock`. That harness can
-// only witness that two renderers agree about a value the test itself supplied —
-// it cannot witness handler-level agreement at all, which is exactly the vacuity
-// DR-25 names. This suite replaces the mock with the real thing:
-//
-//   • a REAL `core/dispatch` over a REAL `EventStore` in a REAL temp state dir,
-//     resolving the REAL registered `exarchos_workflow` composite handler;
-//   • the CLI seam driven through the REAL Commander tree (`buildCli`), whose
-//     api-action callbacks now address the handler through the PRODUCTION
-//     generated client (`contract/cli/generated-client.ts`) — the seam under
-//     test is the shipped addressing path, not a harness stand-in;
-//   • the MCP seam driven through the REAL `createMcpServer` over a REAL
-//     client/server transport pair — so `stampOnboardSurface`, per-action output
-//     validation and `toMcpResult` all run, not just `toEnvelope`;
-//   • BOTH invocations derived from the SAME compiled-contract descriptor, so
-//     `deriveCliSurface` stops being read only by the drift guard and becomes
-//     load-bearing in the agreement proof itself.
-//
-// `vi.mock` is hoisted and file-wide, so the real graph is obtained with
-// `doUnmock` + `resetModules` + dynamic import. This block is LAST in the file
-// for that reason: the module-registry reset must not disturb the suites above,
-// which hold bindings resolved at import time.
-// ───────────────────────────────────────────────────────────────────────────
-
+/**
+ * The agreement proof in `contract/cli/differential-fixtures.test.ts` mocks `dispatch`, so it
+ * shows only that two renderers agree on a value from the test. This block uses the real graph:
+ * - the real `dispatch` over a real `EventStore`, with the registered `exarchos_workflow` handler
+ * - the CLI through the real Commander tree and the production generated client
+ * - the MCP side through the real `createMcpServer` over a real transport pair
+ * Both calls come from one compiled-contract descriptor.
+ *
+ * `vi.mock` is file-wide, so the block gets the real graph with `doUnmock`, `resetModules` and
+ * dynamic imports. It is last in the file, because the reset must not disturb the earlier suites.
+ */
 describe('DR-25: generated CLI client agrees with MCP through a real handler', () => {
+  /**
+   * One compiled action, `exarchos_workflow.get`, drives both seams, so the two calls cannot
+   * address different actions. The required flags are pinned, so a new required input fails here.
+   *
+   * Twin 1 is the success path. Twin 2 is the failure path, where two adapters drift most.
+   * Each comparison drops only `_perf`, a wall-clock value, on top of the `normalize` defaults.
+   * Anti-vacuity: the data is real workflow state, and the mocked `dispatch` returns
+   * `{ mocked: true }`. The call count of the mock also does not change.
+   *
+   * The CLI exit code must equal `exitCodeForError`, the contract authority. The last probe calls
+   * the generated client directly: a compiled id reaches the handler, and an unknown id gives
+   * `UNKNOWN_ACTION`.
+   */
   it('Cli_GeneratedClient_AgreesWithMcpViaRealHandler', async () => {
-    // ── Escape the file-wide mocks and load the REAL graph.
     const mockedDispatchCallsBefore = vi.mocked(dispatch).mock.calls.length;
     vi.doUnmock('../../../../src/dispatch/core/dispatch.js');
     vi.doUnmock('../../../../src/adapters/cli/cli-format.js');
@@ -1509,10 +1295,6 @@ describe('DR-25: generated CLI client agrees with MCP through a real handler', (
       connectV2Server,
     } = await import('../../../../src/contract/sdk/seam.js');
 
-    // ── The contract descriptor BOTH seams are driven from. The CLI command
-    //    path (group + command name + required flags) and the MCP tool/action
-    //    pair are projections of one compiled action — neither arm is
-    //    hand-addressed, so they cannot silently target different actions.
     const surface = deriveCliSurface(compileForCli());
     const command: CliCommand | undefined = surface.commands.find(
       (c) => c.actionId === 'exarchos_workflow.get',
@@ -1522,8 +1304,6 @@ describe('DR-25: generated CLI client agrees with MCP through a real handler', (
 
     const [mcpTool] = command.actionId.split('.');
     const requiredFlags = command.flags.filter((f) => f.required).map((f) => f.name);
-    // Pinned so a contract change that adds a required input fails HERE rather
-    // than silently degrading the comparison to a partial invocation.
     expect(requiredFlags).toEqual(['feature-id']);
 
     const stateDir = makeTempDir('inv2-real-handler-');
@@ -1537,7 +1317,6 @@ describe('DR-25: generated CLI client agrees with MCP through a real handler', (
     let client: ReturnType<typeof createV2Client> | undefined;
     let server: ReturnType<typeof createMcpServer> | undefined;
 
-    /** Drive the CLI seam exactly as the shipped binary does. */
     const callCliSeam = async (
       featureId: string,
     ): Promise<{ envelope: Record<string, unknown>; exitCode: number }> => {
@@ -1575,8 +1354,6 @@ describe('DR-25: generated CLI client agrees with MCP through a real handler', (
     };
 
     try {
-      // ── Seed real state through the real handler (this is the workflow the
-      //    two seams will then read back).
       const featureId = 'inv2-real-handler';
       const seeded = await realDispatch(
         'exarchos_workflow',
@@ -1585,7 +1362,6 @@ describe('DR-25: generated CLI client agrees with MCP through a real handler', (
       );
       expect(seeded.success, JSON.stringify(seeded.error)).toBe(true);
 
-      // ── Stand the REAL MCP server up over a REAL transport pair.
       server = createMcpServer(realCtx);
       const [clientTransport, serverTransport] = createV2LinkedTransportPair();
       client = createV2Client({ name: 'inv2-agreement-probe', version: '0.0.0' });
@@ -1597,25 +1373,16 @@ describe('DR-25: generated CLI client agrees with MCP through a real handler', (
       const callMcpSeam = async (id: string) =>
         client!.callTool({ name: mcpTool!, arguments: { action: command.action, featureId: id } });
 
-      // Volatile-by-construction fields: `_perf` is a wall-clock measurement and
-      // the operation/correlation ids are freshly minted per dispatch. Everything
-      // else must be byte-identical across the two seams.
       const stripVolatile = { dropKeys: new Set(['_perf']) };
 
-      // ── Twin 1: the success path over the real handler.
       const cliOk = await callCliSeam(featureId);
       const mcpOk = await callMcpSeam(featureId);
 
-      // Anti-vacuity: this is genuinely the registered composite handler's
-      // output — real materialized workflow state. The mocked `dispatch` this
-      // file installs returns `{ mocked: true }` and could never produce it.
       const okData = cliOk.envelope.data as Record<string, unknown>;
       expect(okData.featureId).toBe(featureId);
       expect(okData.phase).toBe('plan');
       expect(okData.workflowType).toBe('feature');
       expect(okData).not.toHaveProperty('mocked');
-      // ...and the file-wide `dispatch` mock took no part in it: its call count
-      // is untouched by either seam, so neither arm short-circuited to the stub.
       expect(vi.mocked(dispatch).mock.calls.length).toBe(mockedDispatchCallsBefore);
 
       expect(normalize(cliOk.envelope, stripVolatile)).toEqual(
@@ -1624,9 +1391,6 @@ describe('DR-25: generated CLI client agrees with MCP through a real handler', (
       expect(cliOk.exitCode).toBe(CONTRACT_EXIT_CODES.SUCCESS);
       expect(mcpOk.isError).toBe(false);
 
-      // ── Twin 2: the failure path over the same real handler. Agreement on the
-      //    happy path alone is weak — the error projection is where two
-      //    independently hand-written adapters actually drift.
       const missingId = 'inv2-real-handler-absent';
       const cliErr = await callCliSeam(missingId);
       const mcpErr = await callMcpSeam(missingId);
@@ -1639,18 +1403,9 @@ describe('DR-25: generated CLI client agrees with MCP through a real handler', (
         normalize(mcpErr.structuredContent, stripVolatile),
       );
       expect(mcpErr.isError).toBe(true);
-      // The CLI's process exit code is resolved from the frozen contract
-      // authority, not a bespoke adapter table — so it agrees with MCP's
-      // failure discriminator by construction.
       expect(cliErr.exitCode).toBe(exitCodeForError(errorCode));
       expect(cliErr.exitCode).not.toBe(CONTRACT_EXIT_CODES.SUCCESS);
 
-      // ── The production generated client IS the addressing seam on that CLI
-      //    path. Probe it directly against the same real context: the verified
-      //    ActionId reaches the same real handler, and an id the contract does
-      //    not compile cannot be addressed at all (fail loud = a TYPED
-      //    UNKNOWN_ACTION envelope with a stable exit code, never an uncaught
-      //    throw — an escaped exception crashes the compiled binary).
       const generatedClient = await import('../../../../src/contract/cli/generated-client.js');
       const direct = await generatedClient.invokeContractAction(
         command.actionId,

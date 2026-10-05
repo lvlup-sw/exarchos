@@ -1,3 +1,18 @@
+/**
+ * Kill fixtures: the proof that the closure census can fall.
+ *
+ * The seeded breaks in `collect.test.ts` change a materialized `ReachabilityInputs` value, so they
+ * prove only that the evaluator reacts. Each fixture here mutates a real upstream authority:
+ * - route: a copy of a shipped composite router with a routing arm renamed, removed or duplicated.
+ * - handler: the real `COMPOSITE_HANDLER_LOADERS` map without one loader, bound by
+ *   `buildBindingTable`.
+ * - owner: the real `EFFECT_PROVIDERS` map without one provider.
+ * - schema, output, fixture: a copy of the shipped `proof-fixtures.json` with one entry changed.
+ * - artifact: a copy of the shipped `cli-surface.json` with one command removed or duplicated.
+ * - event: the real `EVENT_ANNOTATIONS` catalog without one event.
+ *
+ * The last suite asserts that the fixtures here kill each hop in `REACHABILITY_HOPS`.
+ */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -27,42 +42,14 @@ import { PROOF_FIXTURES_FILE } from '../../../../src/contract/compiler/generate.
 import { CLI_SURFACE_FILE } from '../../../../src/contract/cli/cli-contract-seam.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
-// ─── KILL FIXTURES — proof that the census can actually FALL ─────────────────
-//
-// The closure census's headline ("N of N public actions fully closed") is only
-// evidence if a genuinely-broken tree makes it DROP. The seeded-break tests in
-// `collect.test.ts` mutate a materialized `ReachabilityInputs` object, which
-// proves the EVALUATOR reacts — it cannot prove the COLLECTOR would ever
-// surface a real break, and it is exactly the proof that a tautological hop
-// passes trivially.
-//
-// Every fixture below mutates a REAL UPSTREAM AUTHORITY instead:
-//
-//   route     → a COPY of a shipped composite router with a routing arm renamed,
-//               removed, or duplicated (the code dispatch actually executes).
-//   handler   → the real `COMPOSITE_HANDLER_LOADERS` map with a loader removed,
-//               fed through the real `buildBindingTable`.
-//   owner     → the real `EFFECT_PROVIDERS` map with a provider removed.
-//   schema    → a COPY of the shipped `proof-fixtures.json` with a schema digest
-//               tampered.
-//   output    → a COPY of the shipped `proof-fixtures.json` with an action's
-//               output contract emptied.
-//   artifact  → a COPY of the shipped `cli-surface.json` with a command removed.
-//   fixture   → a COPY of the shipped `proof-fixtures.json` with an action
-//               removed.
-//
-// The closing test asserts that EVERY hop in `REACHABILITY_HOPS` is covered by
-// at least one fixture here — so a future hop cannot be added to the headline
-// number without a proof that it can fail.
-
 const KILLED_HOPS = new Set<ReachabilityHop>();
 
-/** Record + return the census for a mutated authority set. */
+/** Returns the census for a mutated authority set. */
 function censusFor(opts: CollectOptions): ClosureReport {
   return evaluateClosure(collectReachabilityInputs(opts));
 }
 
-/** Assert the census DROPPED and that `hop` is why, for `actionId`. */
+/** Asserts that the census dropped because of `hop` for `actionId`. Then records the killed hop. */
 function expectKilled(report: ClosureReport, baseline: ClosureReport, hop: ReachabilityHop, actionId: string): void {
   expect(report.ok).toBe(false);
   expect(report.totalActions).toBe(baseline.totalActions);
@@ -100,8 +87,6 @@ function routersWith(tool: string, file: string): readonly RouterSource[] {
   return resolveRouterSources().map((s) => (s.tool === tool ? { tool: s.tool, file } : s));
 }
 
-// ── Typed JSON mutation helpers (no `any`; `unknown` + guards) ───────────────
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -133,11 +118,11 @@ beforeAll(() => {
   BASELINE = censusFor({ compiled: COMPILED });
 });
 
+/** The cleanup is best effort. A Windows handle lag must not fail the suite. */
 afterAll(() => {
   try {
     rmrf(TMP);
   } catch {
-    // Best effort — a Windows handle lag must not fail the suite.
   }
 });
 
@@ -164,10 +149,11 @@ describe('KILL: route — breaking the SHIPPED dispatch wiring drops the census'
     expect(report.closedActions).toBe(BASELINE.closedActions - 1);
   });
 
+  /**
+   * The scanner resolves the computed key `[MUTATION_GATE_NAME]` through the import of the router.
+   * Thus the test also copies the imported module to the relative path that the router names.
+   */
   it('deleting a real key from the shipped orchestrate dispatch TABLE unroutes that action', () => {
-    // The computed key `[MUTATION_GATE_NAME]` is resolved through the router's
-    // own import, so the imported module travels with the copy — at the same
-    // relative path the router names (`./gates/mutation-adequacy.js`).
     scratchCopy(
       path.join(SOURCE_ROOT, 'verbs', 'gates', 'mutation-adequacy.ts'),
       path.join('gates', 'mutation-adequacy.ts'),
@@ -196,10 +182,12 @@ describe('KILL: route — breaking the SHIPPED dispatch wiring drops the census'
     expect(report.diagnostics.find((d) => d.hop === 'route')?.kind).toBe('ambiguous');
   });
 
+  /**
+   * The workflow router loses `cancel` and the views router gains it. The arm still exists in the
+   * tree, but it does not serve `exarchos_workflow.cancel`.
+   * The moved arm must also close no action under the views tool.
+   */
   it('an arm that MOVED to another composite router leaves its own ActionId unrouted', () => {
-    // Cross-tool drift: workflow loses `cancel`, views gains it. The routing arm
-    // still exists somewhere in the tree — but it no longer serves
-    // `exarchos_workflow.cancel`, and the census must say so.
     const workflowFile = mutatedSource(
       path.join(SOURCE_ROOT, 'workflow', 'composite.ts'),
       'workflow-composite-moved.ts',
@@ -217,7 +205,6 @@ describe('KILL: route — breaking the SHIPPED dispatch wiring drops the census'
     });
     const report = censusFor({ compiled: COMPILED, routerSources: routers });
     expectKilled(report, BASELINE, 'route', 'exarchos_workflow.cancel');
-    // The stolen arm did NOT accidentally close anything under its new tool.
     expect(report.actions.some((a) => a.actionId === 'exarchos_view.cancel')).toBe(false);
   });
 });
@@ -242,12 +229,15 @@ describe('KILL: handler — removing a real dispatch loader drops the census', (
 });
 
 describe('KILL: owner — removing a real effect provider drops the census', () => {
+  /**
+   * The test passes the real router sources, so only the owner authority is broken.
+   * Without them, the collector throws on the tool-set mismatch, as the next test shows.
+   */
   it('a mutating tool with no effect provider loses the owner hop', () => {
     const providers = EFFECT_PROVIDERS.filter((p) => p.tool !== 'exarchos_workflow');
     const report = censusFor({
       compiled: COMPILED,
       providers,
-      // The real routers still exist — only the OWNER authority was broken.
       routerSources: resolveRouterSources(),
     });
     expect(report.ok).toBe(false);
@@ -337,16 +327,15 @@ describe('KILL: artifact — removing a SHIPPED client command drops the census'
 });
 
 describe('KILL: event — an emission the catalog never registered drops the census', () => {
+  /**
+   * The mutation is on the event catalog, not on the registry that declares the emission.
+   * The action still declares the event, and the mutated catalog does not hold it.
+   * The test first asserts that the action declares the event and that the live catalog holds it.
+   */
   it('deleting a declared event from the live catalog breaks the event hop', () => {
-    // The mutation is on the CATALOG, not on the registry that declares the
-    // emission — which is the whole point of the hop. The action still says it
-    // emits; the independently-authored table has simply never heard of the
-    // event, and nothing else in the census can see that disagreement.
     const target = 'exarchos_orchestrate.task_claim';
     const declared = 'task.claimed';
 
-    // The seed is real: this action really does declare this event today, so the
-    // kill below is a removal rather than an assertion about a fixture.
     const taskClaim = (TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate')?.actions ?? [])
       .find((a) => a.name === 'task_claim');
     const declaredHere = contractEmissionsOf(taskClaim ?? {}).some((e) => e.event === declared);
@@ -358,10 +347,11 @@ describe('KILL: event — an emission the catalog never registered drops the cen
     expectKilled(report, BASELINE, 'event', target);
   });
 
+  /**
+   * An action that declares no emission has a `not-applicable` event hop, not a `missing` one.
+   * The test also asserts that some action emits, so each arm has a subject.
+   */
   it('an action that declares NO emission is not-applicable, not missing', () => {
-    // The complement, and the reason the kill above is attributable. A read verb
-    // declares nothing, so the hop does not apply to it — reporting those as
-    // `missing` would make every read a closure break and drown the real one.
     const inputs = collectReachabilityInputs({ compiled: COMPILED });
     const pure = inputs.actions.find(
       (a) => !inputs.emissions.some((e) => e.actionId === a.actionId),
@@ -371,8 +361,6 @@ describe('KILL: event — an emission the catalog never registered drops the cen
     const hop = resolveHops(pure, inputs).find((h) => h.hop === 'event');
     expect(hop?.status).toBe('not-applicable');
 
-    // ...and the applicable arm is non-empty too, so neither side is asserted
-    // over nothing.
     expect(inputs.emissions.length).toBeGreaterThan(0);
   });
 });

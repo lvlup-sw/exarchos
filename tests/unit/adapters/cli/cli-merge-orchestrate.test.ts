@@ -1,25 +1,15 @@
 /**
- * Tests for the top-level `exarchos merge-orchestrate` CLI surface (T21).
+ * Tests for the top-level `exarchos merge-orchestrate` verb.
  *
- * Per design DR-MO-1, `merge-orchestrate` is promoted to a top-level verb
- * (like `doctor` and `init`) so an operator types
- * `exarchos merge-orchestrate ...` rather than
- * `exarchos orch merge-orchestrate ...`.
+ * The verb is top-level, like `doctor`, so an operator types `exarchos merge-orchestrate`.
+ * The CLI and the MCP action share one Zod schema, and `schema-to-flags` maps the kebab-case flags
+ * to the camelCase fields.
  *
- * The Zod arg schema (HandleMergeOrchestrateArgsSchema) is shared with the
- * MCP action registration (T20) so CLI flags and MCP args stay in lock-step
- * — kebab-case CLI flags translate back to camelCase fields automatically
- * via schema-to-flags.
- *
- * These tests drive the CLI programmatically (buildCli + parseAsync)
- * rather than spawning a subprocess, mirroring cli-init.test.ts and
- * cli-doctor.test.ts.
+ * The tests drive `buildCli` and `parseAsync` in-process, with `dispatch` and `cli-format` mocked.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { ToolResult } from '../../../../src/format.js';
-
-// ─── Mocks ──────────────────────────────────────────────────────────────────
 
 vi.mock('../../../../src/dispatch/core/dispatch.js', () => ({
   dispatch: vi.fn<(tool: string, args: Record<string, unknown>, ctx: unknown) => Promise<ToolResult>>(
@@ -32,14 +22,10 @@ vi.mock('../../../../src/adapters/cli/cli-format.js', () => ({
   printError: vi.fn(),
 }));
 
-// ─── Test Imports ───────────────────────────────────────────────────────────
-
 import { buildCli, CLI_EXIT_CODES } from '../../../../src/adapters/cli/cli.js';
 import { dispatch } from '../../../../src/dispatch/core/dispatch.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
 import { expectedTrustedContext } from '../../../../tools/test-helpers/trusted-context.js';
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
 
 function createTestContext(): DispatchContext {
   return {
@@ -61,8 +47,6 @@ function makeSuccessResult(): ToolResult {
   };
 }
 
-// ─── Tests ──────────────────────────────────────────────────────────────────
-
 describe('exarchos merge-orchestrate CLI', () => {
   let ctx: DispatchContext;
   let originalExitCode: number | string | undefined;
@@ -78,12 +62,11 @@ describe('exarchos merge-orchestrate CLI', () => {
     process.exitCode = originalExitCode;
   });
 
+  /** The CLI passes the flags as camelCase arguments to `exarchos_orchestrate` with `action: 'merge_orchestrate'`. */
   it('cliMergeOrchestrate_ValidArgs_CallsHandleMergeOrchestrate', async () => {
-    // Arrange: handler returns success.
     vi.mocked(dispatch).mockResolvedValueOnce(makeSuccessResult());
     const program = buildCli(ctx);
 
-    // Act
     await program.parseAsync([
       'node',
       'exarchos',
@@ -98,8 +81,6 @@ describe('exarchos merge-orchestrate CLI', () => {
       'squash',
     ]);
 
-    // Assert: dispatch was called with translated camelCase args via the
-    // exarchos_orchestrate composite + action: 'merge_orchestrate'.
     expect(dispatch).toHaveBeenCalledWith(
       'exarchos_orchestrate',
       expect.objectContaining({
@@ -113,8 +94,8 @@ describe('exarchos merge-orchestrate CLI', () => {
     expect(process.exitCode ?? 0).toBe(CLI_EXIT_CODES.SUCCESS);
   });
 
+  /** A `PREFLIGHT_FAILED` result maps to HANDLER_ERROR (2), not to INVALID_INPUT (1). */
   it('cliMergeOrchestrate_PreflightFails_ExitCode2', async () => {
-    // Arrange: handler returns PREFLIGHT_FAILED — should map to HANDLER_ERROR.
     vi.mocked(dispatch).mockResolvedValueOnce({
       success: false,
       error: {
@@ -124,7 +105,6 @@ describe('exarchos merge-orchestrate CLI', () => {
     });
     const program = buildCli(ctx);
 
-    // Act
     await program.parseAsync([
       'node',
       'exarchos',
@@ -139,14 +119,11 @@ describe('exarchos merge-orchestrate CLI', () => {
       'squash',
     ]);
 
-    // Assert: exit 2 (HANDLER_ERROR), not exit 1 (INVALID_INPUT).
     expect(process.exitCode).toBe(CLI_EXIT_CODES.HANDLER_ERROR);
   });
 
+  /** `strategy` is required and has no default. Without `--strategy`, the CLI rejects the input before dispatch. */
   it('cliMergeOrchestrate_MissingStrategy_ExitCode1', async () => {
-    // Strategy is required-no-default (#1127, #1109 §2). Omitting --strategy
-    // must produce INVALID_INPUT at the boundary, not silently apply a
-    // schema default. See docs/designs/archive/2026-04-26-autonomous-merge-orchestrator.md.
     const program = buildCli(ctx);
 
     await program.parseAsync([
@@ -165,12 +142,10 @@ describe('exarchos merge-orchestrate CLI', () => {
     expect(process.exitCode).toBe(CLI_EXIT_CODES.INVALID_INPUT);
   });
 
+  /** The Zod enum rejects `--strategy bogus` in the CLI, before dispatch. */
   it('cliMergeOrchestrate_InvalidStrategy_ExitCode1', async () => {
-    // Arrange: --strategy bogus is rejected by the Zod enum at the CLI layer
-    // BEFORE dispatch is invoked.
     const program = buildCli(ctx);
 
-    // Act
     await program.parseAsync([
       'node',
       'exarchos',
@@ -185,17 +160,14 @@ describe('exarchos merge-orchestrate CLI', () => {
       'bogus',
     ]);
 
-    // Assert: dispatch was never called and exit 1 is set.
     expect(dispatch).not.toHaveBeenCalled();
     expect(process.exitCode).toBe(CLI_EXIT_CODES.INVALID_INPUT);
   });
 
   it('cliMergeOrchestrate_DryRunFlag_PassesDryRunTrueToHandler', async () => {
-    // Arrange: success path; we only care that dryRun: true reaches dispatch.
     vi.mocked(dispatch).mockResolvedValueOnce(makeSuccessResult());
     const program = buildCli(ctx);
 
-    // Act
     await program.parseAsync([
       'node',
       'exarchos',
@@ -211,7 +183,6 @@ describe('exarchos merge-orchestrate CLI', () => {
       '--dry-run',
     ]);
 
-    // Assert
     expect(dispatch).toHaveBeenCalledWith(
       'exarchos_orchestrate',
       expect.objectContaining({

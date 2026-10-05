@@ -32,29 +32,24 @@ import {
 import { exitCodeForError, STABLE_ERROR_REGISTRY, CONTRACT_EXIT_CODES } from '../../../../src/contract/error-families.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
-// ─── Generated CLI surface: byte-stable drift guard (exit-proof c) ───────────
-
 describe('CLI-surface generation', () => {
+  /** If the checked-in golden differs from a fresh derivation, the golden drifted from the compiled contract. */
   it('CheckedInGolden_MatchesFreshDerivation_ByteForByte', () => {
-    // The generator (`npx tsx cli-contract-seam.ts`) IS the regeneration
-    // gesture; the checked-in baseline must equal a fresh derivation byte for
-    // byte, or the golden has drifted from the compiled contract.
     const onDisk = readFileSync(CLI_SURFACE_FILE, 'utf8');
     expect(onDisk).toBe(serializedCliSurfaceBaseline());
   });
 
+  /**
+   * The addressing module holds the static id set that the generated client dispatches from.
+   * If it drifts, the shipped binary addresses a surface that the contract does not compile.
+   */
   it('CheckedInAddressingModule_MatchesFreshDerivation_ByteForByte', () => {
-    // The generated addressing module (the static id set the generated client
-    // dispatches from) regenerates in the SAME gesture as the golden. If it
-    // drifts from a fresh derivation, the shipped binary would address a
-    // different surface than the contract compiles — fail here, not at a
-    // customer's cold start.
     const onDisk = readFileSync(CLI_ACTION_IDS_FILE, 'utf8');
     expect(onDisk).toBe(renderCliActionIdsModule(deriveCliSurface(compileForCli())));
   });
 
+  /** Two independent compiles give the same bytes: no clock, locale or order reaches the output. */
   it('Derivation_IsDeterministic_AcrossRepeatedCompiles', () => {
-    // Two independent compiles → identical bytes: no clock/locale/order leak.
     const first = serializeCliSurface(deriveCliSurface(compileForCli()));
     const second = serializeCliSurface(deriveCliSurface(compileForCli()));
     expect(first).toBe(second);
@@ -67,8 +62,7 @@ describe('CLI-surface generation', () => {
     expect(surface.commands.length).toBeGreaterThan(0);
   });
 
-  // Exit-proof (e): every exit code in the generated surface is DERIVED from the
-  // frozen P03-02 authority — the CLI does not invent its own exit ladder.
+  /** Each exit code in the generated surface comes from the contract authority. The CLI defines no exit code. */
   it('EveryExitMapping_DerivesFromContractAuthority', () => {
     const surface = deriveCliSurface(compileForCli());
     for (const command of surface.commands) {
@@ -80,15 +74,11 @@ describe('CLI-surface generation', () => {
   });
 });
 
-// ─── Collector 1: dispatch-seam containment (exit-proofs a + b) ──────────────
-
 describe('Dispatch-seam containment census', () => {
-  // Exit-proof (a): the LIVE tree's direct-dispatch paths are exactly the
-  // authorized projection surface — the MCP wire and the CLI's generated
-  // client, both contract projections (the DR-25 deviation ledger is empty
-  // since `adapters/cli.ts` stopped importing the dispatch value). This is
-  // also the genuine-findings gate: a new bypass anywhere in shipped source
-  // turns it red.
+  /**
+   * The direct-dispatch paths of the live tree are exactly the authorized projections: the MCP wire and the generated CLI client.
+   * The deviation ledger is empty, so a new bypass in shipped source fails this test.
+   */
   it('LiveTree_OnlyAuthorizedProjectionsImportTheDispatchValue', async () => {
     const sites = await scanDispatchSites();
     expect(sites.map((s) => s.module)).toEqual([...AUTHORIZED_DISPATCH_PROJECTIONS].sort());
@@ -99,14 +89,11 @@ describe('Dispatch-seam containment census', () => {
     expect(runDispatchSeamCensus(sites)).toEqual([]);
   });
 
-  // ─── Scan-boundary kill fixtures (task 081, DR-8) ───────────────────────
-  //
-  // The boundary used to be six directory NAMES. Three of them — `evals`,
-  // `benchmarks`, `test-helpers` — are inside `tsconfig.json`'s `include` and
-  // outside its `exclude`, so the build compiles them into `dist/`: 51 emitted
-  // modules were skipped on the strength of their folder names, and a direct
-  // dispatch path in any of them was invisible to the census that claims none
-  // exists. Each case below plants exactly that and requires it to be seen.
+  /**
+   * The build compiles `evals`, `benchmarks` and `test-helpers` into `dist/`, because `tsconfig.json` does not exclude them.
+   * A scan that skips directories by name hides a direct dispatch path in those modules.
+   * Each case plants a bypass in a temporary tree and asserts whether the scan reports it.
+   */
   describe('scan boundary derives from the emit, not from folder names', () => {
     const BYPASS = "import { dispatch } from '../core/dispatch.js';\nexport const go = dispatch;\n";
 
@@ -144,18 +131,17 @@ describe('Dispatch-seam containment census', () => {
       },
     );
 
+    /** `tsconfig.json` excludes `__tests__`, so the scan skips that directory: the boundary still exists. */
     it('ScanBoundary_BuildExcludedDirectory_IsNotInTheCensus', async () => {
-      // The other direction, from the SAME authority: `__tests__` is the one
-      // former list member `tsconfig.json` actually excludes, so it must stay
-      // out — the repair widens the subject, it does not abolish the boundary.
       const modules = await scanTree({ '__tests__/harness.ts': BYPASS }, LIVE_TSCONFIG);
       expect(modules).toEqual([]);
     });
 
+    /**
+     * The live path-prefix exclude sits outside `src/`, so it does not apply to the scan root.
+     * The suffix and directory excludes must keep these files out of the census.
+     */
     it('ScanBoundary_BuildExcludedSuffixesAndPathPrefixes_AreNotInTheCensus', async () => {
-      // The live path-prefix exclude (`tools/evals/.../fixtures/**`) sits
-      // outside `src/`, so it is not a scan-root subject. Suffix and
-      // directory excludes still have to keep these files out.
       const modules = await scanTree(
         {
           'a.test.ts': BYPASS,
@@ -169,14 +155,15 @@ describe('Dispatch-seam containment census', () => {
       expect(modules).toEqual([]);
     });
 
+    /**
+     * A change to the build excludes changes the scan boundary.
+     * The live boundary does not hold `evals`, `benchmarks` or `test-helpers`, because the build emits them.
+     */
     it('ScanBoundary_ExclusionsComeFromTheTsconfigNotAConstant', () => {
-      // The derivation is the point. Change what the build excludes and the
-      // census's subject changes with it — a name list could not do this.
       const derived = parseEmitBoundary(['**/generated/**', '**/*.gen.ts', 'src/vendor/**']);
       expect(derived.directories.has('generated')).toBe(true);
       expect(derived.suffixes).toContain('.gen.ts');
       expect(derived.pathPrefixes).toContain('src/vendor');
-      // And the three names that shipped as exclusions are NOT in the live one.
       const live = resolveEmitBoundary(SHIPPED_SRC_ROOT);
       for (const emitted of ['evals', 'benchmarks', 'test-helpers']) {
         expect(live.directories.has(emitted), `${emitted} is emitted to dist/`).toBe(false);
@@ -184,9 +171,8 @@ describe('Dispatch-seam containment census', () => {
       expect(live.directories.has('__tests__')).toBe(true);
     });
 
+    /** A root with no `tsconfig.json` gets the widest scan: only `node_modules`, `dist` and dot-directories stay out. */
     it('ScanBoundary_NoTsconfig_WidensRatherThanGuesses', async () => {
-      // A synthetic root has no build to ask. Over-scanning is the safe
-      // direction, so everything but node_modules/dist/dot-dirs is in scope.
       const modules = await scanTree({
         'evals/bypass.ts': BYPASS,
         '__tests__/bypass.ts': BYPASS,
@@ -208,11 +194,11 @@ describe('Dispatch-seam containment census', () => {
       }
     });
 
+    /**
+     * A `tsconfig.json` is JSONC.
+     * The resolver accepts a leading line comment, a trailing line comment and a block comment.
+     */
     it('ScanBoundary_JsoncCommentForms_AreParsedNotChokedOn', async () => {
-      // tsconfig files are JSONC. Only whole-line `//` was stripped, so a
-      // trailing comment or any `/* … */` reached JSON.parse and came back as a
-      // bare SyntaxError naming no file — from the helper whose whole job is
-      // reading this config.
       const forms = [
         '{\n  // leading\n  "exclude": ["**/*.test.ts"] // trailing\n}',
         '{\n  /* block */\n  "exclude": ["**/*.test.ts"]\n}',
@@ -230,6 +216,7 @@ describe('Dispatch-seam containment census', () => {
       }
     });
 
+    /** The message names the config path, and `cause` keeps the parser error. */
     it('ScanBoundary_MalformedJson_NamesTheConfigAndKeepsTheCause', async () => {
       const pkg = await mkdtemp(path.join(tmpdir(), 'exarchos-seam-malformed-'));
       try {
@@ -241,8 +228,6 @@ describe('Dispatch-seam containment census', () => {
         } catch (error) {
           thrown = error;
         }
-        // The path is in the message and the parser's own error is retained,
-        // so the failure says WHICH config and WHY.
         expect(String((thrown as Error).message)).toContain('tsconfig.json');
         expect((thrown as { cause?: unknown }).cause).toBeInstanceOf(Error);
       } finally {
@@ -251,20 +236,18 @@ describe('Dispatch-seam containment census', () => {
     });
   });
 
+  /** A value import of `dispatch` is a direct dispatch edge. A type-only import and a mention in a comment are not. */
   it('ImportDetector_DiscriminatesValueFromTypeAndProse', () => {
-    // A value import of the shared handler — a direct dispatch edge.
     expect(importsRuntimeDispatchValue("import { dispatch } from '../core/dispatch.js';")).toBe(true);
     expect(
       importsRuntimeDispatchValue("import { dispatch, type DispatchContext } from '../core/dispatch.js';"),
     ).toBe(true);
-    // Type-only edges are NOT direct dispatch paths.
     expect(importsRuntimeDispatchValue("import type { DispatchContext } from '../core/dispatch.js';")).toBe(
       false,
     );
     expect(importsRuntimeDispatchValue("import { type DispatchContext } from '../core/dispatch.js';")).toBe(
       false,
     );
-    // A prose mention in a comment must not be mistaken for an import.
     expect(
       importsRuntimeDispatchValue("// we deliberately do not import dispatch from core/dispatch here"),
     ).toBe(false);
@@ -277,9 +260,7 @@ describe('Dispatch-seam containment census', () => {
     expect(stripped).not.toContain('from y');
   });
 
-  // Exit-proof (b): a PLANTED direct-dispatch path fails the census. Since the
-  // DR-25 primary resolution, `adapters/cli.ts` itself would be such a plant —
-  // its old direct path is no longer authorized by anything.
+  /** A planted direct-dispatch path that no projection claims fails the census. */
   it('PlantedUnauthorizedDispatchSite_FailsCensus', () => {
     const diagnostics = runDispatchSeamCensus([
       { module: 'adapters/mcp/mcp.ts' },
@@ -294,9 +275,7 @@ describe('Dispatch-seam containment census', () => {
     }
   });
 
-  // A REGRESSED adapter — `adapters/cli.ts` re-importing the dispatch value —
-  // is a plain unauthorized bypass now, not a recordable state: the retired
-  // deviation must not quietly come back.
+  /** No deviation covers `adapters/cli/cli.ts`. A dispatch import in that adapter is an unauthorized bypass. */
   it('RegressedCliAdapterDispatchImport_FailsCensus', () => {
     const diagnostics = runDispatchSeamCensus([
       { module: 'adapters/mcp/mcp.ts' },
@@ -308,8 +287,7 @@ describe('Dispatch-seam containment census', () => {
     );
   });
 
-  // The other ratchet arm: a declared projection that stops routing through the
-  // shared handler is stale cover.
+  /** A declared projection that has no dispatch site is stale, and the census reports it. */
   it('StaleProjection_FailsCensus', () => {
     const diagnostics = runDispatchSeamCensus([{ module: 'contract/cli/generated-client.ts' }]);
     expect(
@@ -317,8 +295,6 @@ describe('Dispatch-seam containment census', () => {
     ).toBe(true);
   });
 });
-
-// ─── Collector 2: CLI command classification ─────────────────────────────────
 
 describe('CLI command classification census', () => {
   it('LiveCommandTree_IsFullyClassified', async () => {
@@ -332,10 +308,11 @@ describe('CLI command classification census', () => {
     expect(result.ok).toBe(true);
   });
 
+  /**
+   * Host-local commands, such as `version`, `mcp` and the harness launchers, do not go through the contract handler.
+   * The census must not report them.
+   */
   it('HostLocalCommands_AreClassifiedNotFlagged', async () => {
-    // Host-local commands legitimately do NOT route through the contract
-    // handler; the census must RESPECT that classification. `version`, `mcp`,
-    // and the harness launchers are host-local and must not be flagged.
     const classification = deriveCliClassification();
     for (const hostLocal of ['version', 'mcp', 'claude-code']) {
       expect(classification.hostLocal).toContain(hostLocal);
@@ -349,8 +326,7 @@ describe('CLI command classification census', () => {
     }
   });
 
-  // Exit-proof (b), classification arm: a planted, unclassified live command
-  // (e.g. a new host-local verb nobody declared) fails the census.
+  /** A planted live command with no classification, such as an undeclared host-local verb, fails the census. */
   it('PlantedRogueCommand_FailsClassificationCensus', () => {
     const classification: CliClassification = {
       toolGroups: ['wf'],
@@ -405,8 +381,6 @@ describe('CLI command classification census', () => {
   });
 });
 
-// ─── Full live census (the exit-proof harness drives this) ───────────────────
-
 describe('CLI contract census (live system)', () => {
   it('AuditCliContract_IsGreen', async () => {
     const result = await auditCliContract();
@@ -414,8 +388,7 @@ describe('CLI contract census (live system)', () => {
     expect(result.ok).toBe(true);
   });
 
-  // Every registered stable error code resolves to the exit code the frozen
-  // registry assigns — the CLI surface and the contract authority cannot drift.
+  /** Each registered stable error code resolves to the exit code that the registry assigns. */
   it('EveryStableErrorCode_ResolvesToItsRegistryExitCode', () => {
     for (const [code, spec] of Object.entries(STABLE_ERROR_REGISTRY)) {
       expect(exitCodeForError(code)).toBe(spec.exitCode);

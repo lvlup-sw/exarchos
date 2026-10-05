@@ -1,19 +1,11 @@
-// ─── DR-7 — the composite-level parameter-acceptance sweep ──────────────────
-//
-// Two layers of proof:
-//
-//   1. Unit — the rule itself: declared keys forwarded, transport keys exempt,
-//      SDK-injected defaults dropped by VALUE, and a key the receiving schema
-//      throws away reported as ignored.
-//   2. Census — the whole registry. `exarchos_workflow.transition` × `dryRun`
-//      was the instance that surfaced; the sweep exists so the NEXT one
-//      cannot ship. Every (action, sibling-declared key) pair in the registry
-//      is walked, and every pair must end in "honoured or refused".
-//
-// DR-8: the census states its scan root (`getFullRegistry()`, every composite
-// tool that declares actions) and derives its denominator from that root
-// rather than asserting a hand-written floor. A narrowed root — one tool, or
-// one action — fails the denominator assertion below.
+/**
+ * Tests for the parameter-acceptance rule of a composite tool: the action that receives a parameter
+ * honors it, or dispatch refuses it.
+ *
+ * The unit suites cover the rule. Declared keys are forwarded, transport keys are exempt, an
+ * SDK-injected default is dropped by value, and a discarded key is reported as ignored. The census
+ * walks each action of `getFullRegistry()` against each key that only a sibling declares.
+ */
 
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
@@ -25,6 +17,10 @@ import {
 import { getFullRegistry, type ToolAction } from '../../../src/registry.js';
 import { unregisteredActionOutputSchema } from '../../../src/output-schema-declaration.js';
 
+/**
+ * Builds a fixture `ToolAction`. A fixture is outside the built-in registry and has no census id,
+ * so its output schema comes from `unregisteredActionOutputSchema()`.
+ */
 function action(name: string, schema: z.ZodObject<z.ZodRawShape>): ToolAction {
   return {
     name,
@@ -32,14 +28,6 @@ function action(name: string, schema: z.ZodObject<z.ZodRawShape>): ToolAction {
     schema,
     phases: new Set<string>(['plan']),
     roles: new Set<string>(['lead']),
-    // `outputSchema` and `annotations` are REQUIRED on ToolAction, and this
-    // fixture claimed the type without them — it compiled only because the MCP
-    // typecheck does not cover test sources, so the declared return type was
-    // never actually checked against the interface it names.
-    //
-    // `unregisteredActionOutputSchema()` is the sanctioned escape for an action
-    // outside the built-in registry, which is exactly what a fixture is: it has
-    // no census id, so it must not borrow a waiver that belongs to a real one.
     outputSchema: unregisteredActionOutputSchema(),
     annotations: {
       safety: 'read-only',
@@ -70,10 +58,11 @@ describe('selectForwardedParameters — carrier and SDK noise vs the caller (DR-
     expect(forwarded).toEqual({ featureId: 'f', target: 'plan-review' });
   });
 
+  /**
+   * A key that only a sibling declares must reach the parse, where the receiving schema decides.
+   * If the selection drops `dryRun`, `transition` runs for real.
+   */
   it('ForwardedParameters_SiblingDeclaredDryRun_SurvivesToTheParseAsUnshaped', () => {
-    // The live defect at the unit boundary: the old strip deleted `dryRun`
-    // here, so `transition` ran for real. It must now reach the parse, where
-    // the schema's verdict on it becomes readable.
     const { forwarded, unshaped } = selectForwardedParameters(
       { featureId: 'f', target: 'plan-review', dryRun: true },
       transition,
@@ -83,10 +72,11 @@ describe('selectForwardedParameters — carrier and SDK noise vs the caller (DR-
     expect(forwarded.dryRun).toBe(true);
   });
 
+  /**
+   * `_meta` carries the MCP correlation ids on every call and belongs to no action. Without the
+   * exemption, the rule refuses the transport envelope.
+   */
   it('ForwardedParameters_TransportMeta_IsExempt', () => {
-    // `_meta` carries MCP correlation continuity on every call and belongs to
-    // no action. Exempting it is what keeps the rule from refusing the
-    // transport envelope itself.
     const { forwarded, unshaped } = selectForwardedParameters(
       { featureId: 'f', target: 'plan-review', _meta: { correlationId: 'c' } },
       transition,
@@ -96,10 +86,11 @@ describe('selectForwardedParameters — carrier and SDK noise vs the caller (DR-
     expect(Object.hasOwn(forwarded, '_meta')).toBe(false);
   });
 
+  /**
+   * The SDK validates against the flattened tool schema. It injects `nativeIsolation: false`, the
+   * declared default, into a payload that never held that key.
+   */
   it('ForwardedParameters_SdkInjectedDefault_IsDroppedByValue', () => {
-    // The one case the old strip existed for: the SDK validates against the
-    // flattened parent schema and injects `nativeIsolation: false` (the
-    // declared default) into payloads the caller never put it in.
     const { forwarded, unshaped } = selectForwardedParameters(
       { featureId: 'f', target: 'plan-review', nativeIsolation: false },
       transition,
@@ -109,11 +100,11 @@ describe('selectForwardedParameters — carrier and SDK noise vs the caller (DR-
     expect(Object.hasOwn(forwarded, 'nativeIsolation')).toBe(false);
   });
 
+  /**
+   * The exemption compares values. `false` is the injected default, and `true` comes from the
+   * caller. A drop of `true` opens the silent-ignore hole for every defaulted field.
+   */
   it('ForwardedParameters_SiblingDefaultFieldWithNonDefaultValue_IsNotDropped', () => {
-    // Value-discrimination is the whole point of the exemption: `false` is
-    // the injected default and gets dropped, `true` was typed by a human and
-    // must not be. Without this the exemption would re-open the hole for
-    // every defaulted field.
     const { unshaped } = selectForwardedParameters(
       { featureId: 'f', target: 'plan-review', nativeIsolation: true },
       transition,
@@ -122,10 +113,11 @@ describe('selectForwardedParameters — carrier and SDK noise vs the caller (DR-
     expect(unshaped).toEqual(['nativeIsolation']);
   });
 
+  /**
+   * An `.optional()` field parses `undefined` to `undefined`. That result is not a default, so the
+   * key stays unshaped.
+   */
   it('ForwardedParameters_OptionalSiblingFieldProbedWithUndefined_IsNotTreatedAsADefault', () => {
-    // `dryRun` is `.optional()`, so probing it with `undefined` parses
-    // successfully — but yields `undefined`, not a default. Treating that as
-    // an injectable default would silently drop every optional sibling field.
     const { unshaped } = selectForwardedParameters(
       { featureId: 'f', target: 'plan-review', dryRun: undefined },
       transition,
@@ -142,19 +134,18 @@ describe('findIgnoredParameters — the schema answers for its own keys (DR-7)',
     expect(findIgnoredParameters(['dryRun'], parsed)).toEqual(['dryRun']);
   });
 
+  /**
+   * A `.passthrough()` action keeps the key in the parse output and answers for it.
+   * `exarchos_orchestrate.prune_stale_workflows` has this shape.
+   */
   it('IgnoredParameters_PassthroughObject_ReportsNothing', () => {
-    // `exarchos_orchestrate.prune_stale_workflows` is exactly this shape: it
-    // takes keys outside its declared shape and answers for them itself
-    // (a `now` clock override; an actionable error for a removed knob). The
-    // rule must stay out of the way when the action already handles the key.
     const loose = z.object({ featureId: z.string() }).passthrough();
     const parsed = loose.parse({ featureId: 'f', now: 'not-a-date' });
     expect(findIgnoredParameters(['now'], parsed)).toEqual([]);
   });
 
+  /** A declared optional that the caller sets to `undefined` keeps its key in the parse output. */
   it('IgnoredParameters_DeclaredOptionalGivenExplicitUndefined_IsNotReportedIgnored', () => {
-    // Guards a false positive: a declared optional supplied as `undefined`
-    // keeps its key in the parse output, so it must never read as discarded.
     const strip = z.object({ featureId: z.string(), dryRun: z.boolean().optional() });
     const parsed = strip.parse({ featureId: 'f', dryRun: undefined });
     expect(findIgnoredParameters([], parsed)).toEqual([]);
@@ -177,15 +168,18 @@ describe('findIgnoredParameters — the schema answers for its own keys (DR-7)',
   });
 });
 
+/**
+ * The scan root is every tool of `getFullRegistry()` that declares actions. It includes the hidden
+ * tools, because the CLI still reaches them.
+ */
 describe('Registry-wide parameter-acceptance census (DR-7 sweep, DR-8 denominator)', () => {
-  // Scan root: every composite tool in the FULL registry (hidden tools
-  // included — they stay reachable via the CLI) that declares actions.
   const registry = getFullRegistry().filter((t) => t.actions.length > 0);
 
+  /**
+   * Counts the actions of the scan root in two ways. It also requires more than one tool and more
+   * than one action.
+   */
   it('ParameterCensus_ScanRoot_CoversEveryRegisteredCompositeAction', () => {
-    // Denominator, derived: the census below must visit exactly the number of
-    // actions the registry declares. A narrowed root (one tool, one action)
-    // reddens here rather than producing a green sweep over a smaller set.
     const declaredActions = registry.reduce((n, t) => n + t.actions.length, 0);
     let visited = 0;
     for (const tool of registry) for (const _action of tool.actions) visited++;
@@ -194,6 +188,15 @@ describe('Registry-wide parameter-acceptance census (DR-7 sweep, DR-8 denominato
     expect(declaredActions).toBeGreaterThan(1);
   });
 
+  /**
+   * For each action and each key that only a sibling declares, the key must reach the parse as
+   * unshaped. The probe value is never the injectable default of the field, so the default
+   * exemption cannot hide a drop. A symbol never equals a scalar default.
+   *
+   * A parse failure counts as a refusal by the schema. After a successful parse, the action must
+   * keep the key, or `findIgnoredParameters` must report it. The sweep must check more than 100
+   * pairs, so a registry with no sibling-only key cannot pass with zero pairs.
+   */
   it('ParameterCensus_EverySiblingDeclaredKey_IsHonouredOrRefusedByEveryActionThatOmitsIt', () => {
     const survivors: string[] = [];
     let pairsChecked = 0;
@@ -207,9 +210,6 @@ describe('Registry-wide parameter-acceptance census (DR-7 sweep, DR-8 denominato
             if (Object.prototype.hasOwnProperty.call(own, key)) continue;
             pairsChecked++;
 
-            // Probe with a value that is deliberately NOT the field's
-            // injectable default, so the default-exemption cannot mask a
-            // silent drop. A symbol can never equal a scalar default.
             const probeValue: unknown =
               z.safeParse(field, undefined).data === undefined ? true : Symbol('non-default');
 
@@ -223,12 +223,8 @@ describe('Registry-wide parameter-acceptance census (DR-7 sweep, DR-8 denominato
               continue;
             }
 
-            // The action's own schema now answers. Either it rejects the
-            // payload outright, or it keeps the key, or the dispatch refusal
-            // fires. What must NOT happen is a successful parse that quietly
-            // discarded the key with nothing reported.
             const parsed = receiving.schema.safeParse(forwarded);
-            if (!parsed.success) continue; // schema's own rejection — honoured
+            if (!parsed.success) continue;
             const ignored = findIgnoredParameters(unshaped, parsed.data);
             const keptByAction = Object.prototype.hasOwnProperty.call(parsed.data, key);
             if (!ignored.includes(key) && !keptByAction) {
@@ -239,17 +235,15 @@ describe('Registry-wide parameter-acceptance census (DR-7 sweep, DR-8 denominato
       }
     }
 
-    // Non-vacuity: the sweep must actually have examined pairs. A registry
-    // refactor that collapsed every shared field would otherwise make this
-    // test green by looking at nothing.
     expect(pairsChecked).toBeGreaterThan(100);
     expect(survivors).toEqual([]);
   });
 
+  /**
+   * `transition` does not declare `dryRun` and `cancel` does, so this pair is in the swept set. If
+   * a refactor moves either one out of the set, this test fails.
+   */
   it('ParameterCensus_TheOriginalInstance_IsInsideTheSweptPopulation', () => {
-    // Pins that the census's population actually contains the defect it was
-    // written for. If a future refactor moves `transition` or `dryRun` out of
-    // the swept set, this fails rather than the sweep going quietly green.
     const workflow = registry.find((t) => t.name === 'exarchos_workflow');
     expect(workflow).toBeDefined();
     const transition = workflow!.actions.find((a) => a.name === 'transition');
@@ -270,13 +264,11 @@ describe('Registry-wide parameter-acceptance census (DR-7 sweep, DR-8 denominato
     expect(findIgnoredParameters(unshaped, parsed)).toEqual(['dryRun']);
   });
 
+  /**
+   * `handleCancel` reads `input.reason` and records it on the cancel event. The `cancel` action
+   * schema must declare `reason`, or dispatch discards it and the cancel still reports success.
+   */
   it('ParameterCensus_CancelReason_IsDeclaredNotMerelyConsumed', () => {
-    // The sweep's second find. `handleCancel` reads `input.reason` and stamps
-    // it onto the cancel-requested event, and `CancelInputSchema` declares
-    // it — but the ACTION schema did not, so dispatch discarded the
-    // operator's stated reason and reported a successful cancel. Same shape
-    // as `dryRun` on `transition`, opposite repair: the capability is real,
-    // so the action declares it.
     const workflow = registry.find((t) => t.name === 'exarchos_workflow');
     const cancel = workflow!.actions.find((a) => a.name === 'cancel');
     expect(cancel).toBeDefined();

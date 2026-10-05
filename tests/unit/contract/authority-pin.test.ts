@@ -10,7 +10,7 @@ import {
   type AuthorityLock,
 } from '../../../src/contract/authority-pin.js';
 
-// A fixed, exact-pinned input set the tests derive scenarios from.
+/** A fixed input set with exact pins. Each test derives its scenario from it. */
 function sampleInputs(overrides: Partial<AuthorityInputs> = {}): AuthorityInputs {
   return {
     strategosContractsVersion: '2.12.0-preview.3',
@@ -57,7 +57,6 @@ describe('buildAuthorityLock + schema', () => {
   it('BuildLock_ProducesSchemaValidApprovedLock', () => {
     const live = computeAuthorities(sampleInputs());
     const lock = buildAuthorityLock(live, { approvedBy: 'test' });
-    // Round-trips through the wire schema.
     expect(() => AuthorityLockSchema.parse(lock)).not.toThrow();
     expect(lock.approved).toBe(true);
     expect(Object.keys(lock.authorities).sort()).toEqual([...AUTHORITY_IDS].sort());
@@ -75,10 +74,12 @@ describe('verifyAuthorities — happy path', () => {
 });
 
 describe('verifyAuthorities — fail-closed (exit proofs)', () => {
+  /**
+   * A range on the MCP SDK dependency is a floating authority.
+   * The lock comes from the same floating live set, and the freeze must still block.
+   */
   it('Verify_FloatingAuthorityBlocks', () => {
-    // A range-versioned MCP SDK dependency is a FLOATING authority.
     const live = computeAuthorities(sampleInputs({ mcpSdkVersionSpec: '^1.29.0' }));
-    // Lock built from the same (floating) live set — the freeze must still block.
     const lock = buildAuthorityLock(live, { approvedBy: 'test' });
     const verdict = verifyAuthorities(live, lock);
     expect(verdict.ok).toBe(false);
@@ -96,10 +97,10 @@ describe('verifyAuthorities — fail-closed (exit proofs)', () => {
     expect(verdict.violations.some((v) => v.kind === 'unapproved')).toBe(true);
   });
 
+  /** The lock is approved, and one pin in it is not. */
   it('Verify_UnapprovedSinglePinBlocks', () => {
     const live = computeAuthorities(sampleInputs());
     const lock = buildAuthorityLock(live, { approvedBy: 'test' });
-    // Whole lock approved, but one pin flipped to unapproved.
     const tampered: AuthorityLock = {
       ...lock,
       authorities: {
@@ -151,14 +152,11 @@ describe('verifyAuthorities — fail-closed (exit proofs)', () => {
     ).toBe(true);
   });
 
-  // The #1837 rule, both directions. Version is compared only where there is no
-  // digest to compare — so `mcp-protocol` above still blocks on version alone,
-  // and a digest-bearing authority does not.
-  //
-  // This is a deliberate RELAXATION, so the pair matters more than either half:
-  // the first test alone would also pass if version comparison were removed
-  // everywhere, and the second alone would also pass if the digest check were
-  // the thing that broke.
+  /**
+   * The verifier compares the version only for an authority that has no digest.
+   * This test alone also passes for a verifier that compares no version at all.
+   * `Verify_VersionMismatchBlocks` covers that case, and the next test shows that a digest drift still blocks.
+   */
   it('Verify_DigestBearingAuthority_VersionDriftAlone_DoesNotBlock', () => {
     const live = computeAuthorities(sampleInputs());
     const lock = buildAuthorityLock(live, { approvedBy: 'test' });

@@ -1,9 +1,5 @@
-// ─── SDLC-* consumer catalog (issue #1467) ──────────────────────────────────
-//
-// The plugin-shipped, default-on consumer catalog. Authored inline (the MCP
-// server is a single-file binary; docs/ is not in the plugin package) and
-// validated through the SAME parseInvariantEntries path as the dev loader.
-// ────────────────────────────────────────────────────────────────────────────
+// Tests for the SDLC consumer catalog that the plugin ships. The catalog is on by default.
+// The catalog is authored inline, and `parseInvariantEntries` validates it, the same path as the dev loader.
 
 import { describe, it, expect } from 'vitest';
 import { loadSdlcCatalog } from '../../../src/architecture/sdlc-catalog.js';
@@ -30,7 +26,6 @@ describe('SDLC-* consumer catalog (#1467)', () => {
   });
 
   it('loadSdlcCatalog_auditPrompts_areTransportNeutral', () => {
-    // INV-3: no MCP-local presumption in any shipped audit prompt.
     for (const e of loadSdlcCatalog()) {
       const prompt = (
         e.enforcement as { mode: 'audit'; 'audit-prompt': string }
@@ -39,10 +34,11 @@ describe('SDLC-* consumer catalog (#1467)', () => {
     }
   });
 
+  /**
+   * The strict enforcement schema rejects an entry with an embedded executable field.
+   * As a result, the inline catalog stays declarative.
+   */
   it('sdlcEntries_embeddedExecutable_failsStrictSchemaAtParse', () => {
-    // INV-4 sandbox guarantee: an SDLC entry with an embedded executable field
-    // is rejected by the .strict() enforcement DSL — proving the inline catalog
-    // is held to the same declarative-only bar as everything else.
     const malformed = [
       {
         id: 'SDLC-9',

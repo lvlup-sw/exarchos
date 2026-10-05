@@ -14,10 +14,8 @@ import { ConcurrencyError } from '../../../../src/events/concurrency-error.js';
 import { StorageBusyError } from '../../../../src/events/storage-busy-error.js';
 
 describe('NextActionSchema', () => {
+  /** The value holds each base field of `NextAction` in `src/next-action.ts`. */
   it('NextActionSchema_AcceptsCanonicalNextAction_Succeeds', () => {
-    // Canonical NextAction shape — mirrors the NextAction Zod object in
-    // ../next-action.ts (verb required, reason required, validTargets optional,
-    // hint optional, idempotencyKey optional and non-empty when present).
     const canonical = {
       verb: 'merge_orchestrate',
       reason: 'Phase guard cleared — proceed to merge.',
@@ -30,7 +28,6 @@ describe('NextActionSchema', () => {
   });
 
   it('NextActionSchema_AcceptsMinimalNextAction_Succeeds', () => {
-    // verb + reason are the only required fields per next-action.ts.
     const minimal = { verb: 'describe', reason: 'No workflow context.' };
     const parsed = NextActionSchema.safeParse(minimal);
     expect(parsed.success).toBe(true);
@@ -43,7 +40,6 @@ describe('NextActionSchema', () => {
   });
 
   it('NextActionSchema_RejectsEmptyVerb_Fails', () => {
-    // next-action.ts declares verb as z.string().min(1).
     const emptyVerb = { verb: '', reason: 'Empty verb.' };
     const parsed = NextActionSchema.safeParse(emptyVerb);
     expect(parsed.success).toBe(false);
@@ -82,7 +78,6 @@ describe('ErrorEnvelopeSchema', () => {
   });
 
   it('ErrorEnvelopeSchema_RejectsSuccessTrue_Fails', () => {
-    // success literal(false) must be enforced.
     const notAnError = {
       success: true,
       error: { code: 'X', message: 'y' },
@@ -95,14 +90,13 @@ describe('ErrorEnvelopeSchema', () => {
 });
 
 describe('EnvelopeSchema factory', () => {
+  /** `wrap()` gives the success branch, and `wrapError()` on a typed error gives the failure branch. */
   it('EnvelopeSchema_DiscriminatesOnSuccessField_AcceptsBothBranches', () => {
     const schema = EnvelopeSchema(z.object({ foo: z.string() }));
 
-    // Success branch — wrap() produces the canonical SuccessEnvelope shape.
     const success = wrap({ foo: 'x' }, {}, { ms: 1 });
     expect(schema.safeParse(success).success).toBe(true);
 
-    // Failure branch — wrapError on a typed primitive error.
     const err = new ConcurrencyError({
       streamId: 's1',
       reducerId: 'r1',
@@ -117,7 +111,7 @@ describe('EnvelopeSchema factory', () => {
     const schema = EnvelopeSchema(z.object({ foo: z.string() }));
     const bad = {
       success: true,
-      data: { foo: 42 }, // expected string
+      data: { foo: 42 },
       next_actions: [],
       _meta: {},
       _perf: { ms: 0, bytes: 0, tokens: 0 },
@@ -126,8 +120,6 @@ describe('EnvelopeSchema factory', () => {
   });
 
   it('SuccessEnvelopeSchema_AcceptsOptionalDecorators_Succeeds', () => {
-    // Verifies the optional decorator fields (_eventHints, _cacheHints,
-    // warnings, _corrections) parse cleanly when present on a success env.
     const schema = SuccessEnvelopeSchema(z.object({ ok: z.boolean() }));
     const full = {
       success: true as const,
@@ -144,21 +136,18 @@ describe('EnvelopeSchema factory', () => {
   });
 
   it('PerfMetricsSchema_RoundTripsThroughZodType_Succeeds', () => {
-    // Round-trip the format.ts PerfMetrics shape through the schema.
     const pm = { ms: 5, bytes: 100, tokens: 25 };
     expect(PerfMetricsSchema.safeParse(pm).success).toBe(true);
   });
 
+  /**
+   * A time, size or usage counter is never negative. Zero must pass, because
+   * `wrap()` and `wrapError()` emit it as the default.
+   */
   it('PerfMetricsSchema_RejectsNegativeValues_OnEachField', () => {
-    // The JSDoc invariant says "non-negative" — enforce it at validation
-    // time. Negatives on ms/bytes/tokens are nonsensical (time/size/usage
-    // counters never run backwards) and would surface as confusing UI
-    // values, so the schema must fail closed (CodeRabbit PR #1369 minor).
     expect(PerfMetricsSchema.safeParse({ ms: -1, bytes: 0, tokens: 0 }).success).toBe(false);
     expect(PerfMetricsSchema.safeParse({ ms: 0, bytes: -1, tokens: 0 }).success).toBe(false);
     expect(PerfMetricsSchema.safeParse({ ms: 0, bytes: 0, tokens: -1 }).success).toBe(false);
-    // Zero is the documented default-0 fallback used by wrap()/wrapError(),
-    // so it must still pass.
     expect(PerfMetricsSchema.safeParse({ ms: 0, bytes: 0, tokens: 0 }).success).toBe(true);
   });
 
@@ -176,37 +165,27 @@ describe('EnvelopeSchema factory', () => {
     expect(CacheHintsSchema.safeParse(ch).success).toBe(true);
   });
 
+  /**
+   * The `success` literals make the inferred union narrow on `env.success`. Only
+   * the success variant holds `data`. `_typeCheck` holds the type assertions and
+   * never runs, so only a type checker can fail them. The runtime assertions
+   * make sure that the union still accepts both branches.
+   */
   it('EnvelopeSchema_SuccessLiteralNarrows_DiscriminatedUnion', () => {
-    // Compile-time only: with `success: z.literal(true)` on the success branch
-    // and `z.literal(false)` on the error branch, narrowing the inferred
-    // union by `env.success === true` MUST yield the success variant's
-    // `data` property — proving the DU narrows precisely at the TS level.
-    //
-    // This is the long-deferred narrowing tightening (D.2/D.3 era) — the
-    // success literal was previously `z.boolean()`, which collapsed the
-    // discriminant and made `env.data` always optional even on the success
-    // branch.
     const schema = EnvelopeSchema(z.object({ foo: z.string() }));
     type Env = z.infer<typeof schema>;
 
-    // Pure type-level assertion — body never executes at runtime; the
-    // `false &&` short-circuits before dereferencing the cast `Env` value.
-    // The compile-time `expectTypeOf` / `@ts-expect-error` checks still run
-    // because TypeScript evaluates them statically.
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const _typeCheck = (env: Env): void => {
       if (env.success === true) {
         expectTypeOf(env.data).toEqualTypeOf<{ foo: string }>();
       } else {
-        // @ts-expect-error — `data` is success-branch only; the error
-        // variant has no `data` field. This line proves precise narrowing.
+        // @ts-expect-error — `data` is success-branch only.
         void env.data;
         expectTypeOf(env.error.code).toEqualTypeOf<string>();
       }
     };
 
-    // Runtime sanity: confirm both branches still validate (so the test
-    // also catches regressions where the DU itself stops accepting envelopes).
     const success = wrap({ foo: 'x' }, {}, { ms: 0 });
     expect(schema.safeParse(success).success).toBe(true);
     const failure = wrapError(new Error('boom'));

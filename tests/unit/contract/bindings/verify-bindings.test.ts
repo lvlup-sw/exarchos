@@ -26,22 +26,23 @@ function liveContract(): BindingContract {
 }
 
 describe('verifyBindings — exit proof: missing/duplicate/stale/non-function fail BEFORE startup (P03-04)', () => {
+  /**
+   * The compiled contract is a `BindingContract` by structure: each descriptor holds `actionId` and `tool`.
+   * The real startup gate also accepts the real table.
+   */
   it('LiveRegistryVerifiesClean_AgainstTheCompiledContract', () => {
     const outcome = compile(deriveMetaModel());
     expect(outcome.ok).toBe(true);
     if (outcome.ok) {
-      // The compiled contract is a structural BindingContract (descriptors carry
-      // actionId + tool). Every ActionId must bind to exactly one handler.
       const verdict = verifyBindings(outcome.output, BINDING_TABLE);
       expect(verdict.violations).toEqual([]);
       expect(verdict.ok).toBe(true);
     }
-    // And the real pre-startup gate does not throw against the real table.
     expect(() => assertBindingsAtStartup()).not.toThrow();
   });
 
+  /** The table omits the handler of one tool, so every action of that tool has no binding. */
   it('MissingBinding_Fails', () => {
-    // Drop the handler for one tool — every ActionId in that tool is now unbound.
     const broken = BINDING_TABLE.filter((b) => b.tool !== 'exarchos_workflow');
     const verdict = verifyBindings(liveContract(), broken);
     expect(verdict.ok).toBe(false);
@@ -49,7 +50,6 @@ describe('verifyBindings — exit proof: missing/duplicate/stale/non-function fa
     expect(missing.length).toBeGreaterThan(0);
     expect(missing.every((v) => v.tool === 'exarchos_workflow')).toBe(true);
     expect(missing.some((v) => v.actionId?.startsWith('exarchos_workflow.'))).toBe(true);
-    // The gate refuses startup on this table.
     expect(() => assertBindingsAtStartup(broken)).toThrow(BindingVerificationError);
   });
 
@@ -76,9 +76,8 @@ describe('verifyBindings — exit proof: missing/duplicate/stale/non-function fa
     expect(() => assertBindingsAtStartup(staleTable)).toThrow(BindingVerificationError);
   });
 
+  /** A JSON round-trip removes the function loaders, and the verifier reports a `non-function` violation. */
   it('SerializableNonFunctionBinding_Fails', () => {
-    // A table that was serialized (JSON round-trip) loses its function loaders;
-    // verification rejects each as a non-serializable-binding violation.
     const forged = JSON.parse(JSON.stringify(BINDING_TABLE)) as unknown as ImplementationBinding[];
     const verdict = verifyBindings(liveContract(), forged);
     expect(verdict.ok).toBe(false);

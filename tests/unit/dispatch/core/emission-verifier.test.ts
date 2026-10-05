@@ -17,10 +17,8 @@ import {
 } from '../../../../src/dispatch/core/interceptors/emission-verifier.js';
 
 /**
- * A hand-built registration table. The live catalog is not the subject here —
- * a test that reached for it would change its own meaning every time an event
- * was registered, and could not state a `planned` case at all without waiting
- * for one to exist.
+ * A hand-built registration table. A test over the live catalog changes its meaning with each new
+ * registration, and it cannot state a `planned` case until one exists.
  */
 const ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Object.freeze({
   'workflow.started': {
@@ -42,10 +40,12 @@ const ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Object.freeze({
 } as Readonly<Record<string, EventRegistration>>);
 
 describe('EmissionVerifier lifecycle axis', () => {
+  /**
+   * `workflow.started` landed, so no event is missing. The fault is that the action also declares
+   * and emits two events whose registrations say that nothing emits them. A conditional edge is
+   * not required, but it is still drift when it lands against such a registration.
+   */
   it('LifecycleVerifier_DeclaredRetiredEvent_FailsAction', () => {
-    // The missing-events half is kept in full — `workflow.started` landed. The
-    // fault is that the action ALSO declares two edges whose registrations say
-    // nothing emits them, and it emitted them anyway.
     const verdict = verifyDeclaredEmissions({
       declared: [
         { event: 'workflow.started', condition: 'always' },
@@ -59,18 +59,17 @@ describe('EmissionVerifier lifecycle axis', () => {
 
     expect(verdict.status).toBe('violated');
     expect(verdict.missingEvents).toEqual([]);
-    // A conditional edge is never REQUIRED, and it is still the action's own
-    // drift once it lands against a registration that emits nothing.
     expect(verdict.lifecycleViolations).toEqual([
       { event: 'merge.rollback', lifecycle: 'retired' },
       { event: 'stack.restacked', lifecycle: 'planned' },
     ]);
   });
 
+  /**
+   * An operation id is a shared join key. This action declares neither drifted landing, so neither
+   * changes its verdict. The scoping only subtracts: a missing declared emission is still reported.
+   */
   it('LifecycleVerifier_UnrelatedOperationEvent_DoesNotFailAction', () => {
-    // An operation id is a shared join key. These two landings are drifted
-    // registrations belonging to whoever declared them — this action declares
-    // neither, so neither may move its verdict.
     const verdict = verifyDeclaredEmissions({
       declared: [{ event: 'workflow.started', condition: 'always' }],
       streamId: 'feature-x',
@@ -81,8 +80,6 @@ describe('EmissionVerifier lifecycle axis', () => {
     expect(verdict.status).toBe('ok');
     expect(verdict.lifecycleViolations).toEqual([]);
 
-    // And the scoping subtracts only: the same undeclared landings alongside a
-    // missing declared emission still leave the miss reported.
     const stillMissing = verifyDeclaredEmissions({
       declared: [{ event: 'promotion.executed', condition: 'always' }],
       streamId: 'feature-x',
@@ -94,9 +91,12 @@ describe('EmissionVerifier lifecycle axis', () => {
     expect(stillMissing.lifecycleViolations).toEqual([]);
   });
 
+  /**
+   * A conditional edge is not part of the subject. When only that edge lands, the verdict is
+   * `not-applicable` and not `ok`. A landed conditional edge also cannot satisfy a different
+   * unconditional promise that did not land.
+   */
   it('EmissionVerifier_ConditionalEdge_IsNotCountedSatisfied', () => {
-    // A conditional edge is out of subject. Landing it does not earn a pass,
-    // and the verdict must not read `ok` — there was nothing to earn one with.
     const conditionalOnly = verifyDeclaredEmissions({
       declared: [{ event: 'workflow.started', condition: 'conditional' }],
       streamId: 'feature-x',
@@ -108,8 +108,6 @@ describe('EmissionVerifier lifecycle axis', () => {
     expect(conditionalOnly.reason).toBe('no-unconditional-contract');
     expect(conditionalOnly.required).toEqual([]);
 
-    // And the other direction: a conditional edge that landed cannot be spent
-    // discharging a DIFFERENT unconditional promise that did not.
     const cannotSubstitute = verifyDeclaredEmissions({
       declared: [
         { event: 'workflow.started', condition: 'conditional' },
@@ -125,11 +123,11 @@ describe('EmissionVerifier lifecycle axis', () => {
     expect(cannotSubstitute.required).toEqual(['promotion.executed']);
   });
 
+  /**
+   * `active` agrees with runtime. A different diagnostic owns an event that is absent from the
+   * table, so it is not a fault here.
+   */
   it('reports an active landing and an unregistered landing as no fault', () => {
-    // `active` agrees with runtime. An event absent from the table is an
-    // unanswered question owned by a different diagnostic, not a fault here —
-    // without this, every unannotated event would double-report under a name
-    // that does not describe it.
     expect(lifecycleViolations(['workflow.started', 'never.registered'], ANNOTATIONS)).toEqual([]);
 
     const verdict = verifyDeclaredEmissions({
@@ -141,17 +139,15 @@ describe('EmissionVerifier lifecycle axis', () => {
     expect(verdict.status).toBe('ok');
   });
 
+  /** One event that lands twice is one drifted registration. */
   it('reports a repeated non-emitting landing once', () => {
-    // The same event landing twice is one drifted registration, not two.
     expect(lifecycleViolations(['stack.restacked', 'stack.restacked'], ANNOTATIONS)).toEqual([
       { event: 'stack.restacked', lifecycle: 'planned' },
     ]);
   });
 
+  /** Neither fault hides the other. This action declares both edges, so both faults are its own. */
   it('reports a missing emission and a lifecycle violation together', () => {
-    // Neither fault masks the other: short-circuiting on the first would make
-    // the second invisible until the first was repaired. Both edges are this
-    // action's, so both faults are its own.
     const verdict = verifyDeclaredEmissions({
       declared: [
         { event: 'promotion.executed', condition: 'always' },
@@ -171,13 +167,12 @@ describe('EmissionVerifier lifecycle axis', () => {
 });
 
 describe('EmissionVerifier run summary', () => {
+  /**
+   * Neither verdict answers, but the reasons differ. A store failure is a subject that the
+   * verifier did not assess. A conditional-only edge is a subject that was not in scope. With one
+   * shared counter, the two summaries are equal.
+   */
   it('counts a store-failure run and a conditional-only run apart, not together', () => {
-    // Same shape at the verdict level — both are "answered nothing" — but a
-    // different REASON: a store failure is a subject that was never assessed,
-    // a conditional-only edge is a subject that was never in scope. Folding
-    // them into one `indeterminate` counter would make the two summaries
-    // below print identically, which is exactly the confusion the split
-    // exists to prevent.
     const storeFailureRun: readonly EmissionVerdict[] = [
       {
         status: 'indeterminate',

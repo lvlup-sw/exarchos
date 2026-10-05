@@ -1,16 +1,11 @@
-// ─── Response-Economy Enforcement (DR-1, Task 003) ──────────────────────────
-//
-// Acceptance-tier tests for the dispatch-core response-economy seam. These
-// exercise the REAL dispatch path (`dispatch()` → telemetry middleware →
-// `enforceResponseEconomy`) with telemetry enabled — the production default —
-// so the cap is asserted once at the shared core seam. Both facades inherit it
-// by construction (INV-2), so there is deliberately no MCP-vs-CLI result diff
-// here; the schema-conformance test is the codegen-golden precursor (#1608).
-//
-// The over-budget payloads are produced by injected handlers (a stubbed
-// composite handler for a built-in typed-output action; a registered custom
-// tool for the summarizer / fail-open descriptors). The enforcement itself is
-// never mocked — the assertions ride the value the shared core actually emits.
+/**
+ * Tests for the response-economy seam of dispatch core. They run the real `dispatch()` path with
+ * telemetry on, which is the production default. Both facades share that seam, so no test here
+ * compares the MCP result with the CLI result.
+ *
+ * Injected handlers make the over-budget payloads: a stubbed composite handler and registered
+ * custom tools. No test mocks the enforcement.
+ */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fc from 'fast-check';
@@ -65,11 +60,9 @@ const FIXTURE_CONTRACT: ActionContract = {
 };
 
 /**
- * Register a single-action custom tool whose action carries `economy`, plus a
- * handler returning `handlerResult`. Returns a disposer that unregisters it.
- * Custom tools route through the same `dispatch → withTelemetry →
- * enforceResponseEconomy` seam as built-ins, and `findActionInRegistry` sees
- * them — so the injected `economy` descriptor is the one the seam resolves.
+ * Registers a custom tool with one action that carries `economy` and returns `handlerResult`. It
+ * returns a disposer that unregisters the tool. A custom tool goes through the same dispatch seam
+ * as a built-in tool, so the seam resolves the injected `economy` descriptor.
  */
 function registerEconomyTool(opts: {
   tool: string;
@@ -108,6 +101,10 @@ function bigArray(entries = 60): Array<Record<string, string>> {
   }));
 }
 
+/**
+ * The `dispatchEconomy_*` tests go through `dispatch()`. The `enforceResponseEconomy_*` tests call
+ * the pure guard directly, so a regression shows there first.
+ */
 describe('response-economy enforcement (DR-1, Task 003)', () => {
   let tmpDir: string;
   let eventStore: EventStore;
@@ -117,7 +114,6 @@ describe('response-economy enforcement (DR-1, Task 003)', () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'economy-enforce-'));
     eventStore = new EventStore(tmpDir);
     await eventStore.initialize();
-    // Telemetry ON — the production default and the seam that hosts the guard.
     ctx = { stateDir: tmpDir, eventStore, enableTelemetry: true };
   });
 
@@ -125,10 +121,12 @@ describe('response-economy enforcement (DR-1, Task 003)', () => {
     await rmrfAsync(tmpDir);
   });
 
+  /**
+   * For an over-budget response of an action with a summarizer, the summarizer output replaces
+   * `data`. The seam stamps `_meta.truncated` and not `_meta.economyDegraded`, because a cap is not
+   * a fail-open. It puts a steering affordance first in `next_actions` and keeps the existing one.
+   */
   it('dispatchEconomy_OverBudgetResponse_AppliesSummarizerAndStampsTruncated', async () => {
-    // The DR-1 north-star: an over-budget response whose action declares a
-    // summarizer is replaced by the summarizer output, `_meta.truncated` is
-    // stamped, and a steering affordance is prepended to `next_actions`.
     const summary = { kind: 'summary' as const, note: 'rolled-up' };
     const dispose = registerEconomyTool({
       tool: 'econ_summarizer_tool',
@@ -150,13 +148,9 @@ describe('response-economy enforcement (DR-1, Task 003)', () => {
       const result = await dispatch('econ_summarizer_tool', { action: 'list' }, ctx);
 
       expect(result.success).toBe(true);
-      // Summarizer output replaced the raw payload.
       expect(result.data).toMatchObject({ kind: 'summary', note: 'rolled-up', total: 60 });
-      // Truncation marker stamped on `_meta`.
       expect((result._meta as { truncated?: unknown }).truncated).toBe(true);
-      // NOT degraded — this is a successful cap, not a fail-open.
       expect((result._meta as { economyDegraded?: unknown }).economyDegraded).toBeUndefined();
-      // Steering affordance prepended; pre-existing affordance preserved.
       const nextActions = result.next_actions ?? [];
       expect(nextActions.length).toBe(2);
       expect(nextActions[0]?.verb).toBe('list');
@@ -167,14 +161,16 @@ describe('response-economy enforcement (DR-1, Task 003)', () => {
     }
   });
 
+  /**
+   * A budget of 0 is not positive, so the seam cannot apply it. The seam fails open: it returns
+   * the uncapped payload with `_meta.economyDegraded` and no error.
+   */
   it('dispatchEconomy_BudgetUnresolvable_FailsOpenWithDegradedMarker', async () => {
-    // A non-positive (unresolvable) budget cannot pass or cap — fail open:
-    // return the UNCAPPED payload with `_meta.economyDegraded`, never an error.
     const payload = bigArray();
     const dispose = registerEconomyTool({
       tool: 'econ_badbudget_tool',
       action: 'list',
-      economy: { budgetTokens: 0 }, // resolves non-positive → unresolvable
+      economy: { budgetTokens: 0 },
       handlerResult: { success: true, data: payload } satisfies ToolResult,
     });
     try {
@@ -183,15 +179,14 @@ describe('response-economy enforcement (DR-1, Task 003)', () => {
       expect(result.success).toBe(true);
       expect((result._meta as { economyDegraded?: unknown }).economyDegraded).toBe(true);
       expect((result._meta as { truncated?: unknown }).truncated).toBeUndefined();
-      // Uncapped: full inventory preserved.
       expect(result.data).toEqual(payload);
     } finally {
       dispose();
     }
   });
 
+  /** A declared summarizer that throws must fail open and must not cause an error result. */
   it('dispatchEconomy_SummarizerThrows_ReturnsUncappedWithDegradedMarker', async () => {
-    // A declared summarizer that throws must fail open, not surface an error.
     const payload = bigArray();
     const dispose = registerEconomyTool({
       tool: 'econ_throwing_tool',
@@ -216,14 +211,13 @@ describe('response-economy enforcement (DR-1, Task 003)', () => {
     }
   });
 
+  /**
+   * The property checks data fidelity and not only shape. For an over-budget list, `firstPage`
+   * equals the first rows of the input, and `counts.total` is the true length. The carrier fields
+   * `success`, `next_actions`, `_meta` and `_perf` stay. Twelve small records are already more
+   * than the 20-token budget.
+   */
   it('dispatchEconomy_CappedListResponse_FirstPageIsFaithfulPrefix', async () => {
-    // Property (DATA FIDELITY, not just shape): for an arbitrary over-budget
-    // LIST payload the generic fallback keeps a FAITHFUL prefix — `firstPage`
-    // deep-equals `items.slice(0, firstPage.length)` and `counts.total` is the
-    // true length — while the carrier floor (`success` / `next_actions` /
-    // `_meta` / `_perf`) survives. (Previously this test fed an object payload
-    // and asserted only the fallback SHAPE, so it passed even when the real
-    // payload — the object's non-array fields — was discarded; review fix.)
     await fc.assert(
       fc.asyncProperty(
         fc.array(fc.record({ k: fc.string({ minLength: 1 }), n: fc.integer() }), {
@@ -234,14 +228,12 @@ describe('response-economy enforcement (DR-1, Task 003)', () => {
           const dispose = registerEconomyTool({
             tool: 'econ_property_tool',
             action: 'list',
-            // 12+ small records comfortably exceed a 20-token budget.
             economy: { budgetTokens: 20 },
             handlerResult: { success: true, data: items } satisfies ToolResult,
           });
           try {
             const result = await dispatch('econ_property_tool', { action: 'list' }, ctx);
 
-            // Carrier floor survives.
             expect(result.success).toBe(true);
             expect(Array.isArray(result.next_actions)).toBe(true);
             expect((result.next_actions ?? []).length).toBeGreaterThanOrEqual(1);
@@ -253,8 +245,6 @@ describe('response-economy enforcement (DR-1, Task 003)', () => {
               counts: { total: number; shown: number };
               firstPage: unknown[];
             };
-            // FIDELITY: the surviving page is a genuine prefix of the input, and
-            // the reported total is the real length — no fabricated/dropped rows.
             expect(data.firstPage.length).toBe(Math.min(items.length, 10));
             expect(data.firstPage).toEqual(items.slice(0, data.firstPage.length));
             expect(data.counts.total).toBe(items.length);
@@ -268,14 +258,13 @@ describe('response-economy enforcement (DR-1, Task 003)', () => {
     );
   });
 
+  /**
+   * An over-budget object whose arrays are incidental must fail open. The `exarchos_workflow`
+   * results of rehydrate, get and transition have that shape. The seam keeps the full payload and
+   * stamps `_meta.economyDegraded`. It must not replace the payload with the first page of
+   * `taskProgress`, because that loses `workflowState` and `phasePlaybook`.
+   */
   it('dispatchEconomy_OverBudgetObjectPayload_FailsOpenPreservingAllFields', async () => {
-    // HIGH regression (review): an over-budget OBJECT payload whose arrays are
-    // INCIDENTAL (the `exarchos_workflow` rehydrate/get/transition shape) must
-    // FAIL OPEN — the whole structured payload is retained and
-    // `_meta.economyDegraded` is stamped — NOT gutted to the largest incidental
-    // array's first page. Before the fix, `{ workflowState, phasePlaybook,
-    // taskProgress:[…] }` over budget was replaced by the first 10 of
-    // `taskProgress`, silently dropping workflowState + phasePlaybook.
     const payload = {
       workflowState: { featureId: 'x'.repeat(400), phase: 'review' },
       phasePlaybook: { skill: 'review', guidance: 'y'.repeat(400) },
@@ -287,28 +276,26 @@ describe('response-economy enforcement (DR-1, Task 003)', () => {
     const dispose = registerEconomyTool({
       tool: 'econ_object_tool',
       action: 'rehydrate',
-      economy: { budgetTokens: 20 }, // payload is well over 20 tokens
+      economy: { budgetTokens: 20 },
       handlerResult: { success: true, data: payload } satisfies ToolResult,
     });
     try {
       const result = await dispatch('econ_object_tool', { action: 'rehydrate' }, ctx);
 
       expect(result.success).toBe(true);
-      // Fail-open, NOT the destructive list fallback.
       expect((result._meta as { economyDegraded?: unknown }).economyDegraded).toBe(true);
       expect((result._meta as { truncated?: unknown }).truncated).toBeUndefined();
-      // Every structured field survives byte-for-byte — zero data loss.
       expect(result.data).toEqual(payload);
     } finally {
       dispose();
     }
   });
 
+  /**
+   * The dominance rule must not fail open for an inventory. When the largest array holds most of
+   * the payload, as in `{ worktrees: [...] }`, the object is list-dominant and the seam caps it.
+   */
   it('dispatchEconomy_ObjectWrappedInventory_StillCaps', async () => {
-    // The dominance rule must NOT over-fail-open: an object whose largest array
-    // carries the BULK of the payload (an inventory wrapper like
-    // `{ worktrees: [...] }`) is still list-dominant and IS capped to the
-    // generic fallback — otherwise the backstop would go inert for the views.
     const dispose = registerEconomyTool({
       tool: 'econ_inventory_tool',
       action: 'list',
@@ -329,11 +316,12 @@ describe('response-economy enforcement (DR-1, Task 003)', () => {
     }
   });
 
+  /**
+   * The budget belongs to the dispatch contract and not to telemetry. With telemetry off, the seam
+   * still caps an over-budget list, and it still stamps the fail-open marker on an over-budget
+   * object.
+   */
   it('dispatchEconomy_TelemetryDisabled_StillEnforcesBudget', async () => {
-    // MEDIUM regression (review): the budget is a property of the dispatch
-    // CONTRACT, not of telemetry. `enforceResponseEconomy` lived only inside the
-    // telemetry middleware, so `EXARCHOS_TELEMETRY=false` silently disabled ALL
-    // enforcement. With telemetry OFF, an over-budget response is STILL capped.
     const offCtx: DispatchContext = { stateDir: tmpDir, eventStore, enableTelemetry: false };
 
     const disposeList = registerEconomyTool({
@@ -363,7 +351,6 @@ describe('response-economy enforcement (DR-1, Task 003)', () => {
     try {
       const result = await dispatch('econ_teloff_obj', { action: 'get' }, offCtx);
       expect(result.success).toBe(true);
-      // Enforcement ran (fail-open marker present) even with telemetry off.
       expect((result._meta as { economyDegraded?: unknown }).economyDegraded).toBe(true);
       expect(result.data).toEqual({ big: 'z'.repeat(600), taskProgress: [{ id: '1' }] });
     } finally {
@@ -371,14 +358,15 @@ describe('response-economy enforcement (DR-1, Task 003)', () => {
     }
   });
 
+  /**
+   * The default schema `z.object({})` declares no `limit`, `offset` or `fields`. A `.strict()`
+   * action rejects an undeclared `--limit` with INVALID_INPUT, so the affordance must carry no
+   * CLI hint.
+   */
   it('dispatchEconomy_NoWindowingParam_OmitsCliFlagHint', async () => {
-    // MEDIUM regression (review): the steering affordance must NOT advertise a
-    // `--limit` flag on an action whose schema declares no windowing param — a
-    // `.strict()` action would reject `--limit` with INVALID_INPUT, so the hint
-    // was a dead-end recovery step. No param → no CLI flag hint.
     const dispose = registerEconomyTool({
       tool: 'econ_nolimit_tool',
-      action: 'list', // default schema z.object({}) — no limit/offset/fields
+      action: 'list',
       economy: { budgetTokens: 20 },
       handlerResult: { success: true, data: bigArray() } satisfies ToolResult,
     });
@@ -393,9 +381,8 @@ describe('response-economy enforcement (DR-1, Task 003)', () => {
     }
   });
 
+  /** An action that declares `limit` gets a `--limit` hint that the caller can use. */
   it('dispatchEconomy_LimitParam_EmitsAccurateLimitFlagHint', async () => {
-    // The positive half: an action that DOES declare `limit` gets a `--limit`
-    // hint the caller can actually pass.
     const dispose = registerEconomyTool({
       tool: 'econ_limit_tool',
       action: 'list',
@@ -412,14 +399,15 @@ describe('response-economy enforcement (DR-1, Task 003)', () => {
     }
   });
 
+  /**
+   * A capped response of a typed-output action must pass its registered `outputSchema`, which is
+   * the contract that the MCP facade enforces. The `worktrees` view registers
+   * `withCappedShape(WorktreesOutputSchema)`. The stub returns 200 entries, which is more than the
+   * default budget of 2,000 tokens.
+   */
   it('dispatchEconomy_CappedTypedOutputSchemaAction_ConformsToRegisteredSchema', async () => {
-    // A capped response for a typed-output action (the `worktrees` view carries
-    // `withCappedShape(WorktreesOutputSchema)`) must validate against its
-    // REGISTERED outputSchema — i.e. pass D.5, never INTERNAL_ERROR. Assert the
-    // cap once here at the shared core seam (INV-2 by construction).
     const restore = stubCompositeHandler('exarchos_view', async () => ({
       success: true,
-      // ~200 entries → well over the default 2,000-token budget.
       data: { worktrees: bigArray(200) },
       next_actions: [],
     }));
@@ -428,13 +416,10 @@ describe('response-economy enforcement (DR-1, Task 003)', () => {
 
       expect(result.success).toBe(true);
       expect((result._meta as { truncated?: unknown }).truncated).toBe(true);
-      // Capped `data` conforms to the shared `{summary, counts, firstPage}` fragment.
       const data = result.data as { summary?: unknown; counts?: unknown; firstPage?: unknown };
       expect(typeof data.summary).toBe('string');
       expect(Array.isArray(data.firstPage)).toBe(true);
 
-      // The registered outputSchema (capped-union) validates the capped
-      // envelope — the D.5 contract the MCP facade enforces.
       const action = findActionInRegistry('exarchos_view', 'worktrees');
       expect(action).toBeDefined();
       const envelope = toEnvelope(result);
@@ -445,17 +430,13 @@ describe('response-economy enforcement (DR-1, Task 003)', () => {
     }
   });
 
-  // ─── Unit coverage of the pure guard (fail-open + carrier discipline) ──────
-  // The pure function is what the seam invokes; these pin the contract without
-  // the telemetry round-trip so a regression localizes here first.
-
+  /** A failure carries no `data` to cap, also for the name of a real action. */
   it('enforceResponseEconomy_FailureEnvelope_ReturnedUntouched', () => {
     const failure: ToolResult = {
       success: false,
       error: { code: 'SOME_ERROR', message: 'nope' },
       next_actions: [{ verb: 'retry', reason: 'x' }],
     };
-    // Even for a real action name, a failure carries no `data` to cap.
     const out = enforceResponseEconomy(failure, 'exarchos_view', 'worktrees');
     expect(out).toBe(failure);
   });
@@ -466,18 +447,16 @@ describe('response-economy enforcement (DR-1, Task 003)', () => {
     expect(out).toBe(ok);
   });
 
+  /** `data` is the only field that the guard can replace, so it is not a carrier key. */
   it('enforceResponseEconomy_CarrierKeySet_ExcludesData', () => {
-    // The carrier floor never includes `data` — that is the only field the
-    // guard is permitted to replace.
     expect(ECONOMY_CARRIER_KEYS.has('data')).toBe(false);
     for (const key of ['success', 'next_actions', '_meta', '_perf']) {
       expect(ECONOMY_CARRIER_KEYS.has(key)).toBe(true);
     }
   });
 
+  /** The registered contract of a typed-output action must accept the capped fallback shape. */
   it('withCappedShape_typedOutput_acceptsGenericCappedFallback', () => {
-    // The registered contract for a typed-output action must be TOTAL over the
-    // capped fallback shape (Task 022 precondition for this seam).
     const typed = EnvelopeSchema(z.object({ worktrees: z.array(z.unknown()) }));
     const capped = withCappedShape(typed);
     const cappedEnvelope = {

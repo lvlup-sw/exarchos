@@ -17,9 +17,10 @@ describe('shared admission IR — authored Zod validator (closure property)', ()
     }
   });
 
-  // The closure guarantee: the document is STRUCTURALLY INCAPABLE of carrying a
-  // shell command / closure / arbitrary expression / harness syntax. Any such
-  // escape-hatch key is an unknown property under a `.strict()` object.
+  /**
+   * The document cannot carry a shell command, a closure, an expression or harness syntax.
+   * Each such key is an unknown property of a `.strict()` object, so the schema rejects it.
+   */
   it.each([
     ['top-level command', (d: Record<string, unknown>) => (d['command'] = 'rm -rf /')],
     ['top-level script', (d: Record<string, unknown>) => (d['script'] = 'evil()')],
@@ -53,7 +54,6 @@ describe('shared admission IR — authored Zod validator (closure property)', ()
     expect(
       EdgeConditionNodeSchema.safeParse({ kind: 'factEquals', field: 'x', value: [1, 2] }).success,
     ).toBe(false);
-    // A structurally valid closed node is accepted.
     expect(
       EdgeConditionNodeSchema.safeParse({ kind: 'factEquals', field: 'x', value: 'v' }).success,
     ).toBe(true);

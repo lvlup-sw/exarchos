@@ -37,13 +37,11 @@ describe('handleDescribe', () => {
     expect(result.error?.validActions?.length).toBeGreaterThan(0);
   });
 
+  /** `describe` projects each declared emission verbatim, with its role and owner. */
   it('HandleDescribe_ActionWithAutoEmits_ReturnsEmissionMetadata', async () => {
     const result = await handleDescribe({ actions: ['init'] }, workflowTool.actions);
     expect(result.success).toBe(true);
     const data = result.data as Record<string, Record<string, unknown>>;
-    // Projected VERBATIM, including the edge's declared role and owner —
-    // describe is a projection of the declaration, so a field added to the
-    // declaration reaches clients without describe learning about it.
     expect(data.init.autoEmits).toEqual([
       { event: 'workflow.started', condition: 'always', role: 'primary', owner: 'workflow' },
     ]);
@@ -53,19 +51,11 @@ describe('handleDescribe', () => {
     const result = await handleDescribe({ actions: ['get'] }, workflowTool.actions);
     expect(result.success).toBe(true);
     const data = result.data as Record<string, Record<string, unknown>>;
-    // autoEmits should be omitted entirely (not null, not empty array)
     expect(data.get.autoEmits).toBeUndefined();
     expect('autoEmits' in data.get).toBe(false);
   });
 
-  // ─── T8 (#1440 Op 2, preview-4) — DispatchHints projection ───────────
-  //
-  // The `dispatch` slot is action-behavior metadata (sibling of autoEmits,
-  // deprecated, outputSchema) added by T2's `DispatchHints` interface
-  // (design §4.3). Describe MUST project the field through unchanged when
-  // present, and MUST omit the field entirely (not null, not empty
-  // object) when the action does not declare it — mirroring the existing
-  // optional-slot pattern in handler.ts:113-149.
+  /** `describe` projects the `dispatch` hints unchanged when the action declares them. */
   it('DescribeHandler_ActionWithDispatchHints_ProjectsDispatchField', async () => {
     const fixture: ToolAction = {
       name: 'fixture_with_dispatch',
@@ -116,45 +106,35 @@ describe('handleDescribe', () => {
     const result = await handleDescribe({ actions: ['fixture_no_dispatch'] }, [fixture]);
     expect(result.success).toBe(true);
     const data = result.data as Record<string, Record<string, unknown>>;
-    // dispatch should be omitted entirely (not null, not empty object)
     expect(data.fixture_no_dispatch.dispatch).toBeUndefined();
     expect('dispatch' in data.fixture_no_dispatch).toBe(false);
   });
 
+  /** The `gate` key is always present. Its value is `null` when the action declares no gate metadata. */
   it('HandleDescribe_GateMetadata_IncludedWhenPresent', async () => {
-    // Use orchestrate tool which has gate metadata on check_* actions
-    // Note: gate metadata may not exist yet (T1 adds it). If action.gate is undefined, expect null.
     const orchTool = TOOL_REGISTRY.find(t => t.name === 'exarchos_orchestrate')!;
     const result = await handleDescribe({ actions: ['check_test_adequacy'] }, orchTool.actions);
     expect(result.success).toBe(true);
     const desc = (result.data as Record<string, unknown>)['check_test_adequacy'] as Record<string, unknown>;
-    // gate field should be present (null if no gate metadata, object if present)
     expect('gate' in desc).toBe(true);
   });
 
-  // ─── Wave 0 / Task G.3 — Per-action outputSchema discoverability ──────
-  //
-  // INV-5b + design §2.1 (Approach C): per-action `outputSchema` must be
-  // discoverable through `describe` so clients can introspect the precise
-  // per-action contract instead of relying on the lowest-common-denominator
-  // envelope advertised on `tools/list`. Surfaced as `outputSchemaJson`
-  // (JSON Schema 2020-12, produced by the Zod→JSON-Schema adapter).
+  /**
+   * `describe` exposes the declared output schema of an action as
+   * `outputSchemaJson`, a JSON Schema 2020-12 document. The schema is a union of
+   * the success envelope and the error envelope.
+   */
   it('DescribeHandler_PerActionResponse_IncludesOutputSchemaJson', async () => {
     const result = await handleDescribe({ actions: ['get'] }, workflowActions);
     expect(result.success).toBe(true);
     const desc = (result.data as Record<string, unknown>)['get'] as Record<string, unknown>;
 
-    // The new per-action discoverability slot.
     expect(desc).toHaveProperty('outputSchemaJson');
     const outputJson = desc.outputSchemaJson as Record<string, unknown>;
     expect(outputJson).toBeTypeOf('object');
 
-    // JSON Schema 2020-12 dialect (per design §2.1).
     expect(outputJson.$schema).toBe('https://json-schema.org/draft/2020-12/schema');
 
-    // Typical Zod-translated envelope shape: discriminated-union of success
-    // (with `data`) and error (with `error`). `anyOf` / `oneOf` is how the
-    // adapter expresses the union — assert the union is present.
     const hasUnion =
       Array.isArray(outputJson.anyOf) ||
       Array.isArray(outputJson.oneOf);
@@ -203,7 +183,6 @@ describe('handleEventTypeDescribe', () => {
     expect(result.success).toBe(true);
     const data = result.data as Record<string, Record<string, unknown>>;
     const schema = data['task.completed'].schema as Record<string, unknown>;
-    // JSON Schema should have type and properties
     expect(schema.type).toBe('object');
     expect(schema).toHaveProperty('properties');
   });
@@ -383,13 +362,7 @@ describe('handleDescribe playbook', () => {
   });
 });
 
-// T5a.1/DR-4 (#1259, v2.11): the `handleDescribe stateSchema` block
-// previously verified that the `set` action's describe response
-// included a `stateSchema` discoverability sub-payload (and that other
-// actions didn't surface one). The `set` action is removed and the
-// `stateSchema` slot has no current consumer; the block is removed.
-// `HandleDescribe_NonSetAction_NoStateSchema` is preserved as a sanity
-// pin against accidental regressions on other actions.
+/** No action exposes a `stateSchema` slot. `options.includeStateSchema` has no effect. */
 describe('handleDescribe stateSchema (post DR-4)', () => {
   it('HandleDescribe_NonSetAction_NoStateSchema', async () => {
     const result = await handleDescribe({ actions: ['get'] }, workflowActions, { includeStateSchema: true });

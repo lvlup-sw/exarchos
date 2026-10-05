@@ -1,21 +1,13 @@
-// ─── DR-0 — MCP SDK generation seam ────────────────────────────────────────
+// Tests for the MCP SDK generation lint and the import-site census.
 //
-// Guards the v1/v2 side-by-side install (task 049). See the module docblock in
-// `sdk-generation-seam.ts` for the full rationale; the short version is that
-// the plan's stated error-path criterion — "a partially-migrated tree must
-// fail typecheck" — does not hold, so the rejection is implemented as a lint
-// instead of merely asserted about the compiler.
+// TypeScript accepts a module that mixes the two SDK generations, so a lint rejects the mix.
+// The module docblock of `sdk-generation-seam.ts` gives the rationale.
 
 /**
- * DR-30 authorities. The corpus sweep below is cross-checked against two
- * independent sources, neither derived from the other:
- *
- *   • `./sdk-generation-seam.ts` — the RULE: which package names constitute
- *     the v1 and v2 generations.
- *   • `../../package.json` — the INSTALLED REALITY: which generations npm was
- *     actually asked to resolve. A rule naming a package nobody depends on,
- *     or a dependency the rule cannot classify, is a disagreement between
- *     these two and shows up as a failure rather than a silent pass.
+ * The corpus sweep checks two independent sources against each other.
+ * `sdk-generation-seam.ts` holds the rule: the package names of the v1 and v2 generations.
+ * `package.json` holds the generations that npm installs.
+ * A dependency that the rule cannot classify fails a test.
  *
  * @oracle-sources: ../../../src/architecture/sdk-generation-seam.ts, ../../../package.json
  */
@@ -37,25 +29,21 @@ import {
 import { parseModuleSpecifiers } from '../../../tools/test-helpers/module-specifier-parser.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-// src/architecture → servers/exarchos-mcp
+/** The repository root. */
 const packageRoot = path.join(here, '../../..');
-/** This file — the lint's own fixture corpus, and task 062's kill subject. */
+/** This file. It is the fixture corpus of the lint and the subject of the kill fixture. */
 const selfPath = fileURLToPath(import.meta.url);
 
-// ── The superseded scanner, retained as EVIDENCE ─────────────────────────────
-//
-// Task 062 replaced a raw-text specifier match with a real parse. A test that
-// only asserts the new behaviour ("0 sites here") proves the defect is gone but
-// says nothing about how large it was — and DR-26's whole problem was its SIZE,
-// because ten uncountable sites floored task 053's migration denominator above
-// zero. So the predecessor is kept here, in the test, and both numbers are
-// asserted. It is the only artefact that can still measure the gap.
-//
-// It must never be exported or moved back into shipped source.
+/**
+ * The superseded raw-text specifier match, kept as evidence. The shipped scanner parses the source.
+ * A test of the parser alone shows that the defect is gone, but not its size.
+ * This regex still measures the size, so the tests assert both counts.
+ * Do not export it, and do not move it into shipped source.
+ */
 const SUPERSEDED_SPECIFIER_RE =
   /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*)['"]([^'"]+)['"]/g;
 
-/** What `collectSdkImports` counted in `source` BEFORE task 062. */
+/** Returns the SDK specifiers that the superseded text match counts in `source`. */
 function supersededCollectSdkImports(source: string): string[] {
   SUPERSEDED_SPECIFIER_RE.lastIndex = 0;
   const out: string[] = [];
@@ -69,17 +57,12 @@ function supersededCollectSdkImports(source: string): string[] {
   return out;
 }
 
-// ── Fixture specifiers added by task 062 are ASSEMBLED, never written literally
-//
-// `CollectSdkImports_LintOwnFixture_DropsFromTenToZero` pins this file's
-// superseded count at exactly TEN — the number task 061 measured and the number
-// the spec records as the entire 56 → 46 delta in task 053's backlog. A new
-// fixture containing a literal `from '@modelcontextprotocol/…'` would raise it
-// and silently rewrite the historical measurement into something unfalsifiable.
-// Assembling the specifier keeps the count at ten while still producing source
-// text in which a real, literal specifier sits inside a template literal — which
-// is what the parser is actually being tested against. `contract/sdk/seam.test.ts` adopted
-// the same discipline for the same reason.
+/**
+ * The scope of the MCP SDK packages. The helpers that follow assemble fixture specifiers from it.
+ * `CollectSdkImports_LintOwnFixture_DropsFromTenToZero` pins the superseded count of this file at ten.
+ * A new literal SDK specifier in an import statement of a fixture raises that count.
+ * An assembled specifier keeps the count at ten, and the source text under test still holds a literal specifier.
+ */
 const SCOPE = '@modelcontextprotocol';
 const v1Spec = (subpath: string): string => `${SCOPE}/sdk/${subpath}`;
 const v2Spec = (subpath: string): string => `${SCOPE}/${subpath}`;
@@ -104,25 +87,12 @@ export async function crossGenerationPair(): Promise<void> {
 `;
 
 describe('DR-0 — MCP SDK generation seam', () => {
+  /**
+   * A module that imports both generations is a HIGH finding, so a partly migrated tree fails the build.
+   * The lint reads the fixture as text through the specifier parser, so the test does not need an installed package.
+   * The message must name both specifiers, so the CI output alone shows the fix.
+   */
   it('MixedV1V2Imports_AreRejectedByTheGate', () => {
-    // A module importing both generations is a HIGH finding, which is what makes
-    // a partially-migrated tree fail the build rather than compile into two live
-    // copies of the protocol.
-    //
-    // This assertion reads the fixture as TEXT, through the specifier lexer, so
-    // it stands whether or not either package is installed.
-    //
-    // A second part used to live here: it compiled this same fixture and recorded
-    // that `tsc` ACCEPTED the mix — the measured premise justifying why the lint
-    // must exist at all, since v1's `Transport` was structurally assignable to
-    // v2's and TypeScript has no notion of nominal package identity. That premise
-    // is no longer constructible. v1 is gone from the manifests and the lockfile,
-    // so on a clean install the fixture's v1 specifier does not resolve and `tsc`
-    // fails for a RESOLUTION reason, not a brand one. Keeping the check would have
-    // pinned a true-looking assertion to a false cause; re-adding v1 as a test-only
-    // dependency to keep measuring it would undo the removal. The rung-2 guarantee
-    // now rests on the cross-generation vs same-generation brand fixtures below,
-    // which are the stronger proof and do not depend on v1 existing.
     const findings = lintSdkGenerationMixing(
       'src/adapters/mcp/mcp.ts',
       MIXED_IMPORT_FIXTURE,
@@ -133,15 +103,13 @@ describe('DR-0 — MCP SDK generation seam', () => {
     expect(findings[0]!.severity).toBe('HIGH');
     expect(findings[0]!.source).toBe('sdk-generation-seam');
     expect(findings[0]!.file).toBe('src/adapters/mcp/mcp.ts');
-    // The message must name both offending generations so the fix is obvious
-    // from CI output alone.
     expect(findings[0]!.message).toContain('@modelcontextprotocol/sdk/inMemory.js');
     expect(findings[0]!.message).toContain('@modelcontextprotocol/server');
 
   });
 
+  /** A distinct package that only shares the v1 name as a prefix is not v1. */
   it('ClassifySdkImport_EachGenerationRoot_ResolvesToItsGeneration', () => {
-    // v1 root + subpaths.
     expect(classifySdkImport('@modelcontextprotocol/sdk')).toBe('v1');
     expect(classifySdkImport('@modelcontextprotocol/sdk/server/mcp.js')).toBe('v1');
     expect(classifySdkImport('@modelcontextprotocol/sdk/inMemory.js')).toBe('v1');
@@ -149,24 +117,21 @@ describe('DR-0 — MCP SDK generation seam', () => {
       classifySdkImport('@modelcontextprotocol/sdk/experimental/tasks/interfaces.js'),
     ).toBe('v1');
 
-    // v2 roots + subpaths.
     expect(classifySdkImport('@modelcontextprotocol/core')).toBe('v2');
     expect(classifySdkImport('@modelcontextprotocol/server')).toBe('v2');
     expect(classifySdkImport('@modelcontextprotocol/server/stdio')).toBe('v2');
     expect(classifySdkImport('@modelcontextprotocol/client')).toBe('v2');
 
-    // Unrelated specifiers are not SDK imports at all.
     expect(classifySdkImport('zod')).toBeUndefined();
     expect(classifySdkImport('./mcp.js')).toBeUndefined();
-    // A same-prefix but distinct package must not be mistaken for v1.
     expect(classifySdkImport('@modelcontextprotocol/sdk-extras')).toBeUndefined();
   });
 
+  /**
+   * The hazard does not depend on the import form.
+   * The scanner must see static, type-only, dynamic and re-export forms.
+   */
   it('CollectSdkImports_StaticDynamicAndTypeOnly_AreAllSeen', () => {
-    // The migration hazard does not care how the module is pulled in, so the
-    // scanner must see static imports, type-only imports, dynamic import()
-    // and re-exports alike. `adapters/cli/cli.ts` reaches the SDK through a
-    // dynamic import, so missing that form would leave a real hole.
     const source = `
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Task } from '@modelcontextprotocol/sdk/types.js';
@@ -183,9 +148,8 @@ const mod = await import('@modelcontextprotocol/server/stdio');
     expect(found.map((f) => f.generation)).toEqual(['v1', 'v1', 'v2', 'v2']);
   });
 
+  /** A module of one generation passes, v1 or v2. Only the mix is an error. */
   it('LintSdkGenerationMixing_SingleGenerationModule_IsAllowed', () => {
-    // Directory-by-directory migration REQUIRES that a wholly-v1 module and a
-    // wholly-v2 module both pass. Only the mixture is an error.
     const v1Only = `
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
@@ -201,20 +165,11 @@ import type { Tool } from '@modelcontextprotocol/core';
     expect(lintSdkGenerationMixing('c.ts', noSdk, parseModuleSpecifiers)).toEqual([]);
   });
 
+  /**
+   * The sweep covers each `.ts` file under `src`. No module can import both generations.
+   * The floor on `scanned` keeps an empty sweep from a green result.
+   */
   it('LintSdkGenerationMixing_RepoSources_AreNotYetMixed', () => {
-    // Whole-tree sweep: no module in the package may straddle the two
-    // generations. Today every module is still v1-only (the migration is
-    // blocked on v2's removal of the Tasks store seam), so this passes
-    // trivially — but it is the assertion that will catch the first bad
-    // directory-by-directory step when the migration does start.
-    //
-    // NO SELF-EXCEPTION (task 062). This sweep used to skip THIS file, because
-    // under the superseded text match its fixture strings read as a module
-    // importing both generations — the guard flagged its own test material. The
-    // exception is gone: a specifier inside a template literal is not an import
-    // node, so this file is now swept like every other and contributes nothing.
-    // Deleting an exception is stronger evidence than asserting one is unused,
-    // because the sweep would fail if the claim were wrong.
     const offenders: string[] = [];
     let scanned = 0;
     const walk = (dir: string): void => {
@@ -236,21 +191,17 @@ import type { Tool } from '@modelcontextprotocol/core';
     };
     walk(path.join(packageRoot, 'src'));
 
-    // Non-vacuity: an empty sweep would report zero offenders and read green.
     expect(scanned).toBeGreaterThan(50);
     expect(offenders).toEqual([]);
   });
 
+  /**
+   * The test checks the rule against `package.json`. Neither source reads the other, so they can disagree.
+   * A new `@modelcontextprotocol` dependency that the rule ignores leaves a package outside the mixing gate.
+   * The floor on `mcpDeps` keeps the assertions from an empty input.
+   * The generation set is exact: the tree holds v2 alone, and a v1 dependency that returns fails the test.
+   */
   it('ClassifySdkImport_EveryInstalledMcpDependency_IsClassifiable', () => {
-    // The second DR-30 authority: cross-check the RULE (which package names
-    // this module treats as v1/v2) against the INSTALLED REALITY
-    // (package.json). These are independent — package.json does not import
-    // the rule, and the rule does not read package.json — so they can
-    // genuinely disagree.
-    //
-    // The disagreement worth catching: a new `@modelcontextprotocol/*`
-    // dependency lands and the rule silently ignores it, leaving a whole
-    // package outside the mixing gate.
     const pkgRaw: unknown = JSON.parse(
       fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8'),
     );
@@ -260,7 +211,6 @@ import type { Tool } from '@modelcontextprotocol/core';
     const mcpDeps = Object.keys(deps).filter((n) =>
       n.startsWith('@modelcontextprotocol/'),
     );
-    // Non-vacuity: if this ever reads empty, the assertions below prove nothing.
     expect(mcpDeps.length).toBeGreaterThan(0);
 
     const unclassifiable = mcpDeps.filter((n) => classifySdkImport(n) === undefined);
@@ -271,18 +221,6 @@ import type { Tool } from '@modelcontextprotocol/core';
         'escape the mixing gate. Add them to V1_PACKAGE / V2_PACKAGES.',
     ).toEqual([]);
 
-    // ── THE ALONGSIDE-INSTALL HAS ENDED (task 049) ──────────────────────────
-    // The previous revision asserted `['v1', 'v2']` and said the milestone
-    // "must be an explicit, reviewed edit here". This is that edit: DR-0's
-    // source migration completed, nothing imports v1, and the dependency was
-    // removed. The tree is single-generation.
-    //
-    // The assertion is kept EXACT (`toEqual`) rather than loosened to "contains
-    // v2". An exact expectation is what made the v1 removal visible here in the
-    // first place, and the same tooth now catches the opposite mistake — a v1
-    // dependency creeping back in via a transitive hoist or a reverted lockfile
-    // would fail this immediately instead of quietly restoring the two-
-    // generation hazard the seam's brand exists to police.
     const generations = new Set(mcpDeps.map((n) => classifySdkImport(n)));
     expect(
       [...generations].sort(),
@@ -293,21 +231,15 @@ import type { Tool } from '@modelcontextprotocol/core';
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// DR-26 / task 062 — the scanner measures imports, not text
-// ════════════════════════════════════════════════════════════════════════════
-
 describe('DR-26 — collectSdkImports resolves imports, not text', () => {
+  /**
+   * BLOCKING ARM: the source holds one real import and four SDK specifiers in non-import positions.
+   * The positions are a template literal, a line comment, a block comment and a plain string.
+   * Only the real import is an import site, and the reported line is its line.
+   * NEGATIVE TWIN: the superseded matcher counts all five specifiers in the same input.
+   * The twin shows that each decoy is a valid SDK specifier, so only its position keeps it out.
+   */
   it('CollectSdkImports_SpecifierInsideTemplateLiteral_IsNotAnImportSite', () => {
-    // BLOCKING ARM — one real import, and the SAME specifier repeated in every
-    // non-import position a lint fixture actually uses: a template literal, a
-    // line comment, a block comment and a plain string. Only the first is an
-    // import site.
-    //
-    // The template-literal arm is the one that mattered. Every lint fixture in
-    // this package is written as a template literal, which is precisely why the
-    // superseded matcher's blind spot landed on the guard's own test corpus
-    // rather than somewhere harmless.
     const real = v1Spec('server/mcp.js');
     const inTemplate = v1Spec('inMemory.js');
     const inLineComment = v2Spec('server');
@@ -330,13 +262,8 @@ describe('DR-26 — collectSdkImports resolves imports, not text', () => {
     const found = collectSdkImports(source, parseModuleSpecifiers);
     expect(found.map((f) => f.specifier)).toEqual([real]);
     expect(found.map((f) => f.generation)).toEqual(['v1']);
-    // The line is the real import's, not an offset inherited from a decoy.
     expect(found.map((f) => f.line)).toEqual([1]);
 
-    // NEGATIVE TWIN — the superseded matcher counts ALL FIVE against the same
-    // input. Without this arm the test above would also pass against a scanner
-    // that simply stopped recognising these specifiers at all, which is the
-    // failure mode a "0 sites" assertion cannot distinguish from a fix.
     expect(supersededCollectSdkImports(source)).toEqual([
       real,
       inTemplate,
@@ -346,15 +273,12 @@ describe('DR-26 — collectSdkImports resolves imports, not text', () => {
     ]);
   });
 
+  /**
+   * The kill fixture. The subject is this file, which holds SDK specifiers as test input and imports no SDK package.
+   * The test asserts both counts: zero shows that the defect is absent, and ten is the size of the defect.
+   * The census attributes no site to this file, so the file is not a bypass site.
+   */
   it('CollectSdkImports_LintOwnFixture_DropsFromTenToZero', () => {
-    // THE KILL FIXTURE. The subject is this file: the lint's own corpus, which
-    // embeds SDK specifiers as *test input* and imports the SDK not at all.
-    //
-    // Both numbers are asserted on purpose. `0` alone proves only that the
-    // defect is absent; `10` is the defect's SIZE, and the size is the whole
-    // reason task 062 blocks task 053 — those ten phantom sites are the entire
-    // difference between the 56/24/10 backlog task 052 published and the
-    // 46/23/9 task 061 re-derived by parsing.
     const selfSource = fs.readFileSync(selfPath, 'utf8');
 
     expect(
@@ -372,8 +296,6 @@ describe('DR-26 — collectSdkImports resolves imports, not text', () => {
         'text inside a template literal, a comment or a string.',
     ).toBe(0);
 
-    // And therefore it is not a bypass site at all: the census attributes it
-    // nowhere, which is what unfloors the migration denominator.
     expect(collectSdkImportSites(
       'architecture/sdk-generation-seam.test.ts',
       selfSource,
@@ -381,11 +303,13 @@ describe('DR-26 — collectSdkImports resolves imports, not text', () => {
     )).toEqual([]);
   });
 
+  /**
+   * BLOCKING ARM: a scan that visited no modules must fail, even when its sites look correct.
+   * In a migrated tree a low bypass count is no evidence, so the census checks the population separately.
+   * NEGATIVE TWIN: the same scan with a real population passes, so the census does not reject everything.
+   * The last arm is a different check: modules were visited, but the parser resolved no site.
+   */
   it('CollectSdkImports_ZeroModulesResolved_FailsClosed', () => {
-    // BLOCKING ARM — a scan that visited no modules must FAIL, even when the
-    // sites it carries look fine. This is the tooth that survives task 053:
-    // once the migration completes, a low bypass count stops being evidence of
-    // anything, so the POPULATION has to be checked independently of the hits.
     const seamSite: SdkImportSite = {
       module: SDK_SEAM_MODULE,
       specifier: v1Spec('server/mcp.js'),
@@ -411,9 +335,6 @@ describe('DR-26 — collectSdkImports resolves imports, not text', () => {
     expect(empty.moduleCount).toBe(0);
     expect(empty.diagnostics.map((d) => d.code)).toContain('EMPTY_MODULE_POPULATION');
 
-    // NEGATIVE TWIN — the identical scan with a real population is GREEN. The
-    // seam it kills: "the census rejects everything, so its rejection above says
-    // nothing about emptiness."
     const populated = runSdkSeamCensus({
       sites: [seamSite, v2SeamSite],
       seamModulePresent: true,
@@ -423,8 +344,6 @@ describe('DR-26 — collectSdkImports resolves imports, not text', () => {
     expect(populated.diagnostics).toEqual([]);
     expect(populated.ok).toBe(true);
 
-    // The sibling tooth is still distinct: modules WERE visited, but the parser
-    // resolved nothing. That is a broken scanner, not a clean tree.
     const noSites = runSdkSeamCensus({
       sites: [],
       seamModulePresent: true,
@@ -437,16 +356,12 @@ describe('DR-26 — collectSdkImports resolves imports, not text', () => {
     );
   });
 
+  /**
+   * A tree with each real import behind the seam reports a bypass count of zero and passes.
+   * The non-seam module is this file, read from disk. Its SDK specifiers are fixture text and must stay.
+   * The superseded matcher counts ten sites in the same file, so a text match cannot reach zero.
+   */
   it('BypassSiteCount_MigratedTree_CanReachZero', () => {
-    // The property task 053 depends on, asserted directly: a tree in which
-    // every real import has moved behind the seam reports bypassSiteCount === 0
-    // AND passes.
-    //
-    // The tree is not synthetic where it matters. Its non-seam module is THIS
-    // FILE, read from disk — the one module that can never be migrated, because
-    // its SDK specifiers are the lint's own fixture text and must stay exactly
-    // where they are. That is what made zero unreachable before task 062, so it
-    // is the module the proof has to include.
     const seamSource =
       `import { McpServer } from ${q(v1Spec('server/mcp.js'))};\n` +
       `import { InMemoryTransport } from ${q(v2Spec('server'))};\n`;
@@ -477,12 +392,6 @@ describe('DR-26 — collectSdkImports resolves imports, not text', () => {
     expect(census.diagnostics).toEqual([]);
     expect(census.ok).toBe(true);
 
-    // THE ARITHMETIC FLOOR, measured. Feed the SAME migrated tree through the
-    // superseded matcher and the bypass count is ten, not zero — task 053 would
-    // have been driving a number toward a target it could not reach no matter
-    // how much real migration it did. This is the assertion that makes "can
-    // reach zero" a claim about the defect rather than a tautology about a
-    // hand-built scan.
     expect(supersededCollectSdkImports(selfSource).length).toBe(10);
     expect(supersededCollectSdkImports(seamSource).length).toBe(2);
   });

@@ -1,10 +1,9 @@
-// The authority block is DERIVED from the published kernel, not copied from it.
+// The authority block is derived from the published kernel, not copied from it.
 //
-// The risk a derivation carries is different from the risk a copy carries. A
-// copy drifts; a derivation silently no-ops on a shape it does not handle. So
-// the assertions here are about totality and about equivalence-modulo-closure,
-// and every one of them reads the installed package rather than a recorded
-// constant — otherwise this file would be comparing our work to our work.
+// A copy drifts. A derivation does nothing, in silence, on a shape that it does
+// not handle. Thus these tests assert totality and equivalence modulo closure.
+// Each test reads the installed package and not a recorded constant, so no
+// test compares our work to our work.
 //
 // @oracle-sources: @lvlup-sw/strategos-contracts read from node_modules, whose emitted JSON Schema is one side of every equivalence assertion here and is produced by a package this repository does not author, ../../../../src/contract/capsule/exarchos-capsule.ts, read as TEXT for the transform-application denominator rather than imported, so a call site added there reaches this file whether or not anyone remembers it
 
@@ -40,7 +39,7 @@ const CAPSULE_MODULE = path.resolve(
 const KERNEL_AUTHORITY = WorkflowAuthorityV1Schema as unknown as z.ZodType;
 const DERIVED_STRUCTURE = deepStrictify(KERNEL_AUTHORITY);
 
-/** Erase ONLY openness, so what remains is every claim the kernel makes. */
+/** Removes only `additionalProperties`, so the result holds every claim that the kernel makes. */
 function stripAdditionalProperties(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stripAdditionalProperties);
   if (value !== null && typeof value === 'object') {
@@ -57,6 +56,7 @@ const emit = (schema: z.ZodType): unknown =>
   z.toJSONSchema(schema, { target: 'draft-2020-12', io: 'input' });
 
 describe('deriving the capsule authority block from the kernel', () => {
+  /** The last assertion pins the denominator: a walk that resolves nothing also reports no unhandled type. */
   it('KernelDerivation_EveryReachableNodeType_IsHandled', () => {
     const reachable = [...reachableZodNodeTypes(KERNEL_AUTHORITY)].sort();
     const unhandled = reachable.filter((type) => !HANDLED_ZOD_NODE_TYPES.has(type));
@@ -65,8 +65,6 @@ describe('deriving the capsule authority block from the kernel', () => {
       `the kernel introduced ${unhandled.join(', ')}; deepStrictify passes an unhandled node ` +
         'through untouched, so openness would leak back in silence. Teach the transform.',
     ).toEqual([]);
-    // The denominator, asserted: a walk that resolved nothing would also report
-    // no unhandled types.
     expect(reachable.length).toBeGreaterThan(2);
   });
 
@@ -88,16 +86,11 @@ describe('deriving the capsule authority block from the kernel', () => {
     expect(open, `these emitted objects are still open: ${open.join(', ')}`).toEqual([]);
   });
 
-  // The load-bearing assertion. One side is emitted from `node_modules`, the
-  // other from our derivation, so it cannot pass by comparing a copy to itself.
-  //
-  // Run over EVERY schema the transform is applied to, not just the one. The
-  // transform rebuilds array and optional nodes — `z.array(deepStrictify(el))`,
-  // `deepStrictify(inner).optional()` — and a rebuild constructed that way
-  // carries no `.min()`, `.max()`, `.default()` or `.catch()` the source node
-  // had. So "changes only openness" is a property of each APPLICATION, not of
-  // the function, and an application with no equivalence check behind it is an
-  // unproven claim wearing a proven one's header.
+  /**
+   * One side comes from `node_modules` and the other from our derivation, so the test does not compare a copy with itself.
+   * The transform rebuilds array and optional nodes, and a rebuilt node keeps no `.min()`, `.max()`, `.default()` or `.catch()`.
+   * Thus "changes only openness" is a property of each application, and each application needs this proof.
+   */
   it.each([
     ['the authority block', KERNEL_AUTHORITY],
     ['one authority statement', WorkflowAuthorityStatementV1Schema as unknown as z.ZodType],
@@ -107,11 +100,11 @@ describe('deriving the capsule authority block from the kernel', () => {
     );
   });
 
+  /**
+   * The equivalence proof is per application, so the set of applications can go stale.
+   * A third `deepStrictify(...)` call site in the contract that this file does not list is a rebuild without a proof.
+   */
   it('KernelDerivation_TheEquivalenceProof_CoversEveryApplicationOfTheTransform', () => {
-    // The denominator for the case above. The proof is per-application, so the
-    // set of applications is itself the thing that can go stale: a third
-    // `deepStrictify(...)` call site added to the contract and not added here
-    // would be an unchecked rebuild, and nothing else would say so.
     const source = readFileSync(CAPSULE_MODULE, 'utf8');
     const applications = [...source.matchAll(/deepStrictify\(\s*([A-Za-z0-9_]+)/g)].map(
       (match) => match[1],
@@ -121,8 +114,7 @@ describe('deriving the capsule authority block from the kernel', () => {
     );
   });
 
-  // If the kernel ever tightens upstream, this wrapper becomes redundant and
-  // someone should be told rather than left carrying it.
+  /** If the kernel closes its schema upstream, the derivation is redundant, and a failure of this test reports that. */
   it('KernelDerivation_TheVacuityHazard_IsStillRealInTheInstalledPackage', () => {
     expect(KERNEL_AUTHORITY.safeParse({}).success).toBe(true);
     expect(KERNEL_AUTHORITY.safeParse({ invariants: [{ statement: 'x', extra: 1 }] }).success).toBe(
@@ -141,9 +133,8 @@ describe('deriving the capsule authority block from the kernel', () => {
     expect(kernelFields).toContain('goals');
   });
 
+  /** The capsule keeps goals under `intent`. An optional `goals` keeps the block assignable to the kernel authority. */
   it('KernelDerivation_Goals_StayOptional', () => {
-    // The capsule keeps goals under `intent`. Leaving the kernel's own `goals`
-    // optional is what keeps the block assignable to the kernel's authority.
     const good = {
       invariants: [{ statement: 'i' }],
       assumptions: [{ statement: 'a' }],
@@ -159,13 +150,15 @@ describe('deriving the capsule authority block from the kernel', () => {
     );
   });
 
+  /**
+   * A rebuild makes a new node, so a check on the source node does not carry over.
+   * The equivalence proof covers only the applications that it names.
+   * This refusal stops the silent loss of a check that the kernel adds upstream.
+   */
   it.each([
     ['an array with a length bound', z.object({ xs: z.array(z.string()).min(1) })],
     ['an object with a refinement', z.object({ a: z.string() }).superRefine(() => undefined)],
   ])('KernelDerivation_ARebuiltNodeCarryingChecks_Throws_%s', (_name, source) => {
-    // A rebuild constructs the node fresh, so a check on it would vanish. The
-    // equivalence proof above covers only the applications it names; this is
-    // what stops a check added upstream from being dropped in silence.
     expect(() => deepStrictify(source)).toThrow(/carries 1 check/);
   });
 

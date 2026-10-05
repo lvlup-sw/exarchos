@@ -31,10 +31,11 @@ describe('digestText — determinism + line-ending normalization', () => {
     expect(digestText('hello\nworld')).toBe(digestText('hello\nworld'));
   });
 
+  /**
+   * The CRLF, CR and LF forms of the same content must give the same hash on every machine.
+   * The freeze depends on that.
+   */
   it('Digest_IsLineEndingIndependent', () => {
-    // CRLF (Windows), CR (classic Mac), and LF (Linux) forms of the SAME
-    // content must hash identically — the cross-machine reproducibility
-    // guarantee the freeze depends on.
     const lf = digestText('line1\nline2\nline3');
     const crlf = digestText('line1\r\nline2\r\nline3');
     const cr = digestText('line1\rline2\rline3');

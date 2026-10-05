@@ -40,35 +40,22 @@ import { classifySdkImport } from '../../../src/architecture/sdk-generation-seam
 import { parseModuleSpecifiers } from '../../../tools/test-helpers/module-specifier-parser.js';
 
 /**
- * DR-30 authorities. Task 053's DR-26 sweep at the bottom of this file compares
- * two sources, neither derived from the other:
- *
- *   • `./sdk-generation-seam.ts` — the RULE. Which module is the owned seam
- *     (`SDK_SEAM_MODULE`, re-exported as `SDK_SEAM_BOUNDARY.seamModule`) and
- *     which package names constitute each generation (`classifySdkImport`).
- *   • `../../package.json` — the INSTALLED REALITY. Which SDK generations npm
- *     was actually asked to resolve.
- *
- * They can genuinely disagree, which is the point: a generation that is
- * installed but no longer reaches the seam means half the brand has rotted
- * while the bypass sweep still reads green, and a seam pointing at a module
- * that moved means the sweep is measuring nothing. Neither is derivable from
- * the other — `package.json` participates in no import graph.
+ * The `src` directory. The SDK seam sweep in this file compares two sources.
+ * Neither source derives from the other.
+ * `sdk-generation-seam.ts` holds the rule: the seam module and the package names of each generation.
+ * `package.json` holds the SDK generations that npm installs.
  *
  * @oracle-sources: ../../../src/architecture/sdk-generation-seam.ts, ../../../package.json
  */
-
 const SRC_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../../src');
 
-/** The repository root — `src` sits directly beneath it since the task-019 fold. */
+/** The repository root. */
 const REPO_ROOT = join(SRC_ROOT, '..');
 
 /**
- * Modules git tracks under `root`, counted independently of the walker.
- *
- * The second authority for the denominator: `git ls-files` knows nothing about
- * the scan's exclusions or its recursion, so agreement between the two is
- * evidence the walk reached the tree rather than a restatement of it.
+ * Counts the modules that git tracks under `root`, without the walker.
+ * `git ls-files` knows nothing of the exclusions or the recursion of the scan.
+ * As a result, agreement between the two counts shows that the walk reached the tree.
  */
 async function countTrackedModules(root: string): Promise<number> {
   const out = await execFileAsync(
@@ -108,26 +95,24 @@ describe('layerOf / isRootFile', () => {
     expect(layerOf('verbs/doctor/probes.ts')).toBe('verbs');
   });
 
+  /**
+   * With `adapters/mcp` declared, a module under it belongs to that layer and not to `adapters`.
+   * An edge to a sibling adapter is then a cross-layer edge, which the census does not skip.
+   * A module under no nested id falls back to the parent. The longest match wins in any declaration order.
+   * A prefix that does not end at a path boundary does not claim the module.
+   */
   it('LayerOf_ModuleUnderNestedLayerId_ResolvesToTheLongestMatch', () => {
-    // Task 040. The whole point of the model change: with `adapters/mcp`
-    // declared, a module under it belongs to THAT layer and not to `adapters`,
-    // so an edge to a sibling adapter is a cross-layer edge instead of an
-    // intra-layer one the census silently drops.
     const ids = ['adapters', 'adapters/mcp', 'adapters/cli'];
     expect(layerOf('adapters/mcp/mcp.ts', ids)).toBe('adapters/mcp');
     expect(layerOf('adapters/cli/cli.ts', ids)).toBe('adapters/cli');
-    // A module under the parent but under no nested id falls back to the parent.
     expect(layerOf('adapters/channel/ndjson.ts', ids)).toBe('adapters');
-    // Declaration order must not decide the winner — longest match does.
     expect(layerOf('adapters/mcp/mcp.ts', [...ids].reverse())).toBe('adapters/mcp');
-    // A prefix that is not a PATH-BOUNDARY prefix must not claim the module.
     expect(layerOf('adapters-legacy/x.ts', ids)).toBe('adapters-legacy');
   });
 
   it('treats a root-level file as a root file, and gives it the stated root layer', () => {
     expect(isRootFile('format.ts')).toBe(true);
     expect(isRootFile('workflow/x.ts')).toBe(false);
-    // The exclusion became a STATED policy — the root surface has a name now.
     expect(layerOf('registry.ts')).toBe(ROOT_LAYER);
   });
 
@@ -148,8 +133,6 @@ describe('detectLayerEdges', () => {
        import { format } from '../format.js';
        import { z } from 'zod';`, lexModule,
     );
-    // `./tools.js` is intra-layer and `zod` is third-party; `../format.js` is
-    // the root surface, which task 040 promoted from "excluded" to "a layer".
     expect(edges.map((e) => e.targetLayer).sort()).toEqual([ROOT_LAYER, 'events']);
     const toEvents = edges.find((e) => e.targetLayer === 'events');
     expect(toEvents?.targetModule).toBe('events/store.ts');
@@ -164,10 +147,8 @@ describe('detectLayerEdges', () => {
     expect(edges).toHaveLength(0);
   });
 
+  /** A root-level file is an ordinary source layer. With no edges from it, no rule can govern a root file. */
   it('LayerCensus_RootFile_ContributesEdgesUnderTheStatedPolicy', () => {
-    // Task 040. This used to assert `[]` — a root-level file emitted nothing,
-    // which is why `registry.ts` (the largest module in the tree) could not be
-    // governed by any rule. It is now an ordinary source layer.
     const edges = detectLayerEdges('registry.ts', `import { x } from './workflow/y.js';`, lexModule);
     expect(edges).toHaveLength(1);
     expect(edges[0]?.sourceLayer).toBe(ROOT_LAYER);
@@ -175,10 +156,12 @@ describe('detectLayerEdges', () => {
     expect(edges[0]?.module).toBe('registry.ts');
   });
 
+  /**
+   * Under the first-segment model both ends resolve to `adapters`, and the intra-layer skip drops the edge.
+   * The last assertion shows this: the same import gives no edge without the nested ids.
+   * The message must name both modules, because a layer pair does not show which module made the import.
+   */
   it('LayerCensus_McpImportingCli_ReportsForbiddenImportNamingBothEnds', () => {
-    // Task 040's acceptance condition. This was STRUCTURALLY IMPOSSIBLE before
-    // the model change: both ends resolve to `adapters`, so the edge died on
-    // the intra-layer skip and no allowance could reject it.
     const ids = ['adapters/mcp', 'adapters/cli'];
     const edges = detectLayerEdges(
       'adapters/mcp/mcp.ts',
@@ -195,14 +178,10 @@ describe('detectLayerEdges', () => {
 
     const forbidden = verdict.diagnostics.filter((d) => d.code === 'FORBIDDEN_IMPORT');
     expect(forbidden).toHaveLength(1);
-    // "naming both ends" is the requirement — a verdict that reports only a
-    // layer pair cannot be acted on without re-deriving which module did it.
     const [only] = forbidden;
     expect(only?.message).toContain('adapters/mcp/mcp.ts');
     expect(only?.message).toContain('adapters/cli/cli.ts');
 
-    // The same shape, unfiltered, over the FIRST-SEGMENT model: proof the test
-    // above is not passing for some reason unrelated to the nested ids.
     expect(detectLayerEdges('adapters/mcp/mcp.ts', `import { runCli } from '../cli/cli.js';`, lexModule)).toEqual([]);
   });
 });
@@ -232,11 +211,9 @@ describe('runLayerBoundaryCensus — verdict logic', () => {
     );
   });
 
+  /** The `runtime -> utils` edge exercises the `runtime` allowance, so only the ungoverned edge is under test. */
   it('does NOT flag an ungoverned source layer as FORBIDDEN', () => {
     const edges: LayerEdge[] = [
-      // A live runtime->utils edge keeps the `runtime` allowance from going stale,
-      // isolating the property under test: the ungoverned verbs->workflow
-      // edge must produce NO FORBIDDEN_IMPORT.
       {
         module: 'runtime/res.ts',
         sourceLayer: 'runtime',
@@ -258,7 +235,6 @@ describe('runLayerBoundaryCensus — verdict logic', () => {
   });
 
   it('flags an allowance no live edge exercises as STALE_LAYER_ALLOWANCE', () => {
-    // `runtime -> utils` is declared but there is no live runtime->utils edge.
     const result = runLayerBoundaryCensus([], allowances);
     expect(result.diagnostics.map((d) => d.code)).toContain('STALE_LAYER_ALLOWANCE');
     const stale = result.diagnostics.find((d) => d.code === 'STALE_LAYER_ALLOWANCE');
@@ -280,20 +256,19 @@ describe('runLayerBoundaryCensus — verdict logic', () => {
 });
 
 describe('EXIT PROOF — live allowed-dependency layering', () => {
+  /** The diagnostics assertion runs first, so a regression prints each diagnostic. */
   it('(a) the live shipped source has ZERO forbidden imports and no stale allowance', async () => {
     const result = await auditLayerBoundaries(SRC_ROOT, lexModule);
-    // Surfacing the diagnostics array makes any regression self-describing.
     expect(result.diagnostics).toEqual([]);
     expect(result.ok).toBe(true);
     expect(result.edgeCount).toBeGreaterThan(0);
   });
 
+  /**
+   * The scan uses the same declared ids that the census judges against.
+   * With a nested id declared, a scan under a different id set makes the rows of that id look phantom.
+   */
   it('(b) a planted forbidden import from a governed leaf FAILS against the live edges', async () => {
-    // Scanned with the SAME declared ids the census judges against. Resolving
-    // the tree under one id set and judging it under another agrees only while
-    // every id is a single path segment — the moment a nested id is declared,
-    // its rows would look phantom here for a reason that has nothing to do with
-    // the tree.
     const edges = await scanLayerEdges(SRC_ROOT, lexModule, declaredLayerIds());
     const planted: LayerEdge = {
       module: 'utils/rogue.ts',
@@ -311,12 +286,12 @@ describe('EXIT PROOF — live allowed-dependency layering', () => {
     ).toBe(true);
   });
 
+  /**
+   * A green census does not show that each row can still reject.
+   * The test seeds one violation for each declared rule. The census must fail and name the seeded module.
+   * Each seeded target comes from the live layer set, so the seeded edge has the shape of a real edge.
+   */
   it('LayerRule_SeededViolation_FailsAndNamesTheRule', async () => {
-    // Task 041 promoted the whole core into the governed set. A table of 30
-    // rows is worth exactly as much as its teeth, and "the census is green"
-    // says nothing about whether any INDIVIDUAL row can still reject. So seed
-    // one violation per declared rule and require the census to fail naming
-    // that rule — a row that cannot reject is a row that governs nothing.
     const edges = await scanLayerEdges(SRC_ROOT, lexModule, declaredLayerIds());
     expect(LAYER_ALLOWED_IMPORTS.length).toBeGreaterThan(20);
 
@@ -327,8 +302,6 @@ describe('EXIT PROOF — live allowed-dependency layering', () => {
     }
 
     for (const rule of LAYER_ALLOWED_IMPORTS) {
-      // A target this rule does NOT allow, drawn from the live layer set so the
-      // seeded edge is shaped like a real one rather than a fiction.
       const disallowed = [...everyLayer]
         .sort()
         .find((l) => l !== rule.layer && !rule.allow.includes(l));
@@ -356,11 +329,8 @@ describe('EXIT PROOF — live allowed-dependency layering', () => {
     }
   });
 
+  /** An allowance that no live edge exercises governs nothing, so the census must fail on it. */
   it('LayerAllowance_PhantomCover_FailsAsStale', async () => {
-    // The other tooth, on the live edge set: an allowance nothing exercises is
-    // cover that governs nothing, and it must fail rather than sit there. This
-    // matters more after task 041 than before — 18 new rows are 18 new chances
-    // to leave a target behind when an edge is deleted.
     const edges = await scanLayerEdges(SRC_ROOT, lexModule, declaredLayerIds());
     const phantom: LayerAllowance = {
       layer: 'utils',
@@ -389,12 +359,13 @@ describe('EXIT PROOF — live allowed-dependency layering', () => {
     }
   });
 
+  /**
+   * A row that names an absent directory never forbids and never goes stale.
+   * An empty `allow` has no unused target, and no module resolves to the id.
+   * The seeded-violation tests plant synthetic files, so they pass without live coverage.
+   * The test walks the tree, so a foundation leaf that imports nothing is still visible.
+   */
   it('every declared layer id owns at least one scanned module', async () => {
-    // A row naming a directory that does not exist never forbids and never
-    // goes stale: empty `allow` has no unused target, and no module resolves
-    // to the id. Seeded-violation tests plant synthetic files, so they pass
-    // without live coverage. Walk the tree so a foundation leaf that imports
-    // nothing is still visible.
     const { readdir } = await import('node:fs/promises');
     const { join, relative } = await import('node:path');
     const ids = declaredLayerIds();
@@ -416,9 +387,8 @@ describe('EXIT PROOF — live allowed-dependency layering', () => {
     expect(vacant, 'LAYER_ALLOWED_IMPORTS rows that own no scanned module').toEqual([]);
   });
 
+  /** Root files stay in the edge set as `<root>`. A skip on `isRootFile` makes `registry.ts` ungovernable. */
   it('LayerCensus_LiveTree_CountsRootFilesAsTheStatedRootLayer', async () => {
-    // Root files stay in the edge set as `<root>`. Skipping them with
-    // `isRootFile` would make `registry.ts` ungovernable again.
     const edges = await scanLayerEdges(SRC_ROOT, lexModule, declaredLayerIds());
     const rootSources = edges.filter((e) => e.sourceLayer === ROOT_LAYER);
     const rootTargets = edges.filter((e) => e.targetLayer === ROOT_LAYER);
@@ -474,13 +444,9 @@ describe('EXIT PROOF — live allowed-dependency layering', () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// DR-1 — the declaration-seam census
-// ════════════════════════════════════════════════════════════════════════════
-
 /** The on-disk seeded consumer that bypasses the seam (the kill-probe subject). */
 const VIOLATOR_FIXTURE = join(SRC_ROOT, 'architecture/__fixtures__/declaration-seam-violator.fixture.ts');
-/** The module path the fixture would occupy if it were shipped source. */
+/** The path of the fixture relative to `src`. */
 const VIOLATOR_MODULE = 'architecture/__fixtures__/declaration-seam-violator.fixture.ts';
 
 /** A minimal synthetic rule, so the unit tests do not depend on the live one. */
@@ -539,9 +505,13 @@ describe('detectDeclarationSeamUsage', () => {
     ).toBeUndefined();
   });
 
+  /**
+   * The synthetic rule names the root-level `registry.ts` as a store, so the detector must resolve a root-file import.
+   * The layering census resolves the same edge. The two censuses stay separate for a different reason.
+   * A layer allowance is unconditional, and the declaration rule fires only for a module that consumes declarations.
+   * That condition keeps the population self-maintaining, and an allowance row cannot express it.
+   */
   it('detectDeclarationSeamUsage_RootLevelStoreImport_IsResolvedNotSkipped', () => {
-    // `registry.ts` is the largest declaration store and a ROOT-LEVEL file, so
-    // this census has to resolve root-file imports or miss its biggest subject.
     const found = detectDeclarationSeamUsage(
       'contract/rogue.ts',
       `import type { Declaration } from './declaration.js';
@@ -551,13 +521,6 @@ describe('detectDeclarationSeamUsage', () => {
 
     expect(found?.storageImports.map((i) => i.storageModule)).toEqual(['registry.ts']);
 
-    // This used to assert the layering census saw NOTHING here — the contrast
-    // that justified keeping the two censuses apart. Task 040 removed the
-    // root-file exclusion, so both now resolve the same edge, and the reason
-    // they stay separate is no longer mechanical: a layer allowance is
-    // unconditional, while DR-1's rule fires only for a module that is already
-    // a declaration CONSUMER. That condition is what makes the population
-    // self-maintaining, and it is not expressible as an allowance row.
     const layerEdges = detectLayerEdges(
       'contract/rogue.ts',
       `import { X } from '../registry.js';`,
@@ -600,9 +563,8 @@ describe('exportsDeclarationSymbol', () => {
     ).toBe(true);
   });
 
+  /** A store can move while a comment still holds its name. A match on that comment resolves a store that is gone. */
   it('exportsDeclarationSymbol_SymbolOnlyMentionedInADocComment_ReturnsFalse', () => {
-    // The failure this guards: a store that MOVED while its name lingered in
-    // prose would otherwise keep resolving and the census would stay vacuous.
     expect(
       exportsDeclarationSymbol(' * export const TOOL_REGISTRY is defined elsewhere.', 'TOOL_REGISTRY'),
     ).toBe(false);
@@ -630,9 +592,8 @@ describe('runDeclarationSeamCensus — verdict logic', () => {
     expect(finding && 'storageModule' in finding && finding.storageModule).toBe('registry.ts');
   });
 
+  /** A module that knows nothing about declarations is not a violation, so the census needs no grandfather list. */
   it('runDeclarationSeamCensus_NonConsumerImportingAStore_IsNotFlagged', () => {
-    // An un-migrated module that knows nothing about declarations is not a
-    // violation — that is the whole reason this census needs no grandfather list.
     const result = runDeclarationSeamCensus(
       scanOf([
         usage('contract/declaration-seam.ts', ['./declaration.js'], []),
@@ -747,10 +708,8 @@ describe('EXIT PROOF — the live declaration seam (DR-1)', () => {
     expect(result.ok).toBe(true);
   });
 
+  /** If the contract modules or the stores move, these counts drop and the census fails. */
   it('auditDeclarationSeam_LiveShippedSource_ResolvesANonEmptyConsumerAndStorePopulation', async () => {
-    // The non-empty-denominator criterion, measured rather than asserted: if the
-    // contract modules or the stores are moved/renamed, these drop to zero and
-    // the census above fails instead of reading clean.
     const result = await auditDeclarationSeam(SRC_ROOT, lexModule);
 
     expect(result.consumerCount).toBeGreaterThan(0);
@@ -765,11 +724,8 @@ describe('EXIT PROOF — the live declaration seam (DR-1)', () => {
     expect(scan.storage.filter((s) => !s.resolved)).toEqual([]);
   });
 
+  /** The `subject` of the envelope is a type parameter, so `contract/declaration.ts` needs no store import to type it. */
   it('scanDeclarationSeam_LiveEnvelopeAndAccessor_ImportNoDeclarationStorage', async () => {
-    // The property behind task 006's `subject` decision: the contract foundation
-    // stays storage-free. A kind-indexed subject map would have had to name
-    // `CompositeTool` / `CliActionHints`, forcing `contract/declaration.ts` to
-    // import `registry.ts` — a store — which is what this pins shut.
     const scan = await scanDeclarationSeam(SRC_ROOT, lexModule);
 
     for (const module of DECLARATION_SEAM.contractModules) {
@@ -778,11 +734,11 @@ describe('EXIT PROOF — the live declaration seam (DR-1)', () => {
     }
   });
 
+  /**
+   * Kill probe. The fixture is a real file: a declaration consumer that reads `EVENT_EMISSION_REGISTRY` around the seam.
+   * The shipped detector reads the fixture, and the test adds the result to the live scan.
+   */
   it('runDeclarationSeamCensus_SeededOnDiskConsumerReadingStorageDirectly_FailsAgainstTheLiveTree', async () => {
-    // KILL PROBE. A real file on disk — a declaration consumer that bypasses the
-    // seam and reads `EVENT_EMISSION_REGISTRY` — is run through the SHIPPED
-    // detector and planted into the LIVE scan. A seam rule with no failing
-    // subject has not been shown to work; this is that subject.
     const seeded = detectDeclarationSeamUsage(
       VIOLATOR_MODULE,
       await readFile(VIOLATOR_FIXTURE, 'utf8'), lexModule,
@@ -804,9 +760,8 @@ describe('EXIT PROOF — the live declaration seam (DR-1)', () => {
     ).toBe(true);
   });
 
+  /** A fixture inside the live scan makes the census fail on every run, so the scanner must exclude it. */
   it('scanDeclarationSeam_LiveTree_ExcludesTheSeededViolatorFixture', async () => {
-    // The probe would be worthless if its own subject leaked into the live scan
-    // (the census would then be red for everyone).
     const scan = await scanDeclarationSeam(SRC_ROOT, lexModule);
 
     expect(scan.usages.map((u) => u.module)).not.toContain(VIOLATOR_MODULE);
@@ -814,13 +769,13 @@ describe('EXIT PROOF — the live declaration seam (DR-1)', () => {
 });
 
 describe('DR-26 — SDK generation seam: a direct SDK import fails the rule', () => {
+  /**
+   * The kill fixture. The migrated tree holds no direct SDK import outside the exemptions, so the test seeds one.
+   * Without the seed, zero violations look the same as a rule that cannot fire.
+   * The test adds the seeded module to the live scan, so the rule runs as it does against this tree.
+   * The message must name the seam module, so the reader knows what to import.
+   */
   it('SdkSeam_DirectSdkImport_FailsSeamRule', async () => {
-    // ── THE KILL FIXTURE ────────────────────────────────────────────────────
-    // A guard with no failing subject has not been shown to work. On
-    // introduction this rule had 42 real failing subjects across 22 files;
-    // task 053 migrated every one, so the falsifier is re-seeded here and must
-    // stay reproducible forever — otherwise "zero violations" over a fully
-    // migrated tree is indistinguishable from a rule that cannot fire.
     const rogueSource = [
       `import { McpServer } from '${v1Spec('server/mcp.js')}';`,
       `import { StdioServerTransport } from '${v1Spec('server/stdio.js')}';`,
@@ -838,9 +793,6 @@ describe('DR-26 — SDK generation seam: a direct SDK import fails the rule', ()
     expect(seeded.isSeam, 'the fixture is NOT the owned seam').toBe(false);
     expect(seeded.imports.map((i) => i.generation)).toEqual(['v1', 'v1']);
 
-    // Injected into the LIVE scan, exactly as DR-1's violator probe is: the
-    // claim is that the rule as it actually runs against this tree would have
-    // rejected the module, not that a hand-built scan can be made to fail.
     const live = await scanSdkSeamBoundary(REPO_ROOT, parseModuleSpecifiers);
     const result = runSdkSeamBoundaryCensus({
       ...live,
@@ -856,14 +808,14 @@ describe('DR-26 — SDK generation seam: a direct SDK import fails the rule', ()
       rejections.length,
       'every direct SDK import in the seeded module must be named, not just the first',
     ).toBe(2);
-    // The message has to say what to do, or the guard is a riddle.
     expect(rejections[0]?.message).toContain(SDK_SEAM_BOUNDARY.seamModule);
   });
 
+  /**
+   * NEGATIVE TWIN 1: the rule measures the bypass, not any use of the SDK.
+   * Without this arm, the kill fixture also passes against a rule that rejects every module in `adapters/`.
+   */
   it('SdkSeam_SameModuleThroughTheSeam_Passes', async () => {
-    // NEGATIVE TWIN #1 — the rule measures the BYPASS, not "this module has
-    // anything to do with the SDK". Without this arm the kill fixture above
-    // would also pass against a rule that rejected every module in `adapters/`.
     const throughSeam = [
       "import { createV1McpServer, createV1StdioServerTransport } from '../contract/sdk/seam.js';",
       '',
@@ -880,13 +832,11 @@ describe('DR-26 — SDK generation seam: a direct SDK import fails the rule', ()
     expect(runSdkSeamBoundaryCensus(live).ok).toBe(true);
   });
 
+  /**
+   * NEGATIVE TWIN 2: the rule reads the syntax tree, not the text.
+   * A regex matcher counts a specifier in a comment, a string or a template literal as an import.
+   */
   it('SdkSeam_SpecifierInCommentOrLiteral_IsNotABypass', () => {
-    // NEGATIVE TWIN #2 — the rule reads the syntax tree, not the text. This is
-    // the defect task 062 removed one boundary over (a template-literal
-    // specifier counted as an import and floored DR-26's denominator ten above
-    // zero); re-asserted here because this census inherits the same policy
-    // module and would inherit the same defect if the parse were swapped for a
-    // regex.
     const decoys = [
       `// import { X } from '${v1Spec('types.js')}';`,
       `/* export * from '${v2Spec('core')}'; */`,
@@ -898,25 +848,18 @@ describe('DR-26 — SDK generation seam: a direct SDK import fails the rule', ()
     expect(detectSdkSeamUsage(ROGUE_MODULE, decoys, parseModuleSpecifiers)).toBeUndefined();
   });
 
+  /**
+   * The scan derives the subject list from the tree, and its root is the repository root.
+   * A scan rooted at `src` cannot see an SDK client under `tests/`.
+   * The module count must exceed 80% of an independent `git ls-files` count, so a narrowed root fails.
+   * The split uses the seam classification of the scan, so the seam path has one authority.
+   *
+   * The second authority is `package.json`. The generations that the scan finds must equal the installed generations.
+   * A literal `['v1','v2']` compares the tree with itself and can never disagree.
+   */
   it('SdkSeam_MigratedTree_ResolvesEverySiteThroughSeam', async () => {
-    // ── TOTALITY, over a DERIVED population ─────────────────────────────────
-    // The subject list is walked out of the tree, never enumerated here: a list
-    // written into a test is a second authority that goes stale the moment a
-    // module moves, which is the defect class this program exists to close.
-    // SCANNED AT THE REPO ROOT. The claim is about the repository — "the SOLE
-    // importer of either generation" — so it has to be measured over the
-    // repository. Rooted at `src` it read green while a live
-    // v1 client sat in the root package's `test/fixtures/` with a dozen importers,
-    // and a v2 client bypassed the seam in the MCP package's own `test/process/`.
-    // Neither was exempt; both were out of frame. A guard's scan root is part of
-    // its claim.
     const scan = await scanSdkSeamBoundary(REPO_ROOT, parseModuleSpecifiers);
 
-    // NON-EMPTY DENOMINATOR, DERIVED rather than floored. A bare `> 50` cannot
-    // fail here: `src` alone holds ~1545 modules, so a scan
-    // that lost 96% of the tree still cleared it — the same loose-floor shape that
-    // let a src-only walk pass for a package-wide claim. Pinning against an
-    // independently counted population means a narrowed root fails instead.
     const trackedModules = await countTrackedModules(REPO_ROOT);
     expect(
       scan.moduleCount,
@@ -925,10 +868,6 @@ describe('DR-26 — SDK generation seam: a direct SDK import fails the rule', ()
     ).toBeGreaterThan(trackedModules * 0.8);
     expect(scan.seamModulePresent).toBe(true);
 
-    // Split by the scan's OWN seam classification rather than by re-deriving the
-    // path: at repo-root scope every module is repo-root-relative, so the bare
-    // `seamModule` name would not match and re-spelling it here would plant a
-    // second authority for where the seam lives.
     const seamImporters = scan.usages.filter((u) => u.isSeam).map((u) => u.module);
     const bypassImporters = scan.usages.filter((u) => !u.isSeam).map((u) => u.module).sort();
 
@@ -947,17 +886,8 @@ describe('DR-26 — SDK generation seam: a direct SDK import fails the rule', ()
     expect(result.diagnostics).toEqual([]);
     expect(result.ok).toBe(true);
     expect(result.bypassModuleCount).toBe(0);
-    // The seam is a REAL subject, not a name that resolves to nothing.
     expect(result.seamImportCount).toBeGreaterThan(0);
 
-    // ── THE SECOND AUTHORITY ────────────────────────────────────────────────
-    // Every generation npm was asked to INSTALL must still reach the seam. The
-    // expected set is read from `package.json` rather than written as
-    // `['v1','v2']`: a literal would make this a comparison of the tree with
-    // itself, and DR-30 is right that such a comparison can never disagree.
-    // Read this way the two sides are independent — dropping `sdk` from
-    // `dependencies`, or letting the seam's v2 re-exports rot away, each shows
-    // up here as a disagreement instead of a silent pass.
     const seamGenerations = new Set(
       scan.usages.flatMap((u) => u.imports.map((i) => i.generation)),
     );
@@ -978,22 +908,20 @@ describe('DR-26 — SDK generation seam: a direct SDK import fails the rule', ()
     expect([...seamGenerations].sort()).toEqual([...installedGenerations].sort());
   });
 
+  /** The shipped entry point, which composes the scan and the census. */
   it('SdkSeam_AuditOverLiveTree_IsGreen', async () => {
-    // The shipped entry point, end to end — `scanSdkSeamBoundary` +
-    // `runSdkSeamBoundaryCensus` composed exactly as a caller would use them.
     const result = await auditSdkSeamBoundary(REPO_ROOT, parseModuleSpecifiers);
     expect(result.diagnostics).toEqual([]);
     expect(result.ok).toBe(true);
   });
 });
 
+/**
+ * These cases run the census mechanics against synthetic scans. `SYNTHETIC_RULE` holds no exemptions.
+ * Each shipped exemption names a module that a synthetic scan does not hold, so the stale check reports it.
+ * The last case in this block asserts the shipped roster.
+ */
 describe('DR-26 — SDK seam rule: fail-closed teeth', () => {
-  // These cases exercise the CENSUS MECHANICS against synthetic scans, so they
-  // carry their own rule with no exemptions. Reading the shipped roster here
-  // would couple every mechanic assertion to the live licence list: each shipped
-  // exemption names a module absent from a synthetic scan, which the STALE tooth
-  // correctly reports — the tooth firing, not the mechanic breaking. The shipped
-  // roster has its own assertion at the end of this block.
   const SYNTHETIC_RULE: SdkSeamBoundaryRule = {
     seamModule: SDK_SEAM_BOUNDARY.seamModule,
     exemptions: [],
@@ -1017,9 +945,8 @@ describe('DR-26 — SDK seam rule: fail-closed teeth', () => {
     imports: [{ specifier: v1Spec('types.js'), generation: 'v1', line: 3 }],
   };
 
+  /** Positive control. Without it, a census that fails on everything also satisfies each rejection in this block. */
   it('SdkSeamRule_HealthyScan_IsGreen', () => {
-    // POSITIVE CONTROL. Without it, every rejection below would be consistent
-    // with a census that fails on everything.
     expect(runSdkSeamBoundaryCensus(healthy, SYNTHETIC_RULE).ok).toBe(true);
   });
 
@@ -1029,8 +956,8 @@ describe('DR-26 — SDK seam rule: fail-closed teeth', () => {
     expect(result.diagnostics.map((d) => d.code)).toContain('EMPTY_SDK_SEAM_DENOMINATOR');
   });
 
+  /** A scanner that matches nothing reports no bypass and can report none. */
   it('SdkSeamRule_SeamImportsNothing_FailsClosed', () => {
-    // The scanner stopped matching: no bypass is reported and none could be.
     const result = runSdkSeamBoundaryCensus({ ...healthy, usages: [] });
     expect(result.ok).toBe(false);
     const empty = result.diagnostics.filter((d) => d.code === 'EMPTY_SDK_SEAM_DENOMINATOR');
@@ -1047,6 +974,10 @@ describe('DR-26 — SDK seam rule: fail-closed teeth', () => {
     expect(result.diagnostics.map((d) => d.code)).toContain('SDK_SEAM_MODULE_ABSENT');
   });
 
+  /**
+   * An exemption suppresses the violation that it names.
+   * An unexercised exemption fails, so it cannot cover a later violation.
+   */
   it('SdkSeamRule_ExemptModule_IsNotAViolationButMustBeLive', () => {
     const rule = {
       seamModule: SDK_SEAM_BOUNDARY.seamModule,
@@ -1059,7 +990,6 @@ describe('DR-26 — SDK seam rule: fail-closed teeth', () => {
         },
       ],
     };
-    // An exemption suppresses the violation it names...
     const covered = runSdkSeamBoundaryCensus(
       { ...healthy, usages: [seamUsage, rogue] },
       rule,
@@ -1068,8 +998,6 @@ describe('DR-26 — SDK seam rule: fail-closed teeth', () => {
     expect(covered.ok).toBe(true);
     expect(covered.bypassModuleCount).toBe(0);
 
-    // ...and becomes a failure itself the moment nothing exercises it, so an
-    // exemption cannot decay into cover for a violation that arrives later.
     const stale = runSdkSeamBoundaryCensus(healthy, rule, '2026-08-07');
     expect(stale.ok).toBe(false);
     expect(stale.diagnostics.map((d) => d.code)).toContain('STALE_SDK_SEAM_EXEMPTION');
@@ -1095,16 +1023,12 @@ describe('DR-26 — SDK seam rule: fail-closed teeth', () => {
     expect(result.diagnostics.map((d) => d.code)).toContain('EXPIRED_SDK_SEAM_EXEMPTION');
   });
 
+  /**
+   * The roster is pinned, so a new exemption arrives as a reviewed diff.
+   * Each entry is a test harness that needs the real transport, which the seam abstracts away.
+   * No production module holds an exemption. An expired entry is debt on every run, so each entry must be live.
+   */
   it('SdkSeamRule_ShippedExemptions_AreProcessHarnessesOnly_AndFullyGoverned', () => {
-    // Was `toEqual([])`. That assertion did its job — widening the audit to the
-    // repository surfaced three process-level test harnesses that drive a real
-    // server over stdio, and licensing them had to arrive as a reviewed diff
-    // rather than a quiet edit. It is replaced, not deleted: the roster is still
-    // pinned, and every entry must still be fully governed.
-    //
-    // The PRODUCTION tree licenses none of these — that is the claim task 053
-    // earned and this keeps. Each entry is a test harness that needs the real
-    // transport, which is exactly what the seam abstracts away.
     expect(SDK_SEAM_BOUNDARY.exemptions.map((e) => e.module).sort()).toEqual([
       'tests/core/process/_helpers.ts',
       'tests/helpers/__helpers__/mock-mcp-server.mjs',
@@ -1112,32 +1036,21 @@ describe('DR-26 — SDK seam rule: fail-closed teeth', () => {
     ]);
 
     for (const entry of SDK_SEAM_BOUNDARY.exemptions) {
-      // No production module may be licensed — the moment one appears here the
-      // exemption list has stopped being a test-harness carve-out.
       expect(entry.module).toMatch(/(^|\/)tests\//);
       expect(entry.owner.length).toBeGreaterThan(0);
       expect(entry.reason.length).toBeGreaterThan(0);
       expect(entry.expires).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-      // An already-expired entry would be shipped debt the EXPIRED tooth reports
-      // on every run; the roster must be live when it lands.
       expect(entry.expires > new Date().toISOString().slice(0, 10)).toBe(true);
     }
   });
 });
 
-// ─── Task 040a — the two censuses that ride along with the layering one ──────
-//
-// This file carries THREE censuses. Work scoped to the layering table has twice
-// come close to migrating it alone, which would leave the other two pointing at
-// module paths that no longer exist — and a seam whose paths resolve to nothing
-// does not fail, it reports clean. Each census owns vacuity teeth for exactly
-// that, and each is unit-tested above. What was missing is the assertion that
-// binds them: a check that BOTH still refuse an empty rule set, in one place, so
-// dropping either one during a migration is a red test rather than a silence.
-
+/**
+ * This file holds three censuses, and a migration of the layering census alone can leave the other two stale.
+ * A seam whose paths resolve to nothing must fail. These tests bind that check for both seams in one place.
+ */
 describe('Task 040a — neither seam may pass by matching nothing', () => {
   it('BothSeams_VacuityCheck_FailsOnAnEmptyRuleSet', () => {
-    // Declaration seam: no consumers resolved and no stores declared.
     const declaration = runDeclarationSeamCensus(
       { usages: [], storage: [], accessorPresent: true },
       { contractModules: [], storage: [], sourceAdapters: [], accessorModule: 'contract/declaration-seam.ts' },
@@ -1145,7 +1058,6 @@ describe('Task 040a — neither seam may pass by matching nothing', () => {
     expect(declaration.ok, 'an empty declaration rule set must FAIL, not read clean').toBe(false);
     expect(declaration.diagnostics.map((d) => d.code)).toContain('EMPTY_SEAM_DENOMINATOR');
 
-    // SDK seam: nothing visited and nothing importing the seam.
     const sdk = runSdkSeamBoundaryCensus(
       { usages: [], moduleCount: 0, seamModulePresent: true },
       { seamModule: SDK_SEAM_BOUNDARY.seamModule, exemptions: [] },
@@ -1154,12 +1066,11 @@ describe('Task 040a — neither seam may pass by matching nothing', () => {
     expect(sdk.diagnostics.map((d) => d.code)).toContain('EMPTY_SDK_SEAM_DENOMINATOR');
   });
 
+  /**
+   * The empty-denominator checks fire only at zero, so a denominator of one or two modules still passes them.
+   * The floors on `consumerCount` and `moduleCount` make that shrinkage fail.
+   */
   it('BothSeams_OnTheLiveTree_HaveNonEmptyDenominators', async () => {
-    // The converse, and the half that actually rots: the teeth above only bite
-    // when a denominator reaches ZERO. If the live denominators drifted down to
-    // one or two modules both censuses would still be "non-empty" and would
-    // govern almost nothing. Characterised as a floor so shrinkage is visible
-    // rather than merely survivable.
     const declaration = await auditDeclarationSeam(SRC_ROOT, lexModule);
     expect(declaration.ok).toBe(true);
     expect(declaration.consumerCount).toBeGreaterThan(1);
@@ -1171,18 +1082,15 @@ describe('Task 040a — neither seam may pass by matching nothing', () => {
     expect(sdk.seamModulePresent).toBe(true);
   });
 
+  /**
+   * The three censuses live in one module, so a change to the layering census can reach the two seams.
+   * Each declared store must still be a real module that exports its store symbol.
+   */
   it('BothSeams_DeclaredPaths_StillResolveAfterTheLayeringChange', async () => {
-    // Task 040 changed `layerOf` and removed the root-file exclusion. Those
-    // belong to the layering census, but all three censuses live in one module
-    // and read one scan, so "the layering change was self-contained" is a claim
-    // worth an instrument rather than a reading of the diff.
     expect(DECLARATION_SEAM.storage.length).toBeGreaterThan(0);
     expect(DECLARATION_SEAM.contractModules.length).toBeGreaterThan(0);
     expect(SDK_SEAM_BOUNDARY.seamModule.length).toBeGreaterThan(0);
 
-    // Every declared store must still be a real module exporting the symbol
-    // that makes it a store — the UNRESOLVED tooth, asserted directly rather
-    // than inferred from a green verdict.
     const scan = await scanDeclarationSeam(SRC_ROOT, lexModule);
     for (const store of DECLARATION_SEAM.storage) {
       const resolved = scan.storage.find((s) => s.module === store.module);
@@ -1193,10 +1101,11 @@ describe('Task 040a — neither seam may pass by matching nothing', () => {
 });
 
 describe('source hygiene', () => {
+  /**
+   * A literal NUL byte makes ripgrep treat the module as binary and skip it.
+   * The `\0` escape gives the same runtime separator and keeps the file visible to a text-mode audit.
+   */
   it('LayerBoundariesSeam_Source_ContainsNoRawNulBytes', () => {
-    // A literal NUL in this module made ripgrep treat it as binary and skip
-    // it. The runtime separator is the `\0` escape, which is the same value
-    // without hiding the file from text-mode audit.
     const file = join(SRC_ROOT, 'architecture/layer-boundaries-seam.ts');
     const bytes = readFileSync(file);
     expect(bytes.includes(0), 'a raw NUL hides this file from ripgrep').toBe(false);

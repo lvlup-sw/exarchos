@@ -9,11 +9,11 @@ import {
   serializedProofBaseline,
 } from '../../../../src/contract/compiler/generate.js';
 
-// The checked-in proof-fixture baseline is the reviewable drift artifact and the
-// stable fixture the downstream oracle (P03-09) verifies against. If the live
-// registry / policy / schema surface changes, this test goes red until the
-// baseline is regenerated (`npx tsx src/contract/compiler/generate.ts`) — the
-// same "regenerate + review" gesture as the P03-01 authority lock.
+/**
+ * The checked-in proof-fixture baseline is the drift artifact that the downstream oracle verifies against.
+ * If the live registry, policy or schema surface changes, these tests fail.
+ * To regenerate the baseline, run `npx tsx src/contract/compiler/generate.ts`.
+ */
 describe('generated proof-fixture baseline — drift guard', () => {
   it('CheckedInBaselineMatchesAFreshCompilation', () => {
     const outcome = compile(deriveMetaModel());
@@ -24,16 +24,17 @@ describe('generated proof-fixture baseline — drift guard', () => {
     }
   });
 
+  /** Two generations from the current tree give the same bytes, and those bytes equal the checked-in file. */
   it('RegeneratingProducesTheByteIdenticalBaseline', () => {
-    // The generator is idempotent against the current tree — proving the
-    // "repeated generation is byte-stable" exit proof at the artifact boundary.
     expect(serializedProofBaseline()).toBe(serializedProofBaseline());
     expect(serializedProofBaseline()).toBe(fs.readFileSync(PROOF_FIXTURES_FILE, 'utf8'));
   });
 
+  /**
+   * `compileLiveContract()` throws when the authority freeze blocks.
+   * A digest proves that the real freeze passes in this tree.
+   */
   it('CompilesLiveAgainstTheRealAuthorityFreeze', () => {
-    // compileLiveContract() throws if the authority freeze blocks; reaching a
-    // digest proves the real freeze is green in this tree.
     expect(compileLiveContract().contractDigest).toMatch(/^sha256:[0-9a-f]{64}$/);
   });
 });

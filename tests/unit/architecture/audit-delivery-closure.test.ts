@@ -1,31 +1,15 @@
 /**
- * Self-test for the audit-delivery closure audit (DR-4/DR-24, task 069).
+ * Self-test for the audit-delivery closure audit. `audit-delivery-closure.ts` is a library, so
+ * this file is the guard. It holds the live proof and the kill fixtures. CI runs it on the
+ * unfiltered `grep-gates` job, so a guard that fails to run exits non-zero.
  *
- * `audit-delivery-closure.ts` is a pure library, so THIS FILE IS THE GUARD: it
- * carries both the live proof and the kill fixtures, and CI hosts it on the
- * unfiltered `grep-gates` job so guard-execution failure exits non-zero here
- * rather than passing as success.
+ * The kill fixtures reproduce a vacuous `outputSchema` and a reader that never names the field.
+ * Both must fail, because a guard with no failing subject is not proven.
  *
- * ── The subject ─────────────────────────────────────────────────────────────
- * Before task 069, `check_invariant_conformance` computed `auditPrompt` from
- * every applicable audit-mode invariant and returned it through
- * `outputSchema: vacuityWaiver(...)`. The field occurred in exactly five files
- * repo-wide — the producer plus four of its own tests. Both halves of that state
- * are reproduced below as fixtures, and both are RED. A guard with no
- * demonstrated failing subject has not been shown to work.
- *
- * ── The two oracles (DR-30) ─────────────────────────────────────────────────
- * The obligation record is the SPECIFICATION, not an oracle — and it is not
- * independent of the registry anyway: `registry.ts` reaches it transitively
- * (`registry → views/lifecycle/inspect → core/dispatch → verbs/composite
- * → check-invariant-conformance → audit-delivery-closure.data`), because the
- * handler renders its report directive from the same record. The two authorities
- * this audit actually COMPARES are independent of each other:
- *   A. the Zod objects the live tool registry constructs at import time — what
- *      the boundary really declares;
- *   B. the reader documents on disk under content, which are not in the
- *      import graph at all and are read as text at audit time.
- * Neither is computed from the other, so their agreement is evidence.
+ * The audit compares two independent sources. The first is the Zod objects that the live tool
+ * registry builds at import. The second is the reader documents under `content`, which the audit
+ * reads as text and which are not in the import graph. The obligation record is the specification
+ * and not an oracle, because the registry imports it transitively.
  */
 // @oracle-sources: ../../../src/registry.ts, the reader documents on disk that each obligation names under content which are read as text at audit time and appear nowhere in the static import graph
 import { describe, it, expect } from 'vitest';
@@ -48,8 +32,6 @@ import {
   type ClosureTool,
 } from '../../../src/architecture/audit-delivery-closure.js';
 
-// ─── Fixtures ────────────────────────────────────────────────────────────────
-
 const OBLIGATION: AuditDeliveryObligation = {
   id: 'fixture-obligation',
   declarationId: 'fixture_tool.fixture_action',
@@ -61,7 +43,7 @@ const OBLIGATION: AuditDeliveryObligation = {
   expectation: 'judge every id and re-enter violations',
 };
 
-/** A substantive contract: both delivered fields required and typed. */
+/** A substantive contract. Both delivered fields are required and typed. */
 const TYPED_DATA = z
   .object({
     auditPrompt: z.string(),
@@ -79,9 +61,8 @@ function toolWith(dataSchema: z.ZodType): readonly ClosureTool[] {
 }
 
 /**
- * A reader that DOES carry the instruction — every derived token inside one
- * section. The baseline the RED fixtures are varied away from, so each finding
- * is attributable to the single property that changed.
+ * A reader that holds every derived token inside one section. Each failing fixture changes one
+ * property of this baseline, so each finding has one cause.
  */
 const WIRED_READER = [
   '# Review',
@@ -107,26 +88,20 @@ function codesOf(findings: readonly { code: ClosureFindingCode }[]): ClosureFind
   return findings.map((f) => f.code);
 }
 
-// ─── The live proof ──────────────────────────────────────────────────────────
-
 describe('audit-delivery closure — live proof (DR-4/DR-24, task 069)', () => {
+  /** The counts must be non-zero, because an audit that enumerates nothing also has no findings. */
   it('AuditDeliveryClosure_LiveObligations_AreClosed', () => {
     const report = auditDeliveryClosure();
 
     expect(report.findings, formatDeliveryClosureReport(report)).toEqual([]);
     expect(report.ok).toBe(true);
 
-    // Non-empty denominator, asserted rather than assumed: an audit that
-    // enumerated nothing would satisfy `findings === []` too.
     expect(report.obligationCount).toBeGreaterThanOrEqual(1);
     expect(report.readerCount).toBeGreaterThanOrEqual(1);
     expect(report.closed).toHaveLength(report.obligationCount);
   });
 
-  /**
-   * A guard proven only through its injected seams has been proven about its
-   * seams. The live defaults must BE the live artifacts.
-   */
+  /** The fixture tests inject the obligations and the tools. The defaults must be the live artifacts. */
   it('AuditDeliveryClosure_Defaults_AreTheLiveArtifacts', () => {
     const explicit = auditDeliveryClosure({
       obligations: AUDIT_DELIVERY_OBLIGATIONS,
@@ -138,10 +113,7 @@ describe('audit-delivery closure — live proof (DR-4/DR-24, task 069)', () => {
     expect([...defaulted.closed]).toEqual([...explicit.closed]);
   });
 
-  /**
-   * The obligation that motivated the task, named explicitly: the live gate must
-   * really be the one under audit, not a fixture that happens to be green.
-   */
+  /** The live obligations must govern `check_invariant_conformance`, the gate that returns `auditPrompt`. */
   it('AuditDeliveryClosure_LiveObligation_GovernsTheConformanceGate', () => {
     const live = AUDIT_DELIVERY_OBLIGATIONS.find(
       (o) => o.declarationId === 'exarchos_orchestrate.check_invariant_conformance',
@@ -152,13 +124,11 @@ describe('audit-delivery closure — live proof (DR-4/DR-24, task 069)', () => {
   });
 });
 
-// ─── Kill fixtures — the pre-069 state, both halves ──────────────────────────
-
 describe('audit-delivery closure — kill fixtures', () => {
   /**
-   * HALF 2, THE CONTRACT. `vacuityWaiver()` with no explicit schema returned
-   * `EnvelopeSchema(z.unknown())`; that is reproduced verbatim here. The field
-   * "exists" on every payload and on none — a reader could not rely on it.
+   * The contract half. The output schema is `EnvelopeSchema(z.unknown())`, which a waived
+   * declaration has by default. That schema accepts every payload, so a reader cannot rely on the
+   * field. The audit reports both delivered properties, not only the first.
    */
   it('AuditDeliveryClosure_PreTask069VacuousContract_IsRed', () => {
     const report = auditDeliveryClosure({
@@ -168,15 +138,13 @@ describe('audit-delivery closure — kill fixtures', () => {
     });
 
     expect(report.ok).toBe(false);
-    // BOTH delivered properties are reported, not just the first.
     expect(codesOf(report.findings)).toEqual(['VACUOUS_CONTRACT', 'VACUOUS_CONTRACT']);
     expect(report.closed).toEqual([]);
   });
 
   /**
-   * HALF 1, THE INSTRUCTION. The shape `content/synthesis/skills/shepherd/SKILL.md` had (and
-   * `content/review/skills/review/SKILL.md` did not even have): the document INVOKES the
-   * action and never names what it returns. Invoking is not being instructed.
+   * The instruction half. The reader invokes the action and never names the field that it returns.
+   * An invocation is not an instruction to act on the result.
    */
   it('AuditDeliveryClosure_ReaderThatOnlyInvokesTheGate_IsRed', () => {
     const invokeOnly = [
@@ -200,10 +168,8 @@ describe('audit-delivery closure — kill fixtures', () => {
   });
 
   /**
-   * The co-location rule is what separates an instruction from a coincidence.
-   * Without it this guard would be a whole-file grep, and a document that
-   * happens to name `check_review_verdict` in one place and `auditPrompt` three
-   * sections away would read as wired.
+   * One section must hold every token. Without that rule the guard is a whole-file search, and a
+   * document that names `check_review_verdict` and `auditPrompt` in different sections passes.
    */
   it('AuditDeliveryClosure_ScatteredMentions_AreNotADirective', () => {
     const scattered = [
@@ -230,10 +196,8 @@ describe('audit-delivery closure — kill fixtures', () => {
   });
 
   /**
-   * An OPTIONAL field is not something a reader can be told to iterate. This is
-   * the near-miss the contract half has to catch: `auditInvariantIds?: string[]`
-   * typechecks, censuses as substantive, and still leaves the instruction
-   * unsatisfiable on some responses.
+   * A reader cannot iterate an optional field on every response. An optional `auditInvariantIds`
+   * passes the type check and counts as substantive, so the contract half must reject it.
    */
   it('AuditDeliveryClosure_OptionalDeliveredField_IsRed', () => {
     const halfTyped = z
@@ -254,9 +218,8 @@ describe('audit-delivery closure — kill fixtures', () => {
   });
 
   /**
-   * The two representations are bound to the RECORD, not to each other. Renaming
-   * the field in the authority unbinds both halves at once — which is what makes
-   * a rename a red build instead of a silently stranded instruction.
+   * The contract and the reader each bind to the obligation record, not to each other.
+   * A renamed field in the record thus fails both halves, so a rename cannot strand an instruction.
    */
   it('AuditDeliveryClosure_RenamedField_UnbindsBothRepresentations', () => {
     const renamed: AuditDeliveryObligation = { ...OBLIGATION, field: 'auditText' };
@@ -301,14 +264,8 @@ describe('audit-delivery closure — kill fixtures', () => {
   });
 });
 
-// ─── Non-empty denominator ───────────────────────────────────────────────────
-
 describe('audit-delivery closure — non-empty denominator', () => {
-  /**
-   * An audit over zero obligations satisfies every per-obligation check
-   * vacuously. That failure mode reads green precisely when the instrument has
-   * lost its subject, so it must fail instead.
-   */
+  /** An audit over zero obligations passes every per-obligation check, so the empty list itself must fail. */
   it('AuditDeliveryClosure_ZeroObligations_FailsRatherThanReportsClean', () => {
     const report = auditDeliveryClosure({ obligations: [], tools: toolWith(TYPED_DATA) });
     expect(report.ok).toBe(false);
@@ -326,24 +283,17 @@ describe('audit-delivery closure — non-empty denominator', () => {
     expect(codesOf(report.findings)).toEqual(['NO_READER_DECLARED']);
   });
 
-  /**
-   * The tooth belongs to the PURE predicate, not to its caller — the exact
-   * half-installed-tooth defect task 022 recorded against the CLI guard. An
-   * empty token list must not answer `true` for every document.
-   */
+  /** The predicate itself rejects an empty token list. It does not rely on its caller for that check. */
   it('HasColocatedDirective_EmptyTokenList_IsNotSatisfied', () => {
     expect(hasColocatedDirective(WIRED_READER, [])).toBe(false);
     expect(hasColocatedDirective('', [])).toBe(false);
   });
 });
 
-// ─── The derivations the audit rests on ──────────────────────────────────────
-
 describe('audit-delivery closure — derivations', () => {
   /**
-   * POLICY IS DATA. The rule set loads from the data module; the token list the
-   * instruction check greps for is DERIVED from each record rather than written
-   * beside it, so there is one authority for "what an instruction must name".
+   * The obligations load from the data module. `requiredDirectiveTokens` derives the token list
+   * from each record, so one source says what an instruction must name.
    */
   it('AuditDeliveryClosure_PolicyIsData_NotTestPredicate', () => {
     expect(AUDIT_DELIVERY_OBLIGATIONS.length).toBeGreaterThanOrEqual(1);
@@ -367,9 +317,8 @@ describe('audit-delivery closure — derivations', () => {
   });
 
   /**
-   * A `#` inside a fenced block is a shell comment or a Markdown example, not a
-   * heading. Splitting on it would fragment a code sample and could split a
-   * directive apart — turning a correctly wired reader red.
+   * A `#` inside a fenced block is a shell comment or a Markdown example, not a heading.
+   * A split at that line divides a directive, and then a correct reader fails.
    */
   it('SplitIntoSections_HashInsideFencedBlock_DoesNotOpenASection', () => {
     const doc = ['# A', '```bash', '# not a heading', 'echo hi', '```', 'tail'].join('\n');
@@ -377,9 +326,8 @@ describe('audit-delivery closure — derivations', () => {
   });
 
   /**
-   * `withCappedShape` unions the capped-response fallback into `data`, so the
-   * live contract's `data` is a UNION. The inspector must see through it — the
-   * action's own payload branch declares the fields, the capped branch does not.
+   * `withCappedShape` adds the capped-response fallback to `data`, so the live `data` is a union.
+   * The inspector must read the payload branch of the action, which declares the fields.
    */
   it('InspectContractField_CappedShapeUnion_StillSeesTheRequiredField', () => {
     const declared = withCappedShape(EnvelopeSchema(TYPED_DATA));

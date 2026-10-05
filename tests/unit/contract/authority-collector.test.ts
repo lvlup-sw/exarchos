@@ -24,7 +24,6 @@ describe('collector — live measurement', () => {
   it('Collect_FlattensNonEmptyActionIds', () => {
     const ids = flattenActionIds();
     expect(ids.length).toBeGreaterThan(0);
-    // Sanity: real, known ActionIds are present.
     expect(ids).toContain('exarchos_workflow.init');
     expect(ids).toContain('exarchos_event.append');
   });
@@ -38,10 +37,9 @@ describe('collector — live measurement', () => {
     expect(collectLiveAuthorities()).toEqual(collectLiveAuthorities());
   });
 
+  /** A range in the real dependency fails this test, so the freeze does not accept one silently. */
   it('Collect_McpSdkSpecIsExactlyPinnedInThisRepo', () => {
     const inputs = collectAuthorityInputs();
-    // The real dependency must be an exact pin (guards against the freeze
-    // silently accepting a range). If someone loosens it, this fails.
     expect(inputs.mcpSdkVersionSpec).toMatch(/^\d+\.\d+\.\d+$/);
   });
 
@@ -102,27 +100,25 @@ describe('checked-in lockfile', () => {
 });
 
 describe('verifyContractAuthority — exit proofs', () => {
-  // (d) The current, real repo state verifies successfully.
   it('Verify_RealRepoState_Passes', () => {
     const verdict = verifyContractAuthority();
     expect(verdict.violations).toEqual([]);
     expect(verdict.ok).toBe(true);
   });
 
-  // (a) A floating authority (range-versioned SDK dependency) BLOCKS.
+  /**
+   * A range on the live `@modelcontextprotocol/server` dependency is a floating authority.
+   * A range on a retired key leaves the live pin exact, and this kill probe then kills nothing.
+   * The lock is built as approved from the floating tree, and the freeze must still block.
+   */
   it('Verify_FloatingSdkDependency_Blocks', () => {
     const base = defaultSourcePaths();
     const realPkg = JSON.parse(fs.readFileSync(base.packageJsonFile, 'utf8')) as {
       dependencies: Record<string, string>;
     };
-    // Retargeted with the extractor (task 049): seeding a range on the RETIRED
-    // v1 key would leave the live `server` pin exact, so the freeze would pass
-    // and this kill probe would silently stop killing.
-    realPkg.dependencies['@modelcontextprotocol/server'] = '^2.0.0'; // floating!
+    realPkg.dependencies['@modelcontextprotocol/server'] = '^2.0.0';
     const floatingPkg = tmpFile('package.json', JSON.stringify(realPkg, null, 2));
 
-    // Rebuild an approved lock from THIS floating tree — the freeze must still
-    // block because the live spec is a range.
     const paths: AuthoritySourcePaths = { ...base, packageJsonFile: floatingPkg };
     const live = collectLiveAuthorities(paths);
     const floatingLock = tmpFile(
@@ -137,7 +133,6 @@ describe('verifyContractAuthority — exit proofs', () => {
     ).toBe(true);
   });
 
-  // (b) An unapproved lock BLOCKS.
   it('Verify_UnapprovedLock_Blocks', () => {
     const base = defaultSourcePaths();
     const live = collectLiveAuthorities(base);
@@ -150,7 +145,6 @@ describe('verifyContractAuthority — exit proofs', () => {
     expect(verdict.violations.some((v) => v.kind === 'lock-unapproved')).toBe(true);
   });
 
-  // (c) A digest mismatch vs. the lock BLOCKS.
   it('Verify_DigestMismatch_Blocks', () => {
     const base = defaultSourcePaths();
     const live = collectLiveAuthorities(base);
@@ -176,7 +170,7 @@ describe('verifyContractAuthority — exit proofs', () => {
     ).toBe(true);
   });
 
-  // A missing / invalid lockfile fails closed rather than throwing.
+  /** A missing lockfile gives a blocked verdict and does not throw. */
   it('Verify_MissingLockfile_BlocksClosed', () => {
     const base = defaultSourcePaths();
     const missing = path.join(os.tmpdir(), 'authority-does-not-exist', 'nope.lock.json');

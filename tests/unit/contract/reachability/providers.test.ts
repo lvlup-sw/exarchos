@@ -10,8 +10,6 @@ import {
   type EffectProvider,
 } from '../../../../src/contract/reachability/providers.js';
 
-// ─── The effect-provider connective map, validated against the live ledger ───
-
 describe('effect-provider map — backed by the live effect ledger', () => {
   it('every provider is backed by exactly one live EFFECT_OWNERSHIP rule', () => {
     const verdict = validateEffectProviders();
@@ -22,8 +20,6 @@ describe('effect-provider map — backed by the live effect ledger', () => {
   it('covers exactly the composite tools that dispatch binds a handler for', () => {
     const dispatchTools = new Set(Object.keys(COMPOSITE_HANDLER_LOADERS));
     const providerTools = new Set(EFFECT_PROVIDERS.map((p) => p.tool));
-    // Every dispatchable composite tool has a provider, and no provider is
-    // orphaned from dispatch — the connective map tracks the real loader set.
     expect(providerTools).toEqual(dispatchTools);
   });
 

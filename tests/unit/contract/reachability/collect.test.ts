@@ -1,3 +1,12 @@
+/**
+ * The closure evaluator over the real tree. Each public action must reach complete closure over
+ * the live materialized inputs. Each of the five seeded break classes must fail closure, and so
+ * must a handler or owner ambiguity. Each diagnostic must name the action and the hop.
+ *
+ * The seeds change the materialized `ReachabilityInputs` value, so they prove only that the
+ * evaluator reacts to a break. They do not prove that the collector can surface one.
+ * `kill-fixtures.test.ts` mutates the real upstream authorities and gives that proof.
+ */
 import { describe, it, expect, beforeAll } from 'vitest';
 import {
   collectReachabilityInputs,
@@ -13,23 +22,6 @@ import {
   type ReachabilityHop,
   type ReachabilityInputs,
 } from '../../../../src/contract/reachability/graph.js';
-
-// ─── The closure EVALUATOR over the real tree ────────────────────────────────
-//
-// (a) every public action achieves complete closure over the LIVE materialized
-// inputs; and (b)–(f) the five seeded break classes each fail closure with a
-// diagnostic naming the real action and the broken hop, plus handler/owner
-// AMBIGUITY.
-//
-// SCOPE — read this before treating (b)–(f) as closure evidence. These seeds are
-// applied to the MATERIALIZED `ReachabilityInputs` value, so they prove the
-// EVALUATOR reacts to a break and names the right real ActionId. They do NOT
-// prove the COLLECTOR could ever surface a break, because a hand-patched inputs
-// object bypasses the authorities entirely — which is exactly why four hops were
-// able to stay tautological behind a green suite. The proof that each hop can
-// actually fall out of the census lives in `kill-fixtures.test.ts`, which mutates
-// the REAL upstream authorities (a shipped router's routing arm, a dispatch
-// loader entry, an effect provider, a shipped generated artifact) instead.
 
 let LIVE: ReachabilityInputs;
 
@@ -54,19 +46,18 @@ function hopStatus(inputs: ReachabilityInputs, actionId: string, hop: Reachabili
 }
 
 describe('(a) live reachability — every public action is fully closed', () => {
+  /**
+   * The exception register `LIVE_CLOSURE_EXCEPTIONS` is empty. A stale entry is a diagnostic, and
+   * the test asserts that there are no diagnostics. A new entry must also join the pinned list
+   * here, by action and hop.
+   */
   it('closes 100% of public actions with zero diagnostics and no governed exceptions', () => {
     const report = evaluateClosure(LIVE);
-    expect(LIVE.actions.length).toBeGreaterThan(100); // the real contract surface
+    expect(LIVE.actions.length).toBeGreaterThan(100);
     expect(report.totalActions).toBe(LIVE.actions.length);
     expect(report.closedActions).toBe(report.totalActions);
     expect(report.diagnostics).toEqual([]);
     expect(report.ok).toBe(true);
-    // The honesty invariant: every closure exception is INDIVIDUALLY governed
-    // and actually FIRING (a stale entry is a diagnostic — asserted empty
-    // above). The register is EMPTY: the #1739 cutover-verb entries were
-    // removed when the regenerated CLI-surface golden picked both actions up,
-    // exactly the removal the two-way ratchet forces on a stale entry. Any
-    // future entry must re-justify itself here, pinned by hop.
     expect(
       LIVE_CLOSURE_EXCEPTIONS.map((e) => `${e.actionId}#${e.hop}`).sort(),
     ).toEqual([]);
@@ -124,7 +115,6 @@ describe('(b)-(f) seeded breaks on the MATERIALIZED inputs each fail closure, na
     const report = evaluateClosure(seeded);
     expect(report.ok).toBe(false);
     expect(hopStatus(seeded, target.actionId, 'owner')).toBe('missing');
-    // Every owner-hop diagnostic names a MUTATING action — pure actions are unaffected.
     const ownerDiags = report.diagnostics.filter((d) => d.hop === 'owner');
     expect(ownerDiags.length).toBeGreaterThan(0);
     expect(

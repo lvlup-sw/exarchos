@@ -14,7 +14,7 @@ import {
   type DeclarationKind,
 } from '../../../src/contract/declaration.js';
 
-/** A source over a fixed declaration list — the shape task 007 substitutes. */
+/** A source over a fixed declaration list. */
 const sourceOf = (declarations: readonly AnyDeclaration[]): DeclarationSource => ({
   read: () => declarations,
 });
@@ -37,10 +37,11 @@ describe('openDeclarationSeam — the read surface', () => {
     expect(seam.list('cli-verb').map((d) => d.id)).toEqual(['acquire']);
   });
 
+  /**
+   * Pins the partition to the kind tuple.
+   * A kind in `DECLARATION_KINDS` that the partition switch omits gets no bucket, and `list` returns an empty set with no failure.
+   */
   it('openDeclarationSeam_EveryDeclaredKind_HasItsOwnBucket', () => {
-    // Pins the partition against the kind tuple: a fourth kind added to
-    // DECLARATION_KINDS but not to the partition switch would silently land in
-    // no bucket, and `list` would report an empty set instead of failing.
     const declarations = DECLARATION_KINDS.map((kind): AnyDeclaration => {
       if (kind === 'event') return anEvent('e');
       if (kind === 'action') return anAction('a');
@@ -69,9 +70,11 @@ describe('openDeclarationSeam — the read surface', () => {
     expect(seam.has('event', 'never.registered')).toBe(false);
   });
 
+  /**
+   * An id is unique within a kind, not globally.
+   * A seam that keys on the bare id returns the last declaration with that id.
+   */
   it('openDeclarationSeam_SameIdInTwoKinds_ResolvesPerKindNotGlobally', () => {
-    // Ids are unique WITHIN a kind, never globally (declaration.ts). A seam that
-    // keyed on the bare id would return whichever landed last.
     const seam = openDeclarationSeam(sourceOf([anEvent('export'), aCliVerb('export')]));
 
     expect(seam.get('event', 'export')?.kind).toBe('event');
@@ -79,11 +82,13 @@ describe('openDeclarationSeam — the read surface', () => {
     expect(seam.keys()).toEqual(['cli-verb:export', 'event:export']);
   });
 
+  /**
+   * The property is agreement across permutations, not a value that the module under test derives.
+   *
+   * @oracle-sources: (1) the shuffled input list, whose membership is fixed by
+   * the test author independently of the seam, and (2) a second open over a different input permutation.
+   */
   it('openDeclarationSeam_UnorderedSource_ProducesIdenticalKeyOrderAcrossOpens', () => {
-    // @oracle-sources: (1) the shuffled input list, whose membership is fixed by
-    // the test author independently of the seam; (2) a second open over a
-    // DIFFERENT input permutation. Agreement across permutations is the property
-    // — not a value re-derived from the module under test.
     const forward = [anEvent('b.two'), anEvent('a.one'), anEvent('c.three')];
     const reversed = [...forward].reverse();
 
@@ -94,13 +99,14 @@ describe('openDeclarationSeam — the read surface', () => {
     expect(first).toEqual(['event:a.one', 'event:b.two', 'event:c.three']);
   });
 
+  /**
+   * `keys()` sorts on its own, so it cannot prove the per-kind order that `list` promises.
+   * Two opens over different permutations of the same declarations must give the same `list` sequence.
+   *
+   * @oracle-sources: (1) the two input permutations, fixed by the test author
+   * and not derived from the module, and (2) the declared contract "ordered by `Declaration.id`", as a literal expectation.
+   */
   it('openDeclarationSeam_UnorderedSource_ListsEachKindOrderedById', () => {
-    // `keys()` sorts independently, so it cannot witness the per-kind ordering
-    // contract `list` states. This pins `list` itself: two opens over different
-    // permutations of the same declarations must hand out the same sequence.
-    // @oracle-sources: (1) the two input permutations, fixed by the test author
-    // and not derived from the module; (2) the declared contract "ordered by
-    // Declaration.id", spelled out here as a literal expectation.
     const forward = [anEvent('b.two'), anEvent('a.one'), anEvent('c.three')];
     const reversed = [...forward].reverse();
 
@@ -111,9 +117,11 @@ describe('openDeclarationSeam — the read surface', () => {
     expect(second).toEqual(first);
   });
 
+  /**
+   * Two declarations for one address are the finding that the authority census reports.
+   * The seam must keep both, or the census cannot see them.
+   */
   it('openDeclarationSeam_DuplicateKindAndId_PreservesBothForTheAuthorityCensus', () => {
-    // Two declarations claiming one subject IS the G1/G5 finding. The seam must
-    // not collapse it, or the census that reports it would never see it.
     const first = declareEvent({ id: 'dup', authority: 'registry', boundTo: [], subject: 1 });
     const second = declareEvent({ id: 'dup', authority: 'handshake', boundTo: [], subject: 2 });
     const seam = openDeclarationSeam(sourceOf([first, second]));
@@ -143,9 +151,11 @@ describe('openDeclarationSeam — the read surface', () => {
     expect(seam.get('event', 'second')).toBeUndefined();
   });
 
+  /**
+   * A consumer cannot write into the store through the read surface.
+   * The test uses `defineProperty` and not `push`, so the write attempt needs no type cast.
+   */
   it('openDeclarationSeam_ReturnedList_IsFrozenAgainstConsumerMutation', () => {
-    // A consumer cannot write back through the read surface into the store.
-    // `defineProperty` rather than `push` so the attempt needs no type cast.
     const appendTo = (array: readonly unknown[]): void => {
       Object.defineProperty(array, array.length, { value: 'injected', enumerable: true });
     };
@@ -157,9 +167,8 @@ describe('openDeclarationSeam — the read surface', () => {
     expect(seam.list('event')).toHaveLength(1);
   });
 
+  /** A source can be a lazy generator over a new store, so the seam must read it exactly one time. */
   it('openDeclarationSeam_LazySource_IsDrainedExactlyOnce', () => {
-    // The source is a substitution point, so it may be a generator over relocated
-    // storage. Draining it twice would yield an empty second read.
     let reads = 0;
     const lazy: DeclarationSource = {
       *read() {
@@ -220,10 +229,11 @@ describe('withSubject — the recovered exactness of the rejected kind-indexed m
     expect(Object.isFrozen(narrowed)).toBe(true);
   });
 
+  /**
+   * A narrowed declaration stays usable where the seam expects the widened form.
+   * The defaulted type parameter gives this variance.
+   */
   it('withSubject_NarrowedDeclaration_StillFlowsBackThroughTheWidenedSeamType', () => {
-    // The variance the defaulted type parameter buys and a kind-indexed subject
-    // map would have cost: a narrowed declaration remains usable everywhere the
-    // seam's widened form is expected.
     const seam = openDeclarationSeam(sourceOf([anEvent('widen', { source: 'auto' })]));
     const declaration = seam.get('event', 'widen');
     expect(declaration).toBeDefined();
