@@ -1,13 +1,9 @@
-// ─── serialize_merge dry-run default + acquire mutable-hard-gate (WLM-6 T002) ─
-//
-// DR-1 default-flip: serialize_merge now DEFAULTS to dry-run (claims NO lease,
-// runs NO merge). This suite pins:
-//   1. the dispatch default claims no lease and returns the planned effect;
-//   2. the composed integration-merge caller (LauncherWlm) STILL executes a real
-//      merge — the default flip must not silently no-op it;
-//   3. acquire_worktree REFUSES the reserve when the adopt-gate verified the
-//      target worktree is not mutable (a structured error, not a report).
-// ─────────────────────────────────────────────────────────────────────────────
+// `serialize_merge` defaults to a dry run, which claims no lease and runs no merge.
+// The suite checks three facts:
+// - The dispatch default claims no lease and returns the planned effect.
+// - The composed integration-merge caller `LauncherWlm` still runs a real merge.
+// - `acquire_worktree` refuses the reserve with a structured error when the
+//   adopt gate finds that the target worktree is not mutable.
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
@@ -26,13 +22,11 @@ import type { ProcessSource } from '../../../../src/verbs/worktree/pure/process-
 import type { ProcessTableSource } from '../../../../src/verbs/worktree/pure/probe.js';
 import type { HandleMergeOrchestrateInput } from '../../../../src/verbs/merge/merge-orchestrate.js';
 
-// ─── Deterministic injected deps ─────────────────────────────────────────────
-
 const FIXED_SOURCE: ProcessSource = {
   getStartTime: () => ({ status: 'present', startedAt: 'fixed-start' }),
 };
 
-/** Supported process table where the claiming self-PID is alive (no reclaim). */
+/** A supported process table in which the claiming self PID is alive, so nothing is reclaimed. */
 const SELF_ALIVE_TABLE: ProcessTableSource = {
   list: () => [{ pid: 4242, ppid: 1, cwd: '/', startTime: 'fixed-start' }],
   isSupported: () => true,
@@ -80,7 +74,6 @@ describe('serialize_merge — DR-1 dry-run default', () => {
     const arm = await nextArm();
     const calls: HandleMergeOrchestrateInput[] = [];
 
-    // No dryRun in args → the handler applies the dry-run DEFAULT.
     const result = await handleSerializeMerge(
       { featureId: 'F', integrationRef: 'main', sourceBranch: 'feat/x', strategy: 'squash' },
       arm.ctx,
@@ -96,14 +89,11 @@ describe('serialize_merge — DR-1 dry-run default', () => {
     const data = result.data as { dryRun?: boolean; integrationHead?: string | null };
     expect(data.dryRun).toBe(true);
     expect(data.integrationHead).toBe('deadbeef');
-    // The composed merge was NOT run…
     expect(calls).toHaveLength(0);
-    // …and NO lease event (claim/release) was appended.
     expect(await leaseEvents(arm.eventStore)).toEqual([]);
   });
 
   it('SerializeMerge_ExplicitDryRunFalse_ClaimsLeaseAndMerges', async () => {
-    // The apply path (dryRun:false) must still claim + release the lease.
     const arm = await nextArm();
     const calls: HandleMergeOrchestrateInput[] = [];
 
@@ -128,11 +118,11 @@ describe('serialize_merge — DR-1 dry-run default', () => {
     ]);
   });
 
+  /**
+   * `LauncherWlm.serializeIntegrationMerge` must run a real merge. The caller
+   * passes no `dryRun`, and the composition sets `dryRun: false`.
+   */
   it('SerializeMerge_ComposedCaller_StillExecutesMerge', async () => {
-    // The WLM-5 rerouted merge surface: LauncherWlm.serializeIntegrationMerge
-    // must EXECUTE a real merge despite the new dry-run default — the caller
-    // audit pins dryRun:false so the flip cannot silently no-op an integration
-    // merge. The caller passes NO dryRun; the composition forces the apply path.
     const arm = await nextArm();
     const calls: HandleMergeOrchestrateInput[] = [];
     const wlm = createLauncherWlm({ ctx: arm.ctx });
@@ -150,10 +140,8 @@ describe('serialize_merge — DR-1 dry-run default', () => {
     );
 
     expect(result.success).toBe(true);
-    // The real merge ran…
     expect(calls).toHaveLength(1);
     expect(calls[0].featureId).toBe('F');
-    // …and the lease was claimed + released (NOT a dry-run no-op).
     expect(await leaseEvents(arm.eventStore)).toEqual([
       'worktree.merge_requested',
       'worktree.merge_executed',
@@ -161,6 +149,7 @@ describe('serialize_merge — DR-1 dry-run default', () => {
   });
 });
 
+/** The `probeWith` helper returns a git probe that lists only `wtPath`, with the given mutability verdict. */
 describe('acquire_worktree — mutable-as-hard-gate (DR-1)', () => {
   let arms: Arm[] = [];
   afterEach(async () => {
@@ -173,7 +162,6 @@ describe('acquire_worktree — mutable-as-hard-gate (DR-1)', () => {
     return arm;
   }
 
-  /** A probe that lists exactly `wtPath` with the given mutability verdict. */
   function probeWith(wtPath: string, mutable: boolean): GitWorktreeProbe {
     return {
       listWorktrees: () => [{ path: wtPath, head: 'abc123', branch: 'feat', detached: false, bare: false }],
@@ -186,6 +174,7 @@ describe('acquire_worktree — mutable-as-hard-gate (DR-1)', () => {
     };
   }
 
+  /** The identity realpath keeps the canonical `worktreeId` of the adopt report equal to `wtPath`. */
   it('AcquireWorktree_NotMutable_RefusesReserve', async () => {
     const arm = await nextArm();
     const wtPath = '/wlm6/stale-wt';
@@ -193,20 +182,18 @@ describe('acquire_worktree — mutable-as-hard-gate (DR-1)', () => {
     const result = await handleAcquireWorktree(
       { repoRoot: '/wlm6/repo', worktreeId: wtPath },
       arm.ctx,
-      // Identity realpath so the adopt report's canonical worktreeId === wtPath.
       { gitProbe: probeWith(wtPath, false), processSource: FIXED_SOURCE, realpath: (p) => p },
     );
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('WORKTREE_NOT_MUTABLE');
     expect(result.error?.message).toMatch(/stale-after-push/);
-    // Refusal is a HARD gate — no reservation was written.
     const events = await arm.eventStore.query(WORKTREES_STREAM);
     expect(events.map((e) => e.type)).not.toContain('worktree.reserved');
   });
 
+  /** A mutable worktree still reserves, so the gate refuses only the stale case. */
   it('AcquireWorktree_Mutable_ReservesAsBefore', async () => {
-    // Positive control: a mutable worktree still reserves (the gate is specific).
     const arm = await nextArm();
     const wtPath = '/wlm6/fresh-wt';
 

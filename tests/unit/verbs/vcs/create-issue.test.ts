@@ -30,22 +30,20 @@ function makeMockProvider(overrides: Partial<VcsProvider> = {}): VcsProvider {
 }
 
 /**
- * Default empty marker scan. Tests that do NOT exercise the recovery branch
- * pass this explicitly — the handler now refuses to run without the
- * dependency injected (CodeRabbit #3224631237).
+ * An empty marker scan for tests that do not run the recovery path. The
+ * handler refuses to run without `listIssuesByMarker`.
  */
 const emptyMarkerScan = vi.fn().mockResolvedValue([]);
 
+/**
+ * A context whose event store `query` returns no rows, so the handler uses a
+ * fresh UUID. A failed `query` makes the handler return an error.
+ */
 function makeMockCtx(): DispatchContext {
   return {
     stateDir: '/tmp/test-state',
     eventStore: {
       append: vi.fn().mockResolvedValue({ sequence: 1 }),
-      // recoverOperationId now propagates query failures (CodeRabbit
-      // review #4278133032 — fail-closed instead of minting a fresh
-      // UUID that the marker scan would never match). Default to an
-      // empty result so the happy-path tests fall through to a fresh
-      // randomUUID() exactly like before.
       query: vi.fn().mockResolvedValue([]),
     } as unknown as EventStore,
     enableTelemetry: false,
@@ -63,6 +61,7 @@ describe('handleCreateIssue', () => {
     ctx = makeMockCtx();
   });
 
+  /** The provider gets the body with an operation id marker appended for idempotency. */
   it('handleCreateIssue_ValidArgs_CallsProviderCreateIssue', async () => {
     const args = {
       title: 'Bug: crash on load',
@@ -72,14 +71,12 @@ describe('handleCreateIssue', () => {
 
     await handleCreateIssue(args, ctx);
 
-    // The body now includes the operationId marker embedded for idempotency.
     expect(mockProvider.createIssue).toHaveBeenCalledWith({
       title: 'Bug: crash on load',
       body: expect.stringContaining('Steps to reproduce...'),
       labels: undefined,
       assignees: undefined,
     });
-    // Verify the marker is embedded in the body.
     const call = vi.mocked(mockProvider.createIssue).mock.calls[0][0];
     expect(call.body).toMatch(/<!-- exarchos-op:[0-9a-f-]{36} -->/);
   });
@@ -105,16 +102,14 @@ describe('handleCreateIssue', () => {
 
     expect(mockProvider.createIssue).toHaveBeenCalledWith({
       title: 'Bug',
-      // Body includes the operationId marker appended after original content.
       body: expect.stringContaining('Details'),
       labels: ['bug', 'priority-high'],
       assignees: undefined,
     });
   });
 
+  /** The provider must get the assignees, not only the intent event. */
   it('handleCreateIssue_WithAssignees_PassedToProvider', async () => {
-    // CodeRabbit #3224631240: assignees must be threaded through to the
-    // provider, not just recorded in the durable intent event.
     const args = {
       title: 'Bug',
       body: 'Details',
@@ -132,31 +127,30 @@ describe('handleCreateIssue', () => {
     });
   });
 
+  /**
+   * The handler appends `issue.create.requested` before the provider call and
+   * `issue.create.executed` after it. Both events carry one operation id.
+   */
   it('handleCreateIssue_Success_EmitsTwoEventSequence', async () => {
     const args = { title: 'Bug', body: 'Details', listIssuesByMarker: emptyMarkerScan };
 
     await handleCreateIssue(args, ctx);
 
-    // Two-event split: Phase A emits issue.create.requested, Phase C emits
-    // issue.create.executed. Both use the same operationId.
     const appendCalls = vi.mocked(ctx.eventStore.append).mock.calls;
     expect(appendCalls.length).toBe(2);
 
-    // Phase A — durable intent.
     expect(appendCalls[0][0]).toBe('vcs');
     expect(appendCalls[0][1]).toMatchObject({
       type: 'issue.create.requested',
       data: { title: 'Bug' },
     });
 
-    // Phase C — execution record.
     const executedCall = appendCalls[1][1] as { type: string; data: { operationId: string; issueNumber: number; url: string } };
     expect(appendCalls[1][0]).toBe('vcs');
     expect(executedCall.type).toBe('issue.create.executed');
     expect(executedCall.data.issueNumber).toBe(123);
     expect(executedCall.data.url).toBe('https://github.com/repo/issues/123');
 
-    // Both events share the same operationId.
     const requestedData = appendCalls[0][1] as { data: { operationId: string } };
     expect(executedCall.data.operationId).toBe(requestedData.data.operationId);
   });
@@ -173,28 +167,17 @@ describe('handleCreateIssue', () => {
     expect(result.error?.message).toContain('Rate limited');
   });
 
-  // ─── B3.2 RED: Phase-A retry must not refire gh issue create ──────────────
-  //
-  // Verifies the two-event split property: if the event-store append for
-  // `issue.create.requested` throws ConcurrencyError on the first attempt
-  // (Phase A OCC loss), withStateRetry retries Phase A and the retry must NOT
-  // re-call createIssue. The non-idempotent VCS side effect fires AT MOST ONCE
-  // across all Phase A retry attempts.
-  //
-  // RED with the current single-event handler: it has no Phase A boundary at
-  // all, so phaseAAttempts will be 0 (the `issue.create.requested` event type
-  // doesn't exist yet), causing the `phaseAAttempts >= 2` assertion to fail.
+  /**
+   * The first `issue.create.requested` append throws `ConcurrencyError`. The
+   * handler must retry that append and call the non-idempotent `createIssue`
+   * exactly once.
+   */
   it('CreateIssue_PhaseARetry_DoesNotRefireGhIssueCreate', async () => {
-    // Track how many times the handler attempts to append issue.create.requested
-    // (the Phase A durable intent event). In the two-event split, this must
-    // be retried when a ConcurrencyError is thrown; in the old single-event
-    // handler there is no Phase A, so phaseAAttempts stays 0.
     let phaseAAttempts = 0;
     const fakeAppend = vi.fn().mockImplementation(async (_streamId: string, event: { type: string }) => {
       if (event.type === 'issue.create.requested') {
         phaseAAttempts += 1;
         if (phaseAAttempts === 1) {
-          // First Phase A attempt — synthesize OCC loss to force retry.
           throw new ConcurrencyError({
             streamId: 'vcs',
             reducerId: 'create-issue',
@@ -219,35 +202,24 @@ describe('handleCreateIssue', () => {
 
     const result = await handleCreateIssue(args, retryCtx);
 
-    // The handler should succeed after the Phase A retry.
     expect(result.success).toBe(true);
 
-    // Property 1: Phase A was retried (the retry loop engaged).
-    // RED with current handler: no Phase A → phaseAAttempts === 0 → fails.
     expect(phaseAAttempts).toBeGreaterThanOrEqual(2);
 
-    // Property 2: the non-idempotent VCS createIssue side effect must fire
-    // AT MOST ONCE across all Phase A retry attempts.
     expect(mockProvider.createIssue).toHaveBeenCalledTimes(1);
   });
 
-  // ─── B3.3 RED: Idempotent recovery via operationId marker in issue body ────
-  //
-  // Simulates the crash-recovery scenario: issue.create.requested was committed
-  // to the stream, the issue was created on GitHub (body has the marker), but
-  // the handler crashed before emitting issue.create.executed.
-  //
-  // On re-invocation: the handler must detect the existing issue via the
-  // operationId marker, emit issue.create.executed with the existing issue's
-  // data, and NOT call createIssue again.
+  /**
+   * A crash leaves an issue with the marker in its body but no
+   * `issue.create.executed` event. The handler must find the issue by its
+   * marker and append `issue.create.executed` for it with an idempotency key.
+   * It must not call `createIssue`.
+   */
   it('CreateIssue_RequestedEventCommittedButExecutionInterrupted_RecoversWithoutDuplicate', async () => {
     const existingOperationId = 'a1b2c3d4-0000-0000-0000-000000000001';
     const existingIssueNumber = 456;
     const existingIssueUrl = 'https://github.com/repo/issues/456';
 
-    // Stub listIssuesByMarker to return an existing issue whose body
-    // contains the operationId marker — simulates the crashed state where
-    // the issue was created but issue.create.executed was never committed.
     const listIssuesByMarker = vi.fn().mockResolvedValue([
       {
         number: existingIssueNumber,
@@ -273,11 +245,8 @@ describe('handleCreateIssue', () => {
 
     const result = await handleCreateIssue(args, idempotentCtx);
 
-    // The handler must NOT call createIssue — the issue already exists.
     expect(mockProvider.createIssue).not.toHaveBeenCalled();
 
-    // The handler must emit issue.create.executed with the existing issue data.
-    // The append carries an idempotencyKey so retries dedupe at the EventStore.
     expect(idempotentCtx.eventStore.append).toHaveBeenCalledWith(
       'vcs',
       {
@@ -295,16 +264,12 @@ describe('handleCreateIssue', () => {
     expect((result.data as { issueNumber: number }).issueNumber).toBe(existingIssueNumber);
   });
 
-  // ─── CodeRabbit #3224631237: missing listIssuesByMarker must refuse to run ──
-  //
-  // The handler MUST NOT fall back to a silent no-op precheck — that disables
-  // recovery and produces duplicate issues. The dependency is required at the
-  // handler boundary; the composite handler injects the provider-backed real
-  // implementation.
+  /**
+   * Without `listIssuesByMarker`, the handler must refuse to run. A no-op
+   * precheck disables recovery and can create duplicate issues. The cast skips
+   * the type check, so the runtime guard is the subject.
+   */
   it('CreateIssue_MissingListIssuesByMarker_RefusesAndDoesNotCallProvider', async () => {
-    // Note: we deliberately omit listIssuesByMarker from args.
-    // TypeScript would normally block this at the call site; the handler's
-    // runtime guard is defense-in-depth for callers that bypass the type.
     const args = { title: 'Bug', body: 'Details' } as unknown as Parameters<
       typeof handleCreateIssue
     >[0];
@@ -314,15 +279,13 @@ describe('handleCreateIssue', () => {
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('PRECONDITION_FAILED');
 
-    // Critical: provider.createIssue was NOT called — would duplicate on retry.
     expect(mockProvider.createIssue).not.toHaveBeenCalled();
   });
 
-  // ─── CodeRabbit #3224631237: precheck failure must NOT fall through to create
-  //
-  // When the marker scan fails (provider unhealthy, network error, etc.) the
-  // handler MUST surface the failure rather than proceed with creating a
-  // possibly-duplicate issue.
+  /**
+   * When the marker scan fails, the handler must return the failure. It must
+   * not create an issue that a prior call possibly created.
+   */
   it('CreateIssue_PrecheckFailure_DoesNotCallProvider', async () => {
     const failingScan = vi.fn().mockRejectedValue(new Error('gh search unavailable'));
 
@@ -338,20 +301,14 @@ describe('handleCreateIssue', () => {
     expect(result.error?.code).toBe('PRECHECK_FAILED');
     expect(result.error?.message).toContain('gh search unavailable');
 
-    // The non-idempotent side effect MUST NOT fire when we cannot verify
-    // whether a prior invocation already created the issue.
     expect(mockProvider.createIssue).not.toHaveBeenCalled();
   });
 
-  // ─── CodeRabbit review #4278133032: operationId-recovery must not fail-open ──
-  //
-  // recoverOperationId previously swallowed eventStore.query failures and let
-  // the handler mint a fresh UUID. After a Phase-A/Phase-C crash this
-  // produced a duplicate issue: the body marker was the OLD UUID, the
-  // marker scan searched for the NEW UUID, and Phase C re-fired
-  // gh issue create. The handler now propagates query failures as
-  // PRECHECK_FAILED so the operation can be retried once the event store
-  // is healthy.
+  /**
+   * When the recovery query fails, the handler must return `PRECHECK_FAILED`
+   * and not make a fresh UUID. After a crash, a fresh UUID does not match the
+   * old body marker, so the scan misses the issue and a duplicate results.
+   */
   it('CreateIssue_RecoverOperationIdQueryFailure_ReturnsPrecheckFailedWithoutCallingProvider', async () => {
     const failingQueryCtx: DispatchContext = {
       stateDir: '/tmp/test-state',

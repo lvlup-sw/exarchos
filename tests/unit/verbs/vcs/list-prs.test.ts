@@ -76,14 +76,16 @@ describe('handleListPrs', () => {
     });
   });
 
+  /**
+   * The handler returns a `{ prs, page }` window, newest PR number first. Both
+   * sample PRs fit the default window, so no page remains.
+   */
   it('handleListPrs_NoFilter_ReturnsSuccessWithData', async () => {
     const args = {};
 
     const result = await handleListPrs(args, ctx);
 
     expect(result.success).toBe(true);
-    // DR-3: the shim now returns a windowed `{ prs, page }` shape, newest-first
-    // by PR number. Both sample PRs fit the default window (nothing remains).
     const data = result.data as { prs: PrSummary[]; page: unknown };
     expect(data.prs).toEqual([samplePrs[1], samplePrs[0]]);
     expect(data.page).toEqual({
@@ -95,9 +97,12 @@ describe('handleListPrs', () => {
     expect(result.next_actions).toBeUndefined();
   });
 
+  /**
+   * With 30 PRs and no filter, the window holds the newest 20: PR 30 down to
+   * PR 11. The page metadata shows the total, and one affordance suggests a
+   * filter.
+   */
   it('listPrs_NoLimit_ReturnsDefaultWindow', async () => {
-    // 30 open PRs, no narrowing filter → default window caps at the newest 20
-    // with page metadata + a narrow affordance steering to a filter.
     const many = Array.from({ length: 30 }, (_, i) => makePr(i + 1));
     vi.mocked(mockProvider.listPrs).mockResolvedValue(many);
 
@@ -112,7 +117,6 @@ describe('handleListPrs', () => {
       limit: LIST_PRS_DEFAULT_LIMIT,
       hasMore: true,
     });
-    // Newest-first: PR #30 leads, #11 is the last of the window (#10..#1 hidden).
     expect(data.prs[0]?.number).toBe(30);
     expect(data.prs[LIST_PRS_DEFAULT_LIMIT - 1]?.number).toBe(11);
     expect(result.next_actions).toHaveLength(1);

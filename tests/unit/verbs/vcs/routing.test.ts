@@ -1,11 +1,6 @@
-// ─── VCS Action Routing Tests ───────────────────────────────────────────────
-//
-// Verifies VCS actions are registered in the TOOL_REGISTRY and that the
-// ACTION_HANDLER_KEYS in composite.ts include them.
-//
-// Because composite.ts has deep transitive imports that hit the pre-existing
-// zod v4 / DoctorOutputSchema.innerType breakage, we verify handler
-// registration by reading the source file instead of importing it.
+// Tests that the VCS actions are in `TOOL_REGISTRY` and that `composite.ts`
+// has a handler key for each one. The key check reads the `composite.ts`
+// source as text and does not import it.
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -27,7 +22,6 @@ const VCS_ACTIONS = [
 
 describe('VCS action routing registration', () => {
   it('VcsActions_AllRegisteredInCompositeHandlerSource', () => {
-    // Read composite.ts source and verify each VCS action key appears in ACTION_HANDLERS
     const compositeSource = readFileSync(
       resolve(__dirname, '../../../../src/verbs/composite.ts'),
       'utf-8',
@@ -101,7 +95,6 @@ describe('VCS action routing registration', () => {
     const createPr = orchestrate!.actions.find((a) => a.name === 'create_pr');
     expect(createPr).toBeDefined();
 
-    // Valid input
     const validResult = createPr!.schema.safeParse({
       title: 'feat: test',
       body: 'body',
@@ -110,10 +103,8 @@ describe('VCS action routing registration', () => {
     });
     expect(validResult.success).toBe(true);
 
-    // Invalid input (missing required field)
     const invalidResult = createPr!.schema.safeParse({
       title: 'feat: test',
-      // missing body, base, head
     });
     expect(invalidResult.success).toBe(false);
   });
@@ -123,13 +114,11 @@ describe('VCS action routing registration', () => {
     const mergePr = orchestrate!.actions.find((a) => a.name === 'merge_pr');
     expect(mergePr).toBeDefined();
 
-    // Valid strategies
     for (const strategy of ['squash', 'rebase', 'merge']) {
       const result = mergePr!.schema.safeParse({ prId: '42', strategy });
       expect(result.success, `Strategy '${strategy}' should be valid`).toBe(true);
     }
 
-    // Invalid strategy
     const invalidResult = mergePr!.schema.safeParse({ prId: '42', strategy: 'fast-forward' });
     expect(invalidResult.success).toBe(false);
   });

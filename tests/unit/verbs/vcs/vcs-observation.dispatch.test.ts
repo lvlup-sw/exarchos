@@ -1,25 +1,6 @@
-// Behavioral, through the real dispatch(): proves the vcs journal actions'
-// observation declarations (Lane A) actually resolve at the dispatch
-// boundary, not just in the contract fixture. Three regressions this guards
-// against:
-//
-//   1. `merge_pr` declared no infra stream and named `pr.merged` as an
-//      unconditional success postcondition, so dispatch resolved
-//      `observedStreamId === undefined` and reported
-//      ENSURE_CONTRACT_VIOLATED for every successful merge.
-//   2. `add_pr_comment`'s Phase-A `pr.comment.requested` row rode
-//      `appendComputed`, which never stamps the ambient dispatch operation
-//      id — so the emission verifier's operation-scoped query never found
-//      it, and every successful dispatch would fail EMISSION_CONTRACT_VIOLATED
-//      once the action declared the shared stream.
-//   3. `create_issue` keyed its Phase-A/Phase-B idempotency on the RECOVERED
-//      body-marker uuid rather than the ambient dispatch operation id. A
-//      dispatch that recovers from a prior crash (same title/body, no paired
-//      `issue.create.executed`) reuses that uuid and collides with the first
-//      attempt's idempotency key at the EventStore boundary — the retry's
-//      Phase A append becomes a cache-hit and lands NO row under the retry's
-//      own operation id, so the verifier finds Phase C's row but not Phase
-//      A's and reports EMISSION_CONTRACT_VIOLATED on a call that succeeded.
+// Runs the vcs journal actions through the real `dispatch()`. The tests prove
+// that their observation declarations resolve at the dispatch boundary, not
+// only in the contract fixture.
 
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import * as os from 'node:os';
@@ -36,12 +17,6 @@ vi.mock('../../../../src/vcs/factory.js', () => ({
 
 import { createVcsProvider } from '../../../../src/vcs/factory.js';
 
-// ─── In-memory EventStore harness ───────────────────────────────────────────
-//
-// Mirrors tests/acceptance/action-contract-observation.test.ts: `append`
-// stamps the ambient operation id from `getDispatchContext()` exactly as
-// the real `EventStore.append` does (src/events/store.ts).
-
 interface MemoryRow {
   readonly type: string;
   readonly streamId: string;
@@ -50,6 +25,10 @@ interface MemoryRow {
   readonly operationId?: string;
 }
 
+/**
+ * An in-memory EventStore. Its `append` adds the operation id from
+ * `getDispatchContext()`, as the real `EventStore.append` does.
+ */
 function memoryEventStore(): EventStore {
   const rows = new Map<string, MemoryRow[]>();
   const append = async (
@@ -136,6 +115,10 @@ describe('vcs journal actions — dispatch-level observation', () => {
     vi.clearAllMocks();
   });
 
+  /**
+   * Dispatch must resolve an observed stream for `merge_pr`. Without one, each
+   * successful merge reports `ENSURE_CONTRACT_VIOLATED`.
+   */
   it('MergePr_MergedSuccessfully_DispatchReturnsSuccess', async () => {
     const provider = makeMockProvider({
       mergePr: vi.fn().mockResolvedValue({ merged: true, sha: 'abc123' }),
@@ -167,6 +150,11 @@ describe('vcs journal actions — dispatch-level observation', () => {
     expect(result.success).toBe(true);
   });
 
+  /**
+   * Both journal rows must carry the dispatch operation id. The emission
+   * verifier queries by that id, so a row without it fails the call with
+   * `EMISSION_CONTRACT_VIOLATED`.
+   */
   it('AddPrComment_Dispatched_BothJournalRowsAreFindableByTheDispatchOperation', async () => {
     let postedBody = '';
     const provider = makeMockProvider({
@@ -227,14 +215,18 @@ describe('vcs journal actions — dispatch-level observation', () => {
   });
 });
 
-// ─── create_issue crash recovery — real EventStore ──────────────────────────
-//
-// The in-memory harness above stamps the ambient operation id but does not
-// model idempotencyKey cache-hit collapse, which is exactly the mechanism
-// regression 3 lives in. This block runs against the real `EventStore` so
-// the idempotencyKey path is genuine, not simulated.
-
+/**
+ * These tests use the real `EventStore`, because the in-memory store does not
+ * collapse a repeated idempotency key into a cache hit.
+ */
 describe('create_issue — crash recovery keys the retry under its own operation', () => {
+  /**
+   * The first dispatch fails after `issue.create.requested` lands. The retry
+   * has the same title and body, so the handler reuses the recovered
+   * body-marker uuid. The retry must key its rows on its own dispatch
+   * operation id. If it keys them on the uuid, its first append is a cache hit,
+   * and the verifier reports `EMISSION_CONTRACT_VIOLATED`.
+   */
   it('CreateIssue_RetryAfterPriorCrash_DispatchReturnsSuccessNotEmissionViolation', async () => {
     const { EventStore } = await import('../../../../src/events/store.js');
     const os = await import('node:os');
@@ -251,9 +243,6 @@ describe('create_issue — crash recovery keys the retry under its own operation
       const provider = makeMockProvider({
         createIssue: vi.fn().mockImplementation(async () => {
           attempt += 1;
-          // First dispatch crashes after Phase A committed `issue.create.requested`
-          // but before the provider call landed — the exact window the
-          // body-marker recovery scan exists for.
           if (attempt === 1) throw new Error('simulated provider crash');
           return { number: 777, url: 'https://example.invalid/issues/777' };
         }),
@@ -267,11 +256,6 @@ describe('create_issue — crash recovery keys the retry under its own operation
       );
       expect(first.success).toBe(false);
 
-      // Same title/body, no operationId supplied — the handler's own recovery
-      // scan finds the unpaired `issue.create.requested` from the first
-      // dispatch and reuses its body-marker uuid. That reuse must not make
-      // this second, genuinely new dispatch collide with the first at the
-      // EventStore idempotency-key boundary.
       const second = await dispatch(
         'exarchos_orchestrate',
         { action: 'create_issue', title: 'crash-recovery probe', body: 'same title and body' },

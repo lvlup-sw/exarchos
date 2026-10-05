@@ -1,12 +1,8 @@
-// ─── Prune Safeguards Tests ─────────────────────────────────────────────────
-//
-// Tests that defaultSafeguards().hasOpenPR uses VcsProvider.listPrs().
+// Tests that `defaultSafeguards().hasOpenPR` uses `VcsProvider.listPrs()`.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { VcsProvider, PrSummary, PrFilter } from '../../../../src/vcs/provider.js';
 import { defaultSafeguards } from '../../../../src/verbs/team/prune-safeguards.js';
-
-// ─── Mock VcsProvider Helper ────────────────────────────────────────────────
 
 function createMockProvider(overrides: {
   listPrs?: PrSummary[];

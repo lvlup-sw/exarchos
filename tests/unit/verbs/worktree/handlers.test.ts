@@ -1,10 +1,6 @@
-// ─── Worktree-lifecycle handler contract tests ───────────────────────────────
-//
-// Focused on the handler-level invariants the dispatch/parity suite does not
-// pin: the all-or-nothing owner override (fix 6) and the exclusive-ownership
-// rejections wired from the manager (fix 4). Every handler is driven directly
-// over a real EventStore with deterministic injected deps (no git spawn, no OS
-// process probe), so the assertions are platform-free.
+// Handler-level contract tests for the worktree lifecycle that the dispatch parity suite does not pin.
+// They cover the all-or-nothing owner override, exclusive-ownership rejections, and the `ps`, `wait`, and reconcile surfaces.
+// The tests run over a real EventStore, and most of them inject fake git, process, and clock seams.
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
@@ -30,8 +26,6 @@ import { callCli, callMcp } from '../../parity-harness.js';
 import { extractSchemaFields } from '../../../../src/adapters/cli/schema-to-flags.js';
 import { TOOL_REGISTRY } from '../../../../src/registry.js';
 
-// ─── Deterministic injected deps ─────────────────────────────────────────────
-
 /** Empty probe — adopt observes zero on-disk worktrees, no git spawn. */
 const EMPTY_PROBE: GitWorktreeProbe = {
   listWorktrees: () => [],
@@ -49,17 +43,14 @@ const FIXED_SOURCE: ProcessSource = {
 };
 
 /**
- * A ProcessSource whose create-time probe can NEVER resolve (permission error /
- * missing tool / unsupported platform) — models the DR-5 create-time-unresolvable
- * platform so the derived reservation owner must fall back to `null`, never `''`.
+ * A ProcessSource whose create-time probe never resolves, as on a platform without the probe tool or permission.
+ * The derived reservation owner must then fall back to `null`, never `''`.
  */
 const UNRESOLVABLE_SOURCE: ProcessSource = {
   getStartTime: (): StartTimeProbe => ({ status: 'unknown' }),
 };
 
 const DEPS = { gitProbe: EMPTY_PROBE, processSource: FIXED_SOURCE };
-
-// ─── Arm ─────────────────────────────────────────────────────────────────────
 
 interface Arm {
   readonly stateDir: string;
@@ -86,15 +77,14 @@ afterEach(async () => {
   }
 });
 
-// ─── fix 6: all-or-nothing owner override ────────────────────────────────────
-
+/** `ownerPid` and `ownerStartedAt` must come together or not at all. With neither, the handler derives both. */
 describe('resolveOwner all-or-nothing (acquire_worktree)', () => {
   const baseArgs = { repoRoot: '/tmp/wlm-h-repo', worktreeId: '/tmp/wlm-h-wt' };
 
   it('AcquireWorktree_PartialOwnerOverride_OnlyPid_Rejected', async () => {
     const arm = await createArm();
     const result = await handleAcquireWorktree(
-      { ...baseArgs, ownerPid: 4242 }, // ownerStartedAt omitted → partial
+      { ...baseArgs, ownerPid: 4242 },
       arm.ctx,
       DEPS,
     );
@@ -106,7 +96,7 @@ describe('resolveOwner all-or-nothing (acquire_worktree)', () => {
   it('AcquireWorktree_PartialOwnerOverride_OnlyStartedAt_Rejected', async () => {
     const arm = await createArm();
     const result = await handleAcquireWorktree(
-      { ...baseArgs, ownerStartedAt: 'boot-4242' }, // ownerPid omitted → partial
+      { ...baseArgs, ownerStartedAt: 'boot-4242' },
       arm.ctx,
       DEPS,
     );
@@ -134,37 +124,30 @@ describe('resolveOwner all-or-nothing (acquire_worktree)', () => {
   });
 });
 
-// ─── DR-5: null-ready ownerStartedAt (never the empty string) ─────────────────
-
 describe('DR-5 null-ready ownerStartedAt (acquire_worktree)', () => {
+  /**
+   * With an unresolvable create time, the reservation must store `ownerStartedAt` as `null`, not `''`.
+   * The `worktree.reserved` schema rejects `''` through `.min(1)`.
+   * The reserve succeeds, the event carries `null`, and the folded projection agrees.
+   */
   it('Reserve_UnresolvableCreateTime_StoresNullNeverEmptyString', async () => {
     const arm = await createArm();
 
-    // Derive the owner from the current process on a platform whose create-time
-    // probe cannot resolve — the reservation must persist ownerStartedAt as null,
-    // NOT the empty string. A `''` would trip the schema's `.min(1)` and never
-    // fold into a matchable owner (the invalid-raw-event class DR-5 closes).
     const result = await handleAcquireWorktree(
       { repoRoot: '/tmp/wlm-h-repo', worktreeId: '/tmp/wlm-h-nullstart' },
       arm.ctx,
       { gitProbe: EMPTY_PROBE, processSource: UNRESOLVABLE_SOURCE },
     );
 
-    // The reserve SUCCEEDS (a well-formed reservation) rather than throwing on a
-    // schema-rejected empty create-time.
     expect(result.success).toBe(true);
     expect((result.data as { reserved?: boolean }).reserved).toBe(true);
 
-    // The persisted `worktree.reserved` event carries null — not '' — for the
-    // owner create-time, so it validated against `.min(1).nullable()` and folds
-    // to a null-owner reservation.
     const events = await arm.ctx.eventStore.query(WORKTREES_STREAM);
     const reserved = events.filter((e) => e.type === 'worktree.reserved');
     expect(reserved).toHaveLength(1);
     expect(reserved[0].data?.ownerStartedAt).toBeNull();
     expect(reserved[0].data?.ownerStartedAt).not.toBe('');
 
-    // The folded projection agrees: the reserved entry holds ownerStartedAt: null.
     const view = await handleViewWorktrees({}, arm.ctx, {});
     const worktrees = (view.data as { worktrees: WorktreeEntry[] }).worktrees;
     const entry = worktrees.find((w) => w.worktreeId === '/tmp/wlm-h-nullstart');
@@ -173,9 +156,8 @@ describe('DR-5 null-ready ownerStartedAt (acquire_worktree)', () => {
   });
 });
 
-// ─── fix 4: exclusive-ownership rejections surfaced by the handlers ───────────
-
 describe('exclusive ownership (acquire/release handlers)', () => {
+  /** Live owner 100 holds the worktree, so owner 200 cannot claim it. */
   it('AcquireWorktree_AlreadyReservedByLiveOwner_ReturnsReservedError', async () => {
     const arm = await createArm();
     const args = {
@@ -184,7 +166,6 @@ describe('exclusive ownership (acquire/release handlers)', () => {
       ownerPid: 100,
       ownerStartedAt: 'boot-100',
     };
-    // Owner 100 claims it under a source where 100 is live.
     const liveSource: ProcessSource = {
       getStartTime: (pid): StartTimeProbe =>
         pid === 100 ? { status: 'present', startedAt: 'boot-100' } : { status: 'absent' },
@@ -195,7 +176,6 @@ describe('exclusive ownership (acquire/release handlers)', () => {
     });
     expect(first.success).toBe(true);
 
-    // A different owner cannot claim the live-held worktree.
     const second = await handleAcquireWorktree(
       { ...args, ownerPid: 200, ownerStartedAt: 'boot-200' },
       arm.ctx,
@@ -205,6 +185,7 @@ describe('exclusive ownership (acquire/release handlers)', () => {
     expect(second.error?.code).toBe('WORKTREE_RESERVED');
   });
 
+  /** Owner 200 cannot release the live reservation of owner 100. */
   it('ReleaseWorktree_ForeignLiveOwner_ReturnsOwnedByOtherError', async () => {
     const arm = await createArm();
     const liveSource: ProcessSource = {
@@ -222,7 +203,6 @@ describe('exclusive ownership (acquire/release handlers)', () => {
       { gitProbe: EMPTY_PROBE, processSource: liveSource },
     );
 
-    // A foreign caller (owner 200) cannot release owner 100's live reservation.
     const release = await handleReleaseWorktree(
       { worktreeId: '/tmp/wlm-h-owned', ownerPid: 200, ownerStartedAt: 'boot-200' },
       arm.ctx,
@@ -232,14 +212,6 @@ describe('exclusive ownership (acquire/release handlers)', () => {
     expect(release.error?.code).toBe('WORKTREE_OWNED_BY_OTHER');
   });
 });
-
-// ─── ps / wait — read-only liveness surface (DR-4), dispatched via handleView ──
-//
-// Every assertion drives the PUBLIC composite entry (`handleView`), not the
-// handler in isolation, so a missing `case 'ps'`/`'wait'` routing arm (or an
-// unregistered action) goes red. Deterministic injected seams only — a fake
-// process-table source / identity realpath / injected sleep+clock — so there is
-// no OS process scan and no real timer.
 
 /** Seed a CLAIM (`worktree.merge_requested`) directly on the singleton stream. */
 async function seedMergeRequested(
@@ -323,12 +295,13 @@ async function seedReserved(
   );
 }
 
-// DR-3 (task 007): `ps` became scope-parameterized (default `scope: 'all'`
-// composes the workflows + operations folds). The WLM-6 worktree liveness fold
-// these tests characterize is now the `scope: 'worktree'` path — CONSUMED, not
-// changed. Every call below passes `scope: 'worktree'` so it exercises the exact
-// same kernel behavior, re-pointed at its preserved address.
+/**
+ * Each `ps` call passes `scope: 'worktree'`, the scope that returns the worktree liveness fold.
+ * The `ps` calls go through `handleView`, so a missing routing arm fails them.
+ * Fake process tables and an identity `realpath` keep the tests free of OS process scans.
+ */
 describe('ps — in-flight liveness read (DR-4)', () => {
+  /** `ps` lists an in-flight merge from events and never reads the process table. */
   it('HandleView_Ps_ListsInFlightFromInFlightMerges_NoProcessScan', async () => {
     const arm = await createArm();
     await seedMergeRequested(arm, {
@@ -339,7 +312,6 @@ describe('ps — in-flight liveness read (DR-4)', () => {
       holderStartedAt: 'boot-4242',
     });
 
-    // The process table is a spy; without `probe` it must NEVER be enumerated.
     const listSpy = vi.fn((): readonly ProcessRecord[] => []);
     const table: ProcessTableSource = { list: listSpy };
 
@@ -356,12 +328,14 @@ describe('ps — in-flight liveness read (DR-4)', () => {
     expect(listSpy).not.toHaveBeenCalled();
   });
 
-  // MOVED with its behavior, like the phantom-launch case below: the DR-5
-  // reservation reclaim was `ps probe:true` and is now `reconcile_worktrees`.
+  /**
+   * Owners 555 and 666 are absent from the process table, so they are dead.
+   * PID 777 is alive with its cwd inside the orphan worktree, so that worktree gets `worktree.orphan_detected`.
+   * The released worktree has no occupant, so it gets `worktree.released`.
+   * `selfPid` 999999 is not in the table, so its ancestry is only itself and 777 counts as a foreign occupant.
+   */
   it('ReconcileWorktrees_DeadOwners_ReleasedAndOrphanedEmitted', async () => {
     const arm = await createArm();
-    // released-wt: owner 555 DEAD (absent), not occupied   → worktree.released
-    // orphan-wt:   owner 666 DEAD (absent), occupied by 777 → worktree.orphan_detected
     await seedReserved(arm, {
       worktreeId: '/wlm/released-wt',
       path: '/wlm/released-wt',
@@ -377,9 +351,6 @@ describe('ps — in-flight liveness read (DR-4)', () => {
       operationId: 'op-orph',
     });
 
-    // Only PID 777 is alive, cwd inside the orphan worktree; 555/666 are absent
-    // (provably dead). selfPid (999999) is not in the table, so its ancestry is
-    // just itself and the foreign occupant 777 counts.
     const table: ProcessTableSource = {
       list: () => [{ pid: 777, ppid: 1, cwd: '/wlm/orphan-wt/sub', startTime: 'b777' }],
     };
@@ -398,16 +369,18 @@ describe('ps — in-flight liveness read (DR-4)', () => {
     expect(data.probe.released).toContain('/wlm/released-wt');
     expect(data.probe.orphaned).toContain('/wlm/orphan-wt');
 
-    // The on-demand write path landed both terminal events on the stream.
     const events = await arm.ctx.eventStore.query(WORKTREES_STREAM);
     const types = events.map((e) => e.type);
     expect(types).toContain('worktree.released');
     expect(types).toContain('worktree.orphan_detected');
   });
 
+  /**
+   * The launcher reserves its worktree, and then a child starts.
+   * `ps` shows the launch from events with no process scan, and clears it after `launch.executed` folds.
+   */
   it('HandleView_Ps_SurfacesInFlightLaunches_ClearedByTerminal', async () => {
     const arm = await createArm();
-    // The launcher reserves its top-level worktree, then a child starts.
     await seedReserved(arm, {
       worktreeId: '/wlm/launch-wt',
       path: '/wlm/launch-wt',
@@ -421,7 +394,6 @@ describe('ps — in-flight liveness read (DR-4)', () => {
       holderStartedAt: 'boot-7777',
     });
 
-    // ps surfaces the launch straight from events — no process scan.
     const listSpy = vi.fn((): readonly ProcessRecord[] => []);
     const inFlightResult = await handleView({ action: 'ps', scope: 'worktree' }, arm.ctx, {
       processTableSource: { list: listSpy },
@@ -440,7 +412,6 @@ describe('ps — in-flight liveness read (DR-4)', () => {
     });
     expect(listSpy).not.toHaveBeenCalled();
 
-    // After the terminal folds, ps reflects a cleared launch column.
     await emitLaunchExecuted(arm.ctx.eventStore, {
       worktreeId: '/wlm/launch-wt',
       exitCode: 0,
@@ -456,18 +427,15 @@ describe('ps — in-flight liveness read (DR-4)', () => {
     expect(clearedData.launches).toEqual([]);
   });
 
-  // MOVED, not retired. This exercised `ps probe:true`; the reclaim and the two
-  // reconcilers now answer on `exarchos_orchestrate.reconcile_worktrees`, so the
-  // test follows the behavior to its new surface with every assertion intact.
-  // The handler is driven directly rather than through the orchestrate composite
-  // because the ground-truth process table is a test-only DI seam the composite
-  // does not thread — the same seam the `ps` kernel tests above use.
+  /**
+   * The supervisor died with no teardown, so no `launch.executed` exists and `ps` folds the launch as in-flight.
+   * A supported, empty process table makes the holder provably dead. `ps` is a read and leaves the phantom alone.
+   * The reconcile runs the reservation reclaim and writes one `launch.executed` in the same call.
+   * Its response must report the launch column after the heal, so a healed phantom is not also in-flight.
+   * The test calls the handler directly, because the orchestrate composite does not pass the process-table seam.
+   */
   it('ReconcileWorktrees_PhantomLaunch_HealedToTerminal', async () => {
     const arm = await createArm();
-    // The launcher reserved its worktree and its child CLAIM landed, but the
-    // SUPERVISOR was SIGKILL'd / the host died — no catchable teardown ever ran,
-    // so no `launch.executed` terminal was written. This is a permanent phantom
-    // that `ps` would fold as in-flight forever without the DR-6 reconciler.
     await seedReserved(arm, {
       worktreeId: '/wlm/phantom-launch-wt',
       path: '/wlm/phantom-launch-wt',
@@ -477,22 +445,17 @@ describe('ps — in-flight liveness read (DR-4)', () => {
     });
     await emitLaunchExecutingStarted(arm.ctx.eventStore, {
       worktreeId: '/wlm/phantom-launch-wt',
-      holderPid: 8882, // the now-dead supervisor holder
+      holderPid: 8882,
       holderStartedAt: 'boot-8882',
     });
 
-    // Provably dead: a SUPPORTED but empty table (the holder PID is absent).
     const table: ProcessTableSource = { list: () => [], isSupported: () => true };
 
-    // Before the reconcile: the phantom is in-flight, NO terminal written.
     const before = (await arm.ctx.eventStore.query(WORKTREES_STREAM)).filter(
       (e) => e.type === 'launch.executed',
     );
     expect(before).toHaveLength(0);
 
-    // `ps` sees the phantom and leaves it alone — it is a read now, so the heal
-    // has to be ASKED for. Asserting this here keeps the two surfaces' division
-    // of labour in one test rather than split across two files.
     const psBefore = await handleView({ action: 'ps', scope: 'worktree' }, arm.ctx, {
       processTableSource: table,
       realpath: (p) => p,
@@ -512,35 +475,27 @@ describe('ps — in-flight liveness read (DR-4)', () => {
       launches: unknown[];
       launchCount: number;
     };
-    // The reservation reclaim STILL ran (existing behavior intact)...
     expect(data.probe).toBeDefined();
-    // ...and the phantom launch was reconciled to a terminal on the SAME pass.
     expect(data.reconcile.reconciled).toContain('/wlm/phantom-launch-wt');
 
-    // Regression (CodeRabbit, PR #1632): the SAME response must report the
-    // POST-reconcile launch column, not the stale pre-reconcile snapshot — else a
-    // just-healed phantom is reported as BOTH in-flight and reconciled in one call.
     expect(data.launchCount).toBe(0);
     expect(data.launches).toHaveLength(0);
 
-    // The heal wrote exactly one `launch.executed` — the reconciler is the ONLY
-    // writer of it here (probeAndReclaim writes worktree.released/orphan_detected).
     const after = (await arm.ctx.eventStore.query(WORKTREES_STREAM)).filter(
       (e) => e.type === 'launch.executed',
     );
     expect(after).toHaveLength(1);
     expect(after[0].data?.worktreeId).toBe('/wlm/phantom-launch-wt');
 
-    // A follow-up ps shows the launch column cleared — no permanent phantom.
     const cleared = await handleView({ action: 'ps', scope: 'worktree' }, arm.ctx, { realpath: (p) => p });
     expect((cleared.data as { launchCount: number }).launchCount).toBe(0);
   });
 });
 
 describe('wait — caller-bounded merge-terminal poll (DR-4)', () => {
+  /** With no holder, the slot is already terminal, so the wait resolves on the first fold with no sleep. */
   it('HandleView_Wait_AlreadyTerminal_ResolvesImmediately', async () => {
     const arm = await createArm();
-    // No holder seeded → the slot is already terminal: resolve on the first fold.
     const sleep = vi.fn(async () => {});
 
     const result = await handleView(
@@ -554,6 +509,7 @@ describe('wait — caller-bounded merge-terminal poll (DR-4)', () => {
     expect(sleep).not.toHaveBeenCalled();
   });
 
+  /** The injected sleep clears the slot on its first call, so the next fold resolves with no real timer. */
   it('HandleView_Wait_InFlightThenTerminal_ResolvesWithinTimeout', async () => {
     const arm = await createArm();
     await seedMergeRequested(arm, {
@@ -564,8 +520,6 @@ describe('wait — caller-bounded merge-terminal poll (DR-4)', () => {
       holderStartedAt: 'boot-100',
     });
 
-    // The injected sleep clears the slot on its first call, so the next re-fold
-    // resolves — within the bounded budget, using NO real timer.
     let sleeps = 0;
     const sleep = vi.fn(async () => {
       sleeps += 1;
@@ -589,6 +543,7 @@ describe('wait — caller-bounded merge-terminal poll (DR-4)', () => {
     expect(sleep).toHaveBeenCalledTimes(1);
   });
 
+  /** Each instant sleep moves the clock past the deadline, so the poll ends with a structured timeout. */
   it('HandleView_Wait_Timeout_ReturnsStructuredTimeoutNotHang', async () => {
     const arm = await createArm();
     await seedMergeRequested(arm, {
@@ -599,8 +554,6 @@ describe('wait — caller-bounded merge-terminal poll (DR-4)', () => {
       holderStartedAt: 'boot-100',
     });
 
-    // Controllable clock: each (instant) sleep advances it past the deadline so
-    // the bounded poll terminates with a STRUCTURED timeout, never hanging.
     let t = 0;
     const now = (): number => t;
     const sleep = vi.fn(async (ms: number) => {
@@ -625,6 +578,7 @@ describe('wait — caller-bounded merge-terminal poll (DR-4)', () => {
     expect(data.timeoutMs).toBe(100);
   });
 
+  /** The injected sleep clears the slot on the first poll, so the wait creates no real `setTimeout` or `setInterval`. */
   it('Manager_NoBackgroundTimer_SetIntervalSpyZeroCalls', async () => {
     const arm = await createArm();
     await seedMergeRequested(arm, {
@@ -640,9 +594,6 @@ describe('wait — caller-bounded merge-terminal poll (DR-4)', () => {
     const beforeInterval = setIntervalSpy.mock.calls.length;
     const beforeTimeout = setTimeoutSpy.mock.calls.length;
 
-    // The bounded poll uses the INJECTED sleep seam (which clears the slot on the
-    // first poll), so neither a real setTimeout nor a background setInterval is
-    // ever created during the manager wait op.
     const sleep = vi.fn(async () => {
       await seedMergeExecuted(arm, {
         integrationRef: 'main',
@@ -663,16 +614,9 @@ describe('wait — caller-bounded merge-terminal poll (DR-4)', () => {
   });
 });
 
-// ─── ps / wait — the prune liveness pair (DR-3, task-021) ─────────────────────
-//
-// task-011 folded the `prune.executing_started` / `prune.executed` INV-10 pair
-// into the `worktrees@v1` `inFlightPrunes` projection field but deliberately left
-// the READ surface here. These tests pin that surface: `ps` lists the in-flight
-// prune column, and `wait until:'idle'` blocks until the prune terminal clears it
-// (structured timeout, never a hang). Every assertion drives the PUBLIC composite
-// entry (`handleView`) so a missing routing/schema arm goes red.
-
+/** The `worktrees@v1` projection folds the `prune.executing_started` and `prune.executed` pair into `inFlightPrunes`. */
 describe('ps — in-flight prune surface (DR-3)', () => {
+  /** `ps` lists the in-flight prune from the fold without reading the process table, and clears it after the terminal folds. */
   it('PruneWorktrees_InFlight_VisibleViaPs', async () => {
     const arm = await createArm();
     await seedPruneStarted(arm, {
@@ -682,8 +626,6 @@ describe('ps — in-flight prune surface (DR-3)', () => {
       holderStartedAt: 'boot-4242',
     });
 
-    // Without `probe` the prune column is a pure fold — the process table (a spy)
-    // must NEVER be enumerated.
     const listSpy = vi.fn((): readonly ProcessRecord[] => []);
     const result = await handleView({ action: 'ps', scope: 'worktree' }, arm.ctx, {
       processTableSource: { list: listSpy },
@@ -698,8 +640,6 @@ describe('ps — in-flight prune surface (DR-3)', () => {
     expect(data.prunes[0].holderPid).toBe(4242);
     expect(listSpy).not.toHaveBeenCalled();
 
-    // After the paired terminal folds, ps reports a cleared prune column — the
-    // pair can never surface as a permanent phantom.
     await seedPruneExecuted(arm, { operationId: 'op-prune', deletedCount: 0 });
     const cleared = await handleView({ action: 'ps', scope: 'worktree' }, arm.ctx, { realpath: (p) => p });
     const clearedData = cleared.data as { prunes: InFlightPrune[]; pruneCount: number };
@@ -709,6 +649,7 @@ describe('ps — in-flight prune surface (DR-3)', () => {
 });
 
 describe("wait — until: 'idle' prune-idle poll (DR-3)", () => {
+  /** The injected sleep appends the prune terminal on its first call, so the next fold finds no in-flight prune and resolves. */
   it('Wait_UntilIdle_ResolvesOnPruneTerminal', async () => {
     const arm = await createArm();
     await seedPruneStarted(arm, {
@@ -718,9 +659,6 @@ describe("wait — until: 'idle' prune-idle poll (DR-3)", () => {
       holderStartedAt: 'boot-100',
     });
 
-    // The injected sleep folds the prune terminal on its first call, so the next
-    // re-fold sees an empty inFlightPrunes and resolves idle — within the bounded
-    // budget, using NO real timer.
     let sleeps = 0;
     const sleep = vi.fn(async () => {
       sleeps += 1;
@@ -742,9 +680,9 @@ describe("wait — until: 'idle' prune-idle poll (DR-3)", () => {
     expect(sleep).toHaveBeenCalledTimes(1);
   });
 
+  /** The prune pass never ends, so the poll ends with a structured timeout that names the holder. */
   it('Wait_UntilIdle_Timeout_StructuredNotHang', async () => {
     const arm = await createArm();
-    // A prune pass that never terminates → prune-idle can never be reached.
     await seedPruneStarted(arm, {
       operationId: 'op-stuck-prune',
       repoRoot: '/wlm/repo',
@@ -752,8 +690,6 @@ describe("wait — until: 'idle' prune-idle poll (DR-3)", () => {
       holderStartedAt: 'boot-100',
     });
 
-    // Controllable clock: each (instant) sleep advances it past the deadline so
-    // the bounded poll terminates with a STRUCTURED timeout, never hanging.
     let t = 0;
     const now = (): number => t;
     const sleep = vi.fn(async (ms: number) => {
@@ -782,12 +718,12 @@ describe("wait — until: 'idle' prune-idle poll (DR-3)", () => {
 });
 
 describe("wait — until: 'idle' CLI/MCP flag parity (DR-3, task-021)", () => {
+  /**
+   * The CLI and MCP facades derive `until` from one registry schema, so this pins its enum values and optionality.
+   * It then runs `wait until: 'idle'` through both facades with their real deps.
+   * The store has no in-flight prune, so the wait resolves on the first fold with no real timer.
+   */
   it('WaitSchema_UntilIdleFlag_ParityCliMcp', async () => {
-    // 1. Schema-level: `until` auto-emits as an enum flag from the ONE registry
-    // schema BOTH facades derive from (addFlagsFromSchema for the CLI, MCP
-    // registration for the server) — the structural root of CLI≡MCP parity
-    // (INV-2). Pin the exact enum value set + optionality so a schema drift that
-    // would desync the two surfaces is caught here.
     const waitAction = TOOL_REGISTRY
       .find((t) => t.name === 'exarchos_view')!
       .actions.find((a) => a.name === 'wait')!;
@@ -799,10 +735,6 @@ describe("wait — until: 'idle' CLI/MCP flag parity (DR-3, task-021)", () => {
     expect(untilField!.enumValues).toEqual(['merge', 'idle']);
     expect(untilField!.required).toBe(false);
 
-    // 2. Behavioral: drive `wait until:'idle'` through BOTH facades against a
-    // prune-idle store. A missing routing/schema/coercion arm on EITHER surface
-    // goes red. Empty inFlightPrunes ⇒ resolves on the first fold (no real
-    // timer), so both facades run their real OS-backed deps deterministically.
     const cliArm = await createArm();
     const mcpArm = await createArm();
 

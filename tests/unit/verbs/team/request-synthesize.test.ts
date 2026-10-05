@@ -1,26 +1,11 @@
-// ─── Request Synthesize Handler Tests (T11) ────────────────────────────────
-//
-// Exercises handleRequestSynthesize:
-//   - Appends `synthesize.requested` event when workflow is oneshot
-//   - Rejects non-oneshot workflow types (feature/debug/refactor)
-//   - Rejects missing workflow state
-//   - Idempotent across multiple calls (append semantics; count >= 1 suffices
-//     for the downstream guard)
-//   - Captures optional `reason` in event data
-//   - Emits an ISO-8601 timestamp parseable as a Date
-//
-// #1504: state is resolved EVENT-STORE-FIRST (resolveWorkflowState materializes
-// the workflowStateProjection from events), so these tests seed the events that
-// fold to the desired state instead of mocking the on-disk `.state.json`.
-// ────────────────────────────────────────────────────────────────────────────
+// Tests for `handleRequestSynthesize`. The handler resolves state from the event
+// store first, so the tests seed events that fold to the wanted state.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ToolResult } from '../../../../src/format.js';
 import type { EventStore } from '../../../../src/events/store.js';
 import type { WorkflowEvent } from '../../../../src/events/schemas.js';
 import { handleRequestSynthesize } from '../../../../src/verbs/team/request-synthesize.js';
-
-// ─── Event seeding helpers ──────────────────────────────────────────────────
 
 let _seq = 0;
 function ev(type: string, data: Record<string, unknown>): WorkflowEvent {
@@ -66,9 +51,8 @@ interface AppendCall {
 }
 
 /**
- * Minimal EventStore stub. `query()` returns the seeded `events` so the
- * resolver's event-store-first path folds them through workflowStateProjection;
- * `append()` records `synthesize.requested` calls for assertions.
+ * An `EventStore` stub. `query()` returns the seeded events for the resolver to fold,
+ * and `append()` records each call.
  */
 function makeMockEventStore(events: WorkflowEvent[] = []): {
   store: EventStore;
@@ -90,8 +74,6 @@ function makeMockEventStore(events: WorkflowEvent[] = []): {
   const store = { append: appendSpy, query: querySpy } as unknown as EventStore;
   return { store, calls, appendSpy };
 }
-
-// ─── Tests ──────────────────────────────────────────────────────────────────
 
 describe('handleRequestSynthesize', () => {
   beforeEach(() => {
@@ -118,6 +100,7 @@ describe('handleRequestSynthesize', () => {
     expect(resultData.eventAppended).toBe(true);
   });
 
+  /** Each call appends an event. The guard checks only that at least one event exists, so a repeated request is safe. */
   it('handleRequestSynthesize_isIdempotentAcrossMultipleCalls', async () => {
     const { store, calls } = makeMockEventStore(oneshotEvents('implementing'));
 
@@ -130,11 +113,8 @@ describe('handleRequestSynthesize', () => {
       eventStore: store,
     });
 
-    // Both calls succeed — append semantics, not dedup
     expect(first.success).toBe(true);
     expect(second.success).toBe(true);
-    // Two events appended; downstream guard uses count >= 1 semantics,
-    // so replays remain safe even with multiple requests.
     expect(calls).toHaveLength(2);
     expect(calls[0].event.type).toBe('synthesize.requested');
     expect(calls[1].event.type).toBe('synthesize.requested');
@@ -173,9 +153,8 @@ describe('handleRequestSynthesize', () => {
     expect(resultData.reason).toBe(reason);
   });
 
+  /** With no events, the resolver folds an empty projection and returns `STATE_NOT_FOUND`. */
   it('handleRequestSynthesize_rejectsNonExistentWorkflow', async () => {
-    // No events → resolver folds the zero-initialized projection skeleton
-    // (featureId: '', createdAt: '') → STATE_NOT_FOUND sentinel.
     const { store, calls } = makeMockEventStore([]);
 
     const result: ToolResult = await handleRequestSynthesize({
@@ -188,6 +167,7 @@ describe('handleRequestSynthesize', () => {
     expect(calls).toHaveLength(0);
   });
 
+  /** The timestamp must be a full ISO-8601 string, because Zod `datetime()` rejects other forms. */
   it('handleRequestSynthesize_timestampIsISOString', async () => {
     const { store, calls } = makeMockEventStore(oneshotEvents('implementing'));
 
@@ -201,11 +181,8 @@ describe('handleRequestSynthesize', () => {
     const ts = data.timestamp as string;
     const parsed = new Date(ts);
     expect(Number.isNaN(parsed.getTime())).toBe(false);
-    // Confirm it's a full ISO-8601 string (Zod datetime() accepts only this form).
     expect(ts).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
   });
-
-  // ─── Runtime phase guard (mirrors the registry gating) ────────────────────
 
   it('handleRequestSynthesize_acceptsPlanPhase', async () => {
     const { store, calls } = makeMockEventStore(oneshotEvents('plan'));
@@ -260,12 +237,8 @@ describe('handleRequestSynthesize', () => {
     expect(calls).toHaveLength(0);
   });
 
-  // ─── stateDir is accepted (event-store-first; the file is a fallback) ──────
-
+  /** With `stateDir` and an event store, the handler still resolves state from the events. */
   it('handleRequestSynthesize_resolvesFromEventsWhenGivenStateDir', async () => {
-    // Under event-store-first, providing `stateDir` (no explicit stateFile)
-    // still resolves from the event store — the derived `.state.json` path is
-    // only a fallback when no event store is supplied.
     const { store, calls } = makeMockEventStore(oneshotEvents('implementing'));
 
     const result = await handleRequestSynthesize({

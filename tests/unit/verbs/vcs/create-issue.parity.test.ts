@@ -1,22 +1,9 @@
 /**
- * CLI↔MCP parity harness for the `create_issue` action (B3.5).
- *
- * Verifies that both the CLI carrier (`exarchos orch create_issue`) and the
- * MCP carrier (`exarchos_orchestrate { action: 'create_issue' }`) observe
- * the same two-event sequence:
- *
- *   [issue.create.requested, issue.create.executed]
- *
- * …in that order, with identical operationId and issue data across both
- * carriers. This is the parity invariant for the Wave B two-event split.
- *
- * Strategy:
- *   - Stub `createVcsProvider` (vi.mock) to return a deterministic provider
- *     that resolves createIssue with a fixed issueNumber + url.
- *   - Stub the `exarchos_orchestrate` composite via `stubCompositeHandler`
- *     to forward `create_issue` invocations to the real `handleCreateIssue`.
- *   - Two isolated arms (CLI + MCP) run against separate tmp state dirs and
- *     their captured event sequences are compared for order + data equality.
+ * CLI and MCP parity for the `create_issue` action. Both carriers must record
+ * `issue.create.requested` and then `issue.create.executed`, with one
+ * operation id per arm and the same issue data. Each arm has its own state
+ * directory. Both arms use a stub VCS provider and a composite stub that calls
+ * the real `handleCreateIssue`.
  */
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
@@ -34,8 +21,6 @@ import {
   normalize as harnessNormalize,
 } from '../../parity-harness.js';
 
-// ─── VCS provider mock ────────────────────────────────────────────────────────
-
 vi.mock('../../../../src/vcs/factory.js', () => ({
   createVcsProvider: vi.fn(),
 }));
@@ -48,6 +33,7 @@ import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 const ISSUE_NUMBER = 789;
 const ISSUE_URL = 'https://github.com/test-owner/test-repo/issues/789';
 
+/** A provider with a fixed issue result and an empty marker scan. These tests do not run the recovery path. */
 function makeStubProvider(): VcsProvider {
   return {
     name: 'github',
@@ -60,18 +46,15 @@ function makeStubProvider(): VcsProvider {
     getPrComments: vi.fn(),
     getPrDiff: vi.fn(),
     createIssue: vi.fn().mockResolvedValue({ number: ISSUE_NUMBER, url: ISSUE_URL }),
-    // Empty marker scan — parity test does NOT exercise the recovery branch.
-    // Required by handleCreateIssue per CodeRabbit #3224631237.
     searchIssuesByMarker: vi.fn().mockResolvedValue([]),
     getRepository: vi.fn(),
   };
 }
 
-// ─── Composite stub ───────────────────────────────────────────────────────────
-
 /**
- * Composite stub that forwards `create_issue` to the real `handleCreateIssue`
- * handler. All other actions are unreachable in this parity suite.
+ * Forwards `create_issue` to the real `handleCreateIssue` and rejects other
+ * actions. It adds an empty `listIssuesByMarker`, because the handler requires
+ * one.
  */
 function buildCreateIssueCompositeStub(): CompositeHandler {
   return async (args, ctx): Promise<ToolResult> => {
@@ -85,9 +68,6 @@ function buildCreateIssueCompositeStub(): CompositeHandler {
         },
       };
     }
-    // Inject the empty marker scan that the handler now requires (see
-    // CodeRabbit #3224631237). Parity tests don't exercise recovery, so
-    // an empty scan is correct here.
     return handleCreateIssue(
       {
         ...(rest as Omit<Parameters<typeof handleCreateIssue>[0], 'listIssuesByMarker'>),
@@ -97,8 +77,6 @@ function buildCreateIssueCompositeStub(): CompositeHandler {
     );
   };
 }
-
-// ─── Arm helpers ─────────────────────────────────────────────────────────────
 
 interface ArmContext {
   readonly stateDir: string;
@@ -118,12 +96,9 @@ async function createArm(prefix: string): Promise<ArmContext> {
   return { stateDir, ctx, eventStore };
 }
 
-// ─── Normalization ────────────────────────────────────────────────────────────
-
 /**
- * Strip UUIDs (operationId) and timestamps so two arms with different
- * in-process UUID generation produce byte-equal normalized output.
- * We preserve issueNumber and url — the core result data.
+ * Replaces UUIDs and timestamps with placeholders and drops `_perf` and
+ * `_meta`, so the two arms compare equal. The issue number and URL stay.
  */
 function normalize(value: unknown): unknown {
   return harnessNormalize(value, {
@@ -133,15 +108,11 @@ function normalize(value: unknown): unknown {
   });
 }
 
-// ─── Fixture args ─────────────────────────────────────────────────────────────
-
 const PARITY_ARGS = {
   title: 'Parity test issue',
   body: 'This issue was created by the parity harness.',
   labels: ['parity-test'],
 };
-
-// ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe('create_issue CLI↔MCP parity (B3.5)', () => {
   let arms: ArmContext[] = [];
@@ -157,8 +128,8 @@ describe('create_issue CLI↔MCP parity (B3.5)', () => {
     vi.restoreAllMocks();
   });
 
+  /** Each arm makes its own operation id, so the results compare equal only after normalization. */
   it('CreateIssue_Parity_BothCarriersObserveTwoEventSequence', async () => {
-    // Arrange — install a deterministic VCS provider stub and the composite stub.
     vi.mocked(createVcsProvider).mockResolvedValue(makeStubProvider());
     restoreStub = stubCompositeHandler(
       'exarchos_orchestrate',
@@ -170,7 +141,6 @@ describe('create_issue CLI↔MCP parity (B3.5)', () => {
     const mcpArm = await createArm('create-issue-parity-mcp-');
     arms.push(mcpArm);
 
-    // Act — CLI arm.
     const { result: cliResult, exitCode: cliExitCode } = await harnessCallCli(
       cliArm.ctx,
       'orch',
@@ -178,18 +148,15 @@ describe('create_issue CLI↔MCP parity (B3.5)', () => {
       PARITY_ARGS,
     );
 
-    // Act — MCP arm.
     const mcpResult = await harnessCallMcp(mcpArm.ctx, 'exarchos_orchestrate', {
       action: 'create_issue',
       ...PARITY_ARGS,
     });
 
-    // Assert — both surfaces report success.
     expect(cliResult.success).toBe(true);
     expect(mcpResult.success).toBe(true);
     expect(cliExitCode).toBe(0);
 
-    // Assert — both event streams contain exactly [requested, executed] in order.
     const cliEvents = await cliArm.eventStore.query('vcs');
     const mcpEvents = await mcpArm.eventStore.query('vcs');
 
@@ -199,7 +166,6 @@ describe('create_issue CLI↔MCP parity (B3.5)', () => {
     expect(cliTypes).toEqual(['issue.create.requested', 'issue.create.executed']);
     expect(mcpTypes).toEqual(['issue.create.requested', 'issue.create.executed']);
 
-    // Assert — both streams have matching operationId across the two phases.
     const cliRequested = cliEvents.find((e) => e.type === 'issue.create.requested');
     const cliExecuted = cliEvents.find((e) => e.type === 'issue.create.executed');
     const mcpRequested = mcpEvents.find((e) => e.type === 'issue.create.requested');
@@ -210,7 +176,6 @@ describe('create_issue CLI↔MCP parity (B3.5)', () => {
     expect(mcpRequested).toBeDefined();
     expect(mcpExecuted).toBeDefined();
 
-    // Within each arm, operationId must be consistent across both events.
     const cliRequestedData = cliRequested!.data as { operationId: string };
     const cliExecutedData = cliExecuted!.data as { operationId: string; issueNumber: number; url: string };
     const mcpRequestedData = mcpRequested!.data as { operationId: string };
@@ -219,15 +184,11 @@ describe('create_issue CLI↔MCP parity (B3.5)', () => {
     expect(cliExecutedData.operationId).toBe(cliRequestedData.operationId);
     expect(mcpExecutedData.operationId).toBe(mcpRequestedData.operationId);
 
-    // Assert — both arms resolve to the same issueNumber and url.
     expect(cliExecutedData.issueNumber).toBe(ISSUE_NUMBER);
     expect(mcpExecutedData.issueNumber).toBe(ISSUE_NUMBER);
     expect(cliExecutedData.url).toBe(ISSUE_URL);
     expect(mcpExecutedData.url).toBe(ISSUE_URL);
 
-    // Assert — ToolResult payloads are byte-equal after UUID normalization.
-    // UUIDs differ between arms (each generates its own operationId), so
-    // we normalize both before comparing.
     const normalizedCli = normalize(cliResult);
     const normalizedMcp = normalize(mcpResult);
     expect(normalizedCli).toEqual(normalizedMcp);

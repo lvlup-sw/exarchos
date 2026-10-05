@@ -7,9 +7,7 @@ import {
 import type { ProcessSource, StartTimeProbe } from '../../../../../src/verbs/worktree/pure/process-identity.js';
 import type { WorktreeEntry, WorktreeState } from '../../../../../src/verbs/worktree/projections/worktrees.js';
 
-// ─── Fixtures ────────────────────────────────────────────────────────────────
-
-/** Build a WorktreeEntry; owner fields default to a live-looking reservation. */
+/** Builds a `WorktreeEntry`. The owner fields default to a live-looking reservation. */
 function entry(overrides: Partial<WorktreeEntry> = {}): WorktreeEntry {
   return {
     worktreeId: '/wt/a',
@@ -23,9 +21,8 @@ function entry(overrides: Partial<WorktreeEntry> = {}): WorktreeEntry {
 }
 
 /**
- * A ProcessSource backed by a simple PID→create-time map. A PID absent from the
- * map models an exited process (probe `absent`); a PID present with a DIFFERENT
- * create-time models PID reuse by a newer process.
+ * A `ProcessSource` backed by a map from PID to create time. A PID that is not
+ * in the map is an exited process, and its probe is `absent`.
  */
 function sourceFrom(table: Record<number, string>): ProcessSource {
   return {
@@ -37,12 +34,10 @@ function sourceFrom(table: Record<number, string>): ProcessSource {
   };
 }
 
-/** A ProcessSource whose probe ALWAYS fails (permission / missing tool). */
+/** A `ProcessSource` whose probe always fails, as with a permission error or a missing tool. */
 const UNKNOWN_SOURCE: ProcessSource = {
   getStartTime: (): StartTimeProbe => ({ status: 'unknown' }),
 };
-
-// ─── reservationLiveness ─────────────────────────────────────────────────────
 
 describe('reservationLiveness', () => {
   it('LiveOwner_PidPresentAndStartedAtMatches_IsAlive', () => {
@@ -53,20 +48,22 @@ describe('reservationLiveness', () => {
 
   it('DeadOwner_PidAbsent_IsDead', () => {
     const e = entry({ ownerPid: 100, ownerStartedAt: 'boot-100' });
-    const source = sourceFrom({}); // PID 100 has exited
+    const source = sourceFrom({});
     expect(reservationLiveness(e, source)).toBe('dead');
   });
 
+  /** A live PID with a different create time belongs to a different process. */
   it('ReusedPid_CreateTimeMismatch_IsDead', () => {
     const e = entry({ ownerPid: 100, ownerStartedAt: 'boot-100' });
-    // PID 100 is live again but with a NEWER create-time → a different process.
     const source = sourceFrom({ 100: 'boot-999' });
     expect(reservationLiveness(e, source)).toBe('dead');
   });
 
+  /**
+   * A failed probe does not prove death. The result is `unknown`, so a caller
+   * does not reclaim a reservation that can still be live.
+   */
   it('ProbeFailed_IsUnknown_NotDead', () => {
-    // The owner could not be probed at all — NOT proof of death. `unknown` so a
-    // caller never reclaims a possibly-live reservation on a probe failure.
     const e = entry({ ownerPid: 100, ownerStartedAt: 'boot-100' });
     expect(reservationLiveness(e, UNKNOWN_SOURCE)).toBe('unknown');
   });
@@ -83,22 +80,17 @@ describe('reservationLiveness', () => {
     expect(reservationLiveness(e, source)).toBe('dead');
   });
 
+  /**
+   * A null owner create time means that no live owner can be matched. The result
+   * is `dead` for any probe outcome, so the heal fold releases the reservation.
+   */
   it('ReservationLiveness_NullOwnerStartedAt_TreatedFailClosed', () => {
-    // DR-5: a reservation whose owner create-time is null (the platform could not
-    // resolve it at reserve time — threaded as null, NEVER '') has NO attributable
-    // live owner. Liveness fails closed toward reclamation: it is 'dead' (never
-    // 'alive'/'unknown'), so the heal fold can free a phantom that can never be
-    // matched to a live process — even when the recorded PID is present with a
-    // live-looking create-time in the table.
     const nullStart = entry({ ownerPid: 100, ownerStartedAt: null });
     const livePidSource = sourceFrom({ 100: 'boot-100' });
     expect(reservationLiveness(nullStart, livePidSource)).toBe('dead');
 
-    // Independent of the probe outcome: an unprobeable source yields 'dead' too —
-    // the null owner descriptor short-circuits before the source is consulted.
     expect(reservationLiveness(nullStart, UNKNOWN_SOURCE)).toBe('dead');
 
-    // And such a reservation is selected for release by the heal fold.
     expect(
       selectDeadReservations([nullStart], livePidSource).map((e) => e.worktreeId),
     ).toEqual([nullStart.worktreeId]);
@@ -112,8 +104,6 @@ describe('reservationLiveness', () => {
     }
   });
 });
-
-// ─── selectDeadReservations ──────────────────────────────────────────────────
 
 describe('selectDeadReservations', () => {
   it('SelectsOnlyDeadReservedEntries_LeavesLiveAndNonReserved', () => {
@@ -130,7 +120,6 @@ describe('selectDeadReservations', () => {
     const released = entry({ worktreeId: '/wt/released', state: 'released' });
     const adopted = entry({ worktreeId: '/wt/adopted', state: 'adopted' });
 
-    // PID 1 alive (matching); PID 2 exited.
     const source = sourceFrom({ 1: 'b1' });
 
     const result = selectDeadReservations(
@@ -151,7 +140,7 @@ describe('selectDeadReservations', () => {
     const a = entry({ worktreeId: '/wt/a', ownerPid: 10, ownerStartedAt: 'x' });
     const b = entry({ worktreeId: '/wt/b', ownerPid: 11, ownerStartedAt: 'x' });
     const c = entry({ worktreeId: '/wt/c', ownerPid: 12, ownerStartedAt: 'x' });
-    const source = sourceFrom({}); // all exited
+    const source = sourceFrom({});
     const result = selectDeadReservations([a, b, c], source);
     expect(result.map((e) => e.worktreeId)).toEqual(['/wt/a', '/wt/b', '/wt/c']);
   });
@@ -160,11 +149,11 @@ describe('selectDeadReservations', () => {
     expect(selectDeadReservations([], sourceFrom({}))).toEqual([]);
   });
 
+  /**
+   * Only a provably dead owner is selected. A reservation whose probe failed
+   * stays, because its owner can still be live. An absent PID is selected.
+   */
   it('ProbeFailedOwner_IsNotReleased_ButAbsentOwnerIs', () => {
-    // The owner-liveness probe is three-state: only a PROVABLY dead owner is
-    // selected for release. A reservation whose probe FAILED (`unknown`) is left
-    // intact — releasing it could free a still-live reservation (the Major bug).
-    // A genuinely-absent PID is still selected, so heal still works.
     const unprovable = entry({
       worktreeId: '/wt/unprovable',
       ownerPid: 100,
@@ -176,7 +165,6 @@ describe('selectDeadReservations', () => {
       ownerStartedAt: 'boot-200',
     });
 
-    // PID 100 fails to probe (unknown); PID 200 is absent (dead).
     const mixedSource: ProcessSource = {
       getStartTime: (pid: number): StartTimeProbe =>
         pid === 100 ? { status: 'unknown' } : { status: 'absent' },
@@ -184,7 +172,6 @@ describe('selectDeadReservations', () => {
 
     const result = selectDeadReservations([unprovable, absent], mixedSource);
 
-    // Only the provably-absent owner is released; the probe-failed one is kept.
     expect(result.map((e) => e.worktreeId)).toEqual(['/wt/absent']);
   });
 });

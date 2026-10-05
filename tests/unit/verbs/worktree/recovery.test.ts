@@ -1,31 +1,13 @@
-// ─── DR-12 — error handling & failure modes for the liveness + merge surface ──
+// Recovery tests for the crash and concurrency paths of the liveness and merge surface.
+// A crashed merge leaves an unpaired `worktree.merge_requested`.
+// When its holder is provably dead, recovery frees the slot with exactly one terminal event.
+// Two production paths free it: the inline dead-holder reclaim in `serialize_merge`, and the `reconcileMerges` pass in `reconcile_worktrees`.
+// Prune skips a worktree whose integration branch holds an in-flight merge lease.
+// An exhausted index.lock retry reaches the caller as `IndexLockContentionError`, and the lease is released.
 //
-// The crash / concurrency recovery edges that the Task-006 lease loop and the
-// Task-007 prune ladder do NOT cover on their own:
-//
-//   1. Crash-mid-merge recovery — an unpaired `worktree.merge_requested` (a
-//      crash between CLAIM and RELEASE) whose holder is provably dead is
-//      terminated EXACTLY ONCE (INV-8/13) by FREEING the dead slot, from either
-//      production path: the LIVE inline dead-holder reclaim reached via the
-//      `serialize_merge` action, OR the explicit `reconcileMerges` pass in the
-//      `reconcile_worktrees` handler alongside the reservation + launch
-//      reconcilers. There is no standalone resume entry (DR-3, WLM slice 3: the
-//      built-but-unwired `resumeCrashedMerge` export — which re-ran the crashed
-//      merge under the caller's `featureId` — was excised in favor of these two
-//      slot-freeing paths).
-//   2. Concurrent prune + merge — the GC must SKIP a worktree (or its
-//      integration branch) holding an unpaired in-flight merge lease, re-folded
-//      under the claim — no double-free.
-//   3. Exhausted index.lock retry — the structured `IndexLockContentionError`
-//      surfaces to the caller and the slot is released (no half-merge).
-//   4. No `git reset --hard` — the serializer introduces none of its own; the
-//      INV-14 `--abort` → `--keep` + `recoveryError` pass through from the
-//      UNCHANGED `merge_orchestrate`.
-//
-// The crash / concurrency assertions run against a REAL SQLite EventStore (the
-// substrate's in-transaction stream-version gate is the cross-process guard);
-// the prune assertion additionally drives a REAL git repo so the skip is pinned
-// against ground-truth `git` ancestry, not a mock.
+// The serializer runs no `git reset --hard` and passes a `recoveryError` from `merge_orchestrate` through unchanged.
+// The tests use a real SQLite EventStore, because its stream-version check inside the transaction is the cross-process guard.
+// The prune test also uses a real git repo.
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
@@ -53,8 +35,6 @@ import type { ProcessTableSource, ProcessRecord } from '../../../../src/verbs/wo
 import type { ProcessSource, StartTimeProbe } from '../../../../src/verbs/worktree/pure/process-identity.js';
 import { IndexLockContentionError, type SleepFn } from '../../../../src/verbs/worktree/git-retry.js';
 import { canonicalWorktreeId } from '../../../../src/verbs/worktree/pure/path-containment.js';
-
-// ─── Arm: one stateDir + EventStore + ctx (real SQLite) ──────────────────────
 
 interface Arm {
   readonly stateDir: string;
@@ -90,8 +70,6 @@ afterEach(async () => {
   }
 });
 
-// ─── Shared helpers ──────────────────────────────────────────────────────────
-
 /** Live process table reporting exactly the listed (pid, startTime) pairs alive. */
 function liveTable(pairs: ReadonlyArray<{ pid: number; startTime: string }>): ProcessTableSource {
   const records: ProcessRecord[] = pairs.map(({ pid, startTime }) => ({
@@ -107,10 +85,9 @@ function liveTable(pairs: ReadonlyArray<{ pid: number; startTime: string }>): Pr
 const EMPTY_TABLE: ProcessTableSource = { list: () => [] };
 
 /**
- * UNSUPPORTED process table — the off-Linux shape (no enumerator, DR-11/#1579).
- * `list()` is `[]` but `isSupported()` is `false`, so a probed pid reads as
- * `'unknown'`, NEVER provably dead. Reclaim consumers must fail closed against
- * it (REV-H1). Mirrors the real `defaultProcessTableSource` off-Linux.
+ * An unsupported process table, the shape of the default source on a platform with no process enumerator.
+ * `list()` is empty and `isSupported()` is `false`, so a probed PID reads as `'unknown'`, never provably dead.
+ * Reclaim consumers must fail closed against it.
  */
 const UNSUPPORTED_TABLE: ProcessTableSource = {
   list: () => [],
@@ -160,19 +137,18 @@ function executedFor(events: ReadonlyArray<{ type: string; data?: Record<string,
   );
 }
 
-// ─── Test 1: crash-mid-merge recovered from the production serialize_merge path ─
-
 describe('DR-12 — crash-mid-merge recovery via the production serialize_merge path', () => {
+  /**
+   * A crash leaves an unpaired claim, and holder 4242 is absent from the supported table, so it is provably dead.
+   * The test calls the registered `handleSerializeMerge` with `dryRun: false`, because the action defaults to a dry run.
+   * Live claimant 111 merges into the same ref.
+   * The inline reclaim in `waitForFreeSlot` frees the dead slot on the first fold, and `sleep` throws to prove it.
+   * The stranded lease gets exactly one terminal under its original `operationId`, the next merge runs, and the slot ends clear.
+   */
   it('Recovery_MergeRequestedNoExecuted_ResumeEmitsSingleExecuted', async () => {
     const arm = await createArm();
     const integrationRef = 'integration/resume';
     const crashedOpId = 'crashed-op';
-    // A crash between the CLAIM (`worktree.merge_requested`) and the RELEASE: an
-    // unpaired lease whose holder pid (4242) is absent from the SUPPORTED table →
-    // provably dead. There is NO standalone resume entry (DR-3: `resumeCrashedMerge`
-    // was excised) — recovery must ride the LIVE inline dead-holder reclaim in
-    // `waitForFreeSlot`, reached from the registered production `serialize_merge`
-    // action handler.
     await seedHolder(arm, {
       integrationRef,
       operationId: crashedOpId,
@@ -182,21 +158,13 @@ describe('DR-12 — crash-mid-merge recovery via the production serialize_merge 
     });
 
     const merged: string[] = [];
-    // Drive the REGISTERED production entry point (`handleSerializeMerge`), NOT the
-    // module-internal `serializeMerge` — a caller-level recovery proof. A live new
-    // claimant (111) merges into the SAME integration ref; the crashed holder
-    // (4242) is absent from the table → reclaimed inline before the merge runs.
     const result = await handleSerializeMerge(
-      // dryRun:false — serialize_merge now DEFAULTS to dry-run (DR-1); this crash-
-      // recovery proof needs the real apply path (lease claim + composed merge).
       { featureId: 'F', integrationRef, sourceBranch: 'feat/next', strategy: 'merge', timeoutMs: 30_000, dryRun: false },
       arm.ctx,
       {
         selfPid: 111,
         selfStartedAt: 'self-111',
-        processTableSource: liveTable([{ pid: 111, startTime: 'self-111' }]), // 4242 absent → dead.
-        // `sleep` throwing proves the reclaim was INLINE — the crashed holder is
-        // freed on the first fold, never waited out against the 30s budget.
+        processTableSource: liveTable([{ pid: 111, startTime: 'self-111' }]),
         sleep: async () => {
           throw new Error('crash recovery must not wait out the budget');
         },
@@ -209,32 +177,23 @@ describe('DR-12 — crash-mid-merge recovery via the production serialize_merge 
     );
 
     expect(result.success).toBe(true);
-    // THE crash-resume guarantee: the stranded lease was terminated EXACTLY ONCE
-    // under its ORIGINAL operationId by the inline reclaim (INV-8/13 exactly-once,
-    // a keyed append that dedups across any racing reclaim).
     const events = await arm.eventStore.query(WORKTREES_STREAM);
     expect(executedFor(events, crashedOpId)).toHaveLength(1);
-    // The freed slot then carried the next merge, which ran and released — the
-    // slot ends clear (no wedge).
     expect(merged).toEqual(['F']);
     expect((await foldWorktrees(arm)).inFlightMerges[integrationRef]).toBeUndefined();
   });
 });
 
-// ─── Test 1b: crash recovered from the EXPLICIT ps --probe reconcile pass ─────
-
 describe('DR-3 — crash-mid-merge reconciled from the reconcile_worktrees production entry', () => {
+  /**
+   * Holder 4242 is absent from the supported table, and no later `serialize_merge` runs on the ref, so the inline reclaim never fires.
+   * The `reconcileMerges` pass in `handleReconcileWorktrees` must free the lease with exactly one terminal under its original `operationId`.
+   * The response reports the in-flight column after the reconcile, so the freed slot is not also in-flight.
+   */
   it('CrashedMerge_RecoveredFromProductionEntryPoint_ExactlyOneTerminalEvent', async () => {
     const arm = await createArm();
     const integrationRef = 'integration/ps-reconcile';
     const crashedOpId = 'crashed-op';
-    // A stranded lease whose holder pid (4242) is absent from the SUPPORTED table
-    // → provably dead. NO subsequent `serialize_merge` runs on this ref, so the
-    // inline reclaim never fires — the explicit `reconcileMerges` pass must free
-    // it (the crashed-lease sibling of the reservation + launch reconcilers).
-    // That pass rode `ps --probe` until the read surface stopped carrying writes;
-    // recovery is still proven from a caller-level entry point, now the
-    // `reconcile_worktrees` handler the orchestrate action dispatches.
     await seedHolder(arm, {
       integrationRef,
       operationId: crashedOpId,
@@ -256,28 +215,21 @@ describe('DR-3 — crash-mid-merge reconciled from the reconcile_worktrees produ
       count: number;
       mergeReconcile: { reconciled: string[]; leftInFlight: string[]; probed: number };
     };
-    // The crashed lease was reconciled to a terminal on THIS pass...
     expect(data.mergeReconcile.probed).toBe(1);
     expect(data.mergeReconcile.reconciled).toContain(integrationRef);
     expect(data.mergeReconcile.leftInFlight).toEqual([]);
-    // ...and the POST-reconcile in-flight column reflects the freed slot (not a
-    // stale pre-reconcile snapshot reporting it as both in-flight AND reconciled).
     expect(data.inFlight).toEqual([]);
     expect(data.count).toBe(0);
 
-    // EXACTLY ONE terminal landed under the holder's ORIGINAL operationId; the
-    // slot folds clear (INV-8/13 exactly-once).
     const events = await arm.eventStore.query(WORKTREES_STREAM);
     expect(executedFor(events, crashedOpId)).toHaveLength(1);
     expect((await foldWorktrees(arm)).inFlightMerges[integrationRef]).toBeUndefined();
   });
 
+  /** Holder 7777 is live, so the merge is active. The reconcile must not take the lease, which stays in-flight with no terminal. */
   it('CrashedMerge_LiveHolder_ReconcileLeavesLeaseInFlight_FailClosed', async () => {
     const arm = await createArm();
     const integrationRef = 'integration/ps-live';
-    // A LIVE holder (pid 7777 present in the table) — an ACTIVE merge, not a
-    // crash. The reconcile must NEVER steal a live lease: fail closed, left
-    // in-flight, no terminal emitted.
     await seedHolder(arm, {
       integrationRef,
       operationId: 'live-op',
@@ -303,7 +255,6 @@ describe('DR-3 — crash-mid-merge reconciled from the reconcile_worktrees produ
     };
     expect(data.mergeReconcile.reconciled).toEqual([]);
     expect(data.mergeReconcile.leftInFlight).toContain(integrationRef);
-    // The live lease is still reported in-flight and never terminated.
     expect(data.inFlight.map((m) => m.integrationRef)).toContain(integrationRef);
     const events = await arm.eventStore.query(WORKTREES_STREAM);
     expect(executedFor(events, 'live-op')).toHaveLength(0);
@@ -311,9 +262,12 @@ describe('DR-3 — crash-mid-merge reconciled from the reconcile_worktrees produ
   });
 });
 
-// ─── Test 2: dead-holder reclaimed inline WITHOUT consuming the budget ────────
-
 describe('DR-12 — stale dead-holder reclamation', () => {
+  /**
+   * Holder 9090 is absent from the empty table, so it is provably dead.
+   * `sleep` throws and the clock never moves, so the reclaim happens inline and spends none of the budget.
+   * The dead holder gets its terminal under its own `operationId`, and the slot ends clear.
+   */
   it('Recovery_StaleLeaseDeadHolder_WaitLoopReclaimsInlineNoFullTimeout', async () => {
     const arm = await createArm();
     const integrationRef = 'integration/dead-inline';
@@ -325,8 +279,6 @@ describe('DR-12 — stale dead-holder reclamation', () => {
       holderStartedAt: 'gone-9090',
     });
 
-    // A fake clock proves the budget was never spent: `sleep` throws, so any
-    // wait iteration fails the test — the dead holder must be reclaimed inline.
     let clock = 0;
     const sleep: SleepFn = async () => {
       throw new Error('dead-holder reclaim must not wait out the budget');
@@ -338,7 +290,7 @@ describe('DR-12 — stale dead-holder reclamation', () => {
       {
         now: () => clock,
         sleep,
-        processTableSource: EMPTY_TABLE, // pid 9090 absent → provably dead.
+        processTableSource: EMPTY_TABLE,
         selfPid: 111,
         selfStartedAt: 'self-111',
         mergeOrchestrate: async (input) => {
@@ -351,26 +303,19 @@ describe('DR-12 — stale dead-holder reclamation', () => {
 
     expect(result.success).toBe(true);
     expect(merged).toEqual(['F']);
-    // The deadline (clock + timeoutMs) was never approached — clock never moved.
     expect(clock).toBe(0);
 
-    // The dead holder's terminal rode its OWN operationId; the slot ends clear.
     const events = await arm.eventStore.query(WORKTREES_STREAM);
     expect(executedFor(events, 'dead-op')).toHaveLength(1);
     expect((await foldWorktrees(arm)).inFlightMerges[integrationRef]).toBeUndefined();
   });
 });
 
-// ─── Test 3: concurrent prune + merge — prune skips an in-flight lease ────────
-
-// skipIf(win32): unlike the sibling DR-12 describes (which inject EMPTY_TABLE /
-// liveTable / UNSUPPORTED_TABLE), this one builds WorktreeManager with the DEFAULT
-// process table, whose win32 enumeration (Get-CimInstance, DR-5) is nondeterministic
-// on the shared CI runner and flips the prune occupancy verdict at random. Gated off
-// win32 until #1641 injects a deterministic ProcessTableSource; Linux coverage
-// unchanged. The other DR-12 describes keep running on win32 (deterministic tables).
+/**
+ * Skipped on win32. This suite uses the default process table, and its win32 enumeration is nondeterministic on the shared CI runner (#1641).
+ * The other suites in this file inject fixed tables and run on win32.
+ */
 describe.skipIf(process.platform === 'win32')('DR-12 — concurrent prune + merge', () => {
-  // Real-git helpers (mirrors the prune suite's ground-truth setup).
   async function git(cwd: string, args: readonly string[]): Promise<string> {
     return (await execFileAsync('git', args, { cwd })).trim();
   }
@@ -393,6 +338,11 @@ describe.skipIf(process.platform === 'win32')('DR-12 — concurrent prune + merg
     return real;
   }
 
+  /**
+   * The released worktree is clean, merged, and has a reachable origin, so it is otherwise delete-eligible.
+   * A live merge holds the lease on the same integration branch with no `worktreeId`, as the serializer writes it.
+   * The integration-ref match must catch it. Prune skips it as `in-flight-merge` and writes no `worktree.remove.requested` for it.
+   */
   it('Recovery_ConcurrentPruneAndMerge_PruneSkipsBranchWithInFlightLease', async () => {
     const arm = await createArm();
     const workdir = await mkdtemp(path.join(tmpdir(), 'wlm-recovery-work-'));
@@ -400,20 +350,17 @@ describe.skipIf(process.platform === 'win32')('DR-12 — concurrent prune + merg
 
     const repo = await initRepoWithOrigin(workdir, 'repo');
     const integrationRef = 'feat/integ';
-    await git(repo, ['branch', integrationRef]); // integration ref at HEAD.
+    await git(repo, ['branch', integrationRef]);
     const wtPath = path.join(workdir, 'wt-merging');
-    await git(repo, ['worktree', 'add', '-q', wtPath, '-b', 'wbranch']); // HEAD == integ → merged.
+    await git(repo, ['worktree', 'add', '-q', wtPath, '-b', 'wbranch']);
     const wtId = canonicalWorktreeId(wtPath);
 
-    // Wire the worktree's feature → integration branch (per-worktree ref lookup).
     await arm.eventStore.append('feat-merge', {
       type: 'state.patched',
       data: { patch: { 'synthesis.integrationBranch': integrationRef } },
     });
 
     const manager = new WorktreeManager({ eventStore: arm.eventStore });
-    // Reserve → release so it folds to `released` (clean, merged, origin-reachable
-    // = the exact delete-eligible shape the GC would otherwise reclaim).
     await manager.reserve({
       worktreeId: wtId,
       path: wtPath,
@@ -423,9 +370,6 @@ describe.skipIf(process.platform === 'win32')('DR-12 — concurrent prune + merg
     });
     await manager.release(wtId);
 
-    // A live `serialize_merge` holds the lease on the SAME integration branch —
-    // the serializer leaves `worktreeId` null, so the integration-ref match is
-    // what must catch the race.
     await seedHolder(arm, {
       integrationRef,
       operationId: 'merge-in-flight',
@@ -436,38 +380,29 @@ describe.skipIf(process.platform === 'win32')('DR-12 — concurrent prune + merg
 
     const result = await manager.prune({ repoRoot: repo, apply: true });
 
-    // Skipped on the in-flight lease — never deleted (no double-free).
     const report = result.candidates.find((c) => c.worktreeId === wtId);
     expect(report?.classification).toEqual({ action: 'skip', reason: 'in-flight-merge' });
     expect(result.deleted).not.toContain(wtId);
     expect(result.skipsByReason['in-flight-merge']).toContain(wtId);
-    // The under-lock guard committed NO delete intent for it.
     const removeReqs = (await arm.eventStore.query(WORKTREES_STREAM)).filter(
       (e) => e.type === 'worktree.remove.requested' &&
         (e.data as { worktreeId?: unknown }).worktreeId === wtId,
     );
     expect(removeReqs).toHaveLength(0);
-    // Still tracked + still on disk (released, not removed).
     expect((await foldWorktrees(arm)).worktrees[wtId]?.state).toBe('released');
   });
 });
 
-// ─── Test 4: exhausted index.lock retry surfaces structured error, no half-merge
-
 describe('DR-12 — exhausted index.lock retry', () => {
+  /**
+   * The index.lock retry kernel sits in `defaultGitExec` and has its own tests, so this test does not run it.
+   * It injects a terminal `IndexLockContentionError` through `mergeOrchestrate`.
+   * The serializer must pass the error to the caller unchanged and still release the lease in `finally`, so no half-merge stays.
+   */
   it('Recovery_ExhaustedIndexLockRetry_SurfacesStructuredErrorNoHalfMerge', async () => {
     const arm = await createArm();
     const integrationRef = 'integration/locked';
 
-    // The now-real DR-1/DR-8 retry seam lives one layer down, in the default
-    // `defaultGitExec` composition (wrapped in `withIndexLockRetrySync`), which
-    // retries transient `.git/index.lock` contention with bounded backoff and, on
-    // exhaustion, surfaces a structured contention failure. This test does NOT
-    // exercise that kernel (it owns dedicated coverage in git-retry.test.ts +
-    // git-exec-default.test.ts); it fabricates a terminal structured error and
-    // injects it via `mergeOrchestrate` to isolate ONE thing: the serializer
-    // passes a structured contention error through UNCHANGED (INV-14) and still
-    // releases the lease in `finally` (no half-merge).
     const lockErr = new IndexLockContentionError(
       { lockPath: '/repo/.git/index.lock', attempts: 4, maxRetries: 3, delaysMs: [200, 400, 800] },
       new Error("fatal: Unable to create '/repo/.git/index.lock': File exists."),
@@ -491,40 +426,34 @@ describe('DR-12 — exhausted index.lock retry', () => {
       caught = err;
     }
 
-    // The structured error reaches the caller UNCHANGED — never a silent no-op.
     expect(caught).toBe(lockErr);
     expect(caught).toBeInstanceOf(IndexLockContentionError);
     expect((caught as IndexLockContentionError).code).toBe('INDEX_LOCK_CONTENTION');
 
-    // No half-merge: the lease was released in `finally`, so the slot is clear —
-    // the workflow is not left wedged mid-merge.
     expect((await foldWorktrees(arm)).inFlightMerges[integrationRef]).toBeUndefined();
     const events = await arm.eventStore.query(WORKTREES_STREAM);
     const claims = events.filter((e) => e.type === 'worktree.merge_requested');
     const releases = events.filter((e) => e.type === 'worktree.merge_executed');
     expect(claims).toHaveLength(1);
-    expect(releases).toHaveLength(1); // exactly one claim + one matching release.
+    expect(releases).toHaveLength(1);
   });
 });
 
-// ─── Test 5: serializer introduces no reset --hard; recoveryError passes through
-
 describe('DR-12 — no reset --hard, INV-14 pass-through', () => {
+  /**
+   * The serializer source holds no `reset` or `--hard`. The test removes comments first, so a comment that names `--hard` cannot fail the check.
+   * The line-comment pattern keeps `://` in URLs.
+   * When `merge_orchestrate` reverses a merge and returns a `recoveryError`, the serializer passes the result through unchanged and releases the lease.
+   */
   it('Recovery_SerializerIntroducesNoResetHard_SurfacesRecoveryErrorFromMergeOrchestrate', async () => {
-    // (a) Static: the serializer source has NO `git reset --hard` path of its
-    // own. Strip comments first so the module's own prose ("never `--hard`")
-    // cannot false-negative the assertion.
     const sourcePath = fileURLToPath(new URL('../../../../src/verbs/worktree/merge-serializer.ts', import.meta.url));
     const source = readFileSync(sourcePath, 'utf-8');
     const code = source
-      .replace(/\/\*[\s\S]*?\*\//g, '') // block comments
-      .replace(/(^|[^:])\/\/.*$/gm, '$1'); // line comments (keep "://" in URLs)
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/(^|[^:])\/\/.*$/gm, '$1');
     expect(code).not.toMatch(/--hard/i);
-    expect(code).not.toMatch(/\breset\b/i); // no reset path at all in the serializer.
+    expect(code).not.toMatch(/\breset\b/i);
 
-    // (b) Behavioral: when the composed merge_orchestrate reverses via the INV-14
-    // ladder (`--abort` → `--keep`) and surfaces a `recoveryError`, the serializer
-    // passes the result through UNCHANGED and still releases the lease.
     const arm = await createArm();
     const integrationRef = 'integration/reversed';
     const rolledBack: ToolResult = {
@@ -553,14 +482,15 @@ describe('DR-12 — no reset --hard, INV-14 pass-through', () => {
     expect(data.phase).toBe('rolled-back');
     expect(data.recoveryError).toBe('reset-keep-blocked');
     expect(data.recoveryErrorDetail).toBe('git reset --keep refused to discard local work');
-    // The lease was released despite the reversal — no wedged slot.
     expect((await foldWorktrees(arm)).inFlightMerges[integrationRef]).toBeUndefined();
   });
 });
 
-// ─── Test 6: off-Linux unsupported table reclaims/orphans NOTHING (REV-H1) ────
-
 describe('DR-12 — unsupported process table fails closed (REV-H1)', () => {
+  /**
+   * Owner 4242 is absent from the table. A supported table makes that owner provably dead, but here it reads `'unknown'`.
+   * The probe must then append no event, and the reservation stays.
+   */
   it('ProbeAndReclaim_UnsupportedTable_EmitsNoEvents', async () => {
     const arm = await createArm();
     const manager = new WorktreeManager({
@@ -568,10 +498,6 @@ describe('DR-12 — unsupported process table fails closed (REV-H1)', () => {
       processTableSource: UNSUPPORTED_TABLE,
     });
 
-    // A reserved worktree whose owner pid (4242) is absent from the empty table.
-    // On a SUPPORTED table this owner reads provably dead and the probe emits
-    // worktree.released; on the UNSUPPORTED table it reads 'unknown', so the
-    // probe must emit NOTHING — fail closed, never a spurious heal off-Linux.
     const wtId = '/wlm/unsupported-wt';
     await manager.reserve({
       worktreeId: wtId,
@@ -582,12 +508,11 @@ describe('DR-12 — unsupported process table fails closed (REV-H1)', () => {
     });
 
     const before = (await arm.eventStore.query(WORKTREES_STREAM)).length;
-    const result = await manager.probeAndReclaim(999999); // selfPid not in table.
+    const result = await manager.probeAndReclaim(999999);
 
     expect(result.released).toEqual([]);
     expect(result.orphaned).toEqual([]);
     expect(result.probed).toBe(1);
-    // No terminal lifecycle event was appended — the reservation stands.
     const events = await arm.eventStore.query(WORKTREES_STREAM);
     expect(events.length).toBe(before);
     expect(events.some((e) => e.type === 'worktree.released')).toBe(false);
@@ -596,13 +521,14 @@ describe('DR-12 — unsupported process table fails closed (REV-H1)', () => {
   });
 });
 
-// ─── Test 6b: one failed reclaim never aborts the batch (CodeRabbit #4621186637) ─
-
 describe('probeAndReclaim — per-entry fault isolation', () => {
+  /**
+   * The empty, supported table makes both owners provably dead.
+   * The spy fails only the release append for the first worktree. `withStateRetry` does not retry a generic `Error`, so it propagates at once.
+   * The pass must not throw. It reports only the worktree whose event landed, and the failed one stays `reserved` for the next pass.
+   */
   it('ProbeAndReclaim_OneReleaseAppendThrows_RemainingStillReclaimed', async () => {
     const arm = await createArm();
-    // EMPTY but SUPPORTED table → both reserved owners read provably dead, so
-    // both are releasable. Reserve two so the batch has more than one target.
     const manager = new WorktreeManager({
       eventStore: arm.eventStore,
       processTableSource: EMPTY_TABLE,
@@ -612,9 +538,6 @@ describe('probeAndReclaim — per-entry fault isolation', () => {
     await manager.reserve({ worktreeId: wtFail, path: wtFail, featureId: 'F', ownerPid: 4242, ownerStartedAt: 'boot-4242' });
     await manager.reserve({ worktreeId: wtOk, path: wtOk, featureId: 'F', ownerPid: 4343, ownerStartedAt: 'boot-4343' });
 
-    // Inject a transient persistence failure for ONLY the first worktree's
-    // release append; every other append delegates to the real store. A generic
-    // Error is not in withStateRetry's retryable set, so it propagates at once.
     const realAppend = arm.eventStore.append.bind(arm.eventStore);
     const appendSpy = vi
       .spyOn(arm.eventStore, 'append')
@@ -626,29 +549,16 @@ describe('probeAndReclaim — per-entry fault isolation', () => {
         return realAppend(streamId, event, options);
       });
 
-    // Must NOT throw despite the first entry failing.
     const result = await manager.probeAndReclaim(999999);
     appendSpy.mockRestore();
 
     expect(result.probed).toBe(2);
-    // Truthful counts (INV-1): only the entry whose event provably landed is
-    // reported released — the failed one is NOT (no phantom reclaim).
     expect(result.released).toContain(wtOk);
     expect(result.released).not.toContain(wtFail);
     expect(result.orphaned).toEqual([]);
 
-    // The failed entry stays `reserved` (retried next pass, INV-8); the other
-    // folded to `released`.
     const projection = await foldWorktrees(arm);
     expect(projection.worktrees[wtFail]?.state).toBe('reserved');
     expect(projection.worktrees[wtOk]?.state).toBe('released');
   });
 });
-
-// The former Test 7 (`Recovery_TwoConcurrentResumes_OccPreventsDoubleMerge`)
-// guarded the standalone `resumeCrashedMerge` re-merge against a concurrent
-// double-apply. That export was excised (DR-3, WLM slice 3): neither slot-freeing
-// recovery path (the inline dead-holder reclaim nor the explicit `reconcileMerges`
-// pass) re-runs the crashed merge — each frees the dead slot so the next live
-// claimant runs its OWN correctly-attributed merge — so there is no double-merge
-// hazard to guard and the test has no subject under the excised model.

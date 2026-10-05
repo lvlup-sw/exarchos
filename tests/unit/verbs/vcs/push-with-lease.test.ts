@@ -8,17 +8,20 @@ import {
   type RunGit,
 } from '../../../../src/verbs/vcs/push-with-lease.js';
 
-// A valid 40-hex git SHA used throughout the explicit-form assertions.
+/** A valid 40-hex git SHA for the explicit lease form. */
 const OBSERVED_SHA = 'a'.repeat(40);
 const REMOTE_SHA = 'b'.repeat(40);
 
 describe('buildForceWithLeaseArgs', () => {
+  /**
+   * The lease must carry the explicit `=<ref>:<sha>` form. A bare
+   * `--force-with-lease` must never appear, because it leases against the
+   * local remote-tracking ref, which can be stale.
+   */
   it('PushWithLease_EmitsExplicitShaForm', () => {
     const args = buildForceWithLeaseArgs('feat/x', OBSERVED_SHA);
 
-    // The lease MUST carry the explicit `=<ref>:<sha>` payload …
     expect(args).toContain(`--force-with-lease=feat/x:${OBSERVED_SHA}`);
-    // … and the full argv must be exactly the expected push command.
     expect(args).toEqual([
       'push',
       `--force-with-lease=feat/x:${OBSERVED_SHA}`,
@@ -26,7 +29,6 @@ describe('buildForceWithLeaseArgs', () => {
       'feat/x',
     ]);
 
-    // NEVER a bare `--force-with-lease` (the stale-lease footgun this guards).
     expect(args).not.toContain('--force-with-lease');
     expect(args.some((a) => a === '--force-with-lease')).toBe(false);
   });
@@ -54,10 +56,10 @@ describe('buildForceWithLeaseArgs', () => {
     );
   });
 
+  /** A 7-character short SHA fails, because `ls-remote` always prints the full 40. */
   it('rejects an empty or garbage expected SHA', () => {
     expect(() => buildForceWithLeaseArgs('feat/x', '')).toThrow(/non-empty/);
     expect(() => buildForceWithLeaseArgs('feat/x', 'not-a-sha')).toThrow(/hex git SHA/);
-    // A 7-char short SHA is NOT acceptable — ls-remote always yields the full 40.
     expect(() => buildForceWithLeaseArgs('feat/x', 'abc1234')).toThrow(/hex git SHA/);
   });
 });

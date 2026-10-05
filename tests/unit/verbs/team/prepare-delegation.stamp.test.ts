@@ -1,14 +1,6 @@
-// ─── #1636 Regression: planner stamps reach dispatch ─────────────────────────
-//
-// These tests pin the two halves of the #1636 fix that the existing
-// prepare-delegation tests do NOT cover:
-//   1. the REGISTERED MCP schema no longer strips per-task stamps (previously
-//      `tasks: z.array(z.object({ id, title }))` dropped them before the handler
-//      ever ran — the bug's structural root);
-//   2. the plan-stamp lift + classification: a high+boundary stamped task yields
-//      riskTier:high / boundaryTouching:true / a verification sequence that
-//      includes the integration-suite rung.
-// ─────────────────────────────────────────────────────────────────────────────
+// Checks that planner stamps reach dispatch. The registered `prepare_delegation`
+// schema keeps the per-task stamp fields, and `applyPlanStamps` lifts plan stamps
+// onto bare tasks before classification.
 
 import { describe, it, expect } from 'vitest';
 import { TOOL_REGISTRY } from '../../../../src/registry.js';
@@ -40,7 +32,6 @@ describe('#1636 registered schema retains per-task stamps', () => {
     }) as { tasks: Array<Record<string, unknown>> };
 
     const t = parsed.tasks[0];
-    // The exact fields that #1636 reported as silently stripped MUST survive.
     expect(t.riskTier).toBe('high');
     expect(t.boundaryTouching).toBe(true);
     expect(t.files).toEqual(['src/verbs/worktree/manager.ts']);
@@ -48,9 +39,8 @@ describe('#1636 registered schema retains per-task stamps', () => {
     expect(t.testLayer).toBe('integration');
   });
 
+  /** The schema declares the stamp fields. It does not pass undeclared keys through. */
   it('RegisteredSchema_UnknownTaskField_StillStripped', () => {
-    // We widened the schema deliberately, not by opening it to passthrough — an
-    // undeclared key is still dropped.
     const parsed = prepareDelegationSchema().parse({
       featureId: 'f',
       tasks: [{ id: '001', title: 'x', bogusField: 42 }],
@@ -81,7 +71,6 @@ describe('#1636 applyPlanStamps lifts markdown stamps onto bare tasks', () => {
     const stamps = parseTaskStamps(
       '#### Task 001: Wrap the remove path\n**Risk Tier:** high · **Boundary Touching:** true',
     );
-    // The orchestrator passes only {id, title} today — that is the bug's input.
     const { tasks } = applyPlanStamps([{ id: 'task-001', title: 'Wrap the remove path' }], stamps);
     expect(tasks[0].riskTier).toBe('high');
     expect(tasks[0].boundaryTouching).toBe(true);
@@ -92,17 +81,16 @@ describe('#1636 applyPlanStamps lifts markdown stamps onto bare tasks', () => {
     expect(c.verificationSequence).toContain('check_integration_suite');
   });
 
+  /** The advisory fires only for a tier from the stamp, so a caller tier gives no advisory. */
   it('ApplyPlanStamps_ExplicitCallerField_WinsOverStamp', () => {
     const stamps = parseTaskStamps('#### Task 001: x\n**Risk Tier:** high');
     const { tasks, advisories } = applyPlanStamps([{ id: '001', title: 'x', riskTier: 'low' }], stamps);
-    expect(tasks[0].riskTier).toBe('low'); // caller-supplied value is never overridden
-    // The caller's own value must NOT be misattributed to the plan stamp — the
-    // advisory only fires for a stamp-sourced tier (CodeRabbit/Sentry).
+    expect(tasks[0].riskTier).toBe('low');
     expect(advisories).toHaveLength(0);
   });
 
+  /** The heuristic gives `medium` for a bare task, and the plan stamps `high`. */
   it('ApplyPlanStamps_HeuristicDisagreesWithStamp_EmitsAdvisory', () => {
-    // Bare {id,title} → heuristic derives `medium`; the plan stamps `high`.
     const stamps = parseTaskStamps('#### Task 001: x\n**Risk Tier:** high');
     const { advisories } = applyPlanStamps([{ id: '001', title: 'x' }], stamps);
     expect(advisories).toHaveLength(1);
@@ -110,8 +98,8 @@ describe('#1636 applyPlanStamps lifts markdown stamps onto bare tasks', () => {
     expect(advisories[0]).toContain('medium');
   });
 
+  /** The heuristic gives `high` for a `.d.ts` file, so the `high` stamp agrees. */
   it('ApplyPlanStamps_StampAgreesWithHeuristic_NoAdvisory', () => {
-    // A schema file → heuristic already derives `high`; stamp `high` agrees.
     const stamps = parseTaskStamps('#### Task 001: x\n**Risk Tier:** high');
     const { advisories } = applyPlanStamps(
       [{ id: '001', title: 'x', files: ['src/types/foo.d.ts'] }],

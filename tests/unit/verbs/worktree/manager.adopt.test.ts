@@ -1,22 +1,9 @@
-// ─── WorktreeManager — adopt harness-created worktrees (no pool) + the real
-// `git worktree list --porcelain` probe + stale-after-push re-verify (DR-2/DR-12s)
-//
-// HIGH-tier integration suite across the git↔event-store seam: every assertion
-// drives the REAL EventStore / SQLite substrate AND a REAL git repo (per-test
-// tmp dirs), so adoption is pinned against the actual `git worktree list
-// --porcelain` ground-truth probe — not a mock.
-//
-// Contract under test:
-//   - adopt enumerates on-disk worktrees via the real probe and folds every
-//     UNTRACKED one into `worktree.adopted`, without the manager creating it,
-//     for ANY harness (Claude Code agent dir / Codex/Cursor / hand-made).
-//   - a hand-made / unattached worktree records `featureId: null`.
-//   - before reporting a worktree mutable, HEAD/ancestry is re-verified so a
-//     worktree reused after an external push is flagged stale (not silently
-//     mutated).
-//   - a `worktree.released` worktree is GC-eligible, never recycled into a pool.
-//   - the real git probe ⊕ event replay equals a fresh from-zero replay
-//     (operational cold-rebuild, INV-1).
+// Tests for `WorktreeManager.adopt` against a real git repo and a real EventStore, with no mock of the git probe.
+// Adopt folds each untracked on-disk worktree into `worktree.adopted` and creates none, whatever harness made it.
+// A hand-made worktree records `featureId: null`.
+// Adopt re-verifies HEAD and ancestry, so a worktree reused after an external push is stale, not mutable.
+// A released worktree stays GC-eligible and never goes back into a pool.
+// The real probe plus event replay equals a fresh replay from zero.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
@@ -39,14 +26,12 @@ import {
 } from '../../../../src/verbs/worktree/projections/worktrees.js';
 import { canonicalWorktreeId } from '../../../../src/verbs/worktree/pure/path-containment.js';
 
-// ─── git + event-store helpers ──────────────────────────────────────────────
-
 /** Run `git <args>` from `cwd`, returning trimmed stdout (throws on failure). */
 async function git(cwd: string, args: readonly string[]): Promise<string> {
   return (await execFileAsync('git', args, { cwd })).trim();
 }
 
-/** Init a real repo on branch `work` with one commit; returns its canonical path. */
+/** Creates a real repo on branch `work` with one commit and returns its canonical path. */
 async function initRepo(dir: string): Promise<string> {
   await mkdir(dir, { recursive: true });
   await git(dir, ['init', '-q', '-b', 'work']);
@@ -99,15 +84,10 @@ function freshReplay(store: EventStore): WorktreesProjection {
   return state;
 }
 
-// ─── Suite ──────────────────────────────────────────────────────────────────
-
-// skipIf(win32): every test here builds WorktreeManager with the DEFAULT process
-// table, whose win32 enumeration (Get-CimInstance, DR-5) is nondeterministic on the
-// shared CI runner — a live process' cwd may transiently resolve inside a temp
-// worktree, flipping owner liveness ('reserved'/'released') at random. These tests
-// predate win32 enumeration (they assumed the off-Linux 'unknown' path). Gated off
-// win32 until #1641 injects a deterministic ProcessTableSource to restore meaningful
-// win32 coverage; Linux coverage is unchanged.
+/**
+ * Skipped on win32. Each test uses the default process table, and its win32 enumeration is nondeterministic on the shared CI runner.
+ * A live process cwd can resolve inside a temp worktree and flip owner liveness at random (#1641).
+ */
 describe.skipIf(process.platform === 'win32')('WorktreeManager.adopt (real git + real event store)', () => {
   let stateDir: string;
   let workdir: string;
@@ -125,11 +105,9 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.adopt (real git +
     await rmrfAsync(workdir);
   });
 
-  // ─── adopt: tracks a worktree the manager did NOT create ──────────────────
-
+  /** Adopt tracks a worktree that git made directly. It creates no worktree on disk and writes no `worktree.created` event. */
   it('Adopt_HarnessOrHandMadeWorktree_AdoptedWithoutManagerCreating', async () => {
     const repo = await initRepo(path.join(workdir, 'repo'));
-    // A real hand-made worktree — created by git directly, NOT by the manager.
     const wtPath = path.join(workdir, 'hand-wt');
     await git(repo, ['worktree', 'add', '-q', wtPath, '-b', 'hand-branch']);
     const wtId = canonicalWorktreeId(wtPath);
@@ -139,28 +117,21 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.adopt (real git +
     const manager = new WorktreeManager({ eventStore: store });
     const result = await manager.adopt(repo);
 
-    // Adoption created NO new worktree on disk — it tracks, never creates.
     expect(await countOnDiskWorktrees(repo)).toBe(before);
-    // The hand-made worktree was adopted via `worktree.adopted`.
     expect(result.adopted).toContain(wtId);
     const adoptedForWt = eventsOfType(store, 'worktree.adopted').filter(
       (e) => strField(e, 'worktreeId') === wtId,
     );
     expect(adoptedForWt).toHaveLength(1);
-    // No `worktree.created` event — adopt is distinct from create.
     expect(eventsOfType(store, 'worktree.created')).toHaveLength(0);
-    // Folds to state `adopted`, owner cleared.
     const proj = await projection(store);
     expect(proj.worktrees[wtId].state).toBe('adopted');
     expect(proj.worktrees[wtId].ownerPid).toBeNull();
   });
 
-  // ─── adopt: no harness-specific creation assumption ───────────────────────
-
+  /** Adopt treats a Claude Code agent path and an arbitrary path the same way. */
   it('Adopt_NoHarnessSpecificCreationAssumption', async () => {
     const repo = await initRepo(path.join(workdir, 'repo'));
-    // A Claude Code-shaped path AND an arbitrary path — adoption treats them
-    // identically; nothing assumes a specific harness owns creation.
     const agentPath = path.join(workdir, '.claude', 'worktrees', 'agent-xyz');
     await mkdir(path.dirname(agentPath), { recursive: true });
     await git(repo, ['worktree', 'add', '-q', agentPath, '-b', 'agent-branch']);
@@ -178,15 +149,13 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.adopt (real git +
     expect(proj.worktrees[canonicalWorktreeId(plainPath)].state).toBe('adopted');
   });
 
-  // ─── adopt: hand-made worktree records featureId null ─────────────────────
-
+  /** The default resolver has no harness knowledge, so the worktree is unattached with `featureId` null. */
   it('Adopt_HandMadeWorktree_RecordsFeatureIdNull', async () => {
     const repo = await initRepo(path.join(workdir, 'repo'));
     const wtPath = path.join(workdir, 'unattached-wt');
     await git(repo, ['worktree', 'add', '-q', wtPath, '-b', 'unattached-branch']);
     const wtId = canonicalWorktreeId(wtPath);
 
-    // Default resolver → no harness knowledge → unattached (featureId null).
     const manager = new WorktreeManager({ eventStore: store });
     const result = await manager.adopt(repo);
 
@@ -201,15 +170,15 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.adopt (real git +
     expect(proj.worktrees[wtId].featureId).toBeNull();
   });
 
-  // ─── adopt: stale-after-push re-verify before mutation ────────────────────
-
+  /**
+   * Clone A pushes `c1` with upstream tracking, and clone B pushes `c2` on the same branch.
+   * The clone names the remote `origin`, so `-u origin work` sets a real `@{upstream}`, which a raw path does not.
+   * After A fetches, adopt flags A as `stale-after-push`, so a commit into A cannot drop `c2`.
+   */
   it('Adopt_StaleAfterExternalPush_ReverifiesHeadBeforeMutation', async () => {
     const originPath = path.join(workdir, 'origin.git');
     await git(workdir, ['init', '-q', '--bare', originPath]);
 
-    // Clone A: commits c1 on `work`, pushes with upstream tracking. The clone
-    // names the remote `origin`, so `-u origin work` sets a real tracking ref
-    // (`@{upstream}` → origin/work) — a raw path would not.
     const repoA = path.join(workdir, 'A');
     await git(workdir, ['clone', '-q', originPath, repoA]);
     await git(repoA, ['config', 'user.email', 'a@example.com']);
@@ -222,7 +191,6 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.adopt (real git +
     await git(repoA, ['push', '-q', '-u', 'origin', 'work']);
     const idA = canonicalWorktreeId(repoA);
 
-    // Clone B: an EXTERNAL process advances `work` to c2 and pushes.
     const repoB = path.join(workdir, 'B');
     await git(workdir, ['clone', '-q', originPath, repoB]);
     await git(repoB, ['config', 'user.email', 'b@example.com']);
@@ -236,24 +204,19 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.adopt (real git +
 
     const manager = new WorktreeManager({ eventStore: store });
 
-    // Before A sees the push: HEAD is at the upstream tip → mutable.
     const before = await manager.adopt(repoA);
     const beforeReport = before.worktrees.find((w) => w.worktreeId === idA);
     expect(beforeReport?.verification.mutable).toBe(true);
 
-    // The external push lands in A's tracking ref.
     await git(repoA, ['fetch', '-q', 'origin']);
 
-    // Re-verify (fresh HEAD/ancestry) flags A as stale-after-push → NOT mutable,
-    // so a caller cannot silently drop the newly-pushed c2 by committing into A.
     const after = await manager.adopt(repoA);
     const afterReport = after.worktrees.find((w) => w.worktreeId === idA);
     expect(afterReport?.verification.mutable).toBe(false);
     expect(afterReport?.verification.reason).toBe('stale-after-push');
   });
 
-  // ─── released worktree is GC-eligible, not pooled ─────────────────────────
-
+  /** A reserved and released worktree stays `released` after adopt. Adopt does not re-adopt it or write a second reservation. */
   it('Released_WorktreeIsGcEligible_NotRecycledIntoPool', async () => {
     const repo = await initRepo(path.join(workdir, 'repo'));
     const wtPath = path.join(workdir, 'released-wt');
@@ -261,7 +224,6 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.adopt (real git +
     const wtId = canonicalWorktreeId(wtPath);
 
     const manager = new WorktreeManager({ eventStore: store });
-    // A finished agent: reserve then release the worktree.
     await manager.reserve({
       worktreeId: wtId,
       path: wtPath,
@@ -272,40 +234,32 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.adopt (real git +
     await manager.release(wtId);
     expect((await projection(store)).worktrees[wtId].state).toBe('released');
 
-    // An adopt pass over the live repo must NOT recycle it: no warm pool means
-    // the released entry stays `released` (GC-eligible), not re-adopted/reserved.
     const result = await manager.adopt(repo);
     expect(result.adopted).not.toContain(wtId);
 
     const proj = await projection(store);
     expect(proj.worktrees[wtId].state).toBe('released');
-    // GC-eligibility is state-based: released ∈ {released, orphan}.
     expect(['released', 'orphan']).toContain(proj.worktrees[wtId].state);
-    // Adoption minted no second reservation (no pool checkout).
     expect(eventsOfType(store, 'worktree.reserved')).toHaveLength(1);
   });
 
-  // ─── operational cold rebuild: real probe ⊕ replay == fresh replay ────────
-
+  /**
+   * Adopt with the real probe plus `reconcile` gives a live projection equal to a fresh replay from zero.
+   * At least three adopted worktrees (main, `wt-a`, `wt-b`) stop a no-op adopt from passing with two empty projections.
+   */
   it('Reconcile_RealGitProbePlusReplay_EqualsFreshEventLogReplay', async () => {
     const repo = await initRepo(path.join(workdir, 'repo'));
     await git(repo, ['worktree', 'add', '-q', path.join(workdir, 'wt-a'), '-b', 'a']);
     await git(repo, ['worktree', 'add', '-q', path.join(workdir, 'wt-b'), '-b', 'b']);
 
     const manager = new WorktreeManager({ eventStore: store });
-    // Operational reconcile = real `git worktree list --porcelain` probe (adopt)
-    // ⊕ the heal fold.
     const adoptResult = await manager.adopt(repo);
     await manager.reconcile();
 
-    // The real probe genuinely adopted worktrees (guards a stubbed adopt: a
-    // no-op adopt would leave both projections trivially empty-equal).
-    expect(adoptResult.adopted.length).toBeGreaterThanOrEqual(3); // main + wt-a + wt-b
+    expect(adoptResult.adopted.length).toBeGreaterThanOrEqual(3);
     const live = await projection(store);
     expect(Object.keys(live.worktrees).length).toBeGreaterThanOrEqual(3);
 
-    // The live projection equals a fresh from-zero replay of the log alone —
-    // no adapter-local state diverges from the event stream (INV-1).
     expect(freshReplay(store)).toEqual(live);
   });
 });
