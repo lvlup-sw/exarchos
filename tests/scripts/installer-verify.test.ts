@@ -1,31 +1,16 @@
-// ─── DR-20 acceptance: the installers consume the signed release manifest ────
-//
-// T-28. This suite drives the REAL bootstrap installers — `tools/release/get-exarchos.sh`
-// under bash and `tools/release/get-exarchos.ps1` under pwsh — end to end against a
-// REAL, Ed25519-signed, source-linked fixture release served over loopback HTTP.
-//
-// What is and is not faked:
-//   - FAKED: the origin. A `node:http` server stands in for GitHub Releases so
-//     the suite is hermetic. The installers use their real `curl` /
-//     `Invoke-WebRequest` code paths against it.
-//   - NOT FAKED: everything else. Real artifact bytes carrying a real
-//     `bun build --banner` build-identity stamp, a real signed manifest built
-//     by `tools/release/build-release-manifest.ts`'s producer primitives, real
-//     SHA-512 sidecars, and the REAL SHIPPED VERIFIER — `dist/release-verify.js`,
-//     produced here by executing package.json's own `build:release-verifier`
-//     script, so the packaging change is exercised rather than assumed.
-//
-// The verification bar is "rejects source, contract, manifest and asset
-// mismatch — not merely a corrupted download". Each dimension therefore gets a
-// DISCRIMINATING probe: exactly one dimension is faulted, the other three (and
-// the SHA-512 sidecar) are left intact and passing, so a rejection can only be
-// attributed to the check under test. The asset probe in particular corrupts
-// the bytes AND regenerates the sidecar, so the legacy checksum gate passes and
-// only the signed manifest can catch it.
-//
-// Both installers are driven for every case. A guard that is alive on one shell
-// and dead on the other is exactly the platform-dependent vacuity that has bitten
-// this workstream before.
+/**
+ * Acceptance suite for the installers and the signed release manifest.
+ * It runs the real installers, `tools/release/get-exarchos.sh` under bash and
+ * `tools/release/get-exarchos.ps1` under pwsh, against a signed fixture release.
+ *
+ * Only the origin is a stub: a `node:http` server on loopback serves the fixture.
+ * The build-identity banner, the Ed25519-signed manifest, the SHA-512 sidecars and the verifier are real.
+ * The suite builds the verifier with the `build:release-verifier` script of `package.json`.
+ *
+ * Each probe seeds one fault and leaves the other checks intact, so a rejection names the check under test.
+ * The asset probe corrupts the bytes and regenerates the sidecar, so only the signed manifest can catch it.
+ * Each case runs under both shells, because a guard can be alive on one shell and dead on the other.
+ */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawn } from 'node:child_process';
@@ -56,15 +41,13 @@ const PS1_INSTALLER = join(REPO_ROOT, 'tools', 'release', 'get-exarchos.ps1');
 const SHIPPED_VERIFIER_PATH = 'dist/release-verify.js';
 
 /**
- * The package as `npm pack` sees it: package.json, the shipped roots of
- * `files[]`, and the verifier that package.json's own build script writes
- * into it. It is a sandbox copy, so the build and the pack never write to
- * the live checkout (#2030).
+ * The package as `npm pack` sees it: `package.json`, the shipped roots of `files[]`, and the built verifier.
+ * It is a sandbox copy, so the build and the pack never write to the live checkout.
  */
 let packageCopy: RepoSandbox | undefined;
 let SHIPPED_VERIFIER = '';
 
-/** The package copy's root; throws rather than let a pack fall back to the live tree. */
+/** Returns the root of the package copy. It throws when the copy is absent, so a pack never runs in the live tree. */
 function packageCopyRoot(): string {
   if (packageCopy === undefined) throw new Error('the package copy was not built');
   return packageCopy.root;
@@ -73,11 +56,9 @@ function packageCopyRoot(): string {
 const LINUX_ASSET = 'exarchos-linux-x64';
 const WINDOWS_ASSET = 'exarchos-windows-x64.exe';
 
-// ─── Toolchain discovery ─────────────────────────────────────────────────────
-
 /**
- * On Windows `bun` is a `.cmd`/`.ps1` shim, not a PATH `.exe`, so a spawn
- * without a shell cannot find it by name. Mirrors `scripts/build-release-manifest.test.ts`.
+ * On Windows, `bun` is a `.cmd` or `.ps1` shim, so a spawn without a shell cannot find it by name.
+ * `tests/scripts/build-release-manifest.test.ts` holds the same resolver.
  */
 function resolveBunExecutable(): string {
   const dirs = (process.env['PATH'] ?? '').split(delimiter).filter((d) => d.length > 0);
@@ -118,21 +99,12 @@ async function resolvePwsh(): Promise<string | undefined> {
 const BASH = await resolveBash();
 const PWSH = await resolvePwsh();
 
-// ─── Tolerated-skip ledger (DR-7, task 078) ──────────────────────────────────
-//
-// `describe.skipIf(BASH/PWSH === undefined)` silently dropped 11 tests PER
-// SHELL — the entire PowerShell half of the DR-20 acceptance suite — and the
-// run reported success. `pwsh` is absent on at least one dev host, so that half
-// had been reporting green without executing. A suite that shrinks to nothing
-// and still says "ok" is the same defect the installers themselves are gated
-// against.
-//
-// The skip survives OFF CI only, because a contributor without pwsh should not
-// be blocked from running the rest of the root suite. Under CI both shells are
-// REQUIRED and their absence fails the lane. The toleration is declared here
-// rather than implied by a bare `skipIf`: it names an issue, it carries an
-// expiry, and the expiry is itself asserted, so it cannot quietly outlive its
-// justification.
+/**
+ * The waiver for a skipped installer suite.
+ * A bare `skipIf` drops every test of an absent shell, and the run still reports success.
+ * Off CI, the skip stays, so a contributor without pwsh can run the rest of the suite.
+ * On CI, both shells are required. The waiver names an issue and an expiry date, and a test asserts the expiry.
+ */
 const SHELL_SKIP_WAIVER = Object.freeze({
   issue: '#1789',
   expires: '2026-11-30',
@@ -146,10 +118,7 @@ function todayUtc(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-/**
- * Suite title that ANNOUNCES a skip instead of letting it vanish. A reader of
- * the reporter output can see which shell dropped out and under what waiver.
- */
+/** Returns a suite title that names the absent shell and the waiver, so the reporter output shows the skip. */
 function shellSuite(title: string, resolved: string | undefined, shell: string): string {
   return resolved !== undefined
     ? title
@@ -162,23 +131,18 @@ function toShellPath(p: string): string {
   return p.replace(/\\/g, '/');
 }
 
-// ─── Loopback "GitHub Releases" ──────────────────────────────────────────────
-
 interface Origin {
   readonly baseUrl: string;
   close(): Promise<void>;
 }
 
 /**
- * Serve a fixture directory over loopback at the same URL shape the installers
- * build (`<base>/download/<tag>/<file>`). Only the ORIGIN is stubbed: the
- * installers run their real download + verification code over real bytes.
+ * Serves a fixture directory on loopback with the URL shape that the installers build
+ * (`<base>/download/<tag>/<file>`). It refuses a path that resolves outside `rootDir`.
  */
 async function startOrigin(rootDir: string): Promise<Origin> {
   const server: Server = createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
-    // Contain the served path inside rootDir — a fixture must not be able to
-    // make the suite read outside its own directory.
     const target = resolve(rootDir, `.${decodeURIComponent(url.pathname)}`);
     if (!target.startsWith(resolve(rootDir))) {
       res.statusCode = 403;
@@ -203,17 +167,14 @@ async function startOrigin(rootDir: string): Promise<Origin> {
   };
 }
 
-// ─── Installer drivers ───────────────────────────────────────────────────────
-
 interface RunResult {
   readonly status: number | null;
   readonly output: string;
 }
 
 /**
- * Run a child process WITHOUT blocking this worker's event loop. `spawnSync`
- * cannot be used here: the loopback origin the installer downloads from lives
- * in this same process, so a synchronous wait would deadlock the download.
+ * Runs a child process and does not block the event loop of this worker.
+ * The loopback origin lives in this process, so a synchronous wait with `spawnSync` deadlocks the download.
  */
 function runAsync(
   command: string,
@@ -255,12 +216,11 @@ interface InstallerRun {
   /** Runs this copy of the installer instead of the shipped one. */
   readonly script?: string;
   readonly allowModifiedSource?: boolean;
-  /** Tag the installer is asked for; defaults to the fixture's own tag. */
+  /** The tag that the installer requests. The default is the tag of the fixture. */
   readonly requestTag?: string;
   /**
-   * Feed the installer to the shell on stdin, as `curl | bash` and `irm | iex`
-   * do. No script directory is known, and PATH holds no verifier bin, so only
-   * the built-in verifier is left.
+   * Feeds the installer to the shell on stdin, as `curl | bash` and `irm | iex` do.
+   * The installer then knows no script directory and PATH holds no verifier bin, so only the built-in verifier is left.
    */
   readonly piped?: boolean;
   /** Replaces PATH for the run. */
@@ -289,17 +249,16 @@ function onPath(name: string): string {
   return join(dir, exe);
 }
 
-/** Set PATH, dropping any differently-cased copy (Windows spells it `Path`). */
+/** Sets PATH and deletes each copy of the key with a different case, because Windows spells it `Path`. */
 function withPath(env: NodeJS.ProcessEnv, value: string): void {
   for (const key of Object.keys(env)) if (key.toUpperCase() === 'PATH') delete env[key];
   env['PATH'] = value;
 }
 
 /**
- * Drive `get-exarchos.sh`. A bash prelude installs a `uname` shim so the POSIX
- * installer's Linux platform detection runs unchanged even when the harness
- * host is Windows (git-bash reports `MINGW64_NT-…`). The prelude lives inside
- * the MSYS filesystem, so no Windows→POSIX path translation is involved.
+ * Drives `get-exarchos.sh`. A bash prelude puts a `uname` shim first on PATH, so the installer detects Linux on each host.
+ * On Windows, git-bash reports `MINGW64_NT-…`.
+ * The prelude creates the shim directory inside bash, so the path needs no translation to POSIX form.
  */
 function runShInstaller(run: InstallerRun): Promise<RunResult> {
   if (BASH === undefined) throw new Error('bash unavailable');
@@ -350,7 +309,7 @@ function runShInstaller(run: InstallerRun): Promise<RunResult> {
   });
 }
 
-/** Drive `get-exarchos.ps1` with the same fixture release. */
+/** Drives `get-exarchos.ps1` with the same fixture release. */
 function runPs1Installer(run: InstallerRun): Promise<RunResult> {
   if (PWSH === undefined) throw new Error('pwsh unavailable');
   const env: NodeJS.ProcessEnv = {
@@ -382,7 +341,7 @@ function runPs1Installer(run: InstallerRun): Promise<RunResult> {
   return runAsync(PWSH, args, env);
 }
 
-/** The built-in verifier text an installer carries between two marker lines. */
+/** Returns the built-in verifier text that an installer carries between two marker lines. */
 function builtInVerifierOf(path: string, open: string, close: string): string {
   const lines = readFileSync(path, 'utf8').replace(/\r\n/g, '\n').split('\n');
   const start = lines.indexOf(open);
@@ -402,8 +361,6 @@ async function verdictOf(
   const verdict = tag ?? (text.includes('release verified') ? 'verified' : text.includes('usage error') ? 'usage' : text);
   return { status: run.status, verdict };
 }
-
-// ─── Fixture / scratch management ────────────────────────────────────────────
 
 let scratch: string;
 let origins: Origin[] = [];
@@ -501,15 +458,14 @@ afterAll(async () => {
   packageCopy?.remove();
 });
 
-// ─── Suite ───────────────────────────────────────────────────────────────────
-
 describe('DR-20 — the installers consume the signed release manifest', () => {
-  // ── DR-7 (task 078): a shell that is absent must be LOUD, not silent ───────
-  //
-  // This test is the reason the two `skipIf` suites below are allowed to exist.
-  // It runs unconditionally and asserts the thing the skips would otherwise
-  // hide: on CI, both shells are present, so neither half of the acceptance
-  // suite can report success without executing.
+  /**
+   * This test is the reason that the two `skipIf` suites can exist, and it always runs.
+   * On CI, an absent shell fails it, so neither suite can report success without a run.
+   * Off CI, it tolerates an absent shell until the waiver expires, and it prints a warning.
+   * A host with both shells uses no waiver, so the expiry check does not apply there.
+   * The `expires` date is the last tolerated day.
+   */
   it('InstallerVerify_ShellAbsent_FailsClosedRatherThanSkipping', () => {
     const missing = [
       ...(BASH === undefined ? ['bash'] : []),
@@ -527,14 +483,6 @@ describe('DR-20 — the installers consume the signed release manifest', () => {
       return;
     }
 
-    // Off CI the absence is tolerated — but the toleration expires, and the
-    // expiry is asserted here so it cannot outlive its justification unnoticed.
-    // Only when the waiver is actually BEING USED, though: a contributor with
-    // both shells installed is skipping nothing, and handing them a red test
-    // for an exemption they never claimed teaches them to widen the date. The
-    // tooth is "a skip must not outlive its expiry", not "this date must always
-    // be in the future". Inclusive, like the other two sites that carry it:
-    // `expires` is the LAST tolerated day everywhere or it is nowhere.
     if (missing.length > 0) {
       expect(
         SHELL_SKIP_WAIVER.expires >= todayUtc(),
@@ -546,7 +494,6 @@ describe('DR-20 — the installers consume the signed release manifest', () => {
       ).toBe(true);
     }
 
-    // Still say it out loud, so a local run cannot look like a full one.
     if (missing.length > 0) {
       console.warn(
         `[installer-verify] SKIPPING ${missing.join(' and ')} installer suite(s) — ` +
@@ -556,6 +503,10 @@ describe('DR-20 — the installers consume the signed release manifest', () => {
     }
   });
 
+  /**
+   * The `build` script must include the verifier build.
+   * The built verifier is a real CLI: with no arguments, it exits 3 (usage error).
+   */
   it('the verifier is shipped: package.json exposes it as a bin and includes it in files[]', async () => {
     const pkg = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8')) as {
       bin?: Record<string, string>;
@@ -564,11 +515,9 @@ describe('DR-20 — the installers consume the signed release manifest', () => {
     };
     expect(pkg.bin?.['exarchos-release-verify']).toBe('dist/release-verify.js');
     expect(pkg.files).toContain('dist/release-verify.js');
-    // …and the release build actually produces it.
     expect(pkg.scripts['build']).toContain('build:release-verifier');
     expect(existsSync(SHIPPED_VERIFIER)).toBe(true);
 
-    // It is a real, runnable CLI (usage error == exit 3, per the CLI contract).
     const probe = await spawnAsync(process.execPath, [SHIPPED_VERIFIER], {
       timeout: 60_000,
     });
@@ -576,8 +525,13 @@ describe('DR-20 — the installers consume the signed release manifest', () => {
     expect(`${probe.stdout}${probe.stderr}`).toContain('--manifest is required');
   }, 120_000);
 
+  /**
+   * `files[]` holds no negation for fixtures or tests, so this check of the tarball is the only defense.
+   * A shipped root that carries test-only paths fails here by name.
+   * The floor on the file count stops a vacuous pass on an empty or unparsed pack.
+   * On Windows, the spawn uses a shell, because Node refuses to spawn a `.cmd` shim without one (CVE-2024-27980).
+   */
   it('npm pack ships dist/release-verify.js and not the test fixtures', async () => {
-    // Node >=20 refuses to spawn a `.cmd` shim without a shell (CVE-2024-27980).
     const isWin = process.platform === 'win32';
     const packed = await spawnAsync(
       isWin ? 'npm.cmd' : 'npm',
@@ -591,13 +545,6 @@ describe('DR-20 — the installers consume the signed release manifest', () => {
     expect(files).toBeDefined();
     expect(files).toContain('dist/release-verify.js');
 
-    // This is the whole defence now. `files[]` used to carry
-    // `!**/test-fixtures` and `!**/*.test.{sh,ts}`, retired once `scripts/`
-    // stopped being published left them excluding nothing. Asserting against
-    // the tarball beats asserting against the config: add a shipped root that
-    // carries fixtures or tests and this names them, where a negation would
-    // have quietly swallowed them. Anchored on a real denominator so an empty
-    // or unparsed pack cannot pass by vacuity.
     expect(files!.length).toBeGreaterThan(50);
     const leaked = files!.filter(
       (f) => /(^|\/)(test-fixtures|trigger-tests)\//.test(f) || /\.test\.(ts|sh|ps1)$/.test(f),
@@ -653,6 +600,7 @@ describe('DR-20 — the installers consume the signed release manifest', () => {
   });
 
   describe.skipIf(BASH === undefined)(shellSuite('tools/release/get-exarchos.sh', BASH, 'bash'), () => {
+    /** The verified path must still write the PATH block to `.bashrc`. */
     it('installs a release whose signed manifest verifies on all four dimensions', async () => {
       const { fixture, origin } = await scenario('sh-happy', {});
       const target = freshTarget('sh-happy');
@@ -665,7 +613,6 @@ describe('DR-20 — the installers consume the signed release manifest', () => {
       expect(result.status, result.output).toBe(0);
       expect(result.output).toContain('release manifest verified');
       expect(installedNames(target.installDir)).toContain('exarchos');
-      // Post-install PATH wiring still happens on the verified path.
       expect(readFileSync(join(target.home, '.bashrc'), 'utf8')).toContain('>>> exarchos >>>');
     }, 180_000);
 
@@ -683,6 +630,10 @@ describe('DR-20 — the installers consume the signed release manifest', () => {
       expect(installedNames(target.installDir)).toEqual([]);
     }, 180_000);
 
+    /**
+     * The second run pins the key that signed the fixture, and the install succeeds.
+     * Thus the pin caused the rejection.
+     */
     it('Installer_ManifestMismatch_RejectsInstall — a manifest signed by an unpinned key aborts', async () => {
       const { fixture, origin } = await scenario('sh-wrongkey', { signWithWrongKey: true });
       const target = freshTarget('sh-wrongkey');
@@ -696,9 +647,6 @@ describe('DR-20 — the installers consume the signed release manifest', () => {
       expect(result.output).toContain('manifest-signature');
       expect(installedNames(target.installDir)).toEqual([]);
 
-      // Same fixture, but the installer pins the impostor's key: it verifies.
-      // This is what proves the rejection above was the PINNING, not an
-      // unconditional refusal.
       const target2 = freshTarget('sh-wrongkey-pinned');
       const pinned = await runShInstaller({
         fixture,
@@ -756,6 +704,7 @@ describe('DR-20 — the installers consume the signed release manifest', () => {
       expect(installedNames(target.installDir)).toEqual([]);
     }, 180_000);
 
+    /** The sidecar check passes first, so only the signed manifest can catch this fault. */
     it('ASSET mismatch aborts even though the SHA-512 sidecar matches', async () => {
       const { fixture, origin } = await scenario('sh-asset', {
         corruptAssetAfterSigning: LINUX_ASSET,
@@ -767,19 +716,17 @@ describe('DR-20 — the installers consume the signed release manifest', () => {
         ...target,
         trustRootPem: fixture.trustRootPem,
       });
-      // The legacy sidecar gate PASSED — this is not "merely a corrupted
-      // download"; only the signed manifest can catch it.
       expect(result.output).toContain('sha512 checksum verified');
       expect(result.status, result.output).not.toBe(0);
       expect(result.output).toContain('asset-digest');
       expect(installedNames(target.installDir)).toEqual([]);
     }, 180_000);
 
+    /**
+     * The origin publishes the current release under the tag `v9.9.9`.
+     * Signature, source, contract and asset digest all verify, so only the release binding can reject it.
+     */
     it('a validly-signed manifest for a DIFFERENT release aborts (rollback)', async () => {
-      // Published under tag `v9.9.9`, but the artifact (and its manifest) are
-      // the current release. Every other dimension verifies — signature,
-      // source, contract and asset digest all match — so ONLY the release
-      // binding can reject this, which is exactly what a rollback looks like.
       const { fixture, origin } = await scenario('sh-binding', { tag: 'v9.9.9' });
       const target = freshTarget('sh-binding');
       const result = await runShInstaller({

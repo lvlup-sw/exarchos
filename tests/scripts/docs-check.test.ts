@@ -1,19 +1,10 @@
 /**
- * RED test — projections architecture doc references required shape (T062, DR-17).
+ * Checks the shape of `docs/architecture/projections.md`. The doc must hold five
+ * section topics, four canonical symbols and a fenced TypeScript block. Its link
+ * to the rehydrate-foundation design doc must resolve on disk.
  *
- * Asserts that `docs/architecture/projections.md` exists and contains the
- * structural markers required by the T062 design:
- *
- *   1. File exists.
- *   2. Contains 6 required section headings.
- *   3. Mentions the canonical symbols: `ProjectionReducer`, `defaultRegistry`,
- *      `buildDegradedResponse`, `rebuildProjection`.
- *   4. Has at least one fenced code block.
- *   5. Has a markdown link to the rehydrate-foundation design doc whose URL
- *      RESOLVES to a file on disk (survives the DR-18 archive move).
- *
- * Phase: RED → the doc does not yet exist.
- * GREEN: `docs/architecture/projections.md` is created with all required content.
+ * The doc lives in the external documents repository. The suite skips when the
+ * checkout does not hold the doc.
  */
 import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs';
@@ -34,43 +25,36 @@ describe.skipIf(!fs.existsSync(DOC_PATH))('ProjectionsArchDoc_ReferencesRequired
 
   it('Doc_ContainsReducerInterfaceSection', () => {
     content = fs.readFileSync(DOC_PATH, 'utf8');
-    // Section 1: Reducer interface contract
     expect(content).toMatch(/reducer interface/i);
   });
 
   it('Doc_ContainsRequiredTestShapeSection', () => {
     content = fs.readFileSync(DOC_PATH, 'utf8');
-    // Section 2: Required test shape
     expect(content).toMatch(/required test shape/i);
   });
 
   it('Doc_ContainsRegistrationProtocolSection', () => {
     content = fs.readFileSync(DOC_PATH, 'utf8');
-    // Section 3: Registration protocol
     expect(content).toMatch(/registration protocol/i);
   });
 
   it('Doc_ContainsFailureModeSection', () => {
     content = fs.readFileSync(DOC_PATH, 'utf8');
-    // Section 4: Failure-mode conventions
     expect(content).toMatch(/failure.mode/i);
   });
 
   it('Doc_ContainsSnapshotSection', () => {
     content = fs.readFileSync(DOC_PATH, 'utf8');
-    // Section 5: Snapshot store + cadence
     expect(content).toMatch(/snapshot/i);
   });
 
+  /**
+   * A substring match passes when the design doc path is only display text and
+   * the link URL dangles. So the test finds the link by basename and resolves its
+   * URL from the doc directory or the repo root. The target file must exist on disk.
+   */
   it('Doc_ContainsDesignDocLink_ThatResolvesOnDisk', () => {
     content = fs.readFileSync(DOC_PATH, 'utf8');
-    // Section 6: Link to the rehydrate-foundation design doc.
-    // Harden beyond a substring match. The previous `toContain(...)` assertion
-    // stayed GREEN after the design doc was archived (DR-18) even though the
-    // link URL dangled, because the pre-archive path still appeared as display
-    // text. Instead, find the markdown link that targets the design doc by
-    // basename, resolve its URL relative to this doc, and assert the target
-    // FILE EXISTS on disk — so a future broken/moved link FAILS this test.
     const DESIGN_BASENAME = '2026-04-23-rehydrate-foundation.md';
     const linkUrls: string[] = [];
     for (const m of content.matchAll(/\]\(([^)]+)\)/g)) {
@@ -114,9 +98,9 @@ describe.skipIf(!fs.existsSync(DOC_PATH))('ProjectionsArchDoc_ReferencesRequired
     expect(content).toContain('rebuildProjection');
   });
 
+  /** The doc must hold at least one fenced TypeScript block. */
   it('Doc_HasFencedCodeBlock', () => {
     content = fs.readFileSync(DOC_PATH, 'utf8');
-    // At least one TypeScript fenced code block
     expect(content).toMatch(/```ts/);
   });
 });

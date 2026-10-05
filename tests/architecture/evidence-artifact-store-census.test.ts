@@ -1,22 +1,15 @@
 /**
- * One root for evidence artifacts, kept by a census rather than a comment.
+ * A census keeps one root for evidence artifacts.
  *
- * A `ContentAddressedStore` reference carries a digest and no root, so a
- * producer and a reader that construct the store two different ways are
- * indistinguishable, from the reference's own point of view, from a blob that
- * was never written — the two gate-evidence producers used to disagree on
- * the root this way, and this pass gave them one shared constructor. This
- * walks the shipped tree with the TypeScript parser for every value-level
- * use of `ContentAddressedStore` — resolved through the import graph, so an
- * alias or a barrel is the same class — and requires each one to be a named,
- * reasoned-about owner.
+ * A `ContentAddressedStore` reference holds a digest and no root. When a
+ * producer and a reader construct the store with different roots, the reader
+ * cannot tell the result from a blob that nobody wrote. This suite uses the
+ * TypeScript parser to find each value-level use of the class in the shipped
+ * tree, through aliases and barrels. Each use must be in a named owner.
  *
- * The vacuity guard: a scan that stopped finding construction sites at all
- * would report zero violations and read as a clean tree. The scanned
- * population is corroborated against `git ls-files`, the site count is
- * asserted non-empty against a measured floor, and the seeded-module case
- * proves the walk actually reaches and names a real file on disk rather than
- * a row spliced into a value the test already controls.
+ * A scan that finds no construction site reports no violation. Thus the suite
+ * compares the scanned population with `git ls-files`, asserts a minimum site
+ * count, and seeds real modules on disk.
  */
 
 import { readFileSync } from 'node:fs';
@@ -34,23 +27,33 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 const SOURCE_DIR = path.join(REPO_ROOT, 'src');
 
 /**
- * Every module allowed to construct a `ContentAddressedStore` directly, and
- * why. Anything else that constructs one is a second, disagreeing root.
+ * The modules that can construct a `ContentAddressedStore` directly. A
+ * construction in any other module is a second root that can disagree.
  */
 const OWNERS: readonly string[] = [
-  // The sanctioned evidence-artifact constructor every admission producer
-  // and reader binds through.
+  /** The constructor that each admission producer and reader uses for evidence artifacts. */
   'src/workflow/admission/evidence-artifact.ts',
-  // A different subject entirely — run bundles, not admission evidence —
-  // already root-owned by its own directory-name constant.
+  /** A different subject: run bundles. Its own directory-name constant owns its root. */
   'src/events/bundle/run-bundle-store.ts',
-  // A throwaway `mkdtemp` root inside a self-contained witness. It reads and
-  // writes nothing a durable-evidence check ever consults, so it names no
-  // custody this census protects.
+  /** A temporary `mkdtemp` root in a self-contained witness. No durable-evidence check reads it. */
   'src/verbs/gates/gate-ownership-census.ts',
 ];
 
+/**
+ * `seededTree` writes a temporary tree with the shape of the real one. It holds
+ * the class module at the path that the scanner resolves bindings against, a
+ * barrel that re-exports the class, and the given modules. The caller removes
+ * the root that it returns.
+ */
 describe('EvidenceStoreConstructionCensus — one root for evidence artifacts', () => {
+  /**
+   * `git ls-files` is the second authority, because a scanner that loses most of
+   * the tree still reports a plausible count. The comparison is bounded and not
+   * equal, because an untracked file under `src/` makes the walk larger. The
+   * allowance is one file and not a percentage, because a percentage lets an
+   * exclusion regression pass. The limit on vanished modules separates one
+   * transient file from a tree that disappears.
+   */
   it('Census_ScannedPopulation_IsNotVacuous', async () => {
     const census = scanEvidenceStoreConstructions(REPO_ROOT, {
       sourceDir: SOURCE_DIR,
@@ -62,38 +65,12 @@ describe('EvidenceStoreConstructionCensus — one root for evidence artifacts', 
       exclude: (file) => !file.startsWith('src/') || file.endsWith('.test.ts'),
     });
     expect(tracked.length).toBeGreaterThan(0);
-    // Second authority: a scanner that lost most of the tree would still
-    // report a plausible-looking count on its own. Agreement with `git
-    // ls-files` is what rules that out.
-    //
-    // BOUNDED, not equal — the shape `effect-ledger.test.ts` already uses for
-    // the same comparison, and the relation `tracked-population.ts`'s own
-    // header states: "an untracked scratch file makes the walk larger, never
-    // the authority smaller, and cannot turn a real shortfall green". Both real
-    // failures still fail: fewer than tracked means the walk lost part of the
-    // tree, and more than the one known probe means an exclusion stopped
-    // working.
-    //
-    // Strict equality additionally required that NO untracked `.ts` exist under
-    // `src/` at the instant this ran, which is not a property of this census at
-    // all. `tests/scripts/check-module-intent.test.ts` writes a real
-    // `src/dr9-root-src-probe.ts` — deliberately, to prove that gate reaches
-    // the live tree — and holds it there across two full-tree CLI scans. Both
-    // files are in the `unit` project, so they run in parallel workers, and on
-    // a 2-core Windows runner that window is seconds wide. The equality was
-    // asserting the absence of a sibling test's fixture.
-    //
-    // The allowance is exactly that one file, not a proportion: a percentage
-    // would let an exclusion regression admit dozens of modules and still pass.
     expect(census.scannedModuleCount).toBeGreaterThanOrEqual(tracked.length);
     expect(
       census.scannedModuleCount,
       'the walk reached more modules than the tree tracks in its scope, beyond the ' +
         "one probe file a sibling test writes — an exclusion stopped working",
     ).toBeLessThanOrEqual(tracked.length + 1);
-    // The tolerance has a ceiling of its own. Skipping a module that vanished
-    // under a sibling test is right; skipping many is a tree that is
-    // disappearing, and the two must not look the same from here.
     expect(
       census.vanishedModuleCount,
       'modules kept vanishing between the walk and the read — this is no longer ' +
@@ -101,14 +78,16 @@ describe('EvidenceStoreConstructionCensus — one root for evidence artifacts', 
     ).toBeLessThanOrEqual(2);
   }, 60_000);
 
+  /**
+   * The site count is the denominator, because a walk that finds no construction
+   * site passes the `unowned` assertion vacuously. Each owner constructs the
+   * store at least one time.
+   */
   it('Census_EveryProductionConstruction_IsOwned', () => {
     const census = scanEvidenceStoreConstructions(REPO_ROOT, {
       sourceDir: SOURCE_DIR,
       owners: OWNERS,
     });
-    // Denominator, asserted non-empty: a walk that found zero construction
-    // sites at all would pass the next assertion vacuously. The three owners
-    // above each construct the store at least once — the measured floor.
     expect(census.sites.length).toBeGreaterThanOrEqual(4);
     expect(
       census.unowned,
@@ -116,10 +95,11 @@ describe('EvidenceStoreConstructionCensus — one root for evidence artifacts', 
     ).toEqual([]);
   }, 60_000);
 
+  /**
+   * A construction-site scan does not see a literal root that sits in the same
+   * file as a call of the shared helper. This test reads the source text.
+   */
   it('Census_BothEvidenceProducers_BindToTheRootConstant', () => {
-    // The half a construction-site scan cannot see on its own: a producer
-    // could call the shared helper AND still carry a stray literal root
-    // somewhere else in the same file. Read the source directly.
     for (const file of [
       'src/verbs/gates/durable-gate-producer.ts',
       'src/verbs/gates/gate-runner.ts',
@@ -131,11 +111,6 @@ describe('EvidenceStoreConstructionCensus — one root for evidence artifacts', 
     }
   });
 
-  /**
-   * A throwaway tree shaped like the real one: the class module at the path
-   * the scanner resolves bindings against, a barrel re-exporting it, and one
-   * seeded module per case. Returns the root; the caller removes it.
-   */
   async function seededTree(modules: Readonly<Record<string, string>>): Promise<string> {
     const root = await mkdtemp(path.join(os.tmpdir(), 'exarchos-evidence-census-'));
     const artifactsDir = path.join(root, 'src', 'storage', 'artifacts');
@@ -156,6 +131,7 @@ describe('EvidenceStoreConstructionCensus — one root for evidence artifacts', 
     return root;
   }
 
+  /** The scan also walks the class module and the barrel, so the module count is 3. */
   it('Census_SeededModuleOnDisk_IsWalkedAndNamed', async () => {
     const root = await seededTree({
       'seeded-evidence-store.ts': [
@@ -167,7 +143,6 @@ describe('EvidenceStoreConstructionCensus — one root for evidence artifacts', 
     try {
       const sourceDir = path.join(root, 'src');
       const seeded = scanEvidenceStoreConstructions(root, { sourceDir, owners: [] });
-      // The class module and the barrel are walked too; neither USES the class.
       expect(seeded.scannedModuleCount).toBe(3);
       expect(seeded.unowned).toEqual([
         {
@@ -182,10 +157,11 @@ describe('EvidenceStoreConstructionCensus — one root for evidence artifacts', 
     }
   });
 
+  /**
+   * A line pattern does not see these three shapes. They are an alias of the
+   * class, an import through the barrel, and a `new` expression across lines.
+   */
   it('Census_AliasedImportThroughTheBarrel_SplitAcrossLines_IsStillAConstruction', async () => {
-    // The three shapes a line pattern cannot see: the class under another
-    // local name, reached through the barrel rather than its own module, and
-    // a `new` whose parts sit on different lines.
     const root = await seededTree({
       'seeded-alias.ts': [
         "import { ContentAddressedStore as Store } from './storage/artifacts/index.js';",
@@ -209,9 +185,8 @@ describe('EvidenceStoreConstructionCensus — one root for evidence artifacts', 
     }
   });
 
+  /** A namespace member and a subclass each build a store without the text `new ContentAddressedStore`. */
   it('Census_NamespaceImportAndSubclass_AreValueUsesToo', async () => {
-    // A store can be built without ever spelling `new ContentAddressedStore`:
-    // through a namespace member, or by subclassing. Both are doors.
     const root = await seededTree({
       'seeded-namespace.ts': [
         "import * as artifacts from './storage/artifacts/index.js';",
@@ -238,11 +213,12 @@ describe('EvidenceStoreConstructionCensus — one root for evidence artifacts', 
     }
   });
 
+  /**
+   * Each barrel imports the class and then exports the local name, plain or with
+   * an alias. The caller of the aliased barrel names neither the class nor its
+   * directory, so a text prefilter on either name skips that caller.
+   */
   it('Census_ImportThenExportBarrel_AliasedOrNot_IsADoorToo', async () => {
-    // The barrel shape `export { X } from` does not cover: bind the class
-    // locally, then export the local name — plain, or under an alias. The
-    // aliased caller spells neither the class name nor its directory, so a
-    // text prefilter on either would have skipped the one file that matters.
     const root = await seededTree({
       'barrel-local.ts': [
         "import { ContentAddressedStore } from './storage/artifacts/content-addressed-store.js';",
@@ -279,7 +255,6 @@ describe('EvidenceStoreConstructionCensus — one root for evidence artifacts', 
     }
   });
 
-  /** The six-hop chain, two hops of it a cycle, that every long-chain case walks. */
   const BARREL_CHAIN: Readonly<Record<string, string>> = {
     'b1.ts': "export * from './b2.js';\n",
     'b2.ts': "export * from './b1.js';\nexport * from './b3.js';\n",
@@ -289,13 +264,13 @@ describe('EvidenceStoreConstructionCensus — one root for evidence artifacts', 
     'b6.ts': "export { ContentAddressedStore } from './storage/artifacts/content-addressed-store.js';\n",
   };
 
-  // Each entry point gets its OWN tree and therefore its own scan. A single
-  // tree holding both would let the shorter walk settle `b3` first and the
-  // longer one return that memoised answer without walking its own hops, so a
-  // reintroduced depth bound would still pass here — and which walk ran first
-  // was never pinned anyway, because the scanner does not sort `readdirSync`.
-  // One caller per scan is what makes each of these a real measurement of the
-  // distance from that caller to the class.
+  /**
+   * `BARREL_CHAIN` has six hops, and two of them form a cycle. Each entry point
+   * has its own tree and its own scan. In one shared tree, the shorter walk can
+   * resolve `b3` first, and the longer walk then reuses that memoized answer.
+   * Then a scanner with a depth bound still passes. The scanner does not sort
+   * `readdirSync`, so the order of the two walks is not fixed.
+   */
   it.each([
     { entry: 'b1.js', hops: 'six hops through the cycle' },
     { entry: 'b3.js', hops: 'four hops, past the cycle' },
@@ -324,18 +299,14 @@ describe('EvidenceStoreConstructionCensus — one root for evidence artifacts', 
     },
   );
 
+  /**
+   * The class name in a string, in a comment, or in a type annotation is not a
+   * use. Each decoy module also binds the class as a value and constructs it one
+   * time, because the scanner skips a module that binds nothing. That site
+   * proves that the scanner read the module. It is the only site, which proves
+   * that the scanner rejected the decoys.
+   */
   it('Census_TextInStringsCommentsAndTypePositions_IsNotAUse', async () => {
-    // The false positives a line pattern produces and the compiler does not:
-    // the class name inside a string, inside a comment, and in a type
-    // annotation. None of these can construct.
-    //
-    // Each decoy module BINDS the class as a value and constructs it once.
-    // Without that, the scanner skips a module that binds nothing and the
-    // decoys are never read at all — the assertion would then pass because
-    // nothing looked, which is the same green as looking and judging right.
-    // The construction is the positive control: its site proves the module
-    // was walked, and its being the ONLY site proves the decoys beside it
-    // were judged and rejected.
     const root = await seededTree({
       'seeded-text.ts': [
         "import { ContentAddressedStore } from './storage/artifacts/content-addressed-store.js';",
@@ -369,11 +340,12 @@ describe('EvidenceStoreConstructionCensus — one root for evidence artifacts', 
     }
   });
 
+  /**
+   * The only import is type-only, so the module binds no value and the scanner
+   * skips the whole module. The test above covers type positions in a module
+   * that binds the value.
+   */
   it('Census_TypeOnlyImport_BindsNothingAtAll', async () => {
-    // Distinct from the case above: there the class is value-bound and the
-    // TYPE POSITIONS are rejected; here the only import is type-only, so the
-    // module binds no value and is skipped whole. Both readings have to hold,
-    // and only one of them can be shown per fixture.
     const root = await seededTree({
       'seeded-type-only.ts': [
         "import type { ContentAddressedStore } from './storage/artifacts/content-addressed-store.js';",
@@ -395,12 +367,14 @@ describe('EvidenceStoreConstructionCensus — one root for evidence artifacts', 
     }
   });
 
+  /**
+   * Two namespace forms that name neither the class at the use site nor its
+   * directory at the import. `ns.Store` is the class with an alias inside a
+   * namespace. `inner` is a namespace that a barrel re-exports and a named
+   * import reaches. A scanner that resolves a namespace member against the
+   * class name sees neither.
+   */
   it('Census_NamespaceReExportedAndAliased_IsADoorToo', async () => {
-    // Two namespace doors that spell neither the class name at the use site
-    // nor its directory at the import. `ns.Store` is the class under an alias
-    // inside a namespace; `viaNamed` is a namespace the barrel re-exported,
-    // reached by a NAMED import. A namespace binding that resolves the member
-    // eagerly against the class's own name sees neither.
     const root = await seededTree({
       'alias-barrel.ts': [
         "export { ContentAddressedStore as Store } from './storage/artifacts/content-addressed-store.js';",

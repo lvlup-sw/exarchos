@@ -1,9 +1,8 @@
 // The call-shape extractor and census over hand-built fixtures.
 //
-// The live census can only show that today's skills resolve. These cases show
-// the instrument can fail: an unregistered action is refused rather than
-// counted, a removed call stops resolving rather than counting as zero, a new
-// call nobody placed is reported, and a path with nothing to count is refused.
+// The live census shows only that the current skills resolve. These cases show that the census can fail.
+// The census refuses an unregistered action, a removed call and a path with nothing to count.
+// It reports a new call that no path and no exclusion names.
 
 import { describe, it, expect } from 'vitest';
 import { extractSites, type RegistrySnapshot, type RunbookLike } from '../../tools/audit/core/call-shape/extract.js';

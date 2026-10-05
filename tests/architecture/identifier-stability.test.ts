@@ -1,21 +1,14 @@
 /**
- * Persisted identifiers and registered action names survive decomposition
- * (task 047, DR-9).
+ * Persisted identifiers and registered action names stay stable when a module
+ * is split.
  *
- * Tasks 048-051 split four large modules apart. The dangerous failure in that
- * work is not a broken build — it is a SILENT one. Drop a tool action while
- * moving a block of declarations and the result type-checks, lints, and passes
- * every behavioural test that does not happen to exercise that action. Change a
- * hash input and every existing row in the event store stops matching the ids
- * the new code computes, with nothing red anywhere.
+ * A dropped tool action still passes the type check, the lint, and each test
+ * that does not use that action. A changed hash input makes each stored event
+ * row stop matching the ids that the new code computes. The compiler sees
+ * neither, so `tools/audit/registered-actions-snapshot.json` records them.
  *
- * Both are invisible to the compiler by construction, so they need a recorded
- * baseline. That is what `tools/audit/registered-actions-snapshot.json` is.
- *
- * The snapshot is a BEFORE picture, not a rule: adding an action is ordinary
- * work. Regenerating it is allowed and expected — what is not allowed is
- * regenerating it *silently*, which is why the diff has to appear in the same
- * commit as the change it records.
+ * The snapshot is a record and not a rule. A change to the snapshot must be in
+ * the same commit as the change that it records.
  */
 import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
@@ -48,7 +41,7 @@ const snapshot = JSON.parse(
   readFileSync(path.join(REPO_ROOT, 'tools/audit/registered-actions-snapshot.json'), 'utf8'),
 ) as Snapshot;
 
-/** The live registry, reduced to the same shape the snapshot records. */
+/** The live registry in the shape that the snapshot records. */
 function liveTools(): SnapshotTool[] {
   return TOOL_REGISTRY.map((tool) => ({
     name: tool.name,
@@ -64,11 +57,12 @@ function liveEvents(): SnapshotEvent[] {
 }
 
 describe('identifier stability across decomposition', () => {
+  /**
+   * Rows in the event store hold these type strings, so a rename is a migration.
+   * The comparison uses the full record, so it also detects a change of
+   * lifecycle or tier.
+   */
   it('PersistedIdentifiers_AcrossDecomposition_AreStable', () => {
-    // Event types are PERSISTED: rows in the event store carry these strings,
-    // so a rename is a migration, not a refactor. Compared by full record so a
-    // lifecycle or tier change is caught too — a type silently demoted from
-    // `active` to `retired` still reads as present.
     const live = liveEvents();
     const recorded = snapshot.eventTypes.map((e) => ({
       type: e.type,
@@ -86,11 +80,12 @@ describe('identifier stability across decomposition', () => {
     );
   });
 
+  /**
+   * The snapshot comparison sorts names, so it does not see a change of order.
+   * `describe` and the CLI help follow the declaration array. Thus this test
+   * pins the published sequence for each tool.
+   */
   it('RegisteredActions_DeclarationOrder_IsThePublishedSequence', () => {
-    // The snapshot above sorts names so a set change is visible. Order is a
-    // different contract: `describe` and CLI help walk the declaration array,
-    // and a family reorder during a split would be silent if we only compared
-    // sorted sets. Pin the published sequence per tool.
     const order = Object.fromEntries(
       TOOL_REGISTRY.map((tool) => [tool.name, tool.actions.map((a) => a.name)]),
     );
@@ -228,11 +223,12 @@ describe('identifier stability across decomposition', () => {
     });
   });
 
+  /**
+   * The kill probe for the snapshot comparison. A comparison that passes for
+   * each input also satisfies the tests above. Thus this test drops one action,
+   * and then one tool, from the live shape and requires a mismatch.
+   */
   it('RegisteredActions_DroppedRegistration_FailsTheSnapshot', () => {
-    // The kill probe, and the reason the test above is worth having. A
-    // comparison that passes for every input would satisfy the assertions above
-    // just as well — so drop one action from the LIVE shape and require the
-    // comparison to notice.
     const live = liveTools();
     const [first] = live;
     expect(first, 'the registry is empty — nothing to drop').toBeDefined();
@@ -243,17 +239,17 @@ describe('identifier stability across decomposition', () => {
       snapshot.tools.map((t) => ({ name: t.name, hidden: t.hidden, actions: [...t.actions] })),
     );
 
-    // And a dropped TOOL, which is the coarser version of the same loss.
     expect(live.slice(1)).not.toEqual(
       snapshot.tools.map((t) => ({ name: t.name, hidden: t.hidden, actions: [...t.actions] })),
     );
   });
 
+  /**
+   * The composite-tool invariant: four visible composite tools, and each tool
+   * has an action discriminator. The expected names are literals here, so a
+   * snapshot that drifts with a wrong tree does not make this test pass.
+   */
   it('CompositeToolSurface_MatchesINV5d', () => {
-    // INV-5d stated as an instrument rather than as prose: four VISIBLE
-    // composite tools, each discriminated by an action. The snapshot could
-    // drift into agreement with a wrong tree; this is checked against the
-    // invariant's own numbers, so both have to be wrong to pass.
     const live = liveTools();
     const visible = live.filter((t) => !t.hidden);
 
@@ -268,19 +264,18 @@ describe('identifier stability across decomposition', () => {
     }
   });
 
+  /**
+   * The hash input of a persisted phase-attempt id joins its fields with a NUL
+   * separator. Without the separator, `from='ab', to='c'` and `from='a', to='bc'`
+   * give one id. The test calls the production constructor, because a local
+   * copy of the concatenation cannot detect that loss.
+   */
   it('DeterministicHashInputs_ForIdenticalInput_ProduceIdenticalOutput', () => {
-    // Persisted phase-attempt ids are hashed from a template literal with a
-    // NUL separator. Losing the separator during a decomposition silently
-    // collides two different field splits onto one id. This calls the
-    // production constructor — a local helper that restates a different
-    // concatenation cannot catch that loss.
     const first = allocatePhaseAttemptId('feature', 'ideate', 'plan', 'pred-1', 7);
     const again = allocatePhaseAttemptId('feature', 'ideate', 'plan', 'pred-1', 7);
     expect(first).toBe(again);
     expect(first.startsWith('phase-attempt:')).toBe(true);
 
-    // Without the separator, from='ab', to='c' and from='a', to='bc'
-    // concatenate to the same string. With it they must not.
     expect(allocatePhaseAttemptId('feature', 'ab', 'c', 'pred', 0)).not.toBe(
       allocatePhaseAttemptId('feature', 'a', 'bc', 'pred', 0),
     );
@@ -292,11 +287,13 @@ describe('identifier stability across decomposition', () => {
     expect(first).toBe(expected);
   });
 
+  /**
+   * The snapshot pins type, lifecycle and tier, and not emit sites.
+   * `RegistryDrift_AutoEmitsMatchEventEmissionRegistry` and the
+   * `check_event_emissions` action cover emission. This test requires that those
+   * artifacts exist, so nobody takes the snapshot for a census of append sites.
+   */
   it('EventAnnotationSnapshot_IsBoundToTheEmissionOracle', () => {
-    // The snapshot pins type / lifecycle / tier, not emit sites. Emission is
-    // `RegistryDrift_AutoEmitsMatchEventEmissionRegistry` plus the
-    // `check_event_emissions` action. This binds those artifacts so the
-    // snapshot cannot be mistaken for an append-site census.
     const registryTest = readFileSync(path.join(REPO_ROOT, 'tests/unit/registry.test.ts'), 'utf8');
     expect(registryTest).toContain('RegistryDrift_AutoEmitsMatchEventEmissionRegistry');
     expect(registryTest).toContain('EVENT_EMISSION_REGISTRY');
@@ -322,9 +319,8 @@ describe('identifier stability across decomposition', () => {
     }
   });
 
+  /** Counts that disagree with the contents show that a person edited the snapshot by hand. */
   it('Snapshot_CountsAgreeWithItsOwnContents', () => {
-    // A snapshot whose header disagrees with its body is a snapshot someone
-    // hand-edited. Cheap to check, and it makes the counts quotable.
     expect(snapshot.counts.tools).toBe(snapshot.tools.length);
     expect(snapshot.counts.visibleTools).toBe(snapshot.tools.filter((t) => !t.hidden).length);
     expect(snapshot.counts.actions).toBe(

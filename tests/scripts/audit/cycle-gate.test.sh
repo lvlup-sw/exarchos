@@ -1,19 +1,14 @@
 #!/usr/bin/env bash
-# Self-test for cycle-gate.ts (task 010, DR-4/DR-8).
+# Self-test for the fail-closed paths of cycle-gate.ts.
 #
-# DR-8 requires every gate's FAIL-CLOSED paths to be proven in an UNFILTERED CI
-# host. The gate's own `.test.ts` cases run in the path-filtered `test-root`
-# job (its filter excludes `scripts/**`), so a scripts-only PR skips them. This
-# `.test.sh` re-asserts the two DR-8 fail-closed conditions in the UNFILTERED
-# `grep-gates` job (task 015), driving the REAL CLI (`defaultRunDepcruise`) via
-# its EXARCHOS_DEPCRUISE_BIN testability seam — no need to uninstall depcruise:
+# The `.test.ts` cases of the gate run only in a path-filtered CI job. This
+# script runs in the unfiltered `grep-gates` job. It drives the real CLI and
+# sets EXARCHOS_DEPCRUISE_BIN, so it does not uninstall dependency-cruiser.
 #
-#   - tool-missing       — the dependency-cruiser binary path is absent: spawn
-#                          fails → found:false → the gate FAILS CLOSED (exit 2)
-#                          naming "tool-missing".
-#   - unparseable-output — depcruise (stubbed) emits garbage instead of a JSON
-#                          graph: the gate FAILS CLOSED (exit 2) naming
-#                          "unparseable-output".
+#   - tool-missing: the binary path does not exist. The gate must exit 2 and
+#     name "tool-missing".
+#   - unparseable-output: a stub prints text that is not a JSON graph. The gate
+#     must exit 2 and name "unparseable-output".
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../tools/audit" && pwd)"
@@ -21,7 +16,7 @@ GATE="$SCRIPT_DIR/cycle-gate.ts"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-# A stub "binary" that exits 0 but writes non-JSON garbage to stdout.
+# A stub binary that exits 0 and writes text that is not JSON to stdout.
 cat > "$TMP/garbage-bin.sh" <<'EOF'
 #!/usr/bin/env bash
 echo "garbage — not a dependency-cruiser JSON graph"

@@ -1,8 +1,8 @@
 // Snapshot and restore of the process state that test files share in one
 // worker: `process.env` and the working directory. The setup file
-// `reset-process-state.ts` takes a snapshot when a file starts and restores it
-// after the file, so state that one file leaves behind cannot reach the next
-// file in the same fork (#2030).
+// `reset-process-state.ts` takes a snapshot when a test file starts and
+// restores it after the file. Thus the state that one file leaves cannot
+// reach the next file in the same fork (#2030).
 
 /** The process state at one moment. */
 export interface ProcessStateSnapshot {
@@ -20,9 +20,9 @@ export function snapshotProcessState(): ProcessStateSnapshot {
 }
 
 /**
- * Makes `target` hold exactly the entries of `snapshot`. Extra keys are
- * deleted first and every snapshot key is then set, so on Windows, where
- * `process.env` ignores the case of a key, a key a test re-cased comes back.
+ * Makes `target` hold exactly the entries of `snapshot`. It deletes the extra
+ * keys first, then sets each snapshot key. On Windows, `process.env` ignores
+ * the case of a key, so this order brings back a key that a test re-cased.
  */
 export function restoreEnv(target: NodeJS.ProcessEnv, snapshot: Readonly<Record<string, string>>): void {
   for (const key of Object.keys(target)) {

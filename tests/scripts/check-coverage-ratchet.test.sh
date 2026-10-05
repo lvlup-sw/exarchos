@@ -1,26 +1,21 @@
 #!/usr/bin/env bash
-# Self-test for check-coverage-ratchet.mjs (task 003, DR-5/DR-10).
+# Self-test for check-coverage-ratchet.mjs.
 #
-# Exercises all four required directions on FIXTURE summaries/baselines under
-# a temp dir (never the real, not-yet-committed `coverage-baseline.json` —
-# that file is task 009's CI-provenance artifact):
+# Each case uses a fixture summary and a fixture baseline in a temp directory.
+# No case reads the real `tools/audit/coverage-baseline.json`.
 #
-#   - synthetic regression beyond epsilon → FAILS (exit 1)
-#   - identical summary                   → PASSES (exit 0)
-#   - missing/unparseable summary          → FAILS CLOSED (exit 2)
-#   - provenance-less baseline (no run-ids / no variance / <3 distinct runs)
-#       → FAILS CLOSED (exit 2)
+#   - a regression larger than epsilon: exit 1
+#   - an identical summary: exit 0
+#   - a missing or unparseable summary: exit 2 (fail closed)
+#   - a baseline with no run-ids, no spread, or fewer than 3 distinct run-ids:
+#     exit 2 (fail closed)
+#   - a missing baseline file: exit 2 (fail closed)
+#   - `--observe` with a regression or a missing summary: the gate logs the
+#     verdict and exits 0
 #
-# Plus the `--observe` soak-window contract (DR-7-symmetric): the same
-# regression / fail-closed conditions never block the exit code in observe
-# mode — they only log what the blocking verdict would have been.
-#
-# Also pins the reporter-config prerequisite (`vitest.config.ts`): without
-# `json-summary` in the coverage reporter set, no `coverage-summary.json`
-# totals ever exist to ratchet — this DR is theater without it. Without
-# `reportOnFailure: true`, the summary is silently skipped on any red run
-# (this repo carries known local-only red tests), so a reverted/missing
-# reporter config regresses silently rather than failing this self-test.
+# The test also pins two settings in `vitest.config.ts`. Without `json-summary`
+# in the coverage reporters, vitest writes no `coverage-summary.json`. Without
+# `reportOnFailure: true`, vitest skips the summary when a test fails.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../tools/audit/gates" && pwd)"
@@ -88,7 +83,7 @@ cat > "$SUMMARY_IDENTICAL" <<'EOF'
 }
 EOF
 
-# Regresses "lines" by 10 points, far past its floored 0.1pp epsilon.
+# The `lines` metric drops by 10 points. Its epsilon is the 0.1-point floor.
 SUMMARY_REGRESSED="$TMP/summary-regressed.json"
 cat > "$SUMMARY_REGRESSED" <<'EOF'
 {
@@ -116,8 +111,8 @@ cat > "$BASELINE_NO_RUNIDS" <<'EOF'
 }
 EOF
 
-# 3 distinct run-ids (satisfies the ≥3-distinct provenance floor) so this
-# fixture isolates the MISSING-VARIANCE (spread) fail-closed path specifically.
+# Three distinct run-ids satisfy the provenance floor. Only the missing `spread`
+# of `lines` can make the gate fail closed.
 BASELINE_NO_VARIANCE="$TMP/baseline-no-variance.json"
 cat > "$BASELINE_NO_VARIANCE" <<'EOF'
 {
@@ -131,9 +126,8 @@ cat > "$BASELINE_NO_VARIANCE" <<'EOF'
 }
 EOF
 
-# Provenance floor (DR-5): fewer than 3 DISTINCT run-ids — here 3 entries but
-# only 2 distinct values (one repeated) — carries no real cross-run variance
-# and must FAIL CLOSED even though the metrics/spreads are otherwise well-formed.
+# Provenance floor: three entries hold only two distinct run-ids. The gate must
+# fail closed, although each metric and each spread is well-formed.
 BASELINE_TOO_FEW_RUNS="$TMP/baseline-too-few-runs.json"
 cat > "$BASELINE_TOO_FEW_RUNS" <<'EOF'
 {
@@ -213,7 +207,7 @@ set -e
 check "BaselineTooFewDistinctRuns_FailsClosed" 2 "$too_few_runs_exit"
 grep_cause "too-few-runs" "distinct run-id" "$TMP/too-few-runs.err"
 
-# ── bonus fail-closed direction: baseline file itself missing ───────────────
+# ── direction 5: missing baseline file → FAILS CLOSED (exit 2) ──────────────
 set +e
 node "$GATE" --summary "$SUMMARY_IDENTICAL" --baseline "$MISSING_BASELINE" \
   >/dev/null 2>"$TMP/missing-baseline.err"
@@ -222,7 +216,7 @@ set -e
 check "BaselineFileMissing_FailsClosed" 2 "$missing_baseline_exit"
 grep_cause "baseline-missing" "not found" "$TMP/missing-baseline.err"
 
-# ── --observe: never blocks, on either a regression or a fail-closed cond ───
+# ── --observe: a regression and a fail-closed condition each exit 0 ─────────
 set +e
 node "$GATE" --summary "$SUMMARY_REGRESSED" --baseline "$BASELINE_GOOD" --observe \
   >"$TMP/observe-regressed.out" 2>"$TMP/observe-regressed.err"

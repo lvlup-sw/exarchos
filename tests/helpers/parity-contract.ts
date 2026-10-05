@@ -1,107 +1,65 @@
 /**
- * Parity contract — the declarative source-of-truth for CLI ↔ MCP
- * envelope equality, per design §4.3.
- *
- * Each `ParitySpec` describes how to compare the result of an action
- * called over the CLI transport with the result of the same action
- * called over the MCP `tools/call` transport:
- *
- *   - `action`            — fully qualified action key, e.g.
- *                           `workflow.describe`. Stable across
- *                           transports (the CLI subcommand path and the
- *                           MCP tool name compose to the same key).
- *   - `fieldsRequiringEquality` — dot-paths that must deep-equal across
- *                           transports after `normalize` has been
- *                           applied. Mismatch is a parity bug.
- *   - `fieldsAllowedToDiffer`   — dot-paths that may differ legitimately,
- *                           e.g. `_transport.requestId` (one is a
- *                           commander request id, the other is an MCP
- *                           request id). Listed explicitly so a future
- *                           reader can audit the carve-outs.
+ * The parity contract. It declares, for each action, the envelope fields that must be
+ * equal between the CLI transport and the MCP `tools/call` transport.
  */
+
+/** How to compare the CLI result and the MCP result of one action. */
 export type ParitySpec = {
+  /** The action key, such as `workflow.describe`. It is the same for both transports. */
   action: string;
+  /** Dot-paths whose values must be equal across transports after `normalize`. */
   fieldsRequiringEquality: string[];
+  /**
+   * Dot-paths that can differ, such as `_transport.requestId`. `assertParity` does not
+   * read the list. It records each exception for a reader.
+   */
   fieldsAllowedToDiffer: string[];
 };
 
 /**
- * Live contract entries. Add new actions as parity tests need them.
- *
- * Mid-flight correction note (2026-05-05): the original design proposed
- * `view.describe`, `view.event_log`, `view.rehydrate`. Those actions do
- * not exist on `exarchos_view`. The corrected mapping is:
- *   - describe → `exarchos_workflow.describe`
- *   - event log → `exarchos_event.query`
- *   - rehydrate → `exarchos_workflow.rehydrate`
- * See plan §"Mid-flight correction" for the full migration table.
+ * The contract entries. Add an action when a parity test needs it.
+ * `exarchos_view` has no describe, event-log or rehydrate action. Those actions are
+ * `exarchos_workflow.describe`, `exarchos_event.query` and `exarchos_workflow.rehydrate`.
  */
 export const PARITY_CONTRACT: ParitySpec[] = [
   {
     action: 'workflow.describe',
-    // The CLI/MCP envelope wraps the workflow document under `data` —
-    // see `wf status --json` and `exarchos_workflow.get` outputs. The
-    // parity check uses literal dot-paths (resolveDotPath in this
-    // file), so the leading `data.` is required.
+    /**
+     * The envelope holds the workflow document under `data`, and `resolveDotPath` takes
+     * literal paths. Thus each path starts with `data.`.
+     */
     fieldsRequiringEquality: ['data.phase', 'data.featureId', 'data.tasks'],
     fieldsAllowedToDiffer: ['_transport.requestId'],
   },
   {
     action: 'event.query',
-    // `event query --stream <id>` (CLI) and `exarchos_event.query` (MCP)
-    // both return the canonical result envelope:
-    //   { success, data: [...events], next_actions, _meta, _perf }
-    // The user-meaningful core is the events array under `data` plus
-    // the boolean `success` and empty `next_actions`. After
-    // `normalize`, per-event `sequence` and `timestamp` are replaced
-    // with placeholders so the events array deep-compares cleanly.
-    // `_meta` and `_perf` are intentionally NOT required: `_perf.ms`
-    // and `_perf.bytes`/`_perf.tokens` are non-deterministic across
-    // runs, and `_meta` may carry transport-specific advisory keys.
+    /**
+     * `data` is `{ events, page }`. After `normalize`, the `sequence` and the `timestamp`
+     * of each event are placeholders, so `data` compares cleanly.
+     */
     fieldsRequiringEquality: ['success', 'data', 'next_actions'],
+    /** `_perf` values change between runs, and `_meta` can hold advisory keys of one transport. */
     fieldsAllowedToDiffer: ['_transport.requestId', '_meta', '_perf'],
   },
   {
     action: 'workflow.rehydrate',
-    // `wf rehydrate --feature-id <id>` (CLI) and `exarchos_workflow.rehydrate`
-    // (MCP) both return the canonical result envelope:
-    //   { success, data: <RehydrationDocument>, next_actions, _meta,
-    //     _perf, _cacheHints }
-    // where the rehydration document is `{ v, projectionSequence,
-    // behavioralGuidance, workflowState, taskProgress, decisions,
-    // artifacts, blockers }` (see
-    // `src/workflow/rehydrate.ts`).
-    //
-    // Required-equality dot-paths cover:
-    //   - `success`              — boolean status; both must succeed.
-    //   - `data.workflowState`   — canonical workflow state record
-    //                              (featureId, phase, workflowType).
-    //                              The single most user-meaningful slice
-    //                              of the document.
-    //   - `data.taskProgress`    — derived task list folded from
-    //                              `task.assigned` / `task.completed`
-    //                              events. Order and per-task fields
-    //                              must agree across transports.
-    //   - `data.projectionSequence` — sequence number of the last event
-    //                              folded into the projection. After the
-    //                              same N events on both sides this MUST
-    //                              equal — divergence here flags a
-    //                              projection-determinism bug. NOT
-    //                              normalized away (`projectionSequence`
-    //                              is not in `SEQUENCE_KEYS`), so we get
-    //                              real numeric equality, not placeholder
-    //                              equality.
-    //
-    // `_cacheHints` is allowed to differ: it carries advisory caching
-    // metadata (`ttl`, `position`) that is transport-shape-stable today
-    // but is not part of the load-bearing reconstructability invariant —
-    // F6.1 only requires the projection itself reconstruct identically.
+    /**
+     * `data` is the rehydration document (see `src/workflow/rehydrate.ts`).
+     * `data.taskProgress` is the task list that the projection folds from the task events.
+     * `data.projectionSequence` is the sequence of the last folded event. `normalize` does
+     * not replace it, so the comparison is on the real number. A difference after the same
+     * events shows a projection that is not deterministic.
+     */
     fieldsRequiringEquality: [
       'success',
       'data.workflowState',
       'data.taskProgress',
       'data.projectionSequence',
     ],
+    /**
+     * `_cacheHints` holds advisory cache metadata. The reconstruction invariant covers
+     * only the projection.
+     */
     fieldsAllowedToDiffer: [
       '_transport.requestId',
       '_meta',
@@ -112,9 +70,8 @@ export const PARITY_CONTRACT: ParitySpec[] = [
 ];
 
 /**
- * Resolve a dot-path (e.g. `data.featureId`) against a value. Returns
- * `{ found: true, value }` or `{ found: false }` so callers can
- * distinguish a missing path from a present-but-undefined value.
+ * Resolves a dot-path such as `data.featureId` against a value. The `found` flag
+ * separates a missing path from a path whose value is `undefined`.
  */
 function resolveDotPath(
   source: unknown,
@@ -135,15 +92,10 @@ function resolveDotPath(
 }
 
 /**
- * Assert that two envelopes (one from CLI, one from MCP) match according
- * to a `ParitySpec`. Throws an `Error` whose message includes the
- * offending dot-path on first divergence so vitest's failure renderer
- * shows the diff inline.
- *
- * Allowed-to-differ paths are not checked; required paths must be
- * present on both sides and `===`/deep-equal after normalization. We
- * use a structural string compare via JSON for complex values to keep
- * the helper dependency-free.
+ * Throws if the CLI envelope and the MCP envelope differ on a required path of `spec`.
+ * Each required path must exist on both sides. The comparison is on the JSON text of the
+ * two values, so key order counts and the caller must normalize both envelopes first.
+ * The error names the first path that is missing or different.
  */
 export function assertParity(
   cliResult: unknown,

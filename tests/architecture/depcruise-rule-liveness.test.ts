@@ -1,26 +1,21 @@
+// Liveness of the depcruise rule `no-domain-core-to-io-adapters`.
+//
+// The rule has `severity: 'error'`, and `runBoundaryLint` in
+// `src/verbs/pure/static-analysis.ts` runs it. Its `from` side is a path regex
+// that names directories. A directory rename does not break the rule. The
+// rename empties it. A rule that matches zero modules always passes, and in CI
+// it looks the same as a rule that the code obeys.
+//
+// This file does not invoke the depcruise binary, which needs about 4 GB and
+// already runs in the real gate. It checks directly that the regex still
+// describes the tree.
+//
+// @oracle-sources: ../../.dependency-cruiser.cjs, live-src-directory-listing
 import { describe, it, expect } from 'vitest';
 import { readFileSync, statSync, readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-
-// ─── Depcruise rule liveness (DR-3, DR-11, task 012a) ────────────────────────
-//
-// `no-domain-core-to-io-adapters` is `severity: 'error'` and is executed for
-// real by `runBoundaryLint` (orchestrate/static-analysis.ts). Its `from` side is
-// a path REGEX naming directories — which means a directory rename does not
-// break it, it silently empties it. A rule matching zero modules passes forever
-// and looks identical in CI to a rule that is being honoured.
-//
-// Phase 1 renames both sides of this rule at least three times (tasks 012, 013,
-// 018, 019). This file is what makes each of those renames fail loudly instead
-// of quietly disarming the guard, so it is re-run after every one of them.
-//
-// Deliberately NOT invoking the depcruise binary: it needs ~4GB and is already
-// executed by the real gate. What can go wrong HERE is the regex ceasing to
-// describe the tree, and that is checkable directly and cheaply.
-//
-// @oracle-sources: ../../.dependency-cruiser.cjs, live-src-directory-listing
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../');
@@ -39,7 +34,7 @@ const config = require(CONFIG_PATH) as {
 const RULE_NAME = 'no-domain-core-to-io-adapters';
 const rule = config.forbidden.find((r) => r.name === RULE_NAME);
 
-/** Every tracked .ts module path under the MCP server, repo-relative, POSIX. */
+/** Each `.ts` module path under `src/`, relative to the repository root, in POSIX form. */
 function liveModules(): string[] {
   const out: string[] = [];
   const walk = (abs: string): void => {
@@ -89,11 +84,12 @@ describe('DepcruiseRule_AfterRetarget_MatchesNonEmptyModuleSet', () => {
     ).toBeGreaterThan(0);
   });
 
+  /**
+   * A rename can hide in the alternation. `(events|workflow)` stays valid when
+   * one directory is deleted, and the other directory keeps the rule
+   * non-empty. The count tests above cannot find such a half-dead rule.
+   */
   it('every directory the `from` alternation names actually exists', () => {
-    // The alternation is where a rename hides: `(events|workflow)` stays
-    // syntactically valid when one half is deleted, and the surviving half keeps
-    // the rule non-empty — so the count check above cannot catch a HALF-dead
-    // rule. This one can.
     const alternation = /\(([a-z0-9|_-]+)\)/.exec(rule?.from.path ?? '')?.[1];
     expect(alternation, 'from.path no longer contains a directory alternation').toBeDefined();
     for (const dir of (alternation ?? '').split('|')) {
@@ -104,12 +100,12 @@ describe('DepcruiseRule_AfterRetarget_MatchesNonEmptyModuleSet', () => {
     }
   });
 
+  /**
+   * The rule has no `pathNot` exclusion for test files, because no test file
+   * lives in the governed set. This test fails when a test file appears there
+   * with no exemption.
+   */
   it('DepcruiseRule_FromSet_HoldsNoTestFile', () => {
-    // The rule used to carry `pathNot: '\.test\.ts$'` to exempt co-located
-    // suites. Task 030 moved them all out, which made that exclusion match
-    // nothing — dead config, and silent about it. The exclusion is gone; this
-    // is the assertion that earns its removal, and it fails the moment a test
-    // file reappears inside the governed set with no exemption to cover it.
     const fromRe = new RegExp(rule?.from.path ?? '(?!)');
     const governed = modules.filter((m) => fromRe.test(m));
     expect(governed.length, 'the `from` path governs no module at all').toBeGreaterThan(0);
@@ -120,8 +116,8 @@ describe('DepcruiseRule_AfterRetarget_MatchesNonEmptyModuleSet', () => {
   });
 });
 
+/** `violates` applies the predicate of the rule to one `(from, to)` pair. */
 describe('DepcruiseRule_SeededViolation_StillFails', () => {
-  /** The rule's own predicate: does this (from, to) pair violate it? */
   function violates(from: string, to: string): boolean {
     const fromRe = new RegExp(rule?.from.path ?? '(?!)');
     const notRe = rule?.from.pathNot ? new RegExp(rule.from.pathNot) : undefined;
@@ -129,9 +125,8 @@ describe('DepcruiseRule_SeededViolation_StillFails', () => {
     return fromRe.test(from) && !(notRe?.test(from) ?? false) && toRe.test(to);
   }
 
+  /** Seeds the edge from live modules. A synthetic path can match a regex that no real file matches. */
   it('a seeded core → adapters edge is caught', () => {
-    // Built from REAL live modules, not invented strings: a synthetic path
-    // could satisfy a regex that no actual file would.
     const fromRe = new RegExp(rule?.from.path ?? '(?!)');
     const notRe = new RegExp(rule?.from.pathNot ?? '(?!)');
     const toRe = new RegExp(rule?.to.path ?? '(?!)');
@@ -142,10 +137,11 @@ describe('DepcruiseRule_SeededViolation_StillFails', () => {
     expect(violates(coreModule as string, adapterModule as string)).toBe(true);
   });
 
+  /**
+   * A core test is exempt by its address and not by an exclusion. Its path
+   * under `tests/` must fall outside the `from` set.
+   */
   it('a relocated core test is outside the governed set entirely', () => {
-    // The exemption this replaces was `pathNot`. A co-located core test is now
-    // exempt by ADDRESS rather than by exclusion, so the property to pin is
-    // that its new home under tests/ falls outside `from` altogether.
     const relocated = 'tests/unit/workflow/tools.test.ts';
     const adapterModule = modules.find((m) => new RegExp(rule?.to.path ?? '(?!)').test(m));
     expect(adapterModule, 'no live adapters module to seed to').toBeDefined();
@@ -153,24 +149,25 @@ describe('DepcruiseRule_SeededViolation_StillFails', () => {
     expect(violates(relocated, adapterModule as string)).toBe(false);
   });
 
+  /** The negative half. A rule that flags each edge is as useless as a rule that flags none. */
   it('an edge that leaves the governed set is NOT caught', () => {
-    // The negative half: a rule that flags everything is as useless as one that
-    // flags nothing, and both look green until someone reads the output.
     const ungoverned = modules.find((m) => !new RegExp(rule?.from.path ?? '(?!)').test(m));
     const adapterModule = modules.find((m) => new RegExp(rule?.to.path ?? '(?!)').test(m));
     expect(ungoverned).toBeDefined();
     expect(violates(ungoverned as string, adapterModule as string)).toBe(false);
   });
 
+  /**
+   * If the gate does not invoke the config, liveness has no value. The gate
+   * returns `SKIP` when it finds no config, so the gate source must name the
+   * config file.
+   */
   it('the rule is the one static analysis actually runs', () => {
-    // Liveness here is worthless if the gate stopped invoking the config.
     const staticAnalysis = readFileSync(
       path.join(REPO_ROOT, 'src/verbs/pure/static-analysis.ts'),
       'utf8',
     );
     expect(staticAnalysis).toMatch(/depcruise --validate/);
-    // The gate SKIPs when no config is present, so the config existing where the
-    // gate looks for it is part of the rule being live at all.
     expect(staticAnalysis).toMatch(/\.dependency-cruiser/);
   });
 });

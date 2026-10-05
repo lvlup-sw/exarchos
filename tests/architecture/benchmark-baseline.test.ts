@@ -1,9 +1,8 @@
 /**
- * The benchmark envelope every later performance claim compares against.
+ * The benchmark envelope that each later performance claim compares against.
  *
- * An earlier framing asserted "unchanged within noise" with no recorded
- * baseline and no definition of noise, which makes the claim unfalsifiable.
- * These assertions exist so the baseline cannot quietly become that again.
+ * A claim of "unchanged within noise" is unfalsifiable without a recorded
+ * baseline and a definition of noise. These assertions keep both on record.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -50,10 +49,12 @@ describe('benchmark baseline', () => {
     }
   });
 
+  /**
+   * One global percentage hides a real regression in a stable benchmark and
+   * fails each run of a volatile one. Thus each band comes from the variance
+   * of its own benchmark.
+   */
   it('BenchmarkBaseline_NoiseBand_IsDerivedFromEachBenchmarksOwnVariance', () => {
-    // A single global percentage would wave through a real regression in the
-    // stable benchmarks and cry wolf on every run of the volatile ones. The
-    // measured spread here is roughly thirtyfold, so the band has to be local.
     for (const [name, bench] of entries) {
       const expected = Math.max(2 * bench.measuredRmePct, 5);
       expect(bench.noiseBandPct, `${name} band is not derived from its own RME`).toBeCloseTo(
@@ -66,24 +67,27 @@ describe('benchmark baseline', () => {
     expect(Math.max(...bands)).toBeGreaterThan(Math.min(...bands));
   });
 
+  /**
+   * A later run compares against the threshold. A threshold at or below the
+   * mean makes each rerun report a regression.
+   */
   it('BenchmarkBaseline_RegressionThreshold_ExceedsTheRecordedMean', () => {
-    // The threshold is what a later run is actually compared against; if it
-    // ever sat at or below the mean, every rerun would report a regression.
     for (const [name, bench] of entries) {
       expect(bench.regressionThresholdMs, `${name}`).toBeGreaterThan(bench.mean_ms);
     }
   });
 
+  /** A baseline from one run on one workstation is a weak instrument, and the file must say so. */
   it('BenchmarkBaseline_StatesItsOwnLimits', () => {
-    // A baseline from one run on one workstation is a weak instrument, and
-    // saying so is what stops it being cited as more than it is.
     expect(baseline.withinNoiseRule.singleRunCaveat).toMatch(/single|one run/i);
     expect(JSON.stringify(baseline.environment)).toMatch(/workstation|CI runner/i);
   });
 
+  /**
+   * An earlier baseline file exists in the tree. The baseline must name it, or
+   * readers continue to cite the stale file.
+   */
   it('BenchmarkBaseline_SupersededFile_IsAcknowledgedRatherThanIgnored', () => {
-    // A prior baseline did exist. Claiming otherwise, or silently leaving two
-    // in the tree, is how a stale one keeps getting cited.
     const superseded = (baseline as unknown as { supersedes?: { file: string; entries: number } })
       .supersedes;
 
@@ -92,9 +96,11 @@ describe('benchmark baseline', () => {
     expect(fs.existsSync(path.join(REPO_ROOT, superseded!.file))).toBe(true);
   });
 
+  /**
+   * The pinned binary waits for a release. The document must mark the pin as
+   * deferred, so that an absent pin does not look present.
+   */
   it('BenchmarkBaseline_PinnedBinary_RecordsItsDeferralExplicitly', () => {
-    // The other half of this task is blocked on a release. An absent pin that
-    // looks present would be worse than an obvious gap.
     const doc = fs.readFileSync(path.join(REPO_ROOT, 'tools/audit/pinned-binary.md'), 'utf8');
 
     expect(doc).toMatch(/DEFERRED/);

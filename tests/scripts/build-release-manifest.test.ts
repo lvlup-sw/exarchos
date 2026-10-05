@@ -1,35 +1,14 @@
 /**
- * DR-20 producer-side acceptance tests: the release manifest is produced from
- * REAL build output and signed, and the built artifact carries source +
- * contract identity in its own bytes.
+ * Producer-side acceptance tests for the signed release manifest and the embedded build identity.
+ * `beforeAll` compiles the host binary into a scratch directory with `--outdir`, so the build
+ * does not write to `dist/bin`, which other suites read. Then it runs the real
+ * `tools/release/build-release-manifest.ts` CLI on that binary.
+ * A manifest over a hand-written asset list proves nothing about the release pipeline.
  *
- * ── Why this suite runs a real `bun build --compile` ────────────────────
- * A manifest assembled over a hand-written `{path, digest}` array proves
- * nothing about the release pipeline. `beforeAll` therefore performs an actual
- * host-target compile into a scratch directory (~3-5s on a warm bun cache; the
- * `--outdir` flag exists so this never races `dist/bin`, which
- * `scripts/build-binary.test.ts` and the compiled-binary process tests read),
- * copies the artifact into a scratch "release assets" directory and drives the
- * real `tools/release/build-release-manifest.ts` CLI over it.
- *
- * ── Two independent authorities everywhere (DR-30 Class-B avoidance) ────
- * Nothing here compares a value to itself or to a sibling read of the same
- * call. Every assertion pits the PRODUCER's output against a value this test
- * derived by a different route:
- *
- *   | claim                | producer                        | independent authority in this file |
- *   |----------------------|---------------------------------|------------------------------------|
- *   | source commit        | `collectSourceIdentity` (git)   | `git rev-parse HEAD` spawned here   |
- *   | source tree digest   | producer's own enumeration      | this file's own `git ls-files` walk |
- *   | asset digest         | `digestAssetBytes`              | raw `createHash('sha256')` on file  |
- *   | contract digest      | `contractIdentityFromLock`      | hand-rolled roll-up from lock JSON  |
- *   | signature            | `signReleaseManifest`           | `TrustRootSet.verify` w/ pubkey     |
- *   | embedded identity    | `--banner` at compile time      | scan of the ARTIFACT's raw bytes    |
- *
- * The contract roll-up is deliberately re-implemented rather than imported:
- * `ContractIdentity.digest` is a WIRE value an installer pins, so its layout
- * is pinned here by an independent implementation. If the producer's layout
- * changes, this goes red — which is the point.
+ * The tests compare producer values with values that this file derives by a different route.
+ * The routes are its own git calls, a raw sha256, its own contract roll-up, the public key, and a scan of the artifact bytes.
+ * The contract roll-up is a separate implementation, because an installer pins `ContractIdentity.digest`.
+ * A layout change in the producer fails here.
  */
 import { describe, it, expect, beforeAll } from 'vitest';
 import { createHash, generateKeyPairSync } from 'node:crypto';
@@ -73,13 +52,9 @@ const RELEASE_WORKFLOW_PATH = join(REPO_ROOT, '.github', 'workflows', 'release.y
 
 const TEST_KEY_ID = 'test.publisher';
 
-// ─── Working-tree planting (for the sourceState arms) ────────────────────────
-
 /**
- * A tracked file inside `SOURCE_TREE_ROOTS` that is NOT on the build-generated
- * allowlist and whose content is inert (a trailing comment changes nothing).
- * The sourceState arms plant edits in a sandbox git copy of it, never in the
- * live checkout, which sibling tests read at the same time (#2030).
+ * A tracked file in `SOURCE_TREE_ROOTS` that is not in `GENERATED_AT_BUILD_PATHS`.
+ * The source-state tests edit a sandbox git copy of it. Other tests read the live checkout at the same time.
  */
 const PLANT_TARGET = 'tools/release/build-binary-targets.ts';
 
@@ -113,11 +88,10 @@ async function withPlantedEdits<T>(
 }
 
 /**
- * INDEPENDENT working-tree verdict: this file's own `git status` call, its own
- * record parsing and its own copy of the allowlist filter. Shares only the
- * `GENERATED_AT_BUILD_PATHS` wire constant with the producer, so a producer
- * that stopped detecting dirtiness (or that widened its allowlist) disagrees
- * with this and goes red.
+ * An independent working-tree verdict: this file's own `git status` call, record parser and allowlist filter.
+ * It shares only `GENERATED_AT_BUILD_PATHS` with the producer.
+ * Thus a producer that stops detecting changes, or widens its allowlist, disagrees with this verdict.
+ * Without `-z`, git quotes unusual paths and writes a rename as `old -> new`. The parser keeps the destination path.
  */
 async function independentWorkingTreeVerdict(root: string, pathspecs: readonly string[]): Promise<{
   state: 'clean' | 'modified';
@@ -132,16 +106,12 @@ async function independentWorkingTreeVerdict(root: string, pathspecs: readonly s
   const paths = r.stdout
     .split('\n')
     .filter((l) => l.length > 3)
-    // Non-`-z` output quotes exotic paths and uses ` -> ` for renames; take the
-    // destination side, which is enough for the assertions below.
     .map((l) => l.slice(3).split(' -> ').pop() as string)
     .map((p) => p.replace(/^"|"$/g, '').replace(/\\/g, '/'))
     .filter((p) => !generated.has(p))
     .sort();
   return { state: paths.length === 0 ? 'clean' : 'modified', paths };
 }
-
-// ─── Independent authorities (deliberately NOT the producer's code) ──────────
 
 /** `git rev-parse HEAD`, spawned here — not read back from the producer. */
 async function gitHeadCommit(): Promise<string> {
@@ -151,13 +121,10 @@ async function gitHeadCommit(): Promise<string> {
 }
 
 /**
- * This file's OWN enumeration of the committed source tree. Shares only the
- * `SOURCE_TREE_ROOTS` wire constant and the `digestTree` primitive with the
- * producer; the git plumbing, the record parsing and the blob reads are
- * re-implemented here (one `git show` per blob via a single `git archive`-free
- * batch is unnecessary — `git ls-tree` + per-blob `git cat-file` through a
- * different call shape is enough of an independent route), so a producer that
- * silently narrowed its inventory goes red.
+ * This file's own digest of the committed source tree at `commit`.
+ * It shares only `SOURCE_TREE_ROOTS` and the `digestTree` primitive with the producer.
+ * The `git ls-tree` and `git cat-file --batch` calls and their parsers are a separate implementation.
+ * Thus a producer that drops blobs from its inventory fails the comparison.
  */
 async function independentSourceTreeDigest(commit: string): Promise<string> {
   const ls = await spawnAsync('git', ['-C', REPO_ROOT, 'ls-tree', '-r', commit, '--', ...SOURCE_TREE_ROOTS]);
@@ -175,8 +142,6 @@ async function independentSourceTreeDigest(commit: string): Promise<string> {
   }
   if (paths.length === 0) throw new Error('independent enumeration found no source blobs');
 
-  // Read the blobs through `git cat-file --batch` driven from a Buffer stdin
-  // and parsed independently of the producer's parser.
   const cat = await spawnAsyncBuffer('git', ['-C', REPO_ROOT, 'cat-file', '--batch'], {
     input: `${oids.join('\n')}\n`,
   });
@@ -203,10 +168,10 @@ function independentRawDigest(path: string): string {
 }
 
 /**
- * Re-implementation of the P03-01 authority roll-up from the lockfile JSON,
- * using only `createHash`. Mirrors `digestParts`: canonicalize (CRLF/CR → LF,
- * strip trailing newlines) each `id\0kind\0version\0versionSpec\0digest` part,
- * join with `\n`, canonicalize again, sha256 as utf8.
+ * A separate implementation of the contract-authority roll-up from the lockfile JSON, with only `createHash`.
+ * It mirrors `digestParts`. Canonical text has LF line ends and no trailing newlines.
+ * Each part is the canonical text of `id\0kind\0version\0versionSpec\0digest`, and the parts join with `\n`.
+ * The digest is the sha256 of the canonical joined text as UTF-8.
  */
 function independentContractDigest(): string {
   const lock = JSON.parse(readFileSync(join(REPO_ROOT, CONTRACT_LOCK_PATH), 'utf8')) as {
@@ -225,8 +190,6 @@ function independentContractDigest(): string {
   return `sha256:${createHash('sha256').update(joined, 'utf8').digest('hex')}`;
 }
 
-// ─── Host target naming (mirrors tools/release/build-binary.ts) ────────────────────
-
 function hostOs(): 'linux' | 'darwin' | 'windows' {
   if (process.platform === 'darwin') return 'darwin';
   if (process.platform === 'win32') return 'windows';
@@ -235,19 +198,16 @@ function hostOs(): 'linux' | 'darwin' | 'windows' {
 function hostArch(): 'x64' | 'arm64' {
   return process.arch === 'arm64' ? 'arm64' : 'x64';
 }
+/** The host asset name. It must match the file name that `tools/release/build-binary.ts` writes. */
 function hostAssetName(): string {
   return `exarchos-${hostOs()}-${hostArch()}${hostOs() === 'windows' ? '.exe' : ''}`;
 }
 
 /**
- * Absolute path to the real `bun` executable.
- *
- * On Windows, npm installs bun as a `bun.cmd` / `bun.ps1` shim next to
- * `node_modules/bun/bin/bun.exe`; `spawnSync('bun', …)` without a shell then
- * fails ENOENT (which is exactly why `scripts/build-binary.test.ts` cannot run
- * locally on Windows today). Resolving the real `.exe` keeps this suite
- * genuinely executable on both platforms rather than silently skipped — a
- * suite that never runs proves nothing.
+ * Returns the absolute path of the real `bun` executable.
+ * On Windows, npm installs bun as a `bun.cmd` shim next to `node_modules/bun/bin/bun.exe`.
+ * A spawn of `bun` without a shell then fails with ENOENT, so this function finds the `.exe`.
+ * Thus the suite runs on Windows too.
  */
 function resolveBunExecutable(): string {
   const dirs = (process.env['PATH'] ?? '').split(delimiter).filter((d) => d.length > 0);
@@ -265,8 +225,6 @@ function resolveBunExecutable(): string {
   return 'bun';
 }
 
-// ─── Suite ───────────────────────────────────────────────────────────────────
-
 describe('DR-20 release manifest producer', () => {
   let scratch: string;
   let builtBinary: string;
@@ -277,12 +235,15 @@ describe('DR-20 release manifest producer', () => {
   let embedded: EmbeddedBuildIdentity | undefined;
   let artifactBytes: Buffer;
 
-  // Independent expectations, captured once against the same tree state.
   let expectedCommit: string;
   let expectedTreeDigest: string;
   let expectedContractDigest: string;
   let expectedAssetDigest: string;
 
+  /**
+   * Compiles the host target, copies the binary into an assets directory, and signs a manifest over it.
+   * The independent `expected*` values come after the build, so they describe the tree state that both producers saw.
+   */
   beforeAll(async () => {
     scratch = mkdtempSync(join(tmpdir(), 'exarchos-dr20-'));
     const binDir = join(scratch, 'bin');
@@ -290,7 +251,6 @@ describe('DR-20 release manifest producer', () => {
     mkdirSync(binDir, { recursive: true });
     mkdirSync(assetsDir, { recursive: true });
 
-    // 1. REAL compile of the host target into a scratch dir.
     const bun = resolveBunExecutable();
     const build = await spawnAsync(
       bun,
@@ -311,7 +271,6 @@ describe('DR-20 release manifest producer', () => {
     artifactBytes = readFileSync(builtBinary);
     embedded = extractEmbeddedBuildIdentity(artifactBytes);
 
-    // 2. Stage it as a published release asset and sign a manifest over it.
     copyFileSync(builtBinary, join(assetsDir, assetName));
 
     const { privateKey, publicKey } = generateKeyPairSync('ed25519');
@@ -347,35 +306,31 @@ describe('DR-20 release manifest producer', () => {
       { keyId: TEST_KEY_ID, algorithm: SIGNATURE_ALGORITHM, publicKeyPem: publicPem },
     ]);
 
-    // 3. Independent expectations, derived after the build so they describe the
-    //    same tree state the two producers saw.
     expectedCommit = await gitHeadCommit();
     expectedTreeDigest = await independentSourceTreeDigest(expectedCommit);
     expectedContractDigest = independentContractDigest();
     expectedAssetDigest = independentRawDigest(join(assetsDir, assetName));
   }, 400_000);
 
+  /**
+   * The manifest describes the built artifact, and the size floor of 1 MB rejects a stub file.
+   * The last check sends the manifest through the installer gate, `verifyReleaseInstall`.
+   */
   it('ReleaseManifest_RealBuildOutput_ProducesSignedManifest', () => {
-    // ── The manifest describes the artifact that was actually built ─────
     const asset = signed.manifest.assets.find((a) => a.name === assetName);
     expect(asset, `manifest has no entry for ${assetName}`).toBeDefined();
-    // Producer digest vs. an independent raw sha256 of the file on disk.
     expect(asset?.digest).toBe(expectedAssetDigest);
     expect(asset?.size).toBe(statSync(builtBinary).size);
-    // A real compiled binary, not a stub someone dropped in the assets dir.
     expect(asset?.size).toBeGreaterThan(1_000_000);
 
-    // ── Source + contract identity, each against an independent authority ──
     expect(signed.manifest.source.commit).toBe(expectedCommit);
     expect(signed.manifest.source.treeDigest).toBe(expectedTreeDigest);
     expect(signed.manifest.contract.digest).toBe(expectedContractDigest);
     expect(signed.manifest.contract.authorityCount).toBe(AUTHORITY_IDS.length);
 
-    // ── It is SIGNED: the detached signature chains to the publisher key ──
     expect(signed.signature.keyId).toBe(TEST_KEY_ID);
     expect(signed.signature.algorithm).toBe(SIGNATURE_ALGORITHM);
 
-    // ── Full producer→consumer round trip through the installer gate ──────
     const verdict = verifyReleaseInstall({
       signed,
       trustRoots,
@@ -390,6 +345,7 @@ describe('DR-20 release manifest producer', () => {
     expect(verdict).toEqual({ ok: true, keyId: TEST_KEY_ID });
   });
 
+  /** Three cases fail on the signature: a changed body, a corrupted signature, and a different key with the same key id. */
   it('ReleaseManifest_SignatureIsLoadBearing_TamperedManifestRejected', () => {
     const baseline = {
       signed,
@@ -403,7 +359,6 @@ describe('DR-20 release manifest producer', () => {
       observedAssets: new Map([[assetName, { digest: expectedAssetDigest }]]),
     };
 
-    // Body tampered, signature untouched → the signature must catch it.
     const tamperedBody: SignedReleaseManifest = {
       ...signed,
       manifest: { ...signed.manifest, version: `${signed.manifest.version}-evil` },
@@ -412,7 +367,6 @@ describe('DR-20 release manifest producer', () => {
     expect(bodyVerdict.ok).toBe(false);
     expect(bodyVerdict.ok === false && bodyVerdict.reason).toBe('manifest-signature');
 
-    // Signature bytes corrupted → rejected.
     const flipped = Buffer.from(signed.signature.value, 'base64');
     flipped[0] = (flipped[0] ?? 0) ^ 0xff;
     const tamperedSig: SignedReleaseManifest = {
@@ -423,7 +377,6 @@ describe('DR-20 release manifest producer', () => {
     expect(sigVerdict.ok).toBe(false);
     expect(sigVerdict.ok === false && sigVerdict.reason).toBe('manifest-signature');
 
-    // An unrelated trust root must not accept it.
     const { publicKey: otherPub } = generateKeyPairSync('ed25519');
     const otherRoots = new TrustRootSet([
       {
@@ -437,11 +390,11 @@ describe('DR-20 release manifest producer', () => {
     expect(foreignVerdict.ok === false && foreignVerdict.reason).toBe('manifest-signature');
   });
 
+  /**
+   * An installer can reject a wrong source, contract or asset only when the produced manifest carries fields that differ.
+   * The test changes one expected value at a time against the real signed manifest.
+   */
   it('ReleaseManifest_CarriesFieldsThatDiscriminateSourceContractAndAsset', () => {
-    // DR-20 criterion 1 is an installer behaviour (T-28 owns the shell side),
-    // but it is only reachable if the PRODUCED manifest carries fields that
-    // actually discriminate. Prove each dimension independently against the
-    // real signed manifest.
     const baseline = {
       signed,
       trustRoots,
@@ -483,42 +436,37 @@ describe('DR-20 release manifest producer', () => {
     expect(wrongAsset.ok === false && wrongAsset.reason).toBe('asset-digest');
   });
 
+  /**
+   * The identity comes from the bytes of the artifact, not from a value that the test gave the builder.
+   * The raw-byte checks show that an installer or an auditor can read it from the shipped file.
+   * The binary and the manifest must agree, so an installer can reject a signed manifest for a different source or contract.
+   */
   it('BuildBinary_EmbedsSourceAndContractIdentity', () => {
-    // Recovered from the ARTIFACT'S OWN BYTES — never from a variable handed
-    // to the builder.
     expect(embedded, 'built artifact carries no embedded build identity').toBeDefined();
     const id = embedded as EmbeddedBuildIdentity;
 
     expect(id.marker).toBe(BUILD_IDENTITY_MARKER);
 
-    // Source identity vs. independent authorities.
     expect(id.source.commit).toBe(expectedCommit);
     expect(id.source.treeDigest).toBe(expectedTreeDigest);
 
-    // Contract identity vs. an independently recomputed roll-up.
     expect(id.contract.digest).toBe(expectedContractDigest);
     expect(id.contract.authorityCount).toBe(AUTHORITY_IDS.length);
 
-    // Raw-byte presence: the identity is literally in the shipped file, so an
-    // installer (or an auditor with `strings`) can recover it.
     const raw = artifactBytes.toString('latin1');
     expect(raw).toContain(`globalThis.${BUILD_IDENTITY_GLOBAL}=`);
     expect(raw).toContain(expectedCommit);
     expect(raw).toContain(expectedContractDigest);
     expect(raw).toContain(expectedTreeDigest);
 
-    // The binary and the signed manifest must agree — that agreement is what
-    // lets an installer reject a validly-signed manifest for a different
-    // source/contract than the binary it is about to trust.
     expect(id.source).toEqual(signed.manifest.source);
     expect(id.contract).toEqual(signed.manifest.contract);
   });
 
   /**
-   * A genuine edit to a tracked file is reported as `modified` and named. The
-   * clean arm before the plant is load-bearing: an already-dirty file would
-   * make the modified arm prove nothing. Scoped to one file of a sandbox git
-   * repository, so the verdict does not depend on the live checkout.
+   * An edit to a tracked file reads as `modified`, and the report names the file.
+   * The clean check before the edit is necessary: with a file that is already dirty, the modified check proves nothing.
+   * The scope is one file of a sandbox git repository, so the verdict does not depend on the live checkout.
    */
   it('BuildIdentity_ModifiedWorkingTree_ReportsModifiedAndNamesPath', async () => {
     const scope = [PLANT_TARGET];
@@ -549,9 +497,9 @@ describe('DR-20 release manifest producer', () => {
   });
 
   /**
-   * The allowlist excludes the file the build regenerates, and only that file:
-   * dirtying it alone reads clean although `git status` shows it, and a second,
-   * non-allowlisted edit still reads modified. Run on a sandbox git repository.
+   * The allowlist excludes the file that the build regenerates, and only that file.
+   * An edit to that file alone reads `clean`, although `git status` shows it.
+   * A second edit to a file outside the allowlist reads `modified`. The test runs on a sandbox git repository.
    */
   it('BuildIdentity_GeneratedPathAllowlist_IsNotABlanketEscape', async () => {
     const scope = [GENERATED_TARGET, PLANT_TARGET];
@@ -583,15 +531,16 @@ describe('DR-20 release manifest producer', () => {
     }
   });
 
+  /**
+   * Compares the source state in the artifact bytes with this file's own `git status` verdict.
+   * The test hardcodes neither state: a clean CI checkout reads `clean` and a dirty working copy reads `modified`.
+   * The cap bounds the path list in the banner, and `modifiedCount` still gives the full number.
+   * A build-generated path never makes a release read as modified.
+   */
   it('BuildBinary_EmbedsSourceState_AgreeingWithIndependentGitVerdict', async () => {
     const id = embedded as EmbeddedBuildIdentity;
     expect(id, 'built artifact carries no embedded build identity').toBeDefined();
 
-    // The artifact's own claim about the tree it was compiled from, recovered
-    // from its BYTES, versus this file's independent `git status` verdict.
-    // Environment-agnostic on purpose: a clean CI checkout must come out
-    // 'clean' and this (permanently dirty) working copy must come out
-    // 'modified' — the assertion never hardcodes either.
     const independent = await independentWorkingTreeVerdict(REPO_ROOT, SOURCE_TREE_ROOTS);
     expect(id.sourceState).toBe(independent.state);
 
@@ -600,28 +549,23 @@ describe('DR-20 release manifest producer', () => {
       expect(id.modifiedCount).toBe(0);
     } else {
       expect(id.modifiedCount).toBeGreaterThan(0);
-      // The cap bounds the banner baked into every artifact…
       expect(id.modifiedPaths.length).toBeLessThanOrEqual(MAX_REPORTED_MODIFIED_PATHS);
-      // …but never hides the magnitude.
       expect(id.modifiedPaths.length).toBe(Math.min(id.modifiedCount, MAX_REPORTED_MODIFIED_PATHS));
       for (const p of id.modifiedPaths) expect(p).not.toContain('\\');
-      // A build-generated path is never what makes a release look modified.
       for (const p of GENERATED_AT_BUILD_PATHS) expect(id.modifiedPaths).not.toContain(p);
     }
 
-    // The state travels in the artifact's raw bytes, not just in our parse.
     expect(artifactBytes.toString('latin1')).toContain(`"sourceState":"${id.sourceState}"`);
   });
 
+  /**
+   * `BuildBinary_EmbedsSourceAndContractIdentity` detects a latin1 parse only while the real `approvedBy` text holds non-ASCII characters.
+   * This test gives the extractor non-ASCII text directly: an em dash and an arrow (3 UTF-8 bytes each),
+   * an accented letter (2 bytes) and a non-BMP character (4 bytes). A decode that handles only 2-byte sequences fails.
+   * Raw bytes that are not valid UTF-8 surround the banner, because the latin1 scan exists for such bytes.
+   * The whole identity must round-trip, not only `approvedBy`.
+   */
   it('ExtractEmbeddedBuildIdentity_NonAsciiPayload_RoundTripsThroughRealBinaryBytes', () => {
-    // ── WHY THIS EXISTS SEPARATELY FROM THE ARTIFACT TEST ────────────────────
-    // `BuildBinary_EmbedsSourceAndContractIdentity` DID catch this bug — but
-    // only by luck of wording: it compares a real `approvedBy`, and that field
-    // happened to acquire an em dash and an arrow in task 049. Reword it back
-    // to plain ASCII and the encoding defect returns, silently, with every
-    // assertion still green. A property that only holds while a prose string
-    // keeps its punctuation is not pinned at all, so it is pinned here — on
-    // the extractor directly, with non-ASCII supplied on purpose.
     const identity: EmbeddedBuildIdentity = {
       marker: BUILD_IDENTITY_MARKER,
       version: '9.9.9',
@@ -635,19 +579,10 @@ describe('DR-20 release manifest producer', () => {
       contract: {
         digest: `sha256:${'b'.repeat(64)}`,
         authorityCount: AUTHORITY_IDS.length,
-        // Every class the latin1-parse mangles: an em dash (3 UTF-8 bytes), an
-        // arrow (3), an accented latin letter (2), and a non-BMP codepoint (4,
-        // a surrogate pair in JS) — so a fix that merely widened the decode to
-        // 2-byte sequences would still fail here.
         approvedBy: 'v1→v2 — café — 🧪',
       },
     } as EmbeddedBuildIdentity;
 
-    // Embed the banner in a buffer that also carries RAW BINARY on both sides,
-    // because that is the condition the latin1 scan exists for: the extractor
-    // must stay byte-synchronised through bytes that are not valid UTF-8 at
-    // all. A test over a pure-text buffer would not exercise the reason the
-    // two encodings differ.
     const binaryNoise = Buffer.from([0x00, 0xff, 0xfe, 0x80, 0x81, 0xc0, 0xc1]);
     const artifact = Buffer.concat([
       binaryNoise,
@@ -657,12 +592,11 @@ describe('DR-20 release manifest producer', () => {
 
     const recovered = extractEmbeddedBuildIdentity(artifact);
     expect(recovered, 'identity must survive extraction from binary-flanked bytes').toBeDefined();
-    // The whole object round-trips, not merely the field under suspicion.
     expect(recovered).toEqual(identity);
-    // Stated pointedly, so a regression names the encoding rather than the field.
     expect(recovered?.contract.approvedBy).toBe('v1→v2 — café — 🧪');
   });
 
+  /** The warning shows in the Actions log, gives the total, names the paths, and states how many paths it omits. */
   it('SourceStateReport_ModifiedTree_RendersNamedActionableWarning', () => {
     const clean = renderSourceStateReport({ state: 'clean', modifiedPaths: [], modifiedCount: 0 });
     expect(clean.join('\n')).not.toContain('::warning::');
@@ -675,16 +609,13 @@ describe('DR-20 release manifest producer', () => {
       modifiedCount: many.length,
     }).join('\n');
 
-    // Visible in the Actions log…
     expect(modified).toContain('::warning::');
-    // …states the magnitude…
     expect(modified).toContain(String(many.length));
-    // …names the offenders…
     expect(modified).toContain('src/f0.ts');
-    // …and admits what it elided rather than silently truncating.
     expect(modified).toContain('+3 more');
   });
 
+  /** The release workflow builds the manifest, signs it with a repository secret, and publishes it as a release asset. */
   it('ReleaseWorkflow_PublishesSignedManifestAsset', () => {
     const raw = readFileSync(RELEASE_WORKFLOW_PATH, 'utf-8');
     const wf = yaml.load(raw) as {
@@ -698,17 +629,13 @@ describe('DR-20 release manifest producer', () => {
 
     const steps = publish?.steps ?? [];
 
-    // The manifest is BUILT in the release pipeline (not a library with zero
-    // call sites) …
     const buildStep = steps.find((s) => (s.run ?? '').includes('tools/release/build-release-manifest.ts'));
     expect(buildStep, 'publish-release does not invoke tools/release/build-release-manifest.ts').toBeDefined();
 
-    // … SIGNED with a repository secret, never a literal or a default …
     const stepText = `${buildStep?.run ?? ''}\n${JSON.stringify(buildStep?.env ?? {})}`;
     expect(stepText).toContain('--private-key-env');
     expect(stepText).toMatch(/secrets\.[A-Z0-9_]*SIGNING_KEY/);
 
-    // … and PUBLISHED as a release asset.
     const ghStep = steps.find((s) => (s.uses ?? '').startsWith('softprops/action-gh-release@'));
     expect(ghStep, 'publish-release has no gh-release step').toBeDefined();
     const files = ghStep?.with?.['files'];

@@ -1,15 +1,15 @@
-// Test code must not write into the checkout it runs from (#2030). Parallel
-// test files read the same tree, so a file one test creates or rewrites for a
-// moment is seen by another. A test that must change a tree uses the sandbox
-// in `tools/test-helpers/repo-sandbox.ts`.
+// Test code must not write into the checkout that it runs from. Parallel test
+// files read the same tree, so one test sees a file that another test creates
+// or rewrites for a moment. A test that must change a tree uses the sandbox in
+// `tools/test-helpers/repo-sandbox.ts`.
 //
-// The guard parses every test file under `tests/` and `tools/`, the setup
-// files, and the `tests/` and `tools/test-helpers/` modules they import. It
-// names each fs write whose target starts at `__dirname`, `import.meta`,
+// The guard parses each test file under `tests/` and `tools/`, the setup
+// files, and the `tests/` and `tools/test-helpers/` modules that they import.
+// It names each fs write whose target starts at `__dirname`, `import.meta`,
 // `process.cwd()` or a relative path, also through variables and helpers.
-// It cannot see writes made by a child process (a build, `git`, `npm`, a
-// shell), and it does not enter product code under `src/`. It proves its
-// population and that its matcher names seeded writes and passes their twins.
+// It cannot see a write that a child process makes, and it does not enter
+// product code under `src/`. It proves its population, and it proves that its
+// matcher names seeded writes and passes their clean twins.
 
 import { describe, it, expect, beforeAll } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -25,7 +25,7 @@ import {
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..');
 
-/** Test-support code the scan enters when a test passes it a path. */
+/** The test-support code that the scan enters when a test passes it a path. */
 const HELPER_ROOTS = [path.join(REPO_ROOT, 'tests'), path.join(REPO_ROOT, 'tools', 'test-helpers')];
 
 const TEST_FILE = /\.(?:test|type-test|bench)\.[cm]?[jt]s$/;
@@ -34,7 +34,7 @@ const SOURCE_FILE = /\.[cm]?[jt]s$/;
 /** `runs/` holds captured eval artifacts, which vitest excludes and nothing runs. */
 const SKIPPED_DIRECTORIES = new Set(['node_modules', 'runs', '.git']);
 
-/** A write the guard permits, with the reason. Each one must still match a write. */
+/** A write that the guard permits, with the reason. Each one must still match a write. */
 interface Allowance {
   readonly file: RegExp;
   readonly matches: (write: LiveCheckoutWrite) => boolean;
@@ -74,7 +74,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-/** Every setup file a vitest project lists, as an absolute path. */
+/** Each setup file that a vitest project lists, as an absolute path. */
 function setupFiles(): string[] {
   const test: unknown = Reflect.get(vitestConfig, 'test');
   const projects: unknown = isRecord(test) ? test['projects'] : undefined;
@@ -99,7 +99,7 @@ interface Population {
   readonly modules: readonly string[];
 }
 
-/** The test files, the setup files, and every test-support module they import. */
+/** The test files, the setup files, and each test-support module that they import. */
 function testCodePopulation(): Population {
   const all: string[] = [];
   walk(path.join(REPO_ROOT, 'tests'), all);
@@ -126,8 +126,9 @@ interface GuardScan {
 }
 
 /**
- * Parsing about 1,300 modules takes seconds, more than the `unit` tier's
- * per-test budget, so the scan runs once in `beforeAll` with its own bound.
+ * The parse of about 1,300 modules takes seconds, which is more than the budget
+ * of one `unit` test. Thus the scan runs one time in `beforeAll` with its own
+ * timeout.
  */
 const SCAN_TIMEOUT_MS = 120_000;
 
@@ -151,7 +152,7 @@ function isAllowed(write: LiveCheckoutWrite): boolean {
   return ALLOWED_WRITES.some((allowance) => allowance.file.test(write.file) && allowance.matches(write));
 }
 
-/** Scans inline sources; `files` maps virtual paths to source for relative imports. */
+/** Scans inline sources. `files` maps each virtual path to its source, for relative imports. */
 function scanInline(source: readonly string[], files: Readonly<Record<string, string>> = {}): string[] {
   const reader: ModuleReader = (fromFile, specifier) => {
     const fileName = path.posix.join(path.posix.dirname(fromFile), specifier).replace(/\.js$/, '.ts');
@@ -191,7 +192,7 @@ describe('no test writes into the live checkout (#2030)', () => {
     expect(sandboxUsers.length).toBeGreaterThanOrEqual(8);
   });
 
-  /** Every fs write in test code goes to a temp directory or a sandbox, or is a listed allowance. */
+  /** Each fs write in test code goes to a temp directory or a sandbox, or is a listed allowance. */
   it('NoLiveCheckoutWrites_TestCodeWritesOnlyOutsideTheCheckout', () => {
     const violations = scanTestCode()
       .writes.filter((write) => !isAllowed(write))
@@ -200,7 +201,7 @@ describe('no test writes into the live checkout (#2030)', () => {
     expect(violations).toEqual([]);
   });
 
-  /** An allowance that no longer matches a write is stale and must be removed. */
+  /** An allowance that matches no write is stale. Remove it. */
   it('NoLiveCheckoutWrites_EveryAllowanceStillMatchesAWrite', () => {
     const { writes } = scanTestCode();
     const stale = ALLOWED_WRITES.filter(
@@ -210,7 +211,7 @@ describe('no test writes into the live checkout (#2030)', () => {
     expect(stale).toEqual([]);
   });
 
-  /** Each seeded line writes into the checkout by one route the scan follows. */
+  /** Each seeded line writes into the checkout by one route that the scan follows. */
   it('NoLiveCheckoutWrites_Matcher_NamesSeededWrites', () => {
     const seeded = [
       ...PREAMBLE,
@@ -259,7 +260,7 @@ describe('no test writes into the live checkout (#2030)', () => {
     expect(scanInline(clean)).toEqual([]);
   });
 
-  /** A write inside an imported test helper is named at the call that hands it a checkout path. */
+  /** The scan names a write inside an imported test helper at the call that gives it a checkout path. */
   it('NoLiveCheckoutWrites_Matcher_FollowsAnImportedHelper', () => {
     const helper = [
       "import { writeFileSync } from 'node:fs';",

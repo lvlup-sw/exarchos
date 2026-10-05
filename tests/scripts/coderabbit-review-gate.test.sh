@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# CodeRabbit Review Gate — Test Script
-# Tests coderabbit-review-gate.sh with mocked gh CLI responses
+# Tests coderabbit-review-gate.sh with a mock `gh` CLI.
 
 set -euo pipefail
 
@@ -253,7 +252,7 @@ run_script_full() {
 }
 
 # ============================================================
-# TASK 1: SKELETON AND ARGUMENT PARSING TESTS
+# SKELETON AND ARGUMENT PARSING TESTS
 # ============================================================
 echo "=== Task 1: Skeleton and Argument Parsing ==="
 
@@ -312,7 +311,7 @@ else
 fi
 
 # ============================================================
-# TASK 2: REVIEW ROUND COUNTING TESTS
+# REVIEW ROUND COUNTING TESTS
 # ============================================================
 echo ""
 echo "=== Task 2: Review Round Counting ==="
@@ -358,7 +357,7 @@ else
 fi
 
 # ============================================================
-# TASK 3: THREAD QUERYING AND SEVERITY CLASSIFICATION TESTS
+# THREAD QUERYING AND SEVERITY CLASSIFICATION TESTS
 # ============================================================
 echo ""
 echo "=== Task 3: Thread Querying and Severity Classification ==="
@@ -457,13 +456,13 @@ else
 fi
 
 # ============================================================
-# TASK 4: AUTO-RESOLVE OUTDATED THREADS TESTS
+# AUTO-RESOLVE OUTDATED THREADS TESTS
 # ============================================================
 echo ""
 echo "=== Task 4: Auto-Resolve Outdated Threads ==="
 
 # Test: ResolveOutdated_OutdatedThreads_CallsMutation
-# Mock returns threads with some outdated+unresolved; script should call resolveReviewThread mutation
+# Two threads are outdated and unresolved. The script must call the resolveReviewThread mutation for each.
 clear_mocks
 write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai"},"submittedAt":"2026-01-15T10:00:00Z"}]}}}}}'
 write_threads_response '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[
@@ -480,7 +479,7 @@ else
 fi
 
 # Test: ResolveOutdated_NoOutdated_NoMutation
-# All threads are either resolved or not outdated — no mutation calls expected
+# Each thread is resolved or not outdated, so the script must call no mutation.
 clear_mocks
 write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai"},"submittedAt":"2026-01-15T10:00:00Z"}]}}}}}'
 write_threads_response '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[
@@ -496,7 +495,7 @@ else
 fi
 
 # Test: DryRun_OutdatedThreads_NoMutation
-# With --dry-run, outdated threads should NOT be resolved (no mutation calls)
+# With --dry-run, the script must not resolve an outdated thread.
 clear_mocks
 write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai"},"submittedAt":"2026-01-15T10:00:00Z"}]}}}}}'
 write_threads_response '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[
@@ -512,7 +511,7 @@ else
 fi
 
 # Test: ResolveOutdated_NonBotThread_NotResolved
-# Outdated threads from non-CodeRabbit authors should NOT be auto-resolved
+# The script must not resolve an outdated thread from an author other than CodeRabbit.
 clear_mocks
 write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai"},"submittedAt":"2026-01-15T10:00:00Z"}]}}}}}'
 write_threads_response '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[
@@ -529,7 +528,7 @@ else
 fi
 
 # ============================================================
-# TASK 5: DECISION LOGIC TESTS
+# DECISION LOGIC TESTS
 # ============================================================
 echo ""
 echo "=== Task 5: Decision Logic ==="
@@ -545,8 +544,8 @@ make_reviews() {
     echo "{\"data\":{\"repository\":{\"pullRequest\":{\"reviews\":{\"nodes\":[$nodes]}}}}}"
 }
 
-# Helper: create threads response with specified active/outdated threads
-# Args: active_count blocker_type (none|minor|critical)
+# Helper: create a threads response with N active threads
+# Args: active_count blocker_type (none|minor|major|critical)
 make_threads() {
     local active_count="$1"
     local blocker_type="${2:-none}"
@@ -666,20 +665,21 @@ else
 fi
 
 # ============================================================
-# TASK 6: PR COMMENTING AND MAIN ORCHESTRATION TESTS
+# PR COMMENTING AND MAIN ORCHESTRATION TESTS
 # ============================================================
 echo ""
 echo "## Task 6: PR Commenting and Main Orchestration"
 
 # Test: Comment_Approve_PostsApprovalRequest
-# When action is "approve", script should POST a comment with @coderabbitai approve
+# When the action is "approve", the script must POST a comment on the PR.
+# The test checks the endpoint of the call, not the comment body.
 clear_mocks
 write_reviews_response "$(make_reviews 1)"
 write_threads_response "$(make_threads 0)"
 OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100)
 REST_CALLS=$(count_calls "REST")
 if [[ "$REST_CALLS" -ge 1 ]]; then
-    # Verify the REST call was to the issues comments endpoint
+    # The REST call must go to the issue comments endpoint.
     if grep -q "REST.*repos/testowner/testrepo/issues/100/comments" "$MOCK_CALL_LOG"; then
         pass "Comment_Approve_PostsApprovalRequest"
     else
@@ -706,7 +706,7 @@ else
 fi
 
 # Test: Comment_Wait_NoComment
-# When action is "wait", no REST comment call should be made
+# When the action is "wait", the script must make no REST comment call.
 clear_mocks
 write_reviews_response "$(make_reviews 1)"
 write_threads_response "$(make_threads 2 critical)"
@@ -719,7 +719,7 @@ else
 fi
 
 # Test: DryRun_Approve_NoComment
-# When --dry-run is set, no comment should be posted even on approve
+# With --dry-run, the script must post no comment, also on approve.
 clear_mocks
 write_reviews_response "$(make_reviews 1)"
 write_threads_response "$(make_threads 0)"
@@ -732,13 +732,13 @@ else
 fi
 
 # ============================================================
-# TASK 10: --allow-skipped FLAG TESTS
+# --allow-skipped FLAG TESTS
 # ============================================================
 echo ""
 echo "=== Task 10: --allow-skipped Flag ==="
 
 # Test: allowSkipped_PRWithSkipLabel_NoReview_Approves
-# With --allow-skipped, PR with skip-coderabbit label and no CR review → approve
+# With --allow-skipped, a PR with the skip-coderabbit label and no CodeRabbit review gives approve.
 clear_mocks
 write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]}}}}}'
 write_threads_response '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}'
@@ -751,7 +751,7 @@ else
 fi
 
 # Test: allowSkipped_PRWithSkipLabel_HasReview_NormalFlow
-# With --allow-skipped, PR with label BUT also has CR review → normal flow (don't skip)
+# With --allow-skipped, a PR with the label and a CodeRabbit review follows the normal flow.
 clear_mocks
 write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[{"author":{"login":"coderabbitai"},"submittedAt":"2026-01-15T10:00:00Z"}]}}}}}'
 write_threads_response '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[
@@ -759,7 +759,7 @@ write_threads_response '{"data":{"repository":{"pullRequest":{"reviewThreads":{"
 ]}}}}}'
 write_labels_response '[{"name":"skip-coderabbit"},{"name":"enhancement"}]'
 RESULT=$(run_script_full --owner testowner --repo testrepo --pr 100 --allow-skipped --dry-run)
-# Round 1 with 1 active thread → should be wait (normal flow), not approve
+# Round 1 with 1 active thread gives wait in the normal flow, not approve.
 if echo "$RESULT" | grep -qF '**Action:** wait'; then
     pass "allowSkipped_PRWithSkipLabel_HasReview_NormalFlow"
 else
@@ -767,15 +767,13 @@ else
 fi
 
 # Test: noAllowSkipped_PRWithSkipLabel_NoReview_Waits
-# Without --allow-skipped flag, PR with label but no review → default behavior (wait with 0 rounds, 0 threads = approve since round 0 < 1)
-# Actually: round count 0, active threads 0 → doesn't match any approve condition (round_count -eq 1 and active 0 → false since 0 != 1)
-# So this should be "wait"
+# Without --allow-skipped, a PR with the label and no review gives wait.
+# Round 0 with 0 active threads matches no approve condition.
 clear_mocks
 write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]}}}}}'
 write_threads_response '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}'
 write_labels_response '[{"name":"skip-coderabbit"},{"name":"enhancement"}]'
 RESULT=$(run_script_full --owner testowner --repo testrepo --pr 100 --dry-run)
-# Without --allow-skipped: round 0, 0 threads, no blockers → wait (0 rounds doesn't match any approve case)
 if echo "$RESULT" | grep -qF '**Action:** wait'; then
     pass "noAllowSkipped_PRWithSkipLabel_NoReview_Waits"
 else

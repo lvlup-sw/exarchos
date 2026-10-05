@@ -1,31 +1,17 @@
 /**
- * A control that gates production behaviour must be reachable in production.
+ * A control that gates production behavior must be reachable in production.
  *
- * `configureWorkflowMaterializer` set the value that decided whether
- * `workflow get` folded the event log or read the state file. Four test files
- * called it. Nothing in `src/` did. So the fold branch was dark in every
- * shipped composition — `get` always took the file, and `get --asOf` answered
- * with tip state rather than the bounded fold it advertises.
+ * A test can enable a control that nothing under `src/` enables. Then the
+ * coverage looks complete, and the shipped path cannot run.
  *
- * Nothing was red, and that is the part worth guarding. The dark branches had
- * tests; the tests enabled the branch themselves, which is exactly what made
- * the coverage look complete while the shipped path was unreachable. It
- * surfaced only when a regression test for a fix inside one of those branches
- * passed with the fix removed.
+ * The rule is data in `tools/audit/reachable-controls.json`. Thus an exemption
+ * is an allowlist entry with an owner and an expiry, and not a code change.
  *
- * The rule is DATA (`tools/audit/reachable-controls.json`). This file decides
- * only how it is enforced, so an exemption is reviewable as an allowlist entry
- * with an owner and an expiry rather than as a code change.
- *
- * ## Why this is name-based, and why that is enough
- *
- * Deciding "does any production branch read what this sets" needs whole-program
- * dataflow. Deciding "is this named as an enabler" needs a convention, and this
- * repository already follows one. The population is every exported
- * `configureX` / `registerX` / `installX` / `enableX` / `wireX`; the assertion
- * is that each has a caller under `src/`. A false positive is a naming
- * question, answered by an allowlist entry; a false negative is a control named
- * unconventionally, which is a separate and more visible problem.
+ * The guard reads names, because a dataflow answer needs the whole program. The
+ * population is each exported `configureX`, `registerX`, `installX`, `enableX`
+ * or `wireX`, and each one must have a use under `src/`. An allowlist entry
+ * answers a false positive. A control with an unconventional name is a false
+ * negative.
  */
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -78,11 +64,8 @@ interface Enabler {
 }
 
 /**
- * Every exported enabler declared in one file.
- *
- * Reads the LEXED source so a name inside a comment or a string — this file and
- * the policy both discuss `configureWorkflowMaterializer` by name — is not
- * mistaken for a declaration.
+ * Each exported enabler that one file declares. The scan reads the lexed
+ * source, so a name in a comment or a string is not a declaration.
  */
 function findEnablers(relativePath: string, source: string): Enabler[] {
   const { maskedSource } = lexModule(source, path.basename(relativePath));
@@ -108,24 +91,18 @@ async function sourceFiles(roots: readonly string[]): Promise<string[]> {
 }
 
 /**
- * Every caller-root file's executable source, read once.
- *
- * The reachability question is asked per symbol, and re-lexing the tree for
- * each one turned an architecture test into an eight-second one. The bodies do
- * not change during a run.
+ * The executable source of each file in the caller roots, read one time. The
+ * reachability check runs for each symbol, and a new lex of the tree for each
+ * symbol takes seconds.
  */
 const CALLER_BODIES: ReadonlyMap<string, string> = new Map(
   (await sourceFiles(POLICY.callerRoots)).map((file) => [file, executableSource(file)]),
 );
 
 /**
- * The source of one file with its import and re-export statements removed.
- *
- * A symbol named in `import { x } from` or `export { x } from` is being routed,
- * not used: a barrel that re-exports a dead control does not make it reachable.
- * The motivating case was re-exported from `workflow/tools.ts` while nothing
- * called it, so counting those lines would have missed the very defect this
- * guard exists for.
+ * The source of one file without its import and re-export statements. A symbol
+ * in `import { x } from` or `export { x } from` is routed and not used. Thus a
+ * barrel that re-exports a dead control does not make it reachable.
  */
 function executableSource(relativePath: string): string {
   return executableSourceOf(readFileSync(path.join(REPO_ROOT, relativePath), 'utf8'), relativePath);
@@ -139,17 +116,12 @@ function executableSourceOf(source: string, relativePath: string): string {
 }
 
 /**
- * True when `symbol` is USED anywhere in the shipped tree, its own declaration
- * excluded.
+ * True when the shipped tree uses `symbol` outside its own declaration.
  *
- * Reference, not call. An enabler is frequently handed over rather than
- * invoked — `opts.registerMcp ?? registerExarchosInClaudeJson` passes one as a
- * default, and the doctor lists `installFreshness` in a probe array. Both are
- * production wiring, and a call-shaped detector reports both as dark. The
- * declaring file counts too: a control invoked beside its own definition is
- * reachable, and excluding that file wholesale — to avoid matching the
- * declaration — flagged `registerBackendCleanup`, which `src/index.ts` calls
- * eleven lines later.
+ * The check is for a reference and not a call. Production wiring often passes
+ * an enabler as a value: as a default, or in a probe array. The declaring file
+ * also counts, because a control that its own file invokes is reachable. Only
+ * the declaration itself is removed from that file.
  */
 function hasProductionUse(symbol: string, declaredIn: string): boolean {
   const reference = new RegExp(`\\b${symbol}\\b`);
@@ -168,11 +140,14 @@ function isAllowlisted(enabler: Enabler): boolean {
 }
 
 describe('reachable controls', () => {
+  /**
+   * The first two assertions are denominators. An empty walk makes the last
+   * assertion vacuously true, and a pattern set that matches nothing enforces
+   * nothing.
+   */
   it('ReachableControls_NoEnabler_IsCalledOnlyFromTests', async () => {
     const files = await sourceFiles(POLICY.scannedRoots);
 
-    // (1) Denominator. An empty walk makes the assertion below vacuously true,
-    // which is precisely how this guard would fail open.
     expect(
       files.length,
       'the guard scanned an implausibly small population — the walk is broken, not the code',
@@ -182,8 +157,6 @@ describe('reachable controls', () => {
       findEnablers(file, readFileSync(path.join(REPO_ROOT, file), 'utf8')),
     );
 
-    // (2) The population itself must be non-empty. A pattern set that matches
-    // nothing would pass this test forever while enforcing nothing.
     expect(
       enablers.length,
       'no enabler matched any name pattern — the patterns are stale, not the tree',
@@ -201,10 +174,12 @@ describe('reachable controls', () => {
     ).toEqual([]);
   });
 
+  /**
+   * The self-test. The function that scans the source tree must find the
+   * fixture control. The control must also be dark: nothing in the shipped tree
+   * uses it.
+   */
   it('ReachableControls_KillFixture_IsReportedByTheSameScanner', () => {
-    // The self-test. The control that motivated this guard, verbatim, run
-    // through the SAME function that reads the source tree. A scanner that has
-    // gone blind fails here rather than going quiet.
     const fixture = readFileSync(path.join(REPO_ROOT, POLICY.killFixture.path), 'utf8');
     const reported = findEnablers(POLICY.killFixture.path, fixture);
 
@@ -213,8 +188,6 @@ describe('reachable controls', () => {
       'the kill fixture is the evidence that this guard detects the real defect shape',
     ).toContain(POLICY.killFixture.expectedSymbol);
 
-    // …and it must be reported as DARK, not merely found: nothing in `src/`
-    // calls it, which is the condition the guard exists to catch.
     expect(
       hasProductionUse(POLICY.killFixture.expectedSymbol, POLICY.killFixture.path),
       'the fixture symbol is used in the shipped tree, so it no longer demonstrates the defect',
@@ -234,18 +207,7 @@ describe('reachable controls', () => {
   });
 });
 
-// ─── Oracles: a verdict nobody asks for enforces nothing ─────────────────────
-//
-// The enabler rule reads NAMES, and an oracle is not named as an enabler; it
-// is also usually a class method, which the enabler extractor does not read.
-// So a method that walks durable state and returns a verdict can exist for its
-// own tests alone while the property it checks is enforced nowhere in the
-// shipped composition — which is how the run-bundle integrity sweep sat dormant
-// for a week with every settled stream in violation. The roster below is DATA
-// in the same policy file: each oracle declares the call chain from its method
-// to the roster the composition root iterates, and every hop is checked.
-
-/** A method declaration `name(` in a class body, on the lexed source. */
+/** True when the lexed source of the file declares a method `symbol(` in a class body. */
 function declaresMethod(relativePath: string, symbol: string): boolean {
   const { maskedSource } = lexModule(
     readFileSync(path.join(REPO_ROOT, relativePath), 'utf8'),
@@ -254,7 +216,7 @@ function declaresMethod(relativePath: string, symbol: string): boolean {
   return new RegExp(`(?:^|\\n)\\s+(?:async\\s+)?${symbol}\\s*(?:<[^>]*>)?\\s*\\(`).test(maskedSource);
 }
 
-/** The hops of a chain whose executable source does NOT reference what it must. */
+/** The hops of a chain whose executable source does not reference the required symbol. */
 function brokenHops(
   chain: readonly { readonly file: string; readonly mustReference: string }[],
   sourceOf: (file: string) => string,
@@ -265,6 +227,14 @@ function brokenHops(
   });
 }
 
+/**
+ * The enabler rule reads names, and an oracle has no enabler name. An oracle is
+ * also often a class method, which the enabler extractor does not read. Thus a
+ * method that returns a verdict can exist for its own tests only, and nothing
+ * in the shipped composition enforces its property. For each oracle, the roster
+ * in the policy file declares the call chain from the method to the roster that
+ * the composition root iterates. The test checks each hop.
+ */
 describe('reachable oracles', () => {
   it('ReachableOracles_EveryRosteredOracle_IsCalledThroughItsDeclaredChain', () => {
     expect(POLICY.oracleRoster.entries.length, 'the roster is empty and enforces nothing').toBeGreaterThan(0);
@@ -283,10 +253,11 @@ describe('reachable oracles', () => {
     }
   });
 
+  /**
+   * The self-test. The fixture stands in for one hop of a rostered chain, and
+   * the scanner must report the chain as broken at that hop only.
+   */
   it('ReachableOracles_KillFixture_IsReportedAsABrokenChain', () => {
-    // The self-test. The probe factory as it stood while the oracle was
-    // dormant stands in for the real first hop; the scanner must report the
-    // chain broken there. A scanner that passes this text has gone blind.
     const { killFixture, entries } = POLICY.oracleRoster;
     const fixture = readFileSync(path.join(REPO_ROOT, killFixture.path), 'utf8');
     const entry = entries.find((candidate) =>

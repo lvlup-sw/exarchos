@@ -1,17 +1,15 @@
+/**
+ * Every artifact kind is either authored or generated, and each declared
+ * output path has a producer that writes it.
+ *
+ * A plugin manifest can point at an output directory that no producer emits.
+ * A declared path that resolves to nothing looks the same as an empty
+ * directory, so this suite requires the producer and the directory to exist.
+ */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-
-/**
- * Every artifact kind is either authored or generated, and a generated path is
- * only declared when something writes it.
- *
- * The failure this prevents is specific: an earlier revision pointed the plugin
- * manifest at an output directory no producer emitted. Nothing detected it,
- * because a declared path that resolves to nothing looks exactly like a path
- * whose contents are simply empty.
- */
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '../../');
@@ -28,10 +26,7 @@ interface ArtifactKind {
   readonly producer: string;
 }
 
-/**
- * The closed classification. A new artifact kind is added here first, which
- * forces the question of who emits it to be answered rather than discovered.
- */
+/** The closed classification. A new artifact kind starts here, and its row must name a producer. */
 const ARTIFACT_KINDS: readonly ArtifactKind[] = [
   {
     name: 'skills',
@@ -95,10 +90,11 @@ describe('ArtifactKinds', () => {
     }
   });
 
+  /**
+   * The inverse of the test above. The build overwrites each emitted
+   * directory, so a hand-maintained file must not live in one.
+   */
   it('NoAuthoredSource_LivesInsideAnEmittedTree', () => {
-    // The inverse of the rule above, and the one that was actually violated:
-    // live, hand-maintained files sitting inside a directory the build
-    // overwrites. Anything authored must be reachable under `content/`.
     for (const kind of ARTIFACT_KINDS) {
       const emitted = join(REPO_ROOT, kind.emittedTo);
       if (!existsSync(emitted)) continue;
@@ -113,10 +109,12 @@ describe('ArtifactKinds', () => {
 });
 
 describe('RenderedTree', () => {
+  /**
+   * Checks both halves. A missing producer module means that the table does
+   * not describe the build. A missing output directory means that no producer
+   * wrote the declared path.
+   */
   it('EveryDeclaredPath_HasAProducer', () => {
-    // Both halves matter. A declared path with no producer is the revision-1
-    // defect; a producer named in this table that does not exist on disk means
-    // the table has drifted from the build it claims to describe.
     for (const kind of ARTIFACT_KINDS) {
       expect(
         existsSync(join(REPO_ROOT, kind.producer)),
@@ -129,6 +127,11 @@ describe('RenderedTree', () => {
     }
   });
 
+  /**
+   * Each path that `plugin.json` declares must exist and must sit under the
+   * output root of a producer. A file-level entry, such as an agent file,
+   * resolves through the root that holds it.
+   */
   it('EveryPluginDeclaredPath_ResolvesAndIsProduced', () => {
     const manifestPath = join(REPO_ROOT, '.claude-plugin/plugin.json');
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as Record<string, unknown>;
@@ -148,8 +151,6 @@ describe('RenderedTree', () => {
         true,
       );
 
-      // A declared directory must be someone's output. File-level declarations
-      // (the agents list) are checked through the root they sit in.
       const root = rel.startsWith('rendered/')
         ? rel.split('/').slice(0, 2).join('/')
         : rel.split('/')[0]!;

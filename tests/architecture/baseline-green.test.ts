@@ -1,15 +1,13 @@
 /**
- * The green baseline every later reconciliation in the structure refactor
- * compares against.
+ * The green baseline that each later reconciliation compares against.
  *
- * The danger this guards is not a failing test — it is a baseline that records
- * failures without naming them. Twenty-six unexplained failures in a baseline
- * are indistinguishable from twenty-six the refactor caused, and every oracle
- * built on top of it inherits that ambiguity.
+ * The hazard is a baseline that records failures and does not name them.
+ * Unexplained failures in a baseline look the same as failures that a later
+ * change causes.
  *
- * So the exclusions are enumerated, and each one is checked to still have a
- * subject. An exclusion whose file or test has disappeared is permanent cover
- * for whatever moves in next, which is worse than no exclusion at all.
+ * Thus the baseline lists each exclusion, and this suite checks that each one
+ * still has a subject. An exclusion for a deleted file or test excuses the
+ * next failure that takes its name.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -17,8 +15,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..');
-// The core suite's root. It was a nested package until task 019 folded it
-// into the repo root; the baseline's paths are repo-relative now.
+/** The root that the baseline paths resolve against. It is the repository root. */
 const NESTED_ROOT = REPO_ROOT;
 
 type Baseline = {
@@ -42,9 +39,8 @@ const baseline = JSON.parse(
 const entries = Object.entries(baseline.excludedFromOracle.byFile);
 
 describe('the green baseline', () => {
+  /** A second person can verify a named CI run. A green run on one machine is not an oracle. */
   it('Baseline_OracleEnvironment_IsPinnedToAReproducibleRun', () => {
-    // "Green on my machine" is not an oracle. Pinning to a named CI run is
-    // what makes the baseline something a second person can verify.
     expect(baseline.oracleEnvironment).toBe('ci');
     expect(baseline.referenceCiRun.conclusion).toBe('success');
     expect(baseline.referenceCiRun.url).toMatch(/^https:\/\/github\.com\//);
@@ -57,9 +53,8 @@ describe('the green baseline', () => {
     expect(baseline.rootSuite.tests).toBeGreaterThan(1000);
   });
 
+  /** If the headline count drifts from the list, one more failure can hide behind the count. */
   it('Baseline_ExclusionHeadline_MatchesTheEnumeratedList', () => {
-    // A headline count that drifts from the list is how "26 known failures"
-    // quietly becomes cover for a 27th.
     const named = entries.flatMap(([, tests]) => tests);
 
     expect(named).toHaveLength(baseline.excludedFromOracle.count);
@@ -73,9 +68,8 @@ describe('the green baseline', () => {
     }
   });
 
+  /** Liveness check. An exclusion for a deleted file excludes nothing and can excuse a later failure. */
   it('Baseline_EveryExcludedFile_StillExists', () => {
-    // The liveness tooth. An exclusion pointing at a deleted file stops
-    // excluding anything and starts excusing everything.
     const missing = entries
       .map(([file]) => file)
       .filter((file) => !fs.existsSync(path.join(NESTED_ROOT, file)));
@@ -96,9 +90,8 @@ describe('the green baseline', () => {
     expect(orphans, 'excluded tests no longer present in their file').toEqual([]);
   });
 
+  /** The stated reason covers one local-only cluster. It does not cover an exclusion outside that cluster. */
   it('Baseline_ExclusionScope_IsConfinedToTheStatedSubsystem', () => {
-    // The justification is that these are one local-only cluster. If an
-    // exclusion appears outside it, the justification no longer covers it.
     const outside = entries
       .map(([file]) => file)
       .filter((file) => !/merge-orchestrate|store\.race/.test(file));
@@ -106,16 +99,18 @@ describe('the green baseline', () => {
     expect(outside, 'exclusions outside the merge-orchestrate cluster').toEqual([]);
   });
 
+  /**
+   * The baseline holds Linux and CI results only, so it must record the
+   * Windows gap. Without that record, a Windows-only failure reads as a clean
+   * baseline.
+   */
   it('Baseline_WindowsLeg_IsTrackedRatherThanOmitted', () => {
-    // Task 001 asks for Linux and Windows. Only Linux plus CI was captured, so
-    // the gap is recorded — an oracle that silently covered one platform would
-    // let a Windows-only breakage read as a clean baseline.
     expect(baseline.windowsLeg.status).toBe('outstanding');
     expect(baseline.windowsLeg.reason.length).toBeGreaterThan(0);
   });
 
+  /** An exclusion that states no expiry condition never expires. */
   it('Baseline_ExclusionReason_StatesWhatVoidsIt', () => {
-    // An exclusion with no stated expiry condition never expires.
     expect(baseline.excludedFromOracle.reason).toMatch(/CI/);
     expect(JSON.stringify(baseline.excludedFromOracle)).toMatch(/blocks|void/);
   });

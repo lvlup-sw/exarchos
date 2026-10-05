@@ -32,10 +32,8 @@ describe('normalize()', () => {
     expect(result).toBe('<WORKTREE>/foo/bar.txt');
   });
 
+  /** `/etc/hosts` is not under `os.tmpdir()` on a realistic host. The test asserts that first. */
   it('Normalize_NonTmpAbsolutePath_LeavesUnchanged', () => {
-    // Pick an absolute path that cannot be under os.tmpdir(). Most platforms'
-    // tmpdir is not `/etc`; if tmpdir *were* `/etc` the test would need
-    // revisiting, but that is not a realistic configuration.
     const tmp = os.tmpdir();
     const nonTmp = '/etc/hosts';
     expect(nonTmp.startsWith(tmp)).toBe(false);
@@ -130,29 +128,24 @@ describe('normalize()', () => {
   });
 
   it('Normalize_PrimitiveString_ReplacesIfMatchesPattern', () => {
-    // Top-level primitives that match a regex pattern must be replaced.
     expect(normalize('2026-04-19T12:34:56.789Z')).toBe('<TIMESTAMP>');
     expect(normalize('f47ac10b-58cc-4372-a567-0e02b2c3d479')).toBe('<UUID>');
-    // A plain string with no patterns should pass through unchanged.
     expect(normalize('hello world')).toBe('hello world');
   });
 
-  // T3.3 — envelope parity extensions.
+  /**
+   * The CLI and MCP transports can emit object keys in different orders, and the parity
+   * tests compare whole structures. Thus `normalize` must sort the keys at each level.
+   */
   it('normalize_jsonKeyOrdering_canonicalizesAlphabetical', () => {
-    // CLI and MCP transports may emit object keys in different insertion
-    // orders. Parity tests deep-equal structures, so normalize must
-    // canonicalize key order recursively.
     const a = { b: 1, a: 2, nested: { y: 1, x: 2 } };
     const b = { a: 2, b: 1, nested: { x: 2, y: 1 } };
     expect(JSON.stringify(normalize(a))).toBe(JSON.stringify(normalize(b)));
-    // And the canonical order is alphabetical.
     expect(Object.keys(normalize(a))).toEqual(['a', 'b', 'nested']);
   });
 
+  /** `_transport.requestId` differs for each call and transport, so a placeholder replaces it. */
   it('normalize_transportRequestId_replacedWithPlaceholder', () => {
-    // The `_transport.requestId` field is a per-call identifier that
-    // legitimately differs across CLI and MCP transports. Replace with
-    // a placeholder so it deep-equals.
     const input = {
       phase: 'plan',
       _transport: { requestId: 'abc-123-xyz' },

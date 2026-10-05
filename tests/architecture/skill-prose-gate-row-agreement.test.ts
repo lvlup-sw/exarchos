@@ -1,20 +1,15 @@
 /**
- * A skill's "checked by `check-event-emissions`" sentence names exactly the
- * gate's expectation row for its phase.
+ * The "checked by `check-event-emissions`" passage of a skill names exactly the
+ * expectation row of the gate for its phase.
  *
  * @oracle-sources: ../../src/verbs/gates/check-event-emissions.ts, ../../content/synthesis/skills/synthesize/SKILL.md
  *
- * The prose is what the model reads; the row is what the gate checks. Nothing
- * generates one from the other — the skills renderer lives in `src/install`,
- * which may not import `src/verbs`, so a generator needs an intermediate this
- * change does not add. Until it exists the two are joined HERE: the sentence is
- * written in one machine-readable shape, on a line of its own, and this test
- * reads it back and compares the set. The first event-authority flip
- * hand-synchronised sentence and row in one commit; this is what notices the
- * second flip forgetting to.
+ * The model reads the prose, and the gate checks the row. No generator joins them: the skills
+ * renderer is in `src/install`, which must not import `src/verbs`. This test reads the passage
+ * in one machine-readable shape and compares the two sets. It fails when the prose and the row
+ * disagree.
  *
- * Only the content source is read. `render:guard` pins `rendered/` to
- * `content/`, so the source is the one place the sentence is authored.
+ * The test reads only the content source. `render:guard` pins `rendered/` to `content/`.
  */
 
 import { readFileSync } from 'node:fs';
@@ -46,7 +41,10 @@ const SITES: readonly ProseSite[] = [
   { skill: 'content/delivery/skills/delegate/SKILL.md', phase: 'delegate', shape: 'table' },
 ];
 
-/** The one shape the sentence may take — the whole line, so the list ends where the line does. */
+/**
+ * The only shape of the sentence. The pattern matches the whole line, so the list ends where
+ * the line ends.
+ */
 const CHECKED_LINE = /^Checked by `check-event-emissions` in this phase: (.*)$/;
 
 const BACKTICKED_EVENT = /`([a-z][a-z0-9_.]*)`/g;
@@ -155,13 +153,17 @@ describe('SkillProse — the checked-by sentence names the gate row', () => {
     }
   });
 
+  /**
+   * The first site has the `line` shape. The test seeds three defects: an extra type in the
+   * prose, a missing type in the prose, and no checked line. A missing line must give a named
+   * problem, not a pass on an empty set.
+   */
   it('SkillProse_SeededDisagreement_IsNamedInBothDirectionsAndOnAMissingLine', () => {
     const [site] = SITES;
     expect(site).toBeDefined();
     if (site === undefined) return;
     const markdown = readFileSync(join(REPO_ROOT, site.skill), 'utf8');
 
-    // Prose names a type the row does not expect — the shape the flip removed.
     const overClaiming = markdown.replace(
       /^(Checked by `check-event-emissions` in this phase: .*)\.$/m,
       '$1, `stack.submitted`.',
@@ -171,7 +173,6 @@ describe('SkillProse — the checked-by sentence names the gate row', () => {
       'prose names stack.submitted, which the gate row does not expect',
     ]);
 
-    // The row expects a type the prose does not name.
     const underClaiming = markdown.replace(
       /^(Checked by `check-event-emissions` in this phase: .*), `shepherd\.iteration`\.$/m,
       '$1.',
@@ -181,7 +182,6 @@ describe('SkillProse — the checked-by sentence names the gate row', () => {
       'gate row expects shepherd.iteration, which the prose does not name',
     ]);
 
-    // No checked line at all is a named problem, never a pass over an empty set.
     const silent = markdown
       .split('\n')
       .filter((line) => !CHECKED_LINE.test(line))
@@ -191,25 +191,26 @@ describe('SkillProse — the checked-by sentence names the gate row', () => {
     expect(findings[0]).toContain('found 0');
   });
 
+  /**
+   * The test seeds three defects in the table: a wrong emitter, a dropped row, and no checked
+   * passage. A missing passage must give a named problem, not a pass on an empty set.
+   */
   it('SkillProse_SeededTableDisagreement_NamesTheRowAndTheEmitter', () => {
     const site = SITES.find((s) => s.shape === 'table');
     expect(site).toBeDefined();
     if (site === undefined) return;
     const markdown = readFileSync(join(REPO_ROOT, site.skill), 'utf8');
     expect(disagreements(markdown, site.phase, site.shape)).toEqual([]);
-    // The table says the orchestrator emits a row the contract gives the subagent.
     const wrongEmitter = markdown.replace(/^(\| `task\.progressed` \| .+ \|) Subagent \|$/m, '$1 Orchestrator |');
     expect(wrongEmitter).not.toBe(markdown);
     expect(disagreements(wrongEmitter, site.phase, site.shape)).toEqual([
       'prose says task.progressed is emitted by the orchestrator, the contract says otherwise',
     ]);
-    // A row the table drops is named, not silently absent.
     const dropped = markdown.replace(/^\| `team\.disbanded` \| .+ \|\n/m, '');
     expect(dropped).not.toBe(markdown);
     expect(disagreements(dropped, site.phase, site.shape)).toEqual([
       'gate row expects team.disbanded, which the prose does not name',
     ]);
-    // No table at all is a named problem, never a pass over an empty set.
     const silent = markdown.replace('(checked by `check-event-emissions`)', '');
     expect(disagreements(silent, site.phase, site.shape)).toEqual([
       'no passage says it is checked by `check-event-emissions`',

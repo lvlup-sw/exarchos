@@ -1,10 +1,12 @@
+/**
+ * Setup file of the `process` vitest project.
+ * It fails before the first test if `exarchos` is not on PATH or has the wrong version.
+ * After each test, it fails if a tracked child process is still alive.
+ */
 import { afterEach } from 'vitest';
 import { expectNoLeakedProcesses } from './leak-detector.js';
 import { assertExarchosOnPath, assertExarchosVersion } from './preflight.js';
 
-// Fail fast before any test in the `process` project runs.
-// Vitest does NOT execute setupFiles when zero tests are discovered, so this
-// correctly stays dormant until PR 2 adds the first process-fidelity test.
 await assertExarchosOnPath();
 await assertExarchosVersion();
 

@@ -1,19 +1,13 @@
 /**
- * No directory grows into a dumping ground (task 052, DR-2 / DR-9).
+ * No directory holds more than 25 non-test files at its own level.
  *
- * `orchestrate/` once held 83 files flat. Nothing had permitted that; nothing
- * had noticed it either, because a directory gains one file at a time and no
- * single commit ever looks wrong. This is the rule that makes the 26th file the
- * one someone has to argue for.
+ * A directory gains one file at a time, and no single commit looks wrong. This
+ * rule makes a person argue for the 26th file.
  *
- * ── Why an exemption LIST and not a judgment call ───────────────────────────
- * Some breadth is honest. A directory of small, independent, declarative
- * modules is not the same failure as a directory of thirty interdependent
- * ones, and a rule that cannot say so gets suppressed rather than obeyed.
- * So exemptions exist — but each is PREDICATED: it names a reason and pins the
- * count it was granted at. An exempt directory that keeps growing trips this
- * test on its next file, which is the difference between an exemption and an
- * amnesty.
+ * An exemption list replaces a judgment call. A directory of small, independent
+ * modules is not the same failure as a directory of interdependent modules.
+ * Each exemption names a reason and pins the count at the time of the grant. An
+ * exempt directory that grows fails this test on its next file.
  */
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
@@ -23,29 +17,27 @@ import { fileURLToPath } from 'node:url';
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
 /**
- * Structural roots the cap applies to. `src/` is where the original dump
- * ground lived; `tools/` is where the same failure moved after the
- * automation fold. The other four published directories are walked so a
- * new dumping ground cannot hide outside `src/`.
+ * The structural roots that the cap applies to. The walk covers all six, so an
+ * overfull directory cannot hide outside `src/`.
  */
 const WALK_ROOTS = ['src', 'tools', 'tests', 'content', 'docs', 'rendered'] as const;
 
-/** Files that are not the directory's own subject matter. */
+/** Matches test and benchmark files, which do not count toward the cap. */
 const IS_TEST = /\.(test|bench)\.[cm]?[jt]s$|\.test\.sh$/;
 
-/** The cap. One directory's worth of code a reader can hold at once. */
+/** The cap on non-test files at the own level of one directory. */
 const MAX_OWN_LEVEL_FILES = 25;
 
 interface Exemption {
-  /** Why this breadth is not the `orchestrate/` failure. */
+  /** Why this breadth is not a dumping ground. */
   readonly reason: string;
-  /** The count when the exemption was granted. Growth past it fails. */
+  /** The count at the time of the grant. Growth past it fails. */
   readonly grantedAt: number;
 }
 
 /**
- * Predicated exemptions. Each is a DEBT with a named owner task, not a licence:
- * the pinned count means the directory may shrink freely and may not grow.
+ * The exemptions. Each one is a debt and not a license: the directory can
+ * shrink, and it must not grow past the pinned count.
  */
 const EXEMPTIONS: Record<string, Exemption> = {
   'src/verbs/gates': {
@@ -109,7 +101,7 @@ interface DirCount {
   readonly count: number;
 }
 
-/** Own-level, non-test file count for every directory under the walk roots. */
+/** The count of non-test files at the own level of each directory under the walk roots. */
 function ownLevelCounts(): DirCount[] {
   const out: DirCount[] = [];
   const walk = (abs: string): void => {
@@ -137,6 +129,7 @@ function ownLevelCounts(): DirCount[] {
 describe('locality', () => {
   const counts = ownLevelCounts();
 
+  /** The last assertion is the denominator, because a walk that finds nothing satisfies the filter. */
   it('Locality_NoDirectoryHoldsMoreThanTwentyFiveNonTestFilesAtItsOwnLevel', () => {
     const over = counts
       .filter(({ dir, count }) => count > MAX_OWN_LEVEL_FILES && EXEMPTIONS[dir] === undefined)
@@ -148,32 +141,30 @@ describe('locality', () => {
         'exemption stating why the breadth is honest and pinning the count',
     ).toEqual([]);
 
-    // Denominator: a walk that found nothing would satisfy the filter above.
     expect(counts.length, 'the locality walk found no directories').toBeGreaterThan(20);
   });
 
+  /**
+   * Each exemption must name a directory that exists and state a reason. The
+   * directory must not grow past the granted count. A granted count within the
+   * cap covers nothing, so the test rejects it.
+   */
   it('Locality_DeclarativeBreadthExemption_IsExplicitlyPredicated', () => {
     const byDir = new Map(counts.map((c) => [c.dir, c.count]));
 
     for (const [dir, exemption] of Object.entries(EXEMPTIONS)) {
       const live = byDir.get(dir);
 
-      // A phantom exemption is cover for a directory that no longer exists —
-      // the same stale-rule class this workflow keeps finding elsewhere.
       expect(live, `exempt directory ${dir} does not exist`).toBeDefined();
 
-      // The predicate has to say something. "Judgment call" is what this list
-      // exists to replace.
       expect(exemption.reason.length, `${dir} has no stated reason`).toBeGreaterThan(40);
 
-      // Pinned: may shrink, may not grow.
       expect(
         live,
         `${dir} grew to ${live} past its granted ${exemption.grantedAt} — split it or re-argue ` +
           'the exemption',
       ).toBeLessThanOrEqual(exemption.grantedAt);
 
-      // An exemption for a directory already UNDER the cap is dead cover.
       expect(
         exemption.grantedAt,
         `${dir} is exempt but its granted count is within the cap — delete the exemption`,
@@ -181,8 +172,8 @@ describe('locality', () => {
     }
   });
 
+  /** A seeded directory over the cap must be the only result of the filter expression. */
   it('Locality_SeededOverflow_IsRejected', () => {
-    // Teeth. A cap that no input can violate is decoration.
     const seeded = [...counts, { dir: 'src/__seeded_dumping_ground__', count: 84 }];
     const over = seeded
       .filter(({ dir, count }) => count > MAX_OWN_LEVEL_FILES && EXEMPTIONS[dir] === undefined)

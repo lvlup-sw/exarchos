@@ -1,17 +1,15 @@
 #!/usr/bin/env node
 /**
- * Minimal mock MCP server for harness self-tests.
+ * A minimal mock MCP server for the harness self-tests. It runs on stdio, so it pairs with
+ * `StdioClientTransport`. Its one tool, `echo`, returns `echo:<message>` in a text content
+ * block.
  *
- * Registers a single `echo` tool that returns its input string wrapped in a
- * text content block. Runs on stdio so it pairs with StdioClientTransport.
+ * The fixture isolates `spawnMcpClient` from the real `exarchos` binary. A caller passes
+ * `{ command: 'node', args: [<path of this script>] }`.
  *
- * This fixture isolates spawnMcpClient's behavior from the real
- * `exarchos-mcp` binary — callers point spawnMcpClient at this script via
- * `{ command: 'node', args: ['test/fixtures/__helpers__/mock-mcp-server.mjs'] }`.
+ * The server comes from the v2 SDK, the same generation as the client in `../mcp-client.ts`.
+ * A pair of different generations hangs.
  */
-
-// SDK v2 (DR-0/DR-26) — see the note in ../mcp-client.ts. This mock is driven by
-// that client, so both ends must be the same generation or the pair hangs.
 import { McpServer } from '@modelcontextprotocol/server';
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 import { z } from 'zod';

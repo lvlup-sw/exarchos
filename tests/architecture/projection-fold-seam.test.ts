@@ -1,32 +1,16 @@
 /**
- * The guard for the class #1855 belongs to: a projection-derived answer that
- * escapes to a caller with no evidence its fold covers the durable event tail.
+ * The guard against a projection-derived answer that reaches a caller with no
+ * evidence that its fold covers the durable event tail.
  *
- * The class has two instances. A phase-gate dogfood run served a cancelled
- * workflow at `plan-review` from a fold 500 seconds behind. The mechanism built
- * to answer that then inverted it — the answer was withheld permanently rather
- * than served stalely, on a lag of one event. Two instances make it a property of
- * the system rather than an incident, so the fix is structural: `foldToTail`
- * establishes coverage before any answer, and this guard is what keeps a
- * caller from going around it.
+ * `foldToTail` establishes coverage before any answer, and this guard stops a
+ * caller that goes around it. The rule is data in
+ * `tools/audit/projection-fold-seam.json`. Thus an exemption is an allowlist
+ * entry with an owner and an expiry, and not a code change.
  *
- * The rule is DATA (`tools/audit/projection-fold-seam.json`). This file decides
- * only how the rule is enforced, so an exemption can be reviewed as an
- * allowlist entry with an owner and an expiry rather than as a code change.
- *
- * ## Why the vacuity assertions are not ceremony
- *
- * A structural guard fails open. If the walk finds nothing, the violation set
- * is empty and the guard reports pass — with no coverage at all. That shape has
- * bitten this repository repeatedly, so three assertions carry the weight:
- *
- *   1. The population is corroborated by `git ls-files`, which throws on empty.
- *   2. The seam's entry point must have real callers. A guard protecting a seam
- *      nobody uses forbids a bypass of nothing.
- *   3. The kill fixture — the pre-fix bypass, verbatim — must be REPORTED, by
- *      the same scanner that reads `src/**`, not by a parallel branch. If a
- *      refactor makes the scanner blind to that shape, this goes red here
- *      instead of going quiet in production.
+ * A structural guard that finds nothing reports a pass. Three assertions
+ * prevent that. `git ls-files` corroborates the population. The entry point of
+ * the seam must have real callers. The scanner that reads `src/` must also
+ * report the kill fixture.
  */
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -70,17 +54,13 @@ interface Call {
 }
 
 /**
- * Every call to a forbidden member in one file.
+ * Each call to a forbidden member in one file.
  *
- * Reads the LEXED source, not the raw text. The doc comments on this seam name
- * `materialize` repeatedly and the policy file quotes the member names, so a
- * raw-text scan would charge the documentation of the rule with breaking it.
- * `maskedSource` blanks comments and string bodies while preserving offsets, so
- * a line number still points at the real call.
- *
- * The leading `.` is what separates a CALL from a DECLARATION: `materializeAt<T>(`
- * inside the class is the method being defined, `this.materializeAt<T>(` is a use
- * of it.
+ * The scan reads the lexed source and not the raw text, because the doc
+ * comments on the seam name the members. `maskedSource` blanks comments and
+ * string bodies and keeps offsets, so a line number points at the real call.
+ * The leading `.` separates a call from a declaration. `this.materializeAt<T>(`
+ * is a call, and `materializeAt<T>(` in the class is the definition.
  */
 function findForbiddenCalls(relativePath: string, source: string): Call[] {
   const { maskedSource } = lexModule(source, path.basename(relativePath));
@@ -98,7 +78,7 @@ function findForbiddenCalls(relativePath: string, source: string): Call[] {
   return calls;
 }
 
-/** Files the seam is defined in, which necessarily use its own members. */
+/** The files that define the seam. They use its members by necessity. */
 const EXEMPT_MODULES: ReadonlySet<string> = new Set([
   POLICY.seam.module,
   POLICY.seam.definitionModule,
@@ -122,11 +102,10 @@ async function scanSource(): Promise<{ files: string[]; calls: Call[] }> {
 }
 
 describe('projection fold seam', () => {
+  /** The population assertion is the denominator. An empty walk makes the violation assertion vacuously true. */
   it('ProjectionFoldSeam_NoSourceFile_BypassesTheTailCoveringFold', async () => {
     const { files, calls } = await scanSource();
 
-    // (1) Denominator. An empty walk makes every assertion below vacuously
-    // true, which is precisely how this guard would fail open.
     expect(
       files.length,
       'the guard scanned an implausibly small population — the walk is broken, not the code',
@@ -144,8 +123,8 @@ describe('projection fold seam', () => {
     ).toEqual([]);
   });
 
+  /** A guard for a seam that nothing calls forbids nothing. */
   it('ProjectionFoldSeam_EntryPoint_HasRealCallers', async () => {
-    // (2) A guard that forbids bypassing a seam nobody calls forbids nothing.
     const callers = (
       await listTrackedFiles(REPO_ROOT, {
         extensions: ['.ts'],
@@ -167,9 +146,8 @@ describe('projection fold seam', () => {
     ).toBeGreaterThanOrEqual(POLICY.minimumCallSites);
   });
 
+  /** The self-test. The fixture holds the bypass, and the function that scans `src/` must report it. */
   it('ProjectionFoldSeam_KillFixture_IsReportedByTheSameScanner', () => {
-    // (3) The self-test. The pre-fix bypass, run through the SAME function that
-    // reads `src/**`. A scanner that has gone blind fails here.
     const fixture = readFileSync(path.join(REPO_ROOT, POLICY.killFixture.path), 'utf8');
     const reported = findForbiddenCalls(POLICY.killFixture.path, fixture);
 
@@ -179,11 +157,13 @@ describe('projection fold seam', () => {
     ).toContain(POLICY.killFixture.expectedMember);
   });
 
+  /**
+   * A bounded read (`asOf`, or filtered by correlation) answers as of an explicit
+   * bound, so tail coverage does not apply to it. The policy must record that
+   * exemption by name. The last assertion proves that the scanner does not
+   * report a call of a permitted member.
+   */
   it('ProjectionFoldSeam_BoundedReadMembers_AreExemptByNameNotByOversight', () => {
-    // A bounded read (`asOf`, correlation-filtered) answers as of an explicit
-    // bound by design; forcing tail coverage on it would break the bounded-read
-    // contract itself. The exemption has to be a decision recorded in the
-    // policy, not a member the scanner happens not to look for.
     const forbidden = new Set(POLICY.forbiddenMembers.map((entry) => entry.member));
     const permitted = POLICY.permittedMembers.map((entry) => entry.member);
 
@@ -193,7 +173,6 @@ describe('projection fold seam', () => {
     }
     expect(permitted).toContain('materializeFresh');
 
-    // And the exemption is load-bearing: bounded reads really do still call it.
     const bounded = findForbiddenCalls(
       'probe.ts',
       'const view = materializer.materializeFresh<T>(VIEW, bounded);',
@@ -201,11 +180,9 @@ describe('projection fold seam', () => {
     expect(bounded, 'a permitted member must not be reported as a violation').toEqual([]);
   });
 
+  /** An entry with an owner and a date but no `why` records who accepted the risk and not what the risk is. */
   it('ProjectionFoldSeam_AllowlistEntries_CarryARationaleOwnerAndUnexpiredDate', () => {
     for (const entry of POLICY.allowlist) {
-      // The policy declares a `why` field; without an assertion on it, an entry
-      // could bypass the seam carrying only an owner and a date, which records
-      // who accepted the risk but never what the risk was.
       expect(entry.why, `${entry.file} records no reason the seam does not fit`).toBeTruthy();
       expect(entry.owner, `${entry.file} has no owner`).toBeTruthy();
       expect(entry.expiry, `${entry.file} has no expiry`).toMatch(/^\d{4}-\d{2}-\d{2}$/);

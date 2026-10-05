@@ -2,9 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
 import { makeRegisterSchema, isEntryExpired } from '../../../tools/audit/register-entry-schema.js';
 
-// The knip register keys on { symbol, file }; this is the exact schema the
-// wrapper builds. Task 010's edge register will call makeRegisterSchema with
-// its own key fields — the "extensibility" test below pins that seam.
+/**
+ * The schema that the knip register builds. It keys on `symbol` and `file`.
+ * Another register passes its own key fields, and the second suite pins that.
+ */
 const knipSchema = makeRegisterSchema({
   symbol: z.string().min(1),
   file: z.string().min(1),
@@ -63,10 +64,10 @@ describe('makeRegisterSchema — shared { owner, rationale, expires XOR permanen
     ).toBe(false);
   });
 
+  /** The schema rejects an impossible date such as 30 February. It does not normalize the date. */
   it('REJECTS a malformed expires date', () => {
     expect(knipSchema.safeParse({ ...validExpires, expires: '10/31/2026' }).success).toBe(false);
     expect(knipSchema.safeParse({ ...validExpires, expires: '2026-13-01' }).success).toBe(false);
-    // impossible rollover date must be rejected, not silently normalized
     expect(knipSchema.safeParse({ ...validExpires, expires: '2026-02-30' }).success).toBe(false);
   });
 

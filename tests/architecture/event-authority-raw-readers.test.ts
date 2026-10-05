@@ -1,48 +1,18 @@
 /**
- * Nothing outside the canonical fold may depend on an event the partition calls
- * telemetry.
+ * No reader outside the canonical fold depends on an event that the partition
+ * classifies as telemetry.
  *
  * @oracle-sources: ../../src/** minus ../../src/projections/**,
  * ../../src/events/partition/witnesses.ts
  *
- * The partition's claim about a telemetry event is that dropping it changes no
- * answer. The differential fold proves that for the projection. It proves
- * nothing about the other half of the system: fences, idempotency checks and
- * HSM guards read the event log raw, outside any reducer, and a type that is
- * droppable by the fold can be undroppable by one of those.
+ * The differential fold proves that the projection ignores a telemetry event.
+ * Fences, idempotency checks and HSM guards read the event log raw. Thus this
+ * suite scans each read of an event type in the shipped tree. The scan excludes
+ * the projections because their job is to fold every event.
  *
- * So this walks the shipped tree, resolves every read of an event type it can,
- * and requires that none of them names a telemetry-classified type. The
- * projections are excluded on purpose — their job is to fold everything,
- * telemetry included, so scanning them would report the fold as a violation of
- * a rule about readers outside it.
- *
- * ## Why the vacuity assertions carry weight
- *
- * A census fails open. A walk that finds nothing reports no violations and
- * looks clean, which is the defect this repository keeps re-encountering. Five
- * assertions stand against that:
- *
- *   1. the scanned population is corroborated against `git ls-files`, so a
- *      shrunken walk shows up as a shrunken denominator;
- *   2. the resolved reader map is non-empty — a scanner that stopped resolving
- *      discriminants would otherwise pass silently;
- *   3. unscoped folds are non-empty, because this tree has many, and a zero
- *      there means the scan stopped seeing query calls at all;
- *   4. a seeded reader naming a telemetry type must be NAMED in the failure,
- *      and the seed is a MODULE ON DISK walked by the real scanner, not a row
- *      spliced into the census value. That distinction is the whole point: a
- *      seed injected into the value exercises the auditor and nothing else, so
- *      it stayed green through a grammar gap that made four shipped readers
- *      invisible;
- *   5. every read SPELLING the grammar claims to cover is proved to resolve, so
- *      a silently narrowed grammar shows up as a spelling that stopped
- *      resolving rather than as a clean tree.
- *
- * The reverse direction is checked too: every module a raw-reader witness cites
- * must still be found reading the type it was promoted for, and every
- * charter-pin witness — whose claim is that NO reader names its type — is held
- * to that claim against the same census.
+ * A census that finds nothing looks clean. Thus the suite asserts its
+ * denominators and seeds one violation on disk. It also holds each raw-reader
+ * witness and each charter-pin witness to the same census.
  */
 
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
@@ -73,9 +43,8 @@ const SOURCE_DIR = path.join(REPO_ROOT, 'src');
 const EXCLUDED_DIR = path.join(SOURCE_DIR, 'projections');
 
 /**
- * The discriminant vocabulary the scanner may need, DERIVED from the live
- * constant table rather than transcribed — admission readers spell the type as
- * the exported constant, not as a literal.
+ * Maps each exported admission constant to its event type. An admission reader
+ * names the type by the constant, not by a literal.
  */
 const KNOWN_CONSTANTS: ReadonlyMap<string, string> = new Map(
   Object.entries(ADMISSION_EVENT_TYPES).map(
@@ -126,10 +95,9 @@ describe('RawReaderCensus — no fold-external reader depends on a telemetry eve
     expect(missed).toEqual([]);
   });
 
+  /** The size assertions are the denominator. A scan that resolves no reader reports no violation. */
   it('RawReaderCensus_EveryFoldExternalReader_NamesNoTelemetryClassifiedEventType', async () => {
     const census = await censusPromise;
-    // The denominator: a scan that resolved no reader at all would report no
-    // violations and read as a clean tree.
     expect(census.modulesByEvent.size).toBeGreaterThan(0);
     expect(TELEMETRY_EVENTS.size).toBeGreaterThan(0);
 
@@ -140,13 +108,15 @@ describe('RawReaderCensus — no fold-external reader depends on a telemetry eve
     ).toEqual([]);
   });
 
+  /**
+   * The seed is a module on disk that the real scanner walks, with the
+   * array-membership spelling. A row put into a census value tests the auditor
+   * only, not the grammar of the scanner.
+   */
   it('RawReaderCensus_SeededReaderModuleOnDisk_IsWalkedResolvedAndNamed', async () => {
     const [telemetryType] = [...TELEMETRY_EVENTS].sort();
     expect(telemetryType).toBeDefined();
 
-    // A module on disk, walked by the real scanner — not a row spliced into a
-    // census value. The spelling is the membership test, because that is the
-    // spelling a value-level seed could never have caught.
     const root = await mkdtemp(path.join(os.tmpdir(), 'exarchos-reader-census-'));
     try {
       const sourceDir = path.join(root, 'src');
@@ -183,11 +153,11 @@ describe('RawReaderCensus — no fold-external reader depends on a telemetry eve
     }
   });
 
+  /**
+   * Each spelling is live in this tree. A scanner that stops resolving one
+   * reports its modules as readers of no event, and the census looks clean.
+   */
   it('RawReaderCensus_EverySupportedReadSpelling_ResolvesToItsEventType', () => {
-    // The grammar's own denominator. Each entry is a spelling that is LIVE in
-    // this tree; a scanner that quietly stopped covering one would otherwise
-    // report the modules using it as depending on no event, and the census would
-    // read clean over exactly the readers it had gone blind to.
     const [governanceType] = [...EventTypes].sort();
     expect(governanceType).toBeDefined();
     const target = governanceType ?? '';
@@ -218,12 +188,12 @@ describe('RawReaderCensus — no fold-external reader depends on a telemetry eve
     expect(blind, `the scanner no longer resolves these read spellings`).toEqual([]);
   });
 
+  /** The count assertion fails a table with no raw-reader witness, which makes the check vacuous. */
   it('RawReaderCensus_DeclaredRawReaderWitness_IsNamedByALiveReader', async () => {
     const census = await censusPromise;
     const declared = Object.entries(GOVERNANCE_WITNESSES).filter(
       ([, witness]) => witness.arm === 'raw-reader',
     );
-    // A table with no raw-reader arm would make the reverse check vacuous.
     expect(declared.length).toBeGreaterThan(0);
 
     const audit = auditEventReaders(census, EVENT_AUTHORITY, GOVERNANCE_WITNESSES);
@@ -233,15 +203,15 @@ describe('RawReaderCensus — no fold-external reader depends on a telemetry eve
     ).toEqual([]);
   });
 
+  /**
+   * A charter-pin witness says that the promotion rests on the ratified family
+   * decision alone. When a module reads a pinned type, the witness must move to
+   * the raw-reader arm, which names the module.
+   */
   it('RawReaderCensus_CharterPinWitness_IsNamedByNoLiveReader', async () => {
     const census = await censusPromise;
     expect(census.modulesByEvent.size).toBeGreaterThan(0);
 
-    // A charter pin says the promotion rests on the ratified family decision
-    // ALONE — no fold, no reader. Left unmeasured, that arm is where a promotion
-    // with real evidence goes to escape every oracle, so the negative half is
-    // held to the census: a pinned type a module actually reads has to move to
-    // the raw-reader arm, which names its module and is re-measured.
     const pinned = Object.entries(GOVERNANCE_WITNESSES)
       .filter(([, witness]) => witness.arm === 'charter-pin')
       .map(([type]) => type);
@@ -258,11 +228,13 @@ describe('RawReaderCensus — no fold-external reader depends on a telemetry eve
     expect(contradicted, describeUnread(census)).toEqual([]);
   });
 
+  /**
+   * A fold with no type filter depends on every event type. It is not a read of
+   * nothing and it is not an unresolved discriminant, so it has its own bucket.
+   * This tree has many such folds.
+   */
   it('RawReaderCensus_UnscopedFoldsAndUnresolvedDiscriminants_AreReportedNotDropped', async () => {
     const census = await censusPromise;
-    // A bare fold depends on the whole type universe. Reporting it as "reads
-    // nothing" would hide a dependency; reporting it as unresolved would flag a
-    // working scan as broken. It gets its own bucket, and this tree has many.
     expect(census.unscopedFolds.length).toBeGreaterThan(0);
 
     const buckets = new Set(census.unscopedFolds.map((site) => site.kind));

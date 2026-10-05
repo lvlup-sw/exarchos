@@ -3,8 +3,9 @@
  *
  * The first case is the inheritance proof: vitest starts its workers after
  * the global setup, so `os.tmpdir()` in this worker is inside the root. The
- * other cases pin the setup's parts: the root and its variables, the sweep,
- * and a sweep that is refused, which reports in one line and does not throw.
+ * other cases pin the parts of the setup: the root and its variables, the
+ * sweep, and the teardown. A refused sweep reports in one line and does not
+ * throw.
  */
 import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';

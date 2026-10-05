@@ -1,13 +1,12 @@
-// ─── Every structural directory explains itself ──────────────────────────────
+// Each structural directory explains itself.
 //
-// A directory whose purpose lives only in someone's head accumulates whatever
-// arrives. The READMEs are the cheapest durable answer to "does this belong
-// here?", and this file keeps them from going missing or going empty.
+// A directory with no written purpose collects whatever arrives. Each README
+// states what belongs in its directory. This file fails when a README is
+// missing or states no boundary.
 //
-// The population is ENUMERATED from the tree, never listed here. A hard-coded
-// count is the failure this is written against: a seventh directory could be
-// added with no README and a count-based check would still pass, because the
-// count it compares against is the one the author updated.
+// The suite reads the population from the tree. A hard-coded count is not
+// sufficient: a new directory with no README passes when its author also
+// updates the count.
 //
 // @oracle-sources: live-top-level-directory-listing, ../../tests/architecture/top-level-contract.test.ts
 
@@ -19,14 +18,10 @@ import { fileURLToPath } from 'node:url';
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
 /**
- * Directories that carry the repository's structure and therefore owe an
- * explanation. Dot-directories are tooling homes, not structure, and are
- * excluded for the same reason the top-level contract classifies them
- * separately.
- *
- * `binding/` and `hooks/` are absent because an external contract fixes their
- * path: they are someone else's requirement satisfied at this location, not a
- * choice this repository made about where its own work lives.
+ * Top-level directories that are not repository structure and need no README.
+ * An external contract fixes the paths of `binding/` and `hooks/`, so their
+ * location is not a choice of this repository. `structuralDirectories` also
+ * skips dot-directories, which hold tooling.
  */
 const NOT_STRUCTURE = new Set(['node_modules', 'dist', 'binding', 'hooks']);
 
@@ -41,12 +36,13 @@ function structuralDirectories(): string[] {
 describe('Readmes_EveryTopLevelDirectory_HasOne', () => {
   const dirs = structuralDirectories();
 
+  /**
+   * Denominator check. An empty listing passes each per-directory test below.
+   * The six required names make a deleted directory fail here, because a
+   * smaller set still passes the other tests.
+   */
   it('the enumeration found the tree', () => {
-    // Denominator. An empty listing satisfies every per-directory check below
-    // by having nothing to check — the exact way this guard would die quietly.
     expect(dirs.length, 'no structural directories enumerated').toBeGreaterThanOrEqual(6);
-    // The six DR-1 names, so a directory disappearing is a failure here too and
-    // not merely a smaller set that still passes.
     for (const required of ['content', 'docs', 'rendered', 'src', 'tests', 'tools']) {
       expect(dirs, `${required}/ is missing from the tree`).toContain(required);
     }
@@ -61,10 +57,11 @@ describe('Readmes_EveryTopLevelDirectory_HasOne', () => {
     ).toEqual([]);
   });
 
+  /**
+   * A reader can guess what a directory holds from its name. The boundary is
+   * the useful part, because it keeps a new file out of the wrong directory.
+   */
   it('every README says what does NOT belong, not just what does', () => {
-    // The half that does the work. "This directory holds the source" answers
-    // nothing a reader could not guess; the boundary is the useful part, and
-    // it is what stops the next arrival from landing in the wrong place.
     const thin: string[] = [];
     for (const dir of dirs) {
       const file = path.join(REPO_ROOT, dir, 'README.md');
@@ -79,9 +76,8 @@ describe('Readmes_EveryTopLevelDirectory_HasOne', () => {
     ).toEqual([]);
   });
 
+  /** An edit under `rendered/` passes review, and the next build reverts it silently. */
   it('rendered/ says in as many words that it is generated', () => {
-    // Singled out because the cost of getting this one wrong is silent: an
-    // edit here survives review and is reverted by the next build.
     const text = fs.readFileSync(path.join(REPO_ROOT, 'rendered/README.md'), 'utf8');
     expect(text).toMatch(/generated/i);
     expect(text).toMatch(/never edit|not authored|hand edit/i);

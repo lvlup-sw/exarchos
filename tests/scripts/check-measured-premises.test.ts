@@ -1,30 +1,15 @@
 /**
- * Tests for the DR-27 measured-premise drift gate.
+ * Tests for the measured-premise drift gate, `tools/audit/gates/check-measured-premises.mjs`.
+ * Three properties, with one test for each:
+ *   1. The checker reports drift for a document that is known to be wrong.
+ *      The fixture is a committed copy of revision 3 of the spec, so the test does not call git.
+ *   2. `checkMeasuredPremises` fails a run that resolves zero annotated claims.
+ *      A deleted annotation block or a broken scanner must not read green.
+ *   3. An unprobed proof rung is a gap, not a pass, and the report keeps the two apart.
  *
- * Three properties, each pinned by exactly one test:
- *
- *   1. The checker reports the DR-4 counts of a document ALREADY KNOWN TO BE
- *      WRONG as drifted. Rev 3 of the spec asserted 109 vacuous of 123 and
- *      described 12 "typed" declarations; the tree says 112 of 122 and 10. The
- *      rev-3 text is committed as a fixture (annotations transplanted, literals
- *      untouched) so this test is hermetic — it never shells out to git.
- *
- *   2. A run that resolves ZERO annotated claims FAILS. Detection alone would
- *      be insufficient: a deleted annotation block, a renamed document, or a
- *      broken scanner all read green precisely when the instrument has stopped
- *      working.
- *
- *   3. An UNPROBED proof rung is reported as a gap and is NOT a pass. DR-0
- *      failed differently from a stale count — it asserted a rung its subject
- *      could not carry — so "nothing" has to be a reportable answer that is
- *      still distinguishable from "verified".
- *
- * Why the first test spawns the real CLI rather than injecting numbers: the
- * only interesting claim is that rev 3's literals disagree with WHAT THE TREE
- * PRODUCES TODAY. Feeding the expectation in from the test would make the
- * fixture and the oracle the same authority, which proves nothing. The two
- * authorities here are genuinely independent — a committed historical document
- * on one side, the live `TOOL_REGISTRY` census on the other.
+ * The first test runs the real CLI, so the derived side comes from the live `TOOL_REGISTRY` census.
+ * A number from this file on that side makes the fixture and the oracle one authority.
+ * The gate is a `.mjs` file with JSDoc types, and `allowJs` infers the types for the import.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync, mkdtempSync, writeFileSync } from 'node:fs';
@@ -48,7 +33,6 @@ import {
   EXIT_PASS,
   EXIT_FAIL,
   EXIT_GAPS,
-  // `.mjs` gate with JSDoc types only; `allowJs` reads them for inference.
 } from '../../tools/audit/gates/check-measured-premises.mjs';
 import { rmrf } from '../../tools/test-helpers/temp-dir.js';
 
@@ -119,16 +103,21 @@ function claimsNamed(report: Report, name: string): ReportClaim[] {
   return report.claims.filter((c) => c.name === name);
 }
 
+/**
+ * `rawTextScannerCountedFile` is a text-match predicate: it counts a file when the source holds the SDK package name.
+ * The SDK scan tests compare it with the parser-based count, to show the cases that a text match gets wrong.
+ */
 describe('check-measured-premises (task 054, DR-27)', () => {
+  /**
+   * The fixture is revision 3 of the spec with annotations added and its literals unchanged.
+   * The first three assertions guard those literals, so a corrected fixture cannot pass for the wrong reason.
+   * The derived side is the live tree, which changes, so the test names no claim that must drift or agree.
+   * It asserts only that at least one claim drifts, and that each drift is a real difference between literal and derived value.
+   * `MeasuredPremises_LiveLiteral_Agrees` shows that the checker does not reject every claim.
+   */
   it('MeasuredPremises_Rev3Document_ReportsDr4CountsAsDrifted', async () => {
-    // The fixture is rev 3's committed text with the rev-4 annotations
-    // transplanted onto it and its LITERALS LEFT ALONE. Rev 3 is a document
-    // proven wrong by measurement; a checker that passes on it has not been
-    // shown to work.
     expect(existsSync(REV3_FIXTURE), `missing kill fixture: ${REV3_FIXTURE}`).toBe(true);
     const fixtureText = readFileSync(REV3_FIXTURE, 'utf8');
-    // Guard the fixture itself: if a future edit "helpfully" corrects rev 3's
-    // numbers, this test would pass for the wrong reason.
     expect(fixtureText).toContain('<!-- measured: output-schema-vacuous -->109<!-- /measured -->');
     expect(fixtureText).toContain('<!-- measured: output-schema-total -->123<!-- /measured -->');
     expect(fixtureText).toContain(
@@ -143,8 +132,6 @@ describe('check-measured-premises (task 054, DR-27)', () => {
     expect(report.verdict).toBe('fail');
     expect(status).toBe(1);
 
-    // The three DR-4 claims must ALL be reported drifted, and the derived side
-    // must come from the live census — not from anything the fixture says.
     const vacuous = claimsNamed(report, 'output-schema-vacuous');
     const total = claimsNamed(report, 'output-schema-total');
     const substantive = claimsNamed(report, 'output-schema-substantive');
@@ -152,29 +139,10 @@ describe('check-measured-premises (task 054, DR-27)', () => {
     expect(vacuous.length).toBeGreaterThan(0);
     expect(total.length).toBeGreaterThan(0);
     expect(substantive.length).toBeGreaterThan(0);
-    // The fixture's literals are frozen (asserted above). Its DERIVED side is
-    // not — it is the live tree, and the live tree legitimately moves.
     expect(new Set(vacuous.map((c) => c.literal))).toEqual(new Set([109]));
     expect(new Set(total.map((c) => c.literal))).toEqual(new Set([123]));
     expect(new Set(substantive.map((c) => c.literal))).toEqual(new Set([12]));
 
-    // ── WHY THIS IS A PARTITION AND NOT A FIXED LIST (task 068, 2026-08-07) ──
-    //
-    // This block used to name which claims drift and which agree. That was a
-    // claim about the LIVE TREE dressed up as a claim about the fixture, and the
-    // tree falsified it in both directions at once when task 068 registered the
-    // `invariants_amend` verb and its `invariant.amended` event:
-    //
-    //   • `output-schema-total` — the tree grew 122 -> 123, so rev 3's WRONG
-    //     literal of 123 now AGREES. A stale number the tree happened to grow
-    //     into. Nothing about rev 3 became more correct.
-    //   • `event-types-total`  — the tree grew 170 -> 171, so rev 3's literal of
-    //     170, which this test asserted was RIGHT, now drifts.
-    //
-    // Pinning either verdict re-creates the defect this whole program exists to
-    // remove: an assertion that passes for a reason unrelated to the property it
-    // names. The two properties the fixture actually has to carry are invariant
-    // under tree growth, so assert exactly those two and nothing more.
     const dr4 = [...vacuous, ...total, ...substantive];
     const cli = claimsNamed(report, 'cli-handwritten-literals');
     const events = claimsNamed(report, 'event-types-total');
@@ -182,8 +150,6 @@ describe('check-measured-premises (task 054, DR-27)', () => {
     expect(events.length).toBeGreaterThan(0);
     const all = [...dr4, ...cli, ...events];
 
-    // 1. NOT A PASS on a document proven wrong. At least one claim must drift,
-    //    and every drift must be a real literal/derived disagreement.
     const drifted = all.filter((c) => c.verdict === 'drifted');
     expect(drifted.length, 'a document known wrong must produce at least one drift').toBeGreaterThan(
       0,
@@ -191,33 +157,14 @@ describe('check-measured-premises (task 054, DR-27)', () => {
     for (const claim of drifted) {
       expect(claim.literal, `${claim.name}@${claim.line}`).not.toBe(claim.derived);
     }
-
-    // 2. NOT BLANKET REJECTION — proved in its own test, not here.
-    //
-    //    This used to assert that at least one of rev 3's claims still AGREES.
-    //    That property was never rev 3's: it held only while the growing tree
-    //    happened to pass through two of rev 3's wrong literals, which the note
-    //    above already called out as meaning nothing. Both coincidences have now
-    //    expired (`output-schema-total` 123 and `output-schema-vacuous` 109 were
-    //    overtaken), so the assertion could only be restored by picking new
-    //    numbers that would expire the same way.
-    //
-    //    A demonstration that the checker READS claims must not depend on a
-    //    wrong document accidentally being right. `MeasuredPremises_LiveLiteral_Agrees`
-    //    below builds a document whose literal IS the derived value, so it agrees
-    //    by construction and cannot rot.
   }, 120_000);
 
+  /**
+   * A checker that reports every claim as drifted fails the fixture test for the wrong reason.
+   * This test takes a value that the checker derived in a fixture run and writes a one-claim document with that value.
+   * The claim must agree. A hardcoded literal goes stale when the tree changes.
+   */
   it('MeasuredPremises_LiveLiteral_Agrees', async () => {
-    // THE NOT-BLANKET-REJECTION HALF. A checker that reported every claim
-    // drifted would fail the rev-3 fixture above for the wrong reason — it
-    // would look like a working checker while actually reading nothing.
-    //
-    // The probe is built from the checker's OWN derivation rather than from a
-    // number written here: run it over rev 3, take a claim whose derivation
-    // resolved, and write a one-claim document carrying that exact value. It
-    // must agree. Any hardcoded literal would be a coincidence waiting to
-    // expire, which is precisely the failure this replaces.
     const { report: live } = await runCli(['--document', path.relative(REPO_ROOT, REV3_FIXTURE)]);
     const resolved = live.claims.find((c) => typeof c.derived === 'number');
     expect(resolved, 'no claim in the fixture resolved a derived value').toBeDefined();
@@ -242,10 +189,11 @@ describe('check-measured-premises (task 054, DR-27)', () => {
     }
   }, 120_000);
 
+  /**
+   * The document has an obligation map and no measured annotation, and its rung side is healthy.
+   * The rung counts show that the empty denominator alone fails the run.
+   */
   it('MeasuredPremises_ZeroAnnotationsResolved_FailsClosed', () => {
-    // A document with an obligation map but not a single measured annotation.
-    // Everything else about the run is healthy — which is exactly the case a
-    // count-only gate would wave through.
     const document = [
       '# A document with no measured claims',
       '',
@@ -269,16 +217,18 @@ describe('check-measured-premises (task 054, DR-27)', () => {
     expect(report.exitCode).toBe(1);
     expect(report.failures.some((f) => f.startsWith('EMPTY_DENOMINATOR'))).toBe(true);
 
-    // And it is the EMPTY DENOMINATOR that fails it — not an unrelated
-    // complaint. The rung half of this document is healthy.
     expect(report.counts.rungRows).toBe(1);
     expect(report.counts.rungsProbed).toBe(1);
     expect(report.counts.rungGaps).toBe(0);
   });
 
+  /**
+   * Three rows: a real probe, a declared `none` probe, and a probe that names a missing file.
+   * Only the first row is a pass. The other two are gaps with a named reason, and the run verdict is `gaps`.
+   * Nothing drifts, so the gaps are the only difference from a pass.
+   * `gaps` has its own exit code, 3, because a runner reads only the exit code. `failOnGap` changes the code to 1.
+   */
   it('MeasuredPremises_UnprobedProofRung_ReportsGapNotPass', () => {
-    // Three rows, one per rung outcome: a real probe, a declared-`none` probe,
-    // and a probe naming a file that is not there. Only the first is a pass.
     const document = [
       '# Obligation map',
       '',
@@ -298,8 +248,6 @@ describe('check-measured-premises (task 054, DR-27)', () => {
       isKnownDerivation: (name: string) => name === 'demo',
     }) as Report;
 
-    // The denominator is fine and nothing drifted, so the ONLY thing standing
-    // between this run and a clean pass is the unprobed rungs.
     expect(report.counts.claimsResolved).toBe(1);
     expect(report.failures).toEqual([]);
 
@@ -311,21 +259,15 @@ describe('check-measured-premises (task 054, DR-27)', () => {
     expect(unprobed?.verdict).not.toBe('probed');
     expect(unprobed?.reason).toBe('declared-unprobed');
 
-    // A probe pointing at a file that does not exist asserts evidence nobody
-    // can inspect. That degrades to a gap with a named cause — it must not be
-    // credited as a probe.
     const dangling = byProperty.get('Dangling property');
     expect(dangling?.verdict).toBe('gap');
     expect(dangling?.reason).toMatch(/probe-target-missing/);
 
-    // The run-level verdict is `gaps` — explicitly NOT `pass`.
     expect(report.counts.rungGaps).toBe(2);
     expect(report.counts.rungsProbed).toBe(1);
     expect(report.verdict).toBe('gaps');
     expect(report.verdict).not.toBe('pass');
 
-    // `--fail-on-gap` is the ratchet handle: the same input becomes a failure
-    // once the program decides unprobed rungs may no longer accumulate.
     const strict = checkMeasuredPremises({
       documents: [{ path: 'synthetic.md', text: document }],
       derive: (name: string) => (name === 'demo' ? 7 : undefined),
@@ -334,19 +276,16 @@ describe('check-measured-premises (task 054, DR-27)', () => {
     }) as Report;
     expect(strict.exitCode).toBe(1);
 
-    // DR-7 (task 078) — and the verdict survives the PROCESS boundary. The
-    // report said `gaps` all along; `exitCode` said 0, which is the only thing
-    // a runner reads, so `npm run validate` recorded PASS for it. Each verdict
-    // now owns a code: pass 0, fail 1, gaps 3.
     expect(report.exitCode).toBe(3);
     expect(report.exitCode).not.toBe(0);
   });
 
+  /**
+   * A dated toleration changes only the exit code. `verdict` stays `gaps`, so no caller can make the report claim a pass.
+   * The last tolerated day is inclusive, and a run with no toleration exits with the gaps code.
+   * A toleration never hides a real failure.
+   */
   it('MeasuredPremises_GapToleration_MovesConsequenceNeverTheVerdict', () => {
-    // The CI lane tolerates gaps while the rungs are unprobed. The toleration
-    // is DATED and enforced by the gate, and — the property that matters — it
-    // can only change the exit code. `verdict` stays `gaps` in every arm, so no
-    // caller can make this report claim a pass.
     const document = [
       '| Property | Scope | Consequence if false | Primary proof (rung) | Proof artifact | Failure signal | Rollback |',
       '|---|---|---|---|---|---|---|',
@@ -371,13 +310,10 @@ describe('check-measured-premises (task 054, DR-27)', () => {
     expect(expired.verdict).toBe('gaps');
     expect(expired.exitCode).toBe(1);
 
-    // The last tolerated day is INCLUSIVE.
     expect(run({ tolerateGapsUntil: '2026-08-09', today: '2026-08-09' }).exitCode).toBe(0);
 
-    // Untolerated is the default, and it is the distinct gaps code.
     expect(run({ today: '2026-08-09' }).exitCode).toBe(3);
 
-    // A toleration NEVER rescues a real failure — only `gaps`.
     const drifted = checkMeasuredPremises({
       documents: [{ path: 'synthetic.md', text: document }],
       derive: (name: string) => (name === 'demo' ? 999 : undefined),
@@ -389,11 +325,11 @@ describe('check-measured-premises (task 054, DR-27)', () => {
     expect(drifted.exitCode).toBe(1);
   });
 
+  /**
+   * Each CI call of the gate must carry a `--tolerate-gaps-until` date that is after today.
+   * Thus the test fails when the date expires, and when a call omits the flag.
+   */
   it('MeasuredPremises_CiLaneToleration_IsDatedAndStillLive', () => {
-    // Binds the workflow's declared date to the gate that enforces it. Without
-    // this, the lane's `--tolerate-gaps-until` could silently expire (turning
-    // the lane red) or be dropped entirely (turning gaps back into a code
-    // nobody handles) with nothing to say so.
     const ci = readFileSync(path.join(REPO_ROOT, '.github', 'workflows', 'ci.yml'), 'utf8');
     const invocations = ci
       .split('\n')
@@ -411,11 +347,12 @@ describe('check-measured-premises (task 054, DR-27)', () => {
     }
   });
 
+  /**
+   * Runs the real CLI on the default documents, because the exit code of the process is the subject.
+   * The exit code must match the verdict that the current tree gives.
+   * The distinctness check reads the production constants, so a change that makes two codes equal fails it.
+   */
   it('MeasuredPremises_GapsVerdict_ExitsDistinctFromPass', async () => {
-    // Asserted against the REAL CLI on the REAL DR-27 scope, because the defect
-    // was in what the process returned, not in what the pure function computed.
-    // Whichever verdict today's tree produces, the code must identify it — and
-    // `gaps` must never share a code with `pass`.
     const { status, report } = await runCli([]);
     expect(['pass', 'gaps', 'fail']).toContain(report.verdict);
     expect(status).toBe(report.exitCode);
@@ -427,16 +364,11 @@ describe('check-measured-premises (task 054, DR-27)', () => {
     } else {
       expect(status).toBe(EXIT_FAIL);
     }
-    // Distinctness read off the PRODUCTION constants, not off local literals —
-    // `new Set([0, 1, 3])` is a statement about the test file and survives any
-    // renumbering of the codes it claims to be checking.
     expect(new Set([EXIT_PASS, EXIT_FAIL, EXIT_GAPS]).size).toBe(3);
   }, 300_000);
 
+  /** An annotation with a name that no derivation implements fails. If it passed, a document can assert any number. */
   it('MeasuredPremises_UnregisteredDerivationName_FailsRatherThanSkips', () => {
-    // An annotation naming a derivation nobody implements would otherwise be a
-    // free pass: invent a name, assert any number. The document may not assert
-    // a number nothing produces.
     const document = [
       '| Property | Scope | Consequence if false | Primary proof (rung) | Proof artifact | Failure signal | Rollback |',
       '|---|---|---|---|---|---|---|',
@@ -457,9 +389,8 @@ describe('check-measured-premises (task 054, DR-27)', () => {
     expect(report.failures.some((f) => f.includes('no-such-derivation'))).toBe(true);
   });
 
+  /** A row with no `rung-probe` annotation is not a gap. It makes the map partial, and the run fails. */
   it('MeasuredPremises_ObligationRowWithoutProbeAnnotation_FailsAsPartialMap', () => {
-    // An unannotated row is not a gap — it is invisible. The map is then
-    // partial, which is the rung-side analogue of the empty-denominator rule.
     const document = [
       '| Property | Scope | Consequence if false | Primary proof (rung) | Proof artifact | Failure signal | Rollback |',
       '|---|---|---|---|---|---|---|',
@@ -480,10 +411,8 @@ describe('check-measured-premises (task 054, DR-27)', () => {
     expect(report.failures.some((f) => f.includes('no `rung-probe` annotation'))).toBe(true);
   });
 
+  /** The default scope is one spec and the invariants catalog. A wider scope needs its own ADR, so the test pins the scope. */
   it('MeasuredPremises_LiveScope_IsTheTwoDr27DocumentsOnly', () => {
-    // DR-27 scopes the gate to one spec plus the invariants catalog.
-    // Generalizing to all of `docs/` is explicitly out of scope and needs its
-    // own ADR, so the default scope is pinned rather than left to drift.
     const source = readFileSync(SCRIPT, 'utf8');
     const scope = source
       .slice(source.indexOf('export const DEFAULT_DOCUMENTS'))
@@ -493,11 +422,8 @@ describe('check-measured-premises (task 054, DR-27)', () => {
     expect(scope).not.toContain('docs/**');
   });
 
+  /** A `program.command(...)` in a JSDoc block or a line comment is not a call site, and a non-literal argument does not count. */
   it('MeasuredPremises_CommandLiteralScan_IgnoresCommentedCallSites', () => {
-    // The measured claim is 11 hand-written literals in `cli.ts`, and a naive
-    // `/\.command\(/` counts a JSDoc block that writes `program.command(...)`
-    // in prose. A derivation tuned until it reproduces the document's number is
-    // the defect DR-27 removes; this pins the comment-blind behaviour instead.
     const source = [
       '/** See `program.command("ghost")` below. */',
       "// program.command('another-ghost')",
@@ -509,15 +435,11 @@ describe('check-measured-premises (task 054, DR-27)', () => {
     expect(countCommandLiterals(source)).toBe(2);
   });
 
+  /**
+   * The JSDoc mention and the definition of `withCappedShape` do not count.
+   * The two declaration sites sit in a real object literal, because the derivation parses the source.
+   */
   it('MeasuredPremises_WithCappedShapeScan_CountsDeclarationsNotDefinition', () => {
-    // `registry.ts` carries the function's own declaration and a JSDoc mention
-    // alongside the real declaration sites. Counting bare `withCappedShape(`
-    // would report the definition as a declaration.
-    //
-    // The two declaration sites are wrapped in a real object literal (task 061):
-    // the derivation now PARSES, and bare `outputSchema: …,` fragments are not a
-    // program. The discriminating content is unchanged — the JSDoc mention and
-    // the function's own definition must still not count.
     const source = [
       '/** See {@link withCappedShape}. */',
       'export function withCappedShape(outputSchema: z.ZodType): z.ZodType { return outputSchema; }',
@@ -529,16 +451,6 @@ describe('check-measured-premises (task 054, DR-27)', () => {
     expect(countWithCappedShapeDeclarations(source)).toBe(2);
   });
 
-  // ── task 061: the scanner parses specifiers, it does not match text ────────
-
-  /**
-   * The predicate `sdkImportFiles` used before task 061, restated here verbatim
-   * so the SIZE of the defect is pinned and not merely its absence.
-   *
-   * Restating it in the test rather than keeping dead code in the gate is
-   * deliberate: the superseded behaviour is a claim about history, and a claim
-   * about history belongs with the assertion that history was wrong.
-   */
   function rawTextScannerCountedFile(source: string): number {
     return source.includes('@modelcontextprotocol/sdk') ? 1 : 0;
   }
@@ -562,26 +474,23 @@ describe('check-measured-premises (task 054, DR-27)', () => {
     'export const marker = z.string();',
   ].join('\n');
 
+  /**
+   * The two sources differ by one line: one names the package only in a comment, and the other imports it.
+   * The parser-based count tells them apart. The text-match predicate answers 1 for both.
+   */
   it('SdkImportScan_PackageNamedOnlyInComment_CountsZeroWhereRawTextCountedOne', () => {
-    // THE KILL FIXTURE. Two files that differ by exactly one line: one names the
-    // package only in prose, the other actually imports it. A scanner that
-    // measures imports must separate them; a scanner that measures text cannot.
     expect(countSdkImportSpecifiers(COMMENT_ONLY_MENTION, 'comment-only.ts')).toBe(0);
     expect(countSdkImportSpecifiers(REAL_IMPORT, 'real-import.ts')).toBe(1);
 
-    // And the defect being closed, stated as a number rather than as a story:
-    // the superseded predicate answered 1 for BOTH, so it could not tell an
-    // import site from a sentence about one.
     expect(rawTextScannerCountedFile(COMMENT_ONLY_MENTION)).toBe(1);
     expect(rawTextScannerCountedFile(REAL_IMPORT)).toBe(1);
   });
 
+  /**
+   * A module can hold SDK import statements inside a template literal or a string, as fixture text.
+   * Those statements are not imports of the module, so the count is 0. The text-match predicate counts the file.
+   */
   it('SdkImportScan_SpecifierInsideStringOrTemplateLiteral_IsNotAnImportSite', () => {
-    // Not hypothetical: `architecture/sdk-generation-seam.test.ts` holds ten
-    // SDK import STATEMENTS inside template literals — they are the lint's own
-    // fixtures, the input it lints, not imports the module makes. The raw-text
-    // scanner counted that file; every regex over specifiers that ignores
-    // literal context counts its ten sites.
     const fixtureBearingModule = [
       "import { describe } from 'vitest';",
       'const MIXED_FIXTURE = `',
@@ -596,12 +505,12 @@ describe('check-measured-premises (task 054, DR-27)', () => {
     expect(rawTextScannerCountedFile(fixtureBearingModule)).toBe(1);
   });
 
+  /**
+   * The parser must not miss an import form, because an under-count reads as migration progress.
+   * The source holds each form: static, type-only, side-effect, re-export, dynamic `import()` and `require`.
+   * The package match is exact or a subpath, so a package that only shares the prefix does not count.
+   */
   it('SdkImportScan_EveryImportForm_IsResolvedNotOnlyStaticFrom', () => {
-    // Totality in the other direction. Parsing removes false positives; it must
-    // not buy that by introducing false negatives, so every form the tree can
-    // spell an import in is asserted present. A parse that silently missed
-    // `export … from` or a dynamic `import()` would UNDER-report, which is the
-    // worse failure: it reads as migration progress.
     const everyForm = [
       "import a from '@modelcontextprotocol/sdk/a.js';",
       "import type { B } from '@modelcontextprotocol/sdk/b.js';",
@@ -615,8 +524,6 @@ describe('check-measured-premises (task 054, DR-27)', () => {
     ].join('\n');
     expect(countSdkImportSpecifiers(everyForm, 'every-form.ts')).toBe(8);
 
-    // Package identity is exact-or-subpath, so a differently-named package that
-    // merely shares the prefix is not the v1 SDK.
     const neighbouringPackage = [
       "import x from '@modelcontextprotocol/sdk-next';",
       "import y from '@modelcontextprotocol/core';",
@@ -629,10 +536,11 @@ describe('check-measured-premises (task 054, DR-27)', () => {
     ]);
   });
 
+  /**
+   * A scan root with no files gives zero import sites, which reads as a complete migration. Thus the derivation throws.
+   * The checker reports a derivation that cannot run as a failure, not as a missing number.
+   */
   it('SdkImportScan_ScanRootResolvingNoFiles_ThrowsRatherThanReportingZero', () => {
-    // Non-empty denominator, DR-26's own rule applied to DR-27's instrument. A
-    // relocated `src/` resolves zero files, reports zero import sites, and reads
-    // as a COMPLETED migration. The derivation must refuse to answer instead.
     const derivation = (DERIVATIONS as Record<string, { fn?: (root: string) => number }>)[
       'sdk-import-sites'
     ];
@@ -641,8 +549,6 @@ describe('check-measured-premises (task 054, DR-27)', () => {
       /scan root .* does not exist|resolved 0/,
     );
 
-    // And the empty answer is not reachable by another door: the checker treats
-    // a derivation that cannot run as a FAILURE, never as a missing number.
     const report = checkMeasuredPremises({
       documents: [
         {
@@ -666,12 +572,8 @@ describe('check-measured-premises (task 054, DR-27)', () => {
     expect(report.verdict).toBe('fail');
   });
 
+  /** A call site inside a string or a nested template literal does not count. */
   it('CommandLiteralScan_CallSiteInsideStringLiteral_IsNotCounted', () => {
-    // The sweep of the OTHER `kind: 'scan'` derivations required by task 061.
-    // `cli-handwritten-literals` already blanked COMMENTS, but blanking
-    // deliberately preserved string and template literals — so a call site
-    // written inside a string still counted, and a nested template desynced the
-    // hand-rolled lexer outright. Both are the same text-versus-parse class.
     const callSiteInsideAString = [
       'const doc = ".command(\'ghost\')";',
       "program.command('real');",
@@ -688,8 +590,6 @@ describe('check-measured-premises (task 054, DR-27)', () => {
   });
 
   it('WithCappedShapeScan_DeclarationInsideStringLiteral_IsNotCounted', () => {
-    // Same sweep, second derivation. `withcappedshape-count` shared the
-    // comment-blanking predecessor and therefore shared its blind spot.
     const source = [
       'const snippet = "outputSchema: withCappedShape(GhostSchema)";',
       'const template = `outputSchema: withCappedShape(OtherGhostSchema)`;',
@@ -699,11 +599,11 @@ describe('check-measured-premises (task 054, DR-27)', () => {
     expect(countWithCappedShapeDeclarations(source, 'registry-like.ts')).toBe(1);
   });
 
+  /**
+   * `ts.createSourceFile` does not throw on broken input. It returns a partial tree, and a count on that tree is too low.
+   * Thus the scan throws when the module does not parse cleanly.
+   */
   it('SourceScan_ModuleThatDoesNotParse_ThrowsRatherThanUnderCounting', () => {
-    // `ts.createSourceFile` never throws: handed broken input it returns a
-    // partial tree with nodes missing, so a derivation over a recovered parse
-    // reports a number BELOW the truth and still reads green. An under-counting
-    // premise is strictly worse than an over-counting one.
     expect(() =>
       countSdkImportSpecifiers("import { a from '@modelcontextprotocol/sdk';", 'broken.ts'),
     ).toThrow(/did not parse cleanly/);
@@ -740,10 +640,11 @@ describe('check-measured-premises (task 054, DR-27)', () => {
     expect(map.rows[0]!.probes).toEqual(['none']);
   });
 
+  /**
+   * Each measured name in the live documents must be a key of `DERIVATIONS`. This check finds a rename on the code side.
+   * When the spec file is absent, the test asserts only that it found no names.
+   */
   it('MeasuredPremises_EveryAnnotatedNameInScope_ResolvesToADeclaredDerivation', () => {
-    // Totality across the live documents: every name the spec uses must be
-    // bound. This is the one assertion that would catch a rename on the code
-    // side after the annotation was already written.
     const names = new Set<string>();
     for (const relative of [
       'docs/specs/2026-08-06-internal-mechanics-overhaul.md',

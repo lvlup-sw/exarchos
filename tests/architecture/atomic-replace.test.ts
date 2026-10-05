@@ -1,13 +1,14 @@
 // Every rename in src/ that replaces a file goes through src/utils/atomic-write.ts.
 // That module queues the renames to one path, so two of our own writers cannot
-// collide on Windows (#2028). This guard parses every source file under src/
-// and finds each use of `rename` or `renameSync`: a property or element access,
-// an import or export specifier, or a destructured name. A use is allowed only
-// in the primitive or in a named exemption, which pins its count. A seam
-// binding such as `rename: (from, to) => fs.rename(from, to)` is counted but
-// allowed: it only hands the capability on, and each call through the seam is
-// itself a use. The guard asserts how many files it parsed and proves its
-// matcher on seeded violations and a clean twin.
+// collide on Windows. This guard parses each source file under src/ and finds
+// each use of `rename` or `renameSync`. A use is a property or element access,
+// an import or export specifier, or a destructured name. Only the primitive and
+// a named exemption can hold a use, and each exemption pins its count.
+//
+// The guard counts a seam binding such as `rename: (from, to) => fs.rename(from, to)`
+// and allows it. The binding only passes the capability on, and each call
+// through the seam is itself a use. The guard asserts the number of files that
+// it parsed, and it proves its matcher on seeded violations and a clean twin.
 
 import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -16,7 +17,7 @@ import ts from 'typescript';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..');
 
-/** The one module that may rename a file over its target. */
+/** The one module that can rename a file over its target. */
 const PRIMITIVE = 'src/utils/atomic-write.ts';
 
 /** The member and export names of `node:fs` that rename a path. */
@@ -25,14 +26,14 @@ const RENAME_NAMES: ReadonlySet<string> = new Set(['rename', 'renameSync']);
 /** Source files the guard parses. */
 const SOURCE_FILE = /\.[cm]?[jt]s$/;
 
-/** Lower bound on the files under src/. A wrong root would parse far fewer. */
+/** Lower bound on the files under src/. A wrong root parses far fewer. */
 const MIN_SOURCE_FILES = 700;
 
-/** Lower bound on seam bindings in src/. Zero would mean the binding matcher is dead. */
+/** Lower bound on seam bindings in src/. A count of zero means that the binding matcher is dead. */
 const MIN_SEAM_BINDINGS = 9;
 
 interface Exemption {
-  /** Why these renames are not a file replace that the primitive should own. */
+  /** Why these renames are not a file replace that the primitive must own. */
   readonly reason: string;
   /** The exact number of uses granted. A change in either direction fails. */
   readonly uses: number;
@@ -167,7 +168,7 @@ function scanSourceTree(): Map<string, RenameScan> {
 describe('atomic replace owns every rename in src/', () => {
   const scans = scanSourceTree();
 
-  /** A guard that parsed nothing, or lost its binding matcher, would pass. */
+  /** A guard that parses nothing, or that has a dead binding matcher, passes the other tests. */
   it('AtomicReplaceGuard_ParsesTheSourceTreeAndFindsItsKnownSites', () => {
     const bindings = [...scans.values()].reduce((sum, scan) => sum + scan.bindings, 0);
 

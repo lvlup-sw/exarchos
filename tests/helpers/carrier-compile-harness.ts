@@ -1,15 +1,13 @@
 /**
- * Shared compiler harness for the effect-carrier compile gates.
+ * The shared compiler harness for the effect-carrier compile gates.
  *
- * Two acceptance suites spawn a real `tsc` against a materialized copy of the
- * carrier: one proves that omitting an emission declaration fails the build,
- * the other relaxes each shipped guard and proves the failure goes away. They
- * had their own copies of the binary path, the flag list, the process wrapper
- * and the materialization logic.
+ * Two acceptance suites run a real `tsc` on a materialized copy of the carrier. One proves
+ * that a missing emission declaration fails the build. The other relaxes each shipped guard
+ * and proves that the failure goes away.
  *
- * Two copies of a flag list drift, and a drifted flag set means the two suites
- * measure different compilers — so a guard could hold under one and not the
- * other with nothing to say so. One copy, imported twice.
+ * Both suites import one binary path, one flag list, one process wrapper and one
+ * materialization function. Two flag lists can drift, and then the suites measure different
+ * compilers with no signal.
  */
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
@@ -24,12 +22,10 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 export const CARRIER_PATH = path.join(here, '../../src/dispatch/core/effect-carrier.ts');
 
 /**
- * Resolved rather than path-joined.
- *
- * `node_modules` is not necessarily under the package root: a git worktree
- * resolves its dependencies from the parent checkout by walking up, so a
- * hardcoded `<root>/node_modules/...` is absent exactly when a suite runs in
- * one. `require.resolve` follows the same walk Node does.
+ * The path comes from `require.resolve`, not from a join with the package root. A git
+ * worktree can resolve its dependencies from the parent checkout, so
+ * `<root>/node_modules/...` can be absent there. `require.resolve` does the same upward
+ * walk as Node.
  */
 export const TSC_BIN = createRequire(import.meta.url).resolve('typescript/bin/tsc');
 
@@ -47,18 +43,15 @@ export const TSC_FLAGS: readonly string[] = [
 ];
 
 /**
- * Where the carrier's compile-time proofs begin.
+ * The start of the compile-time proofs of the carrier. A relaxed copy ends here.
  *
- * The EARLIER of the two proof blocks, deliberately, and one constant rather
- * than one per suite. The module carries two blocks — the original capability
- * proofs and the emission-declaration claims appended after them — and a
- * relaxed copy that keeps either one still asserts a property the relaxation
- * removes. The copy then fails for the right reason, which reads exactly like
- * the guard holding.
+ * The marker is at the earlier of the two proof blocks: the capability proofs, then the
+ * emission-declaration claims. A relaxed copy that keeps a block still asserts a property
+ * that the relaxation removes. Then the copy fails, and that failure looks like a guard
+ * that holds.
  *
- * Truncating more than a given relaxation strictly needs is safe: the fixtures
- * fail on the carrier's TYPES, not on its proofs, so removing proofs never
- * makes a fixture compile on its own.
+ * The cut can remove more than a relaxation needs. The fixtures fail on the types of the
+ * carrier, not on its proofs, so the cut never makes a fixture compile.
  */
 export const PROOF_BLOCK_MARKER = 'type Expect<T extends true> = T;';
 
@@ -80,10 +73,8 @@ export async function compile(dir: string, files: readonly string[]): Promise<Co
 }
 
 /**
- * One relaxation: the text it replaces and what it becomes.
- *
- * Applied only after the target is confirmed to occur EXACTLY once — see
- * {@link materializeCarrier}.
+ * One relaxation: the text to find and its replacement. {@link materializeCarrier} applies
+ * it only when `find` occurs exactly once.
  */
 export interface Relaxation {
   readonly find: string;
@@ -91,18 +82,17 @@ export interface Relaxation {
 }
 
 /**
- * Write a standalone copy of the carrier into `dir`, with `relaxations` applied.
+ * Writes a standalone copy of the carrier into `dir`, with `relaxations` applied.
  *
- * Tractable because the carrier's imports are rewritten onto local stubs.
- * The event-name stub widens `EventType` to `string`, which is sound for
- * these fixtures: they are about whether a field may be omitted or a brand
- * forged, never about whether an event name is registered. The replay and
- * contract stubs are similarly wide — the probes do not exercise those
- * types as subjects.
+ * The imports of the copy point at local stubs. The event-name stub widens `EventType` to
+ * `string`. That is sound, because the fixtures test an omitted field or a forged brand,
+ * not a registered event name. The replay and contract stubs are also wide.
  *
- * Copying is also what keeps every probe off the live tree. A probe that edited
- * `src/` could not restore cleanly across a thrown assertion, a timeout or a
- * worker crash, and the residue would redden unrelated gates.
+ * The copy keeps each probe off the live tree. A probe that edits `src/` cannot restore it
+ * after a thrown assertion, a timeout or a worker crash.
+ *
+ * Each `find` must occur exactly once. `String.replace` edits the first match, so a `find`
+ * with two matches relaxes the wrong site, and the probe reports that the guard held.
  */
 export function materializeCarrier(dir: string, relaxations: readonly Relaxation[]): void {
   fs.writeFileSync(
@@ -175,11 +165,6 @@ export function materializeCarrier(dir: string, relaxations: readonly Relaxation
   }
 
   for (const { find, replace } of relaxations) {
-    // Presence is not enough — the target must be UNIQUE. `String.replace` with
-    // a string edits the first match, so a `find` that occurs twice silently
-    // relaxes the wrong site and the probe then reports that the guard held.
-    // This harness caught exactly that: the capability check is spelled
-    // identically in `recordEmissions` and in `runEffect`.
     const occurrences = source.split(find).length - 1;
     if (occurrences === 0) {
       throw new Error(

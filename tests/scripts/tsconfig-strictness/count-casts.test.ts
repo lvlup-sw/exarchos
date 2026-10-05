@@ -1,14 +1,12 @@
-// DR-24 (Task 058): the cast census must measure type ASSERTIONS, not text.
+// The cast census must count type assertions, not text.
 //
-// The census feeds a closed-window ratchet (`[BASELINE, BASELINE + 5]`, see
-// `src/install/tsconfig-strictness.test.ts`), so anything it miscounts is spent out of a
-// five-site budget. These tests pin both directions of correctness:
-//   - false POSITIVES are gone (comment prose, namespace imports, literal text);
-//   - false NEGATIVES were not introduced (every real assertion form still counts).
+// `tests/unit/tsconfig-strictness.test.ts` holds each census count inside a baseline
+// window with a small budget, so each miscount spends that budget. These tests hold two
+// properties:
+//   - The census does not count comment prose, namespace imports or literal text.
+//   - The census counts each real assertion form.
 //
-// The second half is the one that matters. An under-counting census is strictly
-// worse than the over-counting one it replaces: it reports green while real debt
-// lands. Each "still counted" case below exists to make that failure loud.
+// An under-count is worse than an over-count, because it passes while real casts land.
 
 import { describe, it, expect } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -18,10 +16,8 @@ import { countCastsInSource, countCasts } from '../../../tools/audit/tsconfig-st
 import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 /**
- * The census this task replaced, preserved verbatim. It is the "before" number
- * in every kill fixture — asserting it keeps the regression legible: if someone
- * reverts to text matching, the fixtures below say exactly what breaks and by
- * how much.
+ * The census by text match, kept for comparison. The fixtures assert its count, so a
+ * return to text matching shows what breaks and by how much.
  */
 const LEGACY_AS_CAST = /\bas\s+(?:const\b|unknown\b|any\b|[A-Za-z_$][\w$]*|\{|\[|\()/g;
 function legacyCount(src: string): number {
@@ -29,9 +25,7 @@ function legacyCount(src: string): number {
 }
 
 describe('DR-24: cast census counts assertions, not text', () => {
-  // ---------------------------------------------------------------------
-  // The kill fixture named in the task's acceptance criteria.
-  // ---------------------------------------------------------------------
+  /** One of the three lines asserts a type. The text-match census counts all three. */
   it('CountCastsInSource_ProseAndNamespaceImportAlongsideRealCast_CountsOnlyTheAssertion', () => {
     const src = [
       '// treat this as a hint',
@@ -40,11 +34,8 @@ describe('DR-24: cast census counts assertions, not text', () => {
       '',
     ].join('\n');
 
-    // Exactly one of these three lines asserts a type.
     expect(countCastsInSource(src).asCast).toBe(1);
 
-    // …and the census this replaced counted all three. Pinning the old number
-    // documents the size of the defect, not just its absence.
     expect(legacyCount(src)).toBe(3);
   });
 
@@ -91,9 +82,6 @@ describe('DR-24: cast census counts assertions, not text', () => {
     expect(legacyCount(src)).toBe(3);
   });
 
-  // ---------------------------------------------------------------------
-  // False-negative guards: every real assertion form must still be counted.
-  // ---------------------------------------------------------------------
   it('CountCastsInSource_EveryAssertionForm_StillCounted', () => {
     const cases: Array<[string, string]> = [
       ['as const', 'const a = [1, 2] as const;'],
@@ -117,10 +105,11 @@ describe('DR-24: cast census counts assertions, not text', () => {
     }
   });
 
+  /**
+   * The text-match pattern has no branch for a quote or a digit, so it misses these real
+   * assertions.
+   */
   it('CountCastsInSource_LiteralTypeAssertions_RecoversLegacyFalseNegatives', () => {
-    // The legacy alternation had no branch for a quote or a digit, so these
-    // real assertions were never counted at all. The corrected census finds
-    // them — the correction moves the number DOWN on balance, but not here.
     const src = ["const a = x as 'created' | 'updated';", 'const b = y as 5;', ''].join('\n');
 
     expect(countCastsInSource(src).asCast).toBe(2);
@@ -131,16 +120,15 @@ describe('DR-24: cast census counts assertions, not text', () => {
     expect(countCastsInSource('const a = (x as A) as B;').asCast).toBe(2);
   });
 
+  /** `satisfies` proves the type and does not silence the checker. */
   it('CountCastsInSource_SatisfiesOperator_NotCountedAsAssertion', () => {
-    // `satisfies` is checked, not asserted — it proves the type rather than
-    // silencing the checker, so it is not an escape hatch.
     expect(countCastsInSource('const a = { b: 1 } satisfies Foo;').asCast).toBe(0);
   });
 
-  // ---------------------------------------------------------------------
-  // Adversarial lexical input. A hand-rolled comment/string stripper fumbles
-  // exactly these; the parser is used precisely so it cannot.
-  // ---------------------------------------------------------------------
+  /**
+   * A hand-written comment or string stripper misreads these inputs. Each case holds one
+   * real assertion, on its last line.
+   */
   it('CountCastsInSource_AdversarialLexicalInput_DoesNotDesyncCensus', () => {
     const cases: Array<[string, string]> = [
       ['apostrophe in comment', "// don't read this as a cast\nconst y = x as Bar;"],
@@ -154,14 +142,10 @@ describe('DR-24: cast census counts assertions, not text', () => {
     ];
 
     for (const [label, src] of cases) {
-      // Exactly one genuine assertion in each — the trailing `x as Bar`/`as Baz`.
       expect(countCastsInSource(src).asCast, label).toBe(1);
     }
   });
 
-  // ---------------------------------------------------------------------
-  // The `as any` axis (zero-growth ceiling).
-  // ---------------------------------------------------------------------
   it('CountCastsInSource_AnyAnywhereInAssertedType_CountedOnAsAnyAxis', () => {
     expect(countCastsInSource('const a = x as any;').asAny).toBe(1);
     expect(countCastsInSource('const a = x as any[];').asAny).toBe(1);
@@ -170,39 +154,35 @@ describe('DR-24: cast census counts assertions, not text', () => {
   });
 
   it('CountCastsInSource_AsAnyInsideComment_NotCountedOnAsAnyAxis', () => {
-    // All three `as any` matches in the scanned trees were comment prose like
-    // this one; the corrected census reports zero real `as any`.
     const src = '// `(issue as any).received` is therefore JS `undefined`.\nconst n = 1;\n';
     expect(countCastsInSource(src).asAny).toBe(0);
   });
 
-  // ---------------------------------------------------------------------
-  // Non-null axis — same false-positive class, same fix.
-  // ---------------------------------------------------------------------
   it('CountCastsInSource_NonNullAssertion_CountedOnlyInRealCode', () => {
     expect(countCastsInSource('const a = x!.y;').nonNull).toBe(1);
     expect(countCastsInSource('// wow! not an assertion\nconst n = 1;').nonNull).toBe(0);
     expect(countCastsInSource("const s = 'boom! not an assertion';").nonNull).toBe(0);
   });
 
-  // ---------------------------------------------------------------------
-  // Under-count guards: the census must fail loudly, never quietly report low.
-  // ---------------------------------------------------------------------
+  /**
+   * `createSourceFile` does not throw on broken input. It returns a partial tree, and a
+   * partial tree gives a low count.
+   */
   it('CountCastsInSource_UnparseableSource_ThrowsRatherThanUnderCounting', () => {
-    // `createSourceFile` never throws — it recovers and silently drops nodes.
-    // A recovered parse must not be reported as a clean low count.
     expect(() => countCastsInSource('function f() { const a = x as Foo;', 'broken.ts')).toThrow(
       /did not parse cleanly/,
     );
   });
 
+  /**
+   * A root that resolves no files adds 0 to the count, which looks like a paydown. The
+   * test covers a missing root and a root that holds only skipped files.
+   */
   it('CountCasts_ScanRootResolvingNoFiles_ThrowsRatherThanPassingClean', () => {
     const dir = mkdtempSync(join(tmpdir(), 'imo-058-census-'));
     try {
-      // A root that resolves nothing would contribute 0 and read as a paydown.
       expect(() => countCasts([{ dir: join(dir, 'does-not-exist') }])).toThrow(/resolved 0 TypeScript files/);
 
-      // Present but holding only skipped files — same hazard, same rejection.
       mkdirSync(join(dir, 'only-tests'));
       writeFileSync(join(dir, 'only-tests', 'a.test.ts'), 'const a = x as Foo;\n');
       expect(() => countCasts([{ dir: join(dir, 'only-tests') }])).toThrow(/resolved 0 TypeScript files/);
@@ -215,13 +195,13 @@ describe('DR-24: cast census counts assertions, not text', () => {
     expect(() => countCasts([])).toThrow(/no scan roots supplied/);
   });
 
+  /** The `.test.ts` file and the `__tests__` directory must add nothing to the counts. */
   it('CountCasts_PopulatedRoot_AggregatesAcrossNestedFiles', () => {
     const dir = mkdtempSync(join(tmpdir(), 'imo-058-census-'));
     try {
       mkdirSync(join(dir, 'nested'), { recursive: true });
       writeFileSync(join(dir, 'a.ts'), "// as a note\nimport * as fs from 'node:fs';\nconst a = x as Foo;\n");
       writeFileSync(join(dir, 'nested', 'b.ts'), 'const b = y as any;\nconst c = z!.w;\n');
-      // Skipped surfaces must not contribute.
       writeFileSync(join(dir, 'nested', 'b.test.ts'), 'const d = q as Bar;\n');
       mkdirSync(join(dir, 'nested', '__tests__'));
       writeFileSync(join(dir, 'nested', '__tests__', 'c.ts'), 'const e = r as Baz;\n');

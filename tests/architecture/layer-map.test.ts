@@ -1,3 +1,15 @@
+// The authoritative layer mapping. `tools/audit/layer-map.json` gives each
+// directory under `src/` a target or a stated exception.
+//
+// The suite reads the scope from disk and never from the map. A map that omits
+// a directory is consistent with itself and still wrong.
+//
+// The suite asserts the relation of 11 targets to 9 published layers as a
+// relation and not as set equality. Two directories (`contract` and `dispatch`)
+// serve L5, and `install` is a declared non-layer peer and not a tenth layer.
+//
+// @oracle-sources: ../../tools/audit/layer-map.json, live-src-directory-listing
+
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import * as path from 'node:path';
@@ -5,24 +17,6 @@ import { fileURLToPath } from 'node:url';
 import { scanLayerEdges } from '../../src/architecture/layer-boundaries-seam.js';
 import { lexModule } from '../../tools/test-helpers/module-lexer.js';
 import { WIN32_SPAWN_HEADROOM } from '../../vitest.config.js';
-
-// ─── The authoritative layer mapping (DR-2, task 010) ────────────────────────
-//
-// Every later move task in Phase 1 reads `tools/audit/layer-map.json` to decide
-// where a directory goes. That makes this file the thing standing between "the
-// map is the plan of record" and "each move task invents a placement and the
-// map quietly describes a tree that no longer exists."
-//
-// Scope is read from DISK, never from the map. A map that simply omits a
-// directory would otherwise be self-consistent and wrong — the same evasion the
-// DR-30 oracle guards against, in a different costume.
-//
-// The 11 targets → 9 published layers relation is asserted as a RELATION, not as
-// set equality, because task 044 asserts that specific shape: L5 is served by
-// two directories (`contract` and `dispatch`), and `install` is a declared
-// non-layer peer rather than a tenth layer.
-//
-// @oracle-sources: ../../tools/audit/layer-map.json, live-src-directory-listing
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../');
@@ -52,12 +46,12 @@ interface LayerMap {
 
 const map = JSON.parse(readFileSync(MAP_PATH, 'utf8')) as LayerMap;
 
-/** The live tree — the only authority on what directories exist. */
+/** The directories of the live tree. The disk is the only authority on which directories exist. */
 const liveDirs = readdirSync(SRC)
   .filter((d) => statSync(path.join(SRC, d)).isDirectory())
   .sort();
 
-/** The 11 target buckets Phase 1 moves everything into. */
+/** The 11 targets that a directory can map to. */
 const TARGETS = [
   'storage',
   'events',
@@ -73,12 +67,11 @@ const TARGETS = [
 ] as const;
 
 describe('LayerMap_EveryCoreDirectory_MapsToALayerOrAStatedException', () => {
+  /**
+   * An empty listing makes each assertion below trivially true. The minimum of
+   * 20 is below the measured count, so ordinary consolidation does not fail it.
+   */
   it('the scan is not vacuous', () => {
-    // A listing that returns nothing would make every assertion below trivially
-    // true. The floor sits well under the measured 28 so ordinary consolidation
-    // does not trip it, and well over zero. It was 40 against the pre-fold tree
-    // of 44; task 019 consolidated to 28, which is the refactor working rather
-    // than a regression — the floor tracks the tree, it does not pin its size.
     expect(liveDirs.length).toBeGreaterThan(20);
   });
 
@@ -110,9 +103,8 @@ describe('LayerMap_EveryCoreDirectory_MapsToALayerOrAStatedException', () => {
     }
   });
 
+  /** An exception with no reason is the same as an unmapped directory. */
   it('every exception states a destination AND a reason', () => {
-    // An exception without a reason is just an unmapped directory with better
-    // manners. The plan's wording is "a stated exception with a reason".
     for (const dir of liveDirs) {
       const entry = map.directories[dir] as Entry;
       if (entry.disposition !== 'exception') continue;
@@ -128,10 +120,11 @@ describe('LayerMap_EveryCoreDirectory_MapsToALayerOrAStatedException', () => {
     }
   });
 
+  /**
+   * Documents quote these counts, so the test measures them from the live tree.
+   * A stale count gives the next reader a false premise.
+   */
   it('the recorded counts match the live tree', () => {
-    // The counts are quoted in the spec and in ARCHITECTURE.md, so they have to
-    // be measured rather than asserted — a stale count is a false premise the
-    // next reader inherits.
     const entries = liveDirs.map((d) => map.directories[d] as Entry);
     expect(map.counts.directories).toBe(liveDirs.length);
     expect(map.counts.mapped).toBe(entries.filter((e) => e.disposition === 'mapped').length);
@@ -170,18 +163,19 @@ describe('the 11 targets → 9 published layers relation (what task 044 asserts)
     expect(new Set(layerTargets).size).toBe(layerTargets.length);
   });
 
+  /**
+   * The longest-prefix ids are on `LAYER_ALLOWED_IMPORTS`. As first-level map
+   * keys, they break the assertion that each map key is a live directory under
+   * `src/`.
+   */
   it('nested adapter layer ids are not first-level map keys', () => {
-    // Longest-prefix ids live on LAYER_ALLOWED_IMPORTS. Promoting them to
-    // first-level map keys would break the "every map key is a live src/ dir"
-    // assertion this file already makes.
     expect(Object.keys(map.directories)).not.toContain('adapters/cli');
     expect(Object.keys(map.directories)).not.toContain('adapters/mcp');
     expect(map.directories.adapters).toBeDefined();
   });
 
+  /** The directory entries and the layer table must name the same targets. */
   it('every target a directory maps to is a target the layer table knows', () => {
-    // Closes the loop: the per-directory half and the layer half cannot drift
-    // into naming different things.
     const known = new Set([...Object.values(map.publishedLayers).flatMap((v) => v.targets), 'install']);
     for (const dir of liveDirs) {
       const entry = map.directories[dir] as Entry;
@@ -193,25 +187,17 @@ describe('the 11 targets → 9 published layers relation (what task 044 asserts)
   });
 });
 
-// ─── The event store must not import the oracle ─────────────────────────────
-//
-// `events` is declared on `LAYER_ALLOWED_IMPORTS` with a broad `contract`
-// allowance — store.ts already exercises it for `contract/shared/validation`
-// — so the general layering census cannot express "the event store never
-// reaches the oracle" without narrowing that whole row, which would also
-// break the edges the store genuinely needs. This is the narrower rule the
-// general census cannot state: no module under `events/` may resolve an
-// import into `contract/oracle/`. It reuses the same lexer-backed edge scan
-// the general census runs on, so a specifier hidden in a comment or a
-// template cannot manufacture or hide an edge here either.
-// Both tests below walk the real `src/` tree rather than a fixture, which puts
-// them outside this tier's "fast, in-memory" 5s budget on a loaded runner: the
-// first one to run pays the cold filesystem cache for the whole scan. They were
-// passing at roughly a fifth of the budget locally and timing out in CI, which
-// is the shape of a latent flake rather than a slow test. Given the explicit
-// headroom the tier grants its other filesystem-bound cases — scaled by the
-// same win32 factor the tier uses, because a flat literal would OVERRIDE that
-// scaling and hand Windows a SMALLER budget than it inherits by default.
+/**
+ * No module under `events/` resolves an import into `contract/oracle/`. The
+ * `events` row of `LAYER_ALLOWED_IMPORTS` allows `contract` broadly, so the
+ * general census cannot state this narrower rule. The tests use the same
+ * lexer-backed edge scan as the census. Thus a specifier in a comment or a
+ * template adds no edge and hides none.
+ *
+ * Both tests scan the real `src/` tree, and the first one pays for the cold
+ * filesystem cache. Their timeout uses the win32 factor of the tier, because a
+ * flat literal overrides that factor and gives Windows a smaller budget.
+ */
 describe('EventsLayer_NeverImportsOracle', () => {
   it('no module under events/ resolves an import into contract/oracle/', async () => {
     const edges = await scanLayerEdges(SRC, lexModule);
@@ -225,9 +211,8 @@ describe('EventsLayer_NeverImportsOracle', () => {
     ).toEqual([]);
   }, 20_000 * WIN32_SPAWN_HEADROOM);
 
+  /** An empty scan root, or a lexer that returns no import, makes the test above pass with no denominator. */
   it('the scan is not vacuous: events/ actually has resolvable edges to inspect', async () => {
-    // A scan root that resolved to nothing, or a lexer that never returned an
-    // import, would make the assertion above pass by having no denominator.
     const edges = await scanLayerEdges(SRC, lexModule);
     const eventsEdges = edges.filter((e) => e.module.startsWith('events/'));
     expect(eventsEdges.length).toBeGreaterThan(0);

@@ -8,12 +8,12 @@ import {
   clear,
 } from './process-tracker.js';
 
-// Long-lived child (1s interval keeps the event loop alive)
+/** Spawns a child that stays alive: a 1 s interval keeps its event loop busy. */
 function spawnLongLived(): ChildProcess {
   return spawn('node', ['-e', 'setInterval(()=>{}, 1000)']);
 }
 
-// Quick-exit child
+/** Spawns a child that exits immediately. */
 function spawnQuickExit(): ChildProcess {
   return spawn('node', ['-e', '']);
 }
@@ -29,13 +29,12 @@ function waitForExit(child: ChildProcess): Promise<void> {
 }
 
 describe('process-tracker', () => {
+  /** Kills each child that is still alive, so a test cannot leak a process into the next one. */
   afterEach(async () => {
-    // Force-kill any survivors so tests don't leak between cases.
     for (const child of listAlive()) {
       try {
         child.kill('SIGKILL');
       } catch {
-        // ignore
       }
     }
     clear();
@@ -67,7 +66,6 @@ describe('process-tracker', () => {
     register(alive);
     register(done);
 
-    // Wait for the quick-exit child to actually exit.
     await waitForExit(done);
 
     const runningOnly = listAlive();
@@ -86,7 +84,6 @@ describe('process-tracker', () => {
 
     await killAll({ timeoutMs: 1000 });
 
-    // Both children are dead.
     expect(child1.exitCode !== null || child1.signalCode !== null).toBe(true);
     expect(child2.exitCode !== null || child2.signalCode !== null).toBe(true);
   });

@@ -1,17 +1,13 @@
 /**
- * Cross-platform wrapper for tools/release/get-exarchos.ps1 tests.
+ * Cross-platform smoke tests for `tools/release/get-exarchos.ps1`.
  *
- * The authoritative, shell-native tests live in tools/release/get-exarchos.ps1.test.ps1
- * (Pester). This wrapper gives us a cross-platform smoke signal by spawning
- * `pwsh` — when available — and asserting that:
- *
- *   1. The script loads without parse errors (-LoadOnly).
+ * The authoritative tests are the Pester suite in `tools/release/get-exarchos.ps1.test.ps1`.
+ * These tests spawn `pwsh` and check three things:
+ *   1. The script loads without a parse error (`-LoadOnly`).
  *   2. `-DryRun` exits 0 and prints a plan.
- *   3. `Invoke-Pester` passes (if Pester is installed).
+ *   3. `Invoke-Pester` passes, when Pester is installed.
  *
- * On CI runners without `pwsh` (e.g. the default Linux agent image), each
- * test early-returns with a clear skip message and records the environment
- * limitation rather than silently passing.
+ * Without `pwsh` on PATH, each of these tests logs a skip message and returns early.
  */
 import { describe, it, expect } from 'vitest';
 import { existsSync } from 'node:fs';
@@ -42,18 +38,18 @@ describe('tools/release/get-exarchos.ps1', () => {
     expect(existsSync(PESTER_PATH)).toBe(true);
   });
 
-  // These pwsh-spawning tests budget a 10s `hasPwsh()` probe plus a 30s
-  // spawn, so the vitest test envelope (3rd arg) must exceed their combined
-  // worst case — the 5s default aborts them mid-spawn under CI load (observed at
-  // 7.8-10.8s). Mirrors the Pester suite's explicit timeout below.
+  /**
+   * The test budgets a 10-second `hasPwsh()` probe and a 30-second spawn, so its
+   * timeout must exceed 40 seconds. The 5-second default stops the test during
+   * the spawn under CI load.
+   * `-LoadOnly` makes the script load its functions and skip the main entry point.
+   */
   it('GetExarchos_PS1_ParsesWithoutErrors_WhenPwshAvailable', async () => {
     if (!(await hasPwsh())) {
       console.log('[skip] pwsh not on PATH — PowerShell parser check deferred to CI runners that have it.');
       return;
     }
 
-    // -LoadOnly is a sentinel understood by the script itself (see RED test),
-    // making the file source cleanly without triggering the main entry point.
     const result = await spawnAsync(
       'pwsh',
       ['-NoProfile', '-NonInteractive', '-File', SCRIPT_PATH, '-LoadOnly'],
@@ -66,6 +62,11 @@ describe('tools/release/get-exarchos.ps1', () => {
     expect(result.status, `stderr:\n${result.stderr}\nstdout:\n${result.stdout}`).toBe(0);
   }, 60_000);
 
+  /**
+   * `Get-PlatformTarget` rejects Windows ARM64, because Bun has no
+   * `bun-windows-arm64` target. On that platform the dry run must exit non-zero
+   * with the "not yet supported" guidance. The timeout covers the probe and the spawn.
+   */
   it('GetExarchos_DryRun_PrintsPlan_WhenPwshAvailable', async () => {
     if (!(await hasPwsh())) {
       console.log('[skip] pwsh not on PATH — dry-run smoke deferred to CI runners that have it.');
@@ -81,10 +82,6 @@ describe('tools/release/get-exarchos.ps1', () => {
       },
     );
 
-    // Windows ARM64 is intentionally rejected in `Get-PlatformTarget`
-    // (Bun has no `bun-windows-arm64` cross-compile target). On an ARM64
-    // runner the dry-run is *expected* to exit non-zero with the
-    // "not yet supported" guidance — accept that as success.
     const combined = `${result.stdout}\n${result.stderr}`;
     if (process.arch === 'arm64' && process.platform === 'win32') {
       expect(result.status).not.toBe(0);
@@ -97,11 +94,10 @@ describe('tools/release/get-exarchos.ps1', () => {
     expect(combined).toMatch(/\.sha512/);
   }, 60_000);
 
-  // Vitest test timeout (3rd arg, ms) must exceed the spawn child-process
-  // timeout below. Pester suite execution against the .ps1 typically takes
-  // 4-6 seconds on GHA ubuntu-latest runners; the spawn gets up to 2 min;
-  // the vitest test envelope gets up to 2.5 min so it never aborts before
-  // the spawn returns its own structured result.
+  /**
+   * The vitest timeout must exceed the 120-second spawn timeout. The spawn then
+   * returns its own result before vitest stops the test.
+   */
   it(
     'GetExarchos_PesterSuite_Passes_WhenPesterAvailable',
     async () => {

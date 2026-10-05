@@ -44,9 +44,8 @@ describe('loadPolicy', () => {
     expect(policy.rules).toEqual(['comment-content']);
   });
 
+  /** The loader fails closed. A guard with no rules gives the same result as a clean tree. */
   it('LoadPolicy_MissingFile_ExitsNonZero', () => {
-    // Fail closed: running with defaults would give a guard no rules, which is
-    // indistinguishable from a clean tree.
     expect(() => loadPolicy(path.join(os.tmpdir(), 'absent-policy-file.json'))).toThrow(PolicyError);
   });
 
@@ -58,9 +57,8 @@ describe('loadPolicy', () => {
     expect(loadPolicy(writeTempPolicy(validDatum())).exemptPaths).toHaveLength(1);
   });
 
+  /** An exemption is structural and permanent. An expired exemption fails files that must contain the text. */
   it('LoadPolicy_ExemptPathWithExpiry_Fails', () => {
-    // The two exemption classes are distinct on purpose. A structural exemption
-    // that could lapse would start failing files that must contain the text.
     const file = writeTempPolicy(
       validDatum({
         exemptPaths: [{ glob: 'scripts/x/**', rules: ['comment-content'], reason: 'r', expires: '2099-01-01' }],
@@ -78,9 +76,8 @@ describe('loadPolicy', () => {
     expect(() => loadPolicy(file)).toThrow(/explicit boolean/);
   });
 
+  /** A bad pattern must fail at load, not at first use, so it fails the run and not one file. */
   it('LoadPolicy_UncompilablePattern_FailsAtLoad', () => {
-    // At load rather than at first use, so a broken pattern fails the run
-    // instead of the one file that happens to reach it.
     const file = writeTempPolicy(
       validDatum({ forbiddenOrdinals: [{ id: 'bad', pattern: '(unclosed', enabled: true }] }),
     );
@@ -174,10 +171,8 @@ describe('the repository policy datum', () => {
     }
   });
 
+  /** Captured agent output is evidence, not authored code. A rewrite destroys the record. */
   it('Policy_EvalRunArtifact_NotScanned', () => {
-    // Captured agent output is evidence, not authored code: rewriting it would
-    // destroy the record and blocking on it would fail the tree for text no
-    // author wrote.
     const policy = loadPolicy(REPO_POLICY);
 
     expect(isExempt(policy, 'tests/evals/some-suite/runs/2026-08-01/output.md', 'comment-content')).toBe(true);
@@ -205,9 +200,8 @@ describe('the repository policy datum', () => {
     expect(isExempt(policy, 'tests/evals/harness/grader.ts', 'comment-content')).toBe(false);
   });
 
+  /** Each pattern was measured on the tree. Its reason records the measurement, so a reader can audit the decision. */
   it('Policy_MeasuredBelowFloor_ShipsDisabledWithItsNumber', () => {
-    // Both of these were measured against the tree rather than assumed, and the
-    // reason records the score so the decision can be re-read.
     const policy = loadPolicy(REPO_POLICY);
 
     for (const id of ['no-longer', 'passive-change-verb']) {
@@ -236,9 +230,8 @@ describe('the repository policy datum', () => {
 });
 
 describe('compilePattern', () => {
+  /** A shared expression with the `g` flag keeps `lastIndex` between uses and skips matches in the next file. */
   it('CompilePattern_CalledTwice_DoesNotShareLastIndex', () => {
-    // A shared g-flagged expression carries lastIndex between uses and silently
-    // skips matches in whichever file is scanned second.
     const entry = { id: 'dr', pattern: 'DR-\\d+', flags: 'g', enabled: true };
 
     expect(compilePattern(entry).test('see DR-7')).toBe(true);

@@ -1,28 +1,11 @@
 /**
- * Tests for the golden-fixture PR-body marker check (task T053, DR-15).
- *
- * Phase progression: RED (import fails — script does not yet exist) →
- * GREEN (`tools/audit/gates/check-golden-fixture-note.mjs` implemented, exporting the
- * pure `checkGoldenFixtureNote` function; a thin CLI main is also provided
- * but not exercised here — CLI shape is covered via the contract of the
- * exported function).
- *
- * DR-15 requires that any change to a file under
- * `tests/core/fixtures/load-bearing/**` be acknowledged in
- * the PR body with the exact marker `GOLDEN-FIXTURE-UPDATE:` so that
- * accidental or silent edits to load-bearing golden fixtures cannot land
- * without an explicit human note. The tests below encode that rule:
- *
- *   - fixture changed + no marker → fail
- *   - fixture changed + marker    → pass
- *   - no fixture change           → pass (regardless of body)
+ * Tests for `checkGoldenFixtureNote` in `tools/audit/gates/check-golden-fixture-note.mjs`.
+ * A change under `tests/core/fixtures/load-bearing/` needs a PR-body line that starts with
+ * `GOLDEN-FIXTURE-UPDATE:` and gives a reason. The tests do not run the CLI of the script.
+ * NodeNext resolution needs the `.mjs` extension in the import, and `allowJs` infers the types.
  */
 import { describe, it, expect } from 'vitest';
 
-// The script is authored as ESM `.mjs`; NodeNext resolution requires the
-// explicit extension at import time. The module exports a single pure
-// function `checkGoldenFixtureNote`.
-// No .d.ts for this .mjs script, but `allowJs` infers one from the source.
 import { checkGoldenFixtureNote } from '../../tools/audit/gates/check-golden-fixture-note.mjs';
 
 const LOAD_BEARING_FILE =
@@ -64,9 +47,6 @@ describe('checkGoldenFixtureNote', () => {
   });
 
   it('PrBodyCheck_FixtureChangedWithMarkerLeadingToken_Passes', () => {
-    // The rule allows the marker as the leading token on a line (after
-    // optional indent) — the canonical case is
-    // "GOLDEN-FIXTURE-UPDATE: <reason>" at the start of a body line.
     const result = checkGoldenFixtureNote({
       changedFiles: [
         'tests/core/fixtures/load-bearing/rehydrate-demo.expected-document.json',
@@ -77,12 +57,8 @@ describe('checkGoldenFixtureNote', () => {
     expect(result.passed).toBe(true);
   });
 
+  /** The check ignores leading whitespace, so an indented marker line passes. */
   it('PrBodyCheck_FixtureChangedWithMarkerInQuotedBlock_Passes', () => {
-    // Quoted / indented bodies (e.g. PR description copy-pasted from a
-    // commit message) still match because `hasMarker` strips leading
-    // whitespace before the prefix check. This is the legitimate
-    // "marker not at column zero" case — distinct from a marker
-    // embedded mid-sentence (which the rule deliberately rejects).
     const result = checkGoldenFixtureNote({
       changedFiles: [
         'tests/core/fixtures/load-bearing/rehydrate-demo.expected-document.json',
@@ -94,10 +70,8 @@ describe('checkGoldenFixtureNote', () => {
     expect(result.passed).toBe(true);
   });
 
+  /** The marker counts only at the start of a line, so an author cannot hide it in prose. */
   it('PrBodyCheck_FixtureChangedWithMarkerMidSentence_Fails', () => {
-    // The marker is only honoured as a LINE-leading token; placing it
-    // mid-sentence must NOT satisfy the gate, otherwise reviewers could
-    // satisfy DR-15 by burying the directive inside prose.
     const result = checkGoldenFixtureNote({
       changedFiles: [
         'tests/core/fixtures/load-bearing/rehydrate-demo.expected-document.json',
@@ -110,8 +84,8 @@ describe('checkGoldenFixtureNote', () => {
     expect(result.reason).toMatch(/GOLDEN-FIXTURE-UPDATE/);
   });
 
+  /** The rule covers only the fixtures under `load-bearing/`. */
   it('PrBodyCheck_OnlyUnrelatedFixtureTouched_Passes', () => {
-    // Fixtures outside `load-bearing/` are not governed by this rule.
     const result = checkGoldenFixtureNote({
       changedFiles: ['tests/core/fixtures/other/sample.json'],
       prBody: '',
@@ -120,10 +94,8 @@ describe('checkGoldenFixtureNote', () => {
     expect(result.passed).toBe(true);
   });
 
+  /** The reason is the context for the reviewer, so a marker with only whitespace after it fails. */
   it('PrBodyCheck_FixtureChangedWithBareMarker_Fails', () => {
-    // DR-15 requires reviewer context after the marker. A bare
-    // `GOLDEN-FIXTURE-UPDATE:` line — or one followed only by whitespace —
-    // has no reason and must NOT satisfy the gate.
     for (const bare of [
       'GOLDEN-FIXTURE-UPDATE:',
       'GOLDEN-FIXTURE-UPDATE: ',

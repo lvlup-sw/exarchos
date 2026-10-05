@@ -1,15 +1,9 @@
 /**
- * Structural assertions over `.github/workflows/ci.yml` for the outcome-tests
- * job (Phase B, T-013).
+ * Structural tests for the `outcome-tests` job in `.github/workflows/ci.yml`.
  *
- * The outcome-tests tier (T-008..T-014) provisions a third vitest project
- * (`outcome`) plus a Linux-only CI job that runs `npm run test:outcome`.
- * Windows process fidelity is out of scope for the outcome tier today; the
- * job is intentionally pinned to `ubuntu-latest` (or a matrix gated to
- * Linux only).
- *
- * We parse ci.yml with js-yaml (already a root dep) so the assertions
- * survive reasonable formatting edits.
+ * The job runs `npm run test:outcome` on Linux only. Windows process fidelity
+ * is out of scope for the outcome tier.
+ * The tests parse the workflow with `js-yaml`, so a formatting edit does not break them.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -43,12 +37,15 @@ function loadWorkflow(): WorkflowShape {
   return yaml.load(raw) as WorkflowShape;
 }
 
+/**
+ * A job is Linux-only when its `runs-on` string names an Ubuntu runner. Without
+ * a `runs-on` string, each `matrix.os` entry must start with `ubuntu`.
+ */
 function jobIsLinuxOnly(job: JobShape): boolean {
   const runsOn = job['runs-on'];
   if (typeof runsOn === 'string') {
     return /^ubuntu(-latest|-\d|$)/.test(runsOn);
   }
-  // Matrix gating: every os entry must be ubuntu-flavored.
   const matrixOs = job.strategy?.matrix?.os;
   if (Array.isArray(matrixOs) && matrixOs.length > 0) {
     return matrixOs.every((o) => /^ubuntu/.test(o));

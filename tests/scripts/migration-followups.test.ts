@@ -1,9 +1,7 @@
 /**
- * Tests for the rehydrate-foundation migration follow-ups registry (T061, DR-16).
- *
- * Phase progression: RED (doc does not yet exist) →
- * GREEN (`docs/migrations/rehydrate-foundation-followups.md` created with all
- * required deferred items, each carrying a Scope line).
+ * Checks the registry of deferred follow-ups for the rehydrate-foundation migration.
+ * The registry is `docs/migrations/rehydrate-foundation-followups.md`.
+ * The suite skips when that file is absent.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
@@ -29,9 +27,9 @@ describe.skipIf(!existsSync(DOC_PATH))('MigrationFollowups_EachDeferredComponent
     expect(existsSync(DOC_PATH)).toBe(true);
   });
 
+  /** Counts only the numbered `### N.` headings. A bulleted item does not count. */
   it('doc contains at least 7 numbered or bulleted items', () => {
     const content = readFileSync(DOC_PATH, 'utf8');
-    // Match ### N. headings (numbered sections)
     const headings = content.match(/^###\s+\d+\./gm) ?? [];
     expect(headings.length).toBeGreaterThanOrEqual(7);
   });

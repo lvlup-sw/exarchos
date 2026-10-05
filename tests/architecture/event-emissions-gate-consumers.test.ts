@@ -1,24 +1,15 @@
 /**
- * No shipped module decides anything from the emission gate's verdict.
+ * No shipped module decides anything from the verdict of the emission gate.
  *
  * @oracle-sources: ../../src/verbs/gates/check-event-emissions.ts
  *
- * `check_event_emissions` appends a `gate.executed` row under the gate name
- * `event-emissions` and returns hints. The first event-authority flip changed
- * what that verdict is a function of — the synthesize row lost
- * `stack.submitted` — and the claim that made this a small change, that the
- * gate is advisory and nothing reads its verdict to decide, was hand-traced
- * through every `gate.executed` reader. A hand trace is true on the day it is
- * made. This reads the tree instead: the gate-name literal appears in exactly
- * the modules allowed below, so a reader that starts discriminating on it is
- * named.
+ * `check_event_emissions` appends a `gate.executed` row with the gate name
+ * `event-emissions` and returns hints. The gate stays advisory only while no
+ * reader compares `gateName` with that literal. This suite requires that the
+ * literal appears only in the allowed modules.
  *
- * The scan is textual on purpose. `gate.executed` readers compare `gateName`
- * against a literal (`=== 'review'`, `.includes('plan-coverage')`), and a
- * literal is what a source scan sees. It does not prove that no reader folds
- * every gate into a decision without naming this one — the convergence view
- * drops rows without a `dimension`, which this gate never sets — and it does
- * not claim to.
+ * The scan is textual because a reader compares `gateName` with a literal. It
+ * does not find a reader that folds every gate into a decision and names none.
  */
 
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -30,9 +21,9 @@ const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const SOURCE_ROOT = join(REPO_ROOT, 'src');
 
 /**
- * The gate name as a string literal. An import path such as
- * `./gates/check-event-emissions.js` contains the words and is not one: the
- * character before them is a hyphen, not a quote.
+ * Matches the gate name as a quoted string literal. An import path such as
+ * `./gates/check-event-emissions.js` does not match, because a hyphen comes
+ * before the words and not a quote.
  */
 const GATE_NAME_LITERAL = /(['"`])event-emissions\1/;
 
@@ -47,7 +38,7 @@ function* sourceFiles(dir: string): Generator<string> {
   }
 }
 
-/** Pure over a path→source map, so the live tree and a seeded reader go through the same scan. */
+/** Takes a map from path to source, so the live tree and a seeded reader use the same scan. */
 function modulesNamingTheGate(sources: ReadonlyMap<string, string>): readonly string[] {
   return [...sources]
     .filter(([, text]) => GATE_NAME_LITERAL.test(text))
@@ -64,12 +55,14 @@ function liveSources(): ReadonlyMap<string, string> {
 }
 
 describe('EventEmissionsGate — nothing shipped decides on its verdict', () => {
+  /**
+   * The size assertion is the denominator, because a scan that reads nothing
+   * finds nothing. The gate names itself, so the allowlist is also the minimum.
+   */
   it(
     'EventEmissionsGate_GateNameLiteral_AppearsOnlyInTheGateModule',
     () => {
       const sources = liveSources();
-      // The denominator: a scan that read nothing would find nothing, and the
-      // gate names itself, so the allowlist is also the floor.
       expect(sources.size).toBeGreaterThan(100);
       for (const allowed of ALLOWED) expect(sources.has(allowed), allowed).toBe(true);
       expect(modulesNamingTheGate(sources)).toEqual([...ALLOWED].sort());

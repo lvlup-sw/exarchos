@@ -1,3 +1,9 @@
+/**
+ * The rendered tree has one path for each artifact kind and flat name. The authoring domain
+ * of a skill must not reach the output: a harness resolves `mutation-adequacy`, not
+ * `review/skills/mutation-adequacy`. Thus two domains that author the same name compete for
+ * one output slot. These tests pin that collision.
+ */
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -5,17 +11,6 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { buildAllSkills } from '../../src/install/build-skills.js';
 import { rmrf } from '../../tools/test-helpers/temp-dir.js';
-
-/**
- * The rendered tree is addressed by artifact kind and flat name. The domain a
- * skill is authored under is an authoring concern and must not reach the
- * output — a harness resolves `mutation-adequacy`, not
- * `review/skills/mutation-adequacy`.
- *
- * Flattening buys that at the cost of a namespace: two domains can each author
- * the same name, and the output has one slot for it. That collision is the
- * hazard these tests exist to pin.
- */
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '../../');
@@ -46,13 +41,11 @@ describe('Render', () => {
       const outDir = join(root, 'rendered', 'skills');
       buildAllSkills({ srcDir: join(root, 'content'), outDir, runtimesDir: RUNTIMES_DIR });
 
-      // The emitted path carries the kind and the flat name, and nothing else.
       const trees = readdirSync(outDir);
       expect(trees.length).toBeGreaterThan(0);
       for (const tree of trees) {
         const names = readdirSync(join(outDir, tree));
         expect(names.sort()).toEqual(['alpha-skill', 'beta-skill']);
-        // The authoring domain must appear nowhere in the output tree.
         expect(names).not.toContain('review');
         expect(names).not.toContain('delivery');
       }
@@ -61,10 +54,8 @@ describe('Render', () => {
     }
   });
 
+  /** Two builds that differ only in the authoring domain must give the same output paths. */
   it('RenderedPath_DependsOnlyOnKindAndFlatName_NotOnDomain', () => {
-    // The property, stated directly: moving a skill between domains changes
-    // nothing about where it renders. Two builds that differ only in the
-    // authoring domain must produce identical output paths.
     const pathsFor = (domain: string): string[] => {
       const root = makeSandbox();
       try {
@@ -93,6 +84,7 @@ describe('Render', () => {
     }
   });
 
+  /** The error must name both domains. The winner alone does not show which source the build lost. */
   it('TwoDomainsDeclareSameFlatName_FailsAtBuildTimeNamingBothSources', () => {
     const root = makeSandbox();
     try {
@@ -111,7 +103,6 @@ describe('Render', () => {
       }
 
       expect(err, 'a flat-name collision must fail the build').toBeInstanceOf(Error);
-      // Both sources named: the winner alone does not say what was lost.
       expect(err!.message).toContain('review');
       expect(err!.message).toContain('delivery');
       expect(err!.message).toContain('collide');
@@ -120,9 +111,8 @@ describe('Render', () => {
     }
   });
 
+  /** The collision guard must not fire when each domain authors its own names. */
   it('DistinctNamesAcrossDomains_Succeeds', () => {
-    // The guard must not over-trigger on the legitimate case it resembles:
-    // many domains, each with its own names.
     const root = makeSandbox();
     try {
       writeSkill(root, 'review', 'one');
@@ -143,9 +133,8 @@ describe('Render', () => {
 });
 
 describe('ArtifactKind', () => {
+  /** Each kind has its own root under `rendered/`. No authored `content` directory sits beside them. */
   it('RoutesToItsOwnRenderedRoot', () => {
-    // Each kind occupies its own root under `rendered/`, so one kind's output
-    // can never be mistaken for another's.
     const renderedRoot = join(REPO_ROOT, 'rendered');
     expect(existsSync(renderedRoot)).toBe(true);
 
@@ -153,14 +142,14 @@ describe('ArtifactKind', () => {
       expect(existsSync(join(renderedRoot, kind)), `rendered/${kind}/ is missing`).toBe(true);
     }
 
-    // And nothing authored leaked in alongside them.
     expect(existsSync(join(renderedRoot, 'content'))).toBe(false);
   });
 
+  /**
+   * A spot check of the first three skills in the `standard` tree. Each `SKILL.md` must start
+   * with frontmatter and carry the name of its directory. The test reads no source file.
+   */
   it('NoRenderedFile_IsHandEdited', () => {
-    // A rendered skill is a pure function of its source, so its body must be
-    // reachable from the source it was rendered from. Spot-checking the
-    // relationship is what makes "generated" a claim rather than a label.
     const standard = join(REPO_ROOT, 'rendered/skills/standard');
     const names = readdirSync(standard);
     expect(names.length).toBeGreaterThan(0);

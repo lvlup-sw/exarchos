@@ -1,34 +1,33 @@
+/**
+ * Each path that the package declares to the outside must resolve, and each
+ * directory that it means to publish must be in the published package.
+ *
+ * A manifest with some stale paths looks maintained. The package then lacks
+ * directories, and nobody sees that until an install fails.
+ */
+
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 
-/**
- * Every path the package declares to the outside world has to resolve, and
- * every directory it means to publish has to actually be published.
- *
- * The failure being guarded is quiet: repointing some declared paths and
- * leaving others behind produces a manifest that looks maintained and a
- * package that is missing directories nobody notices until an install fails.
- */
-
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '../../');
 
 /**
- * Files[] entries that `npm run build` writes and `prepare` (tsc) does not, so a
- * checkout that ran only `prepare` lacks them. `dist/bin` comes from `build:binary`.
- * `dist/release-verify.js` comes from `build:release-verifier`, which
- * `tests/scripts/installer-verify.test.ts` runs in a sandbox and then packs. That
- * test no longer leaves the file in the checkout for this one to find (#2030).
+ * The `files[]` entries that `npm run build` writes and `prepare` (tsc) does
+ * not. A checkout that ran only `prepare` lacks them. `dist/bin` comes from
+ * `build:binary`, and `dist/release-verify.js` from `build:release-verifier`.
+ * `tests/scripts/installer-verify.test.ts` runs that script in a sandbox, so
+ * it leaves no file in the checkout.
  */
 const BUILD_ONLY_ENTRIES: readonly string[] = ['dist/bin', 'dist/release-verify.js'];
 
 const readJson = (rel: string): Record<string, unknown> =>
   JSON.parse(readFileSync(join(REPO_ROOT, rel), 'utf8')) as Record<string, unknown>;
 
-/** Paths npm would publish, from a dry-run pack. */
+/** The paths that npm publishes, from a dry-run pack. */
 async function packedPaths(): Promise<string[]> {
   const out = await execFileAsync('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], {
     cwd: REPO_ROOT,
@@ -41,6 +40,11 @@ async function packedPaths(): Promise<string[]> {
 }
 
 describe('PluginManifest', () => {
+  /**
+   * The manifest declares generated artifacts under `rendered/`. The hooks
+   * directory at the plugin root is the exception, because a harness loads it
+   * from a fixed location.
+   */
   it('DeclaredPaths_ResolveAndHaveAProducer', () => {
     const manifest = readJson('.claude-plugin/plugin.json');
     const declared: string[] = [];
@@ -60,9 +64,6 @@ describe('PluginManifest', () => {
       );
     }
 
-    // Generated artifacts are declared under `rendered/`; the plugin-root
-    // hooks directory is the deliberate exception, because a harness
-    // auto-loads it from a fixed location.
     const nonRendered = declared
       .map((r) => r.replace(/^\.\//, ''))
       .filter((r) => !r.startsWith('rendered/') && !r.startsWith('hooks'));
@@ -71,12 +72,14 @@ describe('PluginManifest', () => {
 });
 
 describe('Manifest', () => {
+  /**
+   * Only some component groups install from a directory. The others (MCP
+   * servers, plugins, rule sets) are selections and have no payload path.
+   */
   it('EveryComponentSource_ExistsOnDisk', () => {
     const manifest = readJson('manifest.json') as {
       components: Record<string, Array<{ id?: string; source?: string; target?: string }>>;
     };
-    // Only some component groups install from a directory; the rest (MCP
-    // servers, plugins, rule sets) are selections, not payload paths.
     const withSource = Object.values(manifest.components)
       .flat()
       .filter((c): c is { id?: string; source: string; target: string } =>
@@ -125,10 +128,11 @@ describe('FilesArray', () => {
     }
   });
 
+  /**
+   * An entry that exists on disk does not prove that its contents reach the
+   * tarball. A dead declaration drops a directory from the package silently.
+   */
   it('EveryGeneratedTree_IsActuallyPublished', async () => {
-    // The entry existing on disk is not the same as its contents reaching the
-    // tarball. Four directories were once left as dead declarations, which
-    // dropped them from the package silently.
     const packed = await packedPaths();
     for (const kind of ['skills', 'commands', 'rules', 'agents', 'command-aliases']) {
       const prefix = `rendered/${kind}/`;
@@ -141,10 +145,14 @@ describe('FilesArray', () => {
 });
 
 describe('InstallSkills', () => {
+  /**
+   * The standalone installer probes fixed roots to find its payload. When a
+   * probe names a root that does not exist, a published binary installs nothing
+   * and each test that reads the repository tree still passes. A probe that
+   * names `skills` or `command-aliases` must reach it through `rendered`. A
+   * match on the tree name alone also flags the correct form.
+   */
   it('RootProbes_ResolveUnderTheNewLayout', () => {
-    // The standalone installer finds its payload by probing fixed roots. If
-    // those still name the pre-move layout, a published binary installs
-    // nothing while every test that reads the repo tree still passes.
     const source = readFileSync(join(REPO_ROOT, 'src/install/install-skills.ts'), 'utf8');
 
     const probeLines = source
@@ -152,9 +160,6 @@ describe('InstallSkills', () => {
       .filter((l) => /candidates\.push|path\.resolve\(path\.dirname\(process\.execPath\)/.test(l));
     expect(probeLines.length, 'no root probes found to check').toBeGreaterThan(0);
 
-    // A probe naming one of the moved trees must reach it through `rendered`.
-    // Matching on the tree name alone would flag the corrected form too, which
-    // is how a test like this ends up asserting nothing useful.
     const stale = probeLines
       .filter((l) => /['"`](skills|command-aliases)['"`]|\/(skills|command-aliases)['"`]/.test(l))
       .filter((l) => !l.includes('rendered'));

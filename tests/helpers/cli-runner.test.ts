@@ -1,3 +1,7 @@
+/**
+ * Tests for `runCli`, the CLI invoker. Each test runs `node -e '<inline script>'` and no
+ * project binary, so the suite depends only on `node`.
+ */
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { mkdtempSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -7,20 +11,11 @@ import { listAlive, clear, killAll } from './process-tracker.js';
 import { rmrf } from '../../tools/test-helpers/temp-dir.js';
 
 /**
- * Tests for the target-agnostic CLI invoker `runCli`.
- *
- * Design: docs/designs/archive/2026-04-19-process-fidelity-harness.md §5.3
- *
- * These tests deliberately invoke `node -e '<inline script>'` rather than any
- * project binary so that the suite has no dependency beyond `node` itself.
+ * The hook stops each live child in the tracker before it clears the tracker. `runCli`
+ * unregisters a child on close, so `killAll` usually does nothing. If a child outlives its
+ * test, a clear with no kill leaks the process.
  */
-
 afterEach(async () => {
-  // Defensive: terminate any OS-level children BEFORE dropping tracker state.
-  // runCli must unregister on close, so under normal conditions killAll is a
-  // no-op (listAlive() returns []). If runCli regresses and a child outlives
-  // the test, clearing the registry without killing first would leak the
-  // process. Order matters: kill, then clear.
   await killAll({ timeoutMs: 1000 });
   clear();
 });
@@ -36,7 +31,6 @@ describe('runCli', () => {
   });
 
   it('RunCli_NonZeroExit_ReturnsStructuredResultNotThrow', async () => {
-    // Non-zero exit codes must NOT throw — the caller asserts on exitCode.
     const result = await runCli({
       command: 'node',
       args: ['-e', 'process.exit(7)'],
@@ -62,7 +56,6 @@ describe('runCli', () => {
   });
 
   it('RunCli_Stdin_PipesToChild', async () => {
-    // Read everything from stdin and echo to stdout, then exit.
     const script = [
       "let buf = '';",
       "process.stdin.on('data', (chunk) => { buf += chunk.toString(); });",
@@ -79,6 +72,10 @@ describe('runCli', () => {
     expect(result.exitCode).toBe(0);
   });
 
+  /**
+   * After the rejection, the tracker must hold no live child. The 50 ms wait gives the OS time
+   * to complete the kill.
+   */
   it('RunCli_Timeout_RejectsAndKillsChild', async () => {
     await expect(
       runCli({
@@ -88,15 +85,12 @@ describe('runCli', () => {
       }),
     ).rejects.toThrow(/timeout/i);
 
-    // After rejection, no child from runCli must remain alive.
-    // Give the OS a tick to finalize the kill.
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(listAlive()).toHaveLength(0);
   });
 
+  /** The child must see a variable of the parent environment and the override. */
   it('RunCli_EnvOverride_MergedWithCurrentEnv', async () => {
-    // Set a sentinel in the parent env, override one var, and confirm both the
-    // current-env value and the override are visible in the child.
     const parentSentinel = `RUN_CLI_PARENT_${Date.now()}`;
     process.env.RUN_CLI_PARENT_SENTINEL = parentSentinel;
 
@@ -121,6 +115,7 @@ describe('runCli', () => {
     }
   });
 
+  /** On macOS, `/tmp` is a symlink to `/private/tmp`, so the test compares the real paths. */
   it('RunCli_Cwd_SpawnsChildInGivenDirectory', async () => {
     const tmp = mkdtempSync(join(tmpdir(), 'run-cli-cwd-'));
     try {
@@ -130,8 +125,6 @@ describe('runCli', () => {
         cwd: tmp,
       });
 
-      // macOS `/tmp` resolves through a symlink to `/private/tmp`, so
-      // canonicalize both sides before comparing.
       expect(realpathSync(result.stdout)).toBe(realpathSync(tmp));
       expect(result.exitCode).toBe(0);
     } finally {
@@ -154,16 +147,15 @@ describe('runCli', () => {
     }
   });
 
+  /**
+   * The test omits `command` and sets PATH to an empty directory. The spawn then fails with
+   * `ENOENT`, and the error must name `exarchos`. Thus the test needs no installed binary.
+   */
   it('runCli_defaultCommand_resolvesToExarchos', async () => {
-    // When `command` is omitted, runCli must default to the v2.9 single-binary
-    // surface: `exarchos`. We verify this without depending on `exarchos`
-    // being installed on PATH by isolating PATH so the spawn fails with
-    // ENOENT, then asserting the failing command name is `exarchos`.
     const isolatedPath = mkdtempSync(join(tmpdir(), 'run-cli-default-cmd-'));
     try {
       await expect(
         runCli({
-          // command intentionally omitted — the default must kick in.
           args: ['version'],
           env: { PATH: isolatedPath },
           timeout: 5_000,
@@ -174,13 +166,14 @@ describe('runCli', () => {
     }
   });
 
+  /**
+   * The test cannot read the tracker from inside the `runCli` promise. Thus it starts a child
+   * that lives 300 ms and polls `listAlive()` in parallel. The poll repeats, because a spawn
+   * can be slow.
+   */
   it('RunCli_RegistersWithProcessTracker_UnregistersOnExit', async () => {
     expect(listAlive()).toHaveLength(0);
 
-    // Observe tracker state mid-flight by starting a child that lives briefly
-    // and polling listAlive() while it runs. We can't reliably sample "during"
-    // from outside the promise, so we use a moderately long child and a
-    // parallel poll.
     const script = 'setTimeout(() => {}, 300)';
 
     const pending = runCli({
@@ -188,8 +181,6 @@ describe('runCli', () => {
       args: ['-e', script],
     });
 
-    // Sample while child is still running.
-    // Poll a few times to avoid a flake on slow spawn.
     let sawAlive = false;
     for (let i = 0; i < 30; i++) {
       if (listAlive().length >= 1) {
@@ -202,7 +193,6 @@ describe('runCli', () => {
 
     await pending;
 
-    // Give close handler a tick to unregister.
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(listAlive()).toHaveLength(0);
   });

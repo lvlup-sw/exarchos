@@ -1,3 +1,15 @@
+/**
+ * One guard covers every generated tree. A single guard that watches nothing
+ * reports one success for the whole build.
+ *
+ * Thus the tests seed drift and require the guard to fail, and they prove that
+ * each declared scope covers real files.
+ *
+ * The tests seed drift in a copy of the tree and never in the repository. An
+ * edit of the real tree with `git add` races the other tests for the index
+ * lock and stages their files.
+ */
+
 import { appendFileSync, cpSync, existsSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -7,26 +19,10 @@ import { RENDER_SCOPES, findEmptyScopes, runRenderGuard } from '../../src/instal
 import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 import { rmrf } from '../../tools/test-helpers/temp-dir.js';
 
-/**
- * One guard now covers every generated tree. Consolidation removes two places
- * a scope could rot unnoticed, and introduces one new way to fail silently: a
- * single guard watching nothing reports one confident success for the whole
- * build rather than three narrow ones.
- *
- * So the drift legs are proven by seeding drift and watching the guard go red,
- * and the declared scope is proven to cover real files. That third assertion is
- * the one the consolidation makes necessary.
- *
- * Drift is seeded in a COPY of the tree, never in the repository itself. An
- * earlier version edited the real tree and ran `git add`, which raced the rest
- * of the suite for the index lock and staged files other tests had just
- * created — a test that corrupts the working tree it is measuring.
- */
-
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '../../');
 
-/** Everything the guard reads or writes, and nothing else. */
+/** The trees that the guard reads or writes, and no others. */
 const SANDBOX_TREES = [
   'content',
   'rendered',
@@ -61,8 +57,10 @@ async function makeSandbox(): Promise<string> {
   return root;
 }
 
-/** Commit an edit to a generated file, so it reads as drift rather than as a
- *  pending edit the next build would overwrite. */
+/**
+ * Commits an edit to a generated file. Thus the guard sees drift and not a
+ * pending edit that the next build overwrites.
+ */
 async function seedDrift(root: string, rel: string, addition: string): Promise<void> {
   appendFileSync(join(root, rel), addition);
   await execFileAsync('git', ['add', '-A'], { cwd: root, env: GIT_ENV });
@@ -70,9 +68,8 @@ async function seedDrift(root: string, rel: string, addition: string): Promise<v
 }
 
 describe('RenderGuard', () => {
+  /** The liveness assertion. One guard for every tree must not match nothing. */
   it('ConfiguredScope_MatchesNonEmptyFileSet', () => {
-    // The liveness assertion. A consolidated guard matching nothing would be
-    // strictly worse than the three it replaced.
     expect(RENDER_SCOPES.length).toBeGreaterThan(0);
 
     expect(
@@ -81,8 +78,8 @@ describe('RenderGuard', () => {
     ).toEqual([]);
   });
 
+  /** Nobody is accountable for a scope with no named producer. */
   it('EveryDeclaredScope_NamesItsProducer', () => {
-    // A scope with no named producer is a path nobody is accountable for.
     for (const scope of RENDER_SCOPES) {
       expect(scope.producer.length, `${scope.path} names no producer`).toBeGreaterThan(0);
       expect(existsSync(join(REPO_ROOT, scope.path)), `${scope.path} is absent`).toBe(true);
@@ -106,18 +103,19 @@ describe('RenderGuard', () => {
     }
   }, 300_000);
 
+  /**
+   * The agent generator is a stub that restores the canonical bytes, as the real
+   * generator does. Thus the committed edit shows as a diff over the harness
+   * directories.
+   */
   it('DriftInHarnessDotDirectory_FailsClosed', async () => {
     const root = await makeSandbox();
     try {
-      // The agent generator is stubbed, so the drift has to be detected by the
-      // diff over the harness directories rather than by regeneration.
       await seedDrift(root, '.codex/agents/implementer.toml', '\n# seeded drift\n');
 
       const drifted = runRenderGuard({
         cwd: root,
         regenerateAgents: (cwd: string) => {
-          // Restore the canonical bytes the way the real generator would, so
-          // the committed edit shows up as a diff.
           cpSync(join(REPO_ROOT, '.codex/agents'), join(cwd, '.codex/agents'), {
             recursive: true,
           });

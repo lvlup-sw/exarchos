@@ -1,6 +1,6 @@
 /**
- * Live ActionId collection for action-contract closure. The evaluator is
- * covered synthetically elsewhere; this suite pins the collector to the
+ * Runs action-contract closure against the live registry. Other suites cover
+ * the evaluator with synthetic subjects. This suite pins the collector to the
  * registered-actions denominator.
  */
 import { describe, expect, it } from 'vitest';
@@ -41,28 +41,29 @@ describe('action-contract closure live tree', () => {
     expect(new Set(collectedIds).size).toBe(subjects.length);
   });
 
+  /**
+   * Asks for the verdict on the live tree. Collection coverage and the kill
+   * fixtures can both pass while the live tree reports drift. The assertion
+   * names each finding, because a verdict alone does not name the action.
+   */
   it('Closure_LiveTree_Closes', () => {
-    // The verdict itself, which nothing asked for before. Collection coverage
-    // and the corrupted-subject kill fixtures were both green while the live
-    // tree reported drift on all 124 actions — the instrument named as this
-    // boundary's enforcement had never been pointed at the tree it governs.
     const subjects = collectLiveActionContractSubjects();
     expect(subjects.length).toBe(measureLiveRegisteredActions().counts.actions);
     expect(subjects.length).toBeGreaterThan(0);
 
     const result = evaluateCollectedActionContractClosure(subjects);
 
-    // Name the findings rather than counting them: a verdict alone tells a
-    // reader nothing about which action broke it.
     expect(result.findings.map((f) => `${f.actionId} ${f.code} ${f.dimension ?? ''}`.trim()))
       .toEqual([]);
     expect(result.closed).toBe(true);
     expect(result.subjectCount).toBe(subjects.length);
   });
 
+  /**
+   * Kill probe for the closed verdict. An evaluator that does not compare
+   * projections also reports a closed tree, and only this seeded drift shows it.
+   */
   it('Closure_LiveTree_SeededProjectionDrift_IsReported', () => {
-    // The kill probe for the verdict above. Without it, an evaluator that
-    // stopped comparing projections would read exactly like a closed tree.
     const subjects = collectLiveActionContractSubjects();
     const [first] = subjects;
     expect(first, 'the live tree names at least one subject').toBeDefined();

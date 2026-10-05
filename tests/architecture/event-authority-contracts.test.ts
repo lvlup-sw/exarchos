@@ -1,46 +1,21 @@
 /**
- * Every event a live DECLARATION names must be a governance event.
+ * Each event that a live declaration names must be a governance event.
  *
  * @oracle-sources: ../../src/registry/**, ../../src/events/partition/**,
  * ../../src/events/liveness-registry.ts,
  * ../../src/verbs/gates/check-event-emissions.ts
  *
- * An `emissions` entry and an `event-append` postcondition are both promises
- * the dispatcher is held to: the emission is verified to have landed, the
- * postcondition is checked by re-reading the stream. A contract that named a
- * telemetry event would be promising something the partition says nothing
- * depends on — either the promise is enforced, in which case the event is
- * depended upon and the classification is wrong, or the classification is right
- * and the contract is declaring a promise nothing needs.
+ * The dispatcher verifies each `emissions` entry and each `event-append`
+ * postcondition. A contract that names a telemetry event promises an event
+ * that nothing depends on. Two more tables have the same shape: the
+ * phase-expectation table of the emission gate, and the liveness registry.
+ * The source-scan census cannot see either read, because the reader iterates
+ * a table and does not compare against a literal.
  *
- * Two more declaration tables have the same shape, and both are ones the
- * source-scan census structurally cannot see, because the read they describe is
- * an iteration of a table rather than a comparison against a literal:
- *
- *   • the emission gate's phase-expectation table. The gate iterates it and
- *     asks a set built from the raw stream whether each listed type is present,
- *     so its complete/incomplete verdict is a function of exactly those types.
- *     This is where `stack.submitted` was classified telemetry while a shipped
- *     gate derived a verdict from its presence — and, later, where its flip
- *     landed by deleting the row that was its only reader;
- *   • the liveness registry. Each descriptor names a START type and its
- *     TERMINAL types, and `ps` and the phantom-launch heal pair them through the
- *     `worktrees@v1` fold to decide what is in flight. The decision record filed
- *     `launch.executing_started` beside the hook-tier self-reports; the reader
- *     census names that fold's reducer, and this arm names the descriptor, so a
- *     demotion row for it would be red in both. For the merge and mutation START
- *     claims the census finds no reader at all, and there this arm is the only
- *     oracle.
- *
- * This is an INDEPENDENT check rather than a restatement of the partition. Most
- * of the declared population is `auto` by tier, so it is green under the tier
- * map alone with no witness involved; what the conjunct rules out is a
- * declaration naming a type the tier does not cover — or one a charter
- * demotion has since removed from it.
- *
- * Every arm carries its declaration site, so a failure names where the promise
- * was made rather than only the event — a bare event name would leave a reader
- * grepping the whole registry for it.
+ * Most declared events are `auto` by tier, and the tier map alone makes them
+ * governance. This check rules out a declaration that names a type outside
+ * that tier, or a type that a charter demotion removed from it. Each finding
+ * names its declaration site.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -71,12 +46,11 @@ interface DeclaredEventName {
 const DECLARED_ARMS = ['emissions', 'ensures', 'phase-expectation', 'liveness-pair'] as const;
 
 /**
- * Every event name declared by any live built-in action, in registry order,
- * plus every event the emission gate expects a phase to have produced, plus
- * every START and TERMINAL type a liveness descriptor pairs on.
- *
- * Built by walking `TOOL_REGISTRY` and the live tables rather than a snapshot,
- * so a declaration added without a snapshot refresh is still in the population.
+ * The declared population, read from `TOOL_REGISTRY` and the live tables and
+ * not from a snapshot. It holds each event name that a built-in action
+ * declares, in registry order. It also holds each event that the emission gate
+ * expects from a phase, and each start and terminal type of a liveness
+ * descriptor.
  */
 const DECLARED: readonly DeclaredEventName[] = [
   ...TOOL_REGISTRY.flatMap((tool) =>
@@ -110,9 +84,9 @@ const DECLARED: readonly DeclaredEventName[] = [
 ];
 
 /**
- * The conjunct itself, as a pure function over a declared population and a
- * classification — so the seeded probe below is judged by the same auditor that
- * reads the live registry, not by a parallel branch that could drift from it.
+ * The check itself, as a pure function of a declared population and a
+ * classification. The seeded probes and the live registry thus go through one
+ * auditor.
  */
 function auditDeclaredEventNames(
   declared: readonly DeclaredEventName[],
@@ -128,9 +102,9 @@ function auditDeclaredEventNames(
 }
 
 /**
- * The reverse of the gate-expectation arm: a witness that cites the expectation
- * table is evidence only while the table still lists its type. Pure, so the
- * live table and a seeded stale row go through the same auditor.
+ * The reverse of the gate-expectation arm. A witness that cites the
+ * expectation table is evidence only while the table lists its type. The
+ * function is pure, so the live table and a seeded stale row use one auditor.
  */
 function staleGateExpectationWitnesses(
   witnesses: Readonly<Record<string, AuthorityWitness>>,
@@ -150,29 +124,27 @@ const EXPECTED_BY_SOME_PHASE: ReadonlySet<string> = new Set<string>(
 );
 
 describe('ActionContractConjunct — a declared event is a governance event', () => {
+  /**
+   * Floors, not exact counts: an exact count makes each new action fail this
+   * test. The floor applies to each arm, because a different accessor reads
+   * each arm and each can return nothing. `contractEnsuredEventsOf` returns
+   * `[]` on any failure, and its events are a subset of the emissions arm.
+   *
+   * The liveness arm must equal the registry sum: one start type plus each
+   * terminal type of each descriptor. A literal floor passes when a terminal
+   * list is empty.
+   */
   it('ActionContractConjunct_DeclaredEventPopulation_IsNonEmptyOnEveryArm', () => {
-    // A floor, never the number: pinning the count would turn every new action
-    // into a failure of this oracle instead of a check by it.
     expect(DECLARED.length).toBeGreaterThan(0);
     expect(new Set(DECLARED.map((row) => row.event)).size).toBeGreaterThan(10);
     expect(DECLARED.every((row) => row.site.includes('.'))).toBe(true);
 
-    // PER ARM, because the arms are read by different accessors and each can
-    // fail to nothing on its own. `contractEnsuredEventsOf` in particular
-    // swallows every failure and answers `[]`, and its events are a subset of
-    // the emissions arm's — so a total collapse of that reader changed no result
-    // anywhere until this floor existed.
     for (const arm of DECLARED_ARMS) {
       const rows = DECLARED.filter((row) => row.arm === arm);
       expect(rows.length, `the ${arm} arm resolved no declaration at all`).toBeGreaterThan(0);
       expect(new Set(rows.map((row) => row.event)).size).toBeGreaterThan(0);
     }
 
-    // The liveness arm's population is the registry's by construction — one
-    // START plus every TERMINAL per descriptor — so it is pinned to that sum
-    // rather than to a literal floor, which a descriptor whose terminal list
-    // emptied could have passed (the registry's own suite is what refuses an
-    // empty terminal list; this only holds the arm to reading all of it).
     const liveness = DECLARED.filter((row) => row.arm === 'liveness-pair');
     expect(liveness.filter((row) => row.event.endsWith('.executing_started')).length).toBe(
       LIVENESS_DESCRIPTORS.length,
@@ -182,16 +154,14 @@ describe('ActionContractConjunct — a declared event is a governance event', ()
     );
   });
 
+  /**
+   * No source scan can measure the gate-expectation arm, because the gate
+   * iterates a table. Thus this test measures the arm against the table. The
+   * live witness table can hold no row for this arm, and then the live
+   * assertion alone is vacuous. The seeded witness proves that the auditor
+   * names a type that the table does not list.
+   */
   it('ActionContractConjunct_GateExpectationWitness_IsNamedByTheLiveExpectationTable', () => {
-    // The one witness arm no source scan can re-measure: the gate's read is an
-    // iteration of a table, not a comparison against a literal. So it is
-    // re-measured HERE, against the table itself — a witness whose expectation
-    // row was deleted stops being evidence the moment the row goes.
-    //
-    // The arm may be EMPTY on the live table — it is, since `stack.submitted`
-    // flipped — so the live check alone would be vacuous. The seeded row is
-    // what keeps the auditor honest: a witness citing the arm for a type the
-    // table does not list must be named, through the same function.
     expect(EXPECTED_BY_SOME_PHASE.size).toBeGreaterThan(0);
     expect(staleGateExpectationWitnesses(GOVERNANCE_WITNESSES, EXPECTED_BY_SOME_PHASE)).toEqual([]);
 
@@ -249,13 +219,13 @@ describe('ActionContractConjunct — a declared event is a governance event', ()
     expect(findings.join('\n')).toContain(telemetryType ?? '');
   });
 
+  /**
+   * Probes a false demotion: the launch start claim filed as telemetry. The
+   * claim is governance on the live map. With the flipped map, this arm names
+   * the liveness descriptor that pairs on the claim. This arm also covers the
+   * merge and mutation start claims, which no module reads raw.
+   */
   it('ActionContractConjunct_ADemotedLivenessStart_WouldBeNamedBySite', () => {
-    // The specific false demotion the decision record invited: file the launch
-    // START claim as telemetry. It is governance on the live map; the probe
-    // shows that, had it flipped, this arm names the descriptor that pairs on
-    // it. The reader census would name the `worktrees@v1` reducer as well; this
-    // arm is the one that also covers the merge and mutation START claims,
-    // which no module reads raw.
     const launchStart = 'launch.executing_started';
     expect(classifyEventAuthority(launchStart)).toBe('governance');
 

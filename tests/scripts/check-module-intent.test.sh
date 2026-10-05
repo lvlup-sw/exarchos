@@ -1,19 +1,14 @@
 #!/usr/bin/env bash
-# Self-test for check-module-intent.mjs (task 013, DR-7/DR-8).
+# Self-test for the fail-closed paths of check-module-intent.mjs.
 #
-# DR-8 requires every gate's FAIL-CLOSED paths to be proven in an UNFILTERED CI
-# host. The gate's own `.test.ts` cases run in the path-filtered `test-root`
-# job (its filter excludes `scripts/**`), so a scripts-only PR skips them. This
-# `.test.sh` re-asserts the two DR-8 fail-closed conditions in the UNFILTERED
-# `grep-gates` job (task 015), driving the real CLI via its `--refgraph`
-# testability seam:
+# The `.test.ts` cases of the gate run only in a path-filtered CI job. This
+# script runs in the unfiltered `grep-gates` job. It drives the real CLI
+# through the `--refgraph` flag.
 #
-#   - tool-missing       — the reachability detector (refgraph) is absent:
-#                          `node <missing>` exits non-zero → the gate FAILS
-#                          CLOSED (exit 2) naming a fail-closed scan error.
-#   - unparseable-output — the detector emits garbage (no "ALL DEAD-IN-PROD"
-#                          section): the gate FAILS CLOSED (exit 2) naming the
-#                          missing section, not passing on partial evidence.
+#   - tool-missing: the reachability detector file does not exist. The gate
+#     must exit 2 and name a fail-closed scan error.
+#   - unparseable-output: a stub detector prints no "ALL DEAD-IN-PROD" section.
+#     The gate must exit 2 and name the missing section.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../tools/audit/gates" && pwd)"
@@ -21,8 +16,8 @@ GATE="$SCRIPT_DIR/check-module-intent.mjs"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-# A real, existing src-root (content irrelevant — the detector is stubbed/absent,
-# so the scan fails before any module is read). statSync only needs a directory.
+# The gate requires `--src-root` to be a directory. The directory stays empty,
+# because the scan fails before the gate reads a module.
 mkdir -p "$TMP/src"
 
 pass=0

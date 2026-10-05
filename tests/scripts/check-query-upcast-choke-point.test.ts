@@ -1,10 +1,9 @@
 /**
- * Tests for the read-time upcasting choke-point CI gate (#1556).
+ * Tests for the gate that guards the read-time upcasting choke point.
  *
- * The gate forbids direct backend reads (`.queryEvents(` /
- * `.queryEventsByType(`) outside the events/storage substrate, so every
- * reader folds rows through `migrateEvents` (read-time schema evolution
- * cannot be silently skipped).
+ * The gate forbids a direct backend read (`.queryEvents(` or `.queryEventsByType(`)
+ * outside `events/` and `storage/`. A direct read returns raw rows that skip
+ * the `migrateEvents` upcast.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
@@ -125,12 +124,11 @@ describe('check-query-upcast-choke-point CLI (#1556)', () => {
     expect(status, `stderr: ${stderr}`).toBe(0);
   });
 
+  /**
+   * The `validate` script runs `run-validate.mjs`, which reads its steps from
+   * `tools/audit/gates/validate-manifest.json`. The test finds the gate in that manifest.
+   */
   it('Validate_ChainedIntoNpmValidate', () => {
-    // Task 064 (DR-24): `validate` is no longer an inline `&&` chain, so a
-    // substring check on `pkg.scripts.validate` can no longer see whether this
-    // gate is wired into it. The steps are DATA now — the old chain died at
-    // step 1 and every later gate read as skipped-as-passed — so the same
-    // question is put to tools/audit/gates/validate-manifest.json instead.
     const pkg = JSON.parse(readFileSync(ROOT_PACKAGE_JSON, 'utf8')) as {
       scripts?: Record<string, string>;
     };

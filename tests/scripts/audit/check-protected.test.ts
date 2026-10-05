@@ -52,11 +52,12 @@ describe('isKeepClassRelPath — suffix/area/explicit classifier (DR-5)', () => 
     expect(isKeepClassRelPath(relPath)).toBe(expected);
   });
 
+  /**
+   * The dedicated-suite suffix decides keep-class status, and the imports of a
+   * file do not. A file that imports fast-check but has a plain `.test.ts`
+   * suffix is a consolidation target, not a protected suite.
+   */
   it('is NOT fooled by a file merely importing fast-check (events/tools.test.ts)', () => {
-    // The design invariant this whole task exists to enforce: keep-class
-    // status is by dedicated-suite SUFFIX, never by import content.
-    // event-store/tools.test.ts imports fast-check but has a plain `.test.ts`
-    // suffix — it is a mixed CONSOLIDATION TARGET, not protected.
     expect(isKeepClassRelPath('event-store/tools.test.ts')).toBe(false);
   });
 
@@ -65,8 +66,8 @@ describe('isKeepClassRelPath — suffix/area/explicit classifier (DR-5)', () => 
     expect(isKeepClassRelPath('views/handlers.test.ts')).toBe(false);
   });
 
+  /** `xparity.test.ts` contains `parity.test.ts` but not `.parity.test.ts`. */
   it('does not match a suffix substring lacking the leading dot (no false positive)', () => {
-    // "xparity.test.ts" contains "parity.test.ts" but not ".parity.test.ts".
     expect(isKeepClassRelPath('adapters/xparity.test.ts')).toBe(false);
   });
 
@@ -127,11 +128,12 @@ describe('buildInventory / loadInventory round trip', () => {
     expect(shipped).toEqual(live);
   });
 
+  /**
+   * A root that does not exist gives an empty walk, so each suite under it
+   * loses protection. Nothing reports that, because the regenerated snapshot
+   * matches the empty walk.
+   */
   it('PROTECTED_ROOTS_ALL_EXIST', () => {
-    // A root that no longer exists walks nothing and drops every suite under it
-    // from protection — silently, since the regenerated snapshot then matches
-    // the walk that found nothing. Task 018a moved `parity/` out of `src` and
-    // that is exactly what happened.
     expect(PROTECTED_ROOTS.length).toBeGreaterThan(0);
     for (const root of PROTECTED_ROOTS) {
       expect(existsSync(path.join(REPO_ROOT, root)), `protected root ${root} does not exist`).toBe(
@@ -161,8 +163,8 @@ describe('findProtectedViolations — the change-set intersection', () => {
     expect(findProtectedViolations(changed, inventoryFiles)).toEqual([`${PRIMARY_ROOT}/events/parity.test.ts`]);
   });
 
+  /** The inventory is empty, so only the live suffix rule catches the file. */
   it('flags a NEW keep-class-suffixed file even before the snapshot is regenerated (no-drift design)', () => {
-    // Not present in inventoryFiles at all — only the live suffix rule catches it.
     const changed = [`${PRIMARY_ROOT}/workflow/brand-new-thing.race.test.ts`];
     expect(findProtectedViolations(changed, [])).toEqual([`${PRIMARY_ROOT}/workflow/brand-new-thing.race.test.ts`]);
   });

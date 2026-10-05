@@ -1,14 +1,12 @@
 /**
- * The call shape the canonical skills prescribe today, held still until the
- * protocol that changes it lands.
+ * The call shape that the canonical skills prescribe today.
  *
- * A claim that a new protocol cuts the calls per workflow is only testable
- * against a shape recorded before the change. This guard keeps that record
- * honest in both directions: the live tree must reproduce the checked-in census
- * byte for byte, so a skill or runbook edit that moves the prescribed shape
- * fails here until the census is regenerated and its diff read; and the census
- * must count something for every named intent, so an extractor that quietly
- * found nothing cannot pass as a shape with no calls in it.
+ * A claim that a new protocol reduces the calls per workflow needs a shape
+ * recorded before the change. The live tree must reproduce the checked-in
+ * census byte for byte. Thus a skill or runbook edit that moves the shape
+ * fails here until someone regenerates the census and reads its diff. The
+ * census must also count a call for each named intent, so an extractor that
+ * finds nothing cannot pass.
  */
 
 import { describe, it, expect } from 'vitest';

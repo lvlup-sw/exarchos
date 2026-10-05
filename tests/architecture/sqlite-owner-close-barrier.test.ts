@@ -1,14 +1,14 @@
 // A class that owns a SQLite handle and has a `close()` method must not open a
-// handle again after `close()` has run. Before #2026, an append that was still
-// in flight reached the lazy open after the owner closed, and it opened a new
-// handle that nothing owned. On Windows that handle kept `exarchos.db` locked.
+// handle after `close()` runs. An append that is still in flight can reach the
+// lazy open after the owner closes. Then the new handle has no owner, and on
+// Windows it keeps `exarchos.db` locked.
 //
 // This guard parses every tracked source file under `src/`. In each class that
 // declares `close()`, it finds each `new SqliteBackend(...)` and each
 // `new Database(...)` outside the constructor. Each one must come after a call
-// to `this.assertOpen()` in the same member. The guard proves that it scanned
-// the source tree and the known owners, and that its matcher finds a seeded
-// violation and ignores a clean twin.
+// to `this.assertOpen()` in the same member. The tests also prove that the scan
+// covers the source tree and the known owners. They prove that the matcher
+// finds a seeded violation and accepts a clean twin.
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -109,7 +109,7 @@ async function scanTree(): Promise<{ readonly filesScanned: number; readonly sit
 }
 
 describe('SQLite handle owners refuse to reopen after close (#2026)', () => {
-  /** A moved tree or a broken filter would otherwise leave nothing to check. */
+  /** Without these floors, a moved tree or a broken filter leaves nothing to check. */
   it('SqliteOwnerGuard_ScansTheSourceTreeAndTheKnownOwners', async () => {
     const { filesScanned, sites } = await scanTree();
 

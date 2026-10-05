@@ -1,9 +1,9 @@
-// The four phase gates that run a repository's tests take the command from the
-// toolchain resolver. This guard fails if one of them builds an `npm` or `npx`
-// command. It parses each file and reads every string and template literal, so
-// a comment does not count and a command kept in a variable still counts. It
-// proves that it scanned all four files and that its matcher finds a seeded
-// violation.
+// The four phase gates that run the tests of a repository take the command
+// from the toolchain resolver. This guard fails if one of them builds an `npm`
+// or `npx` command. It parses each file and reads each string and template
+// literal. Thus a comment does not count, and a command in a variable still
+// counts. It proves that it scanned all four files and that its matcher finds
+// a seeded violation.
 
 import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
@@ -28,7 +28,7 @@ interface ScanResult {
   readonly violations: readonly string[];
 }
 
-/** Every string or template literal in `source` that starts an npm or npx command. */
+/** Each string or template literal in `source` that starts an npm or npx command. */
 function scanLiterals(fileName: string, source: string): ScanResult {
   const sourceFile = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   let literalCount = 0;
@@ -58,7 +58,7 @@ function scanGateFiles(): Map<string, ScanResult> {
 }
 
 describe('phase gates resolve their test command', () => {
-  /** A moved or renamed gate file would otherwise leave nothing to scan. */
+  /** `scanGateFiles` skips a missing file, so this test fails when a gate file moves. */
   it('PhaseGateGuard_ScansAllFourGateFiles', () => {
     const results = scanGateFiles();
 
@@ -80,7 +80,7 @@ describe('phase gates resolve their test command', () => {
     expect(offenders).toEqual({});
   });
 
-  /** Each seeded line is one form the gates used before they read the resolver. */
+  /** Each seeded line is one form of a hard-coded `npm` or `npx` command. */
   it('PhaseGateGuard_Matcher_FindsSeededViolations', () => {
     const seeded = [
       "runCommandSync('npm', ['run', 'test:run'], { cwd: repoRoot });",

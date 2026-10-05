@@ -1,46 +1,39 @@
 import type { ChildProcess } from 'node:child_process';
 
 /**
- * Module-global registry of spawned child processes.
- *
- * Module-scoped mutable state is acceptable here because vitest provides
- * per-worker process isolation — each worker loads this module fresh and the
- * registry is scoped to that worker's spawned children only.
- *
- * Consumed internally by runCli, spawnMcpClient, and expectNoLeakedProcesses.
- * Not re-exported from the public fixture barrel.
+ * The child processes that this worker spawned. Each vitest worker has its own
+ * copy of this module, so the registry holds only the children of that worker.
+ * `runCli`, `spawnMcpClient` and `expectNoLeakedProcesses` use it. The fixture
+ * barrel does not export it.
  */
 const registry: Set<ChildProcess> = new Set();
 
 /**
- * Original command (argv[0..n]) captured at register() time, for use in
- * leak-detector error messages once the child has already been killed and
- * `spawnargs` may be unreliable. Stored as a weak-keyed side channel.
+ * The command of each child, copied when `register` runs. The leak detector
+ * names the command in its error after the child is dead, when `spawnargs`
+ * can be unreliable.
  */
 const commandByChild: WeakMap<ChildProcess, readonly string[]> = new WeakMap();
 
-/** Register a spawned child process for later lifecycle management. Idempotent. */
+/** Registers a spawned child and copies its command. A second call for the same child does nothing. */
 export function register(child: ChildProcess): void {
   if (registry.has(child)) {
     return;
   }
   registry.add(child);
-  // Capture the original command so later error messages can reference it
-  // even if the ChildProcess is force-killed or drained.
   if (Array.isArray(child.spawnargs)) {
     commandByChild.set(child, [...child.spawnargs]);
   }
 }
 
-/** Remove a child from the registry, e.g. on clean exit. */
+/** Removes a child from the registry, for example after a clean exit. */
 export function unregister(child: ChildProcess): void {
   registry.delete(child);
 }
 
 /**
- * Return every registered child that is still running (has not exited).
- * Children that exit naturally are filtered out but remain in the registry
- * until unregister() or clear() is called.
+ * Returns each registered child that did not exit. A child that exits stays in
+ * the registry until `unregister` or `clear` removes it.
  */
 export function listAlive(): ChildProcess[] {
   const alive: ChildProcess[] = [];
@@ -53,8 +46,10 @@ export function listAlive(): ChildProcess[] {
 }
 
 /**
- * Send SIGTERM to every alive child, wait up to `timeoutMs` for them to exit,
- * then SIGKILL any survivors. Resolves once all registered children have exited.
+ * Sends SIGTERM to each live child and waits at most `timeoutMs` for the exits.
+ * Then it sends SIGKILL to each survivor and waits for those exits. It attaches
+ * the exit listeners before the first signal, so it does not miss a fast exit.
+ * It ignores a `kill` error, because the child can be in its exit already.
  */
 export async function killAll({ timeoutMs = 3000 }: { timeoutMs?: number } = {}): Promise<void> {
   const alive = listAlive();
@@ -62,7 +57,6 @@ export async function killAll({ timeoutMs = 3000 }: { timeoutMs?: number } = {})
     return;
   }
 
-  // Set up exit listeners before signalling so we don't miss fast exits.
   const exitPromises = alive.map(
     (child) =>
       new Promise<void>((resolve) => {
@@ -74,22 +68,18 @@ export async function killAll({ timeoutMs = 3000 }: { timeoutMs?: number } = {})
       }),
   );
 
-  // SIGTERM phase.
   for (const child of alive) {
     try {
       child.kill('SIGTERM');
     } catch {
-      // Child may already be exiting; ignore.
     }
   }
 
-  // Wait for graceful exit up to the timeout.
   await Promise.race([
     Promise.all(exitPromises),
     new Promise<void>((resolve) => setTimeout(resolve, timeoutMs)),
   ]);
 
-  // SIGKILL survivors.
   const survivors = alive.filter(
     (child) => child.exitCode === null && child.signalCode === null,
   );
@@ -101,11 +91,9 @@ export async function killAll({ timeoutMs = 3000 }: { timeoutMs?: number } = {})
     try {
       child.kill('SIGKILL');
     } catch {
-      // ignore
     }
   }
 
-  // Wait for survivors to actually exit after SIGKILL.
   await Promise.all(
     survivors.map(
       (child) =>
@@ -120,15 +108,12 @@ export async function killAll({ timeoutMs = 3000 }: { timeoutMs?: number } = {})
   );
 }
 
-/** Empty the registry without touching process state. Test-setup hook. */
+/** Empties the registry. It does not signal a child. */
 export function clear(): void {
   registry.clear();
 }
 
-/**
- * Internal accessor for the original command associated with a child at
- * register() time. Used by leak-detector error messages.
- */
+/** Returns the command that `register` copied for `child`. The leak detector prints it. */
 export function getRegisteredCommand(child: ChildProcess): readonly string[] | undefined {
   return commandByChild.get(child);
 }

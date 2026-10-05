@@ -1,3 +1,17 @@
+/**
+ * Scans the tracked sources for the two artifact-directory literals.
+ * `src/config/artifacts.ts` owns both. A new `path.join` call on a re-typed
+ * literal looks ordinary in review, so this scan keeps the literals with their
+ * owner.
+ *
+ * The scan puts each line that holds a literal into one of two tiers:
+ * - Functional: the literal drives a path construction, a prefix comparison, or
+ *   a directory constant. Such a use makes a configured directory unreachable.
+ *   The allowlist is closed.
+ * - Prose: the literal appears in agent-facing text, such as a tool description
+ *   or an error message. It shapes behavior and gates nothing. A budget for
+ *   each file makes new prose coupling visible.
+ */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
@@ -5,61 +19,36 @@ import { fileURLToPath } from 'node:url';
 
 import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 
-// ─── Artifact-directory literal scan (DR-6, task 005) ────────────────────────
-//
-// `docs/specs/` and `docs/designs/` used to be re-typed wherever they were
-// needed. Task 005 gave them one owner (`config/artifacts.ts`); this scan is
-// what keeps them there, because the coupling re-accumulates silently — a new
-// `path.join(root, 'docs/specs')` looks perfectly ordinary in review.
-//
-// Two tiers, because the two failure modes are different:
-//
-//   1. FUNCTIONAL — the literal drives a path construction, a prefix
-//      comparison, or a directory constant. This is the real coupling: it makes
-//      a configured directory unreachable. The allowlist is closed.
-//   2. PROSE — the literal appears in agent-facing text (tool descriptions,
-//      phase playbooks, error messages). It shapes behaviour without gating it,
-//      so it is a known, bounded debt rather than a defect. Pinned per file so
-//      new prose coupling is visible; task 021+ retires it with the docs move.
-
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../');
 
 const LITERALS = ['docs/specs', 'docs/designs'] as const;
 
-/**
- * The single owner of the two prefixes. Every other module must import from
- * here rather than re-declaring the string.
- */
+/** The one owner of the two prefixes. Every other module imports them from this file. */
 const OWNER = 'src/config/artifacts.ts';
 
-/**
- * The only files allowed a functional literal.
- *
- *   - the OWNER, which is where the two defaults are declared;
- *   - `guard-inventory.ts`, which pins ONE named historical document rather
- *     than the tree — it could not follow a project's configured
- *     `artifacts.spec-dir` even in principle, because it names a specific file
- *     at a specific path in this repository's history.
- */
+/** The only files that can hold a functional literal. */
 const FUNCTIONAL_ALLOWLIST: ReadonlyArray<string> = [
+  /** Declares the two defaults. */
   OWNER,
-  // The guard inventory's `SPEC_PATH`: it names a specific frozen document at a
-  // specific path in this repository's history, so it could not follow a
-  // project's configured `artifacts.spec-dir` even in principle. It moved from
-  // `guard-inventory.ts` into the module that now declares the inventory's
-  // roots.
+  /**
+   * Holds `SPEC_PATH`, which names one frozen document at a fixed path in this
+   * repository. It cannot follow the `artifacts.spec-dir` that a project
+   * configures.
+   */
   'tools/audit/gates/guard-inventory/paths.ts',
-  // Names the mounted planning-corpus prefixes so an unmounted checkout can
-  // skip them. Same class as SPEC_PATH: a repository-historical location,
-  // not a project's configured spec-dir.
+  /**
+   * Names the mounted planning-corpus prefixes so that an unmounted checkout
+   * can skip them. Like `SPEC_PATH`, they are locations in this repository,
+   * not a configured spec directory.
+   */
   'tools/audit/gates/check-measured-premises.mjs',
 ];
 
 /**
- * Agent-facing prose carrying the literal, file → occurrence count. A ratchet:
- * lowering an entry is always welcome, raising one (or adding a file) must be a
- * deliberate edit to this table.
+ * The count of prose lines that hold a literal, for each file. The table is a
+ * ratchet: a lower count is welcome, and a higher count or a new file needs a
+ * deliberate edit here.
  */
 const PROSE_BUDGET: Readonly<Record<string, number>> = {
   'tools/audit/gates/check-measured-premises.mjs': 1,
@@ -67,17 +56,6 @@ const PROSE_BUDGET: Readonly<Record<string, number>> = {
   'src/verbs/gates/design-completeness.ts': 1,
   'src/verbs/tasks/discover-bridge.ts': 1,
   'src/verbs/team/prepare-review.ts': 1,
-  // These three replace a single `src/registry.ts: 1` entry. The registry's
-  // action declarations were split across modules and the count rose 1 -> 4
-  // with no new prose: the same six occurrences exist (four in descriptions,
-  // two in comments), verbatim.
-  //
-  // The old count was low because `stripComments` pairs `/*` with the NEXT
-  // `*/` across the whole file. Run against the 4,587-line original it blanked
-  // the regions three of the four sat in — measured directly: the original
-  // strips to one surviving line, the three modules below to four between
-  // them, from identical text. So this is the honest count becoming visible,
-  // and the budget it ratchets against is now a real one.
   'src/registry/actions/workflow.ts': 1,
   'src/registry/actions/orchestrate/gates.ts': 2,
   'src/registry/actions/orchestrate/review-ops.ts': 1,
@@ -86,8 +64,13 @@ const PROSE_BUDGET: Readonly<Record<string, number>> = {
 };
 
 /**
- * Blank out comments while preserving line numbers, so a literal explaining the
- * convention in a JSDoc block is never mistaken for one driving behaviour.
+ * Blanks comments and keeps line numbers, so a literal in a JSDoc block does
+ * not count as a use. A `//` after an odd number of quote characters is inside
+ * a string, such as a URL or a glob, and stays.
+ *
+ * The block pattern pairs each block-comment opener with the next closer in
+ * the file. Thus an opener inside a string blanks the code up to that closer,
+ * and the scan does not see a literal there.
  */
 function stripComments(src: string): string {
   const blockless = src.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '));
@@ -97,7 +80,6 @@ function stripComments(src: string): string {
       const i = line.indexOf('//');
       if (i === -1) return line;
       const before = line.slice(0, i);
-      // Inside an unterminated string (a URL, a glob) — not a comment.
       if ((before.match(/['"`]/g) ?? []).length % 2 === 1) return line;
       if (before.endsWith(':') || before.endsWith('/')) return line;
       return before;
@@ -105,7 +87,7 @@ function stripComments(src: string): string {
     .join('\n');
 }
 
-/** Does this line USE the literal, rather than merely mention it? */
+/** True when the line uses the literal in a path call, a prefix comparison, or a constant. */
 function isFunctionalUse(line: string): boolean {
   return (
     /path\.(join|resolve)\([^)]*['"`][^'"`]*docs\/(specs|designs)/.test(line) ||
@@ -154,9 +136,11 @@ async function scan(): Promise<Scan> {
 const result = await scan();
 
 describe('artifact-directory literals have exactly one owner (DR-6)', () => {
+  /**
+   * A scan that reads no file finds no functional use. This test fails when
+   * the glob, the git call, or the comment stripper breaks.
+   */
   it('the scan is not vacuous', () => {
-    // A scan that walks nothing passes everything. If the glob, the git call,
-    // or the comment stripper breaks, this is the test that says so.
     expect(result.filesScanned).toBeGreaterThan(500);
     expect(result.prose.size).toBeGreaterThan(0);
   });

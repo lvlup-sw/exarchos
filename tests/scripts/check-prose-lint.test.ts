@@ -1,25 +1,10 @@
 /**
- * Tests for the prose-lint CI gate (task T049, DR-13).
+ * Tests for the CLI contract of the prose-lint gate.
  *
- * Phase progression:
- *   - RED: `tools/audit/gates/check-prose-lint.mjs` does not yet exist; these tests
- *     fail because spawning the script yields ENOENT and because the root
- *     `package.json` `validate` chain has not been extended to invoke it.
- *   - GREEN: the `.mjs` wrapper shells out to `tsx` against a co-located
- *     TS entrypoint (`src/projections/rehydration/
- *     prose-lint-cli.ts`) which calls `lintTemplate()` (default) or, when
- *     given `--template-source <path>`, runs `lintProse()` over the
- *     contents of that file. Exit 0 on no violations, 1 on violations,
- *     2 on usage / env errors. The validate chain is extended to invoke
- *     the wrapper after the prefix-fingerprint check.
- *
- * Rationale: DR-13 requires the rehydration document template's prose
- * surface to stay free of the AI-writing patterns cataloged by the
- * `humanize` skill (see T048 for the implementation). Without a CI gate,
- * an editor could silently re-introduce slop into the template prose and
- * the agents that hydrate from it would learn to mirror those tells back.
- * This test exercises the CLI contract only — the pattern set is covered
- * by `prose-lint.test.ts`.
+ * The gate keeps the prose of the rehydration template free of the AI-writing
+ * patterns that the `humanize` skill catalogs. Agents that hydrate from the
+ * template copy its style.
+ * `tests/unit/projections/rehydration/prose-lint.test.ts` covers the pattern set.
  */
 import { describe, it, expect } from 'vitest';
 import { mkdtempSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
@@ -36,11 +21,10 @@ const SCRIPT = path.join(REPO_ROOT, 'tools', 'audit', 'gates', 'check-prose-lint
 const ROOT_PACKAGE_JSON = path.join(REPO_ROOT, 'package.json');
 
 /**
- * Spawn the check script and capture status / stdout / stderr. The script
- * defaults to running `lintTemplate()` over the live template module; an
- * optional `--template-source <path>` flag lets tests substitute a file
- * containing seeded AI-writing patterns so the divergence path can be
- * exercised without mutating the real template.
+ * Spawns the check script. With no arguments the script lints the live template.
+ * `--template-source <path>` lints that file, so a test can seed patterns and
+ * leave the real template unchanged.
+ * The script runs `tsx`, so the child inherits the full environment.
  */
 async function runCheck(extraArgs: string[] = []): Promise<{
   status: number | null;
@@ -49,7 +33,6 @@ async function runCheck(extraArgs: string[] = []): Promise<{
 }> {
   const result = await spawnAsync('node', [SCRIPT, ...extraArgs], {
     cwd: REPO_ROOT,
-    // The script shells out to `tsx`; inherit PATH + node-path env.
     env: { ...process.env },
   });
   return {
@@ -61,31 +44,21 @@ async function runCheck(extraArgs: string[] = []): Promise<{
 
 describe('check-prose-lint CLI (T049, DR-13)', () => {
   it('Script_Exists', () => {
-    // The GREEN step creates this file. In RED it must not exist, so this
-    // assertion fails in RED and passes in GREEN.
     expect(existsSync(SCRIPT)).toBe(true);
   });
 
+  /** A non-zero exit means that the template drifted, or that the wrapper is wired incorrectly. */
   it('Validate_CleanTemplate_ExitsZero', async () => {
-    // With no args, the script lints the live rehydration template via
-    // `lintTemplate()`. T048 left the template clean, so a non-zero exit
-    // here means either the template has drifted or the wrapper is wired
-    // incorrectly. Surface stderr in the failure message so CI logs are
-    // actionable.
     const { status, stdout, stderr } = await runCheck();
     expect(status, `stderr: ${stderr}\nstdout: ${stdout}`).toBe(0);
   });
 
+  /**
+   * The seed holds patterns from the `ai-vocabulary`, `conjunction-overuse` and
+   * `cliche` categories, because one pattern cannot show a dropped category.
+   * stderr must show the matched patterns, so a reviewer can find them without a local run.
+   */
   it('Validate_AiWritingInTemplate_ExitsNonZero', async () => {
-    // Seed a file with multiple high-signal AI tells and feed it via the
-    // `--template-source` flag. The script must exit non-zero (1) and
-    // print the offending pattern names + line numbers to stderr so a
-    // reviewer can locate the slop without re-running the lint manually.
-    //
-    // The seed string matches at least the ai-vocabulary, conjunction-
-    // overuse, and cliche categories — a single-pattern seed would be a
-    // weaker assertion (the wrapper could silently drop categories and
-    // still pass).
     const dir = mkdtempSync(path.join(tmpdir(), 'prose-lint-'));
     try {
       const seededFile = path.join(dir, 'seeded-template.md');
@@ -102,9 +75,6 @@ describe('check-prose-lint CLI (T049, DR-13)', () => {
       ]);
 
       expect(status).toBe(1);
-      // Diagnostic surface must name the offending patterns so a reviewer
-      // can map the failure back to the humanize catalog without rerunning
-      // the lint locally.
       expect(stderr).toMatch(/delve/i);
       expect(stderr).toMatch(/tapestry/i);
       expect(stderr).toMatch(/moreover/i);
@@ -113,15 +83,12 @@ describe('check-prose-lint CLI (T049, DR-13)', () => {
     }
   });
 
+  /**
+   * The `validate` script runs `run-validate.mjs`, which reads its steps from
+   * `tools/audit/gates/validate-manifest.json`. The test reads that data and does
+   * not run `npm run validate`, so a dropped step gives a clear diagnostic.
+   */
   it('Validate_ChainedIntoNpmValidate', () => {
-    // The whole point of T049 is wiring the lint into `npm run validate`.
-    // Task 064 (DR-24) moved the declared steps out of an inline `&&` chain and
-    // into tools/audit/gates/validate-manifest.json, because the chain died at step 1 and
-    // made every later gate read as skipped-as-passed. So the wiring question is
-    // now put to the manifest; the npm script itself only shows the runner.
-    // Still deliberately a data-level check rather than executing `npm run
-    // validate` — failing here gives the clearest diagnostic when someone drops
-    // the step.
     const pkg = JSON.parse(readFileSync(ROOT_PACKAGE_JSON, 'utf8')) as {
       scripts?: Record<string, string>;
     };

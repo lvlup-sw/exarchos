@@ -14,11 +14,12 @@ import {
   type CycleGateDeps,
 } from '../../../tools/audit/cycle-gate.js';
 
-// ─── depcruise JSON graph builder ────────────────────────────────────────────
-// A depcruise `--output-type json` document is `{ modules: [{ source,
-// dependencies: [{ resolved, dependencyTypes }] }] }`. Runtime edges carry
-// non-`type-only` dependencyTypes; the detector counts those and ignores the
-// rest. Fixtures use the `src/` prefix and the tests pass `srcPrefix: 'src'`.
+/**
+ * Builds a depcruise `--output-type json` document from a list of edges. A
+ * runtime edge has dependency types other than `type-only`. The detector
+ * counts the runtime edges and ignores the rest. The fixtures use the `src/`
+ * prefix, and the tests pass `srcPrefix: 'src'`.
+ */
 const graph = (edges: Array<[string, string, string[]?]>): string =>
   JSON.stringify({
     modules: (() => {
@@ -95,22 +96,21 @@ function captureDeps(overrides: {
 const baselineDoc = (entries: unknown[]): { entries: unknown[] } => ({ entries });
 
 describe('detectCyclesOrThrow', () => {
+  /** The scan also reports the node and edge counts, so a zero-cycle verdict shows the size of the graph. */
   it('parses a valid graph into runtime cycles', () => {
     const scan = detectCyclesOrThrow(CYCLE_AB, 'src');
     expect(scan.cycles).toHaveLength(1);
-    // The population is reported alongside the finding (DR-8, task 079), so a
-    // "0 cycles" verdict can be read against the size of what was searched.
     expect(scan.nodeCount).toBeGreaterThan(0);
     expect(scan.edgeCount).toBeGreaterThan(0);
   });
 
+  /**
+   * Kill fixture. The graph parses, but the prefix matches no module, as after
+   * a moved tree or a depcruise run on the wrong path. Without this error, the
+   * node set and the cycle list are empty and the gate prints an OK verdict.
+   * The phantom check does not catch that, because the baseline is empty.
+   */
   it('throws EmptyCycleGraphError when the prefix resolves no first-party node', () => {
-    // KILL FIXTURE (task 079). The graph parses; the prefix simply matches
-    // nothing — a relocated tree, a renamed package dir, a depcruise run scoped
-    // to the wrong path. `buildAdjacency` then yields an empty node set, an
-    // empty cycle list, and the gate printed `OK: 0 runtime cycle(s)` and exited
-    // 0. The baseline's phantom tooth does not cover it either: it fires only
-    // against baselined entries, and the baseline is (correctly) empty.
     expect(() => detectCyclesOrThrow(CYCLE_AB, 'no/such/prefix')).toThrow(EmptyCycleGraphError);
     expect(() => detectCyclesOrThrow(CYCLE_AB, 'no/such/prefix')).toThrow(
       /indistinguishable from an acyclic tree/,
@@ -154,8 +154,6 @@ describe('loadCycleBaseline', () => {
   });
 });
 
-// ─── The FOUR DR-4 failure modes, one self-test each (BY NAME) ────────────────
-
 describe('runCycleGate — DR-4 failure modes', () => {
   it('SYNTHETIC CYCLE → FAIL (exit 1): an unbaselined live cycle', () => {
     const { deps, err } = captureDeps({ run: foundRun(CYCLE_AB), baseline: baselineDoc([]) });
@@ -164,9 +162,8 @@ describe('runCycleGate — DR-4 failure modes', () => {
     expect(err.join('\n')).toMatch(/src\/a\.ts -> src\/b\.ts/);
   });
 
+  /** Both live edges are in the baseline with past dates, so only the `expired` mode fires. */
   it('EXPIRED baseline entry → FAIL (exit 1)', () => {
-    // Both live edges are baselined (so no unbaselined / no phantom) but the
-    // waivers have lapsed — isolates the `expired` mode.
     const { deps, err } = captureDeps({
       run: foundRun(CYCLE_AB),
       baseline: baselineDoc([
@@ -178,10 +175,11 @@ describe('runCycleGate — DR-4 failure modes', () => {
     expect(err.join('\n')).toMatch(/expired/);
   });
 
+  /**
+   * Both live edges are in the baseline and are permanent. The extra entry
+   * `src/x.ts -> src/y.ts` matches no live cycle, so only the `phantom` mode fires.
+   */
   it('PHANTOM entry → FAIL (exit 1): a baselined edge matching no live cycle', () => {
-    // Both live edges are baselined (no unbaselined) and all permanent (no
-    // expired); the extra `src/x.ts -> src/y.ts` entry matches no live cycle —
-    // isolates the `phantom` mode (the no-mask tooth).
     const { deps, err } = captureDeps({
       run: foundRun(CYCLE_AB),
       baseline: baselineDoc([
@@ -206,8 +204,6 @@ describe('runCycleGate — DR-4 failure modes', () => {
   });
 });
 
-// ─── The other DR-8 fail-closed paths + the green path ────────────────────────
-
 describe('runCycleGate — additional fail-closed paths (DR-8)', () => {
   it('UNPARSEABLE-OUTPUT → FAIL CLOSED (exit 2) when depcruise emits garbage', () => {
     const { deps, err } = captureDeps({ run: foundRun('not json <<<', 1), baseline: baselineDoc([]) });
@@ -222,11 +218,12 @@ describe('runCycleGate — additional fail-closed paths (DR-8)', () => {
     expect(err.join('\n')).toMatch(/bad-baseline/);
   });
 
+  /**
+   * Kill fixture. The graph is well-formed and depcruise exits 0, but
+   * `srcPrefix` matches no module. The gate must fail closed, and must print no
+   * OK verdict for a tree that it did not examine.
+   */
   it('EMPTY-GRAPH → FAIL CLOSED (exit 2) when the source root resolves no module', () => {
-    // KILL FIXTURE (task 079). This is the arm that did not exist: the graph is
-    // well-formed and depcruise exited 0, but `srcPrefix` matches nothing. The
-    // gate previously reported `OK: 0 runtime cycle(s)` and exited 0 — a blocking
-    // ratchet printing a clean verdict for a surface it never examined.
     const { deps, err, out } = captureDeps({
       run: foundRun(CYCLE_AB),
       baseline: baselineDoc([]),
@@ -235,7 +232,6 @@ describe('runCycleGate — additional fail-closed paths (DR-8)', () => {
     expect(runCycleGate(deps)).toBe(EXIT_GATE_ERROR);
     expect(err.join('\n')).toMatch(/empty-graph/);
     expect(err.join('\n')).toMatch(/No first-party module resolved/);
-    // …and it does NOT report success anywhere.
     expect(out.join('\n')).not.toMatch(/OK/);
   });
 });

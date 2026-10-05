@@ -1,5 +1,5 @@
-// Tests for the file-boundary reset (#2030): the env restore on its own, and
-// a real vitest run in which two test files share one worker process.
+// Tests for the file-boundary reset (#2030). One test checks the env restore alone.
+// The other runs vitest with two test files that share one worker process.
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -100,9 +100,9 @@ describe('process-state reset (#2030)', () => {
   });
 
   /**
-   * The real boundary: two files in one worker. Without the reset the second
-   * file sees the first file's state, which proves the probe can see a leak;
-   * with the reset both files start clean.
+   * The real boundary: two files in one worker. Without the reset, the second file sees
+   * the state of the first file, which proves that the probe can see a leak.
+   * With the reset, both files start clean.
    */
   it('ResetSetupFile_TwoFilesInOneWorker_SecondFileStartsClean', async () => {
     const sandbox = await makeRepoSandbox({ prefix: 'file-boundary' });

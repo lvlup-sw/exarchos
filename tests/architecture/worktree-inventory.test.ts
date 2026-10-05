@@ -1,10 +1,9 @@
 /**
- * The worktree and branch inventory — a record, not a removal warrant.
+ * The worktree and branch inventory is a record, not a list of things to remove.
  *
- * Pruning is withdrawn. 66 of 67 worktrees carry commits absent from the base
- * branch, and one held the only copy of an unlanded implementation that was
- * found by accident. These assertions exist to keep the artifact honest about
- * what it is, so a later reader does not mistake a census for a hit list.
+ * Pruning is withdrawn, because one worktree held the only copy of an unlanded
+ * implementation. These assertions keep the artifact a census, so a later reader does not
+ * use it as a prune list.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -46,27 +45,26 @@ async function liveWorktreeCount(): Promise<number> {
 const worktreesAtCollection = await liveWorktreeCount();
 
 describe('worktree inventory', () => {
-  // The committed inventory is a snapshot of the author's multi-worktree
-  // machine. A CI checkout (and this cloud agent) has one worktree, so the
-  // live-count assertion is skipped there. Internal consistency still runs.
+  /**
+   * The committed inventory is a snapshot of a machine with many worktrees. A CI checkout has
+   * one worktree, so this test skips there. A partial inventory is a hazard, because an
+   * omitted worktree looks like one that does not exist.
+   */
   it.skipIf(worktreesAtCollection <= 1)('WorktreeInventory_EveryRegisteredWorktree_IsRecorded', async () => {
-    // A partial inventory is the dangerous kind: whatever it omits looks like
-    // it does not exist.
     const registered = await liveWorktreeCount();
 
     expect(inventory.worktrees.records).toHaveLength(inventory.worktrees.total);
     expect(inventory.worktrees.total).toBe(registered);
   });
 
+  /** The inventory must not get a destructive mode later. */
   it('WorktreeInventory_Disposition_IsInventoryOnly', () => {
-    // The instrument must not quietly acquire a destructive mode later.
     expect(inventory.disposition).toBe('inventory-only');
     expect(inventory.dispositionRationale).toMatch(/unlanded|reversible/i);
   });
 
+  /** Without the caveat, the ahead count reads as worktrees with unique work, which justifies a prune. */
   it('WorktreeInventory_AheadCount_CarriesTheSquashMergeCaveat', () => {
-    // Without this the count reads as "66 worktrees hold unique work", which
-    // would justify exactly the deletion this task refuses to perform.
     expect(inventory.worktrees.countingCaveat).toMatch(/squash/i);
     expect(inventory.worktrees.countingCaveat).toMatch(/overstate/i);
   });
@@ -84,14 +82,12 @@ describe('worktree inventory', () => {
     expect(mergedIntoBase + unmerged).toBe(total);
   });
 
+  /**
+   * The session that captures the inventory is one of the entries, so a prune from that
+   * session removes its own worktree. The expected path comes from `capturedIn` in the
+   * artifact, because a pinned branch name goes stale when its worktree goes.
+   */
   it('WorktreeInventory_ThisSessionsWorktree_IsAmongTheRecords', () => {
-    // The session doing the inventorying is itself one of the entries. That is
-    // the concrete reason a prune here is self-destructive, and pinning it
-    // keeps the point from being lost.
-    // Derived from the artifact, not a branch name someone must remember to
-    // update. The name pinned here before was the capturing session's branch,
-    // which held only until that worktree was removed — after which this failed
-    // for a reason that had nothing to do with the property being claimed.
     const paths = inventory.worktrees.records.map((r) => r.path);
 
     expect(inventory.capturedIn.length).toBeGreaterThan(0);

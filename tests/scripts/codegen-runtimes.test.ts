@@ -1,16 +1,11 @@
 /**
- * Tests for `tools/release/codegen-runtimes.ts` (#1213, #1214).
+ * Tests for `tools/release/codegen-runtimes.ts`, the codegen for the embedded runtimes module.
  *
- * These exercise three invariants the embedded-runtimes codegen MUST
- * uphold so that:
- *
- *   1. The compiled binary always has every required runtime present
- *      (otherwise `install-skills --agent <name>` would fail at
- *      user-runtime, defeating the point of inlining).
- *   2. The emitted file is byte-identical across invocations on the
- *      same input — otherwise `runtimes:guard` (CI) would oscillate.
- *   3. Every embedded entry round-trips through `RuntimeMapSchema`
- *      cleanly, so we cannot smuggle malformed data into the binary.
+ * The codegen must hold three invariants:
+ *   1. The output holds each required runtime. If not, `install-skills --agent <name>`
+ *      fails in the compiled binary.
+ *   2. Two runs on the same input write the same bytes. If not, `runtimes:guard` oscillates in CI.
+ *   3. Each embedded entry parses with `RuntimeMapSchema`.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -30,9 +25,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '../..');
 const RUNTIMES_DIR = join(REPO_ROOT, 'content/harness/runtimes');
 
-/** Copy the real `content/harness/runtimes/*.yaml` into a fresh tmp dir so the codegen
- *  has a stable input independent of any concurrent test mutating the
- *  workspace.
+/**
+ * Copies the real runtime YAML files into a new temporary directory. The codegen
+ * input then stays stable when a concurrent test changes the workspace.
  */
 function makeRuntimesFixture(): string {
   const dir = mkdtempSync(join(tmpdir(), 'codegen-runtimes-'));
@@ -45,14 +40,13 @@ function makeRuntimesFixture(): string {
 }
 
 describe('codegen-runtimes', () => {
+  /** A coarse check: each required name appears in the emitted source. */
   it('EmbeddedRuntimes_AllRequiredNames_Present', () => {
     const fixture = makeRuntimesFixture();
     const outFile = join(mkdtempSync(join(tmpdir(), 'codegen-out-')), 'embedded.ts');
     generateEmbeddedRuntimesModule({ runtimesDir: fixture, outFile });
 
     const source = readFileSync(outFile, 'utf8');
-    // Coarse-grained presence check: the canonical names appear in the
-    // emitted source. Stricter parse-back happens in the schema test below.
     for (const name of REQUIRED_RUNTIME_NAMES) {
       expect(source).toContain(`"name": "${name}"`);
     }
@@ -69,11 +63,11 @@ describe('codegen-runtimes', () => {
     expect(readFileSync(outA, 'utf8')).toEqual(readFileSync(outB, 'utf8'));
   });
 
+  /**
+   * `loadAllRuntimes` validates each entry. The test parses each sorted entry
+   * again with `RuntimeMapSchema`. The render step serializes those sorted entries.
+   */
   it('EmbeddedRuntimes_ParsesViaRuntimeMapSchema_NoFailures', () => {
-    // The render step takes the already-validated array (loadAllRuntimes
-    // ran Zod), but the contract is "every emitted entry round-trips"
-    // — so we re-parse each entry to lock the contract in place against
-    // any future codegen mutation that might strip fields.
     const runtimes = loadAllRuntimes(RUNTIMES_DIR);
     expect(runtimes.length).toBeGreaterThan(0);
 
@@ -84,19 +78,19 @@ describe('codegen-runtimes', () => {
     }
   });
 
+  /**
+   * The runtimes directory holds no extra runtime, so the test adds a synthetic
+   * one to reach the extras branch. The required runtimes come first, in
+   * `REQUIRED_RUNTIME_NAMES` order. The synthetic name sorts before any plausible extra.
+   */
   it('EmbeddedRuntimes_SortOrder_RequiredFirstThenExtras', () => {
-    // Synthesize an "extras" runtime to exercise the sort branch even
-    // though the production runtimes/ tree has no extras today.
     const real = loadAllRuntimes(RUNTIMES_DIR);
     const extra = { ...real[0]!, name: 'aardvark-extra' };
     const sorted = sortRuntimes([...real, extra]);
 
-    // First N entries must follow REQUIRED_RUNTIME_NAMES ordering.
     for (let i = 0; i < REQUIRED_RUNTIME_NAMES.length; i++) {
       expect(sorted[i]?.name).toBe(REQUIRED_RUNTIME_NAMES[i]);
     }
-    // The extras tail must be alphabetical, with our synthetic entry
-    // first since it sorts before any other plausible extra.
     expect(sorted[REQUIRED_RUNTIME_NAMES.length]?.name).toBe('aardvark-extra');
   });
 
@@ -109,9 +103,9 @@ describe('codegen-runtimes', () => {
   });
 
   /**
-   * Every build regenerates the tracked module, so an up-to-date file must not
-   * be rewritten (#2030). The file's mtime is set to the past first: a rewrite
-   * would move it to now. A stale file is still rewritten.
+   * Each build regenerates the tracked module, so the codegen must not rewrite
+   * an up-to-date file. The test sets the mtime to the past, and a rewrite moves
+   * it to the present. The codegen still rewrites a stale file.
    */
   it('EmbeddedRuntimes_UpToDateFile_IsNotRewritten', () => {
     const fixture = makeRuntimesFixture();
