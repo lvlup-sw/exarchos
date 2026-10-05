@@ -1,4 +1,4 @@
-// ─── check_contract_drift registration + dispatch + steer (task 023) ──────────
+/** Tests for the `check_contract_drift` registration, its dispatch route, and the steer on a pass. */
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { mkdtempSync } from 'node:fs';
@@ -23,8 +23,6 @@ vi.mock('../../../../src/verbs/gates/durable-gate-producer.js', () => ({
     executeProvider: () => Promise<unknown>,
   ) => executeProvider(),
 }));
-
-// ─── seams ──────────────────────────────────────────────────────────────────
 
 const gitMergeBase: GitExec = (_repoRoot, args) =>
   args[0] === 'merge-base' ? { stdout: 'MB0\n', exitCode: 0 } : { stdout: '', exitCode: 0 };
@@ -53,27 +51,28 @@ async function makeArm(prefix: string): Promise<Arm> {
   return { stateDir, ctx: { stateDir, eventStore, enableTelemetry: false } as DispatchContext };
 }
 
-// ─── tests ───────────────────────────────────────────────────────────────────
-
 describe('check_contract_drift registration + dispatch + steer', () => {
   const arms: Arm[] = [];
   afterEach(() => {
     for (const a of arms.splice(0)) rmrf(a.stateDir);
   });
 
+  /**
+   * `buildRegistrationSchema` throws when a same-name field has a different base type.
+   * When the import of `registry.ts` throws, the test fails before it reaches an assertion.
+   */
   it('CheckContractDrift_Registration_DoesNotThrow', () => {
-    // Building the registration schema must not throw at startup — a same-name
-    // field with a different base type would make buildRegistrationSchema throw.
     const action = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate')!.actions.find(
       (a) => a.name === 'check_contract_drift',
     );
     expect(action).toBeDefined();
-    // The action declares a Zod outputSchema (envelope-wrapped).
     expect(action!.outputSchema).toBeDefined();
-    // Importing registry.ts (which runs buildRegistrationSchema-adjacent
-    // validation paths) did not throw — reaching here is the assertion.
   });
 
+  /**
+   * `/fake/repo` resolves no contract.
+   * A success result shows that the composite routes the action to the handler and does not return UNKNOWN_ACTION.
+   */
   it('HandleOrchestrate_CheckContractDrift_RoutesToHandler', async () => {
     const arm = await makeArm('contract-route-');
     arms.push(arm);
@@ -86,31 +85,22 @@ describe('check_contract_drift registration + dispatch + steer', () => {
         branch: 'feature/x',
         baseBranch: 'main',
         repoRoot: '/fake/repo',
-        // Test seams routed through the composite args bag.
         gitExec: gitMergeBase,
         runCommand: cmdRunner({ diff: { code: 0, out: 'no breaking changes' } }),
-        // Force a resolvable contract via a literal repoRoot is hard in-unit;
-        // the handler resolves commands from the repo. Use the no-tool path to
-        // prove routing: an unrecognized repo resolves no contract → skipped.
       } as unknown as Record<string, unknown>,
       arm.ctx,
     );
 
-    // Routed to the real handler — NOT an UNKNOWN_ACTION envelope.
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; skipped?: boolean };
     expect(typeof data.passed).toBe('boolean');
   });
 
+  /** `contractRepo()` writes an `.exarchos.yml` that resolves a contract, so a clean pass carries the steer. */
   it('NextActions_OnPass_CarriesOneSemanticTestSteer', async () => {
     const arm = await makeArm('contract-steer-');
     arms.push(arm);
 
-    // Drive the handler directly with seams that resolve a contract tool by
-    // injecting runCommand, but the handler resolves `contract` from the repo —
-    // so we exercise the steer via a stub repo that DOES resolve a contract.
-    // Instead, assert the steer text contract is exactly the required copy and
-    // that a clean PASS surfaces it.
     const args: ContractDriftHandlerArgs = {
       featureId: 'feat-steer',
       taskId: 'T-1',
@@ -127,19 +117,17 @@ describe('check_contract_drift registration + dispatch + steer', () => {
     expect(data.passed).toBe(true);
     expect(data.next_actions).toBeDefined();
     expect(data.next_actions).toContain(ONE_SEMANTIC_TEST_STEER);
-    // Exact required copy.
     expect(ONE_SEMANTIC_TEST_STEER).toBe(
       'contracts verify shape, not meaning — keep exactly ONE semantic test for this boundary; delete redundant shape assertions',
     );
   });
 });
 
-// ─── helper: a temp repo wiring a resolvable contract via .exarchos.yml ───────
-
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 const _repos: string[] = [];
+/** Creates a temporary repo whose `.exarchos.yml` resolves a contract to stub scripts. */
 function contractRepo(): string {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'contract-repo-'));
   _repos.push(dir);

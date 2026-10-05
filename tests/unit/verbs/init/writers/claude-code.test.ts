@@ -5,7 +5,7 @@ import { makeStubWriterDeps } from '../../../../../src/verbs/init/probes.js';
 import type { WriterFs } from '../../../../../src/verbs/init/probes.js';
 import type { WriteOptions } from '../../../../../src/verbs/init/writers/writer.js';
 
-/** In-memory filesystem for testing. Tracks all writes and renames. */
+/** In-memory filesystem for testing. It records writes and renames. A path is a directory when `mkdir` created it or a stored file is under it. */
 function makeMemFs(files: Record<string, string> = {}): WriterFs & {
   readonly written: Record<string, string>;
   readonly renames: Array<{ from: string; to: string }>;
@@ -39,7 +39,6 @@ function makeMemFs(files: Record<string, string> = {}): WriterFs & {
       dirs.add(p);
     },
     stat: async (p: string) => {
-      // Check if p is an implicit directory (any stored path has it as prefix)
       const prefix = p.endsWith('/') ? p : p + '/';
       const isImplicitDir = dirs.has(p) || Object.keys(store).some((k) => k.startsWith(prefix));
       if (p in store || isImplicitDir) {
@@ -98,7 +97,6 @@ describe('atomicWriteJson', () => {
 
     await atomicWriteJson(deps, '/config/test.json', { hello: 'world' });
 
-    // Should have written to .tmp first, then renamed
     expect(fs.written['/config/test.json.tmp']).toBe(
       JSON.stringify({ hello: 'world' }, null, 2),
     );
@@ -138,7 +136,6 @@ describe('claudeCodeWriter', () => {
     expect(result.path).toBe('/home/user/.claude.json');
     expect(result.componentsWritten).toContain('mcp-config');
 
-    // Verify the written config has mcpServers.exarchos
     const tmpPath = '/home/user/.claude.json.tmp';
     const content = JSON.parse(fs.written[tmpPath]);
     expect(content.mcpServers).toBeDefined();
@@ -204,7 +201,6 @@ describe('claudeCodeWriter', () => {
     expect(result.status).toBe('written');
     const tmpPath = '/home/user/.claude.json.tmp';
     const content = JSON.parse(fs.written[tmpPath]);
-    // Should have updated the exarchos entry
     expect(content.mcpServers.exarchos).toBeDefined();
   });
 
@@ -260,7 +256,6 @@ describe('claudeCodeWriter', () => {
 
     await claudeCodeWriter.write(deps, defaultOptions());
 
-    // Verify atomic pattern: write to .tmp then rename
     expect(fs.renames.some(
       (r) =>
         r.from === '/home/user/.claude.json.tmp' &&
@@ -302,7 +297,6 @@ describe('claudeCodeWriter', () => {
 
     expect(result.status).toBe('written');
     expect(result.componentsWritten).toContain('commands');
-    // Verify commands were copied
     expect(fs.copies.some((c) => c.dest.includes('.claude/commands/'))).toBe(true);
   });
 
@@ -321,7 +315,6 @@ describe('claudeCodeWriter', () => {
 
     expect(result.status).toBe('written');
     expect(result.componentsWritten).toContain('skills');
-    // Verify skills were copied
     expect(fs.copies.some((c) => c.dest.includes('.claude/skills/'))).toBe(true);
   });
 
@@ -389,7 +382,6 @@ describe('claudeCodeWriter', () => {
   });
 
   it('ClaudeCodeWriter_SkippedMcpButHasContent_StillDeploysContent', async () => {
-    // Exarchos already registered but commands/skills should still deploy
     const existingConfig = JSON.stringify({
       mcpServers: { exarchos: { type: 'stdio', command: 'node', args: ['old.js'] } },
     });
@@ -406,7 +398,6 @@ describe('claudeCodeWriter', () => {
 
     const result = await claudeCodeWriter.write(deps, defaultOptions());
 
-    // MCP was skipped but content was deployed
     expect(result.status).toBe('written');
     expect(result.componentsWritten).not.toContain('mcp-config');
     expect(result.componentsWritten).toContain('commands');
@@ -414,7 +405,6 @@ describe('claudeCodeWriter', () => {
   });
 
   it('ClaudeCodeWriter_NothingToDo_ReturnsSkipped', async () => {
-    // Exarchos already registered AND no commands/skills dirs
     const existingConfig = JSON.stringify({
       mcpServers: { exarchos: { type: 'stdio', command: 'node', args: ['old.js'] } },
     });
@@ -433,9 +423,8 @@ describe('claudeCodeWriter', () => {
     expect(result.componentsWritten).toEqual([]);
   });
 
+  /** The default seam does nothing for an absent project root, so the in-memory tests never touch the disk for the on-ramp phase. */
   it('ClaudeCodeWriter_NonexistentProjectRoot_SkipsOnramp', async () => {
-    // Default seam no-ops on a synthetic/absent projectRoot — the existing
-    // in-memory tests never touch disk for the on-ramp phase.
     const fs = makeMemFs();
     const deps = makeStubWriterDeps({
       fs,
@@ -466,10 +455,11 @@ describe('claudeCodeWriter on-ramp phase (DR-5)', () => {
     expect(result.onrampFailed).toBeUndefined();
   });
 
+  /**
+   * A failed AGENTS.md on-ramp write does not change the overall status, which stays `written`.
+   * The result must set `onrampFailed`, so the onboard reconcile gate keeps the retired hooks in place.
+   */
   it('ClaudeCodeWriter_OnrampFailed_SurfacesOnrampFailedButStaysWritten', async () => {
-    // DR-7: a failed AGENTS.md on-ramp write is advisory for the OVERALL status
-    // (MCP/commands/skills stand alone → still 'written') but MUST be surfaced via
-    // `onrampFailed` so the onboard reconcile gate keeps retired hooks in place.
     const fs = makeMemFs();
     const deps = makeStubWriterDeps({
       fs,

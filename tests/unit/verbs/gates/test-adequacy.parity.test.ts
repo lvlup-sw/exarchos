@@ -1,18 +1,12 @@
 /**
- * CLI↔MCP parity tests for the `check_test_adequacy` action (INV-2).
+ * CLI and MCP parity tests for the `check_test_adequacy` action.
  *
- * `check_test_adequacy` has two user-visible facades:
- *   1. MCP — `exarchos_orchestrate { action: 'check_test_adequacy' }`.
- *   2. CLI — the auto-generated `exarchos orch check_test_adequacy` surface,
- *      emitted from the action's Zod schema in registry.ts.
+ * The MCP facade is `exarchos_orchestrate { action: 'check_test_adequacy' }`.
+ * The CLI facade is `exarchos orch check_test_adequacy`, generated from the Zod schema of the action.
+ * Both dispatch through the same composite, so one input must give byte-identical `ToolResult` payloads, except wall-clock fields.
  *
- * Both dispatch through the same composite, so for a given input they MUST
- * project byte-identical `ToolResult` payloads (modulo wall-clock fields).
- *
- * Strategy mirrors static-analysis.parity.test.ts: stub the composite so the
- * action forwards to the real `handleTestAdequacy`, and mock the pure
- * `runProbe` so the gate is deterministic and never shells out to git / a real
- * test command.
+ * The composite stub forwards to the real `handleTestAdequacy`.
+ * A mock of `runProbe` makes the gate deterministic, so the test never runs git or a test command.
  */
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
@@ -20,7 +14,7 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
-// Mock the probe so both arms compute the same deterministic result.
+/** Both arms get the same deterministic probe result. */
 const mockRunProbe = vi.fn();
 vi.mock('../../../../src/verbs/gates/test-adequacy.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../../src/verbs/gates/test-adequacy.js')>();
@@ -103,17 +97,16 @@ function buildTestAdequacyCompositeStub(): CompositeHandler {
   };
 }
 
+/**
+ * Drops `_perf`, `_meta` and `evidenceReferences`. Each arm has its own event store, so the
+ * content-addressed evidence id differs.
+ * The gate integration suites prove evidence persistence.
+ */
 function normalize(value: unknown): unknown {
   return harnessNormalize(value, {
     timestampPlaceholder: '<TS>',
     uuidPlaceholder: '<UUID>',
     keyPlaceholders: { ms: '<MS>' },
-    // videnceReferences carries the durable evidence identity the canonical
-    // gate runner minted for THIS arm. Each arm owns a separate state dir and
-    // event store, so the content-addressed evidenceId necessarily differs —
-    // it is arm-local provenance, not part of the CLI/MCP payload contract
-    // under comparison. Evidence PERSISTENCE is proven by the gate integration
-    // suites, which assert the reference and its digest directly.
     dropKeys: new Set(['_perf', '_meta', 'evidenceReferences']),
   });
 }
@@ -133,8 +126,8 @@ describe('exarchos check_test_adequacy CLI↔MCP parity (INV-2)', () => {
     mockRunProbe.mockReset();
   });
 
+  /** The test covers a pass path and a fail path. A failing probe is still a successful tool call. */
   it('TestAdequacy_CliVsMcp_IdenticalResultForSameInput', async () => {
-    // ─── Pass path ─────────────────────────────────────────────────────────
     mockRunProbe.mockResolvedValue(makePassResult());
     restoreStub = stubCompositeHandler(
       'exarchos_orchestrate',
@@ -170,7 +163,6 @@ describe('exarchos check_test_adequacy CLI↔MCP parity (INV-2)', () => {
     expect(normalizedCli).toEqual(normalizedMcp);
     expect(JSON.stringify(normalizedCli)).toEqual(JSON.stringify(normalizedMcp));
 
-    // ─── Fail path ─────────────────────────────────────────────────────────
     mockRunProbe.mockResolvedValue(makeFailResult());
 
     const cliFailArm = await createArm('test-adequacy-parity-cli-fail-');
@@ -189,7 +181,6 @@ describe('exarchos check_test_adequacy CLI↔MCP parity (INV-2)', () => {
       ...PARITY_ARGS,
     });
 
-    // A failing probe is still a successful tool call (advisory carrier).
     expect(cliFail.success).toBe(true);
     expect(mcpFail.success).toBe(true);
     const cliFailData = cliFail.data as { passed: boolean; redObserved: boolean };

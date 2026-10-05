@@ -1,9 +1,7 @@
 /**
- * seedExarchosConfig — T14 (#1199 Stage 2).
- *
- * Verifies that workflow init writes a starter `.exarchos.yml` from
- * detection results, never overwriting an existing one, and produces
- * YAML that round-trips through the T12 loader.
+ * Tests that `seedExarchosConfig` writes a starter `.exarchos.yml` from
+ * detection results, never overwrites an existing file, and writes YAML that
+ * `loadExarchosConfig` reads back.
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -16,10 +14,7 @@ import { loadExarchosConfig } from '../../../../src/config/load-exarchos-config.
 import { seedExarchosConfig } from '../../../../src/verbs/init/seed-exarchos-config.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
-// The seeder resolves the WIDENED verification field set (§4.5-seed): the legacy
-// test/typecheck/install PLUS mutation/lint/contract. These stubs mirror the
-// resolver's `ResolvedVerificationRuntime` shape — mutation/lint default to null
-// (the unresolved-no-fields gate now considers them too).
+/** A resolver result for an npm project, with `mutation`, `lint` and `contract` set to null. */
 function npmResolve(): ResolvedVerificationRuntime {
   return {
     test: 'npm run test:run',
@@ -139,9 +134,11 @@ describe('seedExarchosConfig', () => {
     expect(body).not.toMatch(/^install:/m);
   });
 
+  /**
+   * When the resolver resolves `mutation` and `lint`, the seeder writes them as
+   * top-level keys. It writes commands only, with no `verification:` policy block.
+   */
   it('seed_NoExistingConfig_VerificationCommandsResolved_WritesMutationAndLint', () => {
-    // §4.5-seed: when the widened resolver resolves mutation + lint, the seeder
-    // writes them as top-level direct keys (tier 2) alongside the legacy triple.
     const writes: Array<{ p: string; contents: string }> = [];
     const result = seedExarchosConfig('/repo', {
       exists: () => false,
@@ -162,15 +159,14 @@ describe('seedExarchosConfig', () => {
     expect(body).toContain('test: pytest');
     expect(body).toContain('mutation: mutmut run');
     expect(body).toContain('lint: ruff check');
-    // NEGATIVE GUARANTEE (§4.5): commands only — no `verification:` policy block.
     expect(body).not.toMatch(/^verification:/m);
   });
 
+  /**
+   * `mutation` can resolve when the test, typecheck and install commands do not.
+   * The unresolved-no-fields check must count it, so the seeder still writes the file.
+   */
   it('seed_NoExistingConfig_OnlyVerificationCommandResolves_StillWrites', () => {
-    // mutation/lint can resolve even when the legacy triple is unresolved (a
-    // toolchain with a mutation runner but no conventional test command). The
-    // unresolved-no-fields gate must consider the widened fields, else a
-    // resolvable verification command would be silently dropped.
     const writes: Array<{ p: string; contents: string }> = [];
     const result = seedExarchosConfig('/repo', {
       exists: () => false,
@@ -209,8 +205,11 @@ describe('seedExarchosConfig', () => {
     expect(body).toContain('https://github.com/lvlup-sw/exarchos/issues/1199');
   });
 
-  // ─── #1479: commented invariants: onboarding stanza ─────────────────────
-
+  /**
+   * The seeder writes the invariants stanza as comments, so nothing loads until
+   * the operator uncomments it. The stanza says what a catalog registration does
+   * and shows a `catalogs:` example.
+   */
   it('seed_AppendsCommentedInvariantsStanza', () => {
     const writes: Array<{ p: string; contents: string }> = [];
     seedExarchosConfig('/repo', {
@@ -220,26 +219,18 @@ describe('seedExarchosConfig', () => {
     });
 
     const body = writes[0].contents;
-    // The stanza is emitted COMMENTED so it documents the opt-in without
-    // changing behaviour (nothing loads until the operator uncomments it and
-    // registers a path). The block carries a one-line explanation and a
-    // stubbed `catalogs:` registration example.
     expect(body).toContain('# invariants:');
     expect(body).toMatch(/#\s*catalogs:/);
-    // The explanatory comment must mention what registering a catalog does.
     expect(body).toMatch(/dev[- ]catalog|architectural invariant/i);
   });
 
+  /**
+   * `devCatalog` is retired. The seed must not emit it, not even as a comment,
+   * because an operator uncomments a commented line and `exarchos doctor` then
+   * flags the key. The positive control proves that the seed ran, so the
+   * absence check is not vacuous.
+   */
   it('seed_NeverEmitsRetiredDevCatalogFlag', () => {
-    // DR-31 / T-43 — THE SEED-PATH GUARD. `devCatalog` is retired; a freshly
-    // onboarded repo must never be handed the key, not even commented out,
-    // because a commented line is a template an operator uncomments. Emitting
-    // it would seed a deprecated key that `exarchos doctor` then flags on the
-    // very first run.
-    //
-    // Asserted on the WHOLE seeded body (not just the active YAML) precisely
-    // so the commented stanza is in scope — a `# devCatalog: disabled` line
-    // reddens this.
     const writes: Array<{ p: string; contents: string }> = [];
     seedExarchosConfig('/repo', {
       exists: () => false,
@@ -248,9 +239,6 @@ describe('seedExarchosConfig', () => {
     });
     const body = writes[0].contents;
 
-    // POSITIVE CONTROL: a "does not contain" assertion over an empty or
-    // unwritten body would pass vacuously. Pin that the seed really ran and
-    // really emitted the invariants stanza this assertion is scoped to.
     expect(writes).toHaveLength(1);
     expect(body).toContain('# invariants:');
     expect(body).toMatch(/#\s*catalogs:/);
@@ -258,10 +246,11 @@ describe('seedExarchosConfig', () => {
     expect(body.toLowerCase()).not.toContain('devcatalog');
   });
 
+  /**
+   * A fresh seed has no active `invariants:` key, so the loaded configuration
+   * does not change until the operator opts in.
+   */
   it('seed_InvariantsStanza_IsCommentedNotActive', () => {
-    // The seeded stanza must not change the parsed/active config: a fresh
-    // seed should still load with no `invariants` block set (it is all
-    // comments), so behaviour is unchanged until the operator opts in.
     const writes: Array<{ p: string; contents: string }> = [];
     seedExarchosConfig('/repo', {
       exists: () => false,
@@ -269,13 +258,10 @@ describe('seedExarchosConfig', () => {
       resolve: () => npmResolve(),
     });
     const body = writes[0].contents;
-    // No ACTIVE (uncommented) invariants: key at column 0.
     expect(body).not.toMatch(/^invariants:/m);
   });
 
   it('seed_InvariantsStanza_IsIdempotent_NeverOverwrites', () => {
-    // Re-running on an existing config must not write at all (never
-    // overwrite, never duplicate the stanza).
     const writeSpy = vi.fn<(p: string, contents: string) => void>();
     const result = seedExarchosConfig('/repo', {
       exists: () => true,
@@ -287,13 +273,13 @@ describe('seedExarchosConfig', () => {
     expect(writeSpy).not.toHaveBeenCalled();
   });
 
+  /**
+   * The stub also resolves `mutation` and `lint`, so a loader that drops them
+   * fails here. `findRepoRoot` returns the temp directory, which skips the git lookup.
+   */
   it('seed_RoundTripsThroughLoader', async () => {
     const tempDir = await mkdtemp(path.join(tmpdir(), 'seed-roundtrip-'));
     try {
-      // Capture seeded contents using the injected write hook. The resolver stub
-      // also resolves mutation/lint so the round-trip covers the WIDENED command
-      // surface — a regression where `loadExarchosConfig` drops or rejects
-      // mutation/lint must fail here, not pass against the legacy keys alone.
       let seeded = '';
       const result = seedExarchosConfig(tempDir, {
         exists: () => false,
@@ -304,19 +290,16 @@ describe('seedExarchosConfig', () => {
       });
       expect(result.wrote).toBe(true);
 
-      // Persist to disk and load via T12.
       const cfgPath = path.join(tempDir, '.exarchos.yml');
       await writeFile(cfgPath, seeded, 'utf8');
 
       const load = loadExarchosConfig(tempDir, {
-        // Skip the git-rev-parse fallback by reporting tempDir as repo root.
         findRepoRoot: () => tempDir,
       });
       expect(load).not.toBeNull();
       expect(load!.config.test).toBe('npm run test:run');
       expect(load!.config.typecheck).toBe('tsc --noEmit');
       expect(load!.config.install).toBe('npm install');
-      // The widened verification-ladder commands survive the seed → load round-trip.
       expect(load!.config.mutation).toBe('npx stryker run');
       expect(load!.config.lint).toBe('eslint .');
     } finally {

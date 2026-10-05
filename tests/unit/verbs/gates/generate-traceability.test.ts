@@ -1,12 +1,7 @@
-// ─── Generate Traceability Matrix Tests ──────────────────────────────────────
-//
-// Tests for the generate-traceability handler that produces a traceability
-// matrix from design and plan markdown documents.
-// ─────────────────────────────────────────────────────────────────────────────
+// Tests for `handleGenerateTraceability`, which builds a traceability matrix from a design
+// document and a plan document.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-
-// ─── Mock node:fs ───────────────────────────────────────────────────────────
 
 vi.mock('node:fs', () => ({
   existsSync: vi.fn(),
@@ -20,8 +15,6 @@ import { handleGenerateTraceability } from '../../../../src/verbs/gates/generate
 const mockExistsSync = vi.mocked(existsSync);
 const mockReadFileSync = vi.mocked(readFileSync);
 const mockWriteFileSync = vi.mocked(writeFileSync);
-
-// ─── Test Fixtures ──────────────────────────────────────────────────────────
 
 const DESIGN_WITH_SECTIONS = `# Design Doc
 
@@ -79,16 +72,17 @@ const DESIGN_NO_SECTIONS = `# Design Doc
 Just some text without any ## or ### headers.
 `;
 
-// ─── Tests ──────────────────────────────────────────────────────────────────
-
 describe('handleGenerateTraceability', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockExistsSync.mockReturnValue(true);
   });
 
-  // ─── DR-N sections via **Implements:** annotations (issue #1544) ────────
   describe('DR-N sections resolved via **Implements:** annotations (#1544)', () => {
+    /**
+     * Title matching alone leaves both DR rows Uncovered. The `**Implements:**` lines mark them
+     * Covered, which agrees with `check_provenance_chain`.
+     */
     it('marks a DR-N section Covered when a task implements it (agrees with provenance)', () => {
       const design = `# Design
 
@@ -120,16 +114,11 @@ More prose.
         uncoveredCount: number;
         report: string;
       };
-      // Title substring matching would have flagged both DR rows Uncovered;
-      // the **Implements:** annotation resolves them Covered, matching the
-      // authoritative check_provenance_chain (9/9-style) result.
       expect(data.uncoveredCount).toBe(0);
       expect(data.coveredCount).toBe(2);
       expect(data.report).not.toContain('Uncovered');
     });
   });
-
-  // ─── Covered sections ─────────────────────────────────────────────────
 
   describe('design with sections + plan with matching tasks', () => {
     it('returns covered table with matched task IDs', () => {
@@ -154,14 +143,11 @@ More prose.
       expect(data.report).toContain('Authentication');
       expect(data.report).toContain('Data Storage');
       expect(data.report).toContain('Covered');
-      // Authentication matches Task 1, Data Storage matches Task 2
       expect(data.report).toContain('| 1 |');
       expect(data.report).toContain('| 2 |');
       expect(data.coveredCount).toBeGreaterThan(0);
     });
   });
-
-  // ─── Uncovered sections ───────────────────────────────────────────────
 
   describe('design sections with no matching tasks', () => {
     it('returns uncovered status for unmatched sections', () => {
@@ -186,8 +172,6 @@ More prose.
     });
   });
 
-  // ─── Body content match ───────────────────────────────────────────────
-
   describe('match via plan body content', () => {
     it('marks section as covered with "?" task ID for body-only matches', () => {
       mockReadFileSync
@@ -204,13 +188,10 @@ More prose.
         report: string;
         coveredCount: number;
       };
-      // "Token Management" should match via body content with "?"
       expect(data.report).toContain('?');
       expect(data.report).toContain('Covered');
     });
   });
-
-  // ─── No design sections ──────────────────────────────────────────────
 
   describe('no design sections found', () => {
     it('returns error when design has no ## or ### headers', () => {
@@ -229,8 +210,6 @@ More prose.
     });
   });
 
-  // ─── Design file not found ────────────────────────────────────────────
-
   describe('design file not found', () => {
     it('returns error when design file does not exist', () => {
       mockExistsSync.mockImplementation((p) =>
@@ -248,8 +227,6 @@ More prose.
     });
   });
 
-  // ─── Plan file not found ──────────────────────────────────────────────
-
   describe('plan file not found', () => {
     it('returns error when plan file does not exist', () => {
       mockExistsSync.mockImplementation((p) =>
@@ -266,8 +243,6 @@ More prose.
       expect(result.error?.message).toContain('Plan file not found');
     });
   });
-
-  // ─── Output to file ──────────────────────────────────────────────────
 
   describe('output to file', () => {
     it('writes markdown table to outputFile when specified', () => {
@@ -290,8 +265,6 @@ More prose.
       );
     });
   });
-
-  // ─── Case-insensitive matching ────────────────────────────────────────
 
   describe('case-insensitive matching', () => {
     it('matches design sections to tasks regardless of case', () => {

@@ -17,10 +17,6 @@ describe('verifyProvenanceChain', () => {
     rmrf(tmpDir);
   });
 
-  // ============================================================
-  // FIXTURE HELPERS
-  // ============================================================
-
   function writeDesign(content: string): string {
     const filePath = path.join(tmpDir, 'design.md');
     fs.writeFileSync(filePath, content, 'utf-8');
@@ -32,10 +28,6 @@ describe('verifyProvenanceChain', () => {
     fs.writeFileSync(filePath, content, 'utf-8');
     return filePath;
   }
-
-  // ============================================================
-  // USAGE ERRORS (exit code 2 equivalent)
-  // ============================================================
 
   describe('usage errors', () => {
     it('missing design file returns error status', () => {
@@ -75,15 +67,12 @@ describe('verifyProvenanceChain', () => {
     });
   });
 
-  // ============================================================
-  // UNIFIED ARTIFACT — design+plan collapse (#1581 DR-6, task 012)
-  // ============================================================
-  //
-  // In the collapsed world design and plan are ONE `docs/specs/` artifact, so
-  // verifyProvenanceChain is called with the SAME path for designFile and
-  // planFile. DR-N definitions live in `## Design & Rationale`; task→DR-N
-  // references live in `## Decomposition`. DR-N extraction is scoped to the
-  // design region so a reference can never masquerade as a definition.
+  /**
+   * Design and plan are one file, so `designFile` and `planFile` are the same
+   * path. The parser reads `DR-N` definitions only from the design region,
+   * before the first `## Decomposition` heading or task header. As a result, a
+   * task reference never counts as a definition.
+   */
   describe('unified single-artifact traceability (#1581 DR-6, task 012)', () => {
     function writeUnified(content: string): string {
       const filePath = path.join(tmpDir, 'spec.md');
@@ -114,7 +103,6 @@ describe('verifyProvenanceChain', () => {
         ].join('\n')
       );
 
-      // designFile === planFile — one unified artifact.
       const result = verifyProvenanceChain({ designFile: spec, planFile: spec });
 
       expect(result.status).toBe('pass');
@@ -124,12 +112,12 @@ describe('verifyProvenanceChain', () => {
       expect(result.orphanRefs).toBe(0);
     });
 
+    /**
+     * The second requirement has no task, which is a gap. A task implements an
+     * id that the design region does not define, which is an orphan. The
+     * orphan reference must not count as a requirement.
+     */
     it('Traceability_MissingDrN_StillFlagged', () => {
-      // DR-1 and DR-2 are defined in the design section; DR-2 has no task (a
-      // gap), and Task 002 implements DR-9 which is NOT defined anywhere in
-      // the design region (a forward-dangling orphan). Without design-region
-      // scoping the DR-9 reference would be miscounted as a definition and the
-      // orphan would silently vanish in a single-document artifact.
       const spec = writeUnified(
         [
           '# Spec: Widget',
@@ -155,21 +143,12 @@ describe('verifyProvenanceChain', () => {
       const result = verifyProvenanceChain({ designFile: spec, planFile: spec });
 
       expect(result.status).toBe('fail');
-      // DR-2 is defined but unimplemented — a gap.
       expect(result.gapDetails).toContain('DR-2');
-      // DR-9 is referenced by a task but undefined in the design region — a
-      // forward-dangling orphan, still flagged within one document.
       expect(result.orphanRefs).toBe(1);
       expect(result.orphanDetails.some((o) => o.includes('DR-9'))).toBe(true);
-      // The converse must also hold: the DR-9 reference is NOT counted as a
-      // requirement (design-region scoping working).
       expect(result.requirements).toBe(2);
     });
   });
-
-  // ============================================================
-  // FULL COVERAGE (all DRs mapped)
-  // ============================================================
 
   describe('full coverage', () => {
     it('complete chain returns pass', () => {
@@ -271,10 +250,6 @@ describe('verifyProvenanceChain', () => {
     });
   });
 
-  // ============================================================
-  // PARTIAL COVERAGE (some DRs missing)
-  // ============================================================
-
   describe('partial coverage', () => {
     it('missing DR in plan returns fail with gap count', () => {
       const designFile = writeDesign(
@@ -311,10 +286,6 @@ describe('verifyProvenanceChain', () => {
     });
   });
 
-  // ============================================================
-  // ORPHAN REFERENCES
-  // ============================================================
-
   describe('orphan references', () => {
     it('DR in plan not in design returns fail', () => {
       const designFile = writeDesign('DR-1: First requirement.\nDR-2: Second requirement.\n');
@@ -348,10 +319,6 @@ describe('verifyProvenanceChain', () => {
     });
   });
 
-  // ============================================================
-  // NO IMPLEMENTS FIELDS
-  // ============================================================
-
   describe('no implements fields', () => {
     it('tasks without implements fields result in all gaps', () => {
       const designFile = writeDesign('DR-1: First thing.\nDR-2: Second thing.\n');
@@ -373,10 +340,6 @@ describe('verifyProvenanceChain', () => {
       expect(result.gaps).toBe(2);
     });
   });
-
-  // ============================================================
-  // CASE INSENSITIVE IMPLEMENTS
-  // ============================================================
 
   describe('case insensitive implements', () => {
     it('lowercase implements: is accepted', () => {
@@ -403,10 +366,6 @@ describe('verifyProvenanceChain', () => {
       expect(result.covered).toBe(2);
     });
   });
-
-  // ============================================================
-  // TRACEABILITY MATRIX
-  // ============================================================
 
   describe('traceability matrix', () => {
     it('output contains a markdown traceability matrix table', () => {
@@ -440,10 +399,6 @@ describe('verifyProvenanceChain', () => {
     });
   });
 
-  // ============================================================
-  // DEDUPLICATION
-  // ============================================================
-
   describe('deduplication', () => {
     it('duplicate DR-N in design are counted once', () => {
       const designFile = writeDesign(
@@ -460,17 +415,12 @@ describe('verifyProvenanceChain', () => {
     });
   });
 
-  // ============================================================
-  // ZERO PARSED TASKS (issue #1543)
-  // ============================================================
-
   describe('zero parsed tasks (issue #1543)', () => {
+    /** The tasks are h4 headings under an h3 cluster, so `extractPlanTasks` finds no tasks. */
     it('h4 tasks yield a distinct zero-tasks error, not an N/N-unmapped FAIL', () => {
       const designFile = writeDesign(
         ['# Design', '', 'DR-1: First requirement.', 'DR-2: Second requirement.'].join('\n'),
       );
-      // Tasks nested at h4 under an h3 cluster — extractPlanTasks finds zero h3
-      // tasks, which previously rendered as a misleading "2/2 unmapped" FAIL.
       const planFile = writePlan(
         [
           '# Plan',

@@ -1,22 +1,12 @@
-// ─── DR-6: per-workflow severity + audit→enforce graduation (implement phases) ─
+// Tests for the severity and graduation mode of IMPLEMENT phases.
 //
-// task-006 (epic #1546). These tests prove the IMPLEMENT-phase obligation
-// surface honors:
-//  1. per-workflow SEVERITY — `oneshot:implementing` is advisory; the same
-//     ladder-gate failure on `debug-implement`/`delegate`/`polish-implement`
-//     (debug/feature/refactor) BLOCKS (the graduated `enforce`-mode end state);
-//  2. a per-binding MODE (`audit` | `enforce`) — in `audit` a failing ladder
-//     gate is downgraded to advisory (finding already emitted as the handler's
-//     `gate.executed`) WITHOUT blocking, regardless of severity; newly-covered
-//     phases default to `audit`;
-//  3. the existing `.exarchos.yml review.gates.<gate>` override — it changes the
-//     resolved behavior for IMPLEMENT phases identically to `feature:delegate`.
+// 1. Severity is per workflow. Under `enforce` mode, a failing ladder gate is advisory
+//    for `oneshot`, and blocks for `debug`, `feature`, and `refactor`.
+// 2. In `audit` mode, a failing ladder gate becomes advisory for any severity.
+// 3. A `.exarchos.yml` `review.gates.<gate>` override applies to IMPLEMENT phases.
 //
-// The obligation surface under test is `applyLadderGateSeverity` (the block-vs-
-// advise decision a ladder verdict flows through) plus the workflow-type→mode
-// map. Severity itself is workflow-specific, NOT kind-universal (INV-6): the
-// map lives next to the KIND_OBLIGATIONS *consumers* here, never in the kind
-// table.
+// The subjects are `applyLadderGateSeverity` and the mode map by workflow type.
+// The mode map is per workflow, so it stays out of the kind table.
 
 import { describe, it, expect } from 'vitest';
 import {
@@ -30,11 +20,10 @@ import { DEFAULTS } from '../../../src/config/resolve.js';
 import type { ResolvedProjectConfig } from '../../../src/config/resolve.js';
 import { VERIFICATION_GATE_NAMES } from '../../../src/workflow/verification-policy.js';
 
-// A real verification-ladder gate name — these are the only gates the
-// per-workflow severity default applies to.
-const LADDER_GATE = VERIFICATION_GATE_NAMES[0]; // 'check_static_analysis'
+/** The first ladder gate, `check_static_analysis`. The per-workflow severity default applies only to ladder gates. */
+const LADDER_GATE = VERIFICATION_GATE_NAMES[0];
 
-/** A failing ladder verdict — the INV-5b advisory carrier shape. */
+/** A failing ladder verdict: `success: true` with `data.passed: false`. */
 function failingVerdict(): { success: true; data: { passed: false } } {
   return { success: true, data: { passed: false } };
 }
@@ -43,22 +32,19 @@ function configWith(overrides: Partial<ResolvedProjectConfig['review']>): Resolv
   return { ...DEFAULTS, review: { ...DEFAULTS.review, ...overrides } };
 }
 
-// The workflow type each newly-covered (and the already-covered) IMPLEMENT
-// phase resolves to, per DR-4 routing:
-//   oneshot:implementing → 'oneshot'   (advisory)
-//   debug-implement      → 'debug'     (blocking)
-//   delegate             → 'feature'   (blocking, already covered)
-//   polish-implement     → 'refactor'  (blocking)
+/**
+ * The workflow type of each IMPLEMENT phase: `oneshot:implementing` is `oneshot`, which is advisory.
+ * `debug-implement` is `debug`, `delegate` is `feature`, and `polish-implement` is `refactor`. These three block.
+ */
 const ONESHOT = 'oneshot';
 const BLOCKING_WORKFLOWS = ['debug', 'feature', 'refactor'] as const;
 
 describe('DR-6 implement-phase severity', () => {
+  /**
+   * The binding is in `enforce` mode, so only the oneshot severity can make the failure advisory.
+   * The result sets `data.passed` to true and adds a warning. The orchestrator reads `data.passed`.
+   */
   it('ImplementSeverity_Oneshot_Advisory', () => {
-    // A failing ladder gate on `oneshot:implementing` is advisory: the workflow
-    // proceeds (no blocking `passed:false` envelope is *re-asserted as failure*)
-    // and a warning carries the finding. We exercise the graduated end state by
-    // putting the binding in `enforce` mode so the only thing that can downgrade
-    // it is the per-workflow severity (oneshot → warning).
     const result = applyLadderGateSeverity(
       LADDER_GATE,
       'D2',
@@ -67,19 +53,14 @@ describe('DR-6 implement-phase severity', () => {
       ONESHOT,
       'enforce',
     );
-    // Still an advisory carrier (never throws), now downgraded NON-blocking: the
-    // blocking signal is cleared (data.passed → true) and a warning carries the
-    // finding. data.passed is the exact field the orchestrator consumes.
     expect(result.success).toBe(true);
     expect((result.data as { passed?: unknown }).passed).toBe(true);
     expect(result.warnings).toBeDefined();
     expect(result.warnings!.length).toBeGreaterThan(0);
   });
 
+  /** Under `enforce` mode, the failure stays: `data.passed` is false, and the result has no warning. */
   it('ImplementSeverity_FeatureDebugRefactor_Blocking', () => {
-    // The SAME failing ladder verdict on debug/feature/refactor, under the
-    // graduated `enforce` mode, is NOT downgraded — the orchestrator still reads
-    // `data.passed:false` and blocks. No warning is attached.
     for (const workflowType of BLOCKING_WORKFLOWS) {
       const result = applyLadderGateSeverity(
         LADDER_GATE,
@@ -94,11 +75,11 @@ describe('DR-6 implement-phase severity', () => {
     }
   });
 
+  /**
+   * In `audit` mode, a failing ladder gate becomes advisory, even for a blocking workflow type.
+   * A warning holds the finding. The result sets `data.passed` to true, so the orchestrator does not block.
+   */
   it('ImplementMode_AuditMode_DoesNotBlock', () => {
-    // In `audit` mode a failing ladder gate is downgraded to advisory REGARDLESS
-    // of severity — including a blocking workflow type. The `gate.executed`
-    // finding is emitted by the handler itself (before this post-processing), so
-    // audit mode surfaces the finding without re-asserting a blocking verdict.
     for (const workflowType of BLOCKING_WORKFLOWS) {
       const result = applyLadderGateSeverity(
         LADDER_GATE,
@@ -108,48 +89,36 @@ describe('DR-6 implement-phase severity', () => {
         workflowType,
         'audit',
       );
-      // Audit mode never blocks: a warning carries the finding, and the result
-      // is no longer a re-asserted blocking failure for the orchestrator.
       expect(result.success).toBe(true);
-      // The blocking signal must actually be cleared, not merely annotated —
-      // data.passed:false is what the orchestrator reads to block.
       expect((result.data as { passed?: unknown }).passed).toBe(true);
       expect(result.warnings).toBeDefined();
       expect(result.warnings!.length).toBeGreaterThan(0);
     }
   });
 
+  /**
+   * The mode comes from the workflow type and not from the project config.
+   * As a result, audit mode makes the failure advisory even when no project config resolves.
+   */
   it('ImplementMode_AuditMode_NoConfig_StillDoesNotBlock', () => {
-    // DR-6 fix: audit mode is resolved from the workflow type
-    // (IMPLEMENT_PHASE_MODE) — config-INDEPENDENT — so a failing ladder gate is
-    // downgraded to advisory even when NO project config is resolved (the
-    // optional `DispatchContext.projectConfig` / legacy path). Before the fix the
-    // `!config` early-return made audit mode silently inert here, letting a
-    // newly-covered implement phase surface a blocking verdict in a no-config
-    // project.
     for (const workflowType of [ONESHOT, 'debug'] as const) {
       const result = applyLadderGateSeverity(
         LADDER_GATE,
         'D2',
-        undefined, // no resolved project config
+        undefined,
         failingVerdict(),
         workflowType,
         'audit',
       );
       expect(result.success).toBe(true);
-      // The blocking signal must actually be cleared, not merely annotated —
-      // data.passed:false is what the orchestrator reads to block.
       expect((result.data as { passed?: unknown }).passed).toBe(true);
       expect(result.warnings).toBeDefined();
       expect(result.warnings!.length).toBeGreaterThan(0);
     }
   });
 
+  /** A severity downgrade reads the project config, so without a config an `enforce` binding still blocks. */
   it('ImplementSeverity_NoConfig_EnforceStillBlocks', () => {
-    // Contrast that bounds the fix: severity-based downgrade reads
-    // `config.review.gates.*`, so without a config an `enforce` binding cannot
-    // downgrade — the verdict still blocks (legacy / no-config severity
-    // passthrough). Only audit mode, being config-independent, escapes it.
     const result = applyLadderGateSeverity(
       LADDER_GATE,
       'D2',
@@ -162,12 +131,11 @@ describe('DR-6 implement-phase severity', () => {
     expect(result.warnings ?? []).toHaveLength(0);
   });
 
+  /**
+   * A `review.gates` override sets the ladder gate to warning-only.
+   * Under `enforce` mode, the failure becomes advisory, with the same result for `feature` and `debug`.
+   */
   it('ImplementOverride_ReviewGatesConfig_AppliesToImplementPhases', () => {
-    // A `.exarchos.yml review.gates.<gate>` override changes the resolved
-    // behavior for IMPLEMENT phases identically to `feature:delegate`. Pin the
-    // ladder gate to warning-only: even on a blocking workflow type in `enforce`
-    // mode the verdict downgrades to advisory — parity with how the override
-    // behaves for the already-covered `feature:delegate` phase.
     const config = configWith({
       gates: { [LADDER_GATE]: { enabled: true, blocking: false, params: {} } },
     });
@@ -176,7 +144,7 @@ describe('DR-6 implement-phase severity', () => {
       'D2',
       config,
       failingVerdict(),
-      'feature', // delegate
+      'feature',
       'enforce',
     );
     const debug = applyLadderGateSeverity(
@@ -184,11 +152,9 @@ describe('DR-6 implement-phase severity', () => {
       'D2',
       config,
       failingVerdict(),
-      'debug', // debug-implement, newly covered
+      'debug',
       'enforce',
     );
-    // Override downgrades to advisory on both — identical resolved behavior:
-    // blocking signal cleared (data.passed → true) + warning attached.
     expect(feature.success).toBe(true);
     expect((feature.data as { passed?: unknown }).passed).toBe(true);
     expect(feature.warnings!.length).toBeGreaterThan(0);
@@ -199,41 +165,33 @@ describe('DR-6 implement-phase severity', () => {
 });
 
 describe('DR-6 implement-phase mode map', () => {
+  /**
+   * The mode map uses the workflow type as key, not the phase kind.
+   * `oneshot` is `audit`. The blocking workflows and an unknown type are `enforce`.
+   */
   it('ImplementPhaseMode_OneshotAudit_BlockingWorkflowsEnforce', () => {
-    // INV-6: the mode map is workflow-specific, keyed by workflow type, NOT by
-    // kind. Per the DR-6 severity policy + acceptance criteria, `oneshot` (whose
-    // severity is already advisory) lands in `audit`; the blocking workflows —
-    // `feature:delegate` (already covered), `debug-implement`, `polish-implement`
-    // — are `enforce` so a failing gate still blocks.
     expect(resolveImplementMode('oneshot')).toBe('audit');
     expect(resolveImplementMode('feature')).toBe('enforce');
     expect(resolveImplementMode('debug')).toBe('enforce');
     expect(resolveImplementMode('refactor')).toBe('enforce');
-    // An unknown workflow type falls back to the safe enforce default.
     expect(resolveImplementMode('unknown-future-type')).toBe('enforce');
   });
 
+  /** The map is a frozen data table, so a new workflow type is one entry and not new control flow. */
   it('ImplementPhaseMode_TableIsFrozen', () => {
-    // The map is a frozen DATA TABLE — adding a workflow type is a single-line
-    // entry, never new control flow.
     expect(Object.isFrozen(IMPLEMENT_PHASE_MODE)).toBe(true);
   });
 
+  /**
+   * `composite.ts` resolves the mode through `resolvePhaseMode`.
+   * For IMPLEMENT, the result equals `resolveImplementMode` for each workflow type.
+   * Each other kind gets `enforce`, so a phase outside IMPLEMENT is never downgraded.
+   */
   it('ResolvePhaseMode_ProductionSoT_EquivalentForImplement_EnforceElsewhere', () => {
-    // F2 (#1546): the ladder-severity production consumer (composite.ts
-    // adaptWithEventStore) now resolves graduation through `resolvePhaseMode`,
-    // the kind-keyed generalisation, NOT `resolveImplementMode` directly. Lock
-    // the two contracts that make that a safe drop-in:
-    //   (a) for IMPLEMENT, resolvePhaseMode is byte-identical to the consumer's
-    //       previous resolveImplementMode call across every workflow type;
     const workflowTypes = ['oneshot', 'feature', 'debug', 'refactor', 'unknown-future-type'];
     for (const wt of workflowTypes) {
       expect(resolvePhaseMode('IMPLEMENT', wt)).toBe(resolveImplementMode(wt));
     }
-    //   (b) every non-IMPLEMENT kind pins to 'enforce' (the migrated
-    //       PLAN/REVIEW/SYNTHESIZE gates already blocked; GATHER carries no
-    //       gates) so generalising the consumer can never silently downgrade a
-    //       non-IMPLEMENT phase.
     const nonImplement: readonly PhaseKind[] = ['PLAN', 'REVIEW', 'SYNTHESIZE', 'GATHER'];
     for (const kind of nonImplement) {
       for (const wt of workflowTypes) {

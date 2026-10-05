@@ -7,8 +7,6 @@ import type { WriteOptions } from '../../../../../src/verbs/init/writers/writer.
 const stubDeps = makeStubWriterDeps();
 const defaultOptions: WriteOptions = { projectRoot: '/project', nonInteractive: false, forceOverwrite: false };
 
-// ─── In-memory fs stub ─────────────────────────────────────────────────────
-
 interface FsStub {
   files: Map<string, string>;
   dirs: Set<string>;
@@ -60,7 +58,6 @@ describe('CursorWriter', () => {
   });
 
   it('CursorWriter_Write_CreatesCursorMcpJson', async () => {
-    // .cursor dir exists but no mcp.json
     fs.dirs.add('/project/.cursor');
 
     const writer = new CursorWriter({ fs });
@@ -109,11 +106,9 @@ describe('CursorWriter', () => {
     expect(written).toBeDefined();
     const parsed = JSON.parse(written!);
 
-    // Other server preserved
     expect(parsed.mcpServers['other-tool']).toBeDefined();
     expect(parsed.mcpServers['other-tool'].command).toBe('python');
 
-    // Exarchos added
     expect(parsed.mcpServers.exarchos).toBeDefined();
     expect(parsed.mcpServers.exarchos.command).toBe('npx');
   });

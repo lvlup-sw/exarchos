@@ -1,12 +1,8 @@
-// ─── Integration Suite Gate Tests (#1329) ────────────────────────────────────
-//
-// The #1329 trap: vitest counts a file that fails at IMPORT as
-// "1 failed test suite / 0 failed tests". Per-task gates therefore see a
-// green test count while the integration tip cascades (125 files failing to
-// LOAD, ~1899 tests never collected). This gate runs the FULL suite against
-// the integration tip and folds load-failures into the failure count so a
-// load cascade cannot pass silently.
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Vitest counts a file that fails at import as one failed suite with zero
+ * failed tests. These tests check that the integration suite gate adds load
+ * failures to its failure count, so a load failure cannot pass.
+ */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { EventStore } from '../../../../src/events/store.js';
@@ -18,8 +14,6 @@ vi.mock('../../../../src/verbs/gates/durable-gate-producer.js', () => ({
     executeProvider: () => Promise<unknown>,
   ) => executeProvider(),
 }));
-
-// ─── Mock event store ────────────────────────────────────────────────────────
 
 const mockStore = {
   append: vi.fn().mockResolvedValue(undefined),
@@ -37,13 +31,9 @@ import type { Toolchain } from '../../../../src/config/toolchains.js';
 
 const STATE_DIR = '/tmp/test-integration-suite';
 
-// ─── Helpers ───────────────────────────────────────────────────────────────
-
 /**
- * A vitest JSON result where ONE file fails to LOAD at import time:
- *   - numFailedTestSuites: 1  (the file failed to load)
- *   - numFailedTests:      0  (no test even got to run inside it)
- * This is the exact silent-load-failure shape from #1329.
+ * A vitest JSON result in which one file fails at import: one failed suite and
+ * zero failed tests.
  */
 function vitestLoadFailureJson(): string {
   return JSON.stringify({
@@ -77,8 +67,6 @@ function stubRunnerReturning(json: string, exitCode = 1) {
   );
 }
 
-// ─── Tests ───────────────────────────────────────────────────────────────────
-
 describe('handleCheckIntegrationSuite', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -87,12 +75,10 @@ describe('handleCheckIntegrationSuite', () => {
   });
 
   it('CheckIntegrationSuite_FileFailsToLoad_ReturnsFailedAndCountsIt', async () => {
-    // Arrange — runner emits the #1329 shape: 1 failed SUITE, 0 failed TESTS.
     const runner = stubRunnerReturning(vitestLoadFailureJson());
 
     const args = { featureId: 'feat-1', repoRoot: '/repo' };
 
-    // Act
     const result = await handleCheckIntegrationSuite(
       args,
       STATE_DIR,
@@ -100,7 +86,6 @@ describe('handleCheckIntegrationSuite', () => {
       runner,
     );
 
-    // Assert — the load failure must NOT be silently green.
     expect(result.success).toBe(true);
     const data = result.data as {
       passed: boolean;
@@ -109,12 +94,10 @@ describe('handleCheckIntegrationSuite', () => {
     };
     expect(data.passed).toBe(false);
     expect(data.loadFailures).toBeGreaterThanOrEqual(1);
-    // The load failure is folded into the overall failure count.
     expect(data.failCount).toBeGreaterThanOrEqual(1);
   });
 
   it('CheckIntegrationSuite_AllGreen_ReturnsPassed', async () => {
-    // Arrange — a clean run: zero failed suites, zero failed tests.
     const cleanJson = JSON.stringify({
       numTotalTestSuites: 10,
       numFailedTestSuites: 0,
@@ -125,7 +108,6 @@ describe('handleCheckIntegrationSuite', () => {
     });
     const runner = stubRunnerReturning(cleanJson, 0);
 
-    // Act
     const result = await handleCheckIntegrationSuite(
       { featureId: 'feat-1', repoRoot: '/repo' },
       STATE_DIR,
@@ -133,7 +115,6 @@ describe('handleCheckIntegrationSuite', () => {
       runner,
     );
 
-    // Assert
     const data = result.data as { passed: boolean; failCount: number; loadFailures: number };
     expect(data.passed).toBe(true);
     expect(data.failCount).toBe(0);
@@ -141,10 +122,8 @@ describe('handleCheckIntegrationSuite', () => {
   });
 
   it('CheckIntegrationSuite_DoesNotEmitLegacyGateExecutedEvent', async () => {
-    // Arrange
     const runner = stubRunnerReturning(vitestLoadFailureJson());
 
-    // Act
     await handleCheckIntegrationSuite(
       { featureId: 'feat-1', repoRoot: '/repo' },
       STATE_DIR,
@@ -156,10 +135,8 @@ describe('handleCheckIntegrationSuite', () => {
   });
 
   it('CheckIntegrationSuite_RunsAgainstResolvedRepoRoot', async () => {
-    // Arrange — assert the runner is invoked with cwd === the literal repoRoot.
     const runner = stubRunnerReturning(vitestLoadFailureJson());
 
-    // Act
     await handleCheckIntegrationSuite(
       { featureId: 'feat-1', repoRoot: '/worktrees/agent-x' },
       STATE_DIR,
@@ -167,20 +144,19 @@ describe('handleCheckIntegrationSuite', () => {
       runner,
     );
 
-    // Assert
     expect(runner).toHaveBeenCalledTimes(1);
     const opts = runner.mock.calls[0][2];
     expect(opts?.cwd).toBe('/worktrees/agent-x');
   });
 
+  /**
+   * A zero exit does not prove that the suite passed, because a crashed
+   * reporter can also exit 0. The gate must fail closed on output that it
+   * cannot parse.
+   */
   it('CheckIntegrationSuite_UnparseableOutputWithZeroExit_FailsClosed', async () => {
-    // Arrange — the runner emits garbage on stdout but exits 0. A zero exit is
-    // NOT trustworthy evidence the suite passed (a crashed/garbled reporter can
-    // still exit clean), so the gate must fail closed rather than green-light an
-    // unknown state.
     const runner = stubRunnerReturning('this is not vitest json', 0);
 
-    // Act
     const result = await handleCheckIntegrationSuite(
       { featureId: 'feat-1', repoRoot: '/repo' },
       STATE_DIR,
@@ -188,7 +164,6 @@ describe('handleCheckIntegrationSuite', () => {
       runner,
     );
 
-    // Assert
     const data = result.data as { passed: boolean; failCount: number; parseError: boolean };
     expect(data.passed).toBe(false);
     expect(data.failCount).toBeGreaterThanOrEqual(1);
@@ -207,12 +182,12 @@ describe('handleCheckIntegrationSuite', () => {
     expect(result.error?.code).toBe('INVALID_INPUT');
   });
 
-  // ─── DR-7: counts-not-transcripts cap on the load-failure list ─────────────
-
+  /**
+   * More files fail at import than the list cap. The counts still include each
+   * load failure, but the report lists only the first `LOAD_FAILURE_LIST_CAP`
+   * files. A file entry line starts with "- `", and the steering line does not.
+   */
   it('checkIntegrationSuite_LoadFailureCascade_CapsListWithCount', async () => {
-    // Arrange — a load CASCADE: far more files fail to import than the fixed
-    // cap. Each is a suite that failed with zero assertion results (the #1329
-    // silent-load shape), so all count as load failures.
     const total = LOAD_FAILURE_LIST_CAP + 30;
     const cascadeJson = JSON.stringify({
       numTotalTestSuites: total,
@@ -231,7 +206,6 @@ describe('handleCheckIntegrationSuite', () => {
     });
     const runner = stubRunnerReturning(cascadeJson);
 
-    // Act
     const result = await handleCheckIntegrationSuite(
       { featureId: 'feat-1', repoRoot: '/repo' },
       STATE_DIR,
@@ -239,8 +213,6 @@ describe('handleCheckIntegrationSuite', () => {
       runner,
     );
 
-    // Assert — verdict logic is UNCHANGED: every load failure is still folded
-    // into the counts.
     expect(result.success).toBe(true);
     const data = result.data as {
       passed: boolean;
@@ -252,27 +224,21 @@ describe('handleCheckIntegrationSuite', () => {
     expect(data.loadFailures).toBe(total);
     expect(data.failCount).toBe(total);
 
-    // The enumerated list is CAPPED: file-entry lines begin with "- `" (the
-    // steering line begins with "- …").
     const enumerated = data.report
       .split('\n')
       .filter((l) => l.startsWith('- `'));
     expect(enumerated).toHaveLength(LOAD_FAILURE_LIST_CAP);
 
-    // First N survive; the (N+1)th and a much later one are folded into the count.
     expect(data.report).toContain('broken-0.test.ts');
     expect(data.report).toContain(`broken-${LOAD_FAILURE_LIST_CAP - 1}.test.ts`);
     expect(data.report).not.toContain(`broken-${LOAD_FAILURE_LIST_CAP}.test.ts`);
     expect(data.report).not.toContain(`broken-${total - 1}.test.ts`);
 
-    // Total count is surfaced with a steer to the uncapped escape hatch.
     const remaining = total - LOAD_FAILURE_LIST_CAP;
     expect(data.report).toContain(`…and ${remaining} more (${total} load failures total)`);
     expect(data.report.toLowerCase()).toContain('re-run the suite');
   });
 });
-
-// ─── Pure Parser (kept separately testable per REFACTOR) ─────────────────────
 
 describe('parseVitestResult', () => {
   it('folds a load failure (failed suite, 0 failed tests) into failCount', () => {
@@ -332,10 +298,11 @@ describe('parseVitestResult', () => {
     expect(parseVitestResult('42')).toBeNull();
   });
 
+  /**
+   * Valid JSON with no vitest summary counters returns null. A zero-failure
+   * result for such input makes the gate fail open.
+   */
   it('rejects malformed object/array payloads instead of reading them as green', () => {
-    // A bare `{}` or `[]` is parseable JSON but carries no vitest summary
-    // counters. Normalizing it to zero failures would fail OPEN — a false
-    // green whenever the runner emits an unexpected shape.
     expect(parseVitestResult('{}')).toBeNull();
     expect(parseVitestResult('[]')).toBeNull();
     expect(parseVitestResult('null')).toBeNull();
@@ -343,8 +310,6 @@ describe('parseVitestResult', () => {
     expect(parseVitestResult(JSON.stringify({ unrelated: 'field' }))).toBeNull();
   });
 });
-
-// ─── #1537 / DR-15: toolchain-resolved command + spawn-vs-shape failure ──────
 
 describe('isSpawnFailure spawn-vs-shape classification (#1537)', () => {
   it('classifies recognized OS-level errnos with no numeric status as spawn failures', () => {
@@ -354,19 +319,17 @@ describe('isSpawnFailure spawn-vs-shape classification (#1537)', () => {
   });
 
   it('does NOT classify a process that ran (numeric exit status) as a spawn failure', () => {
-    // The suite ran and exited non-zero — a real test failure, not a spawn fault.
     expect(isSpawnFailure({ status: 1, code: 'ENOENT' })).toBe(false);
     expect(isSpawnFailure({ status: 0 })).toBe(false);
   });
 
+  /**
+   * `execFileSync` reports a `maxBuffer` overflow with a string `code` and no
+   * numeric `status`, although the child ran. `ETIMEDOUT` means that the
+   * timeout stopped a child that started. Neither is a spawn failure.
+   */
   it('does NOT classify a ran-but-overflowed process as a spawn failure', () => {
-    // execFileSync surfaces a maxBuffer overflow with a string `code` and no
-    // numeric `status` even though the child ran to completion. Pre-fix the
-    // broad `typeof code === 'string'` check mislabeled this as a spawn failure;
-    // it must stay a shape-mismatch.
     expect(isSpawnFailure({ code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' })).toBe(false);
-    // ETIMEDOUT: the child was spawned then killed by the timeout — not a spawn
-    // failure either.
     expect(isSpawnFailure({ code: 'ETIMEDOUT' })).toBe(false);
   });
 
@@ -402,7 +365,6 @@ describe('check_integration_suite command resolution (#1537, DR-15)', () => {
       },
       detectToolchain: () => stubToolchain('npm run ws:test'),
     });
-    // The command comes from the toolchain resolver, not a hardcoded test:run.
     expect(seen).toHaveLength(1);
     expect(seen[0].cmd).toBe('npm');
     expect(seen[0].args).toContain('ws:test');
@@ -424,9 +386,8 @@ describe('check_integration_suite command resolution (#1537, DR-15)', () => {
     expect(seen[0].args).not.toContain('should-not-be-used');
   });
 
+  /** A green suite at the monorepo root must parse and must not fail closed. */
   it('checkIntegrationSuite_MonorepoRoot_ResolvesCommandAndParses', () => {
-    // The #1537 false-fail: a green suite at the monorepo root must parse, not
-    // fail closed with "no parseable vitest JSON".
     const result = runIntegrationSuite({
       repoRoot: '/monorepo',
       runCommand: (): CommandResult => ({ exitCode: 0, stdout: passingVitestJson, stderr: '' }),
@@ -437,6 +398,10 @@ describe('check_integration_suite command resolution (#1537, DR-15)', () => {
     expect(result.totalTests).toBe(42);
   });
 
+  /**
+   * A spawn failure and a JSON shape mismatch both fail closed. Each result
+   * carries a different failure kind and a different report.
+   */
   it('checkIntegrationSuite_RunnerSpawnFailure_DistinctFromJsonShapeMismatch', () => {
     const spawn = runIntegrationSuite({
       repoRoot: '/repo',
@@ -454,10 +419,8 @@ describe('check_integration_suite command resolution (#1537, DR-15)', () => {
       detectToolchain: () => stubToolchain('npm run test:run'),
     });
 
-    // Both fail closed — counts are non-authoritative either way.
     expect(spawn.passed).toBe(false);
     expect(shape.passed).toBe(false);
-    // ...but the failure KIND is distinct and surfaced in the report (#1537).
     expect(spawn.parseFailureKind).toBe('spawn-failure');
     expect(shape.parseFailureKind).toBe('shape-mismatch');
     expect(spawn.report).not.toBe(shape.report);
@@ -470,11 +433,12 @@ describe('check_integration_suite command resolution (#1537, DR-15)', () => {
     expect(r.args).toEqual(['run', 'my:test', '--', '--reporter=json']);
   });
 
+  /**
+   * Resolves the command in the current working directory. That directory is
+   * this repository, which uses the node toolchain. The test does not run the
+   * command, because a run starts vitest again inside vitest.
+   */
   it('resolveIntegrationCommand_ThisRepo_ResolvesNodeVitestCommand', () => {
-    // #1537 regression against THIS repo: resolving at the real exarchos-mcp
-    // package root (a node toolchain) yields a runnable vitest-JSON command. We
-    // resolve+assert the command rather than recursively spawning the full
-    // suite from inside a test (which would re-enter vitest).
     const r = resolveIntegrationCommand(process.cwd(), undefined);
     expect(r.cmd).toBe('npm');
     expect(r.args).toEqual(['run', 'test:run', '--', '--reporter=json']);

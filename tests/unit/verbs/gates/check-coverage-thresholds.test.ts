@@ -1,4 +1,5 @@
-// ─── Check Coverage Thresholds Tests ─────────────────────────────────────────
+// These cases test the provider verdict, so the gate-runner stub calls only the provider.
+// `unrunbooked-gate-evidence-dispatch.test.ts` proves the recorded evidence over real dispatch.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as fs from 'node:fs';
@@ -6,12 +7,6 @@ import { handleCheckCoverageThresholds } from '../../../../src/verbs/gates/check
 import type { EventStore } from '../../../../src/events/store.js';
 
 vi.mock('node:fs');
-// The gate now records durable evidence through the shared phase-gate runner
-// before any success carrier escapes. These cases are about the PROVIDER's
-// verdict, so the runner is stubbed down to its provider call — the same seam
-// every other migrated gate's unit test stubs. The evidence a caller actually
-// gets is proven over real dispatch in
-// `unrunbooked-gate-evidence-dispatch.test.ts`.
 vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
   runPhaseGateWithEvidence: vi.fn(async (request) => {
     try {
@@ -45,8 +40,6 @@ const eventStore = {
 
 const mockedFs = vi.mocked(fs);
 
-// ─── Fixtures ────────────────────────────────────────────────────────────────
-
 const makeCoverageSummary = (lines: number, branches: number, functions: number) =>
   JSON.stringify({
     total: {
@@ -56,8 +49,6 @@ const makeCoverageSummary = (lines: number, branches: number, functions: number)
       statements: { total: 100, covered: 90, skipped: 0, pct: 90 },
     },
   });
-
-// ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe('handleCheckCoverageThresholds', () => {
   beforeEach(() => {
@@ -133,9 +124,9 @@ describe('handleCheckCoverageThresholds', () => {
     expect(data.report).toContain('PASS');
   });
 
+  /** Each value equals its default threshold: lines 80, branches 70, functions 100. */
   it('handleCheckCoverageThresholds_DefaultThresholds', async () => {
     mockedFs.existsSync.mockReturnValue(true);
-    // lines=80 (exactly at default threshold), branches=70 (exactly), functions=100 (exactly)
     mockedFs.readFileSync.mockReturnValue(makeCoverageSummary(80, 70, 100));
 
     const result = await handleCheckCoverageThresholds({ featureId: FEATURE_ID, coverageFile: '/tmp/coverage.json' }, STATE_DIR, eventStore);

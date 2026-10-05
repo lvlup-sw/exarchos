@@ -1,10 +1,8 @@
 /**
- * T10 — `.exarchos.yml` catalog-registration writer tests.
+ * Tests for the writer that registers a catalog in `.exarchos.yml`. The scaffold and add verbs use it.
  *
- * Shared by T6 (scaffold) and T9 (add). Appends `{ path, tier }` to
- * `invariants.catalogs` if absent; idempotent; comment-preserving (uses the
- * `yaml` package's `Document`/`parseDocument` round-trip so the seeded
- * onboarding comment stanza survives).
+ * It appends `{ path, tier }` to `invariants.catalogs` when the path is absent, and it is idempotent.
+ * It edits a `yaml` `Document`, so the seeded onboarding comments stay.
  */
 import { describe, it, expect } from 'vitest';
 
@@ -84,7 +82,6 @@ describe('wireCatalogRegistration', () => {
 
     expect(result.wrote).toBe(false);
     expect(result.reason).toBe('already-registered');
-    // No write at all.
     expect(fake.writes.length).toBe(0);
   });
 
@@ -103,10 +100,11 @@ describe('wireCatalogRegistration', () => {
     expect(result.reason).toBe('already-registered');
   });
 
+  /**
+   * A malformed `invariants.catalogs` that is a scalar or a map must not throw.
+   * The writer wraps the prior value in a new sequence as the first element, then appends the new registration.
+   */
   it('WireCatalog_NonSequenceCatalogsNode_WrapsAndAppends', () => {
-    // #1487 review: a malformed `invariants.catalogs` that is a non-sequence
-    // (scalar/map) value must not throw on `.add`. The writer wraps the prior
-    // value into a fresh sequence, then appends the new registration.
     const seed = 'invariants:\n  catalogs: legacy-string-value\n';
     const fake = makeFakeFs({ [YML]: seed });
 
@@ -125,8 +123,6 @@ describe('wireCatalogRegistration', () => {
     );
     expect(result.wrote).toBe(true);
     const yml = fake.files.get(YML)!;
-    // The prior scalar is preserved as the first sequence element, and the
-    // new registration is appended.
     expect(yml).toMatch(/legacy-string-value/);
     expect(yml).toMatch(/\.exarchos\/invariants\.md/);
     expect(yml).toMatch(/docs\/architecture\/another\.md/);
@@ -150,20 +146,14 @@ test: npm test
 
     expect(result.wrote).toBe(true);
     const yml = fake.files.get(YML)!;
-    // The seeded comment stanza survives the round-trip edit.
     expect(yml).toContain('# .exarchos.yml header comment — MUST survive.');
     expect(yml).toContain('# Architectural invariants (opt-in). Authoring guide:');
     expect(yml).toContain('# docs/guides/authoring-invariants.md.');
-    // And the new registration is present.
     expect(yml).toMatch(/\.exarchos\/invariants\.md/);
   });
 
+  /** The writer matches on path. An entry with the same path and another tier gets the requested tier in place, without a duplicate. */
   it('WireCatalog_SamePathDifferentTier_UpgradesInPlace', () => {
-    // #1487 review (LOW): the dedupe was keyed on path ONLY, so a path already
-    // registered as `tier: user` blocked a later `tier: dev` registration for
-    // the same path. Mirror the in-place upgrade in resolveCatalogSources:
-    // match on path, and if an existing same-path entry has a DIFFERENT tier,
-    // upgrade it in place to the requested tier rather than skipping.
     const seed =
       'invariants:\n  catalogs:\n    - { path: .exarchos/invariants.md, tier: user }\n';
     const fake = makeFakeFs({ [YML]: seed });
@@ -177,15 +167,12 @@ test: npm test
     expect(result.wrote).toBe(true);
     expect(result.reason).toBe('upgraded');
     const yml = fake.files.get(YML)!;
-    // The entry's tier becomes dev (not a duplicate, not skipped).
     expect(yml).toMatch(/tier: dev/);
     expect(yml).not.toMatch(/tier: user/);
-    // Single registration for that path — no duplicate appended.
     expect(yml.match(/\.exarchos\/invariants\.md/g)?.length).toBe(1);
   });
 
   it('WireCatalog_SamePathSameTier_NoOp', () => {
-    // Idempotent: path+tier already match → no write.
     const seed =
       'invariants:\n  catalogs:\n    - { path: .exarchos/invariants.md, tier: dev }\n';
     const fake = makeFakeFs({ [YML]: seed });

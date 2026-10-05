@@ -1,29 +1,18 @@
+/**
+ * Parity tests for `runStaticAnalysis` against the behavior of the retired `static-analysis-gate.sh` script.
+ * The gate runs lint, typecheck, and quality-check through npm scripts. A missing script gives a SKIP.
+ *
+ * One case differs from the script on purpose. The script let a SKIP leave the result at PASS, so `PASS (2/2)` showed while checks did not run.
+ * In the TS port, a SKIP counts, and the result degrades to `status: 'skip'`, `skipReason: 'constituent-skipped'`, and `**Result: DEGRADED**`.
+ * The PASS case without a skip, the FAIL case, and the error case keep parity.
+ *
+ * The `node:fs` mock gives `readPackageJson` a `package.json` without disk access.
+ * It also stubs `readdirSync`, because `detectToolchain` lists the directory for a glob marker.
+ */
 import { describe, it, expect, vi } from 'vitest';
 import { runStaticAnalysis } from '../../../../src/verbs/pure/static-analysis.js';
 import type { RunCommandFn, CommandResult } from '../../../../src/verbs/pure/static-analysis.js';
 
-/**
- * Behavioral parity tests for static-analysis.ts against the original
- * scripts/static-analysis-gate.sh bash script.
- *
- * Bash script behavior:
- *   - Runs lint, typecheck, quality-check via npm scripts
- *   - exit 0 → all checks pass, exit 1 → one or more fail
- *   - Missing scripts → SKIP (not counted in pass/fail totals)
- *
- * T-09 / DR-6 DEVIATION FROM BASH PARITY (deliberate, spec-mandated):
- *   The bash script let a SKIPped constituent leave the aggregate at PASS —
- *   that is precisely the defect DR-6 names
- *   (docs/specs/2026-08-04-wiring-closure-and-unified-integration-suite.md):
- *   `PASS (2/2)` rendered while `lint` and `quality-check` were silently
- *   skipped for absence of a script. Parity with the retired bash script is
- *   NO LONGER preserved for that case. A SKIP is now tallied first-class and
- *   the aggregate degrades to `status:'skip'` /
- *   `skipReason:'constituent-skipped'` / `**Result: DEGRADED**`. Parity is
- *   retained for the PASS (nothing skipped), FAIL and error cases.
- */
-
-// Mock node:fs so readPackageJson can resolve package.json without disk access
 vi.mock('node:fs', () => ({
   readFileSync: vi.fn((_path: string) =>
     JSON.stringify({
@@ -35,9 +24,6 @@ vi.mock('node:fs', () => ({
   ),
   existsSync: vi.fn(() => true),
   statSync: vi.fn(() => ({ isDirectory: () => true })),
-  // Defensive: detectToolchain lists the dir only for *.ext glob markers. Node
-  // (an exact-name marker) short-circuits first today, but stub readdirSync so
-  // the suite survives any future registry-ordering change.
   readdirSync: vi.fn(() => []),
 }));
 
@@ -86,6 +72,7 @@ describe('behavioral parity with static-analysis-gate.sh', () => {
     });
   });
 
+  /** A FAIL wins over a SKIP, as in the script. */
   it('lint fail — FAIL (1/2), typecheck passes', () => {
     expect(runStaticAnalysis({
       repoRoot: '/fake/repo',
@@ -104,7 +91,6 @@ describe('behavioral parity with static-analysis-gate.sh', () => {
         '',
         '---',
         '',
-        // FAIL still dominates a coexisting SKIP — parity preserved.
         '**Result: FAIL** (1/2 checks failed)',
       ].join('\n'),
       passCount: 1,
@@ -189,7 +175,6 @@ describe('behavioral parity with static-analysis-gate.sh', () => {
 
 describe('quality-check path', () => {
   it('quality-check script present and passing — counted in totals', async () => {
-    // Override the fs mock for this test to include quality-check
     const { readFileSync } = await import('node:fs');
     (readFileSync as ReturnType<typeof vi.fn>).mockReturnValueOnce(
       JSON.stringify({

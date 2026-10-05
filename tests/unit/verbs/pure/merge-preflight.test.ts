@@ -1,12 +1,7 @@
 /**
- * Tests for merge-preflight pure helpers.
- *
- * T04 scope: detectDrift clean-tree path only.
- * T05 extended coverage to dirty-tree, stale-index, and detached-HEAD cases.
- * T06 adds mergePreflight composer happy-path coverage.
- * T07 adds mergePreflight failure-path coverage — each guard driven to fail
- *     independently to prove `passed = false` and verbatim sub-field
- *     propagation from the underlying guard.
+ * Tests for the merge-preflight pure helpers: `detectDrift`, the `mergePreflight`
+ * composer, and `gatherPreflightDebug`. Each failure test drives one guard to
+ * fail and checks that its sub-result reaches the composed result.
  */
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
@@ -17,12 +12,10 @@ import {
   type GitExec,
 } from '../../../../src/verbs/pure/merge-preflight.js';
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
 /**
- * Build a mock GitExec that returns canned `{ stdout, exitCode }` results
- * for matching arg sequences. Unmatched calls throw so tests fail loudly
- * if the implementation reaches for git commands the test didn't stub.
+ * Build a mock `GitExec` that returns canned results for matching argument
+ * lists. An unmatched call throws, so a test fails when the code runs a git
+ * command that the test did not stub.
  */
 function makeGitExec(
   responses: ReadonlyArray<{
@@ -44,8 +37,6 @@ function makeGitExec(
     return { stdout: match.stdout, exitCode: match.exitCode ?? 0 };
   };
 }
-
-// ─── Tests ──────────────────────────────────────────────────────────────────
 
 describe('detectDrift — clean tree (T04)', () => {
   it('detectDrift_CleanTree_ReturnsCleanTrue', () => {
@@ -138,32 +129,24 @@ describe('detectDrift — drift extensions (T05)', () => {
   });
 });
 
-// ─── mergePreflight (T06) ───────────────────────────────────────────────────
-
+/**
+ * The happy-path mock: the target branch is an ancestor of the source, the
+ * current branch is `feat/x`, and the tree is clean. `/tmp/repo` has no
+ * `.claude/worktrees/` segment, so the worktree check sees a main worktree.
+ */
 describe('mergePreflight — happy path (T06)', () => {
-  /**
-   * Build a happy-path gitExec mock: ancestry passes, current branch is
-   * `feat/x`, working tree is clean. Repo path is `/tmp/repo` so
-   * assertMainWorktree (filesystem-only) treats it as a main worktree
-   * (no `.claude/worktrees/` segment).
-   */
   function makeHappyGitExec(): GitExec {
     return makeGitExec([
-      // validateBranchAncestry: merge-base --is-ancestor target source
-      // (preflight asserts target IS an ancestor of source — i.e., source is
-      // up-to-date with target, so the merge is conflict-free.)
       {
         args: ['merge-base', '--is-ancestor', 'main', 'feat/x'],
         stdout: '',
         exitCode: 0,
       },
-      // getCurrentBranch + detectDrift both call this
       {
         args: ['rev-parse', '--abbrev-ref', 'HEAD'],
         stdout: 'feat/x\n',
         exitCode: 0,
       },
-      // detectDrift: clean working tree
       { args: ['status', '--porcelain'], stdout: '', exitCode: 0 },
       { args: ['diff', '--cached', '--quiet'], stdout: '', exitCode: 0 },
     ]);
@@ -192,21 +175,16 @@ describe('mergePreflight — happy path (T06)', () => {
       cwd: '/tmp/repo',
     });
 
-    // Ancestry: passed=true, no missing list (validateBranchAncestry
-    // returns `{ passed: true, checks: ['ancestry'] }` on success).
     expect(result.ancestry).toBeDefined();
     expect(result.ancestry.passed).toBe(true);
 
-    // Current-branch protection: feat/x is not protected.
     expect(result.currentBranchProtection).toBeDefined();
     expect(result.currentBranchProtection.blocked).toBe(false);
 
-    // Worktree: /tmp/repo has no .claude/worktrees/ segment → main.
     expect(result.worktree).toBeDefined();
     expect(result.worktree.isMain).toBe(true);
     expect(result.worktree.actual).toBe('/tmp/repo');
 
-    // Drift: clean working tree, no uncommitted files, index in sync, on a named branch.
     expect(result.drift).toBeDefined();
     expect(result.drift.clean).toBe(true);
     expect(result.drift.uncommittedFiles).toEqual([]);
@@ -215,13 +193,13 @@ describe('mergePreflight — happy path (T06)', () => {
   });
 });
 
-// ─── mergePreflight failure paths (T07) ─────────────────────────────────────
-
 describe('mergePreflight — failure paths (T07)', () => {
+  /**
+   * `merge-base --is-ancestor` exits 1, which `validateBranchAncestry` classifies
+   * as missing ancestry. The missing list names the target, because the
+   * preflight checks that the target is an ancestor of the source.
+   */
   it('mergePreflight_AncestryMissing_PassedFalseAndAncestryReasonAncestry', async () => {
-    // Drive ancestry to fail: `merge-base --is-ancestor` returns exit 1,
-    // which the adapter surfaces as `Error & { status: 1 }`, which
-    // validateBranchAncestry classifies as ancestry-missing.
     const gitExec = makeGitExec([
       {
         args: ['merge-base', '--is-ancestor', 'main', 'feat/x'],
@@ -245,17 +223,13 @@ describe('mergePreflight — failure paths (T07)', () => {
     });
 
     expect(result.passed).toBe(false);
-    // Verbatim sub-field copy from validateBranchAncestry's failure shape.
     expect(result.ancestry.passed).toBe(false);
     expect(result.ancestry.reason).toBe('ancestry');
-    // Missing entry is `main` because the preflight asserts target IS an
-    // ancestor of source — when it isn't, the missing list names the target.
     expect(result.ancestry.missing).toEqual(['main']);
     expect(result.ancestry.blocked).toBe(true);
   });
 
   it('mergePreflight_OnProtectedBranch_PassedFalseAndProtectionBlocked', async () => {
-    // Drive current-branch protection to fail: HEAD is on `main`.
     const gitExec = makeGitExec([
       {
         args: ['merge-base', '--is-ancestor', 'main', 'feat/x'],
@@ -285,7 +259,6 @@ describe('mergePreflight — failure paths (T07)', () => {
   });
 
   it('mergePreflight_FromSubagentWorktree_PassedFalseAndWorktreeNotMain', async () => {
-    // Drive worktree assertion to fail: cwd contains `.claude/worktrees/`.
     const gitExec = makeGitExec([
       {
         args: ['merge-base', '--is-ancestor', 'main', 'feat/x'],
@@ -314,17 +287,12 @@ describe('mergePreflight — failure paths (T07)', () => {
     expect(result.worktree.actual).toBe(subagentCwd);
   });
 
+  /**
+   * When ancestry fails, the hint names `git rebase` with the target branch and
+   * links to the delegate runbook section for integration that advances mid-wave.
+   * The test checks only the message.
+   */
   it('mergePreflight_AncestryFails_MessageIncludesRebaseInstructionAndRunbookLink', async () => {
-    // T-15 / DR-6: when ancestry fails (source branch is not a descendant of
-    // target), the preflight must surface a remediation hint that
-    // (a) instructs the operator to run `git rebase`, and
-    // (b) links to the runbook section
-    //     `content/delivery/skills/delegate/SKILL.md#when-integration-advances-mid-wave`
-    //     so the operator can find the manual rebase + rollback procedure
-    //     without consulting external docs.
-    //
-    // Auto-rebase is explicitly deferred to #1119; this test asserts the
-    // human-facing message only.
     const gitExec = makeGitExec([
       {
         args: ['merge-base', '--is-ancestor', 'main', 'feat/x'],
@@ -351,26 +319,18 @@ describe('mergePreflight — failure paths (T07)', () => {
     expect(result.ancestry.passed).toBe(false);
     expect(result.ancestry.reason).toBe('ancestry');
 
-    // Remediation hint MUST be populated on ancestry failures.
     expect(result.ancestry.hint).toBeDefined();
     const hint = result.ancestry.hint!;
 
-    // (a) Manual remediation command must be discoverable verbatim.
     expect(hint).toContain('git rebase');
-    // The hint should name the actual target branch so the operator can
-    // copy-paste without resolving placeholders.
     expect(hint).toContain('main');
 
-    // (b) Link to the runbook section. The anchor must match the heading
-    // added to content/delivery/skills/delegate/SKILL.md (## When integration advances
-    // mid-wave → #when-integration-advances-mid-wave).
     expect(hint).toContain(
       'content/delivery/skills/delegate/SKILL.md#when-integration-advances-mid-wave',
     );
   });
 
   it('mergePreflight_DirtyTree_PassedFalseAndDriftFieldPopulated', async () => {
-    // Drive drift to fail: `git status --porcelain` reports dirty files.
     const gitExec = makeGitExec([
       {
         args: ['merge-base', '--is-ancestor', 'main', 'feat/x'],
@@ -404,18 +364,14 @@ describe('mergePreflight — failure paths (T07)', () => {
   });
 });
 
-// ─── gatherPreflightDebug (#1362 phase 1) ───────────────────────────────────
-//
-// Phase-1 Windows preflight instrumentation. The helper is pure: every git
-// invocation goes through the injected `gitExec`. Fail-closed semantics —
-// individual git failures must NOT throw; the helper records a partial
-// payload so the on-failure debug attachment is best-effort. See plan T2.2.
-
+/**
+ * `gatherPreflightDebug` sends every git call through the injected `gitExec`. A
+ * failed git call does not throw. The helper records a partial payload, so the
+ * debug attachment is best effort.
+ */
 describe('gatherPreflightDebug (#1362)', () => {
+  /** The helper runs `merge-base --is-ancestor` again to record its exit code and output. */
   it('gatherPreflightDebug_AllGitCallsSucceed_PopulatesAllFields', () => {
-    // Build a mock that returns canned outputs for every git invocation the
-    // helper should make. Field order in the type is the canonical reading
-    // order for an operator inspecting the debug block.
     const gitExec = makeGitExec([
       { args: ['--version'], stdout: 'git version 2.45.1\n', exitCode: 0 },
       { args: ['rev-parse', '--show-toplevel'], stdout: '/repo\n', exitCode: 0 },
@@ -424,8 +380,6 @@ describe('gatherPreflightDebug (#1362)', () => {
         stdout: 'worktree /repo\nHEAD aaaaaaa\nbranch refs/heads/main\n',
         exitCode: 0,
       },
-      // refs lookups: source + target. Use `for-each-ref` so we capture both
-      // SHA and whether the ref is packed in one go.
       {
         args: [
           'for-each-ref',
@@ -444,13 +398,6 @@ describe('gatherPreflightDebug (#1362)', () => {
         stdout: 'bbbbbbb refs/heads/main\n',
         exitCode: 0,
       },
-      // packed-refs check via `cat-file -e <packed-ref>` or by `git
-      // packed-refs --print`. We use `packed-refs` lookup via grep-free
-      // mechanism: `git rev-parse --symbolic-full-name --verify
-      // refs/heads/X` doesn't tell us packed state. The implementation uses
-      // `git for-each-ref --format=%(packed)` semantics — but for simplicity
-      // the helper just calls `cat-file -e <sha>` per ref. Mock stubs match
-      // the implementation's actual call order below.
       {
         args: ['cat-file', '-e', 'aaaaaaa'],
         stdout: '',
@@ -461,9 +408,6 @@ describe('gatherPreflightDebug (#1362)', () => {
         stdout: '',
         exitCode: 0,
       },
-      // merge-base --is-ancestor invocation — the same call that the
-      // ancestry guard ran. We re-run it here to capture stderr / exit code
-      // verbatim for the debug block.
       {
         args: ['merge-base', '--is-ancestor', 'main', 'feat/x'],
         stdout: '',
@@ -492,18 +436,15 @@ describe('gatherPreflightDebug (#1362)', () => {
     expect(typeof debug.mergeBaseStderr).toBe('string');
   });
 
+  /**
+   * A failed first call (`--version`) leaves that field empty, and the helper
+   * continues. A throw inside a failed preflight hides the real failure.
+   */
   it('gatherPreflightDebug_GitVersionFails_ReturnsPartialBlock', () => {
-    // Drive the very first git call (--version) to fail. The helper must
-    // record an empty/default value for that field and continue — never
-    // throw. This is the fail-closed contract: an instrumentation helper
-    // that throws inside an already-failed preflight would mask the real
-    // failure.
     const gitExec: GitExec = (_root, args) => {
       if (args[0] === '--version') {
         return { stdout: '', exitCode: 127 };
       }
-      // Stubs for the remaining calls so the test does not throw on
-      // unexpected invocations.
       if (args[0] === 'rev-parse') return { stdout: '/repo\n', exitCode: 0 };
       if (args[0] === 'worktree') return { stdout: '', exitCode: 0 };
       if (args[0] === 'for-each-ref') return { stdout: 'sha refs/heads/x\n', exitCode: 0 };
@@ -518,21 +459,20 @@ describe('gatherPreflightDebug (#1362)', () => {
     }).not.toThrow();
 
     expect(debug!.gitVersion).toBe('');
-    // Subsequent fields must still be populated from their successful calls.
     expect(debug!.repoRoot).toBe('/repo');
   });
 });
 
-// ─── mergePreflight env-var integration (#1362 phase 1) ─────────────────────
-
+/**
+ * With `EXARCHOS_PREFLIGHT_DEBUG` set, `mergePreflight` attaches a debug block
+ * only when ancestry fails. The exec stubs answer every call that
+ * `mergePreflight` and `gatherPreflightDebug` make.
+ */
 describe('mergePreflight env-gated debug attachment (#1362)', () => {
   afterEach(() => {
     vi.unstubAllEnvs();
   });
 
-  /** Build a gitExec stub that drives ancestry to fail (exit 1 on
-   * `merge-base --is-ancestor`) and stubs every other call mergePreflight
-   * + gatherPreflightDebug make. */
   function makeAncestryFailingExec(): GitExec {
     return (_root, args) => {
       const a = args.join(' ');
@@ -555,7 +495,6 @@ describe('mergePreflight env-gated debug attachment (#1362)', () => {
     };
   }
 
-  /** Same as above but ancestry passes. */
   function makeAncestryPassingExec(): GitExec {
     return (_root, args) => {
       const a = args.join(' ');
@@ -592,9 +531,6 @@ describe('mergePreflight env-gated debug attachment (#1362)', () => {
   });
 
   it('MergePreflight_EnvSetAndAncestryPass_NoDebugField', async () => {
-    // Failure-only gating: even with the debug env set, a passing ancestry
-    // must NOT attach a debug block. DIM-8 sustainability — event-store
-    // growth concern.
     vi.stubEnv('EXARCHOS_PREFLIGHT_DEBUG', '1');
     const result = await mergePreflight({
       sourceBranch: 'feat/x',

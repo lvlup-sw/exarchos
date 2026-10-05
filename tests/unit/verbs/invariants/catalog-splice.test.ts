@@ -1,34 +1,16 @@
 /**
- * Task 073 / DR-3 — an amendment writes back only the amended entry's lines.
+ * An amendment writes back only the lines of the amended entry.
  *
- * `invariants_amend` advertises itself as id-targeted and field-scoped, and
- * semantically it always was. What it was NOT was field-scoped in the FILE:
- * committing re-serialized the whole frontmatter document, so `yaml`'s
- * line-width folding re-wrapped folded scalars in entries the amendment never
- * named. Task 019's one-field edit to INV-17 came out as 69 inserts / 34
- * deletes, ~35 lines of which were cosmetic re-wrap of INV-2 and INV-11.
- *
- * 019 established that the drift is whitespace-only — parse before, parse
- * after, one semantic change, 21/21 entries intact. That is exactly why the
- * assertions here are made on RAW TEXT and not on the parsed form: a
- * parse-level comparison is blind to the entire defect. The catalog is a frozen
- * contract authority whose digest is taken over its raw bytes, so a collateral
- * re-wrap costs a contract re-approval just as much as the real edit does.
- *
- * The fixture is built by CONCATENATING hand-written blocks, so "the siblings
- * are byte-identical" can be asserted as `startsWith(prefix)` /
- * `endsWith(suffix)` against those exact bytes rather than by eyeballing a
- * diff. Two of the three entries carry folded scalars wrapped at a column the
- * serializer disagrees with — without them the whole-document round-trip is
- * indistinguishable from a splice and this file would pass against the writer
- * it was written to kill.
+ * The catalog digest covers its raw bytes, so a collateral re-wrap of a sibling
+ * costs a contract re-approval. A parse-level comparison cannot see a re-wrap, so
+ * the assertions compare raw text. The fixture concatenates hand-written blocks,
+ * so `startsWith` and `endsWith` prove that siblings are byte-identical. Two
+ * entries hold folded scalars wrapped at a column the serializer disagrees with.
+ * Without them, a whole-document round-trip passes as a splice.
  */
 // @oracle-sources: ../../../../src/verbs/invariants/amend.ts, the hand-written raw catalog bytes concatenated in this file
 //
-// One side is the production writer; the other is a block of bytes a human
-// typed here, which no part of the writer has ever seen. Deliberately NOT
-// declaring `./catalog-file.js` as the second authority: `amend.ts` imports it,
-// so the static import graph makes them one authority wearing two names.
+// `amend.ts` imports `./catalog-file.js`, so that module is not a second authority.
 import { describe, it, expect } from 'vitest';
 
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
@@ -38,8 +20,6 @@ import { locateCatalogEntry } from '../../../../src/verbs/invariants/catalog-fil
 import type { ScaffoldDeps } from '../../../../src/verbs/invariants/scaffold.js';
 import { EXARCHOS_PACKAGE_NAME } from '../../../../src/verbs/invariants/reserved-tier-guard.js';
 import { digestText } from '../../../../src/contract/authority-digest.js';
-
-// ─── The kill fixture ────────────────────────────────────────────────────────
 
 const HEAD = `---
 # Catalog comment that must survive an amendment.
@@ -65,10 +45,9 @@ const ENTRY_TARGET = `  - id: U-1
 `;
 
 /**
- * A sibling whose `summary` is a FOLDED scalar wrapped at 80 columns by a
- * human. Re-serializing the document re-folds it at the serializer's own
- * effective width and moves the line breaks — that is the whole defect, and
- * this block is the thing that must come out unchanged.
+ * A sibling whose `summary` is a folded scalar that a human wrapped at 80
+ * columns. A whole-document re-serialization moves its line breaks. This block
+ * must come out unchanged.
  */
 const ENTRY_FOLDED_A = `  - id: U-2
     dimension: second-dimension
@@ -82,9 +61,10 @@ const ENTRY_FOLDED_A = `  - id: U-2
     references: []
 `;
 
-/** A second folded sibling, and the LAST entry — it owns the tail of the
- * frontmatter, where an off-by-one in the splice would show up as an inserted
- * blank line before the closing fence. */
+/**
+ * A second folded sibling, and the last entry. It owns the tail of the
+ * frontmatter, where an off-by-one splice adds a blank line before the closing fence.
+ */
 const ENTRY_FOLDED_B = `  - id: U-3
     dimension: third-dimension
     axis: substrate
@@ -133,8 +113,6 @@ const ENTRIES: ReadonlyArray<{
   },
 ];
 
-// ─── Harness ─────────────────────────────────────────────────────────────────
-
 const REPO_ROOT = '/repo';
 const CATALOG = '.exarchos/invariants.md';
 const CATALOG_ABS = `${REPO_ROOT}/${CATALOG}`;
@@ -164,15 +142,13 @@ function makeFakeFs(seed: Record<string, string>): FakeFs {
   return { files, deps, writes };
 }
 
+/** A test context, narrowed by a type guard instead of a cast. */
 function makeCtx(): DispatchContext {
   const ctx: unknown = {
     stateDir: '/tmp/state',
     enableTelemetry: false,
     eventStore: { append: async () => undefined },
   };
-  // A structural check rather than a cast: the handler reads exactly these
-  // three members, and asserting the shape would let a future field silently
-  // arrive as `undefined`.
   if (!isDispatchContextShaped(ctx)) throw new Error('test harness context is malformed');
   return ctx;
 }
@@ -218,24 +194,21 @@ async function amendAndRead(
   };
 }
 
-// ─── The kill fixture: raw text, not the parsed form ─────────────────────────
-
 describe('invariants_amend — the write is a splice, proven on raw text (DR-3)', () => {
+  /**
+   * Everything before and after the amended entry stays byte-identical: the YAML
+   * comment, both folded siblings, the closing fence and the prose body. Only the
+   * amended entry's own lines change.
+   */
   it('handleAmend_OneField_LeavesEveryOtherByteOfTheFileIdentical', async () => {
     const { written, result } = await amendAndRead(FOLDED_CATALOG, 'U-1', {
       summary: 'Corrected summary text.',
     });
     expect(result.success).toBe(true);
 
-    // ── The claim, stated on bytes ──
-    // Everything before the amended entry, and everything after it — the YAML
-    // comment, BOTH folded siblings, the closing fence and the prose body —
-    // comes through unchanged. A document round-trip re-folds U-2 and U-3 and
-    // fails both of these.
     expect(written.startsWith(HEAD)).toBe(true);
     expect(written.endsWith(ENTRY_FOLDED_A + ENTRY_FOLDED_B + TAIL)).toBe(true);
 
-    // ...so the ONLY region that moved is the amended entry's own lines.
     const changed = written.slice(
       HEAD.length,
       written.length - (ENTRY_FOLDED_A + ENTRY_FOLDED_B + TAIL).length,
@@ -246,6 +219,7 @@ describe('invariants_amend — the write is a splice, proven on raw text (DR-3)'
     expect(changed).not.toContain('id: U-3');
   });
 
+  /** For each entry, the amendment lands and the siblings stay byte-identical. */
   it.each(ENTRIES)(
     'handleAmend_AmendingOneEntry_LeavesItsSiblingsByteIdentical: $id',
     async ({ id, prefix, suffix }) => {
@@ -255,17 +229,17 @@ describe('invariants_amend — the write is a splice, proven on raw text (DR-3)'
       expect(result.success).toBe(true);
       expect(written.startsWith(prefix)).toBe(true);
       expect(written.endsWith(suffix)).toBe(true);
-      // Non-vacuity: the amendment did land, so the two assertions above are
-      // not passing because nothing happened.
       expect(written).toContain(`Corrected summary for ${id}.`);
       expect(written).not.toBe(FOLDED_CATALOG);
     },
   );
 
+  /**
+   * The span of the last entry ends at the closing fence, with no trailing
+   * newline inside the fences. A splice that always appends one adds a blank line
+   * before `---`.
+   */
   it('handleAmend_AmendingTheLastEntry_AddsNoBlankLineBeforeTheClosingFence', async () => {
-    // The last entry's span runs to the end of the frontmatter with no trailing
-    // newline inside the fences. A splice that always appends one would push a
-    // blank line in front of `---` on every amendment of the final entry.
     const { written } = await amendAndRead(FOLDED_CATALOG, 'U-3', {
       summary: 'Corrected tail entry.',
     });
@@ -273,10 +247,8 @@ describe('invariants_amend — the write is a splice, proven on raw text (DR-3)'
     expect(written).not.toContain('\n\n---\n\n# Invariants');
   });
 
+  /** An amendment that changes no content changes no bytes. */
   it('handleAmend_PatchToTheSameValue_LeavesTheFileByteIdentical', async () => {
-    // The crispest statement of "the digest moves for the amendment and for
-    // nothing else": an amendment that changes no content changes no bytes. The
-    // old writer moved every folded scalar in the document even for this.
     const { written, result } = await amendAndRead(FOLDED_CATALOG, 'U-1', {
       summary: 'Original summary text.',
     });
@@ -285,24 +257,24 @@ describe('invariants_amend — the write is a splice, proven on raw text (DR-3)'
   });
 });
 
-// ─── The authority digest ────────────────────────────────────────────────────
-
+/**
+ * The digest moves for the amendment and for nothing else. `authority-pin.ts`
+ * digests the raw catalog text, so a reworded invariant cannot reach a generated
+ * artifact without notice.
+ */
 describe('invariants_amend — the catalog digest moves for the amendment and nothing else', () => {
   it('handleAmend_WordingChange_MovesTheAuthorityDigest', async () => {
-    // It SHOULD move: the catalog's wording is a load-bearing generation input,
-    // and `authority-pin.ts` digests the raw file text precisely so a reworded
-    // invariant cannot ride into a generated artifact unnoticed.
     const { written } = await amendAndRead(FOLDED_CATALOG, 'U-1', {
       summary: 'Corrected summary text.',
     });
     expect(digestText(written)).not.toBe(digestText(FOLDED_CATALOG));
   });
 
+  /**
+   * Putting the original entry bytes back restores the original digest. That
+   * holds only if nothing outside the entry moved.
+   */
   it('handleAmend_RestoringTheAmendedEntrysBytes_RestoresTheOriginalDigest', async () => {
-    // The digest movement is ATTRIBUTABLE: put the amended entry's original
-    // bytes back into the file the writer produced, and the original digest
-    // returns. It can only return if nothing outside that entry moved — under
-    // the old writer the re-folded siblings keep the digest away from home.
     const { written } = await amendAndRead(FOLDED_CATALOG, 'U-1', {
       summary: 'Corrected summary text.',
     });
@@ -315,9 +287,12 @@ describe('invariants_amend — the catalog digest moves for the amendment and no
   });
 });
 
-// ─── The dry-run preview IS the write ────────────────────────────────────────
-
 describe('invariants_amend — the dry-run diff names the lines the commit writes', () => {
+  /**
+   * The `+` side of the preview diff is the region that the commit rewrites, and
+   * the `-` side is the original entry. The splice keeps the `  - ` marker, so
+   * the diff leaves it out.
+   */
   it('handleAmend_DryRunDiff_MatchesTheCommittedRegionLineForLine', async () => {
     const fake = makeFakeFs({ [CATALOG_ABS]: FOLDED_CATALOG });
     const preview = await handleAmend(
@@ -351,30 +326,24 @@ describe('invariants_amend — the dry-run diff names the lines the commit write
     const suffix = ENTRY_FOLDED_A + ENTRY_FOLDED_B + TAIL;
     const changed = written.slice(HEAD.length, written.length - suffix.length);
 
-    // The preview's `+` side is exactly the region the commit rewrites (the
-    // `  - ` marker is not rewritten — the splice keeps it).
     expect(`  - ${added.join('\n')}\n`).toBe(changed);
-    // ...and the `-` side is exactly the bytes that were there before.
     expect(`  - ${removed.join('\n')}\n`).toBe(ENTRY_TARGET);
   });
 });
 
-// ─── Non-empty denominator (DR-3 / DR-24) ────────────────────────────────────
-
 describe('locateCatalogEntry — a locate that matches nothing REFUSES', () => {
+  /**
+   * The locator matches a non-empty span on a real catalog, so the refusal tests
+   * are not vacuous. The span holds only the entry's own lines, after the `- `
+   * marker. The test strips the final newline, because the last span stops at
+   * the closing fence.
+   */
   it('locateCatalogEntry_EveryEntry_ResolvesToANonEmptySpanOfItsOwnLines', () => {
-    // The anti-vacuity arm for every refusal below: the locator really does
-    // match lines on a real catalog, so a green refusal test is not green
-    // because the locator matches nothing at all.
     for (const entry of ENTRIES) {
       const scan = locateCatalogEntry(FOLDED_CATALOG, entry.id);
       expect(scan.located).toBe(true);
       if (!scan.located) continue;
       expect(scan.entry.currentText.length).toBeGreaterThan(0);
-      // The span is the entry's OWN lines: the `- ` marker sits outside it and
-      // no sibling's bytes are inside it. Trailing newlines are normalised
-      // because the LAST entry's span stops at the closing fence, which owns
-      // the newline before it.
       const stripEol = (t: string): string => t.replace(/\n$/, '');
       expect(stripEol(`  - ${scan.entry.currentText}`)).toBe(stripEol(entry.block));
     }
@@ -394,11 +363,11 @@ describe('locateCatalogEntry — a locate that matches nothing REFUSES', () => {
     expect(scan.reason).toMatch(/match zero lines/);
   });
 
+  /**
+   * The locate is narrower than the id scan. An aliased entry has a readable id
+   * but owns no node to rewrite, so the locate refuses it.
+   */
   it('locateCatalogEntry_AliasedEntry_RefusesEvenThoughItsIdIsReadable', () => {
-    // The locate is deliberately NARROWER than the id scan: an aliased entry
-    // resolves to a readable id through a projection but owns no node of its
-    // own to rewrite. Splicing "the entry" would have to rewrite the anchor,
-    // which is somebody else's text.
     const aliased = `---
 schema-version: 3
 anchors:
@@ -435,14 +404,12 @@ invariants:
   });
 });
 
-// ─── The handler refuses on the same terms ───────────────────────────────────
-
 describe('invariants_amend — a write that would resolve zero entries fails', () => {
+  /**
+   * The id scan reads `U-1` off the aliased projection, so the handler passes its
+   * not-found and empty-catalog checks. The locate stops it, and nothing is written.
+   */
   it('handleAmend_AliasedEntry_FailsWithoutWriting', async () => {
-    // End-to-end: the id scan can read `U-1` off the aliased projection, so the
-    // handler gets past its own not-found and empty-catalog refusals; the
-    // locate is what stops it. Nothing is written and nothing is reported as
-    // amended.
     const aliased = `---
 schema-version: 3
 anchors:
@@ -500,21 +467,19 @@ invariants:
   });
 });
 
-// ─── Fence shapes the rebuild could not round-trip ───────────────────────────
-
+/**
+ * `parseDocument` ranges are offsets into the exact string it receives, CRLF
+ * included, and `splitCatalog` passes a substring of the original file. This
+ * guard fails if a future `yaml` version normalizes line endings first.
+ */
 describe('invariants_amend — a CRLF checkout round-trips without corruption', () => {
-  // Raised as a HIGH-severity bug against the splice: the hypothesis was that
-  // `yaml` computes node ranges over a CRLF-normalised copy, so slicing the
-  // ORIGINAL (still-CRLF) text with those offsets would drift by one byte per
-  // preceding line and shred a Windows checkout.
-  //
-  // It does not: `parseDocument` ranges are offsets into the exact string it was
-  // handed, CRLF included, and `splitCatalog` hands it a substring of the
-  // original file. The fixture below is the proof, and it stays as a standing
-  // guard — if a future `yaml` ever did normalise, this reds instead of silently
-  // corrupting every catalog authored on Windows.
   const crlf = (text: string): string => text.replace(/\n/g, '\r\n');
 
+  /**
+   * Line endings are the only difference, which also pins the bytes of the
+   * amended entry. The amendment must land, so the check does not compare two
+   * failed writes.
+   */
   it('CatalogSplice_CrlfCatalog_MatchesTheLfWriteExactly', async () => {
     const patch = { summary: 'Corrected summary text.' };
     const lfRun = await amendAndRead(FOLDED_CATALOG, 'U-1', patch);
@@ -523,14 +488,8 @@ describe('invariants_amend — a CRLF checkout round-trips without corruption', 
     expect(lfRun.result.success, JSON.stringify(lfRun.result)).toBe(true);
     expect(crlfRun.result.success, JSON.stringify(crlfRun.result)).toBe(true);
 
-    // The whole claim in one line: line endings are the ONLY difference. This
-    // pins the amended entry's own bytes too — assertions that only fence the
-    // regions AROUND the entry pass happily while the splice shreds the middle
-    // of it, which is exactly how an offset drift would present.
     expect(crlfRun.written).toBe(crlf(lfRun.written));
 
-    // …and the amendment actually happened, so the equality above is not two
-    // identically-failed writes agreeing with each other.
     expect(crlfRun.written).toContain('Corrected summary text.');
     expect(crlfRun.written).not.toContain('Original summary text');
     expect(/[^\r]\n/.test(crlfRun.written), 'a bare LF survived in a CRLF file').toBe(
@@ -539,13 +498,12 @@ describe('invariants_amend — a CRLF checkout round-trips without corruption', 
   });
 });
 
+/**
+ * A rebuild from the `splitCatalog` parts drops trailing whitespace on the closing
+ * fence line. It also cannot tell a missing final newline from an empty body. The
+ * splice must carry each tail below through verbatim.
+ */
 describe('invariants_amend — the fence bytes survive shapes a rebuild normalises', () => {
-  // The splice used to rebuild the document as `---\n<frontmatter>\n---\n<body>`,
-  // which can only reproduce a file whose fences happen to match that template.
-  // `splitCatalog` drops trailing whitespace on the closing fence line (`[ \t]*`)
-  // and cannot tell "no final newline" from "empty body", so both shapes below
-  // came back altered in bytes the amendment never named. The existing TAIL is
-  // the one shape that survives, which is why the suite stayed green.
   const variants: ReadonlyArray<{ readonly label: string; readonly tail: string }> = [
     {
       label: 'trailing spaces on the closing fence line',
@@ -569,7 +527,6 @@ describe('invariants_amend — the fence bytes survive shapes a rebuild normalis
         `tail (${label}) was rewritten:\n${JSON.stringify(written.slice(-80))}`,
       ).toBe(true);
       expect(written.startsWith(HEAD)).toBe(true);
-      // …and the amendment still happened.
       expect(written).toContain('Corrected summary text.');
     });
   }

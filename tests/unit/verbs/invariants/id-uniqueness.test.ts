@@ -1,27 +1,13 @@
 /**
- * Task 068 / DR-24 — the catalog's write path must be at least as strong as its
- * own read path.
+ * The write path of the catalog must be at least as strong as its read path. The loader rejects a
+ * duplicate id, so `invariants_add` must refuse an explicit `args.id` that the catalog already holds.
  *
- * The defect this file pins: `invariants_add` honored an explicit `args.id` with
- * no membership test, so authoring `id: "INV-17"` into a catalog that already
- * contained INV-17 returned `success: true` with an append diff — producing a
- * file the loader then REFUSES to read (`parseInvariantEntries` throws
- * `Duplicate invariant ID: INV-17`). A writer that can author a document its own
- * reader rejects is the defect class this program exists to remove.
- *
- * Three properties are proven here:
- *
- *  1. **Kill fixture** — the exact probe that exposed the defect: `handleAdd`
- *     with explicit `id: 'INV-17'` against the REAL committed dev catalog (which
- *     contains INV-17) must FAIL, on both the dry-run and the commit path.
- *  2. **Shared rule, not a restatement** — the writer's verdict is produced by
- *     the LOADER's exported rule (`findDuplicateInvariantId`), so reader and
- *     writer cannot drift. Proven behaviorally: a data-driven table is submitted
- *     to BOTH the reader (`parseInvariantEntries`) and the writer (`handleAdd`)
- *     and their verdicts must agree case-for-case.
- *  3. **Non-empty denominator** — a uniqueness check whose denominator does not
- *     RESOLVE (a moved/renamed `invariants:` key, an entry with no readable id)
- *     must fail rather than read as "no collisions".
+ * - Kill fixture: `handleAdd` with an id from the real committed dev catalog must fail, on the dry run
+ *   and on the commit path.
+ * - Shared rule: the writer gets its verdict from the exported loader rule `findDuplicateInvariantId`.
+ *   One data table goes to the reader and to the writer, and their verdicts must agree.
+ * - Resolved denominator: a uniqueness check whose id list does not resolve must fail, and not read
+ *   as "no collisions".
  */
 import { describe, it, expect } from 'vitest';
 
@@ -42,25 +28,19 @@ import {
   parseInvariantEntries,
 } from '../../../../src/architecture/invariants-loader.js';
 
-// ─── Harness ─────────────────────────────────────────────────────────────────
-
+/**
+ * Keys every path through `toPosix`, like production. On Windows a seed key built from `REPO_ROOT`
+ * mixes separators and does not match the forward-slash lookup of the reserved-tier guard.
+ * The fixtures author at `tier: 'dev'`, so the fake seeds an exarchos `package.json`. Otherwise the
+ * guard refuses with RESERVED_TIER before the id check.
+ */
 function makeFakeFs(seed: Record<string, string>): {
   deps: ScaffoldDeps;
   writes: Array<{ path: string; contents: string }>;
 } {
-  // Key every path through `toPosix`, because that is what production does:
-  // `reserved-tier-guard` looks up `toPosix(path.join(repoRoot, 'package.json'))`.
-  // On Windows `REPO_ROOT` carries backslashes, so a template-built seed key like
-  // `${REPO_ROOT}/package.json` is mixed-separator and can never match the guard's
-  // all-forward-slash lookup. A real filesystem does not care which separator the
-  // caller used; a Map keyed on the raw string does, and that difference made the
-  // guard read "not an exarchos repo" on Windows only.
   const files = new Map<string, string>(
     Object.entries(seed).map(([p, contents]) => [toPosix(p), contents]),
   );
-  // These fixtures author at `tier: 'dev'` (the INV-N namespace INV-17 lives
-  // in), so the reserved-tier guard (#1489) must see an exarchos repo or it
-  // short-circuits with RESERVED_TIER before the id check is ever reached.
   files.set(
     toPosix(`${REPO_ROOT}/package.json`),
     JSON.stringify({ name: EXARCHOS_PACKAGE_NAME }),
@@ -97,7 +77,7 @@ const REPO_ROOT = nodePath.resolve(
   '../../../..',
 );
 
-/** The REAL committed dev catalog — the subject of the original probe. */
+/** The real committed dev catalog. */
 function realDevCatalog(): string {
   return fs.readFileSync(
     nodePath.join(REPO_ROOT, '.exarchos/invariants.md'),
@@ -132,14 +112,12 @@ function errorOf(result: ToolResult): { code?: string; message?: string } {
   };
 }
 
-// ─── 1. Kill fixture ─────────────────────────────────────────────────────────
-
 describe('DR-24 kill fixture — colliding explicit id must fail at WRITE time', () => {
   const CATALOG = '.exarchos/invariants.md';
   const ABS = `${REPO_ROOT}/${CATALOG}`;
 
+  /** The real dev catalog already holds the id, so the write must fail and write nothing. */
   it('handleAdd_ExplicitIdCollidesWithRealDevCatalog_Fails', async () => {
-    // The exact probe from task 019: the real catalog already contains INV-17.
     const contents = realDevCatalog();
     expect(contents).toContain('id: INV-17');
 
@@ -160,14 +138,14 @@ describe('DR-24 kill fixture — colliding explicit id must fail at WRITE time',
 
     expect(result.success).toBe(false);
     expect(errorOf(result).code).toBe('DUPLICATE_INVARIANT_ID');
-    // Nothing was written — a rejected write must not touch the catalog.
     expect(fake.writes).toHaveLength(0);
   });
 
+  /**
+   * The dry run is the default, and an agent commits from the previewed diff. A clean preview that then
+   * fails on commit moves the defect one call later.
+   */
   it('handleAdd_ExplicitIdCollides_FailsOnDryRunToo', async () => {
-    // dryRun is the DEFAULT and the previewed diff is what an agent commits
-    // from. A preview that renders clean and then fails on commit would just
-    // move the defect one call later.
     const fake = makeFakeFs({ [ABS]: realDevCatalog() });
 
     const result = await handleAdd(
@@ -187,9 +165,11 @@ describe('DR-24 kill fixture — colliding explicit id must fail at WRITE time',
     expect(errorOf(result).code).toBe('DUPLICATE_INVARIANT_ID');
   });
 
+  /**
+   * The guard must reject collisions, not explicit ids. Without this test, the kill fixture also passes
+   * against a handler that rejects every id.
+   */
   it('handleAdd_ExplicitIdIsFree_StillSucceeds', async () => {
-    // The guard must reject collisions, not explicit ids. Without this the
-    // kill fixture above would pass against a handler that rejects everything.
     const fake = makeFakeFs({ [ABS]: realDevCatalog() });
 
     const result = await handleAdd(
@@ -209,10 +189,11 @@ describe('DR-24 kill fixture — colliding explicit id must fail at WRITE time',
     expect((result.data as { id: string }).id).toBe('INV-9999');
   });
 
+  /**
+   * The catalog that the writer leaves must still parse through the reader. After a rejected collision
+   * the writer writes nothing, so the catalog is unchanged.
+   */
   it('handleAdd_CollisionRejected_CatalogStillLoads', async () => {
-    // The property that was actually broken: whatever the writer leaves on
-    // disk must still parse through the READER. After a rejected collision the
-    // catalog is byte-identical, so the reader still accepts it.
     const before = realDevCatalog();
     const fake = makeFakeFs({ [ABS]: before });
 
@@ -230,18 +211,14 @@ describe('DR-24 kill fixture — colliding explicit id must fail at WRITE time',
     );
 
     expect(fake.writes).toHaveLength(0);
-    // Reader accepts the untouched catalog.
     const scan = readCatalogIds(before);
     expect(scan.resolved).toBe(true);
   });
 });
 
-// ─── 2. One rule, two callers (shared with the loader, not restated) ─────────
-
 /**
- * Policy as DATA (PDD §3a): each case is a prospective id list. The SAME table
- * is submitted to the reader and to the writer; their verdicts must agree.
- * `expectDuplicate` is the id the shared rule is expected to name, or `null`.
+ * One case of the data table: a prospective id list. The reader and the writer get the same table,
+ * and their verdicts must agree. `expectDuplicate` is the id that the shared rule names, or `null`.
  */
 interface UniquenessCase {
   readonly name: string;
@@ -283,7 +260,7 @@ const UNIQUENESS_CASES: readonly UniquenessCase[] = [
   },
 ];
 
-/** Render a raw catalog entry list the LOADER's parser accepts. */
+/** Renders a raw catalog entry list that the loader parser accepts. */
 function rawEntries(ids: readonly string[]): unknown[] {
   return ids.map((id) => ({
     id,
@@ -297,11 +274,13 @@ function rawEntries(ids: readonly string[]): unknown[] {
 }
 
 describe('DR-6 — the writer derives its verdict from the LOADER rule', () => {
+  /**
+   * The reader parses the id list that the write produces. The writer gets the same write as a dry run.
+   * Both must reject the same cases with the same `duplicateInvariantIdMessage` text.
+   */
   it.each(UNIQUENESS_CASES)(
     'ReaderAndWriterAgree: $name',
     async ({ existingIds, newId, expectDuplicate }) => {
-      // ── Reader verdict: does `parseInvariantEntries` reject the document
-      //    that WOULD result from this write?
       const prospective = [...existingIds, newId];
       let readerRejected: string | null = null;
       try {
@@ -310,7 +289,6 @@ describe('DR-6 — the writer derives its verdict from the LOADER rule', () => {
         readerRejected = err instanceof Error ? err.message : String(err);
       }
 
-      // ── Writer verdict: does `handleAdd` refuse the same write?
       const CATALOG = '.exarchos/invariants.md';
       const ABS = `${REPO_ROOT}/${CATALOG}`;
       const yaml =
@@ -334,13 +312,10 @@ describe('DR-6 — the writer derives its verdict from the LOADER rule', () => {
       );
       const writerRejected = result.success ? null : errorOf(result).message ?? '';
 
-      // ── The two must agree, case for case.
       if (expectDuplicate === null) {
         expect(readerRejected).toBeNull();
         expect(writerRejected).toBeNull();
       } else {
-        // Reader rejects, writer rejects, and both name the SAME id via the
-        // SAME message builder — proof the rule is shared, not restated.
         expect(readerRejected).toBe(duplicateInvariantIdMessage(expectDuplicate));
         expect(writerRejected).toContain(
           duplicateInvariantIdMessage(expectDuplicate),
@@ -349,12 +324,11 @@ describe('DR-6 — the writer derives its verdict from the LOADER rule', () => {
     },
   );
 
+  /**
+   * The loader rule is exported and total over the id list. This test does not detect a second copy of
+   * the rule in the writer. The agreement table above shows only that the two give the same verdicts.
+   */
   it('LoaderRule_IsTheSingleAuthority_WriterHasNoSecondCopy', () => {
-    // Structural fact, measured directly: the exported rule is the thing that
-    // decides, and it is the thing the loader's own message builder describes.
-    // If a future edit gave the writer its own Set-based loop, this table would
-    // still pass — so the load-bearing proof is the behavioral agreement above
-    // PLUS this: the loader's rule is exported and total over the id list.
     expect(findDuplicateInvariantId(['A', 'B', 'A'])).toBe('A');
     expect(findDuplicateInvariantId(['A', 'B'])).toBeUndefined();
     expect(findDuplicateInvariantId([])).toBeUndefined();
@@ -363,21 +337,15 @@ describe('DR-6 — the writer derives its verdict from the LOADER rule', () => {
     );
   });
 
+  /** The loader error text is a contract that other callers match, so the text must stay the same. */
   it('LoaderRule_RejectionMessage_IsUnchangedFromBeforeExtraction', () => {
-    // The loader's wire-visible error text is a contract other callers match
-    // on. Extracting the rule must not have changed it.
     expect(() => parseInvariantEntries(rawEntries(['INV-17', 'INV-17']))).toThrow(
       'Duplicate invariant ID: INV-17',
     );
   });
 });
 
-// ─── 3. Non-empty denominator ────────────────────────────────────────────────
-
-/**
- * Policy as DATA: catalog shapes whose id list does NOT resolve. Each must be
- * refused, never silently treated as "zero existing ids, so no collisions".
- */
+/** Catalog shapes whose id list does not resolve. Each must be refused, and not read as zero ids. */
 const UNRESOLVABLE_CATALOGS: ReadonlyArray<{
   readonly name: string;
   readonly contents: string;
@@ -410,11 +378,11 @@ describe('DR-24 non-empty denominator — an unresolved id list must not read as
     },
   );
 
+  /**
+   * A new scaffolded catalog is `invariants: []` with zero entries. That empty list resolves, so
+   * `invariants_add` can author the first entry. The check is resolvability, not count.
+   */
   it('readCatalogIds_ResolvableButEmpty_Resolves', () => {
-    // A freshly scaffolded catalog is `invariants: []` — genuinely zero
-    // entries. That is a RESOLVED empty denominator and must stay usable, or
-    // `invariants_add` could never author the first entry. The tooth is
-    // resolvability, not cardinality.
     const scan = readCatalogIds('invariants: []\n');
     expect(scan.resolved).toBe(true);
     if (scan.resolved) expect(scan.ids).toEqual([]);

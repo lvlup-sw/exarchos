@@ -273,6 +273,10 @@ describe('canonical evidence-producing gate runner', () => {
     });
   });
 
+  /**
+   * The report goes to the content-addressed store, not into the event payload.
+   * The durable evidence row must name the blob in `artifactRefs`.
+   */
   it('GateRunner_Report_IsContentAddressedAndExcludedFromEventPayload', async () => {
     const marker = 'large-sensitive-gate-report';
     const reportProvider: GateProviderExecutor = async () => ({
@@ -298,18 +302,18 @@ describe('canonical evidence-producing gate runner', () => {
       data: { passed: false, report: marker.repeat(10_000), summary: 'failed' },
     });
 
-    // The durable row, not only the ephemeral carrier, must name the blob —
-    // that stamp is the only production write a durable-evidence custody
-    // check ever has to consult.
     const persisted = (await persistedEvidence())[0]?.evidence;
     expect(persisted?.artifactRefs).toEqual([reportArtifact]);
     await expect(resolveEvidenceArtifact(artifactStore, persisted?.artifactRefs?.[0]))
       .resolves.toBe(marker.repeat(10_000));
   });
 
+  /**
+   * Each provider run reports different bytes, so the test can see which blob
+   * the retry returns. The retry must keep the first row and resolve to the bytes
+   * of run one.
+   */
   it('GateRunner_SameOperationRetry_ReDerivesArtifactRefFromThePersistedRow', async () => {
-    // Each run reports DIFFERENT bytes, so which run's blob the retry hands
-    // back is observable rather than assumed.
     const marker = 'retry-report-body';
     let providerRuns = 0;
     const reportProvider: GateProviderExecutor = async () => {
@@ -333,33 +337,9 @@ describe('canonical evidence-producing gate runner', () => {
     const firstArtifact = evidenceReferences(first)[0]?.reportArtifact;
     const retryArtifact = evidenceReferences(retry)[0]?.reportArtifact;
     expect(persisted?.artifactRefs).toEqual([firstArtifact]);
-    // A same-operation retry keeps the FIRST run's row and blob whatever the
-    // provider reports the second time. The blob store is the second
-    // authority: the reference the retry hands back must resolve to the bytes
-    // run one wrote — not to run two's, and not to nothing.
     await expect(resolveEvidenceArtifact(artifactStore, retryArtifact)).resolves.toBe(`${marker}-1`);
   });
 });
-
-// ─── DR-1: the durable runner owns the gate-executed signal ─────────────────
-//
-// CHARACTERIZATION OF THE OLD BEHAVIOUR (what these tests replace).
-//
-// The migrated ladder producers (check_static_analysis and siblings) route
-// through `runDurableGateProducer` → `runGate`, which appended ONLY
-// `admission.evidence-recorded`. `task_complete` (tasks/tools.ts) has always
-// gated on `gate.executed`. So the gate-execution signal was split across two
-// event types with NO producer on the side the consumer reads: a real
-// `check_static_analysis` run followed by `task_complete` returned
-// GATE_NOT_PASSED against its own fresh evidence.
-//
-// The fix keeps `gate.executed` as THE signal and gives it exactly one producer
-// per gate class. For every class the durable runner owns, that producer is
-// `runGate` — minting the row from the same persisted evidence record, so the
-// proof and the signal cannot disagree. Legacy phase-gate providers that still
-// emit their own row keep ownership (the adapter opts the runner out), so no
-// gate class ever has two producers.
-// ────────────────────────────────────────────────────────────────────────────
 
 interface GateExecutedRow {
   readonly gateName?: string;
@@ -368,6 +348,12 @@ interface GateExecutedRow {
   readonly details?: Record<string, unknown>;
 }
 
+/**
+ * The durable runner owns the `gate.executed` signal that `task_complete` reads.
+ * `runGate` mints the row from the persisted evidence record, so proof and signal
+ * agree. A legacy phase-gate provider that emits its own row keeps ownership, so
+ * each gate class has one producer.
+ */
 describe('DR-1 gate-executed signal ownership', () => {
   let root: string;
   let eventStore: EventStore;
@@ -436,6 +422,10 @@ describe('DR-1 gate-executed signal ownership', () => {
     await rmrfAsync(root);
   });
 
+  /**
+   * The row takes `taskId` from the evidence subject, so `task_complete` can
+   * scope the signal to its task. `details.evidenceId` links the row to the proof.
+   */
   it('GateRunner_PassingTaskGate_EmitsTaskScopedGateExecutedSignal', async () => {
     await runWithDispatchContext(trusted('dr1-pass'), () =>
       runGate(taskRequest('task-dr1-a'), deps(passingProvider)),
@@ -448,10 +438,7 @@ describe('DR-1 gate-executed signal ownership', () => {
       layer: GATE_RUNNER_GATE_LAYER,
       passed: true,
     });
-    // The task binding comes from the evidence SUBJECT, so the per-task reader
-    // in task_complete can scope the signal to the task it is completing.
     expect(rows[0]?.details).toMatchObject({ taskId: 'task-dr1-a', verdict: 'pass' });
-    // The signal is derived from — and traceable to — the durable proof.
     const [evidence] = await eventStore.query(streamId, {
       type: 'admission.evidence-recorded',
     });
@@ -482,11 +469,11 @@ describe('DR-1 gate-executed signal ownership', () => {
 
     const rows = await gateExecutedRows();
     expect(rows).toHaveLength(1);
-    // Fail-closed: "the gate could not decide" must never read as a pass.
     expect(rows[0]?.passed).toBe(false);
     expect(rows[0]?.details).toMatchObject({ verdict: 'indeterminate' });
   });
 
+  /** A run with a non-task subject carries no `taskId`, which readers treat as a project-wide gate. */
   it('GateRunner_NonTaskSubject_EmitsProjectWideSignal', async () => {
     const request: GateRunRequest = {
       ...taskRequest('task-dr1-unused'),
@@ -501,8 +488,6 @@ describe('DR-1 gate-executed signal ownership', () => {
 
     const rows = await gateExecutedRows();
     expect(rows).toHaveLength(1);
-    // A cumulative (non-task) run carries no taskId, which the documented
-    // tolerant reader (#1189) treats as a project-wide gate.
     expect(rows[0]?.details?.taskId).toBeUndefined();
     expect(rows[0]?.passed).toBe(true);
   });
@@ -519,10 +504,11 @@ describe('DR-1 gate-executed signal ownership', () => {
     ).toHaveLength(1);
   });
 
+  /**
+   * A legacy phase-gate provider emits its own `gate.executed`, so the runner
+   * must not emit a second row. The runner still records the durable proof.
+   */
   it('PhaseGateAdapter_SelfEmittingProvider_RunnerDoesNotDoubleEmit', async () => {
-    // Single-producer rule, held from the other side: the legacy phase-gate
-    // providers still emit their own `gate.executed`, so the runner must stay
-    // silent for them. Two rows here would mean the class has two producers.
     const featureId = 'dr1-phase-gate';
     await seedActivePhaseAttempt(eventStore, featureId);
 
@@ -552,18 +538,18 @@ describe('DR-1 gate-executed signal ownership', () => {
       .map((event) => (event.data ?? {}) as GateExecutedRow);
     expect(rows).toHaveLength(1);
     expect(rows[0]?.layer).toBe('planning');
-    // The durable proof is still produced by the runner — only the signal is
-    // left to the legacy owner.
     expect(
       await eventStore.query(featureId, { type: 'admission.evidence-recorded' }),
     ).toHaveLength(1);
   });
 
-  // ── DR-7 (task 078): a gate that did not run is distinguishable from one
-  //    that passed, in BOTH durable rows, against a real event store.
-
+  /**
+   * A policy-skip carrier gives `indeterminate` evidence and a non-passing signal
+   * that keeps `skipped`, the discriminant and the reason. The carrier returned
+   * to the orchestrator stays `passed: true`, so a skipped gate does not block
+   * its runbook chain.
+   */
   it('AppendGateExecutedSignal_SkippedGate_PreservesSkippedAndDiscriminant', async () => {
-    // The carrier the three migrated ladder gates emit on a policy skip.
     const policySkipProvider: GateProviderExecutor = async () => ({
       success: true,
       data: {
@@ -579,15 +565,12 @@ describe('DR-1 gate-executed signal ownership', () => {
       runGate(taskRequest('task-dr7-skip'), deps(policySkipProvider)),
     );
 
-    // 1. The durable PROOF records that nothing was proven.
     const [evidence] = await eventStore.query(streamId, {
       type: 'admission.evidence-recorded',
     });
     expect(AdmissionEvidenceRecordedData.parse(evidence?.data).evidence.verdict)
       .toBe('indeterminate');
 
-    // 2. The SIGNAL agrees, and says WHY — the observability half the retired
-    //    `emitPolicySkipIfNeeded` carried and the runner had dropped.
     const rows = await gateExecutedRows();
     expect(rows).toHaveLength(1);
     expect(rows[0]?.passed).toBe(false);
@@ -598,18 +581,14 @@ describe('DR-1 gate-executed signal ownership', () => {
       reason: 'skipped by verification policy — not in the resolved sequence',
     });
 
-    // 3. The carrier the orchestrator reads is untouched, so a policy-skipped
-    //    gate still does not BLOCK its runbook chain. Only the proof changed.
     const carrier = await runWithDispatchContext(trusted('dr7-carrier'), () =>
       runGate(taskRequest('task-dr7-carrier'), deps(policySkipProvider)),
     );
     expect(carrier).toMatchObject({ success: true, data: { passed: true, skipped: true } });
   });
 
+  /** A gate that ran gets no skip markers, so the log shows the difference between "did not run" and "passed". */
   it('AppendGateExecutedSignal_GateThatRan_CarriesNoSkipMarkers', async () => {
-    // The discriminating counterpart: a real pass must NOT acquire skip
-    // markers, or `details.skipped` would be noise instead of a signal. This is
-    // what makes "did not run" and "passed" distinguishable in the log.
     await runWithDispatchContext(trusted('dr7-real-pass'), () =>
       runGate(taskRequest('task-dr7-ran'), deps(passingProvider)),
     );
@@ -623,23 +602,16 @@ describe('DR-1 gate-executed signal ownership', () => {
   });
 });
 
-// ─── DR-1 acceptance: the gate→task seam, end to end ────────────────────────
-//
-// These two go through the REAL `dispatch()` composition —
-//
-//   exarchos_orchestrate(check_static_analysis)
-//     → dispatch()  (per-action Zod validation, trusted caller, ambient scope)
-//     → handleOrchestrate → adaptLadderGate → handleStaticAnalysis
-//     → runDurableGateProducer → runGate            [signal producer]
-//   exarchos_orchestrate(task_complete)
-//     → dispatch() → handleTaskComplete             [signal consumer]
-//
-// — against a real npm toolchain in a real temp repo, with NO hand-seeded
-// `gate.executed` and NO `evidence` field on task_complete. A unit-isolated
-// version of this pair could not have caught the defect: both halves were
-// individually correct, and only their composition was broken.
-// ────────────────────────────────────────────────────────────────────────────
-
+/**
+ * End-to-end through the real `dispatch()`: `check_static_analysis` produces the
+ * signal and `task_complete` consumes it. Each half alone can pass while the
+ * composition fails. The tests seed no `gate.executed` row and pass no `evidence`
+ * field. They start the workflow through the real `init` action.
+ *
+ * The temp repo runs real npm scripts. It declares `lint`, `typecheck` and
+ * `quality-check`, because static analysis counts an undeclared script as a skip
+ * and degrades the result. Only the `lint` exit code changes between tests.
+ */
 describe('DR-1 acceptance: check_static_analysis → task_complete', () => {
   const cleanups: Array<() => void> = [];
   const stores: EventStore[] = [];
@@ -650,16 +622,10 @@ describe('DR-1 acceptance: check_static_analysis → task_complete', () => {
       try {
         fn();
       } catch {
-        /* best-effort temp cleanup */
       }
     }
   });
 
-  /**
-   * A real Node repo whose `lint`/`typecheck` scripts are genuine npm scripts.
-   * A hermetic fixture, not a stub: the gate shells out to the real npm the
-   * production path uses, so the pass/fail edge under test is the real one.
-   */
   function nodeRepo(prefix: string, exitCode: number): string {
     const repoRoot = mkdtempSync(join(tmpdir(), prefix));
     cleanups.push(() => rmrf(repoRoot));
@@ -670,12 +636,6 @@ describe('DR-1 acceptance: check_static_analysis → task_complete', () => {
           name: 'dr1-fixture',
           version: '1.0.0',
           private: true,
-          // DR-6 (T-09): static analysis tallies SKIP first-class, so an
-          // undeclared constituent degrades the dimension and can never report
-          // PASS. All three must be declared or the aggregate is DEGRADED for a
-          // reason that has nothing to do with the seam under test. `lint`
-          // carries the parameterised exit code; the other two are deterministic
-          // green legs so the lint result is the only variable.
           scripts: {
             lint: `node -e "process.exit(${exitCode})"`,
             typecheck: 'node -e ""',
@@ -700,8 +660,6 @@ describe('DR-1 acceptance: check_static_analysis → task_complete', () => {
       eventStore,
       enableTelemetry: false,
     } as HandlerContext);
-    // The workflow itself is started through the real action, so nothing in
-    // either test hand-writes an event into the stream.
     const init = await dispatch(
       'exarchos_workflow',
       { action: 'init', featureId, workflowType: 'feature' },
@@ -725,8 +683,6 @@ describe('DR-1 acceptance: check_static_analysis → task_complete', () => {
     expect(gate.success).toBe(true);
     expect((gate.data as { passed?: boolean }).passed).toBe(true);
 
-    // No `evidence` field: the completion is carried purely by the gate the
-    // agent actually ran.
     const complete = await dispatch(
       'exarchos_orchestrate',
       { action: 'task_complete', taskId, streamId: featureId },
@@ -740,6 +696,7 @@ describe('DR-1 acceptance: check_static_analysis → task_complete', () => {
     ).toHaveLength(1);
   }, 180_000);
 
+  /** A red lint still blocks `task_complete` with `GATE_NOT_PASSED`. */
   it('TaskComplete_StaticAnalysisRed_ReturnsGateNotPassed', async () => {
     const featureId = 'dr1-red';
     const taskId = 'DR1-RED-1';
@@ -760,9 +717,6 @@ describe('DR-1 acceptance: check_static_analysis → task_complete', () => {
       ctx,
     );
 
-    // The negative twin: unifying the producer must NOT weaken enforcement —
-    // a red static analysis still blocks, and it blocks because the signal it
-    // produced says `passed:false`, not because the signal is missing.
     expect(complete.success).toBe(false);
     expect(complete.error?.code).toBe('GATE_NOT_PASSED');
     expect(complete.error?.unmetGates).toContain('static-analysis');

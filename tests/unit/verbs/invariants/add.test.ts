@@ -1,14 +1,8 @@
 /**
- * T8/T9 — `invariants_add` handler tests.
- *
- * T8: validate one entry through InvariantEntryV3Schema; with dryRun (default
- * true) return the rendered YAML entry + a file diff and write NOTHING. Map
- * ZodError → envelope { validTargets, expectedShape, suggestedFix }. The
- * `.strict()` enforcement DSL rejects embedded exec/script and unknown leaf
- * kinds (INV-4).
- *
- * T9: with dryRun:false, append the entry to the target catalog's invariants:
- * list, auto-assigning the next free id in the target namespace.
+ * Tests for the `invariants_add` handler. The handler validates one entry through
+ * `InvariantEntryV3Schema`. A dry run, the default, returns the rendered YAML entry and a file diff,
+ * and writes nothing. A ZodError maps to a carrier with `expectedShape` and `suggestedFix`.
+ * With `dryRun: false`, the handler appends the entry to the catalog with the next free id.
  */
 import { describe, it, expect } from 'vitest';
 
@@ -22,8 +16,6 @@ import type { ScaffoldDeps } from '../../../../src/verbs/invariants/scaffold.js'
 import { allocateNextId } from '../../../../src/verbs/invariants/add.js';
 import { loadInvariants } from '../../../../src/architecture/invariants-loader.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
-
-// ─── Harness ─────────────────────────────────────────────────────────────────
 
 interface FakeFs {
   files: Map<string, string>;
@@ -49,10 +41,7 @@ function makeFakeFs(seed: Record<string, string> = {}): FakeFs {
   return { files, deps, writes };
 }
 
-/**
- * Minimal in-memory DispatchContext stub. We only need `eventStore.append`
- * to be callable + record calls; the rest of the context is unused by add.
- */
+/** A minimal DispatchContext stub. `eventStore.append` records each call, and `add` uses no other field. */
 function makeCtx(): { ctx: DispatchContext; appended: Array<{ stream: string; event: unknown }> } {
   const appended: Array<{ stream: string; event: unknown }> = [];
   const ctx = {
@@ -68,7 +57,7 @@ function makeCtx(): { ctx: DispatchContext; appended: Array<{ stream: string; ev
   return { ctx, appended };
 }
 
-// A valid mode:audit entry (no id — auto-assigned). Pure judgment (INV-6).
+/** A valid audit-mode entry without an id, so the handler assigns one. */
 const VALID_AUDIT_ENTRY = {
   dimension: 'example-dimension',
   axis: 'authoring' as const,
@@ -115,10 +104,8 @@ describe('handleAdd — T8 validate + dry-run', () => {
     expect(data.renderedEntry).toMatch(/id: U-1/);
     expect(data.renderedEntry).toMatch(/mode: audit/);
     expect(data.diff).toMatch(/U-1/);
-    // INV-12 next_actions.
     expect(data.next_actions).toContain('doctor');
     expect(data.next_actions).toContain('view invariants_effective');
-    // Wrote NOTHING.
     expect(fake.writes.length).toBe(0);
   });
 
@@ -128,7 +115,6 @@ describe('handleAdd — T8 validate + dry-run', () => {
     });
     const { ctx } = makeCtx();
 
-    // dryRun omitted → defaults to true (INV-5c).
     const result = await handleAdd(
       {
         repoRoot: '/repo',
@@ -145,6 +131,7 @@ describe('handleAdd — T8 validate + dry-run', () => {
     expect(fake.writes.length).toBe(0);
   });
 
+  /** The strict DSL rejects the embedded `exec` field, and the ZodError maps to the carrier shape. */
   it('handleAdd_CheckModeWithExecField_Rejected', async () => {
     const fake = makeFakeFs({
       '/repo/.exarchos/invariants.md': 'invariants: []\n',
@@ -166,7 +153,6 @@ describe('handleAdd — T8 validate + dry-run', () => {
           severity: { default: 'advisory' },
           enforcement: {
             mode: 'check',
-            // Embedded exec escape hatch — rejected by the .strict() DSL (INV-4).
             check: { kind: 'grep', pattern: 'foo', exec: 'rm -rf /' },
           },
         },
@@ -178,12 +164,12 @@ describe('handleAdd — T8 validate + dry-run', () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toBeDefined();
-    // ZodError mapped to the carrier shape (INV-5b).
     expect(result.error!.expectedShape).toBeDefined();
     expect(result.error!.suggestedFix).toBeDefined();
     expect(fake.writes.length).toBe(0);
   });
 
+  /** `kind: 'shell'` is not a known leaf kind, so the schema throws `UnknownCheckKindError`. */
   it('handleAdd_UnknownLeafKind_Rejected', async () => {
     const fake = makeFakeFs({
       '/repo/.exarchos/invariants.md': 'invariants: []\n',
@@ -205,7 +191,6 @@ describe('handleAdd — T8 validate + dry-run', () => {
           severity: { default: 'advisory' },
           enforcement: {
             mode: 'check',
-            // `kind: 'shell'` is not a known leaf kind → UnknownCheckKindError.
             check: { kind: 'shell', pattern: 'foo' },
           },
         },
@@ -234,13 +219,12 @@ describe('allocateNextId — T9 pure helper', () => {
   });
 
   it('allocateNextId_IgnoresOtherNamespaces', () => {
-    // U ids are not affected by INV ids and vice-versa.
     expect(allocateNextId(['INV-5', 'U-1'], 'U')).toBe('U-2');
     expect(allocateNextId(['INV-5', 'U-1'], 'INV')).toBe('INV-6');
   });
 
+  /** The next id is the maximum plus one, so a freed id is not used again. */
   it('allocateNextId_HandlesGaps_UsesMaxPlusOne', () => {
-    // Gaps are tolerated — next id is max+1, never reusing a freed id.
     expect(allocateNextId(['U-1', 'U-5'], 'U')).toBe('U-6');
   });
 });
@@ -296,13 +280,13 @@ describe('handleAdd — T9 commit', () => {
     expect(written).toMatch(/id: U-3/);
   });
 
+  /**
+   * A commit emits `invariant.authored`. The `.exarchos.yml` fixture registers no catalog, so the commit
+   * is the first registration and also emits `catalog.registered`.
+   */
   it('handleAdd_Commit_EmitsInvariantAuthoredAndCatalogRegistered', async () => {
-    // P2/T11: committing emits invariant.authored, and the FIRST registration
-    // of the catalog (it's not yet in .exarchos.yml) emits catalog.registered
-    // (INV-1). The events land on the per-tier invariants stream.
     const fake = makeFakeFs({
       '/repo/.exarchos/invariants.md': 'invariants: []\n',
-      // .exarchos.yml has no catalog registration → first registration.
       '/repo/.exarchos.yml': 'test: npm test\n',
     });
     const { ctx, appended } = makeCtx();
@@ -329,7 +313,6 @@ describe('handleAdd — T9 commit', () => {
   });
 
   it('handleAdd_Commit_AlreadyRegisteredCatalog_NoCatalogRegisteredEvent', async () => {
-    // When the catalog is already registered, only invariant.authored fires.
     const fake = makeFakeFs({
       '/repo/.exarchos/invariants.md': 'invariants: []\n',
       '/repo/.exarchos.yml':
@@ -354,18 +337,12 @@ describe('handleAdd — T9 commit', () => {
     expect(types).not.toContain('catalog.registered');
   });
 
+  /**
+   * A catalog whose `invariants:` node is not a sequence must give a structured `CATALOG_UNREADABLE`
+   * refusal and stay as it was. A raw TypeError or an overwrite is wrong. After an overwrite, every id
+   * looks free to the id-uniqueness check.
+   */
   it('handleAdd_Commit_NonSequenceInvariantsNode_RefusesStructurally', async () => {
-    // #1487 review established that a malformed catalog whose `invariants:` is
-    // a non-sequence (scalar/map) must not throw a raw TypeError on `.add`.
-    // It originally satisfied that by resetting the node to an empty sequence
-    // and appending — which silently DESTROYED the malformed content and made
-    // the id-uniqueness denominator vacuous (task 068 / DR-24): every id looks
-    // free when the entry list resolves to nothing.
-    //
-    // The contract is now the stronger form of the same intent: a structured
-    // `CATALOG_UNREADABLE` refusal, not a raw TypeError and not a silent
-    // overwrite. `appendEntryToCatalog`'s normalization survives as
-    // defense-in-depth for direct callers (unit-tested below).
     const fake = makeFakeFs({
       '/repo/.exarchos/invariants.md': 'invariants: not-a-list\n',
     });
@@ -387,18 +364,17 @@ describe('handleAdd — T9 commit', () => {
     expect((result as { error?: { code?: string } }).error?.code).toBe(
       'CATALOG_UNREADABLE',
     );
-    // The malformed catalog is left exactly as it was found.
     expect(fake.writes).toHaveLength(0);
     expect(fake.files.get('/repo/.exarchos/invariants.md')).toBe(
       'invariants: not-a-list\n',
     );
   });
 
+  /**
+   * The `dev` tier with `INV` ids is the reserved namespace of exarchos. Only the exarchos repo, known by
+   * its package.json name, can author into it, so the fixture seeds that name.
+   */
   it('handleAdd_DevTier_UsesInvNamespace', async () => {
-    // The `dev`/INV-N tier is exarchos's own reserved substrate namespace, so it
-    // is only reachable from the exarchos repo itself — identified by its
-    // package.json name (#1489). Seed that so this exercises the legitimate
-    // in-exarchos path rather than tripping the reserved-tier guard.
     const fake = makeFakeFs({
       '/repo/package.json': JSON.stringify({ name: '@lvlup-sw/exarchos' }),
       '/repo/.exarchos/invariants.md': 'invariants: []\n',
@@ -421,9 +397,11 @@ describe('handleAdd — T9 commit', () => {
     expect((result.data as { id: string }).id).toBe('INV-1');
   });
 
+  /**
+   * A consumer repo that authors into the `dev` tier gets a reserved-tier refusal that points to the
+   * `user` tier. The guard runs before any write.
+   */
   it('handleAdd_DevTier_NonExarchosRepo_BlockedAsReserved', async () => {
-    // A consumer repo (package.json name ≠ exarchos) authoring into tier:dev is
-    // rejected as a reserved-namespace collision and redirected to tier:user.
     const fake = makeFakeFs({
       '/repo/package.json': JSON.stringify({ name: '@acme/consumer' }),
       '/repo/.exarchos/invariants.md': 'invariants: []\n',
@@ -445,19 +423,17 @@ describe('handleAdd — T9 commit', () => {
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('RESERVED_TIER');
     expect(result.error?.suggestedFix?.params.tier).toBe('user');
-    // Guard fires before any write — the catalog is untouched.
     expect(fake.files.get('/repo/.exarchos/invariants.md')).toBe(
       'invariants: []\n',
     );
   });
 
+  /**
+   * Catalog files are markdown with frontmatter. A commit must keep the prose body and the frontmatter
+   * comment, and append the next id. The result must load through `loadInvariants` with both entries.
+   * `loadInvariants` reads from disk, so the test writes the result to a temp file.
+   */
   it('handleAdd_Commit_PreservesMarkdownBodyAndFrontmatterComments', async () => {
-    // #1487 review (HIGH): catalog files are markdown-with-frontmatter. The old
-    // commit path ran parseDocument on the WHOLE file then toString()'d it,
-    // which throws ("Document with errors cannot be stringified") and would
-    // silently destroy the prose body. This is the round-trip the prior tests
-    // omitted: commit an entry to a fenced catalog with a comment + body and
-    // assert the body, the comment, and the new entry all survive.
     const fenced =
       '---\n' +
       '# top-of-catalog comment\n' +
@@ -496,17 +472,12 @@ describe('handleAdd — T9 commit', () => {
 
     expect(result.success).toBe(true);
     const written = fake.files.get('/repo/.exarchos/invariants.md')!;
-    // (a) markdown body survives.
     expect(written).toContain('Prose body.');
     expect(written).toContain('# Heading');
-    // (b) frontmatter comment survives.
     expect(written).toContain('# top-of-catalog comment');
-    // (c) the auto-allocated next id is appended to invariants:.
     expect((result.data as { id: string }).id).toBe('U-2');
     expect(written).toMatch(/id: U-2/);
 
-    // (d) the result re-parses via loadInvariants without throwing and yields
-    // BOTH entries. loadInvariants reads from disk, so write to a real tmp file.
     const tmpDir = await fsp.mkdtemp(nodePath.join(os.tmpdir(), 'inv-rt-'));
     const tmpCatalog = nodePath.join(tmpDir, 'my-invariants.md');
     await fsp.writeFile(tmpCatalog, written, 'utf8');
@@ -519,10 +490,8 @@ describe('handleAdd — T9 commit', () => {
     await rmrfAsync(tmpDir);
   });
 
+  /** A bare YAML catalog with no fence and no body must still take a commit, and the commit adds no fence. */
   it('handleAdd_Commit_BareYamlCatalog_StillWorks', async () => {
-    // #1487 review (HIGH): the bare-YAML catalog shape (no fences, no body) must
-    // still round-trip through the original parseDocument path. A user could
-    // register a `.yml` catalog with no frontmatter fence.
     const fake = makeFakeFs({
       '/repo/docs/architecture/my-invariants.yml':
         'invariants:\n  - id: U-1\n    dimension: existing\n    axis: authoring\n    cost-of-load: reference-only\n    applies-to: ["src/**"]\n    summary: s\n    references: []\n',
@@ -543,7 +512,6 @@ describe('handleAdd — T9 commit', () => {
 
     expect(result.success).toBe(true);
     const written = fake.files.get('/repo/docs/architecture/my-invariants.yml')!;
-    // No frontmatter fence introduced; both ids present.
     expect(written).not.toMatch(/^---/);
     expect(written).toMatch(/id: U-1/);
     expect(written).toMatch(/id: U-2/);
@@ -561,6 +529,7 @@ describe('appendEntryToCatalog — #1487 helper unit tests', () => {
     references: [],
   };
 
+  /** The output keeps exactly one frontmatter open fence and one close fence. */
   it('appendEntryToCatalog_Fenced_PreservesBodyCommentAndAppends', () => {
     const fenced =
       '---\n# c\ninvariants:\n  - id: U-1\n    dimension: d\n---\n\n# Heading\n\nProse body.\n';
@@ -570,12 +539,11 @@ describe('appendEntryToCatalog — #1487 helper unit tests', () => {
     expect(out).toContain('# c');
     expect(out).toMatch(/id: U-1/);
     expect(out).toMatch(/id: U-9/);
-    // Exactly one frontmatter open + close fence (body fences not duplicated).
     expect(out.match(/^---$/gm)?.length).toBe(2);
   });
 
+  /** The scaffold starter file holds only frontmatter and no body. */
   it('appendEntryToCatalog_FrontmatterOnly_NoBody_RoundTripsClean', () => {
-    // The scaffold starter file is frontmatter-only with no body.
     const starter = '---\ninvariants: []\n---\n';
     const out = appendEntryToCatalog(starter, ENTRY);
     expect(out).toMatch(/id: U-9/);

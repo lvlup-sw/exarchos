@@ -1,22 +1,10 @@
-// ─── gate-preflight — the shared preflight helper (DR-10) ────────────────────
+// Tests for `runGatePreflight`, the preflight helper that the gate handlers share.
+// It returns the fail-fast envelopes of each handler and resolves `repoRoot` with worktree awareness.
 //
-// These tests pin the SHARED helper directly (the five gate handlers keep their
-// own unmodified tests): runGatePreflight reproduces each handler's exact
-// fail-fast envelopes and the worktree-aware repoRoot resolution.
-//
-// The `emitPolicySkipIfNeeded` cases that used to sit below were deleted with
-// the helper itself. It was retired when the durable gate runner took over skip
-// emission, and by then this file was its only caller — the tests were the only
-// thing keeping a dead export compiling. Its behaviour is now asserted where the
-// behaviour lives, against `appendGateExecutedSignal` in gate-runner.test.ts.
-//
-// DR-30 — the two authorities `GatePreflight_EveryValueExport_HasANonTestImporter`
-// compares are the module's own DECLARED export surface and the live IMPORT
-// SITES across the MCP source tree. Neither can observe the other: the module
-// does not know who imports it, and no importer enumerates what it exports, so a
-// dead export is exactly the disagreement between them.
+// The module-surface test compares two authorities: the declared exports of the module,
+// and the import sites in the source tree. Neither can observe the other,
+// so a dead export is a disagreement between them.
 // @oracle-sources: ../../../../src/verbs/pure/gate-preflight.ts, the named-import bindings scanned out of every non-test module under src
-// ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, readFileSync, readdirSync } from 'node:fs';
@@ -40,17 +28,15 @@ describe('gate-preflight (DR-10 shared helper)', () => {
     return store;
   }
 
+  /** The temporary directory cleanup is best-effort. */
   afterEach(() => {
     for (const d of stateDirs.splice(0)) {
       try {
         rmrf(d);
       } catch {
-        /* best-effort */
       }
     }
   });
-
-  // ─── runGatePreflight ──────────────────────────────────────────────────────
 
   describe('runGatePreflight', () => {
     it('miswiredEventStore_ReturnsMiswiredContextNamedPerHandler', async () => {
@@ -62,7 +48,6 @@ describe('gate-preflight (DR-10 shared helper)', () => {
       if (outcome.ok) return;
       expect(outcome.result.success).toBe(false);
       expect(outcome.result.error?.code).toBe('MISWIRED_CONTEXT');
-      // The handler name is stamped into the message (not a generic string).
       expect(outcome.result.error?.message).toBe('handleContractDrift: eventStore is required');
     });
 
@@ -90,8 +75,8 @@ describe('gate-preflight (DR-10 shared helper)', () => {
       expect(outcome.result.error?.message).toBe('taskId is required');
     });
 
+    /** `taskId` is optional for `check-integration-suite` and `static-analysis`. */
     it('absentTaskIdWithoutRequireFlag_ResolvesNormally', async () => {
-      // check-integration-suite / static-analysis: taskId is optional.
       const store = await makeStore();
       const outcome = await runGatePreflight(
         { featureId: 'feat-1', repoRoot: '/literal/repo', handlerName: 'handleCheckIntegrationSuite' },
@@ -124,9 +109,8 @@ describe('gate-preflight (DR-10 shared helper)', () => {
       expect(outcome.repoRoot).toBe(process.cwd());
     });
 
+    /** `auto` with no `worktreePath` and no `worktree.created` event gives `INVALID_INPUT` with the message of the resolver. */
     it('autoRepoRootUnresolvable_ReturnsInvalidInputWithResolverMessage', async () => {
-      // 'auto' with no worktreePath and no worktree.created event → INVALID_INPUT
-      // carrying the resolver's own message (byte-preserved from the handlers).
       const store = await makeStore();
       const outcome = await runGatePreflight(
         { featureId: 'feat-1', taskId: 'T-missing', repoRoot: 'auto', handlerName: 'h', requireTaskId: true },
@@ -156,9 +140,8 @@ describe('gate-preflight (DR-10 shared helper)', () => {
       expect(outcome.repoRoot).toBe('/worktrees/agent-y');
     });
 
+    /** A miswired store with an absent `featureId` reports `MISWIRED_CONTEXT` first, in the same order as the handlers. */
     it('validationOrder_EventStoreCheckedBeforeFeatureId', async () => {
-      // A miswired store with an ALSO-absent featureId must surface the wiring
-      // bug (MISWIRED_CONTEXT), not the input error — the order the handlers use.
       const outcome = await runGatePreflight(
         { featureId: '', handlerName: 'h' },
         null as unknown as EventStore,
@@ -169,28 +152,20 @@ describe('gate-preflight (DR-10 shared helper)', () => {
     });
   });
 
-  // ─── No dead exports (the residue `emitPolicySkipIfNeeded` sat in) ─────────
-
   describe('module surface', () => {
+    /**
+     * The module-intent gate checks whole modules, so it cannot see a dead export inside a live module.
+     * This test fails when a value export of `gate-preflight.ts` has no production importer.
+     *
+     * It reads exports and imports from the AST. A text match misses `export let`, `export { … }`, double quotes, and default or namespace imports.
+     * A namespace import covers each export. For an aliased import, `propertyName` is the exported name.
+     * The test also requires at least one importer, so an empty scan cannot pass.
+     */
     it('GatePreflight_EveryValueExport_HasANonTestImporter', () => {
-      // `emitPolicySkipIfNeeded` was retired when the durable gate runner took
-      // over skip emission, and then sat here for a whole programme — because
-      // the module-intent gate is MODULE-granular. `gate-preflight.ts` has four
-      // live production importers, so the module is not dead and the gate had
-      // nothing to say about a dead EXPORT inside it. Deleting the function was
-      // a one-time cleanup; this is the part that keeps it deleted, and it is
-      // what makes the removal falsifiable rather than merely done.
       const here = path.dirname(fileURLToPath(import.meta.url));
       const srcRoot = path.resolve(here, '../../../../src');
       const moduleFile = path.join(srcRoot, 'verbs/pure/gate-preflight.ts');
 
-      // Both halves are read off the AST rather than matched textually. The
-      // regexes this replaces saw only `export (async )?(function|const|class)`
-      // and single-quoted named imports, so `export let`, `export { … }`, a
-      // double-quoted specifier and a default or namespace import were all
-      // invisible — and every one of those blind spots hides a live export or a
-      // live importer, which is the direction that makes a dead export read as
-      // used (or a used one read as dead).
       const parse = (file: string): ts.SourceFile =>
         ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true);
 
@@ -208,7 +183,6 @@ describe('gate-preflight (DR-10 shared helper)', () => {
           ) {
             valueExports.push(statement.name.text);
           } else if (ts.isVariableStatement(statement)) {
-            // Every declarator, not just the first: `export const a = 1, b = 2`.
             for (const decl of statement.declarationList.declarations) {
               if (ts.isIdentifier(decl.name)) valueExports.push(decl.name.text);
             }
@@ -254,22 +228,18 @@ describe('gate-preflight (DR-10 shared helper)', () => {
           const clause = statement.importClause;
           if (clause === undefined || clause.isTypeOnly) continue;
           importerCount += 1;
-          // `import * as x` reaches every export, so it satisfies all of them.
           if (clause.namedBindings !== undefined && ts.isNamespaceImport(clause.namedBindings)) {
             namespaceImporter = true;
           }
           if (clause.namedBindings !== undefined && ts.isNamedImports(clause.namedBindings)) {
             for (const element of clause.namedBindings.elements) {
               if (element.isTypeOnly) continue;
-              // `propertyName` is the EXPORTED name when aliased (`a as b`).
               importedBindings.add((element.propertyName ?? element.name).text);
             }
           }
           if (clause.name !== undefined) importedBindings.add('default');
         }
       }
-      // Non-empty denominator: a scan that found no importer would pass this
-      // test by finding nothing, which is the failure shape it exists to catch.
       expect(importerCount, 'no production importer of gate-preflight was found').toBeGreaterThan(0);
 
       for (const name of valueExports) {

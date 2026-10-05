@@ -1,13 +1,9 @@
-// ─── test-adequacy unit tests ────────────────────────────────────────────────
-//
-// Bundle B2. Covers the pure pieces of the kill-probe gate in isolation:
-//   • task 011 — splitHunks: file-level test/source classification of a task diff
-//
-// Snapshot/restore (task 012) and probe orchestration (task 013) live in their
-// own describe blocks below as the bundle progresses; the acceptance contract
-// (dispatch through handleOrchestrate against real git) is in
-// test-adequacy.integration.test.ts.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Unit tests for the parts of the kill-probe gate.
+ *
+ * `splitHunks` is pure. The snapshot, revert, and restore steps and `runProbe` run against a temporary git repo.
+ * `test-adequacy.integration.test.ts` dispatches through `handleOrchestrate` against real git.
+ */
 
 import { describe, it, expect, afterEach } from 'vitest';
 import * as fc from 'fast-check';
@@ -28,8 +24,6 @@ import {
 import type { GitExec } from '../../../../src/verbs/pure/execute-merge.js';
 import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
-
-// ─── real-git helpers (tasks 012/013) ────────────────────────────────────────
 
 function git(repoRoot: string, args: readonly string[]): Promise<string> {
   return execFileAsync('git', args, { cwd: repoRoot, timeout: 30_000 });
@@ -90,19 +84,17 @@ async function setupTaskRepo(prefix: string): Promise<{
   return { repoRoot, baseRef, sourceFile: 'src/calc.js', testFile: 'src/calc.test.js' };
 }
 
-/** Hash of the full working tree (HEAD index + worktree) for equality checks. */
+/**
+ * Hash of the full working tree, for equality checks.
+ * `git stash create` captures the tree and changes no ref. For a clean tree it gives no sha, so the hash is the HEAD tree.
+ */
 async function workingTreeHash(repoRoot: string): Promise<string> {
-  // `git stash create` returns a commit sha capturing the working tree; using
-  // its tree sha gives a stable content fingerprint without mutating refs.
   const stashSha = (await git(repoRoot, ['stash', 'create'])).trim();
   if (!stashSha) {
-    // Clean tree — fingerprint HEAD's tree.
     return (await git(repoRoot, ['rev-parse', 'HEAD^{tree}'])).trim();
   }
   return (await git(repoRoot, ['rev-parse', `${stashSha}^{tree}`])).trim();
 }
-
-// ─── task 011: splitHunks ────────────────────────────────────────────────────
 
 describe('splitHunks (file-level test/source classification)', () => {
   it('SplitHunks_CoLocatedTestFile_ClassifiedTest', () => {
@@ -134,9 +126,8 @@ describe('splitHunks (file-level test/source classification)', () => {
     ]);
   });
 
+  /** Test globs from the toolchain override the co-located defaults. */
   it('SplitHunks_CustomGlobs_OverrideDefault', () => {
-    // When the resolved toolchain supplies test globs, those win over the
-    // co-located defaults: here only `tests/**` counts as test.
     const result = splitHunks(['src/calc.test.ts', 'tests/calc.py'], {
       testGlobs: ['tests/**'],
     });
@@ -144,8 +135,7 @@ describe('splitHunks (file-level test/source classification)', () => {
     expect(result.sourceFiles).toEqual(['src/calc.test.ts']);
   });
 
-  // Property: every changed file is classified exactly once, and the union of
-  // test ∪ source equals the input set (no file dropped, none duplicated).
+  /** Each changed file is in exactly one class, and the two classes together equal the input set. */
   it('SplitHunks_Partition_EveryFileClassifiedExactlyOnce', () => {
     const segment = fc
       .stringMatching(/^[a-z][a-z0-9_]{0,7}$/)
@@ -162,19 +152,15 @@ describe('splitHunks (file-level test/source classification)', () => {
         const { testFiles, sourceFiles } = splitHunks(files);
         const union = [...testFiles, ...sourceFiles];
 
-        // No overlap.
         const testSet = new Set(testFiles);
         for (const s of sourceFiles) expect(testSet.has(s)).toBe(false);
 
-        // Union (as a set) equals the input set — every file classified once.
         expect(new Set(union)).toEqual(new Set(files));
         expect(union.length).toBe(files.length);
       }),
     );
   });
 });
-
-// ─── task 012: snapshot / revert / restore (INV-14) ──────────────────────────
 
 describe('snapshot/revert/restore (INV-14: refuse-to-discard recovery)', () => {
   const repos: string[] = [];
@@ -183,20 +169,20 @@ describe('snapshot/revert/restore (INV-14: refuse-to-discard recovery)', () => {
       try {
         rmrf(r);
       } catch {
-        /* best-effort */
       }
     }
   });
 
+  /**
+   * The test changes the worktree first.
+   * `git stash create` must capture the change and must not change a ref, so the stash list stays the same.
+   */
   it(
     'Snapshot_BeforeProbe_UsesRefuseToDiscardRef',
     async () => {
       const { repoRoot } = await setupTaskRepo('test-adequacy-snap-');
       repos.push(repoRoot);
 
-      // Dirty the worktree so the snapshot has something non-trivial to hold:
-      // `git stash create` (object-only) must capture it WITHOUT mutating any
-      // ref (no `stash push`) — that is the refuse-to-discard property.
       writeFileSync(path.join(repoRoot, 'src', 'calc.js'), 'export const value = () => 99;\n');
 
       const stashRefsBefore = await git(repoRoot, ['stash', 'list']);
@@ -204,10 +190,8 @@ describe('snapshot/revert/restore (INV-14: refuse-to-discard recovery)', () => {
 
       expect('stashSha' in snap).toBe(true);
       if ('stashSha' in snap) {
-        // A real commit object capturing the dirty tree.
         expect(snap.stashSha).toMatch(/^[0-9a-f]{40}$/);
       }
-      // No ref was mutated — the stash list is unchanged (object-only create).
       expect(await git(repoRoot, ['stash', 'list'])).toBe(stashRefsBefore);
     },
     30_000,
@@ -223,17 +207,14 @@ describe('snapshot/revert/restore (INV-14: refuse-to-discard recovery)', () => {
       const snap = snapshotWorkingTree(realGitExec, repoRoot);
       expect('stashSha' in snap).toBe(true);
 
-      // Revert source back to base (probe's mutation step), then restore.
       const reverted = revertSourceFiles(realGitExec, repoRoot, baseRef, [sourceFile]);
       expect(reverted.ok).toBe(true);
-      // After revert the tree differs from the snapshot.
       expect(await workingTreeHash(repoRoot)).not.toBe(before);
 
       if ('stashSha' in snap) {
         const restore = restoreWorkingTree(realGitExec, repoRoot, snap.stashSha);
         expect(restore.restored).toBe(true);
       }
-      // Restored tree is byte-identical to the pre-probe snapshot.
       expect(await workingTreeHash(repoRoot)).toBe(before);
     },
     30_000,
@@ -274,6 +255,7 @@ describe('snapshot/revert/restore (INV-14: refuse-to-discard recovery)', () => {
     30_000,
   );
 
+  /** The test reverts, throws, and restores in its own `catch`, so it checks `restoreWorkingTree` and not a `finally` in `runProbe`. */
   it(
     'Restore_OnProbeError_StillRestores',
     async () => {
@@ -285,9 +267,6 @@ describe('snapshot/revert/restore (INV-14: refuse-to-discard recovery)', () => {
       expect('stashSha' in snap).toBe(true);
       if (!('stashSha' in snap)) throw new Error('snapshot failed');
 
-      // Simulate the probe body throwing AFTER the source was reverted; the
-      // caller's finally must still run restore. We assert that directly: even
-      // when a thrown error interrupts, restore brings the tree back.
       let restored = false;
       try {
         revertSourceFiles(realGitExec, repoRoot, baseRef, [sourceFile]);
@@ -302,15 +281,16 @@ describe('snapshot/revert/restore (INV-14: refuse-to-discard recovery)', () => {
     30_000,
   );
 
+  /**
+   * The path does not exist at the base ref, so `git checkout <base> -- <path>` fails.
+   * The helper must return the `revert-conflict` discriminant and must not throw.
+   */
   it(
     'Revert_Conflict_ReturnsRevertConflictDiscriminant',
     async () => {
       const { repoRoot } = await setupTaskRepo('test-adequacy-conflict-');
       repos.push(repoRoot);
 
-      // Ask to revert a path that does not exist at the base ref → the targeted
-      // `git checkout <base> -- <path>` fails. The helper must surface a
-      // structured 'revert-conflict' discriminant, never throw or silently no-op.
       const reverted = revertSourceFiles(realGitExec, repoRoot, 'main', [
         'src/does-not-exist-at-base.js',
       ]);
@@ -352,8 +332,6 @@ describe('snapshot/revert/restore (INV-14: refuse-to-discard recovery)', () => {
   );
 });
 
-// ─── task 013: probe orchestration + carrier ─────────────────────────────────
-
 describe('runProbe (compose split → snapshot → revert → run → restore)', () => {
   const repos: string[] = [];
   afterEach(() => {
@@ -361,19 +339,20 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
       try {
         rmrf(r);
       } catch {
-        /* best-effort */
       }
     }
   });
 
+  /**
+   * The diff holds only a source file, so the probe stops with `no-new-tests` and runs no test command.
+   * With nothing to probe, the result is an advisory pass.
+   */
   it(
     'Probe_NoNewTests_ReturnsNoNewTestsDiscriminant',
     async () => {
       const { repoRoot, baseRef } = await setupTaskRepo('test-adequacy-probe-notest-');
       repos.push(repoRoot);
 
-      // Diff has ONLY a source file — no test file. The probe must short-circuit
-      // with the no-new-tests discriminant and NOT run any test command.
       let testRan = false;
       const testRun: TestRunFn = async () => {
         testRan = true;
@@ -388,9 +367,6 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
         runTests: testRun,
       });
 
-      // FIX-1b: a task that adds NO new/changed tests has nothing to probe —
-      // this is a SKIPPED/advisory pass (passed:true), NOT a blocking failure.
-      // The discriminant still names the mode; the report is self-explanatory.
       expect(result.discriminant).toBe('no-new-tests');
       expect(result.passed).toBe(true);
       expect(result.report).toContain('nothing to probe');
@@ -401,6 +377,7 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
     30_000,
   );
 
+  /** The test runner fails when the source file holds the base content, because the new test pins the new behavior. */
   it(
     'Probe_NewTestFailsOnRevert_RedObservedTrue_PassedTrue',
     async () => {
@@ -411,12 +388,8 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
 
       const before = await workingTreeHash(repoRoot);
 
-      // The test runner reports FAIL when the source has been reverted (the new
-      // test pins the new behavior). We detect "reverted" by reading the
-      // current source content via git.
       const runTests: TestRunFn = async ({ repoRoot: rr }) => {
         const src = (await git(rr, ['show', ':' + sourceFile])).trim();
-        // After revert, the worktree source equals base (`=> 1`).
         const reverted = src.includes('=> 1');
         return { passed: !reverted };
       };
@@ -434,12 +407,12 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
       expect(result.restoredClean).toBe(true);
       expect(result.probedTests).toEqual([testFile]);
       expect(result.discriminant).toBeUndefined();
-      // Working tree restored to pre-probe state.
       expect(await workingTreeHash(repoRoot)).toBe(before);
     },
     30_000,
   );
 
+  /** A vacuous test passes with the source reverted, so the probe sees no red. */
   it(
     'Probe_NewTestPassesOnRevert_PassedFalse',
     async () => {
@@ -450,7 +423,6 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
 
       const before = await workingTreeHash(repoRoot);
 
-      // A vacuous test stays GREEN even with source reverted → no red observed.
       const runTests: TestRunFn = async () => ({ passed: true });
 
       const result = await runProbe({
@@ -469,6 +441,7 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
     30_000,
   );
 
+  /** `probedTests` holds the classified test files, and `restoredClean` shows the restore, which runs in each case. */
   it(
     'Probe_Result_CarriesProbedTestsAndRestoredClean',
     async () => {
@@ -487,8 +460,6 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
         runTests,
       });
 
-      // Carrier shape: probedTests is the classified test files, restoredClean
-      // reflects the unconditional restore.
       expect(result.probedTests).toEqual([testFile]);
       expect(result.restoredClean).toBe(true);
       expect(typeof result.passed).toBe('boolean');

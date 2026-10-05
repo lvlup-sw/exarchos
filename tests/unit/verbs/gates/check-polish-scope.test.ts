@@ -80,7 +80,6 @@ describe('Check Polish Scope', () => {
     mockedExecFileSync.mockReturnValue(
       gitDiffOutput(['src/foo.ts', 'src/bar.ts']),
     );
-    // foo.test.ts exists, bar.test.ts does not
     mockedExistsSync.mockImplementation((p) => {
       const path = String(p);
       return path.includes('foo.test.ts');
@@ -120,7 +119,6 @@ describe('Check Polish Scope', () => {
         'pkg/index.ts',
       ]),
     );
-    // No test files exist
     mockedExistsSync.mockReturnValue(false);
 
     const { handleCheckPolishScope } = await import('../../../../src/verbs/gates/check-polish-scope.js');
@@ -131,7 +129,6 @@ describe('Check Polish Scope', () => {
     expect(data.scopeOk).toBe(false);
     expect(data.fileCount).toBe(6);
     expect(data.moduleCount).toBe(4);
-    // File count, module boundaries, missing tests, and arch docs triggers
     expect(data.triggers.length).toBeGreaterThanOrEqual(3);
     expect(data.triggers.some((t) => t.includes('File count'))).toBe(true);
     expect(data.triggers.some((t) => t.includes('Module boundaries'))).toBe(true);

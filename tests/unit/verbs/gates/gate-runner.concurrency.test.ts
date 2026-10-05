@@ -1,17 +1,8 @@
-// ─── EFF-003: equivalent concurrent gate executions ──────────────────────────
-//
-// The runner keys idempotency on `evidenceId`, which derives from the caller's
-// `operationId`. Two executions of the SAME logical gate — identical
-// (requirementId, phaseAttemptId, providerRef, subject) — arriving under
-// distinct operationIds therefore mint distinct evidenceIds, read history before
-// either has appended, and both append with no predecessor.
-//
-// Left alone that produces two competing active evidence records for one scope:
-// the "competing active-predecessor evidence chains" the audit named. The
-// admission contract is that equivalent concurrent operations converge on ONE
-// canonical active result, while genuinely CONTRADICTORY concurrent results stay
-// visible as a contradiction (they must deny admission, not silently pick one).
-// ─────────────────────────────────────────────────────────────────────────────
+// Tests for equivalent concurrent gate executions in the gate runner.
+// The runner keys idempotency on `evidenceId`, which derives from the caller's `operationId`.
+// Two runs of the same logical gate under distinct operationIds both append with no predecessor.
+// Evidence selection must converge on one canonical active result for equivalent runs.
+// Contradictory concurrent results must stay visible as a contradiction, so admission fails closed.
 
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -53,6 +44,10 @@ const POLICY_DIGEST: ContentDigestV1 = {
   value: '1'.repeat(64),
 };
 
+/**
+ * `race` runs two gates under distinct dispatch contexts. It releases both providers only after both
+ * enter, so neither run sees the append of the other when it reads history.
+ */
 describe('equivalent concurrent gate executions (EFF-003)', () => {
   let root: string;
   let eventStore: EventStore;
@@ -114,11 +109,6 @@ describe('equivalent concurrent gate executions (EFF-003)', () => {
     await rmrfAsync(root);
   });
 
-  /**
-   * Run two gate executions concurrently under DISTINCT dispatch contexts,
-   * releasing both providers only once both have entered — so neither can
-   * observe the other's append when it reads history.
-   */
   async function race(
     resultFor: (arm: 'a' | 'b') => ToolResult,
   ): Promise<[ToolResult, ToolResult]> {
@@ -146,6 +136,10 @@ describe('equivalent concurrent gate executions (EFF-003)', () => {
     return [a, b];
   }
 
+  /**
+   * The append-only log keeps one record per operation. The selected active set holds one record,
+   * the reversed order selects the same record, and equivalent results are not a contradiction.
+   */
   it('GateRunner_EquivalentConcurrentExecutions_OneCanonicalActiveChain', async () => {
     const passing: ToolResult = {
       success: true,
@@ -157,31 +151,28 @@ describe('equivalent concurrent gate executions (EFF-003)', () => {
     expect(b.success).toBe(true);
 
     const records = await persistedEvidence();
-    // Distinct operationIds ⇒ distinct evidence records. That is expected: the
-    // log is append-only and both operations really happened.
     expect(records.length).toBe(2);
     expect(new Set(records.map((r) => r.evidence.evidenceId)).size).toBe(2);
 
-    // …but the SELECTED active set must converge on exactly one.
     const selection = activeFor(records);
     expect(
       selection.activeEvidence.length,
       'equivalent concurrent executions must yield one canonical active result',
     ).toBe(1);
 
-    // Deterministic: the same records in any arrival order select the same one.
     const reversed = activeFor([...records].reverse());
     expect(reversed.activeEvidence[0]?.evidence.evidenceId).toBe(
       selection.activeEvidence[0]?.evidence.evidenceId,
     );
 
-    // Equivalent results are not a contradiction — nothing to deny admission for.
     expect(selection.contradictions).toEqual([]);
   });
 
+  /**
+   * The convergence rule must not hide disagreement. A pass that races a fail on the same subject is
+   * the signal that admission must fail closed on.
+   */
   it('GateRunner_ContradictoryConcurrentExecutions_StayVisibleAsContradiction', async () => {
-    // The convergence rule must NOT swallow disagreement: a pass racing a fail
-    // on the same subject is exactly the signal admission has to fail closed on.
     const [a, b] = await race((arm) =>
       arm === 'a'
         ? { success: true, data: { passed: true } }
@@ -202,14 +193,15 @@ describe('equivalent concurrent gate executions (EFF-003)', () => {
     expect(selection.activeEvidence.length).toBe(2);
   });
 
+  /**
+   * A success carrier must not resolve before its evidence append completes. Otherwise a caller can act
+   * on a result that the log does not hold. The test wraps `append` to record the order only.
+   */
   it('GateRunner_NoSuccessCarrierEscapesBeforeTheAppendResolves', async () => {
-    // A success-shaped carrier must never be observable before its evidence is
-    // durable — otherwise a caller can act on a gate result the log never got.
     let appendSettled = false;
     const observed: boolean[] = [];
 
     const originalAppend = eventStore.append.bind(eventStore);
-    // Wrap append so we can observe ordering without changing behaviour.
     eventStore.append = (async (streamId, event, options) => {
       const result = await originalAppend(streamId, event, options);
       appendSettled = true;

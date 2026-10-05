@@ -39,15 +39,13 @@ index abc1234..def5678 100644
  export {};`;
 
 describe('behavioral parity with workflow-determinism.sh', () => {
+  /** The bash script ran five checks and the TypeScript port runs four, so the test compares only the verdict. */
   it('clean test diff passes all checks with zero findings', () => {
     const result = checkWorkflowDeterminism({ diffContent: CLEAN_TEST_DIFF });
 
     expect(result.status).toBe('pass');
     expect(result.findingCount).toBe(0);
     expect(result.findings).toEqual([]);
-    // Known behavioral difference: bash had 5 checks, TS has 4
-    // (TS omits the separate debug-artifacts check or merges it).
-    // Both agree on the logical conclusion: pass with zero findings.
     expect(result.passedChecks).toBe(result.totalChecks);
   });
 

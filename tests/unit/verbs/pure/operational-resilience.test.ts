@@ -27,10 +27,6 @@ function makeMultiFileDiff(
 }
 
 describe('checkOperationalResilience', () => {
-  // ----------------------------------------------------------
-  // Input validation
-  // ----------------------------------------------------------
-
   describe('input validation', () => {
     it('returns pass with empty diff', () => {
       const result = checkOperationalResilience('');
@@ -44,10 +40,6 @@ describe('checkOperationalResilience', () => {
       expect(result.findings).toHaveLength(0);
     });
   });
-
-  // ----------------------------------------------------------
-  // Check 1: Empty catch blocks
-  // ----------------------------------------------------------
 
   describe('empty catch blocks', () => {
     it('detects empty catch block: catch (e) { }', () => {
@@ -128,10 +120,6 @@ describe('checkOperationalResilience', () => {
     });
   });
 
-  // ----------------------------------------------------------
-  // Check 2: Swallowed errors (catch without rethrow/log/return)
-  // ----------------------------------------------------------
-
   describe('swallowed errors', () => {
     it('detects catch block without throw/console/return', () => {
       const lines = [
@@ -203,6 +191,7 @@ describe('checkOperationalResilience', () => {
       expect(swallowedFindings).toHaveLength(0);
     });
 
+    /** An empty catch block gives an empty-catch finding, not a swallowed-error finding. */
     it('does not double-report empty catch blocks as swallowed errors', () => {
       const lines = [
         'try { doSomething(); } catch (e) { }',
@@ -210,7 +199,6 @@ describe('checkOperationalResilience', () => {
       const diff = makeDiff('src/handler.ts', lines);
       const result = checkOperationalResilience(diff);
 
-      // Should have empty catch finding but NOT swallowed error finding
       const emptyCatch = result.findings.filter((f) =>
         f.message.includes('Empty catch block'),
       );
@@ -221,10 +209,6 @@ describe('checkOperationalResilience', () => {
       expect(swallowed).toHaveLength(0);
     });
   });
-
-  // ----------------------------------------------------------
-  // Check 3: console.log in non-test source files
-  // ----------------------------------------------------------
 
   describe('console.log in production code', () => {
     it('flags console.log in source files', () => {
@@ -300,10 +284,6 @@ describe('checkOperationalResilience', () => {
     });
   });
 
-  // ----------------------------------------------------------
-  // Check 4: Unbounded retries
-  // ----------------------------------------------------------
-
   describe('unbounded retries', () => {
     it('flags while(true) without break or max', () => {
       const lines = [
@@ -377,9 +357,8 @@ describe('checkOperationalResilience', () => {
       expect(unboundedFindings).toHaveLength(0);
     });
 
+    /** A `MAX_` constant that the loop body does not read leaves the loop unbounded. */
     it('flags while(true) when MAX_ constant exists but is not used in loop body', () => {
-      // MAX_ATTEMPTS is defined but the loop body doesn't reference it —
-      // this is genuinely unbounded and should be flagged.
       const lines = [
         'const MAX_ATTEMPTS = 5;',
         'function retry() {',
@@ -436,10 +415,6 @@ describe('checkOperationalResilience', () => {
     });
   });
 
-  // ----------------------------------------------------------
-  // Test files exclusion
-  // ----------------------------------------------------------
-
   describe('test file exclusion', () => {
     it('excludes .test.ts files from console.log and unbounded retry checks', () => {
       const lines = [
@@ -491,10 +466,6 @@ describe('checkOperationalResilience', () => {
     });
   });
 
-  // ----------------------------------------------------------
-  // Clean diff (no anti-patterns)
-  // ----------------------------------------------------------
-
   describe('clean diff', () => {
     it('passes with properly written code', () => {
       const lines = [
@@ -518,10 +489,6 @@ describe('checkOperationalResilience', () => {
       expect(result.findings).toHaveLength(0);
     });
   });
-
-  // ----------------------------------------------------------
-  // Multiple findings across files
-  // ----------------------------------------------------------
 
   describe('multiple findings', () => {
     it('reports findings across multiple files', () => {
@@ -551,10 +518,6 @@ describe('checkOperationalResilience', () => {
       expect(consoleLog).toBeDefined();
     });
   });
-
-  // ----------------------------------------------------------
-  // Result structure
-  // ----------------------------------------------------------
 
   describe('result structure', () => {
     it('returns findingCount in result', () => {

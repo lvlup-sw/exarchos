@@ -1,10 +1,13 @@
-// ─── Check Convergence Action Tests ─────────────────────────────────────────
+/**
+ * Tests for `handleCheckConvergence`.
+ *
+ * The suite stubs the phase-gate runner down to its provider call, so the cases test only the provider verdict.
+ * `gate-runner.test.ts` tests the runner against a real store.
+ */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ToolResult } from '../../../../src/format.js';
 import type { EventStore } from '../../../../src/events/store.js';
-
-// ─── Mock event store + materializer ────────────────────────────────────────
 
 const mockStore = {
   append: vi.fn().mockResolvedValue(undefined),
@@ -24,26 +27,17 @@ vi.mock('../../../../src/projections/views/tools.js', () => ({
   queryDeltaEvents: vi.fn().mockResolvedValue([]),
 }));
 
-// #1855 — the gate folds its view to the stream's durable tail through
-// `foldToTail` rather than pairing `queryDeltaEvents` with a bare
-// `materialize`. The fold is the seam a unit test of the VERDICT should stub:
-// what the fold itself guarantees is covered against a real store in
-// `tests/unit/projections/fold-at-tail.test.ts`.
-// `foldToTail` guarantees the fold covers the stream's durable tail, and
-// callers now bound their own evidence to the sequence it reports. These
-// fixtures ARE the stream, so the stub reports a sequence at or past every
-// fixture event; a lower one would assert a lag this file never sets up.
+/**
+ * Sequence that the `foldToTail` stub reports.
+ * The fixtures are the whole stream, so the stub reports a sequence at or past every fixture event.
+ * `tests/unit/projections/fold-at-tail.test.ts` tests the fold against a real store.
+ */
 const AT_TAIL = Number.MAX_SAFE_INTEGER;
 
 vi.mock('../../../../src/projections/fold-at-tail.js', () => ({
   foldToTail: vi.fn(async () => ({ view: mockViewState, sequence: AT_TAIL })),
 }));
 
-// The gate now records durable evidence through the shared phase-gate runner
-// before any success carrier escapes. These cases are about the PROVIDER's
-// verdict, so the runner is stubbed down to its provider call — the same seam
-// every other migrated gate's unit test stubs. What the runner itself
-// guarantees is proven against a real store in `gate-runner.test.ts`.
 vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
   runPhaseGateWithEvidence: vi.fn(async (request) => {
     try {
@@ -70,8 +64,6 @@ vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
 import { handleCheckConvergence } from '../../../../src/verbs/gates/check-convergence.js';
 
 const STATE_DIR = '/tmp/test-check-convergence';
-
-// ─── Tests ──────────────────────────────────────────────────────────────────
 
 describe('handleCheckConvergence', () => {
   beforeEach(() => {
@@ -181,7 +173,6 @@ describe('handleCheckConvergence', () => {
 
     await handleCheckConvergence({ featureId: 'test-feature' }, STATE_DIR, mockStore as unknown as EventStore);
 
-    // Verify gate event was emitted (fire-and-forget)
     expect(mockStore.append).toHaveBeenCalled();
   });
 
@@ -201,7 +192,6 @@ describe('handleCheckConvergence', () => {
 
     await handleCheckConvergence({ featureId: 'test-feature' }, STATE_DIR, mockStore as unknown as EventStore);
 
-    // Verify gate event includes phase: 'meta'
     expect(mockStore.append).toHaveBeenCalled();
     const appendCall = mockStore.append.mock.calls[0];
     const event = appendCall[1] as {
@@ -211,6 +201,10 @@ describe('handleCheckConvergence', () => {
     expect(event.data.details.phase).toBe('meta');
   });
 
+  /**
+   * `convergence` always declares `gate.executed`.
+   * When the append fails, the handler withholds the success carrier, but `data` still holds the verdict.
+   */
   it('CheckConvergence_GateEventAppendFails_WithholdsTheSuccessCarrier', async () => {
     mockViewState = {
       featureId: 'test-feature',
@@ -219,7 +213,6 @@ describe('handleCheckConvergence', () => {
       dimensions: {},
     };
 
-    // Make event emission fail
     mockStore.append.mockRejectedValueOnce(new Error('disk full'));
 
     const result: ToolResult = await handleCheckConvergence(
@@ -228,9 +221,6 @@ describe('handleCheckConvergence', () => {
       mockStore as unknown as EventStore,
     );
 
-    // `convergence` declares `gate.executed` unconditionally — a dropped
-    // append withholds the success carrier rather than returning one the log
-    // does not back. The gate's own verdict is still readable on `data`.
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('GATE_EVENT_UNRECORDED');
     const data = result.data as { passed: boolean };
@@ -253,7 +243,6 @@ describe('handleCheckConvergence', () => {
       mockStore as unknown as EventStore,
     );
 
-    // Should use workflowId as the stream ID
     expect(foldToTail).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
@@ -262,6 +251,10 @@ describe('handleCheckConvergence', () => {
     );
   });
 
+  /**
+   * With `phase: 'review'`, only review-phase gate results count.
+   * D3 has no such result, so it is unchecked. The failed delegate-phase gate in D2 does not count.
+   */
   it('CheckConvergence_WithPhaseFilter_ReturnsOnlyMatchingGateResults', async () => {
     mockViewState = {
       featureId: 'test-feature',
@@ -307,27 +300,22 @@ describe('handleCheckConvergence', () => {
     );
 
     expect(result.success).toBe(true);
-    // D1 should have 1 gate (plan-coverage with phase: 'review'), converged
     expect(result.data.dimensions.D1).toEqual({
       converged: true,
       gateCount: 1,
       lastChecked: '2026-01-02',
     });
-    // D2 should have 1 gate (lint with phase: 'review'), converged (the failing one was delegate)
     expect(result.data.dimensions.D2).toEqual({
       converged: true,
       gateCount: 1,
       lastChecked: '2026-01-02',
     });
-    // D3 should have 0 gates (only ideate), so it should be unchecked
     expect(result.data.dimensions.D3).toEqual({
       converged: false,
       gateCount: 0,
       lastChecked: '2026-01-01',
     });
-    // D3 should appear in uncheckedDimensions (no review-phase gates)
     expect(result.data.uncheckedDimensions).toContain('D3');
-    // Overall: D4, D5 unchecked + D3 has no review gates = not converged
     expect(result.data.overallConverged).toBe(false);
   });
 
@@ -367,7 +355,6 @@ describe('handleCheckConvergence', () => {
     );
 
     expect(result.success).toBe(true);
-    // Without phase filter, all gate results should be included
     expect(result.data.dimensions.D1).toEqual({
       converged: true,
       gateCount: 2,
