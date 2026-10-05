@@ -1,10 +1,9 @@
-// ─── Compile-time proof: a serializable stand-in is not a binding (P03-04) ───
+// Type-level proof that a serializable stand-in is not an implementation binding.
 //
-// A `*.type-test.ts` entrypoint (tsc-gated, no runtime). It asserts the TYPE-
-// SYSTEM half of "non-serializable implementation binding": a string name or a
-// plain object cannot be minted as / assigned to an `ImplementationBinding`.
-// If any `@ts-expect-error` below stops erroring, `tsc --noEmit` fails.
-// ────────────────────────────────────────────────────────────────────────────
+// A string name or a plain object cannot become an `ImplementationBinding`.
+// Each `@ts-expect-error` line marks a statement that the compiler must reject.
+// The proof holds only in a `tsc` program that includes this file.
+// `tests/tsconfig.json` excludes `unit/**`, so `npm run typecheck` does not compile this file.
 
 import {
   implementationBinding,
@@ -15,7 +14,7 @@ import { it, expect } from 'vitest';
 
 const realLoader: CompositeHandlerLoader = async () => async () => ({ success: true });
 
-// A real function loader is accepted (positive control — must compile).
+/** Positive control: the compiler accepts a real function loader. */
 const ok: ImplementationBinding = implementationBinding('exarchos_workflow', realLoader);
 void ok;
 

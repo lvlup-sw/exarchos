@@ -21,11 +21,13 @@ function reverseKeys(value: unknown): unknown {
 }
 
 describe('capsule content addresses', () => {
+  /**
+   * The first assertion proves that the reorder changes the serialized bytes.
+   * If the reorder changes nothing, a digest over plain `JSON.stringify` output passes too.
+   */
   it('CapsuleDigest_KeyOrder_DoesNotReachTheDigest', () => {
     const capsule = baseValidCapsule();
     const reordered = reverseKeys(capsule);
-    // The denominator: the reordering really did change the serialized bytes,
-    // or this test would pass for a digest over plain JSON.stringify too.
     expect(JSON.stringify(reordered)).not.toBe(JSON.stringify(capsule));
     expect(contentDigest(reordered)).toBe(capsuleDigest(capsule));
   });
@@ -36,11 +38,10 @@ describe('capsule content addresses', () => {
     expect(capsuleDigest(bumped)).not.toBe(capsuleDigest(base));
   });
 
+  /** The capsule schema accepts the digest in `identity.definitionVersion`, a field that holds a kernel digest. */
   it('CapsuleDigest_IsSpelledAsTheKernelSpellsADigest', () => {
     const digest = capsuleDigest(baseValidCapsule());
     expect(digest).toMatch(/^[0-9a-f]{64}$/);
-    // Accepted where the capsule itself carries a kernel digest, so a capsule
-    // can name a definition by a digest computed here without re-spelling it.
     const base = baseValidCapsule();
     const pinned = { ...base, identity: { ...base.identity, definitionVersion: digest } };
     expect(ExarchosCapsuleV1Schema.safeParse(pinned).success).toBe(true);

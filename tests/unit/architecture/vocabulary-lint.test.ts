@@ -20,13 +20,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../..');
 const INVARIANTS_DOC = path.join(REPO_ROOT, '.exarchos/invariants.md');
 
-/**
- * Pass an explicit `enabled` config so the test fixture is decoupled
- * from the state of the repo's actual `.exarchos.yml`. The Wave B3
- * commit declares the flag in the root file; this constant keeps the
- * tests stable independent of that landing order. See Wave B2 in
- * docs/proposals/2026-05-20-invariants-catalog-v2-spec.md §4.0.
- */
+/** Registers the catalog as a dev source, so the tests do not depend on the `.exarchos.yml` of the repo. */
 const ENABLED_CONFIG = {
   invariants: { catalogs: [{ path: INVARIANTS_DOC, tier: 'dev' as const }] },
 };
@@ -71,13 +65,14 @@ describe('vocabulary-lint', () => {
     expect(findings).toEqual([]);
   });
 
+  /**
+   * The catalog declares no `DIM-<n>` id, and the scanner still matches that shape.
+   * As a result, a `DIM-<n>` reference is an unknown-invariant finding.
+   */
   it('VocabularyLint_MultipleFileScan_AggregatesFindings', () => {
     const subDir = path.join(tmpDir, 'multi');
     fs.mkdirSync(subDir, { recursive: true });
     fs.writeFileSync(path.join(subDir, 'a.md'), 'Prose with INV-1 and INV-77.\n');
-    // DIM-* tokens are no longer known IDs after the axiom excision (#1477):
-    // the token scanner still recognizes the DIM-\d+ *shape*, so any DIM-N
-    // reference now surfaces as an unknown-invariant finding.
     fs.writeFileSync(path.join(subDir, 'b.md'), 'Prose with INV-2 and DIM-42.\n');
     const findings = scanPaths([subDir], {
       invariantsDoc: INVARIANTS_DOC,
@@ -86,34 +81,19 @@ describe('vocabulary-lint', () => {
     expect(findings.length).toBe(2);
     const tokens = findings.map((f) => f.token).sort();
     expect(tokens).toEqual(['DIM-42', 'INV-77']);
-    // Each finding carries file + line.
     for (const f of findings) {
       expect(typeof f.file).toBe('string');
       expect(typeof f.line).toBe('number');
       expect(f.line).toBeGreaterThan(0);
     }
   });
-
-  // ─── Coverage-closure (DR-8) excised (#1477) ──────────────────────────
-  //
-  // The coverage-closure scan (`scanCoverageClosure`) verified that every
-  // `DIM-*` axiom-dimension entry was specialized by an `INV-*` via
-  // `axiom_overlap` or explicitly exempted with `coverage: n/a`. The axiom
-  // excision removed the DIM-* entries and the `axiom_overlap` field, so the
-  // scan and its tests are gone with them. The token scanner (above) still
-  // recognizes the `DIM-\d+` shape so a stale DIM-N reference in prose
-  // surfaces as an unknown-invariant finding.
 });
 
-// ─── scanText core (DR-5, factored out of scanFileWithKnown) ──────────────
-//
-// scanText is the in-memory token-scan core the file-path scanners above
-// delegate to (`locator` = the file path there — unchanged behavior,
-// pinned by the `vocabulary-lint` describe block above, which never calls
-// scanText directly). These tests exercise scanText directly with a
-// non-file locator, proving it has no file-IO dependency and behaves
-// identically to the old inline loop: multi-line text, one finding per
-// distinct token per line, known IDs skipped, 1-based line numbers.
+/**
+ * `scanText` is the in-memory token scan that the file-path scanners delegate to.
+ * These tests call it with a locator that is not a file path, so they show that it does no file I/O.
+ * It gives one finding per distinct token per line, skips known ids and counts lines from 1.
+ */
 describe('scanText (DR-5 core)', () => {
   it('scanText_UnknownToken_IsFlaggedWithLocatorAndLine', () => {
     const findings = scanText(
@@ -145,6 +125,11 @@ describe('scanText (DR-5 core)', () => {
     expect(findings[0]!.token).toBe('INV-99');
   });
 
+  /**
+   * The sort is in a variable, because an inline sort inside `expect` matches the `sorted-parity` shape of the suite-invariants check.
+   * A file with that shape must declare two independent sources.
+   * The expected side is a literal and not a second read of the corpus, so no `@oracle-sources` declaration applies.
+   */
   it('scanText_SameTokenDifferentLines_IsOneFindingPerLine', () => {
     const findings = scanText(
       'INV-99 on line one\nINV-99 on line two',
@@ -152,20 +137,16 @@ describe('scanText (DR-5 core)', () => {
       new Set<string>(),
     );
     expect(findings.length).toBe(2);
-    // Hoisted rather than `.sort()).toEqual(...)` inline, matching the two
-    // other order-normalised assertions in this file. The expected side is a
-    // literal, not a second read of the corpus, so this is not the parity
-    // shape the DR-30 `@oracle-sources` rule polices.
     const lines = findings.map((f) => f.line).sort();
     expect(lines).toEqual([1, 2]);
   });
 });
 
-// ─── scanRegistryActions (DR-4/DR-5) ───────────────────────────────────────
 describe('scanRegistryActions (DR-4/DR-5)', () => {
   const fixtureLoader = (tools: readonly RegistryToolLike[]): RegistryLoader =>
     () => tools;
 
+  /** The locator of a finding is stable: `registry.ts`, the tool and the action. */
   it('scanRegistryActions_BogusInvToken_IsFlagged', async () => {
     const loader = fixtureLoader([
       {
@@ -185,7 +166,6 @@ describe('scanRegistryActions (DR-4/DR-5)', () => {
     expect(findings.length).toBe(1);
     expect(findings[0]!.token).toBe('INV-99');
     expect(findings[0]!.kind).toBe('unknown-invariant');
-    // Stable locator: registry.ts + tool + action (DR-5).
     expect(findings[0]!.file).toBe('registry.ts#exarchos_orchestrate.do_thing');
   });
 
@@ -208,17 +188,16 @@ describe('scanRegistryActions (DR-4/DR-5)', () => {
     expect(findings).toEqual([]);
   });
 
+  /**
+   * The scan covers the `name` field and the `description` field.
+   * The fixture name sets the token between word boundaries so that `TOKEN_RE` matches.
+   * A real snake_case action id does not hold a hyphenated token.
+   */
   it('scanRegistryActions_ScansActionNameToo_NotJustDescription', async () => {
-    // Open Question in the spec resolved to "scan both name and
-    // description" — a bogus token in the `name` field must also surface,
-    // not just in `description`.
     const loader = fixtureLoader([
       {
         name: 'exarchos_view',
         actions: [
-          // Word-boundary-delimited so TOKEN_RE actually matches (a real
-          // snake_case action id would never embed a hyphenated token, but
-          // the point is to prove the `name` field is scanned at all).
           { name: 'action-citing-INV-99-in-its-name', description: 'harmless prose' },
         ],
       },
@@ -232,7 +211,6 @@ describe('scanRegistryActions (DR-4/DR-5)', () => {
   });
 
   it('scanRegistryActions_MultipleCompositeTools_AreAllEnumerated', async () => {
-    // DR-4: ALL exported composite tools must be scanned, not just one.
     const loader = fixtureLoader([
       {
         name: 'exarchos_workflow',
@@ -317,11 +295,11 @@ describe('scanRegistryActions (DR-4/DR-5)', () => {
     ).rejects.toThrow();
   });
 
+  /**
+   * Runs the default lazy loader against the live registry, with no injected fixture.
+   * The action text of the live registry must cite no unknown token.
+   */
   it('scanRegistryActions_DefaultLoader_ScansRealRegistryCleanly', async () => {
-    // Exercises the default lazy `import()` loader end-to-end against the
-    // real, live registry — proving the seam works unmocked, not just with
-    // injected fixtures. The live registry's action text must not cite any
-    // unknown INV-*/DIM-* token.
     const findings = await scanRegistryActions(undefined, {
       invariantsDoc: INVARIANTS_DOC,
       config: ENABLED_CONFIG,
@@ -329,12 +307,12 @@ describe('scanRegistryActions (DR-4/DR-5)', () => {
     expect(findings).toEqual([]);
   });
 
+  /**
+   * The loader must be a dynamic import inside a function body.
+   * A static import of the registry loads that module when this module loads.
+   * That breaks the lazy load and the fail-closed contract that the tests exercise.
+   */
   it('scanRegistryActions_SourceHasNoStaticRegistryImportEdge', () => {
-    // DR-5: the loader seam must be a dynamic `import()` inside a function
-    // body, never a static top-level `import ... from '../registry.js'`
-    // declaration — a static edge would parse the ~4k-line registry module
-    // at vocabulary-lint's own module-load time, defeating the lazy-load +
-    // testable-fail-closed contract.
     const sourcePath = path.join(__dirname, '../../../src/architecture/vocabulary-lint.ts');
     const source = fs.readFileSync(sourcePath, 'utf8');
     expect(source).not.toMatch(/^\s*import\b[^;]*from\s+['"]\.\.\/registry\.js['"]/m);
@@ -342,25 +320,12 @@ describe('scanRegistryActions (DR-4/DR-5)', () => {
   });
 });
 
-// ─── DR-18 archival boundary (task 030) ───────────────────────────────────
-//
-// The wave-1 debloat archival (task 030) moves every superseded dated
-// `docs/plans/<date>.md` and `docs/designs/<date>.md` record into an `archive/`
-// subtree. This pins the `DATED_RECORD_TREES` / `scanRepoDefaults` boundary and
-// proves the constant is correctly LEFT ALONE:
-//
-//   - `scanRepoDefaults` walks a POSITIVE four-root allowlist
-//     (docs/architecture, docs/guides, content, commands) and NEVER reads
-//     `DATED_RECORD_TREES`. So archiving `docs/plans` + `docs/designs` (already
-//     outside the allowlist, archive subtree included) cannot change the scanned
-//     surface — the scan roots are invariant to archival.
-//   - Because the allowlist is disjoint from the dated-record trees,
-//     `DATED_RECORD_TREES` is INERT to the scan: editing it (e.g. to add an
-//     `archive/` path during the move) is a vacuous no-op. That is exactly why
-//     the constant must not be touched.
+/**
+ * Pins the boundary between the scan roots and the dated-record trees. The test scans the four roots in `SCAN_ROOTS`.
+ * The two sets are disjoint, so an archive move of a dated record cannot change the scan.
+ * `SCAN_ROOTS` is a local list. The shipped `scanRepoDefaults` scans only `content`.
+ */
 describe('scanRepoDefaults / DATED_RECORD_TREES archival-invariance (DR-18, task 030)', () => {
-  // The exact positive allowlist `scanRepoDefaults` scans, mirrored here so the
-  // disjointness assertion below locks the live constant against the function.
   const SCAN_ROOTS = [
     'docs/architecture',
     'docs/guides',
@@ -368,24 +333,23 @@ describe('scanRepoDefaults / DATED_RECORD_TREES archival-invariance (DR-18, task
     'commands',
   ] as const;
 
+  /**
+   * The controlled tree holds a stale token in each scan root and in each dated-record tree, archive included.
+   * Each token is unique, so a leak names its tree. Only the four tokens of the scan roots can show.
+   * The dated-record set holds `docs/designs/` and `docs/plans/` and none of the scan roots.
+   * On the real repo, `scanRepoDefaults` gives no finding from those two trees.
+   */
   it('VocabularyLint_ScanRoots_UnchangedByArchival', () => {
-    // ── Oracle: replicate scanRepoDefaults's allowlist scan over a controlled
-    //    tree that also contains the archived dated-record trees. A stale token
-    //    lives in EVERY tree; only the four live-surface hits may surface. ──
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vocab-archival-'));
     const seed = (rel: string, token: string) => {
       const abs = path.join(root, rel);
       fs.mkdirSync(path.dirname(abs), { recursive: true });
-      // Each stale INV token is unique so a leak is attributable to its tree.
       fs.writeFileSync(abs, `Prose referencing ${token} which does not exist.\n`);
     };
-    // Live surfaces (scanned):
     seed('docs/architecture/a.md', 'INV-9001');
     seed('docs/guides/g.md', 'INV-9002');
     seed('content/s/SKILL.md', 'INV-9003');
     seed('commands/c.md', 'INV-9004');
-    // Archived dated-record trees (NOT scanned) — the archival destination and
-    // its parent, each seeded to prove neither is ever reached:
     seed('docs/designs/archive/2026-05-30-x.md', 'INV-9100');
     seed('docs/designs/2026-05-30-y.md', 'INV-9101');
     seed('docs/plans/archive/2026-05-30-x.md', 'INV-9102');
@@ -397,16 +361,11 @@ describe('scanRepoDefaults / DATED_RECORD_TREES archival-invariance (DR-18, task
         { invariantsDoc: INVARIANTS_DOC, config: ENABLED_CONFIG },
       );
       const tokens = findings.map((f) => f.token).sort();
-      // Exactly the four live-surface tokens — no archived-tree token leaks in.
       expect(tokens).toEqual(['INV-9001', 'INV-9002', 'INV-9003', 'INV-9004']);
     } finally {
       rmrf(root);
     }
 
-    // ── Bind to the live constant + function: the archived trees are members of
-    //    the excluded dated-record set, and that set is DISJOINT from the
-    //    scanned allowlist — so nothing scanRepoDefaults reads is a dated-record
-    //    tree, making the set inert to the scan (vacuous to edit). ──
     const dated = datedRecordTrees(ARTIFACT_DIRS);
     expect(dated).toContain('docs/designs/');
     expect(dated).toContain('docs/plans/');
@@ -418,9 +377,6 @@ describe('scanRepoDefaults / DATED_RECORD_TREES archival-invariance (DR-18, task
       ).not.toContain(scanned);
     }
 
-    // ── Real repo: scanRepoDefaults surfaces nothing from docs/designs or
-    //    docs/plans (archive subtree included), so the physical archival move
-    //    cannot alter its findings. ──
     const repoFindings = scanRepoDefaults({
       invariantsDoc: INVARIANTS_DOC,
       config: ENABLED_CONFIG,

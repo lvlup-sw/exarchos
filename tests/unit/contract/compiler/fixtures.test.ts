@@ -9,6 +9,7 @@ const okVerdict: AuthorityVerdict = { ok: true, violations: [], report: 'ok (stu
 const OK = { verifyAuthority: () => okVerdict } as const;
 
 describe('proof fixtures', () => {
+  /** The builder sorts the authority ids, so their input order does not change the bytes. */
   it('AreByteStableAndSortedByActionId', () => {
     const entries = deriveMetaModel().actions;
     const descriptors = entries.map(compileDescriptor);
@@ -21,7 +22,6 @@ describe('proof fixtures', () => {
       ok: true,
       authorityIds: ['mcp-sdk', 'contract-surface'],
     });
-    // Authority ids sorted → order of input is irrelevant.
     expect(serializeProofFixtures(a)).toBe(serializeProofFixtures(b));
     const ids = a.actions.map((x) => x.actionId);
     expect(ids).toEqual([...ids].sort());
@@ -38,7 +38,6 @@ describe('proof fixtures', () => {
         expect(a.outputSchemaDigest).toMatch(/^sha256:[0-9a-f]{64}$/);
         expect(a.policyDigest).toMatch(/^sha256:[0-9a-f]{64}$/);
       }
-      // Descriptor digests are unique per action (no accidental collapse).
       const digests = fx.actions.map((a) => a.descriptorDigest);
       expect(new Set(digests).size).toBe(digests.length);
     }

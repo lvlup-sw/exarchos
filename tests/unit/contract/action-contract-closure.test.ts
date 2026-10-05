@@ -1,8 +1,7 @@
 // @oracle-sources: (1) the subject permutations, fixed by the test author and not read back from the evaluator; (2) the declared contract that a closure verdict is a property of the SUBJECT SET rather than of its input order
 //
-// The permutation case has no committed golden and cannot have one: what it
-// pins is that `evaluate` is order-invariant, so the second authority is the
-// stated contract, not a second computation of the same findings.
+// The permutation case has no committed golden, because it pins that `evaluate` is order-invariant.
+// As a result, the second authority is the stated contract, not a second computation of the same findings.
 
 import { fc } from '@fast-check/vitest';
 import { describe, expect, it } from 'vitest';

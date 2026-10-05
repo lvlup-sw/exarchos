@@ -38,7 +38,6 @@ describe('request-context — untrusted hint sanitisation', () => {
     expect('subjectId' in cleaned).toBe(false);
     expect('timestamp' in cleaned).toBe(false);
     expect('capabilities' in cleaned).toBe(false);
-    // Harmless hints survive.
     expect(cleaned.harmless).toBe('ok');
     expect(cleaned.correlationHint).toBe(42);
   });
@@ -61,6 +60,11 @@ describe('request-context — untrusted hint sanitisation', () => {
 });
 
 describe('request-context — callers cannot self-assert identity', () => {
+  /**
+   * The subject, the role and the timestamp come from the frozen snapshot. The
+   * local-operator derivation gives the `operator` role. Only the unprotected
+   * hint survives.
+   */
   it('Context_IdentityComesFromSnapshotNotCallerMeta', () => {
     const snap = snapshot();
     const ctx = deriveRequestContext(snap, {
@@ -69,14 +73,11 @@ describe('request-context — callers cannot self-assert identity', () => {
       timestamp: 'forged',
       note: 'legit-hint',
     });
-    // Identity is the frozen snapshot's — the caller's claims are ignored.
     expect(ctx.authorization).toBe(snap);
     expect(contextSubjectId(ctx)).toBe(snap.identity.subjectId);
     expect(contextSubjectId(ctx)).not.toBe('attacker-controlled');
-    // The role/timestamp reflect the derived snapshot, never the caller.
-    expect(ctx.authorization.identity.role).toBe('operator'); // local-operator derivation
+    expect(ctx.authorization.identity.role).toBe('operator');
     expect(ctx.authorization.resolvedAt).toBe('2026-01-01T00:00:00.000Z');
-    // Only the harmless hint survives.
     expect(ctx.hints).toEqual({ note: 'legit-hint' });
   });
 
@@ -130,15 +131,17 @@ describe('request-context — replay identity / idempotency', () => {
     expect(exec).toHaveBeenCalledTimes(1);
   });
 
+  /**
+   * A replay returns the stored result. The second executor returns a different
+   * value, so the result shows that it did not run.
+   */
   it('Replay_ReturnsStoredResult_WithoutReExecuting', () => {
-    // The one real guarantee: a replay NEVER runs a silently-different second
-    // execution — it returns the canonical stored result.
     const ledger = new ReplayLedger<number>();
     const ctx = ctxFor('C:/state-a');
     const id = deriveReplayIdentity(ctx, 'k', { n: 1 });
     const exec = vi.fn(() => 7);
     ledger.claim(id, exec);
-    const second = ledger.claim(id, vi.fn(() => 999)); // would differ if it ran
+    const second = ledger.claim(id, vi.fn(() => 999));
     expect(second.status).toBe('replayed');
     expect(second).toMatchObject({ result: 7 });
     expect(exec).toHaveBeenCalledTimes(1);
@@ -157,7 +160,6 @@ describe('request-context — replay identity / idempotency', () => {
       expect(out.error.code).toBe('IDEMPOTENCY_SUBJECT_CONFLICT');
       expect(out.error.layer).toBe('task');
     }
-    // Nothing runs, and the stored result is not disclosed.
     expect(attackerExec).not.toHaveBeenCalled();
   });
 

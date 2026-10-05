@@ -16,10 +16,12 @@ import {
 } from '../../../src/contract/error-families.js';
 import { CLI_EXIT_CODES, ERROR_CODE_EXIT_CODES } from '../../../src/adapters/cli/cli.js';
 
+/**
+ * Each of the six failure layers maps to one stable error code and one stable CLI exit code.
+ * `CASES` holds one row for each layer. Each row pins the family default and the stable registry
+ * entry, so a change to one of the two sources fails the row.
+ */
 describe('error-families — six-layer exit proof', () => {
-  // The CORE exit proof (P03-02 exit-proof): every one of the six failure
-  // origins maps to the expected stable contract error code AND stable CLI
-  // exit code. One row per layer.
   const CASES: ReadonlyArray<{
     layer: FailureLayer;
     code: string;
@@ -38,11 +40,7 @@ describe('error-families — six-layer exit proof', () => {
       const err = contractError(layer, `seeded ${layer} failure`);
       expect(err.code).toBe(code);
       expect(err.exitCode).toBe(exitCode);
-      // The exit code is also recoverable from the code alone (the CLI path).
       expect(exitCodeForError(err.code)).toBe(exitCode);
-      // The family lookup agrees with the constructed error — pins BOTH the
-      // family-default descriptor AND the stable-registry entry, so breaking
-      // either source reddens this row.
       expect(failureFamily(layer).code).toBe(code);
       expect(failureFamily(layer).exitCode).toBe(exitCode);
       expect(STABLE_ERROR_REGISTRY[code as keyof typeof STABLE_ERROR_REGISTRY].exitCode).toBe(
@@ -51,9 +49,8 @@ describe('error-families — six-layer exit proof', () => {
     });
   }
 
+  /** Each layer produces a distinct, registered code. No two layers share a generic code. */
   it('EverySeededLayerFailureMapsExactlyOnce', () => {
-    // Totality at the value level: each of the six layers produces a distinct,
-    // registered code — no layer falls through to a shared generic bucket.
     const codes = FAILURE_LAYERS.map((l) => contractError(l, 'x').code);
     expect(new Set(codes).size).toBe(FAILURE_LAYERS.length);
     for (const code of codes) {
@@ -83,16 +80,15 @@ describe('error-families — totality / exhaustiveness', () => {
     }
   });
 
+  /** Runs the `never`-guarded switch for all six layers. */
   it('LayerSeverity_IsTotalOverTheFamilyUnion', () => {
-    // Exercises the `never`-guarded switch for all six members.
     for (const layer of FAILURE_LAYERS) {
       expect(['client', 'server']).toContain(layerSeverity(layer));
     }
   });
 
+  /** An unsound cast can pass a value outside the union to the guard. Then the guard throws. */
   it('AssertNever_ThrowsOnAnUnsoundCast', () => {
-    // Belt to the compile-time braces: if control ever reaches the guard via
-    // an unsound cast (a value outside the union), it fails loud.
     expect(() => assertNever('not-a-layer' as never, 'FailureLayer')).toThrow(
       /Non-exhaustive FailureLayer/,
     );

@@ -16,7 +16,7 @@ import {
   type ResolvedCommands,
 } from '../../../../../src/dispatch/core/onboarding/types.js';
 
-// A valid PlanStep reused by several cases below.
+/** A valid `PlanStep` that several cases reuse. */
 const validStep: PlanStep = {
   kind: 'install',
   surface: 'cli-only',
@@ -30,12 +30,10 @@ describe('ReconcileTypes_PlanStepSurface_TaggedCliOnly', () => {
     expect(SurfaceSchema.parse('any')).toBe('any');
     expect(SurfaceSchema.parse('cli-only')).toBe('cli-only');
 
-    // Reject anything outside the closed set.
     expect(SurfaceSchema.safeParse('mcp-only').success).toBe(false);
     expect(SurfaceSchema.safeParse('').success).toBe(false);
     expect(SurfaceSchema.safeParse(42).success).toBe(false);
 
-    // Type-level: Surface is exactly the union.
     const s: Surface = 'cli-only';
     expect(s).toBe('cli-only');
   });
@@ -48,7 +46,6 @@ describe('ReconcileTypes_PlanStepSurface_TaggedCliOnly', () => {
     expect(parsed.description).toBe('Install the Exarchos skills bundle');
     expect(parsed.target).toBe('skills/');
 
-    // target is optional.
     const noTarget = PlanStepSchema.parse({
       kind: 'config',
       surface: 'any',
@@ -57,7 +54,6 @@ describe('ReconcileTypes_PlanStepSurface_TaggedCliOnly', () => {
     });
     expect(noTarget.target).toBeUndefined();
 
-    // Each declared kind is accepted.
     for (const kind of ['config', 'generate', 'install', 'hook'] as const) {
       expect(
         PlanStepSchema.safeParse({
@@ -69,7 +65,6 @@ describe('ReconcileTypes_PlanStepSurface_TaggedCliOnly', () => {
       ).toBe(true);
     }
 
-    // Reject an unknown kind.
     expect(
       PlanStepSchema.safeParse({
         kind: 'delete',
@@ -79,7 +74,6 @@ describe('ReconcileTypes_PlanStepSurface_TaggedCliOnly', () => {
       }).success,
     ).toBe(false);
 
-    // Reject an unknown surface on a PlanStep.
     expect(
       PlanStepSchema.safeParse({
         kind: 'install',
@@ -89,7 +83,6 @@ describe('ReconcileTypes_PlanStepSurface_TaggedCliOnly', () => {
       }).success,
     ).toBe(false);
 
-    // Reject a step missing required fields.
     expect(PlanStepSchema.safeParse({ kind: 'install', surface: 'cli-only' }).success).toBe(false);
   });
 
@@ -104,7 +97,6 @@ describe('ReconcileTypes_PlanStepSurface_TaggedCliOnly', () => {
     expect(parsed.vcs).toBe('git');
     expect(parsed.commands.test).toBe('npm run test:run');
 
-    // Commands are all optional (resolver may not derive every field).
     const partial = DesiredStateSchema.parse({
       runtimes: [],
       vcs: 'none',
@@ -112,12 +104,10 @@ describe('ReconcileTypes_PlanStepSurface_TaggedCliOnly', () => {
     });
     expect(partial.commands.test).toBeUndefined();
 
-    // Malformed: runtimes must be string[].
     expect(
       DesiredStateSchema.safeParse({ runtimes: [1, 2], vcs: 'git', commands: {} }).success,
     ).toBe(false);
 
-    // Malformed: a command must be a string when present.
     expect(
       DesiredStateSchema.safeParse({
         runtimes: [],
@@ -127,12 +117,8 @@ describe('ReconcileTypes_PlanStepSurface_TaggedCliOnly', () => {
     ).toBe(false);
   });
 
+  /** `mutation` and `lint` are optional strings, as `test`, `typecheck` and `install` are. */
   it('ResolvedCommandsSchema_MutationAndLint_Optional', () => {
-    // Task 007 (design §4.5-detect): the schema widens to the verification-ladder
-    // field set so onboard/doctor surface `mutation` and `lint`. Both new fields
-    // carry the SAME optionality semantics as the legacy three.
-
-    // Accepts BOTH new fields alongside the legacy three, round-tripping unchanged.
     const both = ResolvedCommandsSchema.safeParse({
       test: 'npm run test:run',
       typecheck: 'tsc --noEmit',
@@ -151,8 +137,6 @@ describe('ReconcileTypes_PlanStepSurface_TaggedCliOnly', () => {
       });
     }
 
-    // Accepts NEITHER new field — both are optional, so the legacy-only object
-    // (and the empty object) remain valid with the new fields simply absent.
     const neither = ResolvedCommandsSchema.safeParse({ test: 'npm run test:run' });
     expect(neither.success).toBe(true);
     if (neither.success) {
@@ -161,16 +145,13 @@ describe('ReconcileTypes_PlanStepSurface_TaggedCliOnly', () => {
       expect(neither.data).toEqual({ test: 'npm run test:run' });
     }
 
-    // Accepts mutation alone (one new field present, the other absent).
     const mutationOnly = ResolvedCommandsSchema.parse({ mutation: 'npx stryker run' });
     expect(mutationOnly.mutation).toBe('npx stryker run');
     expect('lint' in mutationOnly).toBe(false);
 
-    // Malformed: a new field must be a string when present (same as legacy).
     expect(ResolvedCommandsSchema.safeParse({ mutation: 123 }).success).toBe(false);
     expect(ResolvedCommandsSchema.safeParse({ lint: false }).success).toBe(false);
 
-    // Type-level: the inferred type carries optional mutation/lint of type string.
     const typed: ResolvedCommands = { mutation: 'npx stryker run', lint: 'eslint .' };
     expect(typed.mutation).toBe('npx stryker run');
     expect(typed.lint).toBe('eslint .');
@@ -187,11 +168,9 @@ describe('ReconcileTypes_PlanStepSurface_TaggedCliOnly', () => {
     expect(parsed.message).toBe('Install the Exarchos MCP server via the CLI');
     expect(parsed.commands).toEqual(['exarchos onboard']);
 
-    // commands is optional.
     const noCommands = AdvisorySchema.parse({ surface: 'any', message: 'fyi' });
     expect(noCommands.commands).toBeUndefined();
 
-    // Malformed: message is required.
     expect(AdvisorySchema.safeParse({ surface: 'any' }).success).toBe(false);
   });
 
@@ -201,14 +180,11 @@ describe('ReconcileTypes_PlanStepSurface_TaggedCliOnly', () => {
     expect(parsed.steps).toHaveLength(1);
     expect(parsed.steps[0]?.surface).toBe('cli-only');
 
-    // The empty plan is valid (idempotence: apply over it is a no-op).
     const empty = ReconcilePlanSchema.parse({ steps: [] });
     expect(empty.steps).toHaveLength(0);
 
-    // Malformed: a non-array steps field.
     expect(ReconcilePlanSchema.safeParse({ steps: validStep }).success).toBe(false);
 
-    // Malformed: a step inside the plan that is itself invalid.
     expect(
       ReconcilePlanSchema.safeParse({ steps: [{ kind: 'install', surface: 'cli-only' }] }).success,
     ).toBe(false);
@@ -228,18 +204,15 @@ describe('ReconcileTypes_PlanStepSurface_TaggedCliOnly', () => {
     expect(parsed.advisories).toHaveLength(1);
     expect(parsed.advisories[0]?.surface).toBe('cli-only');
 
-    // The empty result is valid.
     expect(
       ReconcileResultSchema.parse({ applied: [], skipped: [], residual: [], advisories: [] })
         .advisories,
     ).toHaveLength(0);
 
-    // Malformed: missing a required bucket.
     expect(
       ReconcileResultSchema.safeParse({ applied: [], skipped: [], residual: [] }).success,
     ).toBe(false);
 
-    // Malformed: an advisory that is itself invalid.
     expect(
       ReconcileResultSchema.safeParse({
         applied: [],

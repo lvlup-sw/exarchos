@@ -83,14 +83,12 @@ describe('shared admission IR — builder lowering (transition tasks 033/047)', 
       .edge(edge)
       .lower();
     expect(canonicalJson(a)).toBe(canonicalJson(b));
-    // and sorted deterministically by stable id
     expect(a.requirements.map((r) => r.requirementId)).toEqual(['req.a', 'req.b']);
     expect(a.policies.map((p) => p.policyId)).toEqual(['pol.a', 'pol.z']);
   });
 
+  /** With no workflow id set, the lowered `workflowId` is empty and fails the stable-id shape. */
   it('throws AdmissionIrLoweringError on a structurally invalid assembly', () => {
-    // No workflow id set → lowering produces an empty workflowId, which fails the
-    // stable-id shape.
     const builder = new AdmissionIrBuilder().policy(policy).requirement(gateReq);
     expect(() => builder.lower()).toThrow(AdmissionIrLoweringError);
   });
@@ -101,12 +99,13 @@ describe('shared admission IR — builder lowering (transition tasks 033/047)', 
     expect(references.ok).toBe(true);
   });
 
+  /** The edge admits `pol.ghost`, which no policy declares. */
   it('build() surfaces dangling references without throwing (structure is valid)', () => {
     const { references } = new AdmissionIrBuilder()
       .workflow('wf.demo')
       .policy(policy)
       .requirement(gateReq)
-      .edge({ ...edge, admits: 'pol.ghost' }) // dangling policy ref
+      .edge({ ...edge, admits: 'pol.ghost' })
       .waiver(waiver)
       .build({ actionIds: ACTION_IDS });
     expect(references.ok).toBe(false);

@@ -16,20 +16,21 @@ function compiledContract() {
 }
 
 describe('generate-registration — deterministic MCP discovery projection (P03-04)', () => {
+  /** The output must also be normalized for line endings: canonical JSON holds no raw carriage return. */
   it('GeneratedRegistration_IsByteStableAcrossRepeatedGeneration', () => {
     const contract = compiledContract();
     const a = serializeRegistration(generateRegistration(contract));
     const b = serializeRegistration(generateRegistration(contract));
     expect(a).toBe(b);
     expect(a.endsWith('\n')).toBe(true);
-    // Line-ending-normalized — canonical JSON never emits a raw carriage return.
     expect(a.includes('\r')).toBe(false);
   });
 
+  /**
+   * Generation starts from the compiled contract, and the startup gate uses the cheap registry-derived path.
+   * The two paths must give the same manifest, or the gate verifies a different ActionId set than the contract.
+   */
   it('ContractDerived_And_RegistryDerived_RegistrationsAgreeByteForByte', () => {
-    // Generation is FROM the compiled contract; the cheap registry-derived path
-    // the startup gate uses must project the identical manifest — otherwise the
-    // gate would verify against a different ActionId set than the contract.
     const fromContract = serializeRegistration(generateRegistration(compiledContract()));
     const fromRegistry = serializeRegistration(deriveRegistrationFromRegistry());
     expect(fromRegistry).toBe(fromContract);

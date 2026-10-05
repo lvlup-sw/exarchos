@@ -1,3 +1,8 @@
+/**
+ * CLI and MCP parity for malformed arguments: a missing required field, a wrong-typed value and
+ * an unknown action. Both adapters must return a failed `ToolResult` with the same `error.code`.
+ * The message wording can differ, but each message must name the field that failed.
+ */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
@@ -9,24 +14,6 @@ import type { ToolResult } from '../../../../src/format.js';
 import { callCli, callMcp } from '../../parity-harness.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
-// ─── Task 024: CLI-vs-MCP Argument Coercion Failure Parity (DR-5) ────────────
-// These tests prove that when users provide malformed arguments — missing a
-// required field, passing a wrong-typed value, or naming an action that does
-// not exist — the CLI and MCP adapters reject with the SAME `error.code` and
-// an equivalent message. Prior to task 024, the CLI produced ToolResult
-// `INVALID_INPUT` payloads but the MCP dispatch layer could silently pass
-// bad args through to the composite handler (per-action schemas were only
-// enforced by the CLI layer). This test locks in parity so future changes
-// cannot drift the two facades apart.
-//
-// Strategy:
-// - Invoke each adapter with the same malformed payload.
-// - Both paths MUST return a ToolResult with { success: false, error.code }
-//   and error.code MUST match between the two. Messages may differ in
-//   surface wording but must reference the same failing field.
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
 function makeCtx(stateDir: string): DispatchContext {
   return {
     stateDir,
@@ -35,13 +22,11 @@ function makeCtx(stateDir: string): DispatchContext {
   };
 }
 
-/** Extract just the error code (success payloads flagged as 'OK' sentinel). */
+/** Returns the error code of a result. A success and a failure with no code each return a sentinel. */
 function errorCode(result: ToolResult): string {
   if (result.success) return '__SUCCESS__';
   return result.error?.code ?? '__MISSING_ERROR__';
 }
-
-// ─── Fixture Harness ─────────────────────────────────────────────────────────
 
 interface ParityFixture {
   readonly cliDir: string;
@@ -68,61 +53,46 @@ afterEach(async () => {
   await rmrfAsync(fixture.mcpDir);
 });
 
-// ─── Parity Tests ────────────────────────────────────────────────────────────
-
 describe('CLI/MCP argument coercion failure parity (DR-5)', () => {
+  /**
+   * `init` requires `featureId` and `workflowType`, and both calls omit `featureId`.
+   * Each message must name the field, in camel case or in kebab case.
+   */
   it('MalformedArgs_MissingRequired_BothFacades_RejectWithSameErrorCode', async () => {
-    // `exarchos_workflow init` requires `featureId` and `workflowType`.
-    // Invoke with `workflowType` present but `featureId` missing via both
-    // adapters and assert both reject with INVALID_INPUT.
-
     const { result: cliResult, exitCode: cliExitCode } = await callCli(
       fixture.cliCtx,
       'wf',
       'init',
-      { workflowType: 'feature' }, // featureId deliberately omitted
+      { workflowType: 'feature' },
       { captureCommanderErrors: true },
     );
 
     const mcpResult = await callMcp(fixture.mcpCtx, 'exarchos_workflow', {
       action: 'init',
       workflowType: 'feature',
-      // featureId deliberately omitted
     });
 
-    // Both must fail.
     expect(cliResult.success).toBe(false);
     expect(mcpResult.success).toBe(false);
 
-    // Both must produce INVALID_INPUT (the canonical code for per-action
-    // schema validation failure).
     expect(errorCode(cliResult)).toBe('INVALID_INPUT');
     expect(errorCode(mcpResult)).toBe('INVALID_INPUT');
 
-    // And both codes must be identical (redundant but self-documenting).
     expect(errorCode(cliResult)).toBe(errorCode(mcpResult));
 
-    // CLI exit code must map to INVALID_INPUT (1).
     expect(cliExitCode).toBe(1);
 
-    // Messages must reference the failing field so UX is equivalent.
-    // Loose substring match — wording may differ but `featureId` (or its
-    // kebab form) must appear in both.
     const cliMsg = cliResult.error?.message ?? '';
     const mcpMsg = mcpResult.error?.message ?? '';
     expect(cliMsg.toLowerCase()).toMatch(/feature-?id/);
     expect(mcpMsg.toLowerCase()).toMatch(/feature-?id/);
   });
 
+  /**
+   * The MCP call passes a number as `featureId`. A CLI flag is always a string, so the CLI call
+   * passes an uppercase id, which the pattern of `FeatureIdSchema` rejects.
+   */
   it('MalformedArgs_WrongType_BothFacades_RejectWithSameErrorCode', async () => {
-    // `exarchos_workflow init` requires `featureId: string`. Pass a
-    // non-string (MCP) or a value that will fail FeatureIdSchema constraints
-    // (CLI uses string flags, so we pass a value that violates the regex).
-    //
-    // Both facades must emit INVALID_INPUT.
-
-    // CLI: pass a feature id that violates FeatureIdSchema's regex
-    // (uppercase letters are forbidden in the feature-id format).
     const { result: cliResult, exitCode: cliExitCode } = await callCli(
       fixture.cliCtx,
       'wf',
@@ -131,7 +101,6 @@ describe('CLI/MCP argument coercion failure parity (DR-5)', () => {
       { captureCommanderErrors: true },
     );
 
-    // MCP: pass featureId as a number — wrong type at the schema level.
     const mcpResult = await callMcp(fixture.mcpCtx, 'exarchos_workflow', {
       action: 'init',
       featureId: 12345,
@@ -147,23 +116,14 @@ describe('CLI/MCP argument coercion failure parity (DR-5)', () => {
 
     expect(cliExitCode).toBe(1);
 
-    // Messages should reference the offending field in both.
     const cliMsg = cliResult.error?.message ?? '';
     const mcpMsg = mcpResult.error?.message ?? '';
     expect(cliMsg.toLowerCase()).toMatch(/feature-?id/);
     expect(mcpMsg.toLowerCase()).toMatch(/feature-?id/);
   });
 
+  /** Both adapters report an unknown action as `INVALID_INPUT`, so an agent detects a bad action name in one way. */
   it('MalformedArgs_UnknownAction_BothFacades_RejectWithSameErrorCode', async () => {
-    // Passing an action name the registry doesn't know about must produce
-    // the same error shape from both facades.
-    //
-    // Historical note: the MCP composite handler returns UNKNOWN_ACTION
-    // from its default switch case, while Commander used to throw a
-    // CommanderError for unknown subcommands. This test asserts both paths
-    // funnel through the same INVALID_INPUT contract so tool agents can
-    // detect bad action names uniformly.
-
     const { result: cliResult, exitCode: cliExitCode } = await callCli(
       fixture.cliCtx,
       'wf',
@@ -179,54 +139,40 @@ describe('CLI/MCP argument coercion failure parity (DR-5)', () => {
     expect(cliResult.success).toBe(false);
     expect(mcpResult.success).toBe(false);
 
-    // Codes must match across facades.
     expect(errorCode(cliResult)).toBe(errorCode(mcpResult));
 
-    // The code itself must be INVALID_INPUT (the canonical rejection code
-    // for malformed input at the adapter boundary).
     expect(errorCode(cliResult)).toBe('INVALID_INPUT');
 
     expect(cliExitCode).toBe(1);
   });
 });
 
-// ─── F-024 sidecar-coverage: parametrize across all 5 composite tools ───────
-//
-// The three malformed-args tests above only exercised `exarchos_workflow`.
-// The dispatch-level Zod validation lives in `dispatch/core/dispatch.ts` and is
-// supposed to apply uniformly to every composite tool; this parametrized
-// block proves that empirically rather than relying on the single-tool
-// sample.
-//
-// Each fixture names:
-//   • `tool`       — full MCP tool name (e.g. `exarchos_event`)
-//   • `cliAlias`   — CLI alias exposed by the tool (e.g. `ev`)
-//   • `action`     — canonical action on the tool that takes at least one
-//                    required non-boolean field
-//   • `requiredField` — name of the required field that will be omitted
-//   • `wrongTypeField` — field to poison with a type mismatch (MCP side)
-//   • `wrongTypeValue` — the bad value
-//   • `validExtras` — other required fields supplied with valid values
-//                     (so the poison field is the sole failure)
-//   • `fieldPattern` — regex for matching the field name (kebab-or-camel)
-//                      in the error message.
-//
-// `exarchos_sync` only has `now` with an empty-object schema — no action
-// has a required non-boolean field, so it is intentionally excluded with
-// a comment in the fixtures array.
-
+/**
+ * The malformed-argument inputs for one action of a composite tool. `dispatch/core/dispatch.ts`
+ * validates the arguments of every tool, and the fixtures test that on more than one tool.
+ */
 interface ToolFixture {
   readonly label: string;
   readonly tool: string;
   readonly cliAlias: string;
+  /** An action with at least one required field that is not a boolean. */
   readonly action: string;
+  /** The field that the missing-field test omits. */
   readonly requiredField: string;
+  /** The field that gets `wrongTypeValue` in the wrong-type test. */
   readonly wrongTypeField: string;
   readonly wrongTypeValue: unknown;
+  /** The other required fields, with valid values, so that one field is the only failure. */
   readonly validExtras: Record<string, unknown>;
+  /** Matches the field name in an error message, in camel case or in kebab case. */
   readonly fieldPattern: RegExp;
 }
 
+/**
+ * `exarchos_view` and `exarchos_sync` have no fixture. The one sync action, `now`, declares no
+ * field, so it has no field to omit and no field to give a wrong type. Add a sync fixture when a
+ * sync action gets a required field that is not a boolean.
+ */
 const TOOL_FIXTURES: ReadonlyArray<ToolFixture> = [
   {
     label: 'exarchos_workflow/init',
@@ -247,8 +193,7 @@ const TOOL_FIXTURES: ReadonlyArray<ToolFixture> = [
     requiredField: 'stream',
     wrongTypeField: 'stream',
     wrongTypeValue: 42,
-    // `event` is required too, supply a valid minimal object so the
-    // failure is isolated to the stream field.
+    /** `event` is also required. A valid event keeps `stream` as the only failure. */
     validExtras: { event: { type: 'task.completed', data: { taskId: 't-1' } } },
     fieldPattern: /stream/i,
   },
@@ -263,11 +208,8 @@ const TOOL_FIXTURES: ReadonlyArray<ToolFixture> = [
     validExtras: { agentId: 'agent-parity', streamId: 'stream-parity' },
     fieldPattern: /task-?id/i,
   },
+  /** `stack_place` appends `stack.position-filled`, so the orchestrate tool carries it. */
   {
-    // Re-parented onto exarchos_orchestrate with the effect-ledger remedy: the
-    // handler appends `stack.position-filled` while its registration named
-    // orchestrate as the provider, so the writer moved to the surface that owns
-    // the effect. The parity property is unchanged — only the carrier is.
     label: 'exarchos_orchestrate/stack_place',
     tool: 'exarchos_orchestrate',
     cliAlias: 'orch',
@@ -278,10 +220,6 @@ const TOOL_FIXTURES: ReadonlyArray<ToolFixture> = [
     validExtras: { position: 0, taskId: 't-parity' },
     fieldPattern: /stream-?id/i,
   },
-  // exarchos_sync: the only action (`now`) has schema `z.object({})` with
-  // zero required fields. The malformed-args contract does not apply —
-  // any args object is valid. Intentionally skipped; if a future sync
-  // action gains a required non-boolean field, add a fixture here.
 ];
 
 describe.each(TOOL_FIXTURES)(
@@ -289,7 +227,6 @@ describe.each(TOOL_FIXTURES)(
   (fixtureDef) => {
     it(`MalformedArgs_MissingRequired_BothFacades_RejectWithSameErrorCode__${fixtureDef.label}`, async () => {
       const cliFlags: Record<string, unknown> = { ...fixtureDef.validExtras };
-      // Deliberately omit `requiredField` from cliFlags.
       const { result: cliResult, exitCode: cliExitCode } = await callCli(
         fixture.cliCtx,
         fixtureDef.cliAlias,
@@ -301,7 +238,6 @@ describe.each(TOOL_FIXTURES)(
       const mcpResult = await callMcp(fixture.mcpCtx, fixtureDef.tool, {
         action: fixtureDef.action,
         ...fixtureDef.validExtras,
-        // required field deliberately omitted
       });
 
       expect(cliResult.success).toBe(false);
@@ -316,21 +252,18 @@ describe.each(TOOL_FIXTURES)(
       expect(mcpMsg).toMatch(fixtureDef.fieldPattern);
     });
 
+    /**
+     * The MCP call passes the wrong-typed value and must reject with `INVALID_INPUT`.
+     * The CLI call passes the string form of that value, and a string field can accept it.
+     * So the test accepts a CLI success. A CLI failure must carry `INVALID_INPUT` or `HANDLER_ERROR`.
+     */
     it(`MalformedArgs_WrongType_BothFacades_RejectWithSameErrorCode__${fixtureDef.label}`, async () => {
-      // MCP arm: feed a wrong-typed value directly.
       const mcpResult = await callMcp(fixture.mcpCtx, fixtureDef.tool, {
         action: fixtureDef.action,
         ...fixtureDef.validExtras,
         [fixtureDef.wrongTypeField]: fixtureDef.wrongTypeValue,
       });
 
-      // CLI arm: pass the wrong-typed value as its stringified form. For
-      // fields whose Zod type is not `string` the coerce step will produce
-      // a value that fails validation; for `string` fields (featureId,
-      // stream, taskId, streamId), we pass an explicitly invalid string
-      // instead — the `__INVALID__` sentinel includes characters that
-      // violate the typical min(1)/regex/feature-id constraints where
-      // applicable, and is accepted-but-rejected-by-handler where not.
       const cliFlags: Record<string, unknown> = {
         ...fixtureDef.validExtras,
         [fixtureDef.wrongTypeField]:
@@ -346,16 +279,9 @@ describe.each(TOOL_FIXTURES)(
         { captureCommanderErrors: true },
       );
 
-      // MCP must reject (wrong type at the Zod level).
       expect(mcpResult.success).toBe(false);
       expect(errorCode(mcpResult)).toBe('INVALID_INPUT');
 
-      // CLI may or may not reject depending on whether Zod can coerce the
-      // string form; either outcome is acceptable so long as any rejection
-      // uses the canonical INVALID_INPUT code. If the CLI accepts the
-      // coerced string (valid happy path), the handler may succeed or
-      // return a different error — we only care that no UNCAUGHT_EXCEPTION
-      // leaks for obviously bad input.
       if (!cliResult.success) {
         expect(['INVALID_INPUT', 'HANDLER_ERROR']).toContain(
           cliResult.error?.code,

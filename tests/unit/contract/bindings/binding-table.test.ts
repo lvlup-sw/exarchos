@@ -13,13 +13,12 @@ const noopLoader: CompositeHandlerLoader = async () =>
   async () => ({ success: true });
 
 describe('binding-table — non-serializable implementation bindings (P03-04)', () => {
+  /** The table derives from the real loader map, one binding per tool. Each binding holds the dispatch loader itself. */
   it('BindingTable_CoversEveryCompositeHandlerLoader_AsAFunctionReference', () => {
-    // The table is DERIVED from the real loader map, one binding per tool.
     const tools = BINDING_TABLE.map((b) => b.tool).sort();
     expect(tools).toEqual(Object.keys(COMPOSITE_HANDLER_LOADERS).sort());
     for (const binding of BINDING_TABLE) {
       expect(typeof binding.load).toBe('function');
-      // The held loader is the REAL dispatch loader, not a copy/name.
       expect(binding.load).toBe(COMPOSITE_HANDLER_LOADERS[binding.tool]);
     }
   });
@@ -35,16 +34,16 @@ describe('binding-table — non-serializable implementation bindings (P03-04)', 
     }
   });
 
+  /**
+   * `JSON.stringify` strips the `load` function, so a table that went through JSON holds no valid binding.
+   * This is the runtime half of the non-serializable property. A bare string or a plain object is not a binding.
+   */
   it('SerializableStandIn_IsRejectedByTheRuntimeGuard', () => {
-    // A binding cannot survive serialization — JSON.stringify strips the
-    // function `load` (and the phantom brand), so a round-tripped table is no
-    // longer a valid binding. This is the runtime half of "non-serializable".
     const forged = JSON.parse(JSON.stringify(BINDING_TABLE)) as unknown[];
     expect(forged.length).toBe(BINDING_TABLE.length);
     for (const entry of forged) {
       expect(isImplementationBinding(entry)).toBe(false);
     }
-    // A bare string / plain object is likewise not a binding.
     expect(isImplementationBinding('exarchos_workflow')).toBe(false);
     expect(isImplementationBinding({ tool: 'exarchos_workflow', load: 'handleWorkflow' })).toBe(false);
     expect(isImplementationBinding(null)).toBe(false);

@@ -11,22 +11,9 @@ import type {
 import { FullExarchosConfigSchema } from '../../../src/config/yaml-schema.js';
 
 /**
- * P1, T2 / DR-31 — `resolveCatalogSources` normalizes `invariants.catalogs`
- * registrations (bare string | `{ path, tier }`) into the tier-tagged source
- * list the refactored `resolveEffectiveCatalog` (T3) iterates.
- *
- * ## What used to be asserted here, and why it is gone (T-42)
- *
- * Five tests in this block pinned a SECOND responsibility this function no
- * longer has: desugaring `devCatalog: 'enabled'` into a synthetic `{ path:
- * '.exarchos/invariants.md', tier: 'dev' }` source, with a `(path, tier:'dev')`
- * dedupe so the sugar and an explicit registration for the same path could not
- * double-load. DR-31 retired that branch — `resolveCatalogSources` was a direct
- * reader of the boolean, which is exactly the repo-only loading mode the
- * requirement removes. The tests were DELETED rather than inverted: an
- * "expect nothing happens" test for a branch that does not exist is noise, and
- * `CatalogSources_NoDesugarBranch_ResolvesRegisteredCatalogsOnly` below pins
- * the real contract (registrations in, registrations out) in one place.
+ * `resolveCatalogSources` converts each `invariants.catalogs` registration, a bare string or a
+ * `{ path, tier }` object, into a tier-tagged source for `resolveEffectiveCatalog`.
+ * Registration is the only opt-in. The function does not read the `devCatalog` key.
  */
 describe('resolveCatalogSources (T2)', () => {
   it('resolveCatalogSources_BareString_DefaultsUserTier', () => {
@@ -37,29 +24,23 @@ describe('resolveCatalogSources (T2)', () => {
     expect(sources).toEqual([{ path: 'team-invariants.md', tier: 'user' }]);
   });
 
+  /** Each config shape with no `catalogs` list resolves nothing. */
   it('resolveCatalogSources_NoRegistrations_ResolvesNothing', () => {
-    // No `catalogs:` list, in every shape a config can take. Registration is
-    // the ONLY opt-in, so all three resolve nothing.
     expect(resolveCatalogSources({ invariants: {} })).toEqual([]);
     expect(resolveCatalogSources({})).toEqual([]);
     expect(resolveCatalogSources(undefined)).toEqual([]);
   });
 
+  /**
+   * `devCatalog: 'enabled'` with no registration resolves nothing. With registrations, the key adds
+   * nothing. The result is the normalized registrations, with no `.exarchos/invariants.md` source.
+   */
   it('CatalogSources_NoDesugarBranch_ResolvesRegisteredCatalogsOnly', () => {
-    // THE DR-31 SITE-2 ACCEPTANCE TEST (relocated here from
-    // invariants-loader.test.ts, where T-42 parked it because this file was
-    // outside that task's declared file list — it belongs with its subject).
-    //
-    // `resolveCatalogSources` used to be a direct reader of the boolean:
-    // `devCatalog: 'enabled'` synthesized a dev source out of thin air. That
-    // branch is gone — registrations in, registrations out.
     const sugarOnly = {
       invariants: { devCatalog: 'enabled' as const },
     } satisfies ExarchosConfigInput;
     expect(resolveCatalogSources(sugarOnly)).toEqual([]);
 
-    // With registrations present, the boolean adds nothing: the output is
-    // exactly the normalized registrations, with no synthesized dev source.
     const withFlag = {
       invariants: {
         devCatalog: 'enabled' as const,
@@ -77,7 +58,6 @@ describe('resolveCatalogSources (T2)', () => {
     ];
     expect(resolveCatalogSources(withFlag)).toEqual(expected);
     expect(resolveCatalogSources(withoutFlag)).toEqual(expected);
-    // No synthesized built-in path anywhere in the result.
     expect(resolveCatalogSources(withFlag).map((s) => s.path)).not.toContain(
       '.exarchos/invariants.md',
     );
@@ -107,38 +87,13 @@ describe('resolveCatalogSources (T2)', () => {
 });
 
 /**
- * DR-31 / T-41 — the desugaring branch exercised against the REAL repo config.
+ * The same contract against the real `.exarchos.yml` of this repository.
+ * `realInvariantsBlock` reads that file, validates it with the production config schema, and
+ * returns a copy of its invariants block.
  *
- * The block above builds every config by hand. That is fine for contract
- * coverage but it cannot answer the question DR-31 actually asks: *what
- * happens to THIS repository's catalog discovery when `invariants.devCatalog`
- * is deleted from `.exarchos.yml`?* `catalog-sources.ts` is the site that
- * removal changes (DR-31 site 2 — `resolveCatalogSources` is a direct reader
- * of the boolean), so the answer has to be pinned here, on the real file.
- *
- * ## Two independent authorities (DR-30)
- *
- *   - **Authority 1 (subject):** `resolveCatalogSources`, the function under
- *     test.
- *   - **Authority 2 (expectation):** `normalizeRegistrations` below — a
- *     re-implementation of the documented normalization contract (bare string
- *     ⇒ `tier: user`; object ⇒ `tier ?? 'user'`) applied to the `catalogs:`
- *     list read verbatim out of the real `.exarchos.yml`. It shares no code
- *     with the subject. Likewise the expected desugar target path is taken
- *     from the repo's OWN registration in that file, never from the module's
- *     `DEV_CATALOG_PATH` constant — so a constant that drifts away from what
- *     the repo registers is caught rather than mirrored.
- *
- * ## Note for T-42 — resolved
- *
- * `CatalogSources_RealRepoConfigRegistrationRemoved_SugarSynthesizesDevSource`
- * was the guard pinning the desugaring branch itself. T-42 deleted that
- * branch, so that ONE test was re-baselined (to "no sources") as part of the
- * deliberate behavior change, and renamed
- * `..._ResolvesNoSources` to match what it now asserts. The other three tests
- * in this block are unchanged and stayed green through the removal — they pin
- * the property the removal was claimed to preserve, and they are the reason
- * this file is an oracle rather than a changelog.
+ * The expectation comes from a second source. `normalizeRegistrations` implements the documented
+ * normalization again and shares no code with `resolveCatalogSources`.
+ * `registeredDevPath` returns the dev-tier path that the real file registers.
  */
 describe('resolveCatalogSources — real repo config (DR-31 / T-41)', () => {
   const REPO_ROOT = path.resolve(
@@ -148,7 +103,6 @@ describe('resolveCatalogSources — real repo config (DR-31 / T-41)', () => {
 
   type InvariantsBlock = Record<string, unknown>;
 
-  /** Read + schema-validate the REAL `.exarchos.yml` invariants block. */
   function realInvariantsBlock(): InvariantsBlock {
     expect(
       fs.existsSync(REPO_CONFIG_PATH),
@@ -173,7 +127,6 @@ describe('resolveCatalogSources — real repo config (DR-31 / T-41)', () => {
     return { invariants: block } as ExarchosConfigInput;
   }
 
-  /** AUTHORITY 2 — the documented normalization contract, re-implemented. */
   function normalizeRegistrations(block: InvariantsBlock): CatalogSource[] {
     const raw = (block.catalogs ?? []) as Array<
       string | { path: string; tier?: 'dev' | 'user' }
@@ -185,7 +138,6 @@ describe('resolveCatalogSources — real repo config (DR-31 / T-41)', () => {
     );
   }
 
-  /** The dev-tier catalog path the repo registers in its OWN config file. */
   function registeredDevPath(): string {
     const devSource = normalizeRegistrations(realInvariantsBlock()).find(
       (s) => s.tier === 'dev',
@@ -198,11 +150,11 @@ describe('resolveCatalogSources — real repo config (DR-31 / T-41)', () => {
     return devSource!.path;
   }
 
+  /**
+   * The result holds the registered dev path exactly one time, because a second copy loads the
+   * catalog two times. The whole list equals the output of `normalizeRegistrations`.
+   */
   it('CatalogSources_RealRepoConfig_DedupesSugarAgainstExplicitDevRegistration', () => {
-    // PATH-DEDUPE, on the real config. The committed file carries the sugar
-    // AND an explicit `{ path, tier: dev }` registration for the same path;
-    // the result must carry that path exactly ONCE (a second copy would
-    // double-load the catalog).
     const block = realInvariantsBlock();
     const sources = resolveCatalogSources({
       invariants: block,
@@ -212,14 +164,14 @@ describe('resolveCatalogSources — real repo config (DR-31 / T-41)', () => {
     expect(sources.filter((s) => s.path === devPath)).toEqual([
       { path: devPath, tier: 'dev' },
     ]);
-    // And the whole list equals the independently-normalized registrations —
-    // i.e. the sugar contributes nothing extra for this repo's config.
     expect(sources).toEqual(normalizeRegistrations(block));
   });
 
+  /**
+   * The real config resolves the same sources with the `devCatalog` key and without it.
+   * The test builds both variants, so the result does not depend on a key in the file.
+   */
   it('CatalogSources_RealRepoConfigFlagPresentOrAbsent_ResolvesIdenticalSources', () => {
-    // THE DR-31 PROPERTY AT SITE 2. Both metamorphic directions, so the guard
-    // survives T-43 deleting the key from disk.
     const withFlag = configWith((b) => {
       b.devCatalog = 'enabled';
     });
@@ -234,41 +186,31 @@ describe('resolveCatalogSources — real repo config (DR-31 / T-41)', () => {
     expect(resolveCatalogSources(withoutFlag)).toEqual(expected);
   });
 
+  /**
+   * A config with the `devCatalog` key and no registration resolves nothing, so the key is inert.
+   * The first assertion shows that the config holds the key. Without it, the test shows only that
+   * an empty config resolves nothing. The last assertions show that the removed registration is
+   * the cause, because the config with the registration resolves a source.
+   */
   it('CatalogSources_RealRepoConfigRegistrationRemoved_ResolvesNoSources', () => {
-    // RE-BASELINED BY T-42 — this was
-    // `..._SugarSynthesizesDevSource`, and it asserted the desugaring branch
-    // itself: strip the explicit `catalogs:` registration from the real config,
-    // keep only the boolean, and the branch synthesized the dev source the
-    // removed registration named. T-41 flagged it as the one test in this
-    // block that T-42 would legitimately re-baseline, and this is it.
-    //
-    // The new contract is the inverse and it is NOT a weaker assertion: the
-    // sugar alone resolves NOTHING. Registration is the only opt-in, so a
-    // config carrying the boolean and no registration discovers no catalog —
-    // which is precisely what makes the boolean inert rather than merely
-    // redundant. Restoring the desugar branch reddens this test.
     const sugarOnly = configWith((b) => {
       b.devCatalog = 'enabled';
       delete b.catalogs;
     });
-    // The subject really does still carry the retired flag — otherwise this
-    // would be testing "empty config resolves nothing", a much weaker claim.
     expect(sugarOnly.invariants).toHaveProperty('devCatalog', 'enabled');
     expect(resolveCatalogSources(sugarOnly)).toEqual([]);
 
-    // ...and the registration this config had stripped is what WOULD have
-    // resolved, so the emptiness above is caused by its removal and nothing
-    // else. This keeps the test sensitive to a resolver that ignores config.
     expect(registeredDevPath()).toBeTruthy();
     expect(
       resolveCatalogSources(configWith((b) => { delete b.devCatalog; })),
     ).not.toEqual([]);
   });
 
+  /**
+   * With no registration and no key, the result is empty. Without this test, a function that
+   * ignores its config can pass the equalities in the other tests.
+   */
   it('CatalogSources_RealRepoConfigNoRegistrationNoFlag_ResolvesNoSources', () => {
-    // SENSITIVITY FLOOR: with neither the registration nor the sugar there is
-    // nothing to discover. Without this, the equalities above could be
-    // satisfied by a function that ignores its config.
     const stripped = configWith((b) => {
       delete b.devCatalog;
       delete b.catalogs;

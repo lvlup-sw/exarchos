@@ -1,30 +1,21 @@
 /**
- * Tests for the top-level `exarchos install-skills` CLI surface.
+ * Tests for the top-level `exarchos install-skills` verb, a rename stub like `init`.
  *
- * DR-5 (task 018): `install-skills` is RETIRED. The reconciler's GENERATE step
- * (the init writers' `mcp-json-writer` + the per-runtime config writers) plus
- * onboard's `installStep` now own skills + MCP registration, so the standalone
- * `install-skills` verb is a one-release **rename stub** — it prints
- * `renamed → use 'exarchos onboard'` and exits non-zero (HANDLER_ERROR=2, NOT
- * "command not found"), runs NO install side effect, and reaches the bridge
- * never. Removed entirely at v3.0. Mirrors the `init` rename stub (cli-init.test.ts).
+ * The stub prints `renamed → use 'exarchos onboard'` and exits with HANDLER_ERROR (2), not with
+ * "command not found". It runs no install side effect, because `onboard` runs the install step.
  *
- * These tests drive the CLI programmatically (buildCli + parseAsync) rather than
- * spawning a subprocess, mirroring the pattern in cli-init.test.ts.
+ * The tests drive `buildCli` and `parseAsync` in-process. A recorder mock replaces the
+ * install-skills bridge, so each test can assert that the stub never calls the bridge.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// The bridge must NEVER be reached by the stub. Mock it with a recorder so the
-// test can assert zero invocations (no install side effect).
 vi.mock('../../../../src/lifecycle/install-skills-bridge.js', () => ({
   runInstallSkills: vi.fn(async () => {}),
 }));
 
 import { buildCli, CLI_EXIT_CODES } from '../../../../src/adapters/cli/cli.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
 
 function createTestContext(): DispatchContext {
   return {
@@ -33,8 +24,6 @@ function createTestContext(): DispatchContext {
     enableTelemetry: false,
   };
 }
-
-// ─── Tests ──────────────────────────────────────────────────────────────────
 
 describe('exarchos install-skills CLI (DR-5 rename stub)', () => {
   let ctx: DispatchContext;
@@ -57,13 +46,10 @@ describe('exarchos install-skills CLI (DR-5 rename stub)', () => {
 
     await program.parseAsync(['node', 'exarchos', 'install-skills']);
 
-    // No install side effect runs from the stub (DR-5 acceptance criterion):
-    // the bridge is never reached.
     const { runInstallSkills } = await import(
       '../../../../src/lifecycle/install-skills-bridge.js'
     );
     expect(runInstallSkills).not.toHaveBeenCalled();
-    // Non-zero, not "command not found".
     expect(process.exitCode).toBe(CLI_EXIT_CODES.HANDLER_ERROR);
 
     stderrSpy.mockRestore();
@@ -82,9 +68,8 @@ describe('exarchos install-skills CLI (DR-5 rename stub)', () => {
     stderrSpy.mockRestore();
   });
 
+  /** The stub accepts the legacy `--agent <id>` flag and ignores it. */
   it('CliInstallSkills_LegacyAgentFlag_StillStubs_NoInstall', async () => {
-    // The legacy `--agent <id>` flag is accepted (allowUnknownOption /
-    // allowExcessArguments) but ignored — there is no installer to route to.
     const program = buildCli(ctx);
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
 

@@ -1,8 +1,7 @@
 // @oracle-sources: ../../../src/registry/action-contract.ts, the contract shapes this file constructs by hand — including the deliberately ill-formed ones the normalizer is required to reject rather than silently repair
 //
-// The normalizer is judged against inputs the test author chose, not against a
-// second pass of itself. The rejection cases are the half that matters: an
-// idempotence property alone is satisfied by a normalizer that does nothing.
+// The normalizer runs on inputs that this file builds by hand, not on its own output. The rejection
+// cases matter most, because a normalizer that does nothing also passes an idempotence property.
 
 import { fc } from '@fast-check/vitest';
 import { describe, expect, it } from 'vitest';
@@ -70,11 +69,11 @@ describe('action-contract algebra', () => {
     expect(() => none('')).toThrow(ActionContractError);
   });
 
+  /**
+   * `task.progressed` is a catalog event whose `EVENT_EMISSION_REGISTRY` source is `model`, not
+   * `auto`. An action must not declare such an event as its own emission.
+   */
   it('NormalizeEmission_NonAutoEventSource_IsRejected', () => {
-    // 'task.progressed' is a real catalog event whose EVENT_EMISSION_REGISTRY
-    // source is 'model' (a subagent composes the emission), not 'auto' —
-    // exactly the shape an action's own emissions declaration must not be
-    // allowed to claim.
     const badEmission: ActionEmission = {
       event: 'task.progressed',
       condition: 'always',

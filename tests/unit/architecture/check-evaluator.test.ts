@@ -10,8 +10,7 @@ const grep = (pattern: string, extra: Partial<CheckLeaf> = {}): CheckLeaf => ({
 });
 
 describe('evaluateLeaf', () => {
-  // A grep leaf delegates to check-catalog leaf-execution: a pattern match
-  // over the diff produces exactly one finding; no match produces [].
+  /** A `grep` leaf gives exactly one finding when the pattern matches the diff, and `[]` when it does not. */
   it('EvaluateLeaf_GrepKind_DelegatesToCheckCatalogExecution', () => {
     const diff = '+ const x = 1; // TODO: refactor\n+ const y = 2;\n';
 
@@ -23,8 +22,7 @@ describe('evaluateLeaf', () => {
     expect(miss).toEqual([]);
   });
 
-  // structural/heuristic = threshold over match count: a finding only when
-  // the number of matches exceeds the threshold.
+  /** A `structural` leaf gives a finding only when the match count is more than the threshold. */
   it('EvaluateLeaf_StructuralKind_FiresOnlyAboveThreshold', () => {
     const diff = '+ a\n+ a\n+ a\n+ a\n';
     const leaf: CheckLeaf = { kind: 'structural', pattern: 'a', threshold: 3 };
@@ -35,7 +33,7 @@ describe('evaluateLeaf', () => {
   });
 });
 
-// Reference boolean-algebra: a leaf "passes" when it produces no findings.
+/** A node passes when it produces no findings. */
 const passes = (node: CheckNode, diff: string): boolean =>
   evaluateTree(node, diff).length === 0;
 
@@ -54,32 +52,31 @@ describe('evaluateTree', () => {
     expect(passes({ 'any-of': [ALWAYS_FAIL, ALWAYS_FAIL] }, DIFF)).toBe(false);
   });
 
+  /** A child that passes gives a finding. A child that fails gives none. */
   it('EvaluateTree_Not_Inverts', () => {
-    // A passing child becomes a finding; a failing child passes.
     expect(passes({ not: ALWAYS_PASS }, DIFF)).toBe(false);
     expect(passes({ not: ALWAYS_FAIL }, DIFF)).toBe(true);
   });
 
+  /**
+   * A `scope` node gives its `fileGlob` to a leaf that has none. `DIFF` has no file headers, so the
+   * glob excludes no match. The test compares the result with a leaf that holds the same glob.
+   */
   it('EvaluateTree_Scope_NarrowsFileGlob', () => {
-    // scope injects a fileGlob into a leaf that does not specify one; the
-    // subtree evaluates under the narrowed scope.
     const node: CheckNode = {
       scope: { fileGlob: '*.md' },
       node: grep('present'),
     };
-    // Leaf inherits *.md scope but the diff has no file context, so the
-    // narrowed glob restricts where the match counts. Behaviour asserted in
-    // the implementation; here we assert scope is honoured by comparing to a
-    // leaf that already carries the same glob.
     const direct = evaluateTree(grep('present', { fileGlob: '*.md' }), DIFF);
     expect(evaluateTree(node, DIFF)).toEqual(direct);
   });
 
+  /**
+   * The header lines of a file (`diff --git`, `index`, `--- a/`) belong to the section of that file,
+   * not to the section before it. `beta` is only in the headers and body of `beta.ts`, so a leaf
+   * with the glob `alpha.ts` must not match it.
+   */
   it('EvaluateLeaf_MultiFileGitDiff_AttributesHeadersToOwningFile', () => {
-    // A file's header lines (`diff --git a/…`, `index …`, `--- a/…`) must be
-    // attributed to THAT file's section, not leaked into the previous file's.
-    // Regression guard: a token that appears only in beta.ts's headers/body
-    // must not match when the leaf is scoped to alpha.ts.
     const diff = [
       'diff --git a/alpha.ts b/alpha.ts',
       'index 1111111..2222222 100644',
@@ -96,21 +93,14 @@ describe('evaluateTree', () => {
       '',
     ].join('\n');
 
-    // `beta` lives only in beta.ts; scoped to alpha.ts it must NOT match
-    // (before the fix, beta.ts's `diff --git`/`--- a/beta.ts` headers leaked
-    // into alpha.ts's section and produced a false positive).
     expect(evaluateLeaf(grep('beta', { fileGlob: 'alpha.ts' }), diff)).toEqual([]);
-    // Scoped to its own file, it fires.
     expect(evaluateLeaf(grep('beta', { fileGlob: 'beta.ts' }), diff)).toHaveLength(1);
-    // And alpha is correctly confined to alpha.ts.
     expect(evaluateLeaf(grep('alpha', { fileGlob: 'beta.ts' }), diff)).toEqual([]);
     expect(evaluateLeaf(grep('alpha', { fileGlob: 'alpha.ts' }), diff)).toHaveLength(1);
   });
 
+  /** A subtree with `scope.phase` applies only in that phase. In a different phase it passes. */
   it('EvaluateTree_ScopePhase_SkipsSubtreeOutOfPhase', () => {
-    // A `scope.phase` declares the subtree applies only during that phase. An
-    // ALWAYS_FAIL leaf scoped to `delegate` must NOT fire when the gate runs
-    // at `review` — the subtree is out of scope and therefore passes.
     const node: CheckNode = {
       scope: { phase: 'delegate' },
       node: ALWAYS_FAIL,
@@ -119,8 +109,6 @@ describe('evaluateTree', () => {
   });
 
   it('EvaluateTree_ScopePhase_EvaluatesSubtreeInPhase', () => {
-    // When the current phase matches the scoped phase, the subtree applies and
-    // the failing leaf fires as usual.
     const node: CheckNode = {
       scope: { phase: 'review' },
       node: ALWAYS_FAIL,
@@ -128,9 +116,8 @@ describe('evaluateTree', () => {
     expect(evaluateTree(node, DIFF, 'review').length).toBeGreaterThan(0);
   });
 
+  /** A caller that gives no current phase cannot evaluate the phase gate, so the subtree applies. */
   it('EvaluateTree_ScopePhase_InertWhenCurrentPhaseOmitted', () => {
-    // Backward-compatibility: a phase-agnostic caller (no currentPhase) cannot
-    // evaluate the gate, so the subtree applies unconditionally.
     const node: CheckNode = {
       scope: { phase: 'delegate' },
       node: ALWAYS_FAIL,
@@ -138,19 +125,19 @@ describe('evaluateTree', () => {
     expect(evaluateTree(node, DIFF).length).toBeGreaterThan(0);
   });
 
-  // REFACTOR (T-06): a randomly generated boolean tree of always-pass /
-  // always-fail leaves evaluates equal to a reference boolean-algebra
-  // evaluation over the same tree. `passes` ≡ "no findings".
+  /**
+   * A random boolean tree of pass leaves and fail leaves must evaluate the same as a reference
+   * boolean algebra, where a pass is zero findings. `refPasses` is that reference.
+   * `toNode` maps the tagged tree to a `CheckNode`. A pass leaf has a pattern that is absent from
+   * `DIFF`, and a fail leaf has a pattern that is present.
+   */
   it('EvaluateTree_RandomBooleanTree_MatchesReferenceAlgebra', () => {
-    // Tagged tree the generator builds; PASS/FAIL leaves map to combinator
-    // leaves that respectively never/always match the diff.
     type BoolTree =
       | { t: 'leaf'; pass: boolean }
       | { t: 'all'; kids: BoolTree[] }
       | { t: 'any'; kids: BoolTree[] }
       | { t: 'not'; kid: BoolTree };
 
-    // Reference boolean algebra over the tagged tree.
     const refPasses = (tree: BoolTree): boolean => {
       switch (tree.t) {
         case 'leaf':
@@ -164,11 +151,9 @@ describe('evaluateTree', () => {
       }
     };
 
-    // Map the tagged tree to a real CheckNode over a fixed diff.
     const toNode = (tree: BoolTree): CheckNode => {
       switch (tree.t) {
         case 'leaf':
-          // pass ⇒ pattern absent from diff; fail ⇒ pattern present.
           return grep(tree.pass ? 'absent-token' : 'present');
         case 'all':
           return { 'all-of': tree.kids.map(toNode) };

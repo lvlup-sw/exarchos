@@ -1,25 +1,15 @@
-// @oracle-sources: the live `src/adapters/` tree walked off disk, and INV-2 as
-// stated in `.exarchos/invariants.md` (the contract is the invocation surface;
-// the CLI is a client of it). No fixture corpus and no recorded baseline — the
-// subject is the shipped directory layout itself.
+// @oracle-sources: the live `src/adapters/` tree walked off disk, and the invariant as
+// stated in `.exarchos/invariants.md`. The subject is the shipped directory layout, so the test
+// uses no fixture corpus and no recorded baseline.
 //
-// ─── INV-2 as a directory-level fact (task 018) ──────────────────────────────
+// The invariant: the contract is the invocation surface, and the CLI is a client of the contract.
+// `adapters/mcp/` is the wire contract and `adapters/cli/` is the presentation client.
 //
-// The contract is the invocation surface; the CLI is a client of it. Task 018
-// split `adapters/` so that statement is readable off the tree instead of
-// asserted in prose: `adapters/mcp/` is the wire contract, `adapters/cli/` is
-// the presentation client.
+// The direction is one-way. `cli/` can import `mcp/`, and `cli.ts` does. An import of `cli/` from
+// `mcp/` makes the contract depend on one of its clients.
 //
-// The direction is one-way. `cli/` importing `mcp/` is the client calling the
-// surface and is expected — `cli.ts` does exactly that. `mcp/` importing
-// `cli/` would make the contract depend on one of its clients, which is the
-// coupling INV-2 exists to forbid.
-//
-// The layering census now declares `adapters/mcp` and `adapters/cli` as
-// nested ids, so `mcp → cli` is a real FORBIDDEN_IMPORT there. This file
-// stays as the focused INV-2 kill probe: it names the directory-level
-// fact and plants a reverse edge without depending on the allowance table.
-// ─────────────────────────────────────────────────────────────────────────────
+// The layering census also forbids the import from `adapters/mcp` to `adapters/cli`. This file
+// is the focused kill probe: it plants a reverse edge and does not use the allowance table.
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -48,9 +38,9 @@ function importSpecifiers(source: string): string[] {
 /**
  * Specifiers in `file` that resolve into `adapters/cli/`.
  *
- * Resolution is arithmetic against the importing file's own directory, not a
- * substring test: `'../cli/cli.js'` and `'./cli.js'` name the same module from
- * different depths, and a textual check would miss one of them.
+ * The function resolves each specifier against the directory of the importing file. A substring
+ * test is not sufficient: `'../cli/cli.js'` and `'./cli.js'` name the same module from different
+ * depths.
  */
 function edgesIntoCli(file: string, source: string): string[] {
   const hits: string[] = [];
@@ -73,27 +63,22 @@ describe('AdapterDirection_McpImportingCli_IsRejected (INV-2, task 018)', () => 
     expect(offenders).toEqual([]);
   });
 
+  /** A detector that finds nothing also makes the first test pass. This test proves that the detector finds an edge. */
   it('the detector REJECTS a planted mcp -> cli import', () => {
-    // Without this the first test passes when the detector is broken — the
-    // failure mode a pure "scan finds nothing" assertion cannot distinguish
-    // from a clean tree.
     const planted = "import { runCli } from '../cli/cli.js';\nrunCli();\n";
     const found = edgesIntoCli(join(ADAPTERS, 'mcp', 'planted.ts'), planted);
     expect(found).toEqual(['../cli/cli.js']);
   });
 
+  /** The rule is one-way. A detector that also flags this edge is a rule against adapter cohesion. */
   it('the allowed direction — cli/ importing mcp/ — is NOT flagged', () => {
-    // The rule is one-way. A detector that flagged this too would be a rule
-    // against adapter cohesion, not against INV-2's direction.
     const client = "import { createServer } from '../mcp/mcp.js';\n";
     const found = edgesIntoCli(join(ADAPTERS, 'cli', 'client.ts'), client);
     expect(found).toEqual([]);
   });
 
+  /** If no shipped `cli/` module imports `mcp/`, the direction rule is vacuously true. */
   it('the live cli/ surface DOES call into mcp/ (the rule has a real subject)', () => {
-    // If the split ever left the two halves disconnected, the direction rule
-    // above would be vacuously true. This pins that the client-of-the-surface
-    // relationship actually exists in shipped code.
     const cliFiles = collectTsFiles(join(ADAPTERS, 'cli')).filter((f) => !f.endsWith('.test.ts'));
     const intoMcp = cliFiles.flatMap((file) => {
       const source = readFileSync(file, 'utf-8');

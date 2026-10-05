@@ -1,24 +1,20 @@
-// ─── Task 023: Long-running CLI progress discipline (DR-5) ──────────────────
+// Progress discipline for long-running CLI actions. Under MCP the host can show progress, but a
+// CLI process that is silent for about 5 seconds looks broken. The heartbeat interval is 2 seconds.
 //
-// Under MCP, the host can render progress; under CLI a silent process for 5+
-// seconds looks broken.  This suite locks in two invariants:
+// The suite pins two invariants:
+// 1. The registry flags an exact set of orchestrate actions with `longRunning`, the signal that
+//    the CLI must emit heartbeats.
+// 2. A flagged action that is slow under `--json` writes a line-buffered heartbeat to stderr.
 //
-// 1. At least one orchestrate action in the registry carries a `longRunning`
-//    metadata flag — the canonical signal for "emit heartbeats under CLI".
-// 2. When such an action is invoked via `--json` CLI, the adapter either
-//    completes quickly or emits a line-buffered stderr heartbeat within 2.5s
-//    of spawn.  A silent >2s CLI is what we're rejecting.
+// Heartbeats go to stderr, so `--json` stdout stays one JSON document.
 //
-// Heartbeats go to stderr so `--json` stdout stays a single ToolResult line.
-// ────────────────────────────────────────────────────────────────────────────
+// A `vi.mock` factory replaces the whole module. Thus the `cli-format` mock also supplies a
+// `toCliResult` that writes the envelope to stdout as JSON, as production does.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { ToolResult } from '../../../../src/format.js';
 
-// ─── Mocks ──────────────────────────────────────────────────────────────────
-
-// Mock dispatch with a configurable delay so we can simulate a slow handler
-// without actually running npm run test:run (which prepare_synthesis does).
+/** The delay of the mocked dispatch. A test sets it to simulate a slow handler with no real command. */
 const dispatchDelayMs = { current: 0 };
 
 vi.mock('../../../../src/dispatch/core/dispatch.js', () => ({
@@ -33,11 +29,6 @@ vi.mock('../../../../src/dispatch/core/dispatch.js', () => ({
   ),
 }));
 
-// PR-B (#1368): `emitResult`'s `--json` route resolves `toCliResult`
-// from this module; vi.mock factories REPLACE the module, so omitting
-// the export crashes the action callback. Provide a real-passthrough
-// impl that mirrors the production `toCliResult(env, 'json')` behavior
-// so stdout assertions still see envelope JSON.
 vi.mock('../../../../src/adapters/cli/cli-format.js', () => ({
   prettyPrint: vi.fn(),
   printError: vi.fn(),
@@ -58,8 +49,6 @@ vi.mock('@modelcontextprotocol/sdk/server/stdio.js', () => ({
   StdioServerTransport: vi.fn(() => ({})),
 }));
 
-// ─── Test Imports ───────────────────────────────────────────────────────────
-
 import { buildCli } from '../../../../src/adapters/cli/cli.js';
 import { TOOL_REGISTRY } from '../../../../src/registry.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
@@ -72,45 +61,25 @@ function createTestContext(): DispatchContext {
   };
 }
 
-// ─── Heartbeat regex ────────────────────────────────────────────────────────
-
-// Matches the heartbeat line we require on stderr.  Loose on the exact wording
-// but strict that it ends with a newline and contains "heartbeat".
+/** Matches a heartbeat line: it holds `[heartbeat]` and ends with a newline. The other words are free. */
 const HEARTBEAT_PATTERN = /\[heartbeat\].*\n/;
 
-// ─── Registry flag test ─────────────────────────────────────────────────────
-
-// Canonical set of orchestrate actions that must carry longRunning: true.
-// Kept as a constant so additions require an explicit test update — no silent
-// drift.  See task 023 / F-023-4 for the audit that produced this list.
+/**
+ * The orchestrate actions that must carry `longRunning: true`. The test compares the exact set, so
+ * each addition or removal in the registry needs an edit here.
+ * The registry states the reason for each flag: each action runs shell tools or the action executor.
+ */
 const EXPECTED_LONG_RUNNING_ACTIONS: ReadonlySet<string> = new Set([
-  // Synthesis-path actions: shell out to `npm run test:run`, typecheck, build.
   'prepare_synthesis',
   'pre_synthesis_check',
-  // Gate actions that chain shell-invoked tooling across multiple targets.
   'assess_stack',
   'check_static_analysis',
-  // #1329: runs the FULL vitest suite against the integration tip with the
-  // JSON reporter; far exceeds the 2s heartbeat on any real repo.
   'check_integration_suite',
   'post_delegation_check',
-  // Verification-ladder slice 1: the kill-probe gate reverts source + shells
-  // out to the resolved test command; exceeds the 2s heartbeat on a real repo.
   'check_test_adequacy',
-  // Verification-ladder slice 1 Bundle B3: the contract-drift gate shells out
-  // to codegen → typecheck → breaking-diff against the merge-base; exceeds the
-  // 2s heartbeat on a real repo.
   'check_contract_drift',
-  // Verification-ladder slice 3 R5 (#1520): the mutation-adequacy action shells
-  // out to a real mutation runner (Stryker / cargo-mutants / mutmut), diff-
-  // scoped; far exceeds the 2s heartbeat on a real repo.
   'mutation-adequacy',
-  // The bounded action executor: runs a compiled segment's leaves in-process,
-  // including gates that themselves shell out (check_static_analysis,
-  // check_test_adequacy, check_contract_drift) — far exceeds the 2s heartbeat.
   'execute_intent',
-  // The settlement endpoint: runs each accepted task's task-completion
-  // segment through that executor, so it carries the flag for the same reason.
   'settle',
 ]);
 
@@ -125,8 +94,6 @@ describe('orchestrate action registry — longRunning metadata (DR-5)', () => {
         .map((a) => a.name),
     );
 
-    // Assert the exact canonical set — neither silent additions nor
-    // silent removals should pass.  Post F-023-4 audit.
     expect(
       Array.from(flaggedNames).sort(),
       'registry longRunning actions drifted from the canonical audit set',
@@ -134,20 +101,14 @@ describe('orchestrate action registry — longRunning metadata (DR-5)', () => {
   });
 });
 
-// ─── CLI heartbeat behavior ─────────────────────────────────────────────────
-
-// Extra CLI args per flagged action.  Each flagged action has its own
-// required-flag footprint; centralizing them here keeps the parametrized
-// test body action-agnostic.
+/** The extra required flags of each flagged action under test. */
 const EXTRA_ARGS_PER_ACTION: Record<string, string[]> = {
-  // DR-8 (#1756): `repoRoot` is required on the prepare_synthesis schema — the
-  // gate refuses to guess which tree its four shelling legs measure. Without
-  // the flag the CLI's own safeParse rejects before dispatch, and this suite
-  // would "pass" on the quick-exit arm while never reaching the heartbeat path
-  // it exists to exercise.
+  /**
+   * The `prepare_synthesis` schema requires `repoRoot`. Without the flag, the CLI rejects the input
+   * before dispatch, and the test never reaches the heartbeat path.
+   */
   prepare_synthesis: ['--repo-root', process.cwd()],
   assess_stack: ['--pr-numbers', '[1]'],
-  // #1329: only requires featureId; no extra required flags.
   check_integration_suite: [],
 };
 
@@ -197,14 +158,16 @@ describe('CLI long-running heartbeat emission (DR-5)', () => {
     process.exitCode = originalExitCode;
   });
 
-  // Parametrize across every flagged longRunning action so prepare_synthesis,
-  // assess_stack, and check_integration_suite are all exercised — not just
-  // whichever the registry happens to list first.
+  /** The same test runs for each listed action, so the result does not depend on the registry order. */
   describe.each(['prepare_synthesis', 'assess_stack', 'check_integration_suite'] as const)(
     'flagged action: %s',
     (actionName) => {
+      /**
+       * The mocked handler takes 2600 ms, longer than the 2 s heartbeat interval, so stderr must hold
+       * at least one heartbeat. The call uses `--json`, because only that mode emits heartbeats.
+       * Stdout must hold no heartbeat and must parse as one JSON document.
+       */
       it('LongRunningOrchestrateAction_CliInvocation_EmitsLineBufferedProgressOrExitsQuickly', async () => {
-        // Arrange — locate the flagged action by name and assert the flag.
         const orchestrate = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate');
         expect(orchestrate).toBeDefined();
         const flagged = orchestrate!.actions.find((a) => a.name === actionName);
@@ -214,15 +177,10 @@ describe('CLI long-running heartbeat emission (DR-5)', () => {
           `${actionName} must carry longRunning: true`,
         ).toBe(true);
 
-        // Simulate a slow handler (longer than the 2s heartbeat interval)
-        // so we can observe at least one heartbeat on stderr.
         dispatchDelayMs.current = 2600;
 
         const program = buildCli(ctx);
 
-        // Invoke the flagged action via --json so the adapter sees a
-        // "machine" caller — heartbeats must only emit in this mode
-        // (not in interactive pretty-print mode).
         await runOnFakeClock(() =>
           program.parseAsync([
             'node',
@@ -236,7 +194,6 @@ describe('CLI long-running heartbeat emission (DR-5)', () => {
           ]),
         );
 
-        // Collect everything written to stderr during the invocation.
         const stderrText = stderrSpy.mock.calls
           .map(([chunk]) => String(chunk))
           .join('');
@@ -250,24 +207,14 @@ describe('CLI long-running heartbeat emission (DR-5)', () => {
             `action=${actionName}, stderr=${JSON.stringify(stderrText).slice(0, 200)}`,
         ).toBeGreaterThanOrEqual(1);
 
-        // Heartbeat lines, if any, must each end with a newline (line-buffered).
         for (const line of heartbeatMatches) {
           expect(line.endsWith('\n')).toBe(true);
         }
 
-        // --json stdout contract: exactly one ToolResult envelope.
-        // Heartbeats must not have leaked onto stdout (they belong on
-        // stderr — see DR-5 §heartbeats stay sidebar).
         const stdoutText = stdoutSpy.mock.calls
           .map(([chunk]) => String(chunk))
           .join('');
         expect(stdoutText).not.toMatch(HEARTBEAT_PATTERN);
-        // PR-B (#1368): post-W1 `emitResult` pretty-prints the envelope
-        // (`JSON.stringify(env, null, 2)`), so the legacy line-count check
-        // (`stdoutLines.length === 1`) no longer matches the wire shape.
-        // The agent-facing contract still holds — stdout is exactly one
-        // JSON document — but we verify it via `JSON.parse(trimmed)`
-        // succeeding rather than counting newlines.
         const trimmed = stdoutText.trim();
         expect(trimmed.length).toBeGreaterThan(0);
         expect(() => JSON.parse(trimmed)).not.toThrow();
@@ -275,16 +222,13 @@ describe('CLI long-running heartbeat emission (DR-5)', () => {
     },
   );
 
+  /** The control case. `prepare_delegation` has no flag, so a slow dispatch must write no heartbeat. */
   it('NonLongRunningAction_CliInvocation_DoesNotEmitHeartbeats', async () => {
-    // Arrange — prepare_delegation takes only featureId and is not flagged
-    // as longRunning.  A slow dispatch on a non-flagged action must stay
-    // silent on stderr.
     const orchestrate = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate');
     const nonFlagged = orchestrate!.actions.find((a) => a.name === 'prepare_delegation');
     expect(nonFlagged, 'need prepare_delegation for control case').toBeDefined();
     expect(nonFlagged!.longRunning).not.toBe(true);
 
-    // Even with a delay, no heartbeats should emit for unflagged actions.
     dispatchDelayMs.current = 2400;
 
     const program = buildCli(ctx);

@@ -12,8 +12,6 @@ import {
 } from '../../../../src/adapters/cli/schema-to-flags.js';
 import { AsOfSchema, GetInputSchema } from '../../../../src/workflow/schemas.js';
 
-// ─── Task 6: extractSchemaFields ────────────────────────────────────────────
-
 describe('extractSchemaFields', () => {
   it('ExtractShape_SimpleObject_ReturnsFieldMetadata', () => {
     const schema = z.object({
@@ -130,19 +128,13 @@ describe('extractSchemaFields', () => {
   });
 });
 
-// ─── Task 7: addFlagsFromSchema ─────────────────────────────────────────────
-
 describe('addFlagsFromSchema', () => {
+  /**
+   * A required field that is not a boolean is a plain option, not a Commander `requiredOption`.
+   * The Zod validation of the action rejects a missing value with `INVALID_INPUT`, as the MCP
+   * adapter does. The description keeps the `[required]` mark, so `--help` shows the field as mandatory.
+   */
   it('AddFlags_RequiredString_CreatesOptionValidatedByZod', () => {
-    // DR-5: required non-boolean fields are registered as plain options
-    // (not Commander `requiredOption`). Missing-required enforcement
-    // happens at the per-action Zod validation layer, which emits an
-    // INVALID_INPUT ToolResult — identical to what the MCP adapter
-    // produces for the same malformed input.
-    //
-    // F-024-UX: the description must still carry the "[required]" visual
-    // cue so `--help` clearly flags mandatory fields even though Commander
-    // no longer enforces them itself.
     const cmd = new Command();
     const schema = z.object({
       featureId: z.string(),
@@ -153,7 +145,6 @@ describe('addFlagsFromSchema', () => {
     const opt = cmd.options.find((o) => o.long === '--feature-id');
     expect(opt).toBeDefined();
     expect(opt!.mandatory).toBe(false);
-    // F-024-UX: description prefix preserves the required-field UX cue.
     expect(opt!.description).toContain('[required]');
   });
 
@@ -167,7 +158,6 @@ describe('addFlagsFromSchema', () => {
 
     const opt = cmd.options.find((o) => o.long === '--limit');
     expect(opt).toBeDefined();
-    // Optional fields use cmd.option() not cmd.requiredOption(), so mandatory is false
     expect(opt!.mandatory).toBe(false);
   });
 
@@ -184,6 +174,7 @@ describe('addFlagsFromSchema', () => {
     expect(opt!.flags).toContain('feature|debug|refactor');
   });
 
+  /** A boolean flag takes no value argument, and the `--no-` form is also an option. */
   it('AddFlags_BooleanField_CreatesSwitch', () => {
     const cmd = new Command();
     const schema = z.object({
@@ -194,13 +185,12 @@ describe('addFlagsFromSchema', () => {
 
     const opt = cmd.options.find((o) => o.long === '--dry-run');
     expect(opt).toBeDefined();
-    // Boolean flags don't take a value argument
     expect(opt!.flags).not.toContain('<value>');
-    // Negation flag is also registered
     const negOpt = cmd.options.find((o) => o.long === '--no-dry-run');
     expect(negOpt).toBeDefined();
   });
 
+  /** The `[required]` mark also comes before a description from an override. */
   it('AddFlags_WithOverrides_UsesAliasAndDescription', () => {
     const cmd = new Command();
     const schema = z.object({
@@ -214,8 +204,6 @@ describe('addFlagsFromSchema', () => {
     const opt = cmd.options.find((o) => o.long === '--feature-id');
     expect(opt).toBeDefined();
     expect(opt!.short).toBe('-f');
-    // F-024-UX: required fields prepend `[required] ` to the description,
-    // including when the description comes from an override.
     expect(opt!.description).toBe('[required] The feature identifier');
   });
 
@@ -242,8 +230,6 @@ describe('addFlagsFromSchema', () => {
     expect(actionOpt).toBeUndefined();
   });
 });
-
-// ─── Task 7: coerceFlags ────────────────────────────────────────────────────
 
 describe('coerceFlags', () => {
   it('CoerceFlags_KebabToCamel_ConvertsCorrectly', () => {
@@ -288,8 +274,6 @@ describe('coerceFlags', () => {
   });
 });
 
-// ─── Required boolean validation ─────────────────────────────────────────────
-
 describe('validateRequiredBooleans', () => {
   it('ValidateRequiredBooleans_MissingRequired_ReturnsFieldNames', () => {
     const schema = z.object({
@@ -305,17 +289,16 @@ describe('validateRequiredBooleans', () => {
       mergeVerified: z.boolean(),
     });
 
-    // Commander stores --merge-verified as camelCase key
     const missing = validateRequiredBooleans({ mergeVerified: true }, schema);
     expect(missing).toEqual([]);
   });
 
+  /** `--no-merge-verified` gives `mergeVerified: false` in the Commander options. */
   it('ValidateRequiredBooleans_ProvidedFalse_ReturnsEmpty', () => {
     const schema = z.object({
       mergeVerified: z.boolean(),
     });
 
-    // --no-merge-verified sets mergeVerified to false in Commander opts
     const missing = validateRequiredBooleans({ mergeVerified: false }, schema);
     expect(missing).toEqual([]);
   });
@@ -329,6 +312,7 @@ describe('validateRequiredBooleans', () => {
     expect(missing).toEqual([]);
   });
 
+  /** `--no-merge-verified` alone parses, and Commander gives no required-option error. */
   it('AddFlags_RequiredBoolean_RegistersAsOptionalNotRequired', () => {
     const schema = z.object({
       action: z.string(),
@@ -339,11 +323,14 @@ describe('validateRequiredBooleans', () => {
     const sub = parent.command('cleanup');
     addFlagsFromSchema(sub, schema);
 
-    // --no-merge-verified should work without triggering requiredOption error
     parent.parse(['node', 'exarchos', 'cleanup', '--no-merge-verified']);
     expect(sub.opts()['mergeVerified']).toBe(false);
   });
 
+  /**
+   * When the command line holds neither `--merge-verified` nor `--no-merge-verified`, Commander
+   * leaves the value `undefined`. `validateRequiredBooleans` reports that value as missing.
+   */
   it('ValidateRequiredBooleans_OmittedFromCLI_DetectedAsMissing', () => {
     const schema = z.object({
       action: z.string(),
@@ -354,12 +341,9 @@ describe('validateRequiredBooleans', () => {
     const sub = parent.command('cleanup');
     addFlagsFromSchema(sub, schema);
 
-    // Parse with neither --merge-verified nor --no-merge-verified
     parent.parse(['node', 'exarchos', 'cleanup']);
     const opts = sub.opts();
 
-    // Commander defaults to undefined when both --flag and --no-flag are
-    // registered and neither is provided — validateRequiredBooleans catches this
     expect(opts['mergeVerified']).toBeUndefined();
     const missing = validateRequiredBooleans(opts, schema);
     expect(missing).toEqual(['--merge-verified']);
@@ -375,7 +359,6 @@ describe('validateRequiredBooleans', () => {
     const sub = parent.command('cleanup');
     addFlagsFromSchema(sub, schema);
 
-    // Commander stores --merge-verified as camelCase { mergeVerified: true }
     parent.parse(['node', 'exarchos', 'cleanup', '--merge-verified']);
     const opts = sub.opts();
 
@@ -384,8 +367,6 @@ describe('validateRequiredBooleans', () => {
     expect(missing).toEqual([]);
   });
 });
-
-// ─── Utility helpers ────────────────────────────────────────────────────────
 
 describe('toKebab', () => {
   it('converts camelCase to kebab-case', () => {
@@ -405,36 +386,30 @@ describe('toCamel', () => {
   });
 });
 
-// ─── F-024 #7: Zod error-format snapshot pinning ────────────────────────────
-//
-// The parity tests only assert loose substring matches on the failure
-// message. If Zod's internal issue.message text changes between minor
-// versions, the parity tests could stay green while user-visible CLI
-// output silently drifts. These inline snapshots lock the canonical
-// format — `${path}: ${message}; ...` — so a Zod upgrade that changes
-// the text produces an explicit review signal.
+/**
+ * The parity tests match only a substring of the failure message, so they cannot see a change
+ * in the Zod issue text. These inline snapshots pin the full `path: message` output, with
+ * issues joined by `; `. A Zod upgrade that changes the text fails here.
+ */
 describe('formatZodError snapshot pinning (F-024 #7)', () => {
   it('FormatZodError_MissingRequiredField_ProducesStableMessage', () => {
     const schema = z.object({
       featureId: z.string(),
       workflowType: z.enum(['feature', 'debug']),
     });
-    // Intentionally omit featureId to force the canonical
-    // "Required" issue path.
     const result = schema.safeParse({ workflowType: 'feature' });
     expect(result.success).toBe(false);
-    if (result.success) return; // narrow for TS; unreachable when assertion holds
+    if (result.success) return;
     const output = formatZodError(result.error);
     expect(output).toMatchInlineSnapshot(`"featureId: Invalid input: expected string, received undefined"`);
   });
 
+  /** Two issues show the `; ` join between issues. */
   it('FormatZodError_WrongType_ProducesStableMessage', () => {
     const schema = z.object({
       featureId: z.string(),
       limit: z.number(),
     });
-    // featureId: number is wrong type; limit: string is wrong type. Two
-    // issues exercise the `; ` joiner and path-rendering path.
     const result = schema.safeParse({ featureId: 123, limit: 'ten' });
     expect(result.success).toBe(false);
     if (result.success) return;
@@ -455,16 +430,13 @@ describe('formatZodError snapshot pinning (F-024 #7)', () => {
     expect(result.success).toBe(false);
     if (result.success) return;
     const output = formatZodError(result.error);
-    // Nested paths must join with `.` — DR-5 contract.
     expect(output).toMatchInlineSnapshot(
       `"evidence.type: Invalid option: expected one of "test"|"manual"; evidence.passed: Invalid input: expected boolean, received string"`,
     );
   });
 
+  /** A value that is not an object gives an issue with an empty path, which prints as `(root)`. */
   it('FormatZodError_RootLevelFailure_RendersAsRootSentinel', () => {
-    // Passing a non-object to an object schema produces a root-level issue
-    // whose path is empty; the helper must surface it as `(root)` not as
-    // a bare empty string.
     const schema = z.object({ featureId: z.string() });
     const result = schema.safeParse('not-an-object');
     expect(result.success).toBe(false);
@@ -476,46 +448,29 @@ describe('formatZodError snapshot pinning (F-024 #7)', () => {
   });
 });
 
-// ─── T8 (#1555) — `asOf` flag classification (CLI↔MCP parity prerequisite) ───
-//
-// `coerceFlags` JSON-parses a string flag value ONLY when the field classifies
-// as `'object'` (`resolveType`). The original design flagged a Zod-v3 trap:
-// `z.union` classifies `'unknown'`, and `.refine()` produced a `ZodEffects`
-// that `unwrapWrappers` does NOT see through — so a union/refined `asOf` would
-// NOT be JSON-coerced on the CLI and parity would break.
-//
-// Mechanism (b) — keep the schema-level refinement: under Zod v4 `.refine()`
-// on a `ZodObject` returns a `ZodObject` (the check lives in `def.checks`, not
-// a `ZodEffects` wrapper), so the field STILL classifies `'object'` and the
-// CLI string is JSON-parsed identically to the MCP object payload — no change
-// to `schema-to-flags.ts` was needed. These tests pin that classification so a
-// future regression (someone switching `AsOfSchema` to a `z.union`, or a Zod
-// downgrade reintroducing `ZodEffects`) is caught: the field would silently
-// re-classify `'unknown'`, drop JSON coercion, and break CLI↔MCP parity.
-
+/**
+ * `coerceFlags` parses a string flag into an object only when the field has the type `'object'`.
+ * In Zod v4, `.refine()` on a `ZodObject` returns a `ZodObject`, so the refined `asOf` keeps that type.
+ * Then the CLI string becomes the same object that MCP passes.
+ * A `z.union` for `asOf` has the type `'unknown'`, stays a string, and breaks that parity.
+ */
 describe('asOf flag classification (T8, #1555)', () => {
+  /** The `asOf` field of the `get` schema is an optional refined object. The test reads its type through `extractSchemaFields`. */
   it('resolveType_asOfField_returnsObject', () => {
-    // The `get` schema's `asOf` field — an OPTIONAL refined object — must
-    // classify as `'object'` so `coerceFlags` JSON-parses the CLI `--as-of`
-    // string. (Asserted via the public `extractSchemaFields`.)
     const fields = extractSchemaFields(GetInputSchema);
     const asOf = fields.find((f) => f.name === 'asOf');
     expect(asOf).toBeDefined();
     expect(asOf!.type).toBe('object');
   });
 
+  /** The refined `AsOfSchema` with no `.optional()` wrapper also has the type `'object'`. */
   it('resolveType_bareAsOfSchema_classifiesObject', () => {
-    // The bare (non-optional) refined AsOfSchema also classifies `'object'` —
-    // proving Zod-v4 `.refine()` keeps it a ZodObject rather than a ZodEffects.
     const wrapper = z.object({ asOf: AsOfSchema });
     const fields = extractSchemaFields(wrapper);
     expect(fields.find((f) => f.name === 'asOf')!.type).toBe('object');
   });
 
   it('coerceFlags_asOfObjectField_jsonParsesCliString', () => {
-    // The CLI hands `coerceFlags` a kebab string value (`--as-of '<json>'`).
-    // Because `asOf` classifies `'object'`, the string is JSON-parsed into the
-    // same object MCP passes natively — the CLI↔MCP parity prerequisite.
     const coerced = coerceFlags(
       { 'feature-id': 'my-feature', 'as-of': '{"untilSequence":3}' },
       GetInputSchema,
@@ -533,8 +488,6 @@ describe('asOf flag classification (T8, #1555)', () => {
   });
 
   it('coercedAsOfString_roundTripsThroughGetInputSchema', () => {
-    // End-to-end: the coerced object must satisfy GetInputSchema validation —
-    // proving the CLI string lands as a schema-valid `asOf` object.
     const coerced = coerceFlags(
       { 'feature-id': 'my-feature', 'as-of': '{"untilSequence":3}' },
       GetInputSchema,

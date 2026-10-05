@@ -11,17 +11,7 @@ import type { ApplyCtx } from '../../../../../src/dispatch/core/onboarding/recon
 import type { CheckResult } from '../../../../../src/verbs/doctor/schema.js';
 import type { PlanStep, ReconcileResult } from '../../../../../src/dispatch/core/onboarding/types.js';
 
-/**
- * Task 009 — DR-7 / DR-10: the `reconcileWithEvents` wrapper. These tests drive
- * the two-event split (`onboard.requested` → side effect → `onboard.executed`)
- * and the INV-13 + INV-8 crash-recovery contract through the INJECTED event seam
- * (`ctx.emit` / `ctx.readStreamTail`). No real EventStore is touched — spies
- * stand in for the seam Task 010's `onboard` handler will wire to the real store.
- */
-
-// ─── Fixtures ─────────────────────────────────────────────────────────────────
-
-/** A remediable config check → exactly one `config` PlanStep through `diff`. */
+/** A remediable config check. `diff` gives exactly one `config` step for it. */
 const REMEDIABLE_CHECK: CheckResult = {
   name: 'state-dir',
   category: 'storage',
@@ -31,9 +21,8 @@ const REMEDIABLE_CHECK: CheckResult = {
 };
 
 /**
- * A spy `ApplyCtx` whose config seeder reports a real write, so the (single)
- * remediable step lands in `applied`. The seeder spy lets each test assert the
- * side effect ran AT MOST ONCE across recovery/retries.
+ * An `ApplyCtx` on the `cli` surface with the given seeder. Each test passes a spy that reports a
+ * write, so the one step lands in `applied` and the test can count the seeder calls.
  */
 function makeApplyCtx(seedSpy: ReturnType<typeof vi.fn>): ApplyCtx {
   return {
@@ -45,9 +34,8 @@ function makeApplyCtx(seedSpy: ReturnType<typeof vi.fn>): ApplyCtx {
 }
 
 /**
- * Build a `reconcileWithEvents` input whose detect/diff are stubbed so the test
- * controls the plan deterministically. `detectDesiredState` and the doctor
- * checks are injected (no fs), keeping the wrapper test pure.
+ * Builds a `reconcileWithEvents` input with injected doctor checks, an injected runtime probe and a
+ * fixed `vcs`. Command detection still runs the real resolver on the path `/tmp/repo`.
  */
 function makeInput(checks: readonly CheckResult[], dryRun = false): ReconcileEventInput {
   return {
@@ -60,9 +48,8 @@ function makeInput(checks: readonly CheckResult[], dryRun = false): ReconcileEve
 }
 
 /**
- * An in-memory event seam: records emits, replays a FRESH tail on each read
- * (seed + everything emitted so far). The `emit` spy's `mock.calls` is the
- * assertion surface for "exactly N events in order".
+ * An in-memory event seam. `emit` records each event. `readStreamTail` returns a fresh copy of the
+ * seed and every recorded event.
  */
 function makeEventCtx(seed: readonly EmittedEvent[] = []): ReconcileEventCtx & {
   emitted: EmittedEvent[];
@@ -77,8 +64,11 @@ function makeEventCtx(seed: readonly EmittedEvent[] = []): ReconcileEventCtx & {
   } as ReconcileEventCtx & { emitted: EmittedEvent[] };
 }
 
-// ─── Tests ────────────────────────────────────────────────────────────────────
-
+/**
+ * `reconcileWithEvents` emits `onboard.requested`, runs the side effect, then emits
+ * `onboard.executed`. After a crash between the two events, a re-run emits only the second event.
+ * Spies replace the event seam, so no test opens an event store.
+ */
 describe('reconcileWithEvents (DR-7 / DR-10 — two-event split + crash recovery)', () => {
   it('Apply_NonDryRun_EmitsRequestedThenExecuted', async () => {
     const seedSpy = vi.fn(() => ({ wrote: true, path: '/tmp/repo/.exarchos.yml' }));
@@ -94,46 +84,38 @@ describe('reconcileWithEvents (DR-7 / DR-10 — two-event split + crash recovery
     expect(emits[0].type).toBe('onboard.requested');
     expect(emits[1].type).toBe('onboard.executed');
 
-    // Same idempotencyKey on both halves of the split.
     const reqKey = (emits[0].data as { idempotencyKey: string }).idempotencyKey;
     const exeKey = (emits[1].data as { idempotencyKey: string }).idempotencyKey;
     expect(reqKey).toBeTruthy();
     expect(exeKey).toBe(reqKey);
 
-    // requested carries the plan; executed carries the result + durationMs.
     expect((emits[0].data as { plan: { steps: PlanStep[] } }).plan.steps).toHaveLength(1);
     expect((emits[1].data as { result: ReconcileResult }).result.applied).toHaveLength(1);
     expect(typeof (emits[1].data as { durationMs: number }).durationMs).toBe('number');
 
-    // The side effect ran exactly once.
     expect(seedSpy).toHaveBeenCalledTimes(1);
   });
 
   it('Apply_DryRun_EmitsNeither', async () => {
     const seedSpy = vi.fn(() => ({ wrote: true, path: '/tmp/repo/.exarchos.yml' }));
     const ctx = makeEventCtx();
-    const input = makeInput([REMEDIABLE_CHECK], /* dryRun */ true);
+    const input = makeInput([REMEDIABLE_CHECK], true);
 
     const result = await reconcileWithEvents(input, ctx, makeApplyCtx(seedSpy));
 
-    // No events emitted on the dry-run path.
     expect((ctx.emit as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
-    // No side effect performed.
     expect(seedSpy).not.toHaveBeenCalled();
-    // Dry-run still surfaces the plan it WOULD apply.
     expect(result.plan.steps).toHaveLength(1);
   });
 
+  /**
+   * The seeded tail holds an `onboard.requested` with the key that the wrapper derives, and no
+   * paired `onboard.executed`. The re-run emits only the missing `onboard.executed`, with that key.
+   */
   it('Apply_RequestedWithoutExecuted_RecoversResidualOnly', async () => {
-    // The first run "crashed": a dangling onboard.requested with the SAME
-    // idempotencyKey and NO paired onboard.executed sits on the tail. Its plan
-    // already lists the step — but on re-detect the config is now half-applied,
-    // so the residual diff is what must actually run.
     const seedSpy = vi.fn(() => ({ wrote: true, path: '/tmp/repo/.exarchos.yml' }));
     const input = makeInput([REMEDIABLE_CHECK]);
 
-    // Derive the key the wrapper would compute so the seeded dangling event
-    // collides with the recovery run.
     const danglingKey = `onboard:/tmp/repo:onboard`;
     const dangling: EmittedEvent = {
       type: 'onboard.requested',
@@ -150,24 +132,21 @@ describe('reconcileWithEvents (DR-7 / DR-10 — two-event split + crash recovery
     const emits = (ctx.emit as ReturnType<typeof vi.fn>).mock.calls.map(
       (c) => c[0] as EmittedEvent,
     );
-    // Recovery emits ONLY the missing executed half — no second requested.
     expect(emits.filter((e) => e.type === 'onboard.requested')).toHaveLength(0);
     expect(emits.filter((e) => e.type === 'onboard.executed')).toHaveLength(1);
 
-    // The executed event pairs to the dangling requested via the shared key.
     const exe = emits.find((e) => e.type === 'onboard.executed')!;
     expect((exe.data as { idempotencyKey: string }).idempotencyKey).toBe(danglingKey);
 
-    // The (residual) side effect ran AT MOST once across the crash.
     expect(seedSpy.mock.calls.length).toBeLessThanOrEqual(1);
   });
 
+  /** Every retry shares one event seam, so each retry reads the tail that the first run wrote. */
   it('Apply_Retry_SideEffectAtMostOnce (property)', async () => {
     await fc.assert(
       fc.asyncProperty(fc.integer({ min: 2, max: 6 }), async (retries) => {
         const seedSpy = vi.fn(() => ({ wrote: true, path: '/tmp/repo/.exarchos.yml' }));
         const input = makeInput([REMEDIABLE_CHECK]);
-        // Shared seam → shared tail across every invocation (same logical run).
         const ctx = makeEventCtx();
         const applyCtx = makeApplyCtx(seedSpy);
 
@@ -178,9 +157,7 @@ describe('reconcileWithEvents (DR-7 / DR-10 — two-event split + crash recovery
         const emits = (ctx.emit as ReturnType<typeof vi.fn>).mock.calls.map(
           (c) => c[0] as EmittedEvent,
         );
-        // The completed run is recorded exactly once: one executed total.
         expect(emits.filter((e) => e.type === 'onboard.executed')).toHaveLength(1);
-        // And the non-idempotent side effect fired at most once across retries.
         expect(seedSpy.mock.calls.length).toBeLessThanOrEqual(1);
       }),
       { numRuns: 25 },

@@ -1,14 +1,9 @@
-// ─── the class closure, not the instance ─────────────────────────────────────
-//
-// The #1838 guards prove `featureId` is gated. They cannot prove that the NEXT
-// inferred value will be, because a second inference could simply merge into
-// the payload itself and never consult a schema — which is how the fault
-// existed in the first place.
-//
-// These tests exercise the shared path with a SYNTHETIC second field, so the
-// property under test is "any entry in the table inherits the gate", not
-// "featureId happens to be gated". If someone adds a real inference later, the
-// only way it can reach a payload is through the code these tests pin.
+/**
+ * Tests for the shared path of the inferred values, with a synthetic second field.
+ *
+ * The `featureId` guards prove the schema gate for that one field only. These tests prove that
+ * each entry in the table gets the gate. A new inference reaches a payload only through this path.
+ */
 
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
@@ -54,9 +49,8 @@ describe('Every inferrable field inherits one gate', () => {
     if (result.kind === 'merged') expect(result.args['taskId']).toBe('inferred');
   });
 
+  /** A new inference cannot reach an action whose schema omits the field. */
   it('InferredValue_ActionOmittingTheField_NeverReceivesIt', async () => {
-    // The whole point. A NEW inference, written by someone who never read
-    // #1838, still cannot reach an action that forbids the field.
     const result = await applyInferredValues(
       {},
       actionWith('forbids-it', ['somethingElse']),
@@ -134,6 +128,10 @@ describe('Every inferrable field inherits one gate', () => {
     }
   });
 
+  /**
+   * An `unavailable` outcome causes no merge and no refusal. The schema of the action then gives
+   * the usual missing-parameter envelope.
+   */
   it('InferredValue_UnavailableOutcome_FallsThroughToValidation', async () => {
     const entry: InferrableField = {
       ...alwaysResolves('taskId'),
@@ -147,8 +145,6 @@ describe('Every inferrable field inherits one gate', () => {
       ctx,
       [entry],
     );
-    // No merge and no refusal — the action's own schema produces the ordinary
-    // missing-parameter envelope, exactly as before inference existed.
     expect(result.kind).toBe('merged');
     if (result.kind === 'merged') {
       expect(Object.prototype.hasOwnProperty.call(result.args, 'taskId')).toBe(false);
@@ -157,16 +153,15 @@ describe('Every inferrable field inherits one gate', () => {
 });
 
 describe('The shipped table is well-formed', () => {
+  /** The length check is the denominator: an empty table passes the distinct-field check. */
   it('InferrableFields_EveryEntry_DeclaresADistinctField', () => {
-    // Denominator: an empty table would satisfy every loop above vacuously.
     expect(INFERRABLE_FIELDS.length).toBeGreaterThanOrEqual(1);
     const names = INFERRABLE_FIELDS.map((f) => f.field);
     expect(new Set(names).size, 'two entries claiming one field would race').toBe(names.length);
   });
 
+  /** The gate reads only the schema and no list, so it is correct for an action not yet written. */
   it('InferrableFields_TheGate_IsAFunctionOfTheSchemaAlone', () => {
-    // Pins the gate to the schema rather than to any list, which is what makes
-    // it correct for an action nobody has written yet.
     const declares = actionWith('a', ['featureId']);
     const omits = actionWith('b', ['other']);
     expect(actionAcceptsInferredValue(declares, 'featureId')).toBe(true);

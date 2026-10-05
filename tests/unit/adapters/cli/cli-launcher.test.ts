@@ -1,17 +1,13 @@
-// ─── `exarchos <harness>` launcher CLI-surface wiring (DR-1 / DR-6, R-1) ─────
+// Regression suite for the CLI wiring of the `exarchos <harness>` launcher.
 //
-// The LOAD-BEARING regression suite for the "built but not wired" defect. It
-// drives the REAL Commander program (`buildCli(ctx).parseAsync([...])`) over a
-// REAL EventStore + REAL git repo, injecting ONLY an OS-effect spawn fake at the
-// PRODUCTION boundary (`buildCli`'s launcher-wiring seam) — NOT verb-level
-// `lifecycleDeps`, which is exactly the injection that masked the bug. So the
-// test exercises the true `cli.ts → makeLauncherLifecycleDeps → verb →
-// runLifecycle` composition end-to-end.
+// The suite drives the real Commander program over a real `EventStore` and a real git repository.
+// It injects only OS-effect fakes at the launcher-wiring seam of `buildCli`. A fake of the
+// verb-level `lifecycleDeps` hides a launcher that is not wired.
+// Thus each test runs the production composition: `cli.ts`, `makeLauncherLifecycleDeps`, the
+// verb, and `runLifecycle`.
 //
-// Before the wiring, `exarchos <harness>` (non-dry-run) returned `NOT_WIRED`
-// (exit 2) and spawned NOTHING. This suite proves a real launch now actually
-// spawns → places → observes → tears down (releasing the reservation), and that
-// dry-run still spawns nothing.
+// A real launch must create the worktree, place the child in it, spawn the child, observe its exit
+// and tear down. The teardown releases the reservation. A dry-run must spawn nothing.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
@@ -40,12 +36,16 @@ import type {
 } from '../../../../src/runtime/launcher/signals.js';
 import type { LauncherWiringOverrides } from '../../../../src/runtime/launcher/production-deps.js';
 
-// ── git + event-store helpers (mirror lifecycle.test.ts) ─────────────────────
-
 async function git(cwd: string, args: readonly string[]): Promise<string> {
   return (await execFileAsync('git', args, { cwd })).trim();
 }
 
+/**
+ * Creates a git repository with one commit and returns its real path.
+ * `realpathSync.native` expands Windows 8.3 short names, as the production `defaultRealpath` does.
+ * Thus the paths that the launcher derives match the test expectations when `os.tmpdir()` is a
+ * short path.
+ */
 async function initRepo(dir: string): Promise<string> {
   await mkdir(dir, { recursive: true });
   await git(dir, ['init', '-q', '-b', 'work']);
@@ -55,10 +55,6 @@ async function initRepo(dir: string): Promise<string> {
   await writeFile(path.join(dir, 'README.md'), '# cli launcher wiring test\n');
   await git(dir, ['add', '.']);
   await git(dir, ['commit', '-q', '-m', 'init']);
-  // `.native` (not the JS `realpathSync`) so Windows 8.3 SHORT names are expanded
-  // to their long form — mirroring production's `defaultRealpath`, so the path the
-  // launcher derives (via `deriveWorktreePath`) matches this test's expectation on
-  // the windows-latest runner (whose `os.tmpdir()` is an 8.3 `RUNNER~1` path).
   return realpathSync.native(dir);
 }
 
@@ -68,13 +64,12 @@ async function addBaseWorktree(repo: string, workdir: string): Promise<string> {
   return realpathSync.native(base);
 }
 
-// ── Controllable fake spawn (auto-exits with a fixed outcome) ────────────────
-
 interface FakeSpawn {
   readonly fn: SpawnHarnessChildFn;
   readonly calls: AsyncSpawnRequest[];
 }
 
+/** A fake spawn that records each request. Its child exits at once with the fixed `exit`. */
 function makeFakeSpawn(exit: SpawnExit = { code: 0, signal: null }, pid = 55555): FakeSpawn {
   const calls: AsyncSpawnRequest[] = [];
   const fn: SpawnHarnessChildFn = async (request) => {
@@ -89,7 +84,7 @@ function makeFakeSpawn(exit: SpawnExit = { code: 0, signal: null }, pid = 55555)
   return { fn, calls };
 }
 
-/** A captured-listener SignalRegistrar so the launch never touches real `process` signals. */
+/** A `SignalRegistrar` that only stores listeners, so the launch never touches real `process` signals. */
 function makeNoopRegistrar(): SignalRegistrar {
   const listeners = new Map<TrappedSignal, SignalListener[]>();
   return {
@@ -101,8 +96,6 @@ function makeNoopRegistrar(): SignalRegistrar {
     },
   };
 }
-
-// ── CLI driver ────────────────────────────────────────────────────────────────
 
 interface LauncherCliRun {
   readonly stdout: string;
@@ -138,8 +131,11 @@ async function runLauncherCli(
   return { stdout: chunks.join(''), exitCode };
 }
 
-// ── Suite ───────────────────────────────────────────────────────────────────
-
+/**
+ * `baseOverrides` supplies a fake spawn and a fake signal registrar, so the launch starts no real
+ * child and touches no real process signal. Its default `recover` does nothing, because one test
+ * covers startup recovery separately.
+ */
 describe('exarchos <harness> launcher CLI wiring (DR-1 / DR-6, R-1)', () => {
   let stateDir: string;
   let workdir: string;
@@ -172,7 +168,6 @@ describe('exarchos <harness> launcher CLI wiring (DR-1 / DR-6, R-1)', () => {
       .filter((e) => e.type === LAUNCH_EXECUTED).length;
   }
 
-  /** Base overrides that keep the launch off the host OS + real process signals. */
   function baseOverrides(fake: FakeSpawn, extra: Partial<LauncherWiringOverrides> = {}): LauncherWiringOverrides {
     return {
       base,
@@ -180,13 +175,18 @@ describe('exarchos <harness> launcher CLI wiring (DR-1 / DR-6, R-1)', () => {
       newBranch: `launch-cli-${Math.random().toString(36).slice(2, 8)}`,
       spawnChild: fake.fn,
       signalRegistrar: makeNoopRegistrar(),
-      // No crash-recovery side effects in the spawn assertions (covered separately).
       recover: async () => ({ reconciled: [] }),
       ...extra,
     };
   }
 
-  // ── THE load-bearing test: a real non-dry-run launch actually spawns ─────────
+  /**
+   * The load-bearing test. A launcher that is not wired returns `NOT_WIRED` and spawns nothing.
+   * A real launch exits 0, calls the spawn seam one time with the harness command, and places the
+   * child in the new sibling worktree.
+   * The launch reaches its terminal event, and the teardown releases the worktree reservation.
+   * Both sides of the path comparison use `realpathSync.native`, so Windows short names compare equal.
+   */
   it('LauncherCli_NonDryRun_ActuallySpawns', async () => {
     const fake = makeFakeSpawn();
 
@@ -196,32 +196,27 @@ describe('exarchos <harness> launcher CLI wiring (DR-1 / DR-6, R-1)', () => {
       ['claude-code', '--json'],
     );
 
-    // It is NO LONGER NOT_WIRED — the launch succeeded (exit 0) and the wired
-    // lifecycle actually ran a child.
     expect(stdout).not.toContain('NOT_WIRED');
     expect(exitCode).toBe(CLI_EXIT_CODES.SUCCESS);
 
-    // The spawn seam was invoked exactly once, with the resolved harness command.
     expect(fake.calls).toHaveLength(1);
     expect(fake.calls[0].command).toBe('claude');
-    // ...and the child was placed IN the created sibling worktree (not '.').
     const expectedPath = deriveWorktreePath(base, 'exarchos-claude-code');
-    // `.native` on both sides so Windows 8.3 short names are expanded consistently
-    // (see `initRepo`/`addBaseWorktree`) — matching production's `defaultRealpath`.
     expect(realpathSync.native(fake.calls[0].cwd)).toBe(realpathSync.native(expectedPath));
     expect(existsSync(fake.calls[0].cwd)).toBe(true);
 
-    // The launch ran to its guaranteed terminal.
     expect(terminalCount()).toBe(1);
 
-    // R-3: the wired teardown RELEASED the launcher worktree's reservation.
     const manager = new WorktreeManager({ eventStore: store });
     const worktrees = await manager.list();
     expect(worktrees).toHaveLength(1);
     expect(worktrees[0].state).toBe('released');
   }, 30_000);
 
-  // ── Dry-run still spawns nothing (regression guard on the safe path) ─────────
+  /**
+   * A dry-run only previews: no spawn, no terminal event, and no crash recovery.
+   * The preview names the `launch.executed` event, but the store holds no such event.
+   */
   it('LauncherCli_DryRun_SpawnsNothing', async () => {
     const fake = makeFakeSpawn();
     let recoverCalls = 0;
@@ -238,15 +233,13 @@ describe('exarchos <harness> launcher CLI wiring (DR-1 / DR-6, R-1)', () => {
     );
 
     expect(exitCode).toBe(CLI_EXIT_CODES.SUCCESS);
-    // Dry-run previews only: no spawn, no terminal, no crash-recovery mutation.
     expect(fake.calls).toHaveLength(0);
     expect(terminalCount()).toBe(0);
     expect(recoverCalls).toBe(0);
-    // The preview names the event plan but nothing was emitted.
     expect(stdout).toContain('launch.executed');
   });
 
-  // ── R-4b: a real launch self-heals crashed prior launches first ──────────────
+  /** A real launch runs startup recovery one time, against the repo root. */
   it('LauncherCli_NonDryRun_RunsStartupRecovery', async () => {
     const fake = makeFakeSpawn();
     const recoverRepoRoots: string[] = [];
@@ -263,16 +256,15 @@ describe('exarchos <harness> launcher CLI wiring (DR-1 / DR-6, R-1)', () => {
     );
 
     expect(exitCode).toBe(CLI_EXIT_CODES.SUCCESS);
-    // Startup recovery ran once, against the repo root, BEFORE the spawn.
     expect(recoverRepoRoots).toEqual([repo]);
     expect(fake.calls).toHaveLength(1);
   }, 30_000);
 
-  // ── A non-Commander rejection from the launch is trapped as UNCAUGHT_EXCEPTION ─
-  // Regression (CodeRabbit MAJOR, PR #1632): the launcher `.action` was missing the
-  // try/catch every other top-level verb has, so a rejection from the verb / wiring
-  // escaped `runCli` (which normalizes only CommanderError) as an uncaught
-  // rejection — skipping the UNCAUGHT_EXCEPTION envelope + exit-3 mapping.
+  /**
+   * `runCli` normalizes only a `CommanderError`, so the launcher action must catch every other
+   * rejection. Here the signal-install seam throws after the spawn, and `runLifecycle` rejects.
+   * The CLI must map that rejection to the `UNCAUGHT_EXCEPTION` envelope and exit 3.
+   */
   it('LauncherCli_LaunchRejection_MapsToUncaughtException', async () => {
     const fake = makeFakeSpawn();
     const stderrChunks: string[] = [];
@@ -281,8 +273,6 @@ describe('exarchos <harness> launcher CLI wiring (DR-1 / DR-6, R-1)', () => {
       return true;
     });
 
-    // A post-spawn throw from the signal-install seam makes `runLifecycle` reject,
-    // so a non-Commander rejection propagates out of the verb.
     const { exitCode, stdout } = await runLauncherCli(
       ctx,
       baseOverrides(fake, {
@@ -293,19 +283,17 @@ describe('exarchos <harness> launcher CLI wiring (DR-1 / DR-6, R-1)', () => {
       ['claude-code', '--json'],
     );
 
-    // The launch reached the post-spawn seam (the spawn ran)...
     expect(fake.calls).toHaveLength(1);
-    // ...and the rejection was TRAPPED into the canonical exit-3 envelope rather
-    // than escaping as an uncaught rejection.
     expect(exitCode).toBe(CLI_EXIT_CODES.UNCAUGHT_EXCEPTION);
     expect(stdout + stderrChunks.join('')).toContain('UNCAUGHT_EXCEPTION');
   }, 30_000);
 
-  // ── Unknown harness is still a structured rejection, not a spawn ─────────────
+  /**
+   * `frobozz` is not a Tier-1 harness, so Commander has no such command. Under `exitOverride`,
+   * `parseAsync` rejects, and nothing spawns.
+   */
   it('LauncherCli_UnknownHarness_NeverRegistered', async () => {
     const fake = makeFakeSpawn();
-    // `frobozz` is not a Tier-1 harness → Commander has no such subcommand, so
-    // parseAsync raises a CommanderError under exitOverride (never a spawn).
     await expect(
       runLauncherCli(ctx, baseOverrides(fake), ['frobozz']),
     ).rejects.toBeTruthy();

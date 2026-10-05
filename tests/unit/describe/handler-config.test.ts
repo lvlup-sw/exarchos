@@ -38,7 +38,7 @@ describe('handleDescribe — config wiring (R8)', () => {
     const result = await handleDescribe(
       { config: true },
       workflowActions,
-      { includeStateSchema: true }, // no projectConfig
+      { includeStateSchema: true },
     );
 
     expect(result.success).toBe(true);
@@ -65,10 +65,11 @@ describe('handleDescribe — config wiring (R8)', () => {
     expect(provider.source).toBe('default');
   });
 
+  /**
+   * `describe` needs at least one of actions, topology, playbook, or config. The
+   * request thus asks for the topology and omits `config`.
+   */
   it('describe_ConfigFalseOrAbsent_NoConfigInResponse', async () => {
-    // config: false should not include config
-    // But we still need at least one of actions/topology/playbook/config
-    // So config:false alone would fail validation. Let's combine with topology.
     const result = await handleDescribe(
       { topology: 'all' },
       workflowActions,

@@ -7,14 +7,11 @@ import {
 } from '../../../../src/contract/reachability/generate.js';
 import { serializeReachabilityGraph } from '../../../../src/contract/reachability/graph.js';
 
-// The checked-in reachability graph is the reviewable CLOSURE artifact. If the
-// registry / bindings / effect ledger / contract surface change, this test goes
-// red until the baseline is regenerated (the same "regenerate + review" gesture
-// as the P03-01 authority lock and P03-03 proof-fixture baseline):
-//
-//   npx tsx src/contract/reachability/generate.ts
-//   # (under Node, the bun:sqlite alias is only present in vitest; regenerate
-//   #  with the shim hook documented in reachability/README.md)
+/**
+ * The checked-in reachability graph is the closure artifact that a reviewer reads. A change to
+ * the registry, the bindings, the effect ledger or the contract surface fails this guard.
+ * `node src/contract/reachability/regenerate.mjs` regenerates the baseline.
+ */
 describe('generated reachability graph — drift guard', () => {
   it('the checked-in baseline matches a fresh build of the live graph', () => {
     const onDisk = fs.readFileSync(REACHABILITY_GRAPH_FILE, 'utf8');

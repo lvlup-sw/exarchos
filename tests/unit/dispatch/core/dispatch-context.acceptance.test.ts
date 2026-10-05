@@ -1,21 +1,7 @@
-// ─── DR-2 Acceptance — Storage handle DI through DispatchContext ───────────
-//
-// Bundle scope: T14 acceptance for the durable-event-store-substrate plan.
-// This test is the canonical observable for DR-2 (design doc:
-// `docs/designs/archive/2026-05-08-durable-event-store-substrate.md`).
-//
-// DR-2 acceptance criteria (verbatim from the design doc):
-//   1. `DispatchContext` carries a `storage: StorageBackend` field
-//      constructed in `lifecycle.ts`.
-//   2. A grep of production code (`src/**/*.ts`
-//      excluding `__tests__/` and `__shims__/`) finds zero
-//      `import .* from 'bun:sqlite'` outside `storage/`.
-//   3. Test-doubles use `MemoryBackend` injected through the same
-//      context shape.
-//
-// This file stays RED while T14 is the only commit on the branch and
-// flips GREEN once T15 (type field), T16 (lifecycle wiring) and T17
-// (no ambient bun:sqlite outside storage/) are all in.
+// Acceptance test for the storage handle that `DispatchContext` carries.
+//   1. `DispatchContext` declares a `storage` field of type `StorageBackend`.
+//   2. No production file outside `storage/` imports `bun:sqlite`.
+//   3. A test double injects an `InMemoryBackend` through the same context shape.
 
 import { describe, it, expect, beforeEach, afterEach, assertType } from 'vitest';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -29,25 +15,15 @@ import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js'
 import type { StorageBackend } from '../../../../src/storage/backend.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-// src/dispatch/core/dispatch-context.acceptance.test.ts → src/
-// Task 014 moved core/ into dispatch/core/, so reaching src/ costs two hops.
 const SRC_DIR = resolve(__dirname, '../../../../src');
 
 const EXCLUDED_SEGMENTS = new Set(['storage', '__shims__', '__tests__']);
 
 /**
- * Walk the production tree under `src/`, collecting every `.ts` file that
- * is NOT in an excluded segment and is NOT a test file.
- *
- * Excluded:
- *   - any path segment named `storage`     (the abstraction lives there)
- *   - any path segment named `__shims__`   (vitest alias targets only)
- *   - any path segment named `__tests__`   (test-only fixtures)
- *   - any file ending in `.test.ts`         (co-located tests)
+ * Collects each production `.ts` file under `rootDir`. The walk skips each
+ * directory in `EXCLUDED_SEGMENTS`, each `.test.ts` file, and each `.d.ts` file.
  */
 function collectProductionTsFiles(rootDir: string): string[] {
   const out: string[] = [];
@@ -76,8 +52,6 @@ function collectProductionTsFiles(rootDir: string): string[] {
       if (!st.isFile()) continue;
       if (!entry.endsWith('.ts')) continue;
       if (entry.endsWith('.test.ts')) continue;
-      // Defensive: drop `.d.ts` files — they are type-only and would
-      // surface ambient `declare module 'bun:sqlite'` declarations.
       if (entry.endsWith('.d.ts')) continue;
       out.push(full);
     }
@@ -86,8 +60,6 @@ function collectProductionTsFiles(rootDir: string): string[] {
 }
 
 const BUN_SQLITE_IMPORT_RE = /from\s+['"]bun:sqlite['"]/;
-
-// ─── DR-2 Acceptance ────────────────────────────────────────────────────────
 
 describe('DR-2 acceptance — storage handle DI through DispatchContext', () => {
   let tmpDir: string;
@@ -103,17 +75,15 @@ describe('DR-2 acceptance — storage handle DI through DispatchContext', () => 
     await rmrfAsync(tmpDir);
   });
 
+  /**
+   * 1. An interface has no run-time form, so the test reads `dispatch.ts` as text
+   *    and matches the `storage` field of `DispatchContext`. No type check covers
+   *    this file, so `assertType` and the type annotations prove nothing.
+   * 2. The scan of the production tree finds no `from 'bun:sqlite'` import
+   *    outside `storage/`.
+   * 3. A context literal accepts an `InMemoryBackend` as its `storage`.
+   */
   it('DispatchContext_StorageHandle_InjectedNotAmbient', () => {
-    // ─── Sub-assertion 1: type-shape — `storage` is declared on the
-    // `DispatchContext` interface in `dispatch/core/dispatch.ts`.
-    //
-    // Type-erasure makes runtime introspection of an interface impossible,
-    // so this assertion reads `dispatch/core/dispatch.ts` and grep-asserts that
-    // the declared interface body contains a `storage` field annotated
-    // with `StorageBackend`. The companion `assertType` below pins the
-    // shape statically — but tsc excludes test files from the typecheck
-    // gate (see `tsconfig.json`), so the file-level grep is the
-    // load-bearing observable.
     const dispatchSrc = readFileSync(
       resolve(__dirname, '../../../../src/dispatch/core/dispatch.ts'),
       'utf-8',
@@ -132,11 +102,6 @@ describe('DR-2 acceptance — storage handle DI through DispatchContext', () => 
         `Current interface body:\n${ifaceBody}`,
     ).toBe(true);
 
-    // Static-side: a `DispatchContext` literal that sets
-    // `storage: StorageBackend` must be assignable. vitest's
-    // `assertType` is reified via `--typecheck`; without that mode it's
-    // a no-op, but the literal below still fails compilation under
-    // `tsx`/vitest if the interface is missing the field.
     const backend: StorageBackend = new InMemoryBackend();
     const ctx: DispatchContext = {
       stateDir: tmpDir,
@@ -145,22 +110,13 @@ describe('DR-2 acceptance — storage handle DI through DispatchContext', () => 
       storage: backend,
     };
     assertType<StorageBackend | undefined>(ctx.storage);
-    // Runtime sanity: the literal carries the backend we just constructed.
     expect(ctx.storage).toBe(backend);
 
-    // ─── Sub-assertion 2: production tree contains zero `from 'bun:sqlite'`
-    // imports outside `storage/`, `__shims__/`, and test files.
-    //
-    // This is the grep-based observable from the design doc. It also
-    // backstops T17 — if any production module reaches for raw
-    // `Database` / `Statement`, it must do so through the
-    // `StorageBackend` abstraction in `storage/`.
     const productionFiles = collectProductionTsFiles(SRC_DIR);
     const offenders: string[] = [];
     for (const file of productionFiles) {
       const content = readFileSync(file, 'utf-8');
       if (BUN_SQLITE_IMPORT_RE.test(content)) {
-        // Render as src-relative for legible failure output.
         offenders.push(file.split(`${sep}src${sep}`).pop() ?? file);
       }
     }
@@ -171,12 +127,6 @@ describe('DR-2 acceptance — storage handle DI through DispatchContext', () => 
         `Offenders: ${offenders.join(', ')}`,
     ).toEqual([]);
 
-    // ─── Sub-assertion 3: test-double parity.
-    //
-    // The same `DispatchContext` shape accepts an `InMemoryBackend`
-    // without type errors. This is what test-doubles depend on — if
-    // the field's type were narrower than `StorageBackend`, in-memory
-    // tests would have to special-case the context shape.
     const memoryBackend: StorageBackend = new InMemoryBackend();
     const ctxWithMemory: DispatchContext = {
       stateDir: tmpDir,

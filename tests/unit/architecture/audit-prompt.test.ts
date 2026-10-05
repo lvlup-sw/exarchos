@@ -1,10 +1,7 @@
 /**
- * Tests for the catalog-driven audit-prompt renderer (DR-4).
- *
- * The renderer compiles every `enforcement.mode === 'audit'` invariant into a
- * single review-subagent prompt block. It MUST be workflow-agnostic (no
- * `INV-*`-specific branching — INV-6) and MUST NOT presume MCP-local
- * execution (INV-3): the vocabulary lives in the catalog, not in code.
+ * Tests the audit-prompt renderer. The renderer compiles every invariant with
+ * `enforcement.mode === 'audit'` into one prompt for a review subagent. It must have no branch on
+ * an invariant id, because the vocabulary lives in the catalog and not in code.
  */
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -16,10 +13,7 @@ import {
   EmptyAuditProjectionError,
 } from '../../../src/architecture/audit-prompt.js';
 
-/**
- * Minimal `InvariantEntry` factory — only the fields the renderer reads need
- * be realistic; the rest are filled with inert placeholders.
- */
+/** Builds an `InvariantEntry`. Only the fields that the renderer reads need real values. */
 function entry(overrides: Partial<InvariantEntry>): InvariantEntry {
   return {
     id: 'INV-X',
@@ -35,6 +29,7 @@ function entry(overrides: Partial<InvariantEntry>): InvariantEntry {
 }
 
 describe('renderAuditPrompt', () => {
+  /** The check-mode entry must add nothing to the prompt, so its id and summary must be absent. */
   it('RenderAuditPrompt_AuditModeInvariants_EmitsPromptVerbatim', () => {
     const auditText =
       'Confirm no cross-tier call bypasses the ControlPlane mediator.';
@@ -44,7 +39,6 @@ describe('renderAuditPrompt', () => {
         summary: 'Cross-tier calls route through the ControlPlane.',
         enforcement: { mode: 'audit', 'audit-prompt': auditText },
       }),
-      // a check-mode entry must contribute nothing
       entry({
         id: 'INV-CHECK',
         summary: 'should not appear',
@@ -60,11 +54,11 @@ describe('renderAuditPrompt', () => {
     expect(out).toContain(auditText);
     expect(out).toContain('INV-1');
     expect(out).toContain('Cross-tier calls route through the ControlPlane.');
-    // the check-mode entry's id/summary must be absent
     expect(out).not.toContain('INV-CHECK');
     expect(out).not.toContain('should not appear');
   });
 
+  /** One entry is check-mode, and the other has no enforcement. */
   it('RenderAuditPrompt_NoAuditInvariants_ReturnsEmptyString', () => {
     const invariants: InvariantEntry[] = [
       entry({
@@ -74,12 +68,13 @@ describe('renderAuditPrompt', () => {
           check: { kind: 'grep', pattern: 'foo' },
         },
       }),
-      entry({ id: 'INV-NONE' }), // no enforcement at all
+      entry({ id: 'INV-NONE' }),
     ];
 
     expect(renderAuditPrompt(invariants)).toBe('');
   });
 
+  /** The input is not in id order, and the blocks must appear in ascending id order. */
   it('RenderAuditPrompt_MultipleAuditInvariants_OrderedById', () => {
     const invariants: InvariantEntry[] = [
       entry({
@@ -101,15 +96,13 @@ describe('renderAuditPrompt', () => {
 
     const out = renderAuditPrompt(invariants);
 
-    // deterministic ordering by id, regardless of input order
     expect(out.indexOf('INV-1')).toBeLessThan(out.indexOf('INV-2'));
     expect(out.indexOf('INV-2')).toBeLessThan(out.indexOf('INV-3'));
   });
 
   /**
-   * INV-6 guard: the renderer must treat all audit invariants uniformly. A
-   * brand-new id it has never seen must render identically in shape to a
-   * familiar one — there is no per-id branching in the source.
+   * The renderer treats every audit invariant the same. When the test replaces the new id with
+   * the familiar id, the two outputs must be byte-identical.
    */
   it('RenderAuditPrompt_UnknownInvariantId_RendersUniformly', () => {
     const familiar = renderAuditPrompt([
@@ -127,23 +120,18 @@ describe('renderAuditPrompt', () => {
       }),
     ]);
 
-    // Replacing the id token yields byte-identical output: no id-specific
-    // branching, formatting, or special-casing.
     expect(novel.split('TOTALLY-NEW-ID').join('INV-1')).toBe(familiar);
   });
 
   /**
-   * Static guard against INV-specific literal branching in the source. The
-   * renderer source must not hardcode any `INV-` literal (no `id === 'INV-…'`
-   * special cases). Catalog vocabulary lives in data, not code (INV-6).
+   * The renderer source must hold no string literal that starts with `INV-`, so it has no special
+   * case for an id. The scan removes the comments first, because prose can name an invariant id.
    */
   it('RenderAuditPrompt_Source_HasNoInvSpecificLiteralBranching', () => {
     const src = fs.readFileSync(
       fileURLToPath(new URL('../../../src/architecture/audit-prompt.ts', import.meta.url)),
       'utf8',
     );
-    // strip line + block comments before scanning so that doc references to
-    // INV-N (e.g. "INV-6") in prose don't trip the guard.
     const code = src
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/\/\/[^\n]*/g, '');
@@ -152,35 +140,25 @@ describe('renderAuditPrompt', () => {
 });
 
 /**
- * Non-empty denominator (DR-4, task 069).
- *
- * `renderAuditPrompt([])` used to return `''` — the SAME value it returns for a
- * catalog that simply has no audit-mode entries. So "the catalog projected
- * nothing at all" and "nothing needed auditing" printed identically, and the
- * louder of the two conditions was the one that vanished.
+ * An empty input must throw. An empty prompt for an empty input reads the same as the prompt for
+ * a catalog with no audit-mode entry. That result hides a catalog that projects nothing.
  */
 describe('projectAuditPrompt — non-empty denominator', () => {
+  /** The error message must name the failure mode, so the reader knows what to repair. */
   it('ProjectAuditPrompt_ZeroApplicableEntries_ThrowsRatherThanRenderingCleanAudit', () => {
     expect(() => projectAuditPrompt([])).toThrow(EmptyAuditProjectionError);
-    // The message must name the failure mode, not just the fact — a red without
-    // the repair is how a tooth turns into a thing people delete.
     expect(() => projectAuditPrompt([])).toThrow(/ZERO applicable invariants/);
   });
 
   /**
-   * The tooth lives in the PURE function, so the thin wrapper inherits it rather
-   * than bypassing it. This is the half-installed-tooth defect task 022 recorded
-   * against the CLI guard: a protection installed only in the caller is absent
-   * from every future consumer wired to the callee.
+   * The throw is in `projectAuditPrompt`, so the `renderAuditPrompt` wrapper inherits it.
+   * A check that only a caller makes is absent from every other consumer of the callee.
    */
   it('RenderAuditPrompt_ZeroApplicableEntries_InheritsTheSameTooth', () => {
     expect(() => renderAuditPrompt([])).toThrow(EmptyAuditProjectionError);
   });
 
-  /**
-   * The distinction the tooth exists to preserve: a NON-empty projection holding
-   * no audit-mode entry is an ordinary result, not a lost subject.
-   */
+  /** A non-empty input with no audit-mode entry is an ordinary result and does not throw. */
   it('ProjectAuditPrompt_EntriesButNoAuditMode_IsNoAuditEntriesNotAThrow', () => {
     const projection = projectAuditPrompt([
       entry({
@@ -194,9 +172,8 @@ describe('projectAuditPrompt — non-empty denominator', () => {
   });
 
   /**
-   * The enumerator is the reader's checklist. Without it, "I read the prompt"
-   * and "I answered all of it" are indistinguishable — which is the difference
-   * between a reader and a recipient.
+   * `invariantIds` is the checklist of the reader: each id in the prompt, ascending, and no other id.
+   * Without the list, nobody can tell "I read the prompt" from "I answered all of it".
    */
   it('ProjectAuditPrompt_RenderedEntries_EnumerateEveryPromptedIdAscending', () => {
     const projection = projectAuditPrompt([
@@ -208,7 +185,6 @@ describe('projectAuditPrompt — non-empty denominator', () => {
 
     expect(projection.status).toBe('rendered');
     expect([...projection.invariantIds]).toEqual(['INV-1', 'INV-2', 'INV-3']);
-    // Every enumerated id really is in the prompt, and nothing else is.
     for (const id of projection.invariantIds) {
       expect(projection.prompt).toContain(id);
     }

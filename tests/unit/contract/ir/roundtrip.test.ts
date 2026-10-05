@@ -1,3 +1,8 @@
+/**
+ * Round-trip proofs for the shared admission IR. The generated JSON Schema and the authored Zod
+ * schemas must agree with each other and with the runtime validators in `src/workflow/admission`.
+ * The tests import the runtime validators and do not change them.
+ */
 import { describe, it, expect } from 'vitest';
 import Ajv2020 from 'ajv/dist/2020.js';
 import type { ValidateFunction } from 'ajv';
@@ -19,9 +24,6 @@ import {
   minimalValidDoc,
 } from '../../../../src/contract/ir/admission-ir-fixtures.js';
 
-// The Exarchos runtime validators the shared IR must round-trip against (P01-03,
-// P06-02). Imported read-only — this test PROVES the shared surface tracks the
-// runtime; it never mutates it.
 import {
   EvidenceSubjectV1Schema,
   AdmissionRequirementV1Schema,
@@ -35,11 +37,11 @@ import {
   tryCompileEdgeCondition,
 } from '../../../../src/workflow/admission/edge-condition.js';
 
-// One compiled Ajv validator over the GENERATED JSON Schema — the second,
-// independent validator the round-trip compares against Zod. `date-time` is
-// declared as an always-pass format because the emitted `pattern` already does
-// the datetime validation (agreement on a datetime corpus is proven below), and
-// this silences Ajv's "unknown format" warning.
+/**
+ * Compiles the generated JSON Schema with Ajv. This validator is independent of Zod.
+ * The `date-time` format always passes, because the emitted `pattern` already validates a datetime.
+ * The declared format also stops the Ajv warning for an unknown format.
+ */
 function compileSchemaValidator(): ValidateFunction {
   const ajv = new Ajv2020({ strict: false, formats: { 'date-time': true } });
   return ajv.compile(admissionIrJsonSchema());
@@ -74,9 +76,7 @@ describe('shared admission IR — round-trip (JSON Schema ⟺ Zod runtime valida
     expect(typeof validate).toBe('function');
   });
 
-  // Exit proof half 1: neither side may accept what the other rejects. For EVERY
-  // fixture, Ajv(JSON Schema) and Zod must agree, and both must match the
-  // fixture's declared structural validity.
+  /** For each fixture, Ajv and Zod must agree, and both must match the declared validity. */
   it.each(ROUNDTRIP_FIXTURES)(
     'JSON Schema and Zod agree on: $name',
     ({ doc, structurallyValid }) => {
@@ -84,7 +84,6 @@ describe('shared admission IR — round-trip (JSON Schema ⟺ Zod runtime valida
       const zodOk = AdmissionIrDocumentV1Schema.safeParse(doc).success;
       expect(ajvOk).toBe(structurallyValid);
       expect(zodOk).toBe(structurallyValid);
-      // The decisive round-trip assertion: the two validators never disagree.
       expect(ajvOk).toBe(zodOk);
     },
   );
@@ -100,9 +99,10 @@ describe('shared admission IR — round-trip (JSON Schema ⟺ Zod runtime valida
 describe('shared admission IR — closed edge conditions round-trip against the runtime', () => {
   const validate = compileSchemaValidator();
 
-  // Three-way agreement: the IR Zod schema, the generated JSON Schema (Ajv), and
-  // the REAL runtime `compileEdgeCondition` (P06-02) all accept/reject the same
-  // closed edge-condition nodes — proving the shared node set IS the runtime's.
+  /**
+   * The IR Zod schema, the generated JSON Schema under Ajv and the runtime
+   * `tryCompileEdgeCondition` must accept and reject the same edge-condition nodes.
+   */
   it.each(EDGE_CONDITION_CASES)('IR schema, JSON Schema, and runtime agree on: $name', (c) => {
     const zodOk = EdgeConditionNodeSchema.safeParse(c.condition).success;
     const runtimeOk = tryCompileEdgeCondition(c.condition, {
@@ -135,7 +135,7 @@ describe('shared admission IR — id/enum vocabularies track the runtime validat
       'exarchos_event.append',
       'a:b-c_d.e',
       'X',
-      '', // empty
+      '',
       'has space',
       '; rm -rf /',
       '../escape',
@@ -156,7 +156,6 @@ describe('shared admission IR — id/enum vocabularies track the runtime validat
     for (const kind of IR_SUBJECT_KINDS) {
       expect(EvidenceSubjectV1Schema.safeParse(runtimeSubjectFor(kind)).success).toBe(true);
     }
-    // A kind outside the closed set is rejected by the runtime union.
     expect(EvidenceSubjectV1Schema.safeParse(runtimeSubjectFor('nope')).success).toBe(false);
   });
 

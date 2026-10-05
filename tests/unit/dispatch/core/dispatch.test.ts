@@ -74,20 +74,12 @@ describe('dispatch', () => {
     };
   }
 
-  // ─── T15 (DR-2) — DispatchContext.storage field ─────────────────────────
-  //
-  // Pins the type-shape requirement from the durable-event-store-substrate
-  // design: `DispatchContext` carries an optional `storage: StorageBackend`
-  // field so the lifecycle wiring (T16) can inject the SQLite handle once
-  // at startup instead of leaving every consumer to reach for an ambient
-  // import. The acceptance test (`dispatch-context.acceptance.test.ts`)
-  // is the cross-cutting observable; this test pins the unit-level shape
-  // so a regression here surfaces in `dispatch.test.ts` first.
+  /**
+   * `DispatchContext` carries an optional `storage: StorageBackend` field, so startup can inject
+   * the backend once. No typecheck covers this test file, so the regex over the interface source
+   * is the real check.
+   */
   it('DispatchContext_TypeShape_IncludesStorageField', () => {
-    // Source-level grep — the interface declaration itself must carry the
-    // field. Test files are excluded from `tsc --noEmit` (see
-    // `tsconfig.json`) so the type-erased static check is not load-bearing
-    // by itself; the regex assertion below is.
     const __dirname = dirname(fileURLToPath(import.meta.url));
     const dispatchSrc = readFileSync(resolve(__dirname, '../../../../src/dispatch/core/dispatch.ts'), 'utf-8');
     const ifaceMatch = dispatchSrc.match(
@@ -101,9 +93,6 @@ describe('dispatch', () => {
         `Body:\n${ifaceBody}`,
     ).toBe(true);
 
-    // Static + runtime: a literal which sets `storage` on the canonical
-    // shape must be assignable. Without the interface field, this fails
-    // tsx compilation.
     const backend: StorageBackend = new InMemoryBackend();
     const ctx: DispatchContext = {
       stateDir: tmpDir,
@@ -114,45 +103,41 @@ describe('dispatch', () => {
     expect(ctx.storage).toBe(backend);
   });
 
+  /** The call can fail because no state exists. The assertions accept any `ToolResult`. */
   it('Dispatch_KnownTool_CallsHandler', async () => {
-    // Arrange
     const { dispatch } = await import('../../../../src/dispatch/core/dispatch.js');
 
-    // Act — call a known tool (exarchos_workflow with 'get' action)
     const result = await dispatch(
       'exarchos_workflow',
       { action: 'get', featureId: 'test-feature' },
       ctx(),
     );
 
-    // Assert — should return a ToolResult (may fail due to missing state, but should route)
     expect(result).toBeDefined();
     expect(typeof result.success).toBe('boolean');
   });
 
   it('Dispatch_UnknownTool_ReturnsError', async () => {
-    // Arrange
     const { dispatch } = await import('../../../../src/dispatch/core/dispatch.js');
 
-    // Act
     const result = await dispatch(
       'nonexistent_tool',
       {},
       ctx(),
     );
 
-    // Assert
     expect(result.success).toBe(false);
     expect(result.error).toBeDefined();
     expect(result.error!.code).toBe('UNKNOWN_TOOL');
     expect(result.error!.message).toContain('nonexistent_tool');
   });
 
+  /**
+   * The injected loader throws, like a broken module graph after a partial install. The test
+   * replaces the real loader and deletes the cached handler, so dispatch calls the injected one.
+   * Dispatch must return a structured failure and must not let the module error escape.
+   */
   it('Dispatch_LoadCompositeHandlerThrows_ReturnsCompositeLoadFailed', async () => {
-    // Arrange — inject a loader that throws, simulating a broken module
-    // graph (e.g. ERR_MODULE_NOT_FOUND after a partial install). The real
-    // module is temporarily removed from both the loader map and the handler
-    // cache so dispatch is forced down the throwing loader path.
     const { COMPOSITE_HANDLERS, COMPOSITE_HANDLER_LOADERS, dispatch } = await import('../../../../src/dispatch/core/dispatch.js');
     const toolName = 'exarchos_workflow';
     const origLoader = COMPOSITE_HANDLER_LOADERS[toolName];
@@ -162,15 +147,12 @@ describe('dispatch', () => {
       Promise.reject(new Error("Cannot find module '../workflow/composite.js'"));
 
     try {
-      // Act
       const result = await dispatch(
         toolName,
         { action: 'get', featureId: 'test' },
         ctx(),
       );
 
-      // Assert — dispatch wraps the load failure in a structured ToolResult
-      // rather than leaking ERR_MODULE_NOT_FOUND through the MCP transport.
       expect(result.success).toBe(false);
       expect(result.error).toBeDefined();
       expect(result.error!.code).toBe('COMPOSITE_LOAD_FAILED');
@@ -185,17 +167,14 @@ describe('dispatch', () => {
   });
 
   it('Dispatch_WithTelemetry_EnrichesResult', async () => {
-    // Arrange
     const { dispatch } = await import('../../../../src/dispatch/core/dispatch.js');
 
-    // Act — call with telemetry enabled
     const result = await dispatch(
       'exarchos_workflow',
       { action: 'get', featureId: 'test-feature' },
       { stateDir: tmpDir, eventStore, enableTelemetry: true },
     );
 
-    // Assert — result should have _perf from telemetry
     expect(result).toBeDefined();
     expect(typeof result.success).toBe('boolean');
     expect(result._perf).toBeDefined();
@@ -208,7 +187,6 @@ describe('dispatch', () => {
     });
 
     it('Dispatch_CustomTool_ReturnsSuccess', async () => {
-      // Arrange — register a custom tool with handler
       const customTool: CompositeTool = {
         name: 'exarchos_deploy',
         description: 'Custom deployment tool',
@@ -241,20 +219,17 @@ describe('dispatch', () => {
 
       const { dispatch } = await import('../../../../src/dispatch/core/dispatch.js');
 
-      // Act
       const result = await dispatch(
         'exarchos_deploy',
         { action: 'trigger', target: 'production' },
         ctx(),
       );
 
-      // Assert — should NOT be UNKNOWN_TOOL
       expect(result.success).toBe(true);
       expect(result.data).toEqual({ deployed: true, target: 'production' });
     });
 
     it('Dispatch_CustomTool_MissingAction_ReturnsError', async () => {
-      // Arrange — register tool with handler but call without action
       const customTool: CompositeTool = {
         name: 'exarchos_ci',
         description: 'CI tool',
@@ -283,20 +258,17 @@ describe('dispatch', () => {
 
       const { dispatch } = await import('../../../../src/dispatch/core/dispatch.js');
 
-      // Act — no action field
       const result = await dispatch(
         'exarchos_ci',
         {},
         ctx(),
       );
 
-      // Assert
       expect(result.success).toBe(false);
       expect(result.error!.code).toBe('MISSING_ACTION');
     });
 
     it('Dispatch_CustomTool_UnknownAction_ReturnsError', async () => {
-      // Arrange
       const customTool: CompositeTool = {
         name: 'exarchos_notify',
         description: 'Notification tool',
@@ -325,21 +297,22 @@ describe('dispatch', () => {
 
       const { dispatch } = await import('../../../../src/dispatch/core/dispatch.js');
 
-      // Act — nonexistent action
       const result = await dispatch(
         'exarchos_notify',
         { action: 'delete' },
         ctx(),
       );
 
-      // Assert
       expect(result.success).toBe(false);
       expect(result.error!.code).toBe('UNKNOWN_ACTION');
     });
 
+    /**
+     * Dispatch validates the action name and the action schema before it routes. Thus the test
+     * uses the `describe` action, whose schema accepts empty args. The handler must receive the
+     * full `DispatchContext` and not only the state directory.
+     */
     it('dispatch_compositeHandler_receivesDispatchContext', async () => {
-      // Arrange — register a spy as a composite handler to capture what dispatch passes.
-      // Uses stubCompositeHandler() (F-021-4) which owns the save/restore dance.
       const { stubCompositeHandler, dispatch } = await import('../../../../src/dispatch/core/dispatch.js');
       let receivedCtx: unknown;
       const spy = async (_args: Record<string, unknown>, ctx: DispatchContext) => {
@@ -351,12 +324,8 @@ describe('dispatch', () => {
       try {
         const dispatchCtx = ctx();
 
-        // Act — DR-5: dispatch now validates action names and per-action
-        // schemas before routing, so this smoke test uses the `describe`
-        // action whose schema accepts empty args.
         await dispatch('exarchos_workflow', { action: 'describe' }, dispatchCtx);
 
-        // Assert — handler should receive the full DispatchContext, not just stateDir string
         expect(receivedCtx).toBeDefined();
         expect(typeof receivedCtx).toBe('object');
         expect(receivedCtx).toHaveProperty('stateDir', tmpDir);
@@ -367,26 +336,27 @@ describe('dispatch', () => {
       }
     });
 
+    /** A handler for a tool that is not in the registry must not be executable. */
     it('Dispatch_LeakedHandler_WithoutRegistration_ReturnsUnknownTool', async () => {
-      // Arrange — set handler without registering the tool in the registry
       setCustomToolActionHandler('exarchos_leaked', 'run', async () => ({ leaked: true }));
 
       const { dispatch } = await import('../../../../src/dispatch/core/dispatch.js');
 
-      // Act
       const result = await dispatch(
         'exarchos_leaked',
         { action: 'run' },
         ctx(),
       );
 
-      // Assert — leaked handlers must not be executable without registration
       expect(result.success).toBe(false);
       expect(result.error!.code).toBe('UNKNOWN_TOOL');
     });
 
+    /**
+     * A handler result that is already a `ToolResult` passes through. Dispatch does not wrap a
+     * warnings-only result as `data`.
+     */
     it('Dispatch_CustomTool_HandlerReturnsToolResult_PassesThrough', async () => {
-      // Arrange — handler returns a ToolResult directly
       const customTool: CompositeTool = {
         name: 'exarchos_passthrough',
         description: 'Passthrough tool',
@@ -428,25 +398,21 @@ describe('dispatch', () => {
 
       const { dispatch } = await import('../../../../src/dispatch/core/dispatch.js');
 
-      // Act
       const result = await dispatch(
         'exarchos_passthrough',
         { action: 'check' },
         ctx(),
       );
 
-      // Assert — the ToolResult from the handler passes through
       expect(result.success).toBe(false);
       expect(result.error!.code).toBe('CUSTOM_ERROR');
 
-      // Act — warnings-only result should pass through (not be wrapped as data)
       const warningsResult = await dispatch(
         'exarchos_passthrough',
         { action: 'warnings' },
         ctx(),
       );
 
-      // Assert — warnings field recognized as ToolResult, not wrapped
       expect(warningsResult.success).toBe(true);
       expect(warningsResult.warnings).toEqual(['Deprecated API usage']);
       expect(warningsResult.data).toBeUndefined();
@@ -454,19 +420,13 @@ describe('dispatch', () => {
   });
 
   describe('parent-tool default-key leak (#1188)', () => {
+    /**
+     * The MCP SDK applies the defaults of the flattened parent schema to each payload. Thus the
+     * sibling defaults `nativeIsolation` and `outputFormat` arrive on a `check_test_adequacy` call,
+     * whose schema is `.strict()`. Dispatch must remove the sibling defaults that the action does
+     * not declare. The handler can still fail for another reason, but not on those keys.
+     */
     it('Dispatch_LeakedSiblingDefaults_DoesNotRejectStrictPerActionSchema', async () => {
-      // Reproduces #1188: the MCP SDK applies defaults from the flattened
-      // parent schema (via buildRegistrationSchema) to every payload
-      // before dispatch sees it. Sibling-action defaults like
-      // `nativeIsolation` (from prepare_delegation) and `outputFormat`
-      // (from agent_spec) end up on payloads for actions whose schema is
-      // .strict() — like `check_test_adequacy` — causing
-      // "Unrecognized key(s) in object" rejections.
-      //
-      // Dispatch must strip parent-tool defaults that are not declared
-      // in the matching action's schema before per-action validation
-      // (Tolerant Dispatch). The per-action .strict() guard is
-      // preserved for caller-supplied keys.
       const { dispatch } = await import('../../../../src/dispatch/core/dispatch.js');
 
       const result = await dispatch(
@@ -476,15 +436,12 @@ describe('dispatch', () => {
           featureId: 'leak-test',
           taskId: 'T1',
           branch: 'feat/leak-test',
-          // Leaked defaults from sibling actions — caller never supplies these:
-          nativeIsolation: false, // from prepare_delegation
-          outputFormat: 'full', // from agent_spec
+          nativeIsolation: false,
+          outputFormat: 'full',
         },
         ctx(),
       );
 
-      // The handler may still fail (no real git/test fixtures), but it
-      // must NOT fail with INVALID_INPUT mentioning the leaked keys.
       if (!result.success) {
         const message = result.error?.message ?? '';
         expect(message).not.toMatch(/Unrecognized key\(s\)/);
@@ -493,10 +450,10 @@ describe('dispatch', () => {
       }
     });
 
+    /**
+     * A key that no action of the tool declares is a caller error. Dispatch must still reject it.
+     */
     it('Dispatch_CallerTypo_StillRejected', async () => {
-      // Tolerant Dispatch must NOT swallow caller typos — keys not
-      // declared on any action's schema are caller errors and should
-      // surface clearly via the per-action .strict() rejection.
       const { dispatch } = await import('../../../../src/dispatch/core/dispatch.js');
 
       const result = await dispatch(
@@ -506,7 +463,6 @@ describe('dispatch', () => {
           featureId: 'typo-test',
           taskId: 'T1',
           branch: 'feat/typo-test',
-          // Caller-supplied typo — not declared on any orchestrate action.
           totallyMadeUpKey: 'this is a typo',
         },
         ctx(),
@@ -518,16 +474,14 @@ describe('dispatch', () => {
     });
   });
 
-  // ─── DR-9 (#1334): removed prune knob — actionable rejection on the REAL ────
-  // dispatch seam. This is the ARBITER for the fix: it exercises the same
-  // `dispatch()` path a real MCP/CLI caller travels (per-action Zod validation
-  // at core/dispatch.ts), not a direct handler call casting past the type
-  // boundary. Pre-fix the prune action schema was a plain `z.object` that
-  // SILENTLY STRIPPED `thresholdMinutes`, so `parsed.data` reached the handler
-  // without it — a silent accept. The schema is now
-  // `.passthrough().superRefine(...)`, so the removed knob draws an ACTIONABLE
-  // removal error here, before the handler ever runs.
+  /**
+   * These tests go through `dispatch()`, the path of a real MCP or CLI caller, and not through a
+   * direct handler call. The prune schema is `.passthrough().superRefine(...)`, so the removed
+   * `thresholdMinutes` knob gets an actionable error before the handler runs. A plain `z.object`
+   * strips the key and accepts the call.
+   */
   describe('DR-9 prune removed-knob rejection (real dispatch seam)', () => {
+    /** The message must name the removed knob and `topology.yaml`, where the setting now lives. */
     it('Dispatch_PruneLegacyThresholdMinutes_ActionableRemovalError', async () => {
       const { dispatch } = await import('../../../../src/dispatch/core/dispatch.js');
 
@@ -536,8 +490,6 @@ describe('dispatch', () => {
         {
           action: 'prune_stale_workflows',
           dryRun: true,
-          // Legacy REMOVED knob (DR-9). A real caller reaches this through
-          // `dispatch()`; the parse must fail BEFORE the handler runs.
           thresholdMinutes: 60,
         },
         ctx(),
@@ -545,9 +497,6 @@ describe('dispatch', () => {
 
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('INVALID_INPUT');
-      // The actionable message names the removed knob, the deprecation lineage
-      // (#1334), the removal marker (DR-9), and the real config surface
-      // (`topology.yaml`) — NOT an opaque `unrecognized_keys`.
       const message = result.error?.message ?? '';
       expect(message).toContain('thresholdMinutes');
       expect(message).toContain('#1334');
@@ -555,11 +504,11 @@ describe('dispatch', () => {
       expect(message).toContain('topology.yaml');
     });
 
+    /**
+     * The remaining prune options still parse. The handler can fail on missing fixtures, but not
+     * with the removed-knob message.
+     */
     it('Dispatch_PruneValidArgs_NotRejectedByRemovedKnobGuard', async () => {
-      // Premise guard: the surviving prune options still parse — the
-      // passthrough+refine mechanism must not reject valid callers. The handler
-      // may still fail on missing fixtures, but NOT with an INVALID_INPUT that
-      // mentions the removed-knob message.
       const { dispatch } = await import('../../../../src/dispatch/core/dispatch.js');
 
       const result = await dispatch(
@@ -573,12 +522,12 @@ describe('dispatch', () => {
       }
     });
 
+    /**
+     * `now` is a test-only clock override. It is a known key that is not in the schema shape, so
+     * the refinement must let it reach the handler. The ISO-validation error of the handler proves
+     * that it did.
+     */
     it('Dispatch_PruneNowOverride_ReachesHandlerClockValidation', async () => {
-      // `now` is a test-only ISO clock override the handler reads + validates.
-      // It is a passthrough key (PRUNE_ACTION_KNOWN_KEYS), NOT part of the
-      // schema shape, so the passthrough+superRefine seam must let it reach the
-      // handler rather than rejecting it as unrecognized. Proven by the
-      // HANDLER's ISO-validation error firing — not a schema rejection.
       const { dispatch } = await import('../../../../src/dispatch/core/dispatch.js');
 
       const result = await dispatch(
@@ -595,27 +544,23 @@ describe('dispatch', () => {
   });
 
   describe('doctor action wiring', () => {
+    /**
+     * The probes are real runtime surfaces, so the statuses vary. The output must still have the
+     * `{checks, summary}` shape, and the tally must equal the number of checks. The resolver holds
+     * only a cache-hint capability, as in the production CLI. That capability is not an action
+     * need, so admission must use the grant of the local operator.
+     */
     it('Dispatch_ExarchosOrchestrateDoctor_RoutesToOrchestrateCompositeAndReturnsValidDoctorOutput', async () => {
-      // Arrange
       const { dispatch } = await import('../../../../src/dispatch/core/dispatch.js');
 
-      // Act — no args beyond action. Doctor defaults timeoutMs to 2000
-      // and all probes are real runtime surfaces, so the call may
-      // produce a mix of pass/warning/fail/skipped — but the output
-      // shape must parse through DoctorOutputSchema.
       const result = await dispatch(
         'exarchos_orchestrate',
         { action: 'doctor' },
         ctx({
-          // Production CLI wires a cache-hint resolver that is not the
-          // ActionId need set. Admission must use the local-operator
-          // snapshot grant, not resolver.list().
           capabilityResolver: createInMemoryResolver([ANTHROPIC_NATIVE_CACHING]),
         }),
       );
 
-      // Assert — structural: composite handler reached, output has
-      // the canonical {checks, summary} shape with a matching tally.
       expect(result.success).toBe(true);
       const data = result.data as {
         checks: { status: string; name: string }[];
@@ -657,12 +602,11 @@ describe('dispatch', () => {
   });
 
   describe('execute_intent action wiring', () => {
-    // execute_intent declares `requires: none(...)` — a cold dispatch through
-    // the real admission path, with a trusted local-operator caller, must clear
-    // the outer action-level admission cleanly and reach the handler's own
-    // compiler refusal rather than being wrongly gated at the dispatch layer.
-    // An unregistered intent name is the cheapest way to reach a handler
-    // refusal without compiling and running the real task-completion segment.
+    /**
+     * `execute_intent` declares `requires: none(...)`. A cold dispatch from a trusted local
+     * operator must pass admission and reach the refusal of the handler. An unregistered intent
+     * name gives that refusal and runs no real segment.
+     */
     it('Dispatch_ExecuteIntent_ColdDispatch_ClearsAdmissionAndReachesTheHandler', async () => {
       const { dispatch } = await import('../../../../src/dispatch/core/dispatch.js');
       const result = await dispatch(
@@ -677,28 +621,16 @@ describe('dispatch', () => {
     });
   });
 
-  // ─── T-12: session.machinery_consumed dispatch interceptor ─────────────────
-  //
-  // Plan: docs/plans/archive/2026-05-08-rehydration-machinery-plan.md (T-12)
-  // Design: docs/research/2026-05-08-rehydrate-machinery-reinit.md §11.4 (P4)
-  //
-  // After a `workflow.rehydrated` event lands at sequence S on stream X, the
-  // dispatch core must emit ONE `session.machinery_consumed` event the next
-  // time a non-rehydrate L5 handler is invoked against stream X — keyed by
-  // S, with the action verb captured in `firstActionVerb`. Subsequent
-  // invocations on the same rehydrate-sequence are a no-op until another
-  // `workflow.rehydrated` lands on the stream. Cross-stream isolation: each
-  // stream tracks its own latest-rehydrated-sequence independently.
-  //
-  // The handler-stub strategy: the interceptor lives in `dispatch()` and is
-  // observable purely through the event stream — these tests stub the
-  // composite handler with a no-op spy, append a `workflow.rehydrated`
-  // event to seed the stream, dispatch a non-rehydrate action, then read
-  // the stream and assert on the `session.machinery_consumed` events.
+  /**
+   * After a `workflow.rehydrated` event at sequence S, the next non-rehydrate dispatch on that
+   * stream emits one `session.machinery_consumed` event. The event carries `rehydrateSequence` S
+   * and the action name. Later calls emit nothing until the next rehydrate, and each stream is
+   * independent.
+   *
+   * The tests stub the composite handler, seed the stream with `seedRehydrated`, dispatch, and
+   * read the stream. `resetMachineryCache` clears the process-local cache around each test.
+   */
   describe('T-12 session.machinery_consumed interceptor', () => {
-    // Helper: clear the per-stream cache between tests so process-local
-    // state from one test doesn't leak into the next. The cache is exported
-    // for test access only (interceptor module).
     async function resetMachineryCache(): Promise<void> {
       const mod = await import('../../../../src/dispatch/core/interceptors/session-machinery.js');
       mod.__resetMachineryConsumedCache();
@@ -712,11 +644,6 @@ describe('dispatch', () => {
       await resetMachineryCache();
     });
 
-    // Helper: seed a `workflow.rehydrated` event on the given stream and
-    // return the sequence it landed at. Mirrors the production emission
-    // shape from `workflow/rehydrate.ts` (projectionSequence/deliveryPath/
-    // tokenEstimate). Uses `appendValidated`-equivalent path via the
-    // standard `append()` API.
     async function seedRehydrated(streamId: string): Promise<number> {
       const ev = await eventStore.append(streamId, {
         type: 'workflow.rehydrated',
@@ -732,9 +659,6 @@ describe('dispatch', () => {
     }
 
     it('T12_FirstNonRehydrateInvocationAfterRehydrated_EmitsSessionMachineryConsumed', async () => {
-      // Arrange — seed a workflow.rehydrated event on the stream, then
-      // stub the composite so dispatch resolves cleanly without touching
-      // real state files.
       const featureId = 'feat-t12-first';
       const rehydratedSeq = await seedRehydrated(featureId);
 
@@ -745,7 +669,6 @@ describe('dispatch', () => {
       }));
 
       try {
-        // Act — invoke a non-rehydrate L5 handler against the stream.
         const result = await dispatch(
           'exarchos_workflow',
           { action: 'get', featureId },
@@ -756,9 +679,6 @@ describe('dispatch', () => {
         restore();
       }
 
-      // Assert — exactly one session.machinery_consumed event landed on
-      // the stream, with rehydrateSequence pointing back at the rehydrated
-      // event's sequence and firstActionVerb capturing the dispatched action.
       const events = await eventStore.query(featureId, {
         type: 'session.machinery_consumed',
       });
@@ -770,12 +690,14 @@ describe('dispatch', () => {
       };
       expect(data.rehydrateSequence).toBe(rehydratedSeq);
       expect(typeof data.firstActionAt).toBe('string');
-      // ISO 8601 — Date.parse must succeed.
       expect(Number.isNaN(Date.parse(data.firstActionAt))).toBe(false);
     });
 
+    /**
+     * Two `get` calls target the stream. The `describe` call carries no `featureId`, so it names
+     * no stream.
+     */
     it('T12_SubsequentInvocationsOnSameRehydrateSequence_NoAdditionalEmissions', async () => {
-      // Arrange
       const featureId = 'feat-t12-subsequent';
       await seedRehydrated(featureId);
 
@@ -786,7 +708,6 @@ describe('dispatch', () => {
       }));
 
       try {
-        // Act — three non-rehydrate dispatches against the same stream.
         await dispatch(
           'exarchos_workflow',
           { action: 'get', featureId },
@@ -806,7 +727,6 @@ describe('dispatch', () => {
         restore();
       }
 
-      // Assert — only the FIRST invocation produced a machinery_consumed.
       const events = await eventStore.query(featureId, {
         type: 'session.machinery_consumed',
       });
@@ -814,7 +734,6 @@ describe('dispatch', () => {
     });
 
     it('T12_CrossStreamIsolation_StreamAEmissionDoesNotBlockStreamB', async () => {
-      // Arrange — both streams get a workflow.rehydrated, independently.
       const streamA = 'feat-t12-stream-a';
       const streamB = 'feat-t12-stream-b';
       const seqA = await seedRehydrated(streamA);
@@ -827,7 +746,6 @@ describe('dispatch', () => {
       }));
 
       try {
-        // Act — dispatch against A first, then against B.
         await dispatch(
           'exarchos_workflow',
           { action: 'get', featureId: streamA },
@@ -842,8 +760,6 @@ describe('dispatch', () => {
         restore();
       }
 
-      // Assert — each stream has its own machinery_consumed pointing back
-      // at its own rehydrate sequence.
       const eventsA = await eventStore.query(streamA, {
         type: 'session.machinery_consumed',
       });
@@ -856,11 +772,11 @@ describe('dispatch', () => {
       expect((eventsB[0].data as { rehydrateSequence: number }).rehydrateSequence).toBe(seqB);
     });
 
+    /**
+     * The interceptor skips the `rehydrate` action. A successful rehydrate emits
+     * `workflow.rehydrated`, so a reaction in the same dispatch causes a loop.
+     */
     it('T12_RehydrateActionItself_DoesNotTriggerSessionMachineryConsumed', async () => {
-      // Arrange — seed a rehydrated event then dispatch the rehydrate
-      // action itself. The interceptor must short-circuit on the rehydrate
-      // verb to avoid same-tick recursion (rehydrate emits workflow.rehydrated
-      // on success; if the interceptor reacted to that, we'd loop).
       const featureId = 'feat-t12-rehydrate-shortcircuit';
       await seedRehydrated(featureId);
 
@@ -871,8 +787,6 @@ describe('dispatch', () => {
       }));
 
       try {
-        // Act — dispatch the rehydrate action itself. (Stubbed handler so
-        // we don't invoke the real rehydrate side effects.)
         await dispatch(
           'exarchos_workflow',
           { action: 'rehydrate', featureId },
@@ -882,17 +796,17 @@ describe('dispatch', () => {
         restore();
       }
 
-      // Assert — no session.machinery_consumed was emitted.
       const events = await eventStore.query(featureId, {
         type: 'session.machinery_consumed',
       });
       expect(events.length).toBe(0);
     });
 
+    /**
+     * With no `workflow.rehydrated` event there is no sequence to refer to, so the interceptor
+     * emits nothing.
+     */
     it('T12_NoWorkflowRehydratedOnStream_NoEmission', async () => {
-      // Arrange — fresh stream with no workflow.rehydrated. The interceptor
-      // must not emit session.machinery_consumed when there's nothing to
-      // correlate against (would carry an undefined rehydrateSequence).
       const featureId = 'feat-t12-no-rehydrate';
 
       const { stubCompositeHandler, dispatch } = await import('../../../../src/dispatch/core/dispatch.js');
@@ -902,7 +816,6 @@ describe('dispatch', () => {
       }));
 
       try {
-        // Act
         await dispatch(
           'exarchos_workflow',
           { action: 'get', featureId },
@@ -912,7 +825,6 @@ describe('dispatch', () => {
         restore();
       }
 
-      // Assert — nothing emitted.
       const events = await eventStore.query(featureId, {
         type: 'session.machinery_consumed',
       });
@@ -920,7 +832,6 @@ describe('dispatch', () => {
     });
 
     it('T12_FirstActionVerb_CapturesDispatchedActionName', async () => {
-      // Arrange — seed rehydrated, then dispatch a specific verb.
       const featureId = 'feat-t12-verb';
       await seedRehydrated(featureId);
 
@@ -931,7 +842,6 @@ describe('dispatch', () => {
       }));
 
       try {
-        // Act — `get` is a clearly non-rehydrate verb.
         await dispatch(
           'exarchos_workflow',
           { action: 'get', featureId },
@@ -941,8 +851,6 @@ describe('dispatch', () => {
         restore();
       }
 
-      // Assert — the firstActionVerb in the emitted event matches the
-      // dispatched action name.
       const events = await eventStore.query(featureId, {
         type: 'session.machinery_consumed',
       });
@@ -952,25 +860,14 @@ describe('dispatch', () => {
     });
   });
 
-  // ─── T-13: session.machinery_consumed idempotency property ─────────────────
-  //
-  // Plan: docs/plans/archive/2026-05-08-rehydration-machinery-plan.md (T-13)
-  // Design: docs/research/2026-05-08-rehydrate-machinery-reinit.md §11.4 (P4)
-  //
-  // Formalises the contract that T-12 implements:
-  //   - Each distinct rehydrate-sequence followed by ≥1 activity produces
-  //     exactly ONE `session.machinery_consumed` emission.
-  //   - Multiple activity invocations between two rehydrates produce one
-  //     emission (process-local cache path).
-  //   - After a process restart (cache cleared), a cache-miss defensive query
-  //     against the event log prevents a second emission for the same sequence
-  //     (cold-start idempotency path).
-  //   - Property test: for any sequence of interleaved rehydrate/activity
-  //     operations, the count of emitted machinery_consumed events equals the
-  //     count of distinct rehydrate-sequences that were followed by ≥1 activity.
+  /**
+   * The idempotency contract of the interceptor. Each rehydrate sequence that at least one
+   * activity follows gives exactly one `session.machinery_consumed` event. The process-local
+   * cache stops a repeat in one process. After a restart, a query of the event log stops a
+   * second emission for the same sequence. `seedRehydratedT13` appends a `workflow.rehydrated`
+   * event and returns its sequence.
+   */
   describe('T-13 session.machinery_consumed idempotency property', () => {
-    // ── Shared helpers ────────────────────────────────────────────────────────
-
     async function resetMachineryCache(): Promise<void> {
       const mod = await import('../../../../src/dispatch/core/interceptors/session-machinery.js');
       mod.__resetMachineryConsumedCache();
@@ -984,11 +881,6 @@ describe('dispatch', () => {
       await resetMachineryCache();
     });
 
-    /**
-     * Append a `workflow.rehydrated` event to `streamId` and return the
-     * sequence it landed at. Mirrors T-12's `seedRehydrated` helper so both
-     * suites share the same fixture shape.
-     */
     async function seedRehydratedT13(streamId: string): Promise<number> {
       const ev = await eventStore.append(streamId, {
         type: 'workflow.rehydrated',
@@ -1003,19 +895,16 @@ describe('dispatch', () => {
       return ev.sequence;
     }
 
-    // ── TC-1: two rehydrates produce two distinct emissions ───────────────────
     it('T13_TwoRehydratesSeparatedByActivity_ProduceTwoDistinctEmissions', async () => {
       const featureId = 'feat-t13-two-rehydrates';
       const { stubCompositeHandler, dispatch } = await import('../../../../src/dispatch/core/dispatch.js');
 
-      // First rehydrate
       const seqS1 = await seedRehydratedT13(featureId);
       const restore = stubCompositeHandler('exarchos_workflow', async () => ({
         success: true,
         data: {},
       }));
       try {
-        // First activity — should emit machinery_consumed with rehydrateSequence: S1
         await dispatch(
           'exarchos_workflow',
           { action: 'get', featureId },
@@ -1025,14 +914,12 @@ describe('dispatch', () => {
         restore();
       }
 
-      // Validate first emission
       const eventsAfterFirst = await eventStore.query(featureId, {
         type: 'session.machinery_consumed',
       });
       expect(eventsAfterFirst.length).toBe(1);
       expect((eventsAfterFirst[0].data as { rehydrateSequence: number }).rehydrateSequence).toBe(seqS1);
 
-      // Second rehydrate (S2 > S1)
       const seqS2 = await seedRehydratedT13(featureId);
       expect(seqS2).toBeGreaterThan(seqS1);
 
@@ -1041,7 +928,6 @@ describe('dispatch', () => {
         data: {},
       }));
       try {
-        // Second activity — should emit machinery_consumed with rehydrateSequence: S2
         await dispatch(
           'exarchos_workflow',
           { action: 'get', featureId },
@@ -1051,7 +937,6 @@ describe('dispatch', () => {
         restore2();
       }
 
-      // Final assertion: exactly two machinery_consumed events with distinct sequences
       const allEvents = await eventStore.query(featureId, {
         type: 'session.machinery_consumed',
       });
@@ -1059,10 +944,9 @@ describe('dispatch', () => {
       const seqs = allEvents.map((e) => (e.data as { rehydrateSequence: number }).rehydrateSequence);
       expect(seqs[0]).toBe(seqS1);
       expect(seqs[1]).toBe(seqS2);
-      expect(new Set(seqs).size).toBe(2); // distinct
+      expect(new Set(seqs).size).toBe(2);
     });
 
-    // ── TC-2: multiple activities between rehydrates produce one emission ─────
     it('T13_MultipleActivitiesBetweenRehydrates_ProduceOneEmission', async () => {
       const featureId = 'feat-t13-multi-activity';
       const seqS1 = await seedRehydratedT13(featureId);
@@ -1074,7 +958,6 @@ describe('dispatch', () => {
       }));
 
       try {
-        // Four activity dispatches — all share the same rehydrate-sequence S1.
         for (let i = 0; i < 4; i++) {
           await dispatch(
             'exarchos_workflow',
@@ -1086,7 +969,6 @@ describe('dispatch', () => {
         restore();
       }
 
-      // Assert: exactly ONE machinery_consumed with rehydrateSequence: S1.
       const events = await eventStore.query(featureId, {
         type: 'session.machinery_consumed',
       });
@@ -1094,13 +976,13 @@ describe('dispatch', () => {
       expect((events[0].data as { rehydrateSequence: number }).rehydrateSequence).toBe(seqS1);
     });
 
-    // ── TC-3: property test over interleaved rehydrate/activity sequences ─────
+    /**
+     * Each run holds up to 25 operations, a rehydrate or an activity each, with at most 5
+     * rehydrates. The model counts one emission for each rehydrate that an activity follows before
+     * the next rehydrate. Each run uses its own stream and a cleared cache. The first loop over
+     * `ops` computes nothing, and the block after it computes the expected count.
+     */
     it('T13_Property_EmissionCountEqualsDistinctRehydrateSequencesWithFollowingActivity', async () => {
-      // Arbitrary: sequences of up to 5 rehydrates and 20 activity slots.
-      // Model: 'rehydrate' | 'activity' in order, cap at 25 total operations.
-      // The model predicts: count(machinery_consumed) equals count(distinct
-      // rehydrateSequences S for which ≥1 activity follows before the next
-      // rehydrate).
       const { stubCompositeHandler, dispatch } = await import('../../../../src/dispatch/core/dispatch.js');
 
       await fc.assert(
@@ -1113,13 +995,10 @@ describe('dispatch', () => {
               ),
               { minLength: 1, maxLength: 25 },
             )
-            // Clamp: at most 5 rehydrates in a sequence so the test stays fast.
             .filter(
               (ops) => ops.filter((o) => o === 'rehydrate').length <= 5,
             ),
           async (ops) => {
-            // Isolate each property run with a unique feature stream and a
-            // fresh cache so process-local state from a prior run can't leak.
             const featureId = `feat-t13-prop-${Math.random().toString(36).slice(2)}`;
             const mod = await import('../../../../src/dispatch/core/interceptors/session-machinery.js');
             mod.__resetMachineryConsumedCache();
@@ -1129,23 +1008,16 @@ describe('dispatch', () => {
               data: {},
             }));
 
-            // Compute the expected emission count from the model BEFORE running:
-            // walk through ops and count how many rehydrate-windows contain ≥1 activity.
             let expectedEmissions = 0;
             let inWindow = false;
             for (const op of ops) {
               if (op === 'rehydrate') {
-                inWindow = false; // reset window; activity must follow
+                inWindow = false;
               } else {
-                // op === 'activity'
                 if (!inWindow) {
-                  // Only count this window if a rehydrate has previously occurred.
-                  // We'll check that below by tracking whether we've seen any rehydrate.
                 }
               }
             }
-            // Recompute cleanly: for each contiguous rehydrate→activity segment
-            // (before next rehydrate), count as 1 if rehydrate was followed by ≥1 activity.
             {
               let lastWasRehydrate = false;
               let rehydrateCount = 0;
@@ -1155,10 +1027,9 @@ describe('dispatch', () => {
                   lastWasRehydrate = true;
                   rehydrateCount++;
                 } else {
-                  // activity
                   if (lastWasRehydrate && rehydrateCount > 0) {
                     expectedEmissions++;
-                    lastWasRehydrate = false; // this window is now "consumed"
+                    lastWasRehydrate = false;
                   }
                 }
               }
@@ -1197,7 +1068,11 @@ describe('dispatch', () => {
       );
     });
 
-    // ── TC-4: cold-start cache-miss exercises defensive event-log query ────────
+    /**
+     * A cleared cache simulates a process restart, and the store still holds the first emission.
+     * No new `workflow.rehydrated` event lands. The next dispatch misses the cache, finds the
+     * emission in the event log, and emits nothing.
+     */
     it('T13_ColdStartCacheMiss_DoesNotReemitAfterProcessRestart', async () => {
       const featureId = 'feat-t13-cold-start';
       const seqS = await seedRehydratedT13(featureId);
@@ -1209,8 +1084,6 @@ describe('dispatch', () => {
       }));
 
       try {
-        // First activity — emits machinery_consumed with rehydrateSequence: S,
-        // also populates the process-local cache.
         await dispatch(
           'exarchos_workflow',
           { action: 'get', featureId },
@@ -1220,7 +1093,6 @@ describe('dispatch', () => {
         restore();
       }
 
-      // Verify initial emission.
       const eventsBeforeRestart = await eventStore.query(featureId, {
         type: 'session.machinery_consumed',
       });
@@ -1229,15 +1101,9 @@ describe('dispatch', () => {
         (eventsBeforeRestart[0].data as { rehydrateSequence: number }).rehydrateSequence,
       ).toBe(seqS);
 
-      // Simulate process restart: clear the per-stream cache. The event store
-      // still holds the original emission. The next dispatch must hit the
-      // cache-miss path and perform the defensive event-log query.
       const mod = await import('../../../../src/dispatch/core/interceptors/session-machinery.js');
       mod.__resetMachineryConsumedCache();
 
-      // No new workflow.rehydrated has landed — the sequence hasn't advanced.
-      // A second activity dispatch must NOT emit again (defensive query finds
-      // the existing machinery_consumed at seqS and short-circuits).
       const restore2 = stubCompositeHandler('exarchos_workflow', async () => ({
         success: true,
         data: {},
@@ -1252,7 +1118,6 @@ describe('dispatch', () => {
         restore2();
       }
 
-      // Final assertion: still exactly ONE machinery_consumed event.
       const eventsAfterRestart = await eventStore.query(featureId, {
         type: 'session.machinery_consumed',
       });
@@ -1262,17 +1127,13 @@ describe('dispatch', () => {
       ).toBe(seqS);
     });
 
-    // ── TC-5: concurrent-emission idempotency-key collapse ────────────────────
-    // TODO(T-13): concurrent collapse not exercised here; relies on event-store
-    // RT-5 unique-index guarantee. Two concurrent dispatches sharing
-    // (streamId, rehydrateSequence) collapse to a single durable event at the
-    // AtomicAppender layer via the idempotencyKey UNIQUE constraint. That
-    // behaviour is exercised by the atomic-appender suite; this test layer
-    // cannot trivially simulate the race without deep concurrency harness work.
+    /**
+     * This test checks only the format of the idempotency key on the stored event:
+     * `session.machinery_consumed:<streamId>:<rehydrateSequence>`. It does not run two concurrent
+     * dispatches. The event store uses that key to collapse a race into one event, and the
+     * atomic-appender race suite covers that collapse.
+     */
     it('T13_IdempotencyKey_SameStreamAndSequence_DoesNotDoubleEmitViaKeyCollapse', async () => {
-      // Verify the idempotencyKey on the emitted event carries the canonical
-      // format `session.machinery_consumed:<streamId>:<rehydrateSequence>` so
-      // the event-store UNIQUE INDEX can perform the collapse.
       const featureId = 'feat-t13-key-format';
       const seqS = await seedRehydratedT13(featureId);
 
@@ -1291,31 +1152,22 @@ describe('dispatch', () => {
         restore();
       }
 
-      // Read the raw event and confirm the idempotencyKey shape.
       const allEvents = await eventStore.query(featureId, {});
       const consumed = allEvents.find((e) => e.type === 'session.machinery_consumed');
       expect(consumed).toBeDefined();
-      // The idempotency key is persisted on the event itself (store.ts preserves it).
       const expectedKey = `session.machinery_consumed:${featureId}:${seqS}`;
       expect((consumed as { idempotencyKey?: string }).idempotencyKey).toBe(expectedKey);
     });
   });
 
-  // ─── #1273 / T28 — One-shot vs Tasks-augmented branch at dispatch entry ──
-  //
-  // The Tasks-augmented branch is opt-in via `args.task: { ttl? }`. Without
-  // that key, dispatch MUST preserve the legacy one-shot envelope shape (the
-  // primary regression-guard for this PR). With it, dispatch returns the SDK
-  // `CreateTaskResult`-shaped data, wrapped in a ToolResult envelope so the
-  // outer dispatch surface keeps a single return type for both branches.
-  //
-  // Unit-level synthesis is covered in `dispatch/tasks-augmented.test.ts`;
-  // this block pins the entrypoint behaviour (taskStore wired via
-  // DispatchContext, branch selected on the args.task key) and the one-shot
-  // path's continued correctness when no augmentation is requested.
+  /**
+   * The Tasks-augmented branch is opt-in through `args.task`. Without that key, dispatch returns
+   * the one-shot envelope. With it, dispatch returns data in the shape of the SDK
+   * `CreateTaskResult` inside a `ToolResult`, so both branches have one return type.
+   * `dispatch/tasks-augmented.test.ts` covers the synthesis itself.
+   */
   describe('#1273 Tasks-augmented dispatch entrypoint', () => {
     it('DispatchCore_NoTaskOption_ReturnsEnvelope', async () => {
-      // Arrange — stub composite returns the canonical one-shot ToolResult.
       const { stubCompositeHandler, dispatch } = await import('../../../../src/dispatch/core/dispatch.js');
       const oneShot = async () => ({
         success: true as const,
@@ -1329,20 +1181,15 @@ describe('dispatch', () => {
         const taskStore = new EventSourcedTaskStore(eventStore);
         const dispatchCtx = ctx({ taskStore });
 
-        // Act — describe action, no `task` key in args.
         const result = await dispatch(
           'exarchos_workflow',
           { action: 'describe' },
           dispatchCtx,
         );
 
-        // Assert — legacy one-shot envelope shape preserved.
         expect(result.success).toBe(true);
         expect(result.data).toEqual({ kind: 'one-shot' });
-        // The Tasks-augmented shape (`data.task: { taskId, ... }`) MUST be
-        // absent on the one-shot path.
         expect((result.data as { task?: unknown }).task).toBeUndefined();
-        // No task-store events were created.
         const allEvents = await eventStore.query('');
         const taskEvents = allEvents.filter((e) => e.type === 'task.created');
         expect(taskEvents).toHaveLength(0);
@@ -1351,9 +1198,11 @@ describe('dispatch', () => {
       }
     });
 
+    /**
+     * With `task: { ttl }`, dispatch returns a working task at once. A `task.created` event is on
+     * the stream of the new task.
+     */
     it('DispatchCore_TaskOptionPresent_ReturnsCreateTaskResult', async () => {
-      // Arrange — stub returns one-shot data; Tasks-augmented branch should
-      // wrap the call in a CreateTaskResult envelope and return immediately.
       const { stubCompositeHandler, dispatch } = await import('../../../../src/dispatch/core/dispatch.js');
       const oneShot = async () => ({
         success: true as const,
@@ -1367,14 +1216,12 @@ describe('dispatch', () => {
         const taskStore = new EventSourcedTaskStore(eventStore);
         const dispatchCtx = ctx({ taskStore });
 
-        // Act — describe action with `task: { ttl }` augmentation.
         const result = await dispatch(
           'exarchos_workflow',
           { action: 'describe', task: { ttl: 30_000 } },
           dispatchCtx,
         );
 
-        // Assert — SDK CreateTaskResult-shaped data.
         expect(result.success).toBe(true);
         const data = result.data as {
           task?: { taskId?: string; status?: string; ttl?: number | null };
@@ -1384,8 +1231,6 @@ describe('dispatch', () => {
         expect(data.task!.status).toBe('working');
         expect(data.task!.ttl).toBe(30_000);
 
-        // The composite was triggered; a `task.created` event lives on the
-        // task-store stream for the synthesised taskId.
         const taskEvents = await eventStore.query(
           `task-store/${data.task!.taskId}`,
         );
@@ -1396,12 +1241,11 @@ describe('dispatch', () => {
       }
     });
 
+    /**
+     * A context with no `taskStore`, such as a CLI cold start, must use the one-shot path and must
+     * not fail when the call carries `task`.
+     */
     it('DispatchCore_TaskOptionWithoutTaskStore_FallsBackToOneShot', async () => {
-      // Defensive: when a caller threads `task: {ttl}` but the DispatchContext
-      // has no `taskStore` wired (CLI cold-start, in-process test), dispatch
-      // MUST fall back to the one-shot path rather than crashing. This guards
-      // the Wave-C-incremental rollout where some contexts still lack the
-      // taskStore handle.
       const { stubCompositeHandler, dispatch } = await import('../../../../src/dispatch/core/dispatch.js');
       const oneShot = async () => ({
         success: true as const,
@@ -1423,36 +1267,17 @@ describe('dispatch', () => {
     });
   });
 
-  // ─── F1 regression: dispatch preserves inbound _meta correlation block ─
-  //
-  // Issue #1414 / plan task-1 (2026-05-16-correlation-indexed-columns):
-  //   The dispatch entry point must propagate caller-supplied
-  //   `_meta.correlationId` and `_meta.causationId` onto the returned
-  //   `ToolResult._meta` (both success AND error envelopes), while
-  //   freshly minting `operationId` on every call. The fix landed inline
-  //   at `dispatch.ts:604` via #1428's post-merge hardening (incoming
-  //   correlation parse → `mintDispatchContext({correlationId, causationId})`
-  //   → `attachMeta` non-destructive merge with caller wins at lines
-  //   614-632). This test locks that contract so a future refactor of
-  //   the per-action validation / workspace-resolution branches cannot
-  //   silently drop the caller's correlation chain.
-  //
-  // Test strategy: use `exarchos_workflow/get` with a non-existent
-  // featureId — the handler returns a NOT_FOUND error envelope, which
-  // exercises the error branch of `attachMeta` and proves _meta is
-  // attached even when `success === false`.
+  /**
+   * Dispatch must copy the `_meta.correlationId` and `_meta.causationId` of the caller to the
+   * result, and it mints a new UUID `operationId` for each call. The test accepts a success or
+   * an error, because dispatch attaches `_meta` to both.
+   */
   it('Dispatch_BuiltInTool_PreservesInbound_meta', async () => {
-    // Arrange
     const { dispatch } = await import('../../../../src/dispatch/core/dispatch.js');
     const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     const inboundCorrelationId = 'corr-from-caller-7';
     const inboundCausationId = 'event-upstream-3';
 
-    // Act — minimal DispatchContext: memory-backed event store + tmpDir,
-    // no MCP roots, no elicitation client, no rootsClient. The featureId
-    // 'test-feature' is intentionally absent from the store; we only
-    // care about _meta propagation, which happens on both success and
-    // error envelopes (dispatch.ts:614-632).
     const result = await dispatch(
       'exarchos_workflow',
       {
@@ -1466,27 +1291,20 @@ describe('dispatch', () => {
       ctx(),
     );
 
-    // Assert — _meta block present regardless of success/error branch.
     const meta = (result as { _meta?: Record<string, unknown> })._meta;
     expect(meta, `Expected result._meta to be present. Got: ${JSON.stringify(result)}`).toBeDefined();
     expect(meta!.correlationId).toBe(inboundCorrelationId);
     expect(meta!.causationId).toBe(inboundCausationId);
-    // operationId is always freshly minted per dispatch — never inherited
-    // from caller — and must be a UUID v4 string.
     expect(typeof meta!.operationId).toBe('string');
     expect(meta!.operationId as string).toMatch(UUID_RE);
   });
 
-  // T1 (#1446 residue) — DR-5 dispatch validation for the three view
-  // actions that were dispatched through `projections/views/composite.ts` but missing
-  // from `TOOL_REGISTRY.viewActions`. Before T1, dispatching with bad args
-  // returned the generic "unknown action" error from dispatch.ts:650-657
-  // (action not in registry), so callers could not distinguish "the action
-  // doesn't exist" from "the action exists but the args are malformed".
-  // After T1, the same path that fires for Wave 5 actions post-#1437 must
-  // also fire here: the action is found, the per-action schema rejects the
-  // malformed input, and the envelope carries the Zod issue path (the field
-  // name the caller got wrong).
+  /**
+   * The listed view actions are in the registry, so dispatch finds the action and its schema
+   * rejects malformed input. `workflowId` is an optional string on each schema, so a number
+   * fails. The error must name the field `workflowId`. An "unknown action" error names no field,
+   * and it means that the action is not in the registry.
+   */
   describe('T1 — DR-5 dispatch validation for newly registered view actions', () => {
     const NEWLY_REGISTERED_VIEW_ACTIONS = [
       'session_provenance',
@@ -1497,10 +1315,6 @@ describe('dispatch', () => {
       it(`ExarchosViewDispatch_OnInvalidArgsForNewlyRegisteredAction_ReturnsZodValidationError_${action}`, async () => {
         const { dispatch } = await import('../../../../src/dispatch/core/dispatch.js');
 
-        // workflowId is declared as `z.string().optional()` on every one of
-        // the three new schemas, so passing a number triggers a `z.string`
-        // type-mismatch — the canonical post-T1 Zod surface, distinct from
-        // the pre-T1 "unknown action" surface.
         const result = await dispatch(
           'exarchos_view',
           { action, workflowId: 123 },
@@ -1511,12 +1325,6 @@ describe('dispatch', () => {
         expect(result.error?.code).toBe('INVALID_INPUT');
 
         const message = result.error?.message ?? '';
-        // Post-T1: Zod validation fires. The message MUST reference the
-        // offending field path (`workflowId`) — that's the discriminator
-        // between the per-action validation envelope and the registry's
-        // "unknown action" envelope. Pre-T1 the message reads:
-        //   `exarchos_view: unknown action "<action>". Valid actions: ...`
-        // which contains the action name but never the field name.
         expect(
           message,
           `Expected Zod validation to reject 'workflowId: 123' for action ` +
@@ -1531,45 +1339,32 @@ describe('dispatch', () => {
     }
   });
 
-  // ─── #1451 — extractSingleMissingRequiredField under Zod v4 ─────────────
-  //
-  // Zod v4 dropped the non-standard `received` property from
-  // `invalid_type` issues. The pre-fix narrowing required
-  // `issue.received === 'undefined'` (a Zod v3-only string signal), so under
-  // Zod v4 the helper rejected every missing-field issue and elicitation
-  // never fired. The dual-signal fix accepts either:
-  //   - `received === 'undefined'` (Zod v3 string signal), OR
-  //   - `received === undefined`   (property absent — Zod v4 shape).
-  // The `input !== undefined` check at the top of the helper still
-  // disambiguates wrong-type from missing-field, so the relaxed `received`
-  // gate cannot regress CodeRabbit CRITICAL #1424.
+  /**
+   * Zod v4 puts no `received` property on an `invalid_type` issue. The helper accepts an absent
+   * `received` (Zod v4) and the string `'undefined'` (Zod v3). Its `input !== undefined` check
+   * still tells a wrong type from a missing field.
+   */
   describe('extractSingleMissingRequiredField — Zod v4 issue shape (#1451)', () => {
+    /** A real Zod v4 parse of an empty payload gives the issue shape that production sees. */
     it('ExtractSingleMissingRequiredField_ZodV4MissingFieldNoReceivedProperty_ReturnsKey', () => {
-      // Arrange — real Zod v4 parse of an empty payload against a single
-      // required string field. This grounds the test in the actual issue
-      // shape Zod v4 emits in production rather than a hand-rolled stub.
       const schema = z.object({ featureId: z.string() });
       const parsed = schema.safeParse({}, { reportInput: true });
 
       expect(parsed.success).toBe(false);
-      if (parsed.success) return; // type-narrow for TS
-      // Sanity: Zod v4 omits `received` entirely on missing-field issues.
+      if (parsed.success) return;
       const issue = parsed.error.issues[0] as { received?: unknown };
       expect('received' in issue).toBe(false);
 
-      // Act
       const result = extractSingleMissingRequiredField(parsed.error);
 
-      // Assert — helper must return the missing key, not undefined.
       expect(result).toBe('featureId');
     });
 
+    /**
+     * With `reportInput: true` the issue carries `input: 42`, so the helper rejects a wrong type
+     * before the `received` check.
+     */
     it('ExtractSingleMissingRequiredField_ZodV4WrongTypeNumber_ReturnsUndefined', () => {
-      // Arrange — caller passed a number where a string was expected. In
-      // Zod v4 the issue shape includes `input: 42` (populated because of
-      // reportInput: true), and the `input !== undefined` guard at the top
-      // of the helper screens this out — never reaching the `received`
-      // gate. The helper must continue to refuse to elicit on wrong type.
       const schema = z.object({ featureId: z.string() });
       const parsed = schema.safeParse({ featureId: 42 }, { reportInput: true });
 
@@ -1578,27 +1373,23 @@ describe('dispatch', () => {
       const issue = parsed.error.issues[0] as { input?: unknown };
       expect(issue.input).toBe(42);
 
-      // Act
       const result = extractSingleMissingRequiredField(parsed.error);
 
-      // Assert — wrong-type must NOT be treated as missing.
       expect(result).toBeUndefined();
     });
   });
 
-  // ─── T11 (#1440 Op 4) — retry_with_task hint emission ─────────────────
-  //
-  // When a `dispatch.taskSuitable === true` action is invoked WITHOUT a
-  // `task: { ttl }` augmentation and the dispatch elapsed time exceeds
-  // the threshold (default 10_000 ms), the dispatch boundary prepends a
-  // `{ verb: 'retry_with_task', reason, ttl_suggestion_ms }` next-action
-  // to `result.next_actions`. This teaches callers the augmentation
-  // surface through use (design 2026-05-17-preview-4 §4.4).
-  //
-  // The annotation is sourced from the action's `dispatch.taskSuitable`
-  // and `dispatch.taskTtlSuggestionMs` fields in the registry. The
-  // canonical fixture is `exarchos_workflow.cleanup` which carries
-  // `dispatch: { taskSuitable: true, taskTtlSuggestionMs: 60_000 }`.
+  /**
+   * A task-suitable action that runs longer than 10,000 ms without `task: { ttl }` gets a
+   * `retry_with_task` entry first in `next_actions`. The rule has three conditions: the action
+   * is `taskSuitable`, the call has no task augmentation, and the elapsed time is above the
+   * threshold. Each negative test breaks one condition. `exarchos_workflow.cleanup` declares
+   * `dispatch: { taskSuitable: true, taskTtlSuggestionMs: 60_000 }`.
+   *
+   * `installClockSequence` mocks `Date.now`, so no test waits. The first call returns the first
+   * value, and each later call returns the last value. The first call must be the read at
+   * dispatch entry. A `Date.now` call before that read makes the elapsed time 0.
+   */
   describe('retry_with_task hint (Preview-4 §4.4)', () => {
     let dateNowSpy: ReturnType<typeof vi.spyOn> | undefined;
 
@@ -1609,14 +1400,6 @@ describe('dispatch', () => {
       }
     });
 
-    /**
-     * Install a `Date.now` spy that returns a deterministic sequence of
-     * timestamps. Used to drive the hint's elapsed-time check without
-     * actually waiting >10s. The dispatch core does not call `Date.now`
-     * anywhere else in its own body, so this spy only interacts with the
-     * hint emission path (plus any composite-level perf accounting,
-     * which is bypassed when we stub the composite handler directly).
-     */
     function installClockSequence(values: readonly number[]): void {
       let i = 0;
       dateNowSpy = vi.spyOn(Date, 'now').mockImplementation(() => {
@@ -1627,10 +1410,6 @@ describe('dispatch', () => {
     }
 
     it('RetryWithTaskHint_TaskSuitableActionWithoutTaskTtlExceededThreshold_PrependsHint', async () => {
-      // Arrange — stub the workflow composite to short-circuit the real
-      // cleanup pipeline. The stub returns a minimal success envelope
-      // with no pre-existing next_actions so the assertion can focus on
-      // the boundary-injected hint.
       const { stubCompositeHandler, dispatch } = await import('../../../../src/dispatch/core/dispatch.js');
       const stub = async (_args: Record<string, unknown>, _ctx: DispatchContext): Promise<ToolResult> => ({
         success: true,
@@ -1638,8 +1417,6 @@ describe('dispatch', () => {
       });
       const restore = stubCompositeHandler('exarchos_workflow', stub);
 
-      // Drive Date.now: 0 at dispatch entry, 11_000 after handler
-      // returns. 11_000 > 10_000 threshold so the hint fires.
       installClockSequence([0, 11_000]);
 
       try {
@@ -1653,7 +1430,6 @@ describe('dispatch', () => {
           ctx(),
         );
 
-        // Assert — the hint is the FIRST entry in next_actions.
         expect(result.success).toBe(true);
         const nextActions = (result as ToolResult & { next_actions?: readonly { verb: string; reason: string; ttl_suggestion_ms?: number }[] }).next_actions;
         expect(nextActions).toBeDefined();
@@ -1668,15 +1444,8 @@ describe('dispatch', () => {
       }
     });
 
-    // ─── T12 — Negative paths ────────────────────────────────────────────
-    //
-    // The emission rule is conditional on three predicates ANDed together
-    // (taskSuitable && !taskAugmented && elapsedMs > threshold). Each
-    // negative test breaks exactly one predicate to pin the boundary.
-
+    /** The elapsed time is 9,999 ms. The rule uses `>`, so 10,000 ms also gives no hint. */
     it('RetryWithTaskHint_ElapsedBelowThreshold_HintNotEmitted', async () => {
-      // Arrange — same task-suitable action (`cleanup`), no `task: { ttl }`,
-      // but elapsed = 9_999 ms which is below the 10_000 ms threshold.
       const { stubCompositeHandler, dispatch } = await import('../../../../src/dispatch/core/dispatch.js');
       const stub = async (_args: Record<string, unknown>, _ctx: DispatchContext): Promise<ToolResult> => ({
         success: true,
@@ -1684,8 +1453,6 @@ describe('dispatch', () => {
       });
       const restore = stubCompositeHandler('exarchos_workflow', stub);
 
-      // 0 → 9_999: strictly below 10_000 (the rule uses `>` not `>=`, so
-      // even exactly 10_000 would still suppress the hint).
       installClockSequence([0, 9_999]);
 
       try {
@@ -1699,14 +1466,11 @@ describe('dispatch', () => {
           ctx(),
         );
 
-        // Assert — no retry_with_task entry in next_actions (it may be
-        // absent or empty, but if present must not start with the hint).
         expect(result.success).toBe(true);
         const nextActions = (result as ToolResult & { next_actions?: readonly { verb: string }[] }).next_actions;
         if (nextActions !== undefined && nextActions.length > 0) {
           expect(nextActions[0].verb).not.toBe('retry_with_task');
         }
-        // Stronger: no entry anywhere in the array is the hint verb.
         const hasHint = (nextActions ?? []).some((n) => n.verb === 'retry_with_task');
         expect(hasHint).toBe(false);
       } finally {
@@ -1714,10 +1478,11 @@ describe('dispatch', () => {
       }
     });
 
+    /**
+     * `exarchos_view describe` does not declare `dispatch.taskSuitable`, so a long elapsed time
+     * gives no hint.
+     */
     it('RetryWithTaskHint_ActionNotTaskSuitable_HintNotEmitted', async () => {
-      // Arrange — `exarchos_view describe` is NOT annotated with
-      // `dispatch.taskSuitable` (read-only pure introspection over the
-      // registry). Even with a long elapsed time, the hint must not fire.
       const { stubCompositeHandler, dispatch } = await import('../../../../src/dispatch/core/dispatch.js');
       const stub = async (_args: Record<string, unknown>, _ctx: DispatchContext): Promise<ToolResult> => ({
         success: true,
@@ -1725,7 +1490,7 @@ describe('dispatch', () => {
       });
       const restore = stubCompositeHandler('exarchos_view', stub);
 
-      installClockSequence([0, 30_000]); // way above threshold
+      installClockSequence([0, 30_000]);
 
       try {
         const result = await dispatch(
@@ -1743,18 +1508,12 @@ describe('dispatch', () => {
       }
     });
 
+    /**
+     * The caller already sent `task: { ttl }`. This context has no `taskStore`, so the call uses
+     * the one-shot path. The suppression must depend on the request of the caller and not on the
+     * path that ran. Otherwise a fallback caller gets a hint to retry with the TTL that it sent.
+     */
     it('RetryWithTaskHint_TaskTtlAlreadyThreaded_HintNotEmitted', async () => {
-      // Arrange — caller threaded `task: { ttl: 60_000 }`, so the hint
-      // would be tautological. Even with elapsed > threshold and a
-      // task-suitable action, the emission must be suppressed.
-      //
-      // Note: the underlying `runTasksAugmented` path requires
-      // `ctx.taskStore` and capability gating to actually fire; without
-      // them (as here), `taskAugmented` is true but the call falls back
-      // to one-shot. The hint suppression must depend on `taskAugmented`
-      // (the caller's stated intent), NOT on whether the task path
-      // actually engaged — otherwise a fallback caller would receive a
-      // confusing hint to retry with the same TTL they already supplied.
       const { stubCompositeHandler, dispatch } = await import('../../../../src/dispatch/core/dispatch.js');
       const stub = async (_args: Record<string, unknown>, _ctx: DispatchContext): Promise<ToolResult> => ({
         success: true,
@@ -1762,7 +1521,7 @@ describe('dispatch', () => {
       });
       const restore = stubCompositeHandler('exarchos_workflow', stub);
 
-      installClockSequence([0, 30_000]); // above threshold
+      installClockSequence([0, 30_000]);
 
       try {
         const result = await dispatch(
@@ -1785,31 +1544,22 @@ describe('dispatch', () => {
       }
     });
 
-    // ─── T12 — Integration test ──────────────────────────────────────────
-    //
-    // End-to-end through the full dispatch flow (correlation context,
-    // built-in action validation, composite invocation, attachMeta) for
-    // a task-suitable annotated action. The composite handler is stubbed
-    // to short-circuit the real merge orchestration logic but the rest
-    // of the dispatch pipeline runs unchanged.
-
+    /**
+     * The full dispatch flow for `merge_orchestrate`, with a stubbed composite handler. The stub
+     * returns one `next_actions` entry. Dispatch must put the hint before that entry and still
+     * attach the `_meta` correlation block.
+     */
     it('Dispatch_SlowTaskSuitableAction_EmitsRetryWithTaskHintInMeta', async () => {
-      // Arrange — stub `exarchos_orchestrate` so `merge_orchestrate`
-      // returns a minimal envelope without performing real VCS work.
-      // The boundary hint emission runs AFTER this stub returns.
       const { stubCompositeHandler, dispatch } = await import('../../../../src/dispatch/core/dispatch.js');
       const stub = async (_args: Record<string, unknown>, _ctx: DispatchContext): Promise<ToolResult> => ({
         success: true,
         data: { mergeSha: 'abc1234', strategy: 'squash' },
-        // Simulate a result that already has SOME workflow-derived hint;
-        // the boundary hint must be PREPENDED, not replace these.
         next_actions: [
           { verb: 'completed', reason: 'merge finished' },
         ],
       });
       const restore = stubCompositeHandler('exarchos_orchestrate', stub);
 
-      // 0 → 12_500: well above 10s threshold.
       installClockSequence([0, 12_500]);
 
       try {
@@ -1825,8 +1575,6 @@ describe('dispatch', () => {
           ctx(),
         );
 
-        // Assert — envelope is successful, hint is FIRST in next_actions,
-        // existing handler-supplied hint is preserved after.
         expect(result.success).toBe(true);
         const nextActions = (result as ToolResult & { next_actions?: readonly { verb: string; ttl_suggestion_ms?: number }[] }).next_actions;
         expect(nextActions).toBeDefined();
@@ -1834,7 +1582,6 @@ describe('dispatch', () => {
         expect(nextActions![0].verb).toBe('retry_with_task');
         expect(nextActions![0].ttl_suggestion_ms).toBe(60_000);
         expect(nextActions![1].verb).toBe('completed');
-        // _meta correlation block must still be attached by attachMeta.
         const meta = (result as ToolResult & { _meta?: Record<string, unknown> })._meta;
         expect(meta).toBeDefined();
         expect(typeof meta!.operationId).toBe('string');
@@ -1844,23 +1591,6 @@ describe('dispatch', () => {
     });
   });
 });
-
-// ─── Post-dispatch emission verifier ────────────────────────────────────────
-//
-// The verifier can only report on a dispatch it is REACHED by. A branch that
-// returns before it — with a handler already run — is not a weaker check, it is
-// no check at all for that branch, and nothing about the green suite would say
-// so. These assertions are therefore structural: they read the shipped
-// `dispatch()` source, classify every one of its return sites by what has
-// happened to the handler at that point, and demand that the classes DECLARED
-// applicable (`RETURN_CLASS_APPLICABILITY`, in the interceptor module) route
-// through the verifier call.
-//
-// The applicability declaration is the load-bearing half. Without it the
-// assertion has two failure modes and both look reasonable from the outside:
-// assert over every return and it is permanently red on the refusal branches
-// that never reach a handler; narrow it to whatever is green and it has quietly
-// stopped covering anything.
 
 /** One `return` in dispatch()'s own control flow, classified. */
 interface ClassifiedReturn {
@@ -1884,7 +1614,7 @@ const VERIFIER_CALLEE = 'runEmissionVerifierInterceptor';
 const SCOPE_CALLEE = 'runWithDispatchContext';
 const HANDLER_BINDING = 'coreHandler';
 
-/** Nested functions own their returns; only dispatch's own flow is in scope. */
+/** A nested function owns its returns. Only the flow of `dispatch()` itself is in scope. */
 function isOwnScopeFunction(node: ts.Node): boolean {
   return (
     ts.isFunctionDeclaration(node) ||
@@ -1896,19 +1626,21 @@ function isOwnScopeFunction(node: ts.Node): boolean {
 }
 
 /**
- * Classify every return site in `dispatch()`.
+ * Classifies each return site in `dispatch()`. A missing anchor throws. An anchor that reads as
+ * offset 0 makes each comparison a constant, and then the assertion always passes.
  *
- * Anchors are resolved, never assumed: a missing one THROWS rather than
- * resolving to offset 0, because an anchor that silently reads as "position
- * zero" turns every comparison below into `x > 0` and the whole assertion into
- * a pass. Deleting the verifier call must make this red, not quiet.
+ * The callback of `runWithDispatchContext` is the continuation of `dispatch()`, so its returns
+ * count. The walk skips all other nested functions. The `return` of that call is the scope entry
+ * and is not a site. The outer `try` is a direct statement of the scope body. The handler region
+ * ends at the last statement of that `try` block that uses `coreHandler`. The declaration name
+ * of `coreHandler` is not a use.
  */
 function classifyDispatchReturns(source: string): DispatchStructure {
   const sf = ts.createSourceFile(
     'dispatch.ts',
     source,
     ts.ScriptTarget.Latest,
-    /* setParentNodes */ true,
+    true,
     ts.ScriptKind.TS,
   );
 
@@ -1926,10 +1658,6 @@ function classifyDispatchReturns(source: string): DispatchStructure {
   const calleeNameOf = (node: ts.CallExpression): string | undefined =>
     ts.isIdentifier(node.expression) ? node.expression.text : undefined;
 
-  // The async-local scope callback is dispatch()'s own continuation, not a
-  // separate function: its returns ARE dispatch's returns. Every OTHER nested
-  // function (`attachMeta`, the streamId IIFE, the telemetry wrappers) owns its
-  // returns and must not be walked into.
   let scopeBody: ts.Node | undefined;
   const findScope = (node: ts.Node): void => {
     if (ts.isCallExpression(node) && calleeNameOf(node) === SCOPE_CALLEE) {
@@ -1948,8 +1676,6 @@ function classifyDispatchReturns(source: string): DispatchStructure {
     );
   }
 
-  // The OUTER try/catch, a direct statement of the scope body. The inner try
-  // blocks (workspace discovery, elicitation) are not it.
   let outerTry: ts.TryStatement | undefined;
   if (ts.isBlock(scopeBody)) {
     for (const statement of scopeBody.statements) {
@@ -1961,10 +1687,6 @@ function classifyDispatchReturns(source: string): DispatchStructure {
   }
   const catchClause = outerTry.catchClause;
 
-  // The handler region: the LAST direct statement of the try block that mentions
-  // the raw handler binding. Everything after it has a completed handler behind
-  // it. The `const coreHandler = …` declaration NAME is the binding site, not a
-  // use — the region starts once the handler is actually reached for.
   const mentionsHandler = (node: ts.Node): boolean => {
     let found = false;
     const visit = (n: ts.Node): void => {
@@ -2007,8 +1729,6 @@ function classifyDispatchReturns(source: string): DispatchStructure {
         'branch bypasses it.',
     );
   }
-  // Walk out to the enclosing statement so a seeded bypass can be spliced in
-  // ahead of the whole `await …;` line rather than inside its argument list.
   let verifierStatement: ts.Node = verifierCall;
   while (!ts.isStatement(verifierStatement) && verifierStatement.parent !== undefined) {
     verifierStatement = verifierStatement.parent;
@@ -2024,9 +1744,6 @@ function classifyDispatchReturns(source: string): DispatchStructure {
     if (isOwnScopeFunction(node)) return;
     if (ts.isReturnStatement(node)) {
       const expression = node.expression;
-      // `return runWithDispatchContext(ctx, async () => …)` is the scope ENTRY,
-      // not a dispatch outcome — its value is whatever the scope returns, and
-      // the scope's own returns are already classified below.
       const isScopeEntry =
         expression !== undefined &&
         ts.isCallExpression(expression) &&
@@ -2059,11 +1776,9 @@ function classifyDispatchReturns(source: string): DispatchStructure {
 }
 
 /**
- * The return sites that bypass the verifier: applicable by the DECLARED policy,
- * yet positioned so control leaves dispatch() without reaching the call. Driven
- * off `RETURN_CLASS_APPLICABILITY` rather than a hard-wired class name, so the
- * declaration is what the assertion consults — flip an entry and the obligation
- * moves with it.
+ * The return sites that bypass the verifier. The declared policy makes each one applicable, but
+ * control leaves `dispatch()` before the call. The filter reads `RETURN_CLASS_APPLICABILITY` and
+ * no fixed class name, so a changed entry moves the obligation.
  */
 function bypassingReturns(structure: DispatchStructure): readonly ClassifiedReturn[] {
   const applicable = new Set(applicableReturnClasses());
@@ -2072,21 +1787,32 @@ function bypassingReturns(structure: DispatchStructure): readonly ClassifiedRetu
   );
 }
 
+/**
+ * The verifier reports only on a dispatch that reaches it. These tests read the `dispatch()`
+ * source and classify each return site by the state of the handler at that point. Each class
+ * that `RETURN_CLASS_APPLICABILITY` declares applicable must go through the verifier call.
+ *
+ * The declaration keeps the assertion honest. An assertion over each return is always red on
+ * the refusal branches that reach no handler. An assertion cut down to the green set covers
+ * nothing.
+ */
 describe('emission verifier — structural reachability', () => {
   const DISPATCH_SOURCE_PATH = resolve(
     dirname(fileURLToPath(import.meta.url)),
     '../../../../src/dispatch/core/dispatch.ts',
   );
 
+  /**
+   * The denominators come first: each of the three declared classes must have a return site in
+   * the live function. A classifier that finds no `handler-completing` site reports an empty
+   * bypass set, which reads as a pass. The pre-handler branches are exempt by declaration, with
+   * the reason `handler-did-not-run`. Then comes the subject: no applicable return leaves
+   * `dispatch()` before the verifier call.
+   */
   it('EmissionVerifier_EveryHandlerCompletingBranch_ReachesIt', () => {
     const source = readFileSync(DISPATCH_SOURCE_PATH, 'utf-8');
     const structure = classifyDispatchReturns(source);
 
-    // ── Denominators, so a broken walk cannot pass by finding nothing ──
-    //
-    // Every one of the three declared classes must be REPRESENTED in the live
-    // function. A classifier that quietly stopped producing `handler-completing`
-    // sites would report an empty bypass set and read exactly like a clean pass.
     const byClass = new Map<DispatchReturnClass, ClassifiedReturn[]>();
     for (const cls of DISPATCH_RETURN_CLASSES) byClass.set(cls, []);
     for (const site of structure.returns) byClass.get(site.cls)?.push(site);
@@ -2102,9 +1828,6 @@ describe('emission verifier — structural reachability', () => {
       DISPATCH_RETURN_CLASSES.reduce((n, cls) => n + (byClass.get(cls)?.length ?? 0), 0),
     );
 
-    // The pre-handler branches are the measured bypass set, and they are exempt
-    // by DECLARATION — `handler-did-not-run`, recorded in the interceptor module
-    // — not because the assertion was trimmed to fit them.
     expect(RETURN_CLASS_APPLICABILITY['pre-handler']).toEqual({
       applicable: false,
       reason: 'handler-did-not-run',
@@ -2115,7 +1838,6 @@ describe('emission verifier — structural reachability', () => {
     });
     expect(RETURN_CLASS_APPLICABILITY['handler-completing']).toEqual({ applicable: true });
 
-    // ── THE SUBJECT. Nothing applicable leaves dispatch() before the verifier ──
     const bypassing = bypassingReturns(structure);
     expect(
       bypassing.map((site) => `line ${site.line}: ${site.text}`),
@@ -2126,16 +1848,17 @@ describe('emission verifier — structural reachability', () => {
     ).toEqual([]);
   });
 
+  /**
+   * The live tree must be clean first, or the seed proves nothing. The seed is one early return
+   * after the handler and before the verifier call, which reads as a guard clause. The seeded
+   * tree must hold one more `handler-completing` return than the clean tree. Thus the seed is an
+   * addition and not a reclassified site.
+   */
   it('EmissionVerifier_SeededBypassingBranch_FailsTheAssertion', () => {
     const source = readFileSync(DISPATCH_SOURCE_PATH, 'utf-8');
 
-    // A. The live tree is clean — otherwise B proves nothing about the seed.
     expect(bypassingReturns(classifyDispatchReturns(source))).toEqual([]);
 
-    // B. Seed one bypassing branch: a return placed after the handler has run
-    // but ahead of the verifier call. This is the exact shape of the regression
-    // the assertion exists to catch — an early-out added to the post-handler
-    // stretch of dispatch(), which reads as an ordinary guard clause.
     const anchor = classifyDispatchReturns(source).verifierStatementStart;
     const seeded =
       source.slice(0, anchor) +
@@ -2154,9 +1877,6 @@ describe('emission verifier — structural reachability', () => {
     expect(caught[0]?.start ?? -1).toBeLessThan(seededStructure.verifierCallEnd);
     expect(caught[0]?.start ?? -1).toBeGreaterThan(seededStructure.handlerRegionEnd);
 
-    // And the seeded branch is a genuine ADDITION, not a reclassification of an
-    // existing site: the clean tree has N handler-completing returns, the seeded
-    // tree has N+1.
     const completing = (s: DispatchStructure): number =>
       s.returns.filter((r) => r.cls === 'handler-completing').length;
     expect(completing(seededStructure)).toBe(completing(classifyDispatchReturns(source)) + 1);
@@ -2171,11 +1891,12 @@ describe('emission verifier — contract evaluation', () => {
     owner: 'test',
   });
 
+  /**
+   * An action with only conditional edges promises nothing unconditionally, so the verdict is
+   * `not-applicable` and not `ok`. A conditional event that lands also cannot satisfy an
+   * unconditional edge that did not land.
+   */
   it('EmissionVerifier_ConditionalOnlyAction_IsNotApplicableRatherThanOk', () => {
-    // Out of subject is NOT a pass. An action whose every edge is conditional
-    // has promised nothing unconditionally, so there is nothing to have kept —
-    // reporting `ok` would be a green tick for a check that never ran, and `ok`
-    // is what a caller reads as "the contract held".
     const verdict = verifyDeclaredEmissions({
       declared: [
         edge('workflow.compensation', 'conditional'),
@@ -2188,9 +1909,6 @@ describe('emission verifier — contract evaluation', () => {
     expect(verdict.reason).toBe('no-unconditional-contract');
     expect(verdict.required).toEqual([]);
 
-    // A conditional edge cannot satisfy an unconditional one either: the
-    // conditional event LANDED here and the unconditional one did not, and the
-    // verdict is still a violation naming the unconditional edge.
     const mixed = verifyDeclaredEmissions({
       declared: [edge('workflow.started', 'always'), edge('workflow.compensation', 'conditional')],
       streamId: 'feat-x',
@@ -2201,6 +1919,10 @@ describe('emission verifier — contract evaluation', () => {
     expect(mixed.required).toEqual(['workflow.started']);
   });
 
+  /**
+   * The verdict lists each missing event and not only the first. Otherwise each repair shows
+   * the next miss.
+   */
   it('EmissionVerifier_MissingUnconditionalEmissions_ReportsTheFullSet', () => {
     const verdict = verifyDeclaredEmissions({
       declared: [
@@ -2211,8 +1933,6 @@ describe('emission verifier — contract evaluation', () => {
       streamId: 'feat-x',
       landed: ['vcs.requested'],
     });
-    // Full set, not the first miss — otherwise each repair uncovers the next and
-    // the fault reads smaller every time anyone looks at it.
     expect(verdict.status).toBe('violated');
     expect(verdict.missingEvents).toEqual(['promotion.executed', 'vcs.executed']);
 
@@ -2225,6 +1945,10 @@ describe('emission verifier — contract evaluation', () => {
     expect(clean.missingEvents).toEqual([]);
   });
 
+  /**
+   * The finding must stay after the run, so the verifier appends `emission.violated` to the
+   * stream.
+   */
   it('EmissionVerifier_UnlandedContract_AppendsTheViolationToTheLog', async () => {
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'emission-verifier-'));
     const store = new EventStore(tmp);
@@ -2240,7 +1964,6 @@ describe('emission verifier — contract evaluation', () => {
       expect(verdict.status).toBe('violated');
       expect(verdict.missingEvents).toEqual(['workflow.started']);
 
-      // The finding has to outlive the run that noticed it.
       const written = await store.query('feat-verifier', { type: 'emission.violated' });
       expect(written.length).toBe(1);
       expect(written[0]?.data).toMatchObject({
@@ -2254,15 +1977,17 @@ describe('emission verifier — contract evaluation', () => {
     }
   });
 
+  /**
+   * A store that the verifier cannot read gives no answer. The verdict is `indeterminate`, not
+   * `ok` and not `not-applicable`. The verifier must not throw, because a throw fails a dispatch
+   * that worked.
+   */
   it('EmissionVerifier_UnreadableStore_IsIndeterminateAndNeverThrows', async () => {
     const failingStore = {
       query: vi.fn().mockRejectedValue(new Error('boom — synthetic store failure')),
       append: vi.fn(),
     } as unknown as EventStore;
 
-    // An unread store is an unanswered question, not a clean bill and not a
-    // benign exemption — and a verifier that threw would turn a working
-    // dispatch into a failed one.
     const verdict = await runEmissionVerifierInterceptor(failingStore, {
       tool: 'exarchos_workflow',
       action: 'init',
@@ -2276,10 +2001,11 @@ describe('emission verifier — contract evaluation', () => {
     expect(failingStore.append).not.toHaveBeenCalled();
   });
 
+  /**
+   * The read finds a real miss, but the append of the finding fails. The run holds no durable
+   * answer, so the verdict is `indeterminate` with the cause `verification-fault`.
+   */
   it('EmissionVerifier_UnrecordableFinding_IsIndeterminateRatherThanSilentlyDropped', async () => {
-    // The read succeeded and found a genuine miss; recording it did not. The
-    // run holds no durable answer either way, so it reports one it does not
-    // have rather than a verdict whose evidence was never written.
     const halfBrokenStore = {
       query: vi.fn().mockResolvedValue([]),
       append: vi.fn().mockRejectedValue(new Error('boom — synthetic append failure')),

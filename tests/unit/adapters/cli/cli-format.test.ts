@@ -35,7 +35,6 @@ describe('prettyPrint', () => {
 
     const stderrOutput = stderrSpy.mock.calls.map(c => c[0]).join('');
     expect(stderrOutput).toContain('Error [INVALID_PHASE]: Phase not found');
-    // stdout should NOT have data output
     const stdoutOutput = stdoutSpy.mock.calls.map(c => c[0]).join('');
     expect(stdoutOutput).not.toContain('Phase not found');
   });
@@ -143,7 +142,6 @@ describe('prettyPrint', () => {
     prettyPrint(result, 'table');
 
     const stdoutOutput = stdoutSpy.mock.calls.map(c => c[0]).join('');
-    // Should have header and rows with aligned columns
     expect(stdoutOutput).toContain('name');
     expect(stdoutOutput).toContain('role');
     expect(stdoutOutput).toContain('Alice');
@@ -186,7 +184,6 @@ describe('prettyPrint', () => {
     prettyPrint(result);
 
     const stdoutOutput = stdoutSpy.mock.calls.map(c => c[0]).join('');
-    // Should infer table format for arrays of objects
     expect(stdoutOutput).toContain('id');
     expect(stdoutOutput).toContain('name');
     expect(stdoutOutput).toContain('task1');
@@ -262,8 +259,6 @@ describe('printError', () => {
   });
 });
 
-// ─── toCliResult (Wave 0 D.2/D.3) ───────────────────────────────────────────
-
 describe('toCliResult', () => {
   let stdoutSpy: ReturnType<typeof vi.spyOn>;
   let stderrSpy: ReturnType<typeof vi.spyOn>;
@@ -272,7 +267,6 @@ describe('toCliResult', () => {
   beforeEach(() => {
     stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-    // Snapshot env var so each test starts clean and we restore in afterEach.
     originalOptOut = process.env.EXARCHOS_CLI_ENVELOPE;
     delete process.env.EXARCHOS_CLI_ENVELOPE;
   });
@@ -285,6 +279,7 @@ describe('toCliResult', () => {
     }
   });
 
+  /** In the `json` format the envelope carries the metadata, so nothing goes to stderr. */
   it('toCliResult_JsonFormat_WritesEnvelopeOnStdout', () => {
     const source: ToolResult = {
       success: true,
@@ -298,7 +293,6 @@ describe('toCliResult', () => {
 
     const stdoutOutput = stdoutSpy.mock.calls.map(c => c[0]).join('');
     expect(stdoutOutput).toBe(JSON.stringify(env, null, 2) + '\n');
-    // Sidebars roll into the envelope under json — no stderr writes.
     expect(stderrSpy).not.toHaveBeenCalled();
   });
 
@@ -318,20 +312,12 @@ describe('toCliResult', () => {
     expect(stderrSpy).not.toHaveBeenCalled();
   });
 
-  // ─── #1448 item 3 — next_actions field integrity through one-shot dispatch ─
-  //
-  // Regression guard pinning that `next_actions` survives the one-shot
-  // dispatch pipeline (`toEnvelope` → `toCliResult` → JSON on stdout). The
-  // T3 investigation (Branch B, see
-  // `docs/plans/archive/2026-05-16-correlation-consumer-wiring.md` Wave 1 Task 3)
-  // established that NO production auto-dispatch handler exists; the
-  // CLI / MCP adapter is the one-shot exit point and the caller
-  // (orchestrator / agent harness) is the next_actions consumer. This
-  // test pins the field-integrity contract at the caller boundary so
-  // future refactors of `emitResult` / `toCliResult` / `toEnvelope`
-  // cannot silently drop the hints. It is NOT an integration test of
-  // auto-dispatch (which doesn't exist) — assertions are limited to
-  // field presence and shape, not behavior.
+  /**
+   * `next_actions` must pass unchanged through `toEnvelope` and `toCliResult` to the JSON on stdout,
+   * where the caller reads it. The test asserts the value of the field, not what a caller does with it.
+   * Stage 1 checks the envelope, so a failure shows which seam lost the field. Stage 2 parses the
+   * bytes on stdout, because those bytes are what a caller sees.
+   */
   it('Cli_OneShotDispatch_PreservesNextActionsField', () => {
     const actions: NextAction[] = [
       {
@@ -355,9 +341,6 @@ describe('toCliResult', () => {
     } as unknown as ToolResult;
 
     const env = toEnvelope(source);
-    // Stage 1 — envelope boundary preserves the hints intact (the same
-    // contract `toEnvelope_SuccessWithNextActions_PreservesAffordances`
-    // pins, repeated here so a failure isolates which seam regressed).
     expect(env.success).toBe(true);
     if (env.success) {
       expect((env as Envelope<unknown>).next_actions).toEqual(actions);
@@ -365,10 +348,6 @@ describe('toCliResult', () => {
 
     toCliResult(env, 'json');
 
-    // Stage 2 — the one-shot CLI emit path writes the JSON envelope to
-    // stdout with `next_actions` carried verbatim. Parse the actual
-    // byte-output rather than re-inspecting `env` so the assertion pins
-    // the on-the-wire contract a caller sees.
     const stdoutOutput = stdoutSpy.mock.calls.map((c) => c[0]).join('');
     expect(stdoutOutput).toBe(JSON.stringify(env, null, 2) + '\n');
     const parsed = JSON.parse(stdoutOutput.trim()) as {
@@ -377,18 +356,11 @@ describe('toCliResult', () => {
     };
     expect(parsed.success).toBe(true);
     expect(parsed.next_actions).toEqual(actions);
-    // No stderr writes on the one-shot success path — diagnostics roll
-    // into the envelope under json mode.
     expect(stderrSpy).not.toHaveBeenCalled();
   });
 
+  /** The `warnings` of a failed result must pass through the envelope, so `prettyPrint` still writes them to stderr. */
   it('toCliResult_TableFormat_FailureWithWarnings_PreservesWarningsSidebar', () => {
-    // INV-2 facade equivalence: when a handler fails, any `warnings` /
-    // `_corrections` it attached must survive the round-trip through the
-    // envelope wire shape so prettyPrint's stderr sidebar still renders.
-    // The pre-#1369 envelopeToToolResult dropped them on the failure path,
-    // so table/tree consumers silently lost diagnostics on errors
-    // (CodeRabbit minor on PR #1369).
     const source: ToolResult = {
       success: false,
       error: { code: 'CONSTRAINT_VIOLATION', message: 'invariant tripped' },
@@ -404,6 +376,7 @@ describe('toCliResult', () => {
     expect(stderrOutput).toContain('table-mode-warning-token');
   });
 
+  /** The `table` format must not write the JSON envelope to stdout. */
   it('toCliResult_TableFormat_DelegatesToPrettyPrint', () => {
     const source: ToolResult = {
       success: true,
@@ -419,13 +392,11 @@ describe('toCliResult', () => {
     toCliResult(env, 'table');
 
     const stdoutOutput = stdoutSpy.mock.calls.map(c => c[0]).join('');
-    // Matches prettyPrint table rendering (header + rows, aligned)
     expect(stdoutOutput).toContain('name');
     expect(stdoutOutput).toContain('role');
     expect(stdoutOutput).toContain('Alice');
     expect(stdoutOutput).toContain('Bob');
     expect(stdoutOutput).toContain('designer');
-    // Should NOT have emitted the full JSON envelope on stdout
     expect(stdoutOutput).not.toContain('"next_actions"');
   });
 
@@ -447,6 +418,7 @@ describe('toCliResult', () => {
     expect(stdoutOutput).not.toContain('"next_actions"');
   });
 
+  /** With `EXARCHOS_CLI_ENVELOPE=0`, stdout carries only the data, and the `_perf` footer goes to stderr. */
   it('toCliResult_EnvelopeOptOut_PreservesLegacyShape', () => {
     process.env.EXARCHOS_CLI_ENVELOPE = '0';
     const source: ToolResult = {
@@ -460,13 +432,12 @@ describe('toCliResult', () => {
     toCliResult(env, 'json');
 
     const stdoutOutput = stdoutSpy.mock.calls.map(c => c[0]).join('');
-    // Legacy shape: data-only on stdout (no envelope wrapping)
     expect(stdoutOutput).toBe(JSON.stringify(source.data, null, 2) + '\n');
-    // Sidebar _perf footer goes to stderr in legacy mode
     const stderrOutput = stderrSpy.mock.calls.map(c => c[0]).join('');
     expect(stderrOutput).toContain('5ms | 100B | ~25 tokens');
   });
 
+  /** Only the exact value `'0'` opts out of the envelope. */
   it('toCliResult_EnvelopeOptOutOtherValue_EmitsEnvelope', () => {
     process.env.EXARCHOS_CLI_ENVELOPE = '1';
     const source: ToolResult = {
@@ -480,7 +451,6 @@ describe('toCliResult', () => {
     toCliResult(env, 'json');
 
     const stdoutOutput = stdoutSpy.mock.calls.map(c => c[0]).join('');
-    // Anything but exactly '0' means envelope behaviour preserved.
     expect(stdoutOutput).toBe(JSON.stringify(env, null, 2) + '\n');
     expect(stderrSpy).not.toHaveBeenCalled();
   });

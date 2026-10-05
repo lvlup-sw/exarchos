@@ -1,19 +1,13 @@
-// ─── Dev-catalog v3 content characterization (issue #1466) ──────────────────
-//
-// These tests assert the AUTHORED CONTENT of the live dev catalog at
-// `.exarchos/invariants.md` — distinct from #1465's machinery tests
-// (loader, evaluator, projection) which inject synthetic entries. Here we load
-// the REAL catalog and assert the v3 fields authored onto real invariants:
-//   CR-1  schema-version 3 + back-compat
-//   CR-2  ≥1 mode:check + ≥1 mode:audit, each firing on a seeded diff and
-//         CALIBRATED to zero findings on a clean diff (bootstrap-hazard guard)
-//   CR-3  affinity + severity + integrity-class projection
-//   CR-6  audit prompts rendered verbatim
-//
-// The "calibrate on clean" guard here uses an empty / benign diff; the full
-// "zero findings on the actual HEAD diff" calibration is verified by the gate
-// run during implementation and the e2e parity test.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Characterizes the authored content of the live dev catalog at `.exarchos/invariants.md`.
+ * The machinery tests inject synthetic entries. These tests load the real catalog and assert its
+ * v3 fields. The fields are the schema version, the enforcement modes, the projection metadata
+ * and the audit prompts.
+ *
+ * The conformance gate records evidence through the shared phase-gate runner. The runner needs an
+ * active workflow phase attempt, which these fixtures do not create. The subject here is the
+ * verdict of the authored catalog, so the `gate-runner` mock reduces the runner to its provider call.
+ */
 
 import { describe, it, expect, vi } from 'vitest';
 import fs from 'node:fs';
@@ -29,11 +23,6 @@ import { evaluateTree } from '../../../src/architecture/check-evaluator.js';
 import { projectCatalog } from '../../../src/architecture/project-catalog.js';
 import { renderAuditPrompt } from '../../../src/architecture/audit-prompt.js';
 
-// The conformance gate now records durable evidence through the shared
-// phase-gate runner before any success carrier escapes, and the runner needs an
-// active workflow phase attempt these content fixtures do not stand up. What is
-// under test here is the AUTHORED CATALOG's verdict, so the runner is stubbed
-// down to its provider call — the same seam the gate's own unit tests stub.
 vi.mock('../../../src/verbs/gates/gate-runner.js', () => ({
   runPhaseGateWithEvidence: vi.fn(async (request) => {
     try {
@@ -87,8 +76,6 @@ function diffFor(filePath: string, addedLines: string[]): string {
   ].join('\n');
 }
 
-// ─── CR-1: schema bump + back-compat ─────────────────────────────────────────
-
 describe('dev-catalog v3 content — CR-1 schema bump', () => {
   it('liveCatalog_declaresSchemaVersion3', () => {
     const fm = matter(fs.readFileSync(INVARIANTS_DOC, 'utf8')).data as {
@@ -102,19 +89,15 @@ describe('dev-catalog v3 content — CR-1 schema bump', () => {
     expect(loadCatalog().length).toBeGreaterThan(0);
   });
 
+  /** The 21 entries are 20 `INV-*` entries and `basileus-boundary`. The catalog holds no `DIM-*` entry. */
   it('liveCatalog_hasExactly21Entries_noDimEntries', () => {
-    // Axiom excision (#1477) removed the 8 DIM-* axiom-dimension entries and
-    // the coverage-closure machinery that depended on `axiom_overlap`. The
-    // live catalog is now exactly 21 entries (20 INV-* — including INV-16
-    // os-portability added in #1623 and INV-17 response-economy added by the
-    // tool-token-economy-remediation feature — plus basileus-boundary), none DIM-*.
     const cat = loadCatalog();
     expect(cat.length).toBe(21);
     expect(cat.filter((e) => e.id.startsWith('DIM-'))).toEqual([]);
   });
 
+  /** An entry with no phase affinity and no workflow affinity must project in a `review` phase of a `feature` workflow. */
   it('entryWithoutAffinities_resolvesAllPhasesAllTypes', () => {
-    // An entry with no phase/workflow affinity must project for any context.
     const noAffinity = loadCatalog().find(
       (e) => e.phaseAffinity === undefined && e.workflowAffinity === undefined,
     );
@@ -127,8 +110,16 @@ describe('dev-catalog v3 content — CR-1 schema bump', () => {
   });
 });
 
-// ─── CR-2: mode:check enforcement, calibrated ────────────────────────────────
-
+/**
+ * The enforcement modes of the live catalog. For each check-mode entry, a synthetic violation
+ * must give a finding and the conforming form must give none. A check that cannot fail is vacuous.
+ *
+ * The tests assemble the `reset --hard` literal and the module-path literal from fragments, so
+ * the source of this file holds neither. `tools/audit/gates/check-windows-portability.mjs` scans
+ * the whole repository and flags the module-path literal. The invariant greps read only `src/**`,
+ * so they do not flag this file.
+ * `checkTreeOf` asserts that an entry is check-mode and returns its check tree.
+ */
 describe('dev-catalog v3 content — CR-2 mode:check enforcement', () => {
   it('atLeastOneCheckAndOneAudit_authored', () => {
     const cat = loadCatalog();
@@ -138,53 +129,31 @@ describe('dev-catalog v3 content — CR-2 mode:check enforcement', () => {
     expect(audits.length).toBeGreaterThanOrEqual(1);
   });
 
-  // INV-4 is the original diff-precise mode:check; task 027 (DR-15) raised
-  // INV-13/14/16 to mode:check too (each with a deterministic anti-pattern grep
-  // + both-direction self-tests below). INV-6's operational projection
-  // (tools/audit/gates/lint-inv6.mjs) is a deliberately-advisory literal scan with a
-  // frontmatter-declaration escape hatch a diff-grep cannot replicate, and
-  // INV-5a/5d tool-COUNT facts require the whole file, not a diff — so those
-  // three stay mode:audit (Approach-B "audit the rest"). See CR-6 below.
-
-  // These two characterized the PRE-086 check node, which greped `@@` over any
-  // `skills/**` diff. That fired on every regeneration — which CLAUDE.md
-  // mandates committing — so the old `inv4_editingGeneratedSkillsRuntimeFile_fires`
-  // asserted the defect as correct. Task 086 re-pointed INV-4 to `audit`
-  // deferring to `skills:guard`, so what is worth pinning is that the deferral
-  // went to a real mechanism rather than becoming an absence of enforcement.
-
+  /**
+   * The `platform-agnosticity` entry is audit-mode. A regeneration changes the generated skills,
+   * and the repository commits them, so a diff grep blocks a conforming change.
+   * An audit entry has no check tree, so no diff shape can block automatically.
+   */
   it('inv4_GeneratedSkillsDiff_NoLongerAutoBlocks', () => {
     const e = entry('INV-4');
     expect(e.enforcement?.mode).toBe('audit');
-    // An audit entry carries no check tree, so no diff shape can auto-block —
-    // asserted structurally rather than by evaluating a node that is now absent.
     expect(e.enforcement && 'check' in e.enforcement).toBe(false);
   });
 
+  /**
+   * The audit prompt must name `render:guard`, the probe that answers what a diff grep cannot.
+   * Without that name, the audit mode removes the enforcement and does not move it.
+   */
   it('inv4_AuditPrompt_NamesTheRenderEquivalenceProbe', () => {
     const enforcement = entry('INV-4').enforcement;
     if (!enforcement || enforcement.mode !== 'audit') {
       throw new Error('INV-4 must be an audit entry for this claim to mean anything');
     }
     const prompt = enforcement['audit-prompt'];
-    // The deferral must name the probe that answers the question the grep could
-    // not — otherwise `audit` is just "a reviewer will think about it", and the
-    // downgrade would have removed enforcement instead of relocating it.
     expect(prompt).toMatch(/render:guard/);
     expect(prompt).toMatch(/content\//);
-    // Non-empty denominator on the prompt itself: a one-word prompt would match
-    // neither pattern by accident, but an empty one must not read as satisfied.
     expect(prompt.trim().length).toBeGreaterThan(80);
   });
-
-  // ─── INV-13/14/16 raised audit→check (task 027 / DR-15): both-direction proofs ─
-  //
-  // Each raised invariant is CALIBRATED: a synthetic violation fires (>=1
-  // finding) AND the conforming form produces zero findings — a check that
-  // cannot fail is vacuous. The anti-pattern literals are ASSEMBLED from
-  // fragments so this test's OWN source neither trips
-  // tools/audit/gates/check-windows-portability.mjs (the INV-16 module-path literal) nor
-  // the invariant's own diff-grep when the review gate runs on this PR's diff.
 
   function checkTreeOf(id: string): never {
     const e = entry(id);
@@ -193,7 +162,6 @@ describe('dev-catalog v3 content — CR-2 mode:check enforcement', () => {
   }
 
   it('inv14_addsDestructiveResetHard_fires', () => {
-    // The forbidden git-args invocation `['reset', '--hard', …]`.
     const resetHard = `['reset', ` + `'--hard', sha]`;
     const violating = diffFor(
       'src/verbs/merge/execute-merge.ts',
@@ -203,7 +171,6 @@ describe('dev-catalog v3 content — CR-2 mode:check enforcement', () => {
   });
 
   it('inv14_usesResetKeepRecoveryLadder_producesNoFinding', () => {
-    // The conforming INV-14 ladder: merge --abort → reset --keep, never --hard.
     const conforming = diffFor(
       'src/verbs/merge/execute-merge.ts',
       [
@@ -248,9 +215,8 @@ describe('dev-catalog v3 content — CR-2 mode:check enforcement', () => {
     expect(evaluateTree(checkTreeOf('INV-13'), conforming)).toEqual([]);
   });
 
+  /** The check covers only `src/verbs`, so a `merge.executed` emission in a different tree gives no finding. */
   it('inv13_executedOutsideVerbScope_producesNoFinding', () => {
-    // Scope guard: an executed emission outside the verb handler tree is
-    // out of range, so the two-event proxy does not fire on it.
     const outOfScope = diffFor('src/projections/telemetry/foo.ts', [
       `    await emit(eventStore, featureId, 'merge.executed', { mergeSha });`,
     ]);
@@ -258,12 +224,12 @@ describe('dev-catalog v3 content — CR-2 mode:check enforcement', () => {
   });
 });
 
-// ─── CR-6: mode:audit prompts ────────────────────────────────────────────────
-
 describe('dev-catalog v3 content — CR-6 mode:audit', () => {
+  /**
+   * A diff-scoped check cannot decide these three entries, so they are audit-mode.
+   * Each one gives a prompt for a reviewer and no programmatic check.
+   */
   it('inv6_inv5a_inv5d_areAuditMode', () => {
-    // Demoted from check (Approach-B): not diff-precise. They contribute
-    // judgment prompts, never a programmatic check.
     for (const id of ['INV-6', 'INV-5a', 'INV-5d']) {
       expect(entry(id).enforcement?.mode).toBe('audit');
     }
@@ -277,9 +243,8 @@ describe('dev-catalog v3 content — CR-6 mode:audit', () => {
     expect(prompt.length).toBeGreaterThan(0);
   });
 
+  /** The audit prompt must not presume local MCP execution, so it holds no "on this machine" wording. */
   it('inv3_auditPrompt_isTransportNeutral', () => {
-    // INV-3 (basileus-forward) audit prompt must not presume MCP-local
-    // execution — no "locally"/"on this machine"-style language.
     const e = entry('INV-3');
     expect(e.enforcement?.mode).toBe('audit');
     const promptText = (
@@ -288,8 +253,8 @@ describe('dev-catalog v3 content — CR-6 mode:audit', () => {
     expect(promptText).not.toMatch(/mcp[- ]local|local-only|on this machine/);
   });
 
+  /** The rendered prompt holds the id of every audit-mode entry of the live catalog. */
   it('renderedAuditPrompt_carriesNoPerInvariantBranching', () => {
-    // INV-6 guard: the renderer treats every audit invariant uniformly.
     const cat = loadCatalog();
     const audits = cat.filter((e) => e.enforcement?.mode === 'audit');
     const prompt = renderAuditPrompt(audits);
@@ -297,16 +262,13 @@ describe('dev-catalog v3 content — CR-6 mode:audit', () => {
   });
 });
 
-// ─── CR-3: projection metadata ───────────────────────────────────────────────
-
 describe('dev-catalog v3 content — CR-3 projection', () => {
+  /** `'discovery'` is the canonical workflow-type token. Its review projects no substrate-axis invariant. */
   it('workflowDiscoveryPhaseReview_excludesCodeAxisInvariants', () => {
     const projected = projectCatalog(loadCatalog(), {
       phase: 'review',
-      // DR-4: canonical workflow-type token is `'discovery'`.
       workflowType: 'discovery',
     });
-    // No substrate-axis (code) invariant survives a discovery-workflow review.
     expect(projected.every((e) => e.axis !== 'substrate')).toBe(true);
   });
 
@@ -315,9 +277,8 @@ describe('dev-catalog v3 content — CR-3 projection', () => {
     expect(inv1.integrityClass).toBe('substrate');
   });
 
+  /** At least one entry declares the `advisory` severity for the `oneshot` workflow. */
   it('oneshotWorkflow_downgradesSeverityToAdvisory', () => {
-    // At least one enforcement-bearing invariant downgrades to advisory under
-    // the oneshot workflow (design DR-5 oneshot rule).
     const downgraded = loadCatalog().filter(
       (e) => e.severity?.['by-workflow']?.['oneshot'] === 'advisory',
     );
@@ -325,14 +286,11 @@ describe('dev-catalog v3 content — CR-3 projection', () => {
   });
 });
 
-// ─── CR-5: end-to-end gate bite through the REAL production path ─────────────
-//
-// Drives handleCheckInvariantConformance with repoRoot=REPO_ROOT + the enabled
-// config and NO injected loader, so resolveEffectiveCatalog loads the AUTHORED
-// .exarchos/invariants.md for real. Proves the authored content (not
-// just the machinery) produces a real finding on a violating diff and stays
-// APPROVED + emits gate.executed on a clean diff (calibrate-on-HEAD).
-
+/**
+ * Runs `handleCheckInvariantConformance` with the real repo root, the enabled config and no
+ * injected loader, so the handler loads the authored `.exarchos/invariants.md`.
+ * `arm` creates a temp state directory and an initialized event store.
+ */
 describe('dev-catalog v3 content — CR-5 end-to-end gate bite', () => {
   async function arm(): Promise<{ stateDir: string; eventStore: EventStore }> {
     const stateDir = await mkdtemp(path.join(tmpdir(), 'inv1466-e2e-'));
@@ -341,14 +299,13 @@ describe('dev-catalog v3 content — CR-5 end-to-end gate bite', () => {
     return { stateDir, eventStore };
   }
 
+  /**
+   * A regeneration produces a diff of generated skills, so the gate must not block that diff
+   * automatically. The `platform-agnosticity` entry gives no finding, but its id stays in
+   * `auditInvariantIds`, so the reviewer still judges it. An id in neither list is a lost entry.
+   * The gate must also append `gate.executed`, whatever the verdict is.
+   */
   it('seededGeneratedSkillsEdit_inv4Audits_RatherThanAutoBlocking', async () => {
-    // This case previously asserted `NEEDS_FIXES` for ANY `skills/**` diff —
-    // i.e. it characterized the #1764/086 defect as correct behaviour. A diff
-    // touching generated skills is exactly what `npm run build:skills` produces
-    // and CLAUDE.md requires committing, so auto-blocking it made the invariant
-    // unsatisfiable by a conforming change. INV-4 now audits, and the mechanical
-    // question ("is this tree a faithful render of skills-src/?") is answered by
-    // `skills:guard`, which is a whole-tree probe this diff-scoped gate cannot be.
     const { stateDir, eventStore } = await arm();
     try {
       const regenerated = diffFor('skills/claude-code/ideate/SKILL.md', [
@@ -373,15 +330,9 @@ describe('dev-catalog v3 content — CR-5 end-to-end gate bite', () => {
         findings: Array<{ dimension?: string }>;
         auditInvariantIds?: readonly string[];
       };
-      // No AUTOMATIC INV-4 block…
       expect(data.findings.some((f) => f.dimension === 'INV-4')).toBe(false);
-      // …but INV-4 is still routed to the reviewer rather than dropped. That
-      // distinction is the whole point: audit relocates the judgement, and an
-      // INV-4 absent from BOTH lists would mean the downgrade deleted it.
       expect(data.auditInvariantIds ?? []).toContain('INV-4');
 
-      // The gate still runs and still records itself — a silent gate would be
-      // its own defect, so the event is asserted independently of the verdict.
       const gates = await eventStore.query('feat-1466-regenerated', {
         type: 'gate.executed',
       });
@@ -391,10 +342,10 @@ describe('dev-catalog v3 content — CR-5 end-to-end gate bite', () => {
     }
   });
 
+  /** A benign source edit trips no check-mode invariant. */
   it('cleanDiff_approvedWithGateEvent', async () => {
     const { stateDir, eventStore } = await arm();
     try {
-      // A benign source edit (no skills/** path) trips no mode:check invariant.
       const clean = diffFor('src/example.ts', [
         'export const answer = 42;',
       ]);
@@ -425,15 +376,12 @@ describe('dev-catalog v3 content — CR-5 end-to-end gate bite', () => {
   });
 });
 
-// ─── Task 027 (DR-15): gate blocks on check-mode findings only ───────────────
-//
-// Drives handleCheckInvariantConformance against the REAL authored catalog
-// (repoRoot=REPO_ROOT + enabled config, no injected loader) to prove:
-//   1. a synthetic check-mode (blocking) violation fails the gate;
-//   2. a conforming diff over the anti-pattern zones passes;
-//   3. audit-mode entries never produce a gating finding here (they render into
-//      the review-subagent PROMPT) — the blocking scope is check-mode only.
-
+/**
+ * Runs the gate against the authored catalog to show its blocking scope. A check-mode violation
+ * fails the gate, and a conforming diff over the same zones passes. An audit-mode entry gives no
+ * gating finding. It renders into the prompt for the review subagent.
+ * `arm` creates a temp state directory and an initialized event store.
+ */
 describe('dev-catalog v3 content — task 027 gate blocking (DR-15)', () => {
   async function arm(): Promise<{ stateDir: string; eventStore: EventStore }> {
     const stateDir = await mkdtemp(path.join(tmpdir(), 'task027-gate-'));
@@ -442,10 +390,10 @@ describe('dev-catalog v3 content — task 027 gate blocking (DR-15)', () => {
     return { stateDir, eventStore };
   }
 
+  /** The violation is a module path from `URL.pathname`, which the `os-portability` entry blocks. */
   it('InvariantGate_SyntheticViolation_FailsForCheckMode', async () => {
     const { stateDir, eventStore } = await arm();
     try {
-      // A blocking check-mode violation: INV-16's non-portable module path.
       const antipattern = `new URL(import.meta.url)` + `.pathname`;
       const violating = diffFor('src/utils/paths.ts', [
         `    const here = ${antipattern};`,
@@ -476,12 +424,13 @@ describe('dev-catalog v3 content — task 027 gate blocking (DR-15)', () => {
     }
   });
 
+  /**
+   * The diff touches each anti-pattern zone in its conforming form: the `reset --keep` sequence,
+   * both merge events, and the `fileURLToPath` module path.
+   */
   it('InvariantGate_ConformingTree_Passes', async () => {
     const { stateDir, eventStore } = await arm();
     try {
-      // A diff touching every anti-pattern zone in its CONFORMING form: the
-      // INV-14 reset --keep ladder, both INV-13 two-event emissions, and the
-      // INV-16 fileURLToPath module path. No check-mode invariant fires.
       const conforming = [
         diffFor('src/verbs/pure/execute-merge.ts', [
           `    gitExec(repoRoot, ['merge', '--abort']);`,
@@ -516,6 +465,10 @@ describe('dev-catalog v3 content — task 027 gate blocking (DR-15)', () => {
     }
   });
 
+  /**
+   * On a benign diff, at least one audit-mode id appears in `auditPrompt`.
+   * No finding has an audit-mode id as its dimension, and the verdict is `APPROVED`.
+   */
   it('InvariantGate_AuditModeFinding_StaysAdvisory', async () => {
     const { stateDir, eventStore } = await arm();
     try {
@@ -526,7 +479,6 @@ describe('dev-catalog v3 content — task 027 gate blocking (DR-15)', () => {
       );
       expect(auditIds.size).toBeGreaterThanOrEqual(1);
 
-      // A benign diff: no check-mode invariant fires.
       const benign = diffFor('src/example.ts', [
         'export const answer = 42;',
       ]);
@@ -548,14 +500,11 @@ describe('dev-catalog v3 content — task 027 gate blocking (DR-15)', () => {
         auditPrompt: string;
         findings: Array<{ dimension?: string }>;
       };
-      // Audit-mode entries render into the review-subagent PROMPT ...
       const promptedAudit = [...auditIds].filter((id) => data.auditPrompt.includes(id));
       expect(promptedAudit.length).toBeGreaterThanOrEqual(1);
-      // ... and NEVER as a programmatic (gating) finding in this handler.
       expect(
         data.findings.some((f) => f.dimension !== undefined && auditIds.has(f.dimension)),
       ).toBe(false);
-      // The benign diff gates nothing.
       expect(data.verdict).toBe('APPROVED');
     } finally {
       await rmrfAsync(stateDir);

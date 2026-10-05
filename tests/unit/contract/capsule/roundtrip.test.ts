@@ -1,12 +1,11 @@
-// Zod and Ajv must answer the same question the same way.
+// Zod and Ajv must give the same verdict for each document.
 //
-// The capsule ships as a Zod schema AND as a generated JSON Schema, and a
-// consumer may hold either. If they disagree, one of them is lying about what a
-// capsule is. The corpus lives in `src/` so both sides read the same documents.
+// The capsule ships as a Zod schema and as a generated JSON Schema, and a
+// consumer can hold either one. The corpus lives in `src/` so both validators
+// read the same documents.
 //
-// This is also why no capsule rule is written as a refinement: a refinement is
-// invisible to `z.toJSONSchema`, so it would show up here as a disagreement
-// rather than as the missing projection it actually is.
+// No capsule rule is a refinement, because `z.toJSONSchema` does not emit a
+// refinement. Such a rule shows here as a disagreement between the validators.
 
 import Ajv2020, { type ValidateFunction } from 'ajv/dist/2020.js';
 import { describe, it, expect } from 'vitest';
@@ -33,8 +32,7 @@ describe('the capsule contract, validated both ways', () => {
     expect(validate(document)).toBe(ExarchosCapsuleV1Schema.safeParse(document).success);
   });
 
-  // A corpus that only ever accepts, or only ever rejects, would pass all three
-  // assertions above while proving nothing about either validator.
+  /** A corpus with only one verdict passes the three parameterized tests and proves nothing about either validator. */
   it('Capsule_TheCorpus_ExercisesBothVerdicts', () => {
     const accepts = CAPSULE_ROUNDTRIP_FIXTURES.filter((f) => f.valid).length;
     const rejects = CAPSULE_ROUNDTRIP_FIXTURES.length - accepts;

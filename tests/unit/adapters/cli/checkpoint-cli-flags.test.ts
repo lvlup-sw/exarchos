@@ -1,34 +1,16 @@
-// ─── T5 (#1240) — `wf checkpoint` CLI handoff convenience flags (RED) ──────
+// The handoff convenience flags of `exarchos workflow checkpoint` (alias `wf checkpoint`):
+// `--context <string>`, `--next-steps <step...>` and `--suggestions <suggestion...>`.
 //
-// T5 of the checkpoint-handoff bundle adds three convenience CLI flags on
-// `exarchos workflow checkpoint` (alias `wf checkpoint`):
+// The CLI maps the flags onto `handoff` (`{ context?, nextSteps?, suggestions? }`) before
+// dispatch. The MCP path accepts the full `handoff` object directly.
 //
-//   --context <string>         Inline handoff context (max 2KB).
-//   --next-steps <step...>     Repeatable handoff next-step entries.
-//   --suggestions <sug...>     Repeatable handoff suggestion entries.
+// With no convenience flag, `handoff` must stay absent from the dispatched arguments. The
+// idempotency-key digest is `sha256(handoff ?? {})`, and the handler writes `data.handoff` on the
+// event when `handoff` is defined.
 //
-// These map client-side onto `CheckpointInput.handoff` (a `HandoffEntryData`-
-// shaped object: `{ context?, nextSteps?, suggestions? }`) before the call
-// hits dispatch. No new MCP-side input shape — the same
-// `CheckpointInputSchema.handoff` already accepted by `handleCheckpoint`
-// (T4 wiring) is what the dispatch consumes — the flags are purely a
-// CLI surface convenience so agents don't have to type nested JSON.
+// `--context` accepts an inline string only, with no `@<path>` substitution.
 //
-// Critical contract (parity-bearing):
-//   - When NONE of the convenience flags are present, `handoff` MUST stay
-//     ABSENT from the dispatched args (NOT `{ context: undefined, ... }`).
-//     The C3 (#1241) idempotency-key digest is `sha256(handoff ?? {})`,
-//     and an all-undefined object stringifies to `{}` only by coincidence
-//     — explicit absence keeps the digest stable across pre-T5 callers
-//     and the new CLI shape.
-//   - The flags are CLI-only sugar. The MCP path continues to accept the
-//     full `handoff: { context, nextSteps, suggestions }` object directly.
-//   - `@<path>` substitution for `--context` is OUT OF SCOPE for T5
-//     (#1245, scheduled for v2.12.0). `--context` accepts inline strings.
-//
-// Tests drive Commander in-process (the same harness `parity.test.ts` uses
-// for the C9 parity suites) so we exercise the actual auto-generated flag
-// surface registered by `buildCli()`.
+// The tests drive Commander in-process against the flag surface that `buildCli()` registers.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { CommanderError } from 'commander';
@@ -42,8 +24,6 @@ import type { ToolResult } from '../../../../src/format.js';
 import { buildCli, applyExitOverrideRecursively, CLI_EXIT_CODES } from '../../../../src/adapters/cli/cli.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
-// ─── Fixtures ──────────────────────────────────────────────────────────────
-
 interface RunResult {
   readonly result: ToolResult;
   readonly dispatchedArgs: Record<string, unknown>;
@@ -53,29 +33,26 @@ interface RunResult {
 }
 
 /**
- * Drive the auto-generated `wf checkpoint` CLI command through Commander,
- * with `dispatch()` patched to capture the exact args the action callback
- * forwards to it.  Returns both the captured args (so we can assert on
- * the convenience-flag → `handoff` reshape contract) and the rendered
- * envelope (so we can assert exit code + parity).
+ * Drives the generated `wf checkpoint` command through Commander with `dispatch()` replaced by a
+ * spy. The spy records the forwarded arguments and returns a minimal success envelope, so the
+ * handler does not run.
  *
- * Patching `dispatch()` rather than running the full handler keeps the
- * test laser-focused on the CLI flag → dispatch arg mapping — which is
- * the only thing T5 changes.
+ * The function reads the exit code before `finally` restores `process.exitCode`. The restore also
+ * runs when `parseAsync` throws a non-Commander error, so the global does not leak into later tests.
+ *
+ * `emitResult` writes the envelope as multi-line JSON, so the function parses stdout from the
+ * first `{` to the end. When that parse fails, `result` stays the `TEST_HARNESS_NO_OUTPUT` error.
  */
 async function runWfCheckpointCli(
   ctx: DispatchContext,
   argv: readonly string[],
 ): Promise<RunResult> {
-  // Lazy-import the dispatch module so we can swap its export with a spy.
   const dispatchMod = await import('../../../../src/dispatch/core/dispatch.js');
   const captured: Record<string, unknown>[] = [];
   const dispatchSpy = vi
     .spyOn(dispatchMod, 'dispatch')
     .mockImplementation(async (_tool, args, _ctx) => {
       captured.push(args as Record<string, unknown>);
-      // Return a minimal success envelope; we are not exercising the
-      // handler here, only the CLI argument-marshalling path.
       return {
         success: true,
         data: { phase: 'ideate', projectionSequence: 1 },
@@ -101,11 +78,6 @@ async function runWfCheckpointCli(
   const savedExit = process.exitCode;
   process.exitCode = undefined;
 
-  // CodeRabbit minor on PR #1297: capture the per-call exit code BEFORE
-  // the finally block restores `process.exitCode`. If `parseAsync` threw
-  // a non-CommanderError it rethrows out of this function, but the
-  // restore must still run so the mutated global doesn't leak into
-  // subsequent tests in the same Vitest worker.
   let commanderErr: CommanderError | undefined;
   let exitCode = 0;
   try {
@@ -114,8 +86,6 @@ async function runWfCheckpointCli(
     if (err instanceof CommanderError) {
       commanderErr = err;
     } else {
-      // Compute the exit code from the partial run so the restore in
-      // `finally` is unconditional, then rethrow.
       exitCode =
         typeof process.exitCode === 'number'
           ? process.exitCode
@@ -137,12 +107,6 @@ async function runWfCheckpointCli(
 
   const stdout = stdoutBuf.join('');
   const stderr = stderrBuf.join('');
-  // The action callback emits a JSON envelope on stdout under --json.
-  // PR-B (#1368): post-W1 `emitResult` writes pretty-printed envelope
-  // JSON spanning multiple lines (`JSON.stringify(env, null, 2)`), so
-  // slicing at the first newline truncates the document at `{`. Parse
-  // from the first `{` through end-of-stdout instead — `JSON.parse`
-  // tolerates trailing whitespace and stops at the matching brace.
   let parsed: ToolResult = { success: false, error: { code: 'TEST_HARNESS_NO_OUTPUT', message: 'no stdout' } };
   if (stdout.trim().length > 0) {
     const firstBrace = stdout.indexOf('{');
@@ -150,7 +114,6 @@ async function runWfCheckpointCli(
       try {
         parsed = JSON.parse(stdout.slice(firstBrace)) as ToolResult;
       } catch {
-        // leave default
       }
     }
   }
@@ -163,8 +126,6 @@ async function runWfCheckpointCli(
     stderr,
   };
 }
-
-// ─── Test suite ─────────────────────────────────────────────────────────────
 
 describe('wf checkpoint — handoff convenience flags (T5, #1240)', () => {
   let stateDir: string;
@@ -181,11 +142,11 @@ describe('wf checkpoint — handoff convenience flags (T5, #1240)', () => {
     await rmrfAsync(stateDir);
   });
 
+  /**
+   * With only `--context`, the other two handoff fields stay undefined and are not `[]`. An empty
+   * array changes the JSON that the digest reads.
+   */
   it('CheckpointCli_ContextFlag_BindsToHandoffContext', async () => {
-    // GIVEN: a `wf checkpoint --feature-id X --context "value"` invocation.
-    // WHEN: the CLI dispatches.
-    // THEN: the dispatch args include `handoff.context === "value"` and no
-    //       other handoff fields are populated.
     const { dispatchedArgs, exitCode } = await runWfCheckpointCli(ctx, [
       'node',
       'exarchos',
@@ -208,19 +169,12 @@ describe('wf checkpoint — handoff convenience flags (T5, #1240)', () => {
       suggestions?: string[];
     };
     expect(handoff.context).toBe('Wave 1 implementer team finished T1-T3; T4 next');
-    // The other two fields stay undefined when only --context is supplied.
-    // Asserting absence (rather than `[]`) preserves the C3 digest contract
-    // — `JSON.stringify({ context: 'x' })` differs from
-    // `JSON.stringify({ context: 'x', nextSteps: [], suggestions: [] })`.
     expect(handoff.nextSteps).toBeUndefined();
     expect(handoff.suggestions).toBeUndefined();
   });
 
+  /** Each `--next-steps` occurrence appends one entry. */
   it('CheckpointCli_NextStepsFlag_AcceptsMultiple', async () => {
-    // GIVEN: a `wf checkpoint` invocation with two `--next-steps` flags
-    //        (Commander variadic syntax: each occurrence appends).
-    // WHEN: the CLI dispatches.
-    // THEN: `handoff.nextSteps` is `['first', 'second']`.
     const { dispatchedArgs, exitCode } = await runWfCheckpointCli(ctx, [
       'node',
       'exarchos',
@@ -247,10 +201,8 @@ describe('wf checkpoint — handoff convenience flags (T5, #1240)', () => {
     expect(handoff.suggestions).toBeUndefined();
   });
 
+  /** Each `--suggestions` occurrence appends one entry. */
   it('CheckpointCli_SuggestionsFlag_AcceptsMultiple', async () => {
-    // GIVEN: a `wf checkpoint` invocation with two `--suggestions` flags.
-    // WHEN: the CLI dispatches.
-    // THEN: `handoff.suggestions` is `['first', 'second']`.
     const { dispatchedArgs, exitCode } = await runWfCheckpointCli(ctx, [
       'node',
       'exarchos',
@@ -277,20 +229,11 @@ describe('wf checkpoint — handoff convenience flags (T5, #1240)', () => {
     expect(handoff.nextSteps).toBeUndefined();
   });
 
+  /**
+   * `--handoff` together with a convenience flag fails before dispatch. A silent overwrite loses
+   * the handoff that the operator passed as JSON.
+   */
   it('CheckpointCli_HandoffJsonAndConvenienceFlag_RejectsAsInvalidInput', async () => {
-    // GIVEN: a `wf checkpoint` invocation that passes BOTH the raw
-    //        `--handoff '{"context":"a"}'` JSON flag AND a convenience
-    //        flag (`--context "b"`) on the same command line.
-    // WHEN: the CLI dispatches.
-    // THEN: the invocation MUST fail with INVALID_INPUT — silently
-    //       overwriting the JSON-passed handoff with the synthesized
-    //       convenience-flag object would lose data the operator
-    //       explicitly supplied. Mutual exclusion is the contract the
-    //       error message must convey.
-    //
-    // Regression guard for Sentry bug-prediction on PR #1297
-    // (src/adapters/cli.ts:276-291): pre-fix the
-    // reshape block ran unconditionally and clobbered `flagOpts.handoff`.
     const { result, exitCode, dispatchedArgs } = await runWfCheckpointCli(ctx, [
       'node',
       'exarchos',
@@ -314,23 +257,16 @@ describe('wf checkpoint — handoff convenience flags (T5, #1240)', () => {
         /--context|--next-steps|--suggestions|mutually exclusive/i,
       );
     }
-    // Dispatch must NOT be invoked when the CLI rejects pre-dispatch.
     expect(dispatchedArgs).toEqual({});
   });
 
+  /**
+   * With no handoff flag, the `handoff` key is absent. An object of undefined fields gives the same
+   * digest, but the handler then writes `data.handoff` on the event.
+   * The test uses `hasOwnProperty` because a lookup returns `undefined` for an absent key and for
+   * an undefined value.
+   */
   it('CheckpointCli_NoHandoffFlags_OmitsHandoff', async () => {
-    // GIVEN: a `wf checkpoint` invocation with NO handoff convenience
-    //        flags (only `--feature-id`).
-    // WHEN: the CLI dispatches.
-    // THEN: `dispatchedArgs.handoff` is `undefined` — NOT `{}` and NOT
-    //       `{ context: undefined, nextSteps: undefined, suggestions: undefined }`.
-    //       This is the C3 (#1241) digest-stability contract: pre-T5
-    //       no-handoff callers produced `JSON.stringify({}) → '{}'`, and
-    //       post-T5 no-handoff callers must produce the same digest.
-    //       An all-undefined object would stringify to '{}' too, but the
-    //       handler treats `validated.handoff !== undefined` as the
-    //       persistence trigger (writes `data.handoff` on the event), so
-    //       absence vs. all-undefined is observable on disk.
     const { dispatchedArgs, exitCode } = await runWfCheckpointCli(ctx, [
       'node',
       'exarchos',
@@ -344,10 +280,6 @@ describe('wf checkpoint — handoff convenience flags (T5, #1240)', () => {
     expect(exitCode).toBe(CLI_EXIT_CODES.SUCCESS);
     expect(dispatchedArgs.action).toBe('checkpoint');
     expect(dispatchedArgs.featureId).toBe('cli-no-handoff');
-    // Use Object.prototype.hasOwnProperty so we discriminate "key absent"
-    // from "key present with undefined value" — both yield
-    // `dispatchedArgs.handoff === undefined` under JS lookup, but the
-    // contract here is the former.
     const hasHandoffKey = Object.prototype.hasOwnProperty.call(
       dispatchedArgs,
       'handoff',

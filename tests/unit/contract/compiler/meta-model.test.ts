@@ -38,8 +38,6 @@ import {
   type RuntimeSurface,
 } from '../../../../src/contract/compiler/runtime-authority.js';
 
-// ─── Test fixtures — synthetic registry entries ──────────────────────────────
-
 function makeAction(overrides: Partial<ToolAction> & { name: string }): ToolAction {
   return {
     description: 'a synthetic action',
@@ -87,9 +85,7 @@ describe('deriveMetaModel — derived from the live registry', () => {
     expect(mm.surfaceVersion).toBe(CONTRACT_SURFACE_VERSION);
     expect(mm.actions.length).toBeGreaterThan(100);
     for (const entry of mm.actions) {
-      // Every derived entry is a valid meta-model entry …
       expect(ActionMetaModelSchema.safeParse(entry).success).toBe(true);
-      // … and carries all ten policy dimensions.
       for (const dim of POLICY_DIMENSIONS) {
         expect(entry.policy).toHaveProperty(dim);
       }
@@ -108,9 +104,9 @@ describe('deriveMetaModel — derived from the live registry', () => {
 });
 
 describe('deriveErrorCodes — task-layer codes are gated on task policy', () => {
+  /** `WAIT_TIMEOUT` is a task-layer code, so an action with no task policy must not carry it. */
   it('OmitsTaskLayerCodesForAPlainSynchronousAction', () => {
     const codes = deriveErrorCodes(makeAction({ name: 'plain' }));
-    // WAIT_TIMEOUT belongs to the task layer; a non-task action must not claim it.
     expect(codes).not.toContain('WAIT_TIMEOUT');
     expect(codes).toContain('HANDLER_ERROR');
     expect(codes).toContain('AUTHORIZATION_DENIED');
@@ -130,10 +126,11 @@ describe('deriveErrorCodes — task-layer codes are gated on task policy', () =>
 });
 
 describe('derivePolicy — faithful projection of registry semantics', () => {
+  /** An action is cacheable only when it is read-only and idempotent. */
   it('MarksMutationAndCacheabilityFromAnnotations', () => {
     const readOnly = derivePolicy(makeAction({ name: 'ro' }));
     expect(readOnly.effect.mutates).toBe(false);
-    expect(readOnly.cache.cacheable).toBe(true); // readOnly && idempotent
+    expect(readOnly.cache.cacheable).toBe(true);
 
     const writer = derivePolicy(
       makeAction({
@@ -164,6 +161,7 @@ describe('derivePolicy — faithful projection of registry semantics', () => {
 });
 
 describe('deriveMetaModel — line-ending platform stability', () => {
+  /** A CRLF working tree and an LF checkout derive the same meta-model bytes. */
   it('NormalizesCrlfDescriptionsToMatchLf', () => {
     const crlf = makeTool('exarchos_probe', [
       makeAction({ name: 'probe', description: 'line one\r\nline two\r\n' }),
@@ -171,23 +169,11 @@ describe('deriveMetaModel — line-ending platform stability', () => {
     const lf = makeTool('exarchos_probe', [
       makeAction({ name: 'probe', description: 'line one\nline two' }),
     ]);
-    // A CRLF working tree and an LF checkout derive a byte-identical meta-model.
     expect(canonicalJson(deriveMetaModel([crlf]))).toBe(canonicalJson(deriveMetaModel([lf])));
     const entry = deriveActionMetaModel(crlf, crlf.actions[0]!);
     expect(entry.description).not.toContain('\r');
   });
 });
-
-// ─── DR-11 / T-16 — the compiler-vs-registry authority differential ──────────
-//
-// `registry.ts` is the declaration authority and `meta-model.ts` projects it,
-// so a guard that compares the meta-model back against `TOOL_REGISTRY` the way
-// the meta-model was derived from it is a tautology. These two tests instead
-// audit the meta-model against the SHIPPED RUNTIME SURFACE (the strict MCP
-// registration schema, the `tools/list` description, and the `describe`
-// handler) — a projection authored outside `meta-model.ts` — and prove the
-// resulting signal is (a) able to go red on a genuinely wrong meta-model and
-// (b) distinguishable from a merely stale baseline artifact.
 
 /** Replace one entry, keyed by ActionId, leaving the rest of the model intact. */
 function patchEntry(
@@ -214,22 +200,30 @@ function propertiesOf(entry: ActionMetaModel): readonly string[] {
   return Object.keys(schema.properties ?? {});
 }
 
+/**
+ * `registry.ts` is the declaration authority and `meta-model.ts` projects it, so a comparison of the two is a tautology.
+ * These tests audit the meta-model against the shipped runtime surface, which no code in `meta-model.ts` authors.
+ * The surface is the strict MCP registration schema, the `tools/list` description and the `describe` handler.
+ * The tests prove that the audit detects a wrong meta-model and tells it from a stale baseline artifact.
+ */
 describe('DR-11 — the meta-model is audited against the shipped runtime surface', () => {
+  /**
+   * The shipped meta-model must agree with the shipped runtime surface. That first assertion fails when the derivation is wrong.
+   * Each seeded defect must give findings without the baseline artifact:
+   * - a policy dimension that drops the evidence which the server advertises
+   * - an entry with the input schema of a sibling action, which a registry-to-registry diff cannot see
+   * - an input field that the strict wire schema rejects, which also changes the published signature
+   * - an action name that the wire discriminator does not accept
+   * - an action that the contract omits, together with each field that only that action declares
+   * - a dimension with no runtime consumer, which only a hand-authored coherence invariant covers
+   */
   it('ContractCompiler_WrongMetaModel_IsDetected', async () => {
     const surface: RuntimeSurface = await observeRuntimeSurface();
     const live = deriveMetaModel();
 
-    // ── Arm 1: the SHIPPED meta-model agrees with the shipped runtime surface.
-    // This is the arm that goes red when the derivation in `meta-model.ts` is
-    // wrong — it is anchored to reality, not to a self-derived baseline.
     expect(auditMetaModel(live, surface)).toEqual([]);
     expect(live.actions.length).toBeGreaterThan(100);
 
-    // ── Arm 2: each class of wrongness is actually detected. A meta-model that
-    // is wrong (not a baseline that is stale) trips the guard.
-
-    // (a) A policy dimension projected wrongly — the contract would claim the
-    //     action emits no evidence while the server tells clients it does.
     const emitter = live.actions.find((e) => e.policy.evidence.autoEmits.length > 0);
     expect(emitter).toBeDefined();
     const droppedEvidence = auditMetaModel(
@@ -242,8 +236,6 @@ describe('DR-11 — the meta-model is audited against the shipped runtime surfac
     expect(fieldsOf(droppedEvidence, emitter!.actionId)).toContain('policy.evidence.autoEmits');
     expect(droppedEvidence.some((f) => f.provenance === 'runtime-differential')).toBe(true);
 
-    // (b) An entry bound to the WRONG action's input schema (a swap inside one
-    //     tool — the failure mode a registry-vs-registry diff cannot see).
     const tool = live.actions[0]!.tool;
     const siblings = live.actions.filter((e) => e.tool === tool);
     const donor = siblings.find(
@@ -258,8 +250,6 @@ describe('DR-11 — the meta-model is audited against the shipped runtime surfac
     expect(fieldsOf(swapped, siblings[0]!.actionId)).toContain('inputSchema');
     expect(swapped.some((f) => f.provenance === 'runtime-differential')).toBe(true);
 
-    // (c) An input field the real (strict) wire schema would reject — a client
-    //     that followed the compiled contract would be refused by the server.
     const invented = auditMetaModel(
       patchEntry(live, live.actions[0]!.actionId, (e) => ({
         ...e,
@@ -274,12 +264,9 @@ describe('DR-11 — the meta-model is audited against the shipped runtime surfac
       surface,
     );
     expect(kindsOf(invented)).toContain('wire-field-rejected');
-    // The signature the contract would publish also stops matching the one the
-    // running server publishes, so the divergence shows on two axes.
     expect(kindsOf(invented)).toContain('wire-signature-divergence');
     expect(invented.every((f) => f.provenance === 'runtime-differential')).toBe(true);
 
-    // (d) An action name the wire discriminator does not accept.
     const renamed = auditMetaModel(
       patchEntry(live, live.actions[0]!.actionId, (e) => ({
         ...e,
@@ -291,13 +278,10 @@ describe('DR-11 — the meta-model is audited against the shipped runtime surfac
     expect(kindsOf(renamed)).toContain('wire-action-unadvertised');
     expect(kindsOf(renamed)).toContain('wire-action-unmodelled');
 
-    // (e) An action the runtime advertises but the contract omits entirely.
     const orphan = live.actions[0]!;
     const dropped = auditMetaModel({ ...live, actions: live.actions.slice(1) }, surface);
     expect(kindsOf(dropped)).toContain('wire-action-unmodelled');
     expect(dropped.some((f) => f.actionId === orphan.actionId)).toBe(true);
-    // Every field only that action declared is now unmodelled too — the
-    // coverage direction reports the omission from both sides.
     const orphanOnly = propertiesOf(orphan).filter(
       (p) => !live.actions.slice(1).some((e) => e.tool === orphan.tool && propertiesOf(e).includes(p)),
     );
@@ -305,8 +289,6 @@ describe('DR-11 — the meta-model is audited against the shipped runtime surfac
       expect(dropped.some((f) => f.field === `inputSchema.properties.${property}`)).toBe(true);
     }
 
-    // (f) A dimension with no independent runtime consumer still has a
-    //     hand-authored invariant behind it (weaker, and labelled as such).
     const cacheable = live.actions.find((e) => e.policy.cache.cacheable);
     expect(cacheable).toBeDefined();
     const incoherent = auditMetaModel(
@@ -319,21 +301,24 @@ describe('DR-11 — the meta-model is audited against the shipped runtime surfac
     expect(kindsOf(incoherent)).toEqual(['policy-incoherence']);
     expect(incoherent.every((f) => f.provenance === 'internal-coherence')).toBe(true);
 
-    // Every seeded wrongness produced findings; none of them needed the
-    // baseline artifact to exist, let alone to be fresh.
     for (const seeded of [droppedEvidence, swapped, invented, renamed, dropped, incoherent]) {
       expect(seeded.length).toBeGreaterThan(0);
     }
   });
 
+  /**
+   * The wrong model here still compiles, so only the runtime differential tells it from a stale artifact.
+   * Condition 1 is a stale baseline: the model is sound, and only the checked-in bytes are old.
+   * Condition 2 is a wrong model with a baseline regenerated from it: the baseline signal passes, and the audit still fails.
+   * The two conditions give different kinds and remedies, and both together give both kinds.
+   * The shipped tree is clean on both axes.
+   */
   it('ContractCompiler_StaleBaselineOnly_RemainsDistinguishable', async () => {
     const surface = await observeRuntimeSurface();
     const sound = deriveMetaModel();
     const soundFindings = auditMetaModel(sound, surface);
     expect(soundFindings).toEqual([]);
 
-    // A wrong meta-model that still COMPILES cleanly — so the only thing that
-    // can tell it apart from a stale artifact is the runtime differential.
     const victim = sound.actions[0]!;
     const wrong = patchEntry(sound, victim.actionId, (e) => ({
       ...e,
@@ -350,11 +335,9 @@ describe('DR-11 — the meta-model is audited against the shipped runtime surfac
       return serializeProofFixtures(outcome.output.proofFixtures) + '\n';
     };
 
-    // ── Condition 1: a merely STALE (here: hand-edited) baseline artifact.
-    // The model is sound; only the checked-in bytes are out of date.
     const onDisk = fs.readFileSync(PROOF_FIXTURES_FILE, 'utf8');
     const freshFromSound = freshFrom(sound);
-    expect(onDisk).toBe(freshFromSound); // the shipped tree is in sync
+    expect(onDisk).toBe(freshFromSound);
     const handEdited = onDisk.replace('"contractDigest"', '"contractDigestX"');
     expect(handEdited).not.toBe(freshFromSound);
 
@@ -366,11 +349,8 @@ describe('DR-11 — the meta-model is audited against the shipped runtime surfac
     expect(staleOnly.remedies).toEqual([REGENERATE_BASELINE_REMEDY]);
     expect(staleOnly.report).toContain('regenerate');
 
-    // ── Condition 2: a WRONG meta-model whose baseline was just regenerated
-    // FROM it. Regeneration launders a stale artifact; it cannot launder a
-    // wrong model — the baseline signal is green and the guard is still red.
     const regeneratedFromWrong = freshFrom(wrong);
-    expect(regeneratedFromWrong).toBe(freshFrom(wrong)); // regeneration is stable
+    expect(regeneratedFromWrong).toBe(freshFrom(wrong));
     expect(regeneratedFromWrong).not.toBe(freshFromSound);
 
     const wrongOnly = classifyContractDrift({
@@ -382,11 +362,9 @@ describe('DR-11 — the meta-model is audited against the shipped runtime surfac
     expect(wrongOnly.remedies).toEqual([FIX_META_MODEL_REMEDY]);
     expect(wrongOnly.report).toContain('Regenerating the baseline will NOT clear this');
 
-    // ── The two conditions are separable, not one indistinguishable failure.
     expect(staleOnly.kinds).not.toEqual(wrongOnly.kinds);
     expect(staleOnly.remedies[0]).not.toBe(wrongOnly.remedies[0]);
 
-    // ── And they compose: both conditions at once enumerate both, separately.
     const both = classifyContractDrift({
       findings: wrongFindings,
       baselineMatchesFreshCompile: false,
@@ -395,7 +373,6 @@ describe('DR-11 — the meta-model is audited against the shipped runtime surfac
     expect(both.remedies).toHaveLength(2);
     expect(new Set(both.remedies).size).toBe(2);
 
-    // ── The shipped tree is clean on BOTH axes.
     expect(
       classifyContractDrift({
         findings: soundFindings,
@@ -473,10 +450,11 @@ describe('deriveMetaModel — action-contract projection', () => {
 });
 
 describe('deriveMetaModel — emission source binding', () => {
+  /**
+   * `task.progressed` is a catalog event with the emission source `model`, not `auto`.
+   * The derivation must reject an action that declares it as an emission, as admission does.
+   */
   it('CompileContract_NonAutoEmissionSource_RejectsActionAndEvent', () => {
-    // 'task.progressed' is a real catalog event whose EVENT_EMISSION_REGISTRY
-    // source is 'model', not 'auto' — the compiler derivation must reject an
-    // action that declares it as an emission, the same as admission does.
     const badContract = validContract({
       emissions: declared({
         event: 'task.progressed',
@@ -501,10 +479,8 @@ describe('deriveMetaModel — emission source binding', () => {
     expect(() => deriveMetaModel([tool])).toThrow(/task\.progressed/);
   });
 
+  /** Every emission in the live registry has the source `auto`, so the source check must not change the derived bytes. */
   it('CompileContract_AutoEmissionSource_RemainsByteStable', () => {
-    // All live-registry emissions are auto-sourced today, so binding
-    // normalizeEmission to EVENT_EMISSION_REGISTRY must not perturb
-    // derivation's byte-stability guarantee for the happy path.
     const first = deriveMetaModel();
     const second = deriveMetaModel();
     expect(canonicalJson(first)).toBe(canonicalJson(second));

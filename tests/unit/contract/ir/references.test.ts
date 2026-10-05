@@ -20,10 +20,10 @@ function parse(raw: unknown) {
   return result.document;
 }
 
-// A deterministic action-id set for the precise dangling/resolve assertions, so
-// the tests do not depend on the exact live registry contents. The base fixture
-// references `exarchos_event.append`, which is a real ActionId (proven live in
-// the last test), but here we inject it explicitly.
+/**
+ * A fixed action-id set, so the dangling and resolve assertions do not depend on the live registry.
+ * The base fixture references `exarchos_event.append`.
+ */
 const ACTION_IDS = new Set(['exarchos_event.append', 'exarchos_event.query']);
 
 function kinds(violations: readonly { kind: ReferenceViolationKind }[]): ReferenceViolationKind[] {
@@ -94,12 +94,13 @@ describe('shared admission IR — dangling-reference rejection (exit proof half 
     expect(kinds(verdict.violations)).toContain('dangling-requirement');
   });
 
+  /** `policies[1]` and `requirements[1]` each take the id of the first entry in their list. */
   it('duplicate policy/requirement definition ids FAIL (ambiguous ref targets)', () => {
     const raw = baseValidDoc();
     const policies = raw['policies'] as Record<string, unknown>[];
-    (policies[1] as Record<string, unknown>)['policyId'] = 'pol.release'; // dup of policies[0]
+    (policies[1] as Record<string, unknown>)['policyId'] = 'pol.release';
     const requirements = raw['requirements'] as Record<string, unknown>[];
-    (requirements[1] as Record<string, unknown>)['requirementId'] = 'req.gate'; // dup of req[0]
+    (requirements[1] as Record<string, unknown>)['requirementId'] = 'req.gate';
     const verdict = resolveReferences(parse(raw), { actionIds: ACTION_IDS });
     expect(verdict.ok).toBe(false);
     expect(kinds(verdict.violations)).toContain('duplicate-policy-id');
@@ -120,9 +121,12 @@ describe('shared admission IR — dangling-reference rejection (exit proof half 
     );
   });
 
+  /**
+   * The live set equals the `<tool>.<action>` set of the registry projection.
+   * The second half passes no custom set, so `resolveReferences` uses its default source.
+   * A live id resolves, and an invented id dangles.
+   */
   it('resolves action refs against the REAL P03-04 ActionId source by default', () => {
-    // The live set is derived from the registry projection (P03-04) — the same
-    // <tool>.<action> set the binding verifier resolves against.
     const live = liveActionIdSet();
     const projected = new Set(
       registrationActionRefs(deriveRegistrationFromRegistry()).map((r) => r.actionId),
@@ -130,8 +134,6 @@ describe('shared admission IR — dangling-reference rejection (exit proof half 
     expect(live).toEqual(projected);
     expect(live.size).toBeGreaterThan(0);
 
-    // A real live ActionId resolves; a fabricated one is dangling — WITHOUT
-    // injecting a custom set (exercises the real default source).
     const realActionId = [...live][0] as string;
     const raw = baseValidDoc();
     const edges = raw['edges'] as Record<string, unknown>[];

@@ -1,3 +1,9 @@
+/**
+ * Pins the dispatch-route scanner against the real tree in two directions.
+ * Completeness: for each tool, the scanned route set equals the action set of the live registry.
+ * Fidelity: the scanned `orchestrate` table is a superset of the runtime `ACTION_HANDLER_KEYS`.
+ * A scanner that misses or invents a key fails one of the two checks.
+ */
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 
@@ -16,16 +22,6 @@ import {
 import { EFFECT_PROVIDERS } from '../../../../src/contract/reachability/providers.js';
 import { TOOL_REGISTRY } from '../../../../src/registry.js';
 import { COMPOSITE_HANDLER_LOADERS } from '../../../../src/dispatch/core/dispatch.js';
-
-// ─── The shipped dispatch-route authority ────────────────────────────────────
-//
-// These pin the scanner against the REAL tree from two directions:
-//   • completeness — the route set it reads equals the live registry's action
-//     set, per tool (so the `route` hop has a genuine denominator); and
-//   • fidelity     — for the one composite that exposes its dispatch table as a
-//     RUNTIME value (`orchestrate`'s `ACTION_HANDLER_KEYS`), the scanned set is
-//     a superset of that runtime value. A scanner that quietly missed keys (or
-//     invented them) fails here rather than inflating closure.
 
 describe('router-source resolution — the tool → shipped router map', () => {
   it('resolves exactly one router file per dispatchable composite tool', () => {
@@ -66,6 +62,10 @@ describe('the shipped route table covers the live public action surface', () => 
     expect(routes.length).toBe(TOOL_REGISTRY.reduce((n, t) => n + t.actions.length, 0));
   });
 
+  /**
+   * The computed key `[MUTATION_GATE_NAME]` is the regression target.
+   * A scan of literal keys only does not find it.
+   */
   it('FIDELITY: the scanned orchestrate table is a superset of the RUNTIME dispatch table', async () => {
     const { ACTION_HANDLER_KEYS } = await import('../../../../src/verbs/composite.js');
     const scanned = new Set(
@@ -77,18 +77,16 @@ describe('the shipped route table covers the live public action surface', () => 
     for (const key of ACTION_HANDLER_KEYS) {
       expect(scanned.has(key), `runtime handler key '${key}' was not scanned`).toBe(true);
     }
-    // The COMPUTED dispatch key (`[MUTATION_GATE_NAME]`) is the regression
-    // target: a naive key scan drops it silently.
     expect(scanned.has('mutation-adequacy')).toBe(true);
   });
 
+  /** `typeof action === 'string'` is a type guard, so `string` must not be a route. */
   it('records which routing construct produced each route', () => {
     const routes = collectDispatchRoutes();
     const forms = new Set(routes.map((r) => r.form));
     expect(forms.has('switch-case')).toBe(true);
     expect(forms.has('handler-table')).toBe(true);
     expect(forms.has('equality-branch')).toBe(true);
-    // `typeof action === 'string'` is a type guard, never a route.
     expect(routes.some((r) => r.action === 'string')).toBe(false);
   });
 });

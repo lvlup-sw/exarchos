@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { ChannelEmitter } from '../../../../src/adapters/channel/emitter.js';
 import { RequiredDeliveryError } from '../../../../src/events/channel/delivery.js';
 
-// Minimal mock of MCP Server's notification method
+/** A minimal mock of the `notification` method of the MCP server. */
 function createMockServer() {
   return {
     notification: vi.fn().mockResolvedValue(undefined),
@@ -49,8 +49,6 @@ describe('ChannelEmitter', () => {
     server.notification.mockRejectedValue(cause);
     const emitter = new ChannelEmitter(server as never);
 
-    // Best-effort push resolves (never throws) — but the failure is OBSERVABLE
-    // as a typed carrier, not swallowed by an empty catch.
     const outcome = await emitter.push(
       { streamId: 'wf-1', sequence: 1, type: 'task.completed', data: {}, timestamp: '2026-04-05T00:00:00Z' },
       'success',
@@ -105,6 +103,7 @@ describe('ChannelEmitter', () => {
     expect(outcome.kind).toBe('delivered');
   });
 
+  /** The `success` priority is below the `warning` threshold, so the emitter does not push. */
   it('respects custom threshold option', async () => {
     const server = createMockServer();
     const emitter = new ChannelEmitter(server as never, { threshold: 'warning' });
@@ -114,7 +113,6 @@ describe('ChannelEmitter', () => {
       'success',
     );
 
-    // success < warning threshold, so should NOT push
     expect(server.notification).not.toHaveBeenCalled();
   });
 

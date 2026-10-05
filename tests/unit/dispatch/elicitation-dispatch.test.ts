@@ -1,4 +1,4 @@
-// ─── #1274 — Dispatch missing-required-param elicitation tests ──────────────
+/** Tests for the elicitation hand-off that dispatch uses for a missing required parameter. */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -28,10 +28,11 @@ describe('elicitation-dispatch (#1274)', () => {
     await rmrfAsync(tmpDir);
   });
 
+  /**
+   * The request schema holds only the missing field. The test calls `performElicitation` directly
+   * with a fake client.
+   */
   it('Dispatch_MissingRequiredParamWithElicitation_SendsElicitationCreate', async () => {
-    // Client declares the elicitation capability; dispatch routes missing
-    // required params through the elicitation hand-off and the resulting
-    // request carries a `.pick()`-derived schema for the missing field.
     const inputSchema = z.object({
       featureId: z.string(),
       target: z.string(),
@@ -62,19 +63,19 @@ describe('elicitation-dispatch (#1274)', () => {
     expect(result.value).toBe('elicited-feature');
     expect(captured).toBeDefined();
     expect(captured!.field).toBe('featureId');
-    // Schema must be `.pick({featureId: true})` shape — single property.
     const props = captured!.schema.properties as Record<string, unknown>;
     expect(Object.keys(props)).toEqual(['featureId']);
   });
 
+  /**
+   * The resolver declares no elicitation capability, and the `get` call omits its required
+   * `featureId`. Validation then returns `INVALID_INPUT`, and dispatch never calls the stubbed
+   * handler.
+   */
   it('Dispatch_MissingRequiredParamNoCapability_ReturnsInvalidInputFallback', async () => {
-    // Without elicitation capability on the resolver, dispatch must NOT
-    // attempt the hand-off — the existing INVALID_INPUT contract from
-    // per-action Zod validation remains the user-visible envelope.
     const resolver = createInMemoryResolver([]);
     expect(resolver.isElicitationDeclared()).toBe(false);
 
-    // Stub the composite so we can prove no handler is invoked.
     let handlerCalled = false;
     const restore = stubCompositeHandler('exarchos_workflow', async () => {
       handlerCalled = true;
@@ -82,9 +83,6 @@ describe('elicitation-dispatch (#1274)', () => {
     });
 
     try {
-      // `get` requires `featureId`; we omit it. With no elicitation
-      // capability, the per-action validator surfaces INVALID_INPUT and
-      // dispatch never reaches the (stubbed) handler.
       const result = await dispatch(
         'exarchos_workflow',
         { action: 'get' },
@@ -104,9 +102,11 @@ describe('elicitation-dispatch (#1274)', () => {
     }
   });
 
+  /**
+   * Both events go to the pseudo-stream `elicitation/<operationId>` and carry the same
+   * `operationId`.
+   */
   it('Elicitation_RequestedAndFulfilled_EmitEventsWithOperationId', async () => {
-    // Both events emit through the event store and share the same
-    // operationId so downstream queries can correlate request/response.
     const inputSchema = z.object({
       featureId: z.string(),
     });
@@ -124,9 +124,6 @@ describe('elicitation-dispatch (#1274)', () => {
       operationId: 'op-correlated',
     });
 
-    // Query the event store for both events. Elicitation events live on
-    // the per-operation pseudo-stream `elicitation/<operationId>` so the
-    // query is bounded and deterministic.
     const events = await eventStore.query('elicitation/op-correlated');
     const requested = events.find((e) => e.type === 'elicitation.requested');
     const fulfilled = events.find((e) => e.type === 'elicitation.fulfilled');
@@ -144,12 +141,12 @@ describe('elicitation-dispatch (#1274)', () => {
     expect(fulfilledData.field).toBe('featureId');
   });
 
+  /**
+   * A client result with an undefined `value` is a decline. The hand-off then emits
+   * `elicitation.declined` and no `elicitation.fulfilled`, so the audit trail separates the two
+   * outcomes.
+   */
   it('PerformElicitation_ClientDeclines_EmitsElicitationDeclinedNotFulfilled', async () => {
-    // Sentry MEDIUM #1424: pre-fix `elicitation.fulfilled` was emitted
-    // even when the client returned `value === undefined`, polluting the
-    // audit trail. The decline path now emits a distinct
-    // `elicitation.declined` event so downstream consumers can
-    // distinguish "supplied a value" from "refused / cancelled."
     const inputSchema = z.object({ featureId: z.string() });
     const decliningClient: ElicitationClient = {
       async create() {

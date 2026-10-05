@@ -32,13 +32,9 @@ import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 const FIXED_TIME = '2026-07-21T20:00:00.000Z';
 
 /**
- * `dispatch` resolves `stateDir` against the process cwd, so a RELATIVE value
- * here materialises a directory in the repository root and leaves it there.
- * This test used the literal `'caller-identity-test'` and did exactly that —
- * the stray directory outlived every run, was untracked (so no git-based census
- * could see it), and survived a deliberate cleanup by being recreated on the
- * next test run. `tests/architecture/top-level-contract.test.ts` is what
- * finally caught it.
+ * `dispatch` resolves `stateDir` against the process cwd. A relative value
+ * leaves a stray directory in the repository root, so the state directory is an
+ * absolute temp directory.
  */
 const STATE_DIR = mkdtempSync(join(tmpdir(), 'exarchos-caller-identity-'));
 afterAll(() => {

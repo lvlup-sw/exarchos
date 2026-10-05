@@ -55,7 +55,6 @@ describe('envelope — output classification (totality)', () => {
   });
 
   it('EveryToolResultMapsToExactlyOneKind', () => {
-    // Totality: the four constructors cover the four kinds, one-to-one.
     const kinds = [baseline(), capped(), degraded(), failure()].map(classifyOutput);
     expect(new Set(kinds)).toEqual(new Set(OUTPUT_KINDS));
   });
@@ -100,8 +99,8 @@ describe('envelope — closed output union', () => {
   it('AcceptsBaseline', () => {
     expect(schema.safeParse(baseline()).success).toBe(true);
   });
+  /** The capped data does not match `dataSchema`. The `CappedDataSchema` arm accepts it. */
   it('AcceptsGenericCapped', () => {
-    // The generic capped fallback validates via the CappedDataSchema arm.
     expect(schema.safeParse(capped()).success).toBe(true);
   });
   it('AcceptsDegraded', () => {
@@ -133,6 +132,6 @@ describe('envelope — closed output union', () => {
   });
 });
 
-// Silence unused-type lint without exporting it from a test.
+/** Uses the `OutputKind` type import, so the unused-import lint stays quiet. */
 const _kindType: OutputKind = 'baseline';
 void _kindType;

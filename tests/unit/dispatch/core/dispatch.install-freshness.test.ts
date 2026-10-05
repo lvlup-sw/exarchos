@@ -1,3 +1,10 @@
+/**
+ * Tests the install freshness gate through the real `dispatch()` chokepoint.
+ * Each test sends a real action through `dispatch()`, on a real filesystem and
+ * with the installed posture set in `process.env`. No test calls the freshness
+ * functions directly. A stale dimension must block a mutating action with
+ * `INSTALL_FRESHNESS_MISMATCH`.
+ */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -15,24 +22,16 @@ import {
 import { resetInstallFreshnessGateForTest } from '../../../../src/install/freshness-gate.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
-/**
- * P05-04 — install freshness gating THROUGH THE REAL DISPATCH CHOKEPOINT.
- *
- * These tests do NOT call `verifyInstallFreshness` / `evaluateInstallFreshness`
- * directly. They drive a real mutating action (`exarchos_workflow.init`)
- * through `dispatch()` with the gate wired in production mode — real
- * filesystem, real `process.env` (installed posture via `EXARCHOS_PLUGIN_ROOT`)
- * — and assert that each stale dimension surfaces as an
- * `INSTALL_FRESHNESS_MISMATCH` ToolResult BEFORE the handler runs.
- */
-
 const MUTATING_TOOL = 'exarchos_workflow';
 const MUTATING_ARGS = { action: 'init', featureId: 'p05-freshness', workflowType: 'feature' };
 
-let root: string; // temp "plugin root" (installed layout)
-let cacheDir: string; // temp cache dir
-let stateDir: string; // temp state dir (event store only — the lock no longer lives here)
-let installDir: string; // temp install-identity dir (holds the TOFU lock)
+/** The temp plugin root, in the installed layout. */
+let root: string;
+let cacheDir: string;
+/** The temp state directory. It holds the event store only, and the lock is not in it. */
+let stateDir: string;
+/** The temp install-identity directory, which holds the lock. */
+let installDir: string;
 let eventStore: EventStore;
 
 function seedCoherentInstall(overrides?: Partial<{ pkg: string; manifest: string; skill: string; cache: string }>): void {
@@ -52,11 +51,9 @@ function seedCoherentInstall(overrides?: Partial<{ pkg: string; manifest: string
 }
 
 /**
- * Record the current on-disk state as the expected lock (a coherent install).
- *
- * The lock is keyed to the INSTALLATION, not the state dir, so freshness stays
- * invariant under WORKFLOW_STATE_DIR. `EXARCHOS_INSTALL_STATE_DIR` redirects it
- * into the temp tree here — without it the gate would write to the real `~`.
+ * Records the current on-disk state as the expected lock. The lock belongs to
+ * the installation, not to the state directory. `EXARCHOS_INSTALL_STATE_DIR`
+ * redirects the lock into the temp tree, away from the real home directory.
  */
 function recordCoherentLock(): void {
   writeRecordedIdentity(root, collectInstallIdentity(root));
@@ -70,6 +67,7 @@ function ctx(): DispatchContext {
   return { stateDir, eventStore, enableTelemetry: false };
 }
 
+/** The env stubs set the installed posture, because the gate reads `process.env`. */
 beforeEach(async () => {
   resetInstallFreshnessGateForTest();
   const base = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'p05-freshness-'));
@@ -79,7 +77,6 @@ beforeEach(async () => {
   installDir = path.join(base, 'install');
   fs.mkdirSync(stateDir, { recursive: true });
   fs.mkdirSync(installDir, { recursive: true });
-  // Installed posture, deterministically, via env — the gate reads process.env.
   vi.stubEnv('EXARCHOS_PLUGIN_ROOT', root);
   vi.stubEnv('EXARCHOS_CACHE_DIR', cacheDir);
   vi.stubEnv('CLAUDE_PLUGIN_ROOT', '');
@@ -103,21 +100,23 @@ describe('P05-04 dispatch chokepoint — matching install proceeds', () => {
     expect(result.error?.code).not.toBe('INSTALL_FRESHNESS_MISMATCH');
   });
 
+  /** The gate records the lock on the first run, so later runs have a baseline. */
   it('first run with NO recorded lock BOOTSTRAPS (records, does not block)', async () => {
     seedCoherentInstall();
     expect(fs.existsSync(lockPath())).toBe(false);
     const result = await dispatch(MUTATING_TOOL, MUTATING_ARGS, ctx());
     expect(result.error?.code).not.toBe('INSTALL_FRESHNESS_MISMATCH');
-    // The gate recorded the lock so subsequent runs have a baseline.
     expect(fs.existsSync(lockPath())).toBe(true);
   });
 
+  /**
+   * The new `package.json` makes the binary dimension stale. `get` is read-only
+   * and must stay available for diagnosis.
+   */
   it('a read-only action is exempt even when the install is stale', async () => {
     seedCoherentInstall();
     recordCoherentLock();
-    // Corrupt the binary dimension on disk — a mutating action would block…
     fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ version: '9.9.9' }));
-    // …but `get` is read-only and must remain available for diagnosis.
     const result = await dispatch(
       MUTATING_TOOL,
       { action: 'get', featureId: 'p05-freshness' },
@@ -127,11 +126,12 @@ describe('P05-04 dispatch chokepoint — matching install proceeds', () => {
   });
 });
 
+/** Each test changes one on-disk dimension after it records the lock. */
 describe('P05-04 dispatch chokepoint — each seeded mismatch blocks before execution', () => {
   async function expectBlockedOnDimension(mutate: () => void, dimension: string): Promise<void> {
     seedCoherentInstall();
     recordCoherentLock();
-    mutate(); // diverge exactly one on-disk dimension AFTER recording the lock
+    mutate();
     const result = await dispatch(MUTATING_TOOL, MUTATING_ARGS, ctx());
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('INSTALL_FRESHNESS_MISMATCH');

@@ -1,3 +1,11 @@
+// Kill tests for the widened VCS-mutation census.
+//
+// The plant tests write real `.ts` files into a temp directory tree and run `auditVcsOwnership(root)` end to end.
+// A hand-built site array for `runVcsOwnershipCensus` proves only that the census rejects an unowned site.
+// The detector must see an argv such as `['merge', '--no-ff', x]`.
+// Only a round trip through the file system proves that.
+// Two lexer tests call the detector directly, and the last block audits the live `src` tree.
+
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -14,19 +22,6 @@ import { lexModule } from '../../../tools/test-helpers/module-lexer.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 const SRC_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../../src');
-
-/**
- * DR-12 kill tests for the widened VCS-mutation census.
- *
- * These are deliberately INTEGRATION-layer: each plants real `.ts` files into a
- * real temp directory tree and runs the async `auditVcsOwnership(root)`
- * end-to-end (walk → read → strip → detect → census). A hand-built site array
- * fed to `runVcsOwnershipCensus` would only prove the *census* rejects an
- * unowned site — which it already did before DR-12. The defect DR-12 names is in
- * the DETECTOR: `['merge', '--no-ff', x]` was invisible, so the census stayed
- * green over a tree that plainly mutated. Only a filesystem round-trip can kill
- * that.
- */
 
 /** The owner-shaped module planted in every fixture so no STALE_VCS_OWNER noise. */
 const OWNER_MODULE = 'vcs/mutation-owner.ts';
@@ -76,11 +71,13 @@ describe('DR-12 kill — widened census sees merge and branch-create', () => {
     expect(result.ok).toBe(true);
   });
 
+  /**
+   * The plant is a direct `git merge --no-ff` in a module that no owner rule claims.
+   * The census must report that bypass and no other diagnostic.
+   */
   it('VcsOwnership_PlantedMergeOutsideOwner_CensusFailsClosed', async () => {
     const root = await plant({
       [OWNER_MODULE]: OWNER_SOURCE,
-      // The exact vector DR-12 names: a direct `git merge --no-ff` in a module
-      // no owner rule claims. This passed the census before the widening.
       'verbs/rogue-merge.ts': `
         import type { GitExec } from './pure/execute-merge.js';
         export function landBranch(gitExec: GitExec, repoRoot: string, target: string): void {
@@ -97,26 +94,23 @@ describe('DR-12 kill — widened census sees merge and branch-create', () => {
     expect(bypasses[0]?.module).toBe('verbs/rogue-merge.ts');
     expect(bypasses[0]?.mutation).toBe('merge');
     expect(bypasses[0]?.message).toContain('verbs/rogue-merge.ts');
-    // The plant is the ONLY reason the tree is red.
     expect(result.diagnostics.map((d) => d.code)).toEqual(['DIRECT_VCS_BYPASS']);
   });
 
+  /** The three plants are the creation vectors: `git branch <name> <base>`, `git checkout -b` and `git switch -c`. */
   it('VcsOwnership_PlantedBranchCreateOutsideOwner_CensusFailsClosed', async () => {
     const root = await plant({
       [OWNER_MODULE]: OWNER_SOURCE,
-      // `git branch <name> <base>` — creation via the bare subcommand.
       'verbs/rogue-branch.ts': `
         export function forkBranch(git: Git, repoRoot: string, name: string, base: string): void {
           git.run(['branch', name, base], repoRoot);
         }
       `,
-      // `git checkout -b <name>` — the other real creation vector.
       'launcher/rogue-checkout.ts': `
         export function cutBranch(git: Git, repoRoot: string, name: string): void {
           git.run(['checkout', '-b', name], repoRoot);
         }
       `,
-      // `git switch -c <name>` — the modern equivalent.
       'launcher/rogue-switch.ts': `
         export function cutBranchModern(git: Git, repoRoot: string, name: string): void {
           git.run(['switch', '-c', name], repoRoot);
@@ -139,71 +133,59 @@ describe('DR-12 kill — widened census sees merge and branch-create', () => {
     expect(result.diagnostics.every((d) => d.code === 'DIRECT_VCS_BYPASS')).toBe(true);
   });
 
+  /**
+   * Each snippet copies the shape of a shipped module that holds a bare `'merge'` or `'branch'` literal
+   * and does no git mutation. The hardest case is `registry.ts`, where `'merge'` is the head of an array literal.
+   * Other cases are a `gh` or `glab` argv, a git read such as `branch --show-current`,
+   * and a `checkout` that restores paths.
+   * The test checks each snippet alone, then a whole tree of the snippets with a real owner.
+   */
   it('FALSE-POSITIVE GUARD — incidental `merge`/`branch` literals from the live tree yield NO site', async () => {
-    // Every snippet below is copied in SHAPE from a real shipped module that
-    // contains a bare `'merge'` or `'branch'` string literal but performs no git
-    // mutation. If any of these matched, the widening would be unusable.
     const incidental: Record<string, string> = {
-      // registry.ts — Zod strategy enum + the wait-predicate selector, which is
-      // the nastiest case: `'merge'` IS the head element of an array literal.
       'registry.ts': `
         const a = z.enum(['squash', 'rebase', 'merge']);
         const b = z.enum(['merge', 'idle']).optional();
       `,
-      // event-store/liveness-registry.ts — surface union + object field.
       'events/liveness-registry.ts': `
         export type LivenessSurface = 'merge' | 'launch' | 'mutation' | 'prune';
         const entry = { surface: 'merge', ttlMs: 1000 };
       `,
-      // vcs/github.ts — a gh PR merge (remote API), not a git argv.
       'vcs/github.ts': `
         await exec('gh', ['pr', 'merge', prId, strategyFlag]);
       `,
-      // vcs/gitlab.ts — glab MR merge built by push(), not a git argv.
       'vcs/gitlab.ts': `
         const args = ['mr', 'merge', prId];
         if (strategy === 'squash') { args.push('--squash'); }
       `,
-      // vcs/azure-devops.ts — switch case label.
       'vcs/azure-devops.ts': `
         switch (strategy) { case 'merge': return 'noFastForward'; }
       `,
-      // views/lifecycle/wait.ts — nested quotes inside a double-quoted string.
       'projections/views/lifecycle/wait.ts': `
         const shape = { expectedShape: { until: "'merge' | 'idle'" } };
         const fix = { params: { action: 'wait', until: 'merge' } };
       `,
-      // runbooks/definitions.ts — 'branch' as a template-variable name, followed
-      // by another quoted literal.
       'runbooks/definitions.ts': `
         const templateVars = ['taskId', 'featureId', 'streamId', 'branch', 'worktreePath'];
       `,
-      // verbs/gates/pre-synthesis-check.ts — a git READ, not a create.
       'verbs/gates/pre-synthesis-check.ts': `
         currentBranch = execFileSync('git', ['branch', '--show-current'], { cwd: root });
       `,
-      // verbs/review/review-diff.ts — the same read through a helper.
       'verbs/review/review-diff.ts': `
         const currentBranch = git(['branch', '--show-current'], worktreePath);
       `,
-      // architecture/sdlc-catalog.ts — a catalog tag list.
       'architecture/sdlc-catalog.ts': `
         const applies = { 'applies-to': ['pull-requests', 'branch-topology', 'merge'] };
       `,
-      // verbs/gates/test-adequacy.ts — `checkout <ref> -- <paths>` restores the
-      // working tree; it creates no branch.
       'verbs/gates/test-adequacy.ts': `
         const result = gitExec(repoRoot, ['checkout', stashSha, '--', '.']);
         const c = gitExec(repoRoot, ['checkout', baseRef, '--', ...basePaths]);
       `,
-      // Index access / extractor call shapes.
       'projections/views/tools.ts': `
         const x = typeof e['branch'] === 'string' ? { branch: e['branch'] as string } : {};
         const y = extractString(event.data, 'branch');
       `,
     };
 
-    // Unit-level: no snippet yields a site.
     for (const [module, source] of Object.entries(incidental)) {
       expect(
         detectVcsMutationSites(module, source, lexModule),
@@ -211,7 +193,6 @@ describe('DR-12 kill — widened census sees merge and branch-create', () => {
       ).toEqual([]);
     }
 
-    // Integration-level: a whole tree of them, with a real owner, stays GREEN.
     const root = await plant({ ...incidental, [OWNER_MODULE]: OWNER_SOURCE });
     const result = await auditVcsOwnership(root, lexModule, SCOPED_OWNERS);
     expect(result.diagnostics).toEqual([]);
@@ -232,16 +213,14 @@ describe('DR-12 kill — widened census sees merge and branch-create', () => {
     expect(result.ok).toBe(true);
   });
 
+  /**
+   * The `'` inside a regex character class is not a string delimiter.
+   * A lexer that opens a string there stops recognizing `//`, and comment prose leaks into the scan.
+   * The comment sits on the same line as the regex on purpose. A newline resynchronizes a line-bounded lexer,
+   * so a next-line fixture passes without regex awareness.
+   * A `/` in division position must not open a regex. That error hides real code and gives a false negative.
+   */
   it('stripComments does not desync on a regex literal containing quote characters', () => {
-    // Regression guard for the lexer defect the widening exposed: the `'` inside
-    // a regex character class is NOT a string delimiter. Before the fix the
-    // scanner entered a phantom string here and stopped recognising `//`, so
-    // comment prose leaked into the scan and self-matched.
-    //
-    // The comment is on the SAME LINE as the regex on purpose. A newline would
-    // resynchronise the lexer by itself (`'`/`"` are line-bounded), so a
-    // next-line fixture passes even WITHOUT regex awareness and would leave this
-    // guard vacuous. Same-line is the case only regex awareness can strip.
     const sameLine = [
       "const RE = /(['\"`])x\\1/; // legacy called ['merge', '--no-ff', target]",
       'export const after = 1;',
@@ -250,7 +229,6 @@ describe('DR-12 kill — widened census sees merge and branch-create', () => {
     expect(stripComments(sameLine, lexModule)).toContain('export const after = 1;');
     expect(detectVcsMutationSites('architecture/detector.ts', sameLine, lexModule)).toEqual([]);
 
-    // Same for a same-line BLOCK comment and a branch-create vector.
     const blockSameLine =
       "const RE = /(['\"`])x\\1/; /* used ['checkout', '-b', tmp] */ export const a = 1;";
     expect(stripComments(blockSameLine, lexModule)).not.toContain('checkout');
@@ -258,25 +236,19 @@ describe('DR-12 kill — widened census sees merge and branch-create', () => {
       [],
     );
 
-    // A `/` in DIVISION position must NOT be mistaken for a regex opener — that
-    // would swallow real code and cause a false NEGATIVE (the dangerous
-    // direction for a ratchet).
     const division = "const ratio = total / count;\ngit.run(['merge', '--no-ff', target]);";
     expect(detectVcsMutationSites('x/y.ts', division, lexModule).map((s) => s.mutation)).toEqual([
       'merge',
     ]);
   });
 
+  /**
+   * A heuristic that reads the character before a `/` scores the regex after `return` as division and loses sync.
+   * The parser reports the regex literal in every operand position.
+   * The merge in the comment must not leak, and the real mutation on the next line must still show.
+   * `tools/conformance/src/vcs-ownership.kill-lexer.test.ts` holds the inputs that the retired character walk reads wrongly.
+   */
   it('the retired heuristic blind spot is answered by the grammar, not capped', () => {
-    // `return /(['"])/` WAS the conservative heuristic's known blind spot: the
-    // previous significant character is `n` (of `return`), so the `/` was scored
-    // as division and regex mode was not entered. Line-bounded `'`/`"` strings
-    // were all that stopped the resulting phantom string from running to EOF.
-    //
-    // Task 072 removed the heuristic rather than the cap. `/(['"])/` is a regex
-    // literal because the parser says so, in every operand position, so there is
-    // no desync left to cap — see `vcs-ownership.kill-lexer.test.ts` for the
-    // input on which the cap was not enough.
     const source = [
       `export function isQuote(x: string): boolean { return /(['"])/.test(x); }`,
       `// historical: ['merge', '--no-ff', target]`,
@@ -284,9 +256,7 @@ describe('DR-12 kill — widened census sees merge and branch-create', () => {
     ].join('\n');
 
     const sites = detectVcsMutationSites('x/y.ts', source, lexModule);
-    // The commented-out merge must NOT leak …
     expect(sites.map((s) => s.mutation)).toEqual(['worktree.add']);
-    // … while the real mutation on the line after it is still seen.
     expect(sites[0]?.mutation).toBe('worktree.add');
   });
 });
@@ -303,10 +273,11 @@ describe('DR-12 live tree — the widened census is green and load-bearing', () 
     expect(live.ok).toBe(true);
   });
 
+  /**
+   * Without this test the census can be green because the rules match nothing.
+   * The detector must see the merge in `verbs/merge/local-git-merge.ts`.
+   */
   it('the widened detector actually SEES merge + branch.create on the live tree', async () => {
-    // Without this the census could be green merely because the new rules never
-    // match anything — a vacuous pass. `local-git-merge.ts` is the module DR-12
-    // names as "invisible by design"; it must now be visible.
     const { scanVcsMutationSites } = await import('../../../tools/conformance/src/vcs-ownership.js');
     const sites = await scanVcsMutationSites(SRC_ROOT, lexModule);
     const kinds = new Set(sites.map((s) => s.mutation));
@@ -326,9 +297,8 @@ describe('DR-12 live tree — the widened census is green and load-bearing', () 
     }
   });
 
+  /** The two owners are load-bearing: without either one, the live tree fails with a direct bypass. */
   it('dropping a DR-12 owner turns the live census RED (the new owners are load-bearing)', async () => {
-    // Proves the two DR-12 additions are not decorative: remove either and the
-    // live tree fails closed with a real bypass, not a shrug.
     for (const dropped of ['verbs/merge/local-git-merge.ts', 'verbs/pure/execute-merge.ts']) {
       const owners = VCS_MUTATION_OWNERS.filter((o) => o !== dropped);
       const result = await auditVcsOwnership(SRC_ROOT, lexModule, owners);

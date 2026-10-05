@@ -1,15 +1,11 @@
+// The differential proof sends one `ToolResult` through the real CLI command
+// tree (`buildCli`). It compares the CLI envelope and exit code with the MCP
+// rendering of the same result. The `dispatch` mock supplies the handler
+// result. The `cli-format` mock sends the `--json` envelope to a stdout spy.
+// `format.toEnvelope` is real, so both surfaces use the shared projection.
+
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { ToolResult } from '../../../../src/format.js';
-
-// ─── Mocks (mirror adapters/cli.test.ts) ─────────────────────────────────────
-//
-// The differential proof drives the SAME `ToolResult` through the real CLI
-// command tree (`buildCli`) and compares the CLI's rendered envelope + resolved
-// exit code against the MCP wire's rendering of the same result. `dispatch` is
-// mocked so we control the handler result; `cli-format` is mocked so the
-// `--json` path's envelope reaches a stdout spy (the mock mirrors the real
-// `toCliResult` json branch). `format.toEnvelope` is NOT mocked — both surfaces
-// resolve through the real, shared envelope projection.
 
 vi.mock('../../../../src/dispatch/core/dispatch.js', () => ({
   dispatch: vi.fn<(tool: string, args: Record<string, unknown>, ctx: unknown) => Promise<ToolResult>>(
@@ -42,43 +38,43 @@ function createContext(): DispatchContext {
   };
 }
 
-// ─── Pure agreement: the CLI resolves the SAME stable exit as the contract ───
-
 describe('CLI ⇄ MCP differential (exit-code agreement)', () => {
+  /**
+   * `resolveExitCode` delegates to the contract authority, so a comparison of those two is a tautology.
+   * This test compares the verdict of the authority with the hand-written expectation of each fixture.
+   */
   it('CliResolveExitCode_EqualsContractExit_ForEveryCase', () => {
     for (const differential of DIFFERENTIAL_CASES) {
-      // `resolveExitCode` DELEGATES to the contract authority, so comparing the
-      // two names would be a tautology (it was one, and it is gone). What is
-      // measured here is the authority's verdict against the fixture's own
-      // hand-written expectation.
       expect(resolveExitCode(differential.result)).toBe(differential.expectedExit);
     }
   });
 
+  /**
+   * `ToolResult` is not a discriminated union, so `success: false` with no `error` is legal.
+   * The MCP wire renders that result as an error, so exit code 0 from the CLI is a disagreement.
+   * The failure branch has a floor of `HANDLER_ERROR`, and an unregistered code gets the same floor.
+   * A success result still exits 0.
+   */
   it('ResolveExitCode_FailureResultWithoutError_DoesNotExitZero', () => {
-    // `ToolResult` is not a discriminated union: `success:false` with no `error`
-    // is type-legal for every handler, and the MCP wire renders it `isError`.
-    // A silent 0 here is the CLI disagreeing with the wire about one value.
     const errorless: ToolResult = { success: false };
 
     expect(resolveExitCode(errorless)).not.toBe(CONTRACT_EXIT_CODES.SUCCESS);
     expect(resolveExitCode(errorless)).toBe(CONTRACT_EXIT_CODES.HANDLER_ERROR);
 
-    // The floor is a property of the failure branch, not a special case for the
-    // absent code: an unregistered code takes the same floor.
     const unregistered: ToolResult = {
       success: false,
       error: { code: 'NOT_IN_THE_REGISTRY', message: 'novel code' },
     };
     expect(resolveExitCode(unregistered)).toBe(CONTRACT_EXIT_CODES.HANDLER_ERROR);
 
-    // …and success is still 0, so the floor did not simply redden everything.
     expect(resolveExitCode({ success: true, data: {} })).toBe(CONTRACT_EXIT_CODES.SUCCESS);
   });
 
+  /**
+   * The fixture table must hold a failure with no `error`.
+   * Without that case, the differential proof cannot see an exit code of 0 for such a failure.
+   */
   it('DifferentialCases_CoverTheErrorlessFailure', () => {
-    // Guards the table itself: the differential proof was blind to this shape,
-    // so its absence is what let the defect survive a green suite.
     const errorless = DIFFERENTIAL_CASES.filter((c) => !c.result.success && c.result.error === undefined);
     expect(errorless.length).toBeGreaterThan(0);
     for (const c of errorless) {
@@ -94,8 +90,6 @@ describe('CLI ⇄ MCP differential (exit-code agreement)', () => {
     expect(families.has('success')).toBe(true);
   });
 });
-
-// ─── End-to-end: same action through the real CLI tree vs the MCP envelope ───
 
 describe('CLI ⇄ MCP differential (end-to-end through buildCli)', () => {
   let ctx: DispatchContext;
@@ -113,10 +107,12 @@ describe('CLI ⇄ MCP differential (end-to-end through buildCli)', () => {
   });
 
   for (const differential of DIFFERENTIAL_CASES) {
+    /**
+     * The mocked `dispatch` gives the fixture result to the CLI.
+     * The CLI envelope must equal `toEnvelope(result)`, which the MCP wire puts into `structuredContent`.
+     * The exit code of the real CLI path must equal the hand-written expectation of the fixture.
+     */
     it(`CLI output + exit equal MCP · ${differential.name}`, async () => {
-      // The contract handler (mocked dispatch) returns this result on BOTH
-      // surfaces — the MCP wire would put `toEnvelope(result)` into
-      // structuredContent; the CLI renders the same result to stdout.
       vi.mocked(dispatch).mockResolvedValueOnce(differential.result);
 
       const program = buildCli(ctx);
@@ -127,23 +123,16 @@ describe('CLI ⇄ MCP differential (end-to-end through buildCli)', () => {
       const stdoutText = stdoutSpy.mock.calls.map(([s]) => s).join('');
       stdoutSpy.mockRestore();
 
-      // 1. Rendering agrees by construction — the CLI-emitted envelope is
-      //    byte-equal (post-JSON-roundtrip) to the MCP structuredContent.
       const mcpStructuredContent = toEnvelope(differential.result);
       const cliEmitted: unknown = JSON.parse(stdoutText.trim());
       expect(cliEmitted).toEqual(mcpStructuredContent);
 
-      // 2. The exit code the REAL CLI path set agrees with the fixture's
-      //    hand-written expectation. This is the measurement — comparing it
-      //    against a second call to the same authority would not be.
       expect(process.exitCode).toBe(differential.expectedExit);
     });
   }
 
+  /** The success case reaches the mocked `dispatch`, so the differential does not stop at CLI validation. */
   it('SuccessCase_ReachesDispatch_ErrorEnvelopesAreEchoed', async () => {
-    // Sanity: the success vehicle actually reaches the (mocked) contract
-    // handler — i.e. the differential is exercising the real dispatch seam,
-    // not short-circuiting at the CLI validation layer.
     const successCase = DIFFERENTIAL_CASES.find((c) => c.family === 'success');
     expect(successCase).toBeDefined();
     if (!successCase) return;

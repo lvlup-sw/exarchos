@@ -1,10 +1,8 @@
-// Retirement guard for the `design-invariants` skill (T-23 / DR-4).
+// Retirement guard for the `design-invariants` skill.
 //
-// The skill's audit behavior is now owned by the `check_invariant_conformance`
-// gate; its vocabulary lives in `.exarchos/invariants.md` and its
-// grounding prose was relocated to `docs/architecture/invariants/references/`.
-// This guard pins the retirement so the skill cannot quietly return and so the
-// catalog's `references:` pointers never dangle.
+// The `check_invariant_conformance` gate owns the audit behavior of the skill.
+// The vocabulary is in `.exarchos/invariants.md`, and the grounding prose is in the documents repository.
+// This guard fails if the skill returns or if a `references:` pointer of the catalog dangles.
 
 import { describe, it, expect } from 'vitest';
 import { fileURLToPath } from 'node:url';
@@ -12,9 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { loadInvariants } from '../../../src/architecture/invariants-loader.js';
 
-// skill-retirement.test.ts lives at
-//   src/architecture/skill-retirement.test.ts
-// Repo root is four directories up.
+/** The directory of this file. The repository root is three levels up. */
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../..');
 const INVARIANTS_DOC = path.join(REPO_ROOT, '.exarchos/invariants.md');
@@ -23,21 +19,25 @@ const DESIGN_INVARIANTS_SKILL = path.join(
   '.claude/skills/design-invariants/SKILL.md',
 );
 
-// Decouple the loader from the repo's actual `.exarchos.yml`; the catalog
-// gates behind `invariants.devCatalog: enabled`.
+/** Registers the catalog as a dev source, so the loader does not depend on the `.exarchos.yml` of the repo. */
 const ENABLED_CONFIG = {
   invariants: { catalogs: [{ path: INVARIANTS_DOC, tier: 'dev' as const }] },
 };
 
 describe('design-invariants skill retirement', () => {
+  /**
+   * The skill entry point and its directory must not exist.
+   * No catalog reference points into the retired skill path.
+   * The grounding prose is in the documents repository, so a reference to it is a cross-repository citation.
+   * Such a citation has the form `<owner>/<repo>:<path>` and does not resolve locally.
+   * It must still name a `.md` document. A local reference to the reference tree must resolve to a file.
+   */
   it('DesignInvariantsSkill_Removed_NoVocabularyInSkillBodies', () => {
-    // The retired skill's entry point must no longer exist on disk.
     expect(
       fs.existsSync(DESIGN_INVARIANTS_SKILL),
       'design-invariants SKILL.md must be removed — audit behavior now lives in the check_invariant_conformance gate',
     ).toBe(false);
 
-    // The skill directory must be gone entirely (no stray references/ dir).
     const skillDir = path.dirname(DESIGN_INVARIANTS_SKILL);
     expect(
       fs.existsSync(skillDir),
@@ -47,8 +47,6 @@ describe('design-invariants skill retirement', () => {
     const entries = loadInvariants(INVARIANTS_DOC, { scope: 'all' }, ENABLED_CONFIG);
     expect(entries.length).toBeGreaterThan(0);
 
-    // No catalog reference may still point into the retired skill — neither
-    // the deleted SKILL.md nor the relocated references/ subtree.
     for (const entry of entries) {
       for (const ref of entry.references) {
         expect(
@@ -58,15 +56,6 @@ describe('design-invariants skill retirement', () => {
       }
     }
 
-    // The grounding prose that this skill's retirement relocated has since left
-    // the repository entirely, for the documents repository. A reference to it
-    // is now a CROSS-REPOSITORY citation (`<owner>/<repo>:<path>`) and cannot
-    // resolve locally — which is the point: the citation survives the document
-    // leaving and says where it went.
-    //
-    // What still has to hold is that the reference names the reference tree at
-    // all. A reference that silently lost its path, or that points at a local
-    // file which is not there, is still a dangling one.
     const CROSS_REPO = /^[\w.-]+\/[\w.-]+:/;
     const dangling: string[] = [];
     for (const entry of entries) {
@@ -74,7 +63,6 @@ describe('design-invariants skill retirement', () => {
         if (!ref.includes('docs/architecture/invariants/references/')) continue;
         const withoutAnchor = ref.split('#')[0]!;
         if (CROSS_REPO.test(withoutAnchor)) {
-          // Relocated: assert it still names a document rather than trailing off.
           if (!/\.md$/.test(withoutAnchor)) dangling.push(`${entry.id} → ${ref}`);
           continue;
         }
