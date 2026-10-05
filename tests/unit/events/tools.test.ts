@@ -17,8 +17,7 @@ import { runWithDispatchContext } from '../../../src/dispatch/dispatch-context.j
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 import { estimateOutputTokens } from '../../../src/dispatch/core/economy.js';
 
-// DR-5: `event query` returns `{ events, page }`. These helpers unwrap that
-// envelope so a shape change surfaces in exactly one place per accessor.
+/** Reads `events` from the `{ events, page }` result of `event query`. */
 function queryEvents(result: ToolResult): Array<Record<string, unknown>> {
   const data = result.data as { events?: unknown } | undefined;
   return (data?.events ?? []) as Array<Record<string, unknown>>;
@@ -38,8 +37,6 @@ beforeEach(async () => {
 afterEach(async () => {
   await rmrfAsync(tempDir);
 });
-
-// ─── T4: VALIDATION_ERROR for malformed model-emitted event data ────────────
 
 describe('handleEventAppend data validation', () => {
   it('HandleEventAppend_ModelEventInvalidData_ReturnsValidationError', async () => {
@@ -85,8 +82,6 @@ describe('handleEventAppend data validation', () => {
     expect(result.data).toBeDefined();
   });
 });
-
-// ─── Misplaced Event Fields Detection ────────────────────────────────────────
 
 describe('handleEventAppend misplaced fields', () => {
   it('rejects event with type-specific fields at top level', async () => {
@@ -172,8 +167,7 @@ describe('handleBatchAppend misplaced fields', () => {
   });
 });
 
-// ─── Prototype Pollution Prevention ─────────────────────────────────────────
-
+/** The projection drops `__proto__`, `constructor` and `prototype` to prevent prototype pollution. */
 describe('handleEventQuery field projection', () => {
   it('should filter out __proto__ from fields', async () => {
     const store = new EventStore(tempDir);
@@ -266,15 +260,11 @@ describe('handleEventQuery field projection', () => {
   });
 });
 
-// ─── Task 003: batch_append action ───────────────────────────────────────────
-
 describe('handleBatchAppend', () => {
   it('batchAppend_MultipleEvents_AppendsAllWithSequentialSequenceNumbers', async () => {
-    // Arrange: seed the stream with one event so we start from sequence 1
     const store = new EventStore(tempDir);
     await store.append('my-workflow', { type: 'workflow.started' });
 
-    // Act: batch append 3 events
     const result = await handleBatchAppend(
       {
         stream: 'my-workflow',
@@ -288,7 +278,6 @@ describe('handleBatchAppend', () => {
       store,
     );
 
-    // Assert
     expect(result.success).toBe(true);
     const sequences = result.data as Array<{ streamId: string; sequence: number; type: string }>;
     expect(sequences).toHaveLength(3);
@@ -296,7 +285,6 @@ describe('handleBatchAppend', () => {
     expect(sequences[1].sequence).toBe(3);
     expect(sequences[2].sequence).toBe(4);
 
-    // Verify all events exist in the stream
     const queryResult = await handleEventQuery({ stream: 'my-workflow' }, tempDir, store);
     expect(queryResult.success).toBe(true);
     expect(queryEvents(queryResult)).toHaveLength(4);
@@ -317,6 +305,7 @@ describe('handleBatchAppend', () => {
     expect(result.error!.code).toBe('INVALID_INPUT');
   });
 
+  /** Two events in one batch share a key, so the handler appends only the first one. */
   it('batchAppend_IdempotencyKey_DeduplicatesAcrossBatch', async () => {
     const result = await handleBatchAppend(
       {
@@ -332,21 +321,17 @@ describe('handleBatchAppend', () => {
 
     expect(result.success).toBe(true);
     const sequences = result.data as Array<{ streamId: string; sequence: number; type: string }>;
-    // Only 1 event should be appended — the second is a duplicate
     expect(sequences).toHaveLength(1);
 
-    // Verify only 1 event in stream
     const queryResult = await handleEventQuery({ stream: 'my-workflow' }, tempDir, eventStore);
     expect(queryResult.success).toBe(true);
     expect(queryEvents(queryResult)).toHaveLength(1);
   });
 
   it('batchAppend_ValidationFailure_AtomicRollback', async () => {
-    // Arrange: seed the stream
     const store = new EventStore(tempDir);
     await store.append('my-workflow', { type: 'workflow.started' });
 
-    // Act: batch with 1 invalid event (missing type)
     const result = await handleBatchAppend(
       {
         stream: 'my-workflow',
@@ -360,28 +345,23 @@ describe('handleBatchAppend', () => {
       store,
     );
 
-    // Assert: entire batch fails
     expect(result.success).toBe(false);
     expect(result.error).toBeDefined();
 
-    // Verify no new events were appended (only the seed event)
     const queryResult = await handleEventQuery({ stream: 'my-workflow' }, tempDir, store);
     expect(queryResult.success).toBe(true);
     expect(queryEvents(queryResult)).toHaveLength(1);
   });
 
-  // ─── Cache-hit out-of-bounds (Sentry comment 3205861163) ─────────────────
-  //
-  // A batch retry that reuses the same per-event idempotencyKey but submits
-  // FEWER events than the originally-cached batch must not crash on
-  // out-of-bounds access of validatedEvents[i]. Cache-hit returns the
-  // ORIGINAL persisted batch (longer than current request).
-
+  /**
+   * The three events of the first batch share one `idempotencyKey`. The handler
+   * keeps only the first one, and that key becomes the batch key. A retry with
+   * that key hits the cache and must return the committed batch. On a cache hit,
+   * each ack takes its type from the persisted event.
+   */
   it('batchAppend_cacheHitWithFewerCurrentEvents_returnsOriginalBatchWithoutCrash', async () => {
     const store = new EventStore(tempDir);
 
-    // Original commit: 3 events, all sharing one idempotencyKey so the
-    // batch derives that as the batchIdempotencyKey.
     const first = await handleBatchAppend(
       {
         stream: 'my-workflow',
@@ -396,11 +376,6 @@ describe('handleBatchAppend', () => {
     );
     expect(first.success).toBe(true);
 
-    // Retry with FEWER events but same shared key. Pre-fix this would
-    // crash (TypeError: cannot read properties of undefined) because
-    // result.sequences had 3 entries but validatedEvents (post intra-
-    // batch dedup) had only 1. Post-fix: the cache-hit branch reads
-    // type from persistedEvents[i].type instead.
     const retry = await handleBatchAppend(
       {
         stream: 'my-workflow',
@@ -413,13 +388,16 @@ describe('handleBatchAppend', () => {
     );
     expect(retry.success).toBe(true);
     const acks = retry.data as Array<{ streamId: string; sequence: number; type: string }>;
-    // Returns the ORIGINAL committed batch, not the truncated retry.
     expect(acks.length).toBeGreaterThanOrEqual(1);
     expect(acks[0].sequence).toBe(1);
   });
 
+  /**
+   * Two concurrent batches must each get a contiguous run of sequences, and the
+   * stream must hold sequences 1 to 6 with no gap. The query returns newest-first,
+   * so the test sorts the sequences before it compares them.
+   */
   it('batchAppend_ConcurrentWrite_RespectsStreamLock', async () => {
-    // Arrange: two concurrent batch appends on the same stream
     const batch1 = handleBatchAppend(
       {
         stream: 'my-workflow',
@@ -446,52 +424,39 @@ describe('handleBatchAppend', () => {
       eventStore,
     );
 
-    // Act: run both concurrently
     const [result1, result2] = await Promise.all([batch1, batch2]);
 
-    // Assert: both succeed
     expect(result1.success).toBe(true);
     expect(result2.success).toBe(true);
 
-    // Total 6 events, with sequential sequence numbers (no gaps, no interleaving)
     const queryResult = await handleEventQuery({ stream: 'my-workflow' }, tempDir, eventStore);
     expect(queryResult.success).toBe(true);
     const events = queryEvents(queryResult) as Array<{ sequence: number; type: string }>;
     expect(events).toHaveLength(6);
 
-    // Verify sequential numbering (order-independent: DR-5 returns newest-first,
-    // so sort before asserting the 1..6 no-gap invariant this test pins).
     const seqs = events.map((e) => e.sequence).sort((a, b) => a - b);
     for (let i = 0; i < seqs.length; i++) {
       expect(seqs[i]).toBe(i + 1);
     }
 
-    // Verify no interleaving: events from each batch should be contiguous
     const batch1Seqs = (result1.data as Array<{ sequence: number }>).map(e => e.sequence);
     const batch2Seqs = (result2.data as Array<{ sequence: number }>).map(e => e.sequence);
 
-    // One batch should have sequences 1,2,3 and the other 4,5,6
     const allSeqs = [...batch1Seqs, ...batch2Seqs].sort((a, b) => a - b);
     expect(allSeqs).toEqual([1, 2, 3, 4, 5, 6]);
 
-    // Each batch's sequences should be contiguous (no interleaving)
     expect(batch1Seqs[1] - batch1Seqs[0]).toBe(1);
     expect(batch1Seqs[2] - batch1Seqs[1]).toBe(1);
     expect(batch2Seqs[1] - batch2Seqs[0]).toBe(1);
     expect(batch2Seqs[2] - batch2Seqs[1]).toBe(1);
   });
 
-  // ─── C2: AtomicAppender migration regression tests ────────────────────────
-
+  /**
+   * A failed append must reach the caller as an error that carries the message
+   * of the cause, and no event must land. The handler gets its appender from the
+   * `EventStore`, so a spy on `AtomicAppender.prototype.append` intercepts the call.
+   */
   it('handleEventBatchAppend_appenderFails_returnsStructuredErrorNotSilentSuccess', async () => {
-    // #1228 regression: when the underlying appender returns a structured
-    // failure, the handler MUST NOT swallow it into `{success: true}`. The
-    // four-phase legacy path could silently lose the partial-write failure
-    // mode that AtomicAppender now surfaces explicitly.
-    //
-    // Inject a failure by spying on AtomicAppender.prototype.append. The post-
-    // migration handler obtains its appender via the EventStore wiring, so a
-    // prototype spy intercepts it regardless of where it's instantiated.
     const appendSpy = vi
       .spyOn(AtomicAppender.prototype, 'append')
       .mockResolvedValueOnce({
@@ -513,14 +478,11 @@ describe('handleBatchAppend', () => {
         eventStore,
       );
 
-      // Must surface a structured error envelope, not silent success.
       expect(result.success).toBe(false);
       expect(result.error).toBeDefined();
       expect(result.error!.code).toBe('BATCH_APPEND_FAILED');
-      // The cause's message must propagate to the caller (observability).
       expect(result.error!.message).toContain('simulated jsonl write failure');
 
-      // No events landed in the stream.
       const queryResult = await handleEventQuery({ stream: 'failure-test' }, tempDir, eventStore);
       expect(queryResult.success).toBe(true);
       expect(queryEvents(queryResult)).toHaveLength(0);
@@ -529,10 +491,8 @@ describe('handleBatchAppend', () => {
     }
   });
 
+  /** Concurrent batches must not share a sequence, and the stream must hold exactly sequences 1 to `2 * N`. */
   it('handleEventBatchAppend_concurrentCalls_noDuplicateSequences', async () => {
-    // #1230 regression: many concurrent handler calls must produce events with
-    // disjoint sequence numbers in the resulting stream — no two events share
-    // a sequence, and the persisted set is exactly 1..(2*N).
     const N = 8;
     const batches = Array.from({ length: N }, (_, i) =>
       handleBatchAppend(
@@ -554,7 +514,6 @@ describe('handleBatchAppend', () => {
       expect(r.success).toBe(true);
     }
 
-    // Sequence numbers returned to handlers must all be unique.
     const allSeqs: number[] = [];
     for (const r of results) {
       const acks = r.data as EventAck[];
@@ -565,7 +524,6 @@ describe('handleBatchAppend', () => {
     const uniqueSeqs = new Set(allSeqs);
     expect(uniqueSeqs.size).toBe(allSeqs.length);
 
-    // Stream-level invariant: 2*N events, sequences 1..2*N exactly.
     const queryResult = await handleEventQuery({ stream: 'concurrent-test' }, tempDir, eventStore);
     expect(queryResult.success).toBe(true);
     const events = queryEvents(queryResult) as Array<{ sequence: number }>;
@@ -576,13 +534,11 @@ describe('handleBatchAppend', () => {
     }
   });
 
+  /**
+   * Distinct per-event keys give each batch a fresh `batch:<uuid>` key. A second
+   * submit of the same batch therefore gets a different key, and both batches land.
+   */
   it('batchAppend_MixedKeysAcrossBatches_NoCrossBatchDedup', async () => {
-    // C10 polish: pin the cross-batch idempotency divergence documented at
-    // tools.ts:295-309. When events in a batch carry distinct per-event
-    // idempotencyKeys, the handler synthesizes a fresh `batch:<uuid>`
-    // idempotencyKey for the AtomicAppender. Resubmitting the SAME logical
-    // batch a second time gets a DIFFERENT synthesized key, so cross-batch
-    // dedup is intentionally not preserved — both batches land in the stream.
     const batchEvents = [
       { type: 'task.assigned', data: { taskId: 't1', title: 'Task t1' }, idempotencyKey: 'mixed-k1' },
       { type: 'task.assigned', data: { taskId: 't2', title: 'Task t2' }, idempotencyKey: 'mixed-k2' },
@@ -596,22 +552,18 @@ describe('handleBatchAppend', () => {
     expect(first.success).toBe(true);
     expect((first.data as EventAck[]).length).toBe(2);
 
-    // Resubmit the IDENTICAL batch payload (same per-event keys, same data).
     const second = await handleBatchAppend(
       { stream: 'mixed-keys-test', events: batchEvents },
       tempDir,
       eventStore,
     );
     expect(second.success).toBe(true);
-    // Documented divergence: NOT deduped against the first batch — fresh events.
     expect((second.data as EventAck[]).length).toBe(2);
 
-    // Sequences from the second batch must be strictly greater than first.
     const firstSeqs = (first.data as EventAck[]).map(a => a.sequence);
     const secondSeqs = (second.data as EventAck[]).map(a => a.sequence);
     expect(Math.min(...secondSeqs)).toBeGreaterThan(Math.max(...firstSeqs));
 
-    // The stream contains 4 distinct events — no cross-batch dedup occurred.
     const queryResult = await handleEventQuery(
       { stream: 'mixed-keys-test' },
       tempDir,
@@ -621,20 +573,14 @@ describe('handleBatchAppend', () => {
     expect(queryEvents(queryResult)).toHaveLength(4);
   });
 
-  // ─── F2 regression (#1414): batchAppend cache-hit returns operationId ─────
-  //
-  // Inline fix lives at store.ts:467-471 (the `#1291 — three-field
-  // correlation passthrough` block). When a retried batch hits the
-  // idempotency cache, the returned events MUST surface the
-  // originally-stamped operationId — NOT the current caller's dispatch
-  // context (or undefined, if the retry happened outside any dispatch).
-  //
-  // This locks in the inline fix that #1428's post-merge hardening landed.
+  /**
+   * A retry that hits the idempotency cache must return the `operationId` of the
+   * first write. The retry here runs with no dispatch context, so the persisted
+   * event is the only source of `op-xyz`.
+   */
   it('BatchAppend_CacheHit_ReturnsOperationId', async () => {
     const store = new EventStore(tempDir);
 
-    // First write inside dispatch scope `op-xyz` — writer-path stamping
-    // (covered by Wave B1 #1428) attaches operationId to the persisted event.
     const first = await runWithDispatchContext(
       { operationId: 'op-xyz', correlationId: 'cor-xyz' },
       () =>
@@ -644,18 +590,12 @@ describe('handleBatchAppend', () => {
     );
     expect(first[0].operationId).toBe('op-xyz');
 
-    // Retry the SAME batch key WITHOUT any active dispatch context. The
-    // appender hits the idempotency cache; the cache-hit branch must
-    // return the ORIGINAL operationId (`op-xyz`), not undefined or any
-    // value derived from the second caller's (absent) context.
     const replay = await store.batchAppend('s1', [
       { type: 'task.assigned', idempotencyKey: 'k1', data: { taskId: 't1', title: 'Task t1' } },
     ]);
     expect(replay[0].operationId).toBe('op-xyz');
   });
 });
-
-// ─── Dot-path field projection in event queries ─────────────────────────────
 
 describe('handleEventQuery dot-path field projection', () => {
   it('handleEventQuery_WithoutFieldsParam_ReturnsCompleteEvents', async () => {
@@ -699,8 +639,6 @@ describe('handleEventQuery dot-path field projection', () => {
   });
 });
 
-// ─── Multi-tenant field passthrough ──────────────────────────────────────────
-
 describe('tenant field passthrough', () => {
   it('handleEventAppend_WithTenantFields_PassesThroughToStore', async () => {
     const result = await handleEventAppend(
@@ -726,6 +664,7 @@ describe('tenant field passthrough', () => {
     expect(events[0].organizationId).toBe('org-xyz');
   });
 
+  /** The query returns newest-first, so the test finds each event by `taskId`. */
   it('handleBatchAppend_WithTenantFields_PassesThroughToStore', async () => {
     const result = await handleBatchAppend(
       {
@@ -744,7 +683,6 @@ describe('tenant field passthrough', () => {
     const query = await handleEventQuery({ stream: 'tenant-batch' }, tempDir, eventStore);
     const events = queryEvents(query);
     expect(events).toHaveLength(2);
-    // Look up by taskId (order-independent: DR-5 returns newest-first).
     const byTask = (id: string) =>
       events.find((e) => (e.data as Record<string, unknown> | undefined)?.taskId === id)!;
     expect(byTask('t1').tenantId).toBe('tenant-1');
@@ -754,14 +692,7 @@ describe('tenant field passthrough', () => {
   });
 });
 
-// ─── `event query` operationId passthrough ───────────────────────────────────
-//
-// `EventStore.query` has always supported `QueryFilters.operationId`, but
-// `handleEventQuery` whitelisted only `type`/`sinceSequence`/`since`/`until`
-// from the caller's filter object and silently dropped `operationId` — a
-// caller holding an operationId (e.g. from a receipt) had no way to retrieve
-// exactly the events stamped with it.
-
+/** `handleEventQuery` must pass `filter.operationId` to `EventStore.query`. */
 describe('handleEventQuery operationId filter passthrough', () => {
   it('handleEventQuery_WithOperationIdFilter_ReturnsOnlyMatchingEvents', async () => {
     const store = new EventStore(tempDir);
@@ -793,6 +724,7 @@ describe('handleEventQuery operationId filter passthrough', () => {
     expect(events.every((e) => e.operationId === 'op-a')).toBe(true);
   });
 
+  /** An empty `operationId` matches nothing as a filter, so the handler must ignore it. */
   it('handleEventQuery_WithEmptyOperationIdFilter_IsIgnoredNotTreatedAsAFilter', async () => {
     const store = new EventStore(tempDir);
     await store.append('op-filter-empty-test', {
@@ -808,24 +740,18 @@ describe('handleEventQuery operationId filter passthrough', () => {
     );
 
     expect(result.success).toBe(true);
-    // An empty-string operationId is not a valid filter value; it must be
-    // treated as absent rather than matching nothing.
     expect(queryEvents(result)).toHaveLength(1);
   });
 });
 
-// ─── DR-5: `event query` default limit + page metadata ──────────────────────
-//
-// Default queries cap at the 20 NEWEST events plus `page:{total,offset,limit,
-// hasMore}` so unbounded stream reads stop dominating the session token budget
-// (audit: 5,755 tokens unbounded vs 1,490 at limit 20 on a 112-event stream).
-// Explicit `limit`/`offset` retains full history access and pages through a
-// deterministic newest-first ordering with no gaps and no duplicates.
-
+/**
+ * A default query returns the 20 newest events and `page` metadata, which keeps
+ * a stream read small in the session token budget. An explicit `limit` and
+ * `offset` reach the full history, newest-first, with no gap and no duplicate.
+ */
 describe('handleEventQuery DR-5 default limit + page metadata', () => {
   let propStreamCounter = 0;
 
-  /** Seed sequences 1..count on `stream` in a single batch (fast + ordered). */
   async function seed(stream: string, count: number): Promise<void> {
     const events = Array.from({ length: count }, (_, i) => ({
       type: 'task.assigned' as const,
@@ -835,12 +761,12 @@ describe('handleEventQuery DR-5 default limit + page metadata', () => {
     expect(result.success).toBe(true);
   }
 
+  /**
+   * The default query on a 112-event stream must stay within 1,600 estimated
+   * tokens, and `page.hasMore` must show that older events exist. An audit of a
+   * 112-event stream measured 5,755 tokens with no limit and 1,490 at limit 20.
+   */
   it('eventQuery_DefaultLimitOn112EventStream_StaysUnderTokenBudget', async () => {
-    // DR-5 acceptance asserted DIRECTLY (review LOW): the default query on a
-    // 112-event stream stays within the ~1,600-token budget the acceptance
-    // criterion names — not merely inferred from the limit-20 mechanism — while
-    // `page.hasMore` keeps the hidden older history perceivable. Pins the token
-    // outcome the same way the DR-2 / DR-8 budget tests pin theirs.
     await seed('dr5-budget', 112);
     const result = await handleEventQuery({ stream: 'dr5-budget' }, tempDir, eventStore);
     expect(result.success).toBe(true);
@@ -848,8 +774,12 @@ describe('handleEventQuery DR-5 default limit + page metadata', () => {
     expect(queryPage(result)).toMatchObject({ hasMore: true, total: 112 });
   });
 
+  /**
+   * `TOTAL` is more than the default limit, so the query hides the 5 oldest
+   * events. It must return sequences 6 to 25 in descending order.
+   */
   it('eventQuery_NoLimit_Returns20NewestWithPageMetadata', async () => {
-    const TOTAL = 25; // > EVENT_QUERY_DEFAULT_LIMIT so older history is hidden
+    const TOTAL = 25;
     await seed('dr5-default', TOTAL);
 
     const result = await handleEventQuery({ stream: 'dr5-default' }, tempDir, eventStore);
@@ -858,19 +788,15 @@ describe('handleEventQuery DR-5 default limit + page metadata', () => {
     const events = queryEvents(result) as Array<{ sequence: number }>;
     const page = queryPage(result);
 
-    // Exactly the 20 newest, newest-first.
     expect(events).toHaveLength(EVENT_QUERY_DEFAULT_LIMIT);
     const seqs = events.map((e) => e.sequence);
-    expect(seqs[0]).toBe(TOTAL); // newest at index 0
+    expect(seqs[0]).toBe(TOTAL);
     expect(seqs[EVENT_QUERY_DEFAULT_LIMIT - 1]).toBe(TOTAL - EVENT_QUERY_DEFAULT_LIMIT + 1);
-    // Strictly descending (deterministic, stable ordering).
     expect(seqs).toEqual([...seqs].sort((a, b) => b - a));
-    // The returned set is precisely sequences 6..25 (the 20 newest).
     expect(new Set(seqs)).toEqual(
       new Set(Array.from({ length: EVENT_QUERY_DEFAULT_LIMIT }, (_, i) => TOTAL - i)),
     );
 
-    // Page metadata makes the hidden older history perceivable.
     expect(page).toEqual({
       total: TOTAL,
       offset: 0,
@@ -880,8 +806,6 @@ describe('handleEventQuery DR-5 default limit + page metadata', () => {
   });
 
   it('eventQuery_UnderDefault_ReturnsAllWithHasMoreFalse', async () => {
-    // A stream at/under the default returns everything, hasMore false — the
-    // boundary the token-economy default must not truncate.
     await seed('dr5-small', 3);
     const result = await handleEventQuery({ stream: 'dr5-small' }, tempDir, eventStore);
     expect(result.success).toBe(true);
@@ -895,8 +819,6 @@ describe('handleEventQuery DR-5 default limit + page metadata', () => {
   });
 
   it('eventQuery_ExplicitLimit_RetainsFullHistoryAccess', async () => {
-    // "Unbounded only by explicit request": a large explicit limit returns the
-    // entire stream even past the default cap.
     await seed('dr5-full', 50);
     const result = await handleEventQuery(
       { stream: 'dr5-full', limit: 1000 },
@@ -909,21 +831,23 @@ describe('handleEventQuery DR-5 default limit + page metadata', () => {
     expect(queryPage(result).total).toBe(50);
   });
 
+  /**
+   * Property: pages with an explicit `limit` and `offset` cover sequences 1 to
+   * `total` exactly once, for each generated stream size and page size. Each page
+   * before the last one must be full. The `guard` bound stops a pager that does
+   * not terminate.
+   */
   it('eventQuery_OffsetPaging_CoversFullStreamDeterministically', async () => {
-    // Property: paging with an explicit limit/offset partitions the full stream
-    // exactly once — no gaps, no duplicates — regardless of total and page size.
     await fc.assert(
       fc.asyncProperty(
-        fc.integer({ min: 1, max: 50 }), // total events in the stream
-        fc.integer({ min: 1, max: 12 }), // explicit page size
+        fc.integer({ min: 1, max: 50 }),
+        fc.integer({ min: 1, max: 12 }),
         async (total, pageSize) => {
           const stream = `dr5-prop-${propStreamCounter++}`;
           await seed(stream, total);
 
           const seen: number[] = [];
           let offset = 0;
-          // Correct pager terminates in ceil(total/pageSize) steps; the guard is
-          // a defensive upper bound against a non-terminating (buggy) window.
           for (let guard = 0; guard <= total + 1; guard++) {
             const result = await handleEventQuery(
               { stream, limit: pageSize, offset },
@@ -934,23 +858,18 @@ describe('handleEventQuery DR-5 default limit + page metadata', () => {
             const events = queryEvents(result) as Array<{ sequence: number }>;
             const page = queryPage(result);
 
-            // page.total is stable and echoes the paging inputs.
             expect(page.total).toBe(total);
             expect(page.limit).toBe(pageSize);
             expect(page.offset).toBe(offset);
-            // hasMore is exactly "rows remain beyond this page".
             expect(page.hasMore).toBe(offset + events.length < total);
 
             for (const e of events) seen.push(e.sequence);
 
             if (!page.hasMore) break;
-            // A non-final page must be full — no premature short page (would
-            // create a gap and break the partition).
             expect(events).toHaveLength(pageSize);
             offset += pageSize;
           }
 
-          // Partition invariant: sequences 1..total each appear exactly once.
           expect(seen).toHaveLength(total);
           expect(new Set(seen).size).toBe(total);
           expect([...seen].sort((a, b) => a - b)).toEqual(
@@ -963,7 +882,6 @@ describe('handleEventQuery DR-5 default limit + page metadata', () => {
   });
 
   it('eventQuery_RepeatedPage_IsDeterministic', async () => {
-    // Same window queried twice yields byte-identical results (stable ordering).
     await seed('dr5-stable', 30);
     const a = await handleEventQuery({ stream: 'dr5-stable', limit: 7, offset: 10 }, tempDir, eventStore);
     const b = await handleEventQuery({ stream: 'dr5-stable', limit: 7, offset: 10 }, tempDir, eventStore);
@@ -972,21 +890,13 @@ describe('handleEventQuery DR-5 default limit + page metadata', () => {
   });
 });
 
-// ─── C11: SubagentStreamRouter wiring on team.disbanded (#1224) ─────────────
-//
-// `handleEventAppend` MUST intercept `team.disbanded` events and route them
-// through `SubagentStreamRouter.emitDisbanded`. The router queries the parent
-// stream for the actual `task.completed` count scoped to the team and writes
-// the corrected event — discarding any agent-supplied `tasksCompleted` value.
-// This closes #1224 at the consumer level: the off-by-N bug originates in the
-// agent-side in-memory tally; the server is now the single source of truth.
-
+/**
+ * For `team.disbanded`, `handleEventAppend` counts the `task.completed` events
+ * of the team and stores that count as `tasksCompleted`. It discards the value
+ * from the caller, because the tally of an agent is often wrong.
+ * `readStreamJsonl` reads through `EventStore.query`, not from a JSONL file.
+ */
 describe('handleEventAppend team.disbanded routing (C11, #1224)', () => {
-  /**
-   * Helper: seed the parent stream with N task.completed events for a given
-   * team via `handleEventAppend`. The router scans the parent JSONL and
-   * counts entries whose `data.teamId` matches.
-   */
   async function seedTaskCompleted(
     stream: string,
     teamId: string,
@@ -1010,27 +920,18 @@ describe('handleEventAppend team.disbanded routing (C11, #1224)', () => {
     }
   }
 
-  /**
-   * Read all events from a parent stream via the durable substrate.
-   *
-   * (Pre-v2.11 this scanned the JSONL fixture directly. Post substrate-cut
-   * the SQLite backend is the source of truth, so the function name is
-   * historical — kept to minimise diff churn — but the implementation
-   * goes through `EventStore.query`.)
-   */
   async function readStreamJsonl(stream: string): Promise<Array<Record<string, unknown>>> {
     const events = await eventStore.query(stream);
     return events.map((e) => e as unknown as Record<string, unknown>);
   }
 
+  /** The stream holds 3 `task.completed` events for the team, so the stored count must be 3, not 999. */
   it('handleEventAppend_teamDisbanded_recomputesTasksCompleted', async () => {
     const stream = 'parent-stream-c11-1';
     const teamId = 'team-alpha';
 
-    // Seed parent stream with 3 task.completed events for the team.
     await seedTaskCompleted(stream, teamId, ['t-1', 't-2', 't-3']);
 
-    // Caller supplies a wildly wrong tasksCompleted (the #1224 regression).
     const result = await handleEventAppend(
       {
         stream,
@@ -1038,7 +939,7 @@ describe('handleEventAppend team.disbanded routing (C11, #1224)', () => {
           type: 'team.disbanded',
           data: {
             teamId,
-            tasksCompleted: 999, // caller-supplied tally — MUST be overridden
+            tasksCompleted: 999,
             tasksFailed: 0,
             totalDurationMs: 1000,
           },
@@ -1054,18 +955,17 @@ describe('handleEventAppend team.disbanded routing (C11, #1224)', () => {
     const disbanded = events.find((e) => e.type === 'team.disbanded');
     expect(disbanded).toBeDefined();
     const data = disbanded!.data as Record<string, unknown>;
-    // The router queried the parent stream and recomputed tasksCompleted = 3,
-    // overriding the 999 the caller supplied.
     expect(data.tasksCompleted).toBe(3);
     expect(data.tasksFailed).toBe(0);
     expect(data.totalDurationMs).toBe(1000);
     expect(data.teamId).toBe(teamId);
   });
 
+  /**
+   * Each stream holds 2 `task.completed` events. The caller sends 0, 999 or no
+   * tally, and the stored count must be 2 each time.
+   */
   it('handleEventAppend_teamDisbanded_supplyAgnosticTallyIgnored', async () => {
-    // Three independent streams — each with the same N task.completed events —
-    // but the caller passes a different (wrong) tasksCompleted in each call.
-    // All three persisted events MUST report the same recomputed value (2).
     const cases: Array<{ stream: string; supplied: number | undefined }> = [
       { stream: 'parent-stream-c11-2a', supplied: 0 },
       { stream: 'parent-stream-c11-2b', supplied: 999 },
@@ -1099,18 +999,14 @@ describe('handleEventAppend team.disbanded routing (C11, #1224)', () => {
       const disbanded = events.find((e) => e.type === 'team.disbanded');
       expect(disbanded).toBeDefined();
       const persisted = disbanded!.data as Record<string, unknown>;
-      // Recomputed from parent-stream task.completed query — always 2 here.
       expect(persisted.tasksCompleted).toBe(2);
     }
   });
 
+  /** Only `team.disbanded` gets a new count. Other event types must keep the data from the caller. */
   it('handleEventAppend_nonDisbandedTypes_unchanged', async () => {
-    // Pinning regression: the interception MUST only fire for type ===
-    // 'team.disbanded'. Other event types follow the legacy `appendValidated`
-    // path and persist whatever the caller supplied.
     const stream = 'parent-stream-c11-3';
 
-    // task.completed should NOT be intercepted — caller's data is preserved.
     const taskRes = await handleEventAppend(
       {
         stream,
@@ -1124,7 +1020,6 @@ describe('handleEventAppend team.disbanded routing (C11, #1224)', () => {
     );
     expect(taskRes.success).toBe(true);
 
-    // workflow.started should NOT be intercepted.
     const wfRes = await handleEventAppend(
       {
         stream,

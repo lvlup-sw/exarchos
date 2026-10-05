@@ -1,37 +1,21 @@
+/**
+ * Acceptance test for the consumers of the SQLite event-store substrate.
+ *
+ * The files under `src/` that name `AtomicAppender` must be exactly the listed consumers.
+ * A new consumer, or a lost one, fails the test.
+ * `append-cost-budget.test.ts` gates append throughput with exact statement counts.
+ * `store.bench.ts` only reports speed.
+ */
+
 import { describe, it, expect } from 'vitest';
 import { readFile, readdir, stat } from 'node:fs/promises';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /**
- * POC acceptance for the SQLite-backed event-store substrate (#1259).
- *
- * AtomicAppender consumers are unchanged: the files under `src/` that name
- * `AtomicAppender` must be exactly the consumers the design pins, so swapping
- * the appender body needs no change outside it. Append throughput is gated by
- * the exact statement counts in `append-cost-budget.test.ts`; `store.bench.ts`
- * still measures the old 1000 ops/sec per stream figure, as advice (#2029).
+ * Each file under `src/` whose text holds `AtomicAppender`, in sorted order.
+ * The match is on the substring, so a mention in a comment also counts.
  */
-
-// v2.11 (DR-6, Phase 5b): `src/agents/spec.ts` was previously listed here
-// because its `validateAgentSpec` JSDoc referenced `AtomicAppender` while
-// surfacing the `spec.legacy_capabilities_array` deprecation event for the
-// caller to flow through the appender. The legacy-capabilities path was
-// hard-cut, so spec.ts no longer mentions the appender — the consumer set
-// drops back to the four substrate-internal files.
-//
-// v2.10.0-preview.2 Wave 3 (#1314): the new `events/index.ts` barrel
-// re-exports `AtomicAppender` (plus the Wave 3 typed errors) for Wave 4
-// consumers. The barrel is a re-export site, NOT a behavioral change to
-// the consumer set — it's still the substrate-internal cluster plus the
-// public surface module.
-//
-// v2.10.0-preview.2 Wave 4 (#1340, audit §F1.2): the reference-migration
-// commits add `verbs/merge/merge-orchestrate.ts` (Phase A — `decide`
-// commits `merge.requested` purely before the executor's git-merge side
-// effect fires) as the first consumer outside the substrate-internal
-// cluster. This is the canonical "consumer outside the storage cluster"
-// the AC3 gate has been waiting for since Wave 3.
 const EXPECTED_CONSUMERS = [
   'src/events/atomic-appender.ts',
   'src/events/index.ts',
@@ -47,36 +31,23 @@ const EXPECTED_CONSUMERS = [
   'src/verbs/merge/execute-merge.ts',
   'src/verbs/merge/merge-orchestrate.ts',
   'src/verbs/worktree/merge-serializer.ts',
-  // P06-05 (structural-closure remediation): the admission chokepoint appends
-  // the admission decision and the phase-lifecycle sibling in ONE `decideOnce`
-  // transaction — the atomicity the work package's exit proof ("partial
-  // decision/transition siblings are impossible") rests on. It consumes the
-  // substrate rather than hand-rolling a transaction, which is exactly the
-  // posture this gate exists to encourage.
+  /** The admission chokepoint appends its decision and the lifecycle event in one transaction. */
   'src/workflow/admission/transition-command.ts',
 ] as const;
 
-/**
- * Resolve `src` from this file's URL. The test
- * sits at `src/events/poc.acceptance.test.ts`, so two `..` jumps
- * land at `src/`.
- */
+/** Resolve the `src` directory of the repository from the URL of this file. */
 function resolveSrcRoot(): string {
   const here = path.dirname(fileURLToPath(import.meta.url));
   return path.resolve(here, '../../../src');
 }
 
 /**
- * Recursively walk `dir` and return every `.ts` file path (relative to
- * `dir`'s parent — i.e. starting with `src/...`) that does NOT live
- * under `__tests__/` or `__shims__/` and does NOT end with `.test.ts`.
- *
- * The walk filters at the directory level (skip whole `__tests__/` and
- * `__shims__/` subtrees) and at the file level (`.test.ts` suffix).
+ * List each production `.ts` file below `srcRoot`, as a `src/...` path with `/` separators.
+ * The walk skips `__tests__` and `__shims__` directories, and `.test.ts` and `.bench.ts` files.
  */
 async function listProductionTsFiles(srcRoot: string): Promise<string[]> {
   const results: string[] = [];
-  const repoRoot = path.dirname(srcRoot); // .../servers/exarchos-mcp
+  const repoRoot = path.dirname(srcRoot);
 
   async function walk(dir: string): Promise<void> {
     const entries = await readdir(dir);
@@ -92,8 +63,6 @@ async function listProductionTsFiles(srcRoot: string): Promise<string[]> {
       if (!name.endsWith('.ts')) continue;
       if (name.endsWith('.test.ts')) continue;
       if (name.endsWith('.bench.ts')) continue;
-      // Normalize to `src/...` form for stable assertions across
-      // platforms (path.relative returns OS-flavored separators).
       const rel = path.relative(repoRoot, full).split(path.sep).join('/');
       results.push(rel);
     }

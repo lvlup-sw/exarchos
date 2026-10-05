@@ -7,21 +7,13 @@ import { AtomicAppender } from '../../../src/events/atomic-appender.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 /**
- * SQLite-backed AtomicAppender — direct unit fixtures (T06, T07).
+ * Unit tests for the SQLite body of `AtomicAppender`. `atomic-appender.acceptance.test.ts` covers
+ * the interface contract.
  *
- * These tests target the SQLite body itself, separate from the
- * interface-fidelity acceptance suite (`atomic-appender.acceptance.test.ts`).
- * They cover:
- *
- *   - T06: concurrent appends to one stream allocate non-overlapping,
- *     strictly monotonic sequences. The first-tier guard is the per-stream
- *     Promise mutex (`StreamLockManager`); the second-tier guard is the
- *     SQLite `BEGIN IMMEDIATE` transaction. Both must hold.
- *
- *   - T07: idempotency-key claim is committed only on `COMMIT`. A
- *     transaction that fails mid-flight (after the idempotency claim
- *     INSERT but before the event INSERT) must roll back the claim so the
- *     same key can be retried by a subsequent attempt.
+ * Concurrent appends to one stream get distinct, strictly monotonic sequences. The per-stream
+ * Promise mutex (`StreamLockManager`) is the first guard, and the `BEGIN IMMEDIATE` transaction
+ * is the second. A claim on an idempotency key commits only at `COMMIT`. On SQLITE_BUSY, the
+ * backend retries the transaction in a bounded loop.
  */
 describe('SqliteAtomicAppender', () => {
   let stateDir: string;
@@ -34,13 +26,14 @@ describe('SqliteAtomicAppender', () => {
     await rmrfAsync(stateDir);
   });
 
+  /**
+   * Ten concurrent appends must get ten distinct sequences with no gap. The SQLite body must
+   * write no JSONL file.
+   */
   it('SqliteAtomicAppender_ConcurrentAppendsToSameStream_NoOverlapInSequenceAllocation', async () => {
     const appender = new AtomicAppender({ stateDir });
     const streamId = 'sqlite-concurrent-10';
 
-    // Spawn 10 concurrent appends to the same stream. The append primitive
-    // must serialize them into 10 distinct, strictly-monotonic sequences
-    // with no gaps and no duplicates — same contract as the JSONL body.
     const results = await Promise.all(
       Array.from({ length: 10 }, (_, i) =>
         appender.append(
@@ -60,38 +53,22 @@ describe('SqliteAtomicAppender', () => {
     const sorted = [...seqs].sort((a, b) => a - b);
     expect(sorted).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 
-    // Sanity: SQLite body MUST NOT have written a JSONL file.
     const entries = await readdir(stateDir);
     expect(entries.some(e => e.endsWith('.events.jsonl'))).toBe(false);
   });
 
-  // ─── T07: idempotency rollback on transaction failure ────────────────────
-  //
-  // The BEGIN IMMEDIATE transaction wraps the idempotency-claim INSERT and
-  // the event INSERTs. If the event INSERT fails (e.g. driver throws
-  // mid-flight), the entire transaction must ROLLBACK — including the
-  // idempotency claim row. The retry contract: a subsequent append with
-  // the same idempotency key MUST succeed (the claim was rolled back, no
-  // phantom claim survives).
-  //
-  // The fault is injected by monkey-patching the strict event INSERT
-  // statement on the SqliteBackend's prepared-statement set so it throws.
-  // This surfaces inside the bun:sqlite `db.transaction(fn)` wrapper, which
-  // automatically issues ROLLBACK before re-raising. Property under test:
-  // ROLLBACK actually clears the idempotency_claims row.
-
+  /**
+   * The transaction holds the claim INSERT and the event INSERTs. If an event INSERT throws, the
+   * rollback must also remove the claim, so a retry with the same key commits. A stub on
+   * `insertEventStrict.run` injects the fault after the claim INSERT. The appender opens the
+   * backend lazily, so a warm-up append runs before the patch. The warm-up uses a second stream,
+   * so the retry on the test stream gets sequence 1.
+   */
   it('SqliteAtomicAppender_TransactionRollback_IdempotencyKeyNotCommitted', async () => {
     const appender = new AtomicAppender({ stateDir });
     const streamId = 'sqlite-txn-rollback';
     const idemKey = 'idem-rollback';
 
-    // First append: poison the event INSERT statement so the transaction
-    // raises after the idempotency claim INSERT.
-    //
-    // We grab the backend AFTER the first call below, but the appender
-    // creates the backend lazily; so do a tiny dry-run validation append
-    // first, then patch, then run the test scenario. Using a different
-    // stream for the warm-up keeps the targeted streamId pristine.
     const warmup = await appender.append(
       'sqlite-txn-warmup',
       [{ type: 'task.assigned', data: { warmup: true } }],
@@ -103,9 +80,6 @@ describe('SqliteAtomicAppender', () => {
     expect(backend).toBeDefined();
     if (!backend) return;
 
-    // Reach into the backend's prepared-statement set and replace the
-    // strict event INSERT with a stub that throws. The wrapping
-    // `db.transaction(fn).immediate()` call issues ROLLBACK on throw.
     const stmts = (backend as unknown as { stmts: { insertEventStrict: { run: (...args: unknown[]) => unknown } } })
       .stmts;
     const originalRun = stmts.insertEventStrict.run.bind(stmts.insertEventStrict);
@@ -121,8 +95,6 @@ describe('SqliteAtomicAppender', () => {
         idemKey,
       );
     } finally {
-      // Restore the real INSERT before the retry so we can observe the
-      // post-rollback admissibility of the same key.
       stmts.insertEventStrict.run = originalRun;
     }
     expect(failed.ok).toBe(false);
@@ -130,13 +102,9 @@ describe('SqliteAtomicAppender', () => {
       expect(failed.reason).toBe('io-error');
     }
 
-    // Direct backend probe: no idempotency claim must survive the rollback.
     const claim = backend.lookupIdempotencyClaim(streamId, idemKey);
     expect(claim).toBeUndefined();
 
-    // Retry with the SAME idempotency key — must succeed (a phantom claim
-    // would surface as `idempotency-claimed` or as a unique-constraint
-    // violation; either is the bug T07 closes).
     const retried = await appender.append(
       streamId,
       [{ type: 'task.assigned', data: { attempt: 2 } }],
@@ -149,33 +117,21 @@ describe('SqliteAtomicAppender', () => {
     }
   });
 
-  // ─── T09: SQLITE_BUSY bounded retry ──────────────────────────────────────
-  //
-  // The SQLite body must wrap its `BEGIN IMMEDIATE` transaction in a bounded
-  // retry loop. SQLITE_BUSY surfaces when another writer holds the database
-  // lock; per-stream concurrency in-process is already serialized by the
-  // Promise mutex, but cross-process writers (and bun:sqlite vs better-
-  // sqlite3 driver-level contention) can still raise BUSY against a fresh
-  // BEGIN IMMEDIATE attempt. The retry layer transparently re-runs the
-  // transaction up to 5 attempts with exponential backoff capped at 100 ms;
-  // on exhaustion the appender returns a typed `storage_busy` failure
-  // rather than escaping the SQLite reason code through the boundary.
-  //
-  // We inject the fault by replacing `insertEventStrict.run` with a stub
-  // that throws a SqliteError-shaped Error (`code: 'SQLITE_BUSY'`) for the
-  // first N attempts. The retry detection contract: the layer must look at
-  // `error.code === 'SQLITE_BUSY'`, not message-substring matching.
-
   function makeBusyError(): Error {
     const err = new Error('database is locked') as Error & { code?: string };
     err.code = 'SQLITE_BUSY';
     return err;
   }
 
+  /**
+   * SQLITE_BUSY can come from a writer in a second process. The backend runs the transaction at
+   * most 5 times, with exponential backoff between the attempts. The stub fails the first 4
+   * attempts. Its error carries `code: 'SQLITE_BUSY'`, because the retry layer reads `error.code`
+   * and not the message. The sleeps are 5, 10, 20 and 40 ms.
+   */
   it('SqliteAtomicAppender_SqliteBusy_RetriesUpToFiveTimesWithBackoff', async () => {
     const appender = new AtomicAppender({ stateDir });
 
-    // Warm up so we have a concrete backend handle to patch.
     const warmup = await appender.append(
       'sqlite-busy-warmup',
       [{ type: 'task.assigned', data: { warmup: true } }],
@@ -221,13 +177,14 @@ describe('SqliteAtomicAppender', () => {
     if (!result.ok) return;
     expect(result.kind).toBe('committed');
     expect(result.sequences).toEqual([1]);
-    // Five attempts: 4 BUSY throws + 1 success.
     expect(attempts).toBe(5);
-    // Backoff bounded — 5+10+20+40 = 75 ms total of intentional sleeps,
-    // capped well below 1 s. This proves there's no unbounded retry sleep.
     expect(backoffMs).toEqual([5, 10, 20, 40]);
   });
 
+  /**
+   * If each attempt is busy, the appender returns a typed `storage_busy` failure. The budget is
+   * 5 attempts, and the test accepts 5 or 6.
+   */
   it('SqliteAtomicAppender_SqliteBusy_ExceedsFiveAttempts_ReturnsStorageBusy', async () => {
     const appender = new AtomicAppender({ stateDir });
 
@@ -268,8 +225,6 @@ describe('SqliteAtomicAppender', () => {
     if (result.ok) return;
     expect(result.reason).toBe('storage_busy');
     expect(result.cause).toBeInstanceOf(Error);
-    // Attempted 5 times before giving up (the budget). One more is fine —
-    // either reading is acceptable so long as it's bounded.
     expect(attempts).toBeGreaterThanOrEqual(5);
     expect(attempts).toBeLessThanOrEqual(6);
   });

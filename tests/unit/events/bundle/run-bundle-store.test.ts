@@ -1,11 +1,10 @@
 /**
- * RunBundleStore — content-addressed custody for run-bundle bytes, and the
- * write ordering that makes a crash between "bytes written" and "reference
- * committed" a collectable orphan rather than a dangling digest.
+ * Tests for `RunBundleStore`: content-addressed custody for run-bundle bytes, and the write ordering.
+ * With that ordering, a crash between the byte write and the reference commit leaves an orphan blob.
+ * The crash never leaves a digest with no bytes.
  *
- * These cases touch a real temp directory, so they carry an explicit per-test
- * timeout rather than leaning on the tier default, which is sized for
- * in-memory work.
+ * The cases use a real temp directory, so each case sets its own timeout.
+ * The tier default fits in-memory work.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -38,6 +37,7 @@ function blobPath(root: string, digest: ContentDigestV1): string {
 }
 
 describe('RunBundleStore', () => {
+  /** The last assertion checks that the root comes from the state directory. The ledger and the bytes must share one root. */
   it(
     'RunBundleStore_PutThenResolve_RoundTripsBytes',
     async () => {
@@ -48,13 +48,12 @@ describe('RunBundleStore', () => {
       expect(digest.algorithm).toBe('sha256');
       expect(digest.value).toMatch(/^[a-f0-9]{64}$/);
       expect((await store.resolve(digest)).equals(bytes)).toBe(true);
-      // The root is derived from the state dir, not from wherever the caller
-      // happened to be — the ledger and the bytes must share a directory.
       expect(store.root).toBe(path.resolve(path.join(tempDir, RUN_BUNDLE_DIRNAME)));
     },
     FS_TIMEOUT_MS,
   );
 
+  /** The `ok` probe comes first. Without it, a probe that never returns `ok` can still pass the two failure assertions. */
   it(
     'RunBundleStore_Has_SeparatesOkFromMissingFromMismatch',
     async () => {
@@ -62,16 +61,12 @@ describe('RunBundleStore', () => {
       const digest = await store.put(bytes);
       const target = blobPath(store.root, digest);
 
-      // Baseline first: without this the two failure verdicts below could be
-      // produced by a probe that never returns 'ok' at all.
       await expect(store.has(digest)).resolves.toBe('ok');
 
-      // Corruption: the bytes are there but are no longer what was promised.
       const original = await readFile(target);
       await writeFile(target, Buffer.from('tampered payload of a different length', 'utf8'));
       await expect(store.has(digest)).resolves.toBe('mismatch');
 
-      // Deletion.
       await writeFile(target, original);
       await unlink(target);
       await expect(store.has(digest)).resolves.toBe('missing');
@@ -79,14 +74,16 @@ describe('RunBundleStore', () => {
     FS_TIMEOUT_MS,
   );
 
+  /**
+   * A read that fails with `EACCES` is an environment fault, not a custody violation.
+   * A `missing` verdict for that fault makes the oracle report a loss of bytes that are on disk.
+   * The last probe reads the same blob through the real store, so the rejection is about the fault.
+   */
   it(
     'RunBundleStore_ProbeHitsEnvironmentFault_RethrowsRatherThanReportingMissing',
     async () => {
       const digest = await store.put(Buffer.from('readable until it is not', 'utf8'));
 
-      // An unreadable directory is an environment fault, not a custody
-      // violation. Collapsing it to 'missing' would have the oracle accuse the
-      // ledger of losing bytes that are sitting right there.
       const denied = new RunBundleStore(store.root, {
         mkdir: async () => undefined,
         writeFile: async () => undefined,
@@ -100,22 +97,18 @@ describe('RunBundleStore', () => {
       });
 
       await expect(denied.has(digest)).rejects.toThrow(/EACCES/);
-      // And the same bytes are still resolvable through a store that can read
-      // them, so the rejection above is about the fault and not about the blob.
       await expect(store.has(digest)).resolves.toBe('ok');
     },
     FS_TIMEOUT_MS,
   );
 
+  /** The commit callback reads the blob through the store. The read fails if the commit runs before the write. */
   it(
     'RunBundleStore_PutThenReference_BlobIsDurableBeforeCommitRuns',
     async () => {
       const bytes = Buffer.from('ordered write', 'utf8');
       const artifactId = ArtifactIdSchema.parse('run-bundle:ordering');
 
-      // The commit callback reads the blob back through the store. If the
-      // reference were committed first this read would fail, which is exactly
-      // the dangling-digest window the ordering exists to eliminate.
       const commit = vi.fn(async (ref: BundleRefV1) => {
         const readBack = await store.resolve(ref.digest);
         return readBack.toString('utf8');
@@ -131,6 +124,11 @@ describe('RunBundleStore', () => {
     FS_TIMEOUT_MS,
   );
 
+  /**
+   * A failed commit is the crash window. It must leave an orphan blob, never a reference with no bytes.
+   * The probe uses the digest that the failed commit received and does not put the bytes again.
+   * A second put creates the blob that this case must find already present.
+   */
   it(
     'RunBundleStore_CommitThrows_LeavesCollectableOrphanBlob',
     async () => {
@@ -145,11 +143,6 @@ describe('RunBundleStore', () => {
         }),
       ).rejects.toThrow('ledger commit failed');
 
-      // A failed commit is the crash window. The surviving artefact must be an
-      // orphan blob nothing references, never a reference with no bytes. The
-      // probe uses the digest the failed commit was handed and does NOT re-put
-      // the bytes first — re-putting would manufacture the blob this case
-      // exists to find already present.
       expect(captured).toBeDefined();
       if (captured === undefined) return;
       await expect(store.has(captured)).resolves.toBe('ok');

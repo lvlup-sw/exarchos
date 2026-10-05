@@ -1,15 +1,12 @@
 /**
- * EventStore.runBundleIntegrityCheck — the oracle against a real store.
+ * `EventStore.runBundleIntegrityCheck`, the bundle oracle, against a real store.
  *
- * The case that carries this file is the replay counterexample. The appender's
- * operation-claim fast path returns a settled operation's recorded result
- * without reading a single bundle byte, so deleting a referenced artifact
- * leaves replay reporting success. That test asserts BOTH halves in one place:
- * replay still green, oracle red. If the oracle ever stops naming it, nothing
- * in the system does.
+ * The main case is the replay counterexample. The operation-claim fast path of the appender
+ * returns the recorded result of a settled operation and reads no bundle byte.
+ * As a result, replay reports success after a referenced artifact is deleted. Only the oracle names the loss.
  *
- * These cases open a real SQLite store on a temp directory, so they carry an
- * explicit per-test timeout rather than the tier default.
+ * Most cases open a real SQLite store in a temp directory.
+ * As a result, every case sets `FS_TIMEOUT_MS` as its own timeout in place of the tier default.
  *
  * @oracle-sources: ../../../src/events/store.ts, the blob files themselves on disk under the temp state dir — deleted and rewritten directly so custody is judged against the filesystem rather than against the ledger that named it
  */
@@ -47,6 +44,7 @@ function blobPath(root: string, digest: { algorithm: string; value: string }): s
 }
 
 describe('EventStore.runBundleIntegrityCheck', () => {
+  /** The empty verdict has no `violations` field. An empty array reads as a check that found no fault. */
   it(
     'BundleIntegrityCheck_FreshStore_ReportsEmptyNotClear',
     async () => {
@@ -59,8 +57,6 @@ describe('EventStore.runBundleIntegrityCheck', () => {
         expect(result.referenceCount).toBe(0);
         expect(result.scannedStreamCount).toBeGreaterThanOrEqual(0);
       }
-      // The empty verdict carries no violations field at all — an empty
-      // violation array would read as "checked and found nothing wrong".
       expect(Object.hasOwn(result, 'violations')).toBe(false);
     },
     FS_TIMEOUT_MS,
@@ -94,6 +90,12 @@ describe('EventStore.runBundleIntegrityCheck', () => {
     FS_TIMEOUT_MS,
   );
 
+  /**
+   * The replay counterexample. The operation settles through the atomic trail with a claim.
+   * Replay returns the recorded claim and does not open the bundle, so it stays green after the blob is deleted.
+   * The oracle then names the missing blob.
+   * A completed sweep has no `incomplete` marker, so the marker on the timeout verdict discriminates.
+   */
   it(
     'BundleIntegrityCheck_DeletedBlob_IsNamedWhileClaimReplayStaysGreen',
     async () => {
@@ -102,8 +104,6 @@ describe('EventStore.runBundleIntegrityCheck', () => {
       const digest = await bundles.put(Buffer.from('artifact that will vanish', 'utf8'));
       const ref = { artifactId: ArtifactIdSchema.parse('run-bundle:vanishing'), digest };
 
-      // Settle the operation through the claim-backed atomic trail, which is
-      // the path whose replay short-circuits on the recorded claim.
       const operationId = 'op-bundle-replay';
       await store.appendTrailAtomically(
         'feat-bundle',
@@ -116,9 +116,6 @@ describe('EventStore.runBundleIntegrityCheck', () => {
 
       await unlink(blobPath(bundles.root, digest));
 
-      // Half one: replay is still green. The claim fast path returns the
-      // recorded result without ever opening the bundle, so the deletion is
-      // invisible to it.
       await expect(
         store.appendTrailAtomically(
           'feat-bundle',
@@ -132,7 +129,6 @@ describe('EventStore.runBundleIntegrityCheck', () => {
         'the replay must be a claim hit, not a second append',
       ).toHaveLength(1);
 
-      // Half two: the oracle names what replay could not see.
       const result = await store.runBundleIntegrityCheck();
       expect(result.ok).toBe(false);
       if (result.ok !== false) return;
@@ -140,8 +136,6 @@ describe('EventStore.runBundleIntegrityCheck', () => {
       expect(result.violations.map((v) => v.kind)).toEqual(['blob-missing']);
       expect(result.violations[0]?.digest).toBe(`sha256:${digest.value}`);
       expect(result.details).toContain('run-bundle violation');
-      // A sweep that ran to completion carries no incompleteness marker, so the
-      // marker on the timeout verdict below actually discriminates.
       expect(result.incomplete).toBeUndefined();
     },
     FS_TIMEOUT_MS,
@@ -165,14 +159,13 @@ describe('EventStore.runBundleIntegrityCheck', () => {
     FS_TIMEOUT_MS,
   );
 
+  /**
+   * The skip guard reads `listStreams` on one backend object. The sweep must enumerate through that same object.
+   * The injected backend returns one known stream, so `scannedStreamCount` proves which enumerator ran.
+   */
   it(
     'BundleIntegrityCheck_SweepEnumeratesTheSameBackendTheSkipGuardTested',
     async () => {
-      // The skip verdict is decided by looking at one object's `listStreams`.
-      // If the sweep then enumerated through some other path, the guard would
-      // be vouching for an enumerator that never runs. Injecting a backend
-      // whose stream list is recognisable proves the sweep walked exactly the
-      // enumerator the guard admitted.
       const backend: Partial<StorageBackend> = {
         listStreams: () => ['guarded-enumerator-stream'],
         queryEvents: () => [],
@@ -192,6 +185,11 @@ describe('EventStore.runBundleIntegrityCheck', () => {
     FS_TIMEOUT_MS,
   );
 
+  /**
+   * The reads of the injected bundle store never settle, so the method itself must apply the time bound.
+   * A sweep that timed out measured nothing. Its verdict is `incomplete` and holds no counts,
+   * so it cannot have the shape of a completed sweep.
+   */
   it(
     'BundleIntegrityCheck_SweepExceedsBudget_ReportsTimeout',
     async () => {
@@ -207,8 +205,6 @@ describe('EventStore.runBundleIntegrityCheck', () => {
         },
       });
 
-      // A bundle store whose reads never settle. The wall-clock bound has to
-      // come from the method itself, not from the filesystem being fast.
       const stalled = new RunBundleStore(bundles.root, {
         mkdir: async () => undefined,
         writeFile: async () => undefined,
@@ -226,10 +222,6 @@ describe('EventStore.runBundleIntegrityCheck', () => {
       if (result.ok !== false) return;
       expect(result.details).toContain('timed out after 25ms');
       expect(result.violations).toEqual([]);
-      // A timed-out sweep measured nothing, so its verdict carries NO counts:
-      // the arm cannot hold a number, which is what keeps it from ever being
-      // shape-identical to a completed sweep that found a zero-denominator
-      // failure.
       expect(
         result.incomplete,
         'a timed-out sweep must mark itself incomplete',
@@ -240,17 +232,17 @@ describe('EventStore.runBundleIntegrityCheck', () => {
     FS_TIMEOUT_MS,
   );
 
+  /**
+   * The signal belongs to the caller and outlives each sweep. A `{ once: true }` listener detaches only on abort,
+   * so a sweep that completes normally must remove its listeners.
+   * A retained listener also holds the reject closure of a promise that cannot settle.
+   */
   it(
     'BundleIntegrityCheck_ReusedSignalAcrossSweeps_LeavesNoListenersBehind',
     async () => {
       const store = new EventStore(tempDir);
       const controller = new AbortController();
 
-      // The caller owns this signal and outlives any one sweep. Every arm of
-      // the race attaches to it, and `{ once: true }` detaches only on the
-      // abort path — so a sweep that finishes normally is the case that leaks.
-      // Each retained listener also pins the reject closure of a promise that
-      // can no longer settle.
       for (let i = 0; i < 5; i += 1) {
         await store.runBundleIntegrityCheck({ signal: controller.signal });
       }
@@ -263,15 +255,14 @@ describe('EventStore.runBundleIntegrityCheck', () => {
     FS_TIMEOUT_MS,
   );
 
+  /**
+   * A caller abort in the middle of a sweep rejects two arms of the race: the sweep and the external-abort arm.
+   * Only one arm wins. The process-level `unhandledRejection` hook proves that the other arm is not reported.
+   * The 20 ms wait lets a late rejection arrive before the assertion.
+   */
   it(
     'BundleIntegrityCheck_ExternalAbortMidSweep_RejectsOnceWithNoUnhandledRejection',
     async () => {
-      // A mid-sweep caller abort settles TWO arms of the race with an
-      // AbortError: the sweep itself and the external-abort rejection. Only one
-      // can win, so this pins that the loser is never reported as an unhandled
-      // rejection — `Promise.race` subscribes to every arm it is handed, and
-      // the process-level hook is the observer that would catch a regression
-      // to a shape (a detached `.then`, a late-created arm) that does not.
       const store = new EventStore(tempDir);
       const bundles = RunBundleStore.forStateDir(tempDir);
       const refs = await Promise.all(
@@ -307,7 +298,6 @@ describe('EventStore.runBundleIntegrityCheck', () => {
         await expect(
           store.runBundleIntegrityCheck({ signal: controller.signal, bundleStore: probing }),
         ).rejects.toThrow(/aborted/);
-        // Give a losing arm's rejection every chance to surface before judging.
         await new Promise((resolve) => setTimeout(resolve, 20));
       } finally {
         process.off('unhandledRejection', onUnhandled);
@@ -320,6 +310,7 @@ describe('EventStore.runBundleIntegrityCheck', () => {
     FS_TIMEOUT_MS,
   );
 
+  /** A caller abort is an exception, not a verdict. A cancelled sweep must not look like a clean sweep. */
   it(
     'BundleIntegrityCheck_PreAbortedSignal_RejectsWithAbortError',
     async () => {
@@ -327,8 +318,6 @@ describe('EventStore.runBundleIntegrityCheck', () => {
       const controller = new AbortController();
       controller.abort();
 
-      // Caller-initiated cancellation is an exception, not a verdict — a
-      // cancelled sweep must never be mistaken for a clean one.
       await expect(
         store.runBundleIntegrityCheck({ signal: controller.signal }),
       ).rejects.toThrow(/aborted/);

@@ -13,11 +13,9 @@ describe('NDJSON encoder (DR-9, T027)', () => {
 
     const line = encodeFrame(frame);
 
-    // One single line terminated by \n
     expect(line.endsWith('\n')).toBe(true);
     expect(line.slice(0, -1).includes('\n')).toBe(false);
 
-    // Round-trips via JSON.parse
     const parsed = JSON.parse(line.slice(0, -1)) as unknown;
     expect(parsed).toEqual(frame);
   });
@@ -54,7 +52,6 @@ describe('NDJSON encoder (DR-9, T027)', () => {
     }
     encoder.end();
 
-    // Wait for stream to finish flushing
     await new Promise<void>((resolve) => sink.on('end', () => resolve()));
 
     const output = Buffer.concat(chunks).toString('utf8');

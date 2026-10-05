@@ -13,15 +13,12 @@ import { makeFixtureReducer, seedStream, type FixtureState } from '../../helpers
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 /**
- * Wave 3 Tasks 3.11 + 3.12 — `aggregateStream<T>(streamId, reducerId)`
- * read-only fold primitive (R-2). Marten's `AggregateStreamAsync` analog.
+ * `aggregateStream<T>(streamId, reducerId)` folds a stream through a registered reducer and
+ * writes nothing. It makes one `queryEvents` SELECT, so the fold reads one WAL snapshot.
  *
- * No write path; no OCC enforcement on a future commit. Single SELECT
- * via the substrate's `queryEvents(streamId)` — one WAL snapshot, safe
- * per audit §F2.3 (single-read invariant). The inline forward-discipline
- * note in atomic-appender.ts mandates that any future addition of a
- * SECOND read inside aggregateStream MUST wrap both reads in
- * `db.transaction(fn)`.
+ * `aggregateStream` has no runtime check for a global-scoped reducer.
+ * `ProjectionScope_ReducerAuthoredGlobal_FailsTypecheck` in `projections/types.test.ts` pins the
+ * compile-time check, and the `scope` description in `projections/types.ts` gives the reason.
  */
 describe('aggregateStream<T> — read-only fold (Tasks 3.11 + 3.12)', () => {
   let stateDir: string;
@@ -79,14 +76,4 @@ describe('aggregateStream<T> — read-only fold (Tasks 3.11 + 3.12)', () => {
     expect(result.aggregate.count).toBe(0);
     expect(result.aggregate.latest).toBeUndefined();
   });
-
-  // ─── Task 3.12 — scope validation ─────────────────────────────────────
-  //
-  // `AggregateStream_RejectsGlobalScopedReducer` asserted that `aggregateStream`
-  // throws `INVALID_REDUCER_SCOPE` on a global-scoped reducer. That guard no
-  // longer exists (#1342), so the test is gone: the behaviour it pinned is gone.
-  //
-  // `projections/types.test.ts` (`ProjectionScope_ReducerAuthoredGlobal_FailsTypecheck`)
-  // is what survives. For why removing the guard is safe, see the `scope`
-  // docstring in `projections/types.ts` — the single home for that reasoning.
 });

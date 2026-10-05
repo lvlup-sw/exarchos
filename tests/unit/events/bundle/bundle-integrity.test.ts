@@ -1,12 +1,8 @@
 /**
- * checkRunBundleIntegrity — the verdict logic, exercised over a fake event
- * source so every arm is reachable without a substrate.
+ * Tests for the verdict logic of `checkRunBundleIntegrity`, over a fake event source.
  *
- * The seeded violations are the point of this file. A resolvability check that
- * has never been shown to go red is a check whose green means nothing, so each
- * failing arm here starts from a passing configuration and breaks exactly one
- * thing: one blob deleted, one blob corrupted, one settled stream stripped of
- * its references, one reference made unparseable.
+ * Each failing case starts from a passing configuration and breaks one thing.
+ * A check that never fails gives no evidence when it passes.
  *
  * @oracle-sources: ../../../../src/events/bundle/integrity.ts, the violation kinds written out as literals in each case from the declared taxonomy — never read back off the result the case is judging
  */
@@ -31,9 +27,10 @@ import type { WorkflowEvent } from '../../../../src/events/schemas.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 const FS_TIMEOUT_MS = 15_000;
-// Literals, not reads of the constants under test: a settlement type or an
-// epoch derived from the module would rename these fixtures along with any
-// drift in it. The membership case at the bottom is what binds the two.
+/**
+ * The settlement type and the custody epoch are literals, not reads of the constants in `digest-references.ts`.
+ * A drift in a constant then fails the membership case and does not rename the fixtures.
+ */
 const SETTLED_TYPE = 'orchestrate.intent_executed';
 /** The payload version from which a settlement must reference bytes. */
 const CUSTODIAL_VERSION = '1.1';
@@ -91,11 +88,10 @@ async function seedRef(label: string, payload: string) {
 }
 
 describe('checkRunBundleIntegrity', () => {
+  /** `empty` is not `true`. The sweep checked nothing, so the result is no evidence that the store is intact. */
   it('BundleIntegrity_NoStreams_ReportsEmptyNotClear', async () => {
     const result = await checkRunBundleIntegrity(fakeSource({}), store);
 
-    // EMPTY is a distinct claim from CLEAR: nothing was checked, so the check
-    // is not evidence that anything is intact.
     expect(result.ok).toBe('empty');
     if (result.ok === 'empty') {
       expect(result.referenceCount).toBe(0);
@@ -118,6 +114,10 @@ describe('checkRunBundleIntegrity', () => {
     }
   });
 
+  /**
+   * The case asserts the two counts before the verdict.
+   * A clear verdict alone does not show how many references the sweep checked.
+   */
   it(
     'BundleIntegrity_AllReferencesResolve_ReportsClearWithItsDenominator',
     async () => {
@@ -135,8 +135,6 @@ describe('checkRunBundleIntegrity', () => {
 
       const result = await checkRunBundleIntegrity(source, store);
 
-      // DENOMINATOR FIRST. A `ok: true` from a sweep that read no references
-      // is indistinguishable from a sweep that verified three.
       expect(
         result.ok === true || result.ok === false ? result.referenceCount : -1,
         'the sweep checked a different number of references than were seeded',
@@ -150,16 +148,17 @@ describe('checkRunBundleIntegrity', () => {
     FS_TIMEOUT_MS,
   );
 
+  /**
+   * Four references in two streams name two distinct digests. Each probe reads and hashes the blob again.
+   * So a repeated probe spends the time bound of the caller for an answer that the store already gave.
+   * The memo must not decrease the reference count, or one probe looks the same as one reference.
+   */
   it(
     'BundleIntegrity_RepeatedDigest_ProbesTheStoreOncePerDistinctDigest',
     async () => {
       const shared = await seedRef('run-bundle:shared', 'shared payload');
       const other = await seedRef('run-bundle:other', 'other payload');
 
-      // The same digest referenced four times across two streams. Each probe
-      // re-reads and re-hashes the blob, and the sweep runs under a wall-clock
-      // bound whose expiry is reported as `incomplete` — so repeating a probe
-      // the store already answered spends the budget that bound is protecting.
       const source = fakeSource({
         'feat-a': [
           event('feat-a', 1, 'workflow.started', { [BUNDLE_REF_FIELD]: [shared, other] }),
@@ -171,9 +170,6 @@ describe('checkRunBundleIntegrity', () => {
       const probe = vi.spyOn(store, 'has');
       const result = await checkRunBundleIntegrity(source, store);
 
-      // DENOMINATOR FIRST. Memoizing the probe must not shrink the count of
-      // references the sweep reports having checked — otherwise "one probe" and
-      // "one reference" become indistinguishable.
       expect(
         result.ok === true || result.ok === false ? result.referenceCount : -1,
         'memoization must not collapse the reference denominator',
@@ -205,7 +201,6 @@ describe('checkRunBundleIntegrity', () => {
 
       expect(result.ok).toBe(false);
       if (result.ok !== false) return;
-      // The denominator survives the failure: two of three still resolved.
       expect(result.referenceCount).toBe(3);
       expect(result.violations).toHaveLength(1);
       expect(result.violations[0]?.kind).toBe('blob-missing');
@@ -241,6 +236,10 @@ describe('checkRunBundleIntegrity', () => {
     FS_TIMEOUT_MS,
   );
 
+  /**
+   * A writer can pass a resolvability check when it references nothing.
+   * So a custodial settlement with no reference is a violation, not `empty`.
+   */
   it(
     'BundleIntegrity_CustodialSettlementWithZeroReferences_IsAViolationNotEmpty',
     async () => {
@@ -253,9 +252,6 @@ describe('checkRunBundleIntegrity', () => {
 
       const result = await checkRunBundleIntegrity(source, store);
 
-      // Referencing nothing is the cheapest way to pass a resolvability check.
-      // Settlement under custody without a reference must therefore be red,
-      // not 'empty'.
       expect(result.ok).toBe(false);
       if (result.ok !== false) return;
       expect(result.referenceCount).toBe(0);
@@ -266,13 +262,13 @@ describe('checkRunBundleIntegrity', () => {
     FS_TIMEOUT_MS,
   );
 
+  /**
+   * The same record with a pre-custody payload version settled without a bundle by contract.
+   * The sweep counts the record and checks nothing, so the result is `empty` and not a violation.
+   */
   it(
     'BundleIntegrity_PreCustodySettlementWithZeroReferences_IsCountedNotCondemned',
     async () => {
-      // The same record, stamped with the payload version a producer wrote
-      // before custody existed. It settled without a bundle by contract: the
-      // sweep reports having seen it and checks nothing, so an upgraded ledger
-      // full of such rows is EMPTY with a count, never a violation.
       const source = fakeSource({
         'feat-a': [
           event('feat-a', 1, 'workflow.started'),
@@ -290,13 +286,13 @@ describe('checkRunBundleIntegrity', () => {
     FS_TIMEOUT_MS,
   );
 
+  /**
+   * An unreadable version stamp does not exempt a settlement from the custody rule.
+   * A parser that trusts `Number()` for each component reads each of these stamps as a version before the epoch.
+   */
   it(
     'BundleIntegrity_SettlementWithAnUnreadableVersionStamp_IsHeldToTheCustodyRule',
     async () => {
-      // A stamp the comparison cannot read is not a way out of the rule. Each
-      // of these converts through `Number()` to a small integer that sorts
-      // before the epoch, so a parser that trusted the conversion would exempt
-      // every one of them.
       for (const stamp of ['', '1.', '1..0', '1e0']) {
         const source = fakeSource({
           'feat-a': [event('feat-a', 1, SETTLED_TYPE, { leafId: 'some-leaf' }, stamp)],
@@ -314,12 +310,13 @@ describe('checkRunBundleIntegrity', () => {
     FS_TIMEOUT_MS,
   );
 
+  /**
+   * The rule applies to each record. A count per stream lets the first referenced
+   * settlement hide a later settlement that has no reference.
+   */
   it(
     'BundleIntegrity_SecondSettlementWithoutReferences_IsAViolationAfterAReferencedOne',
     async () => {
-      // The rule is per record. A stream whose first settlement carried a
-      // reference must not answer for a later settlement that carried none —
-      // that is exactly the masking a per-stream tally would allow.
       const one = await seedRef('run-bundle:first', 'first payload');
       const source = fakeSource({
         'feat-a': [
@@ -342,12 +339,13 @@ describe('checkRunBundleIntegrity', () => {
     FS_TIMEOUT_MS,
   );
 
+  /**
+   * The settled stream of the `CustodialSettlementWithZeroReferences` case passes when its settlement references bytes.
+   * So that violation is about the missing reference, not about the settlement.
+   */
   it(
     'BundleIntegrity_SettledStreamWithAResolvableReference_IsClear',
     async () => {
-      // The sibling of the violation case: the same settled stream passes once
-      // it actually references bytes, so the violation there is about the
-      // missing custody rather than about settlement itself.
       const one = await seedRef('run-bundle:settled', 'settled payload');
       const source = fakeSource({
         'feat-a': [
@@ -365,13 +363,13 @@ describe('checkRunBundleIntegrity', () => {
     FS_TIMEOUT_MS,
   );
 
+  /**
+   * A store fault that is not a content verdict, here `EACCES`, becomes a violation on its reference.
+   * The sweep keeps the earlier violation, is not `incomplete`, and counts all three references.
+   */
   it(
     'BundleIntegrity_UnreadableBlob_IsNamedOnItsReferenceAndTheSweepContinues',
     async () => {
-      // A fault the store cannot turn into a content verdict — a permissions
-      // error — is recorded against the reference it was probing and the
-      // sweep goes on. One EACCES must not erase a violation already found,
-      // and must not read as a sweep that ran out of time.
       const first = await seedRef('run-bundle:first', 'first payload');
       const denied = await seedRef('run-bundle:denied', 'denied payload');
       const third = await seedRef('run-bundle:third', 'third payload');
@@ -405,7 +403,6 @@ describe('checkRunBundleIntegrity', () => {
       expect(result.ok).toBe(false);
       if (result.ok !== false) return;
       expect(result.incomplete).toBeUndefined();
-      // All three references entered the denominator: the sweep finished.
       expect(result.referenceCount).toBe(3);
       expect(result.violations.map((v) => [v.kind, v.sequence])).toEqual([
         ['blob-missing', 1],
@@ -416,6 +413,7 @@ describe('checkRunBundleIntegrity', () => {
     FS_TIMEOUT_MS,
   );
 
+  /** The sweep does not probe an entry that fails to parse. The entry is a violation and adds nothing to the reference count. */
   it('BundleIntegrity_UnparseableReference_ReportsMalformed', async () => {
     const source = fakeSource({
       'feat-a': [
@@ -429,8 +427,6 @@ describe('checkRunBundleIntegrity', () => {
 
     expect(result.ok).toBe(false);
     if (result.ok !== false) return;
-    // A reference nobody could parse was never probed, so it does not join the
-    // denominator — it is reported instead.
     expect(result.referenceCount).toBe(0);
     expect(result.violations).toHaveLength(1);
     expect(result.violations[0]?.kind).toBe('malformed-reference');
@@ -450,13 +446,13 @@ describe('checkRunBundleIntegrity', () => {
     expect(result.violations[0]?.kind).toBe('malformed-reference');
   });
 
+  /**
+   * The malformed entry is one violation. The settlement then has no parsed reference, which is a second violation.
+   * A report of only the first lets a parse error hide a custody gap.
+   */
   it(
     'BundleIntegrity_SettledStreamWithOnlyMalformedReferences_ReportsBothViolations',
     async () => {
-      // The two arms interact here: the malformed entry is named, and because
-      // nothing parseable survived it, the stream also settled while
-      // referencing nothing. Reporting only one of the two would let a writer
-      // hide a custody gap behind a parse error.
       const source = fakeSource({
         'feat-a': [
           settlement('feat-a', 1, {
@@ -490,13 +486,13 @@ describe('checkRunBundleIntegrity', () => {
     ).rejects.toThrow(/aborted/);
   });
 
+  /**
+   * The probe count proves that the sweep stops. A sweep that walks every event and then throws also rejects.
+   * The source holds one stream, so the check between streams cannot stop this sweep.
+   */
   it(
     'BundleIntegrity_AbortMidStream_LeavesTheRemainingEventsUnprobed',
     async () => {
-      // Rejecting is only half the claim. A sweep that walked every remaining
-      // event and threw at the end would satisfy `rejects` while doing all the
-      // work the bound was supposed to prevent, so the probe count is the
-      // assertion that actually pins "stops" rather than "discards".
       const controller = new AbortController();
       const one = await seedRef('run-bundle:one', 'payload one');
       const two = await seedRef('run-bundle:two', 'payload two');
@@ -514,8 +510,6 @@ describe('checkRunBundleIntegrity', () => {
         unlink: async () => undefined,
       });
 
-      // ONE stream, so the between-streams check can never fire: whatever stops
-      // this sweep has to be the per-event check.
       const source = fakeSource({
         'feat-a': [
           event('feat-a', 1, 'workflow.started', { [BUNDLE_REF_FIELD]: [one] }),
@@ -535,12 +529,10 @@ describe('checkRunBundleIntegrity', () => {
     FS_TIMEOUT_MS,
   );
 
+  /** The source holds one stream with one event, so only the checks around each reference probe can stop the sweep. */
   it(
     'BundleIntegrity_AbortMidEvent_LeavesTheRemainingReferencesUnprobed',
     async () => {
-      // ONE stream holding ONE event, so neither the between-streams nor the
-      // per-event check can fire once the walk is inside it: only the
-      // per-reference check can stop the probes.
       const controller = new AbortController();
       const one = await seedRef('run-bundle:one', 'payload one');
       const two = await seedRef('run-bundle:two', 'payload two');
@@ -577,17 +569,17 @@ describe('checkRunBundleIntegrity', () => {
     FS_TIMEOUT_MS,
   );
 
+  /**
+   * The checks between probes cannot stop a probe that is in progress, so the sweep passes the signal to the read.
+   * The fake read settles only through that signal. A sweep that does not pass the signal never settles.
+   * The race reports that sweep as `hung`, not as a suite timeout.
+   */
   it(
     'BundleIntegrity_AbortDuringAPendingProbe_AbandonsTheRead',
     async () => {
-      // The checks between probes cannot reach a probe that is already in
-      // flight. The signal is handed to the read itself, so a probe that
-      // blocks — a slow or hung filesystem — is abandoned on cancellation
-      // rather than holding the sweep open until it happens to return.
       const controller = new AbortController();
       const one = await seedRef('run-bundle:one', 'payload one');
 
-      // A read that only ever settles through the signal it was handed.
       const probe = vi.fn(
         (_file: string, signal?: AbortSignal) =>
           new Promise<Buffer>((_, reject) => {
@@ -614,8 +606,6 @@ describe('checkRunBundleIntegrity', () => {
       expect(probe, 'the read never started').toHaveBeenCalledTimes(1);
       controller.abort();
 
-      // A sweep that does not thread the signal never settles here; the race
-      // turns that into a named failure instead of a suite timeout.
       const outcome = await Promise.race([
         sweep.then(
           () => 'resolved',
@@ -628,9 +618,8 @@ describe('checkRunBundleIntegrity', () => {
     FS_TIMEOUT_MS,
   );
 
+  /** Every stream is empty, so only the check between streams can stop the sweep. */
   it('BundleIntegrity_AbortBetweenStreams_LeavesTheRemainingStreamsUnqueried', async () => {
-    // The sibling bound. Every stream here is empty, so no per-event check can
-    // fire and only the between-streams check can stop the walk.
     const controller = new AbortController();
     let queries = 0;
     const source: BundleEventSource = {
@@ -651,13 +640,13 @@ describe('checkRunBundleIntegrity', () => {
     ).toBe(1);
   });
 
+  /**
+   * No abort case above needs the sweep to yield. Each sets the signal before the sweep, from a callback
+   * of the sweep, or during a pending read. The timeout of a caller is a timer, and a timer needs the
+   * event loop. A ledger with many streams and no reference awaits no read that yields.
+   * So the sweep must yield, or the timer never fires. This case aborts from a real timer.
+   */
   it('BundleIntegrity_ReferenceFreeLedger_StillLetsATimerAbortIt', async () => {
-    // Every abort case above arms the signal from inside the sweep's own
-    // callbacks. A caller's TIMEOUT is a timer, and a timer needs the event
-    // loop; a ledger with many streams and nothing to probe never awaits a
-    // read that yields, so unless the walk yields on its own the flag is read
-    // every stream and never set. This case arms the abort from a real timer
-    // and asserts the walk stopped short.
     const controller = new AbortController();
     const streamCount = 20_000;
     let queries = 0;
@@ -676,11 +665,8 @@ describe('checkRunBundleIntegrity', () => {
     expect(queries, 'the timer never got a turn: the walk ran to the end').toBeLessThan(streamCount);
   });
 
+  /** The membership case: the only case that compares the fixture literals with the constants of the module. */
   it('BundleIntegrity_SettlementEndpoints_AreTheLiteralTypeAndEpochTheseFixturesUse', () => {
-    // The fixtures above spell the settlement type and the custody epoch as
-    // literals. This is the one place they meet the constants the oracle and
-    // the producer read, so a drift in either reddens here rather than
-    // renaming the fixtures along with it.
     expect(SETTLED_EVENT_TYPES).toContain(SETTLED_TYPE);
     expect(SETTLEMENT_ENDPOINTS.find((endpoint) => endpoint.type === SETTLED_TYPE)?.custodyFromSchemaVersion).toBe(
       CUSTODIAL_VERSION,
@@ -704,18 +690,15 @@ describe('settlementCustody', () => {
     );
   });
 
+  /**
+   * A parser that trusts `Number()` for each component reads each stamp of the first loop as a version before the epoch.
+   * A component that is not a run of decimal digits makes the stamp unreadable, and an unreadable stamp is custodial.
+   * The second loop pins the boundary: a minus sign, a comma, and a word are also custodial.
+   */
   it('SettlementCustody_UnreadableStamps_AreCustodialNotExempt', () => {
-    // `Number('')` is 0, `Number('1e0')` is 1, `Number(' 1')` is 1 and the
-    // empty component of `1.` or `1..0` is 0: each of these converts to a
-    // small integer that would sort before the epoch if the conversion were
-    // trusted. A component that is not a run of decimal digits fails the read
-    // outright, so the row is held to the rule rather than exempted by a stamp
-    // nobody wrote deliberately.
     for (const stamp of ['', '1.', '.1', '1..0', '1e0', ' 1', '1 ', '0x1', '+1']) {
       expect(settlementCustody(settled(stamp)), JSON.stringify(stamp)).toBe('custodial');
     }
-    // Stamps no numeric reading rescues either: a boundary pin, not a
-    // discriminator between the text check and a numeric one.
     for (const stamp of ['-1', '1,1', 'latest']) {
       expect(settlementCustody(settled(stamp)), JSON.stringify(stamp)).toBe('custodial');
     }

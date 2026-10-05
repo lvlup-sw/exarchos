@@ -1,19 +1,10 @@
 /**
- * Task event schemas for #1272 (EventSourcedTaskStore).
- *
- * These four `task.*` event types are the durable substrate for the
- * `EventSourcedTaskStore` (src/projections/task-store/) which
- * implements the SDK `TaskStore` interface as a projection over the
- * event store. Each event is emitted by the EventSourcedTaskStore's
- * lifecycle methods (`createTask`, `getTask`, `getTaskResult`,
- * `cancelTask`).
- *
- * Distinct from the pre-existing workflow `task.*` events
- * (`task.assigned`/`task.claimed`/`task.progressed`/`task.completed`/
- * `task.failed`) which describe orchestrated agent work; these four
- * (`task.created`/`task.polled`/`task.result`/`task.cancelled`) describe
- * MCP-protocol task lifecycle for the SDK's TaskStore contract
- * (see `@modelcontextprotocol/sdk/experimental/tasks/interfaces.ts`).
+ * Schemas for the four `task.*` events that back `EventSourcedTaskStore`
+ * (`src/projections/task-store/`). These events (`task.created`, `task.polled`,
+ * `task.result`, `task.cancelled`) record the MCP task lifecycle of the SDK
+ * `TaskStore` contract. The workflow events `task.assigned`, `task.claimed`,
+ * `task.progressed`, `task.completed` and `task.failed` record agent work and
+ * are a different set.
  */
 import { describe, it, expect } from 'vitest';
 import {
@@ -43,8 +34,8 @@ describe('task.* event schemas (#1272)', () => {
       expect(parsed.request).toBeDefined();
     });
 
+    /** A null `ttl` means an unlimited lifetime. */
     it('EventSchema_TaskCreated_AcceptsNullTtl', () => {
-      // SDK spec: null ttl = unlimited lifetime (no automatic cleanup).
       const parsed = TaskCreatedData.parse({
         taskId: 'task-no-ttl',
         createdBy: 'agent-1',
@@ -59,9 +50,8 @@ describe('task.* event schemas (#1272)', () => {
       expect(EVENT_DATA_SCHEMAS['task.created']).toBeDefined();
     });
 
+    /** The event stores `pollInterval` so that replay restores the caller cadence. */
     it('EventSchema_TaskCreated_AcceptsPositiveIntegerPollInterval', () => {
-      // CodeRabbit MAJOR #1431 follow-up: pollInterval is persisted so
-      // REPLAY can reconstruct caller cadence.
       const parsed = TaskCreatedData.parse({
         taskId: 'task-poll',
         ttl: null,
@@ -71,9 +61,8 @@ describe('task.* event schemas (#1272)', () => {
       expect(parsed.pollInterval).toBe(500);
     });
 
+    /** A `pollInterval` of 0 gives a tight poll loop, so the schema rejects it. */
     it('EventSchema_TaskCreated_RejectsZeroPollInterval', () => {
-      // Schema enforces `.positive()` — `0` is a degenerate cadence that
-      // would degrade to a tight loop; reject at the boundary.
       const result = TaskCreatedData.safeParse({
         taskId: 'task-zero',
         ttl: null,
@@ -84,7 +73,6 @@ describe('task.* event schemas (#1272)', () => {
     });
 
     it('EventSchema_TaskCreated_RejectsNonIntegerPollInterval', () => {
-      // Schema enforces `.int()` — fractional milliseconds are rejected.
       const result = TaskCreatedData.safeParse({
         taskId: 'task-frac',
         ttl: null,
@@ -94,8 +82,8 @@ describe('task.* event schemas (#1272)', () => {
       expect(result.success).toBe(false);
     });
 
+    /** Older events do not have `pollInterval`, and they must still parse. */
     it('EventSchema_TaskCreated_AcceptsAbsentPollInterval', () => {
-      // Field is optional — historical events without it still project.
       const parsed = TaskCreatedData.parse({
         taskId: 'task-legacy',
         ttl: null,
@@ -106,17 +94,15 @@ describe('task.* event schemas (#1272)', () => {
   });
 
   describe('TaskPolledData', () => {
+    /** New events omit the deprecated `data.sequence`. The envelope `sequence` is the poll order. */
     it('EventSchema_TaskPolled_ValidatesShape_NoSequence', () => {
-      // CodeRabbit MAJOR #1431 follow-up: `data.sequence` is now optional
-      // + deprecated. New emits omit the payload field entirely and rely
-      // on the event envelope's atomically-assigned `.sequence`.
       const parsed = TaskPolledData.parse({ taskId: 'task-abc-123' });
       expect(parsed.taskId).toBe('task-abc-123');
       expect(parsed.sequence).toBeUndefined();
     });
 
+    /** Older events carry `data.sequence`, and they must still parse. */
     it('EventSchema_TaskPolled_BackCompat_AcceptsHistoricalSequenceField', () => {
-      // Historical events written before the deprecation still validate.
       const parsed = TaskPolledData.parse({
         taskId: 'task-abc-123',
         sequence: 5,
@@ -124,10 +110,8 @@ describe('task.* event schemas (#1272)', () => {
       expect(parsed.sequence).toBe(5);
     });
 
+    /** When `data.sequence` is present, it must be a nonnegative integer. */
     it('EventSchema_TaskPolled_RejectsNegativeSequence_WhenPresent', () => {
-      // Field is optional, but when present it must satisfy the
-      // nonnegative-int constraint — guards against any future regression
-      // that resurrects the placeholder pattern with bad values.
       const result = TaskPolledData.safeParse({
         taskId: 'task-x',
         sequence: -1,

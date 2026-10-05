@@ -1,3 +1,9 @@
+/**
+ * Tests for `decide`: load, fold, decide, and append as one operation, with an optimistic
+ * concurrency check on the stream tail. The consistency boundary is one stream.
+ * The design follows the `FetchForWriting<T>(streamId)` semantics of Marten.
+ */
+
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -19,15 +25,6 @@ import {
 } from '../../helpers/decide-fixtures.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
-/**
- * Wave 3 Tasks 3.3 – 3.7 — `decide<TState>` primitive (R-2).
- *
- * The primitive's purpose: make load → fold → decide → append one
- * transactional operation with OCC baked in. Mirrors Marten's
- * `FetchForWriting<T>(streamId)` semantics on a per-stream consistency
- * boundary.
- */
-
 describe('decide<TState> — happy-path round-trip (Task 3.3)', () => {
   let stateDir: string;
   let eventStore: EventStore;
@@ -35,13 +32,11 @@ describe('decide<TState> — happy-path round-trip (Task 3.3)', () => {
   let registry: ProjectionRegistry;
   const streamId = 'feature/decide-happy';
 
+  /** The suite uses the appender of the `EventStore`, so reads and writes share one `SqliteBackend` handle. */
   beforeEach(async () => {
     stateDir = await mkdtemp(path.join(tmpdir(), 'decide-test-'));
     eventStore = new EventStore(stateDir);
     await eventStore.initialize();
-    // Reuse the EventStore's underlying appender so reads + writes share
-    // one SqliteBackend handle (matches how the production wiring threads
-    // the singleton appender).
     appender = eventStore.getAppender() as AtomicAppender;
     registry = createRegistry();
   });
@@ -56,18 +51,14 @@ describe('decide<TState> — happy-path round-trip (Task 3.3)', () => {
       reducer as unknown as Parameters<typeof registry.register>[0],
     );
 
-    // Seed stream with 2 events (sequences 1, 2).
     await seedStream(eventStore, streamId, 2);
 
-    // Decide returns ONE event.
     const result = await appender.decide<FixtureState>(
       streamId,
       'fixture@v1',
       (state, ctx) => {
-        // The reducer fold consumed both seed events.
         expect(state.count).toBe(2);
         expect(state.latest).toBe('T-2');
-        // ctx reflects the tail at fetch-time.
         expect(ctx.streamId).toBe(streamId);
         expect(ctx.version).toBe(2);
         expect(typeof ctx.now()).toBe('string');
@@ -81,7 +72,6 @@ describe('decide<TState> — happy-path round-trip (Task 3.3)', () => {
     expect(result.kind).toBe('committed');
     expect(result.sequences).toEqual([3]);
 
-    // Tail is now at 3; the appended event is observable via query.
     const events = await eventStore.query(streamId);
     expect(events).toHaveLength(3);
     expect(events[2].type).toBe('task.completed');
@@ -105,11 +95,15 @@ describe('decide<TState> — happy-path round-trip (Task 3.3)', () => {
       { registry, alwaysEnforceConsistency: false },
     );
 
-    // The now() function returns an ISO-8601 string at fetch time.
     expect(observedNow).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
   });
 });
 
+/**
+ * `ProjectionScope` is the single literal `'stream'`, so a reducer with another scope does not
+ * compile. `ProjectionScope_ReducerAuthoredGlobal_FailsTypecheck` in `projections/types.test.ts`
+ * pins that rule, so this suite holds no runtime scope case.
+ */
 describe('decide<TState> — scope discipline (Task 3.4)', () => {
   let stateDir: string;
   let eventStore: EventStore;
@@ -128,15 +122,6 @@ describe('decide<TState> — scope discipline (Task 3.4)', () => {
   afterEach(async () => {
     await rmrfAsync(stateDir);
   });
-
-  // `Decide_RejectsGlobalScopedReducer_WithInvalidReducerScope` was removed
-  // when `ProjectionScope` collapsed to the single literal `'stream'`. Its
-  // subject — a registered reducer whose scope is not `'stream'` — is no
-  // longer representable, so the test could only have been kept by casting a
-  // fabricated value past the type system, which would assert on the cast
-  // rather than on any reachable state. The invariant it guarded is now
-  // enforced by the compiler; see `projections/types.test.ts`
-  // (`ProjectionScope_ReducerAuthoredGlobal_FailsTypecheck`).
 
   it('Decide_ThrowsUnknownProjection_WhenReducerNotRegistered', async () => {
     await expect(
@@ -174,15 +159,13 @@ describe('decide<TState> — storage_busy translation (Task 3.5a)', () => {
     await rmrfAsync(stateDir);
   });
 
+  /**
+   * The case replaces `appendComputed` with a fake that returns `storage_busy`, so only the
+   * translation branch runs. `attempts` is the retry budget that the appender reports, which is 5.
+   */
   it('Decide_ThrowsStorageBusyError_WhenSubstrateRetryBudgetExhausts', async () => {
-    // Seed one event so the fold has something to work with.
     await seedStream(eventStore, streamId, 1);
 
-    // Inject a substrate fault by patching appendComputed on the
-    // appender to force a storage_busy AppendResult. This is the
-    // smallest fault-injection surface that exercises the translation
-    // branch in isolation, mirroring the pattern documented in
-    // atomic-appender.ts near the public test-fault-injection seam.
     const cause = new Error('SQLITE_BUSY');
     const original = appender.appendComputed.bind(appender);
     appender.appendComputed = vi.fn(async () => ({
@@ -203,7 +186,6 @@ describe('decide<TState> — storage_busy translation (Task 3.5a)', () => {
       expect(err).toBeInstanceOf(StorageBusyError);
       const sbe = err as StorageBusyError;
       expect(sbe.streamId).toBe(streamId);
-      // Attempts default to SQLITE_BUSY_RETRY_POLICY.maxAttempts (5).
       expect(sbe.attempts).toBe(5);
       expect(sbe.cause).toBe(cause);
     } finally {
@@ -236,13 +218,14 @@ describe('decide<TState> — empty events + alwaysEnforceConsistency (Task 3.6)'
     await rmrfAsync(stateDir);
   });
 
+  /**
+   * The closure writes through a second appender on the same backend. That write lands between
+   * the fold and the tail check of an empty decision. The closure returns no events, so `decide`
+   * reads the tail again and throws. The second call repeats the race to read the error fields.
+   */
   it('Decide_TriggersOccCheck_WhenDecideReturnsEmptyEventsByDefault', async () => {
-    // Stream at version 3 before decide runs.
     await seedStream(eventStore, streamId, 3);
 
-    // External-write injection between fold and the empty-events
-    // re-check: run inside the closure, routed via a SEPARATE appender
-    // sharing the backend so we don't deadlock on the per-stream mutex.
     const backend = appender.ensureSqliteBackendSync();
     const sideAppender = new AtomicAppender({
       stateDir,
@@ -262,14 +245,12 @@ describe('decide<TState> — empty events + alwaysEnforceConsistency (Task 3.6)'
             ]);
             expect(r.ok).toBe(true);
           }
-          // Return empty so the OCC re-check fires.
           return [];
         },
         { registry },
       ),
     ).rejects.toBeInstanceOf(ConcurrencyError);
 
-    // Re-issue for field inspection.
     try {
       let injected = false;
       await appender.decide<FixtureState>(
@@ -294,6 +275,7 @@ describe('decide<TState> — empty events + alwaysEnforceConsistency (Task 3.6)'
     }
   });
 
+  /** The closure moves the tail and returns no events. With `alwaysEnforceConsistency: false`, the call still succeeds. */
   it('Decide_SkipsOccCheck_WhenAlwaysEnforceConsistencyFalse', async () => {
     await seedStream(eventStore, streamId, 1);
 
@@ -303,8 +285,6 @@ describe('decide<TState> — empty events + alwaysEnforceConsistency (Task 3.6)'
       sqliteBackend: backend,
     });
 
-    // Empty events + alwaysEnforceConsistency:false — success even
-    // though the tail moved.
     const result = await appender.decide<FixtureState>(
       streamId,
       'fixture@v1',
@@ -322,10 +302,10 @@ describe('decide<TState> — empty events + alwaysEnforceConsistency (Task 3.6)'
     expect(result.kind).toBe('no-op');
   });
 
+  /** The default tail check runs, and the tail did not move. */
   it('Decide_NoOpSuccess_WhenEmptyEventsAndNoExternalAdvance', async () => {
     await seedStream(eventStore, streamId, 1);
 
-    // Default alwaysEnforceConsistency=true — but no advance during fold.
     const result = await appender.decide<FixtureState>(
       streamId,
       'fixture@v1',
@@ -364,6 +344,12 @@ describe('decide<TState> — single-key-per-call idempotency (Task 3.7)', () => 
     await rmrfAsync(stateDir);
   });
 
+  /**
+   * A retry with the same `operationId` returns the stored sequences and commits no new event.
+   * The claim row holds all three events under the one derived key.
+   * Each `decide` call invokes `appendComputed` once, so the spy counts two calls.
+   * The idempotency hit occurs inside `appendComputed`, not in `decide`.
+   */
   it('Decide_DeducesEventsAcrossRetries_WhenOperationIdSupplied', async () => {
     await seedStream(eventStore, streamId, 1);
     const tailAtFetch = 1;
@@ -374,11 +360,6 @@ describe('decide<TState> — single-key-per-call idempotency (Task 3.7)', () => 
       { type: 'task.completed', data: { taskId: 'T-b' } },
     ];
 
-    // Spy on appendComputed to count invocations. Audit §F1.3: exactly
-    // ONE invocation per call (one transaction, N events). The cache
-    // hit for the retry surfaces inside appendComputed itself, but the
-    // call still happens (the cache short-circuit is downstream of
-    // appendComputed's outer invocation in the current architecture).
     const original = appender.appendComputed.bind(appender);
     const spy = vi.fn(original);
     appender.appendComputed = spy;
@@ -398,8 +379,6 @@ describe('decide<TState> — single-key-per-call idempotency (Task 3.7)', () => 
         tailAtFetch + 3,
       ]);
 
-      // Second call with same operationId: short-circuits to a cache
-      // hit; no additional events committed.
       const second = await appender.decide<FixtureState>(
         streamId,
         'fixture@v1',
@@ -414,8 +393,6 @@ describe('decide<TState> — single-key-per-call idempotency (Task 3.7)', () => 
         tailAtFetch + 3,
       ]);
 
-      // The substrate's idempotency_claims row carries the multi-event
-      // payload under the single derived key.
       const backend = appender.getSqliteBackend();
       if (!backend) throw new Error('backend missing');
       const claim = backend.lookupIdempotencyClaim(
@@ -428,28 +405,22 @@ describe('decide<TState> — single-key-per-call idempotency (Task 3.7)', () => 
       expect(claim.sequences.length).toBe(3);
       expect(claim.timestamps.length).toBe(3);
 
-      // Stream tail advanced by exactly the original 3-event commit.
       const events = await eventStore.query(streamId);
-      // 1 seed + 3 decide events = 4.
       expect(events).toHaveLength(4);
 
-      // Audit §F1.3: single-call-single-transaction. The spy records
-      // ONE outer appendComputed invocation per decide call (the cache
-      // short-circuit lives inside appendComputed's body, not at the
-      // decide layer). The KEY invariant is the idempotency_claims row
-      // shape above — N events under one key.
       expect(spy).toHaveBeenCalledTimes(2);
     } finally {
       appender.appendComputed = original;
     }
   });
 
+  /**
+   * With no `operationId`, each call derives a key with a UUID suffix.
+   * So two calls in sequence do not share a claim, and each commits its event.
+   */
   it('Decide_DerivesUniqueKey_WhenOperationIdOmitted', async () => {
     await seedStream(eventStore, streamId, 0);
 
-    // Without operationId, decide derives a UUID-suffixed key per call
-    // (decide:${streamId}:${reducerId}:${uuid}). Two consecutive calls
-    // produce two distinct claims and two distinct sequence commits.
     const r1 = await appender.decide<FixtureState>(
       streamId,
       'fixture@v1',

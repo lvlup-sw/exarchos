@@ -41,8 +41,8 @@ describe('handleEvent', () => {
   });
 
   describe('append action', () => {
+    /** A successful response is an envelope, so it also carries an empty `next_actions`. */
     it('should delegate to handleEventAppend', async () => {
-      // Arrange
       const args = {
         action: 'append',
         stream: 'workflow-123',
@@ -51,10 +51,8 @@ describe('handleEvent', () => {
         idempotencyKey: 'key-1',
       };
 
-      // Act
       const result = await handleEvent(args, ctx);
 
-      // Assert
       expect(handleEventAppend).toHaveBeenCalledWith(
         {
           stream: 'workflow-123',
@@ -65,7 +63,6 @@ describe('handleEvent', () => {
         stateDir,
         ctx.eventStore,
       );
-      // T037: successful responses are wrapped in Envelope<T>
       expect(result.success).toBe(true);
       expect(result.data).toEqual({ streamId: 'test', sequence: 1, type: 'test.event' });
       expect((result as Record<string, unknown>).next_actions).toEqual([]);
@@ -73,8 +70,8 @@ describe('handleEvent', () => {
   });
 
   describe('query action', () => {
+    /** A successful response is an envelope, so it also carries an empty `next_actions`. */
     it('should delegate to handleEventQuery', async () => {
-      // Arrange
       const args = {
         action: 'query',
         stream: 'workflow-123',
@@ -84,10 +81,8 @@ describe('handleEvent', () => {
         fields: ['type', 'data'],
       };
 
-      // Act
       const result = await handleEvent(args, ctx);
 
-      // Assert
       expect(handleEventQuery).toHaveBeenCalledWith(
         {
           stream: 'workflow-123',
@@ -99,7 +94,6 @@ describe('handleEvent', () => {
         stateDir,
         ctx.eventStore,
       );
-      // T037: successful responses are wrapped in Envelope<T>
       expect(result.success).toBe(true);
       expect(result.data).toEqual({
         events: [{ streamId: 'test', sequence: 1, type: 'test.event' }],
@@ -111,13 +105,10 @@ describe('handleEvent', () => {
 
   describe('unknown action', () => {
     it('should return error for unknown action', async () => {
-      // Arrange
       const args = { action: 'delete' };
 
-      // Act
       const result = await handleEvent(args, ctx);
 
-      // Assert
       expect(result).toEqual({
         success: false,
         error: {
@@ -131,38 +122,28 @@ describe('handleEvent', () => {
   });
 });
 
-// ─── T037: Envelope Conformance for exarchos_event Tool ────────────────────
-//
-// Verifies that every action dispatched through `handleEvent` (the composite
-// `exarchos_event` MCP tool surface) returns a response conforming to the
-// HATEOAS `Envelope<T>` shape introduced in T014:
-//
-//   { success: boolean, data: unknown, next_actions: [], _meta: {}, _perf: { ms: number, ... } }
-//
-// Handler internals are mocked so this suite only asserts the wrapping
-// contract at the tool boundary. `next_actions` defaults to an empty array
-// until T040/T041 populate it from HSM transitions.
-
+/**
+ * Asserts the envelope shape that `handleEvent` returns for a successful action:
+ * `success`, `data`, an empty `next_actions`, an object `_meta`, and a numeric `_perf.ms`.
+ * The file mocks the append, query, and batch handlers. For those actions, the envelope suite
+ * checks only the wrap at the tool boundary. The `describe` action runs its real handler.
+ * An event response carries no workflow state, so `next_actions` is empty.
+ */
 function assertEnvelopeShape(result: unknown): void {
   expect(result).toBeTypeOf('object');
   expect(result).not.toBeNull();
   const env = result as Record<string, unknown>;
 
-  // success: boolean
   expect(typeof env.success).toBe('boolean');
 
-  // data: present as own key
   expect(Object.hasOwn(env, 'data')).toBe(true);
 
-  // next_actions: [] (empty array by default — populated in T040/T041)
   expect(Array.isArray(env.next_actions)).toBe(true);
   expect((env.next_actions as unknown[]).length).toBe(0);
 
-  // _meta: object
   expect(env._meta).toBeTypeOf('object');
   expect(env._meta).not.toBeNull();
 
-  // _perf: { ms: number, ... }
   expect(env._perf).toBeTypeOf('object');
   expect(env._perf).not.toBeNull();
   const perf = env._perf as Record<string, unknown>;
@@ -249,6 +230,7 @@ describe('handleEvent channel integration', () => {
     );
   });
 
+  /** `task.progressed` is not in the priority map, so its priority is `info`, which is below the default `success` threshold. */
   it('does not push info-level events (below default threshold)', async () => {
     const mockServer = { notification: vi.fn().mockResolvedValue(undefined) };
     const emitter = new ChannelEmitter(mockServer);
@@ -259,8 +241,6 @@ describe('handleEvent channel integration', () => {
       channelEmitter: emitter,
     };
 
-    // task.progressed is not in the priority map, so it defaults to 'info'
-    // which is below the default 'success' threshold
     await handleEvent(
       { action: 'append', stream: 'test-wf', event: { type: 'task.progressed', data: {} } },
       ctx,
@@ -284,6 +264,7 @@ describe('handleEvent channel integration', () => {
     expect(result.success).toBe(true);
   });
 
+  /** Only `task.completed` reaches the threshold. `task.progressed` has the `info` priority. */
   it('pushes channel notifications for qualifying events in batch_append', async () => {
     const mockServer = { notification: vi.fn().mockResolvedValue(undefined) };
     const emitter = new ChannelEmitter(mockServer);
@@ -306,7 +287,6 @@ describe('handleEvent channel integration', () => {
       ctx,
     );
 
-    // Only task.completed qualifies (success level); task.progressed is info (below threshold)
     expect(mockServer.notification).toHaveBeenCalledTimes(1);
     expect(mockServer.notification).toHaveBeenCalledWith(
       expect.objectContaining({ method: 'notifications/claude/channel' }),
@@ -328,7 +308,6 @@ describe('handleEvent channel integration', () => {
       ctx,
     );
 
-    // The event append itself should still succeed
     expect(result.success).toBe(true);
   });
 });

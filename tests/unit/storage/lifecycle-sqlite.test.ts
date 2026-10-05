@@ -10,8 +10,6 @@ import type { LifecyclePolicy } from '../../../src/storage/lifecycle.js';
 import { TELEMETRY_STREAM } from '../../../src/projections/telemetry/constants.js';
 import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
 function makeEvent(overrides: Partial<WorkflowEvent> = {}): WorkflowEvent {
   return {
     streamId: 'test-stream',
@@ -59,16 +57,15 @@ function makeCompletedState(featureId: string, daysAgo: number): WorkflowState {
   } as WorkflowState;
 }
 
+/** Zero retention: `compactWorkflow` compacts each completed workflow, and `rotateTelemetry` prunes each telemetry event. */
 function shortRetentionPolicy(): LifecyclePolicy {
   return {
-    retentionDays: 0, // compact immediately (anything in the past qualifies)
+    retentionDays: 0,
     maxTotalSizeMB: 500,
-    maxTelemetryEvents: 5, // low threshold for rotation
-    telemetryRetentionDays: 0, // prune immediately
+    maxTelemetryEvents: 5,
+    telemetryRetentionDays: 0,
   };
 }
-
-// ─── Lifecycle Tests with SqliteBackend ─────────────────────────────────────
 
 describe('Lifecycle with SqliteBackend', () => {
   let tempDir: string;
@@ -86,18 +83,20 @@ describe('Lifecycle with SqliteBackend', () => {
     try {
       backend?.close();
     } catch {
-      // already closed
     }
     if (tempDir) {
       rmrf(tempDir);
     }
   });
 
+  /**
+   * With a backend, `compactWorkflow` reads the state from SQLite. The state file
+   * on disk exists so that the test can check its removal.
+   */
   it('compactWorkflow_SqliteBackend_DeletesEventsStateOutboxRows', async () => {
     const { stateDir } = setup();
     const featureId = 'compact-test';
 
-    // Populate SQLite with events for this stream
     for (let i = 1; i <= 5; i++) {
       backend.appendEvent(featureId, makeEvent({
         streamId: featureId,
@@ -106,55 +105,48 @@ describe('Lifecycle with SqliteBackend', () => {
       }));
     }
 
-    // Populate state in SQLite
-    const completedState = makeCompletedState(featureId, 60); // 60 days old
+    const completedState = makeCompletedState(featureId, 60);
     backend.setState(featureId, completedState);
 
-    // Write the state file on disk (compactWorkflow reads from disk)
     const stateFile = join(stateDir, `${featureId}.state.json`);
     writeFileSync(stateFile, JSON.stringify(completedState), 'utf-8');
 
-    // Add outbox entries
     backend.addOutboxEntry(featureId, makeEvent({ streamId: featureId, sequence: 1 }));
     backend.addOutboxEntry(featureId, makeEvent({ streamId: featureId, sequence: 2 }));
 
-    // Verify pre-conditions: events and state exist
     const eventsBefore = backend.queryEvents(featureId);
     expect(eventsBefore.length).toBe(5);
     const stateBefore = backend.getState(featureId);
     expect(stateBefore).not.toBeNull();
 
-    // Act
     await compactWorkflow(backend, stateDir, featureId, shortRetentionPolicy());
 
-    // Assert: events deleted from SQLite
     const eventsAfter = backend.queryEvents(featureId);
     expect(eventsAfter).toHaveLength(0);
 
-    // Assert: state deleted from SQLite
     const stateAfter = backend.getState(featureId);
     expect(stateAfter).toBeNull();
 
-    // Assert: state file deleted from disk
     expect(existsSync(stateFile)).toBe(false);
 
-    // Assert: archive file created
     const archivePath = join(stateDir, 'archives', `${featureId}.archive.json`);
     expect(existsSync(archivePath)).toBe(true);
 
-    // Verify archive content
     const archiveContent = JSON.parse(readFileSync(archivePath, 'utf-8'));
     expect(archiveContent.featureId).toBe(featureId);
     expect(archiveContent.eventCount).toBe(5);
     expect(archiveContent.finalState.phase).toBe('completed');
   });
 
+  /**
+   * `rotateTelemetry` prunes by timestamp through `backend.pruneEvents`. The
+   * events are 14 days old, and the retention is 0 days.
+   */
   it('rotateTelemetry_SqliteBackend_PrunesEventsByTimestamp', async () => {
     const { stateDir } = setup();
 
-    // Add telemetry events with old timestamps to SQLite
     const oldTimestamp = new Date();
-    oldTimestamp.setDate(oldTimestamp.getDate() - 14); // 14 days ago
+    oldTimestamp.setDate(oldTimestamp.getDate() - 14);
 
     for (let i = 1; i <= 10; i++) {
       backend.appendEvent(TELEMETRY_STREAM, makeEvent({
@@ -166,43 +158,35 @@ describe('Lifecycle with SqliteBackend', () => {
       }));
     }
 
-    // Verify pre-conditions
     const eventsBefore = backend.queryEvents(TELEMETRY_STREAM);
     expect(eventsBefore.length).toBe(10);
 
-    // Act: rotate with policy that prunes everything
     const policy = shortRetentionPolicy();
     await rotateTelemetry(backend, stateDir, policy);
 
-    // Assert: old events pruned from SQLite (post-v2.11: rotateTelemetry
-    // is a thin wrapper over backend.pruneEvents; no JSONL rotation).
     const eventsAfter = backend.queryEvents(TELEMETRY_STREAM);
     expect(eventsAfter).toHaveLength(0);
   });
 
+  /** The archive must parse as JSON, and no `.tmp` file must stay in the archive directory. */
   it('compactWorkflow_SqliteBackend_ArchiveCreatedAtomically', async () => {
     const { stateDir } = setup();
     const featureId = 'atomic-archive';
 
-    // Set up a completed workflow
     const completedState = makeCompletedState(featureId, 60);
     backend.setState(featureId, completedState);
 
     const stateFile = join(stateDir, `${featureId}.state.json`);
     writeFileSync(stateFile, JSON.stringify(completedState), 'utf-8');
 
-    // Write JSONL
     const jsonlPath = join(stateDir, `${featureId}.events.jsonl`);
     writeFileSync(jsonlPath, JSON.stringify(makeEvent({ streamId: featureId })), 'utf-8');
 
-    // Act
     await compactWorkflow(backend, stateDir, featureId, shortRetentionPolicy());
 
-    // Assert: archive exists (write via tmp+rename pattern)
     const archivePath = join(stateDir, 'archives', `${featureId}.archive.json`);
     expect(existsSync(archivePath)).toBe(true);
 
-    // Verify archive is valid JSON (atomic write succeeded — not partial/corrupt)
     const archiveContent = JSON.parse(readFileSync(archivePath, 'utf-8'));
     expect(archiveContent.featureId).toBe(featureId);
     expect(archiveContent.archivedAt).toBeDefined();
@@ -210,7 +194,6 @@ describe('Lifecycle with SqliteBackend', () => {
     expect(archiveContent.finalState).toBeDefined();
     expect(archiveContent.finalState.featureId).toBe(featureId);
 
-    // Assert: no .tmp files left behind (atomic rename completed)
     const archiveDir = join(stateDir, 'archives');
     const archiveFiles = readdirSync(archiveDir) as string[];
     const tmpFiles = archiveFiles.filter((f: string) => f.includes('.tmp'));

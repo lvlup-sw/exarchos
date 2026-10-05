@@ -35,7 +35,6 @@ describe('deliver — best-effort failure (observable, not swallowed)', () => {
       request({ payload: 1, requirement: 'best-effort', transport }),
     );
 
-    // The failure is a VALUE the caller can inspect — not lost to a catch {}.
     expect(isFailedDelivery(outcome)).toBe(true);
     if (isFailedDelivery(outcome)) {
       expect(outcome.error).toBeInstanceOf(DeliveryError);
@@ -61,7 +60,6 @@ describe('deliver — required failure (typed error propagates)', () => {
       deliver(request({ payload: 1, channel: 'audit-log', requirement: 'required', transport })),
     ).rejects.toBeInstanceOf(RequiredDeliveryError);
 
-    // And it is not silently turned into a delivered/failed outcome.
     const caught = await deliver(
       request({ payload: 1, channel: 'audit-log', requirement: 'required', transport }),
     ).catch((e: unknown) => e);

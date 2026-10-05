@@ -31,8 +31,6 @@ import {
 import { extendWorkflowTypeEnum, unextendWorkflowTypeEnum } from '../../../src/workflow/schemas.js';
 import { KIND_OBLIGATIONS, resolveGateSet, type PhaseKind } from '../../../src/workflow/phase-kind.js';
 
-// ─── Base Event Schema ──────────────────────────────────────────────────────
-
 describe('WorkflowEventBase', () => {
   it('should parse a valid base event with all fields', () => {
     const event = {
@@ -63,11 +61,8 @@ describe('WorkflowEventBase', () => {
   });
 
   it('should reject event missing required fields', () => {
-    // Missing streamId
     expect(() => WorkflowEventBase.parse({ sequence: 1, type: 'test' })).toThrow();
-    // Missing sequence
     expect(() => WorkflowEventBase.parse({ streamId: 'x', type: 'test' })).toThrow();
-    // Missing type
     expect(() => WorkflowEventBase.parse({ streamId: 'x', sequence: 1 })).toThrow();
   });
 
@@ -102,7 +97,6 @@ describe('WorkflowEventBase', () => {
       type: 'workflow.started',
     });
     expect(event.timestamp).toBeDefined();
-    // Should be a valid ISO datetime
     expect(() => new Date(event.timestamp)).not.toThrow();
   });
 
@@ -119,8 +113,6 @@ describe('WorkflowEventBase', () => {
     expect(event.source).toBeUndefined();
   });
 });
-
-// ─── Workflow-Level Events ──────────────────────────────────────────────────
 
 describe('WorkflowStartedData', () => {
   it('should parse valid WorkflowStarted data', () => {
@@ -210,8 +202,6 @@ describe('TaskAssignedData', () => {
     expect(data.assignee).toBeUndefined();
   });
 });
-
-// ─── Task-Level Events (A02) ────────────────────────────────────────────────
 
 describe('TaskClaimedData', () => {
   it('should parse valid task claim', () => {
@@ -330,8 +320,6 @@ describe('TaskFailedData', () => {
   });
 });
 
-// ─── Quality Gate Events (A03) ──────────────────────────────────────────────
-
 describe('GateExecutedData', () => {
   it('should parse valid gate execution', () => {
     const data = GateExecutedData.parse({
@@ -358,8 +346,6 @@ describe('GateExecutedData', () => {
     expect(data.details).toBeUndefined();
   });
 });
-
-// ─── Stack Events (A03) ─────────────────────────────────────────────────────
 
 describe('StackPositionFilledData', () => {
   it('should parse valid stack position', () => {
@@ -407,198 +393,13 @@ describe('StackEnqueuedData', () => {
   });
 });
 
-// ─── EventTypes Discriminated Union (A03) ───────────────────────────────────
-
 describe('EventTypes', () => {
+  /**
+   * Pins the count of registered event types. When you register an event type in
+   * `events/schemas.ts`, change the count in the same edit.
+   * The membership assertions catch a swap of one type for a different type, which keeps the count.
+   */
   it('EventTypes_CountMatchesRegisteredTypes', () => {
-    // Locked to the current registered-type count. Bumped to 93 with the
-    // Bumped from 93 → 103 with Wave B (#1342) 5×{requested,executed} two-event
-    // split schemas for non-idempotent VCS handlers (B1–B5):
-    //   pr.create.requested, pr.create.executed,
-    //   pr.comment.requested, pr.comment.executed,
-    //   issue.create.requested, issue.create.executed,
-    //   branch.delete.requested, branch.delete.executed,
-    //   worktree.remove.requested, worktree.remove.executed.
-    // Previous (93): merge.requested (Wave 2B.2 / #1304 — audit §F1.2 two-event
-    // split: durable INTENT recorded before the non-idempotent GitHub merge
-    // call). Previous (92) added migration.workflow_type_unknown (Wave 1,
-    // R-1 Marten primitive #1313). Previous (91) added
-    // session.machinery_consumed (T-11, rehydration-machinery-refactor).
-    // Previous bump (90) was six durable event-store substrate event types
-    // (#1259 T02 / T03 / T04): hsm.deprecated_action_invoked,
-    // spec.legacy_capabilities_array, phase.contract_missing,
-    // migration.legacy_jsonl_imported, migration.completed, migration.failed.
-    // Previous bump (84) was command.resolved (#1199 T15) for the
-    // test/typecheck/install runtime resolver. Earlier (83) was
-    // merge.preflight / merge.executed / merge.rollback (T03, DR-MO-2). When
-    // new event types are added, bump this number alongside their registration
-    // in `events/schemas.ts`.
-    // PR3/T7 (#1364): bumped 103 → 104 to include `tool.action_errored`,
-    // which splits structured action-level failures off of `tool.errored`
-    // (transport/protocol failures only).
-    // #1262: bumped 104 → 105 to include `turn.completed`, which carries
-    // the per-turn output-token sample the `output_tokens_high` quality
-    // hint fires on (see `projections/telemetry/quality-hints.ts`).
-    // #1290: bumped 105 → 106 to include `workspace.resolved`, emitted
-    // by `workspace/discovery.ts` on roots-based or cwd-walk featureId
-    // inference at the dispatch boundary.
-    // #1274: bumped 106 → 108 to include `elicitation.requested` +
-    // `elicitation.fulfilled`, emitted by the dispatch elicitation
-    // hand-off on the per-operation pseudo-stream
-    // `elicitation/<operationId>`.
-    // #1424: bumped 108 → 109 to include `elicitation.declined`, emitted
-    // when the client returns `value === undefined` (decline/cancel) so
-    // the audit trail distinguishes refusal from fulfillment.
-    // #1272: bumped 109 → 113 to include `task.created` + `task.polled` +
-    // `task.result` + `task.cancelled`, emitted by the
-    // EventSourcedTaskStore (SDK `TaskStore` interface as a projection
-    // over the event store; see
-    // `src/projections/task-store/event-sourced-task-store.ts`).
-    // #1261: bumped 113 → 115 to include `dispatch.preflight` +
-    // `stash.detected`, emitted by `verbs/team/dispatch-guard.ts`.
-    // #1437: bumped 115 → 116 to include `migration.correlation_backfill_progress`,
-    // emitted per-chunk by `sqlite-backend.ts:migrateV5ToV6` during the
-    // V5→V6 correlation-column backfill (Wave 2 of correlation-indexed-columns).
-    // invariants-catalog-wizard P2: bumped 116 → 118 to include
-    // `invariant.authored` + `catalog.registered`, emitted by the
-    // `invariants_add` composite handler (verbs/invariants/add.ts).
-    // #1304 INV-10 alignment: bumped 118 → 119 to include `merge.completed`,
-    // the terminal lifecycle marker emitted by `handleExecuteMerge` adjacent
-    // to `merge.executed`. Folded by `merge-orchestrator@v1` as the
-    // transition into the `completed` terminal phase.
-    // #1510 DR-7 (task 008): bumped 119 → 121 to include `onboard.requested` +
-    // `onboard.executed`, the two-event onboard contract (INV-1 / INV-13)
-    // emitted by the `onboard` composite.
-    // #1510 DR-5 (task 018): bumped 121 → 120 — `init.executed` was retired
-    // alongside the init verb/handler. `onboard.*` is the audit trail now.
-    // verification-ladder slice 1 (task 020): bumped 120 → 122 to include the
-    // mutation-run liveness pair `mutation.executing_started` +
-    // `mutation.executed`, emitted by the liveness handler (the `exarchos
-    // run-mutation` CLI verb was removed in task 002).
-    // phase-kind binding DR-7 (task 007): bumped 122 → 123 to include
-    // `phase.blocked`, the fail-closed marker appended when the IMPLEMENT
-    // gate-set resolver throws at a phase boundary (verbs/team/prepare-delegation.ts).
-    // phase-kind binding DR-13 (task 012): bumped 123 → 125 to include
-    // `phase.entered` + `phase.exited`, the resolve-then-freeze pair appended at
-    // the executeTransition boundary (workflow/state-machine.ts).
-    // #1525 W2 Half 1 (task H1-C): bumped 125 → 126 to include
-    // `subagent.tokens_used`, the per-subagent output-token total emitted by the
-    // restored SubagentStop hook (lifecycle/subagent-stop.ts).
-    // #1306: bumped 126 → 127 to include `merge.recovered` (successor to
-    // `merge.rollback`, dual-emitted during the v2.11.x deprecation window).
-    // #1308 T8: bumped 127 → 128 to include `merge.retry_attempt` (bounded
-    // timeout-retry telemetry; registration-only, emission lands in later #1308 tasks).
-    // #1309 T12: bumped 128 → 129 to include `merge.executing_started` (the
-    // merge-executor liveness event, emitted after the recovery point is recorded
-    // and before the first vcsMerge — INV-10 executing_started + paired terminal).
-    // DR-3 #1595: bumped 129 → 130 to include `shepherd.escalated` (structured
-    // bound-hit escalation emitted by assess-stack — a structured terminal, NOT a
-    // hang, surfaced via shepherd_status/ps, INV-10).
-    // #1319: bumped 130 → 131 to include `feedback.recorded`, the agent→runtime
-    // friction back-channel emitted by `exarchos_workflow.feedback` onto the
-    // shared `meta/feedback` stream (read back by `/exarchos:dogfood`).
-    // #1242: bumped 131 → 132 to include `workflow.handoff_summarized`, the
-    // auto-summarized handoff fallback folded by the rehydration reducer with
-    // operator-precedence (operator checkpoint handoff always wins the slot).
-    // WLM foundation: bumped 132 → 136 to include the worktree lifecycle
-    // (lease/ownership) family — `worktree.adopted` / `worktree.reserved` /
-    // `worktree.released` / `worktree.orphan_detected`. The GC half reuses the
-    // existing `worktree.remove.*` pair (no `worktree.pruned`).
-    // WLM operational-core: bumped 136 → 138 to include the serialized-merge
-    // lease pair — `worktree.merge_requested` / `worktree.merge_executed`
-    // (DR-4 / DR-7), the CLAIM + RELEASE on the singleton `worktrees` stream.
-    // DR-1 (#1630): bumped 138 → 139 to include `workflow.plan-revision`, the
-    // counted plan-review revise cycle (plan-review analog of
-    // `workflow.fix-cycle`, folded into `state.planReview.revisionCount`).
-    // harness-launcher (DR-2): bumped 139 → 143 to include the launcher's
-    // top-level worktree create pair — `worktree.create.requested` /
-    // `worktree.create.executed` (distinct from the task-scoped
-    // `worktree.created` terminal) — plus the child-process liveness pair
-    // `launch.executing_started` / `launch.executed`.
-    // WLM slice 3 (DR-3, epic #1574): bumped 143 → 145 to include the prune-run
-    // liveness pair `prune.executing_started` / `prune.executed`, emitted by the
-    // WorktreeManager around a `prune_worktrees` GC pass (INV-10), folded by
-    // `worktrees@v1` into `inFlightPrunes` so an in-flight prune is `ps`/`wait`-
-    // visible.
-    // WLM-6 (DR-2): bumped 145 → 146 to include `workflow.plan-review-dispatched`,
-    // the counted plan-review dispatch emitted by the `prepare_review scope:plan`
-    // provisioning seam (folded into `state.planReview.revisionCount` to bound the
-    // plan-review loop at its unskippable server action).
-    // DR-6 (lifecycle-verbs task 012): bumped 146 → 148 to include the two-event
-    // `export` contract — `export.requested` (durable intent + RESOLVED path) and
-    // `export.executed` (result + content hash), the INV-13 two-event split for
-    // the non-idempotent zip-bundle write, emitted `auto` by the `export`
-    // composite handler (task 013), idempotency-keyed per INV-8.
-    // Phase-gate v2.12 adds 11 planned, internal proof replay contracts:
-    // the `admission.*` family (evidence, requirement resolution, transition
-    // decisions, waivers, contradictions, reassessment, and the shadow/rollout
-    // cutover records).
-    // Cancellation process manager (EFF-005 / P04-02): bumped 159 → 164 to
-    // include the replayable cancellation contract — `cancel.requested`,
-    // `cancel.ready`, and the compensation triple
-    // (`cancel.compensation-requested` / `-completed` / `-failed`) — so restart
-    // and takeover never repeat completed compensation.
-    // Cancellation process-manager saga (EFF-005 / P04-02): bumped 164 → 167 to
-    // add the fencing + retry + escalation facts — `cancel.ownership-acquired`
-    // (monotonic fencing epoch), `cancel.compensation-retry-scheduled` (bounded
-    // retry ladder), and `cancel.manual-intervention-required` (terminal-but-
-    // unresolved escalation) — so a takeover fences out its predecessor and
-    // retry exhaustion lands in a real, queryable state.
-    //
-    // DR-4 (T-06): bumped 167 → 169 for the durable projection-health pair —
-    // `projection.degraded` and `projection.recovered` — which publish the
-    // cursor/tail verdict to `meta/projection-health` so a degraded projection
-    // is a queryable state rather than an ephemeral per-response annotation.
-    //
-    // #1739 (cutover promotion path): bumped 169 → 170 for
-    // `admission.cutover-ready` — the observer auto-export hook's first-time
-    // readiness fact (store-identity idempotency key, `auto`).
-    //
-    // Task 068 (DR-23): bumped 170 → 171 for `invariant.amended`, emitted by
-    // the `invariants_amend` composite handler on commit.
-    //
-    // Bumped 171 → 174 for the VCS mutation ledger — `vcs.requested`,
-    // `vcs.executed` and `vcs.compensated`. The mutation owner already appended
-    // all three; they were registered through the store's runtime seam and so
-    // carried no schema, no type-map entry and no coupling tier.
-    //
-    // Bumped 174 → 175 for `promotion.executed`, the atomic tree-promotion
-    // record. Unlike the ledger triad this one was not registered anywhere at
-    // all: the commit rename that makes a whole staged tree visible at once left
-    // no trace in the catalog.
-    //
-    // Bumped 175 → 176 for `emission.violated`, the post-dispatch verifier's
-    // report that a handler completed without an event its own registration
-    // declares unconditionally. Also new: the catalog held no contract-violation
-    // name at all, so a detected miss had nowhere durable to land.
-    //
-    // Bumped 176 → 177 for `prune.diagnostics`, the prune evaluation's audit
-    // line. The append pre-dates the catalog and reached the store through a
-    // widening assertion at the call site, so no static reader of the catalog
-    // could see it and no action could be held to it.
-    //
-    // Bumped 177 → 178 for `orchestrate.intent_executed`, the bounded action
-    // executor's own operation record — appended by the handler under the
-    // caller's operationId on both the committed and the failed path.
-    // Bumped 178 → 180 by the `gate.executed` split (#1898 item 8):
-    //   tool.budget_exceeded — a response over the token budget, recorded on
-    //     the telemetry stream. It was a `gate.executed` on the FEATURE stream
-    //     naming `details.dimension: 'D3'`, and D3 is a real convergence
-    //     dimension, so the convergence view folded it as a failure of Context
-    //     Economy under a gate name nothing re-runs.
-    //   ci.check_observed — one observed CI check, beside the `ci.status`
-    //     roll-up the same assessment pass appends. It was a `gate.executed`
-    //     keyed by the CI check's name, sharing the `gates[...]` namespace with
-    //     the gates this repository runs itself.
-    // Bumped 180 → 181 by `execution.settled` — the semantic plane's settlement
-    // record, appended by `settle` on every adjudicated outcome. It lands with
-    // its emitter rather than ahead of it, which is the rule the semantic kinds
-    // are held to: a registered name nothing writes is a catalog entry that
-    // cannot be told apart from a declaration nobody finished.
-    // Bumped 182 → 184 by `deviation.proposed` and `deviation.decided` — the
-    // divergence loop's decision facts, appended by `settle`: one proposal per
-    // deviation a held batch waits on, one decision per proposal when the
-    // batch is settled again with the decisions. Both land with their emitter.
     expect(EventTypes).toHaveLength(184);
     expect(EventTypes).toContain('tool.budget_exceeded');
     expect(EventTypes).toContain('ci.check_observed');
@@ -606,9 +407,6 @@ describe('EventTypes', () => {
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');
     expect(EventTypes).toContain('subagent.tokens_used');
-    // Explicit membership pin: a future replacement that swaps one event
-    // for another would keep the length stable but silently lose the
-    // migration progress type. The membership assert catches that.
     expect(EventTypes).toContain('migration.correlation_backfill_progress');
     expect(EventTypes).toContain('admission.evidence-recorded');
     expect(EventTypes).toContain('admission.requirement-resolved');
@@ -641,15 +439,14 @@ describe('EventTypes', () => {
     expect(EventTypes).toContain('prune.executed');
     expect(EventTypes).toContain('export.requested');
     expect(EventTypes).toContain('export.executed');
-    // Retirement guard: init.executed removed in DR-5 (task 018).
     expect(EventTypes as readonly string[]).not.toContain('init.executed');
   });
 
+  /**
+   * `PhaseEnteredResolverSchema` is an inline `z.enum` in `events/schemas.ts`. The test pins it to
+   * the resolver names that `KIND_OBLIGATIONS` uses, so a new binding without a schema edit fails.
+   */
   it('PhaseEnteredResolver_MatchesKindObligationResolvers', () => {
-    // Drift guard: `phase.entered.resolver` is an inlined z.enum in
-    // event-store/schemas.ts (kept free of a workflow/config import). Pin it to
-    // the resolver names actually referenced by `KIND_OBLIGATIONS` — adding a
-    // kind→resolver binding without updating the event schema turns this red.
     const resolversInUse = Array.from(
       new Set(
         Object.values(KIND_OBLIGATIONS)
@@ -660,13 +457,12 @@ describe('EventTypes', () => {
     expect([...PhaseEnteredResolverSchema.options].sort()).toEqual(resolversInUse);
   });
 
+  /**
+   * `ResolvedGateFamilySchema` is an inline `z.enum`. The test pins it to the families that
+   * `resolveGateSet` returns across all kinds for a high-risk `feature` context.
+   * The REVIEW kind returns a `review` gate only for a known workflow type or the high tier.
+   */
   it('ResolvedGateFamily_MatchesResolverOutput', () => {
-    // Drift guard: `phase.entered.resolvedGates[].family` is an inlined z.enum
-    // in event-store/schemas.ts. Pin it to the families the resolvers actually
-    // emit — collected by running `resolveGateSet` for every kind — so a new
-    // ResolvedGate family that lands on the event log without a schema update
-    // turns this red. (feature/high yields the review family; the other three
-    // families come from IMPLEMENT/PLAN/SYNTHESIZE.)
     const ctx = { riskTier: 'high', boundaryTouching: true, workflowType: 'feature' } as const;
     const familiesEmitted = new Set<string>();
     for (const kind of Object.keys(KIND_OBLIGATIONS) as PhaseKind[]) {
@@ -677,23 +473,22 @@ describe('EventTypes', () => {
     expect([...ResolvedGateFamilySchema.options].sort()).toEqual([...familiesEmitted].sort());
   });
 
+  /**
+   * `PhaseEnteredPostureSchema` is an inline `z.enum`, so `events/schemas.ts` does not import
+   * `runtime/agents/spec.ts`. The test pins it to the postures that `KIND_OBLIGATIONS` declares.
+   */
   it('PhaseEnteredPosture_MatchesKindObligationPostures', () => {
-    // Drift guard (DR-14): `phase.entered.posture` is an inlined z.enum in
-    // event-store/schemas.ts (kept free of an agents/spec import). Pin it to the
-    // postures actually declared by `KIND_OBLIGATIONS` so adding a kind with a
-    // new posture without updating the event schema turns this red.
     const posturesInUse = Array.from(
       new Set(Object.values(KIND_OBLIGATIONS).map((o) => o.posture)),
     ).sort();
     expect([...PhaseEnteredPostureSchema.options].sort()).toEqual(posturesInUse);
   });
 
+  /**
+   * `PhaseBlockedKindSchema` is an inline copy of the `PhaseKind` union. The keys of
+   * `KIND_OBLIGATIONS` are that union, so the test pins the schema to them.
+   */
   it('PhaseBlockedKind_MatchesPhaseKindUnion', () => {
-    // Drift guard: `phase.blocked.kind` is an inlined z.enum in
-    // event-store/schemas.ts (kept free of a workflow/config import). Pin it to
-    // the single source of truth — `KIND_OBLIGATIONS` keys ARE the `PhaseKind`
-    // union (enforced by `satisfies Record<PhaseKind, …>`), so adding a kind
-    // without updating the event schema turns this assertion red.
     expect([...PhaseBlockedKindSchema.options].sort()).toEqual(
       Object.keys(KIND_OBLIGATIONS).sort(),
     );
@@ -743,8 +538,6 @@ describe('EventTypes', () => {
     expect(eventType).toBe('workflow.started');
   });
 });
-
-// ─── B3: Workflow Transition Event Data Schemas ─────────────────────────────
 
 describe('WorkflowTransitionData', () => {
   it('WorkflowEventBase_WorkflowTransition_ParsesCorrectly', () => {
@@ -859,8 +652,6 @@ describe('WorkflowCompoundEntryData', () => {
   });
 });
 
-// ─── B3: Workflow Compound Exit Event Data Schema ────────────────────────────
-
 describe('WorkflowCompoundExitData', () => {
   it('should parse valid compound exit data with all fields', () => {
     const data = WorkflowCompoundExitData.parse({
@@ -897,8 +688,6 @@ describe('WorkflowCompoundExitData', () => {
   });
 });
 
-// ─── B3: Workflow Cancel Event Data Schema ───────────────────────────────────
-
 describe('WorkflowCancelData', () => {
   it('should parse valid cancel data with all fields', () => {
     const data = WorkflowCancelData.parse({
@@ -934,8 +723,6 @@ describe('WorkflowCancelData', () => {
     expect(event.type).toBe('workflow.cancel');
   });
 });
-
-// ─── B3: Workflow Compensation Event Data Schema ─────────────────────────────
 
 describe('WorkflowCompensationData', () => {
   it('should parse valid compensation data with all fields', () => {
@@ -984,8 +771,6 @@ describe('WorkflowCompensationData', () => {
   });
 });
 
-// ─── B3: Workflow Circuit Open Event Data Schema ─────────────────────────────
-
 describe('WorkflowCircuitOpenData', () => {
   it('should parse valid circuit open data with all fields', () => {
     const data = WorkflowCircuitOpenData.parse({
@@ -1018,8 +803,6 @@ describe('WorkflowCircuitOpenData', () => {
     expect(event.type).toBe('workflow.circuit-open');
   });
 });
-
-// ─── Benchmark Event Data ────────────────────────────────────────────────────
 
 describe('BenchmarkCompletedData', () => {
   it('BenchmarkCompletedData_ValidResults_ParsesCorrectly', () => {
@@ -1070,8 +853,6 @@ describe('BenchmarkCompletedData', () => {
     expect(data.results[0].regressionPercent).toBeUndefined();
   });
 });
-
-// ─── Dead Event Types Removal Verification ──────────────────────────────────
 
 describe('Dead event types removed', () => {
   it('should not contain removed event types', () => {

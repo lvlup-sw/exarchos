@@ -1,11 +1,11 @@
 /**
  * EventStore micro-benchmarks on the SQLite substrate. Advisory only.
  *
- * `bench()` only observes; it cannot fail CI. The merge gate for append
- * throughput is `append-cost-budget.test.ts`: it counts the statements and
- * transactions of each append and fails on any extra one, so its verdict does
- * not depend on the runner (#2029). The `AppendUnkeyed_5000Sequential_SqliteBackend`
- * arm below reports the old 1000 ops/sec per stream figure as a measurement.
+ * `bench()` only observes. It cannot fail CI. The merge gate for append throughput is
+ * `append-cost-budget.test.ts`. That test counts the statements and transactions of each
+ * append and fails on an extra one, so its verdict does not depend on the runner.
+ * The `AppendUnkeyed_5000Sequential_SqliteBackend` arm times 5000 sequential appends on one stream.
+ * Its reference figure is 1000 appends per second.
  *
  * Run: `npm run bench`, or `npx vitest bench --run store.bench`.
  */
@@ -19,8 +19,6 @@ import { AtomicAppender } from '../../../src/events/atomic-appender.js';
 import { createGateExecutedEvent } from '../../../tools/evals/benchmarks/event-factories.js';
 import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
-// ─── Helpers ───────────────────────────────────────────────────────────────
-
 function createTempDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'bench-es-'));
 }
@@ -29,11 +27,7 @@ function cleanupDir(dir: string): void {
   rmrf(dir);
 }
 
-/**
- * Seed an SQLite-backed state directory with `count` events on `streamId`.
- * Drives `EventStore.append` through the (sole) SQLite substrate so the
- * read path finds the rows on the same backend handle.
- */
+/** Seeds a state directory with `count` events on `streamId` through `EventStore.append`. */
 async function seedSqliteDir(dir: string, streamId: string, count: number): Promise<void> {
   fs.mkdirSync(dir, { recursive: true });
   const store = new EventStore(dir);
@@ -46,8 +40,6 @@ async function seedSqliteDir(dir: string, streamId: string, count: number): Prom
     });
   }
 }
-
-// ─── Append Benchmarks ────────────────────────────────────────────────────
 
 describe('EventStore Append Benchmarks', () => {
   bench(
@@ -117,16 +109,15 @@ describe('AtomicAppender Throughput Benchmarks', () => {
   );
 });
 
-// ─── Query Benchmarks ─────────────────────────────────────────────────────
-
-// Pre-seed a directory with 1000 events at module load time using
-// top-level await (NodeNext + ES2022). Both query-arm `bench()`
-// callbacks close over `QUERY_DIR`, so seeding completes before the
-// bench framework collects the arms.
 const QUERY_STREAM = 'query-stream';
+/**
+ * A directory that holds 1000 events for the two query arms. A top-level `await` seeds it
+ * at module load, before the bench framework collects the arms.
+ */
 const QUERY_DIR = createTempDir();
 await seedSqliteDir(QUERY_DIR, QUERY_STREAM, 1000);
 
+/** A `beforeExit` handler removes `QUERY_DIR`. The removal is best-effort. */
 describe('EventStore Query Benchmarks', () => {
   bench(
     'Query_1000Events_WithTypeFilter',
@@ -146,8 +137,7 @@ describe('EventStore Query Benchmarks', () => {
     { warmupIterations: 3, iterations: 50 },
   );
 
-  // Cleanup: register a finalizer via process event (best-effort)
   process.once('beforeExit', () => {
-    try { cleanupDir(QUERY_DIR); } catch { /* best-effort */ }
+    try { cleanupDir(QUERY_DIR); } catch { }
   });
 });

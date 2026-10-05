@@ -31,8 +31,6 @@ describe('Outbox', () => {
     await rmrfAsync(tempDir);
   });
 
-  // ─── addEntry ──────────────────────────────────────────────────────────
-
   describe('addEntry', () => {
     it('should create an outbox entry and persist to file', async () => {
       const event = makeEvent();
@@ -45,7 +43,6 @@ describe('Outbox', () => {
       expect(entry.attempts).toBe(0);
       expect(entry.createdAt).toBeTruthy();
 
-      // Verify file was written
       const filePath = path.join(tempDir, 'test-stream.outbox.json');
       const content = await readFile(filePath, 'utf-8');
       const entries = JSON.parse(content);
@@ -64,8 +61,6 @@ describe('Outbox', () => {
       expect(entries).toHaveLength(2);
     });
   });
-
-  // ─── loadEntries ──────────────────────────────────────────────────────
 
   describe('loadEntries', () => {
     it('should return entries from file', async () => {
@@ -94,8 +89,6 @@ describe('Outbox', () => {
       expect(entries).toEqual([]);
     });
   });
-
-  // ─── updateEntry ──────────────────────────────────────────────────────
 
   describe('updateEntry', () => {
     it('should modify entry in place', async () => {
@@ -126,8 +119,6 @@ describe('Outbox', () => {
     });
   });
 
-  // ─── removeEntry ──────────────────────────────────────────────────────
-
   describe('removeEntry', () => {
     it('should remove entry from file', async () => {
       const entry = await outbox.addEntry('test-stream', makeEvent());
@@ -149,8 +140,6 @@ describe('Outbox', () => {
       expect(entries[0].event.sequence).toBe(2);
     });
   });
-
-  // ─── drain ──────────────────────────────────────────────────────────────
 
   describe('drain', () => {
     function mockClient(
@@ -193,13 +182,13 @@ describe('Outbox', () => {
       expect(entries[0].error).toBe('network error');
     });
 
+    /** With 9 attempts on the entry, the next failure is attempt 10, which makes it a dead letter. */
     it('should dead-letter after 10 attempts', async () => {
       const client = mockClient({
         appendEvents: vi.fn().mockRejectedValue(new Error('persistent error')),
       });
       const entry = await outbox.addEntry('test-stream', makeEvent());
 
-      // Manually set attempts to 9 (next failure = 10th attempt = dead-letter)
       await outbox.updateEntry('test-stream', entry.id, { attempts: 9 });
 
       await outbox.drain(client, 'test-stream');
@@ -226,33 +215,28 @@ describe('Outbox', () => {
     });
   });
 
-  // ─── calculateNextRetry ───────────────────────────────────────────────
-
   describe('calculateNextRetry', () => {
     it('should use exponential backoff: 1s, 2s, 4s, 8s...', () => {
       const now = Date.now();
       vi.useFakeTimers({ now });
 
-      // attempt 1 -> 1s
       const retry1 = outbox.calculateNextRetry(1);
       expect(new Date(retry1).getTime() - now).toBe(1000);
 
-      // attempt 2 -> 2s
       const retry2 = outbox.calculateNextRetry(2);
       expect(new Date(retry2).getTime() - now).toBe(2000);
 
-      // attempt 3 -> 4s
       const retry3 = outbox.calculateNextRetry(3);
       expect(new Date(retry3).getTime() - now).toBe(4000);
 
       vi.useRealTimers();
     });
 
+    /** Attempt 10 gives 2^9 seconds (512 seconds), which the cap cuts to 60 seconds. */
     it('should cap at 60s', () => {
       const now = Date.now();
       vi.useFakeTimers({ now });
 
-      // attempt 10 -> 2^9 * 1000 = 512_000 -> capped at 60_000
       const retry = outbox.calculateNextRetry(10);
       expect(new Date(retry).getTime() - now).toBe(60_000);
 
@@ -260,12 +244,9 @@ describe('Outbox', () => {
     });
   });
 
-  // ─── cleanup ──────────────────────────────────────────────────────────
-
   describe('cleanup', () => {
     it('should remove confirmed entries older than maxAge', async () => {
       const entry = await outbox.addEntry('test-stream', makeEvent());
-      // Mark as confirmed with old timestamp
       const oldDate = new Date(Date.now() - 100_000).toISOString();
       await outbox.updateEntry('test-stream', entry.id, {
         status: 'confirmed',
@@ -311,11 +292,8 @@ describe('Outbox', () => {
     });
   });
 
-  // ─── replayDeadLetters ────────────────────────────────────────────────
-
   describe('replayDeadLetters', () => {
     it('should reset dead-letter entry to pending with attempts=0 and leave others unchanged', async () => {
-      // Arrange: create 3 entries with different statuses
       const pendingEntry = await outbox.addEntry('test-stream', makeEvent({ sequence: 1 }));
       const confirmedEntry = await outbox.addEntry('test-stream', makeEvent({ sequence: 2 }));
       const deadLetterEntry = await outbox.addEntry('test-stream', makeEvent({ sequence: 3 }));
@@ -333,10 +311,8 @@ describe('Outbox', () => {
         nextRetryAt: '2026-02-08T03:00:00Z',
       });
 
-      // Act
       const replayed = await outbox.replayDeadLetters('test-stream');
 
-      // Assert
       expect(replayed).toBe(1);
 
       const entries = await outbox.loadEntries('test-stream');
@@ -344,21 +320,17 @@ describe('Outbox', () => {
       const confirmed = entries.find((e) => e.id === confirmedEntry.id)!;
       const recovered = entries.find((e) => e.id === deadLetterEntry.id)!;
 
-      // Pending entry unchanged
       expect(pending.status).toBe('pending');
       expect(pending.attempts).toBe(0);
 
-      // Confirmed entry unchanged
       expect(confirmed.status).toBe('confirmed');
       expect(confirmed.attempts).toBe(1);
 
-      // Dead-letter entry recovered
       expect(recovered.status).toBe('pending');
       expect(recovered.attempts).toBe(0);
     });
 
     it('should return 0 when no dead-letter entries exist', async () => {
-      // Arrange: create only pending and confirmed entries
       const pendingEntry = await outbox.addEntry('test-stream', makeEvent({ sequence: 1 }));
       const confirmedEntry = await outbox.addEntry('test-stream', makeEvent({ sequence: 2 }));
 
@@ -368,10 +340,8 @@ describe('Outbox', () => {
         lastAttemptAt: '2026-02-08T01:00:00Z',
       });
 
-      // Act
       const replayed = await outbox.replayDeadLetters('test-stream');
 
-      // Assert
       expect(replayed).toBe(0);
 
       const entries = await outbox.loadEntries('test-stream');
@@ -380,7 +350,6 @@ describe('Outbox', () => {
     });
 
     it('should clear error, nextRetryAt, and lastAttemptAt fields', async () => {
-      // Arrange: create a dead-letter entry with all optional fields set
       const entry = await outbox.addEntry('test-stream', makeEvent());
       await outbox.updateEntry('test-stream', entry.id, {
         status: 'dead-letter',
@@ -390,10 +359,8 @@ describe('Outbox', () => {
         lastAttemptAt: '2026-02-08T03:00:00Z',
       });
 
-      // Act
       await outbox.replayDeadLetters('test-stream');
 
-      // Assert
       const entries = await outbox.loadEntries('test-stream');
       const recovered = entries[0];
       expect(recovered.status).toBe('pending');
@@ -404,7 +371,6 @@ describe('Outbox', () => {
     });
 
     it('should replay all dead-letter entries and return the count', async () => {
-      // Arrange: create 3 dead-letter entries
       const entry1 = await outbox.addEntry('test-stream', makeEvent({ sequence: 1 }));
       const entry2 = await outbox.addEntry('test-stream', makeEvent({ sequence: 2 }));
       const entry3 = await outbox.addEntry('test-stream', makeEvent({ sequence: 3 }));
@@ -418,10 +384,8 @@ describe('Outbox', () => {
         });
       }
 
-      // Act
       const replayed = await outbox.replayDeadLetters('test-stream');
 
-      // Assert
       expect(replayed).toBe(3);
 
       const entries = await outbox.loadEntries('test-stream');

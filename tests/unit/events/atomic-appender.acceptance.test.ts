@@ -7,21 +7,10 @@ import { AtomicAppender } from '../../../src/events/atomic-appender.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 /**
- * AtomicAppender — SQLite-backed body acceptance test (T05).
- *
- * The substrate flip (DR-1, #1259) replaces the JSONL/`.seq` body with a
- * single `BEGIN IMMEDIATE` SQLite transaction wrapping idempotency-key
- * claim + sequence allocation + event INSERT (+ outbox INSERT). The
- * interface — `AppendResult` shape, per-stream serialization, idempotency
- * cache-hit semantics, `PublicPersistedEvent` shape — must be preserved
- * exactly so the seven existing consumers keep working unchanged.
- *
- * This file holds the acceptance fixtures for the SQLite-backed body.
- * It runs the SAME shape of behavioral assertions as
- * `atomic-appender.test.ts` (the JSONL-backed fixtures), but constructs
- * the appender with `backend: 'sqlite'`. Pre-implementation it fails RED
- * (the `backend` option does not exist yet on `AtomicAppenderOptions`);
- * post-T06+T07+T11 it must flip GREEN.
+ * Acceptance tests for the SQLite body of `AtomicAppender`. One `BEGIN IMMEDIATE` transaction
+ * holds the idempotency claim, the sequence update and the event INSERTs. The suite pins the
+ * interface: the `AppendResult` shape, per-stream serialization, the cache-hit contract and the
+ * `PublicPersistedEvent` shape.
  */
 describe('AtomicAppender_SqliteBackend_DropsInBehindExistingInterface', () => {
   let stateDir: string;
@@ -34,8 +23,7 @@ describe('AtomicAppender_SqliteBackend_DropsInBehindExistingInterface', () => {
     await rmrfAsync(stateDir);
   });
 
-  // ─── AppendResult shape — success path ───────────────────────────────────
-
+  /** The SQLite body must write no JSONL file, and a SQLite database file must exist. */
   it('committed result returns ok:true with sequences, eventIds, timestamps', async () => {
     const appender = new AtomicAppender({ stateDir });
     const streamId = 'sqlite-acc-success';
@@ -55,30 +43,22 @@ describe('AtomicAppender_SqliteBackend_DropsInBehindExistingInterface', () => {
     expect(result.sequences).toEqual([1, 2]);
     expect(result.eventIds).toHaveLength(2);
     expect(result.timestamps).toHaveLength(2);
-    // eventId should be a non-empty string (UUID).
     for (const id of result.eventIds) {
       expect(typeof id).toBe('string');
       expect(id.length).toBeGreaterThan(0);
     }
 
-    // RED witness: SQLite body must NOT write a JSONL file. If the
-    // `backend: 'sqlite'` option is silently ignored (because T06 has
-    // not been implemented yet), the JSONL path runs and creates
-    // `<streamId>.events.jsonl` — this assertion catches that.
     const entries = await readdir(stateDir);
     const hasJsonl = entries.some(e => e.endsWith('.events.jsonl'));
     expect(hasJsonl).toBe(false);
-    // And a SQLite database file must exist.
     const hasDb = entries.some(e => e.endsWith('.db'));
     expect(hasDb).toBe(true);
   });
 
-  // ─── AppendResult shape — failure path ───────────────────────────────────
-
+  /** An empty events array is a validation failure. */
   it('validation failure returns ok:false with structured reason', async () => {
     const appender = new AtomicAppender({ stateDir });
 
-    // Empty events array is a validation failure — same contract as JSONL body.
     const result = await appender.append('valid-stream', [], 'idem-bad');
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -87,13 +67,13 @@ describe('AtomicAppender_SqliteBackend_DropsInBehindExistingInterface', () => {
     }
   });
 
+  /**
+   * `validateStreamId` rejects a stream id that holds a space and punctuation. The form
+   * `<feature-id>/<subagent-id>` is valid, so the test does not use a slash as the bad input.
+   */
   it('invalid streamId returns ok:false with io-error', async () => {
     const appender = new AtomicAppender({ stateDir });
 
-    // A spaced stream id is rejected by validateStreamId — same contract as
-    // the JSONL body. Note: post-DR-3 (T24), `<feature-id>/<subagent-id>`
-    // is a VALID namespaced form, so the rejection target uses an
-    // unambiguously malformed input (whitespace + punctuation).
     const result = await appender.append(
       'has bad chars!',
       [{ type: 'task.assigned' }],
@@ -104,8 +84,6 @@ describe('AtomicAppender_SqliteBackend_DropsInBehindExistingInterface', () => {
       expect(result.reason).toBe('io-error');
     }
   });
-
-  // ─── Per-stream sequence allocation: strictly monotonic ──────────────────
 
   it('concurrent appends to one stream allocate strictly monotonic sequences', async () => {
     const appender = new AtomicAppender({ stateDir });
@@ -126,8 +104,10 @@ describe('AtomicAppender_SqliteBackend_DropsInBehindExistingInterface', () => {
     expect(new Set(seqs).size).toBe(3);
   });
 
-  // ─── Idempotency: cache-hit semantics ────────────────────────────────────
-
+  /**
+   * The retry uses the same key with a different payload. A cache-hit must return the events
+   * that the first commit stored, and not the current request body.
+   */
   it('retry with same idempotencyKey returns cache-hit with original sequences', async () => {
     const appender = new AtomicAppender({ stateDir });
     const streamId = 'sqlite-acc-idem';
@@ -146,8 +126,6 @@ describe('AtomicAppender_SqliteBackend_DropsInBehindExistingInterface', () => {
     expect(first.kind).toBe('committed');
     expect(first.sequences).toEqual([1, 2]);
 
-    // Retry with the SAME key but a different payload — cache-hit must
-    // return the ORIGINAL persisted events, not the new payload.
     const retry = await appender.append(
       streamId,
       [{ type: 'task.assigned', data: { n: 99, retry: true } }],
@@ -159,19 +137,15 @@ describe('AtomicAppender_SqliteBackend_DropsInBehindExistingInterface', () => {
     expect(retry.sequences).toEqual([1, 2]);
     expect(retry.eventIds).toEqual(first.eventIds);
     expect(retry.timestamps).toEqual(first.timestamps);
-    // PublicPersistedEvent shape: must reflect the originally-persisted
-    // events, not the current request body.
     expect(retry.persistedEvents).toHaveLength(2);
     expect(retry.persistedEvents[0].streamId).toBe(streamId);
     expect(retry.persistedEvents[0].sequence).toBe(1);
     expect(retry.persistedEvents[0].type).toBe('task.assigned');
-    expect((retry.persistedEvents[0].data as { n: number }).n).toBe(1); // original, NOT 99
+    expect((retry.persistedEvents[0].data as { n: number }).n).toBe(1);
     expect(retry.persistedEvents[0].idempotencyKey).toBe(key);
     expect(retry.persistedEvents[1].sequence).toBe(2);
     expect(retry.persistedEvents[1].type).toBe('task.completed');
   });
-
-  // ─── PublicPersistedEvent shape ──────────────────────────────────────────
 
   it('cache-hit persistedEvents carry the canonical PublicPersistedEvent fields', async () => {
     const appender = new AtomicAppender({ stateDir });
@@ -193,15 +167,12 @@ describe('AtomicAppender_SqliteBackend_DropsInBehindExistingInterface', () => {
     if (!retry.ok) return;
     expect(retry.kind).toBe('cache-hit');
     const evt = retry.persistedEvents[0];
-    // Required fields per PublicPersistedEvent interface.
     expect(typeof evt.streamId).toBe('string');
     expect(typeof evt.sequence).toBe('number');
     expect(typeof evt.type).toBe('string');
     expect(typeof evt.timestamp).toBe('string');
     expect(typeof evt.eventId).toBe('string');
   });
-
-  // ─── appendUnkeyed bypasses idempotency cache ────────────────────────────
 
   it('appendUnkeyed writes events without populating idempotency cache', async () => {
     const appender = new AtomicAppender({ stateDir });
@@ -214,16 +185,13 @@ describe('AtomicAppender_SqliteBackend_DropsInBehindExistingInterface', () => {
     if (r2.ok) expect(r2.sequences).toEqual([2]);
   });
 
-  // ─── expectedSequence (optimistic concurrency) ───────────────────────────
-
+  /** The caller observed sequence 0, and the counter is 1 after the first append. */
   it('expectedSequence mismatch returns sequence-conflict', async () => {
     const appender = new AtomicAppender({ stateDir });
     const streamId = 'sqlite-acc-expected';
 
-    // Advance the counter to 1.
     await appender.append(streamId, [{ type: 'task.assigned' }], 'k1');
 
-    // Caller observed 0, but counter is now 1 — conflict.
     const conflict = await appender.append(
       streamId,
       [{ type: 'task.assigned' }],

@@ -24,7 +24,6 @@ describe('handleEvent — hook runner wiring (R7)', () => {
   });
 
   it('handleEvent_AppendWithHookRunner_FiresHookAfterAppend', async () => {
-    // Create a mock hook runner
     const hookRunner = vi.fn<ConfigHookRunner>();
 
     const ctx: DispatchContext = {
@@ -34,7 +33,6 @@ describe('handleEvent — hook runner wiring (R7)', () => {
       hookRunner,
     };
 
-    // Append an event
     const result = await handleEvent({
       action: 'append',
       stream: 'test-feature',
@@ -46,7 +44,6 @@ describe('handleEvent — hook runner wiring (R7)', () => {
 
     expect(result.success).toBe(true);
 
-    // Hook runner should have been called with the event info
     expect(hookRunner).toHaveBeenCalledTimes(1);
     expect(hookRunner).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -61,7 +58,6 @@ describe('handleEvent — hook runner wiring (R7)', () => {
       stateDir: tmpDir,
       eventStore,
       enableTelemetry: false,
-      // No hookRunner
     };
 
     const result = await handleEvent({
@@ -76,6 +72,7 @@ describe('handleEvent — hook runner wiring (R7)', () => {
     expect(result.success).toBe(true);
   });
 
+  /** An event with no `type` is invalid, so the append fails. */
   it('handleEvent_AppendFailure_DoesNotFireHook', async () => {
     const hookRunner = vi.fn<ConfigHookRunner>();
 
@@ -86,7 +83,6 @@ describe('handleEvent — hook runner wiring (R7)', () => {
       hookRunner,
     };
 
-    // Append with invalid event (no type) — should fail
     const result = await handleEvent({
       action: 'append',
       stream: 'test-feature',
@@ -94,7 +90,6 @@ describe('handleEvent — hook runner wiring (R7)', () => {
     }, ctx);
 
     expect(result.success).toBe(false);
-    // Hook runner should NOT have been called on failure
     expect(hookRunner).not.toHaveBeenCalled();
   });
 
@@ -108,7 +103,6 @@ describe('handleEvent — hook runner wiring (R7)', () => {
       hookRunner,
     };
 
-    // Query action should not fire hooks
     const result = await handleEvent({
       action: 'query',
       stream: 'test-feature',
@@ -128,7 +122,6 @@ describe('handleEvent — hook runner wiring (R7)', () => {
       hookRunner,
     };
 
-    // Append should still succeed even if hook throws
     const result = await handleEvent({
       action: 'append',
       stream: 'test-feature',
@@ -163,7 +156,6 @@ describe('handleEvent — hook runner wiring (R7)', () => {
 
     expect(result.success).toBe(true);
 
-    // Hook runner should have been called once for each event in the batch
     expect(hookRunner).toHaveBeenCalledTimes(2);
     expect(hookRunner).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -184,7 +176,6 @@ describe('handleEvent — hook runner wiring (R7)', () => {
       stateDir: tmpDir,
       eventStore,
       enableTelemetry: false,
-      // No hookRunner
     };
 
     const result = await handleEvent({

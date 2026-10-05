@@ -1,14 +1,10 @@
 /**
- * EventStore.runIntegrityCheck — narrow sqlite integrity probe.
+ * `EventStore.runIntegrityCheck` is the SQLite integrity probe.
  *
- * The method enforces its own bounds (timeout, abort) internally so
- * callers (notably the doctor `storage-sqlite-health` check) never need
- * a raw sqlite handle. Post-Phase-3 (v2.11 substrate-cut) the read
- * backend is always present (SQLite force-eagered via
- * `ensureSqliteBackendSync`), so the legacy "JSONL-only install →
- * skipped" branch is gone — a default-constructed `EventStore`
- * probes its own SQLite handle and reports `ok` for a fresh empty DB.
- * Timeouts and abort-signals are honoured.
+ * The method applies its own timeout and abort bounds, so a caller needs no raw SQLite handle.
+ * The doctor `storage-sqlite-health` check is one such caller.
+ * A default `EventStore` probes its own SQLite handle and reports `ok` for an empty database.
+ * A backend with no `runIntegrityPragma` gives `skipped`.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -33,10 +29,6 @@ afterEach(async () => {
 
 describe('EventStore.runIntegrityCheck', () => {
   it('RunIntegrityCheck_DefaultStore_AutoProbesSqlite', async () => {
-    // v2.11 Phase 3: a default-constructed EventStore exposes the
-    // appender's owned SqliteBackend via `getReadBackend()`. The
-    // integrity probe runs against that handle and reports `ok` for
-    // a fresh empty DB (no JSONL-skip branch).
     const store = new EventStore(tempDir);
 
     const result = await store.runIntegrityCheck();
@@ -45,9 +37,6 @@ describe('EventStore.runIntegrityCheck', () => {
   });
 
   it('RunIntegrityCheck_NonSqliteBackend_ReturnsSkipped', async () => {
-    // A test fixture that injects an in-memory backend without
-    // `runIntegrityPragma` still gets the documented "skipped" path —
-    // the method reports it can't probe, with a reason.
     const inMemoryBackend: Partial<StorageBackend> = {
       listStreams: () => [],
       queryEvents: () => [],
@@ -75,15 +64,16 @@ describe('EventStore.runIntegrityCheck', () => {
     backend.close();
   });
 
+  /**
+   * The signal belongs to the caller and outlives the probe. A `{ once: true }` listener
+   * detaches only on abort, so a probe that completes normally must remove its listeners.
+   */
   it('RunIntegrityCheck_ReusedSignalAcrossProbes_LeavesNoListenersBehind', async () => {
     const backend = new SqliteBackend(':memory:');
     backend.initialize();
     const store = new EventStore(tempDir, { backend });
     const controller = new AbortController();
 
-    // The signal is the caller's and outlives the probe. Both race arms attach
-    // to it with `{ once: true }`, which detaches only when the abort fires —
-    // so the probe that finishes normally is the one that leaks.
     for (let i = 0; i < 5; i += 1) {
       await store.runIntegrityCheck({ signal: controller.signal });
     }
@@ -95,14 +85,12 @@ describe('EventStore.runIntegrityCheck', () => {
     backend.close();
   });
 
+  /** The integrity probe of the stub backend never resolves, so the supplied timeout must bound it. */
   it('RunIntegrityCheck_TimeoutExceeded_ReturnsNotOk', async () => {
-    // Stub backend whose integrity probe never resolves — the EventStore
-    // must bound it with the supplied timeout.
     const hangingBackend: Partial<StorageBackend> & {
       runIntegrityPragma: (signal?: AbortSignal) => Promise<string>;
     } = {
       runIntegrityPragma: () => new Promise<string>(() => {
-        /* never resolves */
       }),
     };
     const store = new EventStore(tempDir, {

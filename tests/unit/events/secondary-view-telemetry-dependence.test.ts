@@ -1,27 +1,15 @@
-// ─── What the secondary views take from telemetry, measured ─────────────────
+// What the secondary views take from telemetry.
 //
 // @oracle-sources: ../../../src/events/partition/view-dependence.ts, ../../../src/projections/views/handlers/materializer.ts
 //
-// The canonical differential bounds one fold. Its own header states the limit it
-// leaves open: a secondary view can derive a verdict from a telemetry event
-// without the canonical fold noticing. This closes that.
+// The canonical differential bounds one fold. A secondary view can still derive a
+// verdict from a telemetry event. This file measures that dependence for each view.
+// The `telemetry` view folds telemetry by design, so a read is not a failure.
+// Each measured dependence must have a declaration of kind `display` or `verdict`.
 //
-// The shape is a differential, not a prohibition. Running the canonical
-// assertion over every view would be red by design — the `telemetry` view exists
-// to fold telemetry — so the question asked here is not whether a view READS
-// telemetry but whether anything DECIDES on what it read. Each measured
-// dependence must be declared, and declared as `display` or `verdict`.
-//
-// Three ways this fails, and each names the thing that moved:
-//
-//   • a view that folds telemetry with no declaration — the new verdict surface
-//     nobody noticed;
-//   • a declaration whose paths no longer differ — dead cover;
-//   • a declared view that has gone independent — the declaration outlived the
-//     dependence and should be deleted.
-//
-// The `verdict` rows are the open charter tension, not a bug this file fixes.
-// They are pinned so the set can only shrink.
+// The suite fails on a dependent view with no declaration and on a declared path that
+// does not differ. It also fails on a declared view that is independent.
+// The suite pins the `verdict` rows so that their set can only shrink.
 
 import { describe, it, expect, vi } from 'vitest';
 import { TELEMETRY_EVENTS } from '../../../src/events/partition/event-authority.js';
@@ -39,11 +27,9 @@ const CORPUS = buildAuthorityCorpus('feat-view-dependence-corpus');
 const GOVERNANCE_ONLY = CORPUS.filter((event) => !TELEMETRY_EVENTS.has(event.type));
 
 /**
- * The state paths on which two folds differ, deepest-first.
- *
- * Paths rather than a whole-state inequality, because "this view changed" is not
- * actionable and "this view's verdict field changed" is. A leaf that differs is
- * reported at its own path; a non-object mismatch stops the descent.
+ * Returns the deepest state paths on which two folds differ.
+ * A path names the field that changed, which a whole-state inequality cannot do.
+ * A mismatch that is not between two plain objects stops the descent.
  */
 function differingPaths(left: unknown, right: unknown, prefix = ''): readonly string[] {
   if (JSON.stringify(left) === JSON.stringify(right)) return [];
@@ -69,14 +55,9 @@ function differingPaths(left: unknown, right: unknown, prefix = ''): readonly st
 }
 
 /**
- * Fold with the wall clock held at a fixed instant.
- *
- * A projection that reads `Date.now()` in `init()` makes its own fold a function
- * of when it ran. Holding the clock removes that variable from the differential
- * entirely, so a path that still differs differs because of the EVENTS. Racing
- * two real-clock folds and subtracting what moved would measure the scheduler,
- * not the reducer — and would pass or fail on whether the millisecond happened
- * to turn over mid-test.
+ * Folds with the wall clock held at a fixed instant.
+ * A projection that reads `Date.now()` in `init()` makes its fold depend on the run time.
+ * With the clock fixed, a path differs only because of the events.
  */
 function foldAt(
   instant: string,
@@ -99,9 +80,8 @@ function measureDependence(fold: (events: readonly WorkflowEvent[]) => unknown):
 }
 
 /**
- * Paths whose value moves when only the CLOCK moves — the corpus is identical
- * on both sides. Deterministic by construction: the two instants are chosen, not
- * raced.
+ * Returns the paths whose value changes when only the clock changes.
+ * The corpus is the same on both sides, and the two instants are fixed.
  */
 function clockDependentPaths(
   fold: (events: readonly WorkflowEvent[]) => unknown,
@@ -129,10 +109,11 @@ describe('secondary-view telemetry dependence', () => {
     },
   );
 
-  // The denominator. A corpus that stopped discriminating, a partition that went
-  // empty, or a roster that stopped enumerating would each turn every assertion
-  // above into a vacuous pass — all three sets would be empty and all three
-  // equalities would hold.
+  /**
+   * The denominator. With an empty partition, an empty roster, or a corpus that does not
+   * discriminate, the differential measures no dependence.
+   * An empty measurement equals an empty declaration table and proves nothing.
+   */
   it('SecondaryViews_TheDifferentialCanSeeSomething_IsAsserted', () => {
     expect(TELEMETRY_EVENTS.size).toBeGreaterThan(0);
     expect(REGISTERED_VIEWS.length).toBeGreaterThan(0);
@@ -141,9 +122,10 @@ describe('secondary-view telemetry dependence', () => {
     expect([...MEASURED.values()].filter((paths) => paths.length > 0).length).toBeGreaterThan(0);
   });
 
-  // A `display` row is a claim that nothing gates on the value. That claim is
-  // not machine-checkable here, so what IS checked is that the claim was made
-  // deliberately: every row carries a kind and a reason.
+  /**
+   * A `display` row claims that nothing gates on the value. This suite cannot check that claim.
+   * It checks that each row carries a kind, a reason, and at least one path.
+   */
   it.each(Object.entries(VIEW_TELEMETRY_DEPENDENCE))(
     'SecondaryViews_%sDeclaresAKindAndAReason',
     (_viewId, declared) => {
@@ -153,22 +135,22 @@ describe('secondary-view telemetry dependence', () => {
     },
   );
 
-  // The charter tension, pinned. This list may only SHRINK: a verdict is
-  // retired by re-sourcing the view off the telemetry type, never by relabeling
-  // the row `display`.
+  /**
+   * The pinned `verdict` backlog. The list can only shrink.
+   * To retire a verdict, re-source the view off the telemetry type. Do not relabel the row `display`.
+   * The assertion reads the set that the partition derives, so the backlog has one definition.
+   */
   it('SecondaryViews_TheVerdictBacklog_MayOnlyShrink', () => {
-    // Asserted through the partition's own derivation, not a copy of the
-    // filter. The export exists so the backlog has ONE definition; repeating
-    // the filter here would have let the two disagree and still pass.
     expect([...VERDICT_BEARING_VIEWS].sort()).toEqual([
       'shepherd-status',
       'synthesis-readiness',
     ]);
   });
 
-  // A blind row claims the corpus cannot see a dependence the source plainly
-  // has. If the view starts differing, the corpus grew the correlation and the
-  // row is now a lie — it must move to a declaration instead.
+  /**
+   * A blind row claims that the corpus cannot see a dependence that the source has.
+   * If the view differs, the corpus has the correlation, and the row must become a declaration.
+   */
   it.each(Object.keys(CORPUS_BLIND_READERS))(
     'SecondaryViews_%sIsStillBlindToTheCorpusNotIndependentOfTelemetry',
     (viewId) => {
@@ -177,8 +159,7 @@ describe('secondary-view telemetry dependence', () => {
     },
   );
 
-  // The subtraction above is only honest if the declared non-determinism is
-  // real and complete. Measured directly: fold the same corpus twice.
+  /** Folds the same corpus at two instants. The paths that differ must equal the declared clock-dependent paths. */
   it('SecondaryViews_TheClockDependentPaths_AreExactlyThoseDeclared', () => {
     const measured = Object.fromEntries(
       REGISTERED_VIEWS.map((view) => [view.id, [...clockDependentPaths(view.fold)].sort()]).filter(

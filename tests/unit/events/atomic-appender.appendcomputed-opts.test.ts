@@ -7,14 +7,9 @@ import { AtomicAppender } from '../../../src/events/atomic-appender.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 /**
- * Wave 3 Task 3.2 — `appendComputed` threads `AppendOptions` to the
- * substrate so callers (notably the new `decide`/`withSession`
- * primitives) can supply `expectedSequence` and get the same
- * `sequence-conflict` AppendResult shape that `append`/`appendUnkeyed`
- * already produce.
- *
- * Today's `appendComputed` accepts no options; this test pins the
- * extended signature.
+ * `appendComputed` passes `AppendOptions` to the SQLite body. A caller such as `decide` or
+ * `withSession` can supply `expectedSequence` and get the same `sequence-conflict` result that
+ * `append` and `appendUnkeyed` return.
  */
 describe('AtomicAppender.appendComputed — AppendOptions (Task 3.2)', () => {
   let stateDir: string;
@@ -31,7 +26,6 @@ describe('AtomicAppender.appendComputed — AppendOptions (Task 3.2)', () => {
     const appender = new AtomicAppender({ stateDir });
     const streamId = 'test-stream-seqconflict';
 
-    // Seed with 3 events.
     await appender.append(
       streamId,
       [{ type: 'task.assigned', data: { i: 1 } }],
@@ -48,7 +42,6 @@ describe('AtomicAppender.appendComputed — AppendOptions (Task 3.2)', () => {
       'seed-3',
     );
 
-    // Now request appendComputed with the WRONG expectedSequence.
     const result = await appender.appendComputed(
       streamId,
       'compute-key-conflict',
@@ -78,7 +71,6 @@ describe('AtomicAppender.appendComputed — AppendOptions (Task 3.2)', () => {
       'seed-2',
     );
 
-    // Correct expectedSequence = 2 (tail after seeding).
     const result = await appender.appendComputed(
       streamId,
       'compute-key-ok',

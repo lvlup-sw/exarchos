@@ -7,8 +7,6 @@ import type { WorkflowEvent } from '../../../src/events/schemas.js';
 import type { EventSender } from '../../../src/sync/types.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
-// ─── Helpers ───────────────────────────────────────────────────────────────
-
 const NOW = '2026-01-15T12:00:00.000Z';
 
 function makeOutboxEntry(
@@ -33,8 +31,6 @@ function makeOutboxEntry(
   };
 }
 
-// ─── Test Suite ────────────────────────────────────────────────────────────
-
 describe('handleSyncNow', () => {
   let tmpDir: string;
 
@@ -47,7 +43,6 @@ describe('handleSyncNow', () => {
   });
 
   it('handleSyncNow_DiscoverStreams_ReturnsStreamList', async () => {
-    // Create outbox files for two streams
     const entries1 = [makeOutboxEntry('stream-a', 1)];
     const entries2 = [makeOutboxEntry('stream-b', 1)];
     await fs.writeFile(
@@ -76,7 +71,6 @@ describe('handleSyncNow', () => {
   });
 
   it('handleSyncNow_DrainOutbox_CallsSenderForPendingEvents', async () => {
-    // Create an outbox file with pending entries
     const entries = [
       makeOutboxEntry('test-stream', 1, 'pending'),
       makeOutboxEntry('test-stream', 2, 'pending'),
@@ -98,13 +92,11 @@ describe('handleSyncNow', () => {
     const results = data.results as Array<{ streamId: string; sent: number; failed: number }>;
     expect(results).toHaveLength(1);
     expect(results[0].streamId).toBe('test-stream');
-    // The mock sender successfully "sends" each entry
     expect(results[0].sent).toBe(2);
     expect(results[0].failed).toBe(0);
   });
 
   it('handleSyncNow_NoStreams_ReturnsZeroCounts', async () => {
-    // Empty directory, no outbox files
     const result = await handleSyncNow(tmpDir);
 
     expect(result.success).toBe(true);
@@ -113,11 +105,12 @@ describe('handleSyncNow', () => {
     expect(data.message).toContain('No outbox streams found');
   });
 
+  /**
+   * The outbox file holds invalid JSON, so `Outbox.loadEntries` throws and
+   * `handleSyncNow` returns `SYNC_FAILED`. The test passes a sender, because
+   * `handleSyncNow` skips the drain without one.
+   */
   it('handleSyncNow_SenderFailure_ReportsFailedCount', async () => {
-    // Trigger a drain failure by writing invalid JSON to an outbox file.
-    // The Outbox.loadEntries will fail to parse, which gets caught by
-    // the try/catch in handleSyncNow.
-    // A sender must be provided so the drain path is exercised.
     await fs.writeFile(
       path.join(tmpDir, 'broken-stream.outbox.json'),
       'NOT_VALID_JSON{{{',
@@ -129,7 +122,6 @@ describe('handleSyncNow', () => {
 
     const result = await handleSyncNow(tmpDir, undefined, mockSender);
 
-    // The outer try/catch in handleSyncNow catches the error
     expect(result.success).toBe(false);
     const error = result.error as { code: string; message: string };
     expect(error.code).toBe('SYNC_FAILED');

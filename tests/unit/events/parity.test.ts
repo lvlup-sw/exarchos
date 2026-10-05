@@ -1,3 +1,7 @@
+// Parity tests for `exarchos_event`: the CLI adapter and the MCP-style `dispatch()` entry point
+// must give structurally equal `ToolResult` payloads for each action. The suite removes the
+// expected differences, which are timestamps and UUIDs, before it compares.
+
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
@@ -11,31 +15,14 @@ import {
   normalize as harnessNormalize,
 } from '../parity-harness.js';
 
-// ─── DR-3 Parity Tests: exarchos_event ─────────────────────────────────────
-// Asserts that invoking `exarchos_event` actions through the CLI adapter and
-// the MCP-style `dispatch()` entry point produces structurally equivalent
-// ToolResult payloads. Differences that are expected (timestamps, UUIDs,
-// sequence numbers) are normalized before comparison. Runs sibling to the
-// task-014 (`exarchos_workflow`) parity suite.
-//
-// T5a.1/DR-4 (#1259, v2.11): removed the `DR-11 Parity:
-// workflow.set({phase}) _meta.deprecation envelope` block when the
-// rerouting surface was hard-cut.
-
-// ─── Normalization Helpers ──────────────────────────────────────────────────
-
 import { UUID_ANY_RE } from '../parity-harness.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 /**
- * Event-store suite normalizer. Historical behaviour dropped ISO
- * timestamps / UUIDs entirely (rather than replacing with placeholders)
- * and stripped the `_perf` telemetry block. Replicate via the shared
- * harness's `stripTimeSensitiveValues` + `dropKeys` options.
- *
- * Uses `UUID_ANY_RE` (not strictly v4) to match prior behaviour — the
- * event store mints non-v4 IDs in some code paths and this suite relied
- * on the broader regex.
+ * The normalizer of this suite. It drops ISO timestamps and UUIDs, with no placeholder, and it
+ * drops the `_perf` telemetry block.
+ * It uses `UUID_ANY_RE` and not a strict v4 pattern, because the event store mints some ids that
+ * are not v4.
  */
 function normalize(value: unknown): unknown {
   return harnessNormalize(value, {
@@ -44,8 +31,6 @@ function normalize(value: unknown): unknown {
     uuidRegex: UUID_ANY_RE,
   });
 }
-
-// ─── Adapter Callers ────────────────────────────────────────────────────────
 
 interface ParityHarness {
   readonly stateDir: string;
@@ -75,11 +60,11 @@ async function callMcp(
 }
 
 /**
- * Invoke a tool action through the CLI adapter. This suite historically
- * passed `ReadonlyArray<string>` flags (positional flag + value pairs) so
- * we translate into the harness's structured flag map here. Each flag
- * token that starts with `--` opens a new key; the following token is
- * its value unless it too begins with `--`.
+ * Invokes a tool action through the CLI adapter. The suite passes flags as a string array, and
+ * this function builds the structured flag map of the harness from it.
+ * A token that starts with `--` opens a key. The next token is its value, unless that token also
+ * starts with `--`. A key with no value is `true`.
+ * The key changes from kebab-case to camelCase, so the harness maps it back to the same flag.
  */
 async function callCli(
   toolAlias: string,
@@ -91,8 +76,6 @@ async function callCli(
   for (let i = 0; i < flags.length; i++) {
     const token = flags[i];
     if (!token.startsWith('--')) continue;
-    // Drop the leading `--`, convert kebab-case back to camelCase so the
-    // harness's own camelCase→kebab mapping is a no-op.
     const kebabKey = token.slice(2);
     const camelKey = kebabKey.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
     const next = flags[i + 1];
@@ -107,8 +90,6 @@ async function callCli(
   return result;
 }
 
-// ─── Fixtures ───────────────────────────────────────────────────────────────
-
 const STREAM_ID = 'parity-feature';
 
 const APPEND_EVENT = {
@@ -121,8 +102,6 @@ const BATCH_EVENTS = [
   { type: 'task.completed', data: { taskId: 'parity-task-b' } },
   { type: 'task.completed', data: { taskId: 'parity-task-c' } },
 ] as const;
-
-// ─── Tests ──────────────────────────────────────────────────────────────────
 
 describe('DR-3: exarchos_event CLI/MCP parity', () => {
   let mcpHarness: ParityHarness;
@@ -139,7 +118,6 @@ describe('DR-3: exarchos_event CLI/MCP parity', () => {
   });
 
   it('EventParity_Append_CliAndMcp_ReturnEqualPayload', async () => {
-    // MCP side
     const mcpResult = await callMcp(
       'exarchos_event',
       'append',
@@ -147,7 +125,6 @@ describe('DR-3: exarchos_event CLI/MCP parity', () => {
       mcpHarness,
     );
 
-    // CLI side — same canonical args, over commander
     const cliResult = await callCli(
       'ev',
       'append',
@@ -160,8 +137,8 @@ describe('DR-3: exarchos_event CLI/MCP parity', () => {
     expect(normalize(cliResult)).toEqual(normalize(mcpResult));
   });
 
+  /** Each side gets one append first, so the query has deterministic content. */
   it('EventParity_Query_CliAndMcp_ReturnEqualPayload', async () => {
-    // Seed each side with a single append so query has deterministic content.
     await callMcp(
       'exarchos_event',
       'append',
@@ -175,7 +152,6 @@ describe('DR-3: exarchos_event CLI/MCP parity', () => {
       cliHarness,
     );
 
-    // Query both with the same small filter.
     const mcpResult = await callMcp(
       'exarchos_event',
       'query',
@@ -219,33 +195,3 @@ describe('DR-3: exarchos_event CLI/MCP parity', () => {
     expect(normalize(cliResult)).toEqual(normalize(mcpResult));
   });
 });
-
-// ─── DR-11 / T53 — workflow.set({phase}) deprecation envelope parity ────────
-//
-// Plan goal (docs/plans/archive/2026-05-08-durable-event-store-substrate.md §T53):
-// "Parity test ensuring `_meta.deprecation` envelope is byte-equivalent
-// across CLI and MCP carriers per output-contract registration."
-//
-// The deprecated `workflow.set({phase: 'plan'})` invocation must surface a
-// `_meta.deprecation` payload of shape `{ since, removeIn, replacement }`
-// (see workflow-set-deprecation.acceptance.test.ts for the canonical shape).
-// Both the CLI carrier (`wf set --feature-id ... --phase plan`) and the MCP
-// carrier (`exarchos_workflow.set` via dispatch) MUST emit a byte-identical
-// envelope.
-//
-// File-location decision (recommended approach 1 from the dispatch prompt):
-// extending the existing `parity.test.ts` keeps the parity-suite topology
-// in one place and matches the plan's literal file reference. The new block
-// is scoped under its own `describe` so the existing `exarchos_event` block
-// keeps its semantic identity.
-//
-// Authoritative assertion: `JSON.stringify` of the normalized envelope on
-// each arm. We additionally do a structural deep-equal as a more specific
-// failure signal — if the strings differ, the deep-equal usually points at
-// the diverging key.
-
-// T5a.1/DR-4 (#1259, v2.11): the prior
-// `describe('DR-11 Parity: workflow.set({phase}) _meta.deprecation envelope', ...)`
-// block exercised the deprecation envelope produced by the v2.10
-// `set({phase})` rerouting surface. v2.11 hard-cuts that surface; the
-// parity block is removed alongside the action itself.

@@ -6,8 +6,6 @@ import {
   EventDataMap,
 } from '../../../src/events/schemas.js';
 
-// ─── RemediationAttemptedDataSchema ─────────────────────────────────────────
-
 describe('RemediationAttemptedDataSchema', () => {
   it('RemediationAttemptedSchema_ValidData_ParsesSuccessfully', () => {
     const result = RemediationAttemptedDataSchema.safeParse({
@@ -100,8 +98,8 @@ describe('RemediationAttemptedDataSchema', () => {
     expect(result.success).toBe(false);
   });
 
+  /** `strategy` has no minimum length, so an empty string is valid. */
   it('RemediationAttemptedSchema_EmptyStrategy_ParsesSuccessfully', () => {
-    // strategy is z.string() without min(1), so empty is valid
     const result = RemediationAttemptedDataSchema.safeParse({
       taskId: 'task-001',
       skill: 'delegation',
@@ -112,8 +110,6 @@ describe('RemediationAttemptedDataSchema', () => {
     expect(result.success).toBe(true);
   });
 });
-
-// ─── RemediationSucceededDataSchema ─────────────────────────────────────────
 
 describe('RemediationSucceededDataSchema', () => {
   it('RemediationSucceededSchema_ValidData_ParsesSuccessfully', () => {
@@ -170,8 +166,8 @@ describe('RemediationSucceededDataSchema', () => {
     expect(result.success).toBe(false);
   });
 
+  /** `finalStrategy` has no minimum length, so an empty string is valid. */
   it('RemediationSucceededSchema_EmptyFinalStrategy_ParsesSuccessfully', () => {
-    // finalStrategy is z.string() without min(1), so empty is valid
     const result = RemediationSucceededDataSchema.safeParse({
       taskId: 'task-001',
       skill: 'delegation',
@@ -183,8 +179,6 @@ describe('RemediationSucceededDataSchema', () => {
   });
 });
 
-// ─── EventType Union and EventDataMap ──────────────────────────────────────
-
 describe('EventDataMap_IncludesRemediationTypes_InUnion', () => {
   it('EventTypes_IncludesRemediationAttempted', () => {
     expect(EventTypes).toContain('remediation.attempted');
@@ -194,14 +188,15 @@ describe('EventDataMap_IncludesRemediationTypes_InUnion', () => {
     expect(EventTypes).toContain('remediation.succeeded');
   });
 
+  /**
+   * The check is at the type level: the two aliases need both keys on `EventDataMap`.
+   * The runtime assertions only read the literals back.
+   */
   it('EventDataMap_RemediationAttempted_MapsToCorrectSchema', () => {
-    // Verify the type-level mapping exists by checking the runtime map
     const map: EventDataMap = {} as EventDataMap;
-    // TypeScript compilation validates that these keys exist on the type
     type AttemptedType = EventDataMap['remediation.attempted'];
     type SucceededType = EventDataMap['remediation.succeeded'];
 
-    // Runtime check: ensure the keys are assignable
     const _attempted: AttemptedType = {
       taskId: 'task-001',
       skill: 'delegation',

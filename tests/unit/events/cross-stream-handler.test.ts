@@ -8,17 +8,10 @@ import { handleEventAppend } from '../../../src/events/tools.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 /**
- * T26 — `team.disbanded` emission queries the events table (not derived state).
- *
- * The plan specified this test under `src/team/coordinator.test.ts`. There is
- * no `team/` directory in the repo today; the actual `team.disbanded`
- * emission site is `events/tools.ts::handleEventAppend` (the C11
- * router-interception path landed in v2.9). The contract tested here is
- * identical to what a future coordinator module would assert: when a caller
- * appends `team.disbanded`, the handler MUST recompute `tasksCompleted` by
- * reducing over the events table via `EventStore.queryByType` with a
- * `streamPrefix` filter — never from in-memory derived state and never from
- * a single-stream JSONL scan that would miss subagent streams.
+ * `handleEventAppend` is the emission site of `team.disbanded`. The repository has no team
+ * coordinator module. When a caller appends `team.disbanded`, the handler must compute
+ * `tasksCompleted` from the events table, not from derived state. It calls
+ * `EventStore.queryByType` with a `streamPrefix` filter, so the count includes the subagent streams.
  */
 describe('TeamCoordinator — disbanded emission queries events table (T26)', () => {
   let tempDir: string;
@@ -33,16 +26,17 @@ describe('TeamCoordinator — disbanded emission queries events table (T26)', ()
     await rmrfAsync(tempDir);
   });
 
+  /**
+   * The two `task.completed` events are on subagent streams, and the parent stream has none.
+   * A scan of only the parent stream counts zero. The caller sends a wrong `tasksCompleted` on
+   * purpose, and the handler must replace it with the count from the cross-stream query.
+   */
   it('TeamCoordinator_DisbandedEmission_QueriesEventsNotDerivedState', async () => {
     const featureId = 'feat-t26-1';
     const subagentA = `${featureId}/subagent-a`;
     const subagentB = `${featureId}/subagent-b`;
     const teamId = 'team-t26';
 
-    // Two task.completed events on subagent streams; the parent feature
-    // stream has none. A JSONL-scan-only emission path (the legacy router)
-    // would see zero `task.completed` for the team and emit `tasksCompleted: 0`.
-    // Reducing over the events table via the streamPrefix filter sees both.
     await eventStore.append(subagentA, {
       type: 'task.completed',
       data: { taskId: 'a-1', teamId },
@@ -52,9 +46,6 @@ describe('TeamCoordinator — disbanded emission queries events table (T26)', ()
       data: { taskId: 'b-1', teamId },
     });
 
-    // Spy on `queryByType` — the emission MUST call it with the right
-    // prefix and event type. This pins the contract: the handler reduces
-    // over the cross-stream query, not over derived state.
     const spy = vi.spyOn(eventStore, 'queryByType');
 
     const result = await handleEventAppend(
@@ -64,9 +55,6 @@ describe('TeamCoordinator — disbanded emission queries events table (T26)', ()
           type: 'team.disbanded',
           data: {
             teamId,
-            // Caller-supplied tally is wrong on purpose — the cross-stream
-            // reducer must override it. The legacy router-only path
-            // returned 0 here (no task.completed on the parent stream).
             tasksCompleted: 999,
             tasksFailed: 0,
             totalDurationMs: 1234,
@@ -88,16 +76,13 @@ describe('TeamCoordinator — disbanded emission queries events table (T26)', ()
     expect(events).toHaveLength(1);
     const data = (events[0].data ?? {}) as Record<string, unknown>;
     expect(data.teamId).toBe(teamId);
-    // Two task.completed events span the two subagent streams; the
-    // cross-stream query reducer recovers both.
     expect(data.tasksCompleted).toBe(2);
     expect(data.tasksFailed).toBe(0);
     expect(data.totalDurationMs).toBe(1234);
   });
 
+  /** An event on the same prefix with a different `teamId` must not add to the count of this team. */
   it('TeamCoordinator_DisbandedEmission_ScopedByTeamId', async () => {
-    // Cross-team isolation: events on the same prefix but a different teamId
-    // must NOT bleed into this team's count.
     const featureId = 'feat-t26-2';
     const subagentA = `${featureId}/subagent-a`;
     const teamA = 'team-alpha';
@@ -133,6 +118,6 @@ describe('TeamCoordinator — disbanded emission queries events table (T26)', ()
     const events = await eventStore.query(featureId, { type: 'team.disbanded' });
     expect(events).toHaveLength(1);
     const data = (events[0].data ?? {}) as Record<string, unknown>;
-    expect(data.tasksCompleted).toBe(1); // only teamA's task.completed counts
+    expect(data.tasksCompleted).toBe(1);
   });
 });

@@ -65,7 +65,6 @@ import {
   getValidEventTypes,
   isBuiltInEventType,
   serializeEventCatalog,
-  // Wave B (#1342) two-event split schemas
   PrCreateRequestedData,
   PrCreateExecutedData,
   PrCommentRequestedData,
@@ -76,33 +75,25 @@ import {
   BranchDeleteExecutedData,
   WorktreeRemoveRequestedData,
   WorktreeRemoveExecutedData,
-  // WLM foundation — worktree lifecycle (lease/ownership half) schemas.
   WorktreeAdoptedData,
   WorktreeReservedData,
   WorktreeReleasedData,
   WorktreeOrphanDetectedData,
-  // WLM operational-core — serialized-merge lease pair (DR-4 / DR-7).
   WorktreeMergeRequestedData,
   WorktreeMergeExecutedData,
-  // harness-launcher (DR-2) — create pair + child liveness pair.
   WorktreeCreateRequestedData,
   WorktreeCreateExecutedData,
   LaunchExecutingStartedData,
   LaunchExecutedData,
-  // DR-2 (task 003) — the four INV-10 liveness pairs retrofitted with a
-  // canonical additive `instanceId` (merge / launch / mutation / prune).
   MergeExecutingStartedData,
   MutationExecutingStartedData,
   MutationExecutedData,
   PruneExecutingStartedData,
   PruneExecutedData,
-  // The VCS mutation ledger — intent, then one of two terminals.
   VcsRequestedData,
   VcsExecutedData,
   VcsCompensatedData,
-  // The atomic tree-promotion record.
   PromotionExecutedData,
-  // The emission-violation report.
   EmissionViolatedData,
   AdmissionCutoverReadyData,
   type WorkflowEvent,
@@ -116,20 +107,17 @@ import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import * as nodePath from 'node:path';
 
-// ─── T1: EventEmissionSource + EVENT_EMISSION_REGISTRY ──────────────────────
-
 describe('EVENT_EMISSION_REGISTRY', () => {
+  /** A type with the `retired` source keeps its schema for replay, and no emitter writes it. */
   it('EventEmissionRegistry_AllEventTypes_HaveClassification', () => {
     for (const eventType of EventTypes) {
       expect(EVENT_EMISSION_REGISTRY).toHaveProperty(eventType);
       const source = EVENT_EMISSION_REGISTRY[eventType];
-      // DR-2 (task 006): `retired` joins the classification union — a
-      // read-tolerant-but-not-emittable source (schema kept for replay, never
-      // emitted). See `schemas_MergeRollback_ReadTolerantButNotEmittable`.
       expect(['auto', 'model', 'hook', 'planned', 'retired']).toContain(source);
     }
   });
 
+  /** `prepare` and `prepare_delegation` append `task.assigned`, so its source is `auto`. */
   it('EventEmissionRegistry_ModelEvents_IncludesTeamAndReview', () => {
     const modelSpotChecks: Array<typeof EventTypes[number]> = [
       'team.spawned',
@@ -143,11 +131,10 @@ describe('EVENT_EMISSION_REGISTRY', () => {
     for (const eventType of modelSpotChecks) {
       expect(EVENT_EMISSION_REGISTRY[eventType]).toBe('model');
     }
-    // `task.assigned` left this set when `prepare` and `prepare_delegation`
-    // took its append: it is a capability of the orchestrate tool now.
     expect(EVENT_EMISSION_REGISTRY['task.assigned']).toBe('auto');
   });
 
+  /** Action handlers emit `review.routed`, `ci.status` and `quality.regression`, so each source is `auto`. */
   it('EventEmissionRegistry_AutoEvents_IncludesWorkflowAndTask', () => {
     const autoSpotChecks: Array<typeof EventTypes[number]> = [
       'workflow.started',
@@ -159,10 +146,6 @@ describe('EVENT_EMISSION_REGISTRY', () => {
       'gate.executed',
       'state.patched',
       'tool.invoked',
-      // RC2 (#1395) — migrated model → auto: the runtime already emits these
-      // deterministically from a dispatch-core handler (review/tools.ts,
-      // assess-stack.ts, views/tools.ts respectively), so the model must no
-      // longer be nagged to hand-maintain them.
       'review.routed',
       'ci.status',
       'quality.regression',
@@ -172,11 +155,11 @@ describe('EVENT_EMISSION_REGISTRY', () => {
     }
   });
 
+  /**
+   * `prepare_delegation` emits both preflight types, and the event store rejects an unregistered type.
+   * The emitter only logs a failed append, so a lost registration drops each preflight event without an error.
+   */
   it('EventTypes_PreflightEventsRegistered_BothNamesPresent', () => {
-    // Regression: #1129. `prepare_delegation` emits preflight.executed and
-    // preflight.blocked, but without registration the event store rejects
-    // the append — and fire-and-forget `.catch(()=>{})` silently swallows
-    // the rejection. Every preflight event ends up in the bit bucket.
     expect(EventTypes).toContain('preflight.executed');
     expect(EventTypes).toContain('preflight.blocked');
     expect(EVENT_EMISSION_REGISTRY['preflight.executed']).toBe('auto');
@@ -184,12 +167,12 @@ describe('EVENT_EMISSION_REGISTRY', () => {
   });
 });
 
-// ─── T2: EVENT_DATA_SCHEMAS map ─────────────────────────────────────────────
-
 describe('EVENT_DATA_SCHEMAS', () => {
+  /**
+   * The test checks only that each key of `EVENT_DATA_SCHEMAS` is an event type.
+   * It does not require an entry for each type.
+   */
   it('EventDataSchemas_AllEventTypes_HaveEntry', () => {
-    // Every EventType should either be in EVENT_DATA_SCHEMAS or be explicitly absent.
-    // We verify that the keys in EVENT_DATA_SCHEMAS are all valid EventTypes.
     const schemaKeys = Object.keys(EVENT_DATA_SCHEMAS);
     for (const key of schemaKeys) {
       expect(EventTypes).toContain(key);
@@ -197,7 +180,6 @@ describe('EVENT_DATA_SCHEMAS', () => {
   });
 
   it('EventDataSchemas_ModelEvents_HaveNonNullSchemas', () => {
-    // Every model-emitted type must have a non-null schema
     for (const eventType of EventTypes) {
       if (EVENT_EMISSION_REGISTRY[eventType] === 'model') {
         expect(
@@ -209,7 +191,6 @@ describe('EVENT_DATA_SCHEMAS', () => {
   });
 
   it('EventDataSchemas_ValidData_ParsesSuccessfully', () => {
-    // For each entry with a schema, parse known-valid data samples
     const validDataSamples: Partial<Record<string, Record<string, unknown>>> = {
       'workflow.started': { featureId: 'f1', workflowType: 'feature' },
       'task.assigned': { taskId: 't1', title: 'Test task' },
@@ -390,8 +371,6 @@ describe('EventTypes', () => {
   });
 });
 
-// ─── Task 002: team.task.planned and team.teammate.dispatched ────────────────
-
 describe('TeamTaskPlannedData', () => {
   it('EventSchema_TeamTaskPlanned_ValidatesPayload', () => {
     const result = TeamTaskPlannedData.safeParse({
@@ -484,8 +463,6 @@ describe('TeamTeammateDispatchedData', () => {
   });
 });
 
-// ─── T11: quality.regression Event Type ──────────────────────────────────────
-
 describe('QualityRegressionData', () => {
   it('QualityRegressionData_Valid_Parses', () => {
     const result = QualityRegressionData.safeParse({
@@ -507,8 +484,6 @@ describe('QualityRegressionData', () => {
     }
   });
 });
-
-// ─── T26: workflow.cas-failed Event Schema ───────────────────────────────────
 
 describe('WorkflowCasFailedData', () => {
   it('WorkflowCasFailedData_Valid_Parses', () => {
@@ -535,181 +510,11 @@ describe('EventTypes', () => {
     expect(EventTypes).toContain('workflow.cas-failed');
   });
 
+  /**
+   * The count pins the size of the catalog, so a type cannot join or leave it without a change here.
+   * The onboard pair is the audit trail of onboarding, so the catalog must not contain `init.executed`.
+   */
   it('EventTypes_HasExpectedCount', () => {
-    // Bumped from 104 → 105 with #1262: `turn.completed` carries the
-    // per-turn output-token sample the `output_tokens_high` quality hint
-    // fires on (see `projections/telemetry/quality-hints.ts`).
-    // Previous (103 → 104): PR3/T7 (#1364) `tool.action_errored` splits
-    // structured action-level failures out from `tool.errored` (which now
-    // counts transport/protocol failures only).
-    // Previous (93 → 103): Wave B (#1342) 5×{requested,executed} two-event
-    // split schemas for non-idempotent VCS handlers (B1–B5):
-    //   pr.create.requested, pr.create.executed,
-    //   pr.comment.requested, pr.comment.executed,
-    //   issue.create.requested, issue.create.executed,
-    //   branch.delete.requested, branch.delete.executed,
-    //   worktree.remove.requested, worktree.remove.executed.
-    // Previous (93): merge.requested (Wave 2B.2 / #1304 — audit §F1.2).
-    // Previous (92): migration.workflow_type_unknown (Wave 1, R-1 Marten #1313).
-    // Previous (91): session.machinery_consumed (T-11, rehydration-machinery-refactor).
-    // Previous (84 → 90): six durable event-store substrate types (#1259 T02/T03/T04).
-    // Previous (105 → 106): workspace.resolved (#1290 — roots-based workspace
-    //   discovery; emitted by `src/workspace/discovery.ts`).
-    // Bumped 106 → 108: elicitation.requested + elicitation.fulfilled
-    // (#1274 — elicitation form mode for missing-required-param hand-off
-    //   in the dispatch boundary).
-    // Bumped 108 → 109: elicitation.declined (Sentry MEDIUM #1424 — client
-    //   decline carries a distinct audit-trail event instead of collapsing
-    //   into `fulfilled` with a falsy payload).
-    // Bumped 109 → 113: task.created + task.polled + task.result +
-    //   task.cancelled (#1272 — EventSourcedTaskStore lifecycle; SDK
-    //   `TaskStore` interface as a projection over the event store).
-    //   Distinct from the orchestrated-task family above; see
-    //   `events/task-events.test.ts` for the schema-shape contracts
-    //   and `projections/task-store/event-sourced-task-store.test.ts` for the
-    //   end-to-end lifecycle + REPLAY (INV-1) acceptance test.
-    // Bumped 113 → 115: dispatch.preflight + stash.detected (#1261 —
-    //   dispatch-guard preflight observability emitted by
-    //   `verbs/team/dispatch-guard.ts`).
-    // Bumped 115 → 116: migration.correlation_backfill_progress (#1437 —
-    //   chunked V5→V6 backfill progress emitted on the `__migration__`
-    //   stream from `SqliteBackend.backfillCorrelationColumnsChunked`).
-    // Bumped 116 → 118: invariant.authored + catalog.registered
-    //   (invariants-catalog-wizard P2 — invariant-authoring lifecycle
-    //   emitted by the `invariants_add` composite handler; see
-    //   `verbs/invariants/add.ts`).
-    // Bumped 118 → 119: merge.completed (#1304 INV-10 terminal marker —
-    //   emitted by `handleExecuteMerge` adjacent to `merge.executed`;
-    //   folded by `merge-orchestrator@v1` as the transition into the
-    //   `completed` terminal phase).
-    // Bumped 119 → 121: onboard.requested + onboard.executed (#1510 DR-7 task
-    //   008 — the two-event onboard contract, INV-1 / INV-13, emitted by the
-    //   `onboard` composite).
-    // Bumped 121 → 120: init.executed retired (#1510 DR-5 task 018 — the init
-    //   verb/handler was removed; `onboard.*` is the audit trail now).
-    // Bumped 120 → 122: mutation.executing_started + mutation.executed
-    //   (verification-ladder slice 1 task 020 — the mutation-run liveness pair,
-    //   INV-10, emitted by the liveness handler; the `exarchos run-mutation` CLI
-    //   verb was removed in task 002).
-    // Bumped 122 → 123: phase.blocked (phase-kind binding DR-7, epic #1546 —
-    //   fail-closed at the gate-set boundary; emitted by the wave-dispatch
-    //   boundary when the IMPLEMENT-kind gate-set resolver throws, refusing the
-    //   dispatch instead of failing open).
-    // Bumped 123 → 125: phase.entered + phase.exited (phase-kind binding DR-13,
-    //   epic #1546 — resolve-then-freeze; the executeTransition boundary freezes
-    //   the resolved obligation as `phase.entered` and records the aggregate
-    //   gate status as `phase.exited` on advance).
-    // Bumped 125 → 126: subagent.tokens_used (#1525 W2 Half 1 — per-subagent
-    //   output-token total emitted by the restored SubagentStop hook
-    //   `lifecycle/subagent-stop.ts`, folded by team-performance /
-    //   delegation-timeline for the token-reduction acceptance gate).
-    // Bumped 126 → 127: merge.recovered (#1306 — successor to merge.rollback,
-    //   dual-emitted during the v2.11.x deprecation window; legacy removed v2.12).
-    // Bumped 127 → 128: merge.retry_attempt (#1308 — audit record of a
-    //   transient-failure retry of the merge attempt; emission lands later).
-    // Bumped 128 → 129: merge.executing_started (#1309 — merge-executor liveness
-    //   event; emitted after the recovery point is recorded, before the first
-    //   vcsMerge, so a long-running merge is observable as started-but-unterminated,
-    //   the INV-10 executing_started + paired terminal pattern).
-    // Bumped 129 → 130: shepherd.escalated (DR-3 #1595 — structured bound-hit
-    //   escalation emitted by assess-stack on the escalate path; a structured
-    //   terminal (NOT a hang) surfaced via shepherd_status/ps, INV-10).
-    // Bumped 130 → 131: feedback.recorded (#1319 — agent→runtime friction
-    //   back-channel; emitted by exarchos_workflow.feedback onto the shared
-    //   meta/feedback stream, read back by /exarchos:dogfood).
-    // Bumped 131 → 132: workflow.handoff_summarized (#1242 — auto-summarized
-    //   handoff fallback; folded into latestHandoff only when no operator
-    //   handoff holds the slot, operator-authored takes precedence).
-    // Bumped 132 → 136: WLM foundation — worktree.adopted / worktree.reserved /
-    //   worktree.released / worktree.orphan_detected (the lease/ownership half of
-    //   worktree lifecycle management; the GC half reuses the worktree.remove.*
-    //   pair, so no worktree.pruned type is added).
-    // Bumped 136 → 138: WLM operational-core — worktree.merge_requested /
-    //   worktree.merge_executed (DR-4 / DR-7 — the serialized-merge lease pair on
-    //   the singleton `worktrees` stream; CLAIM + RELEASE correlated by operationId).
-    // Bumped 138 → 139: workflow.plan-revision (DR-1 / #1630 — counted plan-review
-    //   revise cycle; the plan-review analog of workflow.fix-cycle, folded into
-    //   state.planReview.revisionCount to bound the plan↔plan-review loop).
-    // Bumped 139 → 143: harness-launcher (DR-2) — worktree.create.requested /
-    //   worktree.create.executed (the launcher's INV-13 top-level worktree create
-    //   pair, distinct from the task-scoped worktree.created terminal) plus
-    //   launch.executing_started / launch.executed (the child-process liveness
-    //   pair, mirroring InFlightMerge's holderPid/holderStartedAt).
-    // Bumped 143 → 145: WLM slice 3 (DR-3, epic #1574) — prune-run liveness pair
-    //   prune.executing_started / prune.executed (the INV-10 pair emitted by the
-    //   WorktreeManager around a `prune_worktrees` GC pass, folded by worktrees@v1
-    //   into `inFlightPrunes` so an in-flight prune is `ps`/`wait`-visible).
-    // Bumped 145 → 146: WLM-6 (DR-2) — workflow.plan-review-dispatched (the counted
-    //   plan-review dispatch emitted by the `prepare_review scope:plan` provisioning
-    //   seam; folded into state.planReview.revisionCount to bound the plan-review
-    //   loop at its one unskippable server action, closing the skippable-edge bypass).
-    // Bumped 146 → 148: DR-6 (lifecycle-verbs task 012) — export.requested +
-    //   export.executed (the two-event `export` contract, INV-13 two-event split /
-    //   INV-8 idempotency; export.requested carries the RESOLVED path intent before
-    //   the zip write, export.executed carries the written bundle's content hash
-    //   after, emitted `auto` by the `export` composite handler in task 013).
-    // Phase-gate v2.12 adds 11 admission replay contracts and five
-    // server-owned cancellation process-manager facts.
-    // Cancellation process-manager saga (EFF-005 / P04-02): bumped 164 → 167 —
-    // cancel.ownership-acquired + cancel.compensation-retry-scheduled +
-    // cancel.manual-intervention-required (fencing epoch, bounded retry ladder,
-    // terminal escalation).
-    // Bumped 167 → 169: DR-4 (wiring-closure T-06) — projection.degraded +
-    //   projection.recovered (the durable projection-health pair published on
-    //   `meta/projection-health` off a real cursor/tail comparison, so a stale
-    //   fold is a persisted, restart-surviving state rather than an ephemeral
-    //   `_meta.projectionDegraded` annotation on one response).
-    // Bumped 169 → 170: #1739 (cutover promotion path) — admission.cutover-ready
-    //   (the observer auto-export hook's first-time readiness fact, `auto`,
-    //   store-identity idempotency key).
-    // Bumped 170 → 171: task 068 (DR-23) — invariant.amended, emitted by the
-    //   `invariants_amend` composite handler on commit. Deliberately NOT folded
-    //   into invariant.authored: amending is not authoring, and an audit trail
-    //   that recorded a correction as a fresh authoring would be a record that
-    //   does not mean what it says.
-    // Bumped 171 → 174: the VCS mutation ledger — vcs.requested, vcs.executed
-    //   and vcs.compensated. Not new events: the mutation owner has always
-    //   appended them, but through the store's runtime registration seam, so
-    //   they carried no data schema, no type-map entry and no coupling tier.
-    //   Declaring them here is what makes them visible to a static reader of
-    //   the catalog.
-    // Bumped 174 → 175: promotion.executed, the atomic tree-promotion record.
-    //   This one genuinely is new — the promoting code names its effect in a
-    //   typed plan and then performs it, and no event recorded that the commit
-    //   rename happened.
-    // Bumped 175 → 176: emission.violated, the report the post-dispatch
-    //   verifier appends when a handler finishes without an emission its own
-    //   registration declares unconditionally. No contract-violation name of any
-    //   kind existed in the catalog, so the check had nowhere to write a finding
-    //   that survived the run.
-    // Bumped 176 → 177: prune.diagnostics, the prune evaluation's own audit
-    //   line. The append has always been there; it reached the store through a
-    //   widening assertion at the call site, so the catalog never saw it and the
-    //   emission ledger could not attribute it to the action that performs it.
-    // Bumped 177 → 178: orchestrate.intent_executed, the bounded action
-    //   executor's operation record. Appended by the `execute_intent` handler
-    //   itself under the caller's operationId on both the committed and the
-    //   failed path, so a fully-failed segment leaves a queryable fact instead
-    //   of zero events.
-    // Bumped 178 → 180 by the `gate.executed` split (#1898 item 8):
-    //   tool.budget_exceeded — a response over the token budget, recorded on
-    //     the telemetry stream. It was a `gate.executed` on the FEATURE stream
-    //     naming `details.dimension: 'D3'`, and D3 is a real convergence
-    //     dimension, so the convergence view folded it as a failure of Context
-    //     Economy under a gate name nothing re-runs.
-    //   ci.check_observed — one observed CI check, beside the `ci.status`
-    //     roll-up the same assessment pass appends. It was a `gate.executed`
-    //     keyed by the CI check's name, sharing the `gates[...]` namespace with
-    //     the gates this repository runs itself.
-    // Bumped 180 → 181 by `execution.settled` — the semantic plane's settlement
-    // record, appended by `settle` on every adjudicated outcome. It lands with
-    // its emitter rather than ahead of it, which is the rule the semantic kinds
-    // are held to: a registered name nothing writes is a catalog entry that
-    // cannot be told apart from a declaration nobody finished.
-    // Bumped 182 → 184 by `deviation.proposed` and `deviation.decided` — the
-    // divergence loop's decision facts, appended by `settle`: one proposal per
-    // deviation a held batch waits on, one decision per proposal when the
-    // batch is settled again with the decisions. Both land with their emitter.
     expect(EventTypes).toHaveLength(184);
     expect(EventTypes).toContain('tool.budget_exceeded');
     expect(EventTypes).toContain('ci.check_observed');
@@ -740,23 +545,22 @@ describe('EventTypes', () => {
     expect(EventTypes).toContain('vcs.executed');
     expect(EventTypes).toContain('vcs.compensated');
     expect(EventTypes).toContain('promotion.executed');
-    // Retirement guard: init.executed removed in DR-5 (task 018).
     expect(EventTypes as readonly string[]).not.toContain('init.executed');
   });
 
+  /**
+   * The SubagentStop hook appends `subagent.tokens_used`, so its source is `auto`.
+   * The schema rejects a negative or fractional token count.
+   */
   it('eventSchemas_SubagentTokensUsed_ValidateAndRegister', () => {
-    // #1525 W2 Half 1 — the restored SubagentStop hook emits subagent.tokens_used
-    // to the feature stream (the handler owns the append) → 'auto' classification.
     expect(EventTypes).toContain('subagent.tokens_used');
     expect(EVENT_EMISSION_REGISTRY['subagent.tokens_used']).toBe('auto');
 
     const schema = EVENT_DATA_SCHEMAS['subagent.tokens_used'];
     expect(schema).toBeDefined();
 
-    // Minimal valid payload: the hook always has agentId + summed outputTokens.
     expect(schema!.safeParse({ agentId: 'agent-abc', outputTokens: 1234 }).success).toBe(true);
 
-    // Fully-correlated payload (teammate resolved via worktree↔cwd at emit time).
     const full = schema!.safeParse({
       agentId: 'agent-abc',
       agentType: 'exarchos-implementer',
@@ -768,19 +572,17 @@ describe('EventTypes', () => {
     });
     expect(full.success).toBe(true);
 
-    // Reject missing agentId / negative tokens / fractional tokens (#1560 — token
-    // counts are integers; fractional values would corrupt downstream aggregates).
     expect(schema!.safeParse({ outputTokens: 10 }).success).toBe(false);
     expect(schema!.safeParse({ agentId: 'a', outputTokens: -1 }).success).toBe(false);
     expect(schema!.safeParse({ agentId: 'a', outputTokens: 12.5 }).success).toBe(false);
   });
 
+  /**
+   * The runtime emits both events at the transition boundary, so each one is `auto`.
+   * `phase.entered` freezes the resolved obligation.
+   * `phase.exited` records the aggregate status of the required gates.
+   */
   it('eventSchemas_PhaseEnteredExited_ValidateAndRegister', () => {
-    // Phase-kind binding S4 (DR-13, epic #1546): resolve-then-freeze records the
-    // resolved obligation as a durable `phase.entered` event; `phase.exited`
-    // records the aggregate gate outcome on phase advance. Both are emitted by
-    // the runtime at the executeTransition boundary → 'auto' classification
-    // (mirrors pr.create.requested / pr.create.executed registration).
     expect(EventTypes).toContain('phase.entered');
     expect(EventTypes).toContain('phase.exited');
     expect(EVENT_EMISSION_REGISTRY['phase.entered']).toBe('auto');
@@ -791,8 +593,6 @@ describe('EventTypes', () => {
     expect(enteredSchema).toBeDefined();
     expect(exitedSchema).toBeDefined();
 
-    // phase.entered carries the frozen obligation (resolver + resolved gate-set
-    // + policy provenance + resolved mode + POLA posture).
     expect(
       enteredSchema?.safeParse({
         phase: 'implement',
@@ -805,7 +605,6 @@ describe('EventTypes', () => {
       }).success,
     ).toBe(true);
 
-    // A GATHER phase carries no gates: null resolver + empty obligation.
     expect(
       enteredSchema?.safeParse({
         phase: 'gather',
@@ -818,8 +617,6 @@ describe('EventTypes', () => {
       }).success,
     ).toBe(true);
 
-    // Unknown policySource is rejected at the persisted-event boundary rather
-    // than laundered onto the durable log.
     expect(
       enteredSchema?.safeParse({
         phase: 'plan',
@@ -832,8 +629,6 @@ describe('EventTypes', () => {
       }).success,
     ).toBe(false);
 
-    // An unknown ResolvedGate family is rejected (the four-family discriminant
-    // is pinned to phase-kind.ts's ResolvedGate union by a drift-guard test).
     expect(
       enteredSchema?.safeParse({
         phase: 'review',
@@ -846,7 +641,6 @@ describe('EventTypes', () => {
       }).success,
     ).toBe(false);
 
-    // An unknown posture is rejected at the persisted-event boundary.
     expect(
       enteredSchema?.safeParse({
         phase: 'plan',
@@ -859,19 +653,14 @@ describe('EventTypes', () => {
       }).success,
     ).toBe(false);
 
-    // phase.exited carries the aggregate required-gate status (non-optional).
     expect(
       exitedSchema?.safeParse({ phase: 'implement', allRequiredGatesPassed: true }).success,
     ).toBe(true);
     expect(exitedSchema?.safeParse({ phase: 'implement' }).success).toBe(false);
   });
 
+  /** A client decline has its own type and is not an `elicitation.fulfilled` with an empty payload. */
   it('EventTypes_IncludesElicitation', () => {
-    // #1274 — all three events carry the elicitation request/response on a
-    // per-operation pseudo-stream so dispatch can correlate by operationId.
-    // `elicitation.declined` was added by the Sentry MEDIUM fix (#1424) so
-    // client decline carries a distinct audit-trail entry instead of
-    // collapsing into `fulfilled` with a falsy payload.
     expect(EventTypes).toContain('elicitation.requested');
     expect(EventTypes).toContain('elicitation.fulfilled');
     expect(EventTypes).toContain('elicitation.declined');
@@ -910,8 +699,6 @@ describe('EventTypes', () => {
   });
 });
 
-// ─── T3: Review Event Schemas ───────────────────────────────────────────────
-
 describe('ReviewRoutedData', () => {
   it('reviewRoutedEvent_ValidPayload_PassesValidation', () => {
     const result = ReviewRoutedData.safeParse({
@@ -937,7 +724,6 @@ describe('ReviewRoutedData', () => {
     const result = ReviewRoutedData.safeParse({
       pr: 42,
       riskScore: 0.75,
-      // missing factors, destination, velocityTier, semanticAugmented
     });
     expect(result.success).toBe(false);
   });
@@ -981,7 +767,7 @@ describe('ReviewFindingData', () => {
     const result = ReviewFindingData.safeParse({
       pr: 42,
       source: 'coderabbit',
-      severity: 'high',  // invalid — not in enum
+      severity: 'high',
       filePath: 'src/merge-gate.ts',
       message: 'Something wrong',
     });
@@ -1006,8 +792,6 @@ describe('ReviewEscalatedData', () => {
     }
   });
 });
-
-// ─── T5: quality.hint.generated Event Type ──────────────────────────────────
 
 describe('QualityHintGeneratedData', () => {
   it('QualityHintGeneratedData_ValidData_PassesValidation', () => {
@@ -1052,9 +836,11 @@ describe('EventTypes', () => {
   });
 });
 
-// ─── DR-5: WorkflowStartedData repo identity ─────────────────────────────────
-
 describe('WorkflowStartedData repoRoot (DR-5)', () => {
+  /**
+   * If the schema loses `repoRoot`, `z.object` strips the unknown key and the parse still succeeds.
+   * Then only the value assertion fails.
+   */
   it('WorkflowStartedData_WithRepoRoot_Parses', () => {
     const result = WorkflowStartedData.safeParse({
       featureId: 'f1',
@@ -1062,14 +848,11 @@ describe('WorkflowStartedData repoRoot (DR-5)', () => {
       repoRoot: '/home/user/exarchos',
     });
     expect(result.success).toBe(true);
-    // The value must survive parsing — a schema WITHOUT the field would strip
-    // the unknown key (z.object is non-strict), so this assertion is what makes
-    // the test fail if `repoRoot` is removed from the schema.
     if (result.success) expect(result.data.repoRoot).toBe('/home/user/exarchos');
   });
 
+  /** Old stored events carry no `repoRoot`, so the field is optional. */
   it('WorkflowStartedData_WithoutRepoRoot_StillParses', () => {
-    // Legacy events carry no repoRoot and MUST remain valid (optional field).
     const result = WorkflowStartedData.safeParse({
       featureId: 'f1',
       workflowType: 'feature',
@@ -1078,8 +861,6 @@ describe('WorkflowStartedData repoRoot (DR-5)', () => {
     if (result.success) expect(result.data.repoRoot).toBeUndefined();
   });
 });
-
-// ─── T07: WorkflowEventBase multi-tenant fields ──────────────────────────────
 
 describe('WorkflowEventBase multi-tenant fields', () => {
   it('WorkflowEventBase_WithTenantId_ParsesSuccessfully', () => {
@@ -1138,8 +919,6 @@ describe('WorkflowEventBase multi-tenant fields', () => {
     }
   });
 });
-
-// ─── T07: Eval Event Type Schemas ──────────────────────────────────────────
 
 describe('EvalRunStartedData', () => {
   it('EvalRunStartedData_ValidPayload_Parses', () => {
@@ -1316,9 +1095,8 @@ describe('WorkflowEventBase — eval event types', () => {
   });
 });
 
-// ─── Task 3.1: quality.hint.generated @planned removal ──────────────────────
-
 describe('schemas_QualityHintGenerated_NotMarkedPlanned', () => {
+  /** The test reads the three lines before the first line that names the schema. */
   it('schemas_QualityHintGenerated_NotMarkedPlanned', async () => {
     const fs = await import('node:fs');
     const path = await import('node:path');
@@ -1328,24 +1106,18 @@ describe('schemas_QualityHintGenerated_NotMarkedPlanned', () => {
     );
     const source = fs.readFileSync(schemasPath, 'utf-8');
 
-    // Find the QualityHintGeneratedData declaration and check
-    // that no @planned annotation appears in the JSDoc immediately
-    // preceding it
     const lines = source.split('\n');
     const declIndex = lines.findIndex((l) =>
       l.includes('QualityHintGeneratedData'),
     );
     expect(declIndex).toBeGreaterThan(0);
 
-    // Check the 3 lines before the declaration for @planned
     const preceding = lines
       .slice(Math.max(0, declIndex - 3), declIndex)
       .join('\n');
     expect(preceding).not.toContain('@planned');
   });
 });
-
-// ─── Task 3: @planned removal promotion tests ──────────────────────
 
 describe('schemas_ReviewFindingData_NotMarkedPlanned', () => {
   it('schemas_ReviewFindingData_NotMarkedPlanned', async () => {
@@ -1389,8 +1161,6 @@ describe('schemas_QualityRegressionData_NotMarkedPlanned', () => {
   });
 });
 
-// ─── Task 4: Schema validation tests ──────────────────────────────
-
 describe('ReviewFindingData validation', () => {
   it('ReviewFindingData_ValidPayload_PassesValidation', () => {
     const payload = {
@@ -1432,8 +1202,6 @@ describe('QualityRegressionData validation', () => {
   });
 });
 
-// ─── Task 5+6: Shepherd schema tests ──────────────────────────────
-
 describe('ShepherdStartedData validation', () => {
   it('ShepherdStartedData_ValidPayload_PassesValidation', () => {
     const payload = { featureId: 'feat-001' };
@@ -1470,8 +1238,6 @@ describe('EventType_ShepherdTypes_ExistInUnion', () => {
     }
   });
 });
-
-// ─── Task 5: WorkflowEventBase max-length constraints ──────────────────────
 
 describe('WorkflowEventBase max-length constraints', () => {
   const validBase = {
@@ -1632,8 +1398,6 @@ describe('WorkflowEventBase max-length constraints', () => {
   });
 });
 
-// ─── Task 1: Max-length constraints on unbounded event payload fields ────────
-
 describe('TaskProgressedData max-length constraints', () => {
   it('TaskProgressedData_MaxDetail_PassesValidation', () => {
     const data = { taskId: 'task-1', tddPhase: 'red', detail: 'a'.repeat(500) };
@@ -1741,8 +1505,6 @@ describe('SessionTaggedData', () => {
   });
 });
 
-// ─── Readiness Event Types ──────────────────────────────────────────────────
-
 describe('Readiness EventTypes', () => {
   it('EventTypes_Contains_WorktreeCreated', () => {
     expect(EventTypes).toContain('worktree.created');
@@ -1777,8 +1539,6 @@ describe('Readiness EventTypes', () => {
   });
 });
 
-// ─── WorktreeCreatedData ────────────────────────────────────────────────────
-
 describe('WorktreeCreatedData', () => {
   it('WorktreeCreatedData_ValidPayload_Parses', () => {
     const result = WorktreeCreatedData.safeParse({
@@ -1797,13 +1557,10 @@ describe('WorktreeCreatedData', () => {
   it('WorktreeCreatedData_MissingFields_Rejects', () => {
     const result = WorktreeCreatedData.safeParse({
       taskId: 'task-001',
-      // missing path and branch
     });
     expect(result.success).toBe(false);
   });
 });
-
-// ─── WorktreeBaselineData ───────────────────────────────────────────────────
 
 describe('WorktreeBaselineData', () => {
   it('WorktreeBaselineData_ValidPayload_Parses', () => {
@@ -1844,13 +1601,10 @@ describe('WorktreeBaselineData', () => {
   it('WorktreeBaselineData_MissingFields_Rejects', () => {
     const result = WorktreeBaselineData.safeParse({
       taskId: 'task-001',
-      // missing path and status
     });
     expect(result.success).toBe(false);
   });
 });
-
-// ─── TestResultData ─────────────────────────────────────────────────────────
 
 describe('TestResultData', () => {
   it('TestResultData_ValidPayload_Parses', () => {
@@ -1885,13 +1639,10 @@ describe('TestResultData', () => {
   it('TestResultData_MissingFields_Rejects', () => {
     const result = TestResultData.safeParse({
       passed: true,
-      // missing passCount and failCount
     });
     expect(result.success).toBe(false);
   });
 });
-
-// ─── TypecheckResultData ────────────────────────────────────────────────────
 
 describe('TypecheckResultData', () => {
   it('TypecheckResultData_ValidPayload_Parses', () => {
@@ -1921,13 +1672,10 @@ describe('TypecheckResultData', () => {
   it('TypecheckResultData_MissingFields_Rejects', () => {
     const result = TypecheckResultData.safeParse({
       passed: true,
-      // missing errorCount
     });
     expect(result.success).toBe(false);
   });
 });
-
-// ─── StackSubmittedData ─────────────────────────────────────────────────────
 
 describe('StackSubmittedData', () => {
   it('StackSubmittedData_ValidPayload_Parses', () => {
@@ -1945,13 +1693,10 @@ describe('StackSubmittedData', () => {
   it('StackSubmittedData_MissingFields_Rejects', () => {
     const result = StackSubmittedData.safeParse({
       branches: ['feature/task-001'],
-      // missing prNumbers
     });
     expect(result.success).toBe(false);
   });
 });
-
-// ─── CiStatusData ───────────────────────────────────────────────────────────
 
 describe('CiStatusData', () => {
   it('CiStatusData_ValidPayload_Parses', () => {
@@ -1988,13 +1733,10 @@ describe('CiStatusData', () => {
 
   it('CiStatusData_MissingFields_Rejects', () => {
     const result = CiStatusData.safeParse({
-      // missing pr and status
     });
     expect(result.success).toBe(false);
   });
 });
-
-// ─── CommentPostedData ──────────────────────────────────────────────────────
 
 describe('CommentPostedData', () => {
   it('CommentPostedData_ValidPayload_Parses', () => {
@@ -2027,13 +1769,10 @@ describe('CommentPostedData', () => {
   it('CommentPostedData_MissingFields_Rejects', () => {
     const result = CommentPostedData.safeParse({
       pr: 101,
-      // missing commentId and body
     });
     expect(result.success).toBe(false);
   });
 });
-
-// ─── CommentResolvedData ────────────────────────────────────────────────────
 
 describe('CommentResolvedData', () => {
   it('CommentResolvedData_ValidPayload_Parses', () => {
@@ -2062,13 +1801,10 @@ describe('CommentResolvedData', () => {
   it('CommentResolvedData_MissingFields_Rejects', () => {
     const result = CommentResolvedData.safeParse({
       pr: 101,
-      // missing threadId and resolvedBy
     });
     expect(result.success).toBe(false);
   });
 });
-
-// ─── Modified StackRestackedData ────────────────────────────────────────────
 
 describe('StackRestackedData (updated)', () => {
   it('StackRestackedData_NewFields_Parses', () => {
@@ -2092,8 +1828,6 @@ describe('StackRestackedData (updated)', () => {
     expect(result.success).toBe(false);
   });
 });
-
-// ─── Modified ShepherdIterationData ─────────────────────────────────────────
 
 describe('ShepherdIterationData (updated)', () => {
   it('ShepherdIterationData_NewFields_Parses', () => {
@@ -2123,8 +1857,6 @@ describe('ShepherdIterationData (updated)', () => {
   });
 });
 
-// ─── T8: team.context.injected removal ──────────────────────────────────────
-
 describe('EventTypes_DoesNotInclude_TeamContextInjected', () => {
   it('EventTypes_DoesNotInclude_TeamContextInjected', () => {
     expect(EventTypes).not.toContain('team.context.injected');
@@ -2139,15 +1871,13 @@ describe('EventTypes_DoesNotInclude_TeamContextInjected', () => {
   });
 });
 
-// ─── T9: registerEventType / unregisterEventType / getValidEventTypes ────
-
 describe('registerEventType', () => {
+  /** This hook removes the custom types that these tests register. */
   afterEach(() => {
-    // Clean up any custom event types registered during tests
-    try { unregisterEventType('deploy.started'); } catch { /* ignore */ }
-    try { unregisterEventType('deploy.finished'); } catch { /* ignore */ }
-    try { unregisterEventType('custom.hello'); } catch { /* ignore */ }
-    try { unregisterEventType('deploy.rollback_started'); } catch { /* ignore */ }
+    try { unregisterEventType('deploy.started'); } catch {}
+    try { unregisterEventType('deploy.finished'); } catch {}
+    try { unregisterEventType('custom.hello'); } catch {}
+    try { unregisterEventType('deploy.rollback_started'); } catch {}
   });
 
   it('RegisterEventType_CustomType_AddsToValidEventTypes', () => {
@@ -2171,10 +1901,8 @@ describe('registerEventType', () => {
     ).toThrow(/already registered/i);
   });
 
+  /** One name grammar decides all three rejections, and each error names the clause that the name broke. */
   it('RegisterEventType_InvalidNameFormat_Throws', () => {
-    // DR-5 (task 075): the three rejections below used to be decided by three separate rules in
-    // this function (an empty-string guard, a `toLowerCase()` comparison and EVENT_NAME_PATTERN).
-    // They are now one — the DR-3 grammar — and each still fails, naming the clause it broke.
     expect(() =>
       registerEventType('nodot', { source: 'model' }),
     ).toThrow(/MISSING_SEPARATOR/);
@@ -2188,33 +1916,31 @@ describe('registerEventType', () => {
     ).toThrow(/MISSING_SEPARATOR/);
   });
 
+  /**
+   * The retired name pattern accepts this name, and the registration seam refuses it.
+   * The error must carry the migration note, because the name was legal under that pattern.
+   */
   it('RegisterEventType_NameTheRetiredPatternAdmitted_ThrowsNamingTheMigration', () => {
-    // THE forward kill fixture, over the PUBLIC seam rather than over the classifier. Both halves
-    // are executed: the retired regex really admitted this name, so the registration really used to
-    // succeed, and the throw is the behaviour change rather than a restatement of the grammar.
     const retiredPattern = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$/;
     const name = 'my-app.started2';
     expect(retiredPattern.test(name)).toBe(true);
 
     expect(() => registerEventType(name, { source: 'auto' })).toThrow(MalformedEventNameError);
-    // The message must NAME the migration — the user's name was legal on the previous version, so
-    // an error that only says "invalid" sends them to read a regex that no longer exists.
     expect(() => registerEventType(name, { source: 'auto' })).toThrow(EVENT_NAME_MIGRATION_NOTE);
     expect(getValidEventTypes()).not.toContain(name);
   });
 
+  /**
+   * The retired name pattern has no `_`, so it refuses this name, and the registration seam accepts it.
+   * `WorkflowEventBase` refuses an unregistered type, so the parse proves that the type is usable.
+   */
   it('RegisterEventType_SnakeCaseNameTheRetiredPatternRefused_NowRegisters', () => {
-    // THE reverse kill fixture. `EVENT_NAME_PATTERN` had no `_` in either character class, so this
-    // shape — the shape 25 of the built-ins in this very file use — could not be registered by a
-    // user even though the catalog was full of it.
     const retiredPattern = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$/;
     const name = 'deploy.rollback_started';
     expect(retiredPattern.test(name)).toBe(false);
 
     registerEventType(name, { source: 'auto' });
     expect(getValidEventTypes()).toContain(name);
-    // And it round-trips through the envelope schema, which is what makes it usable rather than
-    // merely present in a list: `WorkflowEventBase` refuses a type the registry does not carry.
     expect(() =>
       WorkflowEventBase.parse({ streamId: 'feat-x', sequence: 1, type: name }),
     ).not.toThrow();
@@ -2224,7 +1950,6 @@ describe('registerEventType', () => {
     const schema = z.object({ url: z.string() });
     registerEventType('deploy.started', { source: 'hook', schema });
 
-    // The schema should be accessible in EVENT_DATA_SCHEMAS
     expect(EVENT_DATA_SCHEMAS['deploy.started']).toBe(schema);
   });
 
@@ -2237,7 +1962,7 @@ describe('registerEventType', () => {
 
 describe('unregisterEventType', () => {
   afterEach(() => {
-    try { unregisterEventType('deploy.started'); } catch { /* ignore */ }
+    try { unregisterEventType('deploy.started'); } catch {}
   });
 
   it('UnregisterEventType_CustomType_RemovesIt', () => {
@@ -2257,7 +1982,7 @@ describe('unregisterEventType', () => {
 
 describe('getValidEventTypes', () => {
   afterEach(() => {
-    try { unregisterEventType('custom.hello'); } catch { /* ignore */ }
+    try { unregisterEventType('custom.hello'); } catch {}
   });
 
   it('GetValidEventTypes_ReturnsBuiltInPlusCustom', () => {
@@ -2269,7 +1994,6 @@ describe('getValidEventTypes', () => {
     expect(after.length).toBe(beforeCount + 1);
     expect(after).toContain('custom.hello');
 
-    // All built-in types should still be present
     for (const builtIn of EventTypes) {
       expect(after).toContain(builtIn);
     }
@@ -2286,8 +2010,6 @@ describe('isBuiltInEventType', () => {
     expect(isBuiltInEventType('deploy.started')).toBe(false);
   });
 });
-
-// ─── serializeEventCatalog ──────────────────────────────────────────────────
 
 describe('serializeEventCatalog', () => {
   it('SerializeEventCatalog_ReturnsAllBuiltInEventTypes', () => {
@@ -2318,9 +2040,7 @@ describe('serializeEventCatalog', () => {
 
   it('SerializeEventCatalog_IncludesHasSchemaFlag', () => {
     const catalog = serializeEventCatalog();
-    // task.completed has a schema in EVENT_DATA_SCHEMAS
     expect(catalog.types['task.completed'].hasSchema).toBe(true);
-    // state.patched does NOT have a schema in EVENT_DATA_SCHEMAS
     expect(catalog.types['state.patched'].hasSchema).toBe(false);
   });
 
@@ -2330,15 +2050,11 @@ describe('serializeEventCatalog', () => {
   });
 });
 
-// ─── Task 005/006: Model-emitted event schema description drift tests ────────
-
 describe('Model-emitted event schema descriptions', () => {
-  // Get all model-emitted event types
   const modelEmittedTypes = Object.entries(EVENT_EMISSION_REGISTRY)
     .filter(([, source]) => source === 'model')
     .map(([type]) => type);
 
-  /** Narrowing helper for JSON Schema property objects. */
   interface JsonSchemaProperty {
     properties?: Record<string, { description?: string }>;
   }
@@ -2359,7 +2075,7 @@ describe('Model-emitted event schema descriptions', () => {
 
     for (const eventType of modelEmittedTypes) {
       const schema = (EVENT_DATA_SCHEMAS as Record<string, unknown>)[eventType];
-      if (!schema) continue; // skip types without schemas
+      if (!schema) continue;
 
       const jsonSchema: unknown = zodToJsonSchema(schema as z.ZodSchema);
       if (!isJsonSchemaWithProperties(jsonSchema)) continue;
@@ -2395,8 +2111,6 @@ describe('Model-emitted event schema descriptions', () => {
     expect(issues).toEqual([]);
   });
 });
-
-// ─── DR-6: review.completed event type ──────────────────────────────────────
 
 describe('review.completed event type', () => {
   it('EventTypes_ContainsReviewCompleted', () => {
@@ -2436,8 +2150,6 @@ describe('review.completed event type', () => {
   });
 });
 
-// ─── TaskCompletedData acceptanceTestRef (DR-4) ────────────────────────────
-
 describe('TaskCompletedData acceptanceTestRef', () => {
   it('TaskCompletedData_WithAcceptanceTestRef_ParsesSuccessfully', () => {
     const result = TaskCompletedData.safeParse({
@@ -2460,8 +2172,6 @@ describe('TaskCompletedData acceptanceTestRef', () => {
     }
   });
 });
-
-// ─── T1: workflow.pruned event type ─────────────────────────────────────────
 
 describe('WorkflowPrunedData', () => {
   it('eventSchema_workflowPruned_acceptsValidPayload', () => {
@@ -2522,8 +2232,6 @@ describe('WorkflowPrunedData', () => {
   });
 });
 
-// ─── T2: synthesize.requested event type ────────────────────────────────────
-
 describe('SynthesizeRequestedData', () => {
   it('eventSchema_synthesizeRequested_acceptsValidPayload', () => {
     const result = SynthesizeRequestedData.safeParse({
@@ -2577,8 +2285,6 @@ describe('SynthesizeRequestedData', () => {
   });
 });
 
-// ─── diagnostic.executed (exarchos doctor) ──────────────────────────────────
-
 describe('diagnostic.executed event', () => {
   it('EventSchema_DiagnosticExecuted_ParsesSuccessfully', () => {
     expect(EventTypes).toContain('diagnostic.executed');
@@ -2612,8 +2318,6 @@ describe('diagnostic.executed event', () => {
   });
 });
 
-// ─── workflow.checkpoint_requested (T005, DR-4) ─────────────────────────────
-
 describe('WorkflowCheckpointRequestedData', () => {
   it('CheckpointRequested_ValidData_Parses', () => {
     const result = WorkflowCheckpointRequestedData.safeParse({
@@ -2633,13 +2337,8 @@ describe('WorkflowCheckpointRequestedData', () => {
   });
 });
 
-// ─── workflow.checkpoint_written (T006, DR-4) ───────────────────────────────
-
 describe('WorkflowCheckpointWrittenData', () => {
   it('CheckpointWritten_ValidData_Parses', () => {
-    // DR-4: { projectionId: string, projectionSequence: number, byteSize: number }
-    // Emitted after projection materialized + snapshot written, closing the
-    // checkpoint_requested → checkpoint_written loop.
     expect(EventTypes).toContain('workflow.checkpoint_written');
 
     const schema = EVENT_DATA_SCHEMAS['workflow.checkpoint_written' as typeof EventTypes[number]];
@@ -2654,15 +2353,8 @@ describe('WorkflowCheckpointWrittenData', () => {
   });
 });
 
-// ─── workflow.checkpoint_superseded (T007, DR-4) ────────────────────────────
-
 describe('WorkflowCheckpointSupersededData', () => {
   it('CheckpointSuperseded_ValidData_Parses', () => {
-    // DR-4: { priorSequence: number, reason: string }
-    // Emitted when a newer checkpoint supersedes an earlier one — the
-    // priorSequence references the projectionSequence of the checkpoint
-    // now invalidated, and the reason explains why (e.g., 'stale-projection',
-    // 'schema-version-bump').
     expect(EventTypes).toContain('workflow.checkpoint_superseded');
 
     const schema = EVENT_DATA_SCHEMAS['workflow.checkpoint_superseded' as typeof EventTypes[number]];
@@ -2676,15 +2368,8 @@ describe('WorkflowCheckpointSupersededData', () => {
   });
 });
 
-// ─── workflow.rehydrated (T008, DR-4) ───────────────────────────────────────
-
 describe('WorkflowRehydratedData', () => {
   it('Rehydrated_ValidData_Parses', () => {
-    // DR-4: { projectionSequence: number, deliveryPath: "direct"|"ndjson"|"snapshot", tokenEstimate: number }
-    // Emitted when a workflow projection is rehydrated into a session. The
-    // projectionSequence identifies the restored checkpoint, deliveryPath
-    // records the transport (direct embed, streamed ndjson, or snapshot read),
-    // and tokenEstimate captures the approximate context cost of delivery.
     expect(EventTypes).toContain('workflow.rehydrated');
 
     const schema = EVENT_DATA_SCHEMAS['workflow.rehydrated' as typeof EventTypes[number]];
@@ -2699,8 +2384,6 @@ describe('WorkflowRehydratedData', () => {
   });
 
   it('Rehydrated_InvalidDeliveryPath_Rejects', () => {
-    // deliveryPath must be one of: "direct" | "ndjson" | "snapshot".
-    // An unknown value is rejected by the z.enum() validator.
     const schema = EVENT_DATA_SCHEMAS['workflow.rehydrated' as typeof EventTypes[number]];
     expect(schema).toBeDefined();
 
@@ -2712,11 +2395,8 @@ describe('WorkflowRehydratedData', () => {
     expect(result.success).toBe(false);
   });
 
-  // T-10: optional playbook fields (phaseHasPlaybook, phasePlaybookComposed)
-
+  /** A stored event without the two playbook fields stays valid. */
   it('Rehydrated_LegacyPayload_ParsesWithoutPlaybookFields', () => {
-    // Legacy events emitted before T-10 lack both optional fields.
-    // The schema must remain backward-compatible — absence of the fields is valid.
     const schema = EVENT_DATA_SCHEMAS['workflow.rehydrated' as typeof EventTypes[number]];
     expect(schema).toBeDefined();
 
@@ -2729,8 +2409,6 @@ describe('WorkflowRehydratedData', () => {
   });
 
   it('Rehydrated_BothPlaybookFieldsTrue_Parses', () => {
-    // T-10: phaseHasPlaybook and phasePlaybookComposed are both present and true.
-    // This is the "playbook found and composed" path.
     const schema = EVENT_DATA_SCHEMAS['workflow.rehydrated' as typeof EventTypes[number]];
     expect(schema).toBeDefined();
 
@@ -2744,9 +2422,8 @@ describe('WorkflowRehydratedData', () => {
     expect(result.success, JSON.stringify(result)).toBe(true);
   });
 
+  /** A playbook can exist and stay out of the envelope. */
   it('Rehydrated_AsymmetricPlaybookFields_Parses', () => {
-    // T-10: phaseHasPlaybook=true, phasePlaybookComposed=false.
-    // Playbook exists but was not composed into the envelope (e.g. suppressed).
     const schema = EVENT_DATA_SCHEMAS['workflow.rehydrated' as typeof EventTypes[number]];
     expect(schema).toBeDefined();
 
@@ -2761,7 +2438,6 @@ describe('WorkflowRehydratedData', () => {
   });
 
   it('Rehydrated_PlaybookFieldStringValue_Rejects', () => {
-    // T-10: phaseHasPlaybook must be boolean — string "yes" is rejected.
     const schema = EVENT_DATA_SCHEMAS['workflow.rehydrated' as typeof EventTypes[number]];
     expect(schema).toBeDefined();
 
@@ -2775,15 +2451,8 @@ describe('WorkflowRehydratedData', () => {
   });
 });
 
-// ─── workflow.snapshot_taken (T009, DR-4) ───────────────────────────────────
-
 describe('WorkflowSnapshotTakenData', () => {
   it('SnapshotTaken_ValidData_Parses', () => {
-    // DR-4: { projectionId: string, sequence: number }
-    // Emitted when a workflow projection snapshot is persisted. The
-    // projectionId identifies the projection being snapshotted, and the
-    // sequence records the projection sequence captured by the snapshot —
-    // later rehydration can skip replaying events up to that sequence.
     expect(EventTypes).toContain('workflow.snapshot_taken');
 
     const schema = EVENT_DATA_SCHEMAS['workflow.snapshot_taken' as typeof EventTypes[number]];
@@ -2797,16 +2466,8 @@ describe('WorkflowSnapshotTakenData', () => {
   });
 });
 
-// ─── workflow.projection_degraded (T010, DR-4, DR-18) ───────────────────────
-
 describe('WorkflowProjectionDegradedData', () => {
   it('ProjectionDegraded_ValidData_Parses', () => {
-    // DR-4, DR-18: { projectionId: string, cause: string, fallbackSource: string }
-    // Emitted when workflow projection rehydration is degraded (e.g.
-    // reducer throw, corrupt snapshot, missing event stream). The cause
-    // records why the degraded path was taken, and fallbackSource identifies
-    // the alternative data source that serviced the request (e.g.
-    // "state-store-only", "full-replay").
     expect(EventTypes).toContain('workflow.projection_degraded');
 
     const schema = EVENT_DATA_SCHEMAS['workflow.projection_degraded' as typeof EventTypes[number]];
@@ -2820,27 +2481,18 @@ describe('WorkflowProjectionDegradedData', () => {
     expect(result.success, JSON.stringify(result)).toBe(true);
   });
 
+  /** The server emits this degradation signal, so its source is `auto`. */
   it('ProjectionDegraded_ExposedInEmissionGuide_True', () => {
-    // DR-18: projection_degraded is a server-emitted degradation signal.
-    // It must be registered in EVENT_EMISSION_REGISTRY (the emission-guide
-    // enumeration) with an 'auto' source, matching the T005
-    // workflow.checkpoint_requested precedent for infrastructure-emitted events.
     expect(EVENT_EMISSION_REGISTRY).toHaveProperty('workflow.projection_degraded');
     expect(EVENT_EMISSION_REGISTRY['workflow.projection_degraded']).toBe('auto');
 
-    // Also surface via the serializeEventCatalog emission guide output.
     const catalog = serializeEventCatalog();
     expect(catalog.bySource.auto).toContain('workflow.projection_degraded');
   });
 });
 
-// ─── T03: merge.preflight / merge.executed / merge.rollback (DR-MO-2) ───────
-
 describe('MergePreflightData', () => {
   it('MergePreflightEventSchema_ValidPayload_Parses', () => {
-    // DR-MO-2: merge.preflight payload — captures the preflight outcome for
-    // a candidate merge. Preflight failures DO NOT route through merge.rollback;
-    // they surface as `phase: 'aborted'` with `abortReason: 'preflight-failed'`.
     expect(EventTypes).toContain('merge.preflight');
 
     const schema = EVENT_DATA_SCHEMAS['merge.preflight' as typeof EventTypes[number]];
@@ -2861,11 +2513,8 @@ describe('MergePreflightData', () => {
     }
   });
 
+  /** The guard sub-results must survive the parse, so events alone can rebuild the merge timeline. */
   it('MergePreflightEventSchema_NestedSubResults_RoundTrip', () => {
-    // DR-MO-1 AC#1: the structured guard sub-results (ancestry, worktree,
-    // currentBranchProtection, drift) must round-trip through the event
-    // schema so event-sourced timeline reconstruction works without
-    // reading the workflow state file.
     const payload = {
       taskId: 'T11',
       sourceBranch: 'feat/x',
@@ -2903,9 +2552,8 @@ describe('MergePreflightData', () => {
     }
   });
 
+  /** A stored event without the nested sub-results stays valid. */
   it('MergePreflightEventSchema_LegacyPayloadWithoutSubResults_StillParses', () => {
-    // Backward-compatibility: events emitted before the schema widening
-    // omit the nested sub-results. They must still parse.
     const result = MergePreflightData.safeParse({
       taskId: 'T11',
       sourceBranch: 'feat/x',
@@ -2915,16 +2563,10 @@ describe('MergePreflightData', () => {
     expect(result.success).toBe(true);
   });
 
-  // ─── #1362 phase 1 — optional debug branch ────────────────────────────
-  //
-  // The Windows ancestry-mismatch instrumentation attaches a structured
-  // `debug` block to `merge.preflight` events when
-  // `EXARCHOS_PREFLIGHT_DEBUG=1` AND ancestry failed. The branch is
-  // `.optional()` so:
-  //   1. legacy events emitted without it remain parseable
-  //      (`MergePreflightData_WithoutDebugBlock_ValidatesAgainstSchema`).
-  //   2. new events carrying the full payload also parse
-  //      (`MergePreflightData_WithDebugBlock_ValidatesAgainstSchema`).
+  /**
+   * The `debug` block is optional.
+   * The emitter adds it only when `EXARCHOS_PREFLIGHT_DEBUG=1` and the ancestry check fails.
+   */
   it('MergePreflightData_WithoutDebugBlock_ValidatesAgainstSchema', () => {
     const result = MergePreflightData.safeParse({
       taskId: 'T11',
@@ -2984,9 +2626,6 @@ describe('MergePreflightData', () => {
 
 describe('MergeExecutedData', () => {
   it('MergeExecutedEventSchema_ValidPayload_Parses', () => {
-    // DR-MO-2: merge.executed payload — records the post-merge SHA along with
-    // the rollbackSha (the parent commit on the target branch prior to merge)
-    // so a subsequent rollback handler can `git reset --hard <rollbackSha>`.
     expect(EventTypes).toContain('merge.executed');
 
     const schema = EVENT_DATA_SCHEMAS['merge.executed' as typeof EventTypes[number]];
@@ -3008,11 +2647,8 @@ describe('MergeExecutedData', () => {
 });
 
 describe('MergeRollbackData', () => {
+  /** No emitter writes `merge.rollback`. The schema stays so that stored events replay. */
   it('MergeRollbackEventSchema_ValidPayload_Parses', () => {
-    // DR-MO-2: merge.rollback payload — legacy/read-tolerant. Historically
-    // emitted when a merge was reverted; the emitter is retired, but the schema
-    // is retained so historical events still replay.
-    // reason is a closed enum: 'merge-failed' | 'verification-failed' | 'timeout'.
     expect(EventTypes).toContain('merge.rollback');
 
     const schema = EVENT_DATA_SCHEMAS['merge.rollback' as typeof EventTypes[number]];
@@ -3032,8 +2668,6 @@ describe('MergeRollbackData', () => {
   });
 
   it('MergeRollbackEventSchema_UnknownReason_Rejects', () => {
-    // DR-MO-2: reason enum is closed — bogus values must fail parsing so
-    // observability isn't fragmented by free-form rollback reasons.
     const result = MergeRollbackData.safeParse({
       taskId: 'T11',
       sourceBranch: 'feat/x',
@@ -3044,10 +2678,8 @@ describe('MergeRollbackData', () => {
     expect(result.success).toBe(false);
   });
 
+  /** `recoveryError` is a closed enum that names how the recovery failed. */
   it('MergeRollbackEventSchema_ValidRecoveryError_Parses', () => {
-    // #1304 INV-14 discriminator — closed enum on the substrate-undo
-    // outcome. The 'reset-failed' variant is what the current pure
-    // executor emits when `git reset --hard` exits non-zero.
     const result = MergeRollbackData.safeParse({
       taskId: 'T11',
       sourceBranch: 'feat/x',
@@ -3064,9 +2696,6 @@ describe('MergeRollbackData', () => {
   });
 
   it('MergeRollbackEventSchema_UnknownRecoveryError_Rejects', () => {
-    // INV-14 discriminator is a closed enum — values outside the registered
-    // set must fail parsing so observability sees indeterminate worktrees
-    // via the three sanctioned cases rather than via free-form strings.
     const result = MergeRollbackData.safeParse({
       taskId: 'T11',
       sourceBranch: 'feat/x',
@@ -3078,16 +2707,12 @@ describe('MergeRollbackData', () => {
     expect(result.success).toBe(false);
   });
 
+  /**
+   * `merge.rollback` keeps its schema and type-map entry, so stored events replay.
+   * Its source is `retired`, and a `retired` type must not appear in `autoEmits`.
+   * Its successor `merge.recovered` is `auto`.
+   */
   it('schemas_MergeRollback_ReadTolerantButNotEmittable', () => {
-    // DR-2 (task 006) — `merge.rollback` is RETIRED as a write path but stays
-    // READ-TOLERANT: old event logs that already carry it must still parse and
-    // fold (INV-1 replay safety), so the data schema + type-map entry are KEPT.
-    // But it is NON-EMITTABLE — its emission classification is `retired`, and it
-    // must never appear in any action/runbook `autoEmits` (the RegistryDrift
-    // test enforces `autoEmits ⊆ auto`).
-
-    // READ path intact: still a registered event type with a live data schema
-    // that parses a legacy payload.
     expect(EventTypes).toContain('merge.rollback');
     const schema = EVENT_DATA_SCHEMAS['merge.rollback' as typeof EventTypes[number]];
     expect(schema).toBeDefined();
@@ -3101,14 +2726,10 @@ describe('MergeRollbackData', () => {
       }).success,
     ).toBe(true);
 
-    // WRITE path retired: classified `retired`, distinct from every emittable
-    // source. The canonical successor `merge.recovered` remains `auto`.
     expect(EVENT_EMISSION_REGISTRY['merge.rollback']).toBe('retired');
     expect(EVENT_EMISSION_REGISTRY['merge.rollback']).not.toBe('auto');
     expect(EVENT_EMISSION_REGISTRY['merge.recovered']).toBe('auto');
 
-    // The serialized catalog surfaces it under `bySource.retired` (never under
-    // an emittable bucket) while still reporting it has a schema.
     const catalog = serializeEventCatalog();
     expect(catalog.bySource.retired).toContain('merge.rollback');
     expect(catalog.bySource.auto).not.toContain('merge.rollback');
@@ -3127,10 +2748,6 @@ describe('MergeCompletedData', () => {
   });
 
   it('MergeCompletedEventSchema_ValidPayload_Parses', () => {
-    // #1304 INV-10 terminal marker — emitted adjacent to merge.executed by
-    // `handleExecuteMerge`. Carries the same shape as merge.executed
-    // (taskId, branches, mergeSha) plus an optional featureId for
-    // cross-stream observability.
     const result = MergeCompletedData.safeParse({
       taskId: 'T11',
       sourceBranch: 'feat/x',
@@ -3145,9 +2762,8 @@ describe('MergeCompletedData', () => {
     }
   });
 
+  /** Without `mergeSha`, the terminal state of the projection loses its link to the merge commit. */
   it('MergeCompletedEventSchema_MissingMergeSha_Rejects', () => {
-    // mergeSha is required (inherited from MergeExecutedData.pick) — without
-    // it, the projection's terminal state loses the link to the merge SHA.
     const result = MergeCompletedData.safeParse({
       taskId: 'T11',
       sourceBranch: 'feat/x',
@@ -3157,14 +2773,11 @@ describe('MergeCompletedData', () => {
   });
 });
 
-// ─── T15 (#1199): command.resolved event schema ─────────────────────────────
-
+/**
+ * The command resolver emits `command.resolved` for audit.
+ * The union discriminates on `source`: only `unresolved` carries `command: null`, with a remediation.
+ */
 describe('CommandResolvedEventSchema', () => {
-  // Audit-only event emitted by the test/typecheck/install runtime resolver
-  // (#1199). Records where each command resolution came from so downstream
-  // graceful-skip semantics (T17) can distinguish a configured `null` from
-  // an unresolved command for which we should bail with remediation guidance.
-
   it('CommandResolved_Registered_InEventTypesAndRegistry', () => {
     expect(EventTypes).toContain('command.resolved');
     expect(EVENT_EMISSION_REGISTRY['command.resolved']).toBe('auto');
@@ -3266,10 +2879,8 @@ describe('CommandResolvedEventSchema', () => {
     expect(result.success).toBe(false);
   });
 
+  /** `field` is a closed enum of `test`, `typecheck` and `install`. */
   it('commandResolved_UnknownField_Rejected', () => {
-    // Only test/typecheck/install are valid fields — a hypothetical 'lint'
-    // resolver doesn't exist yet; if it ever does, the enum is widened
-    // intentionally rather than via a free-form string.
     const result = CommandResolvedEventSchema.safeParse({
       field: 'lint',
       command: 'eslint .',
@@ -3279,9 +2890,8 @@ describe('CommandResolvedEventSchema', () => {
     expect(result.success).toBe(false);
   });
 
+  /** A resolver with no command emits `command: null` with `source: 'unresolved'`, not an empty string. */
   it('commandResolved_EmptyCommand_Rejected', () => {
-    // Empty string isn't a meaningful command — the resolver should emit
-    // command: null with source: 'unresolved' instead.
     const result = CommandResolvedEventSchema.safeParse({
       field: 'test',
       command: '',
@@ -3301,18 +2911,12 @@ describe('CommandResolvedEventSchema', () => {
   });
 });
 
-// ─── T-17 (DR-8b): task.assigned hint catalog includes optional `branch` ────
-//
-// Orchestrators discover the `task.assigned` event shape via the published
-// schema (rendered as JSON-schema by `handleEventTypeDescribe` /
-// `serializeEventCatalog`'s `hasSchema` flag). The dogfood report flagged
-// that callers couldn't tell whether `branch` was supported on
-// `task.assigned`; this test pins the contract so the catalog stays aligned
-// with `setup_worktree`'s branch-resolution priority (T-09) and with
-// `content/delivery/skills/delegate/SKILL.md`'s pre-emit example.
+/**
+ * Orchestrators read the `task.assigned` shape from the published JSON schema.
+ * That schema must list `branch` and must not mark it required.
+ */
 describe('TaskAssignedData hint catalog', () => {
   it('eventEmissionCatalog_TaskAssigned_OptionalBranchField', () => {
-    // Schema must accept a payload that includes branch...
     const withBranch = TaskAssignedData.safeParse({
       taskId: 'T-001',
       title: 'Wire setup_worktree branch resolution',
@@ -3320,34 +2924,22 @@ describe('TaskAssignedData hint catalog', () => {
     });
     expect(withBranch.success).toBe(true);
 
-    // ...and a payload that omits it (branch must be optional, not required).
     const withoutBranch = TaskAssignedData.safeParse({
       taskId: 'T-002',
       title: 'No branch yet',
     });
     expect(withoutBranch.success).toBe(true);
 
-    // Catalog rendering: the JSON-schema view that callers consume via
-    // `event.describe({ eventTypes: ['task.assigned'] })` must list `branch`
-    // as a property and must NOT mark it required.
     const json = zodToJsonSchema(TaskAssignedData) as {
       properties?: Record<string, unknown>;
       required?: string[];
     };
     expect(json.properties).toBeDefined();
     expect(json.properties).toHaveProperty('branch');
-    // `branch` must be present and optional (i.e., not in the required[]
-    // array — required[] may be absent entirely if no fields are required).
     const required = json.required ?? [];
     expect(required).not.toContain('branch');
   });
 });
-
-// ─── T02 (DR-4, DR-10): hsm.deprecated_action_invoked event schema ──────────
-//
-// Telemetry signal for the HSM API single-path migration (DR-4). Each invocation
-// of a deprecated action (e.g., `workflow.set({phase})`) emits this event so the
-// migration window can be measured before removing the legacy path. Plan task T02.
 
 describe('HsmDeprecatedActionInvokedData', () => {
   it('EventSchemas_HsmDeprecatedActionInvoked_ValidatesAndRoundtrips', () => {
@@ -3376,15 +2968,6 @@ describe('HsmDeprecatedActionInvokedData', () => {
   });
 });
 
-// ─── T03 (DR-6, DR-7, DR-10): spec.legacy_capabilities_array + ─────────────
-//                                phase.contract_missing event schemas
-//
-// `spec.legacy_capabilities_array` (DR-6) — emitted when a spec uses the legacy
-// `capabilities[]` array shape during the transition window so capability-posture
-// telemetry can drive the migration.
-// `phase.contract_missing` (DR-7) — emitted once at startup per phase that
-// lacks a typed contract so the phase-contract migration is observable.
-
 describe('SpecLegacyCapabilitiesArrayData', () => {
   it('EventSchemas_SpecLegacyCapabilitiesArray_ValidatesAndRoundtrips', () => {
     expect(EventTypes).toContain('spec.legacy_capabilities_array');
@@ -3403,9 +2986,8 @@ describe('SpecLegacyCapabilitiesArrayData', () => {
     }
   });
 
+  /** An empty array is still the legacy shape. */
   it('EventSchemas_SpecLegacyCapabilitiesArray_EmptyCapabilitiesAccepted', () => {
-    // A legacy spec with an empty capabilities array is still a legacy-shape
-    // signal worth recording.
     const result = SpecLegacyCapabilitiesArrayData.safeParse({
       specName: 'empty-spec',
       capabilities: [],
@@ -3422,6 +3004,7 @@ describe('SpecLegacyCapabilitiesArrayData', () => {
   });
 });
 
+/** Nothing emits this type. The schema stays so that old event logs decode. */
 describe('PhaseContractMissingData', () => {
   it('EventSchemas_PhaseContractMissing_ValidatesAndRoundtrips', () => {
     expect(EventTypes).toContain('phase.contract_missing');
@@ -3442,22 +3025,12 @@ describe('PhaseContractMissingData', () => {
   });
 });
 
-// ─── T04 (DR-9, DR-10): migration.* event schemas ──────────────────────────
-//
-// Migration pipeline observability for the JSONL→SQLite import (DR-9).
-// `migration.legacy_jsonl_imported` — per-file completion event.
-// `migration.completed` — final aggregate event after the import succeeds.
-// `migration.failed` — emitted on failure; includes partial-progress counters
-// so operators can resume or retry from a known point.
-
 describe('MigrationLegacyJsonlImportedData', () => {
   it('EventSchemas_MigrationLegacyJsonlImported_ValidatesAndRoundtrips', () => {
     expect(EventTypes).toContain('migration.legacy_jsonl_imported');
     const schema = EVENT_DATA_SCHEMAS['migration.legacy_jsonl_imported' as typeof EventTypes[number]];
     expect(schema).toBeDefined();
 
-    // T65: sourcePath is state-dir-relative for INV-1 portability (no
-    // absolute paths in the durable event log).
     const payload = {
       sourcePath: 'wf-1.events.jsonl',
       eventCount: 142,
@@ -3481,12 +3054,7 @@ describe('MigrationLegacyJsonlImportedData', () => {
     expect(result.success).toBe(false);
   });
 
-  // T65 (CodeRabbit #3): persisting absolute paths into the source-of-truth
-  // event log leaks machine-specific identifiers (home directories, usernames)
-  // into the durable archive and breaks INV-1 portability — events should be
-  // replayable across machines (e.g. a developer pulling the SQLite from a
-  // teammate's setup) and across the future basileus-remote shared store
-  // (#1081). The schema must therefore reject absolute paths in `sourcePath`.
+  /** An absolute path puts a machine-specific name in the log and blocks replay on another machine. */
   it('EventSchemas_MigrationLegacyJsonlImported_AbsolutePosixPath_Rejects', () => {
     const result = MigrationLegacyJsonlImportedData.safeParse({
       sourcePath: '/var/exarchos/streams/wf-1.events.jsonl',
@@ -3542,9 +3110,8 @@ describe('MigrationCompletedData', () => {
     }
   });
 
+  /** A run with zero files still records completion. */
   it('EventSchemas_MigrationCompleted_ZeroFilesAccepted', () => {
-    // Completing a no-op migration (no JSONL files present) is still a valid
-    // outcome — the lock holder should record completion so siblings unblock.
     const result = MigrationCompletedData.safeParse({
       filesImported: 0,
       eventsImported: 0,
@@ -3574,9 +3141,8 @@ describe('MigrationFailedData', () => {
     }
   });
 
+  /** `reason` is the diagnostic that the operator reads. */
   it('EventSchemas_MigrationFailed_EmptyReason_Rejects', () => {
-    // The reason field is the operator-facing diagnostic; an empty string
-    // would fragment observability with information-free failure events.
     const result = MigrationFailedData.safeParse({
       reason: '',
       partialFilesImported: 0,
@@ -3586,18 +3152,14 @@ describe('MigrationFailedData', () => {
   });
 });
 
-// ─── T-11: session.machinery_consumed ────────────────────────────────────────
-
 describe('SessionMachineryConsumedDataSchema', () => {
+  /** A dispatch-core interceptor emits this event, so its source is `auto`. */
   it('EventEmissionRegistry_SessionMachineryConsumed_IsAutoSource', () => {
-    // T-11: The event must be registered in the emission registry as 'auto'
-    // so the dispatch-core interceptor (T-12) can emit it without model involvement.
     expect(EVENT_EMISSION_REGISTRY).toHaveProperty('session.machinery_consumed');
     expect(EVENT_EMISSION_REGISTRY['session.machinery_consumed' as keyof typeof EVENT_EMISSION_REGISTRY]).toBe('auto');
   });
 
   it('EventSchemas_SessionMachineryConsumed_ValidPayload_ParsesSuccessfully', () => {
-    // T-11: Canonical valid payload — all three required fields present.
     const result = SessionMachineryConsumedDataSchema.safeParse({
       rehydrateSequence: 0,
       firstActionVerb: 'task_complete',
@@ -3607,8 +3169,6 @@ describe('SessionMachineryConsumedDataSchema', () => {
   });
 
   it('EventSchemas_SessionMachineryConsumed_NegativeRehydrateSequence_Rejects', () => {
-    // T-11: rehydrateSequence must be non-negative — a negative counter is
-    // nonsensical and would corrupt lifecycle ordering downstream.
     const result = SessionMachineryConsumedDataSchema.safeParse({
       rehydrateSequence: -1,
       firstActionVerb: 'task_complete',
@@ -3618,9 +3178,6 @@ describe('SessionMachineryConsumedDataSchema', () => {
   });
 
   it('EventSchemas_SessionMachineryConsumed_NonIsoTimestamp_Rejects', () => {
-    // T-11: firstActionAt must be a valid ISO 8601 datetime — free-form
-    // strings would break timeline reconstruction and the `wait --condition`
-    // comparators that depend on this field.
     const result = SessionMachineryConsumedDataSchema.safeParse({
       rehydrateSequence: 0,
       firstActionVerb: 'task_complete',
@@ -3630,8 +3187,6 @@ describe('SessionMachineryConsumedDataSchema', () => {
   });
 
   it('EventSchemas_SessionMachineryConsumed_MissingRehydrateSequence_Rejects', () => {
-    // T-11: rehydrateSequence is required — absence prevents `wait --condition=machinery_consumed`
-    // from correlating to the right rehydration cycle.
     const result = SessionMachineryConsumedDataSchema.safeParse({
       firstActionVerb: 'task_complete',
       firstActionAt: '2026-05-09T20:00:00.000Z',
@@ -3640,8 +3195,6 @@ describe('SessionMachineryConsumedDataSchema', () => {
   });
 
   it('EventSchemas_SessionMachineryConsumed_MissingFirstActionVerb_Rejects', () => {
-    // T-11: firstActionVerb is required — it records what the agent did first
-    // after consuming machinery, providing actionable observability context.
     const result = SessionMachineryConsumedDataSchema.safeParse({
       rehydrateSequence: 0,
       firstActionAt: '2026-05-09T20:00:00.000Z',
@@ -3650,8 +3203,6 @@ describe('SessionMachineryConsumedDataSchema', () => {
   });
 
   it('EventSchemas_SessionMachineryConsumed_MissingFirstActionAt_Rejects', () => {
-    // T-11: firstActionAt is required — the timestamp anchors the machinery
-    // consumption to wall-clock time for ps/wait lifecycle queries.
     const result = SessionMachineryConsumedDataSchema.safeParse({
       rehydrateSequence: 0,
       firstActionVerb: 'task_complete',
@@ -3660,13 +3211,12 @@ describe('SessionMachineryConsumedDataSchema', () => {
   });
 });
 
-// ─── B6: Wave B two-event split schema registration regression ───────────────
-//
-// Asserts that all 10 Wave B event types are registered in EVENT_DATA_SCHEMAS
-// and accept / reject canonical payloads. This is a schema-level regression
-// check — it does NOT test handler idempotency (B*.3), which is handled by
-// the per-handler agents B1–B5.
-
+/**
+ * These tests check that the ten two-event split types are registered.
+ * Each schema must accept a canonical payload.
+ * Each `requested` schema must reject a payload without `operationId`.
+ * Handler idempotency is not in scope.
+ */
 describe('EventSchemaRegistry_RegistersAllNewTwoEventSplitTypes', () => {
   const TWO_EVENT_TYPES = [
     'pr.create.requested',
@@ -3681,14 +3231,12 @@ describe('EventSchemaRegistry_RegistersAllNewTwoEventSplitTypes', () => {
     'worktree.remove.executed',
   ] as const;
 
-  // B6.1 — all 10 types are in the EventTypes const tuple (built-in)
   it('B6_AllTenTypes_RegisteredInEventTypesArray', () => {
     for (const eventType of TWO_EVENT_TYPES) {
       expect(EventTypes).toContain(eventType);
     }
   });
 
-  // B6.2 — all 10 types have schemas in EVENT_DATA_SCHEMAS (not undefined)
   it('B6_AllTenTypes_HaveSchemaInEventDataSchemas', () => {
     for (const eventType of TWO_EVENT_TYPES) {
       expect(EVENT_DATA_SCHEMAS).toHaveProperty(eventType);
@@ -3698,7 +3246,6 @@ describe('EventSchemaRegistry_RegistersAllNewTwoEventSplitTypes', () => {
     }
   });
 
-  // B6.3 — all 10 types are classified as 'auto' in the emission registry
   it('B6_AllTenTypes_HaveAutoEmissionSource', () => {
     for (const eventType of TWO_EVENT_TYPES) {
       expect(
@@ -3706,8 +3253,6 @@ describe('EventSchemaRegistry_RegistersAllNewTwoEventSplitTypes', () => {
       ).toBe('auto');
     }
   });
-
-  // B6.4 — canonical valid payload accepted for each schema
 
   it('B6_PrCreateRequested_ValidPayload_Accepts', () => {
     const result = PrCreateRequestedData.safeParse({
@@ -3806,9 +3351,7 @@ describe('EventSchemaRegistry_RegistersAllNewTwoEventSplitTypes', () => {
     expect(result.success, JSON.stringify(result)).toBe(true);
   });
 
-  // B6.5 — negative tests: each *.requested type rejects when operationId is missing
-  // (operationId is required on all *.requested types — it's the idempotency anchor)
-
+  /** Each `requested` type requires `operationId`, because it is the idempotency anchor. */
   it('B6_PrCreateRequested_MissingOperationId_Rejects', () => {
     const result = PrCreateRequestedData.safeParse({
       title: 'feat: add new feature',
@@ -3849,7 +3392,7 @@ describe('EventSchemaRegistry_RegistersAllNewTwoEventSplitTypes', () => {
     expect(result.success).toBe(false);
   });
 
-  // B6.6 — *.requested types reject a malformed (non-uuid) operationId
+  /** `operationId` must be a UUID. */
   it('B6_PrCreateRequested_InvalidOperationId_Rejects', () => {
     const result = PrCreateRequestedData.safeParse({
       operationId: 'not-a-uuid',
@@ -3861,8 +3404,6 @@ describe('EventSchemaRegistry_RegistersAllNewTwoEventSplitTypes', () => {
     expect(result.success).toBe(false);
   });
 });
-
-// ─── PR3 T7: tool.action_errored event type registration (#1364) ────────────
 
 describe('EventStoreSchemas_ToolActionErrored_HasRegisteredType', () => {
   it('includes tool.action_errored in the EventType union', () => {
@@ -3888,7 +3429,6 @@ describe('EventStoreSchemas_ToolActionErrored_HasRegisteredType', () => {
     });
     expect(valid.success).toBe(true);
 
-    // Reject when required fields are missing
     const missingCode = schema.safeParse({
       tool: 'exarchos_orchestrate',
       durationMs: 12,
@@ -3961,7 +3501,6 @@ describe('merge.retry_attempt (#1308 transient-failure retry)', () => {
   )['merge.retry_attempt'];
 
   it('Schemas_MergeRetryAttempt_Registered', () => {
-    // Registered as an event type with the expected retry payload shape.
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(retrySchema).toBeDefined();
     const parsed = retrySchema!.parse({
@@ -3983,8 +3522,6 @@ describe('merge.executing_started (#1309 liveness event)', () => {
   )['merge.executing_started'];
 
   it('Schemas_MergeExecutingStarted_Registered', () => {
-    // Registered as an event type carrying the liveness payload shape
-    // { taskId, sourceBranch, targetBranch, recoveryPointSha, startedAt }.
     expect(EventTypes).toContain('merge.executing_started');
     expect(startedSchema).toBeDefined();
     const parsed = startedSchema!.parse({
@@ -4002,9 +3539,8 @@ describe('merge.executing_started (#1309 liveness event)', () => {
     });
   });
 
+  /** A direct CLI call has no task context, so `taskId` is optional. */
   it('MergeExecutingStarted_TaskIdOptional_ParsesWithoutIt', () => {
-    // taskId is optional (CLI direct-invocation has no task context), mirroring
-    // the other merge events.
     expect(startedSchema).toBeDefined();
     const parsed = startedSchema!.parse({
       sourceBranch: 'feat/x',
@@ -4027,14 +3563,10 @@ describe('merge.executing_started (#1309 liveness event)', () => {
   });
 });
 
-// ─── WLM foundation: worktree lifecycle event family ────────────────────────
-//
-// The lease/ownership half — `worktree.adopted` / `worktree.reserved` /
-// `worktree.released` / `worktree.orphan_detected` — added alongside the
-// REUSED `worktree.remove.requested`/`worktree.remove.executed` GC pair. The
-// per-invocation `operationId` drives the existing two-component
-// `<eventType>:<operationId>` idempotency key (see workflow/compensation.ts).
-
+/**
+ * These schemas are the lease and ownership half of the worktree lifecycle.
+ * Only `worktree.reserved` requires a non-null `ownerPid`.
+ */
 describe('WLM worktree lifecycle schemas', () => {
   const NEW_LIFECYCLE_TYPES = [
     'worktree.adopted',
@@ -4043,9 +3575,6 @@ describe('WLM worktree lifecycle schemas', () => {
     'worktree.orphan_detected',
   ] as const;
 
-  // A well-formed payload for each new type. `worktree.reserved` carries a
-  // non-null owner (it records who holds the lease); the other three may pass
-  // null for ownerPid/ownerStartedAt.
   const wellFormed = (
     type: (typeof NEW_LIFECYCLE_TYPES)[number],
     operationId: string,
@@ -4062,10 +3591,6 @@ describe('WLM worktree lifecycle schemas', () => {
   };
 
   it('WorktreeSchemas_FourNewLifecycleTypes_RegisteredAndValidate', () => {
-    // Each new type must be wired into EVERY map the existing worktree family
-    // appears in: the EventTypes union, the emission registry (classified
-    // 'auto' like the remove pair), and the data-schema map — and validate a
-    // well-formed payload.
     for (const type of NEW_LIFECYCLE_TYPES) {
       expect(EventTypes, `${type} missing from EventTypes`).toContain(type);
       expect(EVENT_EMISSION_REGISTRY[type], `${type} should be classified 'auto'`).toBe('auto');
@@ -4084,8 +3609,6 @@ describe('WLM worktree lifecycle schemas', () => {
   });
 
   it('WorktreeSchemas_FeatureIdNullAndReservedOwner_BehaveAsSpecified', () => {
-    // featureId is `string | null` across the family; ownerPid/ownerStartedAt
-    // are non-null ONLY for worktree.reserved.
     const reserved = WorktreeReservedData.parse(
       wellFormed('worktree.reserved', randomUUID()),
     );
@@ -4104,13 +3627,11 @@ describe('WLM worktree lifecycle schemas', () => {
     expect(adopted.ownerPid).toBeNull();
   });
 
+  /**
+   * `ownerStartedAt` is null when the platform cannot resolve the create time of the reserving process.
+   * The schema accepts null or a non-empty string and rejects the empty string.
+   */
   it('WorktreeSchemas_ReservedOwnerStartedAt_NullReadyNeverEmptyString', () => {
-    // DR-5: `worktree.reserved` may carry ownerStartedAt: null when the platform
-    // cannot resolve the reserving process's create-time — mirroring the
-    // launcher's `.min(1).nullable()` holderStartedAt. A NON-EMPTY string is
-    // still accepted (the resolved case), and the reservation keeps its non-null
-    // ownerPid, but the empty string `''` is the ONE forbidden value: it would
-    // reconstitute the `''`-vs-`.min(1)` invalid-raw-event class this closes.
     const base = {
       worktreeId: '/repo/.worktrees/agent-abc',
       path: '/repo/.worktrees/agent-abc',
@@ -4119,46 +3640,40 @@ describe('WLM worktree lifecycle schemas', () => {
       ownerPid: 4242,
     };
 
-    // null create-time → accepted (the create-time-unresolvable platform).
     const nullStart = WorktreeReservedData.parse({ ...base, ownerStartedAt: null });
     expect(nullStart.ownerStartedAt).toBeNull();
     expect(nullStart.ownerPid).toBe(4242);
 
-    // resolved non-empty create-time → accepted (defeats PID reuse).
     const resolved = WorktreeReservedData.parse({
       ...base,
       ownerStartedAt: '2026-06-25T00:00:00.000Z',
     });
     expect(resolved.ownerStartedAt).toBe('2026-06-25T00:00:00.000Z');
 
-    // empty string → REJECTED (never persist '' — that is the invalid class).
     expect(() =>
       WorktreeReservedData.parse({ ...base, ownerStartedAt: '' }),
     ).toThrow();
   });
 
+  /**
+   * Garbage collection reuses the remove pair, so no `worktree.pruned` type exists.
+   * The optional `worktreeId` lets the reducer drop a worktree by its canonical key
+   * without `realpath()` at fold time.
+   * The parse does not add an absent `worktreeId` to the result.
+   */
   it('WorktreeSchemas_ReuseExistingRemoveRequestedExecuted_NotDuplicated', () => {
-    // GC deletion REUSES the remove pair — no `worktree.pruned` type is
-    // introduced. (The `worktree.merge_*` pair IS introduced separately by the
-    // WLM operational-core layer — DR-4 / DR-7 — and is asserted elsewhere.)
     for (const forbidden of ['worktree.pruned']) {
       expect(EventTypes as readonly string[]).not.toContain(forbidden);
       expect(EVENT_DATA_SCHEMAS as Record<string, unknown>).not.toHaveProperty(forbidden);
     }
 
-    // The remove pair is REUSED (no new event types). Its identity is still
-    // operationId + worktreePath, with an OPTIONAL `worktreeId` the emitter
-    // stamps so the reducer can drop by the already-canonical key WITHOUT a
-    // realpath() at fold time (deterministic cold rebuild). Optional =
-    // backward-compatible: a legacy event omitting it still parses, and an
-    // absent optional field is NOT injected onto the parsed object.
     expect(EventTypes).toContain('worktree.remove.requested');
     expect(EventTypes).toContain('worktree.remove.executed');
     const requested = WorktreeRemoveRequestedData.parse({
       operationId: randomUUID(),
       worktreePath: '/repo/.worktrees/gc-me',
     }) as Record<string, unknown>;
-    expect(requested).not.toHaveProperty('worktreeId'); // absent ⇒ not injected.
+    expect(requested).not.toHaveProperty('worktreeId');
     const executed = WorktreeRemoveExecutedData.parse({
       operationId: randomUUID(),
       worktreePath: '/repo/.worktrees/gc-me',
@@ -4166,7 +3681,6 @@ describe('WLM worktree lifecycle schemas', () => {
     }) as Record<string, unknown>;
     expect(executed).not.toHaveProperty('worktreeId');
 
-    // When the emitter DOES stamp it, the canonical worktreeId round-trips.
     const stampedReq = WorktreeRemoveRequestedData.parse({
       operationId: randomUUID(),
       worktreePath: '/repo/.worktrees/gc-me',
@@ -4182,11 +3696,8 @@ describe('WLM worktree lifecycle schemas', () => {
     expect(stampedExe.worktreeId).toBe('/repo/.worktrees/gc-me');
   });
 
+  /** The test builds the `<eventType>:<operationId>` key itself from the parsed payload. */
   it('WorktreeSchemas_LifecycleKey_IncludesOperationId', () => {
-    // The idempotency key is the existing TWO-component `<eventType>:<operationId>`
-    // form (mirrors `worktree.remove.requested:${operationId}`), NOT a path-based
-    // or 5-component compound key. operationId is sourced from the validated
-    // payload so the contract is coupled to the registered schema.
     const operationId = randomUUID();
     const schema = EVENT_DATA_SCHEMAS['worktree.reserved'];
     expect(schema).toBeDefined();
@@ -4200,11 +3711,11 @@ describe('WLM worktree lifecycle schemas', () => {
     expect(key.endsWith(operationId)).toBe(true);
   });
 
+  /**
+   * The `operationId` of each call, not the path, separates the keys.
+   * The test builds the three keys itself.
+   */
   it('WorktreeSchemas_ReserveReleaseReacquire_ProducesDistinctKeys_NoSilentCollapse', () => {
-    // Three appends — reserve → release → re-reserve — over the same worktree,
-    // each with a freshly-minted operationId, must yield three distinct keys.
-    // The per-invocation operationId (not the path) is the discriminator, so the
-    // re-acquire never silently collapses onto the original reservation.
     const steps: Array<[(typeof NEW_LIFECYCLE_TYPES)[number], string]> = [
       ['worktree.reserved', randomUUID()],
       ['worktree.released', randomUUID()],
@@ -4219,7 +3730,6 @@ describe('WLM worktree lifecycle schemas', () => {
     });
 
     expect(new Set(keys).size).toBe(3);
-    // The two reserve keys share the event-type prefix but differ by operationId.
     expect(keys[0]).not.toBe(keys[2]);
     expect(keys[0].startsWith('worktree.reserved:')).toBe(true);
     expect(keys[2].startsWith('worktree.reserved:')).toBe(true);
@@ -4228,7 +3738,6 @@ describe('WLM worktree lifecycle schemas', () => {
   it('WorktreeSchemas_MalformedPayload_RejectedByZod', () => {
     const operationId = randomUUID();
 
-    // Missing required worktreeId.
     expect(() =>
       WorktreeReservedData.parse({
         path: '/repo/.worktrees/agent-abc',
@@ -4239,7 +3748,6 @@ describe('WLM worktree lifecycle schemas', () => {
       }),
     ).toThrow();
 
-    // worktree.reserved requires a non-null owner — null ownerPid is rejected.
     expect(() =>
       WorktreeReservedData.parse({
         ...wellFormed('worktree.reserved', operationId),
@@ -4247,7 +3755,6 @@ describe('WLM worktree lifecycle schemas', () => {
       }),
     ).toThrow();
 
-    // Wrong field type (path as a number).
     expect(() =>
       WorktreeOrphanDetectedData.parse({
         ...wellFormed('worktree.orphan_detected', operationId),
@@ -4255,7 +3762,6 @@ describe('WLM worktree lifecycle schemas', () => {
       }),
     ).toThrow();
 
-    // operationId must be a UUID, not an arbitrary string.
     expect(() =>
       WorktreeReleasedData.parse({
         ...wellFormed('worktree.released', operationId),
@@ -4265,17 +3771,12 @@ describe('WLM worktree lifecycle schemas', () => {
   });
 });
 
-// ─── WLM operational-core: serialized-merge lease pair (DR-4 / DR-7) ─────────
-//
-// `worktree.merge_requested` (CLAIM + lease record) / `worktree.merge_executed`
-// (RELEASE + outcome) ride the singleton `worktrees` stream alongside the
-// lifecycle family. They are correlated by `operationId`, which is the SOLE
-// per-merge discriminator: two merges onto the SAME integrationRef mint two
-// operationIds and therefore two distinct idempotency keys, so they never
-// collide. The CLAIM key is derived by the event-store `decide` seam
-// (`${streamId}:${reducerId}:${operationId}`); the RELEASE is a plain keyed
-// append `<eventType>:<operationId>`.
-
+/**
+ * `worktree.merge_requested` claims the merge lease and `worktree.merge_executed` releases it.
+ * Both events are on the singleton `worktrees` stream.
+ * `operationId` is the only discriminator, so two merges onto one `integrationRef` have distinct keys.
+ * This block also holds tests of the catalog count, the VCS ledger, `promotion.executed` and `emission.violated`.
+ */
 describe('WLM operational-core merge lease schemas', () => {
   const MERGE_TYPES = ['worktree.merge_requested', 'worktree.merge_executed'] as const;
 
@@ -4295,114 +3796,64 @@ describe('WLM operational-core merge lease schemas', () => {
   });
 
   it('EventTypes_IncludesWorktreeMergeRequestedAndExecuted', () => {
-    // Both new types must be members of the closed EventTypes union.
     expect(EventTypes).toContain('worktree.merge_requested');
     expect(EventTypes).toContain('worktree.merge_executed');
   });
 
+  /** The count pins the size of the catalog, and the set check proves that no type is a duplicate. */
   it('EventTypes_CountPins_159_AdmissionProofSchemasAreAdditive', () => {
-    // The single canonical count after adding the two operational-core merge
-    // types (136 foundation → 138), main's `workflow.plan-revision` merged in
-    // (138 → 139), the harness-launcher (DR-2) create pair + launch liveness
-    // pair (139 → 143), the WLM slice 3 (DR-3) prune-run liveness pair
-    // prune.executing_started / prune.executed (143 → 145), WLM-6 (DR-2)
-    // `workflow.plan-review-dispatched` (145 → 146), and the DR-6 (lifecycle-verbs
-    // task 012) two-event `export` contract export.requested / export.executed
-    // (146 → 148), followed by 11 admission proof events and five internal
-    // cancellation process-manager facts (148 → 164), plus the P04-02 (EFF-005)
-    // saga triad — cancel.ownership-acquired, cancel.compensation-retry-scheduled,
-    // cancel.manual-intervention-required (164 → 167), plus the DR-4
-    // (wiring-closure T-06) durable projection-health pair projection.degraded /
-    // projection.recovered (167 → 169), plus the #1739 cutover promotion path's
-    // admission.cutover-ready first-readiness fact (169 → 170 — the 12th
-    // admission replay contract), plus task 068's invariant.amended — the
-    // audit record of an invariant-catalog amendment (170 → 171), plus the
-    // VCS mutation ledger triad vcs.requested / vcs.executed / vcs.compensated,
-    // lifted out of the runtime registration seam into the catalog (171 → 174),
-    // plus promotion.executed — the atomic tree-promotion record, which no seam
-    // registered anywhere (174 → 175), plus emission.violated — the
-    // post-dispatch verifier's report of a declared emission that did not land
-    // (175 → 176), plus prune.diagnostics — the prune evaluation's audit line,
-    // which reached the store through a widening assertion instead of the
-    // catalog (176 → 177), plus orchestrate.intent_executed — the bounded
-    // action executor's own operation record, appended by its handler on both
-    // the committed and the failed path (177 → 178).
-    // Bumped 177 → 178 above by `orchestrate.intent_executed`, then 178 → 180
-    // by the `gate.executed` split (#1898 item 8) — `tool.budget_exceeded` and
-    // `ci.check_observed`, the two uses of that name that never governed
-    // anything and were folded by the governance views as though they did.
-    // Bumped 180 → 181 by `execution.settled` — the semantic plane's settlement
-    // record, appended by `settle` on every adjudicated outcome. It lands with
-    // its emitter rather than ahead of it, which is the rule the semantic kinds
-    // are held to: a registered name nothing writes is a catalog entry that
-    // cannot be told apart from a declaration nobody finished.
-    // Bumped 182 → 184 by `deviation.proposed` and `deviation.decided` — the
-    // divergence loop's decision facts, appended by `settle`: one proposal per
-    // deviation a held batch waits on, one decision per proposal when the
-    // batch is settled again with the decisions. Both land with their emitter.
     expect(EventTypes).toHaveLength(184);
-    // No duplicate slipped in while bumping the count.
     expect(new Set(EventTypes).size).toBe(EventTypes.length);
   });
 
+  /**
+   * The catalog declares the three ledger names as built-in types with a data schema.
+   * A runtime registration puts a name in the custom set.
+   * That name has no `EventDataMap` entry and no coupling annotation.
+   * The test reads the names from the constants of the mutation owner, so a rename on one side fails.
+   * The mutation owner must not export `ensureVcsMutationEventTypes`, because that name implies a live registration path.
+   * A custom name still registers, so the two `toThrow` checks are facts about these three names.
+   */
   it('VcsLedgerEvents_RuntimeSeam_IsNoLongerUsed', () => {
-    // The mutation owner used to call `registerEventType` from its constructor for these three
-    // names. That seam buys a valid name and nothing else: a runtime registration lands in the
-    // custom set, so the name has no data schema unless one is passed, no entry in
-    // `EventDataMap`, and no coupling annotation at all — which is why the three busiest effect
-    // records in the tree were invisible to every static reader of the catalog.
     const LEDGER = [
       mutationOwner.VCS_REQUESTED,
       mutationOwner.VCS_EXECUTED,
       mutationOwner.VCS_COMPENSATED,
     ];
-    // Read off the owner's own constants rather than re-spelling the strings here, so a rename
-    // on either side is a failure rather than two files quietly disagreeing.
     expect(LEDGER).toEqual(['vcs.requested', 'vcs.executed', 'vcs.compensated']);
 
     for (const name of LEDGER) {
-      // BUILT-IN, which is the thing runtime registration structurally cannot produce:
-      // `registerEventType` writes into the custom set, never into the built-in one.
       expect(isBuiltInEventType(name), `${name} is not a built-in event type`).toBe(true);
       expect(getValidEventTypes()).toContain(name);
 
-      // And the seam is now closed to them — a built-in name cannot be re-registered, so a
-      // caller that tries to go back to the old path gets an error rather than a silent
-      // duplicate registration.
       expect(() => registerEventType(name, { source: 'auto' })).toThrow(
         /collides with built-in event type/,
       );
-      // The mirror: they cannot be unregistered either, so no test cleanup or config reload can
-      // remove a ledger name from the catalog mid-run.
       expect(() => unregisterEventType(name)).toThrow(/Cannot unregister built-in/);
 
-      // What the seam never gave them: a parseable payload contract.
       expect(EVENT_DATA_SCHEMAS[name], `${name} has no data schema`).toBeDefined();
     }
 
-    // The registration helper is GONE from the owner, not merely unreachable. Left in place it
-    // would read as the live registration path for names the catalog now owns.
     expect(Object.keys(mutationOwner)).not.toContain('ensureVcsMutationEventTypes');
 
-    // Non-vacuity for the two negative assertions above: the seam still works for a name the
-    // catalog does NOT own, so "throws" is a fact about these three, not about the seam.
     const custom = `custom.ledger-probe-${randomUUID().slice(0, 8).replace(/[^a-z]/g, 'x')}`;
     expect(() => registerEventType(custom, { source: 'auto' })).not.toThrow();
     expect(isBuiltInEventType(custom)).toBe(false);
     unregisterEventType(custom);
 
-    // The end-to-end consequence a consumer sees.
     const catalog = serializeEventCatalog();
     for (const name of LEDGER) {
       expect(catalog.types[name]).toEqual({ source: 'auto', isBuiltIn: true, hasSchema: true });
     }
   });
 
+  /**
+   * The ledger fold reads `epoch`, `idempotencyKey` and `kind` from each event.
+   * A missing `epoch` must fail the parse.
+   * Zero is a real epoch, so a default of zero removes the fence from a stale writer.
+   * The terminal fields `result` and `error` are optional.
+   */
   it('VcsLedgerData_Payloads_CarryTheFoldedFields', () => {
-    // The ledger fold reads `epoch`, `idempotencyKey` and `kind` off every event in the stream
-    // regardless of which one it is, then the terminal-specific field. A schema that dropped
-    // one of the shared three would leave the fold reading `undefined` and silently reset the
-    // fencing token to zero.
     const head = { kind: 'branch.create', idempotencyKey: 'key-1', epoch: 3 };
 
     expect(VcsRequestedData.parse(head)).toEqual(head);
@@ -4415,41 +3866,29 @@ describe('WLM operational-core merge lease schemas', () => {
       error: 'git worktree add failed',
     });
 
-    // The terminal-specific fields are optional — a compensation recorded before the carrier
-    // captured a message is still a valid terminal.
     expect(VcsExecutedData.parse(head)).toEqual(head);
     expect(VcsCompensatedData.parse(head)).toEqual(head);
 
-    // A missing fencing epoch is a REJECT, not a defaulted zero: zero is a real epoch, and
-    // coercing an absent one to it would silently un-fence a stale writer.
     expect(() => VcsRequestedData.parse({ kind: 'branch.create', idempotencyKey: 'k' })).toThrow();
     expect(() => VcsRequestedData.parse({ ...head, idempotencyKey: '' })).toThrow();
     expect(() => VcsRequestedData.parse({ ...head, epoch: 1.5 })).toThrow();
   });
 
+  /**
+   * The plan, the owner and the digest come from the production functions, so a promoter rename fails here.
+   * A dry run must not write a file or record an event.
+   * The recorder throws, so a dry run that records an event fails here.
+   * The source is `planned`: the type has a schema and no emitter.
+   * `recoveredPriorAttempt` is required, because a default of `false` hides a recovered run.
+   * `admission.cutover-ready` says that a cutover can proceed, and its schema rejects this payload.
+   */
   it('PromotionEvent_AtomicPromotionSite_HasARegisteredName', async () => {
-    // Before this registration the atomic tree-promotion site had NO name in the catalog. It
-    // builds a typed effect plan for the commit rename that makes a whole staged tree visible
-    // at once — the single non-idempotent step of an install — and then performs it, and no
-    // event said so afterwards.
-    //
-    // The binding below is deliberately read OFF THE SITE rather than restated: the plan, the
-    // owner and the digest all come from the production functions, so a rename or a reshape on
-    // the promoter's side fails here instead of leaving the event describing a site that has
-    // moved on.
     const entries = [
       { path: 'SKILL.md', content: '# promote me\n' },
       { path: 'references/one.md', content: 'reference body\n' },
     ];
     const target = nodePath.join(tmpdir(), `exarchos-promotion-${randomUUID()}`, 'skills');
 
-    // Dry-run: the engine is structurally unreachable, so this asks the site for its plan
-    // without touching a byte of the filesystem. The owner therefore comes from the site's own
-    // default, not from a literal spelled here.
-    // The recorder is a required argument now, so a dry-run has to spell one
-    // even though the withheld arm never reaches it. Passing a throwing sink is
-    // the honest choice here: if the dry-run guarantee ever regressed, this
-    // call would fail loudly instead of silently recording.
     const outcome = await promoteTree({ target, entries }, DRY_RUN, defaultPromotionIo(), () => {
       throw new Error('a dry-run promotion must never record');
     });
@@ -4458,30 +3897,19 @@ describe('WLM operational-core merge lease schemas', () => {
     const plan = outcome.plan;
     expect(plan.effectClass).toBe('install');
     expect(plan.description).toContain(target);
-    // The same plan the exported constructor builds, so the dry-run arm is reading the real one.
     expect(plan).toEqual(promotionPlan(plan.owner, target));
 
-    // ── The name is REGISTERED, with everything registration is supposed to buy ──
     const PROMOTION = 'promotion.executed';
     expect(EventTypes).toContain(PROMOTION);
     expect(isBuiltInEventType(PROMOTION), `${PROMOTION} is not a built-in event type`).toBe(true);
     expect(getValidEventTypes()).toContain(PROMOTION);
     expect(EVENT_DATA_SCHEMAS[PROMOTION], `${PROMOTION} has no data schema`).toBeDefined();
-    // `planned`, not `auto`: the schema, the type-map entry and the projection's fold all exist,
-    // and no reachable code appends the event — the carrier-wrapped path that declares it has no
-    // caller outside these tests. Registration bought the name and the validation; it did not buy
-    // an emitter, and the catalog says which of the two it has.
     expect(serializeEventCatalog().types[PROMOTION]).toEqual({
       source: 'planned',
       isBuiltIn: true,
       hasSchema: true,
     });
 
-    // ── And the payload carries what THAT site produces ──
-    //
-    // `treeDigest` is the same content-addressed value the promoter verifies the stage against
-    // before committing, computed here by the promoter's own digest function — so the record
-    // and the verification cannot describe different trees.
     const payload = {
       target,
       treeDigest: digestTree(entries),
@@ -4490,36 +3918,27 @@ describe('WLM operational-core merge lease schemas', () => {
     };
     expect(PromotionExecutedData.parse(payload)).toEqual(payload);
 
-    // A record naming no destination, no digest or no owner is not a record of anything —
-    // each is required, and an empty string is refused rather than accepted as "unknown".
     expect(() => PromotionExecutedData.parse({ ...payload, target: '' })).toThrow();
     expect(() => PromotionExecutedData.parse({ ...payload, treeDigest: '' })).toThrow();
     expect(() => PromotionExecutedData.parse({ ...payload, owner: '' })).toThrow();
-    // The recovery flag is required rather than defaulted. An absent field is "nobody looked",
-    // and silently reading it as `false` would record a clean first-time promotion for a run
-    // that may well have converged from an interrupted one.
     const withoutRecovery = { target: payload.target, treeDigest: payload.treeDigest, owner: payload.owner };
     expect(() => PromotionExecutedData.parse(withoutRecovery)).toThrow();
 
-    // ── Not a rename of the cutover-readiness record ──
-    //
-    // `admission.cutover-ready` is the nearest already-registered neighbour and says a cutover
-    // MAY proceed; this one says a tree WAS promoted. They are separate rows in the catalog,
-    // and their payload contracts do not accept each other's data — which is the concrete form
-    // of "the readiness fact was not a substitute for the effect record".
     expect(EventTypes).toContain('admission.cutover-ready');
     expect(EVENT_DATA_SCHEMAS[PROMOTION]).not.toBe(EVENT_DATA_SCHEMAS['admission.cutover-ready']);
     expect(() => AdmissionCutoverReadyData.parse(payload)).toThrow();
   });
 
+  /**
+   * The post-dispatch verifier writes this report, so a finding stays after the run.
+   * One action can declare several emissions, so `action` alone is not a report.
+   * An empty `missingEvents` with no `lifecycleViolations` must fail, because that report has no evidence.
+   * The report keeps the full set of missing names, not the first one.
+   * The schema rejects a promotion payload, which proves that it is not a passthrough.
+   */
   it('EmissionViolation_Registered_CarriesActionAndMissingSet', () => {
-    // The catalog held no contract-violation name of any kind before this, so the
-    // post-dispatch verifier had nowhere to write a finding that outlived the run
-    // that produced it. The registration is what turns "a check that logs" into
-    // "a check that leaves evidence".
     const VIOLATION = 'emission.violated';
 
-    // ── Registered, with everything registration is supposed to buy ──
     expect(EventTypes).toContain(VIOLATION);
     expect(isBuiltInEventType(VIOLATION), `${VIOLATION} is not a built-in event type`).toBe(true);
     expect(getValidEventTypes()).toContain(VIOLATION);
@@ -4530,7 +3949,6 @@ describe('WLM operational-core merge lease schemas', () => {
       hasSchema: true,
     });
 
-    // ── The payload answers WHICH operation, WHAT was missed, and WHICH RUN ──
     const report = {
       action: 'exarchos_workflow.transition',
       missingEvents: ['workflow.transition', 'phase.blocked'],
@@ -4538,11 +3956,6 @@ describe('WLM operational-core merge lease schemas', () => {
     };
     expect(EmissionViolatedData.parse(report)).toEqual(report);
 
-    // THE SUBJECT OF THIS TEST. A report naming only the action is not a report:
-    // one action can declare several emissions, so "this action missed
-    // something" names a suspect and no evidence. Both of the other two fields
-    // are required for the same reason and each is asserted separately, so a
-    // schema that dropped one and kept the other still fails here.
     expect(() => EmissionViolatedData.parse({ action: report.action })).toThrow();
     expect(() =>
       EmissionViolatedData.parse({ action: report.action, operationId: report.operationId }),
@@ -4551,34 +3964,18 @@ describe('WLM operational-core merge lease schemas', () => {
       EmissionViolatedData.parse({ action: report.action, missingEvents: report.missingEvents }),
     ).toThrow();
 
-    // The missing set is a SET OF NAMES, and an empty one is refused rather than
-    // accepted as a violation with nothing missing. Accepting `[]` would let the
-    // verifier record a clean run as a violation and a violation as a clean run
-    // with equal validity, which is the one distinction the event exists to make.
     expect(() => EmissionViolatedData.parse({ ...report, missingEvents: [] })).toThrow();
     expect(() => EmissionViolatedData.parse({ ...report, missingEvents: [''] })).toThrow();
 
-    // FULL, not first. A handler that dropped three emissions has to read as
-    // three; truncating to the first would make each repair uncover the next and
-    // the fault look smaller every time anyone looked at it.
     const three = {
       ...report,
       missingEvents: ['vcs.requested', 'vcs.executed', 'promotion.executed'],
     };
     expect(EmissionViolatedData.parse(three).missingEvents).toEqual(three.missingEvents);
 
-    // Empty strings are refused on the scalars too — "unknown" recorded as ''
-    // reads downstream as a field that was populated.
     expect(() => EmissionViolatedData.parse({ ...report, action: '' })).toThrow();
     expect(() => EmissionViolatedData.parse({ ...report, operationId: '' })).toThrow();
 
-    // ── Not a passthrough ──
-    //
-    // The block above is only meaningful if this schema rejects things at all
-    // rather than accepting whatever it is handed. A neighbouring registered
-    // payload from the same section of the catalog is refused, and this one is
-    // refused by it — so the contract is specific to the violation report and the
-    // two rows do not describe each other.
     const promotionPayload = {
       target: '/tmp/exarchos-skills',
       treeDigest: 'sha256-abc',
@@ -4590,10 +3987,8 @@ describe('WLM operational-core merge lease schemas', () => {
     expect(EVENT_DATA_SCHEMAS[VIOLATION]).not.toBe(EVENT_DATA_SCHEMAS['promotion.executed']);
   });
 
+  /** Deterministic code appends the merge pair, so each type is `auto`. */
   it('WorktreeMergeEvents_ClassificationMaps_Exhaustive', () => {
-    // Each merge type must be wired into EVERY map the worktree family appears
-    // in: the emission registry (classified 'auto' — deterministic plumbing,
-    // not model-authored) and the data-schema map (with a parseable payload).
     for (const type of MERGE_TYPES) {
       expect(EVENT_EMISSION_REGISTRY[type], `${type} should be classified 'auto'`).toBe('auto');
       const schema = EVENT_DATA_SCHEMAS[type];
@@ -4607,7 +4002,6 @@ describe('WLM operational-core merge lease schemas', () => {
       holderPid: 4242,
       holderStartedAt: '2026-06-25T00:00:00.000Z',
     });
-    // `worktreeId` is optional — absent ⇒ not injected onto the parsed object.
     expect(requested as Record<string, unknown>).not.toHaveProperty('worktreeId');
     expect(
       (WorktreeMergeRequestedData.parse({ ...wellFormedRequested(randomUUID()), worktreeId: '/repo/.worktrees/x' }))
@@ -4617,29 +4011,24 @@ describe('WLM operational-core merge lease schemas', () => {
     const executed = WorktreeMergeExecutedData.parse(wellFormedExecuted(randomUUID()));
     expect(executed.status).toBe('merged');
     expect(executed.mergeSha).toBe('a'.repeat(40));
-    // status is a closed enum; an out-of-set value is rejected.
     expect(() =>
       WorktreeMergeExecutedData.parse({ ...wellFormedExecuted(randomUUID()), status: 'bogus' }),
     ).toThrow();
-    // `recoveryError` is the optional dead-holder-recovery diagnostic.
     expect(
       (WorktreeMergeExecutedData.parse({ ...wellFormedExecuted(randomUUID()), recoveryError: 'holder pid dead' }))
         .recoveryError,
     ).toBe('holder pid dead');
   });
 
+  /**
+   * Two merges onto one `integrationRef` must have distinct idempotency keys.
+   * The test builds the claim keys and the release keys itself from the parsed payloads.
+   */
   it('WorktreeMergeEvents_IdempotencyKey_PerOperationId_NoCollisionAcrossMergesOnSameBranch', () => {
-    // PROPERTY under test: two DISTINCT merges targeting the SAME integrationRef
-    // must never collapse onto one idempotency key. operationId is the sole
-    // discriminator, so each merge mints its own key regardless of the shared
-    // integrationRef — that is what serializes merges per branch without a
-    // literal `<integrationRef>:…` key.
     const integrationRef = 'integration/wlm';
     const opA = randomUUID();
     const opB = randomUUID();
 
-    // CLAIM keys (decide seam): `${streamId}:${reducerId}:${operationId}`. Two
-    // merges on the same branch share streamId + reducerId but differ by opId.
     const streamId = 'worktrees';
     const reducerId = 'worktrees@v1';
     const claimA = WorktreeMergeRequestedData.parse(wellFormedRequested(opA, integrationRef));
@@ -4647,10 +4036,9 @@ describe('WLM operational-core merge lease schemas', () => {
     const claimKeyA = `${streamId}:${reducerId}:${claimA.operationId}`;
     const claimKeyB = `${streamId}:${reducerId}:${claimB.operationId}`;
     expect(claimKeyA).not.toBe(claimKeyB);
-    expect(claimA.integrationRef).toBe(claimB.integrationRef); // same branch…
-    expect(claimA.operationId).not.toBe(claimB.operationId); // …distinct operations.
+    expect(claimA.integrationRef).toBe(claimB.integrationRef);
+    expect(claimA.operationId).not.toBe(claimB.operationId);
 
-    // RELEASE keys (plain keyed append): `<eventType>:<operationId>`.
     const relA = WorktreeMergeExecutedData.parse(wellFormedExecuted(opA, integrationRef));
     const relB = WorktreeMergeExecutedData.parse(wellFormedExecuted(opB, integrationRef));
     const relKeyA = `worktree.merge_executed:${relA.operationId}`;
@@ -4658,18 +4046,16 @@ describe('WLM operational-core merge lease schemas', () => {
     expect(relKeyA.split(':')).toHaveLength(2);
     expect(relKeyA).not.toBe(relKeyB);
 
-    // The RELEASE correlates back to its CLAIM by operationId, so the four keys
-    // form two non-colliding (claim, release) pairs.
     expect(new Set([claimKeyA, claimKeyB, relKeyA, relKeyB]).size).toBe(4);
     expect(relA.operationId).toBe(claimA.operationId);
   });
 
+  /**
+   * The workflow-state projection folds both merge events to identity.
+   * Its exhaustive default throws on an unhandled built-in type, so a missing case arm fails here.
+   * The built-in check proves that the event reaches the switch and not the early return for custom types.
+   */
   it('WorkflowStateProjection_HandlesNewWorktreeMergeTypes_Exhaustive', () => {
-    // The workflow-state projection is NOT the worktrees projection: these merge
-    // events carry no workflow_state-affecting fields, so the reducer must fold
-    // them to identity. Critically, both must be HANDLED — the `never`-exhaustive
-    // default throws on any unhandled built-in type, so a missing case arm would
-    // throw here instead of returning the view unchanged.
     const baseView = workflowStateProjection.init();
     for (const type of MERGE_TYPES) {
       const data = type === 'worktree.merge_requested' ? wellFormedRequested(randomUUID()) : wellFormedExecuted(randomUUID());
@@ -4682,12 +4068,11 @@ describe('WLM operational-core merge lease schemas', () => {
         data,
       } as unknown as WorkflowEvent;
 
-      expect(isBuiltInEventType(type)).toBe(true); // exercises the switch, not the early custom-type return.
+      expect(isBuiltInEventType(type)).toBe(true);
       let next: typeof baseView | undefined;
       expect(() => {
         next = workflowStateProjection.apply(baseView, event);
       }, `${type} must be handled by the projection switch, not the never-default`).not.toThrow();
-      // Identity fold — no workflow_state field is mutated.
       expect(next).toEqual(baseView);
     }
   });
@@ -4702,21 +4087,20 @@ describe('harness-launcher event schemas (DR-2)', () => {
   ] as const;
 
   it('EventTypes_IncludesCreatePairAndLaunch', () => {
-    // All four new literals must be members of the closed EventTypes union — the
-    // create pair (INV-13 intent/terminal) plus the child-process liveness pair.
     for (const type of NEW_TYPES) {
       expect(EventTypes).toContain(type);
     }
   });
 
+  /**
+   * The task-scoped `worktree.created` type is separate from the launcher pair,
+   * `worktree.create.requested` and `worktree.create.executed`.
+   * It requires `taskId` and `branch`, and its source is `model`.
+   */
   it('EventTypes_WorktreeCreated_Untouched', () => {
-    // The task-scoped `worktree.created` terminal is DISTINCT from the launcher's
-    // top-level `worktree.create.*` pair and must be left intact: still a member,
-    // still requires taskId + branch, still classified 'model' (readiness path).
     expect(EventTypes).toContain('worktree.created');
     expect(EVENT_EMISSION_REGISTRY['worktree.created']).toBe('model');
 
-    // A well-formed task-worktree payload still parses.
     const ok = WorktreeCreatedData.parse({
       taskId: 'task-001',
       path: '/abs/worktree',
@@ -4724,15 +4108,15 @@ describe('harness-launcher event schemas (DR-2)', () => {
     });
     expect(ok).toMatchObject({ taskId: 'task-001', branch: 'task/foo' });
 
-    // taskId and branch remain REQUIRED — dropping either is rejected.
     expect(() => WorktreeCreatedData.parse({ path: '/abs/worktree', branch: 'task/foo' })).toThrow();
     expect(() => WorktreeCreatedData.parse({ taskId: 'task-001', path: '/abs/worktree' })).toThrow();
   });
 
+  /**
+   * The start payload carries the holder fields that a dead-holder reconciler needs.
+   * The `exitCode` of the terminal is null after a signal, or when no code was captured.
+   */
   it('LaunchExecutingStarted_CarriesWorktreeIdAndHolderPid', () => {
-    // The liveness start payload mirrors InFlightMerge's holder fields so a
-    // dead-holder reconciler is expressible later: worktreeId + holderPid +
-    // holderStartedAt must all be present.
     const parsed = LaunchExecutingStartedData.parse({
       worktreeId: '/abs/launch-worktree',
       holderPid: 4242,
@@ -4744,7 +4128,6 @@ describe('harness-launcher event schemas (DR-2)', () => {
       holderStartedAt: '2026-07-02T00:00:00.000Z',
     });
 
-    // Omitting holderPid (the liveness ground truth) is rejected at the boundary.
     expect(() =>
       LaunchExecutingStartedData.parse({
         worktreeId: '/abs/launch-worktree',
@@ -4752,24 +4135,19 @@ describe('harness-launcher event schemas (DR-2)', () => {
       }),
     ).toThrow();
 
-    // The paired terminal accepts a null exitCode (signalled / not captured).
     expect(
       LaunchExecutedData.parse({ worktreeId: '/abs/launch-worktree', exitCode: null }).exitCode,
     ).toBeNull();
   });
 
+  /** Deterministic code appends all four types around `git worktree add` and around the child process. */
   it('EmissionRegistry_FourNewTypes_ClassifiedAuto', () => {
-    // All four are deterministic plumbing — appended around `git worktree add`
-    // and around the spawned child, never model-authored. They must also carry a
-    // data schema in EVENT_DATA_SCHEMAS.
     for (const type of NEW_TYPES) {
       expect(EVENT_EMISSION_REGISTRY[type], `${type} should be classified 'auto'`).toBe('auto');
       const schema = EVENT_DATA_SCHEMAS[type];
       expect(schema, `${type} missing from EVENT_DATA_SCHEMAS`).toBeDefined();
     }
 
-    // The create pair mirrors the INV-13 remove pair: intent parses with an
-    // operationId + worktreePath, terminal carries the `created` outcome flag.
     const opId = randomUUID();
     expect(
       WorktreeCreateRequestedData.parse({ operationId: opId, worktreePath: '/abs/launch-worktree' }).operationId,
@@ -4780,25 +4158,15 @@ describe('harness-launcher event schemas (DR-2)', () => {
   });
 });
 
-// ─── DR-2 (task 003): validation-compatible liveness `instanceId` retrofit ───
-//
-// The four INV-10 liveness pairs — merge / launch / mutation / prune
-// `<surface>.executing_started` + paired terminal — gained a canonical,
-// ADDITIVE `instanceId` field via the shared `livenessInstanceFields` mixin.
-// These tests pin the two halves of the contract:
-//   1. every VERBATIM payload each surface emitted BEFORE the retrofit still
-//      validates (backward-compatibility / nothing migrated), and
-//   2. the additive field is TYPED — a malformed (wrong-typed / empty)
-//      `instanceId` is now rejected at the boundary. This second property is
-//      what the DR-2 revert-probe pins: with the schema change reverted,
-//      `instanceId` is no longer a known key, so a wrong-typed value is
-//      silently stripped and the malformed payload wrongly validates.
-
+/**
+ * Each of the four liveness pairs (merge, launch, mutation, prune) has an optional `instanceId`.
+ * The `started` and `terminal` fixtures are payload shapes of stored rows, and none carries `instanceId`.
+ * The `instanceId` of a fixture is the key that the emitter of that surface stamps.
+ * A payload without `instanceId` must stay valid.
+ * `instanceId` is a typed field, so a wrong-typed or empty value must fail.
+ * If the schema does not know the key, Zod strips the value and the malformed payload passes.
+ */
 describe('DR-2 liveness instanceId retrofit', () => {
-  // VERBATIM shapes captured from the four emitters' emission sites BEFORE the
-  // retrofit (characterization). NONE carries `instanceId`, mirroring every
-  // previously-persisted row. `instanceId` is the canonical key each emitter
-  // now stamps additively.
   const LIVENESS_PAIR_FIXTURES = [
     {
       surface: 'merge',
@@ -4860,24 +4228,19 @@ describe('DR-2 liveness instanceId retrofit', () => {
   ] as const;
 
   it('ExecutingStartedSchemas_PreviouslyEmittedPayloadFixtures_StillValidate', () => {
-    // Every verbatim pre-retrofit payload (no instanceId) must still parse under
-    // the additive schema — the additive change never breaks a persisted row.
     for (const f of LIVENESS_PAIR_FIXTURES) {
       const started = f.startedSchema.safeParse(f.started);
       expect(started.success, `${f.startedType}: ${JSON.stringify(started)}`).toBe(true);
       const terminal = f.terminalSchema.safeParse(f.terminal);
       expect(terminal.success, `${f.terminalType}: ${JSON.stringify(terminal)}`).toBe(true);
 
-      // And the schema is also registered against the live event-type key.
       expect(EVENT_DATA_SCHEMAS[f.startedType as typeof EventTypes[number]]).toBeDefined();
       expect(EVENT_DATA_SCHEMAS[f.terminalType as typeof EventTypes[number]]).toBeDefined();
     }
   });
 
+  /** The parse adds no default `instanceId`, so replay of a stored row gives the same bytes. */
   it('LegacyPayloadsWithoutInstanceId_StillValidate', () => {
-    // The additive field is OPTIONAL: a payload with NO instanceId key (every
-    // legacy row) validates, and the parsed shape leaves instanceId undefined —
-    // no default is injected, so replay is byte-stable.
     for (const f of LIVENESS_PAIR_FIXTURES) {
       expect(Object.prototype.hasOwnProperty.call(f.started, 'instanceId')).toBe(false);
       expect(Object.prototype.hasOwnProperty.call(f.terminal, 'instanceId')).toBe(false);
@@ -4887,24 +4250,17 @@ describe('DR-2 liveness instanceId retrofit', () => {
       expect(startedParsed.instanceId).toBeUndefined();
       expect(terminalParsed.instanceId).toBeUndefined();
 
-      // The additive-widened shape ALSO accepts an explicit instanceId.
       expect(f.startedSchema.safeParse({ ...f.started, instanceId: f.instanceId }).success).toBe(true);
       expect(f.terminalSchema.safeParse({ ...f.terminal, instanceId: f.instanceId }).success).toBe(true);
     }
   });
 
+  /** If the schema loses `instanceId`, Zod strips the bad value and this test fails. */
   it('ExecutingStartedSchemas_RejectMalformedPayload', () => {
-    // REVERT-PROBE ADEQUACY: the additive `instanceId` is a TYPED string field,
-    // not a stripped unknown. A wrong-typed (number) or empty (`min(1)`) value
-    // is rejected. With the schema retrofit reverted, `instanceId` is no longer
-    // a known key → the wrong-typed value is silently stripped and these
-    // payloads wrongly validate → this test goes red (the kill-probe trigger).
     for (const f of LIVENESS_PAIR_FIXTURES) {
-      // A well-formed instanceId is accepted — establishes the field IS honored.
       expect(f.startedSchema.safeParse({ ...f.started, instanceId: f.instanceId }).success).toBe(true);
       expect(f.terminalSchema.safeParse({ ...f.terminal, instanceId: f.instanceId }).success).toBe(true);
 
-      // Wrong type (number) — rejected only because instanceId is a typed field.
       expect(
         f.startedSchema.safeParse({ ...f.started, instanceId: 123 }).success,
         `${f.startedType}: number instanceId must be rejected`,
@@ -4914,7 +4270,6 @@ describe('DR-2 liveness instanceId retrofit', () => {
         `${f.terminalType}: number instanceId must be rejected`,
       ).toBe(false);
 
-      // Empty string — rejected by `.min(1)` (an empty instance key is meaningless).
       expect(
         f.startedSchema.safeParse({ ...f.started, instanceId: '' }).success,
         `${f.startedType}: empty instanceId must be rejected`,
@@ -4926,11 +4281,11 @@ describe('DR-2 liveness instanceId retrofit', () => {
     }
   });
 
+  /**
+   * A payload that went through JSON must validate with `instanceId` and without it.
+   * The event log can hold both forms.
+   */
   it('LivenessPairSchemas_SerializationRoundTrip_ValidateWithAndWithoutInstanceId', () => {
-    // Property (serialization): every fixture-shaped payload, JSON round-tripped
-    // as it would be after persistence, validates BOTH with and without the
-    // additive instanceId — the two states the event log can hold across the
-    // retrofit boundary.
     for (const f of LIVENESS_PAIR_FIXTURES) {
       const variants: Array<{ label: string; started: unknown; terminal: unknown }> = [
         { label: 'without instanceId (legacy)', started: f.started, terminal: f.terminal },
@@ -4955,12 +4310,11 @@ describe('DR-2 liveness instanceId retrofit', () => {
     }
   });
 
+  /**
+   * The test reads `instanceId` from the Zod shape of each of the eight schemas.
+   * The test does not import the mixin, so a missing field fails an assertion and not an import.
+   */
   it('LivenessInstanceFields_SharedMixin_IsAppliedToAllEightSchemas', () => {
-    // The shared structural helper is applied to EXACTLY the eight liveness
-    // schemas (4 starts + 4 terminals) — the only place the payloads agree. Each
-    // exposes `instanceId` in its Zod shape. (Asserted against the schema shape
-    // rather than importing the mixin, so this is a clean assertion-level red
-    // when the retrofit is reverted — not an import artifact.)
     for (const f of LIVENESS_PAIR_FIXTURES) {
       const startedShape = (f.startedSchema as unknown as { shape: Record<string, unknown> }).shape;
       const terminalShape = (f.terminalSchema as unknown as { shape: Record<string, unknown> }).shape;
@@ -4970,19 +4324,14 @@ describe('DR-2 liveness instanceId retrofit', () => {
   });
 });
 
-// ─── DR-6 (lifecycle-verbs task 012) — export two-event contract ─────────────
-//
-// `export` writes a zip bundle to a path OUTSIDE `.exarchos/` — a non-idempotent
-// external side effect — so it follows the INV-13 two-event split:
-// `export.requested` (durable intent + RESOLVED path) journaled BEFORE the
-// write; `export.executed` (result + content hash) journaled AFTER. Both are
-// `auto` (the composite handler owns the appends) and idempotency-keyed (INV-8).
-//
-// Schemas are read from EVENT_DATA_SCHEMAS (the live registry) rather than the
-// direct exports, so the revert-probe (which reverts the schemas.ts hunks that
-// register + define them) makes these assertions a CLEAN red: the map has no
-// `export.*` key, so the schema is undefined and the required-field pins below
-// fail — not an import artifact.
+/**
+ * `export` writes a zip bundle outside `.exarchos/`, which is a non-idempotent external effect.
+ * `export.requested` records the resolved path before the write.
+ * `export.executed` records the content hash after the write.
+ * The composite handler appends both, so each one is `auto`.
+ * The tests read the schemas from `EVENT_DATA_SCHEMAS`.
+ * As a result, an unregistered type fails an assertion and not an import.
+ */
 describe('Export event contract (DR-6, lifecycle-verbs task 012)', () => {
   const requestedSchema = () => EVENT_DATA_SCHEMAS['export.requested'];
   const executedSchema = () => EVENT_DATA_SCHEMAS['export.executed'];
@@ -5002,10 +4351,6 @@ describe('Export event contract (DR-6, lifecycle-verbs task 012)', () => {
   });
 
   it('ExportEventSchemas_RequestedExecutedPair_RegisteredWithEmissionSource', () => {
-    // The pair is registered as first-class event types, both classified `auto`
-    // (the `export` composite handler owns both appends — never model-emitted),
-    // and both carry a data schema. Registration is the substrate task 013's
-    // handler emits onto.
     expect(EventTypes).toContain('export.requested');
     expect(EventTypes).toContain('export.executed');
 
@@ -5015,7 +4360,6 @@ describe('Export event contract (DR-6, lifecycle-verbs task 012)', () => {
     expect(requestedSchema()).toBeDefined();
     expect(executedSchema()).toBeDefined();
 
-    // And the serialized catalog surfaces both under bySource.auto with a schema.
     const catalog = serializeEventCatalog();
     expect(catalog.bySource.auto).toContain('export.requested');
     expect(catalog.bySource.auto).toContain('export.executed');
@@ -5023,40 +4367,29 @@ describe('Export event contract (DR-6, lifecycle-verbs task 012)', () => {
     expect(catalog.types['export.executed']).toEqual({ source: 'auto', isBuiltIn: true, hasSchema: true });
   });
 
+  /**
+   * `outputPath` is required, so the timeline shows the destination after a crash during the write.
+   * An empty `idempotencyKey` must fail, because an empty key merges unrelated exports into one.
+   */
   it('ExportRequested_CarriesResolvedPathIntent', () => {
-    // REVERT-PROBE ANCHOR: `export.requested` pins the RESOLVED destination path
-    // as a REQUIRED, typed, non-empty field — the intent the timeline needs to
-    // reconstruct where the bundle was meant to land after a mid-write crash
-    // (INV-13). With the schemas.ts hunks reverted the schema is unregistered
-    // (undefined) and these required-field pins go red.
     const schema = requestedSchema();
     expect(schema).toBeDefined();
 
-    // A fully-formed intent (resolved path + feature + idempotency key) validates.
     expect(schema!.safeParse(validRequested()).success).toBe(true);
 
-    // The resolved path IS carried through on parse (not stripped).
     const parsed = schema!.parse(validRequested()) as { outputPath: string };
     expect(parsed.outputPath).toBe('/repo/feat-export-1-export.zip');
 
-    // Missing the resolved path — rejected (the intent is meaningless without it).
     expect(schema!.safeParse({ featureId: 'f', idempotencyKey: 'k' }).success).toBe(false);
-    // Empty path — rejected by `.min(1)`.
     expect(schema!.safeParse({ ...validRequested(), outputPath: '' }).success).toBe(false);
-    // Wrong-typed path (number) — rejected because outputPath is a typed string.
     expect(schema!.safeParse({ ...validRequested(), outputPath: 123 }).success).toBe(false);
-    // Missing featureId / idempotencyKey — both required.
     expect(schema!.safeParse({ outputPath: '/x.zip', idempotencyKey: 'k' }).success).toBe(false);
     expect(schema!.safeParse({ featureId: 'f', outputPath: '/x.zip' }).success).toBe(false);
-    // Empty idempotency key — rejected (INV-8: an empty key would collapse
-    // unrelated exports into one).
     expect(schema!.safeParse({ ...validRequested(), idempotencyKey: '' }).success).toBe(false);
   });
 
+  /** Each payload goes through JSON before the parse, as a stored event does. */
   it('ExportEventSchemas_Serialization_ValidPayloadsValidate_MalformedReject', () => {
-    // Property (serialization category): every valid payload survives a JSON
-    // persistence round-trip and re-validates; every malformed payload is
-    // rejected. Exercises BOTH events of the pair.
     const requested = requestedSchema();
     const executed = executedSchema();
     expect(requested).toBeDefined();

@@ -97,12 +97,13 @@ describe('reserved admission event authorization (DR-3)', () => {
     expect(await eventStore.query(STREAM)).toEqual([]);
   });
 
+  /**
+   * The run-bundle oracle keys on the operation record of the bounded executor. If the generic
+   * append surface accepts this type, a caller can settle an operation that never ran. The
+   * record can then cite bundle bytes that no writer stored. The schema admits that forgery, so
+   * the type is reserved for the executor, which puts the run bundle in custody first.
+   */
   it('ExecutionLedgerAppend_ForgedSettlement_IsRefusedEvenWhenWellFormed', async () => {
-    // The bounded executor's operation record is a settlement the run-bundle
-    // oracle keys on. Mintable through the generic append surface, a caller
-    // could settle an operation that never ran and reference bytes nobody
-    // wrote — a well-formed forgery the schema alone admits. Reserved, the
-    // only writer is the one that put the bytes first.
     const result = await dispatch(
       'exarchos_event',
       {
@@ -135,10 +136,12 @@ describe('reserved admission event authorization (DR-3)', () => {
     expect(await eventStore.query(STREAM)).toEqual([]);
   });
 
+  /**
+   * The record of the settle handler is the second settlement that the oracle keys on. If the
+   * generic append surface accepts this type, a caller can skip capsule parse, adjudication and
+   * custody and still store a well-formed `settled` row.
+   */
   it('ExecutionLedgerAppend_ForgedCapsuleSettlement_IsRefusedEvenWhenWellFormed', async () => {
-    // The settle handler's record is the other settlement endpoint the oracle
-    // keys on. Appendable here, a caller could skip capsule parse, adjudication
-    // and custody entirely and still leave a well-formed `settled` row behind.
     const result = await dispatch(
       'exarchos_event',
       {
@@ -176,6 +179,10 @@ describe('reserved admission event authorization (DR-3)', () => {
     expect(await eventStore.query(STREAM)).toEqual([]);
   });
 
+  /**
+   * `noInvalidDate` is necessary. A bare `fc.date()` can emit an Invalid Date, and then
+   * `toISOString()` throws a RangeError in the mapper before the property body runs.
+   */
   it('AdmissionEventAppend_AllReservedTypesRemainServerOwned', async () => {
     await fc.assert(
       fc.asyncProperty(
@@ -184,13 +191,6 @@ describe('reserved admission event authorization (DR-3)', () => {
           principalId: fc.string({ minLength: 1, maxLength: 32 }),
           role: fc.string({ minLength: 1, maxLength: 32 }),
           operationId: fc.uuid(),
-          // `noInvalidDate` matters: bare `fc.date()` can emit an Invalid Date
-          // (~1 seed in 400), and `new Date(NaN).toISOString()` throws
-          // RangeError inside the mapper during *generation* — crashing the
-          // run before the property body is ever reached. That surfaced as a
-          // seed-dependent flake, not a real counterexample. The property is
-          // about forged caller attribution on reserved event types; an
-          // unrepresentable timestamp is out of scope for it.
           recordedAt: fc.date({ noInvalidDate: true }).map((date) => date.toISOString()),
         }),
         async (eventType, forged) => {

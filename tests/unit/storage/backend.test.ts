@@ -3,11 +3,8 @@ import type { StorageBackend, QueryFilters, ViewCacheEntry, DrainResult, EventSe
 import type { WorkflowEvent } from '../../../src/events/schemas.js';
 import type { WorkflowState } from '../../../src/workflow/types.js';
 
-// ─── StorageBackend Interface Contract ──────────────────────────────────────
-
 describe('StorageBackend Interface Contract', () => {
   it('StorageBackend_InterfaceContract_AllMethodsDefined', () => {
-    // Verify that a conforming object satisfies the StorageBackend interface
     const backend: StorageBackend = {
       appendEvent: (_streamId: string, _event: WorkflowEvent): void => {},
       queryEvents: (_streamId: string, _filters?: QueryFilters): WorkflowEvent[] => [],
@@ -27,7 +24,6 @@ describe('StorageBackend Interface Contract', () => {
       close: (): void => {},
     };
 
-    // Verify all 16 methods exist
     expect(typeof backend.appendEvent).toBe('function');
     expect(typeof backend.queryEvents).toBe('function');
     expect(typeof backend.getSequence).toBe('function');
@@ -47,10 +43,7 @@ describe('StorageBackend Interface Contract', () => {
   });
 });
 
-// ─── InMemoryBackend Event Operations ───────────────────────────────────────
-
 describe('InMemoryBackend Event Operations', () => {
-  // Helper to create a minimal valid event
   function makeEvent(overrides: Partial<WorkflowEvent> = {}): WorkflowEvent {
     return {
       streamId: 'test-stream',

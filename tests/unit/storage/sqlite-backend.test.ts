@@ -11,8 +11,6 @@ import { VersionConflictError } from '../../../src/storage/memory-backend.js';
 import { AtomicAppender } from '../../../src/events/atomic-appender.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
-// ─── DR-4 durability posture + DR-3 immediate fail-fast ─────────────────────
-
 describe('SqliteBackend durability + immediate (DR-3 / DR-4)', () => {
   it('Synchronous_InvalidValue_RejectedAtConstruction', () => {
     expect(
@@ -121,6 +119,11 @@ describe('SqliteBackend durability + immediate (DR-3 / DR-4)', () => {
       await rmrfAsync(stateDir);
     });
 
+    /**
+     * `atomicDecideOnce` stores the result as JSON and returns that form to the
+     * first caller and to a retry. JSON has no negative zero, so the expected
+     * value is the round-tripped form, not the raw closure value.
+     */
     it('DecideOnce_JSONResult_RoundTripsCanonicallyAcrossRetries', async () => {
       await fc.assert(
         fc.asyncProperty(fc.jsonValue(), async (canonicalResult) => {
@@ -154,13 +157,6 @@ describe('SqliteBackend durability + immediate (DR-3 / DR-4)', () => {
             );
 
             expect(retry).toEqual(first);
-            // The claim's canonical wire shape is JSON (`atomicDecideOnce`
-            // stores `JSON.parse(JSON.stringify(result))` and returns that
-            // same shape to fresh AND retried callers). JSON cannot represent
-            // a negative zero (`JSON.stringify(-0)` is `"0"`), so the correct
-            // expectation is the round-tripped form — comparing against the
-            // raw closure value made the property flake whenever fast-check
-            // generated `-0`.
             expect(retry).toEqual(JSON.parse(JSON.stringify(canonicalResult)));
             expect(closureCalls).toBe(1);
           } finally {
@@ -179,17 +175,16 @@ describe('SqliteBackend durability + immediate (DR-3 / DR-4)', () => {
   });
 
   it('Synchronous_Full_InitializesAndAppends', () => {
-    // FULL applies a valid pragma and round-trips a write without error.
     const backend = new SqliteBackend(':memory:', { synchronous: 'full' });
     expect(() => backend.initialize()).not.toThrow();
     backend.close();
   });
 
+  /**
+   * `initialize()` asserts that the driver has `transaction(fn).immediate()`, so
+   * a successful init proves it. The test also checks the method directly.
+   */
   it('Initialize_DriverExposesImmediate_AssertionPasses', () => {
-    // The DR-3 fail-fast assertion runs inside initialize(); a successful
-    // init proves the real driver exposes transaction(fn).immediate(). Guard
-    // the premise explicitly so a driver regression that drops .immediate is
-    // caught here rather than as a silent deferred-BEGIN downgrade.
     const backend = new SqliteBackend(':memory:');
     backend.initialize();
     const db = (backend as unknown as { db: { transaction: (fn: () => void) => unknown } }).db;
@@ -198,16 +193,15 @@ describe('SqliteBackend durability + immediate (DR-3 / DR-4)', () => {
     backend.close();
   });
 
+  /**
+   * A driver whose `transaction(fn)` wrapper has no `.immediate` must cause the
+   * typed error, not a fallback to a deferred BEGIN. The test puts such a
+   * wrapper on the private `db` handle and calls the assertion directly.
+   */
   it('Initialize_DriverLacksImmediate_ThrowsTyped', () => {
-    // The DR-3 negative path: a driver whose `transaction(fn)` wrapper omits
-    // `.immediate` must hard-fail with the typed error, NOT silently degrade
-    // to a deferred BEGIN. Inject such a wrapper into the private `db` handle
-    // and drive the assertion directly — this is the kill-probe for a
-    // regression that replaces the throw with a deferred-BEGIN fallback.
     const backend = new SqliteBackend(':memory:');
     (backend as unknown as { db: { transaction: (fn: () => void) => unknown } }).db = {
       transaction: (_fn: () => void) => ({
-        /* deferred-only wrapper: no `.immediate` method */
       }),
     };
     expect(() =>
@@ -215,8 +209,6 @@ describe('SqliteBackend durability + immediate (DR-3 / DR-4)', () => {
     ).toThrowError(SqliteImmediateUnsupportedError);
   });
 });
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
 
 function makeEvent(overrides: Partial<WorkflowEvent> = {}): WorkflowEvent {
   return {
@@ -264,8 +256,6 @@ function makeState(overrides: Partial<WorkflowState> = {}): WorkflowState {
   } as WorkflowState;
 }
 
-// ─── Task 7: Schema and Event Operations ────────────────────────────────────
-
 describe('SqliteBackend Schema', () => {
   let backend: SqliteBackend;
 
@@ -279,7 +269,6 @@ describe('SqliteBackend Schema', () => {
   });
 
   it('SqliteBackend_initialize_CreatesAllTables', () => {
-    // Query sqlite_master for all expected tables
     const db = (backend as unknown as { db: { prepare: (sql: string) => { all: () => Array<{ name: string }> } } }).db;
     const tables = db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
@@ -294,27 +283,24 @@ describe('SqliteBackend Schema', () => {
     expect(tables).toContain('schema_version');
   });
 
+  /**
+   * A `:memory:` database cannot use WAL and reports `memory` as its journal
+   * mode. A database file reports `wal`.
+   */
   it('SqliteBackend_initialize_WALModeEnabled', () => {
-    // :memory: databases report 'memory' for journal_mode since WAL requires a file.
-    // We verify the pragma was issued by checking it returns 'memory' for in-memory DBs.
-    // For file-based DBs this would be 'wal'.
     const db = (backend as unknown as { db: { pragma: (sql: string) => Array<{ journal_mode: string }> } }).db;
     const result = db.pragma('journal_mode');
-    // In-memory databases cannot use WAL; they report 'memory'
     expect(result[0].journal_mode).toBe('memory');
   });
 
+  /** One `:memory:` connection appends and reads in sequence. No two operations overlap. */
   it('SqliteBackend_concurrentReadWrite_WALMode_NoBlocking', () => {
-    // WAL mode should allow concurrent read/write without blocking
-    // Append an event, then verify we can read while conceptually "writing"
     const event1 = makeEvent({ streamId: 'stream-a', sequence: 1 });
     backend.appendEvent('stream-a', event1);
 
-    // Read while the write was just done (WAL allows this)
     const events = backend.queryEvents('stream-a');
     expect(events).toHaveLength(1);
 
-    // Append another event and immediately read again
     const event2 = makeEvent({ streamId: 'stream-a', sequence: 2 });
     backend.appendEvent('stream-a', event2);
     const events2 = backend.queryEvents('stream-a');
@@ -412,7 +398,6 @@ describe('SqliteBackend Event Operations', () => {
       );
     }
 
-    // Get page 2 (offset=3, limit=3) => sequences 4, 5, 6
     const events = backend.queryEvents('test-stream', { offset: 3, limit: 3 });
     expect(events).toHaveLength(3);
     expect(events[0].sequence).toBe(4);
@@ -432,8 +417,6 @@ describe('SqliteBackend Event Operations', () => {
     expect(backend.getSequence('nonexistent-stream')).toBe(0);
   });
 });
-
-// ─── Task 8: State, Outbox, and View Cache Operations ───────────────────────
 
 describe('SqliteBackend State Operations', () => {
   let backend: SqliteBackend;
@@ -455,28 +438,26 @@ describe('SqliteBackend State Operations', () => {
     expect(retrieved).toEqual(state);
   });
 
+  /** The first `setState` leaves version 1, so an expected version of 0 is stale. */
   it('SqliteBackend_setState_CASConflict_ThrowsVersionConflictError', () => {
     const state = makeState({ featureId: 'my-feature' });
     backend.setState('my-feature', state);
 
-    // Current version is 1 after first set; using expectedVersion=0 (stale) should throw
     const updatedState = makeState({ featureId: 'my-feature', phase: 'plan' });
     expect(() => backend.setState('my-feature', updatedState, 0)).toThrow(VersionConflictError);
   });
 
+  /** The version is 1 after the first `setState` and 2 after the second. */
   it('SqliteBackend_setState_AutoIncrementsVersion', () => {
     const state1 = makeState({ featureId: 'my-feature' });
     backend.setState('my-feature', state1);
 
-    // Version is now 1; setting with expectedVersion=1 should succeed and bump to 2
     const state2 = makeState({ featureId: 'my-feature', phase: 'plan' });
     backend.setState('my-feature', state2, 1);
 
-    // Version is now 2; setting with expectedVersion=1 should fail
     const state3 = makeState({ featureId: 'my-feature', phase: 'delegate' });
     expect(() => backend.setState('my-feature', state3, 1)).toThrow(VersionConflictError);
 
-    // But expectedVersion=2 should succeed
     expect(() => backend.setState('my-feature', state3, 2)).not.toThrow();
   });
 
@@ -496,11 +477,13 @@ describe('SqliteBackend State Operations', () => {
   });
 });
 
+/**
+ * `nowMs` is a mutable clock. A retry test moves it past the `nextRetryAt` of
+ * the exponential backoff without a sleep. `beforeEach` resets it to the wall
+ * clock.
+ */
 describe('SqliteBackend Outbox Operations', () => {
   let backend: SqliteBackend;
-  // Mutable clock so retry/dead-letter tests can fast-forward past the
-  // exponential-backoff `nextRetryAt` window without sleeping. Each
-  // `beforeEach` resets to wall-clock time.
   let nowMs: number;
 
   beforeEach(() => {
@@ -538,18 +521,19 @@ describe('SqliteBackend Outbox Operations', () => {
     expect(result.failed).toBe(0);
     expect(sentEvents).toHaveLength(1);
 
-    // Draining again should find no pending entries
     const result2 = await backend.drainOutbox('test-stream', mockSender);
     expect(result2.sent).toBe(0);
     expect(result2.failed).toBe(0);
   });
 
+  /**
+   * After the first failure the row stays pending, but its backoff is 2 seconds.
+   * The test moves the clock 5 seconds, so the second drain finds the row due.
+   */
   it('SqliteBackend_drainOutbox_FailedEntry_SetsRetryAndIncrementsAttempts', async () => {
     const event = makeEvent({ streamId: 'test-stream', sequence: 1 });
     backend.addOutboxEntry('test-stream', event);
 
-    // Reject asynchronously — `await sender.appendEvents(...)` propagates
-    // the rejection into the outer try/catch the same way a sync throw did.
     const failingSender: EventSender = {
       appendEvents: async (_streamId, _events) => {
         throw new Error('Network error');
@@ -560,10 +544,6 @@ describe('SqliteBackend Outbox Operations', () => {
     expect(result.sent).toBe(0);
     expect(result.failed).toBe(1);
 
-    // Entry should still be pending (retryable) after first failure, but
-    // the backoff window (~2s after attempt 1) excludes it from immediate
-    // re-drain — advance the clock past it so the success sender finds
-    // the row eligible.
     nowMs += 5_000;
     const successSender: EventSender = {
       appendEvents: async (_streamId, events) => {
@@ -575,11 +555,12 @@ describe('SqliteBackend Outbox Operations', () => {
     expect(result2.sent).toBe(1);
   });
 
+  /**
+   * `selectPendingOutbox` must skip a pending row whose `nextRetryAt` is in the
+   * future. A filter on `status` alone retries the row at once and defeats the
+   * backoff. After the clock passes `nextRetryAt`, the drain sends the row.
+   */
   it('SqliteBackend_drainOutbox_NextRetryAtFuture_ExcludesEntryFromBatch', async () => {
-    // Sentry/Seer regression (PR #1176 review): selectPendingOutbox used
-    // to filter only by status='pending', so failed entries with a
-    // future `nextRetryAt` were retried immediately on the next drain,
-    // defeating exponential backoff and risking retry storms.
     const event = makeEvent({ streamId: 'test-stream', sequence: 1 });
     backend.addOutboxEntry('test-stream', event);
 
@@ -591,9 +572,6 @@ describe('SqliteBackend Outbox Operations', () => {
     expect(r1.failed).toBe(1);
     expect(r1.sent).toBe(0);
 
-    // Without advancing the clock, the entry's `nextRetryAt` (~2s out) is
-    // still in the future — the next drain MUST exclude it. Pre-fix this
-    // would have re-tried (and re-failed) immediately.
     let recordedCalls = 0;
     const recordingSender: EventSender = {
       appendEvents: async () => {
@@ -606,13 +584,18 @@ describe('SqliteBackend Outbox Operations', () => {
     expect(r2.failed).toBe(0);
     expect(recordedCalls).toBe(0);
 
-    // After the backoff window passes, the entry becomes eligible again.
     nowMs += 10_000;
     const r3 = await backend.drainOutbox('test-stream', recordingSender);
     expect(r3.sent).toBe(1);
     expect(recordedCalls).toBe(1);
   });
 
+  /**
+   * The row becomes a dead letter at the fifth failed attempt. Each failure
+   * doubles the backoff, so the clock moves 60 seconds between drains, which is
+   * longer than each backoff. Without that, the row stays in backoff and
+   * `attempts` stays at 1.
+   */
   it('SqliteBackend_drainOutbox_MaxRetries_MarksDeadLetter', async () => {
     const event = makeEvent({ streamId: 'test-stream', sequence: 1 });
     backend.addOutboxEntry('test-stream', event);
@@ -623,16 +606,11 @@ describe('SqliteBackend Outbox Operations', () => {
       },
     };
 
-    // Drain past max retries (default 5). Each failed drain pushes
-    // `nextRetryAt` further out (2s, 4s, 8s, 16s, 32s) so we have to
-    // advance the clock between drains; otherwise the row stays in
-    // backoff and the loop never increments `attempts` past 1.
     for (let i = 0; i < 6; i++) {
       await backend.drainOutbox('test-stream', failingSender);
-      nowMs += 60_000; // > longest backoff window (32s)
+      nowMs += 60_000;
     }
 
-    // After max retries, entry should be dead-lettered and not retried
     const successSender: EventSender = {
       appendEvents: async (_streamId, events) => {
         return { accepted: events.length, streamVersion: 1 };
@@ -699,16 +677,13 @@ describe('SqliteBackend Transactional Operations', () => {
   });
 
   it('SqliteBackend_appendEvent_WithOutbox_BothInSameTransaction', async () => {
-    // Append event and add outbox entry, verify both are persisted
     const event = makeEvent({ streamId: 'test-stream', sequence: 1 });
     backend.appendEvent('test-stream', event);
     backend.addOutboxEntry('test-stream', event);
 
-    // Verify event is stored
     const events = backend.queryEvents('test-stream');
     expect(events).toHaveLength(1);
 
-    // Verify outbox entry exists by draining
     const sentEvents: unknown[] = [];
     const mockSender: EventSender = {
       appendEvents: async (_streamId, evts) => {
@@ -722,8 +697,6 @@ describe('SqliteBackend Transactional Operations', () => {
   });
 });
 
-// ─── T70: atomicAppend empty-events precondition (CodeRabbit #10 / PR #1323) ─
-
 describe('SqliteBackend.atomicAppend empty-events guard (T70)', () => {
   let backend: SqliteBackend;
 
@@ -736,11 +709,12 @@ describe('SqliteBackend.atomicAppend empty-events guard (T70)', () => {
     backend.close();
   });
 
+  /**
+   * `atomicAppend` needs at least one event (`n >= 1`). A call with `n: 0` must
+   * reject with a clear validation error, not with a `TypeError` from an
+   * undefined property.
+   */
   it('throws a structured validation error (not TypeError) when n is zero', async () => {
-    // The contract is "at least one event per atomicAppend call" (n >= 1);
-    // violating it should surface as a clear validation error, not a cryptic
-    // undefined-property TypeError. The gate refactor moved event-count to
-    // the `n` parameter (sequences are assigned inside the txn by finalize).
     await expect(
       backend.atomicAppend({
         streamId: 'test-stream',
@@ -750,8 +724,6 @@ describe('SqliteBackend.atomicAppend empty-events guard (T70)', () => {
       }),
     ).rejects.toThrowError('atomicAppend requires n >= 1');
 
-    // Also verify it's not a TypeError specifically — the cryptic shape
-    // we're trying to eliminate.
     await expect(
       backend.atomicAppend({
         streamId: 'test-stream',
@@ -762,8 +734,6 @@ describe('SqliteBackend.atomicAppend empty-events guard (T70)', () => {
     ).rejects.not.toThrow(TypeError);
   });
 });
-
-// ─── Issue 1: rowToEvent Round-Trip Preserves All Fields ────────────────────
 
 describe('SqliteBackend rowToEvent Round-Trip', () => {
   let backend: SqliteBackend;
@@ -777,6 +747,10 @@ describe('SqliteBackend rowToEvent Round-Trip', () => {
     backend.close();
   });
 
+  /**
+   * `rowToEvent` reads the payload JSON, so the fields without a column of their
+   * own survive the round trip.
+   */
   it('rowToEvent_RoundTrip_PreservesAllFields', () => {
     const event = makeEvent({
       streamId: 'test-stream',
@@ -801,14 +775,12 @@ describe('SqliteBackend rowToEvent Round-Trip', () => {
     expect(events).toHaveLength(1);
     const retrieved = events[0];
 
-    // Core fields (already persisted)
     expect(retrieved.streamId).toBe('test-stream');
     expect(retrieved.sequence).toBe(1);
     expect(retrieved.type).toBe('workflow.started');
     expect(retrieved.timestamp).toBe('2026-02-21T00:00:00.000Z');
     expect(retrieved.data).toEqual({ key: 'value', nested: { a: 1 } });
 
-    // Fields that were previously DROPPED by rowToEvent:
     expect(retrieved.schemaVersion).toBe('2.0');
     expect(retrieved.correlationId).toBe('corr-123');
     expect(retrieved.causationId).toBe('cause-456');
@@ -821,7 +793,6 @@ describe('SqliteBackend rowToEvent Round-Trip', () => {
   });
 
   it('rowToEvent_RoundTrip_PreservesMinimalEvent', () => {
-    // An event with only required fields — no optional fields set
     const event = makeEvent({
       streamId: 'test-stream',
       sequence: 1,
@@ -861,8 +832,6 @@ describe('SqliteBackend rowToEvent Round-Trip', () => {
   });
 });
 
-// ─── Issue 3: Prepared Statement Caching for queryEvents ────────────────────
-
 describe('SqliteBackend queryEvents Prepared Statement Caching', () => {
   let backend: SqliteBackend;
 
@@ -876,27 +845,22 @@ describe('SqliteBackend queryEvents Prepared Statement Caching', () => {
   });
 
   it('queryEvents_SameFilters_ReusesPreparedStatement', () => {
-    // Append some events
     backend.appendEvent('test-stream', makeEvent({ sequence: 1 }));
     backend.appendEvent('test-stream', makeEvent({ sequence: 2 }));
 
-    // Access the internal db to spy on prepare
     const db = (backend as unknown as { db: { prepare: (sql: string) => unknown } }).db;
     const originalPrepare = db.prepare.bind(db);
     const prepareSpy = vi.fn(originalPrepare);
     db.prepare = prepareSpy;
 
-    // Run queryEvents twice with the same filter combination
     const filters = { type: 'workflow.started' as const };
     backend.queryEvents('test-stream', filters);
     backend.queryEvents('test-stream', filters);
 
-    // db.prepare should only be called once — the second call should reuse the cached statement
     expect(prepareSpy).toHaveBeenCalledTimes(1);
   });
 
   it('queryEvents_DifferentFilters_CreatesSeparateStatements', () => {
-    // Append some events
     backend.appendEvent('test-stream', makeEvent({ sequence: 1 }));
 
     const db = (backend as unknown as { db: { prepare: (sql: string) => unknown } }).db;
@@ -904,15 +868,12 @@ describe('SqliteBackend queryEvents Prepared Statement Caching', () => {
     const prepareSpy = vi.fn(originalPrepare);
     db.prepare = prepareSpy;
 
-    // Different filter combinations should create different prepared statements
     backend.queryEvents('test-stream', { type: 'workflow.started' });
     backend.queryEvents('test-stream', { sinceSequence: 0 });
 
     expect(prepareSpy).toHaveBeenCalledTimes(2);
   });
 });
-
-// ─── Property-Based Tests ───────────────────────────────────────────────────
 
 describe('SqliteBackend Property Tests', () => {
   let backend: SqliteBackend;
@@ -931,7 +892,6 @@ describe('SqliteBackend Property Tests', () => {
       fc.property(
         fc.integer({ min: 1, max: 20 }),
         (count) => {
-          // Create a fresh backend for each property test run
           const propBackend = new SqliteBackend(':memory:');
           propBackend.initialize();
 
@@ -988,6 +948,10 @@ describe('SqliteBackend Property Tests', () => {
     );
   });
 
+  /**
+   * The two calls run in sequence with expected version 1. The first must
+   * succeed and the second must throw.
+   */
   it('CAS linearizability: concurrent setState with same expectedVersion — exactly one succeeds', () => {
     fc.assert(
       fc.property(
@@ -1009,14 +973,12 @@ describe('SqliteBackend Property Tests', () => {
             propBackend.setState(featureId, update1, 1);
             success1 = true;
           } catch {
-            // CAS conflict
           }
 
           try {
             propBackend.setState(featureId, update2, 1);
             success2 = true;
           } catch {
-            // CAS conflict
           }
 
           expect(success1).toBe(true);
@@ -1048,11 +1010,9 @@ describe('SqliteBackend Property Tests', () => {
             },
           };
 
-          // First drain sends all
           const result1 = await propBackend.drainOutbox(streamId, successSender);
           expect(result1.sent).toBe(count);
 
-          // Second drain should be idempotent — nothing to send
           const result2 = await propBackend.drainOutbox(streamId, successSender);
           expect(result2.sent).toBe(0);
           expect(result2.failed).toBe(0);
@@ -1063,8 +1023,6 @@ describe('SqliteBackend Property Tests', () => {
     );
   });
 });
-
-// ─── Cleanup Operations ──────────────────────────────────────────────────────
 
 describe('SqliteBackend Cleanup Operations', () => {
   let backend: SqliteBackend;
@@ -1079,7 +1037,6 @@ describe('SqliteBackend Cleanup Operations', () => {
   });
 
   it('SqliteBackend_deleteStream_RemovesAllEventsAndSequence', () => {
-    // Arrange
     for (let i = 1; i <= 5; i++) {
       backend.appendEvent('stream-to-delete', makeEvent({ streamId: 'stream-to-delete', sequence: i }));
     }
@@ -1087,19 +1044,15 @@ describe('SqliteBackend Cleanup Operations', () => {
 
     expect(backend.queryEvents('stream-to-delete')).toHaveLength(5);
 
-    // Act
     backend.deleteStream('stream-to-delete');
 
-    // Assert
     expect(backend.queryEvents('stream-to-delete')).toHaveLength(0);
     expect(backend.getSequence('stream-to-delete')).toBe(0);
     expect(backend.listStreams()).not.toContain('stream-to-delete');
-    // Other stream unaffected
     expect(backend.queryEvents('other-stream')).toHaveLength(1);
   });
 
   it('SqliteBackend_deleteState_RemovesStateForFeature', () => {
-    // Arrange
     const state1 = makeState({ featureId: 'feature-to-delete' });
     const state2 = makeState({ featureId: 'other-feature' });
     backend.setState('feature-to-delete', state1);
@@ -1107,16 +1060,13 @@ describe('SqliteBackend Cleanup Operations', () => {
 
     expect(backend.getState('feature-to-delete')).not.toBeNull();
 
-    // Act
     backend.deleteState('feature-to-delete');
 
-    // Assert
     expect(backend.getState('feature-to-delete')).toBeNull();
     expect(backend.getState('other-feature')).not.toBeNull();
   });
 
   it('SqliteBackend_pruneEvents_RemovesEventsBeforeTimestamp', () => {
-    // Arrange
     const oldTimestamp = '2024-01-01T00:00:00.000Z';
     const newTimestamp = '2025-06-15T00:00:00.000Z';
 
@@ -1139,10 +1089,8 @@ describe('SqliteBackend Cleanup Operations', () => {
 
     expect(backend.queryEvents('telemetry')).toHaveLength(6);
 
-    // Act
     const pruned = backend.pruneEvents('telemetry', '2025-01-01T00:00:00.000Z');
 
-    // Assert
     expect(pruned).toBe(3);
     const remaining = backend.queryEvents('telemetry');
     expect(remaining).toHaveLength(3);
@@ -1157,18 +1105,13 @@ describe('SqliteBackend Cleanup Operations', () => {
   });
 });
 
-// ─── T10: SQLITE_CORRUPT startup raises structured error, no auto-rebuild ───
-//
-// DR-12 (#1259, T10): SQLite-backed substrate refuses to start against a
-// corrupt or non-database file. The lifecycle wires a hard stop here
-// because silent auto-rebuild would (a) destroy the byte evidence
-// operators need to root-cause the corruption and (b) potentially mask a
-// data-loss surface that should escalate to operator intervention.
-//
-// Tested at the SqliteBackend level so the contract is explicit at the
-// substrate boundary; lifecycle.ts can rely on `initialize()` throwing
-// without itself probing for corruption.
-
+/**
+ * `initialize()` must throw on a corrupt file or a file that is not a
+ * database, and must not rebuild it. A silent rebuild destroys the bytes that
+ * an operator needs to find the cause, and can hide a data loss.
+ * `initializeBackend` relies on this throw and does not probe for corruption
+ * itself.
+ */
 describe('SqliteBackend Startup Corruption (T10)', () => {
   let tmpDir: string;
 
@@ -1180,10 +1123,14 @@ describe('SqliteBackend Startup Corruption (T10)', () => {
     await rmrfAsync(tmpDir);
   });
 
+  /**
+   * The planted bytes open as a file but fail the SQLite header check
+   * (`SQLITE_NOTADB`). The error must have a typed name and code, so a caller
+   * does not parse the message. The message must name the file and tell the
+   * operator what to do. The planted bytes must stay unchanged.
+   */
   it('SqliteBackend_StartupCorruptDb_StructuredErrorNoAutoRebuild', async () => {
     const dbPath = path.join(tmpDir, 'corrupt.db');
-    // Plant a malformed file: bytes that pass `open(2)` but fail SQLite's
-    // header validation. Surfaces as `SQLITE_NOTADB` in modern SQLite.
     const garbage = Buffer.from('this is definitely not a sqlite database header');
     await writeFile(dbPath, garbage);
 
@@ -1197,39 +1144,28 @@ describe('SqliteBackend Startup Corruption (T10)', () => {
       try {
         backend.close();
       } catch {
-        // initialize() may have thrown before db was opened; ignore.
       }
     }
 
     expect(thrown).toBeInstanceOf(Error);
     const err = thrown as Error & { code?: string; cause?: unknown };
 
-    // Structured error class — operators / lifecycle code can branch on
-    // `err.name` or `instanceof` to distinguish corruption from generic
-    // SqliteError (transient I/O fault) without inspecting message text.
     expect(err.name).toBe('SqliteCorruptError');
     expect(err.code).toBe('SQLITE_CORRUPT');
 
-    // Operator remediation must be embedded in the message — keeps the
-    // structured error self-describing for log-only consumers.
     expect(err.message).toMatch(/operator|remediation|inspect|manual/i);
-    // Path of the offending file is part of the message (so operator
-    // doesn't need to correlate against a separate log line).
     expect(err.message).toContain(dbPath);
 
-    // No-auto-rebuild contract: the planted bytes survive intact. A
-    // silent rebuild would overwrite this file and lose the evidence.
     const surviving = await readFile(dbPath);
     expect(surviving.equals(garbage)).toBe(true);
   });
 });
 
-// ─── A2.2: readLatestProjectionSnapshot (Wave A, #1343) ─────────────────────
-//
-// Verifies that SqliteBackend.readLatestProjectionSnapshot selects the row
-// with the highest sequence for a given (streamId, projectionId,
-// projectionVersion) coordinate and returns undefined when no rows match.
-
+/**
+ * `readLatestProjectionSnapshot` returns the row with the highest sequence for
+ * one `(streamId, projectionId, projectionVersion)` coordinate, or `undefined`
+ * when no row matches.
+ */
 describe('SqliteBackend Projection Snapshot — Read (A2.2)', () => {
   let backend: SqliteBackend;
 
@@ -1242,13 +1178,15 @@ describe('SqliteBackend Projection Snapshot — Read (A2.2)', () => {
     backend.close();
   });
 
+  /**
+   * The appends use sequences 1, 5 and 3, out of order, so insertion order
+   * cannot give the right row.
+   */
   it('SqliteBackend_ReadLatestProjectionSnapshot_ReturnsHighestSequenceMatchingRecord', () => {
     const streamId = 'feat-snap-read';
     const projectionId = 'task-store';
     const projectionVersion = 'v1';
 
-    // Insert three snapshot rows for the same coordinate with sequences 1, 5, 3
-    // (deliberately out of order to confirm ORDER BY DESC LIMIT 1 is used).
     const makeRecord = (sequence: number) => ({
       projectionId,
       projectionVersion,
@@ -1261,7 +1199,6 @@ describe('SqliteBackend Projection Snapshot — Read (A2.2)', () => {
     backend.appendProjectionSnapshot(streamId, makeRecord(5));
     backend.appendProjectionSnapshot(streamId, makeRecord(3));
 
-    // readLatestProjectionSnapshot must return the row with the highest sequence.
     const latest = backend.readLatestProjectionSnapshot(
       streamId,
       projectionId,
@@ -1276,7 +1213,6 @@ describe('SqliteBackend Projection Snapshot — Read (A2.2)', () => {
   });
 
   it('SqliteBackend_ReadLatestProjectionSnapshot_ReturnsUndefinedWhenNoRowsMatch', () => {
-    // No rows inserted — must return undefined.
     const result = backend.readLatestProjectionSnapshot(
       'nonexistent-stream',
       'nonexistent-projection',
@@ -1300,34 +1236,28 @@ describe('SqliteBackend Projection Snapshot — Read (A2.2)', () => {
     };
     backend.appendProjectionSnapshot(streamId, record);
 
-    // Different streamId — must return undefined.
     expect(
       backend.readLatestProjectionSnapshot('other-stream', projectionId, projectionVersion),
     ).toBeUndefined();
 
-    // Different projectionId — must return undefined.
     expect(
       backend.readLatestProjectionSnapshot(streamId, 'other-proj', projectionVersion),
     ).toBeUndefined();
 
-    // Different projectionVersion — must return undefined.
     expect(
       backend.readLatestProjectionSnapshot(streamId, projectionId, 'v2'),
     ).toBeUndefined();
 
-    // Exact coordinate — must return the record.
     const found = backend.readLatestProjectionSnapshot(streamId, projectionId, projectionVersion);
     expect(found).toBeDefined();
     expect(found!.sequence).toBe(10);
   });
 });
 
-// ─── A2.3: appendProjectionSnapshot with size cap (Wave A, #1343) ────────────
-//
-// Verifies that SqliteBackend.appendProjectionSnapshot persists records and
-// enforces a size cap by deleting the oldest rows (by sequence) when the
-// total count for a coordinate exceeds maxRecords.
-
+/**
+ * `appendProjectionSnapshot` stores a record. When a coordinate holds more
+ * than `maxRecords` rows, it deletes the rows with the lowest sequences.
+ */
 describe('SqliteBackend Projection Snapshot — Append + Size Cap (A2.3)', () => {
   let backend: SqliteBackend;
 
@@ -1365,9 +1295,6 @@ describe('SqliteBackend Projection Snapshot — Append + Size Cap (A2.3)', () =>
     const projectionVersion = 'v1';
     const maxRecords = 3;
 
-    // Insert maxRecords + 1 = 4 snapshots with sequences 1, 2, 3, 4.
-    // After the last append with the size cap, sequences 1 should be deleted,
-    // leaving sequences 2, 3, 4 (the most recent maxRecords=3 by sequence).
     for (let seq = 1; seq <= maxRecords + 1; seq++) {
       backend.appendProjectionSnapshot(
         streamId,
@@ -1382,7 +1309,6 @@ describe('SqliteBackend Projection Snapshot — Append + Size Cap (A2.3)', () =>
       );
     }
 
-    // Verify row count == maxRecords by reading from the raw DB.
     const db = (backend as unknown as { db: { prepare: (sql: string) => { all: (...args: unknown[]) => Array<{ sequence: number }> } } }).db;
     const rows = db
       .prepare(
@@ -1394,11 +1320,9 @@ describe('SqliteBackend Projection Snapshot — Append + Size Cap (A2.3)', () =>
 
     expect(rows).toHaveLength(maxRecords);
 
-    // The oldest row (sequence=1) must have been deleted; remaining are 2, 3, 4.
     const sequences = rows.map((r) => r.sequence);
     expect(sequences).toEqual([2, 3, 4]);
 
-    // readLatestProjectionSnapshot still returns the highest (sequence=4).
     const latest = backend.readLatestProjectionSnapshot(streamId, projectionId, projectionVersion);
     expect(latest).toBeDefined();
     expect(latest!.sequence).toBe(4);
@@ -1408,7 +1332,6 @@ describe('SqliteBackend Projection Snapshot — Append + Size Cap (A2.3)', () =>
     const streamId = 'feat-coord-isolation';
     const maxRecords = 2;
 
-    // Insert 3 rows for coordinate A (will hit the cap on the 3rd).
     for (let seq = 1; seq <= 3; seq++) {
       backend.appendProjectionSnapshot(
         streamId,
@@ -1417,13 +1340,11 @@ describe('SqliteBackend Projection Snapshot — Append + Size Cap (A2.3)', () =>
       );
     }
 
-    // Insert 1 row for coordinate B (no cap triggered).
     backend.appendProjectionSnapshot(
       streamId,
       { projectionId: 'proj-b', projectionVersion: 'v1', sequence: 100, state: { b: true }, timestamp: new Date().toISOString() },
     );
 
-    // Coordinate A: cap applied — only 2 rows remain (sequences 2, 3).
     const db = (backend as unknown as { db: { prepare: (sql: string) => { all: (...args: unknown[]) => Array<{ sequence: number }> } } }).db;
     const rowsA = db
       .prepare(
@@ -1435,15 +1356,17 @@ describe('SqliteBackend Projection Snapshot — Append + Size Cap (A2.3)', () =>
     expect(rowsA).toHaveLength(2);
     expect(rowsA.map((r) => r.sequence)).toEqual([2, 3]);
 
-    // Coordinate B: untouched.
     const latestB = backend.readLatestProjectionSnapshot(streamId, 'proj-b', 'v1');
     expect(latestB).toBeDefined();
     expect(latestB!.sequence).toBe(100);
   });
 });
 
-// ─── Wave 4 (#1437) — Correlation-tuple filters on queryEvents ──────────────
-
+/**
+ * `seedSplitByCorrelation` appends three events with the `X` ids and three
+ * with the `Y` ids. `operationId`, `correlationId` and `causationId` split the
+ * same way, so one fixture serves the three filters.
+ */
 describe('SqliteBackend queryEvents correlation filters (Wave 4 / #1437)', () => {
   let backend: SqliteBackend;
 
@@ -1457,9 +1380,6 @@ describe('SqliteBackend queryEvents correlation filters (Wave 4 / #1437)', () =>
   });
 
   function seedSplitByCorrelation(): void {
-    // Three events tagged 'cor-X', three tagged 'cor-Y'. operationId and
-    // causationId mirror the same split so the same fixture exercises all
-    // three filter fields without re-seeding.
     for (let i = 1; i <= 3; i++) {
       backend.appendEvent('test-stream', makeEvent({
         streamId: 'test-stream',
@@ -1482,15 +1402,17 @@ describe('SqliteBackend queryEvents correlation filters (Wave 4 / #1437)', () =>
     }
   }
 
+  /**
+   * The assertions read the value from the rehydrated event, not from the
+   * indexed column. The column is the filter handle, and the payload is the
+   * source of truth.
+   */
   it('SqliteBackend_QueryEvents_FiltersByCorrelationId', () => {
     seedSplitByCorrelation();
 
     const results = backend.queryEvents('test-stream', { correlationId: 'cor-X' });
 
     expect(results).toHaveLength(3);
-    // INV-1: assert the value via the rehydrated event payload, not by
-    // reading the indexed column. The column is the filter handle; the
-    // payload is the truth.
     for (const event of results) {
       expect(event.correlationId).toBe('cor-X');
     }
@@ -1518,11 +1440,12 @@ describe('SqliteBackend queryEvents correlation filters (Wave 4 / #1437)', () =>
     }
   });
 
+  /**
+   * A correlation filter must combine with an existing predicate, here
+   * `sinceSequence`. The single-field tests still pass if the correlation
+   * clause cancels the other predicates.
+   */
   it('SqliteBackend_QueryEvents_CombinesCorrelationWithExistingFilters', () => {
-    // Combination test pins that the new WHERE-clause appends compose with
-    // existing predicates (sinceSequence). Without this guarantee the
-    // single-field tests above would still pass even if the new clause
-    // accidentally short-circuited the existing ones.
     seedSplitByCorrelation();
 
     const results = backend.queryEvents('test-stream', {
@@ -1537,30 +1460,24 @@ describe('SqliteBackend queryEvents correlation filters (Wave 4 / #1437)', () =>
   });
 });
 
-// ─── #1448 (Wave 1 / Task 2) — correlationFilteredQueries counter ───────────
-//
-// PR #1447 added the indexed-WHERE fast path on (operation_id, correlation_id,
-// causation_id), but nothing currently distinguishes "indexed-path hit" from
-// "fell back to post-fetch filter" at runtime. The counter below is the
-// observability surface that closes the DIM-2 LOW finding from #1447's audit:
-// a silent index regression (schema change drops the column, future
-// WHERE-builder edit forgets the clause) would otherwise produce correct
-// answers via full-scan, invisible until users notice latency.
-//
-// Counting rule: ONE increment per query, regardless of how many of the three
-// correlation filter fields are supplied. A query with all three filters counts
-// as 1.
-
+/**
+ * `correlationFilteredQueries` counts the queries that filter on
+ * `operationId`, `correlationId` or `causationId`. It makes the use of the
+ * indexed WHERE path visible. A lost index still gives correct rows through a
+ * full scan, and shows only as latency. Each query counts once, with one
+ * filter or with all three.
+ */
 describe('SqliteBackend correlationFilteredQueries counter (#1448 Task 2)', () => {
   let backend: SqliteBackend;
 
+  /**
+   * Seeds three stamped events. The counter does not depend on the result size:
+   * it advances when the filter block runs.
+   */
   beforeEach(() => {
     backend = new SqliteBackend(':memory:');
     backend.initialize();
 
-    // Seed a couple of stamped events so the queries below have something to
-    // scan past. The counter is independent of result-set size — it advances
-    // whenever the filter-clause block runs, not when rows match.
     for (let i = 1; i <= 3; i++) {
       backend.appendEvent('test-stream', makeEvent({
         streamId: 'test-stream',
@@ -1577,18 +1494,20 @@ describe('SqliteBackend correlationFilteredQueries counter (#1448 Task 2)', () =
     backend.close();
   });
 
+  /** The fourth query has no correlation filter and must not count. */
   it('Sqlite_queryEvents_WithCorrelationFilter_IncrementsIndexedPathCounter', () => {
     backend.queryEvents('test-stream', { correlationId: 'cor-x' });
     backend.queryEvents('test-stream', { operationId: 'op-x' });
     backend.queryEvents('test-stream', { causationId: 'cau-x' });
-    backend.queryEvents('test-stream', {}); // no correlation filter — must NOT increment
+    backend.queryEvents('test-stream', {});
 
     expect(backend.getStats().correlationFilteredQueries).toBe(3);
   });
 
+  /** The second query has no filter and must not count. */
   it('Sqlite_queryEventsByType_WithCorrelationFilter_IncrementsIndexedPathCounter', () => {
     backend.queryEventsByType('workflow.started', 'test-stream', { correlationId: 'cor-x' });
-    backend.queryEventsByType('workflow.started', 'test-stream', {}); // no filter
+    backend.queryEventsByType('workflow.started', 'test-stream', {});
 
     expect(backend.getStats().correlationFilteredQueries).toBe(1);
   });
@@ -1604,26 +1523,28 @@ describe('SqliteBackend correlationFilteredQueries counter (#1448 Task 2)', () =
   });
 });
 
-// ─── EFF-001 repair gate-lowering TOCTOU (regression) ───────────────────────
-//
-// `repairSequenceHighWaterMarks` used to run its divergence SELECT on the bare
-// connection and apply the upserts in a SEPARATE transaction, with a blind
-// `SET sequence = excluded.sequence` overwrite. A sibling process that repaired
-// AND appended between the two steps got its freshly-advanced gate LOWERED back
-// to the stale tail — gate-below-tail, so the next append re-issues a persisted
-// sequence and PK-violates. The fix is two independent guards: the SELECT and
-// the upserts now share one BEGIN IMMEDIATE transaction, and the repair upsert
-// is monotonic (`MAX(sequence, excluded.sequence)`). This regression pins the
-// monotonic floor by replaying the exact interleaving.
-
+/**
+ * A stale startup repair must not lower the gate, the `sequences` row of a
+ * stream. If the SELECT and the upserts of a repair run apart, a sibling
+ * process can repair and append between them. A blind overwrite then sets the
+ * advanced gate back to the stale tail. The next append reuses a stored
+ * sequence and violates the primary key. The repair has two guards: one
+ * `BEGIN IMMEDIATE` transaction for both steps, and a monotonic upsert
+ * (`MAX(sequence, excluded.sequence)`). This test pins the monotonic upsert.
+ */
 describe('SqliteBackend EFF-001 repair TOCTOU (gate-lowering)', () => {
+  /**
+   * The seed has events 1 to 5 and a gate forced back to 3. `staleTail` stands
+   * for the value 5 that the repair of a first process computes. Then backend B
+   * starts, repairs the gate to 5, and appends to 8. The test applies the stale
+   * value through `upsertSequenceMonotonic`, and the gate must stay at 8. A
+   * gate of 5 gives out sequence 6 again.
+   */
   it('Sqlite_StaleRepairAfterConcurrentAdvance_NeverLowersTheGate', async () => {
     const stateDir = await mkdtemp(path.join(tmpdir(), 'repair-toctou-'));
     const dbPath = path.join(stateDir, 'repair-toctou.db');
     const streamId = 'repair-toctou-stream';
 
-    // Seed events 1..5, then force the gate back to 3 — the crash shape the
-    // startup repair exists for (gate trails the durable tail).
     const seeder = new SqliteBackend(dbPath);
     seeder.initialize();
     for (let seq = 1; seq <= 5; seq++) {
@@ -1637,13 +1558,8 @@ describe('SqliteBackend EFF-001 repair TOCTOU (gate-lowering)', () => {
     seederDb.prepare('UPDATE sequences SET sequence = ? WHERE streamId = ?').run(3, streamId);
     seeder.close();
 
-    // Process A's repair computes divergence { tail: 5, gate: 3 }: its
-    // corrective value is 5.
     const staleTail = 5;
 
-    // Before A applies it, process B starts up (its own repair raises the
-    // gate 3 → 5 through the real repair path) and then appends: the gate
-    // advances PAST A's snapshot.
     const backendB = new SqliteBackend(dbPath);
     backendB.initialize();
     expect(
@@ -1655,10 +1571,6 @@ describe('SqliteBackend EFF-001 repair TOCTOU (gate-lowering)', () => {
     }
     expect(backendB.readSequenceHighWaterMark(streamId)).toBe(8);
 
-    // Process A now applies its STALE repair through the same statement the
-    // repair path uses. The monotonic upsert must leave the advanced gate
-    // untouched — lowering it to 5 would hand out sequence 6 next, which is
-    // already persisted (PK violation).
     const stmts = (
       backendB as unknown as {
         stmts: { upsertSequenceMonotonic: { run: (...args: unknown[]) => unknown } };

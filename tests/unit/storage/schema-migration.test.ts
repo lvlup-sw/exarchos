@@ -7,8 +7,6 @@ import type { WorkflowEvent } from '../../../src/events/schemas.js';
 import { SqliteBackend } from '../../../src/storage/sqlite-backend.js';
 import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
 function makeEvent(overrides: Partial<WorkflowEvent> = {}): WorkflowEvent {
   return {
     streamId: 'test-stream',
@@ -20,10 +18,7 @@ function makeEvent(overrides: Partial<WorkflowEvent> = {}): WorkflowEvent {
   } as WorkflowEvent;
 }
 
-/**
- * Creates a V1 database schema (without the `payload` column on events).
- * This simulates a database created before the V1->V2 migration was introduced.
- */
+/** Creates a V1 database: the `events` table has no `payload` column. */
 function createV1Database(dbPath: string): Database {
   const db = new Database(dbPath);
   db.exec('PRAGMA journal_mode = WAL');
@@ -84,7 +79,8 @@ function createV1Database(dbPath: string): Database {
 }
 
 /**
- * Inserts a V1-style event (no payload column) directly into the events table.
+ * Inserts a V1 event row, which has no `payload` value, and sets the
+ * `sequences` row of the stream.
  */
 function insertV1Event(
   db: Database,
@@ -99,14 +95,17 @@ function insertV1Event(
     'INSERT INTO events (streamId, sequence, type, timestamp, data) VALUES (?, ?, ?, ?, ?)',
   ).run(streamId, sequence, type, timestamp, dataJson);
 
-  // Also update the sequences table like SqliteBackend does
   db.prepare(
     'INSERT INTO sequences (streamId, sequence) VALUES (?, ?) ON CONFLICT(streamId) DO UPDATE SET sequence = excluded.sequence',
   ).run(streamId, sequence);
 }
 
-// ─── Schema Migration Tests ─────────────────────────────────────────────────
-
+/**
+ * `initialize()` runs `migrateSchema()`, so a test migrates its database when
+ * it initializes the backend. `createV5Database` builds an `events` table
+ * without the three correlation columns and stamps versions 2 to 5. Then only
+ * the V5 to V6 step runs on the next open.
+ */
 describe('SqliteBackend Schema Migration V1->V2', () => {
   let tempDir: string;
   const backends: SqliteBackend[] = [];
@@ -126,7 +125,6 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
       try {
         b.close();
       } catch {
-        // already closed
       }
     }
     backends.length = 0;
@@ -139,10 +137,8 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
   it('migrateSchema_V1Database_AddsPayloadColumn', () => {
     const dbPath = createTempDb();
 
-    // Create a V1 database (no payload column)
     const rawDb = createV1Database(dbPath);
 
-    // Verify no payload column exists yet
     const columnsBefore = rawDb
       .prepare('PRAGMA table_info(events)')
       .all() as Array<{ name: string }>;
@@ -151,11 +147,9 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
 
     rawDb.close();
 
-    // Open with SqliteBackend which triggers migrateSchema()
     const backend = trackBackend(new SqliteBackend(dbPath));
     backend.initialize();
 
-    // Verify the payload column now exists
     const db = (backend as unknown as { db: Database }).db;
     const columnsAfter = db
       .prepare('PRAGMA table_info(events)')
@@ -164,10 +158,13 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
     expect(hasPayloadAfter).toBe(true);
   });
 
+  /**
+   * The migration leaves `payload` NULL on a V1 row, so `rowToEvent` builds the
+   * event from the columns.
+   */
   it('migrateSchema_V1Events_QueryableViaRowToEventFallback', () => {
     const dbPath = createTempDb();
 
-    // Create V1 database with events (no payload column)
     const rawDb = createV1Database(dbPath);
     insertV1Event(rawDb, 'stream-1', 1, 'workflow.started', '2024-01-01T00:00:00.000Z', {
       featureId: 'my-feature',
@@ -179,15 +176,12 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
     });
     rawDb.close();
 
-    // Open with SqliteBackend — migration adds payload column but existing rows have NULL payload
     const backend = trackBackend(new SqliteBackend(dbPath));
     backend.initialize();
 
-    // Query events — rowToEvent should fall back to field-by-field reconstruction
     const events = backend.queryEvents('stream-1');
     expect(events).toHaveLength(2);
 
-    // Verify first event fields are reconstructed correctly
     expect(events[0].streamId).toBe('stream-1');
     expect(events[0].sequence).toBe(1);
     expect(events[0].type).toBe('workflow.started');
@@ -197,7 +191,6 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
       workflowType: 'feature',
     });
 
-    // Verify second event
     expect(events[1].streamId).toBe('stream-1');
     expect(events[1].sequence).toBe(2);
     expect(events[1].type).toBe('task.assigned');
@@ -207,10 +200,13 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
     });
   });
 
+  /**
+   * `rowToEvent` builds the V1 event from the columns. It parses the V2 event
+   * from `payload`, which keeps every field.
+   */
   it('migrateSchema_V1AndV2EventsCoexist_BothQueryCorrectly', () => {
     const dbPath = createTempDb();
 
-    // Create V1 database with a V1 event
     const rawDb = createV1Database(dbPath);
     insertV1Event(rawDb, 'stream-mixed', 1, 'workflow.started', '2024-01-01T00:00:00.000Z', {
       featureId: 'mixed-feature',
@@ -218,11 +214,9 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
     });
     rawDb.close();
 
-    // Open with SqliteBackend — migrates and allows new V2 events
     const backend = trackBackend(new SqliteBackend(dbPath));
     backend.initialize();
 
-    // Append a V2 event (with full payload JSON)
     const v2Event = makeEvent({
       streamId: 'stream-mixed',
       sequence: 2,
@@ -235,11 +229,9 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
     });
     backend.appendEvent('stream-mixed', v2Event);
 
-    // Query all events — both V1 (fallback) and V2 (payload) should work
     const events = backend.queryEvents('stream-mixed');
     expect(events).toHaveLength(2);
 
-    // V1 event (reconstructed from fields)
     expect(events[0].streamId).toBe('stream-mixed');
     expect(events[0].sequence).toBe(1);
     expect(events[0].type).toBe('workflow.started');
@@ -248,7 +240,6 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
       workflowType: 'feature',
     });
 
-    // V2 event (deserialized from payload — preserves all fields)
     expect(events[1].streamId).toBe('stream-mixed');
     expect(events[1].sequence).toBe(2);
     expect(events[1].type).toBe('task.assigned');
@@ -261,18 +252,15 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
   it('migrateSchema_CalledTwice_IsIdempotent', () => {
     const dbPath = createTempDb();
 
-    // Create V1 database with an event
     const rawDb = createV1Database(dbPath);
     insertV1Event(rawDb, 'stream-idem', 1, 'workflow.started', '2024-01-01T00:00:00.000Z', {
       featureId: 'idem-feature',
     });
     rawDb.close();
 
-    // First SqliteBackend opens and migrates
     const backend1 = trackBackend(new SqliteBackend(dbPath));
     backend1.initialize();
 
-    // Append a V2 event through the first backend
     backend1.appendEvent(
       'stream-idem',
       makeEvent({ streamId: 'stream-idem', sequence: 2, type: 'task.assigned' }),
@@ -280,17 +268,14 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
 
     backend1.close();
 
-    // Second SqliteBackend opens the same DB — migrateSchema runs again (idempotent)
     const backend2 = trackBackend(new SqliteBackend(dbPath));
     expect(() => backend2.initialize()).not.toThrow();
 
-    // All data should still be intact
     const events = backend2.queryEvents('stream-idem');
     expect(events).toHaveLength(2);
     expect(events[0].sequence).toBe(1);
     expect(events[1].sequence).toBe(2);
 
-    // Verify the payload column still exists (only one)
     const db = (backend2 as unknown as { db: Database }).db;
     const columns = db
       .prepare('PRAGMA table_info(events)')
@@ -299,25 +284,25 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
     expect(payloadColumns).toHaveLength(1);
   });
 
+  /**
+   * `createV1Database` stamps no version. The assertion covers only version 3,
+   * which the V2 to V3 step stamps.
+   */
   it('migrateSchema_TracksSchemaVersion_InSchemaVersionTable', () => {
     const dbPath = createTempDb();
 
-    // Create V1 database (no schema_version entries)
     const rawDb = createV1Database(dbPath);
     rawDb.close();
 
-    // Open with SqliteBackend — migration + schema version tracking
     const backend = trackBackend(new SqliteBackend(dbPath));
     backend.initialize();
 
-    // Check the schema_version table contains the current SCHEMA_VERSION (3)
     const db = (backend as unknown as { db: Database }).db;
     const rows = db
       .prepare('SELECT version FROM schema_version ORDER BY version')
       .all() as Array<{ version: number }>;
 
     expect(rows.length).toBeGreaterThanOrEqual(1);
-    // The current SCHEMA_VERSION is 3 (from sqlite-backend.ts)
     const versions = rows.map((r) => r.version);
     expect(versions).toContain(3);
   });
@@ -325,13 +310,11 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
   it('Migration_AddsProjectionSnapshotsTable_OnFreshDb', () => {
     const dbPath = createTempDb();
 
-    // Open a fresh SQLite DB through SqliteBackend.initialize().
     const backend = trackBackend(new SqliteBackend(dbPath));
     backend.initialize();
 
     const db = (backend as unknown as { db: Database }).db;
 
-    // Assert: projection_snapshots table exists in sqlite_master.
     const tableRow = db
       .prepare(
         "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'projection_snapshots'",
@@ -340,7 +323,6 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
     expect(tableRow).toBeDefined();
     expect(tableRow?.name).toBe('projection_snapshots');
 
-    // Assert: column shape matches the design spec.
     const columns = db
       .prepare('PRAGMA table_info(projection_snapshots)')
       .all() as Array<{ name: string; type: string; notnull: number; pk: number }>;
@@ -362,7 +344,6 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
       expect(col!.notnull).toBe(expected.notnull);
     }
 
-    // Assert: PRIMARY KEY is (stream_id, projection_id, projection_version, sequence).
     const pkColumns = columns
       .filter((c) => c.pk > 0)
       .sort((a, b) => a.pk - b.pk)
@@ -374,7 +355,6 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
       'sequence',
     ]);
 
-    // Assert: idx_projection_snapshots_latest index exists.
     const indexRow = db
       .prepare(
         "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_projection_snapshots_latest'",
@@ -384,13 +364,6 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
     expect(indexRow?.name).toBe('idx_projection_snapshots_latest');
   });
 
-  /**
-   * Build a V5 DB on disk: SCHEMA_DDL-shape events table without the three
-   * V6 correlation columns, plus a `schema_version` ledger row stamping
-   * version=5. This mirrors a real V5 database that was created before
-   * #1437 landed; reopening it via `new SqliteBackend(...).initialize()`
-   * should trigger the V5 -> V6 migration.
-   */
   function createV5Database(dbPath: string): Database {
     const db = new Database(dbPath);
     db.exec('PRAGMA journal_mode = WAL');
@@ -481,8 +454,6 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
       );
     `);
 
-    // Stamp the ledger at V5 with V2/V3/V4/V5 entries so migrateSchema's
-    // upstream gates short-circuit and only the V5 -> V6 step runs.
     const stamp = db.prepare(
       'INSERT INTO schema_version (version, appliedAt) VALUES (?, ?)',
     );
@@ -494,7 +465,6 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
     return db;
   }
 
-  /** Insert a V5-style event (no correlation columns) directly into the events table. */
   function insertV5Event(
     db: Database,
     streamId: string,
@@ -515,8 +485,6 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
   it('MigrateV5ToV6_LegacyV5Db_AddsCorrelationColumnsAndStampsLedger', () => {
     const dbPath = createTempDb();
 
-    // Build a legacy V5 DB with a few events and explicit schema_version=5
-    // stamp. The events table has no correlation columns.
     const rawDb = createV5Database(dbPath);
     insertV5Event(rawDb, 'stream-legacy', 1, 'workflow.started', '2024-01-01T00:00:00.000Z', {
       streamId: 'stream-legacy',
@@ -535,7 +503,6 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
       data: { taskId: 'task-1', title: 'Legacy task' },
     });
 
-    // Sanity: no correlation columns yet on the V5 schema.
     const v5Cols = rawDb
       .prepare('PRAGMA table_info(events)')
       .all() as Array<{ name: string }>;
@@ -543,13 +510,11 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
 
     rawDb.close();
 
-    // Reopen via SqliteBackend — migrateV5ToV6 should run and add the columns.
     const backend = trackBackend(new SqliteBackend(dbPath));
     expect(() => backend.initialize()).not.toThrow();
 
     const db = (backend as unknown as { db: Database }).db;
 
-    // Correlation columns now present.
     const columnsAfter = db
       .prepare('PRAGMA table_info(events)')
       .all() as Array<{ name: string; type: string; notnull: number }>;
@@ -561,7 +526,6 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
       expect(info!.notnull).toBe(0);
     }
 
-    // schema_version ledger now contains version 6.
     const versions = (
       db
         .prepare('SELECT version FROM schema_version ORDER BY version')
@@ -569,7 +533,6 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
     ).map((r) => r.version);
     expect(versions).toContain(6);
 
-    // Original events still present and intact.
     const events = db
       .prepare('SELECT streamId, sequence, type FROM events WHERE streamId = ? ORDER BY sequence')
       .all('stream-legacy') as Array<{ streamId: string; sequence: number; type: string }>;
@@ -578,17 +541,18 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
     expect(events[1]).toMatchObject({ sequence: 2, type: 'task.assigned' });
   });
 
+  /**
+   * A new database has no ledger row, so the V5 to V6 step runs. The step finds
+   * no row to backfill, so it must write no progress event to `__migration__`.
+   */
   it('MigrateV5ToV6_FreshDbWithNoPriorEvents_NoOpsCleanly', () => {
     const dbPath = createTempDb();
 
-    // Open a brand-new tmp DB — SCHEMA_DDL creates the V6 events table and
-    // migrateSchema runs the V5 -> V6 helper too (no schema_version row).
     const backend = trackBackend(new SqliteBackend(dbPath));
     expect(() => backend.initialize()).not.toThrow();
 
     const db = (backend as unknown as { db: Database }).db;
 
-    // schema_version ledger contains version 6.
     const versions = (
       db
         .prepare('SELECT version FROM schema_version ORDER BY version')
@@ -596,15 +560,11 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
     ).map((r) => r.version);
     expect(versions).toContain(6);
 
-    // events table is empty.
     const eventCount = (
       db.prepare('SELECT COUNT(*) AS n FROM events').get() as { n: number }
     ).n;
     expect(eventCount).toBe(0);
 
-    // No progress events on the internal `__migration__` stream — there was
-    // nothing to backfill on a fresh DB, so the chunked-progress path must
-    // not have fired.
     const migrationRowCount = (
       db
         .prepare("SELECT COUNT(*) AS n FROM events WHERE streamId = '__migration__'")
@@ -613,13 +573,14 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
     expect(migrationRowCount).toBe(0);
   });
 
+  /**
+   * One payload holds `operationId`, `correlationId` and `causationId` at the
+   * top level, and one holds none of them. The backfill copies the three values
+   * to the columns of the first row and leaves the second row NULL.
+   */
   it('MigrateV5ToV6_LegacyV5DbWithPayloadEvents_BackfillsCorrelationColumns', () => {
     const dbPath = createTempDb();
 
-    // Build a legacy V5 DB. Two kinds of events:
-    //   (a) "tagged" payload — carries correlationId / operationId / causationId
-    //       as top-level fields (the shape #1428 added to dispatch-stamped events).
-    //   (b) "untagged" payload — lacks all three (pre-#1428 events).
     const rawDb = createV5Database(dbPath);
 
     insertV5Event(rawDb, 'stream-tagged', 1, 'workflow.started', '2024-01-01T00:00:00.000Z', {
@@ -645,14 +606,11 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
 
     rawDb.close();
 
-    // Reopen via SqliteBackend — backfill should populate the tagged row's
-    // columns from its payload JSON and leave the untagged row's columns NULL.
     const backend = trackBackend(new SqliteBackend(dbPath));
     backend.initialize();
 
     const db = (backend as unknown as { db: Database }).db;
 
-    // Total row count unchanged — backfill is UPDATE, not INSERT/DELETE.
     const rowCount = (
       db
         .prepare(
@@ -662,7 +620,6 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
     ).n;
     expect(rowCount).toBe(2);
 
-    // Tagged row's columns hold the values extracted from its payload.
     const taggedRow = db
       .prepare(
         'SELECT operation_id, correlation_id, causation_id FROM events WHERE streamId = ? AND sequence = ?',
@@ -676,8 +633,6 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
     expect(taggedRow.correlation_id).toBe('corr-A');
     expect(taggedRow.causation_id).toBe('cause-A');
 
-    // Untagged row's columns stay NULL — the payload lacks the fields, so
-    // json_extract returns NULL and the row is left as-is.
     const untaggedRow = db
       .prepare(
         'SELECT operation_id, correlation_id, causation_id FROM events WHERE streamId = ? AND sequence = ?',
@@ -692,20 +647,18 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
     expect(untaggedRow.causation_id).toBeNull();
   });
 
+  /**
+   * 2,500 rows make three chunks at the chunk size of 1,000. Each chunk writes
+   * one progress event to `__migration__`, and the test accepts three or more.
+   */
   it('MigrateV5ToV6_LargeDb_ChunksBackfillAndEmitsProgressEvents', () => {
     const dbPath = createTempDb();
 
-    // Build a legacy V5 DB with 2,500 events across a handful of streams,
-    // every event carrying tagged payload. 2,500 rows -> 3 chunks at the
-    // 1,000-row chunk size, so we expect at least 3 progress events on
-    // the internal `__migration__` stream.
     const rawDb = createV5Database(dbPath);
 
     const TOTAL_EVENTS = 2500;
     const STREAMS = ['stream-A', 'stream-B', 'stream-C'];
 
-    // Track sequence per stream so the (streamId, sequence) PK doesn't
-    // collide as we round-robin across streams.
     const seqByStream = new Map<string, number>(STREAMS.map((s) => [s, 0]));
     for (let i = 0; i < TOTAL_EVENTS; i++) {
       const streamId = STREAMS[i % STREAMS.length];
@@ -725,14 +678,11 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
     }
     rawDb.close();
 
-    // Reopen via SqliteBackend — chunked backfill should populate every
-    // row's columns and emit progress events to `__migration__`.
     const backend = trackBackend(new SqliteBackend(dbPath));
     backend.initialize();
 
     const db = (backend as unknown as { db: Database }).db;
 
-    // Every event row now has populated correlation columns.
     const stillNullCount = (
       db
         .prepare(
@@ -744,7 +694,6 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
     ).n;
     expect(stillNullCount).toBe(0);
 
-    // Sanity: a sampled row carries the values its payload claimed.
     const sample = db
       .prepare(
         'SELECT operation_id, correlation_id, causation_id FROM events WHERE streamId = ? AND sequence = ?',
@@ -758,12 +707,6 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
     expect(sample.correlation_id).toBe('corr-0');
     expect(sample.causation_id).toBe('cause-0');
 
-    // Progress events landed on the `__migration__` stream. With chunk
-    // size 1,000 and 2,500 source rows the chunked loop fires at least
-    // three UPDATEs (1000 + 1000 + 500) and emits one progress event per
-    // chunk. >= 3 is the contract; the exact upper bound is fuzzy
-    // (the loop terminates when the UPDATE returns 0 changes, which
-    // costs a no-op final pass on some configurations).
     const progressRows = db
       .prepare(
         `SELECT payload FROM events
@@ -774,8 +717,6 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
       .all() as Array<{ payload: string }>;
     expect(progressRows.length).toBeGreaterThanOrEqual(3);
 
-    // Each progress event payload carries the per-chunk counters required
-    // by the registered schema.
     for (const { payload } of progressRows) {
       const parsed = JSON.parse(payload) as {
         data?: { rowsBackfilled?: unknown; totalRowsRemaining?: unknown };
@@ -785,16 +726,15 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
     }
   });
 
+  /** Each correlation column is TEXT and accepts NULL (`notnull` is 0). */
   it('SqliteBackend_FreshDb_SchemaV6_HasCorrelationColumnsAndIndexes', () => {
     const dbPath = createTempDb();
 
-    // Open a fresh tmp DB through SqliteBackend.initialize().
     const backend = trackBackend(new SqliteBackend(dbPath));
     backend.initialize();
 
     const db = (backend as unknown as { db: Database }).db;
 
-    // Assert: events table contains the three new V6 correlation columns.
     const columns = db
       .prepare('PRAGMA table_info(events)')
       .all() as Array<{ name: string; type: string; notnull: number }>;
@@ -804,11 +744,9 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
       const info = byName.get(col);
       expect(info, `missing column ${col}`).toBeDefined();
       expect(info!.type.toUpperCase()).toBe('TEXT');
-      // NULL allowed (notnull === 0)
       expect(info!.notnull).toBe(0);
     }
 
-    // Assert: idx_events_correlation and idx_events_causation exist in sqlite_master.
     const corrIdx = db
       .prepare(
         "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_events_correlation'",
@@ -830,7 +768,6 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
       .get() as { name: string } | undefined;
     expect(operationIdx?.name).toBe('idx_events_operation');
 
-    // Assert: schema_version max stamped version is 6.
     const versionRows = db
       .prepare('SELECT version FROM schema_version ORDER BY version DESC')
       .all() as Array<{ version: number }>;
@@ -838,19 +775,20 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
     expect(versionRows[0].version).toBe(6);
   });
 
+  /**
+   * The seed is a V1 schema plus the `payload` column and a ledger row for
+   * version 2. After the second open, the ledger versions and the `appliedAt`
+   * of version 3 are the same as after the first open.
+   */
   it('SchemaMigration_V2ToV3_AppliesIdempotently', () => {
     const dbPath = createTempDb();
 
-    // Seed a fresh database at V2: full V2 schema (payload column present) +
-    // schema_version row at version 2. Simulates a DB created by an older
-    // SqliteBackend (SCHEMA_VERSION === 2).
     const rawDb = createV1Database(dbPath);
     rawDb.exec('ALTER TABLE events ADD COLUMN payload TEXT');
     rawDb
       .prepare('INSERT INTO schema_version (version, appliedAt) VALUES (?, ?)')
       .run(2, '2024-01-01T00:00:00.000Z');
 
-    // Sanity: schema_version contains exactly one row at version 2.
     const seededRows = rawDb
       .prepare('SELECT version FROM schema_version ORDER BY version')
       .all() as Array<{ version: number }>;
@@ -858,7 +796,6 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
 
     rawDb.close();
 
-    // First open: migration runner advances from V2 to V3.
     const backend1 = trackBackend(new SqliteBackend(dbPath));
     backend1.initialize();
 
@@ -869,17 +806,12 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
     const versionsAfterFirst = rowsAfterFirst.map((r) => r.version);
     expect(versionsAfterFirst).toContain(3);
 
-    // Capture the appliedAt for V3 so we can prove a second init doesn't
-    // re-execute the migration step. A re-run would either INSERT a duplicate
-    // row or overwrite the timestamp.
     const v3Row = rowsAfterFirst.find((r) => r.version === 3);
     expect(v3Row).toBeDefined();
     const firstV3AppliedAt = v3Row!.appliedAt;
 
     backend1.close();
 
-    // Second open: DB is already at V3. Migration runner must short-circuit
-    // and NOT re-execute the V2->V3 step.
     const backend2 = trackBackend(new SqliteBackend(dbPath));
     expect(() => backend2.initialize()).not.toThrow();
 
@@ -888,13 +820,10 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
       .prepare('SELECT version, appliedAt FROM schema_version ORDER BY version')
       .all() as Array<{ version: number; appliedAt: string }>;
 
-    // No duplicates introduced; the version set is unchanged.
     expect(rowsAfterSecond.map((r) => r.version)).toEqual(
       rowsAfterFirst.map((r) => r.version),
     );
 
-    // V3 row's appliedAt is unchanged — proof the V2->V3 step was not
-    // re-executed on the second initialize.
     const v3RowAfterSecond = rowsAfterSecond.find((r) => r.version === 3);
     expect(v3RowAfterSecond?.appliedAt).toBe(firstV3AppliedAt);
   });

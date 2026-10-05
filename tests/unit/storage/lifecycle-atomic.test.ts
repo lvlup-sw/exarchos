@@ -4,8 +4,9 @@ import { mkdtemp, readFile, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
-// Track writeFile calls and allow simulating rename failures
+/** Records each call to the mocked `writeFile`. */
 const writeFileCalls: { path: string; data: string }[] = [];
+/** When true, the next call to the mocked `rename` throws, and the flag resets. */
 let renameFailOnce = false;
 
 vi.mock('node:fs/promises', async () => {
@@ -26,10 +27,8 @@ vi.mock('node:fs/promises', async () => {
   };
 });
 
-// Import AFTER mock setup
+/** A dynamic import, so the module loads after the `vi.mock` call above. */
 const { compactWorkflow, DEFAULT_LIFECYCLE_POLICY } = await import('../../../src/storage/lifecycle.js');
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
 
 /** Create a temporary directory for each test. */
 async function makeTmpDir(): Promise<string> {
@@ -104,8 +103,6 @@ function daysAgo(n: number): string {
   return d.toISOString();
 }
 
-// ─── Atomic Archive Write Tests ─────────────────────────────────────────────
-
 describe('Atomic Archive Writes', () => {
   let stateDir: string;
 
@@ -119,8 +116,11 @@ describe('Atomic Archive Writes', () => {
     await rmrfAsync(stateDir);
   });
 
+  /**
+   * The archive write must go to a `.tmp` path, and a rename must then put it at
+   * the final path. With no backend, `eventCount` is 0.
+   */
   it('compactWorkflow_ArchiveWrite_IsAtomic', async () => {
-    // Arrange
     const featureId = 'atomic-archive';
     const updatedAt = daysAgo(60);
     await writeState(stateDir, featureId, 'completed', updatedAt);
@@ -129,15 +129,10 @@ describe('Atomic Archive Writes', () => {
     const archivePath = path.join(archiveDir, `${featureId}.archive.json`);
     const policy = { ...DEFAULT_LIFECYCLE_POLICY, retentionDays: 30 };
 
-    // Clear tracked calls to focus on compactWorkflow
     writeFileCalls.length = 0;
 
-    // Act — backend=undefined leaves eventCount at 0 (post-v2.11: no
-    // JSONL-based count fallback). The atomicity property under test is
-    // the .tmp + rename pattern, not the eventCount value.
     await compactWorkflow(undefined, stateDir, featureId, policy);
 
-    // Assert — writeFile was called to a .tmp file for the archive (not the final path)
     const archiveWriteCall = writeFileCalls.find(
       (call) => call.path.includes('.archive.json'),
     );
@@ -145,15 +140,14 @@ describe('Atomic Archive Writes', () => {
     expect(archiveWriteCall!.path).toContain('.tmp');
     expect(archiveWriteCall!.path).not.toBe(archivePath);
 
-    // Assert — final archive exists and is valid
     const archiveRaw = await readFile(archivePath, 'utf-8');
     const archive = JSON.parse(archiveRaw);
     expect(archive.featureId).toBe(featureId);
     expect(archive.eventCount).toBe(0);
   });
 
+  /** The mocked rename throws once. The archive that existed before must keep its content. */
   it('compactWorkflow_CrashDuringArchiveRename_PreservesExistingArchive', async () => {
-    // Arrange — write a pre-existing archive
     const featureId = 'crash-archive';
     const updatedAt = daysAgo(60);
     await writeState(stateDir, featureId, 'completed', updatedAt);
@@ -163,13 +157,11 @@ describe('Atomic Archive Writes', () => {
     await mkdir(archiveDir, { recursive: true });
     const archivePath = path.join(archiveDir, `${featureId}.archive.json`);
 
-    // Write a pre-existing archive that should survive a crash
     const existingArchive = { featureId, archivedAt: '2025-01-01T00:00:00Z', finalState: { phase: 'completed' }, eventCount: 99 };
     await writeFile(archivePath, JSON.stringify(existingArchive), 'utf-8');
 
     const policy = { ...DEFAULT_LIFECYCLE_POLICY, retentionDays: 30 };
 
-    // Act — simulate crash during rename
     renameFailOnce = true;
     writeFileCalls.length = 0;
 
@@ -177,13 +169,12 @@ describe('Atomic Archive Writes', () => {
       compactWorkflow(undefined, stateDir, featureId, policy),
     ).rejects.toThrow('Simulated crash during rename');
 
-    // Assert — pre-existing archive should NOT be corrupted
     const afterRaw = await readFile(archivePath, 'utf-8');
     const afterArchive = JSON.parse(afterRaw);
-    expect(afterArchive.eventCount).toBe(99); // Original value preserved
+    expect(afterArchive.eventCount).toBe(99);
   });
 
-  /** Two archive writes in one millisecond once shared a temp path, so one rename found it gone. */
+  /** Two archive writes in one millisecond must not share a temp path, or one rename finds it gone. */
   it('compactWorkflow_TwoCompactionsInOneMillisecond_BothResolveAndTheArchiveIsWhole', async () => {
     const featureId = 'same-millisecond';
     await writeState(stateDir, featureId, 'completed', daysAgo(60));

@@ -1,13 +1,12 @@
-// closeOpenUnder must survive path aliasing (#1699, #1620).
+// `closeOpenUnder` must close a handle whose path reaches the swept dir through
+// an alias.
 //
 // `rmrf()` and `rmrfAsync()` close every open SQLite handle under a temp dir
-// before they delete it. The sweep decides "is this handle under that dir?" by
-// comparing paths, so both paths must spell the same location the same way.
-// On the Windows runners `os.tmpdir()` can give the 8.3 short name
-// (`C:\Users\RUNNER~1\...`) while the store gives the long name. Then the sweep
-// skips a contained handle, and the delete fails on a live `-shm` file. A
-// symlink is the same defect on every platform: two paths name one directory.
-// If the sweep canonicalises both paths, the alias does not matter.
+// before they delete it. The sweep compares paths, so both paths must spell
+// one location the same way. On Windows runners `os.tmpdir()` can give the 8.3
+// short name while the store gives the long name. Then the sweep skips a
+// contained handle, and the delete fails on a live `-shm` file. A symlink
+// gives the same defect on every platform. The sweep canonicalizes both paths.
 import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, symlinkSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
@@ -18,9 +17,9 @@ import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 const created: string[] = [];
 
 /**
- * A canonical scratch parent. `realpathSync` because macOS reports `/var/…` for
- * a `/private/var/…` tmpdir — without it the harness itself would introduce the
- * alias under test and the negative case could not be told apart.
+ * Makes a canonical scratch parent. macOS reports `/var/…` for a
+ * `/private/var/…` tmpdir. Without `realpathSync`, the harness itself adds an
+ * alias of the kind that the tests examine.
  */
 function scratchDir(): string {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'close-under-')));
@@ -33,6 +32,12 @@ afterEach(() => {
 });
 
 describe('SqliteBackend.closeOpenUnder — containment survives path aliasing', () => {
+  /**
+   * The backend opens the file through the alias, and the sweep gets the real
+   * path, as `rmrf(tmpDir)` does. `initialize()` registers the handle, and the
+   * constructor does not. The count check before the sweep proves that the set
+   * is not empty. A second `close()` on the closed backend must not throw.
+   */
   it('CloseOpenUnder_HandleOpenedViaAliasPath_IsStillClosed', () => {
     const parent = scratchDir();
     const realDir = join(parent, 'real');
@@ -40,16 +45,11 @@ describe('SqliteBackend.closeOpenUnder — containment survives path aliasing', 
     mkdirSync(realDir);
     symlinkSync(realDir, aliasDir, 'dir');
 
-    // The handle is opened through the ALIAS, exactly as a store constructed
-    // from a differently-normalised path would be. `initialize()` is what opens
-    // the file and registers the handle — constructing alone registers nothing,
-    // so a version of this test without it would sweep an empty set and pass.
     const backend = new SqliteBackend(join(aliasDir, 'exarchos.db'));
     backend.initialize();
     const before = SqliteBackend.openHandleCount();
     expect(before).toBeGreaterThan(0);
 
-    // …and swept by the REAL path, as `rmrf(tmpDir)` does in teardown.
     SqliteBackend.closeOpenUnder(realDir);
 
     expect(
@@ -57,18 +57,18 @@ describe('SqliteBackend.closeOpenUnder — containment survives path aliasing', 
       'a handle contained in the swept directory survived because the two paths spelled it differently',
     ).toBe(before - 1);
 
-    // Idempotent: closing an already-closed backend must not throw.
     expect(() => {
       backend.close();
     }).not.toThrow();
   });
 
+  /**
+   * A `db.close()` that threw did not close the handle. If the backend leaves the
+   * registry before the attempt, `openHandleCount()` reads zero while the OS
+   * handle stays open. Then the sweep has nothing to retry, and teardown fails
+   * with `EBUSY` on NTFS. The retry must succeed when the driver closes.
+   */
   it('Close_UnderlyingCloseThrows_StaysRegisteredForARetry', () => {
-    // A close that THREW did not close. Reporting it as closed — which the old
-    // order did, by de-registering before the attempt — makes the surviving OS
-    // handle permanently invisible: `openHandleCount()` reads zero while NTFS
-    // still refuses to unlink the file, so the sweep has nothing left to retry
-    // and teardown fails with `EBUSY … exarchos.db-wal` and no suspect.
     const parent = scratchDir();
     const backend = new SqliteBackend(join(parent, 'exarchos.db'));
     backend.initialize();
@@ -91,15 +91,17 @@ describe('SqliteBackend.closeOpenUnder — containment survives path aliasing', 
       'a backend whose close threw was de-registered, so nothing can ever retry it',
     ).toBe(before);
 
-    // …and the retry actually succeeds once the driver cooperates.
     failNext = false;
     backend.close();
     expect(SqliteBackend.openHandleCount()).toBe(before - 1);
   });
 
+  /**
+   * The negative case. Without it, a sweep that closes every open handle passes
+   * the alias test and closes unrelated stores. The count check before the sweep
+   * proves that a handle exists.
+   */
   it('CloseOpenUnder_HandleOutsideTheDirectory_IsLeftOpen', () => {
-    // The negative twin. Without it, a sweep that closed EVERY open handle would
-    // satisfy the case above while quietly killing unrelated stores.
     const parent = scratchDir();
     const inside = join(parent, 'inside');
     const outside = join(parent, 'outside');
@@ -110,7 +112,6 @@ describe('SqliteBackend.closeOpenUnder — containment survives path aliasing', 
     keep.initialize();
     try {
       const before = SqliteBackend.openHandleCount();
-      // Non-vacuity: there has to BE a handle for "left open" to mean anything.
       expect(before).toBeGreaterThan(0);
       SqliteBackend.closeOpenUnder(inside);
       expect(SqliteBackend.openHandleCount()).toBe(before);

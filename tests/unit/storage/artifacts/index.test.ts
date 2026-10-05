@@ -3,9 +3,6 @@ import { mkdtemp, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-// Reach the store ONLY through the packaged barrel, exactly as a downstream
-// consumer would — this proves the shipped entry point exposes and enforces the
-// same containment/digest/atomic guarantees as the in-source module.
 import * as artifacts from '../../../../src/storage/artifacts/index.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
@@ -18,6 +15,11 @@ async function countFiles(root: string): Promise<number> {
   return entries.filter((entry) => entry.isFile()).length;
 }
 
+/**
+ * The tests reach the store only through the barrel `index.js`, as a consumer
+ * does. They prove that the barrel exports the public contract, and that the
+ * store keeps its guarantees through the barrel.
+ */
 describe('artifacts packaged entry point', () => {
   it('PackagedArtifactSurface_ExportsPublicContract', () => {
     expect(typeof artifacts.ContentAddressedStore).toBe('function');
@@ -34,23 +36,19 @@ describe('artifacts packaged entry point', () => {
       const store = new artifacts.ContentAddressedStore(root);
       const bytes = Buffer.from('packaged-consumer-payload', 'utf8');
 
-      // Round trip through the packaged store.
       const digest = await store.put(bytes);
       expect(digest).toEqual({ algorithm: 'sha256', value: sha256Hex(bytes) });
       await expect(store.resolve(digest)).resolves.toEqual(bytes);
 
-      // Write-side digest validation is enforced through the packaged surface.
       const wrong = sha256Hex(Buffer.from('other'));
       await expect(
         store.put(bytes, { algorithm: 'sha256', value: wrong }),
       ).rejects.toBeInstanceOf(artifacts.ContentAddressedStoreError);
 
-      // Traversal is rejected through the packaged surface and never resolved.
       await expect(
         store.resolve({ algorithm: 'sha256', value: '../../etc/passwd' }),
       ).rejects.toBeInstanceOf(artifacts.ContentAddressedStoreError);
 
-      // Only the one canonical artifact was ever persisted.
       expect(await countFiles(root)).toBe(1);
     } finally {
       await rmrfAsync(root);

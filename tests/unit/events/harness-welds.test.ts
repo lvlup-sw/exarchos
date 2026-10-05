@@ -1,21 +1,13 @@
 // @oracle-sources: ../../../src/events/event-annotations.ts, ../../../tools/evals/evals/harness.ts
-// Two INDEPENDENT authorities, and they are the two sides of the comparison itself: the annotation
-// table supplies what the `harness` row CLAIMS, and the harness module supplies what the tree
-// actually does. Neither is reachable from the other — the catalog does not import developer
-// tooling, and the harness does not read the catalog — which is exactly what makes agreement
-// between them evidence. `registration-validate.ts` is deliberately NOT listed: it is the audit
-// under test, and the annotation table is reachable from it, so naming it would add a derived
-// authority rather than a second opinion.
-
-/**
- * The `harness` tier's weld, checked against the tree.
- *
- * `WELD_RESOLUTION_POLICY.harness` is `resolvedAt: 'never'` — there is no registry of developer
- * harnesses to resolve a path against, and doing filesystem IO on every process start for one
- * developer-tooling concern would be a cost every entry point pays. That `never` records where
- * the check is NOT. This file is where it is, and without it the tier would be exactly the
- * escape hatch the other five arms are closed to prevent.
- */
+// The two sources are independent: the annotation table holds the claim of the `harness` row, and
+// the harness module shows what the tree does. The catalog does not import developer tooling, and
+// the harness does not read the catalog. `registration-validate.ts` is the audit under test and
+// reaches the annotation table, so it is a derived authority and is not in the list.
+//
+// The weld of the `harness` tier, checked against the tree.
+// `WELD_RESOLUTION_POLICY.harness` is `resolvedAt: 'never'`: no registry of developer harnesses
+// exists, and filesystem IO at each process start is a cost for each entry point.
+// This file is where the check runs. Without it, the tier is an escape hatch from the other tiers.
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -44,19 +36,25 @@ const harnessRow = (module: string): EventRegistration => ({
 });
 
 describe('harness welds', () => {
+  /**
+   * The denominator comes first: an audit that assessed nothing returns no diagnostics, which
+   * looks like a clean tree.
+   */
   it('HarnessWelds_LiveCatalog_EveryRowHoldsAgainstTheTree', () => {
     const audit = auditHarnessWelds(EVENT_ANNOTATIONS, readFromDisk);
 
-    // DENOMINATOR FIRST. An audit that assessed nothing returns no diagnostics, which is
-    // indistinguishable from a clean tree — the vacuity this repo keeps re-learning.
     expect(audit.assessedCount, 'no harness registration was assessed').toBeGreaterThan(0);
     expect(audit.diagnostics).toEqual([]);
     expect(audit.ok).toBe(true);
   });
 
+  /**
+   * An emitter under `src/` has a real weld available. If one registers as `harness`, the tier
+   * becomes an escape hatch for each emitter.
+   * Containment causes the rejection, and not absence: the audit accepts a readable module
+   * outside the governed root that appends its event.
+   */
   it('HarnessWelds_ModuleInsideGovernedRoot_IsRejected', () => {
-    // THE HALF THAT KEEPS THE TIER HONEST. An emitter under `src/` has a real weld available, so
-    // letting one register as `harness` would turn this tier into the universal escape hatch.
     const audit = auditHarnessWelds(
       { 'seeded.event': harnessRow('src/events/store.ts') },
       readFromDisk,
@@ -67,9 +65,6 @@ describe('harness welds', () => {
     expect(audit.diagnostics).toHaveLength(1);
     expect(audit.diagnostics[0]?.code).toBe('HARNESS_MODULE_INSIDE_GOVERNED_ROOT');
 
-    // ...and containment is what rejected it, not absence: the same path OUTSIDE the governed
-    // root, with the event present, is accepted. Without this arm the assertion above would also
-    // pass for a file that simply could not be read.
     const outside = auditHarnessWelds(
       { 'eval.judge.calibrated': harnessRow('tools/evals/evals/harness.ts') },
       readFromDisk,
@@ -87,9 +82,11 @@ describe('harness welds', () => {
     expect(audit.diagnostics[0]?.code).toBe('HARNESS_MODULE_MISSING');
   });
 
+  /**
+   * Stale cover: a row whose module does not append the event reads as coverage and covers
+   * nothing.
+   */
   it('HarnessWelds_ModuleThatNeverAppends_IsRejected', () => {
-    // The stale-cover shape, on the newest surface. A row whose append has gone reads as
-    // coverage while covering nothing, and the tier being new is no reason to grandfather it.
     const audit = auditHarnessWelds(
       { 'seeded.event': harnessRow('tools/evals/evals/harness.ts') },
       readFromDisk,
@@ -99,9 +96,11 @@ describe('harness welds', () => {
     expect(audit.diagnostics[0]?.code).toBe('HARNESS_MODULE_DOES_NOT_APPEND');
   });
 
+  /**
+   * The tier is the filter. A capability row has no `module`, so an audit that reads one fails
+   * each other registration for the wrong reason.
+   */
   it('HarnessWelds_NonHarnessRows_AreNotAssessed', () => {
-    // The tier axis is the filter. A capability row carries no `module`, and an audit that
-    // reached for one would fail every other registration for the wrong reason.
     const audit = auditHarnessWelds(
       {
         'seeded.capability': {

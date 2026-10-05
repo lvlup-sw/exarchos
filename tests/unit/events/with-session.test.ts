@@ -1,3 +1,11 @@
+/**
+ * `withSession` gives the closure a session with the folded `aggregate`, the
+ * tail `version` and `append`. The queued events commit when the closure resolves.
+ *
+ * A call with no `operationId` and no `allowNonIdempotent: true` fails with
+ * INVALID_SESSION_OPTIONS. Without this gate, a retry after a `ConcurrencyError`
+ * can repeat the side effects of the closure with no consent from the caller.
+ */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -16,19 +24,6 @@ import {
 import { makeFixtureReducer, seedStream, type FixtureState } from '../../helpers/decide-fixtures.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
-/**
- * Wave 3 Tasks 3.8 – 3.10 — `withSession<TState>` imperative-escape-hatch
- * primitive (R-2). Mirrors `decide`'s read+fold+OCC+commit shape but
- * exposes a Session{aggregate, version, append(evt)} to the closure so
- * handlers can call out to services mid-decision and queue events.
- *
- * Idempotency contract gate (audit §F1.1): when neither `operationId`
- * nor `allowNonIdempotent: true` is supplied, `withSession` rejects the
- * call with INVALID_SESSION_OPTIONS. Without this gate, callers can
- * unwittingly perform non-idempotent side effects inside the closure
- * that re-fire on every `ConcurrencyError` retry — the canonical
- * process-manager anti-pattern.
- */
 describe('withSession<TState> — happy path (Task 3.8)', () => {
   let stateDir: string;
   let eventStore: EventStore;
@@ -54,14 +49,12 @@ describe('withSession<TState> — happy path (Task 3.8)', () => {
   });
 
   it('WithSession_CommitsAppendedEventsOnResolve', async () => {
-    // Seed 3 events; session commits at sequences 4, 5.
     await seedStream(eventStore, streamId, 3);
 
     const result = await appender.withSession<FixtureState>(
       streamId,
       'fixture@v1',
       async session => {
-        // Session exposes the folded aggregate + tail version.
         expect(session.aggregate.count).toBe(3);
         expect(session.version).toBe(3);
         session.append({ type: 'task.assigned', data: { taskId: 'T-a' } });
@@ -81,7 +74,6 @@ describe('withSession<TState> — happy path (Task 3.8)', () => {
   });
 
   it('WithSession_AcceptsAllowNonIdempotentOptOut', async () => {
-    // No operationId, but explicit allowNonIdempotent: true (Task 3.8a).
     const result = await appender.withSession<FixtureState>(
       streamId,
       'fixture@v1',
@@ -118,6 +110,7 @@ describe('withSession — idempotency-contract gate (Task 3.8a, audit §F1.1)', 
     await rmrfAsync(stateDir);
   });
 
+  /** The suggested fix must name `decide` and `allowNonIdempotent`. */
   it('WithSession_RejectsCall_WhenOperationIdAndAllowNonIdempotentBothOmitted', async () => {
     await expect(
       appender.withSession<FixtureState>(
@@ -144,7 +137,6 @@ describe('withSession — idempotency-contract gate (Task 3.8a, audit §F1.1)', 
       expect(err).toBeInstanceOf(InvalidSessionOptionsError);
       const e = err as InvalidSessionOptionsError;
       expect(e.code).toBe('INVALID_SESSION_OPTIONS');
-      // suggestedFix should mention `decide` AND `allowNonIdempotent: true`.
       const fix = JSON.stringify(e.suggestedFix).toLowerCase();
       expect(fix).toMatch(/decide/);
       expect(fix).toMatch(/allownonidempotent/);
@@ -204,7 +196,6 @@ describe('withSession — rolls back on thrown error (Task 3.9)', () => {
       ),
     ).rejects.toBe(sentinel);
 
-    // Stream tail unchanged — the queued event must NOT have committed.
     const events = await eventStore.query(streamId);
     expect(events).toHaveLength(2);
   });

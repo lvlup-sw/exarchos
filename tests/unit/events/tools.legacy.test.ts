@@ -12,8 +12,7 @@ import {
 import type { ToolResult } from '../../../src/format.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
-// DR-5: `event query` returns `{ events, page }`; unwrap here so the shape lives
-// in one place.
+/** Reads `events` from the `{ events, page }` result of `event query`. */
 function queryEvents(result: ToolResult): Array<Record<string, unknown>> {
   const data = result.data as { events?: unknown } | undefined;
   return (data?.events ?? []) as Array<Record<string, unknown>>;
@@ -33,8 +32,6 @@ beforeEach(async () => {
 afterEach(async () => {
   await rmrfAsync(tempDir);
 });
-
-// ─── Event Append Tool ──────────────────────────────────────────────────────
 
 describe('handleEventAppend', () => {
   it('should append a valid event and return success', async () => {
@@ -102,7 +99,6 @@ describe('handleEventAppend', () => {
       eventStore,
     );
 
-    // Correct expected sequence
     const result = await handleEventAppend(
       {
         stream: 'my-workflow',
@@ -134,11 +130,9 @@ describe('handleEventAppend', () => {
     expect(result.success).toBe(true);
     expect(result.data).toBeDefined();
 
-    // Ack should contain ONLY these three keys
     const keys = Object.keys(result.data as Record<string, unknown>).sort();
     expect(keys).toEqual(['sequence', 'streamId', 'type']);
 
-    // Must NOT contain full event fields
     const data = result.data as Record<string, unknown>;
     expect(data).not.toHaveProperty('correlationId');
     expect(data).not.toHaveProperty('causationId');
@@ -182,7 +176,6 @@ describe('handleEventAppend', () => {
       eventStore,
     );
 
-    // Query the store to verify the full event is persisted
     const queryResult = await handleEventQuery({ stream: 'my-workflow' }, tempDir, eventStore);
     expect(queryResult.success).toBe(true);
 
@@ -208,7 +201,6 @@ describe('handleEventAppend', () => {
       eventStore,
     );
 
-    // Expected 1, but actual is 2
     const result = await handleEventAppend(
       {
         stream: 'my-workflow',
@@ -222,8 +214,6 @@ describe('handleEventAppend', () => {
     expect(result.error?.code).toBe('SEQUENCE_CONFLICT');
   });
 });
-
-// ─── Event Query Tool ───────────────────────────────────────────────────────
 
 describe('handleEventQuery', () => {
   it('should return all events for a stream', async () => {
@@ -316,8 +306,6 @@ describe('handleEventQuery', () => {
   });
 });
 
-// ─── handleEventQuery Pagination ─────────────────────────────────────────────
-
 describe('handleEventQuery Pagination', () => {
   it('handleEventQuery_WithLimit_PassesToStore', async () => {
     for (let i = 0; i < 5; i++) {
@@ -374,8 +362,6 @@ describe('handleEventQuery Pagination', () => {
   });
 });
 
-// ─── handleEventQuery Fields Projection ──────────────────────────────────────
-
 describe('handleEventQuery Fields Projection', () => {
   it('handleEventQuery_WithFields_ReturnsOnlyRequestedFields', async () => {
     await handleEventAppend(
@@ -401,7 +387,6 @@ describe('handleEventQuery Fields Projection', () => {
     const events = queryEvents(result);
     expect(events).toHaveLength(1);
 
-    // Only requested fields should be present
     const keys = Object.keys(events[0]).sort();
     expect(keys).toEqual(['sequence', 'type']);
     expect(events[0].type).toBe('workflow.started');
@@ -475,7 +460,6 @@ describe('handleEventQuery Fields Projection', () => {
     const events = queryEvents(result);
     expect(events).toHaveLength(1);
 
-    // Full events should have standard fields
     expect(events[0]).toHaveProperty('type');
     expect(events[0]).toHaveProperty('sequence');
     expect(events[0]).toHaveProperty('streamId');
@@ -503,7 +487,6 @@ describe('handleEventQuery Fields Projection', () => {
     const events = queryEvents(result);
     expect(events).toHaveLength(1);
 
-    // Only 'type' should be present; 'nonexistent' is skipped
     const keys = Object.keys(events[0]);
     expect(keys).toEqual(['type']);
   });

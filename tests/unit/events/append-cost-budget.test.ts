@@ -10,7 +10,7 @@
  * logs each statement it runs, BEGIN and COMMIT included, and the shim logs
  * each SQL text it compiles. Durability is fixed by the connection pragmas
  * and one write transaction per append. With WAL and synchronous=NORMAL a
- * commit does not fsync; the WAL is synced only at a checkpoint.
+ * commit does not fsync. SQLite syncs the WAL only at a checkpoint.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';

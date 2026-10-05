@@ -1,18 +1,15 @@
-// Co-located tests for the DR-1 event declaration bridge (task 008).
+// Tests for the event declaration bridge.
 //
 // @oracle-sources: ../../../src/events/schemas.ts, ../../../tools/conformance/src/authority-topology.ts
 //
-// The two authorities, and why they are two. `events/schemas.ts` owns the event UNIVERSE —
-// which types exist and what each one's emission source is. `architecture/authority-topology.ts`
-// owns the BOUNDARY record — who the `event-catalog` authority is and what is bound to it. They
-// sit in different layers, neither imports the other, and they are maintained by different tasks,
-// so a disagreement between them is a real finding rather than a value compared with itself.
-// Neither is the module under test: deriving the expectation from `event-declarations.ts` would
-// make every assertion here self-consistent by construction.
+// `events/schemas.ts` owns the event types and the emission source of each one.
+// `tools/conformance/src/authority-topology.ts` owns the boundary record: the authority of
+// `event-catalog` and the representations bound to it. Neither module imports the other, so a
+// disagreement between them is a real finding. Neither is the module under test. An expectation
+// derived from `event-declarations.ts` is self-consistent by construction.
 //
-// The COMPILE-time half of the additivity claim is not here. `tsconfig.json` excludes
-// `**/*.test.ts`, so type-level assertions in this file would be decorative; they live as
-// exported `_EventDeclarations_*` aliases in the source module, where `tsc` actually checks them.
+// `tsconfig.json` excludes test files, so the type-level assertions are the exported
+// `_EventDeclarations_*` aliases in the source module.
 
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
@@ -36,7 +33,7 @@ import {
   type EventAnnotationSource,
 } from '../../../src/events/event-declarations.js';
 
-/** An annotation source that annotates exactly the types named, and nothing else. */
+/** An annotation source that annotates only the types in `table`. */
 function annotating(table: Readonly<Record<string, EventRegistration>>): EventAnnotationSource {
   return { registrationOf: (eventType: string) => table[eventType] };
 }
@@ -48,19 +45,21 @@ const SUBSTRATE: EventRegistration = {
 };
 
 describe('DeclarationBridge — carrying the event catalog through the DR-1 envelope', () => {
+  /**
+   * `schemas.ts` supplies the ids and the subjects. Each type in `EventTypes` has a declaration,
+   * which carries the source that `EVENT_EMISSION_REGISTRY` declares.
+   * The census also runs in the other direction, which catches a lift that invents an address.
+   * `authority-topology.ts` supplies the authority and the count of bound representations.
+   * An empty catalog satisfies each filter, so the test asserts the size last.
+   */
   it('DeclarationBridge_EventTypesAndRegistry_AreCarriedAsDeclarations', () => {
     const seam = openEventDeclarationSeam();
     const declared = seam.list('event');
 
-    // AUTHORITY 1 (`schemas.ts`) — the id population. Every built-in event type in `EventTypes`
-    // has a declaration at its own address, so the tuple is carried in full.
     const carried = new Set(declared.map((declaration) => declaration.id));
     const missing = [...EventTypes].filter((eventType) => !carried.has(eventType));
     expect(missing).toEqual([]);
 
-    // AUTHORITY 1 again, on the other store — the SUBJECT. Each declaration carries the emission
-    // source `EVENT_EMISSION_REGISTRY` declares for it, which is what makes this a lift of the
-    // registry rather than a lift of the name list.
     const sourceMismatches = [...EventTypes].filter((eventType) => {
       const declaration = seam.get('event', eventType);
       if (declaration === undefined) return true;
@@ -71,15 +70,10 @@ describe('DeclarationBridge — carrying the event catalog through the DR-1 enve
     });
     expect(sourceMismatches).toEqual([]);
 
-    // The registry is the LIVE key set, so nothing may be carried that no store declares — the
-    // other direction of the census, which catches a lift that invents addresses.
     const registered = new Set(Object.keys(EVENT_EMISSION_REGISTRY));
     const unregistered = declared.filter((declaration) => !registered.has(declaration.id));
     expect(unregistered).toEqual([]);
 
-    // AUTHORITY 2 (`authority-topology.ts`) — identity and topology. Every record must be a
-    // well-formed declaration naming the boundary's authority, with the binding state that
-    // table actually records.
     const row = AUTHORITY_TOPOLOGY['event-catalog'];
     const expectedAuthority =
       row.authority.kind === 'single' ? row.authority.authority : '<not single-authority>';
@@ -94,22 +88,21 @@ describe('DeclarationBridge — carrying the event catalog through the DR-1 enve
     );
     expect(malformed).toEqual([]);
 
-    // Non-vacuity: an empty catalog would satisfy every filter above.
     expect(declared.length).toBeGreaterThan(EventTypes.length - 1);
     expect(seam.has('event', 'workflow.started')).toBe(true);
   });
 
+  /**
+   * The lift is a projection out of the stores and not a rewrite of them. `tsc` checks the type
+   * half. At runtime, the stores that the consumers read must be equal before and after each entry
+   * point runs. A declaration from the seam is frozen, so a consumer cannot write into the catalog
+   * through it.
+   */
   it('DeclarationBridge_ExistingConsumers_CompileUnchanged', () => {
-    // The claim is that lifting is a PROJECTION out of the stores, never a rewrite of them, so no
-    // existing registration site or consumer had to change. `tsc` checks the type half (and the
-    // `_EventDeclarations_*` proofs in the source module pin the specific substitutions). What is
-    // checkable at runtime is the other half of "unchanged": the stores every existing consumer
-    // reads must be byte-identical, and identical by OBJECT IDENTITY, after the bridge has run.
     const registryBefore = Object.entries(EVENT_EMISSION_REGISTRY);
     const typesBefore = [...EventTypes];
     const validBefore = getValidEventTypes();
 
-    // Exercise every entry point, including the annotated path task 010 will use.
     eventDeclarations();
     eventDeclarations(annotating({ 'workflow.started': SUBSTRATE }));
     openEventDeclarationSeam().list('event');
@@ -118,27 +111,27 @@ describe('DeclarationBridge — carrying the event catalog through the DR-1 enve
     expect([...EventTypes]).toStrictEqual(typesBefore);
     expect(getValidEventTypes()).toStrictEqual(validBefore);
 
-    // The bridge must not have substituted a copy of the store for the store: a consumer holding
-    // the shipped binding and the bridge must be looking at the same object.
     expect(EVENT_EMISSION_REGISTRY['workflow.started']).toBe(registryBefore[0]?.[1]);
 
-    // A consumer cannot write back INTO the catalog through a declaration it was handed.
     const declaration = openEventDeclarationSeam().get('event', 'workflow.started');
     expect(declaration).toBeDefined();
     expect(Object.isFrozen(declaration)).toBe(true);
   });
 
+  /**
+   * The subject of an unannotated declaration is an emission source, so `withSubject` must return
+   * `undefined`. Positive control: the same guard narrows an annotated subject. Without that
+   * control, a guard that always returns `false` also passes.
+   * Narrowing is per declaration: a type that the annotation source does not name stays
+   * un-narrowed in the same seam.
+   */
   it('DeclarationBridge_SubjectFailingTheGuard_IsNotNarrowed', () => {
     const unannotated = openEventDeclarationSeam().get('event', 'workflow.started');
     expect(unannotated).toBeDefined();
     if (unannotated === undefined) return;
 
-    // The subject is an emission source, not a DR-2 registration. `withSubject` must hand back
-    // `undefined` rather than a declaration typed as something nothing checked.
     expect(withSubject(unannotated, isEventRegistration)).toBeUndefined();
 
-    // POSITIVE CONTROL — the same guard, the same seam, an annotated subject. Without this the
-    // assertion above would pass just as well against a guard that always returns false.
     const annotated = openEventDeclarationSeam(
       annotating({ 'workflow.started': SUBSTRATE }),
     ).get('event', 'workflow.started');
@@ -150,8 +143,6 @@ describe('DeclarationBridge — carrying the event catalog through the DR-1 enve
     expect(narrowed?.subject.tier).toBe('substrate');
     expect(narrowed?.id).toBe('workflow.started');
 
-    // Narrowing is per-declaration, not per-seam: the types the annotation source did not name
-    // stay un-narrowed in the very same seam.
     const sibling = openEventDeclarationSeam(annotating({ 'workflow.started': SUBSTRATE })).get(
       'event',
       'workflow.cancel',
@@ -161,9 +152,12 @@ describe('DeclarationBridge — carrying the event catalog through the DR-1 enve
     expect(withSubject(sibling, isEventRegistration)).toBeUndefined();
   });
 
+  /**
+   * `EVENT_EMISSION_REGISTRY` is mutable and `EventTypes` is not. A bridge that lifts only the
+   * tuple, or that takes a snapshot at module load, drops each custom type.
+   * A seam that is already open is a snapshot and must not change.
+   */
   it('DeclarationBridge_RuntimeRegisteredEventType_IsCarriedOnReopen', () => {
-    // `EVENT_EMISSION_REGISTRY` is mutable and `EventTypes` is not, so a bridge that lifted only
-    // the tuple — or that snapshotted at module load — would silently drop every custom type.
     const custom = 'probe.declaration-bridge';
     const before = openEventDeclarationSeam();
     expect(before.has('event', custom)).toBe(false);
@@ -178,7 +172,6 @@ describe('DeclarationBridge — carrying the event catalog through the DR-1 enve
       expect(isEventEmissionSubject(subject)).toBe(true);
       if (isEventEmissionSubject(subject)) expect(subject.source).toBe('hook');
 
-      // The already-opened seam is a snapshot and must NOT have changed underneath its holder.
       expect(before.has('event', custom)).toBe(false);
     } finally {
       unregisterEventType(custom);
@@ -222,20 +215,24 @@ describe('isEventRegistration — the caller-supplied guard for withSubject', ()
     expect(rejected).toEqual([]);
   });
 
+  /**
+   * The type rejects each of these values. A guard that checks only `typeof` accepts most of them
+   * and narrows a subject onto a type that it does not have.
+   * The first cases are an emission source and a registration with no weld at each tier but
+   * `harness`.
+   * The next cases break one closed vocabulary at a time or give a capability no consumer.
+   * Two cases give `contentSchema` a value that is not a live schema.
+   * The last cases drop or misname the lifecycle or the tier, blank a reference id, or are not
+   * objects.
+   */
   it('IsEventRegistration_WeldlessOrOutOfVocabularySubjects_AreRejected', () => {
-    // Each of these is a value the TYPE rejects. A guard that merely asserted — `typeof x ===
-    // 'object'`, or a per-field `typeof x.rationale === 'string'` — would accept most of them and
-    // narrow a subject onto a type it does not inhabit.
     const accepted = [
-      // the un-annotated arm: a source is not a coupling declaration
       { source: 'auto' },
-      // weldless: tier + lifecycle and nothing else, at every tier
       { lifecycle: 'active', tier: 'substrate' },
       { lifecycle: 'active', tier: 'capability' },
       { lifecycle: 'active', tier: 'observation' },
       { lifecycle: 'active', tier: 'judgment' },
       { lifecycle: 'active', tier: 'workflow-local' },
-      // closed vocabularies, violated one at a time
       { lifecycle: 'active', tier: 'substrate', rationale: 'because' },
       { lifecycle: 'active', tier: 'observation', reconciler: 'worktree', groundTruth: 'filesystem' },
       { lifecycle: 'active', tier: 'observation', reconciler: 'nothing', groundTruth: 'process' },
@@ -245,19 +242,14 @@ describe('isEventRegistration — the caller-supplied guard for withSubject', ()
         gate: 'not-a-gate',
         contentSchema: z.object({}),
       },
-      // a capability nobody consumes is a report with extra steps
       { lifecycle: 'active', tier: 'capability', provider: 'exarchos_orchestrate', consumedBy: [] },
       { lifecycle: 'active', tier: 'capability', provider: 'exarchos_orchestrate', consumedBy: [''] },
-      // `contentSchema` must be a live schema, not a schema-shaped stub
       { lifecycle: 'active', tier: 'judgment', gate: 'test-adequacy', contentSchema: {} },
       { lifecycle: 'active', tier: 'judgment', gate: 'test-adequacy', contentSchema: 'z.string()' },
-      // lifecycle and tier are both required, and both are closed
       { tier: 'substrate', rationale: 'transition-record' },
       { lifecycle: 'someday', tier: 'substrate', rationale: 'transition-record' },
       { lifecycle: 'active', tier: 'sixth-tier', rationale: 'transition-record' },
-      // blank open-reference ids are not references
       { lifecycle: 'active', tier: 'workflow-local', workflow: '   ' },
-      // non-objects
       null,
       undefined,
       'substrate',

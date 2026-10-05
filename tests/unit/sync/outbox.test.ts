@@ -33,7 +33,6 @@ describe('Outbox drain idempotencyKey propagation', () => {
   });
 
   it('should propagate idempotencyKey to remote client when draining', async () => {
-    // Arrange: create an event with an idempotencyKey
     const eventWithKey = makeEvent({
       idempotencyKey: 'unique-key-123',
       agentId: 'agent-1',
@@ -41,7 +40,6 @@ describe('Outbox drain idempotencyKey propagation', () => {
     });
     await outbox.addEntry('test-stream', eventWithKey);
 
-    // Capture the events sent to the remote client
     const sentEvents: ExarchosEventDto[][] = [];
     const mockClient: EventSender = {
       appendEvents: vi.fn().mockImplementation(async (_streamId, events) => {
@@ -50,10 +48,8 @@ describe('Outbox drain idempotencyKey propagation', () => {
       }),
     };
 
-    // Act
     const result = await outbox.drain(mockClient, 'test-stream');
 
-    // Assert
     expect(result.sent).toBe(1);
     expect(sentEvents).toHaveLength(1);
     expect(sentEvents[0]).toHaveLength(1);
@@ -61,7 +57,6 @@ describe('Outbox drain idempotencyKey propagation', () => {
   });
 
   it('should not include idempotencyKey when event does not have one', async () => {
-    // Arrange: event without idempotencyKey
     const eventWithoutKey = makeEvent();
     await outbox.addEntry('test-stream', eventWithoutKey);
 
@@ -73,15 +68,11 @@ describe('Outbox drain idempotencyKey propagation', () => {
       }),
     };
 
-    // Act
     await outbox.drain(mockClient, 'test-stream');
 
-    // Assert
     expect(sentEvents[0][0].idempotencyKey).toBeUndefined();
   });
 });
-
-// ─── Outbox drain batch I/O tests ───────────────────────────────────────────
 
 describe('Outbox drain batch I/O', () => {
   let tempDir: string;
@@ -97,7 +88,6 @@ describe('Outbox drain batch I/O', () => {
   });
 
   it('drain_BatchOfN_LoadsEntriesOnce', async () => {
-    // Arrange: add 3 pending entries
     for (let i = 1; i <= 3; i++) {
       await outbox.addEntry('test-stream', makeEvent({ sequence: i }));
     }
@@ -106,18 +96,15 @@ describe('Outbox drain batch I/O', () => {
       appendEvents: vi.fn().mockResolvedValue({ accepted: 1, streamVersion: 1 }),
     };
 
-    // Spy on loadEntries to count calls during drain
     const loadSpy = vi.spyOn(outbox, 'loadEntries');
 
-    // Act
     await outbox.drain(mockClient, 'test-stream');
 
-    // Assert: loadEntries should be called exactly once (batch load at start)
     expect(loadSpy.mock.calls.length).toBe(1);
   });
 
+  /** `saveEntries` is private, so the spy needs the `never` casts. */
   it('drain_BatchOfN_SavesEntriesOnce', async () => {
-    // Arrange: add 3 pending entries
     for (let i = 1; i <= 3; i++) {
       await outbox.addEntry('test-stream', makeEvent({ sequence: i }));
     }
@@ -126,18 +113,13 @@ describe('Outbox drain batch I/O', () => {
       appendEvents: vi.fn().mockResolvedValue({ accepted: 1, streamVersion: 1 }),
     };
 
-    // Spy on saveEntries (private method, accessed via prototype)
     const saveSpy = vi.spyOn(outbox as never, 'saveEntries' as never);
 
-    // Act
     await outbox.drain(mockClient, 'test-stream');
 
-    // Assert: saveEntries should be called exactly once (batch save at end)
     expect(saveSpy).toHaveBeenCalledTimes(1);
   });
 });
-
-// ─── Task 10: Outbox StorageBackend Integration ──────────────────────────────
 
 describe('Outbox StorageBackend Integration', () => {
   let tempDir: string;
@@ -181,7 +163,6 @@ describe('Outbox StorageBackend Integration', () => {
   });
 
   it('Outbox_addEntry_WithoutBackend_UsesJSONFile', async () => {
-    // No backend — existing behavior
     const outbox = new Outbox(tempDir);
 
     const event = makeEvent();
@@ -190,16 +171,17 @@ describe('Outbox StorageBackend Integration', () => {
     expect(entry.id).toBeDefined();
     expect(entry.status).toBe('pending');
 
-    // Verify JSON file was created
     const entries = await outbox.loadEntries('test-stream');
     expect(entries).toHaveLength(1);
     expect(entries[0].event.type).toBe('task.completed');
   });
 
   /**
-   * Two outboxes on one directory once shared a temp path within a millisecond,
-   * so one write failed. Both now resolve and the file stays whole JSON. This
-   * claims no merge: the two writers still race, and the last one wins.
+   * Two outboxes on one directory write one stream in the same millisecond. A
+   * temp name made from `Date.now()` alone is then the same for both writers,
+   * and the second rename fails. Both writes must resolve, and the file must
+   * stay whole JSON. The test claims no merge: the two writers still race, and
+   * the last one wins.
    */
   it('Outbox_TwoOutboxesWriteOneStreamInOneMillisecond_BothResolveAndTheFileIsWhole', async () => {
     const first = new Outbox(tempDir);
@@ -225,7 +207,6 @@ describe('Outbox StorageBackend Integration', () => {
     const event = makeEvent();
     const entry = await outbox.addEntry('test-stream', event);
 
-    // Should return a properly structured entry even with backend
     expect(entry.id).toBeDefined();
     expect(entry.status).toBe('pending');
     expect(entry.streamId).toBe('test-stream');

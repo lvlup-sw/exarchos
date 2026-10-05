@@ -1,43 +1,31 @@
-// ─── Wave 1 (R-1, #1313): grep-gate CI checks ────────────────────────────
+// Grep gates: source-tree checks for invariants that the type system cannot express.
+// Each gate walks a directory, scans for a forbidden token, and fails on a match in a file that
+// is not exempt.
 //
-// Compile-time invariants that the type system can't express live here as
-// source-tree grep checks. Each gate walks `src/` (or
-// a focused subset), scans for a forbidden token, and fails when any
-// match appears in non-exempt files.
-//
-// Why a JS file walker rather than `git grep` shelled out: the test must
-// run identically under vitest in CI, locally, and inside agent
-// worktrees. Shelling out adds shell + git availability assumptions and
-// loses the cross-platform guarantee. Walking with `node:fs` keeps the
-// gate self-contained and Windows-safe.
+// The gates walk with `node:fs` and do not call `git grep`. A shell call needs a shell and git.
+// The walk runs the same in CI, locally, in an agent worktree and on Windows.
 
 import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// `__dirname` is unavailable under NodeNext ESM — derive it from
-// `import.meta.url` so the gate runs identically under Node and Bun.
+/** ESM has no `__dirname`, so the file derives it from `import.meta.url`. */
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Anchor walks at src so the gate's reach matches
-// what we care about (production handlers + tests, not docs / scripts /
-// node_modules). Computed relative to this test file: this file lives
-// at src/events/grep-gates.test.ts; the src
-// root is two levels up.
+/** The root of each source walk. The path is relative to this file in `tests/unit/events`. */
 const SRC_ROOT = join(__dirname, '../../../src');
 
-// Repository root — one level above SRC_ROOT since task 019 made `src/`
-// a direct child of it. The action-set gate (Wave 5 / Task 5.4) scans
-// `commands/` and `content/` at the repo root in addition to the core's
-// workflow surfaces.
+/**
+ * The repository root, one level above `SRC_ROOT`. The action-set gate also scans the content
+ * trees at this root.
+ */
 const REPO_ROOT = join(SRC_ROOT, '..');
 
 /**
- * Walk a directory recursively and yield absolute paths of files matching
- * `accept`. Skips entries in `excludeDirs` (basename match) so we don't
- * descend into vendored deps or generated artifacts.
+ * Walks a directory recursively and yields the absolute path of each file that `accept` admits.
+ * It does not enter a directory whose name is in `excludeDirs`.
  */
 function* walk(
   dir: string,
@@ -58,23 +46,16 @@ function* walk(
 }
 
 describe('Grep Gates (Wave 1, R-1, #1313)', () => {
+  /**
+   * No production code can issue `UPDATE streams SET workflow_type`. The column is immutable after
+   * the insert. The recovery backfill of the migration in `sqlite-backend.ts` is the only allowed
+   * UPDATE, and that file is exempt. Another write can replace the registered type of a stream.
+   * `events/event-migration.ts` is also exempt, although it holds no such UPDATE.
+   * The gate tests one line at a time, so it does not see a statement that spans two lines.
+   */
   it('GrepGate_NoUpdateStreamsSetWorkflowType', () => {
-    // Forbids any production code path from issuing
-    //   UPDATE streams SET workflow_type ...
-    // The column is immutable post-insert; the migration's recovery
-    // backfill (sqlite-backend.ts:backfillWorkflowTypeFromStateFiles) is
-    // the ONLY allowed UPDATE and lives in an exempt file. Any other
-    // mutation would silently overwrite a stream's typed registry entry,
-    // breaking the v2.12 filtered ps view's referential integrity.
     const pattern = /UPDATE\s+streams\s+SET\s+workflow_type/i;
 
-    // Exemptions:
-    //   - sqlite-backend.ts: the migration's authorized UPDATE lives here.
-    //   - sqlite-backend.ts comments / DDL strings reference the gate.
-    //   - event-migration.ts: hosts the per-event migration registry; not
-    //     used today but kept for symmetry with the design wording.
-    //   - This test file itself: contains the forbidden pattern as a
-    //     regex literal.
     const exempt = new Set<string>([
       join(SRC_ROOT, 'storage', 'sqlite-backend.ts'),
       join(SRC_ROOT, 'events', 'event-migration.ts'),
@@ -103,53 +84,23 @@ describe('Grep Gates (Wave 1, R-1, #1313)', () => {
     ).toEqual([]);
   });
 
+  /**
+   * No agent-facing surface can declare or document `exarchos_workflow` with `action: 'set'`.
+   * The workflow tool has no `set` action, and the canonical name is `update`. An agent that
+   * copies a stale payload calls an unregistered action and fails at the MCP schema boundary.
+   *
+   * Scope: the production TypeScript in `src/workflow/`, and the markdown in `rendered/commands`
+   * and `content`. Test files are out of scope, because they probe the rejection of the old action.
+   * `handlers/set.ts` is exempt: its event payload `data: { action: 'set' }` names the substrate
+   * handler, and old streams replay with that identifier.
+   * The `action:` anchor in the pattern prevents a match on `Set` or on the verb in prose.
+   */
   it('GrepGate_NoActionSetOnExarchosWorkflowSurfaces', () => {
-    // Wave 5 / Task 5.4 (#1341): forbids any agent-facing surface from
-    // declaring or documenting `exarchos_workflow` with `action: 'set'`.
-    //
-    // Background: `action: 'set'` was removed from the workflow tool
-    // registry in v2.11's DR-4 substrate cut (#1332) and reintroduced
-    // under the canonical name `action: 'update'` by Wave 0 of
-    // v2.10.0-preview.2 (#1340). Any remaining reference (in TS, in
-    // skill prose, or in command markdown) causes agents that copy the
-    // payload verbatim to invoke an unregistered action and fail at
-    // the MCP schema boundary.
-    //
-    // Scope: workflow-mutation TS code (`src/workflow/`)
-    // plus the two agent-facing content trees (`commands/`, `content/`).
-    // The generated `skills/` tree is intentionally NOT scanned — it
-    // mirrors `content/` via `npm run build:skills` and is already
-    // protected by `npm run skills:guard`. Scanning it again would
-    // double-count violations and obscure the actionable source.
-    //
-    // Pattern: matches `action: "set"`, `action: 'set'`, and
-    // `"action": "set"` (the JSON shape sometimes shown inside fenced
-    // examples). The `action:` anchor prevents false positives on
-    // unrelated tokens like `Set` (capital) or `set` as a verb in prose.
     const pattern = /action:\s*['"]set['"]|["']action["']:\s*["']set["']/;
 
     type Match = { file: string; line: number; text: string };
     const matches: Match[] = [];
 
-    // ── Scope 1: workflow TS surfaces (production code, not tests) ────
-    //
-    // The gate fences agent-facing payload construction. We exempt:
-    //   - `*.test.ts` files inside `workflow/`: tests intentionally
-    //     probe the renamed-action rejection path
-    //     (composite.test.ts:'set action (DR-4 hard-cut)') and assert
-    //     historical event payload shapes (`hsm.deprecated_action_invoked`
-    //     records `'set({phase})'`). These are load-bearing negative
-    //     tests; rewriting them would erase the regression guard the
-    //     hard cut depends on.
-    //   - The checkpoint-state-missing event payload
-    //     (`data: { action: 'set' }`): this is an internal event-data
-    //     field naming the substrate handler, not an agent-facing
-    //     `exarchos_workflow` action. Keeping the historical identifier
-    //     preserves event-log replayability for streams written before
-    //     the rename. It now sits in `handlers/set.ts`, which is where
-    //     that handler's body moved when the composite surface was split
-    //     one module per action — the exemption follows the payload, not
-    //     the filename it used to live under.
     const tsExempt = new Set<string>([
       join(SRC_ROOT, 'workflow', 'handlers', 'set.ts'),
     ]);
@@ -171,7 +122,6 @@ describe('Grep Gates (Wave 1, R-1, #1313)', () => {
       }
     }
 
-    // ── Scope 2: agent-facing markdown (commands + content) ───────
     {
       const accept = (f: string) => f.endsWith('.md');
       const excludeDirs = new Set<string>(['node_modules', 'dist']);
