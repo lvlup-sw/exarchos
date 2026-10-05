@@ -1,16 +1,10 @@
-// ─── Signed extension manifest (P03-08) ───────────────────────────────────
-//
-// The manifest is the extension's admission contract. Its signed body carries
-// an immutable content digest, a monotonic version counter (anti-rollback),
-// declared quotas, and a declared isolation policy. A detached signature over
-// the canonical body binds all of it to a trust root.
-//
-// The content digest reuses the repository's `ContentDigestV1` schema (the same
-// sha256 shape the content-addressed artifact store validates) rather than
-// redefining a parallel digest format. The digest comparison mirrors the
-// store's timing-safe approach; it is not re-derived here because the store's
-// verifier is private and lives behind a file-ownership boundary this package
-// must not edit.
+/**
+ * Signed extension manifest, the admission contract of an extension.
+ * The signed body holds a content digest, a monotonic version counter for anti-rollback, quotas, and an isolation policy.
+ * A detached signature over the canonical body binds them to a trust root.
+ * The digest uses the `ContentDigestV1` schema of the content-addressed store.
+ * This module copies the timing-safe comparison of the store, because the verifier of the store is private.
+ */
 
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
@@ -27,9 +21,7 @@ import {
   type DetachedSignature,
 } from './trust-root.js';
 
-// Opaque, provider-neutral ids: non-empty, bounded, no path-like or
-// whitespace-sensitive shapes. Same shape family as the admission stable-id
-// vocabulary so extension identities read consistently across the codebase.
+/** Opaque, bounded id with no path or whitespace characters. It has the same pattern as the admission stable ids. */
 const StableTokenSchema = z
   .string()
   .min(1)
@@ -60,9 +52,8 @@ export const ExtensionSignatureV1Schema = z
 export type ExtensionSignatureV1 = z.infer<typeof ExtensionSignatureV1Schema>;
 
 /**
- * The signed portion of a manifest — everything the signature covers. Kept as a
- * standalone schema so the canonical bytes are derived identically whether we
- * are signing a fresh body or re-deriving them to verify a parsed manifest.
+ * The signed portion of a manifest, which the signature covers.
+ * It is a separate schema, so signing and verification derive the same canonical bytes.
  */
 export const ExtensionManifestBodyV1Schema = z
   .object({
@@ -108,10 +99,11 @@ export function parseManifest(input: unknown): ManifestParse {
   return { ok: true, manifest: parsed.data };
 }
 
-/** Canonical signed-body bytes for a manifest body. */
+/**
+ * Canonical signed-body bytes for a manifest body.
+ * The cast is sound, because zod validates the body as a strict JSON-safe object and the canonicalizer only reads it.
+ */
 export function canonicalBodyBytes(body: ExtensionManifestBodyV1): Buffer {
-  // The body is a strict, JSON-safe object (validated by zod); the canonicalizer
-  // only reads it, so the cast to the canonical-value shape is sound.
   return canonicalBytes(body as unknown as CanonicalJsonValue);
 }
 
@@ -123,10 +115,8 @@ export function canonicalManifestBytes(manifest: ExtensionManifestV1): Buffer {
 }
 
 /**
- * Build a signed manifest from a body and a signer's private key. The signing
- * counterpart to verification: it canonicalizes the body, signs those exact
- * bytes, and re-validates the assembled manifest so a malformed body is caught
- * at authoring time.
+ * Build a signed manifest from a body and the private key of a signer.
+ * It signs the canonical bytes of the body, then validates the result, so a malformed body fails at authoring time.
  */
 export function buildSignedManifest(
   body: ExtensionManifestBodyV1,
@@ -142,9 +132,8 @@ export function buildSignedManifest(
 }
 
 /**
- * Timing-safe check that `bytes` hash to `digest`. Mirrors the content-
- * addressed store's comparison (raw-buffer `timingSafeEqual`, length-guarded so
- * it never throws on a size mismatch). V1 digests are always sha256.
+ * Timing-safe check that `bytes` hash to `digest`. V1 digests are always sha256.
+ * A length guard comes before `timingSafeEqual`, so a size mismatch returns false and does not throw.
  */
 export function verifyContentDigest(bytes: Buffer, digest: ContentDigestV1): boolean {
   const actual = createHash('sha256').update(bytes).digest();

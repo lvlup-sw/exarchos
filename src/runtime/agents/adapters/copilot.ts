@@ -1,44 +1,15 @@
-// ─── Copilot RuntimeAdapter ────────────────────────────────────────────────
-//
-// Lowers a runtime-agnostic `AgentSpec` into a GitHub Copilot CLI custom
-// agent definition file. Format: Markdown with YAML frontmatter, written
-// to `.github/agents/<name>.agent.md` (project scope) — the literal
-// `.agent.md` extension is required by the Copilot CLI custom-agent
-// loader. Plain `.md` is not picked up.
-//
-// Path scope choice: project (`.github/agents/`) over user
-// (`~/.copilot/agents/`). Exarchos's plugin-distribution model versions
-// agent definitions with the repo, so they must live inside the project.
-// User scope remains a valid alternative for hand-authored agents but is
-// not what the generator produces.
-//
-// ── Capability → Copilot tool name mapping ─────────────────────────────────
-//
-// Copilot CLI custom agents declare permitted tools as an ARRAY of tool
-// names (distinct from OpenCode's boolean map and Claude's PascalCase
-// tool array). MCP tools follow the `mcp__<server>` namespacing
-// convention; full per-tool gating uses `mcp__<server>__<tool>`.
-//
-// Source: https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/create-custom-agents-for-cli
-//
-//   fs:read                     → `read`
-//   fs:write                    → `write`
-//   shell:exec                  → `shell`
-//   subagent:spawn              → `task`
-//   mcp:exarchos                → `mcp__exarchos` tool entry only
-//   mcp:exarchos:readonly       → `mcp__exarchos` (same tool name; the
-//                                 server-side dispatch gate from T04 is
-//                                 what enforces the readonly action
-//                                 allowlist — Copilot's tool array has
-//                                 no per-action sub-grant primitive)
-//   isolation:worktree          → advisory; emits no tool entry
-//   subagent:start-signal       → unsupported (Copilot has no equivalent hook)
-//   subagent:completion-signal  → unsupported
-//   team:agent-teams            → unsupported (Claude-only tmux primitive)
-//   session:resume              → unsupported (no `agentId` resumption)
-//
-// See docs/designs/archive/2026-04-25-delegation-runtime-parity.md §4.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * The Copilot `RuntimeAdapter`. It lowers an `AgentSpec` into a GitHub Copilot
+ * CLI custom agent file at `.github/agents/<name>.agent.md`, as Markdown with
+ * YAML frontmatter. The Copilot loader reads only the `.agent.md` extension.
+ * The file is at project scope, because the repo versions agent definitions.
+ *
+ * Copilot declares the allowed tools as an array of names. Both `mcp:exarchos`
+ * and `mcp:exarchos:readonly` map to `mcp__exarchos`, because the array has no
+ * per-action grant. The readonly gate in dispatch enforces the readonly tier.
+ * Format reference:
+ * https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/create-custom-agents-for-cli
+ */
 
 import { stringify as stringifyYaml } from 'yaml';
 import type { AgentSpec } from '../types.js';
@@ -48,11 +19,10 @@ import { buildSupportMap } from './support-levels.js';
 import { resolveCapabilities } from '../../../workflow/capabilities/posture-mapping.js';
 
 /**
- * Copilot covers fs/shell/subagent-spawn/MCP natively. `isolation:worktree`
- * and `session:resume` are advisory (no first-class primitive — the
- * orchestrator manages worktree fan-out, and `resumable` flows degrade
- * gracefully when no `agentId` resume is available). Claude-only signal
- * hooks and Agent Teams are unsupported.
+ * Copilot supports fs, shell, subagent spawn and MCP natively. Worktree
+ * isolation and session resume are advisory, because the orchestrator manages
+ * worktrees and Copilot has no `agentId` resume. The signal hooks and Agent
+ * Teams are unsupported.
  */
 const COPILOT_SUPPORT_LEVELS = buildSupportMap('native', {
   'isolation:worktree': 'advisory',
@@ -108,9 +78,13 @@ export class CopilotAdapter implements RuntimeAdapter {
     return { ok: true };
   }
 
+  /**
+   * Write a tool entry only for a native capability. The frontmatter declares no
+   * MCP servers, because the Copilot CLI registers servers outside the agent
+   * file and its loader ignores an `mcp-servers` block. The `mcp__<server>` tool
+   * entry gates a server for each agent.
+   */
   lowerSpec(spec: AgentSpec): { path: string; contents: string } {
-    // Filter to native capabilities only — advisory caps are silently
-    // tolerated and emit no tool entry.
     const resolved = resolveCapabilities(spec.posture, spec.id);
     const nativeCaps: Capability[] = [...resolved].filter(
       (cap) => COPILOT_SUPPORT_LEVELS[cap] === 'native',
@@ -131,15 +105,6 @@ export class CopilotAdapter implements RuntimeAdapter {
     if (spec.model && spec.model !== 'inherit') {
       frontmatter.model = spec.model;
     }
-
-    // MCP server enablement is NOT declared in agent frontmatter for the
-    // Copilot CLI. Servers are registered out-of-band (e.g. `gh mcp add`
-    // or a shared `mcp.json`); per-agent gating happens via the
-    // `mcp__<server>` tool entry already present in `tools` above.
-    // The `mcp-servers:` field documented for cloud-agent custom agents
-    // expects `{ type, command, args, tools, env }` — not `{ enabled }` —
-    // and is not honored by the CLI loader regardless. Emitting any
-    // `mcp:` block here was non-standard and silently ignored.
 
     const yamlBlock = stringifyYaml(frontmatter).trimEnd();
     const contents = `---\n${yamlBlock}\n---\n\n${spec.systemPrompt}\n`;

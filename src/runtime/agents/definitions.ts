@@ -1,44 +1,33 @@
-// ─── Agent Spec Definitions ────────────────────────────────────────────────
-//
-// Concrete agent specifications for subagent dispatch. Each spec declares
-// a runtime-agnostic `posture`; the resolver in
-// `capabilities/posture-mapping.ts` derives the effective capability set
-// from `(posture, id)`. Runtime adapters then translate capabilities into
-// runtime-specific tool/permission shapes (e.g. Claude tool arrays).
-//
-// v2.10-preview.1 (#1333): the legacy `capabilities: [...]` literal arrays
-// were removed; `posture` is now the only declarative authority.
-//
-// See docs/designs/archive/2026-04-25-delegation-runtime-parity.md §3 and
-// docs/designs/archive/2026-05-09-v2-10-0-preview-1-substrate-stabilization.md.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * The agent specs for subagent dispatch. Each spec declares a runtime-neutral
+ * `posture`. `resolveCapabilities` in `workflow/capabilities/posture-mapping.ts`
+ * derives the capability set from the posture and the id. The runtime adapters
+ * turn the capabilities into the tool and permission shapes of each runtime.
+ */
 
 import type { AgentSpec } from './types.js';
 import type { RiskTier } from '../../workflow/verification-policy.js';
 
-// ─── Toolchain-neutral test command ─────────────────────────────────────────
-//
-// #1470/#1483 (F1): the post-test validation command must NOT hardcode npm and
-// must NOT be resolved at agent-generation time. The shipped agent artifacts
-// are generated in THIS (Node) repo and ship static — a gen-time placeholder
-// resolved to `npm run test:run` and baked it in for every consumer (INV-4
-// platform-agnosticity). Instead the hook calls `exarchos run-tests`, which
-// resolves the consumer's test command at runtime from THEIR cwd
-// (`.exarchos.yml` / project markers, via the canonical resolveTestRuntime).
-// The same string is correct for every runtime and every toolchain.
+/**
+ * The post-test command. The agent files ship static, so this command must not
+ * hardcode npm or resolve at generation time. `exarchos run-tests` resolves the
+ * test command of the consumer at runtime from its cwd, so the same string
+ * works for each runtime and toolchain.
+ */
 export const POST_TEST_COMMAND = 'exarchos run-tests';
 
-// Wired as the `pre-write` PreToolUse hook on every `task-isolated` agent
-// (#1301). Like POST_TEST_COMMAND it is a runtime-resolving exarchos verb, not
-// a baked path: the guard reads the hook JSON on stdin and denies (exit 2) any
-// Write/Edit/MultiEdit/NotebookEdit whose target escapes the agent's worktree.
-// This makes the worktree-isolation write leak unrepresentable by construction
-// (INV-11) rather than detected after the fact by the merge-time backstop.
+/**
+ * The `pre-write` PreToolUse hook command of each `task-isolated` agent. The
+ * guard reads the hook JSON on stdin. It denies (exit 2) a Write, Edit,
+ * MultiEdit or NotebookEdit whose target is outside the agent worktree.
+ */
 export const WORKTREE_BOUNDARY_COMMAND = 'exarchos verify-worktree-boundary';
 
-// The shared `pre-write` boundary rule. Carrying a `command` is what makes the
-// claude adapter emit an enforced PreToolUse hook (a command-less pre-write
-// rule stays guidance-only — see adapters/claude.ts buildHooksFromRules).
+/**
+ * The shared `pre-write` boundary rule. Its `command` makes the claude adapter
+ * emit an enforced PreToolUse hook. `buildHooksFromRules` in
+ * `adapters/claude.ts` emits no hook for a rule without a command.
+ */
 const WORKTREE_BOUNDARY_RULE = {
   trigger: 'pre-write',
   rule:
@@ -46,17 +35,13 @@ const WORKTREE_BOUNDARY_RULE = {
   command: WORKTREE_BOUNDARY_COMMAND,
 } as const;
 
-// ─── Shared worktree-entry contract ─────────────────────────────────────────
-//
-// Every isolated agent (IMPLEMENTER, FIXER, SCAFFOLDER) must boot into the
-// dispatched worktree before touching the filesystem. Native-isolation
-// runtimes (Claude Code's `isolation: "worktree"`) chdir for the agent;
-// other runtimes (Copilot CLI, generic MCP, Cursor) spawn subagents in the
-// parent. Without an explicit cd + verify, the agent can edit the parent
-// repo and corrupt the orchestrator's main worktree HEAD.
-//
-// Single source of truth — avoids drift across agent prompts (the gap that
-// produced the original C11 review finding for FIXER).
+/**
+ * The worktree-entry contract of the implementer, fixer and scaffolder prompts.
+ * Claude Code changes into the worktree for the agent. Other runtimes, such as
+ * Copilot CLI and Cursor, start subagents in the parent. Without an explicit
+ * `cd` and check, the agent can edit the parent repo and corrupt the
+ * orchestrator worktree.
+ */
 const WORKTREE_ENTRY_CONTRACT = `## Working Directory Setup (MANDATORY)
 
 Your shell may have started in the parent repo cwd, depending on the runtime.
@@ -149,22 +134,6 @@ output from the Worktree Verification step above), and \`<test-cmd>\` is the
 project test command (from \`.exarchos.yml\` or the project default), run from
 the worktree.`;
 
-// ─── Tier-conditional verification note (vls1-b5, task 028, R7 #1522) ────────
-//
-// The implementer prompt's verification guidance must SCALE WITH the task's
-// risk profile — strict RED-GREEN-REFACTOR ceremony is the HIGH-tier rung of
-// the verification ladder, NOT a universal law imposed on every dispatch.
-//
-// The note is selected from the delegation-record STAMP — `riskTier` and
-// `boundaryTouching` are pure DATA inputs (function parameters), NOT a
-// `workflow.type` branch. This keeps the behavior data-driven per INV-6: the
-// code reads the stamp the planner/classifier produced; the skill bodies carry
-// no `if workflowType` prose.
-//
-// Evidence basis (TDAD): cutting a skill 107→20 lines quadrupled resolution.
-// Prompt bloat is a token AND an accuracy cost, so the low tier carries a terse
-// ≤3-line static-analysis note rather than the full block.
-
 /** Inputs the dispatcher stamps onto the delegation record. */
 export interface ImplementerVerificationContext {
   /** Blast-radius tier resolved by the classifier / planner override. */
@@ -173,35 +142,31 @@ export interface ImplementerVerificationContext {
   readonly boundaryTouching: boolean;
 }
 
-// The boundary steer: appended for boundary-touching tasks regardless of tier.
-// Mock only what your task OWNS; for unowned dependencies use a hermetic
-// fixture or a contract-verified stub so the test exercises the real contract.
+/** The boundary steer, added for a boundary-touching task at each tier. */
 const MOCK_BOUNDARY_STEER =
   'Boundary task: mock only what you own. For a dependency you do NOT own, use a hermetic fixture or a contract-verified stub — never an unverified hand-mock that can drift from the real contract.';
 
 /**
- * Build the tier-appropriate verification note (a `## Verification ...` section).
+ * Build the `## Verification` note for the risk tier of a task. The inputs come
+ * from the delegation-record stamp, not from a workflow-type branch. The low
+ * tier gets a short note, because a long prompt costs tokens and accuracy.
  *
- * - low      → ≤3-line static-analysis steer. No kill-probe.
- * - medium   → scoped tests + the `check_test_adequacy` kill-probe, judged
- *              OUTCOME-based / test-after (no failing-test-first ceremony — #1587).
- * - high     → the medium block plus the integration-suite rung (deepest ladder).
+ * - low: a static-analysis note, with no kill-probe.
+ * - medium: scoped tests and the `check_test_adequacy` kill-probe, judged by
+ *   outcome. Test-after is acceptable.
+ * - high: the medium note plus the integration-suite rung.
  *
- * Pure: depends only on its inputs. The boundary steer is appended last.
+ * The boundary steer comes last when `boundaryTouching` is true.
  */
 export function buildVerificationNote(ctx: ImplementerVerificationContext): string {
   const lines: string[] = [];
 
   if (ctx.riskTier === 'low') {
-    // Cheap rung: static analysis suffices. No ceremony, no kill-probe.
     lines.push('## Verification (low tier — static analysis suffices)');
     lines.push(
       'Low blast-radius task: lean on static analysis (typecheck + lint). No test-first ceremony required; add a focused test only if behavior is non-obvious.',
     );
   } else {
-    // medium / high: scoped tests + the check_test_adequacy kill-probe. #1587
-    // excised the test-FIRST ordering ceremony (RED→GREEN→REFACTOR) even from
-    // the high rung — the keeper is OUTCOME-based adequacy, judged test-after.
     lines.push('## Verification (verification ladder — outcome-based adequacy)');
     lines.push('');
     lines.push(
@@ -229,15 +194,11 @@ export function buildVerificationNote(ctx: ImplementerVerificationContext): stri
   return lines.join('\n');
 }
 
-// ─── Implementer ────────────────────────────────────────────────────────────
-
 /**
- * The implementer system-prompt template, split so the verification note can be
- * tier-selected at dispatch. `{{verificationNote}}` is filled by
- * {@link renderImplementerPrompt} from the delegation-record stamp; the static
- * `IMPLEMENTER.systemPrompt` (lowered into the shipped agent file, which has no
- * tier context) bakes the medium-tier default so the generated artifact is
- * self-contained.
+ * The head of the implementer system prompt. The verification note goes
+ * between the head and the tail, so that dispatch can select it by tier. The
+ * static `IMPLEMENTER.systemPrompt` uses the medium-tier note, because the
+ * shipped agent file has no tier context.
  */
 const IMPLEMENTER_PROMPT_HEAD = `You are an implementer agent on the verification ladder, working in an isolated worktree. Your verification discipline is set by the tier-selected note below — outcome-based test adequacy on the medium/high rungs (judged test-after, not by commit order), static analysis on the low rung.
 
@@ -279,12 +240,9 @@ const DEFAULT_VERIFICATION_NOTE = buildVerificationNote({
 });
 
 /**
- * Assemble the implementer system prompt with the tier-appropriate verification
- * note, reading `riskTier` / `boundaryTouching` from the supplied delegation
- * stamp (DATA, not a workflow-type branch — INV-6). Placeholder context
- * (`taskDescription`, `requirements`, `filePaths`) is interpolated when present;
- * any unfilled placeholders are left intact for the dispatch layer's own
- * interpolation pass.
+ * Build the implementer system prompt with the verification note for the
+ * `riskTier` and `boundaryTouching` of the delegation stamp. It fills each
+ * given placeholder, and leaves an absent one for the dispatch layer.
  */
 export function renderImplementerPrompt(
   ctx: ImplementerVerificationContext & {
@@ -312,46 +270,28 @@ export function renderImplementerPrompt(
   return prompt;
 }
 
-// ─── DR-4: Deduped implementer-prompt template ──────────────────────────────
-//
-// `prepare_delegation` used to return the FULL rendered implementer prompt
-// (~1,560 tokens) once PER TASK — ~95% identical across a wave. On a 10-task
-// wave that was a measured 71,000-char response. DR-4 splits the prompt into the
-// SHARED template (returned once per response) and the per-task VERIFICATION
-// NOTE (the only prose that varies, keyed purely by riskTier/boundaryTouching).
-// The note is itself deduped into a small shared map because a wave's tasks
-// cluster on a handful of (riskTier, boundaryTouching) pairs — there are only
-// six distinct notes possible. Reconstruction (template + note) is byte-for-byte
-// identical to the old per-task `renderImplementerPrompt({ riskTier,
-// boundaryTouching })`, so the change is lossless for the orchestrator.
-
 /**
- * The placeholder marking where a task's tier-selected verification note is
- * spliced into {@link IMPLEMENTER_PROMPT_TEMPLATE}. Distinct from the HEAD/TAIL
- * dispatch placeholders (`{{taskDescription}}` / `{{requirements}}` /
- * `{{filePaths}}`), which the template deliberately leaves unfilled.
+ * The placeholder for the verification note in
+ * {@link IMPLEMENTER_PROMPT_TEMPLATE}. The template leaves the dispatch
+ * placeholders, such as `{{taskDescription}}`, unfilled.
  */
 export const VERIFICATION_NOTE_PLACEHOLDER = '{{verificationNote}}';
 
 /**
- * DR-4: the SHARED implementer-prompt template — the ~95%-identical prose every
- * dispatched task carries, with the per-task verification note replaced by
- * {@link VERIFICATION_NOTE_PLACEHOLDER}. `prepare_delegation` returns this ONCE
- * per response instead of re-rendering the full prompt per task. The dispatch
- * placeholders (`{{taskDescription}}` etc.) remain unfilled here exactly as they
- * are in a per-task render — the dispatch layer fills them.
+ * The shared implementer prompt, with {@link VERIFICATION_NOTE_PLACEHOLDER} in
+ * place of the verification note. Most of the prompt is the same for each
+ * task. Thus `prepare_delegation` returns this template once for each response,
+ * and only a note for each task.
  */
 export const IMPLEMENTER_PROMPT_TEMPLATE = `${IMPLEMENTER_PROMPT_HEAD}${VERIFICATION_NOTE_PLACEHOLDER}${IMPLEMENTER_PROMPT_TAIL}`;
 
 /**
- * DR-4: reconstruct a task's full implementer prompt from the shared
- * {@link IMPLEMENTER_PROMPT_TEMPLATE} and its per-task `verificationNote` delta.
- *
- * LOSSLESS: for any tier context `ctx`,
- * `reconstructImplementerPrompt({ verificationNote: buildVerificationNote(ctx) })`
- * === `renderImplementerPrompt(ctx)`. The placeholder never occurs inside
- * HEAD/TAIL or a note, so the splice is unambiguous; `replaceAll` (not
- * `replace`) is defensive against the placeholder ever appearing twice.
+ * Build the full implementer prompt of a task from
+ * {@link IMPLEMENTER_PROMPT_TEMPLATE} and its verification note. With the note
+ * from `buildVerificationNote(ctx)`, the result equals
+ * `renderImplementerPrompt(ctx)` only when `ctx` has no `taskDescription`,
+ * `requirements` or `filePaths`. This function leaves those placeholders
+ * unfilled.
  */
 export function reconstructImplementerPrompt(delta: { readonly verificationNote: string }): string {
   return IMPLEMENTER_PROMPT_TEMPLATE.replaceAll(
@@ -374,11 +314,11 @@ An implementation task at any verification tier triggers the implementer agent.
 </commentary>
 </example>`,
   color: 'blue',
-  // The shipped (tier-less) artifact bakes the medium-tier default note. At
-  // dispatch the orchestrator calls `renderImplementerPrompt` with the
-  // delegation-record stamp to select the low/high variant. Composing from the
-  // same HEAD/TAIL constants + `buildVerificationNote` guarantees the static
-  // default never drifts from the rendered output.
+  /**
+   * The shipped agent file has no tier, so it uses the medium-tier note. It
+   * uses the same head, tail and `buildVerificationNote` as a render at
+   * dispatch, so the two cannot drift.
+   */
   systemPrompt: `${IMPLEMENTER_PROMPT_HEAD}${DEFAULT_VERIFICATION_NOTE}${IMPLEMENTER_PROMPT_TAIL}`,
   disallowedTools: ['Agent'],
   model: 'inherit',
@@ -399,8 +339,6 @@ An implementation task at any verification tier triggers the implementer agent.
   memoryScope: 'project',
   mcpServers: ['exarchos'],
 };
-
-// ─── Fixer ──────────────────────────────────────────────────────────────────
 
 export const FIXER: AgentSpec = {
   id: 'fixer',
@@ -466,8 +404,6 @@ When done, output a JSON completion report:
   mcpServers: ['exarchos'],
 };
 
-// ─── Reviewer ───────────────────────────────────────────────────────────────
-
 export const REVIEWER: AgentSpec = {
   id: 'reviewer',
   posture: 'read-only',
@@ -513,26 +449,13 @@ When done, output a JSON completion report:
   "files": ["<reviewed files>"]
 }
 \`\`\``,
-  // Reviewer is intentionally read-only. `shell:exec` is omitted so no
-  // runtime can grant shell access — neither Claude's `Bash` tool nor
-  // OpenCode's `tools.bash`. Test runs / typecheck / git inspection
-  // belong to the orchestrator, not the reviewer agent.
-  //
-  // `mcp:exarchos:readonly` is declared (NOT the full `mcp:exarchos`)
-  // so the reviewer can consult read-only MCP surfaces (`exarchos_view`
-  // pure-read actions, `exarchos_workflow get/describe`, `exarchos_event
-  // query/describe`, `exarchos_orchestrate describe`) while mutating
-  // composite-tool actions are blocked at the dispatch layer (T04).
-  // Per #1109 Constraint 3 (Basileus-forward), MCP remains first-class;
-  // the readonly tier preserves that without exposing write actions.
-  //
-  // Trust-boundary state — defense in depth (DIM-2 + DIM-7):
-  //   1. shell:exec absent + Bash in disallowedTools → no shell escape
-  //   2. fs:write absent + Write/Edit in disallowedTools → no FS mutation
-  //   3. mcp:exarchos:readonly (without mcp:exarchos) → dispatch-layer
-  //      gate rejects mutating composite actions (workflow.set,
-  //      event.append, orchestrate.task_complete, etc.) structurally,
-  //      not via prose. See `dispatch/core/dispatch.ts` readonly action allowlist.
+  /**
+   * The reviewer is read-only. Its posture grants no `shell:exec` and no
+   * `fs:write`, and this list also denies the shell and write tools. The
+   * readonly MCP tier allows read-only actions, and the readonly gate in
+   * `dispatch/core/dispatch.ts` rejects mutating actions. The orchestrator runs
+   * tests and typechecks.
+   */
   disallowedTools: ['Write', 'Edit', 'Agent', 'Bash'],
   model: 'inherit',
   skills: [],
@@ -540,8 +463,6 @@ When done, output a JSON completion report:
   resumable: false,
   mcpServers: ['exarchos'],
 };
-
-// ─── Scaffolder ─────────────────────────────────────────────────────────────
 
 export const SCAFFOLDER: AgentSpec = {
   id: 'scaffolder',
@@ -589,15 +510,12 @@ When done, output a JSON completion report:
 }
 \`\`\``,
   disallowedTools: ['Agent'],
-  // `inherit`, NOT a pinned model id. A pin here is a second model authority:
-  // it silently outranks the tier policy (`agents.tier-models`, default
-  // low→haiku / medium→sonnet / high→opus) that `resolveModelForTask` derives
-  // from the task's `riskTier`, so a low-tier scaffold got sonnet no matter
-  // what the operator configured — and an operator raising the low-tier floor
-  // saw no effect here. Model strength is a function of RISK, not of which
-  // agent happens to be selected; the agent chooses the ROLE, the ladder
-  // chooses the STRENGTH. `effort: 'low'` stays because that is this agent's
-  // role (it is the low-complexity agent by construction), not a model choice.
+  /**
+   * `inherit`, not a pinned model id. A pin outranks the `agents.tier-models`
+   * policy that `resolveModelForTask` applies to the task `riskTier`. The risk
+   * tier picks the model strength, and the agent picks the role. `effort: 'low'`
+   * is part of the role of this agent, not a model choice.
+   */
   model: 'inherit',
   effort: 'low',
   isolation: 'worktree',
@@ -606,8 +524,6 @@ When done, output a JSON completion report:
   resumable: false,
   mcpServers: ['exarchos'],
 };
-
-// ─── All Specs ──────────────────────────────────────────────────────────────
 
 export const ALL_AGENT_SPECS: readonly AgentSpec[] = [
   IMPLEMENTER,

@@ -1,19 +1,15 @@
-// ─── OpenCode RuntimeAdapter ───────────────────────────────────────────────
-//
-// Lowers domain `AgentSpec` values into OpenCode's custom-agent file
-// format: Markdown with YAML frontmatter at `.opencode/agents/<name>.md`.
-//
-// Key shape differences vs Claude:
-//   • `mode: subagent` (vs Claude's no-mode default; `mode: main` is for
-//     primary agents).
-//   • `tools` is a **boolean object/map**, not an array. Each known tool is
-//     emitted explicitly (true if the spec's capabilities cover it, false
-//     otherwise) so reviewer-style read-only specs are unambiguous.
-//   • `mcp` is an object map keyed by server name, e.g. `{ exarchos: true }`.
-//
-// Reference: https://opencode.ubitools.com/agents/ and
-// docs/designs/archive/2026-04-25-delegation-runtime-parity.md §4.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * OpenCode `RuntimeAdapter`. It lowers an `AgentSpec` into an OpenCode agent file:
+ * Markdown with YAML frontmatter at `.opencode/agents/<name>.md`.
+ *
+ * Shape differences from Claude:
+ *   - The frontmatter sets `mode: subagent`.
+ *   - `tools` is a boolean map, not an array. Each known tool is emitted with an explicit
+ *     value, so a read-only spec is unambiguous.
+ *   - `mcp` is a map keyed by server name, for example `{ exarchos: true }`.
+ *
+ * Reference: https://opencode.ubitools.com/agents/
+ */
 
 import { stringify as stringifyYaml } from 'yaml';
 import type { Capability } from '../capabilities.js';
@@ -23,11 +19,9 @@ import { buildSupportMap } from './support-levels.js';
 import { resolveCapabilities } from '../../../workflow/capabilities/posture-mapping.js';
 
 /**
- * OpenCode covers fs/shell/subagent-spawn/MCP natively, treats
- * `isolation:worktree` and `session:resume` as advisory (orchestrator-
- * managed for worktree; expressible in prose for resume but without a
- * native primitive), and rejects Claude-only signaling primitives
- * (Agent Teams, signal hooks).
+ * OpenCode support levels. `isolation:worktree` and `session:resume` are advisory,
+ * because OpenCode has no primitive for them. The Claude-only signal and Agent Teams
+ * capabilities are unsupported. All other capabilities are native.
  */
 const OPENCODE_SUPPORT_LEVELS = buildSupportMap('native', {
   'isolation:worktree': 'advisory',
@@ -88,6 +82,11 @@ interface OpenCodeFrontmatter {
   model?: string;
 }
 
+/**
+ * Build the frontmatter for `spec`. `mcp:exarchos` and `mcp:exarchos:readonly` give the
+ * same MCP entry, because the server enforces the read-only tier.
+ * The model `inherit` has no OpenCode token, so the field is omitted and OpenCode uses its default.
+ */
 function buildFrontmatter(spec: AgentSpec): OpenCodeFrontmatter {
   const resolved = resolveCapabilities(spec.posture, spec.id);
   const fm: OpenCodeFrontmatter = {
@@ -95,32 +94,25 @@ function buildFrontmatter(spec: AgentSpec): OpenCodeFrontmatter {
     description: spec.description,
     tools: capabilitiesToTools(resolved),
   };
-  // Both `mcp:exarchos` and `mcp:exarchos:readonly` grant the same MCP
-  // tool entry — the read-only tier is enforced server-side by the
-  // dispatch action allowlist (T04), not by withholding the tool.
   if (
     resolved.has('mcp:exarchos') ||
     resolved.has('mcp:exarchos:readonly')
   ) {
     fm.mcp = { exarchos: true };
   }
-  // `inherit` means "use the host session's current model" — OpenCode
-  // has no equivalent token, so omit the field and let the runtime pick
-  // its default. Concrete model names (e.g. `sonnet`) pass through.
   if (spec.model && spec.model !== 'inherit') {
     fm.model = spec.model;
   }
   return fm;
 }
 
+/**
+ * Build the agent file. OpenCode reads the Markdown body as the system prompt.
+ * The body starts with the spec description, so the body also says when to use the agent.
+ */
 function buildContents(spec: AgentSpec): string {
   const fm = buildFrontmatter(spec);
   const yaml = stringifyYaml(fm).trimEnd();
-  // OpenCode reads the markdown body as the agent's system prompt. We
-  // prepend the spec's description so dispatch context (when to use this
-  // agent) is preserved in the body even though `description` is also
-  // in frontmatter — keeps a single source of behavioral intent for
-  // models that primarily attend to the body.
   const parts = [spec.description.trim()];
   if (spec.systemPrompt.trim().length > 0) {
     parts.push(spec.systemPrompt.trim());

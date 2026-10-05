@@ -46,7 +46,7 @@ export function readMcpConfig(configPath: string): ClaudeConfig {
  *
  * @param config - The existing Claude config.
  * @param servers - MCP server components from the manifest.
- * @param runtime - The JavaScript runtime command (e.g., 'bun', 'node').
+ * @param runtime - The JavaScript runtime command, such as 'bun' or 'node'.
  * @param claudeHome - Absolute path to ~/.claude/.
  * @returns A new config with merged server entries.
  */
@@ -73,7 +73,7 @@ export function mergeMcpServers(
  * Generate a single MCP server entry from a manifest component.
  *
  * @param server - The MCP server component definition.
- * @param runtime - The JavaScript runtime command (e.g., 'bun', 'node').
+ * @param runtime - The JavaScript runtime command, such as 'bun' or 'node'.
  * @param claudeHome - Absolute path to ~/.claude/.
  * @returns The MCP server entry for ~/.claude.json.
  */

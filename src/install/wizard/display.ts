@@ -17,11 +17,11 @@ export interface InstallResult {
   readonly detail?: string;
 }
 
-/** Status indicator characters. */
+/** Status characters: a check mark for done, a tilde for skip, and a cross for fail. */
 const STATUS_ICONS = {
-  done: '\u2713', // ✓
+  done: '\u2713',
   skip: '~',
-  fail: '\u2717', // ✗
+  fail: '\u2717',
 } as const;
 
 /**

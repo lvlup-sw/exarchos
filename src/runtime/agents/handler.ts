@@ -1,20 +1,12 @@
-// ─── Agent Spec Action Handler ─────────────────────────────────────────────
-//
-// Handles the `agent_spec` action: looks up an agent specification by ID,
-// interpolates template variables, and returns the spec in the requested format.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * The `agent_spec` action handler. It finds an agent specification by ID, fills its template variables, and returns it in the requested format.
+ */
 
 import { z } from 'zod';
 import type { ToolResult } from '../../format.js';
 import { ALL_AGENT_SPECS } from './definitions.js';
 import type { AgentSpec } from './types.js';
-// Derive the Claude `tools` array from the runtime-agnostic capability
-// declarations so the `agent_spec` MCP response stays shape-stable. Sourced
-// from the Claude adapter, which is the canonical lowering site for
-// capability -> Claude-tool translation.
 import { deriveClaudeToolsFromCapabilities } from './adapters/claude.js';
-
-// ─── Schema ─────────────────────────────────────────────────────────────────
 
 const AGENT_IDS = ALL_AGENT_SPECS.map(s => s.id) as [string, ...string[]];
 
@@ -26,22 +18,19 @@ export const agentSpecSchema = z.object({
 
 type AgentSpecArgs = z.infer<typeof agentSpecSchema>;
 
-// ─── Template Interpolation ─────────────────────────────────────────────────
-
 const TEMPLATE_VAR_PATTERN = /\{\{(\w+)\}\}/g;
 
+/** Replace each `{{key}}` in `prompt` with its value from `context`, and list each placeholder that stays unresolved. */
 function interpolatePrompt(
   prompt: string,
   context: Record<string, string>,
 ): { systemPrompt: string; unresolvedVars: string[] } {
   let systemPrompt = prompt;
 
-  // Replace all provided context vars
   for (const [key, value] of Object.entries(context)) {
     systemPrompt = systemPrompt.replaceAll(`{{${key}}}`, value);
   }
 
-  // Detect unresolved vars
   const unresolvedVars: string[] = [];
   let match: RegExpExecArray | null;
   const regex = new RegExp(TEMPLATE_VAR_PATTERN.source, 'g');
@@ -55,12 +44,13 @@ function interpolatePrompt(
   return { systemPrompt, unresolvedVars };
 }
 
-// ─── Handler ────────────────────────────────────────────────────────────────
-
+/**
+ * Return the spec of one agent with its template variables filled.
+ * The `full` format derives the Claude `tools` array from the capability declarations, through the Claude adapter.
+ */
 export async function handleAgentSpec(args: AgentSpecArgs): Promise<ToolResult> {
   const { agent, context = {}, outputFormat = 'full' } = args;
 
-  // Find spec by agent ID
   const spec: AgentSpec | undefined = ALL_AGENT_SPECS.find(s => s.id === agent);
 
   if (!spec) {
@@ -74,10 +64,8 @@ export async function handleAgentSpec(args: AgentSpecArgs): Promise<ToolResult> 
     };
   }
 
-  // Interpolate template vars
   const { systemPrompt, unresolvedVars } = interpolatePrompt(spec.systemPrompt, context);
 
-  // Format: prompt-only
   if (outputFormat === 'prompt-only') {
     return {
       success: true,
@@ -89,7 +77,6 @@ export async function handleAgentSpec(args: AgentSpecArgs): Promise<ToolResult> 
     };
   }
 
-  // Format: full
   return {
     success: true,
     data: {

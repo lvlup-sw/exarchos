@@ -1,47 +1,33 @@
 /**
- * Runtime auto-detection.
+ * Detect the installed runtime, so `exarchos install-skills` can target the
+ * right agent without `--agent`. Detection precedence:
+ * 1. Environment variables. The first runtime with a non-empty variable from
+ *    `detection.envVars` wins. An env-var match beats a PATH match, because it
+ *    shows that the agent runs now.
+ * 2. PATH binaries. A runtime matches when one of its `detection.binaries`
+ *    resolves through `which`. No match returns `null`, and one match returns
+ *    that runtime. Two or more matches throw `AmbiguousRuntimeError`.
  *
- * Given a set of loaded runtime maps (`generic`, `claude`, `codex`, ...), work
- * out which one is installed on the host so that `exarchos install-skills`
- * can target the right agent without the user passing `--agent`.
- *
- * Detection precedence:
- *   1. **Environment variables** — if any runtime declares an env var in
- *      `detection.envVars` that is currently set, that runtime wins
- *      immediately. Env-var matches always beat PATH matches (they're
- *      higher-signal: the agent is actively running, not merely installed).
- *   2. **PATH binaries** — for each runtime, check whether any of its
- *      `detection.binaries` resolve via `which`. Zero PATH matches returns
- *      null; exactly one is returned; two or more throw
- *      `AmbiguousRuntimeError` so the caller can prompt the user.
- *
- * All side effects (PATH lookup, env access) are injected via `DetectDeps`
- * so unit tests are fully deterministic.
- *
- * Implements: DR-7 (install-skills runtime detection).
+ * `DetectDeps` injects the PATH lookup and the environment.
  */
 
 import { execSync } from 'node:child_process';
 import type { RuntimeMap } from './types.js';
 
 /**
- * Injected dependencies for `detectRuntime`. The defaults bind to real OS
- * calls (`which` via `execSync`, `env` via `process.env`); tests always
- * override both so no real lookups happen.
+ * Injected dependencies for `detectRuntime`. The defaults run `which` through
+ * `execSync` and read `process.env`.
  */
 export interface DetectDeps {
-  /**
-   * Resolve a binary name to its absolute path or null if not on PATH.
-   * Shape matches Unix `which`: null means "not found".
-   */
+  /** Resolve a binary name to its absolute path, or `null` when it is not on PATH. */
   which?: (cmd: string) => string | null;
   /** Environment to check for runtime env-var signals. */
   env?: Record<string, string | undefined>;
 }
 
 /**
- * Thrown when multiple runtimes match via PATH detection and no env-var
- * disambiguator is set. The CLI catches this and prompts the user (task 021).
+ * Thrown when two or more runtimes match on PATH and no env var selects one.
+ * In an interactive session, `install-skills` catches it and prompts the user.
  */
 export class AmbiguousRuntimeError extends Error {
   constructor(public readonly candidates: string[]) {
@@ -54,13 +40,11 @@ export class AmbiguousRuntimeError extends Error {
 }
 
 /**
- * Default `which` implementation: shell out to `which <cmd>` and return the
- * trimmed stdout, or null on non-zero exit / any error. Only used when the
- * caller doesn't inject their own. Tests never hit this path.
+ * Default `which`: run `which <cmd>` and return the trimmed stdout. A non-zero
+ * exit makes `execSync` throw, and any error returns `null`.
  */
 const defaultWhich = (cmd: string): string | null => {
   try {
-    // `which` exits non-zero if not found; execSync throws on non-zero.
     const out = execSync(`which ${cmd}`, { stdio: ['ignore', 'pipe', 'ignore'] })
       .toString('utf8')
       .trim();
@@ -82,7 +66,6 @@ export function detectRuntime(
   const which = deps.which ?? defaultWhich;
   const env = deps.env ?? process.env;
 
-  // 1. Env-var precedence: first runtime with any of its envVars set wins.
   for (const runtime of runtimes) {
     for (const key of runtime.detection.envVars) {
       if (env[key] !== undefined && env[key] !== '') {
@@ -91,7 +74,6 @@ export function detectRuntime(
     }
   }
 
-  // 2. PATH-based detection: collect every runtime whose binaries resolve.
   const pathMatches: RuntimeMap[] = [];
   for (const runtime of runtimes) {
     if (runtime.detection.binaries.length === 0) continue;

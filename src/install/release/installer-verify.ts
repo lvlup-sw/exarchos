@@ -1,33 +1,16 @@
-// ─── Installer-side release verification (P05-01) ──────────────────────────
-//
-// The fail-closed gate an installer runs before trusting a downloaded release.
-// It rejects, independently and each fail-closed, four distinct attacks/faults:
-//
-//   1. manifest-signature — the signed manifest does not chain to a configured
-//                           trust root (tampered body, wrong/unknown key, or a
-//                           malformed signature). Checked FIRST: nothing in a
-//                           manifest can be trusted until its signature is.
-//   2. source-mismatch    — a validly-signed manifest describes a different
-//                           source (commit / tree digest) than the installer
-//                           expects. A valid signature over the WRONG source is
-//                           still rejected: signature ≠ provenance.
-//   3. contract-mismatch  — a validly-signed manifest was built against a
-//                           different frozen contract authority (P03-01) than
-//                           the installer expects.
-//   4. asset-digest       — a file the installer actually downloaded does not
-//                           match (or is absent from) the signed manifest's
-//                           record for it.
-//
-// Each dimension is independently seedable: a manifest with exactly one fault
-// is rejected for exactly that reason, in the priority order above. Everything
-// is fail-closed — no throw escapes to be mistaken for a pass, and an empty set
-// of presented assets is a rejection (there is nothing to have verified).
-//
-// The `expectedSource` / `expectedContract` are what the installer pins (e.g.
-// baked into the bootstrap or the currently-installed binary). Verifying them
-// against a signed manifest mirrors P05-04's freshness philosophy: an
-// authenticated statement of identity is compared to an independently expected
-// identity, and any divergence blocks.
+/**
+ * The fail-closed check that an installer runs before it trusts a downloaded
+ * release. It rejects four faults, in this order:
+ *
+ *   1. manifest-signature: the signature does not chain to a trust root.
+ *   2. source-mismatch: the signed manifest names another commit or tree
+ *      digest. A valid signature over the wrong source is still rejected.
+ *   3. contract-mismatch: the manifest names another contract authority digest.
+ *   4. asset-digest: a downloaded file is absent from the manifest or has
+ *      another digest. An empty set of downloaded assets is also rejected.
+ *
+ * A manifest with one fault is rejected for that reason.
+ */
 
 import type { TrustRootSet } from '../../runtime/extensions/trust-root.js';
 import type { SourceIdentity, ContractIdentity } from './build-identity.js';
@@ -37,7 +20,7 @@ import {
   type SignedReleaseManifest,
 } from './release-manifest.js';
 
-/** The four independently-seedable rejection reasons, plus malformed input. */
+/** The four rejection reasons. */
 export type RejectionReason =
   | 'manifest-signature'
   | 'source-mismatch'
@@ -53,16 +36,15 @@ export interface ObservedAsset {
 export interface VerifyReleaseInputs {
   /** The signed manifest, already parsed/validated (`parseSignedManifest`). */
   readonly signed: SignedReleaseManifest;
-  /** Trust anchors the signature must chain to (P03-08). */
+  /** Trust anchors that the signature must chain to. */
   readonly trustRoots: TrustRootSet;
   /** The source identity the installer expects (pinned provenance). */
   readonly expectedSource: SourceIdentity;
-  /** The contract-authority identity the installer expects (P03-01 roll-up). */
+  /** The contract authority identity that the installer expects. */
   readonly expectedContract: ContractIdentity;
   /**
-   * Digests of the files the installer actually downloaded, keyed by asset
-   * name. Every entry must be covered by, and match, the signed manifest.
-   * Must be non-empty — an installer that verified nothing has not verified.
+   * Digests of the downloaded files, keyed by asset name. Each entry must be in
+   * the signed manifest with the same digest. The map must not be empty.
    */
   readonly observedAssets: ReadonlyMap<string, ObservedAsset>;
 }
@@ -93,13 +75,11 @@ export function verifyReleaseInstall(inputs: VerifyReleaseInputs): VerifyRelease
   const { signed, trustRoots, expectedSource, expectedContract, observedAssets } = inputs;
   const { manifest, signature } = signed;
 
-  // 1. Authenticity FIRST — a manifest's own claims mean nothing unsigned.
   const verification = trustRoots.verify(signature, manifestSigningBytes(manifest));
   if (!verification.trusted) {
     return reject('manifest-signature', verification.detail);
   }
 
-  // 2. Source provenance — reject a validly-signed manifest for the wrong source.
   if (!sourceMatches(manifest.source, expectedSource)) {
     return reject(
       'source-mismatch',
@@ -108,7 +88,6 @@ export function verifyReleaseInstall(inputs: VerifyReleaseInputs): VerifyRelease
     );
   }
 
-  // 3. Contract authority — reject a build against a different frozen contract.
   if (manifest.contract.digest !== expectedContract.digest) {
     return reject(
       'contract-mismatch',
@@ -117,8 +96,6 @@ export function verifyReleaseInstall(inputs: VerifyReleaseInputs): VerifyRelease
     );
   }
 
-  // 4. Asset integrity — every downloaded file must be covered by and match the
-  //    signed manifest. An empty presentation verifies nothing → reject.
   if (observedAssets.size === 0) {
     return reject('asset-digest', 'no downloaded assets were presented for verification');
   }

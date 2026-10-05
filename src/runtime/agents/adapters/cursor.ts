@@ -1,30 +1,14 @@
-// ─── Cursor RuntimeAdapter ─────────────────────────────────────────────────
-//
-// Lowers an AgentSpec into Cursor 2.5+ custom-agent format: Markdown with
-// YAML frontmatter at `.cursor/agents/<name>.md` (project scope) or
-// `~/.cursor/agents/<name>.md` (user scope). This adapter targets the
-// project-scoped path.
-//
-// Reference: https://cursor.com/docs/subagents (Cursor 2.5, early 2026).
-// Frontmatter fields:
-//   - name: string                           (required)
-//   - description: string                    (required)
-//   - model: 'fast' | 'inherit' | <model>    (we always emit 'inherit')
-//   - readonly: bool (default false)         (true → spec lacks fs:write)
-//   - is_background: bool (default false)
-//   - mcp?: Record<string, true>             (per-server enablement)
-//
-// Isolation note: Cursor does NOT have an explicit `isolation:worktree`
-// mode equivalent to Claude's worktree-isolated subagents. The
-// delegation-runtime-parity discovery doc records that Cursor's runtime
-// does not enforce the same isolation guarantees — specs that declare
-// `isolation:worktree` lower without error, but the runtime cannot
-// enforce the worktree boundary at dispatch time. Validation accepts
-// the capability so the adapter can still emit a usable definition;
-// callers that require strict isolation should target Claude.
-//
-// See docs/designs/archive/2026-04-25-delegation-runtime-parity.md §4.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * The Cursor runtime adapter. It lowers an `AgentSpec` into the Cursor 2.5+ custom-agent format: Markdown
+ * with YAML frontmatter at the project path `.cursor/agents/<name>.md`. See https://cursor.com/docs/subagents.
+ *
+ * The frontmatter holds `name`, `description`, `model` (always `inherit`), `readonly` (true when the spec
+ * lacks `fs:write`), `is_background`, and an optional `mcp` map.
+ *
+ * Cursor has no worktree isolation mode like the one in Claude, so `isolation:worktree` is advisory. A spec
+ * with it lowers with no error, but Cursor does not enforce the worktree boundary. A caller that needs strict
+ * isolation must target Claude.
+ */
 
 import { stringify as stringifyYaml } from 'yaml';
 import type { AgentSpec } from '../types.js';
@@ -34,9 +18,9 @@ import { buildSupportMap } from './support-levels.js';
 import { resolveCapabilities } from '../../../workflow/capabilities/posture-mapping.js';
 
 /**
- * Cursor covers fs/shell/subagent-spawn/MCP natively, treats
- * `isolation:worktree` as advisory (no first-class enforcement; orchestrator
- * still manages worktree fan-out), and rejects Claude-only primitives.
+ * Cursor supports the file, shell, subagent-spawn, and MCP capabilities natively. `isolation:worktree` is
+ * advisory: Cursor does not enforce it, and the orchestrator still manages the worktrees. Claude-only
+ * primitives are unsupported.
  */
 const CURSOR_SUPPORT_LEVELS = buildSupportMap('native', {
   'isolation:worktree': 'advisory',
@@ -51,9 +35,8 @@ function agentFilePath(agentName: string): string {
 }
 
 /**
- * Frontmatter shape emitted into `.cursor/agents/<id>.md`. The optional
- * `mcp` field gates per-agent MCP server enablement; mirrors the shape
- * used by the OpenCode adapter.
+ * Frontmatter of `.cursor/agents/<id>.md`. The optional `mcp` field enables MCP servers per agent, in the
+ * same shape as the OpenCode adapter.
  */
 interface CursorFrontmatter {
   name: string;
@@ -65,40 +48,24 @@ interface CursorFrontmatter {
 }
 
 /**
- * Strip the heavy `## Worktree Hygiene` per-command rule block from a
- * systemPrompt when the target runtime treats `isolation:worktree` as
- * advisory rather than native (Cursor's case today — see
- * CURSOR_SUPPORT_LEVELS).
+ * Removes the `## Worktree Hygiene` block from a system prompt for a runtime with advisory isolation. Its
+ * per-command `git -C` and `npm --prefix` rules assume that the runtime puts the agent in `.worktrees/`, and
+ * advisory isolation does not.
  *
- * CodeRabbit #1213/#2: the lighter `## Worktree Verification` startup
- * STOP block IS retained for cursor. Operators on advisory-isolation
- * runtimes still need an explicit "verify your cwd before editing"
- * checkpoint — without it, a subagent that boots in the parent repo
- * silently writes to the wrong directory. The cursor adapter previously
- * stripped both blocks for symmetry, but the verification block has
- * value even under advisory isolation (it's a sanity check, not a hard
- * runtime invariant).
- *
- * The hygiene block (per-command `git -C` + `npm --prefix` rules) IS
- * still stripped — it depends on the runtime actually placing the
- * agent inside `.worktrees/`, and on advisory isolation that
- * assumption fails and the rules would force an unworkable command
- * style.
- *
- * The match is conservative: anchored on the exact H2 heading and
- * stops at the next H2 (or end of string). If a future spec drops the
- * section or renames the heading, this is a silent no-op rather than
- * an over-eager strip that clobbers unrelated content.
- *
- * The source `definitions.ts` IMPLEMENTER/SCAFFOLDER specs keep the
- * full guard verbatim (Claude and other native-isolation runtimes
- * still need both blocks).
+ * The `## Worktree Verification` block stays. Without that cwd check, a subagent that starts in the parent
+ * repo writes to the wrong directory. The match starts at the exact H2 heading and stops at the next H2, so
+ * a renamed heading removes nothing. The specs in `definitions.ts` keep both blocks.
  */
 function stripAdvisoryWorktreeGuard(systemPrompt: string): string {
   const pattern = /(?:^|\n)## Worktree Hygiene[^\n]*\n[\s\S]*?(?=\n## |\n?$)/g;
   return systemPrompt.replace(pattern, '');
 }
 
+/**
+ * Lowers a spec to a Cursor agent file. Both `mcp:exarchos` and `mcp:exarchos:readonly` enable the
+ * `exarchos` server, and the action allowlist gate in `dispatch/core/dispatch.ts` enforces the readonly tier.
+ * Because `isolation:worktree` is advisory, the prompt loses its worktree hygiene block.
+ */
 function lowerSpec(spec: AgentSpec): { path: string; contents: string } {
   const resolved = resolveCapabilities(spec.posture, spec.id);
   const readonly = !resolved.has('fs:write');
@@ -111,10 +78,6 @@ function lowerSpec(spec: AgentSpec): { path: string; contents: string } {
     is_background: false,
   };
 
-  // Item 1, T09: grant the exarchos MCP server when either capability tier
-  // is present. Both tiers map to the same server entry — the readonly
-  // distinction is enforced server-side via the action allowlist gate
-  // (see core/dispatch.ts), not at the cursor adapter layer.
   if (
     resolved.has('mcp:exarchos') ||
     resolved.has('mcp:exarchos:readonly')
@@ -122,10 +85,6 @@ function lowerSpec(spec: AgentSpec): { path: string; contents: string } {
     frontmatter.mcp = { exarchos: true };
   }
 
-  // Item 7, T29: Cursor treats `isolation:worktree` as advisory (see
-  // CURSOR_SUPPORT_LEVELS). Strip the hard guard so the rendered
-  // agent doesn't trip on a runtime that doesn't enforce worktree
-  // placement.
   const renderedPrompt =
     CURSOR_SUPPORT_LEVELS['isolation:worktree'] === 'advisory'
       ? stripAdvisoryWorktreeGuard(spec.systemPrompt)

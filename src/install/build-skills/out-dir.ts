@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
+/** Count the direct subdirectories of `outDir`, one per rendered runtime. Return 0 when `outDir` is absent or unreadable. */
 export function countRuntimesFromOutDir(outDir: string): number {
   if (!existsSync(outDir)) return 0;
   try {
@@ -18,20 +19,14 @@ export function countRuntimesFromOutDir(outDir: string): number {
 
 
 /**
- * Recursively walk `root` and remove any file that is not present in
- * `keep`. After file removal, empty directories are pruned bottom-up so
- * the tree stays tidy.
- *
- * Safety: callers must scope `root` to a per-runtime subtree under
- * `outDir` so we never touch unrelated files.
+ * Remove each file under `root` whose resolved absolute path is not in `keep`.
+ * Then remove each subdirectory that holds no kept file. The function ignores removal errors.
+ * The caller must scope `root` to one per-runtime subtree, so that no unrelated file is removed.
  */
 export function cleanStaleFiles(root: string, keep: Set<string>): void {
   if (!existsSync(root)) return;
 
   const walk = (dir: string): boolean => {
-    // Returns `true` if the directory still contains any surviving entries
-    // after the recursive cleanup pass — caller uses that to decide
-    // whether to rmdir this directory too.
     let entries: string[];
     try {
       entries = readdirSync(dir);
@@ -56,7 +51,6 @@ export function cleanStaleFiles(root: string, keep: Set<string>): void {
           try {
             rmSync(full, { recursive: true, force: true });
           } catch {
-            /* best-effort */
           }
         }
       } else if (st.isFile()) {
@@ -66,7 +60,6 @@ export function cleanStaleFiles(root: string, keep: Set<string>): void {
           try {
             rmSync(full, { force: true });
           } catch {
-            /* best-effort */
           }
         }
       }

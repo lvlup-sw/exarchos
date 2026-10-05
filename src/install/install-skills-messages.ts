@@ -1,12 +1,6 @@
 /**
- * Centralized user-facing copy for `installSkills()`.
- *
- * Every string shown to the user from `install-skills.ts` goes through this
- * module so copy can be reviewed, tested, and iterated on in one place rather
- * than scattered across control-flow branches. Each function returns a plain
- * string (no formatting, no color codes) so tests can do substring assertions.
- *
- * Implements: DR-7, DR-10.
+ * User-facing text for `installSkills()`, in one place.
+ * Each function returns a plain string with no color codes, so tests can assert on substrings.
  */
 
 /** Emitted when --agent names a runtime not present in the runtimes/ dir. */
@@ -26,7 +20,7 @@ export function missingGenericFallbackMessage(): string {
   );
 }
 
-/** Emitted when auto-detection returns null but we're falling back to generic. */
+/** Emitted when auto-detection returns null and the install falls back to the generic runtime. */
 export function noAgentDetectedFallbackMessage(genericName: string): string {
   return (
     `No agent detected on this host. Installing generic skills bundle ` +
@@ -34,10 +28,7 @@ export function noAgentDetectedFallbackMessage(genericName: string): string {
   );
 }
 
-/**
- * Emitted to errLog when multiple agents are detected and we're in
- * non-interactive mode (pre-throw).
- */
+/** Written to errLog before the throw, when detection finds more than one agent in non-interactive mode. */
 export function ambiguousNonInteractiveNoticeMessage(
   candidates: readonly string[],
 ): string {
@@ -48,9 +39,8 @@ export function ambiguousNonInteractiveNoticeMessage(
 }
 
 /**
- * Thrown Error.message when multiple agents detected in non-interactive
- * mode. Kept separate from the errLog notice so the thrown Error still has a
- * full, self-contained message even if caller captured it before errLog.
+ * The message of the Error thrown when detection finds more than one agent in non-interactive mode.
+ * It is separate from the errLog notice, so the Error message is complete without that notice.
  */
 export function ambiguousNonInteractiveThrowMessage(
   candidates: readonly string[],

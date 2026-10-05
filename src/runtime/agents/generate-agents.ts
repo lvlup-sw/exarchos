@@ -1,31 +1,16 @@
-// ─── Unified composition root for per-runtime agent generation ─────────────
-//
-// `generateAgents` is the singular entry point that fans an `AgentSpec`
-// out across every `RuntimeAdapter` (Claude, Codex, OpenCode, Cursor,
-// Copilot), validates each (spec, runtime) pair, and writes the
-// per-runtime agent definition files. It also keeps the Claude
-// plugin.json `agents` manifest in sync (other runtimes have no
-// equivalent manifest yet).
-//
-// Operability contract (DIM-2 observability):
-//   • Validation runs as a single pre-pass before any file write — a
-//     spec/runtime mismatch never half-emits.
-//   • Validation aggregates EVERY failure across (spec × runtime) pairs
-//     and surfaces them through `GenerateAgentsError.failures` plus a
-//     human-readable aggregated message. A first-failure short-circuit
-//     would hide config bugs and is a DIM-2 violation.
-//   • Iteration order is deterministic: adapters are resorted into the
-//     canonical `RUNTIMES` tuple and specs are kept in declaration
-//     order. Reruns are idempotent.
-//   • File-write failures propagate with the failing path included.
-//
-// See docs/designs/archive/2026-04-25-delegation-runtime-parity.md §5 and Task 5
-// in docs/plans/archive/2026-04-25-delegation-runtime-parity.md.
-//
-// Out of scope (owned by later tasks):
-//   • Task 6 wires `npm run generate:agents` to call this entry point.
-//   • Task 7a–7e populate `content/harness/runtimes/<name>.yaml` from adapter shapes.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * The composition root for per-runtime agent generation. `generateAgents` lowers each `AgentSpec` through
+ * each `RuntimeAdapter`, writes the agent files, and keeps the `agents` list of the Claude `plugin.json` in
+ * sync. The other runtimes have no manifest.
+ *
+ * - Validation runs before any file write, so a mismatch never writes half of the files.
+ * - Validation collects each failure across all spec and runtime pairs into `GenerateAgentsError.failures`.
+ * - Adapters run in `RUNTIMES` order and specs in declaration order, so a second run gives the same files.
+ * - A file-write error names the failing path.
+ *
+ * `npm run generate:agents` runs this file with `tsx`. The output root is `process.argv[2]`, then
+ * `EXARCHOS_OUTPUT_ROOT`, then `process.cwd()`.
+ */
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -53,8 +38,6 @@ import {
 } from './adapters/types.js';
 import { readPluginManifest, writePluginManifest } from './plugin-manifest.js';
 
-// ─── Default registry ──────────────────────────────────────────────────────
-
 /**
  * Canonical adapter registry. Iteration follows `RUNTIMES` order so
  * fan-out is deterministic regardless of how callers pass adapters in.
@@ -72,8 +55,6 @@ const DEFAULT_ADAPTERS: readonly RuntimeAdapter[] = RUNTIMES.map(
 );
 
 const DEFAULT_SPECS: readonly AgentSpec[] = ALL_AGENT_SPECS;
-
-// ─── Public types ──────────────────────────────────────────────────────────
 
 export interface GenerateAgentsOptions {
   /** Repo root (or sandbox root). Defaults to `process.cwd()`. */
@@ -94,9 +75,8 @@ export interface GenerateAgentsResult {
 }
 
 /**
- * Structured failure record for one rejected (spec, runtime) pair.
- * The full set is surfaced through `GenerateAgentsError.failures` so
- * operators can see every offending tuple at once (DIM-2).
+ * Failure record for one rejected spec and runtime pair. `GenerateAgentsError.failures` holds the full set,
+ * so an operator sees each offending pair at once.
  */
 export interface GenerateAgentsFailure {
   readonly runtime: Runtime | 'missing-adapter';
@@ -106,11 +86,7 @@ export interface GenerateAgentsFailure {
   readonly fixHint: string;
 }
 
-/**
- * Aggregated error thrown by `generateAgents`. Carries the full set of
- * failures rather than the first one — short-circuiting on the first
- * rejection would hide concurrent config bugs.
- */
+/** The error that `generateAgents` throws. It carries each failure, not only the first, so one fault cannot hide another. */
 export class GenerateAgentsError extends Error {
   readonly failures: readonly GenerateAgentsFailure[];
 
@@ -141,13 +117,9 @@ export class GenerateAgentsError extends Error {
   }
 }
 
-// ─── Internal helpers ──────────────────────────────────────────────────────
-
 /**
- * Sort caller-provided adapters into canonical `RUNTIMES` order so
- * downstream iteration is deterministic. Unknown runtimes (e.g. a
- * future tier-2 adapter someone passes in early) keep a stable order
- * after the canonical block.
+ * Sorts adapters into `RUNTIMES` order, so iteration is deterministic. Adapters for other runtimes follow
+ * the canonical block in their input order.
  */
 function canonicaliseAdapters(
   adapters: readonly RuntimeAdapter[],
@@ -161,8 +133,6 @@ function canonicaliseAdapters(
     const a = byRuntime.get(r);
     if (a) ordered.push(a);
   }
-  // Append any non-tier-1 adapters in declaration order so caller
-  // input is preserved without reordering surprises.
   const seen = new Set(RUNTIMES as readonly string[]);
   for (const a of adapters) {
     if (!seen.has(a.runtime)) ordered.push(a);
@@ -170,7 +140,7 @@ function canonicaliseAdapters(
   return ordered;
 }
 
-/** Are all five canonical tier-1 runtimes present? */
+/** The tier-1 runtimes in `RUNTIMES` that have no adapter. */
 function missingTier1Runtimes(
   adapters: readonly RuntimeAdapter[],
 ): readonly Runtime[] {
@@ -179,10 +149,10 @@ function missingTier1Runtimes(
 }
 
 /**
- * Run `validateSupport` for every (spec, adapter) pair, accumulating
- * structured failures. Adapters return a single `ValidationResult` per
- * spec; we infer the offending capability by re-running the
- * support-level lookup so the failure record can name it explicitly.
+ * Runs `validateSupport` for each adapter and spec pair and collects the failures. An adapter returns one
+ * result per spec, so this function repeats the support-level lookup to name each unsupported capability.
+ * It records one failure per such capability. A rejection with no unsupported capability keeps the reason
+ * of the adapter, with the `<n/a>` capability.
  */
 function validateAllPairs(
   specs: readonly AgentSpec[],
@@ -193,17 +163,11 @@ function validateAllPairs(
     for (const spec of specs) {
       const res = adapter.validateSupport(spec);
       if (res.ok) continue;
-      // Identify which capability (or capabilities) tripped the
-      // adapter's `unsupported` check. We emit one failure entry per
-      // offending capability so the aggregated report names every
-      // problem, not just the first.
       const resolvedCaps = resolveCapabilities(spec.posture, spec.id);
       const offending: Capability[] = [...resolvedCaps].filter(
         (cap) => adapter.supportLevels[cap] === 'unsupported',
       );
       if (offending.length === 0) {
-        // Adapter rejected for a non-capability reason; preserve the
-        // adapter's reason/fixHint verbatim with a sentinel capability.
         failures.push({
           runtime: adapter.runtime,
           specId: spec.id,
@@ -228,16 +192,11 @@ function validateAllPairs(
 }
 
 /**
- * Validate that the Claude plugin manifest exists and is well-formed
- * JSON before any artifact writes. Called early in `generateAgents` so
- * a missing/invalid manifest aborts the run cleanly rather than leaving
- * a partially regenerated tree.
+ * Checks that the Claude plugin manifest exists and parses before any artifact write, so a bad manifest
+ * aborts the run with no partial tree. A missing file throws `GenerateAgentsError`. `readPluginManifest`
+ * throws a plain `Error` for a syntax or schema fault.
  */
 function preflightPluginJson(pluginJsonPath: string): void {
-  // Preserve the structured GenerateAgentsError on missing-file so callers
-  // (and tests) keep the same operator-facing failure shape; everything
-  // else (JSON syntax, schema violations) is delegated to
-  // readPluginManifest which throws a descriptive plain Error.
   if (!fs.existsSync(pluginJsonPath)) {
     throw new GenerateAgentsError([
       {
@@ -254,35 +213,28 @@ function preflightPluginJson(pluginJsonPath: string): void {
 }
 
 /**
- * Update plugin.json's `agents` field with the four Claude agent paths.
- * Only Claude has a plugin manifest today — other runtimes load agents
- * via filesystem conventions (`.codex/agents/`, `.opencode/agents/`,
- * etc.) without an equivalent allowlist file.
- *
- * Existence + JSON validity have already been verified by
- * `preflightPluginJson`, so this function only needs to round-trip the
- * manifest with the updated `agents` field.
+ * Sets the `agents` field of `plugin.json` to the Claude agent paths. Only Claude has a plugin manifest.
+ * Other runtimes find agents by directory convention, such as `.codex/agents/` and `.opencode/agents/`.
+ * It reads the manifest again in case it changed after the preflight. `writePluginManifest` writes
+ * atomically, so a concurrent reader never sees a partial file.
  */
 function updatePluginJson(
   pluginJsonPath: string,
   specs: readonly AgentSpec[],
 ): void {
-  // Re-read defensively in case the manifest changed between preflight
-  // and write (rare but possible during concurrent runs). The write goes
-  // through atomicWriteFile (temp + fsync + rename) via writePluginManifest
-  // so concurrent readers never observe a partial write.
   const manifest = readPluginManifest(pluginJsonPath);
   manifest.agents = specs.map((s) => `./rendered/agents/${s.id}.md`);
   writePluginManifest(pluginJsonPath, manifest);
 }
 
-// ─── Entry point ───────────────────────────────────────────────────────────
-
 /**
- * Fan out every spec across every adapter, write the lowered files,
- * and refresh the Claude plugin manifest. Idempotent, deterministic,
- * and aggregates all validation failures into a single
- * `GenerateAgentsError`.
+ * Lowers each spec through each adapter, writes the files, and refreshes the Claude plugin manifest. It
+ * throws `GenerateAgentsError` when a tier-1 runtime has no adapter or when any pair fails validation. It
+ * checks the manifest before the first write.
+ *
+ * Each adapter path must resolve inside `outputRoot`, so an adapter cannot write outside it. If the manifest
+ * write fails, it removes the files that this run created and keeps the files that existed before. Then it
+ * throws an error with the original cause and the rollback count.
  */
 export function generateAgents(
   options: GenerateAgentsOptions = {},
@@ -294,9 +246,6 @@ export function generateAgents(
     options.pluginJsonPath ??
     path.join(outputRoot, '.claude-plugin', 'plugin.json');
 
-  // 0. Tier-1 coverage check. An empty or partial registry is a
-  //    configuration error — silent zero-file emission would be a
-  //    DIM-2 violation. Surface every missing runtime by name.
   const missing = missingTier1Runtimes(adapters);
   if (missing.length > 0) {
     const failures: GenerateAgentsFailure[] = missing.map((runtime) => ({
@@ -309,35 +258,13 @@ export function generateAgents(
     throw new GenerateAgentsError(failures);
   }
 
-  // 1. Validation pass. Accumulate every failure before failing — never
-  //    short-circuit on the first error.
   const failures = validateAllPairs(specs, adapters);
   if (failures.length > 0) {
     throw new GenerateAgentsError(failures);
   }
 
-  // 1a. Plugin manifest preflight. The Claude plugin manifest update
-  //     happens after artifact writes today, but discovering a missing
-  //     or invalid manifest at that point leaves the tree partially
-  //     updated (20 runtime files written, plugin.json untouched). Check
-  //     readability + JSON validity now, before any writes, so a missing
-  //     manifest is a clean abort with no side effects.
   preflightPluginJson(pluginJsonPath);
 
-  // 2. Lowering and writing pass. Iterate adapters in canonical
-  //    runtime order, specs in caller-declaration order.
-  //
-  // Path-traversal guard (DIM-7): adapter-provided `lowered.path` is
-  // resolved against `outputRoot`, then validated to ensure the result
-  // stays inside the root. A malicious or buggy adapter that returns
-  // `../../../etc/passwd` or an absolute path must be rejected before
-  // any directory creation or file write touches the filesystem.
-  //
-  // Rollback bookkeeping (T17): track every artifact path this run
-  // CREATES (vs. overwrites). If the manifest write below throws, those
-  // newly-created files are unlinked so the on-disk state matches the
-  // pre-run state. Files that already existed before the run are left
-  // intact — rollback is scoped to "things this run produced".
   const resolvedRoot = path.resolve(outputRoot);
   const filesWritten: string[] = [];
   const newlyCreatedArtifacts: string[] = [];
@@ -361,10 +288,6 @@ export function generateAgents(
           }' spec '${spec.id}': ${(err as Error).message}`,
         );
       }
-      // Capture pre-existence BEFORE the write so rollback never unlinks
-      // a file the user had on disk before this run started. `fs.statSync`
-      // with `throwIfNoEntry: false` returns `undefined` for missing
-      // paths and avoids the deprecated-for-some-uses `fs.existsSync`.
       const preExisted =
         fs.statSync(absPath, { throwIfNoEntry: false }) !== undefined;
       try {
@@ -383,16 +306,6 @@ export function generateAgents(
     }
   }
 
-  // 3. Plugin.json update. Only Claude has a manifest today; the other
-  //    runtimes load agents via filesystem convention.
-  //
-  // Rollback contract (T17): on manifest write failure, unlink every
-  // path in `newlyCreatedArtifacts` (best-effort — individual unlink
-  // errors must NOT mask the original manifest error) and re-throw a
-  // wrapped error that names the original cause and the rollback
-  // count. This closes the partial-state gap where a manifest failure
-  // would otherwise leave 20 fresh files on disk while plugin.json
-  // still pointed at the prior generation.
   try {
     updatePluginJson(pluginJsonPath, specs);
   } catch (e) {
@@ -410,41 +323,19 @@ export function generateAgents(
   };
 }
 
-/**
- * Best-effort cleanup helper for T17 rollback. Unlinks every path in
- * `paths`, swallowing per-file errors so a partial cleanup never masks
- * the original failure that triggered the rollback.
- */
+/** Removes each path in `paths` and ignores each per-file error, so a partial cleanup never hides the original failure. */
 function rollbackArtifacts(paths: readonly string[]): void {
   for (const p of paths) {
     try {
       fs.unlinkSync(p);
     } catch {
-      /* best-effort cleanup — surface the original error, not this one */
     }
   }
 }
 
-// ─── Re-exports for convenience ────────────────────────────────────────────
-
 export { IMPLEMENTER, FIXER, REVIEWER, SCAFFOLDER };
 
-// ─── CLI entry point ───────────────────────────────────────────────────────
-//
-// `npm run generate:agents` (Task 6) invokes this file directly via tsx.
-// Identity is the resolved argv path against this module, not a filename
-// suffix — a rename must not leave a step that still runs.
-//
-// Two hooks:
-//   • `EXARCHOS_OUTPUT_ROOT` (env) — redirect writes to a sandbox. Used
-//     by build-pipeline.test.ts to verify the wiring without touching
-//     the real repo.
-//   • `process.argv[2]` — same purpose, takes precedence over the env
-//     var. Convenient for ad-hoc operator invocations.
-//
-// Default behaviour: write into `process.cwd()` (which the npm script
-// resolves to the repo root).
-
+/** True when `process.argv[1]` resolves to this module. It compares real paths, not a filename suffix. */
 function isCliInvocation(): boolean {
   const entry = process.argv[1];
   if (!entry) return false;

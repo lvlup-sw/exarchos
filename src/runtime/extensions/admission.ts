@@ -1,26 +1,18 @@
-// ─── Extension admission — the fail-closed gate before execution (P03-08) ──
-//
-// Admission is the single choke point every extension passes before it can run.
-// It composes the six independent, independently-seedable failure modes the
-// P03-08 exit proof enumerates — each one fails CLOSED, before execution:
-//
-//   1. UNTRUSTED         signature does not chain to a configured trust root
-//   2. REVOKED           extension is on a current, authentic revocation list
-//   3. STALE_REVOCATION  revocation data is missing/forged/expired/stale
-//   4. ROLLBACK          version is below the admitted high-water mark
-//   5. OVER_QUOTA        declared quota exceeds budget, or content exceeds quota
-//   6. MUTATED           content does not match the manifest's immutable digest
-//
-// plus MALFORMED_MANIFEST and ISOLATION_VIOLATION (structural fail-closed
-// reasons) and CONTENT_UNAVAILABLE (the one-shot loader failed).
-//
-// TOCTOU RESISTANCE. The extension bytes are loaded EXACTLY ONCE, via the
-// caller's `loadContentOnce`. The digest is verified on those exact in-memory
-// bytes and the admitted result carries *those* bytes. Nothing here re-opens
-// the source by path after verification, so a file mutated between check and
-// use cannot be executed: execution runs the verified buffer or nothing.
-// `executeExtension` takes only an already-admitted extension and its buffer,
-// so there is structurally no path to re-read from.
+/**
+ * Extension admission: the fail-closed gate that each extension passes before
+ * it runs. Each failure mode rejects before execution:
+ * - `UNTRUSTED`: the signature does not chain to a configured trust root.
+ * - `REVOKED`: a current, authentic revocation list holds the extension.
+ * - `STALE_REVOCATION`: the revocation data is missing, forged or stale.
+ * - `ROLLBACK`: the version is below the admitted high-water mark.
+ * - `OVER_QUOTA`: a quota exceeds the budget, or the content exceeds a quota.
+ * - `MUTATED`: the content does not match the manifest digest.
+ * - `MALFORMED_MANIFEST` or `ISOLATION_VIOLATION`: a structural failure.
+ * - `CONTENT_UNAVAILABLE`: the one-shot loader failed.
+ *
+ * The extension bytes load once, and the digest check runs on those bytes.
+ * Execution gets the verified buffer, and no code reads the source again.
+ */
 
 import type { AgentPosture } from '../agents/spec.js';
 import {
@@ -60,15 +52,15 @@ export interface AdmissionRejection {
   readonly detail: string;
 }
 
-// Module-private brand. An `AdmittedExtension` can only be produced by
-// `admitExtension` in this module — the symbol is not exported, so external
-// code cannot name the property to forge one. That is what makes "admitted"
-// unforgeable rather than merely a naming convention.
+/**
+ * Module-private brand. The symbol is not exported, so only `admitExtension`
+ * can produce an `AdmittedExtension`.
+ */
 const ADMITTED_BRAND: unique symbol = Symbol('exarchos.extension.admitted');
 
 /**
- * A verified, admitted extension. Carries the manifest and the EXACT verified
- * in-memory bytes admission hashed — the only bytes that may be executed.
+ * A verified, admitted extension. It carries the manifest and the exact
+ * in-memory bytes that admission hashed. Only these bytes can run.
  */
 export interface AdmittedExtension {
   readonly [ADMITTED_BRAND]: true;
@@ -110,23 +102,22 @@ function reject(
 }
 
 /**
- * Admit an extension, or reject it fail-closed. On success the returned
- * `admitted.content` is the verified in-memory buffer; callers MUST execute
- * that buffer (via {@link executeExtension}) and never re-read the source.
+ * Admit an extension, or reject it fail-closed. The checks run in this order:
+ * schema, signature, isolation, declared quota, revocation, rollback, one
+ * content load, digest, and content quota. No content loads before the
+ * signature passes. The version ledger advances only after every check passes.
+ * Callers must run `admitted.content` through {@link executeExtension}.
  */
 export async function admitExtension(
   request: AdmissionRequest,
   context: AdmissionContext,
 ): Promise<AdmissionOutcome> {
-  // 1. Manifest must schema-validate.
   const parsed = parseManifest(request.manifest);
   if (!parsed.ok) {
     return reject('MALFORMED_MANIFEST', parsed.detail);
   }
   const manifest = parsed.manifest;
 
-  // 2. Signature must chain to a configured trust root. Do this before any
-  //    content is touched — an untrusted manifest's bytes are never loaded.
   const verification = context.trustRoots.verify(
     manifest.signature,
     canonicalManifestBytes(manifest),
@@ -135,20 +126,16 @@ export async function admitExtension(
     return reject('UNTRUSTED', verification.detail);
   }
 
-  // 3. Declared isolation must stay inside the host posture's trust boundary.
   const isolation = evaluateIsolation(manifest.isolation, request.posture);
   if (!isolation.contained) {
     return reject('ISOLATION_VIOLATION', isolation.detail);
   }
 
-  // 4. Declared quotas must fit the host budget (checked before load).
   const declaredQuota = evaluateDeclaredQuota(manifest.quota, context.quotaBudget);
   if (!declaredQuota.withinBudget) {
     return reject('OVER_QUOTA', declaredQuota.detail);
   }
 
-  // 5. Revocation must be authentic AND current (freshness). Missing/stale/
-  //    forged data fails closed; a listed identity is revoked.
   const revocation = evaluateRevocation(
     {
       list: context.revocationList,
@@ -166,7 +153,6 @@ export async function admitExtension(
     return reject('STALE_REVOCATION', revocation.detail);
   }
 
-  // 6. Anti-rollback: reject a version below the admitted high-water mark.
   const highest = await context.versionLedger.highestAdmitted(manifest.extensionId);
   if (highest !== undefined && manifest.version < highest) {
     return reject(
@@ -175,8 +161,6 @@ export async function admitExtension(
     );
   }
 
-  // 7. Load the content EXACTLY ONCE. Everything after verifies and executes
-  //    these bytes; the source is never re-opened by path.
   let content: Buffer;
   try {
     content = await request.loadContentOnce();
@@ -187,8 +171,6 @@ export async function admitExtension(
     );
   }
 
-  // 8. The loaded bytes must match the manifest's immutable digest. This is the
-  //    TOCTOU-critical check: it runs on the in-memory bytes, not the path.
   if (!verifyContentDigest(content, manifest.contentDigest)) {
     return reject(
       'MUTATED',
@@ -196,7 +178,6 @@ export async function admitExtension(
     );
   }
 
-  // 9. Actual content size must fit the declared quota and the host budget.
   const contentQuota = evaluateContentQuota(
     manifest.quota,
     context.quotaBudget,
@@ -206,8 +187,6 @@ export async function admitExtension(
     return reject('OVER_QUOTA', contentQuota.detail);
   }
 
-  // 10. Only now, with everything proven, raise the anti-rollback high-water
-  //     mark. A rejected extension never advances the ledger.
   await context.versionLedger.recordAdmitted(manifest.extensionId, manifest.version);
 
   const admitted: AdmittedExtension = {

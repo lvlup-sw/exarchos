@@ -1,31 +1,11 @@
-// ─── Authority-bounded ephemeral orientation-injection seam (DR-7) ───────────
-//
-// At spawn, an ORIENTATION payload can be injected into the child's ENV channel
-// (the `env: Record<string,string>` of the spawn descriptor) with **no repo-file
-// mutation**. Orientation is transient — it lives only on the spawned process's
-// environment, never on disk.
-//
-// ## Authority is MARKED, not ENFORCED
-//
-// The launcher does NOT own the model's prompt-precedence rules, so it cannot
-// *force* orientation to lose to a user's own instructions. What it CAN do is:
-//
-//   1. **tag** the payload as `orientation` / non-authoritative — a DISTINCT
-//      type and env channel from any authoritative `directive` channel, and
-//   2. **place** it where a well-behaved consumer treats it as non-authoritative
-//      (its own dedicated env keys, carrying an explicit `non-authoritative`
-//      authority marker; never the directive key).
-//
-// A test therefore asserts the tag + placement, NOT runtime precedence over the
-// model (which this seam cannot own — see `Injection_TaggedNonAuthoritative...`).
-//
-// ## Scope boundary
-//
-// Content/format of the orientation text is owned by #1485 — out of scope here.
-// This module ships only the *seam*: the typed, tagged payload and the pure,
-// file-free env placement. The lifecycle integrator (a sibling task) slots the
-// seam output into the placed spawn descriptor; nothing here wires it live.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * The seam that injects an ephemeral orientation payload at spawn. The payload goes on the env of the
+ * spawned process, or on the native flag or env channel of the harness. It never goes into a repo file.
+ *
+ * The launcher does not own the prompt-precedence rules of the model, so it cannot force orientation to
+ * lose to a user instruction. It tags the payload as non-authoritative, with a type and env keys that are
+ * distinct from the `directive` channel. Tests assert the tag and the placement, not the precedence.
+ */
 
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
@@ -39,19 +19,16 @@ import type {
 } from './harness-registry.js';
 
 /**
- * Injection channel discriminant. Authority is a *property of the channel*, not
- * something this seam enforces at runtime:
- *   - `orientation` → non-authoritative, ephemeral context the launcher injects.
- *   - `directive`   → authoritative instruction channel the launcher does NOT emit.
+ * Injection channel discriminant. Authority is a property of the channel, and this seam does not enforce
+ * it. `orientation` is non-authoritative context that the launcher injects. `directive` is the
+ * authoritative channel, which the launcher does not emit.
  */
 export type InjectionChannel = 'orientation' | 'directive';
 
 /**
- * An ephemeral orientation payload — NON-authoritative by construction. Both the
- * `channel: 'orientation'` discriminant and the literal `authoritative: false`
- * are baked into the type, so the tag cannot silently collapse into the
- * authoritative {@link DirectivePayload}. `content` is opaque here (format owned
- * by #1485).
+ * An ephemeral orientation payload, non-authoritative by construction. The type fixes
+ * `channel: 'orientation'` and `authoritative: false`, so the tag cannot collapse into
+ * {@link DirectivePayload}. `content` is opaque here.
  */
 export interface OrientationPayload {
   readonly channel: 'orientation';
@@ -60,10 +37,9 @@ export interface OrientationPayload {
 }
 
 /**
- * The DISTINCT authoritative directive channel — the type-level counterpart the
- * orientation tag must never collapse into. The launcher does NOT emit these;
- * the type exists so the orientation channel is *provably* distinct, and so the
- * injector's refusal to ever write {@link DIRECTIVE_ENV_KEY} is expressible.
+ * The authoritative directive channel, which the launcher does not emit. The type proves that the
+ * orientation channel is distinct, and it names the channel of {@link DIRECTIVE_ENV_KEY}, which the
+ * injector never writes.
  */
 export interface DirectivePayload {
   readonly channel: 'directive';
@@ -74,45 +50,28 @@ export interface DirectivePayload {
 /** Either injection channel's payload — discriminated by `channel`. */
 export type InjectionPayload = OrientationPayload | DirectivePayload;
 
-/**
- * Env var the ephemeral orientation *content* rides on — orientation's own
- * dedicated channel, DISTINCT from {@link DIRECTIVE_ENV_KEY}.
- */
+/** Env var for the orientation content, distinct from {@link DIRECTIVE_ENV_KEY}. */
 export const ORIENTATION_ENV_KEY = 'EXARCHOS_ORIENTATION' as const;
 
 /**
- * Env var carrying the explicit authority marker for the orientation payload.
- * A well-behaved consumer reads {@link NON_AUTHORITATIVE} here and defers the
- * orientation to any user instruction rather than treating it as a directive.
+ * Env var for the authority marker of the orientation payload. A well-behaved consumer reads
+ * {@link NON_AUTHORITATIVE} here and puts each user instruction before the orientation.
  */
 export const ORIENTATION_AUTHORITY_ENV_KEY = 'EXARCHOS_ORIENTATION_AUTHORITY' as const;
 
 /**
- * Env var an authoritative directive channel would use — DISTINCT from the two
- * orientation keys. {@link injectOrientation} NEVER writes it: orientation
- * cannot masquerade as a directive.
+ * Env var of the authoritative directive channel, distinct from the two orientation keys.
+ * {@link injectOrientation} never writes it, so orientation cannot pose as a directive.
  */
 export const DIRECTIVE_ENV_KEY = 'EXARCHOS_DIRECTIVE' as const;
 
 /** The placed authority marker value for a non-authoritative orientation payload. */
 export const NON_AUTHORITATIVE = 'non-authoritative' as const;
 
-/**
- * Build a non-authoritative orientation payload from opaque content. The tag
- * (`channel` + `authoritative`) is fixed by construction; content/format is #1485's.
- */
+/** Builds a non-authoritative orientation payload from opaque content. The tag is fixed by construction. */
 export function orientationPayload(content: string): OrientationPayload {
   return { channel: 'orientation', authoritative: false, content };
 }
-
-// ─── Compile-time tag invariants (gated by `tsc --noEmit`) ───────────────────
-//
-// `tsconfig.json` EXCLUDES `**/*.test.ts` from compilation, so a type-level
-// assertion in the test file would NOT be gated by `tsc`. These invariants
-// therefore live in this (compiled) source module. Each alias resolves to `true`
-// when the tag holds and to `never` otherwise; assigning `true` to a `never`
-// slot is the `tsc` error that fires if a tag ever collapses. The tuple is
-// EXPORTED (so it is not dead code) and re-asserted at runtime in the test.
 
 /** `true` iff the orientation channel discriminant is still `'orientation'`. */
 type AssertOrientationChannel = OrientationPayload['channel'] extends 'orientation' ? true : never;
@@ -122,16 +81,16 @@ type AssertOrientationNonAuthoritative =
   OrientationPayload['authoritative'] extends false ? true : never;
 
 /**
- * `true` iff the orientation and directive channels are DISTINCT — i.e. the
- * orientation discriminant does not extend the directive discriminant. Collapse
- * them (e.g. give orientation `channel: 'directive'`) and this becomes `never`.
+ * `true` iff the orientation discriminant does not extend the directive discriminant. If orientation gets
+ * `channel: 'directive'`, this becomes `never`.
  */
 type AssertChannelsDistinct =
   OrientationPayload['channel'] extends DirectivePayload['channel'] ? never : true;
 
 /**
- * The three tag invariants, proven at compile time. A green `tsc --noEmit` is
- * the real guarantee; the exported value is the runtime anchor the test pins.
+ * The three tag invariants, proven at compile time. Each alias is `true` when its tag holds and `never`
+ * otherwise, so a collapsed tag fails `tsc --noEmit`. They live in this source file because
+ * `tsconfig.json` excludes `*.test.ts`. The export keeps them live, and the test checks it at runtime.
  */
 export const ORIENTATION_TAG_INVARIANTS: readonly [
   AssertOrientationChannel,
@@ -140,19 +99,12 @@ export const ORIENTATION_TAG_INVARIANTS: readonly [
 ] = [true, true, true];
 
 /**
- * Ephemerally inject an orientation payload into a spawn request's ENV channel —
- * with **NO repo-file mutation** (this function touches no filesystem at all).
+ * Injects an orientation payload into the `env` of a spawn request. This function touches no filesystem.
  *
- * Returns a NEW request whose `env` additionally carries the orientation content
- * ({@link ORIENTATION_ENV_KEY}) and its non-authoritative authority marker
- * ({@link ORIENTATION_AUTHORITY_ENV_KEY}); the base request is never mutated and
- * {@link DIRECTIVE_ENV_KEY} is never written.
- *
- * Absent a payload (`undefined`), the base request is returned UNCHANGED — same
- * reference, so launch is byte-for-byte identical and adds zero env keys.
- *
- * Designed to slot into the placed spawn descriptor in the lifecycle integrator:
- * `injectOrientation({ ...descriptor, cwd: worktreePath }, orientation)`.
+ * It returns a new request whose `env` also holds the content ({@link ORIENTATION_ENV_KEY}) and the
+ * non-authoritative marker ({@link ORIENTATION_AUTHORITY_ENV_KEY}). It never mutates the base request and
+ * never writes {@link DIRECTIVE_ENV_KEY}. With no payload, it returns the same base request, so the launch
+ * adds no env key.
  */
 export function injectOrientation(
   base: AsyncSpawnRequest,
@@ -169,21 +121,11 @@ export function injectOrientation(
   };
 }
 
-// ─── Resolved native injection channel (DR-6) + its spawn-descriptor applier ──
-//
-// The spawn-time probe (`lifecycle-core#resolveInjectionChannel`) narrows a
-// harness's declarative candidate list to ONE {@link ResolvedInjectionChannel};
-// {@link applyOrientationChannel} maps that resolved channel onto the placed
-// spawn descriptor. Per-channel-KIND branching (`flag` / `env` / `none`) is a
-// harness-AGNOSTIC dispatch on the candidate discriminant — never on a harness
-// name — so the single-abstraction guard stays green.
-// ─────────────────────────────────────────────────────────────────────────────
-
 /**
- * The concrete native orientation channel the spawn-time probe selected for a
- * launch — a `flag`/`env` candidate the live CLI supports, or `none` (the CLI
- * exposes no channel / the probe failed). Carries the resolved candidate so the
- * applier maps the payload onto the exact flag/env the registry declared.
+ * The native orientation channel that the spawn-time probe `resolveInjectionChannel` selected: a `flag` or
+ * `env` candidate that the live CLI supports, or `none`. It carries the candidate, so the applier uses the
+ * exact flag or env var of the registry. The applier branches on this `kind` and never on a harness name,
+ * so the single-abstraction guard passes.
  */
 export type ResolvedInjectionChannel =
   | { readonly kind: 'flag'; readonly candidate: FlagInjectionCandidate }
@@ -207,16 +149,14 @@ export function describeChannel(channel: ResolvedInjectionChannel): string {
 }
 
 /**
- * Injectable filesystem seams for the native-channel applier. The `file` flag
- * form (Claude Code `--append-system-prompt-file`) and the `dir` env form
- * (Copilot `COPILOT_CUSTOM_INSTRUCTIONS_DIRS`) materialize the payload into an
- * ephemeral temp path; injecting these lets a test drive the construction path —
- * and force a construction FAILURE (DR-8 fail-open) — deterministically.
+ * Filesystem seams for the native-channel applier. The `file` flag form (Claude Code
+ * `--append-system-prompt-file`) and the `dir` env form (Copilot `COPILOT_CUSTOM_INSTRUCTIONS_DIRS`) write
+ * the payload to an ephemeral temp path. With these seams, a test can drive that path and force a failure.
  */
 export interface ChannelApplyDeps {
-  /** Materialize orientation content into an ephemeral temp file; returns its path. Throws on failure. */
+  /** Writes the orientation content to an ephemeral temp file and returns its path. Throws on failure. */
   readonly writeTempFile?: (content: string) => string;
-  /** Materialize orientation content into an ephemeral temp dir (synthetic AGENTS.md); returns the dir. Throws on failure. */
+  /** Writes the orientation content to an ephemeral temp dir as a synthetic `AGENTS.md`, and returns the dir. Throws on failure. */
   readonly writeTempDir?: (content: string) => string;
   /** Invoked with the ephemeral file/dir path once created, so the caller can schedule its removal. */
   readonly onTempPathCreated?: (path: string) => void;
@@ -225,7 +165,7 @@ export interface ChannelApplyDeps {
 /** Conservative headroom under typical ARG_MAX/env-size ceilings for inline injection. */
 const MAX_INLINE_ORIENTATION_BYTES = 32 * 1024;
 
-/** Throws if `content` is too large to place inline on argv/env (DR-8 fail-open trigger). */
+/** Throws when `content` is too large to place inline on argv or env. The caller then launches with no orientation. */
 function assertInlineSize(content: string): void {
   const bytes = Buffer.byteLength(content, 'utf8');
   if (bytes > MAX_INLINE_ORIENTATION_BYTES) {
@@ -236,11 +176,9 @@ function assertInlineSize(content: string): void {
 }
 
 /**
- * Default `file`-form materializer: an ephemeral temp file holding the
- * orientation. `onCreated` fires right after `mkdtempSync`, BEFORE the
- * write that can fail (disk full, permissions) — so the caller can still
- * schedule the dir's removal even when the write itself throws, rather
- * than only on a fully successful materialization.
+ * Default `file`-form writer: an ephemeral temp file that holds the orientation. `onCreated` runs right
+ * after `mkdtempSync` and before the write, which can fail. Thus the caller can remove the dir even when
+ * the write throws.
  */
 function defaultWriteTempFile(content: string, onCreated?: (path: string) => void): string {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'exarchos-orient-'));
@@ -250,9 +188,10 @@ function defaultWriteTempFile(content: string, onCreated?: (path: string) => voi
   return file;
 }
 
-/** Default `dir`-form materializer: an ephemeral temp dir holding a synthetic
- * `AGENTS.md`. `onCreated` fires before the write, for the same reason as
- * {@link defaultWriteTempFile}. */
+/**
+ * Default `dir`-form writer: an ephemeral temp dir that holds a synthetic `AGENTS.md`. `onCreated` runs
+ * before the write, for the same reason as in {@link defaultWriteTempFile}.
+ */
 function defaultWriteTempDir(content: string, onCreated?: (path: string) => void): string {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'exarchos-orient-dir-'));
   onCreated?.(dir);
@@ -261,22 +200,13 @@ function defaultWriteTempDir(content: string, onCreated?: (path: string) => void
 }
 
 /**
- * Apply a resolved native orientation channel to a placed spawn descriptor
- * (DR-6). Returns a NEW request; the base is never mutated and
- * {@link DIRECTIVE_ENV_KEY} is NEVER written (orientation cannot masquerade as a
- * directive — the refusal property {@link injectOrientation} owns is preserved
- * across every channel).
+ * Applies a resolved native orientation channel to a placed spawn descriptor. It returns a new request,
+ * never mutates the base, and never writes {@link DIRECTIVE_ENV_KEY}.
  *
- * For a `flag`/`env` channel the payload rides BOTH (a) the harness's native
- * channel (the flag args / env var the CLI itself consumes) and (b) the
- * file-free tagged {@link ORIENTATION_ENV_KEY} layer via {@link injectOrientation}
- * — this is the first production wiring of that seam, a uniform
- * non-authoritative marker regardless of the native channel. A `none` channel
- * applies nothing (the base is returned unchanged; the launch proceeds without
- * orientation — DR-8 fail-open).
- *
- * A `file`/`dir` construction failure THROWS (the caller fails open + records a
- * degradation); the pure `string`/`assignment`/`config-json` forms never do.
+ * For a `flag` or `env` channel, the payload goes on the native channel of the harness and also on the
+ * tagged {@link ORIENTATION_ENV_KEY} layer through {@link injectOrientation}. A `none` channel returns the
+ * base unchanged, and the launch runs with no orientation. A temp-file error or an oversized inline payload
+ * throws. The caller then launches with no orientation and records a degradation.
  */
 export function applyOrientationChannel(
   base: AsyncSpawnRequest,
@@ -315,7 +245,11 @@ function applyFlagChannel(
   return { ...base, args: [...base.args, candidate.flag, value] };
 }
 
-/** Derive the flag's argument from the payload per the candidate's `valueForm`. */
+/**
+ * Derives the flag argument from the payload by the `valueForm` of the candidate. A caller-supplied
+ * `writeTempFile` reports its path after it returns. The default writer reports its temp dir before the
+ * write, through `onCreated`.
+ */
 function flagValue(
   candidate: FlagInjectionCandidate,
   content: string,
@@ -329,10 +263,6 @@ function flagValue(
       assertInlineSize(content);
       return `${candidate.assignmentKey}=${content}`;
     case 'file': {
-      // A caller-supplied writeTempFile owns its own path shape and failure
-      // contract, so it is reported as-is, after it returns. The default
-      // materializer instead reports its containing mkdtempSync dir BEFORE
-      // the write that can fail, via onCreated — see defaultWriteTempFile.
       if (deps.writeTempFile) {
         const filePath = deps.writeTempFile(content);
         deps.onTempPathCreated?.(filePath);
@@ -343,7 +273,12 @@ function flagValue(
   }
 }
 
-/** Place the resolved env channel's payload-derived value on the spawn env. */
+/**
+ * Places the payload-derived value of the resolved env channel on the spawn env. For `config-json`, the
+ * harness parses the var as its own config JSON, so raw prose is invalid there. The payload then goes into
+ * a temp instruction file, and the var holds `{"instructions": [<path>]}`. For `dir`, the var holds a temp
+ * dir with a synthetic `AGENTS.md`.
+ */
 function applyEnvChannel(
   base: AsyncSpawnRequest,
   candidate: EnvInjectionCandidate,
@@ -351,12 +286,6 @@ function applyEnvChannel(
   deps: ChannelApplyDeps,
 ): AsyncSpawnRequest {
   if (candidate.payload === 'config-json') {
-    // The harness parses this var as ITS OWN config JSON, not a free-text
-    // field — raw orientation prose is invalid content here. Materialize
-    // orientation into a temp instruction file and reference it via the
-    // harness's own instruction-file config key (see the
-    // EnvInjectionCandidate.payload docstring — e.g. OpenCode's
-    // `instructions: string[]`), so the var always carries valid JSON.
     let filePath: string;
     if (deps.writeTempFile) {
       filePath = deps.writeTempFile(content);
@@ -376,17 +305,13 @@ function applyEnvChannel(
   return { ...base, env: { ...base.env, [candidate.envVar]: dirPath } };
 }
 
-// ─── Orientation payload source: `binding/standard/block.md` (DR-6) ───────────
-
 /** Repo-relative location of the runtime-neutral orientation block (one content source). */
 const STANDARD_BLOCK_REL = path.join('binding', 'standard', 'block.md');
 
 /**
- * Best-effort load of the runtime-neutral orientation payload from
- * `binding/standard/block.md` (DR-6's single content source). Walks up a bounded
- * number of ancestors from the module dir AND `process.cwd()`, returning the
- * first hit. Returns `undefined` on any failure — the fail-open signal the caller
- * turns into a no-orientation launch + degradation (never a throw).
+ * Loads the runtime-neutral orientation payload from `binding/standard/block.md`, the one content source.
+ * From each search root it checks at most eight directories upward and returns the first hit. It never
+ * throws. On a miss it returns `undefined`, and the caller launches with no orientation.
  */
 export function loadStandardBlockContent(searchRoots?: readonly string[]): string | undefined {
   for (const root of searchRoots ?? defaultBlockSearchRoots()) {
@@ -395,7 +320,6 @@ export function loadStandardBlockContent(searchRoots?: readonly string[]): strin
       try {
         return readFileSync(path.join(dir, STANDARD_BLOCK_REL), 'utf8');
       } catch {
-        /* not at this ancestor — keep walking up. */
       }
       const parent = path.dirname(dir);
       if (parent === dir) break;
@@ -405,23 +329,24 @@ export function loadStandardBlockContent(searchRoots?: readonly string[]): strin
   return undefined;
 }
 
-/** Search roots for {@link loadStandardBlockContent}: the module dir, then `process.cwd()`. */
+/**
+ * Search roots for {@link loadStandardBlockContent}: the module dir, then `process.cwd()`. When
+ * `import.meta.url` does not resolve, as in some bundles, only `process.cwd()` remains.
+ */
 function defaultBlockSearchRoots(): string[] {
   const roots: string[] = [];
   try {
     roots.push(path.dirname(fileURLToPath(import.meta.url)));
   } catch {
-    /* import.meta.url unavailable (bundled edge) — fall through to cwd. */
   }
   roots.push(process.cwd());
   return roots;
 }
 
 /**
- * Preview (probe-free) the channel a real launch WOULD resolve to for a
- * candidate list — the FIRST (most-preferred) declared candidate, labelled like
- * {@link describeChannel}. Used by `--dry-run`, which must NOT spawn a help probe
- * (no side effects); the live spawn path re-resolves via the actual probe.
+ * Previews a channel with no probe: the first (most-preferred) declared candidate, labelled like
+ * {@link describeChannel}. `--dry-run` uses it because it must not spawn a help probe. The live spawn path
+ * resolves the channel with the real probe.
  */
 export function previewInjectionChannel(candidates: readonly InjectionCandidate[]): string {
   const primary = candidates[0];

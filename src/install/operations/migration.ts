@@ -1,11 +1,6 @@
 /**
- * V1 migration detection and execution for the Exarchos installer.
- *
- * The v1 installer created symlinks from `~/.claude/` directly into the
- * Exarchos repo (skills, commands, rules, scripts, settings.json). The
- * v2 installer uses either copy (standard) or symlink (dev) mode with
- * a config file. This module detects v1 installs and cleanly removes
- * old symlinks before v2 installation proceeds.
+ * Detect and remove a v1 Exarchos install.
+ * A v1 install has symbolic links from `~/.claude/` into the Exarchos repo. This module removes them before the v2 install.
  */
 
 import * as fs from 'node:fs';
@@ -16,7 +11,7 @@ import { removeSymlink } from './symlink.js';
 export interface V1Detection {
   /** Whether a v1 installation was detected. */
   readonly isV1: boolean;
-  /** Absolute path to the Exarchos repo (resolved from symlink), or null. */
+  /** The Exarchos repo path from {@link getV1RepoPath}, or null. */
   readonly repoPath: string | null;
 }
 
@@ -26,7 +21,7 @@ export interface MigrationResult {
   readonly removedSymlinks: string[];
   /** Absolute paths of non-Exarchos files/dirs that were preserved. */
   readonly preservedFiles: string[];
-  /** Absolute path to the Exarchos repo (resolved from symlink), or null. */
+  /** The Exarchos repo path from {@link getV1RepoPath}, or null. */
   readonly repoPath: string | null;
 }
 
@@ -34,14 +29,10 @@ export interface MigrationResult {
 const V1_SYMLINK_NAMES = ['skills', 'commands', 'rules', 'scripts', 'settings.json'] as const;
 
 /**
- * Detect whether a v1 Exarchos installation exists.
- *
- * Checks if `~/.claude/skills` is a symbolic link, which is the
- * primary indicator of a v1 install (v2 standard mode copies files,
- * v2 dev mode also creates symlinks but writes an exarchos.json config).
+ * Detect a v1 install. The only signal is that `skills` in `claudeHome` is a symbolic link.
+ * A v2 dev install also creates symbolic links. It also writes an `exarchos.json` config, but this function does not read that config.
  *
  * @param claudeHome - Absolute path to the `~/.claude/` directory.
- * @returns Detection result with v1 flag and resolved repo path.
  */
 export function detectV1Install(claudeHome: string): V1Detection {
   const skillsPath = path.join(claudeHome, 'skills');
@@ -61,19 +52,15 @@ export function detectV1Install(claudeHome: string): V1Detection {
     return { isV1: false, repoPath: null };
   }
 
-  // It's a symlink — resolve the repo root
   const repoPath = getV1RepoPath(claudeHome);
   return { isV1: true, repoPath };
 }
 
 /**
- * Resolve the Exarchos repo root from a v1 symlink.
- *
- * Reads the `skills` symlink target and resolves its parent directory
- * as the repo root.
+ * Return the parent directory of the `skills` symlink target as the repo root.
+ * The result is relative when the link target is relative. It is null when `skills` is absent or is not a symbolic link.
  *
  * @param claudeHome - Absolute path to the `~/.claude/` directory.
- * @returns The absolute repo root path, or null if no symlink exists.
  */
 export function getV1RepoPath(claudeHome: string): string | null {
   const skillsPath = path.join(claudeHome, 'skills');
@@ -90,27 +77,20 @@ export function getV1RepoPath(claudeHome: string): string | null {
   }
 
   const symlinkTarget = fs.readlinkSync(skillsPath);
-  // The symlink target is e.g. /path/to/exarchos/skills
-  // The repo root is the parent of that
   return path.dirname(symlinkTarget);
 }
 
 /**
- * Migrate a v1 installation by removing Exarchos symlinks.
- *
- * Removes all known v1 symlinks (skills, commands, rules, scripts,
- * settings.json) while preserving any non-Exarchos files and directories
- * in `~/.claude/`.
+ * Remove each known v1 name in `claudeHome` that is a symbolic link, and list each other entry as preserved.
+ * When `claudeHome` cannot be read, the preserved list is empty.
  *
  * @param claudeHome - Absolute path to the `~/.claude/` directory.
- * @returns Migration result with removed and preserved paths.
  */
 export function migrateV1(claudeHome: string): MigrationResult {
   const repoPath = getV1RepoPath(claudeHome);
   const removedSymlinks: string[] = [];
   const preservedFiles: string[] = [];
 
-  // Remove known Exarchos v1 symlinks
   for (const name of V1_SYMLINK_NAMES) {
     const targetPath = path.join(claudeHome, name);
     const result = removeSymlink(targetPath);
@@ -119,19 +99,16 @@ export function migrateV1(claudeHome: string): MigrationResult {
     }
   }
 
-  // Enumerate remaining items to report preserved files
   try {
     const entries = fs.readdirSync(claudeHome, { withFileTypes: true });
     for (const entry of entries) {
       const entryPath = path.join(claudeHome, entry.name);
-      // Skip anything we just removed
       if (removedSymlinks.includes(entryPath)) {
         continue;
       }
       preservedFiles.push(entryPath);
     }
   } catch {
-    // If claudeHome doesn't exist or can't be read, nothing to preserve
   }
 
   return { removedSymlinks, preservedFiles, repoPath };

@@ -1,16 +1,16 @@
-// ─── The skills renderer — published module path ────────────────────────────
-//
-// The renderer is a pipeline, and the modules under `build-skills/` are its
-// stages: parse and render the call macros, substitute the runtime's tokens,
-// apply the capability guards, validate that nothing unresolved survives, copy
-// and re-render the linked references, and write the tree. `build-all` drives
-// them; `main` is the command-line entry point.
-//
-// This file is the path every consumer and test already imports, so it stays
-// the renderer's published identity.
+/**
+ * The published module path of the skills renderer. Consumers and tests import the renderer from here.
+ *
+ * The modules under `build-skills/` are the stages of the renderer pipeline: call macros, token
+ * substitution, capability guards, placeholder checks, reference copies, and the tree write.
+ * `build-all` drives the stages, and `main` is the command-line entry point.
+ *
+ * `main()` runs only when Node runs this file directly, so an import from a test starts no build.
+ * The guard is in this file because `package.json` runs `dist/install/build-skills.js`. It compares
+ * `import.meta.url` with `pathToFileURL(argv[1])`, because a raw `file://` string of a Windows path
+ * never matches.
+ */
 
-// The shared vocabulary already lived in its own module and was re-exported
-// from here; that arrangement is unchanged.
 export {
   PLACEHOLDER_REGEX,
   CALL_MACRO_REGEX,
@@ -43,19 +43,6 @@ export { assertRuntimeTokenCoverage } from './build-skills/token-coverage.js';
 export { main } from './build-skills/main.js';
 export type { MainDeps } from './cli-helpers.js';
 
-// ─── Self-invocation guard ──────────────────────────────────────────────────
-//
-// Only run `main()` when this file is EXECUTED directly; importing it from a
-// test must not trigger a build. It lives here rather than beside `main`
-// because `package.json` runs `node dist/install/build-skills.js` — this
-// module is the one whose `import.meta.url` can ever equal `argv[1]`, so the
-// guard is inert anywhere else and the build would silently do nothing.
-//
-// `pathToFileURL` is required for correctness on Windows: `file://${argv[1]}`
-// yields `file://C:\repo\dist\build-skills.js`, which never equals the
-// `file:///C:/repo/dist/build-skills.js` form of `import.meta.url` — so the
-// guard silently failed and `npm run build:skills` was a no-op that still
-// exited 0, leaving the rendered tree stale against its sources.
 import { pathToFileURL } from 'node:url';
 import { main as runMain } from './build-skills/main.js';
 

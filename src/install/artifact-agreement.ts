@@ -1,46 +1,21 @@
 /**
- * artifact-agreement — content-addressed agreement checks for the standard
- * generated artifacts (P03-07; API-008, CTR-011).
+ * Agreement checks for the standard generated artifacts. Each artifact has one
+ * authored source and one generator. Its copies in source, package, install and
+ * cache must give the same digest. A stale cache or a hand-edited copy fails.
  *
- * "Emit once, agree everywhere": each standard artifact (Agent Skills, the
- * AGENTS.md/CLAUDE.md binding block, MCP instructions, agent principles,
- * invariant documentation) has exactly ONE authored source rendered by ONE
- * generator. The copy that lands in source, is bundled in the PACKAGE, written
- * at INSTALL, and kept in the CACHE must all AGREE. Disagreement — a stale
- * cached skill tree, a hand-edited installed copy, an out-of-band re-render — is
- * the defect this module detects.
+ * {@link digestText} copies the digest in `src/contract/authority-digest.ts`.
+ * {@link digestTree} copies the digest in `src/install/install-identity.ts`.
+ * Both normalize line endings, so a Windows checkout agrees with a Linux render.
+ * A consistency test asserts that each copy gives the same digest as its source.
  *
- * ## Digesting
- *
- * Every comparison is over a canonical, cross-platform digest so a Windows
- * (CRLF, `\`) checkout agrees with a Linux (LF, `/`) render:
- *
- *   - {@link digestText} mirrors the frozen-authority digest (P03-01,
- *     `src/contract/authority-digest.ts`): CRLF/CR → LF and
- *     trailing newlines stripped before `sha256`. Use it for single-file text
- *     artifacts (the binding block, AGENTS.md, invariant docs).
- *   - {@link digestTree} mirrors the install-identity skill-tree digest (P05-04,
- *     `src/install/install-identity.ts`): path-normalized,
- *     order-independent, NUL-delimited, line-ending-normalized. Use it for
- *     multi-file tree artifacts (the rendered `skills/` tree).
- *
- * The digest semantics are re-implemented here (not imported) because this root
- * module lives under `rootDir: ./src` and cannot import the MCP-package sources
- * in production. The `artifact-agreement.consistency.test.ts` cross-check imports
- * both upstreams and asserts byte-identical digests, so the mirror cannot drift.
- *
- * This module is pure — no filesystem, no clock. Callers assemble the copies
- * (reading source, package, install, cache off disk) and hand them in.
+ * This module is pure. Callers read the copies from disk and pass them in.
  */
 
 import { createHash } from 'node:crypto';
 
-// ─── Text digest (mirrors P03-01 authority-digest) ───────────────────────────
-
 /**
- * Canonicalize text before hashing: CRLF/CR → LF and strip trailing newlines.
- * Idempotent. Interior content is preserved exactly. Mirrors P03-01's
- * `canonicalizeText`.
+ * Change CRLF and CR to LF and remove trailing newlines. Other content does not
+ * change. Copies `canonicalizeText` in `authority-digest.ts`.
  */
 export function canonicalizeText(text: string): string {
   return text
@@ -49,13 +24,11 @@ export function canonicalizeText(text: string): string {
     .replace(/\n+$/, '');
 }
 
-/** `sha256:<hex>` over canonicalized text. Mirrors P03-01's `digestText`. */
+/** `sha256:<hex>` over canonicalized text. Copies `digestText` in `authority-digest.ts`. */
 export function digestText(text: string): string {
   const hex = createHash('sha256').update(canonicalizeText(text), 'utf8').digest('hex');
   return `sha256:${hex}`;
 }
-
-// ─── Tree digest (mirrors P05-04 install-identity) ───────────────────────────
 
 /** A single path/content pair contributing to a tree digest. */
 export interface DigestEntry {
@@ -64,24 +37,23 @@ export interface DigestEntry {
 }
 
 /**
- * Normalize line endings to LF and strip a UTF-8 BOM (NOT trailing newlines —
- * a tree entry's trailing newline is meaningful content). Mirrors P05-04's
- * `normalizeLineEndings`.
+ * Normalize line endings to LF and remove a UTF-8 BOM. Trailing newlines stay,
+ * because they are content in a tree entry. Copies `normalizeLineEndings` in
+ * `install-identity.ts`.
  */
 export function normalizeTreeContent(text: string): string {
   return text.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
 }
 
-/** Normalize a path to POSIX separators. Mirrors P05-04's `normalizePath`. */
+/** Normalize a path to POSIX separators. Copies `normalizePath` in `install-identity.ts`. */
 export function normalizePath(p: string): string {
   return p.replace(/\\/g, '/');
 }
 
 /**
- * Content-addressed digest over a set of path/content entries, order- and
- * platform-independent. Entries are sorted by POSIX-normalized path; each
- * contributes its normalized path and LF-normalized content with NUL
- * delimiters. Mirrors P05-04's `digestTree`.
+ * Digest a set of path/content entries, independent of order and platform. The
+ * entries sort by POSIX path. Each adds its path and normalized content, with
+ * NUL delimiters. Copies `digestTree` in `install-identity.ts`.
  */
 export function digestTree(entries: ReadonlyArray<DigestEntry>): string {
   const hash = createHash('sha256');
@@ -97,12 +69,9 @@ export function digestTree(entries: ReadonlyArray<DigestEntry>): string {
   return `sha256:${hash.digest('hex')}`;
 }
 
-// ─── Artifact model ──────────────────────────────────────────────────────────
-
 /**
- * One copy of an artifact, as it appears at a named dimension (e.g. `source`,
- * `package`, `install`, `cache`). A `text` copy is a single file; a `tree` copy
- * is a set of files (used for multi-file artifacts like the rendered skill tree).
+ * One copy of an artifact at a named dimension, such as `source` or `cache`. A
+ * `text` copy is one file. A `tree` copy is a set of files.
  */
 export type ArtifactCopy =
   | { readonly dimension: string; readonly kind: 'text'; readonly text: string }
@@ -139,11 +108,11 @@ export interface ArtifactAgreement {
 
 /**
  * Digest each copy of `artifact` and compare them. The first copy is the
- * reference; every other copy must produce an identical digest. An artifact
- * with fewer than two copies trivially agrees (nothing to compare).
+ * reference, and each other copy must give the same digest. An artifact with
+ * fewer than two copies agrees.
  *
- * @throws if two copies share the same `dimension` name (an assembly bug — the
- *   comparison would be ambiguous).
+ * @throws if two copies have the same `dimension` name, or if a recorded digest
+ *   is missing.
  */
 export function checkArtifactAgreement(artifact: Artifact): ArtifactAgreement {
   const digestByDimension: Record<string, string> = {};
@@ -167,8 +136,6 @@ export function checkArtifactAgreement(artifact: Artifact): ArtifactAgreement {
     };
   }
 
-  // Every copy's digest was stamped into the record in the loop above, so an
-  // absent entry is an internal invariant break — fail loud, don't assert.
   const readDigest = (dimension: string): string => {
     const digest = digestByDimension[dimension];
     if (digest === undefined) {
@@ -194,8 +161,6 @@ export function checkArtifactAgreement(artifact: Artifact): ArtifactAgreement {
   };
 }
 
-// ─── Assertion helper ────────────────────────────────────────────────────────
-
 /** Thrown by {@link assertArtifactsAgree} when any artifact's copies diverge. */
 export class ArtifactDisagreementError extends Error {
   override readonly name = 'ArtifactDisagreementError';
@@ -217,9 +182,9 @@ export class ArtifactDisagreementError extends Error {
 }
 
 /**
- * Check every artifact and THROW {@link ArtifactDisagreementError} if any copies
- * diverge. Returns the full per-artifact agreement list on success so callers
- * can log the digests.
+ * Check each artifact and throw {@link ArtifactDisagreementError} if copies
+ * diverge. On success, return the agreement list so that callers can log the
+ * digests.
  */
 export function assertArtifactsAgree(
   artifacts: ReadonlyArray<Artifact>,

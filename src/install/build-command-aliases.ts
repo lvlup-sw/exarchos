@@ -1,29 +1,12 @@
 /**
- * Canonical-name command alias emitter (T2, v2.10.1 Bundle A, #1472).
+ * Emits canonical-name command aliases for the runtimes that autoload bare slash commands from a commands directory.
+ * For each `COMMAND_TO_SKILL` entry, a capable runtime gets one markdown file.
+ * Its `description` comes from the canonical `commands/<name>.md`, and its body delegates to the mapped skills with `$ARGUMENTS`.
+ * Thus `/ideate`, `/plan`, and the other bare names also install on runtimes other than Claude.
  *
- * Some runtimes autoload **bare canonical-name** slash commands from a
- * commands directory (e.g. opencode reads `~/.config/opencode/commands/
- * <name>.md`). For those runtimes the skills build emits one thin "alias"
- * command file per `COMMAND_TO_SKILL` entry: a markdown file with YAML
- * frontmatter whose `description` is lifted from the canonical command
- * (`commands/<name>.md`) and whose body is a short directive that delegates
- * to the underlying skill(s), passing `$ARGUMENTS` through. This installs the
- * bare canonical names (`/ideate`, `/plan`, ...) off the Claude path,
- * closing the INV-4 parity gap noted in the design.
- *
- * The emission gate is the runtime's declared
- * `capabilities.canonicalCommandAliases` flag — never a hardcoded
- * runtime-name literal. Only opencode declares it this cycle; codex
- * (deprecated, namespaced prompts), copilot (no CLI autoload), and
- * cursor/generic (no command surface) declare nothing and receive zero
- * files. Adding a future runtime is a pure data change in its YAML.
- *
- * `COMMAND_ONLY` commands (`autocompact`, `tag`) are skill-less
- * and intentionally excluded here — they are tracked as a known gap in T5.
- *
- * The generated tree `command-aliases/<runtime>/<canonical>.md` is a build
- * artifact (like `skills/`): deterministic, never hand-edited, and
- * drift-guarded by T4.
+ * The gate is the `capabilities.canonicalCommandAliases` flag of each runtime, not a runtime name.
+ * A new runtime needs only a change to its YAML. The skill-less `COMMAND_ONLY` commands get no alias.
+ * The output tree `command-aliases/<runtime>/<canonical>.md` is a deterministic build artifact. Do not edit it by hand.
  */
 
 import {
@@ -40,10 +23,7 @@ import type { RuntimeMap } from './runtimes/types.js';
 import { COMMAND_TO_SKILL } from './config/canonical-skills.js';
 import { loadAllRuntimes } from './runtimes/load.js';
 
-/**
- * Summary of an alias-emission pass so callers (the build entry point,
- * tests) can report on what happened without re-scanning the output tree.
- */
+/** Summary of an alias-emission pass, so that callers can report without a new scan of the output tree. */
 export interface CommandAliasReport {
   /** Total alias `.md` files written across all capable runtimes. */
   filesWritten: number;
@@ -54,13 +34,8 @@ export interface CommandAliasReport {
 }
 
 /**
- * Extract the `description` value from a command file's YAML frontmatter.
- *
- * Command frontmatter is a small, flat block delimited by `---` fences; we
- * read only the `description:` line rather than pulling in a YAML parser,
- * matching how the co-located drift guard parses these files. Throws if the
- * file has no `description` so a malformed command surfaces at build time
- * rather than emitting an alias with an empty description.
+ * Read the `description:` line from the frontmatter of a command file. The frontmatter is flat, so no YAML parser is necessary.
+ * A file with no `description` throws, so a malformed command fails the build and does not get an empty alias.
  */
 function readCommandDescription(commandPath: string): string {
   const src = readFileSync(commandPath, 'utf8');
@@ -75,12 +50,8 @@ function readCommandDescription(commandPath: string): string {
 }
 
 /**
- * Render a single alias command file body.
- *
- * The directive matches the voice of opencode's `CHAIN` placeholder
- * (`[Invoke the exarchos:<skill> skill with args: <args>]`): name every
- * mapped skill, in `COMMAND_TO_SKILL` order, and thread `$ARGUMENTS`
- * through so the runtime's argument substitution reaches the skill.
+ * Render the body of one alias command file, in the style of the opencode `CHAIN` placeholder.
+ * It names each mapped skill in `COMMAND_TO_SKILL` order and passes `$ARGUMENTS`, so the argument substitution of the runtime reaches the skill.
  */
 function renderAliasBody(command: string, skills: readonly string[]): string {
   const skillList =
@@ -96,9 +67,7 @@ function renderAliasBody(command: string, skills: readonly string[]): string {
   );
 }
 
-/**
- * Render the full alias file (frontmatter + body) for one canonical command.
- */
+/** Render the full alias file, frontmatter and body, for one canonical command. */
 function renderAliasFile(
   command: string,
   skills: readonly string[],
@@ -114,23 +83,12 @@ function renderAliasFile(
 }
 
 /**
- * Emit canonical-name command alias files for every runtime in `runtimes`
- * that declares `capabilities.canonicalCommandAliases: true`.
- *
- * For each capable runtime, writes one `command-aliases/<runtime>/
- * <canonical>.md` file per `COMMAND_TO_SKILL` entry. Output ordering is
- * stable (the map's key order is insertion order, and content is a pure
- * function of the map + command frontmatter) so the tree can be
- * drift-guarded.
- *
- * Runtimes lacking the capability are skipped entirely — no directory is
- * created for them.
+ * Write one alias file per `COMMAND_TO_SKILL` entry for each runtime with `capabilities.canonicalCommandAliases: true`.
+ * The output follows the key order of the map, so a drift guard can compare the tree. A runtime without the capability gets no directory.
  *
  * @param opts.runtimes - Loaded runtime maps to consider.
- * @param opts.commandsDir - Directory of canonical `commands/<name>.md`
- *   files (source of the lifted `description`).
- * @param opts.outDir - Output root; each capable runtime gets a
- *   `<outDir>/<runtime>/` subdirectory.
+ * @param opts.commandsDir - Directory of the canonical `commands/<name>.md` files, the source of each `description`.
+ * @param opts.outDir - Output root. Each capable runtime gets a `<outDir>/<runtime>/` subdirectory.
  * @returns A populated {@link CommandAliasReport}.
  */
 export function buildCommandAliases(opts: {
@@ -142,7 +100,6 @@ export function buildCommandAliases(opts: {
   const writtenPaths: string[] = [];
   const runtimesEmitted: string[] = [];
 
-  // Iterate commands in map order for deterministic output.
   const commandEntries = Object.entries(COMMAND_TO_SKILL);
 
   for (const rt of runtimes) {
@@ -176,15 +133,9 @@ export function buildCommandAliases(opts: {
 }
 
 /**
- * Recursively remove any file under `root` not present in `keep`, then
- * prune emptied directories bottom-up. Scoped to a per-runtime subtree
- * (`command-aliases/<runtime>/`) so unrelated files are never touched.
- *
- * Modeled on `cleanStaleFiles` in `build-skills.ts` but, unlike that older
- * twin, does not swallow filesystem errors: a failed read/stat/remove during
- * cleanup is a real fault (drift correctness depends on it) and is rethrown
- * with path context rather than silently skipped — per the repo's
- * no-silent-catches guideline.
+ * Remove each file under `root` that is not in `keep`, then remove the directories that become empty.
+ * The caller scopes `root` to one `command-aliases/<runtime>/` subtree.
+ * Unlike `cleanStaleFiles` in `build-skills/out-dir.ts`, a failed read, stat, or remove throws with the path, because drift correctness depends on the cleanup.
  */
 function cleanStaleAliasFiles(root: string, keep: Set<string>): void {
   if (!existsSync(root)) return;
@@ -244,14 +195,9 @@ function cleanStaleAliasFiles(root: string, keep: Set<string>): void {
 }
 
 /**
- * Full alias-emission pass: load runtimes from `runtimesDir`, emit the
- * canonical-name alias tree via {@link buildCommandAliases}, then drop any
- * pre-existing alias file (per emitting runtime) this run did not produce
- * so renamed/removed commands don't linger.
- *
- * This is the single deterministic entry point shared by `build:skills`'s
- * `main()` and the `skills:guard` drift check, so both regenerate the
- * `command-aliases/**` tree identically before reporting or diffing.
+ * Full alias-emission pass. Load the runtimes, emit the alias tree with {@link buildCommandAliases}, then remove each alias file that this run did not write.
+ * The cleanup covers every loaded runtime. Thus a runtime that drops the capability loses its old subtree.
+ * The `build:skills` entry point and the `skills:guard` drift check both call this function, so both make the same tree.
  *
  * @param opts.runtimesDir - Directory of `content/harness/runtimes/<name>.yaml` maps.
  * @param opts.commandsDir - Directory of canonical `commands/<name>.md`.
@@ -267,11 +213,6 @@ export function emitCommandAliases(opts: {
   const runtimes = loadAllRuntimes(runtimesDir);
   const report = buildCommandAliases({ runtimes, commandsDir, outDir });
 
-  // Clean across ALL loaded runtimes, not just the emitting ones: a runtime
-  // that previously declared `canonicalCommandAliases` and later dropped it
-  // would otherwise leave its `command-aliases/<runtime>/` tree orphaned
-  // forever. `keep` only contains paths under emitting runtimes' subtrees, so
-  // a non-emitting runtime's stale dir is fully pruned with the same keep-set.
   const keep = new Set(report.writtenPaths);
   for (const rt of runtimes) {
     cleanStaleAliasFiles(join(outDir, rt.name), keep);

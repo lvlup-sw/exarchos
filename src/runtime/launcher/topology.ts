@@ -1,28 +1,14 @@
 /**
- * Sibling worktree path derivation + nesting/containment guard (DR-5).
+ * Sibling worktree path derivation and the containment guard.
  *
- * A harness launch places its worktree as a **sibling** of the base worktree —
- * one level deep off the shared parent directory, NEVER nested inside the base
- * (or inside any other sibling worktree). Nesting a git worktree inside another
- * worktree corrupts `git worktree` bookkeeping and lets a child launch escape
- * the WLM's containment envelope, so the topology is enforced structurally:
+ * A harness launch puts its worktree as a sibling of the base worktree.
+ * The worktree is a direct child of the shared parent directory, never inside the base or another sibling.
+ * A nested git worktree corrupts `git worktree` bookkeeping and lets a child launch
+ * escape the containment of the worktree manager.
  *
- *   - {@link deriveWorktreePath} — PURE, no filesystem access: given a base
- *     worktree path and an id, returns the canonical sibling path (a direct
- *     child of the base's parent directory). Reused by both `--dry-run`
- *     (Task 004) and creation (Task 005) so the derived path is identical on
- *     every path.
- *   - {@link guardWorktreeContainment} — validates an ARBITRARY target against
- *     the base and REFUSES (structured result, never a silent pass) anything
- *     that would nest inside the base worktree or otherwise escape the
- *     one-level-deep sibling envelope. Called by the creation task *before*
- *     `git worktree add`.
- *
- * Cross-OS: paths are built with `path.join` and normalized to POSIX
- * forward-slashes via {@link toPosix} (#1620), and the guard resolves symlinks
- * (and Windows 8.3 short names) through the SAME injected {@link RealpathResolver}
- * the worktree manager uses — so a win32 base authored with backslashes and a
- * POSIX-normalized derived sibling compare correctly regardless of host OS.
+ * Paths are POSIX-normalized with {@link toPosix}. The guard resolves symlinks and
+ * Windows 8.3 short names through the same {@link RealpathResolver} as the worktree manager.
+ * The module re-exports that resolver, so callers can inject a test double.
  */
 
 import * as path from 'node:path';
@@ -33,24 +19,14 @@ import {
   type RealpathResolver,
 } from '../../verbs/worktree/pure/path-containment.js';
 
-// Re-export the shared resolver seam so consumers (dry-run / creation) can
-// inject a test double without reaching into the worktree-manager internals.
 export { defaultRealpath, type RealpathResolver };
 
-// ============================================================
-// Types
-// ============================================================
-
 /**
- * Why a candidate worktree target was refused by {@link guardWorktreeContainment}.
+ * Why {@link guardWorktreeContainment} refused a target.
  *
- * - `nested-inside-base` — the target is the base worktree itself or lives
- *   inside it (`<base>/…`). Creating a worktree here would nest one worktree
- *   inside another.
- * - `escapes-containment` — the target is not a direct sibling of the base: it
- *   climbs out of the base's parent directory, sits deeper than one level
- *   (i.e. nested inside another sibling worktree), or IS the parent directory
- *   itself.
+ * - `nested-inside-base`: the target is the base worktree or is inside it.
+ * - `escapes-containment`: the target is not a direct child of the parent of the base.
+ *   It is outside the parent, deeper than one level, or the parent itself.
  */
 export type ContainmentRefusalReason = 'nested-inside-base' | 'escapes-containment';
 
@@ -76,17 +52,10 @@ export interface WorktreePathRefused {
 /** Discriminated outcome of {@link guardWorktreeContainment}. */
 export type WorktreePathGuardResult = WorktreePathAccepted | WorktreePathRefused;
 
-// ============================================================
-// Internal path helpers (separator-aware, host-OS-agnostic)
-// ============================================================
-
 /**
- * Pick the {@link path} sub-API (`posix` vs `win32`) that matches the *style*
- * of `p`, so a win32 path is parsed with the win32 rules even on a POSIX host
- * (and vice versa). A win32-absolute path (drive-letter / UNC) or any path
- * containing a backslash is win32-style; everything else is POSIX. Without this
- * a `path.dirname('C:\\repo\\wt')` on Linux would treat the whole string as one
- * segment and return `.`, silently breaking the derivation for win32 fixtures.
+ * Pick the {@link path} sub-API (`posix` or `win32`) that matches the style of `p`.
+ * A win32-absolute path, or a path with a backslash, is win32-style. All other paths are POSIX.
+ * Without this, `path.dirname` on Linux reads a win32 path as one segment and returns `.`.
  */
 function pathApiFor(p: string): typeof path.posix {
   if (path.win32.isAbsolute(p) || p.includes('\\')) return path.win32;
@@ -94,12 +63,9 @@ function pathApiFor(p: string): typeof path.posix {
 }
 
 /**
- * Normalize `p` to an absolute, POSIX-separator path WITHOUT letting a win32
- * `path.resolve` mangle an already-absolute POSIX input (or vice versa). This
- * mirrors the separator-aware absolutization in the shared path-containment
- * module so the guard's canonical form matches {@link isPathWithin}'s: an
- * already-absolute input (POSIX `/x` or win32 `C:\x`) is normalized in place and
- * emitted as POSIX; only a genuinely relative path is resolved against the cwd.
+ * Normalize `p` to an absolute path with POSIX separators. An absolute input
+ * (POSIX or win32) is normalized in place. Only a relative path resolves against the cwd.
+ * This matches the canonical form of the shared path-containment module.
  */
 function toAbsolutePosix(p: string): string {
   const posix = toPosix(p);
@@ -109,21 +75,19 @@ function toAbsolutePosix(p: string): string {
 }
 
 /**
- * Canonicalize `p` to its absolute, symlink-resolved, POSIX-normalized form
- * through the injected resolver — the byte-stable representation containment is
- * decided over. Pure over {@link RealpathResolver}; performs no OS access of its
- * own beyond what the resolver does.
+ * Canonicalize `p` to its absolute, symlink-resolved, POSIX-normalized form through
+ * the injected resolver. The containment decision uses this form.
+ * The function has no OS access other than the resolver.
  */
 function canonicalPosix(p: string, realpath: RealpathResolver): string {
   return toPosix(realpath(toAbsolutePosix(p)));
 }
 
 /**
- * Reject an id that is not a single, safe path segment. An id carrying a
- * separator (`/` or `\`) or a traversal token (`.` / `..`) could push the
- * derived path deeper than one level or climb out of the parent — defeating the
- * whole sibling topology — so the derivation fails loudly rather than silently
- * mangling. Throws {@link RangeError} on violation.
+ * Reject an id that is not a single, safe path segment. A separator or a traversal
+ * token (`.` or `..`) can move the derived path deeper than one level or out of the parent.
+ *
+ * @throws {RangeError} if `id` is empty, a traversal token, or contains a separator.
  */
 function assertSingleSegmentId(id: string): void {
   if (id.length === 0 || id === '.' || id === '..' || id.includes('/') || id.includes('\\')) {
@@ -133,20 +97,10 @@ function assertSingleSegmentId(id: string): void {
   }
 }
 
-// ============================================================
-// Pure derivation
-// ============================================================
-
 /**
- * Derive the canonical **sibling** worktree path for `id` off the same parent
- * directory as `base` — one level deep, never nested inside `base`.
- *
- * PURE and side-effect-free: it performs NO filesystem access (no realpath, no
- * stat), so it is safe to call on the `--dry-run` path. The result is the
- * base's parent directory joined with `id`, normalized to POSIX separators
- * ({@link toPosix}). `id` must be a single path segment ({@link assertSingleSegmentId});
- * containment of the returned path is additionally enforceable via
- * {@link guardWorktreeContainment}.
+ * Derive the sibling worktree path for `id`: the parent directory of `base` joined
+ * with `id`, in POSIX form. The function has no filesystem access, so the
+ * `--dry-run` path can call it. The dry run and the creation path get the same result.
  *
  * @throws {RangeError} if `id` is empty, a traversal token, or contains a separator.
  */
@@ -156,10 +110,6 @@ export function deriveWorktreePath(base: string, id: string): string {
   const parent = api.dirname(base);
   return toPosix(api.join(parent, id));
 }
-
-// ============================================================
-// Containment guard
-// ============================================================
 
 function refuse(
   reason: ContainmentRefusalReason,
@@ -171,20 +121,12 @@ function refuse(
 }
 
 /**
- * Validate that `target` is a legal one-level-deep sibling of the `base`
- * worktree, resolving symlinks (and Windows 8.3 short names) on BOTH sides
- * through the injected `realpath` resolver before deciding.
- *
- * Refuses, with a structured {@link WorktreePathRefused}, any target that:
- *   - is the base worktree itself or lives inside it → `nested-inside-base`;
- *   - is not a direct child of the base's parent directory (climbs out, sits
- *     deeper than one level inside another sibling, or IS the parent) →
- *     `escapes-containment`.
- *
- * Pure over the injected {@link RealpathResolver}; the default resolver
- * ({@link defaultRealpath}) performs a real symlink-resolving `realpath` and is
- * the only filesystem read. Tests inject an identity/simulated resolver to keep
- * the decision deterministic and OS-agnostic.
+ * Make sure that `target` is a direct sibling of the `base` worktree.
+ * The creation path calls this guard before `git worktree add`.
+ * The `realpath` resolver first resolves symlinks and Windows 8.3 short names on both sides.
+ * The resolver is the only filesystem read, and tests inject a simulated resolver.
+ * Both checks use this one resolved snapshot.
+ * A refused target gives a structured {@link WorktreePathRefused}.
  */
 export function guardWorktreeContainment(
   base: string,
@@ -195,11 +137,6 @@ export function guardWorktreeContainment(
   const canonicalTarget = canonicalPosix(target, realpath);
   const canonicalParent = path.posix.dirname(canonicalBase);
 
-  // (1) Nested inside (or equal to) the base worktree — reuse the proven
-  // containment predicate over the ALREADY-canonical base/target snapshot
-  // (canonicalBase/canonicalTarget above), so this nested check shares one
-  // resolved snapshot with the sibling check below instead of re-running realpath
-  // on the raw inputs.
   if (isPathWithinCanonical(canonicalTarget, canonicalBase)) {
     return refuse(
       'nested-inside-base',
@@ -209,10 +146,6 @@ export function guardWorktreeContainment(
     );
   }
 
-  // (2) Must be a DIRECT child of the base's parent directory: a single,
-  // non-traversing segment below the parent. Anything else — climbing out of
-  // the parent, sitting deeper than one level (nested inside another sibling),
-  // or being the parent itself — escapes the sibling containment envelope.
   const relToParent = path.posix.relative(canonicalParent, canonicalTarget);
   const isDirectChild =
     relToParent !== '' &&

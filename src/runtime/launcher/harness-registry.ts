@@ -1,24 +1,14 @@
-// ─── Harness Registry ────────────────────────────────────────────────────────
-//
-// Declarative spawn descriptors + enum→runtime-id map for the five Tier-1
-// harnesses Exarchos can launch.
-//
-// Implements:
-//   - DR-1: the `exarchos <harness>` launcher verb resolves a schema-enum
-//     harness value to a runtime id (`claude-code` → `content/harness/runtimes/claude.yaml`);
-//     an unknown value yields a structured error carrying `validTargets`.
-//   - DR-4: one shared abstraction — per-harness variation is *declarative
-//     data* (a closed `command/args/cwd/env` shape), never behavior. No
-//     function-typed fields and no per-harness branching hide inside a
-//     descriptor. The pure-data property is pinned at compile time in
-//     `harness-registry.type-test.ts` (a `tsc`-failing conditional-type check),
-//     so a future function-valued field cannot slip past a runtime value sample.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * The spawn descriptors and the runtime-id map for the five Tier-1 harnesses
+ * that Exarchos can launch. The `exarchos <harness>` verb resolves a harness
+ * value to a runtime id. An unknown value gives an error with `validTargets`.
+ * Each descriptor is pure data, with no function fields and no per-harness
+ * behavior.
+ */
 
 /**
- * The five Tier-1 harnesses, in canonical schema-enum order. This tuple is the
- * single source of truth for both {@link HarnessTarget} and the `validTargets`
- * an invalid input is reported against.
+ * The five Tier-1 harnesses, in schema-enum order. {@link HarnessTarget} and
+ * the `validTargets` of an invalid input both come from this tuple.
  */
 export const TIER1_HARNESSES = [
   'claude-code',
@@ -28,63 +18,47 @@ export const TIER1_HARNESSES = [
   'opencode',
 ] as const;
 
-/** A Tier-1 harness enum value accepted by the launcher verb (DR-1). */
+/** A Tier-1 harness value that the launcher verb accepts. */
 export type HarnessTarget = (typeof TIER1_HARNESSES)[number];
 
 /**
- * Runtime id — the basename of the runtime map under `content/harness/runtimes/<id>.yaml`.
- * `claude-code` maps to `claude`; the other four share their name with their
- * runtime file.
+ * The basename of a runtime map at `content/harness/runtimes/<id>.yaml`.
+ * `claude-code` maps to `claude`, and each other harness keeps its own name.
  */
 export type RuntimeId = 'claude' | 'codex' | 'cursor' | 'copilot' | 'opencode';
 
 /**
- * Orientation delivered via a CLI flag on the spawn `command`. `valueForm`
- * records how the orientation payload maps onto the flag's argument:
- *   - `file`       — the flag takes a path to a temp file holding the orientation
- *                    (e.g. Claude Code `--append-system-prompt-file <path>`).
- *   - `string`     — the flag takes the orientation string inline
- *                    (e.g. Claude Code `--append-system-prompt <text>`).
- *   - `assignment` — the flag takes a `${assignmentKey}=${orientation}` config
- *                    assignment (e.g. Codex `-c developer_instructions=<text>`).
- *
- * Pure data: no field is (or nests) a function. The spawn-time probe (Task 015)
- * reads this shape; this registry never executes it.
+ * Orientation through a CLI flag on the spawn `command`. `valueForm` sets the
+ * flag argument:
+ *   - `file`: a path to a temp file with the orientation, such as Claude Code
+ *     `--append-system-prompt-file <path>`.
+ *   - `string`: the orientation text, such as `--append-system-prompt <text>`.
+ *   - `assignment`: a `<assignmentKey>=<orientation>` config value, such as
+ *     Codex `-c developer_instructions=<text>`.
  */
 export interface FlagInjectionCandidate {
   readonly kind: 'flag';
-  /** Flag token prepended to the spawn args (e.g. `--append-system-prompt-file`, `-c`). */
+  /** The flag token, such as `--append-system-prompt-file` or `-c`. */
   readonly flag: string;
   /** How the orientation payload maps onto the flag's value. */
   readonly valueForm: 'file' | 'string' | 'assignment';
   /**
-   * For `valueForm: 'assignment'`, the config key the orientation is assigned to
-   * (e.g. `developer_instructions`); the empty string for the `file`/`string`
-   * forms, which take the value directly.
+   * For `valueForm: 'assignment'`, the config key of the orientation, such as
+   * `developer_instructions`. The `file` and `string` forms use an empty string.
    */
   readonly assignmentKey: string;
-  /** Provenance + fallback note — documentation only, never read as behavior. */
+  /** A provenance and fallback note. The launcher can report it, but never acts on it. */
   readonly note: string;
 }
 
 /**
- * Orientation delivered via an environment variable. `payload` records what the
- * variable's value carries:
- *   - `dir`         — a temp-directory path holding a synthetic instructions file
- *                     the harness auto-loads (e.g. Copilot
- *                     `COPILOT_CUSTOM_INSTRUCTIONS_DIRS` → a dir with a synthetic
- *                     `AGENTS.md`).
- *   - `config-json` — the harness parses this var as ITS OWN config JSON
- *                     (not a free-text field), so raw orientation prose is
- *                     invalid content. The applier materializes orientation
- *                     into a temp `.md` file and references it from the
- *                     harness's own instruction-file config key, e.g.
- *                     OpenCode `OPENCODE_CONFIG_CONTENT` = `{"instructions":
- *                     ["<tmp-file>"]}` (OpenCode's `instructions` config
- *                     field is an array of file paths/globs, per
- *                     opencode.ai/docs/config — never inline text).
- *
- * Pure data: no field is (or nests) a function.
+ * Orientation through an environment variable. `payload` sets the value:
+ *   - `dir`: a temp directory with a synthetic instructions file that the
+ *     harness loads, such as `AGENTS.md` for `COPILOT_CUSTOM_INSTRUCTIONS_DIRS`.
+ *   - `config-json`: the config JSON of the harness, where raw prose is not
+ *     valid. The applier writes the orientation to a temp `.md` file and names
+ *     it in the instruction-file key, such as OpenCode
+ *     `OPENCODE_CONFIG_CONTENT` = `{"instructions":["<tmp-file>"]}`.
  */
 export interface EnvInjectionCandidate {
   readonly kind: 'env';
@@ -92,43 +66,30 @@ export interface EnvInjectionCandidate {
   readonly envVar: string;
   /** What the variable's value carries. */
   readonly payload: 'dir' | 'config-json';
-  /** Provenance + fallback note — documentation only, never read as behavior. */
+  /** A provenance and fallback note. The launcher can report it, but never acts on it. */
   readonly note: string;
 }
 
 /**
- * The harness exposes NO native spawn-time injection channel. Orientation is
- * delivered out-of-band; `note` documents that fallback (e.g. Cursor's
- * managed-block path). Pure data.
+ * The harness has no native spawn-time injection channel. `note` describes the
+ * fallback, such as the managed-block path of Cursor.
  */
 export interface NoInjectionCandidate {
   readonly kind: 'none';
-  /** Provenance + fallback note — documentation only, never read as behavior. */
+  /** A provenance and fallback note. The launcher can report it, but never acts on it. */
   readonly note: string;
 }
 
-/**
- * A single static injection-channel candidate — discriminated on `kind`
- * (`flag` | `env` | `none`). PURE DATA: `HasFunctionDeep` distributes over this
- * union, so a function smuggled into any member fails the type-test's
- * `AssertPureData` and thus `tsc --noEmit`.
- */
+/** One static injection-channel candidate, discriminated on `kind`. No member holds a function. */
 export type InjectionCandidate =
   | FlagInjectionCandidate
   | EnvInjectionCandidate
   | NoInjectionCandidate;
 
 /**
- * Pure-data spawn descriptor (DR-4). A **closed shape** of primitive/array/
- * record fields — `command`, `args`, `cwd`, `env`, `injection` — with **no
- * function-typed fields and no behavior hooks**.
- *
- * `env` is `Record<string, string>` on purpose: string values only. Using
- * `unknown` (or any wider type) would admit function values and defeat the
- * pure-data guarantee. The invariant is enforced at compile time by the
- * `HasFunctionDeep<HarnessDescriptor>` assertion in
- * `harness-registry.type-test.ts` — the real gate is a green `tsc`, not a
- * runtime check.
+ * A pure-data spawn descriptor with the fields `command`, `args`, `cwd`, `env`
+ * and `injection`, and no function fields. `env` holds only strings, because a
+ * wider value type admits functions.
  */
 export interface HarnessDescriptor {
   readonly command: string;
@@ -136,19 +97,16 @@ export interface HarnessDescriptor {
   readonly cwd: string;
   readonly env: Record<string, string>;
   /**
-   * Static, **preference-ordered** candidate list of native orientation-injection
-   * channels for this harness (DR-6). PURE DATA — the spawn-time capability probe
-   * (Task 015) walks it front-to-back and selects the first channel the live CLI
-   * supports; this registry never executes it. A channel-less harness declares a
-   * single `{ kind: 'none' }` candidate documenting its out-of-band fallback.
+   * The native orientation channels of this harness, in order of preference.
+   * `resolveInjectionChannel` selects the first channel that the live CLI
+   * supports. A harness with no channel declares one `{ kind: 'none' }` entry.
    */
   readonly injection: readonly InjectionCandidate[];
 }
 
 /**
- * Enum → runtime-id map (DR-1). Only `claude-code` diverges from its own name;
- * the other four are identity mappings that still correspond to real
- * `content/harness/runtimes/<id>.yaml` basenames.
+ * The map from harness value to runtime id. Only `claude-code` gets a different
+ * name. Each id is a basename in `content/harness/runtimes/`.
  */
 export const HARNESS_RUNTIME_ID: Readonly<Record<HarnessTarget, RuntimeId>> = {
   'claude-code': 'claude',
@@ -159,14 +117,10 @@ export const HARNESS_RUNTIME_ID: Readonly<Record<HarnessTarget, RuntimeId>> = {
 } as const;
 
 /**
- * Declarative per-harness spawn descriptors, one per Tier-1 harness.
- *
- * `command` is the primary CLI binary name each harness is detected/launched by
- * (see `content/harness/runtimes/<id>.yaml` → `detection.binaries[0]`); Cursor's primary
- * binary is `cursor-agent` (the `cursor` GUI shim is a fallback, not the launch
- * target). `cwd`/`args`/`env` carry declarative defaults; the lifecycle
- * orchestrator (later tasks) overlays the derived worktree path and any
- * per-launch env without changing this registry's shape.
+ * The spawn descriptor of each Tier-1 harness. `command` is the first entry of
+ * `detection.binaries` in `content/harness/runtimes/<id>.yaml`. For Cursor
+ * that is `cursor-agent`, not the `cursor` GUI shim. The lifecycle core
+ * replaces `cwd` with the worktree path at launch.
  */
 export const HARNESS_DESCRIPTORS: Readonly<Record<HarnessTarget, HarnessDescriptor>> = {
   'claude-code': {
@@ -249,13 +203,10 @@ export const HARNESS_DESCRIPTORS: Readonly<Record<HarnessTarget, HarnessDescript
 } as const;
 
 /**
- * Discriminated-union result of {@link resolveHarness}.
- *
- * On success, carries the normalized `target`, its `runtimeId`, and the
- * declarative `descriptor`. On failure, an `INVALID_INPUT` structured error
- * (matching the repo-wide `validTargets` convention, e.g. `runbooks/handler.ts`
- * and `workspace/discovery.ts`) — never a throw, so the CLI/dispatch boundary
- * can render a stable error envelope.
+ * The result of {@link resolveHarness}. Success carries the `target`, its
+ * `runtimeId` and its `descriptor`. Failure carries an `INVALID_INPUT` error
+ * with `validTargets`, as in `runbooks/handler.ts`. The function does not
+ * throw, so the CLI boundary can render a stable error envelope.
  */
 export type HarnessResolution =
   | {
@@ -277,10 +228,8 @@ export function isHarnessTarget(value: string): value is HarnessTarget {
 }
 
 /**
- * Resolve a (possibly untrusted) harness enum value to its runtime id +
- * declarative descriptor (DR-1). An unknown value returns a structured
- * `INVALID_INPUT` error carrying `validTargets` — the five enum members — rather
- * than throwing.
+ * Resolve an untrusted harness value to its runtime id and descriptor. An
+ * unknown value returns an `INVALID_INPUT` error with the five `validTargets`.
  */
 export function resolveHarness(target: string): HarnessResolution {
   if (!isHarnessTarget(target)) {
