@@ -1,8 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { BaselineEntry, BaselinesFile } from '../../../tools/evals/benchmarks/baselines-schema.js';
 
-// ─── Valid Baselines ─────────────────────────────────────────────────────────
-
 describe('BaselinesFile', () => {
   it('BaselinesSchema_ValidBaselines_ParsesCorrectly', () => {
     const baselines = {
@@ -42,10 +40,7 @@ describe('BaselinesFile', () => {
     expect(entry.iterations).toBe(100);
   });
 
-  // ─── Missing Required Fields ─────────────────────────────────────────────
-
   it('BaselinesSchema_MissingRequiredFields_Rejects', () => {
-    // Missing version
     expect(() =>
       BaselinesFile.parse({
         generated: '2026-02-16',
@@ -53,7 +48,6 @@ describe('BaselinesFile', () => {
       }),
     ).toThrow();
 
-    // Missing generated
     expect(() =>
       BaselinesFile.parse({
         version: '1.0.0',
@@ -61,7 +55,6 @@ describe('BaselinesFile', () => {
       }),
     ).toThrow();
 
-    // Missing baselines
     expect(() =>
       BaselinesFile.parse({
         version: '1.0.0',
@@ -69,7 +62,6 @@ describe('BaselinesFile', () => {
       }),
     ).toThrow();
 
-    // Missing commit in entry
     expect(() =>
       BaselinesFile.parse({
         version: '1.0.0',
@@ -87,8 +79,6 @@ describe('BaselinesFile', () => {
     ).toThrow();
   });
 
-  // ─── Invalid Metric Values ───────────────────────────────────────────────
-
   it('BaselinesSchema_InvalidMetricValues_Rejects', () => {
     const validEntry = {
       p50_ms: 10,
@@ -99,7 +89,6 @@ describe('BaselinesFile', () => {
       iterations: 100,
     };
 
-    // Negative iterations
     expect(() =>
       BaselinesFile.parse({
         version: '1.0.0',
@@ -110,7 +99,6 @@ describe('BaselinesFile', () => {
       }),
     ).toThrow();
 
-    // Zero iterations (must be positive)
     expect(() =>
       BaselinesFile.parse({
         version: '1.0.0',
@@ -121,7 +109,6 @@ describe('BaselinesFile', () => {
       }),
     ).toThrow();
 
-    // Non-numeric p50 (string)
     expect(() =>
       BaselinesFile.parse({
         version: '1.0.0',
@@ -132,7 +119,6 @@ describe('BaselinesFile', () => {
       }),
     ).toThrow();
 
-    // Negative p95
     expect(() =>
       BaselinesFile.parse({
         version: '1.0.0',
@@ -143,8 +129,6 @@ describe('BaselinesFile', () => {
       }),
     ).toThrow();
   });
-
-  // ─── Empty Baselines ─────────────────────────────────────────────────────
 
   it('BaselinesSchema_EmptyBaselines_ParsesCorrectly', () => {
     const baselines = {
@@ -159,8 +143,6 @@ describe('BaselinesFile', () => {
     expect(Object.keys(parsed.baselines)).toHaveLength(0);
   });
 });
-
-// ─── BaselineEntry Direct Tests ──────────────────────────────────────────────
 
 describe('BaselineEntry', () => {
   it('should parse a valid entry with all fields', () => {

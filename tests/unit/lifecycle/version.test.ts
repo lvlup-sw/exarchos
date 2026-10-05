@@ -5,8 +5,6 @@ import * as os from 'node:os';
 import { handleVersionCheck } from '../../../src/lifecycle/version.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
-// ─── Test Suite ─────────────────────────────────────────────────────────────
-
 describe('version subcommand', () => {
   let tmpDir: string;
   let stderrSpy: ReturnType<typeof vi.spyOn>;
@@ -35,69 +33,61 @@ describe('version subcommand', () => {
   }
 
   it('VersionCheck_PluginRootCompatible_ExitsZero', async () => {
-    // Arrange — binary >= declared minBinaryVersion.
     await writePluginJson(tmpDir, {
       name: 'exarchos',
       metadata: { compat: { minBinaryVersion: '2.0.0' } },
     });
 
-    // Act
     const exitCode = await handleVersionCheck({
       pluginRoot: tmpDir,
       binaryVersion: '2.9.0',
     });
 
-    // Assert — exit 0 signals "ok" to CI.
     expect(exitCode).toBe(0);
   });
 
+  /** The declared minimum is newer than the binary. Stderr must name the required version. */
   it('VersionCheck_PluginRootIncompatible_ExitsNonZeroWithMessage', async () => {
-    // Arrange — declared min is newer than the running binary.
     await writePluginJson(tmpDir, {
       name: 'exarchos',
       metadata: { compat: { minBinaryVersion: '5.0.0' } },
     });
 
-    // Act
     const exitCode = await handleVersionCheck({
       pluginRoot: tmpDir,
       binaryVersion: '2.9.0',
     });
 
-    // Assert — non-zero exit + stderr names the required version.
     expect(exitCode).not.toBe(0);
     const stderr = capturedStderr();
     expect(stderr).toContain('5.0.0');
   });
 
+  /**
+   * `plugin.json` exists but has no `metadata.compat`. That is an advisory, not a failure.
+   * The warning must name `compat`.
+   */
   it('VersionCheck_PluginRootMissingMetadata_ExitsZeroWithWarning', async () => {
-    // Arrange — plugin.json exists but has no metadata.compat.
     await writePluginJson(tmpDir, { name: 'exarchos', version: '2.8.3' });
 
-    // Act
     const exitCode = await handleVersionCheck({
       pluginRoot: tmpDir,
       binaryVersion: '2.9.0',
     });
 
-    // Assert — missing metadata is a non-fatal advisory, not a failure.
     expect(exitCode).toBe(0);
     const stderr = capturedStderr();
-    // Warning should mention that compat metadata is absent.
     expect(stderr.toLowerCase()).toContain('compat');
   });
 
   it('VersionCheck_PluginRootMissing_ExitsZeroWithWarning', async () => {
-    // Arrange — plugin root path does not exist.
     const missingRoot = path.join(tmpDir, 'does-not-exist');
 
-    // Act
     const exitCode = await handleVersionCheck({
       pluginRoot: missingRoot,
       binaryVersion: '2.9.0',
     });
 
-    // Assert — still non-fatal.
     expect(exitCode).toBe(0);
   });
 });

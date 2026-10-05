@@ -1,23 +1,6 @@
 /**
- * cli-follow-expansion — `--follow` expansion to view {pipeline,convergence,delegation_timeline} (#1440 Op 1, T7).
- *
- * Pin two contracts independently from the broader `follow-loop.test.ts` to
- * keep the diff focused:
- *
- *   1. `runFollowLoop` accepts the three new `FollowSubcommand` values and
- *      emits NDJSON-shaped transition frames identical to the existing
- *      workflow_status/shepherd_status entry points (only the prefix
- *      bracket differs).
- *   2. The underlying view handlers are pure projections — no
- *      `eventStore.append`, no `emit`, no `*.polled` events. Cross-checks
- *      the T1 idempotency audit at the source-file level so any future
- *      handler edit that introduces a write surface fails this test
- *      before it ships.
- *
- * INV-2: CLI `--follow` and MCP `tasks/get` polling produce byte-equivalent
- * transitions. The TaskStore-polling substrate is shared with the
- * workflow_status/shepherd_status path, so the rendering test below is
- * the only new behavior to pin at this layer.
+ * `runFollowLoop` for the `pipeline`, `convergence` and `delegation_timeline` subcommands.
+ * A source scan also keeps the three view projection modules free of write calls.
  */
 import { describe, it, expect } from 'vitest';
 import { PassThrough } from 'node:stream';
@@ -30,8 +13,7 @@ import { runFollowLoop, type FollowTaskStore } from '../../../src/cli/follow-loo
 
 const ISO_FIXED = '2026-05-17T00:00:00.000Z';
 
-// ─── Fixture builder (mirrors the scriptedStore in follow-loop.test.ts) ───
-
+/** A task store that returns the scripted snapshots in order, then repeats the last one. */
 function scriptedStore(taskId: string, script: ReadonlyArray<Task>): FollowTaskStore {
   let cursor = 0;
   return {
@@ -42,7 +24,6 @@ function scriptedStore(taskId: string, script: ReadonlyArray<Task>): FollowTaskS
       return { ...next };
     },
     async updateTaskStatus(): Promise<void> {
-      /* unused in expansion tests */
     },
   };
 }
@@ -51,17 +32,12 @@ function drain(stream: PassThrough): string {
   return stream.read()?.toString('utf8') ?? '';
 }
 
-// Resolve `__dirname` under ESM/NodeNext so the source-file idempotency
-// check below works regardless of vitest worker cwd.
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+/** The subcommand changes only the bracket prefix of each output line. */
 describe('runFollowLoop — #1440 Op 1 expansion to additional view actions', () => {
   it('CliFollow_PipelineAction_EmitsNdjsonFrames', async () => {
-    // Pipeline view is the paginated list of active workflows. Operators
-    // tail it during a synthesis push to watch workflows arrive/complete.
-    // Same TaskStore-polling substrate as workflow_status — the only
-    // observable diff is the `[pipeline]` bracket in the output line.
     const taskId = 'task-pipeline-001';
     const script: Task[] = [
       { taskId, status: 'working', ttl: 60_000, createdAt: ISO_FIXED, lastUpdatedAt: ISO_FIXED },
@@ -93,8 +69,6 @@ describe('runFollowLoop — #1440 Op 1 expansion to additional view actions', ()
   });
 
   it('CliFollow_ConvergenceAction_EmitsNdjsonFrames', async () => {
-    // Convergence view surfaces D1-D5 gate convergence. Useful during a
-    // synthesis push to watch dimensions land sequentially.
     const taskId = 'task-convergence-002';
     const script: Task[] = [
       {
@@ -133,8 +107,6 @@ describe('runFollowLoop — #1440 Op 1 expansion to additional view actions', ()
   });
 
   it('CliFollow_DelegationTimelineAction_EmitsNdjsonFrames', async () => {
-    // Delegation timeline drives bottleneck detection in flight. Operators
-    // typically tail this during multi-agent dispatch waves.
     const taskId = 'task-delegation-003';
     const script: Task[] = [
       { taskId, status: 'working', ttl: 60_000, createdAt: ISO_FIXED, lastUpdatedAt: ISO_FIXED },
@@ -165,32 +137,21 @@ describe('runFollowLoop — #1440 Op 1 expansion to additional view actions', ()
   });
 });
 
+/**
+ * A `--follow` poll must be a pure read, so a view module must hold no write call.
+ * The scan reads the projection modules (`<name>-view.ts`) and matches literal substrings.
+ * The pattern `.emit(` matches a method call only, so the bare word `emit` passes.
+ */
 describe('view handlers — #1440 Op 1 idempotency cross-check (T1 audit)', () => {
-  // Cross-check the orchestrator-inline T1 idempotency audit at the
-  // source-file level. The three new --follow targets MUST be pure
-  // `ViewProjection` folds — no `eventStore.append`, no `emit`, no
-  // `*.polled` events. If a future edit introduces a write surface this
-  // test fails BEFORE the per-handler test, surfacing the regression at
-  // the design-invariant level.
   const VIEWS_DIR = path.resolve(__dirname, '../../../src/projections/views');
   const FOLLOW_TARGETS = [
     'pipeline-view.ts',
     'convergence-view.ts',
     'delegation-timeline-view.ts',
   ];
-  // Strings that would indicate a write side-effect on a poll path. The
-  // patterns are conservative: any literal substring match here is
-  // enough to fail the test and trigger a manual review of the handler.
   const FORBIDDEN_PATTERNS: ReadonlyArray<string> = [
     'eventStore.append',
     '.polled',
-    // `.emit(` (method-call form, NOT the bare word) catches EventEmitter-
-    // style write surfaces while avoiding false-positives on the word
-    // 'emit' that legitimately appears in JSDoc/comments referencing the
-    // T1 audit. Per CodeRabbit C5: the per-handler docstring at the top of
-    // this file explicitly forbids `emit`, but the runtime guard above
-    // missed it — closing the gap so a future regression that introduces
-    // an event-emitter write on a poll path fails CI before review.
     '.emit(',
   ];
 

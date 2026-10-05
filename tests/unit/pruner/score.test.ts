@@ -1,18 +1,9 @@
 /**
- * `scoreStaleness(state, contract)` pure-function tests (DR-7, v2.11).
- *
- * Verifies the typed-contract reduction:
- *   - 'all' → fresh iff every declared signal is fresh
- *             (i.e. stale iff ANY signal exceeds its threshold)
- *   - 'any' → fresh iff at least one declared signal is fresh
- *             (i.e. stale iff EVERY declared signal exceeds its threshold)
- *
- * The v2.9 single-signal heuristic fallback (when `contract === undefined`)
- * was deleted in v2.11 (Phase 5c, DR-7); see `pruner.dr7-removal.test.ts`
- * for the post-cut surface.
- *
- * State is a numeric snapshot — the caller (handler layer) does the
- * timestamp math; the scorer is pure (no clock, no IO).
+ * `scoreStaleness(state, contract)` is pure: the caller supplies minutes, and the
+ * scorer reads no clock. With `freshnessRequires: 'all'`, one stale signal makes the
+ * workflow stale. With `'any'`, the workflow is stale only when every declared
+ * signal is stale. `pruner.dr7-removal.test.ts` pins that the scorer has no fallback
+ * for a missing contract.
  */
 import { describe, it, expect } from 'vitest';
 import { scoreStaleness } from '../../../src/pruner/score.js';
@@ -82,7 +73,7 @@ describe('scoreStaleness_with_contract', () => {
 
     it('no declared signals are fresh and at least one is missing → stale (missing = no evidence)', () => {
       const result = scoreStaleness(
-        { lastActivityMinutes: 9999 /* branchActivityMinutes absent */ },
+        { lastActivityMinutes: 9999 },
         ANY_CONTRACT,
       );
       expect(result.isStale).toBe(true);

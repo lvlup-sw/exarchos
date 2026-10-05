@@ -90,15 +90,14 @@ describe('ProjectConfigSchema', () => {
     expect(ProjectConfigSchema.safeParse({ workflow: { 'max-fix-cycles': 11 } }).success).toBe(false);
   });
 
+  /** The bound is the same as for `max-fix-cycles`: an integer from 1 to 10. */
   it('ProjectConfigSchema_MaxPlanRevisions_ValidatesRange', () => {
-    // DR-1: same 1..10 int bound as max-fix-cycles.
     expect(ProjectConfigSchema.safeParse({ workflow: { 'max-plan-revisions': 0 } }).success).toBe(false);
     expect(ProjectConfigSchema.safeParse({ workflow: { 'max-plan-revisions': 3 } }).success).toBe(true);
     expect(ProjectConfigSchema.safeParse({ workflow: { 'max-plan-revisions': 11 } }).success).toBe(false);
   });
 
   it('ProjectConfigSchema_MutationEnforcement_ValidatesEnum', () => {
-    // DR-3: only 'block' | 'advisory'.
     expect(ProjectConfigSchema.safeParse({ review: { 'mutation-enforcement': 'block' } }).success).toBe(true);
     expect(ProjectConfigSchema.safeParse({ review: { 'mutation-enforcement': 'advisory' } }).success).toBe(true);
     expect(ProjectConfigSchema.safeParse({ review: { 'mutation-enforcement': 'warn' } }).success).toBe(false);
@@ -149,18 +148,15 @@ describe('ProjectConfigSchema', () => {
       expect(result.prune?.['require-dry-run']).toBe(true);
     });
 
+    /**
+     * `stale-after-days` is not a `prune:` key. A bare `.strict()` reports it as an opaque
+     * `unrecognized_keys` error. `PruneConfig` gives an actionable message that names the key, the
+     * removal issue and `topology.yaml`, and it emits no `unrecognized_keys` issue for the key.
+     */
     it('PruneConfigSchema_RemovedStaleAfterDays_ActionableRemovalError', () => {
-      // DR-9: `stale-after-days` was removed. A bare `.strict()` would surface
-      // an OPAQUE `unrecognized_keys` that names neither the removal, #1334, nor
-      // the real config surface — the form DR-9 bars. `PruneConfig` now parses
-      // the removed key with `.passthrough().superRefine`, so the caller gets
-      // the ACTIONABLE removal message instead (identical to the action seam).
       const result = ProjectConfigSchema.safeParse({ prune: { 'stale-after-days': 30 } });
       expect(result.success).toBe(false);
       if (!result.success) {
-        // The actionable message wins: it names the removal (#1334), the field,
-        // and the real surface (`topology.yaml`). No competing opaque
-        // `unrecognized_keys` is emitted for the removed key.
         const message = result.error.issues.map((i) => i.message).join('; ');
         expect(message).toContain('stale-after-days');
         expect(message).toContain('#1334');
@@ -171,9 +167,8 @@ describe('ProjectConfigSchema', () => {
       }
     });
 
+    /** A typo is not a removed key, and the schema must still reject it. */
     it('PruneConfigSchema_UnknownTypoKey_StillRejected', () => {
-      // A genuinely-unknown key (caller typo, not a removed knob) is still
-      // rejected — the removed-knob affordance must not swallow typos.
       const result = ProjectConfigSchema.safeParse({ prune: { 'max-bath-size': 10 } });
       expect(result.success).toBe(false);
       if (!result.success) {
@@ -273,8 +268,8 @@ describe('ProjectConfigSchema', () => {
       }
     });
 
+    /** `axiom` is not a plugin key, so the strict `PluginsConfig` must reject it. */
     it('PluginsConfig_WithAxiomKey_Rejected', () => {
-      // axiom is excised (#1477) — the strict PluginsConfig must reject it.
       const result = ProjectConfigSchema.safeParse({
         plugins: { axiom: { enabled: true } },
       });
@@ -305,24 +300,17 @@ describe('ProjectConfigSchema', () => {
   });
 
   describe('default .exarchos.yml', () => {
-    // The committed `.exarchos.yml` legitimately carries keys from BOTH
-    // concern-schemas (per the #1479 dual-reader reconciliation above
-    // `FullExarchosConfigSchema`): project-level keys (`agents`, `review`,
-    // `vcs`, ...) validated by `ProjectConfigSchema`, and top-level
-    // toolchain-override keys (`test`, `typecheck`, `install`, `mutation`,
-    // ...) validated by `ExarchosConfigSchema`. `FullExarchosConfigSchema`
-    // is therefore the architecturally-correct reader for "does the real
-    // config file parse" — `ProjectConfigSchema` alone rejects the
-    // toolchain-override keys it was never meant to model.
+    /**
+     * The committed `.exarchos.yml` holds project keys of `ProjectConfigSchema` and toolchain keys of
+     * `ExarchosConfigSchema`. Only `FullExarchosConfigSchema` accepts both sets of keys.
+     */
     it('FullExarchosConfigSchema_DefaultExarchosYml_ParsesSuccessfully', () => {
       const content = readFileSync(resolve(__dirname, '../../../.exarchos.yml'), 'utf-8');
       const parsed = parseYaml(content);
       expect(FullExarchosConfigSchema.safeParse(parsed).success).toBe(true);
     });
 
-    // Widening the reader to the unified schema must not open a passthrough
-    // hole: a genuinely-typo'd top-level key (valid in NEITHER concern-schema)
-    // is still rejected, exactly as `.strict()` intends.
+    /** The merged schema is strict: it rejects a top-level key that is valid in neither schema. */
     it('FullExarchosConfigSchema_TypoTopLevelKey_StillRejected', () => {
       const content = readFileSync(resolve(__dirname, '../../../.exarchos.yml'), 'utf-8');
       const parsed = parseYaml(content) as Record<string, unknown>;
@@ -339,9 +327,8 @@ describe('ProjectConfigSchema', () => {
   });
 
   describe('verification section', () => {
+    /** All six cells, three base and three boundary, accept an ordered list of gate names. */
     it('ProjectConfigSchema_VerificationPolicyValidCells_Parses', () => {
-      // All six cells — base (low|medium|high) AND boundary (low|medium|high) —
-      // accept ordered gate-name lists drawn from VERIFICATION_GATE_NAMES.
       const result = ProjectConfigSchema.safeParse({
         verification: {
           policy: {
@@ -373,8 +360,8 @@ describe('ProjectConfigSchema', () => {
       expect(result.success).toBe(false);
     });
 
+    /** A typo must fail the parse at each level: the section, the base cells and the boundary cells. */
     it('ProjectConfigSchema_VerificationUnknownKey_RejectsStrict', () => {
-      // A typo'd key must fail at parse under `.strict()` — at every level.
       const topLevelTypo = ProjectConfigSchema.safeParse({
         verification: { policy: {}, extra: true },
       });
@@ -391,8 +378,8 @@ describe('ProjectConfigSchema', () => {
       expect(boundaryTypo.success).toBe(false);
     });
 
+    /** An empty array is valid. It means that the cell runs no gate. */
     it('ProjectConfigSchema_VerificationEmptyCellArray_Parses', () => {
-      // An explicit empty array means "run nothing for this cell" — valid.
       const result = ProjectConfigSchema.safeParse({
         verification: { policy: { low: [] } },
       });

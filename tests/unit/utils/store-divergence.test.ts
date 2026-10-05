@@ -1,19 +1,9 @@
-// ─── #1839 — a store divergence must not be silent on the write path ─────────
-//
-// `computeStorePathDivergence` shipped and was correct, but its only consumer
-// was the `store-path-divergence` doctor check. Mutating CLI actions wrote into
-// the non-plugin store and reported SUCCESS; reads then answered from that
-// store with a coherent, confident, wrong answer. `prepare_delegation` returned
-// `taskCount: 20` (right, it saw the new events) alongside `approved: false`
-// and `artifactPresent: false` (wrong, those events are in the other store),
-// with nothing in the envelope hinting that two stores existed.
-//
-// The design constraint that shapes the fix: bare divergence is TRUE BY DEFAULT
-// for every non-plugin CLI invocation, because the cascade genuinely resolves
-// `~/.exarchos/state` for the CLI and `~/.claude/workflow-state` for the
-// plugin. Refusing on that alone would break every standalone CLI user who has
-// never installed the plugin. Requiring the other store to EXIST is what turns
-// an always-true structural fact into evidence of a real split.
+/**
+ * A store divergence must not be silent on the write path.
+ * With no pinned store, the CLI resolves `~/.exarchos/state` and the plugin resolves
+ * `~/.claude/workflow-state`. So each standalone CLI call diverges, and divergence alone
+ * cannot trigger a refusal. The split is active only when the other store exists.
+ */
 
 import { describe, it, expect } from 'vitest';
 
@@ -33,31 +23,24 @@ const HOME = '/home/u';
 const CLI_STORE = '/home/u/.exarchos/state/exarchos.db';
 const PLUGIN_STORE = '/home/u/.claude/workflow-state/exarchos.db';
 
-/** Existence oracle over an explicit set — no filesystem involved. */
+/** Existence oracle over an explicit set of paths, with no filesystem access. */
 function existing(...paths: readonly string[]): (p: string) => boolean {
   const set = new Set(paths);
   return (p) => set.has(p);
 }
 
+/**
+ * Dispatch treats the store as ambient when
+ * `toPosix(path.resolve(ctx.stateDir)) === resolveStateDir()`. The production entry point
+ * sets `ctx.stateDir` from `resolveStateDir()`. So that normalization must be idempotent on
+ * the resolver output. If it is not, dispatch skips the divergence check, with no refusal and no warning.
+ */
 describe('The ambient-cascade comparison holds on the real dispatch path', () => {
-  // dispatch decides whether the store came from the ambient cascade with
-  //   toPosix(path.resolve(ctx.stateDir)) === resolveStateDir()
-  // and the production entry point sets ctx.stateDir from resolveStateDir()
-  // itself. So the comparison is sound exactly when that normalization is
-  // IDEMPOTENT on the resolver's own output. If it is not, the check silently
-  // stops applying on the one path that matters, and it fails OPEN — no
-  // refusal, no warning, and no test anywhere goes red.
-  //
-  // Asserted as a property rather than by string-matching a platform-specific
-  // path, so it holds on win32 (where path.resolve emits backslashes that
-  // toPosix must fold back) as well as on POSIX.
+  /**
+   * The test uses the real home directory, because `path.resolve` is drive-relative on win32.
+   * A bare `/home/u` gets a drive letter there, and the comparison fails for an unrelated reason.
+   */
   it('AmbientCascade_NormalizationOfTheResolverOutput_IsIdempotent', () => {
-    // The REAL home, not the POSIX literal the divergence cases below use.
-    // `path.resolve` is drive-relative on win32, so a bare `/home/u` there
-    // resolves to `D:/home/u` and the comparison would fail for a reason that
-    // has nothing to do with the property. Production always feeds this an
-    // absolute platform path, because ctx.stateDir comes from resolveStateDir
-    // itself.
     const realHome = os.homedir();
     for (const env of [
       {},
@@ -72,31 +55,27 @@ describe('The ambient-cascade comparison holds on the real dispatch path', () =>
     }
   });
 
+  /**
+   * `path.win32` proves the win32 branch on a POSIX runner.
+   * The test above covers only the platform that runs it.
+   */
   it('AmbientCascade_WindowsShapedPath_SurvivesTheSameNormalization', () => {
-    // Asserted through `path.win32` so the win32 branch is proved from a POSIX
-    // runner too. Without this the test above only ever covers the platform it
-    // happens to run on, and the Windows lane is exactly where separator
-    // handling breaks — a previous fix in this same change set was a
-    // native-separator path that compared unequal to its POSIX resolver.
     const resolverOutput = 'C:/Users/runneradmin/.exarchos/state';
     expect(toPosix(path.win32.resolve(resolverOutput))).toBe(resolverOutput);
   });
 });
 
 describe('Active store divergence (#1839)', () => {
+  /** A CLI call with an empty env diverges. While that holds, divergence alone cannot trigger the refusal. */
   it('Divergence_IsTrueByDefault_ForAnyNonPluginCli', () => {
-    // The premise the refusal rule must respect. If this ever stops being
-    // true, the "other store must exist" requirement can be revisited — but
-    // while it holds, divergence alone cannot be the refusal trigger.
     const bare = computeStorePathDivergence({ env: {}, homedir: HOME });
     expect(bare.diverges).toBe(true);
     expect(bare.cliPath).toBe(CLI_STORE);
     expect(bare.pluginPath).toBe(PLUGIN_STORE);
   });
 
+  /** A standalone CLI user with no plugin store diverges, but no state splits. */
   it('Divergence_OtherStoreAbsent_IsNotActive', () => {
-    // A standalone CLI user who never installed the plugin. Diverges
-    // structurally, but nothing is being split — must NOT refuse.
     const d = detectActiveStoreDivergence({
       env: {},
       homedir: HOME,
@@ -108,10 +87,11 @@ describe('Active store divergence (#1839)', () => {
     expect(d.active, 'a lone CLI user must not be refused').toBe(false);
   });
 
+  /**
+   * The case: an agent runs the CLI from a Claude Code session with no plugin env,
+   * while the plugin store holds the workflow.
+   */
   it('Divergence_OtherStoreExists_IsActive', () => {
-    // The reported situation: an agent shells out to the CLI from inside a
-    // Claude Code session, inheriting no plugin env, while the plugin's store
-    // holds the real workflow.
     const d = detectActiveStoreDivergence({
       env: {},
       homedir: HOME,
@@ -123,10 +103,8 @@ describe('Active store divergence (#1839)', () => {
     expect(d.otherPath).toBe(PLUGIN_STORE);
   });
 
+  /** `WORKFLOW_STATE_DIR` wins in both modes, so the two surfaces resolve one store. */
   it('Divergence_WorkflowStateDirPinned_CollapsesEntirely', () => {
-    // The documented remedy must actually work: the env var wins in BOTH
-    // modes, so the two surfaces resolve one store and there is nothing left
-    // to warn about.
     const pinned = { WORKFLOW_STATE_DIR: '/home/u/.claude/workflow-state' };
     const d = detectActiveStoreDivergence({
       env: pinned,
@@ -139,6 +117,10 @@ describe('Active store divergence (#1839)', () => {
     expect(d.otherExists).toBe(false);
   });
 
+  /**
+   * The opt-in stops the refusal and the warning, because a warning on each read adds nothing.
+   * `otherExists` stays true, so the split is still detected.
+   */
   it('Divergence_Acknowledged_SuppressesBothTheRefusalAndTheWarning', () => {
     const d = detectActiveStoreDivergence({
       env: { [ALLOW_STORE_DIVERGENCE_ENV]: '1' },
@@ -148,17 +130,15 @@ describe('Active store divergence (#1839)', () => {
     });
     expect(d.acknowledged).toBe(true);
     expect(d.active, 'an explicit opt-in must not be refused').toBe(false);
-    // The variable is named ALLOW. Repeating the caveat on every read after an
-    // explicit opt-in is warning fatigue, not information — `doctor` stays the
-    // standing diagnostic. The split is still OBSERVED, which is what keeps
-    // the suppression a policy choice rather than a blind spot.
     expect(d.shouldWarn, 'an explicit opt-in must not keep warning').toBe(false);
     expect(d.otherExists, 'the split is still detected, only not repeated').toBe(true);
   });
 
+  /**
+   * An operator who writes `false` wants the guard.
+   * A rule that accepts each non-blank value gives that operator the silent split.
+   */
   it('Divergence_ExplicitFalsySpelling_StaysArmed', () => {
-    // An operator who writes `=false` means "keep the guard". Treating any
-    // non-blank value as opt-in would hand them the silent split instead.
     for (const value of ['0', 'false', 'no', 'off', 'FALSE', ' 0 ']) {
       const d = detectActiveStoreDivergence({
         env: { [ALLOW_STORE_DIVERGENCE_ENV]: value },
@@ -171,8 +151,8 @@ describe('Active store divergence (#1839)', () => {
     }
   });
 
+  /** The active role and the other role depend on the calling surface. */
   it('Divergence_FromThePluginSide_NamesTheCliStoreAsOther', () => {
-    // Symmetry: the "active" and "other" roles follow the calling surface.
     const d = detectActiveStoreDivergence({
       env: { CLAUDE_PLUGIN_ROOT: '/opt/plugin' },
       homedir: HOME,
@@ -183,9 +163,8 @@ describe('Active store divergence (#1839)', () => {
     expect(d.active).toBe(true);
   });
 
+  /** An operator needs both paths and both env vars to act on the message. */
   it('Description_NamesBothPathsAndTheRemedy', () => {
-    // The message is the whole value of the fix — a bare "divergence detected"
-    // gives an operator nothing to act on.
     const d = detectActiveStoreDivergence({
       env: {},
       homedir: HOME,

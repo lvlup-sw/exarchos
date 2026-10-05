@@ -23,8 +23,8 @@ describe('tokenizeCommand', () => {
     expect(tokenizeCommand("pytest -k 'slow api'")).toEqual(['pytest', '-k', 'slow api']);
   });
 
+  /** In single quotes, a backslash is literal, as in a POSIX shell. */
   it('SingleQuotes_DoNotProcessBackslash', () => {
-    // In single quotes, a backslash is literal (POSIX shell behavior).
     expect(tokenizeCommand("echo 'a\\b'")).toEqual(['echo', 'a\\b']);
   });
 
@@ -56,8 +56,8 @@ describe('tokenizeCommand', () => {
     expect(tokenizeCommand('npm   run    test:run')).toEqual(['npm', 'run', 'test:run']);
   });
 
+  /** As in a shell, `--flag="value"` is one token. */
   it('AdjacentQuoteAndText_FormSingleToken', () => {
-    // Standard shell behavior: `--flag="value"` becomes one token.
     expect(tokenizeCommand('--flag="value with space"')).toEqual([
       '--flag=value with space',
     ]);

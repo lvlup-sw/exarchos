@@ -6,14 +6,12 @@ import { handleSessionStart } from '../../../src/lifecycle/session-start.js';
 import { readManifestEntries } from '../../../src/projections/session/manifest.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
-// ─── session-start (#1485) ────────────────────────────────────────────────────
-//
-// Observe-only SessionStart binding hook. Records a `session.started` manifest
-// entry (lighting up the previously-unwired writeManifestEntry) and, for
-// injection-capable hosts, returns the orientation directive as additionalContext.
-// MUST NOT write sessions/<id>.events.jsonl — that is session-end's idempotency
-// sentinel (G2); doing so would make session-end skip transcript parsing.
-
+/**
+ * `session-start` is an observe-only hook. It writes a start entry to the session manifest.
+ * When the caller passes a directive, the hook returns it as `additionalContext`.
+ * It must not write `sessions/<id>.events.jsonl`, because `session-end` uses that file as its
+ * idempotency sentinel.
+ */
 describe('session-start command', () => {
   let tmpDir: string;
   let stateDir: string;
@@ -28,9 +26,8 @@ describe('session-start command', () => {
     await rmrfAsync(tmpDir);
   });
 
+  /** The hook adapter turns a handler error into exit code 1, which can block the session. */
   it('handleSessionStart_MissingSessionId_FailOpenNoError', async () => {
-    // Observe-only/fail-open: a missing session_id must NOT return a blocking
-    // error (the adapter would surface it as exit 1 and could block the session).
     const result = await handleSessionStart({}, stateDir);
     expect(result.error).toBeUndefined();
     expect(result.continue).toBe(true);
@@ -80,7 +77,6 @@ describe('session-start command', () => {
   });
 
   it('handleSessionStart_Observer_NeverReturnsPolicyError', async () => {
-    // Fail-open: a valid call must never carry an enforcement error.
     const result = await handleSessionStart({ session_id: 'ok' }, stateDir);
     expect(result.error).toBeUndefined();
   });

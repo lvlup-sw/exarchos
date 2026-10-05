@@ -1,15 +1,13 @@
-// Co-located unit tests for `nextActionsFromResult` (#1208 / DR-MO-1).
-//
-// Two payload shapes must be recognised:
-//
-//   1. Workflow-handler shape (`handleInit`/`handleGet`/`handleSet`):
-//      `{ phase, workflowType, ... }` at the top level.
-//   2. Rehydration document shape (`handleRehydrate`):
-//      `{ workflowState: { phase, workflowType, featureId, mergeOrchestrator } }`.
-//
-// Pre-fix only shape 1 was extracted, so rehydrate envelopes always returned
-// `next_actions: []` even when the merge-pending detour was active. These
-// tests pin shape 2 + the merge_orchestrate surfacing branch.
+/**
+ * Unit tests for `nextActionsFromResult`. The helper must recognize two payload shapes:
+ *
+ * 1. The handler shape of `handleInit`, `handleGet` and `handleSet`, with `phase` and
+ *    `workflowType` at the top level.
+ * 2. The rehydration document of `handleRehydrate`:
+ *    `{ workflowState: { phase, workflowType, featureId, mergeOrchestrator } }`.
+ *
+ * A reader that ignores shape 2 gives no next actions for a rehydrate envelope in `merge-pending`.
+ */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { z } from 'zod';
 import {
@@ -42,11 +40,11 @@ describe('nextActionsFromResult — shape recognition', () => {
     expect(nextActionsFromResult(ok(null))).toEqual([]);
   });
 
+  /** The feature HSM lists one transition out of `plan`, and its target is `plan-review`. */
   it('extracts shape 1 (handler payload) — phase + workflowType at top level', () => {
     const actions = nextActionsFromResult(
       ok({ phase: 'plan', workflowType: 'feature' }),
     );
-    // DR-4 (#1581): `plan → plan-review` is the sole explicit transition out of `plan`.
     expect(actions.map((a) => a.verb)).toEqual(['plan-review']);
   });
 
@@ -63,11 +61,8 @@ describe('nextActionsFromResult — shape recognition', () => {
     expect(actions.map((a) => a.verb)).toEqual(['plan-review']);
   });
 
+  /** The idempotency key is `<featureId>:merge_orchestrate:<taskId>`. */
   it('surfaces merge_orchestrate from shape 2 when phase is merge-pending', () => {
-    // Pre-fix this returned [] because shape 2 was not recognised. With
-    // shape-2 recognition in place, the `merge-pending` substate's
-    // `merge_orchestrate` verb is surfaced (idempotency-keyed by
-    // `<featureId>:merge_orchestrate:<taskId>`).
     const actions = nextActionsFromResult(
       ok({
         workflowState: {
@@ -97,10 +92,8 @@ describe('nextActionsFromResult — shape recognition', () => {
     expect(actions.some((a) => a.verb === 'merge_orchestrate')).toBe(false);
   });
 
+  /** The top-level `phase` and `workflowType` win over the `workflowState` segment. */
   it('prefers shape 1 when both shapes could match', () => {
-    // Top-level fields take precedence for phase / workflowType — keeps the
-    // cheap, common path unchanged for handler payloads that happen to
-    // include a workflowState sibling for downstream consumers.
     const actions = nextActionsFromResult(
       ok({
         phase: 'plan',
@@ -115,12 +108,11 @@ describe('nextActionsFromResult — shape recognition', () => {
     expect(actions.map((a) => a.verb)).toEqual(['plan-review']);
   });
 
+  /**
+   * This shape 1 payload has no top-level `mergeOrchestrator`. The reader must take it from
+   * `workflowState`, or the payload loses `merge_orchestrate`.
+   */
   it('backfills mergeOrchestrator from workflowState when shape 1 supplies phase', () => {
-    // Coderabbit P2-saga: shape 1 (handler payload) carries phase +
-    // workflowType at the top level but not mergeOrchestrator — that field
-    // lives on the workflowState segment. Without backfill, a payload with
-    // top-level phase='merge-pending' + nested workflowState.mergeOrchestrator
-    // would drop the orchestration context and miss `merge_orchestrate`.
     const actions = nextActionsFromResult(
       ok({
         phase: 'merge-pending',
@@ -139,10 +131,8 @@ describe('nextActionsFromResult — shape recognition', () => {
     expect(mo?.idempotencyKey).toBe('p2-backfill:merge_orchestrate:042');
   });
 
+  /** A top-level `mergeOrchestrator` needs no `workflowState` wrapper. */
   it('reads mergeOrchestrator at top level when shape 1 carries it directly', () => {
-    // Defensive: if a future handler ever returns mergeOrchestrator at the
-    // top level (alongside phase + workflowType), the parser must not require
-    // a workflowState wrapper.
     const actions = nextActionsFromResult(
       ok({
         phase: 'merge-pending',
@@ -156,17 +146,12 @@ describe('nextActionsFromResult — shape recognition', () => {
     expect(mo?.idempotencyKey).toBe('top-level-mo:merge_orchestrate:099');
   });
 
-  // ─── #1238 ResultDataSchema discriminated union coverage ──────────────────
-  //
-  // The parser body previously used `Record<string, unknown>` casts and inline
-  // `typeof` guards. #1238 replaces that with a Zod union of two shapes plus
-  // a fail-closed `safeParse` boundary. These tests pin both shapes plus the
-  // malformed → warn-and-[] case.
-
+  /**
+   * `ResultDataSchema` is a Zod union of the two shapes. A payload that advertises a shape and
+   * fails its parse gives `[]` and a warning.
+   */
   describe('#1238 ResultDataSchema discriminated union', () => {
     it('NextActionsFromResult_WorkflowHandlerPayload_ParsesShapeOne', () => {
-      // Shape 1 — top-level phase + workflowType (+ optional featureId /
-      // mergeOrchestrator). Parses via ShapeOneSchema in the union.
       const parsed = ResultDataSchema.safeParse({
         phase: 'merge-pending',
         workflowType: 'feature',
@@ -189,8 +174,6 @@ describe('nextActionsFromResult — shape recognition', () => {
     });
 
     it('NextActionsFromResult_RehydrationDocument_ParsesShapeTwo', () => {
-      // Shape 2 — `{ workflowState: { phase, workflowType, featureId,
-      // mergeOrchestrator } }`. Parses via ShapeTwoSchema in the union.
       const parsed = ResultDataSchema.safeParse({
         workflowState: {
           featureId: 'shape-two',
@@ -229,17 +212,15 @@ describe('nextActionsFromResult — shape recognition', () => {
         warnSpy.mockRestore();
       });
 
+      /**
+       * `workflowState` lacks `featureId` and has a non-string `phase`, so shape 2 fails its
+       * parse. The reader must return `[]` and log a warning, not ignore the payload.
+       */
       it('returns [] and warns on a payload matching neither shape', () => {
-        // Payload that doesn't satisfy ShapeOneSchema (no string phase /
-        // workflowType at top level) AND doesn't satisfy ShapeTwoSchema
-        // (workflowState missing required featureId string). This must
-        // fail-closed: return [] AND log a warning so the malformed payload
-        // is surfaced rather than silently swallowed.
         const actions = nextActionsFromResult(
           ok({
-            phase: 42, // wrong type for ShapeOne
+            phase: 42,
             workflowState: {
-              // missing required `featureId`, wrong type on `phase`
               phase: false,
               workflowType: 'feature',
             },
@@ -249,15 +230,12 @@ describe('nextActionsFromResult — shape recognition', () => {
         expect(warnSpy).toHaveBeenCalled();
       });
 
+      /**
+       * Shape 1 is valid, but the payload also advertises shape 2 with a malformed
+       * `workflowState`. A union parse accepts this payload through shape 1. The reader parses
+       * each advertised shape on its own, so it must reject the payload.
+       */
       it('NextActionsFromResult_AsymmetricPayload_ShapeOneValidShapeTwoAdvertisedInvalid_FailsClosed', () => {
-        // CodeRabbit #1421: union+passthrough let asymmetric malformed
-        // payloads slip through. Here shape 1 is *valid* (phase +
-        // workflowType are strings) but the payload *advertises* shape 2 by
-        // including a `workflowState` key whose value is malformed (phase is
-        // boolean, missing required featureId). The pre-fix code would have
-        // accepted via the loose union, extracted from shape 1, and silently
-        // ignored the bad shape-2 sibling. Per-advertised-shape validation
-        // must fail-closed here.
         const actions = nextActionsFromResult(
           ok({
             phase: 'merge-pending',
@@ -272,10 +250,8 @@ describe('nextActionsFromResult — shape recognition', () => {
         expect(warnSpy).toHaveBeenCalled();
       });
 
+      /** The mirror case: `workflowState` parses, and the top-level keys have wrong types. */
       it('NextActionsFromResult_AsymmetricPayload_ShapeTwoValidShapeOneAdvertisedInvalid_FailsClosed', () => {
-        // Symmetric: shape 2 valid (workflowState parses), shape 1
-        // advertised via top-level `phase`/`workflowType` keys but with
-        // wrong types. Per-advertised-shape validation must reject.
         const actions = nextActionsFromResult(
           ok({
             phase: 42,
@@ -291,15 +267,11 @@ describe('nextActionsFromResult — shape recognition', () => {
         expect(warnSpy).toHaveBeenCalled();
       });
 
+      /**
+       * `handleCheckpoint` returns `phase` with no `workflowType`. A payload advertises shape 1
+       * only when it has each discriminator key, so this receipt gives `[]` with no warning.
+       */
       it('NextActionsFromResult_HandleCheckpointShape_PhaseOnly_SilentlyReturnsEmpty', () => {
-        // Sentry #1421 rev2 LOW: `handleCheckpoint` returns
-        // `{ phase, projectionSequence?, phasePlaybook }` — `phase` but no
-        // `workflowType`. With the original `some()` advertise predicate,
-        // this would mark shape-1 as advertised, then strict safeParse would
-        // fail (missing required `workflowType`), and the helper would emit
-        // a misleading "malformed result.data" warning on every legitimate
-        // checkpoint call. With the `every()` predicate, partial-key
-        // payloads fall through to the silent no-actions path.
         const actions = nextActionsFromResult(
           ok({
             phase: 'delegate',
@@ -311,21 +283,19 @@ describe('nextActionsFromResult — shape recognition', () => {
         expect(warnSpy).not.toHaveBeenCalled();
       });
 
+      /** The idempotent branch of `handleSet` also returns `phase` with no `workflowType`. */
       it('NextActionsFromResult_HandleSetIdempotentShape_PhaseOnly_SilentlyReturnsEmpty', () => {
-        // Sentry #1421 rev2 LOW: idempotent branch of `handleSet` returns
-        // `{ phase, ... }` without `workflowType`. Same silence-not-warn
-        // contract as the checkpoint case above.
         const actions = nextActionsFromResult(ok({ phase: 'review' }));
         expect(actions).toEqual([]);
         expect(warnSpy).not.toHaveBeenCalled();
       });
     });
 
+    /**
+     * The rehydration schema must accept each phase that the write-side schema can persist. A
+     * missing phase fails the parse and hides `merge_orchestrate`.
+     */
     it('RehydrationMergeOrchestratorSchema_PhaseEnum_MatchesMergeOrchestratorStateSchema', () => {
-      // #1421 Sentry pin: the rehydration projection's mergeOrchestrator
-      // sub-schema must accept every phase the write-side state schema can
-      // persist. Drift here suppresses `merge_orchestrate` during the
-      // `executing` window (or any future phase added on the write side).
       const rehydrationShape = RehydrationMergeOrchestratorSchema.shape;
       const writeShape = MergeOrchestratorStateSchema.shape;
       const rehydrationPhases = new Set(
@@ -339,11 +309,8 @@ describe('nextActionsFromResult — shape recognition', () => {
       }
     });
 
+    /** `executing` is not a terminal merge phase, so `merge_orchestrate` must still surface. */
     it('NextActionsFromResult_RehydrationDocWithExecutingMergePhase_StillSurfacesMergeOrchestrate', () => {
-      // Pin: during a merge `executing` window, `handleGet` returns a payload
-      // where mergeOrchestrator.phase is 'executing'. The previous schema
-      // omitted this enum value so safeParse failed-closed, dropping the
-      // `merge_orchestrate` verb. The fix re-aligns the enum.
       const actions = nextActionsFromResult(
         ok({
           workflowState: {
@@ -354,13 +321,11 @@ describe('nextActionsFromResult — shape recognition', () => {
           },
         }),
       );
-      // executing is non-terminal — merge_orchestrate must still surface.
       expect(actions.some((a) => a.verb === 'merge_orchestrate')).toBe(true);
     });
 
+    /** An error envelope is a legitimate no-actions path, so it must not log a warning. */
     it('NextActionsFromResult_NonSuccessResult_ReturnsEmptyArray', () => {
-      // Legitimate no-actions path: error envelope. Must NOT log a warning —
-      // only malformed-success payloads warn.
       const warnSpy = vi
         .spyOn(nextActionsLogger, 'warn')
         .mockImplementation(() => undefined as never);
@@ -376,9 +341,8 @@ describe('nextActionsFromResult — shape recognition', () => {
       }
     });
 
+    /** A success envelope with null or non-object data is a legitimate no-actions path. */
     it('NextActionsFromResult_NullData_ReturnsEmptyArray', () => {
-      // Legitimate no-actions path: success envelope with null/non-object
-      // data (describe / list / status actions). Must NOT warn.
       const warnSpy = vi
         .spyOn(nextActionsLogger, 'warn')
         .mockImplementation(() => undefined as never);
@@ -407,26 +371,14 @@ describe('nextActionsFromResult — shape recognition', () => {
   });
 });
 
-// ─── #1374 cross-boundary pin: reducer output → nextActionsFromResult ────────
-//
-// Contract source: test/process/saga-merge-detour.test.ts (process tier).
-//
-// The saga test drives a real MCP server through `task_complete` with
-// `result.worktreePath`, then asserts the rehydrate envelope's `next_actions`
-// surfaces `merge_orchestrate`. This unit-tier pin reproduces the SAME
-// contract one tier earlier — no spawn, no IPC — by composing the
-// rehydration reducer (the projection that folds `task.completed{worktreePath}`
-// into `phase: merge-pending`) with `nextActionsFromResult` (the helper that
-// reads the rehydration document's `workflowState` segment to compute the
-// outbound verbs). If the chain breaks at either the reducer's worktree-fold
-// or the result-reader's shape-2 extraction, this test fails before the
-// process-tier saga does — catching a #1208 / #1374-class regression at the
-// unit tier.
-//
-// Why both tests stay: the saga test pins the cross-process JSON contract
-// (MCP envelope shape, stderr/transport plumbing) which this test does not
-// cover; this test pins the in-process projection→reader composition which
-// the saga can only check end-to-end. They sandwich the chain.
+/**
+ * These tests compose the rehydration reducer with `nextActionsFromResult`, in process. The reducer
+ * folds a `task.completed` event with a `worktreePath` into `phase: merge-pending`. The reader must
+ * then surface `merge_orchestrate` from the `workflowState` segment.
+ *
+ * `tests/process/saga-merge-detour.test.ts` pins the same contract through a real MCP server. That
+ * test covers the cross-process envelope, and this one covers the composition.
+ */
 describe('nextActionsFromResult — #1374 cross-boundary pin (reducer ⇒ reader)', () => {
   function makeEvent<T extends Record<string, unknown>>(
     type: string,
@@ -443,11 +395,11 @@ describe('nextActionsFromResult — #1374 cross-boundary pin (reducer ⇒ reader
     } as WorkflowEvent;
   }
 
+  /**
+   * The test folds the event sequence that the saga test drives through MCP. The idempotency key
+   * must be `<featureId>:merge_orchestrate:<taskId>`.
+   */
   it('NextActions_FromReducerProjectedRehydrationDoc_AfterWorktreeBearingTaskCompleted_SurfacesMergeOrchestrate', () => {
-    // GIVEN: a feature workflow folded through `workflow.started` →
-    // `workflow.transition(to=delegate)` → `task.assigned` →
-    // `task.completed{worktreePath}` — the exact event sequence the saga
-    // drives through MCP.
     let doc = rehydrationReducer.apply(
       rehydrationReducer.initial,
       makeEvent(
@@ -473,30 +425,24 @@ describe('nextActionsFromResult — #1374 cross-boundary pin (reducer ⇒ reader
       ),
     );
 
-    // THEN: the reducer has stamped the merge-pending detour on workflowState
     expect(doc.workflowState.phase).toBe('merge-pending');
     expect(doc.workflowState.mergeOrchestrator).toEqual({
       taskId: '001',
       phase: 'pending',
     });
 
-    // WHEN: nextActionsFromResult reads the rehydration document as the
-    // composite tool's `result.data` payload (shape 2)
     const actions = nextActionsFromResult({ success: true, data: doc });
 
-    // THEN: merge_orchestrate is surfaced with the canonical idempotency key
-    // `<featureId>:merge_orchestrate:<taskId>` — same contract the saga test
-    // (test/process/saga-merge-detour.test.ts) asserts on the live envelope.
     const mo = actions.find((a) => a.verb === 'merge_orchestrate');
     expect(mo).toBeDefined();
     expect(mo?.idempotencyKey).toBe('pin-1374:merge_orchestrate:001');
   });
 
+  /**
+   * With no worktree association, the reducer leaves the phase in `delegate`. The reader must not
+   * surface `merge_orchestrate`.
+   */
   it('NextActions_FromReducerProjectedDoc_TaskCompletedWithoutWorktree_DoesNotSurfaceMergeOrchestrate', () => {
-    // Negative case: no worktree association → reducer leaves phase in
-    // `delegate` → nextActionsFromResult must NOT surface merge_orchestrate.
-    // Pins the gate so a future regression that fires the detour on bare
-    // task.completed events is caught at the unit tier.
     let doc = rehydrationReducer.apply(
       rehydrationReducer.initial,
       makeEvent(
@@ -522,13 +468,11 @@ describe('nextActionsFromResult — #1374 cross-boundary pin (reducer ⇒ reader
   });
 });
 
-// ─── DR-9 (T-13): the widened envelope actually carries the admission facts ──
-//
-// The computer-side gate is only worth anything if the SHIPPED envelope path
-// supplies the facts. These tests pin that seam end-to-end: a full-state
-// handler payload gets gated, and the three payload shapes that are NOT a full
-// state (field projection, phase receipt, rehydration document) keep their
-// pre-DR-9 topology-only behaviour rather than being silently emptied.
+/**
+ * The envelope path must supply the admission facts to the computer. Admission gates a full-state
+ * handler payload. A field projection, a partial state and a rehydration document are not full
+ * states, so they keep the topology-only list.
+ */
 describe('nextActionsFromResult — admission-fact widening (DR-9, T-13)', () => {
   const fullState = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
     version: '1.1',
@@ -547,40 +491,44 @@ describe('nextActionsFromResult — admission-fact widening (DR-9, T-13)', () =>
     ...over,
   });
 
+  /**
+   * An unapproved plan review makes admission deny `plan-review` to `delegate`. The same payload
+   * with the approval publishes the verb, so the omission is not vacuous.
+   */
   it('NextActionsFromResult_FullStatePayload_GatesOnAdmission', () => {
-    // Unapproved plan review ⇒ admission denies `plan-review → delegate`, so
-    // the shipped envelope must not advertise it.
     const denied = nextActionsFromResult(ok(fullState())).map((a) => a.verb);
     expect(denied).not.toContain('delegate');
 
-    // Non-vacuity: the same payload with the approval present publishes it.
     const allowed = nextActionsFromResult(
       ok(fullState({ planReview: { approved: true, gapsFound: false, revisionCount: 0 } })),
     ).map((a) => a.verb);
     expect(allowed).toContain('delegate');
   });
 
+  /**
+   * A `get` with `fields` is a narrowed read, not a state with absent artifacts. A gate on it
+   * empties the list for each projected read.
+   */
   it('NextActionsFromResult_FieldProjection_IsNotTreatedAsAdmissionFacts', () => {
-    // `get` with `fields:['phase','workflowType']` is a deliberately narrowed
-    // read, not a state whose artifacts are genuinely absent. Gating on it
-    // would empty the affordance list on every projected read.
     const verbs = nextActionsFromResult(
       ok({ phase: 'plan-review', workflowType: 'feature' }),
     ).map((a) => a.verb);
     expect(verbs).toContain('delegate');
   });
 
+  /**
+   * The reader requires each of the four marker keys. A payload with no `reviews` is a projection.
+   */
   it('NextActionsFromResult_PartialStateMarkers_IsNotTreatedAsAdmissionFacts', () => {
-    // All four marker keys are required. A payload carrying only some of them
-    // (here: no `reviews`) is still a projection, not a full state.
     const { reviews: _reviews, ...withoutReviews } = fullState();
     const verbs = nextActionsFromResult(ok(withoutReviews)).map((a) => a.verb);
     expect(verbs).toContain('delegate');
   });
 
+  /**
+   * The rehydration envelope has no `reviews` and no event log, so a gate on it hides legal moves.
+   */
   it('NextActionsFromResult_RehydrationDocument_StaysTopologyOnly', () => {
-    // Recorded split: the rehydration envelope does not carry `reviews` /
-    // `_cleanup` / the event log, so gating it would hide legal moves.
     const verbs = nextActionsFromResult(
       ok({
         workflowState: {
@@ -595,10 +543,11 @@ describe('nextActionsFromResult — admission-fact widening (DR-9, T-13)', () =>
     expect(verbs).toContain('delegate');
   });
 
+  /**
+   * The schema declares the widened keys as `unknown`. A null or wrong-typed segment must not
+   * cause a warning and an empty envelope.
+   */
   it('NextActionsFromResult_WidenedKeys_DoNotFailTheShapeParse', () => {
-    // The widened keys are declared `unknown` so a state-schema evolution (or a
-    // null-valued segment) can never turn a usable payload into a "malformed
-    // result.data" warning + empty envelope.
     const warn = vi.spyOn(nextActionsLogger, 'warn').mockImplementation(() => undefined);
     try {
       const verbs = nextActionsFromResult(

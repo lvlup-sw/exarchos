@@ -1,13 +1,11 @@
 /**
- * Artifact directory against real filesystem state (DR-6, DR-11, task 006).
+ * The artifact directory against real filesystem state. The tests build real symlinks, so
+ * the operating system decides each expectation, not a mock of `realpathSync`.
  *
- * Two independent authorities, per DR-30. `./artifacts.ts` is the shipped
- * resolver — it computes a path from a configured string. `real-filesystem-
- * symlink-state` is the operating system: every expectation here is checked
- * against what the kernel reports for a symlink this test actually created, not
- * against a second reading of the module. A resolver that mis-follows a link
- * disagrees with the OS immediately, which is the whole point of building the
- * link for real instead of mocking `realpathSync`.
+ * A directory that is a symlink out of the repository must resolve and classify.
+ * A stored path must be POSIX-normalized. A missing directory must not change
+ * `_meta.workflowExists`: existence is the answer of the event projection, never of a
+ * filesystem stat.
  *
  * @oracle-sources: ../../../src/config/artifacts.ts, real-filesystem-symlink-state
  */
@@ -28,27 +26,6 @@ import {
 import type { ToolResult } from '../../../src/format.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
-// ─── Artifact directory: symlinks, separators, and existence (DR-6, DR-11) ───
-//
-// The docs exodus mounts the artifact directory as a SYMLINK pointing outside
-// the repository. Three properties have to survive that, and each is checked
-// against real filesystem state rather than a mock, because the failure modes
-// here are all "the real FS behaves differently than the model of it":
-//
-//   1. A symlinked-out-of-tree directory still resolves and still classifies.
-//   2. A path is stored POSIX-normalized whatever separator form it arrived in.
-//   3. A MISSING artifact directory does not change `_meta.workflowExists`.
-//
-// (3) is the load-bearing one. Existence is the event projection's answer, never
-// a filesystem stat — the rule `docs/rca/2026-05-30-state-source-integrity.md`
-// exists to protect. A configured directory that is absent or dangling must be
-// invisible to that question.
-//
-// Authored here, beside the code, rather than at the plan's `tests/integration/`
-// path: no vitest project collects `tests/integration/**`, so a test there would
-// pass by never executing — and this one needs the MCP workspace's `bun:sqlite`
-// alias to construct an EventStore at all.
-
 let tempDir: string;
 let repoRoot: string;
 let outOfTree: string;
@@ -66,28 +43,23 @@ beforeEach(async () => {
   store = new EventStore(stateDir);
 });
 
+/** A failed `close` must not stop the removal of the temp directory. */
 afterEach(async () => {
   try {
     store.close();
   } catch {
-    // Already closed or never opened — still have to remove the temp dir.
   }
   await rmrfAsync(tempDir);
 });
 
 describe('ArtifactDir_SymlinkedOutOfTree_ResolvesAndClassifies', () => {
   it('follows a symlink that leaves the repository', async () => {
-    // GIVEN: docs/specs inside the repo is a symlink to a directory outside it,
-    //   holding a real spec — the shape the docs exodus produces.
     await writeFile(path.join(outOfTree, '2026-08-11-feature.md'), '# spec\n', 'utf-8');
     await mkdir(path.join(repoRoot, 'docs'), { recursive: true });
     await symlink(outOfTree, path.join(repoRoot, 'docs', 'specs'), 'dir');
 
-    // WHEN: we resolve the configured directory to its on-disk location.
     const resolved = resolveArtifactDirPath(repoRoot, DEFAULT_SPEC_DIR);
 
-    // THEN: it lands on the out-of-tree target, not the link, and the spec is
-    //   readable through it.
     expect(resolved).toBe(toPosixPath(realish(outOfTree)));
     expect(resolved.startsWith(toPosixPath(realish(repoRoot)))).toBe(false);
     await expect(readdir(resolved)).resolves.toEqual(['2026-08-11-feature.md']);
@@ -97,12 +69,8 @@ describe('ArtifactDir_SymlinkedOutOfTree_ResolvesAndClassifies', () => {
     await mkdir(path.join(repoRoot, 'docs'), { recursive: true });
     await symlink(outOfTree, path.join(repoRoot, 'docs', 'specs'), 'dir');
 
-    // The recorded path stays repo-relative regardless of where the directory
-    // physically lives, so the prefix match is untouched by the indirection.
     expect(classifyArtifactLayout({ plan: 'docs/specs/2026-08-11-feature.md' })).toBe('unified');
 
-    // And a project whose configured dir is itself the symlink name classifies
-    // identically — the link is a storage detail, not a classification input.
     const dirs = resolveArtifactDirs({ 'spec-dir': 'docs/specs' });
     expect(classifyArtifactLayout({ plan: 'docs/specs/2026-08-11-feature.md' }, dirs)).toBe(
       'unified',
@@ -151,8 +119,6 @@ describe('ArtifactDir_WindowsSeparators_IsStoredPosixNormalized', () => {
 
 describe('ArtifactDir_MissingDirectory_DoesNotAffectWorkflowExistence', () => {
   it('a tracked workflow still reports workflowExists with NO artifact directory on disk', async () => {
-    // GIVEN: a workflow that genuinely exists in the event store, and a repo
-    //   with no docs/specs directory at all.
     const featureId = 'missing-dir-feature';
     await store.append(featureId, {
       type: 'workflow.started',
@@ -162,24 +128,15 @@ describe('ArtifactDir_MissingDirectory_DoesNotAffectWorkflowExistence', () => {
       'absent',
     );
 
-    // WHEN: we rehydrate with the process rooted at that artifact-less repo.
-    //   Pinning cwd is what gives this test teeth: a regression that reached for
-    //   the filesystem would reach for it exactly here (the composite resolves
-    //   config from `process.cwd()`), and would find no artifact directory.
-    //   Without the pin the handler never sees `repoRoot` at all and the test
-    //   passes for the wrong reason.
     const result = await withCwd(repoRoot, () =>
       handleRehydrate({ featureId }, { eventStore: store, stateDir }),
     );
 
-    // THEN: existence comes from the projection, untouched by the absent dir.
     expect(result.success).toBe(true);
     expect(metaOf(result)['workflowExists']).toBe(true);
   });
 
   it('a never-started feature reports workflowExists:false even WITH the directory present', async () => {
-    // The mirror image: a real directory full of specs must not conjure a
-    // workflow. Existence is not a filesystem property in either direction.
     await mkdir(path.join(repoRoot, 'docs', 'specs'), { recursive: true });
     await writeFile(
       path.join(repoRoot, 'docs', 'specs', '2026-08-11-not-a-workflow.md'),
@@ -212,8 +169,6 @@ describe('ArtifactDir_MissingDirectory_DoesNotAffectWorkflowExistence', () => {
 
 describe('Rehydrate_WorkflowInitializedBeforeChange_StillResolves', () => {
   it('a workflow recorded under the pre-DR-6 default rehydrates unchanged', async () => {
-    // GIVEN: a workflow whose artifacts were stamped when docs/specs/ was a
-    //   module literal — i.e. every workflow that exists today.
     const featureId = 'pre-dr6-feature';
     await store.append(featureId, {
       type: 'workflow.started',
@@ -224,11 +179,8 @@ describe('Rehydrate_WorkflowInitializedBeforeChange_StillResolves', () => {
       data: { patch: { artifacts: { spec: 'docs/specs/2026-07-04-harness-conform-and-shrink.md' } } },
     });
 
-    // WHEN: it rehydrates under the new configured-directory code path with no
-    //   `artifacts:` block configured — the upgrade-in-place case.
     const result = await handleRehydrate({ featureId }, { eventStore: store, stateDir });
 
-    // THEN: it resolves, and classifies exactly as it did before.
     expect(result.success).toBe(true);
     expect(metaOf(result)['workflowExists']).toBe(true);
     expect(metaOf(result)['artifactLayout']).toBe('unified');
@@ -249,6 +201,10 @@ describe('Rehydrate_WorkflowInitializedBeforeChange_StillResolves', () => {
     expect(metaOf(result)['artifactLayout']).toBe('two-artifact');
   });
 
+  /**
+   * The context moves the spec directory to `design-records`. Thus the recorded plan path
+   * is not a unified signal, and the legacy design doc decides the layout.
+   */
   it('an explicitly configured directory reaches the classifier through the context', async () => {
     const featureId = 'configured-dir-feature';
     await store.append(featureId, {
@@ -260,9 +216,6 @@ describe('Rehydrate_WorkflowInitializedBeforeChange_StillResolves', () => {
       data: { patch: { artifacts: { design: 'docs/designs/legacy.md', plan: 'docs/specs/x.md' } } },
     });
 
-    // With specs relocated, `docs/specs/x.md` is no longer a unified signal, so
-    // the legacy design doc wins — proving the injected value is what decides,
-    // not a literal baked into the classifier.
     const result = await handleRehydrate(
       { featureId },
       {
@@ -276,9 +229,9 @@ describe('Rehydrate_WorkflowInitializedBeforeChange_StillResolves', () => {
 });
 
 /**
- * Run `fn` with the process rooted at `dir`. Real `chdir`, not a `cwd()` stub,
- * so a filesystem probe reached by any route — `process.cwd()`, a relative
- * `fs` call, a config walk — lands in the artifact-less repo.
+ * Runs `fn` with the process rooted at `dir`. It uses a real `chdir`, not a `cwd()` stub,
+ * so a filesystem probe by any route lands in `dir`. Without the `chdir`, the handler never
+ * sees the test repository, and the test passes for the wrong reason.
  */
 async function withCwd<T>(dir: string, fn: () => Promise<T>): Promise<T> {
   const previous = process.cwd();
@@ -290,7 +243,7 @@ async function withCwd<T>(dir: string, fn: () => Promise<T>): Promise<T> {
   }
 }
 
-/** `_meta` off a ToolResult, without an `any` cast. */
+/** Returns `_meta` of a `ToolResult`, and fails when it is absent. */
 function metaOf(result: ToolResult): Record<string, unknown> {
   const meta = (result as { _meta?: unknown })._meta;
   expect(meta, 'handler returned no _meta').toBeDefined();
@@ -298,15 +251,10 @@ function metaOf(result: ToolResult): Record<string, unknown> {
 }
 
 /**
- * macOS puts temp dirs behind a `/var` → `/private/var` symlink, so an expected
- * path built with `path.join` needs the same realpath treatment as the value
- * under test or the comparison fails for a reason unrelated to the property.
+ * Resolves symlinks in an expected path with `realpathSync`, the primitive that the resolver
+ * uses. macOS puts temp directories behind a `/var` symlink. On Windows the promise
+ * `realpath` can return the long path where `realpathSync` returns the 8.3 form.
  */
 function realish(p: string): string {
-  // Same primitive the resolver uses (`realpathSync`). On Windows the
-  // promise `realpath` can return the long path while `realpathSync`
-  // returns the 8.3 form of the same directory, which is not a product
-  // bug — comparing across the two APIs fails for a reason unrelated
-  // to symlink following.
   return nodeFs.realpathSync(p);
 }

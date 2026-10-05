@@ -34,9 +34,8 @@ describe('humanAdapter', () => {
     );
   });
 
+  /** The human adapter does not infer severity from prose. An urgent body and a calm body both give MEDIUM. */
   it('HumanAdapter_AnyComment_DefaultsToMedium', () => {
-    // Even with prose suggesting urgency ("CRITICAL", "must fix immediately"),
-    // the human adapter does not infer severity — always MEDIUM.
     const urgent = humanAdapter.parse(
       makeComment({ body: 'CRITICAL: this must be fixed immediately!' }),
     );

@@ -119,6 +119,7 @@ describe('classifyReviewItems', () => {
     expect(result.summary.directCount + result.summary.delegateCount).toBe(3);
   });
 
+  /** Compares counts only: the groups together hold as many items as the input, and `summary.totalItems` equals the input length. */
   it('ClassifyReviewItems_PartitionInvariant', () => {
     fc.assert(
       fc.property(
@@ -140,7 +141,6 @@ describe('classifyReviewItems', () => {
           );
           const result = classifyReviewItems(items);
           const itemsInGroups = result.groups.flatMap((g) => g.items as ActionItem[]);
-          // Partition: every item appears in exactly one group, no losses, no duplicates.
           expect(itemsInGroups.length).toBe(items.length);
           expect(result.summary.totalItems).toBe(items.length);
         },

@@ -13,8 +13,6 @@ import {
 
 describe('resolveConfig', () => {
   it('resolveConfig_NoStorageBlock_DefaultsSynchronousNormal', () => {
-    // DR-4 — the durability posture defaults to 'normal' (unchanged behavior)
-    // when `.exarchos.yml` omits the storage block.
     expect(resolveConfig({}).storage.synchronous).toBe('normal');
   });
 
@@ -23,20 +21,19 @@ describe('resolveConfig', () => {
     expect(resolveConfig(project).storage.synchronous).toBe('full');
   });
 
+  /**
+   * The resolved gates must equal the per-gate defaults, which keep the advisory gates advisory.
+   * A gate that the resolved map omits takes its dimension severity, and that default is `blocking`.
+   */
   it('resolveConfig_EmptyProject_ReturnsAllDefaults', () => {
     const result = resolveConfig({});
 
-    // All dimensions should be blocking by default
     for (const dim of ['D1', 'D2', 'D3', 'D4', 'D5'] as const) {
       expect(result.review.dimensions[dim]).toEqual({ severity: 'blocking', enabled: true });
     }
 
-    // Per-gate DEFAULTS seed through (verification-ladder advisory demotions
-    // survive even when a project ships a .exarchos.yml; without the seed,
-    // any config file silently re-blocked the demoted gates via dimension D1).
     expect(result.review.gates).toEqual(DEFAULTS.review.gates);
 
-    // Routing defaults
     expect(result.review.routing.coderabbitThreshold).toBe(0.4);
     expect(result.review.routing.riskWeights).toEqual({
       'security-path': 0.30,
@@ -47,24 +44,20 @@ describe('resolveConfig', () => {
       'cross-module': 0.10,
     });
 
-    // VCS defaults
     expect(result.vcs.provider).toBe('github');
     expect(result.vcs.settings).toEqual({});
 
-    // Workflow defaults
     expect(result.workflow.skipPhases).toEqual([]);
     expect(result.workflow.maxFixCycles).toBe(3);
-    expect(result.workflow.maxPlanRevisions).toBe(1); // DR-1: default cap 1
+    expect(result.workflow.maxPlanRevisions).toBe(1);
     expect(result.workflow.phases).toEqual({});
 
-    // Tools defaults
     expect(result.tools.defaultBranch).toBeUndefined();
     expect(result.tools.commitStyle).toBe('conventional');
     expect(result.tools.prTemplate).toBeUndefined();
     expect(result.tools.autoMerge).toBe(true);
     expect(result.tools.prStrategy).toBe('github-native');
 
-    // Hooks defaults
     expect(result.hooks.on).toEqual({});
   });
 
@@ -153,14 +146,13 @@ describe('resolveConfig', () => {
   });
 
   it('resolveConfig_MaxPlanRevisions_OverridesDefault', () => {
-    // DR-1: `.exarchos.yml workflow.max-plan-revisions` overrides the default 1.
     const project: ProjectConfig = { workflow: { 'max-plan-revisions': 3 } };
     const result = resolveConfig(project);
     expect(result.workflow.maxPlanRevisions).toBe(3);
   });
 
+  /** The advisory mode never blocks `review → synthesize`. */
   it('resolveConfig_MutationEnforcement_DefaultsToAdvisory', () => {
-    // DR-3: advisory by default (#1520/R5) — never blocks review→synthesize.
     expect(resolveConfig({}).review.mutationEnforcement).toBe('advisory');
   });
 
@@ -177,6 +169,7 @@ describe('resolveConfig', () => {
     expect(result.tools.prStrategy).toBe('github-native');
   });
 
+  /** A hook without a timeout gets the default of 30000 ms. */
   it('resolveConfig_HooksOn_MergedByEventType', () => {
     const project: ProjectConfig = {
       hooks: {
@@ -192,7 +185,6 @@ describe('resolveConfig', () => {
     expect(result.hooks.on['workflow.transition'][0].timeout).toBe(5000);
     expect(result.hooks.on['review.complete']).toHaveLength(1);
     expect(result.hooks.on['review.complete'][0].command).toBe('echo done');
-    // Default timeout for hooks without explicit timeout
     expect(result.hooks.on['review.complete'][0].timeout).toBe(30000);
   });
 
@@ -235,9 +227,7 @@ describe('resolveConfig', () => {
 
     resolveConfig(project);
 
-    // The caller's params object should NOT be frozen by deepFreeze
     expect(Object.isFrozen(params)).toBe(false);
-    // Should still be mutable
     params['new-key'] = 'value';
     expect(params['new-key']).toBe('value');
   });
@@ -248,9 +238,7 @@ describe('resolveConfig', () => {
 
     resolveConfig(project);
 
-    // The caller's skipPhases array should NOT be frozen by deepFreeze
     expect(Object.isFrozen(skipPhases)).toBe(false);
-    // Should still be mutable
     skipPhases.push('test');
     expect(skipPhases).toHaveLength(3);
   });
@@ -261,7 +249,6 @@ describe('resolveConfig', () => {
   });
 
   it('ResolveConfig_NoAxiomField_Omitted', () => {
-    // axiom is excised (#1477) — the resolved config must not carry an axiom field.
     const resolved = resolveConfig({ plugins: { impeccable: { enabled: false } } });
     expect('axiom' in resolved.plugins).toBe(false);
     expect(resolved.plugins.impeccable.enabled).toBe(false);
@@ -277,9 +264,9 @@ describe('resolveConfig', () => {
     expect(resolved.plugins.impeccable.enabled).toBe(true);
   });
 
+  /** The prune config holds no `staleAfterDays`. Staleness lives in `topology.yaml`. */
   it('resolveConfig_EmptyInput_ReturnsPruneDefaults', () => {
     const resolved = resolveConfig({});
-    // `staleAfterDays` removed (DR-9): staleness lives in topology.yaml.
     expect(resolved.prune).toEqual({
       maxBatchSize: 25,
       phaseExclusions: ['delegate', 'review', 'synthesize'],
@@ -299,8 +286,6 @@ describe('resolveConfig', () => {
   });
 
   it('resolveConfig_PartialPrune_MergesWithDefaults', () => {
-    // `stale-after-days` removed (DR-9) — exercise partial-merge via a
-    // surviving prune knob instead.
     const resolved = resolveConfig({ prune: { 'max-batch-size': 10 } });
     expect(resolved.prune.maxBatchSize).toBe(10);
     expect(resolved.prune.phaseExclusions).toEqual(['delegate', 'review', 'synthesize']);
@@ -330,7 +315,6 @@ describe('resolveConfig', () => {
     it('resolveConfig_AgentsModels_OverridesPerAgent', () => {
       const resolved = resolveConfig({ agents: { models: { implementer: 'haiku' } } });
       expect(resolved.agents.models.implementer).toBe('haiku');
-      // Other defaults preserved
       expect(resolved.agents.models.scaffolder).toBe('haiku');
       expect(resolved.agents.models.reviewer).toBe('sonnet');
     });
@@ -347,11 +331,8 @@ describe('resolveConfig', () => {
     });
   });
 
-  // ─── DR-1 (#1672): tier→model policy surface + monotonicity guard ──────────
   describe('agents.tier-models resolution (DR-1)', () => {
     it('ResolveConfig_TierModelsAbsent_UsesDocumentedDefaults', () => {
-      // No `agents.tier-models` block → the documented in-code default table:
-      // low → haiku, medium → sonnet, high → opus.
       const resolved = resolveConfig({});
       expect(resolved.agents.tierModels).toEqual({
         low: 'haiku',
@@ -360,10 +341,8 @@ describe('resolveConfig', () => {
       });
     });
 
+    /** A partial override changes only the named tiers. `{ medium: opus }` keeps the table monotone. */
     it('ResolveConfig_TierModelsOverride_Honored', () => {
-      // A partial `.exarchos.yml` override re-maps only the named tiers and
-      // inherits the documented defaults for the rest. { medium: opus } is
-      // monotone (haiku ≤ opus ≤ opus) and high stays opus.
       const resolved = resolveConfig({ agents: { 'tier-models': { medium: 'opus' } } });
       expect(resolved.agents.tierModels).toEqual({
         low: 'haiku',
@@ -372,20 +351,19 @@ describe('resolveConfig', () => {
       });
     });
 
+    /** The high-tier floor is `sonnet`, not `opus`, so an operator can set `high` to `sonnet`. */
     it('ResolveConfig_HighTierSonnet_Accepted', () => {
-      // Settled OQ2: high → sonnet is an ALLOWED operator opt-in (the high-tier
-      // floor is sonnet, not opus). Must resolve without throwing.
       const resolved = resolveConfig({
         agents: { 'tier-models': { low: 'haiku', medium: 'sonnet', high: 'sonnet' } },
       });
       expect(resolved.agents.tierModels.high).toBe('sonnet');
     });
 
+    /**
+     * `low: sonnet` with `medium: haiku` puts a weaker model at a higher tier. `high` stays `opus`,
+     * so only the monotonicity rule fails. The error names the offending cell.
+     */
     it('ResolveConfig_NonMonotoneTierModels_RejectsWithStructuredError', () => {
-      // low → sonnet but medium → haiku is NON-monotone (a weaker model at a
-      // higher tier). high stays opus so the high-floor rule is satisfied — this
-      // isolates the monotonicity rule. The structured error names the offending
-      // cell(s).
       expect(() =>
         resolveConfig({ agents: { 'tier-models': { low: 'sonnet', medium: 'haiku' } } }),
       ).toThrow(/tier-models/);
@@ -397,9 +375,8 @@ describe('resolveConfig', () => {
       ).toThrow(/medium/);
     });
 
+    /** The high-tier floor is `sonnet`. The error names the `high` cell and `haiku`. */
     it('ResolveConfig_HighTierHaiku_Rejected', () => {
-      // high → haiku is rejected outright — the high-tier floor is sonnet. The
-      // structured error names the high cell and haiku specifically.
       expect(() =>
         resolveConfig({ agents: { 'tier-models': { high: 'haiku' } } }),
       ).toThrow(/agents\.tier-models\.high/);
@@ -408,24 +385,19 @@ describe('resolveConfig', () => {
       ).toThrow(/haiku/);
     });
 
+    /** An all-haiku table is monotone, but it fails the high-tier floor. The error names the `high` cell. */
     it('ResolveConfig_AllHaikuTierModels_RejectedByHighFloor', () => {
-      // An all-haiku table is technically monotone (0 ≤ 0 ≤ 0) but still fails
-      // the high-tier floor — the high→haiku rule is checked first and names the
-      // specific cell.
       expect(() =>
         resolveConfig({ agents: { 'tier-models': { low: 'haiku', medium: 'haiku', high: 'haiku' } } }),
       ).toThrow(/agents\.tier-models\.high/);
     });
 
     it('ResolveConfig_TierModels_Frozen', () => {
-      // The resolved tier table is deep-frozen alongside the rest of agents.
       const resolved = resolveConfig({});
       expect(Object.isFrozen(resolved.agents.tierModels)).toBe(true);
     });
 
     it('ResolveConfig_TierModels_DoesNotFreezeCallerOverride', () => {
-      // Mirrors resolveConfig_DoesNotFreezeCallerParams — deepFreeze must not
-      // reach into the caller-owned override object.
       const override = { high: 'sonnet' as const };
       resolveConfig({ agents: { 'tier-models': override } });
       expect(Object.isFrozen(override)).toBe(false);
@@ -433,10 +405,8 @@ describe('resolveConfig', () => {
   });
 
   describe('verification resolution', () => {
+    /** With no `verification:` block, `policy` is `{}`, so the later resolver adds nothing to the base policy table. */
     it('ResolveConfig_NoVerificationBlock_DefaultsToEmptyOverlay', () => {
-      // A config with no `verification:` block resolves to an empty override
-      // layer — `policy` is `{}` so the later resolver layers nothing over the
-      // frozen base policy table.
       const resolved = resolveConfig({});
       expect(resolved.verification).toBeDefined();
       expect(resolved.verification.policy).toEqual({});
@@ -471,8 +441,6 @@ describe('resolveConfig', () => {
     });
 
     it('ResolveConfig_DoesNotFreezeCallerVerificationOverlay', () => {
-      // The resolved overlay is deep-frozen; the caller's nested input must NOT
-      // be frozen by deepFreeze (mirrors resolveConfig_DoesNotFreezeCallerParams).
       const cells: string[] = ['check_static_analysis'];
       const project: ProjectConfig = {
         verification: { policy: { low: cells as ('check_static_analysis')[], boundary: { high: ['check_contract_drift'] } } },
@@ -488,10 +456,11 @@ describe('resolveConfig', () => {
   });
 
   describe('emission enforcement', () => {
+    /**
+     * The default is `block` in every environment. A mode that fails only in CI never fails the local
+     * run, which can find the drift first. An operator can still set `advisory` explicitly.
+     */
     it('EmissionEnforcement_CiAndDev_DefaultToFailing', () => {
-      // One default, not a per-environment pair. A mode that only bit in CI
-      // would mean the run most likely to catch the drift early is the one
-      // that never fails.
       const original = process.env.CI;
       try {
         for (const ci of ['true', 'false', undefined]) {
@@ -507,18 +476,18 @@ describe('resolveConfig', () => {
 
       expect(DEFAULTS.events.emissionEnforcement).toBe('block');
 
-      // And the key is real: an operator can still opt out explicitly.
       expect(
         resolveConfig({ events: { 'emission-enforcement': 'advisory' } }).events
           .emissionEnforcement,
       ).toBe('advisory');
     });
 
+    /**
+     * Without a `projectRoot`, `initializeContext` returns no `projectConfig`, so the resolved default
+     * does not apply. The stated fallback is `block`, because a missing config file is not an opt-out.
+     * An explicit `advisory` still does not block, and a `not-applicable` verdict never blocks.
+     */
     it('EmissionEnforcement_NoProjectConfig_UsesTheStatedFallback', () => {
-      // `initializeContext` returns without a `projectConfig` when no
-      // `projectRoot` is supplied, so the resolved default never applies on
-      // that path. The fallback is stated rather than inherited — and it does
-      // not go lenient just because no config file was found.
       expect(resolveEmissionEnforcement(undefined)).toBe(EMISSION_ENFORCEMENT_FALLBACK);
       expect(EMISSION_ENFORCEMENT_FALLBACK).toBe('block');
       expect(EMISSION_ENFORCEMENT_FALLBACK).toBe(DEFAULTS.events.emissionEnforcement);
@@ -530,13 +499,10 @@ describe('resolveConfig', () => {
         required: ['workflow.started'],
       } as const;
 
-      // No config at all still blocks.
       expect(emissionViolationBlocks(violated, undefined)).toBe(true);
-      // An explicit opt-out is still honoured.
       expect(
         emissionViolationBlocks(violated, resolveConfig({ events: { 'emission-enforcement': 'advisory' } })),
       ).toBe(false);
-      // A question that was never asked never blocks, under any mode.
       expect(
         emissionViolationBlocks(
           { status: 'not-applicable', reason: 'no-stream', missingEvents: [], lifecycleViolations: [], required: ['x'] },
@@ -545,6 +511,12 @@ describe('resolveConfig', () => {
       ).toBe(false);
     });
 
+    /**
+     * An indeterminate verdict blocks under `block` and not under `advisory`, as a violation does.
+     * `emissionIndeterminacyBlocks` does not block a `not-applicable` verdict, and
+     * `emissionViolationBlocks` does not block an indeterminate verdict.
+     * The mode comes from the config object only. An environment variable named for the key changes nothing.
+     */
     it('EmissionEnforcement_IndeterminateVerdict_BlocksOnConfigAloneNotEnvironment', () => {
       const unassessed = {
         status: 'indeterminate',
@@ -554,7 +526,6 @@ describe('resolveConfig', () => {
         required: ['workflow.started'],
       } as const;
 
-      // The same two answers the violation axis has, from the same one input.
       expect(emissionIndeterminacyBlocks(unassessed, undefined)).toBe(true);
       expect(
         emissionIndeterminacyBlocks(
@@ -563,8 +534,6 @@ describe('resolveConfig', () => {
         ),
       ).toBe(false);
 
-      // And a benign exemption stays benign on this axis too — the two
-      // predicates partition the verdicts rather than overlapping on one.
       const benign = {
         status: 'not-applicable',
         reason: 'handler-refused',
@@ -575,9 +544,6 @@ describe('resolveConfig', () => {
       expect(emissionIndeterminacyBlocks(benign, undefined)).toBe(false);
       expect(emissionViolationBlocks(unassessed, undefined)).toBe(false);
 
-      // No environment flag reaches this decision: the mode is resolved from
-      // the config object and nothing else. A stray variable named for the key
-      // changes neither answer.
       const previous = process.env.EXARCHOS_EMISSION_ENFORCEMENT;
       process.env.EXARCHOS_EMISSION_ENFORCEMENT = 'advisory';
       try {
@@ -589,10 +555,11 @@ describe('resolveConfig', () => {
       }
     });
 
+    /**
+     * The environment variable names the opposite of each explicit config value. If the environment
+     * reached the decision, one of the two results changes.
+     */
     it('EmissionVerifier_EnvironmentDoesNotOverrideExplicitPolicy', () => {
-      // A plausible env flag is set, naming the OPPOSITE of what the explicit
-      // config says, on both explicit values. If the environment reached this
-      // decision at all, one of the two would flip.
       const previous = process.env.EXARCHOS_EMISSION_ENFORCEMENT;
       process.env.EXARCHOS_EMISSION_ENFORCEMENT = 'advisory';
       try {

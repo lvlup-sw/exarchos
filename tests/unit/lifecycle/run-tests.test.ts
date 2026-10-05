@@ -2,8 +2,6 @@ import { describe, it, expect } from 'vitest';
 import { handleRunTests, type RunTestsDeps } from '../../../src/lifecycle/run-tests.js';
 import type { ResolvedRuntime } from '../../../src/config/test-runtime-resolver.js';
 
-// ─── Test utilities ──────────────────────────────────────────────────────────
-
 interface Recorder {
   runs: Array<{ cmd: string; args: readonly string[]; cwd: string }>;
   out: string[];
@@ -40,8 +38,6 @@ const RESOLVED = (test: string | null, extra: Partial<ResolvedRuntime> = {}): Re
   ...extra,
 });
 
-// ─── Tests ─────────────────────────────────────────────────────────────────
-
 describe('handleRunTests', () => {
   it('RunTests_ResolvedCommand_ExecsItAndReturnsExitCode', () => {
     const { deps, rec } = makeDeps(RESOLVED('pytest -q'));
@@ -62,6 +58,7 @@ describe('handleRunTests', () => {
     expect(code).toBe(2);
   });
 
+  /** The skip is visible because its reason goes to stderr. */
   it('RunTests_Unresolved_SkipsVisiblyAndExitsZero', () => {
     const { deps, rec } = makeDeps(
       RESOLVED(null, { remediation: 'No project markers detected. Add a .exarchos.yml.' }),
@@ -71,7 +68,6 @@ describe('handleRunTests', () => {
 
     expect(code).toBe(0);
     expect(rec.runs).toHaveLength(0);
-    // Visible, not silent (DIM-2): the skip reason reaches stderr.
     expect(rec.err.join('\n')).toContain('No project markers');
   });
 

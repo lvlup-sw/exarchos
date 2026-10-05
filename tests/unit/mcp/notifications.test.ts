@@ -15,7 +15,6 @@ describe('handleRootsListChanged (#1290)', () => {
 
   it('Notifications_RootsListChangedOnColdCache_IsNoOp', () => {
     const resolver = createInMemoryResolver([]);
-    // Cold cache — invalidation should be safe.
     expect(() => handleRootsListChanged(resolver)).not.toThrow();
     expect(resolver.getCachedRoots()).toBeUndefined();
   });

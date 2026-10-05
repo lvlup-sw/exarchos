@@ -29,8 +29,6 @@ afterEach(async () => {
   await rmrfAsync(tempDir);
 });
 
-// ─── A17: Task MCP Tools ────────────────────────────────────────────────────
-
 describe('handleTaskClaim', () => {
   it('valid task emits claimed event', async () => {
     const result = await handleTaskClaim(
@@ -110,7 +108,6 @@ describe('handleTaskClaim', () => {
   });
 
   it('already claimed taskId rejects with ALREADY_CLAIMED error', async () => {
-    // First claim succeeds
     const first = await handleTaskClaim(
       { taskId: 't1', agentId: 'agent-1', streamId: 'wf-001' },
       tempDir,
@@ -118,7 +115,6 @@ describe('handleTaskClaim', () => {
     );
     expect(first.success).toBe(true);
 
-    // Second claim for the same taskId is rejected
     const second = await handleTaskClaim(
       { taskId: 't1', agentId: 'agent-2', streamId: 'wf-001' },
       tempDir,
@@ -153,7 +149,6 @@ describe('handleTaskClaim', () => {
     );
     expect(first.success).toBe(true);
 
-    // Even the same agent cannot re-claim
     const second = await handleTaskClaim(
       { taskId: 't1', agentId: 'agent-1', streamId: 'wf-001' },
       tempDir,
@@ -164,9 +159,12 @@ describe('handleTaskClaim', () => {
   });
 });
 
+/**
+ * `handleTaskComplete` needs a passing `static-analysis` gate event, so each success test seeds one.
+ * The handler does not read the `tdd-compliance` event that those tests also seed.
+ */
 describe('handleTaskComplete', () => {
   it('with artifacts emits completed event', async () => {
-    // Seed passing TDD compliance + static analysis gates for this task
     await store.append('wf-001', {
       type: 'gate.executed',
       data: { gateName: 'tdd-compliance', layer: 'task', passed: true, details: { taskId: 't1' } },
@@ -200,7 +198,6 @@ describe('handleTaskComplete', () => {
   });
 
   it('without result still emits completed event', async () => {
-    // Seed passing TDD compliance + static analysis gates for this task
     await store.append('wf-001', {
       type: 'gate.executed',
       data: { gateName: 'tdd-compliance', layer: 'task', passed: true, details: { taskId: 't1' } },
@@ -237,6 +234,7 @@ describe('handleTaskComplete', () => {
     expect(result.error?.message).toBe('taskId is required');
   });
 
+  /** The message names `streamId` and the `featureId` alias. The test does not pin the full text. */
   it('missing streamId returns error', async () => {
     const result = await handleTaskComplete(
       { taskId: 't1', streamId: '' },
@@ -246,15 +244,11 @@ describe('handleTaskComplete', () => {
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('INVALID_INPUT');
-    // The message widened when `featureId` became an accepted alias. Assert
-    // the two properties that carry the guarantee — it still REJECTS, and it
-    // names the alias — rather than an exact string, which pinned prose.
     expect(result.error?.message).toContain('streamId is required');
     expect(result.error?.message).toContain('featureId');
   });
 
   it('with artifacts but no duration only includes artifacts in event data', async () => {
-    // Seed passing TDD compliance + static analysis gates for this task
     await store.append('wf-002', {
       type: 'gate.executed',
       data: { gateName: 'tdd-compliance', layer: 'task', passed: true, details: { taskId: 't1' } },
@@ -288,7 +282,6 @@ describe('handleTaskComplete', () => {
   });
 
   it('success returns EventAck with only streamId, sequence, type keys', async () => {
-    // Seed passing TDD compliance + static analysis gates for this task
     await store.append('wf-001', {
       type: 'gate.executed',
       data: { gateName: 'tdd-compliance', layer: 'task', passed: true, details: { taskId: 't1' } },
@@ -310,9 +303,8 @@ describe('handleTaskComplete', () => {
     expect(keys).toEqual(['sequence', 'streamId', 'type']);
   });
 
+  /** The store holds no gate event, so the gate check fails before the handler appends. */
   it('store.append() failure returns GATE_NOT_PASSED when no gate event exists', async () => {
-    // With a nonexistent path, the gate query returns empty results,
-    // so the gate check fails before reaching the append
     const result = await handleTaskComplete(
       { taskId: 't1', streamId: 'wf-001' },
       '/nonexistent/path/complete-test',
@@ -324,12 +316,13 @@ describe('handleTaskComplete', () => {
   });
 });
 
+/**
+ * `static-analysis` is a blocking gate, so no caller evidence replaces its `gate.executed` event.
+ * The evidence type, the `passed` flag and the output do not change that result.
+ */
 describe('handleTaskComplete evidence cannot satisfy a blocking gate (DR-2)', () => {
+  /** The handler also writes no `task.completed` event. */
   it('handleTaskComplete_ManualEvidencePassed_DoesNotBypassGates', async () => {
-    // DR-2 (was `..._BypassesGates`): manual evidence used to complete the
-    // task with no gate.executed event present. `static-analysis` is a
-    // BLOCKING gate, so a caller-supplied assertion can no longer stand in
-    // for it — and no task.completed event is written.
     const result = await handleTaskComplete(
       {
         taskId: 't-manual',
@@ -363,10 +356,6 @@ describe('handleTaskComplete evidence cannot satisfy a blocking gate (DR-2)', ()
   });
 
   it('handleTaskComplete_NonManualEvidenceWithPassedAndOutput_DoesNotBypassGates', async () => {
-    // DR-2 (was `..._BypassesGates`): #1189 broadened the bypass to any
-    // evidence type with `passed === true` and non-empty output. That
-    // broadening is now closed for blocking gates — the type tag never
-    // conferred authority, and neither does the assertion itself.
     const result = await handleTaskComplete(
       {
         taskId: 't-test-type',
@@ -382,8 +371,6 @@ describe('handleTaskComplete evidence cannot satisfy a blocking gate (DR-2)', ()
   });
 
   it('handleTaskComplete_NonManualEvidenceWithEmptyOutput_StillRequiresGates', async () => {
-    // Empty output is the sanity guard — passed===true alone is not
-    // enough to bypass; substantive proof is required (#1189).
     const result = await handleTaskComplete(
       {
         taskId: 't-test-empty',
@@ -467,6 +454,7 @@ describe('handleTaskFail', () => {
     expect(result.error?.code).toBe('INVALID_INPUT');
   });
 
+  /** The message names `streamId` and the `featureId` alias. The test does not pin the full text. */
   it('missing streamId returns error', async () => {
     const result = await handleTaskFail(
       { taskId: 't1', error: 'some error', streamId: '' },
@@ -476,9 +464,6 @@ describe('handleTaskFail', () => {
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('INVALID_INPUT');
-    // The message widened when `featureId` became an accepted alias. Assert
-    // the two properties that carry the guarantee — it still REJECTS, and it
-    // names the alias — rather than an exact string, which pinned prose.
     expect(result.error?.message).toContain('streamId is required');
     expect(result.error?.message).toContain('featureId');
   });
@@ -507,23 +492,24 @@ describe('handleTaskFail', () => {
   });
 });
 
-// ─── TOCTOU Race Condition Fix ──────────────────────────────────────────────
-
+/**
+ * Each spy wraps the `store` instance that the test passes to `handleTaskClaim`, so the spy sees
+ * the real write path.
+ */
 describe('handleTaskClaim TOCTOU protection', () => {
-  // Use the test's `store` (the same instance passed as the third arg to
-  // handleTaskClaim) so spies hit the actual write path.
   let sharedStore: EventStore;
 
   beforeEach(() => {
     sharedStore = store;
   });
 
+  /**
+   * The spy throws `SequenceConflictError` on the first `task.claimed` append, as a concurrent
+   * write does. It passes each later append to the store.
+   */
   it('retries on SequenceConflictError from concurrent append', async () => {
-    // Arrange: seed the stream with an initial event so sequence > 0
     await sharedStore.append('wf-race', { type: 'workflow.started', data: {} });
 
-    // Spy on sharedStore.append to inject a SequenceConflictError on the first claim attempt,
-    // then allow the second attempt to succeed normally.
     const originalAppend = sharedStore.append.bind(sharedStore);
     let claimAttemptCount = 0;
     const appendSpy = vi.spyOn(sharedStore, 'append').mockImplementation(
@@ -531,7 +517,6 @@ describe('handleTaskClaim TOCTOU protection', () => {
         if ((event as { type: string }).type === 'task.claimed') {
           claimAttemptCount++;
           if (claimAttemptCount === 1 && options?.expectedSequence !== undefined) {
-            // Simulate concurrent write: throw SequenceConflictError on first attempt
             throw new SequenceConflictError(options.expectedSequence, options.expectedSequence + 1);
           }
         }
@@ -539,27 +524,23 @@ describe('handleTaskClaim TOCTOU protection', () => {
       },
     );
 
-    // Act
     const result = await handleTaskClaim(
       { taskId: 't-race', agentId: 'agent-racer', streamId: 'wf-race' },
       tempDir,
       store,
     );
 
-    // Assert: should succeed after retrying
     expect(result.success).toBe(true);
-    // The claim was attempted at least twice (first failed, second succeeded)
     expect(claimAttemptCount).toBeGreaterThanOrEqual(2);
 
     appendSpy.mockRestore();
   });
 
+  /** The stream holds two events before the claim, so the claim pins `expectedSequence` to 2. */
   it('uses expectedSequence for optimistic concurrency', async () => {
-    // Arrange: seed the stream with some events
     await sharedStore.append('wf-seq', { type: 'workflow.started', data: {} });
     await sharedStore.append('wf-seq', { type: 'task.assigned', data: {} });
 
-    // Spy on sharedStore.append to capture the options passed
     const originalAppend = sharedStore.append.bind(sharedStore);
     const appendSpy = vi.spyOn(sharedStore, 'append').mockImplementation(
       async (streamId, event, options) => {
@@ -567,33 +548,29 @@ describe('handleTaskClaim TOCTOU protection', () => {
       },
     );
 
-    // Act
     const result = await handleTaskClaim(
       { taskId: 't-seq', agentId: 'agent-seq', streamId: 'wf-seq' },
       tempDir,
       store,
     );
 
-    // Assert: claim succeeded
     expect(result.success).toBe(true);
 
-    // The task.claimed append must have included expectedSequence
     const claimCall = appendSpy.mock.calls.find(
       ([, evt]) => (evt as { type: string }).type === 'task.claimed',
     );
     expect(claimCall).toBeDefined();
     const options = claimCall![2] as { expectedSequence?: number } | undefined;
     expect(options).toBeDefined();
-    expect(options!.expectedSequence).toBe(2); // 2 events already in stream
+    expect(options!.expectedSequence).toBe(2);
 
     appendSpy.mockRestore();
   });
 
+  /** The spy throws `SequenceConflictError` for every `task.claimed` append. */
   it('returns CLAIM_FAILED after max retries exhausted', async () => {
-    // Arrange: seed the stream
     await sharedStore.append('wf-exhaust', { type: 'workflow.started', data: {} });
 
-    // Mock sharedStore.append to always throw SequenceConflictError for task.claimed
     const originalAppend = sharedStore.append.bind(sharedStore);
     const appendSpy = vi.spyOn(sharedStore, 'append').mockImplementation(
       async (streamId, event, options) => {
@@ -604,14 +581,12 @@ describe('handleTaskClaim TOCTOU protection', () => {
       },
     );
 
-    // Act
     const result = await handleTaskClaim(
       { taskId: 't-exhaust', agentId: 'agent-exhaust', streamId: 'wf-exhaust' },
       tempDir,
       store,
     );
 
-    // Assert: should fail with CLAIM_FAILED
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('CLAIM_FAILED');
     expect(result.error?.message).toContain('retries');
@@ -619,13 +594,15 @@ describe('handleTaskClaim TOCTOU protection', () => {
     appendSpy.mockRestore();
   });
 
+  /**
+   * `attemptTaskClaim` takes the sequence pin from `foldToTail`. The assertion passes when at
+   * least one `store.query` call has no `type` filter.
+   */
   it('queries all events (not just task.claimed) to get accurate sequence', async () => {
-    // Arrange: seed with mixed event types
     await sharedStore.append('wf-mixed', { type: 'workflow.started', data: {} });
     await sharedStore.append('wf-mixed', { type: 'workflow.transition', data: {} });
     await sharedStore.append('wf-mixed', { type: 'task.assigned', data: {} });
 
-    // Spy on sharedStore.query to verify it queries without type filter
     const originalQuery = sharedStore.query.bind(sharedStore);
     const querySpy = vi.spyOn(sharedStore, 'query').mockImplementation(
       async (streamId, filters) => {
@@ -633,17 +610,14 @@ describe('handleTaskClaim TOCTOU protection', () => {
       },
     );
 
-    // Act
     const result = await handleTaskClaim(
       { taskId: 't-mixed', agentId: 'agent-mixed', streamId: 'wf-mixed' },
       tempDir,
       store,
     );
 
-    // Assert: claim succeeded
     expect(result.success).toBe(true);
 
-    // The query must have been called without a type filter (to get all events for sequence)
     const queryCallWithoutTypeFilter = querySpy.mock.calls.some(
       ([, filters]) => !filters?.type,
     );

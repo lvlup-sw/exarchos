@@ -1,5 +1,3 @@
-// ─── Test Runtime Resolver Tests ────────────────────────────────────────────
-
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import fc from 'fast-check';
 import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
@@ -222,12 +220,12 @@ describe('resolveTestRuntime', () => {
     });
   });
 
+  /**
+   * A project with a bun lockfile and a `test:run` script runs vitest on bun. The resolver must run
+   * the script through `bun run test:run`, not through the native bun test runner.
+   * `typecheck` uses its script in the same way.
+   */
   it('resolveTestRuntime_BunProjectWithTestRunScript_HonorsTestRunViaBunRun', () => {
-    // A vitest-on-bun repo (like servers/exarchos-mcp): a bun lockfile plus an
-    // explicit `test:run` script. The resolver must run the committed script
-    // via `bun run test:run` rather than shelling into Bun's native runner over
-    // the vitest suite — otherwise the two supported workspaces diverge onto
-    // different runners. `typecheck` honors its script the same way.
     const dir = makeTmpDir();
     writeFileSync(
       join(dir, 'package.json'),
@@ -245,9 +243,8 @@ describe('resolveTestRuntime', () => {
     });
   });
 
+  /** A `test:run` script does not imply a `typecheck` script. Without one, typecheck falls back to `tsc --noEmit`. */
   it('resolveTestRuntime_BunProjectWithTestRunButNoTypecheck_FallsBackToTsc', () => {
-    // Honoring `test:run` must not conjure a `typecheck` script that isn't
-    // there — typecheck still falls back to a bare `tsc --noEmit`.
     const dir = makeTmpDir();
     writeFileSync(
       join(dir, 'package.json'),
@@ -280,9 +277,11 @@ describe('resolveTestRuntime', () => {
     });
   });
 
+  /**
+   * With no Berry signal (`.yarnrc.yml`, `.yarn/releases/`, `packageManager`), the project is Yarn
+   * Classic. `--immutable` is Berry-only, so Classic gets `--frozen-lockfile`.
+   */
   it('resolveTestRuntime_YarnClassicProject_UsesFrozenLockfile', () => {
-    // No Berry signals (.yarnrc.yml, .yarn/releases/, packageManager) → Classic.
-    // `--immutable` is Berry-only; Classic projects must get `--frozen-lockfile`.
     const dir = makeTmpDir();
     writeFileSync(join(dir, 'package.json'), JSON.stringify({ scripts: { test: 'vitest run' } }));
     writeFileSync(join(dir, 'yarn.lock'), '');
@@ -387,8 +386,10 @@ describe('resolveTestRuntime', () => {
     expect(result.install).toBeNull();
   });
 
-  // ─── T06: Script-existence checks (closes #1174 mechanism) ────────────────
-
+  /**
+   * The remediation must name `.exarchos.yml` or the missing script. The install command stays set,
+   * so a caller can still install the dependencies.
+   */
   it('resolveTestRuntime_NpmProjectMissingTestRunScript_ReturnsUnresolvedTestWithRemediation', () => {
     const dir = makeTmpDir();
     writeFileSync(
@@ -402,11 +403,9 @@ describe('resolveTestRuntime', () => {
     expect(result.source).toBe('unresolved');
     expect(result.remediation).toBeDefined();
     expect(result.remediation!.length).toBeGreaterThan(0);
-    // Remediation must mention either .exarchos.yml or the missing script name.
     expect(
       result.remediation!.includes('.exarchos.yml') || result.remediation!.includes('test:run'),
     ).toBe(true);
-    // install command stays populated so callers can still install deps.
     expect(result.install).toBe('npm install');
   });
 
@@ -516,8 +515,7 @@ describe('resolveTestRuntime', () => {
     expect(result.remediation!.toLowerCase()).toContain('package.json');
   });
 
-  // ─── T13: Config precedence (override > config > detection) ──────────────
-
+  /** The config sets only `test`. `typecheck` and `install` come from detection. */
   it('resolveTestRuntime_ConfigPresentWithTest_OverridesDetection', () => {
     const dir = makeTmpDir();
     writeFileSync(
@@ -531,7 +529,6 @@ describe('resolveTestRuntime', () => {
 
     expect(result.test).toBe('jest');
     expect(result.source).toBe('config');
-    // typecheck/install fall through to detection, populated not null
     expect(result.typecheck).toBe('npm run typecheck');
     expect(result.install).toBe('npm install');
   });
@@ -604,17 +601,14 @@ describe('resolveTestRuntime', () => {
     expect(result.source).toBe('override');
   });
 
+  /**
+   * The package has no `test:run` script, so detection cannot resolve the test command. The config
+   * supplies `typecheck` and `install`, and the resolver must keep them, because config outranks detection.
+   */
   it('resolveTestRuntime_DetectionUnresolved_PreservesConfigInstallAndTypecheck', () => {
-    // #1199 shepherd fix: when detection produces an `unresolvedReason`
-    // (e.g., npm package without a `test:run` script) but config supplied
-    // typecheck/install, those values must be honored — not overwritten by
-    // the detection-only result. Per documented precedence override > config
-    // > detection, a still-usable install command should not be silently
-    // dropped just because the test command can't be determined.
     const dir = makeTmpDir();
     writeFileSync(
       join(dir, 'package.json'),
-      // No `test:run` script → npm path triggers unresolvedReason.
       JSON.stringify({ scripts: { build: 'tsc' } }),
     );
 
@@ -627,7 +621,6 @@ describe('resolveTestRuntime', () => {
 
     expect(result.source).toBe('unresolved');
     expect(result.test).toBeNull();
-    // Config-supplied install/typecheck survive the unresolved-test path.
     expect(result.typecheck).toBe('tsc --noEmit');
     expect(result.install).toBe('npm ci');
     expect(result.remediation).toBeDefined();
@@ -677,8 +670,10 @@ describe('resolveTestRuntime', () => {
     ).toThrow(/Invalid \.exarchos\.yml/);
   });
 
-  // ─── T16 (#1199): command.resolved event emission ─────────────────────────
-
+  /**
+   * With no `eventStore` option there is no spy, so the test cannot observe an emission.
+   * It proves only that resolution succeeds without a store.
+   */
   it('resolveTestRuntime_NoEventStore_NoEmissions', () => {
     const dir = makeTmpDir();
     writeFileSync(
@@ -686,10 +681,8 @@ describe('resolveTestRuntime', () => {
       JSON.stringify({ scripts: { 'test:run': 'vitest run' } }),
     );
 
-    // No eventStore option — must succeed without emission and without error.
     const result = resolveTestRuntime(dir);
     expect(result.source).toBe('detection');
-    // Sanity: no spy, nothing to assert on. The fact that this returns is the assertion.
   });
 
   it('resolveTestRuntime_WithEventStoreNpmDetection_EmitsThreeDetectionEvents', () => {
@@ -746,9 +739,9 @@ describe('resolveTestRuntime', () => {
     expect(byField.get('install')?.data.source).toBe('detection');
   });
 
+  /** The directory has no marker, so detection resolves nothing and `install` stays unresolved. */
   it('resolveTestRuntime_WithEventStoreConfig_EmitsConfigSource', () => {
     const dir = makeTmpDir();
-    // No package.json or other markers — detection produces nothing.
     const append = vi.fn();
 
     resolveTestRuntime(dir, {
@@ -777,7 +770,6 @@ describe('resolveTestRuntime', () => {
 
   it('resolveTestRuntime_WithEventStoreUnresolved_EmitsUnresolvedSourceWithRemediation', () => {
     const dir = makeTmpDir();
-    // Empty dir, no config -> unresolved.
     const append = vi.fn();
 
     resolveTestRuntime(dir, { eventStore: { append }, stream: 'feat-u' });
@@ -793,13 +785,12 @@ describe('resolveTestRuntime', () => {
     }
   });
 
+  /**
+   * .NET detection resolves only `test`. The events for `typecheck` and `install` are `unresolved`,
+   * and the event schema requires a non-empty remediation for that source.
+   * Each remediation must name its own field, and `CommandResolvedEventSchema` must accept all three events.
+   */
   it('resolveTestRuntime_DotNetDetection_PartialFieldsEmitUnresolvedWithRemediation', async () => {
-    // #1199 shepherd cycle 2 (sentry MEDIUM): for projects whose detection
-    // produces only a `test` command (.NET, Rust, Python), the per-field
-    // events for `typecheck` and `install` MUST satisfy the discriminated
-    // schema's invariant `source: 'unresolved' ⇒ non-empty remediation`.
-    // Previously these events shipped without a remediation field, which the
-    // schema (post-CR5 hardening) rejects at write time.
     const dir = makeTmpDir();
     writeFileSync(join(dir, 'MyApp.csproj'), '<Project></Project>');
     const append = vi.fn();
@@ -834,12 +825,9 @@ describe('resolveTestRuntime', () => {
       expect(evt?.data.command).toBeNull();
       expect(typeof evt?.data.remediation).toBe('string');
       expect((evt?.data.remediation ?? '').length).toBeGreaterThan(0);
-      // Field-specific remediation, not the project-wide one.
       expect(evt?.data.remediation).toContain(field);
     }
 
-    // Schema validation — the new discriminated union must accept all three
-    // events.
     const { CommandResolvedEventSchema } = await import('../../../src/events/schemas.js');
     for (const evt of calls) {
       const parsed = CommandResolvedEventSchema.safeParse(evt.data);
@@ -894,12 +882,11 @@ describe('resolveTestRuntime', () => {
     }
   });
 
-  // ─── T-17 (DR-8a): remediation copy must teach next step ───────────────
-  // Empty repos and missing-script repos surface `source: 'unresolved'`
-  // with a `remediation` string. That string is the *only* breadcrumb a
-  // dispatched agent gets — it must include either an inline example
-  // showing what to write or a link to the user-facing docs explaining
-  // .exarchos.yml. A bare "configure your project" message is not enough.
+  /**
+   * The `remediation` string is the only hint that a dispatched agent gets for an unresolved runtime.
+   * It must hold an inline YAML example or a link to the docs. The test accepts either form, so a
+   * docs reorganization does not constrain the message.
+   */
   it('testRuntimeResolver_RemediationMessage_IncludesDocLinkOrExample', () => {
     const dir = makeTmpDir();
 
@@ -908,9 +895,6 @@ describe('resolveTestRuntime', () => {
     expect(result.source).toBe('unresolved');
     expect(result.remediation).toBeDefined();
     const message = result.remediation!;
-    // A concrete, actionable hint: either a YAML snippet a caller could
-    // paste, or a doc anchor the caller can follow. We accept either form
-    // so future docs reorganization doesn't constrain the message.
     const hasInlineYamlExample = /test:\s/.test(message);
     const hasDocLink = /https?:\/\/|content\/|docs\//.test(message);
     expect(
@@ -919,11 +903,12 @@ describe('resolveTestRuntime', () => {
     ).toBe(true);
   });
 
-  // ── Layered resolver tiers 3 (user toolchains) + 4 (task runners) ─────────
+  /** Tier 3 is the user `toolchains:` list. Tier 4 is the task runner. */
   describe('layered tiers', () => {
+    /** Built-in detection resolves `package.json` to node. The user toolchain for the same marker wins. */
     it('tier3_UserToolchain_OverridesBuiltinDetection', () => {
       const dir = makeTmpDir();
-      writeFileSync(join(dir, 'package.json'), '{}'); // built-in would say node
+      writeFileSync(join(dir, 'package.json'), '{}');
       const result = resolveTestRuntime(dir, {
         loadConfig: () => ({
           config: {
@@ -938,9 +923,10 @@ describe('resolveTestRuntime', () => {
       expect(result.source).toBe('toolchain-config');
     });
 
+    /** Built-in detection resolves `Cargo.toml` to `cargo test`. The justfile wins. */
     it('tier4_TaskRunner_BeatsBuiltinDetection', () => {
       const dir = makeTmpDir();
-      writeFileSync(join(dir, 'Cargo.toml'), '[package]'); // built-in → cargo test
+      writeFileSync(join(dir, 'Cargo.toml'), '[package]');
       writeFileSync(join(dir, 'justfile'), 'test:\n\techo hi\n');
       const result = resolveTestRuntime(dir);
       expect(result.test).toBe('just test');
@@ -974,9 +960,8 @@ describe('resolveTestRuntime', () => {
       expect(result.source).toBe('config');
     });
 
+    /** A committed task runner is a deliberate project interface, so it wins over the `test:run` script of a node repository. */
     it('tier4_TaskRunner_BeatsNodeWithWorkingTestScript', () => {
-      // A committed task runner is a deliberate project interface, so it wins
-      // over a node repo's own test:run script (intended behavior, M5).
       const dir = makeTmpDir();
       writeFileSync(join(dir, 'package.json'), JSON.stringify({ scripts: { 'test:run': 'vitest run' } }));
       writeFileSync(join(dir, 'justfile'), 'test:\n\techo hi\n');
@@ -985,9 +970,8 @@ describe('resolveTestRuntime', () => {
       expect(result.source).toBe('task-runner');
     });
 
+    /** With no lockfile, the installed-state markers of `INSTALL_METADATA` identify the package manager. */
     it('nodeInstallMetadataFallback_NoLockfile_ResolvesPm', () => {
-      // No lockfile, but installed-state markers identify the PM (vendored
-      // INSTALL_METADATA fallback, M3).
       const dir = makeTmpDir();
       writeFileSync(join(dir, 'package.json'), JSON.stringify({ scripts: { test: 'vitest run' } }));
       mkdirSync(join(dir, 'node_modules', '.pnpm'), { recursive: true });
@@ -1015,8 +999,6 @@ describe('resolveTestRuntime', () => {
   });
 });
 
-// ─── task 017: resolveVerificationRuntime (widened field set) ────────────────
-
 describe('resolveVerificationRuntime', () => {
   const tmpDirs: string[] = [];
 
@@ -1033,13 +1015,16 @@ describe('resolveVerificationRuntime', () => {
     tmpDirs.length = 0;
   });
 
+  /**
+   * The test has four cases on a Rust repository. Detection seeds `cargo mutants --in-diff`.
+   * A user toolchain beats detection, and a direct config value beats detection.
+   * An override beats the config value.
+   */
   it('ResolveVerificationRuntime_MutationField_HonorsLayeredPrecedence', () => {
-    // tier 5 (detection): a Rust repo seeds `cargo mutants --in-diff`.
     const rust = makeTmpDir();
     writeFileSync(join(rust, 'Cargo.toml'), '[package]');
     expect(resolveVerificationRuntime(rust).mutation).toBe('cargo mutants --in-diff');
 
-    // tier 3 (user toolchain) beats built-in detection.
     const userTc = makeTmpDir();
     writeFileSync(join(userTc, 'Cargo.toml'), '[package]');
     const tc3 = resolveVerificationRuntime(userTc, {
@@ -1054,7 +1039,6 @@ describe('resolveVerificationRuntime', () => {
     });
     expect(tc3.mutation).toBe('cargo mutants --workspace');
 
-    // tier 2 (config direct) beats user toolchain.
     const cfg = makeTmpDir();
     writeFileSync(join(cfg, 'Cargo.toml'), '[package]');
     const tc2 = resolveVerificationRuntime(cfg, {
@@ -1062,7 +1046,6 @@ describe('resolveVerificationRuntime', () => {
     });
     expect(tc2.mutation).toBe('config-mutation');
 
-    // tier 1 (override) beats everything.
     const ovr = makeTmpDir();
     writeFileSync(join(ovr, 'Cargo.toml'), '[package]');
     const tc1 = resolveVerificationRuntime(ovr, {
@@ -1072,13 +1055,12 @@ describe('resolveVerificationRuntime', () => {
     expect(tc1.mutation).toBe('override-mutation');
   });
 
+  /** Go detection seeds `go vet ./...`. A direct config value beats detection, and an override beats the config value. */
   it('ResolveVerificationRuntime_LintField_HonorsLayeredPrecedence', () => {
-    // tier 5: Go seeds `go vet ./...`.
     const go = makeTmpDir();
     writeFileSync(join(go, 'go.mod'), 'module example.com/x\n');
     expect(resolveVerificationRuntime(go).lint).toBe('go vet ./...');
 
-    // tier 2 (config direct) beats detection.
     const cfg = makeTmpDir();
     writeFileSync(join(cfg, 'go.mod'), 'module example.com/x\n');
     expect(
@@ -1087,7 +1069,6 @@ describe('resolveVerificationRuntime', () => {
       }).lint,
     ).toBe('golangci-lint run');
 
-    // tier 1 (override) wins.
     const ovr = makeTmpDir();
     writeFileSync(join(ovr, 'go.mod'), 'module example.com/x\n');
     expect(
@@ -1098,9 +1079,12 @@ describe('resolveVerificationRuntime', () => {
     ).toBe('override-lint');
   });
 
+  /**
+   * A direct config value gives the structured `{ codegen, diff }` contract, and an override beats it.
+   * A Rust marker alone gives null, because no built-in toolchain supplies a contract.
+   */
   it('ResolveVerificationRuntime_ContractField_ResolvesStructured', () => {
     const dir = makeTmpDir();
-    // config-direct structured contract: { codegen, diff }.
     const result = resolveVerificationRuntime(dir, {
       loadConfig: () => ({
         config: { contract: { codegen: 'buf generate', diff: 'buf breaking' } },
@@ -1109,7 +1093,6 @@ describe('resolveVerificationRuntime', () => {
     });
     expect(result.contract).toEqual({ codegen: 'buf generate', diff: 'buf breaking' });
 
-    // override wins, structured.
     const ovr = makeTmpDir();
     const overridden = resolveVerificationRuntime(ovr, {
       override: { contract: { codegen: 'override-codegen', diff: 'override-diff' } },
@@ -1120,15 +1103,17 @@ describe('resolveVerificationRuntime', () => {
     });
     expect(overridden.contract).toEqual({ codegen: 'override-codegen', diff: 'override-diff' });
 
-    // No contract tool anywhere → null (artifact-keyed seeds attach elsewhere).
     const none = makeTmpDir();
     writeFileSync(join(none, 'Cargo.toml'), '[package]');
     expect(resolveVerificationRuntime(none).contract).toBeNull();
   });
 
+  /**
+   * `resolveTestRuntime` returns only `test`, `typecheck`, `install`, `source` and an optional
+   * `remediation`. The result must hold no `mutation`, `lint` or `contract` field.
+   * An unresolved result still carries the remediation.
+   */
   it('ResolveTestRuntime_Alias_BehaviorUnchanged', () => {
-    // The alias projects the widened runtime down to the exact legacy shape:
-    // { test, typecheck, install, source, remediation? } — no widened fields.
     const dir = makeTmpDir();
     writeFileSync(
       join(dir, 'package.json'),
@@ -1141,42 +1126,39 @@ describe('resolveVerificationRuntime', () => {
       install: 'npm install',
       source: 'detection',
     });
-    // The alias result MUST NOT leak widened fields onto the legacy shape.
     expect('mutation' in legacy).toBe(false);
     expect('lint' in legacy).toBe(false);
     expect('contract' in legacy).toBe(false);
 
-    // Unresolved path: alias still carries remediation.
     const empty = makeTmpDir();
     const un = resolveTestRuntime(empty);
     expect(un.source).toBe('unresolved');
     expect(un.remediation).toBeDefined();
   });
 
-  // fast-check property: per-field independence + first-non-null-layer-wins.
+  /**
+   * Property: the override wins on its own field, because the first non-null layer wins. A config
+   * value on a different field survives the override. When both name the same field, the override wins.
+   * `Cargo.toml` gives the detection baseline.
+   */
   it('property_PerFieldIndependence_AndFirstNonNullLayerWins', () => {
     const cmd = fc.constantFrom('alpha', 'beta', 'gamma', 'delta');
     const field = fc.constantFrom('test', 'typecheck', 'install', 'mutation', 'lint');
     fc.assert(
       fc.property(
-        // an override value for ONE field, and a config value for a DIFFERENT field
         field,
         cmd,
         field,
         cmd,
         (overrideField, overrideVal, configField, configVal) => {
           const dir = makeTmpDir();
-          writeFileSync(join(dir, 'Cargo.toml'), '[package]'); // detection baseline
+          writeFileSync(join(dir, 'Cargo.toml'), '[package]');
           const result = resolveVerificationRuntime(dir, {
             override: { [overrideField]: overrideVal },
             loadConfig: () => ({ config: { [configField]: configVal }, source: '/x/.exarchos.yml' }),
           });
-          // The override field always wins on its own field (first non-null layer).
           const r = result as unknown as Record<string, string | null>;
           expect(r[overrideField]).toBe(overrideVal);
-          // Per-field independence: a different config field is NOT clobbered by
-          // the override on overrideField. (When configField === overrideField,
-          // override still wins — also asserted by the first check.)
           if (configField !== overrideField) {
             expect(r[configField]).toBe(configVal);
           }
@@ -1187,23 +1169,19 @@ describe('resolveVerificationRuntime', () => {
   });
 });
 
-// ─── task 001: verification: is a foreign key on the toolchain path ──────────
-//
-// The toolchain loader (`loadExarchosConfig` → readAndValidate) validates the
-// SAME `.exarchos.yml` via `FullExarchosConfigSchema = ExarchosConfigSchema
-// .merge(ProjectConfigSchema).strict()`. Project-concern keys (`review:` /
-// `agents:` / now `verification:`) live in `ProjectConfigSchema`, so they ride
-// through the merged schema on the toolchain path while the bare,
-// toolchain-only `ExarchosConfigSchema` (the resolver's own view) rejects them
-// all equally. These tests pin that `verification:` is tolerated on the
-// toolchain path by the SAME mechanism that already tolerates `review:`.
-
+/**
+ * The toolchain loader validates `.exarchos.yml` against `FullExarchosConfigSchema`, the strict
+ * merge of `ExarchosConfigSchema` and `ProjectConfigSchema`. Project keys such as `review:` and
+ * `verification:` live in `ProjectConfigSchema`, so the merged schema accepts them.
+ * The bare `ExarchosConfigSchema` rejects them.
+ */
 describe('ExarchosConfigSchema verification-key tolerance', () => {
+  /**
+   * A config with a toolchain key and a `verification:` block must parse under the merged schema, as
+   * one with a `review:` block does. The toolchain key survives next to the project key.
+   * The bare `ExarchosConfigSchema` rejects both blocks, so the loader uses the merged schema.
+   */
   it('ExarchosConfigSchema_ForeignVerificationKey_ToleratedOnToolchainPath', () => {
-    // A config carrying toolchain keys AND a `verification:` block must parse on
-    // the toolchain-loader path (FullExarchosConfigSchema) exactly as a
-    // `review:` sibling does today — the project-concern key is tolerated, not
-    // rejected.
     const withVerification = {
       test: 'bun test',
       verification: { policy: { low: ['check_static_analysis'] } },
@@ -1216,26 +1194,25 @@ describe('ExarchosConfigSchema verification-key tolerance', () => {
     const verifResult = FullExarchosConfigSchema.safeParse(withVerification);
     const reviewResult = FullExarchosConfigSchema.safeParse(withReview);
 
-    // Same verdict for both sibling project-concern keys: accepted.
     expect(verifResult.success).toBe(true);
     expect(reviewResult.success).toBe(true);
     expect(verifResult.success).toBe(reviewResult.success);
 
-    // The toolchain key survives alongside the tolerated project-concern key.
     if (verifResult.success) {
       expect(verifResult.data.test).toBe('bun test');
       expect(verifResult.data.verification?.policy?.low).toEqual(['check_static_analysis']);
     }
 
-    // The bare toolchain-only schema (the resolver's own view) treats
-    // `verification:` and `review:` IDENTICALLY — both are foreign to it, so
-    // both are rejected by the SAME `.strict()` mechanism. (This is why the
-    // loader uses the merged schema, not the bare one.)
     expect(ExarchosConfigSchema.safeParse(withVerification).success).toBe(false);
     expect(ExarchosConfigSchema.safeParse(withReview).success).toBe(false);
   });
 });
 
+/**
+ * The fixture models two workspaces that commit the same `test:run` vitest script. One has an npm
+ * lockfile and one has a bun lockfile. The resolver must send both to the `test:run` script, so they
+ * run the same suite. The bun workspace must not fall through to `bun test`, the native bun runner.
+ */
 describe('supported-workspace test-runtime consistency (WFQ-015 / exit-proof c)', () => {
   const tmpDirs: string[] = [];
   function makeTmpDir(): string {
@@ -1248,12 +1225,6 @@ describe('supported-workspace test-runtime consistency (WFQ-015 / exit-proof c)'
     tmpDirs.length = 0;
   });
 
-  // Both supported workspaces commit a `test:run` vitest script; they differ
-  // only in package manager (repo root → npm lockfile, servers/exarchos-mcp →
-  // bun lockfile). The resolver must land BOTH on their committed `test:run`
-  // script so they run the SAME suite under the SAME timeout policy, rather
-  // than the bun workspace silently falling through to `bun test` (Bun's
-  // native runner over vitest files). This is the toolchain-truth exit proof.
   const pkg = JSON.stringify({
     scripts: { 'test:run': 'vitest run', typecheck: 'tsc --noEmit' },
   });
@@ -1270,17 +1241,14 @@ describe('supported-workspace test-runtime consistency (WFQ-015 / exit-proof c)'
     const rootResult = resolveTestRuntime(rootLike);
     const mcpResult = resolveTestRuntime(mcpLike);
 
-    // Same intended target: each runs the committed `test:run` script.
     expect(rootResult.test).toBe('npm run test:run');
     expect(mcpResult.test).toBe('bun run test:run');
     expect(rootResult.test?.endsWith('run test:run')).toBe(true);
     expect(mcpResult.test?.endsWith('run test:run')).toBe(true);
 
-    // Neither falls through to a native package-manager test runner.
     expect(mcpResult.test).not.toBe('bun test');
     expect(rootResult.test).not.toBe('npm test');
 
-    // Both resolve via detection (built-in registry tier), not unresolved.
     expect(rootResult.source).toBe('detection');
     expect(mcpResult.source).toBe('detection');
   });
@@ -1299,11 +1267,12 @@ describe('top-level mutation config shape (WFQ-013 / DOC-5)', () => {
     tmpDirs.length = 0;
   });
 
+  /**
+   * `mutation` is a valid top-level key, and the committed root config declares it. The load must not
+   * throw, and the value must reach `config.mutation`. The schema is strict, so a schema that does not
+   * know the key rejects the committed file.
+   */
   it('committed root .exarchos.yml loads clean and exposes a top-level `mutation`', () => {
-    // WFQ-013/DOC-5: `mutation` is a valid TOP-LEVEL key. The committed root
-    // config declares it, so loading must not throw (a stale strict schema
-    // would reject the unknown key) and the value must survive to
-    // `config.mutation` — the exact shape the documentation now advertises.
     const result = loadExarchosConfig(REPO_ROOT);
     expect(result).not.toBeNull();
     expect(result!.config.mutation).toBe('node tools/audit/core/stryker-adapter.mjs');

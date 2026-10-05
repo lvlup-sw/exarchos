@@ -1,80 +1,19 @@
-// ─── #1292 / DR-0 — MCP SDK pin-policy guard ───────────────────────────────
-//
-// Every `@modelcontextprotocol/*` dependency is intentionally **exact-pinned**
-// (no caret/tilde range), so a minor bump is an explicit, reviewed decision
-// rather than something `npm install` picks up implicitly. This test guards
-// against a future caret/tilde reintroduction on any of them.
-//
-// ── ONE generation, as of task 049 ──────────────────────────────────────────
-//
-//   • `@modelcontextprotocol/core`   — v2 protocol types.
-//   • `@modelcontextprotocol/server` — v2 server surface.
-//   • `@modelcontextprotocol/client` — v2 client surface. Added by task 049:
-//     nine test modules and the exp1 eval driver drive the server through a
-//     `Client` over an in-memory linked pair, so a v2 server with a v1 client
-//     would have been the cross-generation pair `contract/sdk/seam.ts` exists to forbid.
-//     Installing it is what let the v1 dependency go entirely.
-//
-// Re-scope note: the originating issue (#1292) assumed a `^1.0.0` range and
-// proposed swapping to `1.26.x`. That premise was already stale — the v1
-// dependency was exact at `1.29.0`. This is therefore a pin-policy
-// ratification + guard, not a version swap.
-//
-// ── THE MIGRATION BLOCKER IS DISCHARGED, and this file records how ──────────
-// Earlier revisions of this file carried a standing note that v1 could not be
-// removed: v2 `2.0.0` deleted the experimental Tasks *store* seam the MCP
-// adapter was built on (no `ServerOptions.taskStore`, no counterpart for
-// `TaskStore` / `CreateTaskOptions` / `isTerminal`), so `EventSourcedTaskStore`
-// had nothing to implement against.
-//
-// Task 051 designed the replacement: the store contract is now OWNED
-// (`projections/task-store/port.ts`), and `projections/task-store/attach.ts` makes the one genuinely
-// missing surface — the constructor option, which a v2 server ignores SILENTLY
-// — impossible to ship by accident. What the migration deliberately gives up is
-// the `tasks/*` wire surface, which v2 does not serve at all; per operator
-// decision D10 that loss is accepted and announced (`describeTaskWireGap`),
-// never silent.
-//
-// The old `SdkPinPolicy_V1AndV2_CoexistAsDistinctPackages` expectation said its
-// own retirement condition out loud: *"If a future change drops v1, that is only
-// legitimate once nothing imports it — at which point this expectation should be
-// deleted deliberately, not silently."* This is that deliberate deletion. It is
-// replaced by `SdkPinPolicy_V1Generation_IsFullyRemoved`, which asserts the
-// stronger property the old test was waiting for, and asserts it over the SOURCE
-// TREE rather than over `package.json` alone — an uninstalled package that some
-// module still names is a broken build, not a completed migration.
-
 /**
- * DR-30 authorities. `SdkPinPolicy_V1Generation_IsFullyRemoved` sweeps the
- * source corpus, so its verdict rests on two sources neither of which is
- * derived from the other:
+ * The pin policy for the MCP SDK. Each `@modelcontextprotocol/*` dependency has an exact pin, so a
+ * version bump is an explicit, reviewed change and not a result of `npm install`.
  *
- *   • the MANIFESTS — the DECLARED dependency set (what npm was asked to
- *     install). Both this package's and the monorepo root's, across every
- *     dependency map, because npm hoisting makes a root declaration reachable
- *     from here.
- *   • the PACKAGE tree itself, parsed — the IMPORTED set (what the code
- *     actually names).
+ * The three v2 packages (`core`, `server`, `client`) are one generation. The v1 package
+ * `@modelcontextprotocol/sdk` is gone, and `SdkPinPolicy_V1Generation_IsFullyRemoved` checks that
+ * against two sources:
  *
- * The disagreement worth catching is exactly the one DR-0's removal criterion
- * names: a package removed from the manifest while a module still imports it,
- * or still declared while nothing does. A manifest cannot compute the tree and
- * the tree cannot compute the manifest, so they can genuinely disagree.
+ * - the manifest, across each dependency map: the declared set
+ * - the parsed package tree: the imported set
  *
- * ── SCOPE CORRECTION (post-049) ─────────────────────────────────────────────
- * Both authorities were originally read too narrowly, and the two narrowings
- * lined up to hide one real survivor. The tree side started at `src/`, so
- * `test/process/_helpers.ts` — a v1 `Client` driving the compiled binary over
- * stdio, imported by five live suites — was never looked at. The manifest side
- * read only `dependencies`, so the root's `devDependencies` entry that kept v1
- * installed and hoisted was never looked at either. Each half reported a
- * package-wide verdict it had not measured. Both are now read at their full
- * extent, and the anti-vacuity teeth below fail specifically on a regression
- * back to either narrowing.
+ * A package that the manifest lost while a module still imports it is a broken build. The tree
+ * walk starts at the package root, because a v1 import can be outside `src`.
  *
  * @oracle-sources: ../../package.json, ../../tools/test-helpers/module-specifier-parser.ts
  */
-
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, relative, sep } from 'node:path';
@@ -83,23 +22,24 @@ import { describe, it, expect } from 'vitest';
 import { parseModuleSpecifiers } from '../../tools/test-helpers/module-specifier-parser.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
-// src/__tests__ → the repository root. Task 019 dissolved the nested
-// `servers/exarchos-mcp` package, so the package root and the repository root
-// are now the same directory and there is ONE manifest.
+/**
+ * The repository root, which is also the package root. No manifest in the repository sits above
+ * it, so the test reads one manifest.
+ */
 const packageRoot = join(here, '../..');
 const packageJsonPath = join(packageRoot, 'package.json');
 
-/** The v2 packages. DR-0's migration landed on these three and only these. */
+/** The three v2 packages. They are one generation and must have one version. */
 const V2_PACKAGES = [
   '@modelcontextprotocol/core',
   '@modelcontextprotocol/server',
   '@modelcontextprotocol/client',
 ] as const;
 
-/** The retired v1 package root. Every `…/sdk/*` subpath belongs to it too. */
+/** The retired v1 package root. Each subpath under it also belongs to v1. */
 const V1_PACKAGE = '@modelcontextprotocol/sdk';
 
-/** Exact version (`2.0.0`) or minor-x (`2.0.x`) — no range operators. */
+/** An exact version such as `2.0.0`, or a patch wildcard such as `2.0.x`. No range operator. */
 const EXACT_PIN = /^\d+\.\d+\.(\d+|x)$/;
 
 function readDependencies(): Record<string, string> {
@@ -119,14 +59,10 @@ function readDependencies(): Record<string, string> {
 }
 
 /**
- * Every declared dependency of a manifest, across EVERY dependency map.
- *
- * Deliberately not just `dependencies`. The root manifest declared v1 under
- * `devDependencies`, and a check that read only `dependencies` would have
- * reported the removal complete while npm went on installing v1 and hoisting
- * it — a guard passing because it looked in the wrong drawer. npm installs
- * from all of these maps, so all of them are checked; the map names come from
- * npm's schema rather than from what this repo happens to use today.
+ * Reads each declared dependency of a manifest, across each dependency map that npm installs from.
+ * A read of only `dependencies` misses a v1 entry under `devDependencies`, which npm still
+ * installs. The function throws when the manifest has no dependency map, because an empty record
+ * lacks v1 for the wrong reason.
  */
 function readAllDeclaredDeps(manifestPath: string): Record<string, string> {
   const pkg: unknown = JSON.parse(readFileSync(manifestPath, 'utf8'));
@@ -149,9 +85,6 @@ function readAllDeclaredDeps(manifestPath: string): Record<string, string> {
       if (typeof range === 'string') out[name] = range;
     }
   }
-  // ANTI-VACUITY: a manifest whose every dependency map is absent or renamed
-  // would yield an empty record, and "v1 is not in here" would be true of an
-  // empty record for the wrong reason.
   if (mapsSeen === 0) {
     throw new Error(`${manifestPath} declared no dependency maps at all`);
   }
@@ -160,35 +93,19 @@ function readAllDeclaredDeps(manifestPath: string): Record<string, string> {
 
 function expectExactPin(name: string, range: string): void {
   expect(range, `${name} must be exact-pinned, got "${range}"`).toMatch(EXACT_PIN);
-  // Explicitly NOT a caret or tilde range — the whole point of the policy.
   expect(range.startsWith('^'), `${name} must not use a caret range`).toBe(false);
   expect(range.startsWith('~'), `${name} must not use a tilde range`).toBe(false);
 }
 
 /**
- * Every `.ts` module in the PACKAGE, paired with the package specifiers it imports.
+ * Walks each `.ts` module in the package and collects the v1 import sites. The walk starts at the
+ * package root and not at a named subtree, so a new tree is in scope with no list to update.
  *
- * The population is DERIVED from the filesystem rather than enumerated, so a
- * relocated tree surfaces as an empty denominator (caught below) instead of a
- * clean pass. Specifiers come from a real parse, not a text match, so a v1
- * package name appearing inside a fixture STRING — which several architecture
- * tests carry on purpose, as the subject of their own kill fixtures — is
- * correctly not counted as an import.
+ * It skips `node_modules` and `dist`, which are vendored and generated. It also skips hidden
+ * directories, which hold scratch files and configuration and no published source.
  *
- * ── WHY THE ROOT IS THE PACKAGE, NOT `src/` ──────────────────────────────────
- * This walk originally started at `src/`, and that is exactly how task 049
- * shipped believing the migration was complete: `test/process/_helpers.ts`
- * drove the compiled binary with a v1 `Client` over stdio, five `test/process`
- * suites imported it, vitest ran all of them, and this guard could not see the
- * file because it was one directory to the side. The criterion was measured
- * over a subtree while being reported over the tree.
- *
- * A named subtree is a list, and a list is a thing that goes stale silently.
- * Walking the package root removes the list: any `.ts` anywhere in the package
- * is in scope by construction, so a new tree cannot be born outside the guard.
- * `node_modules`/`dist` are skipped because they are vendored and generated —
- * the only two exclusions, and both are properties of the directory rather
- * than names anyone has to remember to add.
+ * The specifiers come from a parse and not a text match. A v1 package name in a fixture string
+ * thus does not count as an import.
  */
 function importSitesInPackage(): {
   moduleCount: number;
@@ -204,14 +121,6 @@ function importSitesInPackage(): {
       const full = join(dir, entry.name);
       if (entry.isDirectory()) {
         if (entry.name === 'node_modules' || entry.name === 'dist') continue;
-        // Hidden directories are scratch or configuration, never published
-        // source. This is not cosmetic: `sdk-generation-seam.test.ts` writes a
-        // REAL v1-importing fixture to `mkdtempSync(packageRoot + '/.tmp-sdk-seam-')`
-        // as the subject of its own kill probe, and vitest runs that file
-        // concurrently with this one. Without this skip the two suites race and
-        // this guard fails on another test's deliberate fixture — a flake that
-        // would read as a v1 regression. Skipping by the dot PROPERTY rather
-        // than by scratch-directory name keeps it from becoming another list.
         if (entry.name.startsWith('.')) continue;
         walk(full);
         continue;
@@ -234,6 +143,11 @@ function importSitesInPackage(): {
 }
 
 describe('MCP SDK pin policy (#1292, DR-0)', () => {
+  /**
+   * v2 is a new major with a surface that still changes, so each bump must be explicit. The three
+   * packages are one generation and must have one version. A tree with `core@2.0.0` and
+   * `server@2.1.0` gives a structural type mismatch with no package identity to explain it.
+   */
   it('SdkPinPolicy_V2Packages_AreExactPinned', () => {
     const deps = readDependencies();
 
@@ -243,18 +157,10 @@ describe('MCP SDK pin policy (#1292, DR-0)', () => {
       );
     }
 
-    // Each must carry the exact-pin policy. The rationale is deliberate opt-in
-    // to surface changes: v2 is a new major whose surface is still settling, so
-    // an implicit `npm install` bump is exactly what the policy exists to
-    // prevent.
     for (const name of V2_PACKAGES) {
       expectExactPin(name, deps[name]!);
     }
 
-    // All three are ONE generation and must move together. A tree holding
-    // `core@2.0.0` against `server@2.1.0` is the split-brain the single-seam
-    // design assumes away, and it would present as a structural type mismatch
-    // with no package identity to explain it.
     const versions = new Set(V2_PACKAGES.map((name) => deps[name]!));
     expect(
       [...versions],
@@ -263,13 +169,14 @@ describe('MCP SDK pin policy (#1292, DR-0)', () => {
     ).toHaveLength(1);
   });
 
+  /**
+   * The manifest must not declare the v1 package, and a module in the package must not import it.
+   *
+   * Two checks stop a pass from an empty scan. The walk must resolve more than 50 modules. It must
+   * also reach modules outside `src`, because a walk of only `src` passes the count and misses a
+   * v1 import in another tree.
+   */
   it('SdkPinPolicy_V1Generation_IsFullyRemoved', () => {
-    // ── DR-0's REMOVAL CRITERION, made executable ────────────────────────────
-    // The acceptance criterion was stated as a shell command: *"the v1
-    // dependency is removed only when nothing imports it (`grep -rn
-    // "@modelcontextprotocol/sdk"` returns zero non-vendor hits)"*. A criterion
-    // that only ever ran in someone's terminal is a criterion that regresses
-    // silently, so it lives here instead.
     expect(
       readAllDeclaredDeps(packageJsonPath)[V1_PACKAGE],
       `${V1_PACKAGE} (v1) was removed by task 049. Re-declaring it re-opens the ` +
@@ -278,32 +185,14 @@ describe('MCP SDK pin policy (#1292, DR-0)', () => {
         `to add back.`,
     ).toBeUndefined();
 
-    // There used to be a SECOND assertion here, against the monorepo-root
-    // manifest. Its reason was hoisting: a v1 declaration at the root landed in
-    // a `node_modules/` that the nested package resolved through, so the
-    // package manifest could be clean while a v1 import still resolved — which
-    // is exactly the state task 049 shipped. Task 019 dissolved the nested
-    // package, so there is one manifest and nothing above it to hoist from.
-    // The assertion above is now the whole property, and a duplicate reading
-    // the same file would assert nothing extra.
-
     const { moduleCount, modulesOutsideSrc, v1Sites } = importSitesInPackage();
 
-    // ANTI-VACUITY on the population itself. "Zero v1 imports" is worthless if
-    // the walk resolved nothing — a relocated src root, a renamed extension or
-    // a dead parser would all read as a completed migration.
     expect(
       moduleCount,
       'The source walk resolved implausibly few modules — the scan is broken, ' +
         'so its zero-v1-imports verdict means nothing.',
     ).toBeGreaterThan(50);
 
-    // ANTI-VACUITY aimed at the ACTUAL historical failure. The count above is
-    // dominated by `src/`, so a walk narrowed back to `src/` alone still clears
-    // it by three orders of magnitude while being blind to the one tree where
-    // v1 really survived. This tooth fails on that specific regression: the
-    // scan must reach modules OUTSIDE `src/`, or it is not measuring the
-    // criterion it reports on.
     expect(
       modulesOutsideSrc,
       'The walk resolved no modules outside `src/`. Task 049 shipped a ' +

@@ -11,8 +11,11 @@ import {
 import type { PrComment, VcsProvider, CiCheck } from '../../../src/vcs/provider.js';
 
 describe('VcsProvider', () => {
+  /**
+   * The annotation `VcsProvider` is a type-level check that the object literal has each required method.
+   * `tests/tsconfig.json` excludes `tests/unit`, so no compiler runs that check. Only the `name` assertion runs.
+   */
   it('VcsProvider_Interface_DefinesRequiredMethods', () => {
-    // Type-level test: verify interface is implementable
     const provider: VcsProvider = {
       name: 'github',
       createPr: async () => ({ url: '', number: 0 }),
@@ -41,9 +44,9 @@ describe('VcsProvider', () => {
     expect(provider.name).toBe('azure-devops');
   });
 
+  /** GitLab is a partial provider. Each method that it does not support, `addReply` included, must reject with "not yet supported". */
   it('GitLabProvider_ImplementsVcsProvider', async () => {
     const provider = new GitLabProvider({});
-    // Verify all VcsProvider methods exist on the implementation
     expect(typeof provider.createPr).toBe('function');
     expect(typeof provider.checkCi).toBe('function');
     expect(typeof provider.mergePr).toBe('function');
@@ -56,20 +59,17 @@ describe('VcsProvider', () => {
     expect(typeof provider.createIssue).toBe('function');
     expect(typeof provider.searchIssuesByMarker).toBe('function');
     expect(typeof provider.getRepository).toBe('function');
-    // Methods not yet implemented should throw
     await expect(provider.listPrs()).rejects.toThrow(/not yet supported/i);
     await expect(provider.getPrDiff('1')).rejects.toThrow(/not yet supported/i);
     await expect(provider.createIssue({ title: 't', body: 'b' })).rejects.toThrow(/not yet supported/i);
     await expect(provider.searchIssuesByMarker('op-1')).rejects.toThrow(/not yet supported/i);
     await expect(provider.getRepository()).rejects.toThrow(/not yet supported/i);
-    // addReply is a thread-aware sibling of addComment; GitLab support is a
-    // DR-7 follow-up (#1612), so it must throw a clear capability signal.
     await expect(provider.addReply('1', '2', 'reply')).rejects.toThrow(/not yet supported/i);
   });
 
+  /** Azure DevOps is a partial provider. Each method that it does not support, `addReply` included, must reject with "not yet supported". */
   it('AzureDevOpsProvider_ImplementsVcsProvider', async () => {
     const provider = new AzureDevOpsProvider({});
-    // Verify all VcsProvider methods exist on the implementation
     expect(typeof provider.createPr).toBe('function');
     expect(typeof provider.checkCi).toBe('function');
     expect(typeof provider.mergePr).toBe('function');
@@ -82,20 +82,16 @@ describe('VcsProvider', () => {
     expect(typeof provider.createIssue).toBe('function');
     expect(typeof provider.searchIssuesByMarker).toBe('function');
     expect(typeof provider.getRepository).toBe('function');
-    // Methods not yet implemented should throw
     await expect(provider.listPrs()).rejects.toThrow(/not yet supported/i);
     await expect(provider.getPrDiff('1')).rejects.toThrow(/not yet supported/i);
     await expect(provider.createIssue({ title: 't', body: 'b' })).rejects.toThrow(/not yet supported/i);
     await expect(provider.searchIssuesByMarker('op-1')).rejects.toThrow(/not yet supported/i);
     await expect(provider.getRepository()).rejects.toThrow(/not yet supported/i);
-    // addReply is a thread-aware sibling of addComment; Azure DevOps support is
-    // a DR-7 follow-up (#1613), so it must throw a clear capability signal.
     await expect(provider.addReply('1', '2', 'reply')).rejects.toThrow(/not yet supported/i);
   });
 
+  /** Each field of the `PrComment` contract is assignable and readable. Only a `review-summary` comment carries `state`. */
   it('PrComment_Shape_CarriesSourceAuthorThreadResolved', () => {
-    // Exercise every field of the widened, platform-neutral contract and
-    // assert each round-trips / is accessible.
     const comment: PrComment = {
       id: 42,
       author: 'octocat',
@@ -117,7 +113,6 @@ describe('VcsProvider', () => {
     expect(comment.parentId).toBe(7);
     expect(comment.resolved).toBe(true);
 
-    // `state` rides only on review-summary sources.
     const summary: PrComment = {
       id: 1,
       author: 'reviewer',
@@ -130,9 +125,8 @@ describe('VcsProvider', () => {
     expect(summary.state).toBe('CHANGES_REQUESTED');
   });
 
+  /** An absent `resolved` means unknown. `isResolvedKnown` must tell it apart from an explicit `false`. */
   it('PrComment_Resolved_AbsentIsUnknownNotFalse', () => {
-    // Tri-state pin: absent `resolved` must stay distinguishable from an
-    // explicit `false`, so a consumer can never silently coerce absent → false.
     const explicit: PrComment = {
       id: 1,
       author: 'a',
@@ -149,18 +143,14 @@ describe('VcsProvider', () => {
       source: 'issue-comment',
     };
 
-    // The two are distinguishable at the value level.
     expect(explicit.resolved).toBe(false);
     expect(unknown.resolved).toBeUndefined();
     expect(unknown.resolved).not.toBe(false);
 
-    // The exposed helper treats absent as "unknown", not as resolved/false.
     expect(isResolvedKnown(explicit)).toBe(true);
     expect(isResolvedKnown(unknown)).toBe(false);
   });
 });
-
-// ─── DR-3: windowPrComments (shared window/projection helper) ─────────────────
 
 describe('windowPrComments', () => {
   function makeComments(n: number): PrComment[] {
@@ -184,21 +174,19 @@ describe('windowPrComments', () => {
       limit: DEFAULT_PR_COMMENTS_LIMIT,
       hasMore: true,
     });
-    // Newest-first ordering.
     expect(result.comments[0]?.id).toBe(1049);
   });
 
+  /** A limit of 0 becomes the default, and a negative offset becomes 0. */
   it('windowPrComments_InvalidLimitOrOffset_Coerces', () => {
-    // Non-positive / non-finite limit → default; negative offset → 0.
     const result = windowPrComments(makeComments(30), { limit: 0, offset: -5 });
 
     expect(result.page.limit).toBe(DEFAULT_PR_COMMENTS_LIMIT);
     expect(result.page.offset).toBe(0);
   });
 
+  /** A limit in (0, 1) floors to 0, and a zero-sized page reports `hasMore: true` forever. The helper must use the default limit. */
   it('windowPrComments_FractionalLimit_DoesNotFloorToZeroPage', () => {
-    // A limit in (0, 1) floors to 0; a zero-sized page would report
-    // hasMore:true forever. Must fall back to the default, not emit a 0 page.
     const result = windowPrComments(makeComments(30), { limit: 0.5 });
 
     expect(result.page.limit).toBe(DEFAULT_PR_COMMENTS_LIMIT);
@@ -214,33 +202,30 @@ describe('windowPrComments', () => {
   });
 
   it('windowPrComments_EmptyFields_ReturnsFullComments', () => {
-    // An empty projection list is treated as "no projection".
     const result = windowPrComments(makeComments(3), { fields: [] });
 
     expect(result.comments[0]).toHaveProperty('body');
     expect(result.comments[0]).toHaveProperty('source');
   });
 
+  /** An `issue-comment` has no `path`, so the projection does not add that key. */
   it('windowPrComments_ProjectsOnlyPresentKeys', () => {
-    // `path` is absent on issue-comments, so it is not fabricated in the
-    // projection — only present-and-defined keys survive.
     const result = windowPrComments(makeComments(1), { fields: ['id', 'path'] });
 
     expect(Object.keys(result.comments[0] ?? {})).toEqual(['id']);
   });
 });
 
-// ─── DR-10: shared computeOverallCiStatus helper ────────────────────────────
-//
-// The three VCS providers (GitHub / GitLab / Azure DevOps) previously carried
-// byte-identical private `computeOverallCiStatus` copies; DR-10 collapses them
-// into this one exported helper. These tests pin the aggregation contract
-// directly (the per-provider `checkCi` tests in the sibling suites continue to
-// exercise it through each provider's real pipeline-decode path).
+/**
+ * The GitHub, GitLab and Azure DevOps providers share `computeOverallCiStatus`.
+ * These tests pin the fold directly. The `checkCi` tests of each provider cover it through the pipeline decode.
+ */
 describe('computeOverallCiStatus (shared CI-status fold, DR-10)', () => {
+  /**
+   * An empty list gives `pass`.
+   * GitLab with no pipeline and Azure DevOps with no runs do not reach the fold, because `checkCi` returns `pending` first.
+   */
   it('ComputeOverallCiStatus_EmptyChecks_Passes', () => {
-    // No checks is a pass — the empty conjunction. Matches every provider's
-    // "no pipeline / no jobs" path collapsing to a non-blocking verdict.
     expect(computeOverallCiStatus([])).toBe('pass');
   });
 
@@ -270,8 +255,8 @@ describe('computeOverallCiStatus (shared CI-status fold, DR-10)', () => {
     expect(computeOverallCiStatus(checks)).toBe('pass');
   });
 
+  /** The `pending` check comes first in the list, and `fail` still wins. */
   it('ComputeOverallCiStatus_FailPrecedesPending', () => {
-    // fail wins over pending regardless of ordering — the fail scan runs first.
     expect(
       computeOverallCiStatus([
         { name: 'build', status: 'pending' },
@@ -281,14 +266,10 @@ describe('computeOverallCiStatus (shared CI-status fold, DR-10)', () => {
   });
 });
 
-// ─── DR-10: partial-provider by-design throws survive the extraction ─────────
-//
-// GitLab and Azure DevOps are PARTIAL VcsProviders — several methods throw
-// `UnsupportedOperationError` by design (DR-7 follow-ups #1612 / #1613). The
-// shared CI-status helper only folds a check list a `checkCi` already built,
-// so extracting it must leave those by-design throws untouched. These tests
-// assert the throws are intact per provider so a helper that swallowed or
-// normalized them (a behavior change) would go red.
+/**
+ * GitLab and Azure DevOps are partial providers: some methods throw `UnsupportedOperationError` by design.
+ * The shared CI-status helper only folds a check list, so it must not catch or change those errors.
+ */
 describe('partial-provider by-design throws (DR-10 extraction preservation)', () => {
   it('ComputeOverallCiStatus_GitLabPartialProvider_StillThrows', async () => {
     const provider = new GitLabProvider({});

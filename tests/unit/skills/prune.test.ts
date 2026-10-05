@@ -1,19 +1,7 @@
 /**
- * Structural tests for the prune skill.
- *
- * Validates the content/remediation/skills/prune/SKILL.md frontmatter and body
- * against the conventions documented in CLAUDE.md and the T5 task spec
- * in docs/plans/archive/2026-04-11-oneshot-and-pruning.md:
- *
- *   - name is kebab-case
- *   - description is <= 1024 chars
- *   - metadata.mcp-server is "exarchos" (skill invokes MCP tools)
- *   - body references the prune_stale_workflows orchestrate action
- *   - body documents both dry-run and apply phases
- *
- * Reads from content/ (canonical source) per the same convention used
- * by runbooks/skill-coverage.test.ts. The generated skills/ tree is
- * verified separately by the skills-guard CI check.
+ * Structural tests for the prune skill. They read the authored source
+ * `content/remediation/skills/prune/SKILL.md`, not a rendered runtime variant.
+ * `npm run render:guard` checks the rendered tree.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -33,10 +21,9 @@ interface SkillFrontmatter {
   metadata?: { 'mcp-server'?: unknown } & Record<string, unknown>;
 }
 
+/** Parses the YAML frontmatter, which must start the file between two `---` lines. */
 function loadSkill(): { frontmatter: SkillFrontmatter; body: string; raw: string } {
   const raw = readFileSync(skillPath, 'utf-8');
-  // Frontmatter must be a YAML block delimited by --- on its own lines
-  // at the start of the file.
   const match = /^---\n([\s\S]*?)\n---\n([\s\S]*)$/.exec(raw);
   if (!match) {
     throw new Error(`SKILL.md missing YAML frontmatter delimited by ---: ${skillPath}`);
@@ -50,7 +37,6 @@ describe('prune skill', () => {
     const { frontmatter } = loadSkill();
     expect(typeof frontmatter.name).toBe('string');
     expect(frontmatter.name).toBe('prune');
-    // kebab-case: lowercase letters/digits, words joined by single hyphens.
     expect(frontmatter.name as string).toMatch(/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/);
   });
 
@@ -70,26 +56,23 @@ describe('prune skill', () => {
 
   it('pruneSkill_bodyReferencesPruneAction', () => {
     const { body } = loadSkill();
-    // The skill must reference the orchestrate action by its registered name.
     expect(body).toContain('prune_stale_workflows');
   });
 
+  /** `dryRun: true` is the preview step, and `dryRun: false` is the apply step. */
   it('pruneSkill_includesDryRunAndApplySteps', () => {
     const { body } = loadSkill();
-    // Both phases of the prune flow must be documented.
     expect(body).toMatch(/dryRun:\s*true/);
     expect(body).toMatch(/dryRun:\s*false/);
   });
 
   it('pruneSkill_documentsForceBypassOption', () => {
     const { body } = loadSkill();
-    // The user-facing safeguard bypass must be documented per design Part 1.
     expect(body).toMatch(/force/);
   });
 
   it('pruneSkill_documentsConfirmationPrompt', () => {
     const { body } = loadSkill();
-    // The skill is interactive — it must prompt the user before applying.
     expect(body.toLowerCase()).toMatch(/proceed|confirm|abort/);
   });
 });

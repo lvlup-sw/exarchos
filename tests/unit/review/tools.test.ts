@@ -8,8 +8,6 @@ import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 let mockEventStore: EventStore;
 
-// ─── Test Fixtures ──────────────────────────────────────────────────────────
-
 function lowRiskPR(number = 100): PRDiffMetadata {
   return {
     number,
@@ -40,8 +38,6 @@ function highRiskPR(number = 300): PRDiffMetadata {
   };
 }
 
-// ─── Tests ──────────────────────────────────────────────────────────────────
-
 describe('handleReviewTriage', () => {
   let tmpDir: string;
 
@@ -60,6 +56,7 @@ describe('handleReviewTriage', () => {
     return handleReviewTriage;
   }
 
+  /** At normal velocity the threshold is 0.0, so each PR gets CodeRabbit. */
   it('should return dispatch results for valid input with 3 PRs', async () => {
     const handleReviewTriage = await importHandler();
     const args = {
@@ -80,7 +77,6 @@ describe('handleReviewTriage', () => {
     expect(data.velocity).toBe('normal');
     expect(data.dispatches).toHaveLength(3);
     expect(data.summary.total).toBe(3);
-    // At normal velocity (threshold 0.0), all PRs get coderabbit
     expect(data.summary.coderabbit).toBe(3);
     expect(data.summary.selfHostedOnly).toBe(0);
   });
@@ -96,9 +92,6 @@ describe('handleReviewTriage', () => {
 
     await handleReviewTriage(args as Record<string, unknown>, tmpDir, mockEventStore);
 
-    // Verify events were emitted to the event store. v2.11 Phase 3
-    // (substrate-cut): JSONL files no longer exist — read through the
-    // store API which routes to the SqliteBackend.
     const events = await mockEventStore.query('test-events');
 
     expect(events).toHaveLength(2);
@@ -123,19 +116,16 @@ describe('handleReviewTriage', () => {
 
     await handleReviewTriage(args as Record<string, unknown>, tmpDir, mockEventStore);
 
-    // Read the emitted events through the store (post-substrate-cut).
     const events = await mockEventStore.query('test-routed-shape');
 
     expect(events).toHaveLength(1);
     expect(events[0].type).toBe('review.routed');
 
-    // Validate shape matches ReviewRoutedData schema
     const { ReviewRoutedData } = await import('../../../src/events/schemas.js');
     const data = events[0].data as Record<string, unknown>;
     const parseResult = ReviewRoutedData.safeParse(data);
     expect(parseResult.success).toBe(true);
 
-    // Verify specific field values
     expect(data.pr).toBe(42);
     expect(typeof data.riskScore).toBe('number');
     expect(Array.isArray(data.factors)).toBe(true);
@@ -145,13 +135,17 @@ describe('handleReviewTriage', () => {
     expect(data.semanticAugmented).toBe(false);
   });
 
+  /**
+   * More than six pending reviews give the 'high' velocity, and its threshold is 0.5.
+   * The low-risk PR scores 0.0.
+   */
   it('should filter coderabbit for low-risk PRs at high velocity', async () => {
     const handleReviewTriage = await importHandler();
     const args = {
       featureId: 'test-high-velocity',
       prs: [lowRiskPR(1), highRiskPR(2)],
       activeWorkflows: [],
-      pendingCodeRabbitReviews: 8, // >6 triggers 'high' velocity
+      pendingCodeRabbitReviews: 8,
     };
 
     const result = await handleReviewTriage(args as Record<string, unknown>, tmpDir, mockEventStore);
@@ -166,9 +160,7 @@ describe('handleReviewTriage', () => {
 
     const lowDispatch = data.dispatches.find(d => d.pr === 1);
     const highDispatch = data.dispatches.find(d => d.pr === 2);
-    // Low-risk PR (score 0.0) should NOT get coderabbit at high velocity (threshold 0.5)
     expect(lowDispatch?.coderabbit).toBe(false);
-    // High-risk PR should get coderabbit
     expect(highDispatch?.coderabbit).toBe(true);
     expect(data.summary.selfHostedOnly).toBeGreaterThan(0);
   });
@@ -207,15 +199,11 @@ describe('handleReviewTriage', () => {
     expect(data.summary.coderabbit).toBe(0);
     expect(data.summary.selfHostedOnly).toBe(0);
 
-    // Verify no events were emitted (post-substrate-cut: query the
-    // store rather than checking for a JSONL file's absence).
     const events = await mockEventStore.query('test-empty');
     expect(events).toHaveLength(0);
   });
 
 });
-
-// ─── Orchestrate Composite Integration ──────────────────────────────────────
 
 describe('orchestrate review_triage action', () => {
   let tmpDir: string;

@@ -3,9 +3,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
+/** Each test resets the module cache, so `src/logger.ts` reads `EXARCHOS_LOG_LEVEL` again. */
 describe('Logger Factory', () => {
   beforeEach(() => {
-    // Clear module cache to allow env var overrides
     vi.resetModules();
   });
 
@@ -30,7 +30,6 @@ describe('Logger Factory', () => {
   it('StoreLogger_HasSubsystem_EventStore', async () => {
     const { storeLogger } = await import('../../src/logger.js');
 
-    // pino child loggers expose bindings
     const bindings = storeLogger.bindings();
     expect(bindings.subsystem).toBe('event-store');
   });
@@ -64,19 +63,16 @@ describe('Logger Factory', () => {
   });
 });
 
+/**
+ * The MCP server speaks JSON-RPC on stdout, so a `console.log` call corrupts a protocol frame.
+ * The product tree logs through pino to stderr.
+ *
+ * The installer is an interactive terminal program in the same tree, and its stdout is its output.
+ * `TERMINAL_OUTPUT_MODULES` names each file that prints, with the reason. The map does not exempt
+ * all of `src/install`, because that exemption also covers the installer modules that must not
+ * print.
+ */
 describe('No Console in Production Code', () => {
-  // WHY this rule exists: the MCP server speaks JSON-RPC over stdio, so a
-  // stray `console.log` does not merely add noise — it writes bytes onto the
-  // protocol channel and corrupts the frame. That is why the whole product
-  // tree logs through pino (stderr) instead.
-  //
-  // The installer is a different contract on the same tree. `exarchos install`
-  // is an interactive terminal program whose stdout IS its output, and task
-  // 019 folded it in alongside the server, so scanning `src/` now covers both.
-  // These files print because printing is their job; each is named
-  // individually, with the reason, rather than exempting `src/install/**`
-  // wholesale — a directory-wide exemption would also cover the installer's
-  // non-presentation modules, which are held to the rule like everything else.
   const TERMINAL_OUTPUT_MODULES: ReadonlyMap<string, string> = new Map([
     ['install/wizard/wizard.ts', 'the interactive install wizard — its prompts and summary ARE the product output'],
     ['install/cli-helpers.ts', 'injectable `deps.log ?? console.log` default for CLI-facing operations'],
@@ -85,7 +81,6 @@ describe('No Console in Production Code', () => {
   ]);
 
   it('NoConsoleInProduction_SourceFilesClean', async () => {
-    // Scan production source files for console.error/console.warn/console.log
     const srcDir = fileURLToPath(new URL('../../src/', import.meta.url));
     const files = await getProductionFiles(srcDir);
 
@@ -106,11 +101,11 @@ describe('No Console in Production Code', () => {
     expect(violations).toEqual([]);
   });
 
+  /**
+   * An exemption for a file that moved, or that prints nothing, silently widens the rule. The path
+   * must resolve, and the file must still hold a console call.
+   */
   it('NoConsoleInProduction_EveryExemptionIsLiveAndStillPrints', async () => {
-    // An exemption for a file that moved, or that no longer prints, silently
-    // widens the rule — the same failure mode the fold produced elsewhere in
-    // this tree. Both halves are checked: the path resolves, and it still
-    // contains the console call the exemption was granted for.
     const srcDir = fileURLToPath(new URL('../../src/', import.meta.url));
     expect(TERMINAL_OUTPUT_MODULES.size).toBeGreaterThan(0);
     for (const [rel, reason] of TERMINAL_OUTPUT_MODULES) {
@@ -124,7 +119,10 @@ describe('No Console in Production Code', () => {
   });
 });
 
-/** Recursively find .ts production files (exclude tests, logger itself, node_modules). */
+/**
+ * Returns each `.ts` production file under `dir`, at any depth. It skips tests, benchmarks,
+ * `logger.ts`, and the `node_modules`, `__tests__` and `evals` directories.
+ */
 async function getProductionFiles(dir: string): Promise<string[]> {
   const results: string[] = [];
   const entries = await fs.readdir(dir, { withFileTypes: true });

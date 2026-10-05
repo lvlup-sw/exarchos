@@ -75,19 +75,15 @@ describe('buildCompositeSchema', () => {
 
     const schema = buildCompositeSchema(actions);
 
-    // Should parse a valid 'init' action
     const initResult = schema.safeParse({ action: 'init', featureId: 'test' });
     expect(initResult.success).toBe(true);
 
-    // Should parse a valid 'get' action
     const getResult = schema.safeParse({ action: 'get', query: 'phase' });
     expect(getResult.success).toBe(true);
 
-    // Should parse 'get' with optional field omitted
     const getNoQueryResult = schema.safeParse({ action: 'get' });
     expect(getNoQueryResult.success).toBe(true);
 
-    // Should reject an invalid action
     const invalidResult = schema.safeParse({ action: 'invalid' });
     expect(invalidResult.success).toBe(false);
   });
@@ -117,10 +113,10 @@ describe('buildRegistrationSchema', () => {
     },
   ];
 
+  /** `streamId` is a misspelling of `stream`. The schema must reject it and must not drop it silently. */
   it('should reject unrecognized parameters with a clear error', () => {
     const schema = buildRegistrationSchema(testActions);
 
-    // "streamId" is a typo for "stream" — should be rejected, not silently dropped
     const result = schema.safeParse({
       action: 'append',
       streamId: 'workflow-123',
@@ -150,8 +146,6 @@ describe('buildRegistrationSchema', () => {
     const schema = buildRegistrationSchema(testActions);
     expect(schema).toBeInstanceOf(z.ZodObject);
   });
-
-  // ─── Collision-detection guard (regression for #1127) ─────────────────────
 
   it('should throw when two actions declare the same field with incompatible enums', () => {
     const colliding: readonly ToolAction[] = [
@@ -196,11 +190,11 @@ describe('buildRegistrationSchema', () => {
     expect(() => buildRegistrationSchema(colliding)).toThrow(/collides/);
   });
 
+  /**
+   * Both fields are plain strings with no enum, so only the default differs.
+   * Without this check, the first declaration hides the second in the registration schema.
+   */
   it('should throw when two actions share a field whose defaults differ', () => {
-    // Guards the "defaults diverge" arm of describeContractConflict: same
-    // base type (string), no enum, but mismatched defaults would otherwise
-    // let the first declaration silently shadow the second at the
-    // registration boundary.
     const colliding: readonly ToolAction[] = [
       {
         name: 'first',
@@ -222,10 +216,8 @@ describe('buildRegistrationSchema', () => {
     expect(() => buildRegistrationSchema(colliding)).toThrow(/Default values differ/);
   });
 
+  /** A `z.literal` field is a one-member enum in the field contract. Neither field has a default, so only the value differs. */
   it('should throw when two actions share a literal-valued field with different values', () => {
-    // Regression: before this fix, z.literal was classified as 'other' and
-    // defaults=none on both sides silently passed — two actions could bind
-    // the same field to incompatible literal values without detection.
     const colliding: readonly ToolAction[] = [
       {
         name: 'first',
@@ -246,9 +238,8 @@ describe('buildRegistrationSchema', () => {
     expect(() => buildRegistrationSchema(colliding)).toThrow(/collides/);
   });
 
+  /** A union of literals is a hand-written `z.enum`, so two different value sets must collide. */
   it('should throw when a union-of-literals field diverges across actions', () => {
-    // Union-of-literals is the hand-rolled form of z.enum(). Same contract
-    // semantics must apply: mismatched value sets must collide.
     const colliding: readonly ToolAction[] = [
       {
         name: 'first',
@@ -299,19 +290,15 @@ describe('buildRegistrationSchema', () => {
     expect(() => buildRegistrationSchema(orchestrate.actions)).not.toThrow();
   });
 
-  // ─── Joint-schema collision guard (DR-1, #1581 task 004, rule 1) ───────────
-  // `riskTier` (#1515) and `designDepth` (#1581) are siblings on the SHARED
-  // ResolveGateSetCtx, surfaced as action input fields alongside the #1592
-  // obligation fields. The JOINT-REVIEW constraint requires they compose into
-  // ONE coordinated registration schema with NO field shadowing — adding
-  // `designDepth` next to `riskTier` (and any concurrent obligation field) must
-  // not make `buildRegistrationSchema` throw at startup. These canonical base
-  // types mirror the registry declarations (`riskTier: z.enum(['low','medium',
-  // 'high']).optional()`, `designDepth: z.enum(['thin','standard','deep'])`).
+  /**
+   * `riskTier` and `designDepth` are sibling action input fields, and `boundaryTouching` stands for the obligation fields.
+   * Two actions that declare the three fields with the same base types must compose without a throw.
+   * A second action with a different `designDepth` value set must still collide.
+   */
   it('RegistrationSchema_RiskTierPlusDesignDepth_NoFieldCollision', () => {
     const riskTier = z.enum(['low', 'medium', 'high']).optional();
     const designDepth = z.enum(['thin', 'standard', 'deep']).optional();
-    const boundaryTouching = z.boolean().optional(); // representative #1592 obligation field
+    const boundaryTouching = z.boolean().optional();
 
     const combined: readonly ToolAction[] = [
       {
@@ -332,9 +319,6 @@ describe('buildRegistrationSchema', () => {
 
     expect(() => buildRegistrationSchema(combined)).not.toThrow();
 
-    // Guard liveness: a divergent `designDepth` value set across actions MUST
-    // still be caught — so a future #1515/#1592 ctx mutation that shadows
-    // `designDepth` with a different enum fails loud at startup, not silently.
     const shadowed: readonly ToolAction[] = [
       {
         name: 'first',
@@ -354,15 +338,14 @@ describe('buildRegistrationSchema', () => {
     expect(() => buildRegistrationSchema(shadowed)).toThrow(/collides/);
   });
 
+  /**
+   * `doctor` and `onboard` declare `format` with the values `table` and `json`.
+   * `agent_spec` names its field `outputFormat`. A `format` field there with `full` and `prompt-only` collides with those values.
+   */
   it('should accept doctor format values against the real orchestrate registration schema', () => {
     const orchestrate = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate')!;
     const schema = buildRegistrationSchema(orchestrate.actions);
 
-    // Regression for #1127: before the fix, agent_spec.format (full|prompt-only)
-    // shadowed doctor/onboard.format (table|json), making these payloads fail
-    // validation at the registered-tool boundary. (init was swapped out for
-    // onboard in task 011 — design line 322 — so the regression is now exercised
-    // through the onboard action's `format` field.)
     expect(schema.safeParse({ action: 'doctor' }).success).toBe(true);
     expect(schema.safeParse({ action: 'doctor', format: 'json' }).success).toBe(true);
     expect(schema.safeParse({ action: 'doctor', format: 'table' }).success).toBe(true);
@@ -391,25 +374,20 @@ describe('buildRegistrationSchema', () => {
   });
 });
 
-// ─── merge_orchestrate description guidance (#1310 T16) ──────────────────────
-
 describe('merge_orchestrate description', () => {
+  /** The description must state the wrong uses and name the correct action for each one. */
   it('MergeOrchestrateDescription_StatesDoNotUseFor_WithPointers', () => {
     const action = findActionInRegistry('exarchos_orchestrate', 'merge_orchestrate');
     expect(action).toBeDefined();
     const description = action!.description;
 
-    // Negative-space guidance must be explicit.
     expect(description).toContain('Do NOT use for');
 
-    // Each misuse must point at the right alternative action.
     expect(description).toContain('merge_pr');
     expect(description).toContain('verify_worktree');
     expect(description).toContain('request_synthesize');
   });
 });
-
-// ─── Type Coercion Tests ─────────────────────────────────────────────────────
 
 describe('coercedRecord', () => {
   const schema = coercedRecord();
@@ -532,13 +510,12 @@ describe('coercedStringArray', () => {
   });
 });
 
-// ─── Registration Schema JSON Output ────────────────────────────────────────
-
+/**
+ * `findVariantPropertyShape` returns the JSON Schema of one property.
+ * When the schema has an `anyOf` or `oneOf`, it reads the first variant that holds the property.
+ * If not, it reads the top-level `properties`.
+ */
 describe('buildRegistrationSchema JSON Schema', () => {
-  // The build emits a discriminated union; each variant lives under
-  // `anyOf` (v4 native draft-2020-12) rather than the v3 library's
-  // top-level `properties`. We pick the variant that actually carries
-  // the field we want to assert on.
   function findVariantPropertyShape(
     json: Record<string, unknown>,
     propName: string,
@@ -557,10 +534,8 @@ describe('buildRegistrationSchema JSON Schema', () => {
     return undefined;
   }
 
+  /** The `event` field of the event tool is a `coercedRecord()`. */
   it('should emit type:object for coercedRecord fields', () => {
-    // T5a.1/DR-4 (#1259, v2.11): the prior assertion targeted the workflow
-    // tool's `updates` field on the now-removed `set` action. Re-pointed to
-    // the event tool's `event` field, which is also a `coercedRecord()`.
     const event = TOOL_REGISTRY.find((t) => t.name === 'exarchos_event')!;
     const schema = buildRegistrationSchema(event.actions);
     const json = zodToJsonSchema(schema) as unknown as Record<string, unknown>;
@@ -588,10 +563,8 @@ describe('buildRegistrationSchema JSON Schema', () => {
   });
 });
 
-// ─── A2: TOOL_REGISTRY Tests ─────────────────────────────────────────────────
-
+/** The main phases of a feature workflow, which starts at `plan`. The set omits `merge-pending` and `blocked`. */
 const ALL_FEATURE_PHASES = new Set([
-  // #1581 (DR-4): `ideate` removed — feature workflows start at `plan`.
   'plan',
   'plan-review',
   'delegate',
@@ -628,16 +601,13 @@ describe('TOOL_REGISTRY', () => {
     );
   });
 
-  // DR-7 (phase-kind binding, epic #1546): the phase-kind work — the closed
-  // PhaseKind union, the KIND_OBLIGATIONS grant-table, the gate-set resolver,
-  // and the fail-closed boundary that appends `phase.blocked` — is an internal
-  // verification-routing change. It MUST NOT grow the visible MCP tool surface
-  // (INV-5d) nor introduce a new top-level CLI verb (composite). This is a
-  // regression fence: the visible composite count and the exact visible-tool
-  // name set stay exactly what they were before phase-kind landed.
+  /**
+   * The phase-kind binding is internal verification routing: the `PhaseKind` union, the `KIND_OBLIGATIONS` table,
+   * the gate-set resolver and the boundary that appends `phase.blocked`.
+   * It must add no visible MCP tool and no composite. `exarchos_sync` is the only hidden composite.
+   * The four visible composites are the visible MCP tools, and each one is a top-level CLI verb.
+   */
   it('Registry_VisibleToolCount_UnchangedByPhaseKind', () => {
-    // exarchos_sync is the sole hidden composite; the four user-facing
-    // composites are the top-level CLI verbs / visible MCP tools.
     const visibleTools = TOOL_REGISTRY.filter((t) => !t.hidden);
     expect(visibleTools.length).toBe(4);
     expect(visibleTools.length).toBeLessThanOrEqual(15);
@@ -647,18 +617,15 @@ describe('TOOL_REGISTRY', () => {
       'exarchos_view',
       'exarchos_workflow',
     ]);
-    // Phase-kind added no hidden composite either — the total stays at 5.
     expect(TOOL_REGISTRY).toHaveLength(5);
   });
 
-  // INV-5a / INV-5d (DR-16, phase-kind binding COMPLETION — S4, epic #1546):
-  // the resolve-then-freeze machinery added in S4 — the phase.entered/phase.exited
-  // events, the gate-set resolver, the POLA capability bundle
-  // (mintCapabilitiesForKind), and resolvePhaseMode — stays INTERNAL to the four
-  // composite tools. It MUST NOT surface as a new visible MCP tool (INV-5d), a
-  // new top-level CLI verb, or a new composite ACTION (INV-5a). This shield
-  // passes by construction; it turns red the moment any of that internal
-  // machinery is accidentally promoted onto the callable surface.
+  /**
+   * The `phase.entered` and `phase.exited` events, the gate-set resolver, `mintCapabilitiesForKind`
+   * and `resolvePhaseMode` stay internal to the four visible tools.
+   * The registry must expose none of them as a visible tool or as a composite action.
+   * The `forbidden` list holds the names that such an action can have.
+   */
   it('toolRegistry_PhaseKindWork_AddsNoVisibleToolOrVerb', () => {
     const visibleTools = TOOL_REGISTRY.filter((t) => !t.hidden);
     expect(visibleTools.map((t) => t.name).sort()).toEqual([
@@ -669,8 +636,6 @@ describe('TOOL_REGISTRY', () => {
     ]);
     expect(TOOL_REGISTRY).toHaveLength(5);
 
-    // No composite action leaks the internal kind/resolver/capability registry
-    // as a callable verb.
     const allActionNames = TOOL_REGISTRY.flatMap((t) => t.actions.map((a) => a.name));
     const forbidden = [
       'resolve_gate_set',
@@ -688,20 +653,8 @@ describe('TOOL_REGISTRY', () => {
   });
 
   describe('exarchos_workflow', () => {
+    /** The workflow tool has no `set` action. `transition` changes the phase, and `update` changes the other state. */
     it('should have 11 actions: init, get, transition, update, cancel, cleanup, reconcile, rehydrate, checkpoint, feedback, describe', () => {
-      // T5a.1/DR-4 (#1259, v2.11): `set` action removed (hard-cut from the
-      // v2.10 one-release deprecation rerouting surface). Callers receive a
-      // structured `UNKNOWN_ACTION` error with `validActions: ['transition',
-      // 'update', ...]` instructing them to migrate to the canonical
-      // surfaces — `transition` for phase changes, `update` for non-phase
-      // state mutation.
-      //
-      // Wave 0 (#1340, v2.10.0-preview.2): `update` restored as the
-      // canonical state-mutation surface. The v2.11 substrate cut removed
-      // `set` without a replacement; the runbook's "emit state.patched
-      // directly via event.append" guidance bypassed input validation,
-      // output enveloping, idempotency, and `next_actions`. `update`
-      // closes that gap.
       const composite = findComposite('exarchos_workflow');
       expect(composite).toBeDefined();
       const actionNames = composite!.actions.map((a) => a.name);
@@ -710,57 +663,14 @@ describe('TOOL_REGISTRY', () => {
   });
 
   describe('exarchos_orchestrate', () => {
+    /**
+     * Pins the action count of `exarchos_orchestrate` and names actions that must exist.
+     * The count alone passes when a different action takes the place of a named action.
+     * Each new capability is an action on this tool and not a new visible tool.
+     */
     it('should have 71 actions for task management, review triage, gate checks, validation handlers, runbooks, agent spec, oneshot/pruning, onboard (DR-2 task 011), doctor, VCS, classify_review_items (#1159), merge_orchestrate (DR-MO-1), check_integration_suite (#1329), check_invariant_conformance (DR-3), invariants_scaffold/invariants_add (invariants-catalog-wizard P2), check_test_adequacy + check_contract_drift + check_mock_boundary (verification-ladder slice 1), and composite actions', () => {
       const composite = findComposite('exarchos_orchestrate');
       expect(composite).toBeDefined();
-      // 71 = 70 prior + `check_mock_boundary` (verification-ladder slice 1
-      // SIV-4 #1530 — the per-task mock-boundary gate: scans new test hunks for
-      // unowned-dependency mocks and steers toward hermetic fixtures; advisory by
-      // default). The 70 baseline = 69 prior + `check_contract_drift`
-      // (verification-ladder slice 1 Bundle B3 — the per-task contract-drift gate:
-      // codegen → typecheck → breaking-diff against the merge-base, degrading to
-      // advisory when no contract tool resolves). The 69 baseline = 68 prior +
-      // `check_test_adequacy` (the kill-probe gate that supersedes commit-order
-      // TDD as the load-bearing per-task verification). The 68 baseline = 69
-      // prior − `new_project` (retired in DR-3 task 017; the greenfield path is
-      // now `onboard --new` from task 016, and `applyLanguageCustomizations`'
-      // INV-6-violating npm→dotnet string-rewrite is deleted — closes #1508).
-      // The `init`/`install-skills` CLI verbs are rename stubs; the init action,
-      // handler, and `init.executed` event were fully removed in DR-5 (task 018).
-      // The 72 baseline = 71 prior + `mutation-adequacy` (verification-ladder
-      // slice 3 R5 — the diff-scoped mutation backstop review-dimension action).
-      // #1587 retired `check_tdd_compliance` (the test-FIRST ordering gate): 72 → 71.
-      // The keeper is `check_test_adequacy` (outcome-based adequacy, test-after).
-      // #1581 task 018 added `discover_bridge` (the deep-rung discover escalation): 71 → 72.
-      // WLM foundation (task 008) added the three worktree-lifecycle ACTIONS
-      // (`acquire_worktree`, `release_worktree`, `prune_worktrees`) onto
-      // exarchos_orchestrate — INV-5d, no new visible tool: 72 → 75.
-      // WLM operational core (DR-7) added `serialize_merge` (the optimistic
-      // integration-branch merge lease) onto exarchos_orchestrate: 75 → 76.
-      // DR-4 (Gap B, #1630) added `check_exploration_depth` (deep-only
-      // Exploration-citation planning gate): 76 → 77.
-      // #1739 (cutover promotion path) added `cutover_readiness` (read-only
-      // six-condition gate report) and `cutover_decide` (operator-gated
-      // event-sourced rollout decision) onto exarchos_orchestrate — INV-5d,
-      // no new visible tool: 77 → 79.
-      // Task 068 (DR-23) added `invariants_amend` — the id-targeted,
-      // field-scoped amend path the invariant catalog previously lacked
-      // entirely (invariants_add is append-only, so entries were effectively
-      // immutable once committed). INV-5d, no new visible tool: 79 → 80.
-      // The effect-ledger remedy added `reconcile_worktrees` (the reservation
-      // reclaim and the launch / merge reconcilers, moved off `exarchos_view.ps
-      // probe:true`) and re-parented `stack_place` from `exarchos_view`, so the
-      // second is a MOVE and not a new capability: 80 → 82.
-      // The bounded action executor added `execute_intent` (compiles a named
-      // intent into a segment of already-registered local actions and runs it
-      // leaf by leaf, committing one operation record): 82 → 83.
-      // The semantic plane added `settle` (adjudicates one batch of returned
-      // claims against the capsule pinned when the work was compiled, runs
-      // each accepted task's task-completion segment through the executor
-      // above, and commits one settlement record): 83 → 84.
-      // Then `prepare`, its other half (compiles a feature's outstanding
-      // delegation batch into the capsule settlement is later judged against,
-      // and commits one prepared record): 84 → 85.
       expect(composite!.actions).toHaveLength(85);
 
       const actionNames = composite!.actions.map((a) => a.name);
@@ -825,41 +735,30 @@ describe('TOOL_REGISTRY', () => {
           'get_pr_comments',
           'add_pr_comment',
           'create_issue',
-          // DR-2/DR-5 (task 011): explicit assertion so the consolidated
-          // first-run verb cannot be silently dropped. `onboard` SWAPS OUT the
-          // legacy `init` action (design line 322) — `init` is intentionally no
-          // longer in this list; its CLI verb is now a rename stub.
           'onboard',
-          // DR-MO-1 / DR-MO-2: explicit assertion so a future registry edit
-          // cannot quietly drop the autonomous merge orchestrator action.
           'merge_orchestrate',
-          // #1329: explicit name assertion — the length check alone can pass
-          // even if a different action replaces check_integration_suite.
           'check_integration_suite',
-          // DR-3: invariant-conformance review-dimension gate.
           'check_invariant_conformance',
-          // invariants-catalog-wizard P2: authoring verbs (ACTIONS, not a 5th tool).
           'invariants_scaffold',
           'invariants_add',
-          // verification-ladder slice 3 R5 (#1520): explicit name assertion so
-          // the length bump cannot be satisfied by a different action.
           'mutation-adequacy',
-          // WLM foundation (task 008): explicit name assertions so the length
-          // bump cannot be satisfied by a different action.
           'acquire_worktree',
           'release_worktree',
           'prune_worktrees',
-          // WLM operational core (DR-7): explicit name assertion so the length
-          // bump cannot be satisfied by a different action.
           'serialize_merge',
-          // DR-4 (#1630): explicit name assertion so the length bump cannot be
-          // satisfied by a different action.
           'check_exploration_depth',
         ]),
       );
     });
   });
 
+  /**
+   * Each registered orchestrate action must have an `ACTION_HANDLERS` entry or an explicit `if (action === ...)` branch in the composite router.
+   * `SPECIAL_BRANCH_DISPATCH` lists the actions that have only a branch.
+   * A skip list alone hides an action that has no branch and no handler entry, and that action returns `UNKNOWN_ACTION` at runtime.
+   * Thus the test dispatches each branch action with minimal arguments and asserts that the result is not `UNKNOWN_ACTION`.
+   * The suite of each handler covers its behavior.
+   */
   it('OrchestrateActions_MatchCompositeHandlers_InSync', async () => {
     const composite = findComposite('exarchos_orchestrate');
     expect(composite).toBeDefined();
@@ -867,41 +766,15 @@ describe('TOOL_REGISTRY', () => {
 
     const { ACTION_HANDLER_KEYS } = await import('../../src/verbs/composite.js');
 
-    // Actions that have NO entry in the ACTION_HANDLERS table because they are
-    // served by an EXPLICIT dispatch branch in the composite router (an
-    // `if (action === ...)` arm) — they need something the generic adapter can't
-    // provide (the full action list, injected fs hooks, or the whole
-    // DispatchContext). The SPECIAL_BRANCH_DISPATCH check at the bottom proves
-    // each of these branches ACTUALLY routes; this set only excuses them from the
-    // "must be in ACTION_HANDLERS" loop.
-    //
-    // `onboard` is deliberately NOT in this skip-set. Keeping it here previously
-    // SUPPRESSED the bug where `onboard` was registered but had NO composite
-    // branch and NO ACTION_HANDLERS entry, so it fell through to UNKNOWN_ACTION at
-    // runtime while every unit test (which called `handleOnboard` directly) stayed
-    // green. With onboard out of the skip-set, the dispatch-routing assertion
-    // below is the load-bearing guard for its branch.
-    //
-    // `init` is absent from the registry entirely: its action was removed in the
-    // onboard swap (design line 322) and its handler in DR-5 (task 018). `onboard`
-    // supersedes it.
     const SPECIAL_ACTIONS = new Set([
       'describe',
       'runbook',
       'doctor',
       'invariants_scaffold',
       'invariants_add',
-      // Task 068 — the amend path the catalog previously lacked. Like the two
-      // above it dispatches through an explicit composite branch rather than
-      // ACTION_HANDLERS, so it is skipped here and ENFORCED by the routing
-      // assertion below (which is what would catch a registration with no
-      // branch — the UNKNOWN_ACTION hazard).
       'invariants_amend',
     ]);
 
-    // The full set of explicit composite dispatch branches — SPECIAL_ACTIONS plus
-    // `onboard` (whose branch is the regression target of this guard). Every
-    // registered action MUST be either in ACTION_HANDLERS or in this set.
     const SPECIAL_BRANCH_DISPATCH = new Set([...SPECIAL_ACTIONS, 'onboard']);
 
     for (const handlerKey of ACTION_HANDLER_KEYS) {
@@ -912,9 +785,6 @@ describe('TOOL_REGISTRY', () => {
     }
     for (const registryName of registryNames) {
       if (SPECIAL_ACTIONS.has(registryName)) continue;
-      // After the SPECIAL_ACTIONS skip, the only registered actions allowed to be
-      // absent from ACTION_HANDLERS are the special BRANCH dispatches (today just
-      // `onboard`). Anything else with no handler is a genuine drift.
       if (SPECIAL_BRANCH_DISPATCH.has(registryName)) continue;
       expect(
         ACTION_HANDLER_KEYS.includes(registryName),
@@ -922,12 +792,6 @@ describe('TOOL_REGISTRY', () => {
       ).toBe(true);
     }
 
-    // ENFORCE the special-branch dispatch (the registry↔handler guard the old
-    // `SPECIAL_ACTIONS` skip could not provide): every registered action that is
-    // NOT in ACTION_HANDLERS MUST be reachable through an explicit composite
-    // branch. We assert routing by dispatching each through `handleOrchestrate`
-    // and confirming it does NOT fall through to UNKNOWN_ACTION. `onboard` is the
-    // regression target — before its branch + import were wired it failed here.
     const { handleOrchestrate } = await import('../../src/verbs/composite.js');
     const { EventStore } = await import('../../src/events/store.js');
     const { mkdtemp, rm } = await import('node:fs/promises');
@@ -937,7 +801,6 @@ describe('TOOL_REGISTRY', () => {
     const branchOnly = [...registryNames].filter(
       (n) => !ACTION_HANDLER_KEYS.includes(n),
     );
-    // Sanity: every branch-only action is one we expect to have a special arm.
     for (const name of branchOnly) {
       expect(
         SPECIAL_BRANCH_DISPATCH.has(name),
@@ -957,10 +820,6 @@ describe('TOOL_REGISTRY', () => {
         cwd: base,
       } as unknown as Parameters<typeof handleOrchestrate>[1];
 
-      // `describe`/`runbook` route without side effects; doctor/onboard/invariants
-      // read ctx.eventStore. We dispatch with the minimal valid args per action
-      // and only assert the action ROUTED (no UNKNOWN_ACTION) — behavior is
-      // covered by each handler's own suite.
       const minimalArgs: Record<string, Record<string, unknown>> = {
         describe: { action: 'describe', actions: ['doctor'] },
         runbook: { action: 'runbook' },
@@ -998,20 +857,16 @@ describe('TOOL_REGISTRY', () => {
     }
   });
 
+  /**
+   * `check_invariant_conformance` is an action on `exarchos_orchestrate`, not a new tool.
+   * It declares a `gate.executed` emission, so it cannot be `readOnly`: `RegistryDrift_AutoEmitsImpliesNotReadOnly` forbids that.
+   * Its safety class is `local-mutation`, and it is not destructive.
+   * The visible tools must stay at 15 or fewer.
+   */
   it('Registry_CheckInvariantConformance_RegisteredReadOnlyUnder15Tools', () => {
-    // DR-3 (T-13): the invariant-conformance gate is a new ACTION on
-    // exarchos_orchestrate (INV-5d) — not a new tool. It must be registered
-    // with a non-destructive, local-only safety class (it reads the catalog
-    // and computes a verdict — it does NOT touch source or remote state), and
-    // must NOT grow the visible composite-tool surface past the 15-tool ceiling.
     const action = findAction('exarchos_orchestrate', 'check_invariant_conformance');
     expect(action, 'check_invariant_conformance must be registered on exarchos_orchestrate').toBeDefined();
 
-    // Safety annotation (INV-5b: registered outputSchema + a non-destructive,
-    // local safety class). NOTE: the gate emits `gate.executed` on every call,
-    // so it cannot be `readOnly` — the `RegistryDrift_AutoEmitsImpliesNotReadOnly`
-    // invariant forbids that. It mirrors the rest of the check_* family
-    // (check_convergence / check_review_verdict): local-mutation, non-destructive.
     expect(action!.annotations).toBeDefined();
     expect(action!.annotations!.safety).toBe('local-mutation');
     expect(action!.annotations!.readOnly).toBe(false);
@@ -1019,22 +874,20 @@ describe('TOOL_REGISTRY', () => {
     expect(action!.annotations!.openWorld).toBe(false);
     expect(action!.outputSchema).toBeDefined();
 
-    // Still a review-phase, lead-role gate that auto-emits gate.executed.
     expect(action!.phases.has('review')).toBe(true);
     expect(action!.roles.has('lead')).toBe(true);
     expect(contractEmissionsOf(action!).some((e) => e.event === 'gate.executed')).toBe(true);
 
-    // Visible (non-hidden) composite tools stay within the 15-tool budget.
     const visibleTools = TOOL_REGISTRY.filter((t) => !t.hidden);
     expect(visibleTools.length).toBeLessThanOrEqual(15);
   });
 
+  /**
+   * `invariants_scaffold` is an action on `exarchos_orchestrate`, not a fifth visible tool.
+   * It writes files, so its safety class is `local-mutation`.
+   * Its description must tell the agent when not to use it.
+   */
   it('Registry_InvariantsScaffold_HasOutputSchemaAndAnnotations', () => {
-    // P2/T7: invariants_scaffold is a new ACTION on exarchos_orchestrate
-    // (INV-5d — NOT a fifth visible tool). It writes files + .exarchos.yml, so
-    // it is LOCAL_MUTATION (not read-only). It must declare a registered
-    // EnvelopeSchema outputSchema (INV-5b) and a when-NOT-to-use clause in its
-    // description (INV-5a input ergonomics).
     const action = findAction('exarchos_orchestrate', 'invariants_scaffold');
     expect(action, 'invariants_scaffold must be registered on exarchos_orchestrate').toBeDefined();
 
@@ -1045,26 +898,19 @@ describe('TOOL_REGISTRY', () => {
     expect(action!.annotations!.openWorld).toBe(false);
     expect(action!.outputSchema).toBeDefined();
 
-    // when-NOT clause (INV-5a). The description must steer the agent away from
-    // misuse (e.g. don't use to add an entry — that's invariants_add).
     expect(action!.description.toLowerCase()).toContain('do not use');
 
-    // No fifth visible tool (INV-5d): the visible-tool count is unchanged.
     const visibleTools = TOOL_REGISTRY.filter((t) => !t.hidden);
     expect(visibleTools.length).toBeLessThanOrEqual(15);
   });
 
+  /**
+   * `invariants_add` declares the `invariant.authored` and `catalog.registered` emissions.
+   * The dispatch branch in `composite.ts` applies the dry-run default, so the `dryRun` schema field stays optional.
+   * A Zod default on `dryRun` collides in `buildRegistrationSchema` with the actions that declare `dryRun` with no default.
+   * The test parses the schema with `dryRun` omitted. It does not dispatch the action.
+   */
   it('Registry_InvariantsAdd_DryRunDefault', () => {
-    // P2/T11: invariants_add is a LOCAL_MUTATION ACTION on exarchos_orchestrate
-    // (INV-5d) that declares the invariant.authored / catalog.registered
-    // autoEmits (INV-1) and a when-NOT clause (INV-5a). INV-5c: the verb
-    // defaults to dry-run. The default is enforced at the dispatch boundary
-    // (composite.ts) rather than as a Zod `.default(true)` — the
-    // MCP-registration flattener (`buildRegistrationSchema`) forbids two
-    // actions declaring `dryRun` with divergent defaults, and merge_orchestrate
-    // / prune_stale_workflows already declare it `.optional()`. So the schema
-    // field stays optional, and dispatching invariants_add WITHOUT dryRun must
-    // NOT write (the safe default).
     const action = findAction('exarchos_orchestrate', 'invariants_add');
     expect(action, 'invariants_add must be registered on exarchos_orchestrate').toBeDefined();
 
@@ -1073,13 +919,10 @@ describe('TOOL_REGISTRY', () => {
     expect(action!.outputSchema).toBeDefined();
     expect(action!.description.toLowerCase()).toContain('do not use');
 
-    // autoEmits declares both authoring events (INV-1).
     const events = contractEmissionsOf(action!).map((e) => e.event);
     expect(events).toContain('invariant.authored');
     expect(events).toContain('catalog.registered');
 
-    // The schema accepts an entry with dryRun omitted (the dry-run default is
-    // applied downstream at dispatch).
     const parsed = action!.schema.safeParse({
       entry: { dimension: 'd' },
       catalog: '.exarchos/invariants.md',
@@ -1091,9 +934,8 @@ describe('TOOL_REGISTRY', () => {
     expect(visibleTools.length).toBeLessThanOrEqual(15);
   });
 
+  /** `init` has no phases by design. Its guard checks that no workflow is active, and does not match a phase. */
   it('should have non-empty phases for every action except init', () => {
-    // init has empty phases by design — it relies on the guard's null-check
-    // (no active workflow) rather than phase matching.
     const EMPTY_PHASE_ACTIONS = new Set([
       'exarchos_workflow.init',
     ]);
@@ -1177,7 +1019,6 @@ describe('TOOL_REGISTRY', () => {
       const actionNames = viewComposite!.actions.map((a) => a.name);
       expect(actionNames).toContain('code_quality');
 
-      // Verify schema shape
       const action = findAction('exarchos_view', 'code_quality');
       expect(action).toBeDefined();
       const result = action!.schema.safeParse({
@@ -1189,20 +1030,16 @@ describe('TOOL_REGISTRY', () => {
       expect(result.success).toBe(true);
     });
 
-    // T1 (#1446 residue) — register the view actions that are
-    // dispatched through `projections/views/composite.ts` today but were never added to
-    // `TOOL_REGISTRY.viewActions`. Without the registry entry, per-action
-    // Zod validation at `dispatch/core/dispatch.ts:801` is silently skipped and
-    // `exarchos_view describe` under-lists the dispatched surface.
+    /**
+     * The view composite dispatches `session_provenance` and `provenance`, so the registry must hold both.
+     * Without a registry entry, dispatch skips the Zod validation of the action, and `describe` does not list it.
+     * `handleViewSessionProvenance` receives no event store, so its schema has no correlation fields.
+     * `handleViewProvenance` queries the event store, so its schema must have `operationId`, `correlationId` and `causationId`.
+     */
     it('TOOL_REGISTRY_viewActions_IncludesSessionProvenanceAndProvenance', () => {
       const viewComposite = findComposite('exarchos_view');
       expect(viewComposite).toBeDefined();
 
-      // ── session_provenance ────────────────────────────────────────────
-      // Handler: `handleViewSessionProvenance(args, stateDir)` —
-      // accepts `{ sessionId?, workflowId?, metric? }`. Does NOT receive
-      // the event store, so the correlation-tuple filter shape is
-      // intentionally absent here.
       const sessionProvenance = viewComposite!.actions.find(
         (a) => a.name === 'session_provenance',
       );
@@ -1214,24 +1051,16 @@ describe('TOOL_REGISTRY', () => {
       const sessionProvenanceShape = (
         sessionProvenance!.schema as z.ZodObject
       ).shape;
-      // Accepts the args the composite handler routes today.
       const sessionProvenanceParse = sessionProvenance!.schema.safeParse({
         sessionId: 'sess-abc',
         workflowId: 'wf-1',
         metric: 'cost',
       });
       expect(sessionProvenanceParse.success).toBe(true);
-      // No event-store query => no correlation-tuple slots.
       expect(sessionProvenanceShape).not.toHaveProperty('operationId');
       expect(sessionProvenanceShape).not.toHaveProperty('correlationId');
       expect(sessionProvenanceShape).not.toHaveProperty('causationId');
 
-      // ── provenance ────────────────────────────────────────────────────
-      // Handler: `handleViewProvenance(args, stateDir, eventStore)` — queries
-      // the event store via `queryDeltaEvents`, so the correlation-tuple
-      // filter shape MUST be present so DR-5 dispatch validation surfaces
-      // those slots through `describe` (parity with the Wave 5 actions
-      // registered post-#1437).
       const provenance = viewComposite!.actions.find(
         (a) => a.name === 'provenance',
       );
@@ -1250,33 +1079,30 @@ describe('TOOL_REGISTRY', () => {
     });
   });
 
-  // ─── WLM operational-core registration floor (DR-4 / DR-7) ────────────────
-  //
-  // The three new WLM operational-core actions are `serialize_merge` (the
-  // optimistic integration-branch merge lease, on exarchos_orchestrate, DR-7)
-  // and the liveness reads `ps` / `wait` (on exarchos_view, DR-4). The registry
-  // runs `validateAction` over EVERY action in a module-load loop, so any one of
-  // these missing its `outputSchema` or a malformed `annotations` block would
-  // throw at IMPORT time (DIM-3 contracts fail closed at startup, not at first
-  // call). These floor assertions pin that contract so a future registry edit
-  // that drops a schema/annotation on one of the new actions is caught here with
-  // a named failure rather than as an opaque import crash.
+  /**
+   * Covers `serialize_merge` on `exarchos_orchestrate`, and `ps` and `wait` on `exarchos_view`.
+   * The registry runs `validateAction` on each action at module load.
+   * Thus a missing `outputSchema` or a malformed `annotations` block throws at import.
+   * These tests give that regression a named failure.
+   */
   describe('WLM operational-core registration floor (DR-4/DR-7)', () => {
-    // [toolName, actionName] for each newly-registered operational-core action.
     const NEW_ACTIONS: ReadonlyArray<readonly [string, string]> = [
       ['exarchos_orchestrate', 'serialize_merge'],
       ['exarchos_view', 'ps'],
       ['exarchos_view', 'wait'],
     ];
 
+    /**
+     * Each action must declare an `outputSchema` with a `parse` method, which is the shape that `validateAction` requires.
+     * Each core annotation field must have the correct type.
+     * `ps` appends nothing, so its annotation must be read-only.
+     * `reconcile_worktrees` appends its repairs and converges on a repeat, so it is `local-mutation` and idempotent.
+     */
     it('Registry_NewActions_DeclareOutputSchemaAndCoreAnnotations', () => {
       for (const [tool, name] of NEW_ACTIONS) {
         const action = findAction(tool, name);
         expect(action, `${tool}.${name} must be registered`).toBeDefined();
 
-        // outputSchema: present AND a real Zod schema (has a `.parse` method —
-        // the exact shape `validateAction` requires before the response
-        // envelope can be type-checked).
         expect(
           action!.outputSchema,
           `${tool}.${name} must declare an outputSchema`,
@@ -1286,9 +1112,6 @@ describe('TOOL_REGISTRY', () => {
           `${tool}.${name}.outputSchema must be a Zod schema (got non-parseable value)`,
         ).toBe('function');
 
-        // annotations: present AND every core boolean field typed correctly,
-        // plus a recognized `safety` class. This mirrors the per-field shape the
-        // registry's `ActionAnnotationsSchema` enforces.
         const ann = action!.annotations;
         expect(ann, `${tool}.${name} must declare annotations`).toBeDefined();
         expect(typeof ann!.safety, `${tool}.${name}.annotations.safety`).toBe(
@@ -1312,34 +1135,26 @@ describe('TOOL_REGISTRY', () => {
         ).toBe('boolean');
       }
 
-      // Annotation honesty (REV-L1). `ps` carried local-mutation / idempotent
-      // while `probe:true` ran the DR-5 orphan emitter from a read verb. That
-      // write path is now `exarchos_orchestrate.reconcile_worktrees`, so `ps`
-      // is genuinely read-only and its annotation says so — an action that
-      // appends nothing must not claim it might. The conditional-write tuple
-      // moved WITH the effect rather than being dropped: `reconcile_worktrees`
-      // asserts it below, which is what keeps this a relocation and not a
-      // quiet downgrade of the surface's declared risk.
       const ps = findAction('exarchos_view', 'ps');
       const wait = findAction('exarchos_view', 'wait');
       expect(ps!.annotations!.safety).toBe('read-only');
-      expect(ps!.annotations!.readOnly).toBe(true); // every scope is a pure fold.
+      expect(ps!.annotations!.readOnly).toBe(true);
       expect(ps!.annotations!.destructive).toBe(false);
       expect(wait!.annotations!.readOnly).toBe(true);
       const reconcile = findAction('exarchos_orchestrate', 'reconcile_worktrees');
       expect(reconcile!.annotations!.safety).toBe('local-mutation');
-      expect(reconcile!.annotations!.readOnly).toBe(false); // the heals append.
-      expect(reconcile!.annotations!.idempotent).toBe(true); // and re-converge.
+      expect(reconcile!.annotations!.readOnly).toBe(false);
+      expect(reconcile!.annotations!.idempotent).toBe(true);
       expect(reconcile!.annotations!.destructive).toBe(false);
       const serializeMerge = findAction('exarchos_orchestrate', 'serialize_merge');
       expect(serializeMerge!.annotations!.readOnly).toBe(false);
     });
 
+    /**
+     * This file imports `TOOL_REGISTRY`, so the `validateAction` loop at module load did not throw.
+     * The test runs `validateAction` again on each of the three actions, to name the action that fails.
+     */
     it('Registry_ModuleLoad_DoesNotThrowOnNewActions', () => {
-      // `TOOL_REGISTRY` was already imported at module top — its module-load
-      // `validateAction` loop ran without throwing, otherwise this test file
-      // could not have loaded. Re-running the SAME fail-closed gate over each
-      // new action proves explicitly that none of them would crash startup.
       for (const [tool, name] of NEW_ACTIONS) {
         const action = findAction(tool, name);
         expect(action, `${tool}.${name} must be registered`).toBeDefined();
@@ -1350,16 +1165,11 @@ describe('TOOL_REGISTRY', () => {
         ).not.toThrow();
       }
 
-      // The module itself imports cleanly (cached re-import — asserts the
-      // load-time validation loop already succeeded for the whole registry).
       return expect(import('../../src/registry.js')).resolves.toBeDefined();
     });
 
+    /** The three actions sit on existing composites. The registry must still hold four visible tools and five composites in total. */
     it('Registry_VisibleCompositeToolCount_StaysFour', () => {
-      // INV-5d: the WLM operational-core actions are ACTIONS on existing
-      // composites, NOT new visible tools. The visible (non-hidden) composite
-      // count must stay at exactly 4 (the four top-level CLI verbs / MCP tools),
-      // with exarchos_sync the sole hidden composite (total 5).
       const visibleTools = TOOL_REGISTRY.filter((t) => !t.hidden);
       expect(visibleTools.length).toBe(4);
       expect(visibleTools.map((t) => t.name).sort()).toEqual([
@@ -1454,11 +1264,8 @@ describe('TOOL_REGISTRY', () => {
   });
 });
 
-// ─── CLI Hints Tests ──────────────────────────────────────────────────────────
-
 describe('CLI hints', () => {
   it('ToolAction_AcceptsCliHints_TypeChecks', () => {
-    // Arrange: create a ToolAction with cli hints
     const action: ToolAction = {
       name: 'test',
       description: 'test action',
@@ -1473,26 +1280,22 @@ describe('CLI hints', () => {
         format: 'table',
       },
     };
-    // Assert: cli fields are accessible
     expect(action.cli?.alias).toBe('ls');
     expect(action.cli?.flags?.id?.alias).toBe('i');
     expect(action.cli?.format).toBe('table');
   });
 
   it('CompositeTool_AcceptsCliHints_TypeChecks', () => {
-    // Arrange: create a CompositeTool with cli hints
     const tool: CompositeTool = {
       name: 'exarchos_test',
       description: 'test tool',
       actions: [],
       cli: { alias: 'tst', group: 'Testing' },
     };
-    // Assert
     expect(tool.cli?.alias).toBe('tst');
   });
 
   it('ToolAction_WithoutCliHints_StillWorks', () => {
-    // Arrange: ToolAction without cli field (backward compat)
     const action: ToolAction = {
       name: 'test',
       description: 'test',
@@ -1500,12 +1303,10 @@ describe('CLI hints', () => {
       phases: new Set([]),
       roles: new Set([]),
     };
-    // Assert: cli is undefined
     expect(action.cli).toBeUndefined();
   });
 
   it('TOOL_REGISTRY_EntriesStillTypeCheck', () => {
-    // Assert: existing registry is valid (no cli field = still works)
     expect(TOOL_REGISTRY.length).toBeGreaterThan(0);
     for (const tool of TOOL_REGISTRY) {
       expect(tool.name).toBeTruthy();
@@ -1513,8 +1314,6 @@ describe('CLI hints', () => {
     }
   });
 });
-
-// ─── Task 23: CLI Hints on Core Actions ──────────────────────────────────────
 
 describe('CLI hints on core workflow actions', () => {
   it('WorkflowTool_HasCliAlias', () => {
@@ -1539,9 +1338,6 @@ describe('CLI hints on core workflow actions', () => {
   });
 
   it('TransitionAction_HasFlagAliases', () => {
-    // T5a.1/DR-4 (#1259, v2.11): replaces the prior `SetAction_HasFlagAliases`
-    // test. `set` is removed; `transition` is the canonical phase-mutation
-    // surface and now anchors this CLI flag-alias coverage.
     const action = findAction('exarchos_workflow', 'transition');
     expect(action).toBeDefined();
     expect(action!.cli?.flags?.featureId?.alias).toBe('f');
@@ -1586,8 +1382,6 @@ describe('CLI hints on core workflow actions', () => {
   });
 });
 
-// ─── Task 24: CLI Examples on Common Actions ─────────────────────────────────
-
 describe('CLI examples on common actions', () => {
   it('CliHints_ExamplesPresent_ForCommonActions', () => {
     const initAction = findAction('exarchos_workflow', 'init');
@@ -1598,8 +1392,6 @@ describe('CLI examples on common actions', () => {
     expect(getAction!.cli?.examples).toBeDefined();
     expect(getAction!.cli!.examples!.length).toBeGreaterThan(0);
 
-    // T5a.1/DR-4 (#1259, v2.11): `set` removed; `transition` carries CLI
-    // example coverage as the canonical phase-mutation action.
     const transitionAction = findAction('exarchos_workflow', 'transition');
     expect(transitionAction!.cli?.examples).toBeDefined();
     expect(transitionAction!.cli!.examples!.length).toBeGreaterThan(0);
@@ -1633,8 +1425,6 @@ describe('CLI examples on common actions', () => {
     expect(action!.cli!.examples).toContain('exarchos vw ls');
   });
 });
-
-// ─── Dynamic Tool Registration Tests ─────────────────────────────────────────
 
 describe('Dynamic Tool Registration', () => {
   const fixtureContract: ActionContract = {
@@ -1725,14 +1515,11 @@ describe('Dynamic Tool Registration', () => {
   });
 
   it('GetFullRegistry_ReturnsBuiltInPlusCustom', () => {
-    // Before registration
     expect(getFullRegistry()).toHaveLength(TOOL_REGISTRY.length);
 
-    // After registration
     registerCustomTool(customTool);
     expect(getFullRegistry()).toHaveLength(TOOL_REGISTRY.length + 1);
 
-    // Built-ins are still there
     const names = getFullRegistry().map((t) => t.name);
     expect(names).toContain('exarchos_workflow');
     expect(names).toContain('exarchos_deploy');
@@ -1745,11 +1532,9 @@ describe('Dynamic Tool Registration', () => {
     const tool = full.find((t) => t.name === 'exarchos_deploy')!;
     const schema = buildRegistrationSchema(tool.actions);
 
-    // Should accept valid input
     const result = schema.safeParse({ action: 'trigger', target: 'production' });
     expect(result.success).toBe(true);
 
-    // Should reject invalid action
     const invalid = schema.safeParse({ action: 'nonexistent' });
     expect(invalid.success).toBe(false);
   });
@@ -1782,12 +1567,12 @@ describe('Dynamic Tool Registration', () => {
   });
 });
 
-// ─── Gate Metadata Tests ──────────────────────────────────────────────────────
-
 describe('Gate Metadata', () => {
+  /**
+   * The list omits `check_event_emissions`, which suggests missing events and is not a gate.
+   * The test also asserts that the registry holds each expected action.
+   */
   it('GateMetadata_CheckActions_HaveGateField', () => {
-    // check_event_emissions is intentionally excluded — it's an advisory hint action
-    // that returns missing event suggestions, not a gate with blocking/dimension metadata.
     const expectedCheckActions = new Set([
       'check_static_analysis', 'check_security_scan',
       'check_context_economy', 'check_operational_resilience', 'check_workflow_determinism',
@@ -1807,7 +1592,6 @@ describe('Gate Metadata', () => {
       }
     }
 
-    // Ensure every expected check action was actually found in the registry
     for (const expected of expectedCheckActions) {
       expect(
         visited.has(expected),
@@ -1816,11 +1600,8 @@ describe('Gate Metadata', () => {
     }
   });
 
+  /** The gate blocks on a violation of a check-mode invariant, so its gate metadata must declare `blocking: true`. */
   it('GateMetadata_CheckInvariantConformance_IsBlocking', () => {
-    // Task 027 / DR-15: after raising INV-13/14/16 to mode:check, this gate
-    // produces deterministic mechanical findings and BLOCKS on check-mode
-    // (blocking-severity) violations — so its registered gate metadata declares
-    // blocking:true (was false while it was purely advisory).
     const action = findAction('exarchos_orchestrate', 'check_invariant_conformance');
     expect(action, 'check_invariant_conformance must be registered').toBeDefined();
     expect(action!.gate, 'check_invariant_conformance must carry gate metadata').toBeDefined();
@@ -1828,20 +1609,16 @@ describe('Gate Metadata', () => {
   });
 });
 
-// ─── Slim Description Tests ───────────────────────────────────────────────────
-
 describe('Slim Description', () => {
   it('SlimDescription_AllVisibleTools_HaveSlimDescription', () => {
     for (const tool of TOOL_REGISTRY) {
       if (tool.hidden) continue;
       expect(tool.slimDescription, `${tool.name} should have slimDescription`).toBeDefined();
       expect(tool.slimDescription!.length).toBeGreaterThan(0);
-      expect(tool.slimDescription!).toContain('describe');  // Must mention describe action
+      expect(tool.slimDescription!).toContain('describe');
     }
   });
 });
-
-// ─── Dual Mode buildToolDescription Tests ─────────────────────────────────────
 
 describe('buildToolDescription dual mode', () => {
   it('BuildToolDescription_SlimMode_ReturnsSlimDescription', () => {
@@ -1865,8 +1642,6 @@ describe('buildToolDescription dual mode', () => {
   });
 });
 
-// ─── findActionInRegistry Tests ──────────────────────────────────────────────
-
 describe('findActionInRegistry', () => {
   it('FindActionInRegistry_ValidAction_ReturnsAction', () => {
     const action = findActionInRegistry('exarchos_workflow', 'init');
@@ -1883,8 +1658,6 @@ describe('findActionInRegistry', () => {
   });
 });
 
-// ─── Runbook Action Registry Tests ──────────────────────────────────────────
-
 describe('Runbook action in registry', () => {
   it('RunbookAction_ExistsInOrchestrateRegistry', () => {
     const orchTool = findComposite('exarchos_orchestrate');
@@ -1892,14 +1665,11 @@ describe('Runbook action in registry', () => {
     const runbookAction = orchTool!.actions.find(a => a.name === 'runbook');
     expect(runbookAction, 'exarchos_orchestrate should have a runbook action').toBeDefined();
     expect(runbookAction!.description).toBeTruthy();
-    // Should accept both empty and parameterized input
     expect(runbookAction!.schema.safeParse({}).success).toBe(true);
     expect(runbookAction!.schema.safeParse({ phase: 'delegate' }).success).toBe(true);
     expect(runbookAction!.schema.safeParse({ id: 'task-completion' }).success).toBe(true);
   });
 });
-
-// ─── Describe Action Registry Tests ──────────────────────────────────────────
 
 describe('Describe action in registry', () => {
   it('DescribeAction_AllVisibleTools_HaveDescribeAction', () => {
@@ -1910,8 +1680,6 @@ describe('Describe action in registry', () => {
     }
   });
 });
-
-// ─── Quality Hints View Action Tests ─────────────────────────────────────────
 
 describe('quality_hints view action', () => {
   it('ViewActions_IncludesQualityHintsAction', () => {
@@ -1926,35 +1694,30 @@ describe('quality_hints view action', () => {
     const action = findActionInRegistry('exarchos_view', 'quality_hints');
     expect(action).toBeDefined();
 
-    // workflowId only
     const result1 = action!.schema.safeParse({ workflowId: 'test-feature' });
     expect(result1.success).toBe(true);
 
-    // workflowId + skill
     const result2 = action!.schema.safeParse({
       workflowId: 'test-feature',
       skill: 'refactor',
     });
     expect(result2.success).toBe(true);
 
-    // empty object (both optional)
     const result3 = action!.schema.safeParse({});
     expect(result3.success).toBe(true);
   });
 });
 
-// ─── AutoEmits Drift Tests ──────────────────────────────────────────────────
-
 describe('AutoEmits Drift Tests', () => {
-  // The same non-auto-source check now runs at admission (normalizeEmission,
-  // src/registry/action-contract.ts) — this census is defense-in-depth,
-  // catching a drift that reaches TOOL_REGISTRY by any path that bypasses it.
+  /**
+   * Each declared emission must have the source `auto` in `EVENT_EMISSION_REGISTRY`.
+   * `normalizeEmission` in `src/registry/action-contract.ts` makes the same check at admission.
+   * This census catches a declaration that reaches `TOOL_REGISTRY` without that check.
+   * It also asserts a floor on the count of actions that declare emissions, so a mass loss of declarations fails.
+   */
   it('RegistryDrift_AutoEmitsMatchEventEmissionRegistry', async () => {
     const { EVENT_EMISSION_REGISTRY } = await import('../../src/events/schemas.js');
 
-    // Measured against the live declared population, not a boolean floor of
-    // one: a single surviving row would pass `anyPopulated` just as happily
-    // as a mass collapse would fail to redden it.
     let populatedCount = 0;
     const violations: string[] = [];
 
@@ -2005,13 +1768,11 @@ describe('AutoEmits Drift Tests', () => {
     expect(violations, `Description/autoEmits drift:\n${violations.join('\n')}`).toEqual([]);
   });
 
+  /**
+   * An action that emits events writes to the event store, so it must not declare `readOnly: true`.
+   * A wrong annotation lets a client with only the read-only capability change state.
+   */
   it('RegistryDrift_AutoEmitsImpliesNotReadOnly', () => {
-    // Capability-model invariant: any action that emits events writes to
-    // the event store, so it MUST NOT advertise `readOnly: true`. A
-    // mis-annotation lets read-only-capability clients mutate state and
-    // bypass capability gates (sentry HIGH on PR #1369: `check_convergence`
-    // and `doctor` were both `READ_ONLY_LOCAL` despite emitting
-    // `gate.executed` / `diagnostic.executed`).
     const violations: string[] = [];
     for (const tool of TOOL_REGISTRY) {
       for (const action of tool.actions) {
@@ -2032,8 +1793,6 @@ describe('AutoEmits Drift Tests', () => {
   });
 });
 
-// ─── Plugin Integration: prepare_review & pluginFindings (DR-1, DR-3) ────────
-
 describe('Plugin Integration Registry Wiring', () => {
   it('RegistryActions_PrepareReview_Registered', () => {
     const orchTool = findComposite('exarchos_orchestrate');
@@ -2041,26 +1800,20 @@ describe('Plugin Integration Registry Wiring', () => {
     const prepareReview = orchTool!.actions.find((a) => a.name === 'prepare_review');
     expect(prepareReview, 'exarchos_orchestrate should have a prepare_review action').toBeDefined();
     expect(prepareReview!.description).toBeTruthy();
-    // Should accept valid input
     expect(prepareReview!.schema.safeParse({ featureId: 'test-feature' }).success).toBe(true);
-    // Should accept optional fields
     expect(prepareReview!.schema.safeParse({
       featureId: 'test-feature',
       scope: 'full',
       dimensions: ['error-handling'],
     }).success).toBe(true);
-    // Should include review phases
     expect(prepareReview!.phases.has('review')).toBe(true);
     expect(prepareReview!.phases.has('overhaul-review')).toBe(true);
     expect(prepareReview!.phases.has('debug-review')).toBe(true);
-    // Should be lead-only
     expect(prepareReview!.roles.has('lead')).toBe(true);
   });
 
+  /** The shepherd loop calls `classify_review_items` in `synthesize`. Without that phase, the phase guard rejects the call. */
   it('RegistryActions_ClassifyReviewItems_IncludesSynthesizePhase', () => {
-    // Regression: shepherd invokes classify_review_items during synthesize.
-    // If this action is restricted to REVIEW_PHASES only, the runtime
-    // phase-guard rejects the call and breaks the shepherd loop (#1161).
     const action = findAction('exarchos_orchestrate', 'classify_review_items');
     expect(action).toBeDefined();
     expect(action!.phases.has('synthesize')).toBe(true);
@@ -2069,11 +1822,11 @@ describe('Plugin Integration Registry Wiring', () => {
     expect(action!.phases.has('debug-review')).toBe(true);
   });
 
+  /** The parsed data must keep `pluginFindings`. A schema that does not declare the field strips it. */
   it('RegistryActions_CheckReviewVerdict_HasPluginFindingsInSchema', () => {
     const action = findAction('exarchos_orchestrate', 'check_review_verdict');
     expect(action).toBeDefined();
 
-    // Verify the schema shape includes pluginFindings by checking parsed output
     const result = action!.schema.safeParse({
       featureId: 'test-feature',
       high: 0,
@@ -2091,7 +1844,6 @@ describe('Plugin Integration Registry Wiring', () => {
       ],
     });
     expect(result.success).toBe(true);
-    // Crucially: the parsed data must RETAIN pluginFindings (not strip it)
     if (result.success) {
       const data = result.data as Record<string, unknown>;
       expect(data.pluginFindings).toBeDefined();
@@ -2102,7 +1854,6 @@ describe('Plugin Integration Registry Wiring', () => {
       expect(findings[0].severity).toBe('MEDIUM');
     }
 
-    // Should also accept without pluginFindings (optional)
     const resultWithout = action!.schema.safeParse({
       featureId: 'test-feature',
       high: 0,
@@ -2112,13 +1863,11 @@ describe('Plugin Integration Registry Wiring', () => {
     expect(resultWithout.success).toBe(true);
   });
 
+  /**
+   * A caller can request synthesis in `plan`, before the work starts.
+   * The request event stays in the stream until `finalize_oneshot` reads it.
+   */
   it('RegistryActions_RequestSynthesize_AllowsPlanAndImplementingPhases', () => {
-    // request_synthesize must be callable from both `plan` and `implementing`
-    // phases. The synthesisOptedIn guard only fires at the implementing →
-    // choice-state boundary, so appending the event earlier (during planning)
-    // is idempotent — the event sits in the stream until finalize_oneshot
-    // reads it. Restricting to `implementing` only broke the "I know I'll
-    // want a PR" signal during planning.
     const action = findAction('exarchos_orchestrate', 'request_synthesize');
     expect(action, 'exarchos_orchestrate should have a request_synthesize action').toBeDefined();
     expect(action!.phases.has('plan')).toBe(true);
@@ -2126,13 +1875,11 @@ describe('Plugin Integration Registry Wiring', () => {
   });
 });
 
-// #1499 — WS2 migrated pre_synthesis_check / verify_review_triage /
-// extract_fix_tasks to resolveWorkflowState (event-store fallback). featureId
-// MUST stay optional so the shipped stateFile-only skill callers
-// (quality-review Step 0.5, delegation fix-mode) are not rejected at the
-// dispatch boundary. The "at least one source" cross-field rule lives in the
-// handlers (Zod single-field `.min(1)` can't express it).
 describe('#1499 state-source migration schema (regression guard)', () => {
+  /**
+   * The skill callers of these two actions can pass only `stateFile`, so `featureId` must stay optional.
+   * A call with only `featureId` reads the event store, and it must also validate.
+   */
   it.each([
     'verify_review_triage',
     'extract_fix_tasks',
@@ -2143,21 +1890,20 @@ describe('#1499 state-source migration schema (regression guard)', () => {
       found!.schema.safeParse({ stateFile: '/tmp/wf.state.json' }).success,
       `${action} must accept stateFile-only`,
     ).toBe(true);
-    // The canonical event-store path (featureId-only) must also validate.
     expect(found!.schema.safeParse({ featureId: 'wf-x' }).success).toBe(true);
   });
 
+  /**
+   * These two actions declare durable gate evidence, and the postcondition observer reads it on the stream that the call names.
+   * A call with only `stateFile` names no stream, so the schema must reject it.
+   * `stateFile` stays as an override for state resolution.
+   */
   it.each([
     'pre_synthesis_check',
     'post_delegation_check',
   ])('%s requires featureId — the stream its declared evidence records against', (action) => {
     const found = findActionInRegistry('exarchos_orchestrate', action);
     expect(found, `${action} must be registered`).toBeDefined();
-    // These two declare durable gate evidence, and the postcondition observer
-    // reads that record on the stream the CALL names. A stateFile-only call had
-    // no stream to record against, so the declaration could not be paid — the
-    // gate returned a success carrier that had broken its own contract.
-    // `stateFile` stays available as the state-resolution override.
     expect(
       found!.schema.safeParse({ stateFile: '/tmp/wf.state.json', repoRoot: '.' }).success,
       `${action} must reject stateFile-only`,
@@ -2166,12 +1912,7 @@ describe('#1499 state-source migration schema (regression guard)', () => {
   });
 });
 
-// ─── DR-11 (#1259): outputSchema registers _meta.deprecation ─────────────────
-//
-// T5a.1/DR-4 (v2.11): `set` action removed. Per INV-5b the
-// `_meta.deprecation` schema slot is retained on `transition` for one
-// more release as a historical marker (v2.12 drops the slot itself), so
-// this test is narrowed to cover only the canonical action.
+/** The output schema of `transition` keeps an optional `_meta.deprecation` slot. */
 describe('Registry_OutputSchema (T40, DR-11)', () => {
   function findAction(toolName: string, actionName: string): ToolAction {
     const tool = TOOL_REGISTRY.find((t) => t.name === toolName);
@@ -2180,19 +1921,19 @@ describe('Registry_OutputSchema (T40, DR-11)', () => {
     return action;
   }
 
+  /**
+   * Each envelope holds `next_actions` and `_perf`, as the success branch of `EnvelopeSchema` requires.
+   * The schema must accept an envelope with a full deprecation block and an envelope with none.
+   * It must reject a deprecation block whose `replacement` is missing or empty.
+   */
   it('Registry_OutputSchema_RegistersMetaDeprecationOnAffectedActions', () => {
     const transitionAction = findAction('exarchos_workflow', 'transition');
 
     expect(transitionAction).toBeDefined();
     expect(transitionAction!.outputSchema).toBeDefined();
 
-    // Canonical envelope shape (EnvelopeSchema factory): success branch
-    // requires next_actions[] and _perf{ms,bytes,tokens}. Wave 0 / Task G.2
-    // consolidates the three standalone constants onto EnvelopeSchema so
-    // the asserted shape here reflects the canonical envelope.
     const perf = { ms: 0, bytes: 0, tokens: 0 };
 
-    // The schema accepts a deprecation envelope with all three fields.
     const goodEnvelope = {
       success: true,
       data: { phase: 'plan', updatedAt: '2026-05-08T00:00:00Z' },
@@ -2210,8 +1951,6 @@ describe('Registry_OutputSchema (T40, DR-11)', () => {
       true,
     );
 
-    // The schema rejects deprecation envelopes missing required sub-fields
-    // (each of `since`, `removeIn`, `replacement` must be present + non-empty).
     const missingReplacement = {
       success: true,
       data: { phase: 'plan' },
@@ -2236,8 +1975,6 @@ describe('Registry_OutputSchema (T40, DR-11)', () => {
       transitionAction!.outputSchema!.safeParse(emptyReplacement).success,
     ).toBe(false);
 
-    // The deprecation field is optional — responses without it (the
-    // canonical `transition` arm never emits one) still validate.
     const noDeprecation = {
       success: true,
       data: { phase: 'plan', updatedAt: '2026-05-08T00:00:00Z' },
@@ -2251,26 +1988,19 @@ describe('Registry_OutputSchema (T40, DR-11)', () => {
   });
 });
 
-// ─── Wave 0 / Task G.2 — Envelope-factory consolidation ──────────────────
-//
-// The three standalone `Workflow{Set,Transition,Update}OutputSchema`
-// constants — declared in v2.10.0-preview.2 as the LCD-envelope prototype
-// — are consolidated as thin wrappers over the `EnvelopeSchema(dataSchema)`
-// factory from `contract/schemas/envelope.ts`. The constants remain as deprecated
-// re-exports for one release window so any downstream typed-import
-// consumer doesn't break; canonical replacement is `EnvelopeSchema` directly.
+/**
+ * `WorkflowSetOutputSchema`, `WorkflowTransitionOutputSchema` and `WorkflowUpdateOutputSchema` are deprecated wrappers.
+ * Each one derives from the `EnvelopeSchema` factory in `contract/schemas/envelope.ts`.
+ */
 describe('Registry_OutputSchema (Wave 0 / G.2)', () => {
+  /** `wrap()` builds the envelope. The transition and set wrappers must also accept a deprecation block in `_meta`. */
   it('WorkflowTransitionOutputSchema_DerivedFromEnvelopeFactory_ParsesValidSuccessEnvelope', () => {
-    // Build a canonical success envelope via `wrap()`, then attach a
-    // typed deprecation sub-shape on `_meta` — the consolidated factory
-    // wrapper must accept both the envelope core and the deprecation slot.
     const env = wrap(
       { phase: 'plan' },
       { deprecation: { since: '2.10', removeIn: '2.12', replacement: 'transition' } },
     );
     expect(WorkflowTransitionOutputSchema.safeParse(env).success).toBe(true);
 
-    // Symmetric coverage for the other two consolidated wrappers.
     expect(WorkflowSetOutputSchema.safeParse(env).success).toBe(true);
     const updateEnv = wrap({ phase: 'plan' }, {});
     expect(WorkflowUpdateOutputSchema.safeParse(updateEnv).success).toBe(true);
@@ -2290,10 +2020,10 @@ describe('Registry_OutputSchema (Wave 0 / G.2)', () => {
     expect(WorkflowUpdateOutputSchema.safeParse(errEnv).success).toBe(true);
   });
 
-  // #1360 / PR 2 — RESERVED_FIELD errors emitted by handleSet carry a
-  // typed `data` block (`{rejectedPath, rule, alternateWritePath}`). The
-  // registered outputSchema for `exarchos_workflow.update`'s error branch
-  // must validate that envelope without stripping or rejecting `data`.
+  /**
+   * A `RESERVED_FIELD` error carries a typed `data` block with `rejectedPath`, `rule` and `alternateWritePath`.
+   * The error branch of the `update` output schema must accept that envelope and keep `data`.
+   */
   it('WorkflowUpdate_ErrorBranch_OutputSchemaPermitsTypedData', () => {
     const reservedFieldEnv = {
       success: false as const,
@@ -2314,7 +2044,6 @@ describe('Registry_OutputSchema (Wave 0 / G.2)', () => {
     const parsed = WorkflowUpdateOutputSchema.safeParse(reservedFieldEnv);
     expect(parsed.success).toBe(true);
     if (parsed.success) {
-      // The error branch's `passthrough()` must preserve `data` end-to-end.
       const env = parsed.data as { success: false; error: Record<string, unknown> };
       expect(env.error.data).toBeDefined();
       const errData = env.error.data as Record<string, unknown>;
@@ -2324,11 +2053,12 @@ describe('Registry_OutputSchema (Wave 0 / G.2)', () => {
   });
 });
 
-// ─── Wave 0 / Task A.5 — ActionAnnotations (#1289, design §2.4) ────────
-//
-// Server-trusted `safety` field + MCP-spec advisory *Hint flags
-// (readOnly/destructive/idempotent/openWorld). Validator must throw with
-// the action name surfaced for operator-friendly errors.
+/**
+ * An annotation record holds the server-trusted `safety` class and four advisory flags.
+ * The flags are `readOnly`, `destructive`, `idempotent` and `openWorld`.
+ * The schema rejects a record whose flags contradict its `safety` class, such as `read-only` with `readOnly: false`.
+ * Without that rule, a contradictory record can give an action that writes the server-trusted `read-only` class.
+ */
 describe('ActionAnnotationsSchema', () => {
   const valid: ActionAnnotations = {
     safety: 'read-only',
@@ -2360,12 +2090,11 @@ describe('ActionAnnotationsSchema', () => {
     }
   });
 
+  /** The schema must also accept the canonical record of each `safety` value. */
   it('ActionAnnotationsSchema_AcceptsCompleteRecord_Succeeds', () => {
     const result = ActionAnnotationsSchema.safeParse(valid);
     expect(result.success).toBe(true);
 
-    // Each safety enum value paired with its canonical mapping (see
-    // registry.ts §"Mapping rules" comment block).
     const canonicalByEnumValue: Record<ActionAnnotations['safety'], ActionAnnotations> = {
       'read-only': {
         safety: 'read-only',
@@ -2413,16 +2142,6 @@ describe('ActionAnnotationsSchema', () => {
       );
     }
   });
-
-  // ─── Mapping-rule invariants (CodeRabbit PR #1369 major) ──────────────
-  //
-  // The shape-only schema admitted contradictory tuples like
-  // `safety: 'read-only' + readOnly: false`, which would have silently
-  // labeled an event-emitting action as advisory-safe. superRefine
-  // enforces the mapping rules documented in registry.ts so the same
-  // class of error that produced the doctor / check_convergence Sentry
-  // HIGH finding cannot reappear elsewhere — INV-5b (spec-aligned output
-  // contract) fails closed at module load.
 
   it('ActionAnnotationsSchema_RejectsReadOnlySafetyWithReadOnlyFalse_Fails', () => {
     const result = ActionAnnotationsSchema.safeParse({
@@ -2489,6 +2208,7 @@ describe('validateAnnotations', () => {
     openWorld: false,
   };
 
+  /** The message must name the action and at least one missing field, so an operator can find the fault. */
   it('validateAnnotations_ThrowsOnPartialObject_IncludesFieldName', () => {
     const partial = { safety: 'local-mutation', readOnly: false };
 
@@ -2500,10 +2220,7 @@ describe('validateAnnotations', () => {
     }
 
     expect(caught).toBeInstanceOf(Error);
-    // The action name must be present so operators can locate the offender.
     expect(caught!.message).toContain('composeMessage');
-    // At least one missing field name must surface in the message so the
-    // operator does not have to re-derive what's wrong from a generic error.
     const mentionsAMissingField =
       caught!.message.includes('destructive') ||
       caught!.message.includes('idempotent') ||
@@ -2516,17 +2233,10 @@ describe('validateAnnotations', () => {
   });
 });
 
-// ─── Wave 0 / Tasks C.1 + C.2 — Registry Invariant Tests ─────────────
-//
-// Every action in every visible AND hidden tool must declare both
-// `outputSchema` (a Zod schema) and `annotations` (a typed
-// ActionAnnotations record). Failure surface includes the
-// `${tool}.${action}` identifier so an operator can navigate from
-// a failed CI run to the offending entry in <1 minute.
-//
-// Design §2.1 (outputSchema as the per-action contract surface) +
-// §2.4 (annotations for safety + MCP advisory hints). Issues #1287 +
-// #1289.
+/**
+ * Each action of each tool, visible or hidden, must declare a Zod `outputSchema` and an `annotations` record.
+ * A failure names the `<tool>.<action>` that breaks the rule.
+ */
 describe('Registry invariants — outputSchema + annotations', () => {
   it('Registry_AllActionsAcrossVisibleAndHiddenTools_DeclareOutputSchema', () => {
     const offenders: string[] = [];
@@ -2545,6 +2255,7 @@ describe('Registry invariants — outputSchema + annotations', () => {
     expect(offenders, offenders.join('\n')).toEqual([]);
   });
 
+  /** The test validates each record again, so a record that drifts from the schema fails here. */
   it('Registry_AllActionsAcrossVisibleAndHiddenTools_DeclareAnnotations', () => {
     const offenders: string[] = [];
     for (const tool of getFullRegistry()) {
@@ -2555,8 +2266,6 @@ describe('Registry invariants — outputSchema + annotations', () => {
           continue;
         }
         try {
-          // Re-validate the shape so a hand-edited annotations field that
-          // drifts from the schema is caught here, not at first use.
           validateAnnotations(action.annotations, id);
         } catch (err) {
           offenders.push(
@@ -2569,15 +2278,11 @@ describe('Registry invariants — outputSchema + annotations', () => {
   });
 });
 
-// ─── Wave 0 / Task C.3 — validateAction (registration-time invariant) ──
-//
-// `validateAction` is the per-action gate the registry runs at module
-// load. It surfaces missing `outputSchema` / `annotations` declarations
-// with the fully-qualified `${tool}.${action}` identifier so the
-// failure points the operator straight at the offender.
+/**
+ * `validateAction` is the gate that the registry runs on each action at module load.
+ * Its error names the `<tool>.<action>` that has no `outputSchema`, no valid `annotations` or no `actionContract`.
+ */
 describe('validateAction', () => {
-  // Local import: the function must be exported from `./registry.js`
-  // alongside the existing `validateAnnotations` helper.
   const importValidateAction = async () => {
     const mod = await import('../../src/registry.js');
     return (mod as { validateAction: (
@@ -2764,19 +2469,12 @@ describe('validateAction', () => {
   });
 });
 
-// ─── Preview-4 / T2 — DispatchHints on ToolAction (#1440 Op 2) ─────────
-//
-// Adds an optional, action-descriptor-level `dispatch: DispatchHints`
-// block so future tasks (T8 describe projection, T9 annotations, T11
-// retry_with_task verb) can annotate which actions are long-running and
-// benefit from Tasks-augmented dispatch. Lives at the descriptor level
-// (sibling to `cli`, `gate`, `autoEmits`), not under `cli.`, because the
-// Tasks dispatch-core is shared between CLI and MCP facades (INV-2). See
-// design §4.3.
-//
-// This test asserts the shape only — no annotations on existing actions
-// land in T2; those are T9's job. The actual opt-in gate stays at
-// `dispatch/core/dispatch.ts:927-954`; this marker is advisory.
+/**
+ * `dispatch` is an optional, advisory block on the action descriptor, beside `cli` and `gate`.
+ * It is not under `cli`, because the CLI and MCP adapters share the dispatch core.
+ * Each test builds a `ToolAction` literal and reads it back.
+ * No typecheck program includes `tests/unit`, so these tests do not prove the declared type of the field.
+ */
 describe('ToolAction.dispatch - DispatchHints shape', () => {
   it('ToolAction_DispatchHintsShape_OptionalTaskSuitableField', () => {
     const action: ToolAction = {
@@ -2799,19 +2497,12 @@ describe('ToolAction.dispatch - DispatchHints shape', () => {
       },
     };
 
-    // Anchor the type-level assertion with a runtime check so the test
-    // also fails loudly under vitest if the field is dropped or renamed
-    // (TS-only tests get excluded from CI typecheck — see
-    // tsconfig.json's `**/*.test.ts` exclude).
     expect(action.dispatch).toBeDefined();
     expect(action.dispatch?.taskSuitable).toBe(true);
     expect(action.dispatch?.taskTtlSuggestionMs).toBe(60_000);
   });
 
   it('ToolAction_DispatchHintsShape_FieldIsOptional', () => {
-    // Omitting `dispatch` must still satisfy `ToolAction`. This guards
-    // against the field being inadvertently promoted to required, which
-    // would force every existing action to annotate before T9 lands.
     const actionNoDispatch: ToolAction = {
       name: 'readOnlyExample',
       description: 'Example read-only action without DispatchHints.',
@@ -2832,25 +2523,11 @@ describe('ToolAction.dispatch - DispatchHints shape', () => {
   });
 });
 
-// ─── T9 (#1440 Op 2, preview-4 design §4.3) — Task-suitable annotations ──
-//
-// The four initial task-suitable targets from design §4.3:
-//   - `exarchos_orchestrate merge_orchestrate` (multi-step git merge)
-//   - `exarchos_orchestrate request_synthesize` — the registry-canonical
-//     name for the design's "synthesize" verb (PR creation flow flipped
-//     by emitting `synthesize.requested` to the choice-state guard).
-//     The design §4.3 callout lists "synthesize" as the logical verb;
-//     `request_synthesize` is its registry-name realization and lives
-//     under `exarchos_orchestrate` alongside the other gate verbs, NOT
-//     under `exarchos_workflow` (which only carries the HSM-level
-//     primitives `init`/`get`/`transition`/`update`/`cancel`/...).
-//   - `exarchos_workflow cleanup` (post-merge cleanup)
-//   - `exarchos_workflow rehydrate` (full state rebuild)
-//
-// Each must carry `dispatch: { taskSuitable: true,
-// taskTtlSuggestionMs: 60_000 }`. Annotations are advisory — the binding
-// opt-in gate stays at `dispatch/core/dispatch.ts:927-954` — so this test only
-// pins the registry-side declaration, not behavior.
+/**
+ * Four long-running actions must declare `dispatch: { taskSuitable: true, taskTtlSuggestionMs: 60_000 }`.
+ * The actions are `merge_orchestrate`, `request_synthesize`, `cleanup` and `rehydrate`.
+ * The block is advisory, so the test pins only the registry declaration and not the dispatch behavior.
+ */
 describe('Registry — taskSuitable annotations (T9, #1440 Op 2)', () => {
   it('Registry_TaskSuitableAnnotations_FourActionsMarked', () => {
     const orchestrateTool = TOOL_REGISTRY.find(t => t.name === 'exarchos_orchestrate');
@@ -2885,14 +2562,11 @@ describe('Registry — taskSuitable annotations (T9, #1440 Op 2)', () => {
   });
 });
 
-// ─── T6 (#1555) — `asOf` bounded-fold param on get / view actions ───────────
-//
-// The registered `get` (and the chosen `view` actions) accept an optional
-// mutually-exclusive `asOf` bound, validated identically to
-// `GetInputSchema.asOf`. INV-5b: adding `asOf` changes WHICH point is
-// projected, never the result SHAPE — so each action's registered
-// `outputSchema` stays byte-identical (`EnvelopeSchema(z.unknown())`).
-
+/**
+ * `get` and `workflow_status` accept an optional `asOf` bound, and its two fields are mutually exclusive.
+ * `asOf` selects the point that the projection reads and does not change the result shape.
+ * Thus the output schema of each action stays a generic envelope that accepts any `data`.
+ */
 describe('asOf registry schema (T6, #1555)', () => {
   it('registry_getAction_asOfUntilSequence_parses', () => {
     const action = findAction('exarchos_workflow', 'get');
@@ -2924,13 +2598,8 @@ describe('asOf registry schema (T6, #1555)', () => {
   });
 
   it('registry_getAction_outputSchemaUnchanged', () => {
-    // INV-5b: the `get` action result shape is the unchanged generic
-    // envelope. Adding `asOf` must NOT touch the registered outputSchema.
     const action = findAction('exarchos_workflow', 'get');
     expect(action!.outputSchema).toBeDefined();
-    // A generic envelope accepts any `data` payload — the asOf addition
-    // does not narrow or reshape it. Round-trip a representative envelope
-    // through the registered schema to pin the shape.
     const envelope = wrap({ phase: 'ideate' }, {}, { ms: 1 }, []);
     expect(action!.outputSchema!.safeParse(envelope).success).toBe(true);
   });
@@ -2943,71 +2612,64 @@ describe('asOf registry schema (T6, #1555)', () => {
   });
 });
 
-// ─── harness-launcher verb conformance + Windows CI lane (task 015) ──────────
-//
-// DR-1 / DR-8. The `exarchos <harness>` launcher is a CLI-only process-supervisor
-// verb (the stdio MCP surface cannot own a child's lifecycle), so:
-//   - its INV-5 conformance surface (schema constraints + when-NOT-to-use) lives
-//     on the verb module, not in TOOL_REGISTRY;
-//   - it must NOT grow the visible MCP tool count (INV-5d);
-//   - its win32-fragile tests are gated by a NAMED Windows CI lane (DR-8).
-// These four tests are co-located here (registry.test.ts is the visible-tool-count
-// home) per the task's lane discipline.
+/**
+ * The `exarchos <harness>` launcher is a CLI-only verb, because the stdio MCP surface cannot own the lifecycle of a child process.
+ * Thus its schema constraints and its when-not-to-use clauses are on the verb module and not in `TOOL_REGISTRY`.
+ * The verb must add no visible MCP tool. A named Windows CI lane must run its tests that are fragile on win32.
+ */
 describe('harness-launcher verb conformance + Windows CI lane (task 015, DR-1/DR-8)', () => {
-  // ─── INV-5 verb conformance (DR-1) ────────────────────────────────────────
-
+  /**
+   * The constraints must name the schema fields `harness`, `feature` and `dryRun`, and each Tier-1 harness.
+   * Thus the documented `harness` constraint cannot drift from the enum.
+   * They must also name `validTargets`, which the error for an unknown harness carries.
+   */
   it('Verb_SchemaConstraints_Present', () => {
     const { schemaConstraints } = LAUNCHER_VERB_CONFORMANCE;
     expect(Array.isArray(schemaConstraints)).toBe(true);
     expect(schemaConstraints.length).toBeGreaterThan(0);
 
-    // Every constraint statement is a non-empty string.
     for (const constraint of schemaConstraints) {
       expect(typeof constraint).toBe('string');
       expect(constraint.trim().length).toBeGreaterThan(0);
     }
 
-    // Each of the three schema fields has its constraint spelled out.
     const joined = schemaConstraints.join('\n');
     expect(joined).toContain('harness');
     expect(joined).toContain('feature');
     expect(joined).toContain('dryRun');
 
-    // The harness constraint enumerates the exact Tier-1 enum, so the documented
-    // constraint cannot drift from the enforced LauncherVerbSchema.
     for (const harness of TIER1_HARNESSES) {
       expect(joined).toContain(harness);
     }
-    // ...and names the structured-error escape hatch for an unknown value.
     expect(joined).toContain('validTargets');
   });
 
+  /**
+   * Each clause must hold the words "do not use".
+   * The clauses must name `serialize_merge` for integration merges, and `adopt` for the nested worktrees that a harness creates.
+   * They must also name the `generic` runtime, which has no process to start.
+   */
   it('Verb_WhenNotToUse_Present', () => {
     const { whenNotToUse } = LAUNCHER_VERB_CONFORMANCE;
     expect(Array.isArray(whenNotToUse)).toBe(true);
     expect(whenNotToUse.length).toBeGreaterThan(0);
 
-    // Every entry is an explicit "do NOT use" negative-space clause (the same
-    // convention merge_orchestrate / invariants_scaffold descriptions follow).
     for (const clause of whenNotToUse) {
       expect(typeof clause).toBe('string');
       expect(clause.toLowerCase()).toContain('do not use');
     }
 
-    // The clause points at the right alternatives for the load-bearing misuses,
-    // so an agent is steered off the wrong surface (INV-5a), not just told "no".
     const joined = whenNotToUse.join('\n');
-    expect(joined).toContain('serialize_merge'); // integration merges
-    expect(joined).toContain('adopt'); // harness-created nested worktrees
-    expect(joined.toLowerCase()).toContain('generic'); // no process to spawn
+    expect(joined).toContain('serialize_merge');
+    expect(joined).toContain('adopt');
+    expect(joined.toLowerCase()).toContain('generic');
   });
 
-  // ─── Visible-tool-count fence (DR-1, INV-5d) ──────────────────────────────
-
+  /**
+   * The registry must still hold four visible tools.
+   * It must hold no tool and no action named `launch`, `launcher`, the launcher verb or a Tier-1 harness.
+   */
   it('VisibleToolCount_Unchanged', () => {
-    // The launcher verb is CLI-only, so importing its module MUST NOT grow the
-    // visible MCP tool surface. The four user-facing composites stay exactly
-    // what they were; exarchos_sync remains the sole hidden composite (total 5).
     const visibleTools = TOOL_REGISTRY.filter((t) => !t.hidden);
     expect(visibleTools.length).toBe(4);
     expect(visibleTools.map((t) => t.name).sort()).toEqual([
@@ -3018,8 +2680,6 @@ describe('harness-launcher verb conformance + Windows CI lane (task 015, DR-1/DR
     ]);
     expect(TOOL_REGISTRY).toHaveLength(5);
 
-    // No composite tool or action leaks the launcher verb / a harness target
-    // onto the callable MCP surface.
     const allNames = TOOL_REGISTRY.flatMap((t) => [
       t.name,
       ...t.actions.map((a) => a.name),
@@ -3035,24 +2695,16 @@ describe('harness-launcher verb conformance + Windows CI lane (task 015, DR-1/DR
     }
   });
 
-  // ─── Windows CI lane (DR-8) ───────────────────────────────────────────────
-  //
-  // Parses .github/workflows/ci.yml and asserts a Windows lane WIRES the two
-  // named win32-fragile tests OS-native: the async spawn shim resolution (task
-  // 003) and the worktree path derivation/containment (task 009). Naming the
-  // files (not just `npm run test:run`) means a future path-filter / matrix
-  // regression that drops them fails this assertion loudly rather than passing
-  // green-on-zero. The "required/blocking" gating itself is a GitHub
-  // branch-protection setting (out-of-repo, not vitest-assertable) — tracked as
-  // a manual repo-settings step in the merge PR checklist.
+  /**
+   * Parses `.github/workflows/ci.yml` and asserts that one Windows job names the two test files that are fragile on win32.
+   * A job that only runs the full suite does not count, so a path filter that drops one file fails here.
+   * The path to `ci.yml` resolves from this file, so the working directory of the runner does not matter.
+   * Branch protection decides if the lane is required. That setting is outside the repository, and this test cannot assert it.
+   */
   it('WindowsLane_RunsNamedSpawnAndPathTests_Required', () => {
     const SPAWN_TEST = 'tests/unit/utils/process.spawn.test.ts';
     const PATH_TEST = 'tests/unit/runtime/launcher/topology.test.ts';
 
-    // registry.test.ts lives under tests/unit — the repo root (which
-    // owns .github/) is two levels up. Resolved from the source file, so the
-    // walk holds regardless of the test runner's cwd. This stays INSIDE the
-    // worktree (ci.yml is a worktree file), so the `..` walk never escapes it.
     const here = dirname(fileURLToPath(import.meta.url));
     const ciPath = resolve(here, '../../.github/workflows/ci.yml');
     const raw = readFileSync(ciPath, 'utf8');
@@ -3064,7 +2716,6 @@ describe('harness-launcher verb conformance + Windows CI lane (task 015, DR-1/DR
     expect(jobs !== null && typeof jobs === 'object').toBe(true);
     const jobsMap = jobs as Record<string, unknown>;
 
-    // Collect every job that runs on a real Windows host.
     const windowsJobs = Object.entries(jobsMap).filter(([, job]) => {
       if (job === null || typeof job !== 'object') return false;
       const runsOn = (job as Record<string, unknown>)['runs-on'];
@@ -3075,8 +2726,6 @@ describe('harness-launcher verb conformance + Windows CI lane (task 015, DR-1/DR
       'ci.yml must wire at least one windows-latest lane',
     ).toBeGreaterThan(0);
 
-    // At least one Windows lane must NAME both win32-fragile test files in its
-    // steps (not merely run the whole suite) — so dropping either is caught.
     const jobNamesBothTests = windowsJobs.filter(([, job]) => {
       const steps = (job as Record<string, unknown>).steps;
       const serialized = JSON.stringify(steps ?? job);
@@ -3089,22 +2738,11 @@ describe('harness-launcher verb conformance + Windows CI lane (task 015, DR-1/DR
   });
 });
 
-// ─── DR-1 / Task 002: economy descriptor block + default budgets ─────────────
-//
-// These tests pin the registry-declared response-economy contract: every
-// action resolves a concrete budget (declared `economy.budgetTokens` or the
-// registry-wide default), the verbose-by-design allowlist declares explicit
-// higher budgets, and `describe` surfaces the effective budget. Enforcement
-// (capping at the dispatch-core seam) is Task 003 and out of scope here.
-
 /**
- * Golden table pinning EVERY action's effective response budget
- * (`tool.action` → resolved tokens). This is the DR-1 economy contract made
- * enumerable: a new action, a removed action, or any budget change surfaces
- * as a diff against this table, forcing a deliberate economy decision per
- * action. Keys are `${toolName}.${actionName}` because action names repeat
- * across tools (`describe` is on every tool). If this table diffs, do not
- * blindly update it — confirm the new/changed budget is intentional first.
+ * The effective response budget of each action, in tokens.
+ * The key is `<tool>.<action>`, because an action name such as `describe` repeats across tools.
+ * A new action, a removed action or a changed budget shows as a diff against this table.
+ * Before you update the table, make sure that the change is intended.
  */
 const EXPECTED_EFFECTIVE_BUDGETS: Readonly<Record<string, number>> = {
   'exarchos_workflow.init': 2000,
@@ -3238,7 +2876,7 @@ const EXPECTED_EFFECTIVE_BUDGETS: Readonly<Record<string, number>> = {
   'exarchos_sync.now': 2000,
 };
 
-/** Effective-budget map built from the live registry, keyed `tool.action`. */
+/** Builds the effective-budget map from the live registry, keyed by `<tool>.<action>`. */
 function buildEffectiveBudgetMap(): Record<string, number> {
   const map: Record<string, number> = {};
   for (const tool of TOOL_REGISTRY) {
@@ -3249,18 +2887,20 @@ function buildEffectiveBudgetMap(): Record<string, number> {
   return map;
 }
 
+/**
+ * Each action resolves a concrete response budget: its declared `economy.budgetTokens` or the registry default.
+ * These tests do not cover the enforcement of the budget at dispatch.
+ */
 describe('registry economy budgets (DR-1)', () => {
+  /**
+   * Each budget must also be a finite, positive number.
+   * The dispatch seam fails open on a budget that is not, so the registry must not hold one.
+   */
   it('registryEconomy_BudgetSnapshot_PinsEffectiveBudgetPerAction', () => {
     const actual = buildEffectiveBudgetMap();
 
-    // Golden pin: every action's effective budget matches the table. A new
-    // action, a removed action, or a budget change fails here as a diff.
     expect(actual).toEqual(EXPECTED_EFFECTIVE_BUDGETS);
 
-    // Every resolved budget must be a finite, positive number — a declared
-    // `economy.budgetTokens` of Infinity, NaN, 0, or a negative value must
-    // FAIL this test (the runtime seam fails open on such values per DR-1,
-    // but the static registry must never ship one).
     for (const [key, budget] of Object.entries(actual)) {
       expect(
         Number.isFinite(budget) && budget > 0,
@@ -3269,6 +2909,11 @@ describe('registry economy budgets (DR-1)', () => {
     }
   });
 
+  /**
+   * Each `describe` action and `runbook` must declare an explicit budget above the default.
+   * The event `describe` budget must exceed the base `describe` budget, because its `emissionGuide` parameter returns the full event catalog.
+   * The last assertion pins the full list of actions that declare an economy block, so a new declaration fails here.
+   */
   it('registryEconomy_VerboseByDesignAllowlist_DeclaresExplicitHigherBudget', () => {
     const findAction = (tool: string, action: string): ToolAction => {
       const found = TOOL_REGISTRY.find((t) => t.name === tool)?.actions.find(
@@ -3278,8 +2923,6 @@ describe('registry economy budgets (DR-1)', () => {
       return found as ToolAction;
     };
 
-    // The verbose-by-design allowlist: every `describe` variant + `runbook`
-    // declares an explicit `economy.budgetTokens` strictly above the default.
     const verbose: ReadonlyArray<{ tool: string; action: string; expected: number }> = [
       { tool: 'exarchos_workflow', action: 'describe', expected: DESCRIBE_ECONOMY_BUDGET_TOKENS },
       { tool: 'exarchos_orchestrate', action: 'describe', expected: DESCRIBE_ECONOMY_BUDGET_TOKENS },
@@ -3300,20 +2943,8 @@ describe('registry economy budgets (DR-1)', () => {
       ).toBeGreaterThan(DEFAULT_ECONOMY_BUDGET_TOKENS);
     }
 
-    // The event `describe` budget must sit strictly above the base describe
-    // budget because it additionally carries the `emissionGuide` param path
-    // (the full event catalog), which is a param of the one describe action,
-    // not a separate action.
     expect(EVENT_DESCRIBE_ECONOMY_BUDGET_TOKENS).toBeGreaterThan(DESCRIBE_ECONOMY_BUDGET_TOKENS);
 
-    // Nothing outside the allowlist declares an economy block — a stray
-    // declaration would silently widen the budget surface. `execute_intent`
-    // and `settle` are the two actions outside this list that declare one, and
-    // both are checked separately below because neither is a "verbose by
-    // design" declaration: each budget sits BELOW the default (a measured
-    // ceiling on a real receipt, not a raised one), and each declares a real
-    // `summarize` reducer rather than relying on the generic capped fallback —
-    // a distinct category the widen-only allowlist above does not name.
     const declared = TOOL_REGISTRY.flatMap((t) =>
       t.actions
         .filter((a) => a.economy !== undefined)
@@ -3333,12 +2964,11 @@ describe('registry economy budgets (DR-1)', () => {
     );
   });
 
-  // Both members of the measured-ceiling category, named individually rather
-  // than looped over a derived list: the category is defined by a JUDGEMENT
-  // (this budget was measured against a real response) that no predicate can
-  // read off a declaration, so a list derived from the registry would grow
-  // silently the moment a third action declared an economy block for some
-  // other reason.
+  /**
+   * These two actions declare a budget below the default, as a ceiling measured on a real response.
+   * Each one also declares a `summarize` function and does not use the generic capped fallback.
+   * The names are literals, because no predicate on a declaration can tell that a budget was measured.
+   */
   it.each(['execute_intent', 'settle'])(
     'registryEconomy_%s_DeclaresAMeasuredBudgetAndARealSummarizer',
     (name) => {
@@ -3346,15 +2976,13 @@ describe('registry economy budgets (DR-1)', () => {
         (a) => a.name === name,
       );
       expect(action).toBeDefined();
-      // Below the default, not above it — a measured ceiling on the shipped
-      // receipt shape, the opposite of the verbose-by-design allowlist's reason
-      // for declaring one at all.
       expect(action?.economy?.budgetTokens).toBeLessThan(DEFAULT_ECONOMY_BUDGET_TOKENS);
       expect(resolveEconomyBudget(action as ToolAction)).toBe(action?.economy?.budgetTokens);
       expect(typeof action?.economy?.summarize).toBe('function');
     },
   );
 
+  /** `describe` shows the declared budget of a verbose action and the registry default of any other action. */
   it('describeAction_WithBudget_SurfacesBudgetTokens', async () => {
     const orchestrate = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate')!;
     const result = await handleDescribe(
@@ -3366,29 +2994,25 @@ describe('registry economy budgets (DR-1)', () => {
     if (!result.success) return;
     const data = result.data as Record<string, { economyBudgetTokens?: unknown }>;
 
-    // Verbose actions surface their declared budget; a default action
-    // surfaces the registry default. The slot is present on every entry
-    // (every action resolves a concrete budget), not only declared ones.
     expect(data.describe.economyBudgetTokens).toBe(DESCRIBE_ECONOMY_BUDGET_TOKENS);
     expect(data.runbook.economyBudgetTokens).toBe(RUNBOOK_ECONOMY_BUDGET_TOKENS);
     expect(data.task_claim.economyBudgetTokens).toBe(DEFAULT_ECONOMY_BUDGET_TOKENS);
 
-    // The surfaced number is exactly what the resolver returns for the action.
     const taskClaim = orchestrate.actions.find((a) => a.name === 'task_claim')!;
     expect(data.task_claim.economyBudgetTokens).toBe(resolveEconomyBudget(taskClaim));
   });
 });
 
-// ─── Task 022 (DR-1/DR-3/DR-8) — registry schema batch ───────────────────────
-//
-// Task 022 is the SOLE owner of the economy-work `registry.ts` schema edits:
-// (a) new INPUT params — `get_pr_comments` window/projection, `assess_stack`
-// comment paging, the coerced-int-array `prNumbers` swap, and `detail`+paging on
-// the DR-8 view batch — all schema-declared so they auto-emit to CLI flags via
-// schema-to-flags; and (b) the `{summary, counts, firstPage}` capped-shape union
-// into every action carrying a typed `data` outputSchema, so each such schema is
-// TOTAL over its emittable shapes (baseline + capped) — the D.5 totality the MCP
-// adapter enforces (adapters/mcp.ts:245) and the §05 output-codegen precondition.
+/**
+ * Covers the input parameters of the response-economy work and the capped output shape.
+ * The schemas declare the parameters, so the CLI builds a flag for each one.
+ * Each action with a typed `data` output schema must accept its baseline shape and the capped shape `{summary, counts, firstPage}`.
+ *
+ * `typedOutputActions` lists the actions whose success `data` is typed.
+ * `cappedData` and the cutover fixtures are literals, because a fixture that derives from the schema under test cannot disagree with it.
+ * Each disagreement tally holds all five classes, because the contract declares them exhaustively.
+ * `baselineDataByAction` holds, for each typed action, the smallest `data` that the action really emits.
+ */
 describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
   function findAction(toolName: string, actionName: string): ToolAction {
     const tool = TOOL_REGISTRY.find((t) => t.name === toolName);
@@ -3397,7 +3021,6 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
     return action;
   }
 
-  /** Every action across the registry whose success-branch `data` is typed. */
   function typedOutputActions(): Array<{ tool: string; action: ToolAction }> {
     const out: Array<{ tool: string; action: ToolAction }> = [];
     for (const tool of TOOL_REGISTRY) {
@@ -3410,9 +3033,6 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
     return out;
   }
 
-  // The generic capped-fallback `data` the dispatch-core economy seam (Task 003)
-  // emits — three sibling keys. Constructed literally (NOT imported from the
-  // schema under test) so the assertion pins the CONTRACT, not the definition.
   const cappedData = {
     summary: 'Response exceeded budget — showing counts + first page.',
     counts: { pending: 12, done: 3 },
@@ -3428,12 +3048,6 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
     };
   }
 
-  // The #1739 cutover gate report, hand-written rather than imported for the
-  // same reason `cappedData` above is: a fixture derived from the schema under
-  // test cannot disagree with it. Both disagreement tallies carry all five
-  // classes because the contract declares them exhaustively — the gate folds
-  // every tally out of a seeded `emptyTally()`, so a partial one would mean a
-  // class silently stopped being counted.
   const emptyDisagreementTally = {
     'agree': 0,
     'legacy-allow-admission-deny': 0,
@@ -3467,9 +3081,6 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
     dispositionTally: {},
   };
 
-  // A minimal VALID baseline `data` per typed-output action, shape-derived from
-  // the real handler returns (verbs/worktree/schemas.ts,
-  // TelemetryViewDataSchema). Keyed `tool.action`.
   const baselineDataByAction: Record<string, Record<string, unknown>> = {
     'exarchos_orchestrate.acquire_worktree': {
       worktreeId: 'wt', path: '/tmp/wt', featureId: null, reserved: true, adopted: true,
@@ -3491,56 +3102,29 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       inFlight: [], count: 0, launches: [], launchCount: 0, prunes: [], pruneCount: 0,
     },
     'exarchos_view.wait': { resolved: true, waitedMs: 5 },
-    // `reconcile_worktrees` — the reclaim + two reconcilers, moved off
-    // `ps probe:true`. Unlike `ps` this action has ONE shape and every field is
-    // required, so the floor is a pass that healed nothing: three empty
-    // sub-results and the post-reconcile columns.
     'exarchos_orchestrate.reconcile_worktrees': {
       probe: {}, reconcile: {}, mergeReconcile: {},
       inFlight: [], count: 0, launches: [], launchCount: 0, prunes: [], pruneCount: 0,
     },
-    // `stack_place` — the append acknowledgement `toEventAck` returns verbatim.
-    // All three fields come off the appended event rather than the caller's
-    // arguments, so there is no smaller valid shape.
     'exarchos_orchestrate.stack_place': {
       streamId: 'f', sequence: 1, type: 'stack.position-filled',
     },
-    // The `inspect` cold-probe projection is its minimal valid baseline: the
-    // exists-branch fields (state/artifacts/taskProgress/correlation) are all
-    // optional, so the workflowExists:false shape is the floor.
     'exarchos_view.inspect': {
       featureId: 'f', workflowExists: false, recentEvents: [], eventCount: 0,
     },
-    // The `export` cold-probe shape is its minimal valid baseline: the
-    // exported-branch fields (outputPath/contentHash/eventCount/...) are all
-    // optional, so the workflowExists:false / exported:false shape is the floor.
     'exarchos_view.export': {
       featureId: 'f', workflowExists: false, exported: false,
     },
-    // `invariants_amend` (task 068). The dry-run branch is the minimal valid
-    // baseline: `renderedEntry`/`diff` are dry-run-only and `events` is
-    // commit-only, so all three are optional and the floor is the required
-    // core plus a non-empty `patchedFields`.
     'exarchos_orchestrate.invariants_amend': {
       committed: false, id: 'INV-17', tier: 'dev',
       catalog: '.exarchos/invariants.md', patchedFields: ['summary'],
       next_actions: [],
     },
-    // DR-4 / task 069: the invariant-conformance gate, paid down from
-    // `vacuityWaiver` to a real schema. The baseline is its minimal emittable
-    // shape — every declared field is required, including the audit-mode
-    // delivery pair (`auditPrompt` + `auditInvariantIds`) a reader is now
-    // instructed to act on. Their being required is the point: an optional field
-    // is not something a reader can be told to iterate.
     'exarchos_orchestrate.check_invariant_conformance': {
       verdict: 'APPROVED', high: 0, medium: 0, low: 0, findings: [],
       auditPrompt: '', auditInvariantIds: [], auditProjection: 'no-audit-entries',
       applicableCount: 0, report: 'PASS',
     },
-    // DR-4 / task 083: the two #1739 cutover verbs, the second and third entries
-    // to LEAVE the allowlist. Their baselines are the cold-store emission — an
-    // unsatisfied report over an empty durable substrate, which is the floor
-    // both handlers can produce.
     'exarchos_orchestrate.cutover_readiness': {
       report: cutoverGateReport,
       durableEvidence: cutoverDurableEvidence,
@@ -3552,20 +3136,11 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       report: cutoverGateReport,
       durableEvidence: cutoverDurableEvidence,
     },
-    // `execute_intent` — the bounded action executor's receipt. `leaves` and
-    // `interaction.deferred` are the only arrays with no minimum, so an empty
-    // segment (compiled but nothing run yet is not a shape this schema emits —
-    // this is the smallest REAL receipt: zero leaves executed) is the floor.
     'exarchos_orchestrate.execute_intent': {
       operationId: 'op-1', intent: 'task-completion', outcome: 'committed',
       leaves: [], tailSequence: 0, requestDigest: `sha256:${'a'.repeat(64)}`,
       interaction: { leavesExecuted: 0, eventsAppended: 0, requests: 1, deferred: [] },
     },
-    // `settle` — the settlement receipt. `findings` and `acceptedTasks` are the
-    // only arrays with no minimum, so a settled batch that produced neither is
-    // the floor. Deliberately the SETTLED outcome rather than a rejected one:
-    // the floor has to be a shape the action really emits, and a rejection
-    // carries at least one finding by construction.
     'exarchos_orchestrate.settle': {
       operationId: 'op-1', streamId: 'feat-x',
       capsule: {
@@ -3576,8 +3151,6 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       adjudicated: { claims: 0, requiredResults: 0, fields: 0, evidence: 0, deviations: 0 },
       requestDigest: `sha256:${'a'.repeat(64)}`, tailSequence: 0,
     },
-    // `prepare` — the prepared-capsule receipt. The capsule is carried as an
-    // open record, so the floor is the smallest record the schema admits.
     'exarchos_orchestrate.prepare': {
       operationId: `prepare:${'a'.repeat(64)}`, streamId: 'feat-x', workflowId: 'feat-x',
       capsuleVersion: 1, capsuleDigest: 'a'.repeat(64), definitionVersion: 'a'.repeat(64),
@@ -3595,13 +3168,14 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
   }
 
   describe('registrySchemas_EconomyParams_ValidateAndCoerce', () => {
+    /** `limit` and `offset` arrive as numeric strings, and `fields` arrives as a JSON array string. */
     it('get_pr_comments declares and coerces limit/offset/fields', () => {
       const schema = findAction('exarchos_orchestrate', 'get_pr_comments').schema;
       const parsed = schema.safeParse({
         prId: '42',
-        limit: '20',        // numeric string → coerced int
-        offset: '5',        // numeric string → coerced int
-        fields: '["body","author"]', // JSON-array string → coerced string[]
+        limit: '20',
+        offset: '5',
+        fields: '["body","author"]',
       });
       expect(parsed.success).toBe(true);
       if (!parsed.success) return;
@@ -3611,9 +3185,12 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       expect(data.fields).toEqual(['body', 'author']);
     });
 
+    /**
+     * `prNumbers` must coerce from a JSON array string, from an array of numeric strings and from a bare CSV string.
+     * `coerceFlags` gives the CSV form for an array flag, and a direct MCP caller can also send it.
+     */
     it('assess_stack declares comment paging and coerces prNumbers as an int array', () => {
       const schema = findAction('exarchos_orchestrate', 'assess_stack').schema;
-      // JSON-array string prNumbers + numeric-string paging.
       const fromJsonString = schema.safeParse({
         featureId: 'feat-x',
         prNumbers: '[1660,1671]',
@@ -3627,7 +3204,6 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
         expect(data.limit).toBe(10);
         expect(data.offset).toBe(2);
       }
-      // Array of numeric strings → coerced element-wise to ints.
       const fromStringElements = schema.safeParse({
         featureId: 'feat-x',
         prNumbers: ['1', '2', '3'],
@@ -3636,11 +3212,6 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       if (fromStringElements.success) {
         expect((fromStringElements.data as Record<string, unknown>).prNumbers).toEqual([1, 2, 3]);
       }
-      // B-3 regression (review): a bare CSV string — the shape `coerceFlags`
-      // produces for an array flag, AND the shape a direct-MCP caller may pass —
-      // coerces to the same int array. Before the fix `prNumbers` bound a LOCAL
-      // stub that was NOT CSV-tolerant, so this yielded INVALID_INPUT while the
-      // tested helper (`coerce.ts`) was dead in production.
       const fromCsv = schema.safeParse({ featureId: 'feat-x', prNumbers: '1660,1671,1659' });
       expect(fromCsv.success).toBe(true);
       if (fromCsv.success) {
@@ -3655,7 +3226,6 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       if (parsed.success) {
         expect((parsed.data as Record<string, unknown>).prNumbers).toEqual([1, 2]);
       }
-      // CSV form coerces identically (shared CSV-tolerant helper).
       const fromCsv = schema.safeParse({ owner: 'acme', repo: 'app', prNumbers: '1,2' });
       expect(fromCsv.success).toBe(true);
       if (fromCsv.success) {
@@ -3663,11 +3233,12 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       }
     });
 
+    /**
+     * The handler reads `detail` and `outputFormat`, so the schema must declare both.
+     * Zod strips an undeclared field on the MCP path, and the CLI builds no flag for it.
+     * An omitted `outputFormat` takes the schema default `full`.
+     */
     it('prepare_delegation declares the DR-4 detail/outputFormat escape hatch', () => {
-      // Review regression: the handler honored `detail`/`outputFormat` but the
-      // schema declared neither, so Zod `.strip()` dropped them on the MCP path
-      // (and the CLI emitted no flag) — the DR-4 affordance was unreachable
-      // through both facades while its two covering tests bypassed the schema.
       const schema = findAction('exarchos_orchestrate', 'prepare_delegation').schema;
 
       const withDetail = schema.safeParse({ featureId: 'feat-x', detail: true });
@@ -3682,23 +3253,18 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
         expect((withPromptOnly.data as Record<string, unknown>).outputFormat).toBe('prompt-only');
       }
 
-      // Omitted → the schema default 'full' (dispatch injects it; the handler
-      // treats 'full' as the non-detail default — same as the field being absent).
       const omitted = schema.safeParse({ featureId: 'feat-x' });
       expect(omitted.success).toBe(true);
       if (omitted.success) {
         expect((omitted.data as Record<string, unknown>).outputFormat).toBe('full');
       }
 
-      // An out-of-enum value is rejected at the schema boundary (dispatch path).
       const invalid = schema.safeParse({ featureId: 'feat-x', outputFormat: 'verbose' });
       expect(invalid.success).toBe(false);
     });
 
+    /** Each listed view action must keep `detail` and its paging fields after the parse. Zod drops a field that the schema does not declare. */
     it('DR-8 view batch declares detail + paging inputs', () => {
-      // A representative slice across the inventory (Task 013) and analytic
-      // (Task 024) view batches: each must RETAIN detail + paging after parse
-      // (a stripped/undeclared field would be dropped by z.object).
       const cases: Array<[string, Record<string, unknown>, string[]]> = [
         ['tasks', { detail: true, limit: '5', offset: '1' }, ['detail', 'limit', 'offset']],
         ['workflow_status', { detail: true, limit: '5', offset: '1' }, ['detail', 'limit', 'offset']],
@@ -3727,43 +3293,13 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
   });
 
   describe('registrySchemas_TypedOutputActions_AcceptCappedShape', () => {
+    /**
+     * Pins the count of typed-output actions, so a new typed action or a lost one fails here.
+     * A schema whose `data` is `z.unknown()`, such as the workflow output schemas, does not count as typed.
+     * The count grows when a new action declares its `data`, or when an action leaves the vacuity allowlist.
+     */
     it('every typed-output action validates a {summary,counts,firstPage} capped envelope', () => {
       const actions = typedOutputActions();
-      // Enumerated from code, not assumed — the post-002 base carried 8 (the two
-      // exarchos_workflow LCD schemas wrap EnvelopeSchema(z.unknown()) and are
-      // NOT typed). The worktree-lifecycle `inspect` verb (DR-4) added a 9th
-      // typed-output view action; the `export` verb (DR-6) adds the 10th.
-      //
-      // The 11th and 12th arrived by DIFFERENT routes, and the distinction is
-      // the interesting part: `invariants_amend` (task 068) is a NEW action
-      // declared substantively because a new action cannot acquire a shrink-only
-      // vacuity waiver, while `check_invariant_conformance` (task 069) is the
-      // first entry to LEAVE the allowlist rather than arrive typed. One route
-      // holds the line, the other pays the debt down.
-      //
-      // The 13th and 14th (task 083) are the two #1739 cutover verbs, which took
-      // NEITHER route cleanly: they arrived new AND acquired waivers in the same
-      // change. Paying them down puts them on the second route retroactively.
-      //
-      // The 15th and 16th are the effect-ledger remedy, one per route again.
-      // `reconcile_worktrees` is NEW, so it could not have acquired a waiver and
-      // was declared substantively from the start. `stack_place` LEFT the
-      // allowlist: it moved from `exarchos_view` to `exarchos_orchestrate`, and
-      // carrying its waiver across would have swapped one seeded key for
-      // another — the edit the seed digest exists to redden — so the only legal
-      // move was to write the real schema.
-      //
-      // The 17th is the bounded action executor's `execute_intent`, NEW like
-      // `reconcile_worktrees` — a shrink-only allowlist has no waiver for a
-      // fresh action to acquire, so it was declared substantively from the start.
-      //
-      // The 18th is the semantic plane's `settle`, by the same route for the
-      // same reason. Its schema is worth reading rather than counting: the
-      // receipt is the verdict, so a vacuous one would have described nothing
-      // at exactly the surface an agent acts on.
-      //
-      // The 19th is `prepare`, the same route again: the receipt carries the
-      // capsule the harness runs from, so its shape is declared, not waived.
       expect(actions.length).toBe(19);
       for (const { tool, action } of actions) {
         const parsed = action.outputSchema.safeParse(cappedEnvelope());
@@ -3778,6 +3314,7 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
   });
 
   describe('registrySchemas_TypedOutputActions_SchemaTotalOverEmittableShapes', () => {
+    /** Each typed action needs a fixture in `baselineDataByAction`. Its schema must accept the baseline envelope and the capped envelope. */
     it('every typed-output action admits BOTH its baseline and the capped shape', () => {
       const actions = typedOutputActions();
       for (const { tool, action } of actions) {
@@ -3785,7 +3322,6 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
         const baseline = baselineDataByAction[key];
         expect(baseline, `missing baseline fixture for ${key}`).toBeDefined();
 
-        // Baseline shape validates (the pre-cap emittable shape).
         const baselineParsed = action.outputSchema.safeParse(baselineEnvelope(baseline));
         expect(
           baselineParsed.success,
@@ -3794,7 +3330,6 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
           }`,
         ).toBe(true);
 
-        // Capped shape validates (the post-cap emittable shape) — totality.
         const cappedParsed = action.outputSchema.safeParse(cappedEnvelope());
         expect(
           cappedParsed.success,
@@ -3806,7 +3341,20 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
     });
   });
 
+  /**
+   * The first two tests use fixtures. The other tests read each emission that `TOOL_REGISTRY` declares, through `liveEmissionEdges`.
+   * Thus a new action or a new declaration file is in scope with no list to update.
+   *
+   * The `owner` of an edge is the declaration area of its action under `src/registry/actions/`.
+   * `actions/workflow.ts` is the `workflow` area. The modules under `actions/orchestrate/` and `actions/view/` are the `orchestrate` and `view` areas.
+   * The area tells which module group declares the action, not which event the action emits.
+   */
   describe('AutoEmission role, owner, and recovery expiry', () => {
+    /**
+     * The role of an edge is its declared value and does not depend on the position of the edge in a list.
+     * The primary edge and the edge with no role are not recovery edges, so `validateAutoEmission` passes them.
+     * The recovery edge passes because its `recoveryExpiresAt` is in the future.
+     */
     it('AutoEmission_DeclaredRole_IsNotInferred', () => {
       const farFuture = '2999-01-01T00:00:00.000Z';
 
@@ -3828,25 +3376,16 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
         condition: 'always',
       };
 
-      // Each edge's role is exactly what was declared on IT, never a default
-      // and never something computed from another edge.
       expect(primary.role).toBe('primary');
       expect(recovery.role).toBe('recovery');
       expect(undeclared.role).toBeUndefined();
 
-      // Swapping array position must not change which edge is which — a
-      // role read from position rather than the declaration would flip
-      // these when the order is reversed.
       const forward = [primary, recovery, undeclared];
       const reversed = [...forward].reverse();
       expect(reversed.map((edge) => edge.role)).toEqual(
         [...forward.map((edge) => edge.role)].reverse(),
       );
 
-      // Validation tracks each edge's OWN declared role/expiry, independent
-      // of where it sits in the list: the primary and the undeclared edge
-      // carry no expiry contract and always pass; the recovery edge passes
-      // here because its own recoveryExpiresAt has not lapsed.
       for (const edge of forward) {
         expect(validateAutoEmission(edge).ok).toBe(true);
       }
@@ -3855,6 +3394,7 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       }
     });
 
+    /** The same recovery edge with a future expiry must pass. Thus the failure comes from the expiry time and not from the recovery role. */
     it('AutoEmission_RecoveryEdgeWithExpiredOwner_Fails', () => {
       const expiredAt = '2000-01-01T00:00:00.000Z';
       const recovery: AutoEmission = {
@@ -3872,9 +3412,6 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       expect(verdict.reason).toContain('gate-provider-registry');
       expect(verdict.reason).toContain(expiredAt);
 
-      // A recovery edge whose expiry has NOT lapsed yet must still pass —
-      // this pins that the failure above is about the timestamp having
-      // lapsed, not merely about being a recovery edge.
       const notYetExpired: AutoEmission = {
         ...recovery,
         recoveryExpiresAt: '2999-01-01T00:00:00.000Z',
@@ -3884,23 +3421,6 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       );
     });
 
-    // ─── The LIVE emission edges, not a fixture ──────────────────────────
-    //
-    // Everything below walks TOOL_REGISTRY. The denominator is whatever the
-    // registry currently declares, so a thirteenth declaration file — or a new
-    // action in an existing one — is inside the assertion the moment it is
-    // added, with nothing to remember to update. A hand-written list of edges
-    // would have gone quietly stale instead.
-    //
-    // OWNER CONVENTION. An edge's `owner` is the action-declaration AREA it is
-    // declared in: the module group under `src/registry/actions/` that exports
-    // the declaring action list. `actions/workflow.ts` is the `workflow` area;
-    // everything under `actions/orchestrate/` is the `orchestrate` area. The
-    // area is a fact about WHERE the action is declared, never about WHICH
-    // event it emits — which is what makes the consistency property below
-    // capable of failing at all.
-
-    /** Every `autoEmits` entry the built-in registry declares, with its declaration site. */
     function liveEmissionEdges(): readonly {
       tool: string;
       action: string;
@@ -3917,13 +3437,15 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       return edges;
     }
 
+    /**
+     * The test first asserts a floor on the edge count, because a property over an empty edge set always passes.
+     * The floor is a ratchet on the denominator and not a pin on the exact count.
+     * The owner values must be exactly the declaration areas that hold emissions.
+     * The shipped `validateAutoEmission` runs on each edge, so a recovery edge fails here after its declared expiry.
+     */
     it('EmissionRoles_EveryLiveEdge_CarriesRoleAndOwner', () => {
       const edges = liveEmissionEdges();
 
-      // Anti-vacuity floor. Totality over an empty (or collapsed) edge set is
-      // free, so the denominator is asserted before the property is. 74 edges
-      // across 53 actions were live when this was written; the floor is a
-      // ratchet on the denominator, not a pin on the exact count.
       expect(
         edges.length,
         'the live emission-edge denominator collapsed — totality below would be vacuous',
@@ -3943,7 +3465,6 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
         `every live emission edge must declare both a role and an owner:\n${unannotated.join('\n')}`,
       ).toEqual([]);
 
-      // The declared values are substantive, not placeholder strings.
       for (const { tool, action, emission } of edges) {
         expect(['primary', 'recovery'], `${tool}.${action} -> ${emission.event}`).toContain(
           emission.role,
@@ -3952,19 +3473,12 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
           .toBeGreaterThan(0);
       }
 
-      // The owner vocabulary is closed over the declaration areas that carry
-      // emissions today. A third area is a deliberate change and should land
-      // here alongside the declarations that introduce it.
       expect([...new Set(edges.map((e) => e.emission.owner))].sort()).toEqual([
         'orchestrate',
         'view',
         'workflow',
       ]);
 
-      // Real seam: the shipped validator, over the shipped declarations. A
-      // recovery edge whose declared expiry has lapsed fails here — which is
-      // the point of time-boxing one, so this is meant to come due rather than
-      // sit green forever.
       const lapsed = edges
         .map((e) => ({ e, verdict: validateAutoEmission(e.emission) }))
         .filter(({ verdict }) => !verdict.ok)
@@ -3972,6 +3486,15 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       expect(lapsed, `expired recovery edges:\n${lapsed.join('\n')}`).toEqual([]);
     });
 
+    /**
+     * More than one action can declare one event, and that is conforming.
+     * The test names that set of events, so the property has a denominator.
+     * An event with two routes to one meaning, such as `worktree.released`, has a declaration for each route.
+     * `task.completed` is not in the set: `settle` runs `task_complete` as a leaf and does not declare the events of its leaves.
+     *
+     * The declarers of one event must all name one owner, or each name a different owner with at most one `primary`.
+     * `gate.executed` shows many declarers in one area. `state.patched` shows two areas, where `update` is the primary edge.
+     */
     it('EmissionRoles_MultiDeclarerEvent_IsConforming', () => {
       const byEvent = new Map<string, { tool: string; action: string; emission: AutoEmission }[]>();
       for (const edge of liveEmissionEdges()) {
@@ -3981,27 +3504,6 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       }
       const multiDeclarer = [...byEvent].filter(([, edges]) => edges.length > 1);
 
-      // Several events are declared by more than one action, and that is
-      // CONFORMING — neither "one primary per event" nor "one primary per
-      // area" holds on this tree. Naming the set keeps the property below from
-      // being asserted over nothing.
-      // The last two joined the set with `reconcile_worktrees`, and they are the
-      // clearest case for why multi-declarer is conforming rather than tolerated:
-      // each is a TERMINAL reachable two ways. `worktree.released` closes a
-      // reservation either because its owner released it (`release_worktree`) or
-      // because its owner is provably dead and the reclaim freed it;
-      // `worktree.merge_executed` closes a lease either on the merge finishing
-      // (`serialize_merge`) or on the crash-mid-merge heal. Same event, same
-      // meaning, two routes — so declaring one and hiding the other is what
-      // would be wrong, and both name `orchestrate` as owner.
-      // `task.completed` is NOT here although `settle` leaves it too: settle
-      // composes the task-completion segment through the executor, and the
-      // terminal `task_complete` leaf is the one producer — the same way
-      // `execute_intent` declares its own record and none of its leaves'.
-      // `task.assigned` IS here: the announcement has one meaning and two
-      // routes — `prepare` leaves it in the same commit as the prepared record
-      // on the capsule path, `prepare_delegation` ahead of the readiness fold
-      // on the primitive path — and both name `orchestrate` as owner.
       expect(multiDeclarer.map(([event]) => event).sort()).toEqual([
         'admission.evidence-recorded',
         'gate.executed',
@@ -4013,11 +3515,6 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
         'worktree.released',
       ]);
 
-      // Internal consistency: an event's declarers either all name the SAME
-      // owner (one area's business), or each names a DISTINCT owner with at
-      // most one `primary` (a cross-area coupling with a single canonical
-      // emitter). A partially-overlapping owner set — two areas, three edges —
-      // is the incoherent shape this rules out.
       const violations: string[] = [];
       for (const [event, edges] of multiDeclarer) {
         const owners = edges.map((e) => e.emission.owner);
@@ -4042,22 +3539,10 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       }
       expect(violations, `owner-set inconsistency:\n${violations.join('\n')}`).toEqual([]);
 
-      // Canonical conforming shape 1 — a wide fan-in inside ONE area. Every
-      // gate declaration lives under `actions/orchestrate/`, so the 23 edges
-      // share an owner and the primary count is unconstrained.
-      //
-      // 24 → 23: `assess_stack` left the fan-in. Its rows were CI check
-      // outcomes, not gate runs, and they now declare `ci.check_observed`
-      // (#1898 item 8). Every edge that remains is a gate this repository
-      // actually runs, which is what made the fan-in conforming in the first
-      // place — the departed one was the odd member.
       const gateExecuted = byEvent.get('gate.executed') ?? [];
       expect(gateExecuted).toHaveLength(23);
       expect([...new Set(gateExecuted.map((e) => e.emission.owner))]).toEqual(['orchestrate']);
 
-      // Canonical conforming shape 2 — a narrow fan-in ACROSS two areas.
-      // `wf update` is the canonical state-patch surface; `discover_bridge`
-      // declares the second, non-primary edge from the other area.
       const statePatched = byEvent.get('state.patched') ?? [];
       expect(statePatched).toHaveLength(2);
       expect([...new Set(statePatched.map((e) => e.emission.owner))].sort()).toEqual([

@@ -2,9 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AzureDevOpsProvider } from '../../../src/vcs/azure-devops.js';
 import { isResolvedKnown } from '../../../src/vcs/provider.js';
 
-// `az repos pr show` resolves the route params (repositoryId + project) the
-// `az devops invoke pullRequestThreads` call needs. Shared across getPrComments
-// tests; the second mocked exec is the thread-list invoke.
+/**
+ * The `az repos pr show` response. It gives the route parameters (`repositoryId` and `project`)
+ * for the `pullRequestThreads` call. In each `getPrComments` test, the second mocked call
+ * is the thread list.
+ */
 const PR_SHOW_RESPONSE = JSON.stringify({
   repository: {
     id: 'repo-guid',
@@ -12,7 +14,6 @@ const PR_SHOW_RESPONSE = JSON.stringify({
   },
 });
 
-// Mock the shell execution helper
 vi.mock('../../../src/vcs/shell.js', () => ({
   exec: vi.fn(),
 }));
@@ -31,8 +32,6 @@ describe('AzureDevOpsProvider', () => {
   it('AzureDevOpsProvider_Name_IsAzureDevOps', () => {
     expect(provider.name).toBe('azure-devops');
   });
-
-  // ── createPr ────────────────────────────────────────────────────────────
 
   it('AzureDevOpsProvider_CreatePr_CallsAzWithCorrectArgs', async () => {
     mockExec.mockResolvedValue(
@@ -114,10 +113,11 @@ describe('AzureDevOpsProvider', () => {
     );
   });
 
+  /**
+   * `az repos pr create` gets JSON through the global `--output json` flag.
+   * A bare `--json` flag must not be in the create arguments.
+   */
   it('AzureDevOps_CreatePr_UsesOutputJsonNotWriteJsonFlag', async () => {
-    // #1622: `az repos pr create` gets JSON via the GLOBAL `--output json`
-    // flag — that is valid. The broken pattern (a bare `--json` write flag on
-    // a create/write command) must NOT appear. Lock the create argv.
     mockExec.mockResolvedValue(
       JSON.stringify({
         repository: { webUrl: 'https://dev.azure.com/org/project/_git/repo' },
@@ -137,7 +137,6 @@ describe('AzureDevOpsProvider', () => {
     const outputIdx = argv.indexOf('--output');
     expect(outputIdx).toBeGreaterThanOrEqual(0);
     expect(argv[outputIdx + 1]).toBe('json');
-    // No bare `--json` write flag anywhere in the create invocation.
     expect(argv).not.toContain('--json');
   });
 
@@ -154,10 +153,11 @@ describe('AzureDevOpsProvider', () => {
     ).rejects.toThrow('az not found');
   });
 
-  // ── checkCi ─────────────────────────────────────────────────────────────
-
+  /**
+   * The first call reads the PR for its source branch.
+   * The second call lists the pipeline runs of that branch.
+   */
   it('AzureDevOpsProvider_CheckCi_ParsesPipelineRuns', async () => {
-    // First call: get PR details for source branch
     mockExec
       .mockResolvedValueOnce(
         JSON.stringify({ sourceRefName: 'refs/heads/feat/test' })
@@ -272,8 +272,6 @@ describe('AzureDevOpsProvider', () => {
     await expect(provider.checkCi('100')).rejects.toThrow('az pipelines error');
   });
 
-  // ── mergePr ─────────────────────────────────────────────────────────────
-
   it('AzureDevOpsProvider_MergePr_SquashStrategy', async () => {
     mockExec.mockResolvedValue(
       JSON.stringify({
@@ -379,8 +377,6 @@ describe('AzureDevOpsProvider', () => {
     expect(result.sha).toBeUndefined();
   });
 
-  // ── addComment ──────────────────────────────────────────────────────────
-
   it('AzureDevOpsProvider_AddComment_CallsAzReposPrCommentCreate', async () => {
     mockExec.mockResolvedValue(JSON.stringify({ id: 1 }));
 
@@ -399,8 +395,6 @@ describe('AzureDevOpsProvider', () => {
       'json',
     ]);
   });
-
-  // ── getReviewStatus ─────────────────────────────────────────────────────
 
   it('AzureDevOpsProvider_GetReviewStatus_ParsesApproved', async () => {
     mockExec.mockResolvedValue(
@@ -487,6 +481,7 @@ describe('AzureDevOpsProvider', () => {
     expect(result.reviewers).toHaveLength(0);
   });
 
+  /** A vote of 5 means approved with suggestions, and it maps to approved. */
   it('AzureDevOpsProvider_GetReviewStatus_ApprovedWithSuggestions', async () => {
     mockExec.mockResolvedValue(
       JSON.stringify([
@@ -495,18 +490,16 @@ describe('AzureDevOpsProvider', () => {
     );
 
     const result = await provider.getReviewStatus('100');
-    // vote=5 is "approved with suggestions" — maps to approved
     expect(result.state).toBe('approved');
     expect(result.reviewers[0].state).toBe('approved');
   });
 
-  // ── getPrComments (#1613 — two-source PrComment harvesting) ───────────────
-  // ADO has no `az repos pr` thread-list subcommand. getPrComments resolves the
-  // repositoryId + project via `az repos pr show`, then lists threads via
-  // `az devops invoke --area git --resource pullRequestThreads`, normalizing to
-  // PrComment. ADO has only two sources: review-inline (threadContext present)
-  // and issue-comment (no threadContext) — no review-summary.
-
+  /**
+   * `az repos pr` has no thread-list subcommand. So `getPrComments` reads the route parameters
+   * from `az repos pr show`, then lists the threads with `az devops invoke`.
+   * A thread with a file path in `threadContext` gives `review-inline` comments. Each other
+   * thread gives `issue-comment` comments. ADO has no `review-summary` source.
+   */
   it('AzureDevOps_GetPrComments_AggregatesThreads', async () => {
     mockExec
       .mockResolvedValueOnce(PR_SHOW_RESPONSE)
@@ -552,7 +545,6 @@ describe('AzureDevOpsProvider', () => {
 
     const result = await provider.getPrComments('100');
 
-    // 1) resolve route params, 2) invoke pullRequestThreads with them.
     expect(mockExec).toHaveBeenNthCalledWith(1, 'az', [
       'repos',
       'pr',
@@ -628,6 +620,7 @@ describe('AzureDevOpsProvider', () => {
     expect(result[0].line).toBe(13);
   });
 
+  /** The raw comment id 1 is in both threads. The composed ids must differ. */
   it('AzureDevOps_GetPrComments_ComposesPrUniqueIdsAcrossThreads', async () => {
     mockExec
       .mockResolvedValueOnce(PR_SHOW_RESPONSE)
@@ -670,7 +663,6 @@ describe('AzureDevOpsProvider', () => {
 
     const result = await provider.getPrComments('100');
     expect(result).toHaveLength(2);
-    // Raw comment.id=1 collides across threads; composed ids must not.
     expect(result[0].id).toBe(3 * 100000 + 1);
     expect(result[1].id).toBe(4 * 100000 + 1);
     expect(result[0].id).not.toBe(result[1].id);
@@ -783,6 +775,10 @@ describe('AzureDevOpsProvider', () => {
     }
   });
 
+  /**
+   * A top-level comment has no parent.
+   * The `parentId` of a reply is the composed id of the top-level comment.
+   */
   it('AzureDevOps_GetPrComments_ThreadsRepliesByParentId', async () => {
     mockExec
       .mockResolvedValueOnce(PR_SHOW_RESPONSE)
@@ -819,13 +815,12 @@ describe('AzureDevOpsProvider', () => {
     const result = await provider.getPrComments('100');
     expect(result).toHaveLength(2);
     const [top, reply] = result;
-    // Top-level comment has no parent.
     expect(top.parentId).toBeUndefined();
-    // Reply's parentId is the composed id of the top-level comment.
     expect(reply.parentId).toBe(8 * 100000 + 1);
     expect(reply.parentId).toBe(top.id);
   });
 
+  /** Each key of a result comment must be a contract key. The result must hold no Azure-native field name. */
   it('AzureDevOps_GetPrComments_EmitsOnlyContractKeys', async () => {
     mockExec
       .mockResolvedValueOnce(PR_SHOW_RESPONSE)
@@ -872,7 +867,6 @@ describe('AzureDevOpsProvider', () => {
     for (const key of Object.keys(result[0])) {
       expect(allowed).toContain(key);
     }
-    // No Azure-native field names may leak through.
     for (const leaked of [
       'content',
       'commentType',
@@ -886,14 +880,16 @@ describe('AzureDevOpsProvider', () => {
     }
   });
 
+  /**
+   * An `unknown` status, a missing status and an unrecognized status all leave `resolved` absent.
+   * None of them gives `false`.
+   */
   it('AzureDevOps_GetPrComments_LeavesResolvedAbsentOnUnknownStatus', async () => {
     mockExec
       .mockResolvedValueOnce(PR_SHOW_RESPONSE)
       .mockResolvedValueOnce(
         JSON.stringify({
           value: [
-            // Explicit 'unknown', missing status, and an unrecognized value all
-            // degrade to absent (tri-state unknown — never coerced to false).
             {
               id: 30,
               status: 'unknown',

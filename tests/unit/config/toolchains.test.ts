@@ -85,7 +85,7 @@ describe('detectToolchain — priority & misses', () => {
   });
 
   it('matches an extension glob only on the right extension', () => {
-    touch('notes.slnxx'); // not a real .slnx
+    touch('notes.slnxx');
     expect(detectToolchain(dir)).toBeUndefined();
   });
 });
@@ -183,8 +183,6 @@ describe('BUILTIN_TOOLCHAINS — registry integrity', () => {
   });
 });
 
-// ─── task 016: mutation / lint / contract command fields ─────────────────────
-
 describe('BUILTIN_TOOLCHAINS — verification command seeds (task 016)', () => {
   function commandsFor(id: string): Toolchain['commands'] {
     const tc = BUILTIN_TOOLCHAINS.find((t) => t.id === id);
@@ -214,15 +212,14 @@ describe('BUILTIN_TOOLCHAINS — verification command seeds (task 016)', () => {
     );
   });
 
+  /**
+   * The contract field is `{ codegen, diff } | null`. A built-in toolchain seeds null, because
+   * contracts are keyed on schema artifacts, not on the language.
+   * A toolchain that seeds a structured value must carry both keys.
+   */
   it('ToolchainCommands_ContractField_DefaultsNullStructured', () => {
-    // The contract field is structured `{ codegen, diff } | null`. Built-in
-    // language toolchains key contracts on schema ARTIFACTS, not the language
-    // alone — so per-toolchain contract is null; artifact-keyed resolution
-    // happens in the resolver (tasks 017/022).
     for (const tc of BUILTIN_TOOLCHAINS) {
       const contract = tc.commands.contract;
-      // null is the seeded default; if a toolchain ever seeds a structured
-      // value it must carry both codegen and diff keys.
       if (contract !== null) {
         expect('codegen' in contract).toBe(true);
         expect('diff' in contract).toBe(true);
@@ -230,17 +227,17 @@ describe('BUILTIN_TOOLCHAINS — verification command seeds (task 016)', () => {
         expect(contract).toBeNull();
       }
     }
-    // node is the canonical "no per-toolchain contract" seed.
     expect(commandsFor('node').contract).toBeNull();
   });
 
+  /**
+   * A toolchain seeds a lint command only when its ecosystem has one conventional command.
+   * Node lint is a project script, so node seeds null.
+   */
   it('ToolchainCommands_LintField_Seeded', () => {
-    // Seed sensible lint defaults where a single conventional command exists;
-    // null where the ecosystem has no clear default.
     expect(commandsFor('rust').lint).toBe('cargo clippy');
     expect(commandsFor('go').lint).toBe('go vet ./...');
     expect(commandsFor('python').lint).toBe('ruff check');
-    // node lint is project-script-specific → no built-in default.
     expect(commandsFor('node').lint).toBeNull();
   });
 
@@ -253,33 +250,31 @@ describe('BUILTIN_TOOLCHAINS — verification command seeds (task 016)', () => {
   });
 });
 
-// ─── SIV-5: hermetic-double resolution (#1531) ──────────────────────────────
 describe('hermetic-double resolution (SIV-5 #1531)', () => {
+  /** A container-backed double never runs in the inner loop. */
   it('Hermetic_DatabaseDependency_ResolvesTestcontainersReal', () => {
     expect(classifyHermeticDependency('pg')).toBe('database');
     expect(classifyHermeticDependency('mongoose')).toBe('database');
     const d = resolveHermeticDouble('database');
     expect(d.double).toMatch(/Testcontainers/i);
     expect(d.fidelity).toBe('real');
-    // Container-backed ⇒ never the inner loop.
     expect(d.cadence).toBe('boundary-offline');
   });
 
+  /** The emulator is a fake of the cloud, and the descriptor must say so. */
   it('Hermetic_CloudApiDependency_ResolvesLocalStackWithFakeCaveat', () => {
     expect(classifyHermeticDependency('@aws-sdk/client-s3')).toBe('cloud-api');
     expect(classifyHermeticDependency('aws-sdk')).toBe('cloud-api');
     const d = resolveHermeticDouble('cloud-api');
     expect(d.double).toMatch(/LocalStack/i);
-    // Emulator honesty: it is itself a fake of the cloud.
     expect(d.fidelity).toBe('fake');
     expect(d.caveat ?? '').toMatch(/fake of the cloud/i);
   });
 
+  /** A subpath specifier such as `axios/dist` must classify like the bare package name. */
   it('Hermetic_ThirdPartyHttp_ResolvesPactStubInnerLoop', () => {
     expect(classifyHermeticDependency('axios')).toBe('third-party-http');
     expect(classifyHermeticDependency('got')).toBe('third-party-http');
-    // Subpath specifiers (e.g. `axios/dist`, `undici/lib`) must classify too,
-    // not just bare package names, or deep imports lose SIV-5 steering.
     expect(classifyHermeticDependency('axios/dist/node/axios.cjs')).toBe('third-party-http');
     expect(classifyHermeticDependency('undici/lib/api')).toBe('third-party-http');
     const d = resolveHermeticDouble('third-party-http');
@@ -288,25 +283,22 @@ describe('hermetic-double resolution (SIV-5 #1531)', () => {
     expect(d.cadence).toBe('inner-loop');
   });
 
+  /** The classifier, not only `resolveHermeticDouble`, must reach the class from real package specifiers. */
   it('Hermetic_MessageBrokerDependency_ClassifiesAsMessageBroker', () => {
-    // Prove the classifier — not just resolveHermeticDouble — reaches the
-    // message-broker class from real package specifiers; a regex regression
-    // here would otherwise go undetected.
     expect(classifyHermeticDependency('kafkajs')).toBe('message-broker');
     expect(classifyHermeticDependency('amqplib')).toBe('message-broker');
     const d = resolveHermeticDouble('message-broker');
     expect(d.depClass).toBe('message-broker');
   });
 
+  /** An unrecognized specifier gives null, not a wrong class. */
   it('Hermetic_UnknownDependency_StaysUnclassified', () => {
-    // Resolve, don't guess: an unrecognized specifier is null, not a wrong class.
     expect(classifyHermeticDependency('some-obscure-pkg')).toBeNull();
     expect(classifyHermeticDependency('@scope/internal-thing')).toBeNull();
   });
 
+  /** Each class resolves to a full descriptor, not to a bare command string. */
   it('Hermetic_Resolution_IsInspectableDescriptorNotBakedLiteral', () => {
-    // Every class resolves to a full descriptor (the --dry-run-inspectable shape),
-    // never a bare command string. fidelity respects real > fake > stub.
     const classes: readonly HermeticDependencyClass[] = [
       'database',
       'cloud-api',

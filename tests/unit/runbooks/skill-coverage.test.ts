@@ -5,26 +5,23 @@ import { fileURLToPath } from 'node:url';
 import { skillDir } from '../../../tools/test-helpers/content-tree.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-// Read from content/ (canonical source) rather than skills/<runtime>/.
-// Runbook references are semantic content invariant across runtimes — they
-// live in the source body and are rendered byte-identically into every
-// runtime variant — so source-of-truth is the right tree to assert against.
 const skillsDir = resolve(__dirname, '../../../content');
 
 /**
- * Reads `<skill>/<rest…>` from the authored tree. The leading segment is a
- * skill name, not a directory under the content root: the domain that owns it
- * sits between the two, and is looked up rather than spelled out.
+ * Reads `<skill>/<rest…>` from the authored `content/` tree, not from a rendered runtime variant.
+ * A runbook reference is the same in every runtime variant, so one check on the source is enough.
+ * The first segment is a skill name, and `skillDir` finds the domain that owns it.
  */
 function readSkillFile(relativePath: string): string {
   const [name, ...rest] = relativePath.split('/');
   return readFileSync(resolve(skillDir(name), ...rest), 'utf-8');
 }
 
+/**
+ * Passes when the content holds `action: "runbook"` and the quoted id, each at any position.
+ * It also passes when the content holds `id: "<runbookId>"`.
+ */
 function assertRunbookReference(content: string, runbookId: string): void {
-  // Check that the content references the runbook ID in a context that
-  // makes it clear it's a runbook reference (action: "runbook" with the id,
-  // or similar patterns)
   const hasRunbookAction = content.includes('action: "runbook"') && content.includes(`"${runbookId}"`);
   const hasRunbookIdField = content.includes(`id: "${runbookId}"`);
   expect(
@@ -59,8 +56,6 @@ describe('Skill coverage — runbook references', () => {
     assertRunbookReference(content, 'shepherd-iteration');
   });
 
-  // ─── Decision Runbook References ─────────────────────────────────────
-
   it('SkillCoverage_DebugSkill_ReferencesTriageDecisionRunbook', () => {
     const content = readSkillFile('debug/SKILL.md');
     assertRunbookReference(content, 'triage-decision');
@@ -90,8 +85,6 @@ describe('Skill coverage — runbook references', () => {
     const content = readSkillFile('shepherd/SKILL.md');
     assertRunbookReference(content, 'shepherd-escalation');
   });
-
-  // ─── Schema Discovery Runbook References (DR-9, DR-11) ──────────────
 
   it('SkillCoverage_DelegationSkill_ReferencesTaskClassificationRunbook', () => {
     const content = readSkillFile('delegate/SKILL.md');

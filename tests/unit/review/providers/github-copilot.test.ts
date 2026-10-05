@@ -2,8 +2,6 @@ import { describe, it, expect } from 'vitest';
 import { githubCopilotAdapter } from '../../../../src/review/providers/github-copilot.js';
 import type { PrComment as VcsPrComment } from '../../../../src/vcs/provider.js';
 
-// ─── Test Fixtures ──────────────────────────────────────────────────────────
-
 const COPILOT_AUTHORS = [
   'github-copilot[bot]',
   'Copilot',
@@ -41,12 +39,11 @@ describe('githubCopilotAdapter', () => {
     }
   });
 
+  /** Copilot comments carry no severity tier. The legacy `severity` field stays 'major' for the assess-stack pipeline. */
   it('GithubCopilotAdapter_AnyComment_DefaultsToMedium', () => {
-    // Copilot comments don't carry a severity tier — adapter normalizes to MEDIUM.
     const item = githubCopilotAdapter.parse(makeComment());
     expect(item).not.toBeNull();
     expect(item?.normalizedSeverity).toBe('MEDIUM');
-    // Legacy severity field must remain 'major' for backwards compatibility.
     expect(item?.severity).toBe('major');
   });
 
@@ -74,8 +71,8 @@ describe('githubCopilotAdapter', () => {
     expect(item?.description).toBe(body);
   });
 
+  /** The adapter does not know the PR number. The caller sets it. */
   it('GithubCopilotAdapter_PrIsZero', () => {
-    // Adapter does not know the PR number; caller is expected to fill it.
     const item = githubCopilotAdapter.parse(makeComment());
     expect(item?.pr).toBe(0);
   });

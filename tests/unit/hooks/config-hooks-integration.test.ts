@@ -20,6 +20,7 @@ describe('Config Hook Integration', () => {
     vi.restoreAllMocks();
   });
 
+  /** The test calls the runner directly with a `workflow.transition` event. It has no EventStore. */
   it('EventStore_Append_TriggersConfigHook', async () => {
     const config: ResolvedProjectConfig = {
       ...DEFAULTS,
@@ -30,7 +31,6 @@ describe('Config Hook Integration', () => {
 
     const runner = createConfigHookRunner(config);
 
-    // Simulate what would happen when EventStore appends a workflow.transition event
     const event = {
       type: 'workflow.transition',
       data: { phase: 'review', from: 'delegate', workflowType: 'feature' },
@@ -46,8 +46,8 @@ describe('Config Hook Integration', () => {
     );
   });
 
+  /** `DEFAULTS` configures no hooks. */
   it('EventStore_Append_NoProjectConfig_NoHooks', async () => {
-    // With default config (no hooks configured), nothing fires
     const runner = createConfigHookRunner(DEFAULTS);
 
     await runner({
@@ -60,6 +60,7 @@ describe('Config Hook Integration', () => {
     expect(vi.mocked(spawn)).not.toHaveBeenCalled();
   });
 
+  /** The test calls the runner one time for each event. It has no batch append. */
   it('EventStore_BatchAppend_TriggersHooksForEach', async () => {
     const config: ResolvedProjectConfig = {
       ...DEFAULTS,
@@ -70,7 +71,6 @@ describe('Config Hook Integration', () => {
 
     const runner = createConfigHookRunner(config);
 
-    // Simulate batch append of 3 events
     const events = [
       { type: 'task.completed', data: { taskId: '1' }, featureId: 'f', timestamp: '' },
       { type: 'task.completed', data: { taskId: '2' }, featureId: 'f', timestamp: '' },

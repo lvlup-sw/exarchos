@@ -3,34 +3,19 @@ import { ALL_RUNBOOKS, SYNTHESIS_FLOW, TASK_COMPLETION, TASK_FIX } from '../../.
 import { TOOL_REGISTRY } from '../../../src/registry.js';
 import type { RunbookDefinition, RunbookStep } from '../../../src/runbooks/types.js';
 
-// ─── DR-3 / T-05: pin the frozen delegation-stamp parameter shape ───────────
-//
-// T-04 threaded `riskTier` + `boundaryTouching` — the stamp `prepare_delegation`
-// resolves and FREEZES (deriveRiskTier / deriveBoundaryTouching) — through
-// TASK_COMPLETION and TASK_FIX so the policy-routed gates that consume it
-// (`interpretProbeVerdict`, `resolvePolicySkip`) never see an undefined tier.
-// This test PINS that shape: a future edit that silently drops the stamp from
-// either the runbook's `templateVars` declaration or a consuming step's
-// `params` would relaunder the gate back to the DR-3 defect (an un-probed
-// high-tier task laundered into an advisory pass) without any mechanical
-// signal — this test is that signal.
-//
-// The rule encoded: BOTH `riskTier` and `boundaryTouching` must be declared
-// templateVars on the runbook AND must appear as `params` on every
-// POLICY-ROUTED gate step that actually reads them — precisely the steps
-// whose registry schema accepts the fields:
-//   - check_test_adequacy   (both TASK_COMPLETION and TASK_FIX)
-//   - check_contract_drift  (TASK_COMPLETION only — TASK_FIX has no such step)
-//   - check_mock_boundary   (TASK_COMPLETION only — TASK_FIX has no such step)
-// `check_static_analysis` is DELIBERATELY excluded (T-04): its registry schema
-// does not accept `riskTier` / `boundaryTouching`, so asserting over "every
-// step" would be imprecise — this test asserts over the named consumer
-// actions only, never blindly over every step in the runbook.
+/**
+ * The delegation stamp that `prepare_delegation` freezes. `TASK_COMPLETION` and
+ * `TASK_FIX` must declare both fields as `templateVars`, and each gate step that
+ * reads the stamp must bind both as `params`. Without the stamp the gate reads an
+ * unset tier, and a high-tier task without probed tests can get an advisory skip.
+ */
 const STAMP_FIELDS = ['riskTier', 'boundaryTouching'] as const;
 
-/** Actions in TASK_COMPLETION / TASK_FIX whose registry schema accepts the
- *  frozen delegation stamp — the policy-routed gates that actually consume
- *  it. `check_static_analysis` is excluded by design (T-04). */
+/**
+ * The gate actions whose registry schema accepts the stamp. Of these, `TASK_FIX` has
+ * only the `check_test_adequacy` step. `check_static_analysis` is not in the list,
+ * because its schema does not declare the two fields.
+ */
 const STAMP_CONSUMING_ACTIONS = [
   'check_test_adequacy',
   'check_contract_drift',
@@ -86,33 +71,28 @@ describe('Runbook parameter shape (DR-3 / T-05): delegation stamp threading', ()
   });
 
   it('TaskFix_StampConsumingStep_BindsBothStampFields', () => {
-    // TASK_FIX only carries the check_test_adequacy consumer — it has no
-    // contract-drift or mock-boundary step.
     expectStampBoundAsParams(TASK_FIX, 'check_test_adequacy');
     expect(stepFor(TASK_FIX, 'check_contract_drift')).toBeUndefined();
     expect(stepFor(TASK_FIX, 'check_mock_boundary')).toBeUndefined();
   });
 
+  /**
+   * The `prepare_synthesis` schema requires `repoRoot`, because its checks run
+   * commands in that directory. A runbook step that gives the caller no slot for
+   * `repoRoot` cannot run.
+   */
   it('SynthesisFlow_PrepareSynthesisStep_BindsRepoRoot', () => {
-    // DR-8 / #1756. `prepare_synthesis` shells out on four legs and refuses to
-    // guess which tree they measure, so `repoRoot` is REQUIRED on its action
-    // schema. A runbook that names the step without offering the caller a slot
-    // for that value hands out a recipe that cannot execute — which is exactly
-    // the state this task found: schema, handler and runbook each individually
-    // defensible, and the composed path dead.
     const step = SYNTHESIS_FLOW.steps.find((s) => s.action === 'prepare_synthesis');
     expect(step, 'synthesis-flow must have a prepare_synthesis step').toBeDefined();
     expect((step?.params as Record<string, unknown> | undefined)?.repoRoot).toBe('<repoRoot>');
     expect(SYNTHESIS_FLOW.templateVars).toContain('repoRoot');
   });
 
+  /**
+   * The `check_static_analysis` schema does not declare the stamp fields, and dispatch
+   * refuses an undeclared field. A runbook that binds them there fails at that step.
+   */
   it('CheckStaticAnalysis_NeverBindsTheStamp_T04Exclusion', () => {
-    // T-04 deliberately did NOT bind riskTier/boundaryTouching on
-    // check_static_analysis — its registry schema rejects those fields. If a
-    // future edit binds them here, dispatch would fail validation at the
-    // static-analysis step (a strict/`.strict()`-style schema rejects unknown
-    // keys). Pin the exclusion so that regression is caught here, not at
-    // dispatch time.
     for (const runbook of [TASK_COMPLETION, TASK_FIX]) {
       const step = stepFor(runbook, 'check_static_analysis');
       expect(step, `Runbook '${runbook.id}' must have a check_static_analysis step`).toBeDefined();
@@ -128,23 +108,23 @@ describe('Runbook parameter shape (DR-3 / T-05): delegation stamp threading', ()
   });
 });
 
-// ─── DR-8 / #1756: a runbook must be able to supply every required field ─────
-//
-// The pin above names one step. This one derives the rule from the registry, so
-// the NEXT action that gains a required field cannot leave its runbook callers
-// silently unexecutable — the failure mode 088 hit, where the schema, the
-// handler and the runbook were each locally defensible and the composed path
-// was dead. A step may satisfy a required field either by pre-filling it in
-// `params` or by declaring it as a `templateVar` the orchestrator fills.
-
+/**
+ * Derives the rule from the registry. Each required schema field of a runbook step
+ * must be a key of the step `params` or a `templateVar` of the runbook. Thus an
+ * action that gets a new required field fails here until each runbook can supply it.
+ */
 describe('Runbook executability (DR-8 / #1756): required fields are reachable', () => {
+  /**
+   * The loop skips a step that the registry does not hold, such as a `native:*`
+   * step for the host harness. `checked` must exceed 20, so a derivation that
+   * resolves few or no required fields fails.
+   */
   it('EveryRunbookStep_RequiredSchemaFields_AreBoundOrDeclared', () => {
     const unbound: string[] = [];
     let checked = 0;
 
     for (const runbook of ALL_RUNBOOKS) {
       for (const step of runbook.steps) {
-        // `native:*` steps address the host harness, not the registry.
         const tool = TOOL_REGISTRY.find((t) => t.name === step.tool);
         const action = tool?.actions.find((a) => a.name === step.action);
         if (action === undefined) continue;
@@ -166,8 +146,6 @@ describe('Runbook executability (DR-8 / #1756): required fields are reachable', 
       }
     }
 
-    // Guard the guard: a derivation that resolved no required fields at all
-    // would be vacuously green.
     expect(checked, 'no required fields resolved — the derivation is vacuous')
       .toBeGreaterThan(20);
     expect(

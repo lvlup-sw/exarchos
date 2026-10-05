@@ -1,16 +1,10 @@
-// ─── T20 (#1291) — Three-field correlation _meta surfaces on every action ──
-//
-// Contract: every registered action's `outputSchema` accepts the dispatch-
-// boundary three-field correlation block in `_meta`. The dispatch wrapper
-// (`dispatch/core/dispatch.ts`) merges the active context's IDs into the response
-// envelope's `_meta` after the handler runs, so the schema MUST accept
-// them or MCP would reject the response at the SDK validation boundary.
-//
-// Implementation hook: the canonical envelope (`contract/schemas/envelope.ts`) uses
-// `_meta: z.record(z.string(), z.unknown())` — a permissive record that
-// already accepts arbitrary keys. We assert this anchor directly (one
-// source of truth) and then sample a few representative action
-// outputSchemas to confirm they wrap it without narrowing `_meta`.
+/**
+ * The `outputSchema` of every registered action must accept the three correlation
+ * fields in `_meta`. The dispatch wrapper adds `operationId` and `correlationId` to
+ * each response, and `causationId` when the dispatch context has one. If a schema
+ * rejects them, the MCP adapter replaces the response with an `INTERNAL_ERROR`
+ * envelope.
+ */
 
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
@@ -28,9 +22,8 @@ const CORRELATION_META = {
 };
 
 describe('Action outputSchema accepts three-field _meta (T20, #1291)', () => {
+  /** Each action `outputSchema` builds on this envelope. The test parses each branch alone, then through the union. */
   it('EnvelopeSchema_MetaShape_AcceptsThreeCorrelationFields', () => {
-    // Canonical envelope (the source-of-truth used by every action that
-    // attaches `EnvelopeSchema(dataSchema)` as its outputSchema).
     const successSchema = SuccessEnvelopeSchema(z.unknown());
     const successParse = successSchema.safeParse({
       success: true,
@@ -59,8 +52,6 @@ describe('Action outputSchema accepts three-field _meta (T20, #1291)', () => {
       expect(errorParse.data._meta.causationId).toBe(CORRELATION_META.causationId);
     }
 
-    // Discriminated union: dispatch wrapper emits either branch and
-    // the union must route to the right one based on `success`.
     const union = EnvelopeSchema(z.unknown());
     const successUnionParse = union.safeParse({
       success: true,
@@ -79,20 +70,12 @@ describe('Action outputSchema accepts three-field _meta (T20, #1291)', () => {
     expect(errorUnionParse.success).toBe(true);
   });
 
+  /**
+   * Parses an error-branch envelope with the `outputSchema` of each action. The
+   * error branch does not constrain `data`, so only the `_meta` contract is in
+   * scope. The test ignores each issue whose path does not start at `_meta`.
+   */
   it('ActionEnvelope_OutputSchemaMeta_IncludesThreeCorrelationFields', () => {
-    // For each registered action, structurally introspect the
-    // outputSchema and confirm `_meta` is a permissive record (or a
-    // permissive object) — i.e., that adding three arbitrary keys to
-    // `_meta` would not be rejected. We rely on the schemas/envelope.ts
-    // contract: every action attaches `EnvelopeSchema(dataSchema)` (or a
-    // wrapper that includes it via `.and()`), so structurally validating
-    // a stub envelope WITH the correlation fields against the schema's
-    // discriminated-union `_meta` is the canonical check.
-    //
-    // Approach: for each action, drive the schema's parse on an
-    // ERROR-branch envelope with the correlation `_meta`. The error
-    // branch does not constrain `data`, so it dodges per-action data-shape
-    // strictness and isolates the `_meta` contract.
     const registry = getFullRegistry();
     expect(registry.length).toBeGreaterThanOrEqual(4);
 
@@ -110,9 +93,6 @@ describe('Action outputSchema accepts three-field _meta (T20, #1291)', () => {
         if (schema === undefined) continue;
         const parse = schema.safeParse(sampleError);
         if (!parse.success) {
-          // Only flag _meta-related rejections — per-action data shape
-          // strictness is out of scope for this test (data is irrelevant
-          // on the error branch).
           const metaIssues = parse.error.issues.filter(
             (i) => i.path.length > 0 && i.path[0] === '_meta',
           );

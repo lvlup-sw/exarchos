@@ -4,8 +4,6 @@ import {
   type VerifyWorktreeBoundaryDeps,
 } from '../../../src/lifecycle/verify-worktree-boundary.js';
 
-// ─── Test utilities ──────────────────────────────────────────────────────────
-
 interface Recorder {
   out: string[];
   err: string[];
@@ -13,15 +11,17 @@ interface Recorder {
 
 const WORKTREE = '/repo/.worktrees/agent-x';
 
+/**
+ * Builds the deps and a recorder. By default git reports `WORKTREE` as the toplevel of the cwd.
+ * `realpath` is the identity, so the test reads no filesystem.
+ */
 function makeDeps(overrides: Partial<VerifyWorktreeBoundaryDeps> = {}): {
   deps: VerifyWorktreeBoundaryDeps;
   rec: Recorder;
 } {
   const rec: Recorder = { out: [], err: [] };
   const deps: VerifyWorktreeBoundaryDeps = {
-    // Default: cwd is a real linked worktree whose toplevel is the worktree.
     gitToplevel: vi.fn(() => WORKTREE),
-    // Identity realpath keeps the unit test free of the filesystem.
     realpath: vi.fn((p: string) => p),
     stdout: vi.fn((s: string) => {
       rec.out.push(s);
@@ -42,7 +42,7 @@ function preToolUse(
   return JSON.stringify({ cwd, tool_name: toolName, tool_input: toolInput });
 }
 
-// 0 = allow, 2 = deny (PreToolUse block contract).
+/** Exit code 0 allows the tool call and 2 denies it, per the PreToolUse block contract. */
 describe('handleVerifyWorktreeBoundary', () => {
   it('VerifyWorktreeBoundary_RelativePathInsideWorktree_Allows', () => {
     const { deps } = makeDeps();
@@ -62,9 +62,9 @@ describe('handleVerifyWorktreeBoundary', () => {
     expect(code).toBe(0);
   });
 
+  /** An absolute path into the parent repository is the escape that the guard exists to stop. */
   it('VerifyWorktreeBoundary_AbsoluteMainRepoPath_Denies', () => {
     const { deps, rec } = makeDeps();
-    // The #1301 vector: an absolute path into the parent (main) repo.
     const code = handleVerifyWorktreeBoundary(
       preToolUse({ file_path: '/repo/src/foo.ts' }),
       deps,
@@ -82,8 +82,8 @@ describe('handleVerifyWorktreeBoundary', () => {
     expect(code).toBe(2);
   });
 
+  /** The worktree of another agent is out of bounds. This protects parallel dispatch. */
   it('VerifyWorktreeBoundary_SiblingWorktreePath_Denies', () => {
-    // Parallel-dispatch protection: another agent's worktree is out of bounds.
     const { deps } = makeDeps();
     const code = handleVerifyWorktreeBoundary(
       preToolUse({ file_path: '/repo/.worktrees/agent-other/foo.ts' }),
@@ -107,9 +107,11 @@ describe('handleVerifyWorktreeBoundary', () => {
     expect(code).toBe(0);
   });
 
+  /**
+   * The JSON is valid but `file_path` has the wrong type. The guard must not throw a TypeError from
+   * `path`. It allows the call and writes the reason to stderr.
+   */
   it('VerifyWorktreeBoundary_NonStringFilePath_AllowsWithoutThrowing', () => {
-    // Valid JSON, wrong-typed path field — must not throw a TypeError from
-    // path.*; treated as a shape mismatch → allow + stderr (fail-open).
     const { deps, rec } = makeDeps();
     let code: number | undefined;
     expect(() => {
@@ -119,17 +121,19 @@ describe('handleVerifyWorktreeBoundary', () => {
     expect(rec.err.length).toBeGreaterThan(0);
   });
 
+  /**
+   * The guard cannot decide on input that does not parse. It allows the call and writes to stderr,
+   * so a format mismatch does not block every agent write.
+   */
   it('VerifyWorktreeBoundary_MalformedJson_AllowsWithStderr', () => {
-    // Cannot make a boundary decision on unparseable input — allow, but surface
-    // it (never silent). A format mismatch must not brick every agent write.
     const { deps, rec } = makeDeps();
     const code = handleVerifyWorktreeBoundary('not json{', deps);
     expect(code).toBe(0);
     expect(rec.err.length).toBeGreaterThan(0);
   });
 
+  /** When no toplevel resolves, the cwd subtree is the boundary. */
   it('VerifyWorktreeBoundary_NoGitToplevel_ConfinesToCwd', () => {
-    // No resolvable worktree toplevel → confine to cwd subtree as the boundary.
     const insideDeps = makeDeps({ gitToplevel: () => null });
     expect(
       handleVerifyWorktreeBoundary(

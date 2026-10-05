@@ -13,13 +13,11 @@ import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 const TEST_WORKFLOW_NAME = 'test-pipeline';
 
 afterEach(() => {
-  // Clean up any registered custom workflows
   unregisterWorkflowType(TEST_WORKFLOW_NAME);
   unextendWorkflowTypeEnum(TEST_WORKFLOW_NAME);
   clearRegisteredGuards();
-  // Clean up any custom event types
-  try { unregisterEventType('deploy.started'); } catch { /* ignore */ }
-  try { unregisterEventType('deploy.finished'); } catch { /* ignore */ }
+  try { unregisterEventType('deploy.started'); } catch { }
+  try { unregisterEventType('deploy.finished'); } catch { }
   clearRegisteredViews();
   clearRegisteredTools();
   clearCustomTools();
@@ -43,14 +41,12 @@ describe('Registration Pipeline', () => {
 
     registerCustomWorkflows(config);
 
-    // HSM should be available
     const hsm = getHSMDefinition(TEST_WORKFLOW_NAME);
     expect(hsm).toBeDefined();
     expect(hsm.id).toBe(TEST_WORKFLOW_NAME);
     expect(hsm.states['init']).toBeDefined();
     expect(hsm.states['build']).toBeDefined();
 
-    // WorkflowTypeSchema should accept the new type
     const parseResult = WorkflowTypeSchema.safeParse(TEST_WORKFLOW_NAME);
     expect(parseResult.success).toBe(true);
   });
@@ -58,10 +54,8 @@ describe('Registration Pipeline', () => {
   it('RegisterCustomWorkflows_NoConfig_Noop', () => {
     const config: ExarchosConfig = {};
 
-    // Should not throw
     registerCustomWorkflows(config);
 
-    // Built-ins should still work
     expect(getHSMDefinition('feature')).toBeDefined();
   });
 
@@ -95,7 +89,6 @@ describe('Registration Pipeline', () => {
     expect(guard!.timeout).toBe(5000);
     expect(guard!.description).toBe('Check if system is ready');
 
-    // Verify the guard is resolved to a Guard object in the HSM
     const hsm = getHSMDefinition(TEST_WORKFLOW_NAME);
     const guardedTransition = hsm.transitions.find(t => t.from === 'init' && t.to === 'validate');
     expect(guardedTransition).toBeDefined();
@@ -105,8 +98,8 @@ describe('Registration Pipeline', () => {
     expect(typeof guardedTransition!.guard!.evaluate).toBe('function');
   });
 
+  /** The config lists the child before its parent. The child inherits the `done` state of the parent. */
   it('RegisterCustomWorkflows_ChildBeforeParent_RegistersInCorrectOrder', () => {
-    // Child is defined before parent in the config object
     const config: ExarchosConfig = {
       workflows: {
         'child-pipeline': {
@@ -129,25 +122,21 @@ describe('Registration Pipeline', () => {
       },
     };
 
-    // Should NOT throw despite child being listed before parent
     registerCustomWorkflows(config);
 
-    // Both should be registered
     expect(getHSMDefinition(TEST_WORKFLOW_NAME)).toBeDefined();
     expect(getHSMDefinition('child-pipeline')).toBeDefined();
 
-    // Child should have inherited parent's states
     const childHsm = getHSMDefinition('child-pipeline');
     expect(childHsm.states['done']).toBeDefined();
     expect(childHsm.states['extra']).toBeDefined();
 
-    // Cleanup child
     unregisterWorkflowType('child-pipeline');
     unextendWorkflowTypeEnum('child-pipeline');
   });
 
+  /** `feature` is a built-in workflow name, so the registration fails. */
   it('RegisterCustomWorkflows_InvalidConfig_RollsBackAndWrapsError', () => {
-    // A config with a built-in name will fail during registerWorkflowType
     const invalidConfig: ExarchosConfig = {
       workflows: {
         feature: {
@@ -178,11 +167,14 @@ describe('Registration Pipeline', () => {
     expect(validTypes).toContain('deploy.finished');
   });
 
+  /**
+   * `workflow.started` is a built-in event type, so its registration fails after the
+   * registration of `deploy.started`. The rollback must remove `deploy.started`.
+   */
   it('RegisterCustomWorkflows_EventRegistrationFails_RollsBack', () => {
     const config: ExarchosConfig = {
       events: {
         'deploy.started': { source: 'model' },
-        // This will fail: built-in event type collision
         'workflow.started': { source: 'auto' },
       },
     };
@@ -191,13 +183,13 @@ describe('Registration Pipeline', () => {
       'Failed to register custom workflows',
     );
 
-    // deploy.started should have been rolled back
     const validTypes = getValidEventTypes();
     expect(validTypes).not.toContain('deploy.started');
   });
 });
 
 describe('View Registration', () => {
+  /** The handler path does not resolve, so the registration rejects. */
   it('RegisterCustomWorkflows_WithViews_RegistersViews', async () => {
     const config: ExarchosConfig = {
       views: {
@@ -208,11 +200,6 @@ describe('View Registration', () => {
       },
     };
 
-    // registerCustomViews loads handlers dynamically. For testing, we use
-    // a mock handler module path. In production, handler modules export
-    // init() and apply() conforming to ViewProjection.
-    // Since dynamic import won't resolve ./test-handler.js in tests,
-    // we test that view registration validates handler modules.
     await expect(
       registerCustomViews(config, '/fake/project/root'),
     ).rejects.toThrow();
@@ -220,12 +207,12 @@ describe('View Registration', () => {
 
   it('RegisterCustomWorkflows_NoViews_Noop', async () => {
     const config: ExarchosConfig = {};
-    // Should not throw
     await registerCustomViews(config, '/fake/project/root');
   });
 });
 
 describe('Tool Registration', () => {
+  /** The handler paths do not resolve, so the registration rejects and leaves no tool and no handler. */
   it('RegisterCustomWorkflows_WithTools_RegistersTools', async () => {
     const config: ExarchosConfig = {
       tools: {
@@ -247,25 +234,21 @@ describe('Tool Registration', () => {
       },
     };
 
-    // registerCustomTools loads handlers dynamically. For testing, since
-    // dynamic import won't resolve ./tools/deploy-trigger.js, we test
-    // that tool registration attempts handler loading and fails gracefully.
     await expect(
       registerCustomTools(config, '/fake/project/root'),
     ).rejects.toThrow();
 
-    // Verify no partial handlers leaked — no tool should be registered
-    // and no action handlers should remain in the registry
     const registry = getFullRegistry();
     const customToolRegistered = registry.some((t) => t.name === 'exarchos_deploy');
     expect(customToolRegistered).toBe(false);
     expect(hasCustomToolHandlers('exarchos_deploy')).toBe(false);
   });
 
+  /**
+   * Tool A has a real handler module, so it registers. Tool B has a path that does not
+   * resolve, so it fails after tool A. The rollback must remove tool A.
+   */
   it('RegisterCustomTools_PartialFailure_RollsBackPreviousTools', async () => {
-    // Tool A uses a real temp module that exports handle(), so it registers
-    // successfully. Tool B uses an unresolvable path, forcing a failure after
-    // tool A is already registered. Rollback must clean up tool A.
     const tmpDir = mkdtempSync(join(tmpdir(), 'exarchos-test-'));
     const handlerPath = join(tmpDir, 'a-run.mjs');
     writeFileSync(handlerPath, 'export async function handle(args) { return { ok: true }; }\n');
@@ -292,12 +275,10 @@ describe('Tool Registration', () => {
         registerCustomTools(config, tmpDir),
       ).rejects.toThrow('Failed to register custom tools');
 
-      // Tool A was registered before tool B failed — rollback must clean it up
       const registry = getFullRegistry();
       expect(registry.some((t) => t.name === 'exarchos_tool_a')).toBe(false);
       expect(registry.some((t) => t.name === 'exarchos_tool_b')).toBe(false);
 
-      // No handlers should remain for either tool
       expect(hasCustomToolHandlers('exarchos_tool_a')).toBe(false);
       expect(hasCustomToolHandlers('exarchos_tool_b')).toBe(false);
     } finally {
@@ -307,7 +288,6 @@ describe('Tool Registration', () => {
 
   it('RegisterCustomWorkflows_NoTools_Noop', async () => {
     const config: ExarchosConfig = {};
-    // Should not throw
     await registerCustomTools(config, '/fake/project/root');
   });
 });

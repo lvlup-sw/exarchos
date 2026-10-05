@@ -1,18 +1,12 @@
 /**
- * Integration tests verifying that all hardcoded ~/.claude/ path constructions
- * have been replaced with centralized path resolvers from utils/paths.ts.
- *
- * These tests verify:
- * 1. Re-export from state-store.ts delegates to utils/paths.ts
- * 2. No remaining hardcoded path constructions in production source files
- * 3. Schema descriptions use platform-neutral language
+ * Production code resolves the state directory through `utils/paths.ts`, with no
+ * hardcoded `~/.claude/` path. The suite checks the `state-store.ts` re-export, scans
+ * `src/` for hardcoded path constructions, and checks that schema descriptions name no platform.
  */
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import os from 'node:os';
-
-// ─── Test 1: state-store.ts re-exports resolveStateDir from utils/paths.ts ──
 
 describe('state-store resolveStateDir re-export', () => {
   beforeEach(() => {
@@ -46,25 +40,15 @@ describe('state-store resolveStateDir re-export', () => {
   });
 });
 
-// ─── Test 2: No hardcoded path constructions remain in production code ──────
-
+/**
+ * `findHardcodedPaths` scans each production `.ts` file under `src/`, except `utils/paths.ts`
+ * and the `CONFIG_WRITERS` modules. A config writer writes a path for another process to
+ * read, so the literal is its payload. The map names each writer by file, because an
+ * exclusion by directory misses a writer that lives in another directory.
+ */
 describe('no hardcoded ~/.claude/ path constructions in production code', () => {
   const srcDir = path.resolve(__dirname, '../../../src');
 
-  /**
-   * Scan all .ts files (excluding tests and utils/paths.ts) for hardcoded
-   * path constructions like '.claude', 'workflow-state' etc.
-   */
-  /**
-   * Modules that legitimately spell these paths out: they WRITE config whose
-   * value is a path for another process to read, so there is no helper call to
-   * make — the literal is the payload, not a path this process resolves.
-   *
-   * Named individually rather than by directory. The old form excluded any
-   * path containing `init/writers`, which is a LOCATION rather than the
-   * property being exempted, so folding the installer in alongside brought a
-   * second config writer under the rule that the directory test could not see.
-   */
   const CONFIG_WRITERS: ReadonlyMap<string, string> = new Map([
     ['verbs/init/writers/claude-code.ts', 'writes WORKFLOW_STATE_DIR into the generated Claude Code config'],
     ['install/install-skills.ts', 'writes the MCP registration (with WORKFLOW_STATE_DIR) into ~/.claude.json'],
@@ -113,9 +97,11 @@ describe('no hardcoded ~/.claude/ path constructions in production code', () => 
     return violations;
   }
 
+  /**
+   * An exemption for a file that moved excludes nothing.
+   * So each exempted file must exist and must still construct such a path.
+   */
   it('every config-writer exemption resolves and still spells a path out', () => {
-    // An exemption whose file moved stops excluding anything, and the rule
-    // silently widens. Both halves are checked so the next move fails here.
     expect(CONFIG_WRITERS.size).toBeGreaterThan(0);
     for (const [rel, reason] of CONFIG_WRITERS) {
       const abs = path.resolve(srcDir, rel);
@@ -155,8 +141,6 @@ describe('no hardcoded ~/.claude/ path constructions in production code', () => 
   });
 });
 
-// ─── Test 3: Schema descriptions are platform-neutral ───────────────────────
-
 describe('schema descriptions are platform-neutral', () => {
   it('SessionTaggedData.sessionId does not mention Claude Code', async () => {
     const { SessionTaggedData } = await import('../../../src/events/schemas.js');
@@ -166,14 +150,11 @@ describe('schema descriptions are platform-neutral', () => {
     expect(sessionIdDesc).toBe('Session identifier');
   });
 
+  /** The test reads only the Zod description of `agentId`. When the field has none, the test asserts nothing. */
   it('TaskSchema.agentId comment does not mention Claude Code', async () => {
-    // We verify the source code comment, not the Zod description,
-    // by checking the schema description property if set
     const { TaskSchema } = await import('../../../src/workflow/schemas.js');
     const shape = TaskSchema.shape;
     const agentIdDesc = shape.agentId.description;
-    // agentId uses a JSDoc comment, not a Zod .describe() — description may be undefined.
-    // DR-3 compliance is verified by grep in the source file instead.
     if (agentIdDesc) {
       expect(agentIdDesc).not.toContain('Claude Code');
     }
@@ -183,7 +164,6 @@ describe('schema descriptions are platform-neutral', () => {
     const { getFullRegistry } = await import('../../../src/registry.js');
     const registry = getFullRegistry();
 
-    // Find the prepare_delegation action schema which has the nativeIsolation field
     let found = false;
     for (const tool of registry) {
       for (const action of tool.actions) {

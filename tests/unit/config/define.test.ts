@@ -9,19 +9,15 @@ import type {
 
 describe('defineConfig', () => {
   it('DefineConfig_EmptyConfig_ReturnsPassthrough', () => {
-    // Arrange
     const config: ExarchosConfig = {};
 
-    // Act
     const result = defineConfig(config);
 
-    // Assert
     expect(result).toEqual({});
-    expect(result).toBe(config); // identity — same reference
+    expect(result).toBe(config);
   });
 
   it('DefineConfig_WithWorkflows_ReturnsPassthrough', () => {
-    // Arrange
     const config: ExarchosConfig = {
       workflows: {
         deploy: {
@@ -35,10 +31,8 @@ describe('defineConfig', () => {
       },
     };
 
-    // Act
     const result = defineConfig(config);
 
-    // Assert
     expect(result).toBe(config);
     expect(result.workflows?.deploy.phases).toEqual(['build', 'test', 'deploy']);
     expect(result.workflows?.deploy.initialPhase).toBe('build');
@@ -46,7 +40,6 @@ describe('defineConfig', () => {
   });
 
   it('DefineConfig_WithGuards_ReturnsPassthrough', () => {
-    // Arrange
     const guard: GuardDefinition = {
       command: 'npm run test:run',
       timeout: 60000,
@@ -69,17 +62,14 @@ describe('defineConfig', () => {
 
     const config: ExarchosConfig = { workflows: { pipeline: workflow } };
 
-    // Act
     const result = defineConfig(config);
 
-    // Assert
     expect(result).toBe(config);
     expect(result.workflows?.pipeline.guards?.run_tests.command).toBe('npm run test:run');
     expect(result.workflows?.pipeline.guards?.run_tests.timeout).toBe(60000);
   });
 
   it('DefineConfig_WithExtends_ReturnsPassthrough', () => {
-    // Arrange
     const config: ExarchosConfig = {
       workflows: {
         'custom-feature': {
@@ -93,10 +83,8 @@ describe('defineConfig', () => {
       },
     };
 
-    // Act
     const result = defineConfig(config);
 
-    // Assert
     expect(result.workflows?.['custom-feature'].extends).toBe('feature');
   });
 });

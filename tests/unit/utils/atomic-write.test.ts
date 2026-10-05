@@ -1,3 +1,17 @@
+/**
+ * Tests for the atomic file replace, and for the staged tree promotion that uses it.
+ *
+ * Real concurrent IO cannot provoke the win32 rename race on a Linux host. So the publish
+ * tests stub the platform and inject the rename. A test that runs only on win32 leaves the
+ * retry untested on all other lanes.
+ *
+ * The durable-order tests of the promotion live here, not in
+ * `tests/unit/install/atomic-promotion.test.ts`. The durable order is one property across two
+ * modules: `fsyncDirSync` and `DurabilityBarrier` in `utils/atomic-write.ts`, and the promotion
+ * sequence in `install/atomic-promotion.ts`. In two files, each half can pass while the order
+ * between them regresses. These tests assert the order of calls through the injectable seams.
+ * They do not assert that a directory fsync succeeds, because win32 refuses it.
+ */
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -30,17 +44,6 @@ import {
 import { digestTree, type DigestEntry } from '../../../src/install/install-identity.js';
 import { rmrf, rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
-/**
- * Testing strategy only — for the race itself, see `publishTempFile`.
- *
- * The race cannot be provoked on the Linux lane by doing real concurrent IO, so
- * the platform is stubbed and the rename injected. That is deliberate: the
- * alternative (`skipIf(win32)`) would leave the retry untested on every lane that
- * actually runs — the vacuous-gate defect of #1694, a guard that guards nothing
- * on the only platform that can see the bug. The win32 lane covers the
- * integration end (state-store's concurrent writers); these cover the mechanism.
- */
-
 function eperm(): NodeJS.ErrnoException {
   const err = new Error('EPERM: operation not permitted, rename') as NodeJS.ErrnoException;
   err.code = 'EPERM';
@@ -72,9 +75,8 @@ describe('publishTempFile', () => {
     expect(rename).toHaveBeenCalledWith('/tmp/a.tmp', '/tmp/a');
   });
 
+  /** POSIX never raises the rename race, so an `EPERM` there is a real permission fault with no retry. */
   it('PublishTempFile_PosixEperm_RethrowsWithoutRetrying', async () => {
-    // POSIX never raises the race, so an EPERM there is a REAL permission fault
-    // and must surface immediately rather than be retried into a ~1s stall.
     stubPlatform('linux');
     const rename = vi.fn<(from: string, to: string) => Promise<void>>().mockRejectedValue(eperm());
 
@@ -107,8 +109,8 @@ describe('publishTempFile', () => {
     expect(rename).toHaveBeenCalledTimes(2);
   });
 
+  /** `ENOSPC` is not the race. A retry turns a hard failure into a stall. */
   it('PublishTempFile_Win32NonRaceError_RethrowsWithoutRetrying', async () => {
-    // ENOSPC is not the race. Retrying it would turn a hard failure into a stall.
     stubPlatform('win32');
     const rename = vi
       .fn<(from: string, to: string) => Promise<void>>()
@@ -118,30 +120,27 @@ describe('publishTempFile', () => {
     expect(rename).toHaveBeenCalledTimes(1);
   });
 
+  /**
+   * A read-only file or a hostile ACL also reports `EPERM`, and the publish cannot tell them
+   * from the race. So the loop must stop after a bounded count of attempts and rethrow.
+   */
   it('PublishTempFile_Win32PermanentEperm_RethrowsAfterBoundedAttempts', async () => {
-    // A read-only file / hostile ACL reports EPERM too and is indistinguishable
-    // here. The loop MUST terminate and rethrow rather than hang forever.
     stubPlatform('win32');
     const rename = vi.fn<(from: string, to: string) => Promise<void>>().mockRejectedValue(eperm());
 
     await expect(publishTempFile('/tmp/a.tmp', '/tmp/a', { rename })).rejects.toThrow(/EPERM/);
 
-    // Bounded: the initial attempt plus a finite number of retries, not unbounded.
     expect(rename.mock.calls.length).toBeGreaterThan(1);
     expect(rename.mock.calls.length).toBeLessThanOrEqual(21);
   });
 
+  /**
+   * Two writers that collide at the same attempt number must sleep different durations,
+   * or they collide again. Different delays across attempts do not prove that property.
+   * A deterministic `5 * attempt` has such delays and still wakes all writers on the same tick.
+   * Each of the 24 writers collides one time, so each records only its attempt-0 sleep.
+   */
   it('PublishTempFile_ManyWritersAtSameAttempt_SleepDifferentDurations', async () => {
-    // THE property that breaks the convoy, stated precisely.
-    //
-    // It is NOT "delays differ across attempts" — a deterministic `5 * attempt`
-    // satisfies that (5, 10, 15, …) while still waking every contending writer
-    // on the same tick. That weaker assertion was the first version of this test
-    // and a no-jitter mutant survived it, which is exactly the vacuous-gate
-    // defect of #1694 in miniature.
-    //
-    // The real property is cross-WRITER: two writers colliding at the SAME
-    // attempt number must sleep DIFFERENT durations, or they collide again.
     stubPlatform('win32');
     const attemptZeroDelays: number[] = [];
     vi.spyOn(global, 'setTimeout').mockImplementation(((fn: () => void, ms?: number) => {
@@ -150,8 +149,6 @@ describe('publishTempFile', () => {
       return 0 as unknown as NodeJS.Timeout;
     }) as unknown as typeof setTimeout);
 
-    // 24 independent writers, each colliding exactly once → each records only
-    // its attempt-0 sleep. A deterministic backoff makes all 24 identical.
     for (let i = 0; i < 24; i++) {
       const rename = vi
         .fn<(from: string, to: string) => Promise<void>>()
@@ -165,11 +162,12 @@ describe('publishTempFile', () => {
     for (const d of attemptZeroDelays) expect(d).toBeLessThanOrEqual(1 + 64);
   });
 
+  /**
+   * `Math.random` is pinned to its maximum, so the test measures the worst case.
+   * With real jitter the total is random, and a publish over the budget fails only on rare runs.
+   * Each sleep must respect the per-attempt cap, and the total must not exceed 1000 ms.
+   */
   it('PublishTempFile_Win32WorstCaseBackoff_StaysInsideTheDocumentedBudget', async () => {
-    // Pin `Math.random` to its maximum so this measures the WORST case rather
-    // than a lucky sample. With real jitter the total is random, so a loose
-    // ceiling would let an implementation that busts the documented ~1s budget
-    // pass most runs and fail rarely — a flake that reads as a bad test.
     stubPlatform('win32');
     vi.spyOn(Math, 'random').mockReturnValue(1);
     const delays: number[] = [];
@@ -182,17 +180,13 @@ describe('publishTempFile', () => {
     const rename = vi.fn<(from: string, to: string) => Promise<void>>().mockRejectedValue(eperm());
     await expect(publishTempFile('/tmp/a.tmp', '/tmp/a', { rename })).rejects.toThrow(/EPERM/);
 
-    // Every individual sleep respects the per-attempt cap...
     expect(delays.length).toBeGreaterThan(0);
     for (const d of delays) expect(d).toBeLessThanOrEqual(1 + PUBLISH_BACKOFF_CAP_MS);
-    // ...and the worst-case TOTAL honours the ~1s the docstring promises.
     expect(delays.reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(1000);
   });
 
+  /** Without the cleanup, each failed publish leaves its staged temp file next to the target. */
   it('PublishTempFile_TerminalFailure_RemovesTheStagedTempFile', async () => {
-    // A staged temp whose publish failed is garbage. Leaving it orphans a file
-    // next to the target on EVERY failure — state-store and atomicWriteFile each
-    // hand-rolled this cleanup while the other publishes silently leaked.
     const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'publish-cleanup-'));
     const target = path.join(dir, 'x.json');
     const tmp = `${target}.tmp`;
@@ -206,12 +200,12 @@ describe('publishTempFile', () => {
       /ENOSPC/,
     );
 
-    await expect(fsp.access(tmp)).rejects.toThrow(); // temp is gone
-    expect(await fsp.readdir(dir)).toEqual([]); // nothing orphaned
+    await expect(fsp.access(tmp)).rejects.toThrow();
+    expect(await fsp.readdir(dir)).toEqual([]);
   });
 
+  /** Cleanup is best-effort and must not hide the cause of the failed publish. */
   it('PublishTempFile_CleanupItselfFails_StillRethrowsTheOriginalError', async () => {
-    // Cleanup is best-effort and must never mask why the publish failed.
     stubPlatform('linux');
     const rename = vi
       .fn<(from: string, to: string) => Promise<void>>()
@@ -226,9 +220,8 @@ describe('publishTempFile', () => {
     expect(unlink).toHaveBeenCalledWith('/tmp/a.tmp');
   });
 
+  /** An injected IO with no `unlink` gets no cleanup, and the original error still propagates. */
   it('PublishTempFile_IoWithoutUnlink_PublishesWithoutAttemptingCleanup', async () => {
-    // An injected fs that cannot delete (e.g. McpJsonWriterFs) must still work —
-    // it simply gets no cleanup, exactly as before this seam existed.
     stubPlatform('linux');
     const rename = vi
       .fn<(from: string, to: string) => Promise<void>>()
@@ -238,7 +231,6 @@ describe('publishTempFile', () => {
   });
 
   it('PublishTempFile_DefaultRename_PublishesRealFileOnThisPlatform', async () => {
-    // The default path (no injected rename) must actually move bytes.
     const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'publish-default-'));
     const target = path.join(dir, 'x.json');
     const tmp = `${target}.tmp`;
@@ -250,10 +242,12 @@ describe('publishTempFile', () => {
     await expect(fsp.access(tmp)).rejects.toThrow();
   });
 
+  /**
+   * Twelve writers with distinct temp files publish to one target.
+   * Each writer must resolve, the target must hold the whole payload of one writer,
+   * and the directory must hold no temp file.
+   */
   it('PublishTempFile_ConcurrentPublishersOneTarget_AllResolveAndTargetIsWhole', async () => {
-    // The shape that was red on win32: N writers, N distinct temps, ONE target.
-    // On POSIX this always passed; it is the regression guard for every routed
-    // site, and the reader must never observe a torn payload.
     const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'publish-concurrent-'));
     const target = path.join(dir, 'shared.json');
     const writers = Array.from({ length: 12 }, async (_, i) => {
@@ -265,12 +259,10 @@ describe('publishTempFile', () => {
     const results = await Promise.allSettled(writers);
     expect(results.filter((r) => r.status === 'rejected')).toEqual([]);
 
-    // Exactly one writer's payload survives, intact and parseable — never a mix.
     const final = JSON.parse(await fsp.readFile(target, 'utf-8')) as { writer: number };
     expect(final.writer).toBeGreaterThanOrEqual(0);
     expect(final.writer).toBeLessThan(12);
 
-    // No temp file is left stranded.
     const leftover = (await fsp.readdir(dir)).filter((f) => f.includes('.tmp.'));
     expect(leftover).toEqual([]);
   });
@@ -553,7 +545,6 @@ describe('publishTempFileSync', () => {
 
 describe('atomicWriteFile', () => {
   it('AtomicWriteFile_RoutesThroughSharedPublish_AndWritesContent', async () => {
-    // Guards the routing itself: atomicWriteFile must not re-open-code rename.
     const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'atomic-write-'));
     const target = path.join(dir, 'z.json');
 
@@ -564,22 +555,6 @@ describe('atomicWriteFile', () => {
     expect(leftover).toEqual([]);
   });
 });
-
-// ─── DR-16: durable ordering of the journal + tree renames ───────────────────
-
-/**
- * Why the promotion-engine tests live in `atomic-write.test.ts` and not beside
- * `install/atomic-promotion.ts`: DR-16 is ONE property spanning two modules —
- * the primitive here (`fsyncDirSync` + `DurabilityBarrier`) and the sequence
- * built out of it there. Split across two files, each half can stay green while
- * the ORDER between them regresses, and the order is the entire defect.
- *
- * These tests assert the CALL/ORDERING contract through the injectable seams,
- * not the success of a POSIX-only syscall, because the durability step is a
- * documented no-op on win32 (see `DIRECTORY_SYNC_UNSUPPORTED_CODES`) and a test
- * that asserted "fsync succeeded" would be red on this repo's Windows lane while
- * proving nothing extra on Linux.
- */
 
 const OLD_TREE: readonly DigestEntry[] = [
   { path: 'a.md', content: 'OLD alpha\n' },
@@ -605,6 +580,7 @@ function makeTempDir(): string {
   return dir;
 }
 
+/** Removes each temp root. A removal that fails does not fail the test. */
 afterEach(() => {
   while (tempRoots.length > 0) {
     const dir = tempRoots.pop();
@@ -612,7 +588,6 @@ afterEach(() => {
     try {
       rmrf(dir);
     } catch {
-      /* best-effort temp cleanup */
     }
   }
 });
@@ -665,6 +640,11 @@ function expectNotTorn(target: string): void {
 }
 
 describe('fsyncDirSync / fsyncDir (the DR-16 durability primitive)', () => {
+  /**
+   * The outcome is `synced`, or `unsupported` with an errno from the closed set.
+   * win32 cannot fsync a directory: `open(dir)` succeeds and `fsync(fd)` fails with `EPERM`.
+   * The test pins that outcome, so a change to it is visible.
+   */
   it('FsyncDirSync_RealDirectory_ReportsSyncedOrAnExplicitPlatformRefusal', () => {
     const dir = makeTempDir();
 
@@ -674,25 +654,21 @@ describe('fsyncDirSync / fsyncDir (the DR-16 durability primitive)', () => {
     if (outcome.status === 'synced') {
       expect(outcome.code).toBeUndefined();
     } else {
-      // The only other legal answer: an EXPLICIT refusal carrying an errno from
-      // the closed set. Never a silent success, never a blanket swallow.
       expect(outcome.status).toBe('unsupported');
       expect(DIRECTORY_SYNC_UNSUPPORTED_CODES).toContain(outcome.code);
     }
 
     if (process.platform === 'win32') {
-      // Windows has no directory fsync: `open(dir)` succeeds and `fsync(fd)`
-      // fails EPERM. Pinned so the degradation is a stated contract rather than
-      // an accident nobody notices when it changes.
       expect(outcome.status).toBe('unsupported');
       expect(outcome.code).toBe('EPERM');
     }
   });
 
+  /**
+   * The unsupported set is closed. A missing directory is a real fault, and an `unsupported`
+   * outcome for it hides that fault.
+   */
   it('FsyncDirSync_MissingDirectory_PropagatesEnoentRatherThanSwallowingIt', () => {
-    // The degradation set is CLOSED on purpose. A vanished parent is a real
-    // fault; laundering it into a cheerful "unsupported" would be the blanket
-    // `catch {}` DR-16 exists to remove, merely wearing a typed return.
     const dir = makeTempDir();
 
     expect(() => fsyncDirSync(path.join(dir, 'no-such-dir'))).toThrow(/ENOENT/);
@@ -716,6 +692,11 @@ describe('fsyncDirSync / fsyncDir (the DR-16 durability primitive)', () => {
 });
 
 describe('publishTempFile — DR-16 parent-directory durability', () => {
+  /**
+   * The fsync must target the parent directory, because the rename made its entry there.
+   * The fsync must come after the rename. A parent fsync before the rename flushes a
+   * directory that does not hold the new name yet.
+   */
   it('PublishTempFile_AfterRename_FsyncsParentDirectory', async () => {
     const dir = makeTempDir();
     const target = path.join(dir, 'x.json');
@@ -734,20 +715,16 @@ describe('publishTempFile — DR-16 parent-directory durability', () => {
 
     await publishTempFile(tmp, target, { rename, syncDirectory });
 
-    // The PARENT directory — fsync'ing the file or the target path would prove
-    // nothing about the directory entry the rename just created.
     expect(syncDirectory).toHaveBeenCalledTimes(1);
     expect(syncDirectory).toHaveBeenCalledWith(dir);
-    // ...and AFTER the rename, not merely somewhere in the same function. An
-    // fsync of the parent BEFORE the rename flushes a directory that does not
-    // yet contain the new name, which is exactly as durable as doing nothing.
     expect(calls).toEqual(['rename', `syncDirectory:${dir}`]);
   });
 
+  /**
+   * A durability step that runs unconditionally also passes the test above.
+   * This test fails unless the fsync runs only after a successful rename.
+   */
   it('PublishTempFile_RenameNeverSucceeded_DoesNotClaimDirectoryDurability', async () => {
-    // Makes "after the rename" mean something. A durability step that runs
-    // unconditionally would also satisfy the test above; this one dies unless
-    // the fsync is genuinely downstream of a SUCCESSFUL rename.
     const syncDirectory = vi.fn(async (directory: string): Promise<DirectorySyncOutcome> =>
       Promise.resolve({ directory, status: 'synced' }),
     );
@@ -763,21 +740,18 @@ describe('publishTempFile — DR-16 parent-directory durability', () => {
   });
 });
 
-// ─── The promotion sequence (DR-16 ordering) ─────────────────────────────────
-
 /** One observed step of a promotion, in the order the engine performed it. */
 type PromotionOp =
   | { readonly op: 'rename'; readonly from: string; readonly to: string }
   | { readonly op: 'syncDirectory'; readonly directory: string; readonly journalOnDisk: boolean };
 
 /**
- * A real `defaultPromotionIo` that records the two ops DR-16 is about. Only the
- * durability steps the ENGINE sequences are recorded (the default IO's internal
- * publish keeps its own seam), so the log is exactly the ordering under test.
+ * A real `defaultPromotionIo` that records each rename and each directory fsync that the
+ * engine sequences. The internal publish of the default IO keeps its own seam, so the log
+ * holds only the order under test.
  *
- * `journalOnDisk` is captured AT THE MOMENT of each fsync, which is what ties a
- * durability step to the journal rather than to whichever fsync happened to come
- * first — an index-only assertion would be satisfied by any earlier sync.
+ * `journalOnDisk` is read at the moment of each fsync, and that ties a durability step to
+ * the journal. An index-only assertion passes for any earlier fsync.
  */
 function recordingPromotionIo(root: string, log: PromotionOp[]): PromotionIo {
   const base = defaultPromotionIo();
@@ -799,10 +773,9 @@ function recordingPromotionIo(root: string, log: PromotionOp[]): PromotionIo {
 }
 
 /**
- * DR-16 as a PREDICATE over the observed log, extracted so the identical check
- * can be run against a deliberately inverted log below. Without that twin, a
- * predicate that returned `true` for everything would look like a passing
- * ordering test.
+ * The ordering rule as a predicate over the log: the journal is durable before the backup rename.
+ * It is a function, so a test can also run it against an inverted log.
+ * Without that twin, a predicate that always returns `true` looks like a passing test.
  */
 function journalIsDurableBeforeBackup(log: readonly PromotionOp[]): boolean {
   const backupAt = log.findIndex((e) => e.op === 'rename' && e.to.includes('.exarchos-backup'));
@@ -811,10 +784,8 @@ function journalIsDurableBeforeBackup(log: readonly PromotionOp[]): boolean {
 }
 
 /**
- * The negative twin, built by MOVING one entry of the REAL log rather than by
- * hand-writing a synthetic one — so the twin differs from the passing case in
- * the ordering and in nothing else (no different substrate, no different op
- * shapes).
+ * The negative twin. It moves one entry of the real log, so the twin differs from the
+ * passing case only in the order.
  */
 function withJournalDurabilityMovedAfterBackup(log: readonly PromotionOp[]): PromotionOp[] {
   const journalAt = log.findIndex((e) => e.op === 'syncDirectory' && e.journalOnDisk);
@@ -827,6 +798,11 @@ function withJournalDurabilityMovedAfterBackup(log: readonly PromotionOp[]): Pro
 }
 
 describe('atomic promotion — DR-16 constructed ordering', () => {
+  /**
+   * The claim is the relative order, not presence. The journal is the only record of where
+   * the old tree went. So its directory entry must be durable before the rename that moves
+   * the old tree away. The log must hold no rename before that fsync.
+   */
   it('AtomicPromotion_JournalRename_IsDurablyOrderedBeforeBackup', () => {
     const root = makeTempDir();
     const target = path.join(root, 'skills');
@@ -838,22 +814,19 @@ describe('atomic promotion — DR-16 constructed ordering', () => {
     const backupAt = log.findIndex((e) => e.op === 'rename' && e.to.includes('.exarchos-backup'));
     const journalDurableAt = log.findIndex((e) => e.op === 'syncDirectory' && e.journalOnDisk);
 
-    expect(backupAt).toBeGreaterThanOrEqual(0); // the backup rename really happened
-    expect(journalDurableAt).toBeGreaterThanOrEqual(0); // a durability step really happened
-    // THE claim: relative order, not mere presence. The journal is the only
-    // record of where the OLD tree went, so its directory entry must reach
-    // stable storage before the rename that moves the old tree away.
+    expect(backupAt).toBeGreaterThanOrEqual(0);
+    expect(journalDurableAt).toBeGreaterThanOrEqual(0);
     expect(journalDurableAt).toBeLessThan(backupAt);
     expect(journalIsDurableBeforeBackup(log)).toBe(true);
 
-    // Nothing was renamed at all before the journal was durable.
     expect(log.slice(0, journalDurableAt).some((e) => e.op === 'rename')).toBe(false);
   });
 
+  /**
+   * The inversion guard: the predicate must fail on the real log with one entry moved.
+   * Both logs hold the same steps, in a different order.
+   */
   it('AtomicPromotion_DurabilityStepMovedAfterBackup_FailsTheSameOrderingCheck', () => {
-    // The inversion guard. If a future edit moves the journal's fsync below the
-    // backup rename, the test above must go red — this proves the check can
-    // distinguish, using the real log with exactly one entry relocated.
     const root = makeTempDir();
     const target = path.join(root, 'skills');
     writeTree(target, OLD_TREE);
@@ -865,15 +838,16 @@ describe('atomic promotion — DR-16 constructed ordering', () => {
 
     expect(journalIsDurableBeforeBackup(log)).toBe(true);
     expect(journalIsDurableBeforeBackup(inverted)).toBe(false);
-    // Same multiset of steps — only their order differs.
     expect(inverted.length).toBe(log.length);
     expect([...inverted].sort(byOpKey)).toEqual([...log].sort(byOpKey));
   });
 
+  /**
+   * The renames are target to backup, then staging to target.
+   * The parent fsync must come directly after each rename. An fsync that comes after
+   * the next rename leaves the first entry with no proven order.
+   */
   it('AtomicPromotion_EachTreeRename_IsImmediatelyFollowedByAParentDirectoryFsync', () => {
-    // "after EACH tree rename", per DR-16's acceptance criteria. Immediately
-    // after: a fsync deferred past the next rename would make the intervening
-    // entry the unordered one.
     const root = makeTempDir();
     const target = path.join(root, 'skills');
     writeTree(target, OLD_TREE);
@@ -887,7 +861,6 @@ describe('atomic promotion — DR-16 constructed ordering', () => {
         seen.entry.op === 'rename',
       );
 
-    // target → backup, then staging → target.
     expect(renames.map(({ entry }) => path.basename(entry.to))).toEqual([
       '.skills.exarchos-backup',
       'skills',
@@ -901,10 +874,11 @@ describe('atomic promotion — DR-16 constructed ordering', () => {
     }
   });
 
+  /**
+   * The caller receives the fsync outcome. So a caller can tell a durable promotion from
+   * an atomic promotion whose durability the platform cannot prove.
+   */
   it('AtomicPromotion_OnThisPlatform_ReportsDirectoryDurabilityRatherThanAssumingIt', () => {
-    // The degradation is carried out to the CALLER, so "atomically promoted,
-    // durability unproven by the platform" is distinguishable from "durably
-    // promoted" instead of being swallowed at the fsync.
     const root = makeTempDir();
     const target = path.join(root, 'skills');
     writeTree(target, OLD_TREE);
@@ -930,37 +904,6 @@ function byOpKey(a: PromotionOp, b: PromotionOp): number {
   return key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0;
 }
 
-// ─── The T3 convergence arm: a REAL SIGKILL between the two renames ──────────
-
-/**
- * DR-16's second acceptance criterion — "a real-kill (SIGKILL) between the two
- * renames converges to old-complete or new-complete".
- *
- * This is a REAL kill, not a simulation. A child `node` process runs the real
- * `promoteTreeSync` against real directories, blocks the main thread at a chosen
- * instant (`Atomics.wait` with no timeout — no event loop turn remains, so the
- * process CANNOT unblock itself, run a `finally`, or flush anything), and the
- * parent sends `SIGKILL`. On win32 Node maps `SIGKILL` to `TerminateProcess`,
- * which is equally abrupt and uncatchable; the child gets no chance to clean up
- * on either platform. The engine's own rollback path is therefore never reached
- * — the only thing that can converge the destination is the on-disk journal read
- * by a LATER process, which is exactly what is being tested.
- *
- * What is injected is the PAUSE POINT and nothing else: the IO the child hands
- * `promoteTreeSync` is `defaultPromotionIo()` with `rename` wrapped to halt
- * before (or after) the commit rename and then delegate to the real one. Every
- * filesystem operation, including every fsync, is the production one.
- *
- * WHAT THIS ARM DOES NOT PROVE. `SIGKILL` kills a process, not a machine: the
- * page cache survives, so the OS still writes back everything the child had
- * done, fsync'd or not. This arm therefore proves ORDERING + RECOVERY converge
- * across an abrupt death; it does NOT and cannot prove the fsyncs themselves
- * matter — that needs a power cut or block-device fault injection, neither of
- * which is available here (and neither of which exists on Windows). The fsync
- * mechanism is pinned instead by the ordering tests above, which is why both
- * kinds of test are present rather than either alone.
- */
-
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MCP_PACKAGE_DIR = path.resolve(HERE, '../../..');
 const PROMOTION_MODULE_URL = pathToFileURL(
@@ -975,9 +918,8 @@ interface KillOutcome {
 }
 
 /**
- * The child program. Written out at test time (rather than committed) so the
- * crash harness cannot drift away from the module it is crashing, and so no
- * extra file has to be excluded from the vitest glob.
+ * The source of the child program. The test writes it at run time, so the harness
+ * cannot drift from the module that it crashes.
  */
 function childSource(): string {
   return [
@@ -1010,12 +952,18 @@ function childSource(): string {
   ].join('\n');
 }
 
+/** Throws when `tsx` does not resolve. A convergence test that skips silently is worse than no test. */
 function tsxLoaderIsAvailable(): string {
-  // Fail LOUDLY rather than skipping: a convergence arm that silently does not
-  // run is worse than no convergence arm.
   return createRequire(import.meta.url).resolve('tsx');
 }
 
+/**
+ * Runs the real `promoteTreeSync` in a child `node` process and kills it at `killPoint`.
+ * The child blocks its main thread with `Atomics.wait`, so it cannot run a `finally` or flush.
+ * Then the parent sends `SIGKILL`, which Node maps to `TerminateProcess` on win32.
+ * The only injected part is the pause in `rename`. Each filesystem call is the production call.
+ * The promotion must die before it completes, so the child must not print its completion line.
+ */
 async function promoteInChildAndSigkill(
   root: string,
   target: string,
@@ -1069,12 +1017,25 @@ async function promoteInChildAndSigkill(
 
   child.kill('SIGKILL');
   const outcome = await exited;
-  // The promotion must have died mid-flight, not finished and then been killed.
   expect(stdout).not.toContain('PROMOTION_RAN_TO_COMPLETION_WITHOUT_BEING_KILLED');
   return outcome;
 }
 
+/**
+ * A real kill during a promotion must converge to the complete old tree or the complete new tree.
+ * The rollback of the engine never runs, so only the journal that a later process reads
+ * can repair the destination.
+ *
+ * `SIGKILL` kills a process, not a machine, and the page cache survives. So these tests prove
+ * that the order and the recovery converge. They cannot prove that the fsyncs matter.
+ * The ordering tests above pin the fsync calls.
+ */
 describe('atomic promotion — T3 SIGKILL convergence (DR-16)', () => {
+  /**
+   * A host can report the kill as a signal or as a non-zero code, and never as a clean 0.
+   * At the kill, the old tree is in the backup and the new tree is still in staging.
+   * Then recovery from the journal alone restores the complete old tree.
+   */
   it('AtomicPromotion_RealSigkillBetweenRenames_ConvergesToOldCompleteNeverTorn', async () => {
     const root = makeTempDir();
     const target = path.join(root, 'skills');
@@ -1082,30 +1043,27 @@ describe('atomic promotion — T3 SIGKILL convergence (DR-16)', () => {
 
     const outcome = await promoteInChildAndSigkill(root, target, NEW_TREE, 'between-renames');
 
-    // Killed, not exited. win32 reports TerminateProcess as a non-zero code with
-    // no signal; POSIX reports the signal. Never a clean 0.
     expect(outcome.code).not.toBe(0);
     if (outcome.signal !== null) expect(outcome.signal).toBe('SIGKILL');
 
-    // The instant of the kill: the OLD tree has been moved aside and the NEW one
-    // is not yet in place. This is the exact window DR-16's ordering exists for.
     expect(fs.existsSync(target)).toBe(false);
     expectNotTorn(target);
     expect(diskDigest(backupDir(root))).toBe(OLD_DIGEST);
     expect(diskDigest(stageDir(root))).toBe(NEW_DIGEST);
     expect(fs.existsSync(journalPath(root))).toBe(true);
 
-    // A later process converges the destination from the journal alone.
     expect(recoverInterruptedPromotion(target)).toBe(true);
     expect([OLD_DIGEST, NEW_DIGEST]).toContain(diskDigest(target));
-    expect(diskDigest(target)).toBe(OLD_DIGEST); // OLD-COMPLETE arm
+    expect(diskDigest(target)).toBe(OLD_DIGEST);
     expectNoScaffolding(root);
   });
 
+  /**
+   * The kill comes after the commit rename and before the cleanup. So the new tree is live,
+   * and the scaffolding is still on disk. Both outcomes must be reachable. If not, an
+   * implementation that only rolls back satisfies "old-complete or new-complete".
+   */
   it('AtomicPromotion_RealSigkillAfterCommitRename_ConvergesToNewCompleteNeverTorn', async () => {
-    // The other side of the disjunction, reached by the same harness one rename
-    // later. Both arms must be REACHABLE or "old-complete or new-complete" is
-    // satisfied by an implementation that only ever rolls back.
     const root = makeTempDir();
     const target = path.join(root, 'skills');
     writeTree(target, OLD_TREE);
@@ -1115,8 +1073,6 @@ describe('atomic promotion — T3 SIGKILL convergence (DR-16)', () => {
     expect(outcome.code).not.toBe(0);
     if (outcome.signal !== null) expect(outcome.signal).toBe('SIGKILL');
 
-    // Killed after the commit rename but before the best-effort cleanup: NEW is
-    // already live, and the scaffolding is still on disk.
     expect(diskDigest(target)).toBe(NEW_DIGEST);
     expectNotTorn(target);
     expect(diskDigest(backupDir(root))).toBe(OLD_DIGEST);
@@ -1124,28 +1080,21 @@ describe('atomic promotion — T3 SIGKILL convergence (DR-16)', () => {
 
     expect(recoverInterruptedPromotion(target)).toBe(true);
     expect([OLD_DIGEST, NEW_DIGEST]).toContain(diskDigest(target));
-    expect(diskDigest(target)).toBe(NEW_DIGEST); // NEW-COMPLETE arm
+    expect(diskDigest(target)).toBe(NEW_DIGEST);
     expectNoScaffolding(root);
   });
 });
 
-// ─── The barrier PRECONDITION itself (DR-16, leg 2) ──────────────────────────
-
 /**
- * `afterDurable` is the only link in the DR-16 chain the compiler cannot check:
- * every step's barrier has the same type, so threading the wrong one compiles
- * cleanly and can fail only at runtime. These tests exist because the guard was
- * initially shipped UNPINNED — neutering it to `return` left all 28 tests green,
- * which is the exact "comment wearing a type" the guard was built to prevent.
+ * `afterDurable` is the one link that the compiler cannot check. Each barrier has the same
+ * type, so a wrong barrier compiles and fails only at run time.
  *
- * The two halves of the condition are pinned SEPARATELY. A single test that
- * violates both at once would survive a mutation that dropped either arm of the
- * `||`, which would leave half the guard as decorative as the whole of it was.
+ * The tests pin the two halves of the condition separately. One test that violates both
+ * halves survives a mutation that removes one arm of the `||`.
  */
 describe('afterDurable — the DR-16 durability precondition', () => {
+  /** The positive control. Without it, a guard that always throws passes both negative tests below. */
   it('AfterDurable_BarrierCoversTheDirectory_Passes', () => {
-    // The positive control: without it, a guard that threw unconditionally would
-    // satisfy both negative tests below.
     const root = makeTempDir();
 
     expect(() =>
@@ -1156,9 +1105,11 @@ describe('afterDurable — the DR-16 durability precondition', () => {
     ).not.toThrow();
   });
 
+  /**
+   * Violates only `path.dirname(published) !== directory`: the fsync went to the right
+   * directory, but the rename went to another one. The message must name that directory.
+   */
   it('AfterDurable_BarrierPublishedInAnotherDirectory_ThrowsNamingTheMismatch', () => {
-    // Violates ONLY `path.dirname(published) !== directory`: the fsync went to
-    // the right directory, but the rename it claims to cover landed elsewhere.
     const root = makeTempDir();
     const elsewhere = makeTempDir();
 
@@ -1174,17 +1125,16 @@ describe('afterDurable — the DR-16 durability precondition', () => {
 
     expect(thrown).toBeInstanceOf(PromotionError);
     expect((thrown as PromotionError).code).toBe('PROMOTE_FAILED');
-    // The MISMATCH is what was detected — the message names the foreign
-    // directory, not merely "something went wrong".
     expect((thrown as Error).message).toContain(elsewhere);
     expect((thrown as Error).message).toMatch(/durability barrier/);
   });
 
+  /**
+   * Violates only `barrier.directory.directory !== directory`: the rename went to the right
+   * place, but the fsync went to another directory. Such a barrier proves nothing about the
+   * entry that it names.
+   */
   it('AfterDurable_FsyncTargetedAnotherDirectory_ThrowsNamingTheMismatch', () => {
-    // Violates ONLY `barrier.directory.directory !== directory`: the rename
-    // landed in the right place but the fsync went somewhere else. This is the
-    // dangerous half — a barrier that reports success while proving nothing
-    // about the entry it names.
     const root = makeTempDir();
     const elsewhere = makeTempDir();
 
@@ -1206,13 +1156,12 @@ describe('afterDurable — the DR-16 durability precondition', () => {
 });
 
 /**
- * A `PromotionIo` whose durability seam LIES about which directory it fsync'd,
- * on the `nth` call only (1-based). Everything else is the real IO.
+ * A `PromotionIo` whose `syncDirectory` reports the directory `lie` on call `nthCall` (1-based).
+ * All other calls use the real IO.
  *
- * This is how the precondition is reachable end-to-end: `stagePlanFor` puts the
- * journal, backup and target in one parent, so no public entry point can hand a
- * step a barrier `published` elsewhere — but any seam can claim to have synced a
- * directory it did not.
+ * `stagePlanFor` puts the journal, the backup and the target in one parent. So no public
+ * entry point can pass a barrier that was published in another directory. A seam can still
+ * claim a directory that it did not sync, and that makes the precondition reachable.
  */
 function lyingSyncDirectoryIo(nthCall: number, lie: string, log: string[]): PromotionIo {
   const base = defaultPromotionIo();
@@ -1229,10 +1178,11 @@ function lyingSyncDirectoryIo(nthCall: number, lie: string, log: string[]): Prom
 }
 
 describe('atomic promotion — the barrier precondition is wired into the commit path', () => {
+  /**
+   * Pins the `afterDurable` call in `backupExistingTarget`. When the journal barrier does not
+   * cover the parent, the promotion must stop before the backup rename moves the old tree.
+   */
   it('AtomicPromotion_JournalBarrierFsyncsTheWrongDirectory_AbortsBeforeTouchingTheOldTree', () => {
-    // Pins the FIRST `afterDurable` call site (in `backupExistingTarget`). A
-    // journal whose durability cannot be vouched for must stop the promotion
-    // before the old tree is moved aside — that rename is the irreversible one.
     const root = makeTempDir();
     const target = path.join(root, 'skills');
     writeTree(target, OLD_TREE);
@@ -1250,20 +1200,20 @@ describe('atomic promotion — the barrier precondition is wired into the commit
     expect((thrown as PromotionError).code).toBe('PROMOTE_FAILED');
     const cause = (thrown as PromotionError).cause;
     expect(cause).toBeInstanceOf(PromotionError);
-    expect((cause as Error).message).toContain(lie); // the mismatch, not just a failure
+    expect((cause as Error).message).toContain(lie);
     expect((cause as Error).message).toMatch(/durability barrier/);
 
-    // Aborted at the journal step: the backup rename never ran.
     expect(synced).toEqual([root]);
-    expect(diskDigest(target)).toBe(OLD_DIGEST); // OLD-COMPLETE, untouched
+    expect(diskDigest(target)).toBe(OLD_DIGEST);
     expectNoScaffolding(root);
   });
 
+  /**
+   * Pins the `afterDurable` call in `promoteStagedTree`. The lie is on call 2, the fsync of
+   * the backup rename. So the promotion passes the journal step and moves the old tree aside.
+   * Then it must refuse to commit and must roll back to the complete old tree.
+   */
   it('AtomicPromotion_BackupBarrierFsyncsTheWrongDirectory_AbortsBeforeCommitAndRollsBack', () => {
-    // Pins the SECOND `afterDurable` call site (in `promoteStagedTree`). The
-    // lie lands on the backup rename's fsync — call 2 — so the promotion gets
-    // past the journal, moves the old tree aside, and must then refuse to
-    // commit and roll all the way back.
     const root = makeTempDir();
     const target = path.join(root, 'skills');
     writeTree(target, OLD_TREE);
@@ -1282,21 +1232,21 @@ describe('atomic promotion — the barrier precondition is wired into the commit
     expect(cause).toBeInstanceOf(PromotionError);
     expect((cause as Error).message).toContain(lie);
 
-    // It got PAST the journal (so this is genuinely the second call site, not
-    // the first one firing again) and stopped before the commit rename.
     expect(synced.length).toBeGreaterThanOrEqual(2);
-    expect(diskDigest(target)).toBe(OLD_DIGEST); // rolled back to OLD-COMPLETE
+    expect(diskDigest(target)).toBe(OLD_DIGEST);
     expectNotTorn(target);
     expectNoScaffolding(root);
   });
 
+  /**
+   * The seam returns a sentinel code for each call, which no platform can produce.
+   * Each outcome names the real directory, so `afterDurable` passes.
+   * The calls are the journal, the backup rename and the commit rename.
+   * `directoryDurability` must be the outcome of the last call, the commit rename.
+   * A hardcoded `{ status: 'synced' }` passes the platform test on POSIX, and a naive
+   * wiring reports the outcome of the journal.
+   */
   it('AtomicPromotion_DirectoryDurability_ReportsTheCommitStepsActualOutcomeNotAConstant', () => {
-    // `directoryDurability` must carry the outcome the durability step ACTUALLY
-    // produced. The platform test below pins the real value on this host, but it
-    // is satisfied on POSIX by a hardcoded `{ status: 'synced' }` — so this test
-    // feeds the seam a per-call sentinel no platform can produce, and pins that
-    // the reported outcome is the COMMIT rename's (the last one), not the
-    // journal's and not a constant.
     const root = makeTempDir();
     const target = path.join(root, 'skills');
     writeTree(target, OLD_TREE);
@@ -1305,7 +1255,7 @@ describe('atomic promotion — the barrier precondition is wired into the commit
       ...defaultPromotionIo(),
       syncDirectory: (directory) => {
         const outcome: DirectorySyncOutcome = {
-          directory, // honest about the directory, so `afterDurable` is satisfied
+          directory,
           status: 'unsupported',
           code: `SENTINEL_${produced.length}`,
         };
@@ -1316,12 +1266,9 @@ describe('atomic promotion — the barrier precondition is wired into the commit
 
     const report = promoteTreeSync({ target, entries: NEW_TREE }, io);
 
-    // journal, backup rename, commit rename.
     expect(produced.length).toBeGreaterThanOrEqual(3);
     expect(report.directoryDurability).toEqual(produced[produced.length - 1]);
     expect(report.directoryDurability.code).toBe(`SENTINEL_${produced.length - 1}`);
-    // ...and specifically NOT the journal's outcome, which a naive wiring would
-    // report because it is the first barrier the commit sequence produces.
     expect(report.directoryDurability).not.toEqual(produced[0]);
     expect(diskDigest(target)).toBe(NEW_DIGEST);
   });

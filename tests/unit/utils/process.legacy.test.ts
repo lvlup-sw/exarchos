@@ -6,8 +6,8 @@ describe('isPidAlive', () => {
     expect(isPidAlive(process.pid)).toBe(true);
   });
 
+  /** The test assumes that no process has PID 999999. */
   it('IsPidAlive_DeadPid_ReturnsFalse', () => {
-    // PID 999999 is extremely unlikely to be alive
     expect(isPidAlive(999999)).toBe(false);
   });
 

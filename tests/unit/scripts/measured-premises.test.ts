@@ -1,21 +1,10 @@
 /**
- * Pins the coupling between `measured-premises-derive.ts`'s `event-types-total`
- * derivation and the premise document meant to consume it.
+ * Pins the `event-types-total` derivation of `measured-premises-derive.ts` to the event catalog.
  *
- * The derivation at `tools/audit/gates/measured-premises-derive.ts` reads
- * `EventTypes.length` off the live catalog rather than a typed literal, so a
- * value of 175 today becomes whatever the catalog holds tomorrow with no edit
- * required here. The premise document that would annotate a claim as
- * `<!-- measured: event-types-total -->N<!-- /measured -->` — and the change
- * that arms `check-measured-premises.mjs`'s fail-closed comparison against it
- * — is created by a sibling re-scope spec that has not landed in this
- * worktree. This suite therefore does not assume that document exists: the
- * first test proves the derivation agrees with the live catalog directly and
- * checks every document `check-measured-premises.mjs` already scans for the
- * annotation, agreeing with it if (and only if) one is present; the second
- * proves the coupling fails closed on both ends — the derivation itself
- * refuses an untrustworthy catalog, and the comparison mechanism rejects a
- * stale literal — independent of whether the document exists yet.
+ * The derivation reads `EventTypes.length` from the live catalog, so this file holds no count.
+ * A premise document cites the value as
+ * `<!-- measured: event-types-total -->N<!-- /measured -->`. The suite does not assume that a
+ * document with this annotation exists.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
@@ -39,20 +28,15 @@ describe('measured-premises-derive — event-types-total coupling', () => {
     vi.resetModules();
   });
 
+  /**
+   * The loop reads each document in `DEFAULT_DOCUMENTS`. It skips a document that is absent or
+   * that holds no `event-types-total` annotation. An annotation that is present must agree with
+   * the derived value.
+   */
   it('MeasuredPremises_EventTypesTotal_MatchesTheLiveCatalog', () => {
     const derived = deriveTsPremises();
     expect(derived['event-types-total']).toBe(EventTypes.length);
 
-    // The coupling's document side, checked against whatever
-    // `check-measured-premises.mjs` actually scans (`DEFAULT_DOCUMENTS`), not
-    // a guessed filename for the not-yet-landed premise document. A document
-    // that is absent (the common case today — the sibling spec has not
-    // created it) or that carries no `event-types-total` annotation is
-    // skipped rather than treated as a failure or asserted on vacuously; a
-    // document that IS present and DOES carry the annotation must already
-    // agree with the live derivation. The moment the sibling spec creates the
-    // premise document, this loop starts exercising real agreement with no
-    // change to this test.
     for (const relative of DEFAULT_DOCUMENTS) {
       const absolute = path.join(REPO_ROOT, relative);
       if (!existsSync(absolute)) continue;
@@ -64,11 +48,13 @@ describe('measured-premises-derive — event-types-total coupling', () => {
     }
   });
 
+  /**
+   * The test has three parts. First, an empty `EventTypes` catalog makes the derivation throw.
+   * Second, the same call on the live catalog succeeds, which proves that the guard caused the
+   * throw. Third, `checkMeasuredPremises` reports `drifted` for a synthetic document whose
+   * literal is the live value plus one.
+   */
   it('MeasuredPremises_StaleTotal_FailsClosed', async () => {
-    // Half 1 — the derivation itself. An `EventTypes` census it cannot stand
-    // behind (seeded here as empty, standing in for a broken or shadowed
-    // import) must not silently report a number; it fails closed instead of
-    // handing the checker a value nothing backs.
     vi.resetModules();
     vi.doMock('../../../src/events/schemas.js', async (importOriginal) => {
       const actual = await importOriginal<typeof import('../../../src/events/schemas.js')>();
@@ -79,9 +65,6 @@ describe('measured-premises-derive — event-types-total coupling', () => {
     );
     expect(() => deriveFromStaleCatalog()).toThrow(/event-types-total/i);
 
-    // Positive control: without the seeded staleness the identical call
-    // succeeds and agrees with the live catalog, so the throw above is
-    // evidence the guard fired — not that the function always throws.
     vi.doUnmock('../../../src/events/schemas.js');
     vi.resetModules();
     const { deriveTsPremises: deriveLive } = await import(
@@ -90,12 +73,6 @@ describe('measured-premises-derive — event-types-total coupling', () => {
     const live = deriveLive();
     expect(live['event-types-total']).toBe(EventTypes.length);
 
-    // Half 2 — the coupling's other end. Once the sibling spec's premise
-    // document exists and carries a stale literal, `check-measured-premises
-    // .mjs`'s comparison must reject it rather than pass clean. Proven here
-    // with a synthetic document standing in for the real one, fed the live
-    // derivation so the staleness is measured against today's catalog rather
-    // than a number typed into this test.
     const staleLiteral = live['event-types-total'] + 1;
     const syntheticDocument = {
       path: 'synthetic-premise-document.md',

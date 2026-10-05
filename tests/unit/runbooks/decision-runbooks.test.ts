@@ -24,24 +24,24 @@ describe('Decision runbooks', () => {
     }
   });
 
+  /**
+   * The `merge-pending` phase must have the `merge-orchestration` runbook. Its
+   * `templateVars` must be the six fields of `expectedVars`. The first loop finds a
+   * missing field. The second loop finds a template var that has no value in
+   * `sampleBindings`, which holds the same six fields.
+   */
   it('Runbook_MergePending_TemplateVarsExpand', () => {
-    // PR1 / #1363: registry must return the merge-orchestration entry when
-    // queried by phase=merge-pending, and templateVars must declare the
-    // fields the merge-orchestrator skill expects to bind.
     const mergePendingRunbooks = ALL_RUNBOOKS.filter(r => r.phase === 'merge-pending');
     expect(mergePendingRunbooks.length).toBeGreaterThanOrEqual(1);
 
     const mergeOrchestration = mergePendingRunbooks.find(r => r.id === 'merge-orchestration');
     expect(mergeOrchestration).toBeDefined();
 
-    // templateVars expands the sample binding fields the agent must supply.
     const expectedVars = ['featureId', 'taskId', 'sourceBranch', 'targetBranch', 'strategy', 'repoRoot'];
     for (const v of expectedVars) {
       expect(mergeOrchestration!.templateVars).toContain(v);
     }
 
-    // Sample binding sanity-check: every templateVar resolves to a non-empty
-    // string when supplied real-looking values (catches typos / empty defaults).
     const sampleBindings: Record<string, string> = {
       featureId: 'feat-test',
       taskId: 'task-001',
@@ -63,9 +63,8 @@ describe('Decision runbooks', () => {
         expect(decideSteps.length).toBeGreaterThanOrEqual(2);
       });
 
+      /** No branch of the four exempt runbooks sets `escalate: true`. For them the test returns before its assertion. */
       it(`${id}_HasAtLeast1EscalateBranch`, () => {
-        // task-classification and review-strategy use escalate for internal
-        // strategy adjustments, not user escalation — exempt from this check
         const exemptFromEscalation = ['task-classification', 'review-strategy', 'design-refinement', 'phase-compression'];
         if (exemptFromEscalation.includes(id)) return;
 

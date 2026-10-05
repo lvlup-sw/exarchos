@@ -2,8 +2,6 @@ import { describe, it, expect } from 'vitest';
 import { validateConfig, BUILTIN_WORKFLOW_TYPES } from '../../../src/config/validation.js';
 
 describe('validateConfig', () => {
-  // ─── Valid Configs ─────────────────────────────────────────────────────
-
   it('ValidateConfig_EmptyObject_Succeeds', () => {
     const result = validateConfig({});
     expect(result.success).toBe(true);
@@ -63,8 +61,6 @@ describe('validateConfig', () => {
 
     expect(result.success).toBe(true);
   });
-
-  // ─── Invalid Configs ───────────────────────────────────────────────────
 
   it('ValidateConfig_EmptyPhases_Fails', () => {
     const result = validateConfig({
@@ -290,6 +286,7 @@ describe('validateConfig', () => {
     expect(result.success).toBe(true);
   });
 
+  /** The config has three faults: `initialPhase`, the transition `from` and the transition `to`. */
   it('ValidateConfig_MultipleErrors_ReturnsAll', () => {
     const result = validateConfig({
       workflows: {
@@ -304,7 +301,6 @@ describe('validateConfig', () => {
     });
 
     expect(result.success).toBe(false);
-    // Should have errors for initialPhase + from + to
     expect(result.errors!.length).toBeGreaterThanOrEqual(3);
   });
 });

@@ -4,8 +4,6 @@ import type { WorkflowEvent } from '../../../src/events/schemas.js';
 import { FrameSchema, type Frame } from '../../../src/ndjson/frames.js';
 import { runEventQueryFollow } from '../../../src/lifecycle/event-query.js';
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
 /** Collect stream bytes into a buffer. Resolves when the stream ends. */
 async function collect(stream: PassThrough): Promise<string> {
   const chunks: Buffer[] = [];
@@ -34,8 +32,8 @@ function makeEvent(sequence: number): WorkflowEvent {
 }
 
 /**
- * Build a controllable async event source. Tests push events/close/error
- * signals and the handler consumes them as an async iterable.
+ * A controllable async event source. A test pushes events, closes the source or fails it, and the
+ * handler reads `source`.
  */
 interface Controller {
   push(event: WorkflowEvent): void;
@@ -44,8 +42,11 @@ interface Controller {
   source: AsyncIterable<WorkflowEvent>;
 }
 
+/**
+ * Builds a `Controller`. Pushed events wait in a queue. A `next()` call on an empty queue waits for
+ * a push, a close or a failure.
+ */
 function makeSource(): Controller {
-  // Queue of pending events; resolvers wait on pull.
   const queue: WorkflowEvent[] = [];
   const pending: Array<{
     resolve: (r: IteratorResult<WorkflowEvent>) => void;
@@ -105,11 +106,9 @@ function makeSource(): Controller {
   };
 }
 
-// ─── Tests ──────────────────────────────────────────────────────────────────
-
 describe('event query --follow (T042, DR-9)', () => {
+  /** Fake timers from one test must not leak into the next test. */
   beforeEach(() => {
-    // Avoid real timers leaking across tests.
     vi.useRealTimers();
   });
 
@@ -117,6 +116,7 @@ describe('event query --follow (T042, DR-9)', () => {
     vi.useRealTimers();
   });
 
+  /** The 60 s heartbeat interval is long enough that no heartbeat fires in this test. */
   it('EventQueryCli_WithFollow_EmitsOneLinePerEvent', async () => {
     const sink = new PassThrough();
     const controller = makeSource();
@@ -124,7 +124,7 @@ describe('event query --follow (T042, DR-9)', () => {
     const run = runEventQueryFollow({
       source: controller.source,
       sink,
-      heartbeatIntervalMs: 60_000, // long enough that no heartbeat fires in this test
+      heartbeatIntervalMs: 60_000,
     });
 
     controller.push(makeEvent(1));
@@ -136,7 +136,6 @@ describe('event query --follow (T042, DR-9)', () => {
     const raw = await collect(sink);
     const frames = parseFrames(raw);
 
-    // 3 event frames followed by 1 end frame
     const eventFrames = frames.filter((f) => f.type === 'event');
     expect(eventFrames).toHaveLength(3);
     for (const frame of eventFrames) {
@@ -144,6 +143,7 @@ describe('event query --follow (T042, DR-9)', () => {
     }
   });
 
+  /** The `end` frame is the last frame, after every event frame. */
   it('EventQueryCli_StreamClose_EmitsEndFrame', async () => {
     const sink = new PassThrough();
     const controller = makeSource();
@@ -161,12 +161,15 @@ describe('event query --follow (T042, DR-9)', () => {
     const raw = await collect(sink);
     const frames = parseFrames(raw);
 
-    // The last frame must be an `end` frame — written after all events.
     expect(frames.length).toBeGreaterThanOrEqual(2);
     const last = frames[frames.length - 1];
     expect(last.type).toBe('end');
   });
 
+  /**
+   * Fake timers drive the heartbeat. The test advances the clock by one interval and closes the source.
+   * Then it runs all timers, which flushes the pending microtasks so that the `end` frame lands.
+   */
   it('EventQueryCli_IdleFollow_EmitsHeartbeat', async () => {
     vi.useFakeTimers();
     const sink = new PassThrough();
@@ -178,12 +181,10 @@ describe('event query --follow (T042, DR-9)', () => {
       heartbeatIntervalMs: 30_000,
     });
 
-    // Yield to event loop so the heartbeat timer is armed, then advance 30s.
     await Promise.resolve();
     await vi.advanceTimersByTimeAsync(30_000);
     controller.close();
 
-    // Flush any pending microtasks so the `end` frame lands.
     await vi.runAllTimersAsync();
     vi.useRealTimers();
 

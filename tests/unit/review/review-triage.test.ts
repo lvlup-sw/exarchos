@@ -11,10 +11,6 @@ import { scorePR } from '../../../src/review/scoring.js';
 import { detectVelocity } from '../../../src/review/velocity.js';
 import { dispatchReviews, THRESHOLDS } from '../../../src/review/dispatch.js';
 
-// =============================================================================
-// T1 & T2: Type construction tests
-// =============================================================================
-
 describe('types', () => {
   describe('PRDiffMetadata', () => {
     it('should accept a valid PRDiffMetadata object', () => {
@@ -109,10 +105,6 @@ describe('types', () => {
   });
 });
 
-// =============================================================================
-// T4: scorePR tests
-// =============================================================================
-
 describe('scorePR', () => {
   it('should return high score for security paths', () => {
     const pr: PRDiffMetadata = {
@@ -198,17 +190,22 @@ describe('scorePR', () => {
     expect(crossModuleFactor?.weight).toBe(0.10);
   });
 
+  /**
+   * The three paths match `security-path`, `api-surface` and `infra-config` in that
+   * order, and their three top-level directories match `cross-module`. The line and
+   * file counts match `diff-complexity`, and `newFiles` matches `new-files`.
+   */
   it('should return score 1.0 when all factors match', () => {
     const pr: PRDiffMetadata = {
       number: 7,
       paths: [
-        'src/auth/login.ts',          // security-path
-        'lib/api/users/controller.ts', // api-surface + cross-module (src, lib, infra)
-        'infra/deploy/config.yml',     // infra-config
+        'src/auth/login.ts',
+        'lib/api/users/controller.ts',
+        'infra/deploy/config.yml',
       ],
-      linesChanged: 500,              // diff-complexity (>300)
-      filesChanged: 15,               // diff-complexity (>10)
-      newFiles: 3,                    // new-files
+      linesChanged: 500,
+      filesChanged: 15,
+      newFiles: 3,
     };
     const result = scorePR(pr);
     expect(result.score).toBe(1.0);
@@ -226,6 +223,7 @@ describe('scorePR', () => {
     expect(result.score).toBe(0.0);
   });
 
+  /** The paths match `security-path` (0.30) and `api-surface` (0.20), so the score is 0.50. */
   it('should recommend coderabbit when score >= 0.4', () => {
     const pr: PRDiffMetadata = {
       number: 9,
@@ -235,11 +233,11 @@ describe('scorePR', () => {
       newFiles: 0,
     };
     const result = scorePR(pr);
-    // security-path (0.30) + api-surface (0.20) = 0.50 >= 0.4
     expect(result.score).toBeGreaterThanOrEqual(0.4);
     expect(result.recommendation).toBe('coderabbit');
   });
 
+  /** Only `new-files` (0.10) matches. */
   it('should recommend self-hosted when score < 0.4', () => {
     const pr: PRDiffMetadata = {
       number: 10,
@@ -249,15 +247,10 @@ describe('scorePR', () => {
       newFiles: 1,
     };
     const result = scorePR(pr);
-    // Only new-files (0.10) matches → 0.10 < 0.4
     expect(result.score).toBeLessThan(0.4);
     expect(result.recommendation).toBe('self-hosted');
   });
 });
-
-// =============================================================================
-// T5: detectVelocity tests
-// =============================================================================
 
 describe('detectVelocity', () => {
   it('should return normal when no pressure', () => {
@@ -301,10 +294,6 @@ describe('detectVelocity', () => {
   });
 });
 
-// =============================================================================
-// T6: dispatchReviews tests
-// =============================================================================
-
 describe('dispatchReviews', () => {
   const lowRiskPR: PRDiffMetadata = {
     number: 100,
@@ -328,13 +317,12 @@ describe('dispatchReviews', () => {
     expect(dispatches.every(d => d.coderabbit)).toBe(true);
   });
 
+  /** `lowRiskPR` scores 0.0, which is less than the elevated threshold of 0.3. */
   it('should filter by threshold at elevated velocity', () => {
     const dispatches = dispatchReviews([lowRiskPR, highRiskPR], 'elevated');
     const lowRiskDispatch = dispatches.find(d => d.pr === 100);
     const highRiskDispatch = dispatches.find(d => d.pr === 200);
-    // lowRiskPR score = 0.0 < 0.3 threshold → no CodeRabbit
     expect(lowRiskDispatch?.coderabbit).toBe(false);
-    // highRiskPR score is high → CodeRabbit
     expect(highRiskDispatch?.coderabbit).toBe(true);
   });
 

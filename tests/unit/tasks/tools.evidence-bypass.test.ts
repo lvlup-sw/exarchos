@@ -1,30 +1,15 @@
-// ─── DR-2: the governed cannot supply its own governance ────────────────────
+// Caller evidence on `task_complete` cannot replace a gate run.
 //
-// `handleTaskComplete` used to accept an `evidence` object FROM THE AGENT
-// BEING GOVERNED and, when `evidence.passed === true` with substantive
-// output, short-circuit gate enforcement entirely.
+// `handleTaskComplete` enforces one gate, `static-analysis`, which the registry declares as
+// blocking. The handler applies three rules:
+// - Caller evidence never satisfies a blocking gate. `isBlockingGate` reads the registry field
+//   `gate.blocking`, keyed by `gate.gateClass`.
+// - For an advisory gate, evidence counts only with an operator capability from the dispatch
+//   context. The transport sets `identity.role`, so a delegated agent cannot assert it.
+// - The handler records caller evidence on `task.completed` as `data.evidence`, and it sets
+//   `data.verified`.
 //
-// CHARACTERIZATION of the pre-fix behaviour (captured before the change, and
-// preserved below as the KILL FIXTURE): with NO `gate.executed` event in the
-// stream, `{ type: 'test', output: '5727 tests passed', passed: true }` made
-// `task_complete` SUCCEED. The single gate `handleTaskComplete` enforces is
-// `static-analysis`, which the registry declares
-// `gate: { blocking: true, dimension: 'D2', gateClass: 'static-analysis' }` —
-// so the bypass let a caller satisfy a BLOCKING gate by asserting its own
-// compliance.
-//
-// THE CHANGE:
-//   - caller-supplied evidence can NEVER satisfy a BLOCKING gate (blocking-ness
-//     is read from the registry's `action.gate.blocking`, keyed by
-//     `gate.gateClass` — not a parallel notion maintained in the handler);
-//   - for a NON-blocking (advisory) gate the bypass survives only behind an
-//     explicit OPERATOR capability, taken from the ambient DispatchContext
-//     authorization (the same trust-tier mechanism that yields
-//     CAPABILITY_DENIED for shared-mutating actions). `identity.role` is
-//     transport-derived and cannot be self-asserted, so a delegated agent
-//     (`role: 'agent'`) can never clear it;
-//   - `evidence` remains fully live as a PROVENANCE RECORD: it is still
-//     stamped onto `task.completed` as `data.evidence` with `data.verified`.
+// `task_complete` enforces no advisory gate, so no test in this file reaches the second rule.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
@@ -59,7 +44,7 @@ afterEach(async () => {
   await rmrfAsync(tempDir);
 });
 
-/** A stream holding a real assigned task and NO gate.executed event. */
+/** A stream that holds one assigned task and no `gate.executed` event. */
 async function seededStore(streamId: string, taskId: string): Promise<EventStore> {
   const store = new EventStore(tempDir);
   await store.append(streamId, {
@@ -70,12 +55,10 @@ async function seededStore(streamId: string, taskId: string): Promise<EventStore
 }
 
 /**
- * Run `fn` as a DELEGATED AGENT — the posture a governed implementer actually
- * holds. Composed from the same production primitives as
- * `runAsTrustedCaller` (`deriveMcpCallerIdentity` + `snapshotCallerAuthorization`
- * + `mintDispatchContext`), so it cannot drift from real dispatch plumbing;
- * the ONLY difference from the operator path is the transport-derived
- * `role: 'agent'`, which is precisely the axis under test.
+ * Runs `fn` as a delegated agent, which is the posture of a governed implementer. Like
+ * `runAsTrustedCaller`, it composes the production dispatch primitives, so it cannot drift from
+ * real dispatch. `deriveMcpCallerIdentity` gives the transport-derived `role: 'agent'`. That role
+ * is the difference from the operator path that the handler reads.
  */
 function runAsDelegatedAgent<T>(sessionId: string, fn: () => T | Promise<T>): Promise<T> {
   const authorization = snapshotCallerAuthorization(
@@ -94,10 +77,11 @@ function runAsDelegatedAgent<T>(sessionId: string, fn: () => T | Promise<T>): Pr
 }
 
 describe('DR-2: caller-supplied evidence cannot satisfy a blocking gate', () => {
+  /**
+   * The stream holds no `gate.executed` event, and the evidence claims a passing test run. The
+   * handler refuses the call and records no `task.completed` event.
+   */
   it('TaskComplete_CallerSuppliedEvidence_CannotSatisfyBlockingGate', async () => {
-    // KILL FIXTURE. This is verbatim the call that SUCCEEDED before the fix
-    // (see the characterization note at the top of this file). If a future
-    // change re-opens the hole, this assertion goes red.
     const store = await seededStore('dr2-blocking', 'T-01');
 
     const result = await handleTaskComplete(
@@ -114,14 +98,14 @@ describe('DR-2: caller-supplied evidence cannot satisfy a blocking gate', () => 
     expect(result.error?.code).toBe('GATE_NOT_PASSED');
     expect(result.error?.unmetGates).toContain('static-analysis');
 
-    // And nothing was recorded — the refusal is total, not cosmetic.
     expect(await store.query('dr2-blocking', { type: 'task.completed' })).toHaveLength(0);
   });
 
+  /**
+   * The blocking rule does not depend on a capability. The trusted local operator also cannot
+   * satisfy a blocking gate with evidence. Only a gate run can.
+   */
   it('TaskComplete_CallerSuppliedEvidence_CannotSatisfyBlockingGateEvenAsOperator', async () => {
-    // The blocking rule is ABSOLUTE — it is not merely a missing capability.
-    // Even the fully-trusted local operator cannot buy off a blocking gate
-    // with a caller-supplied assertion; only a real gate run can.
     const store = await seededStore('dr2-blocking-op', 'T-01');
 
     const result = await runAsTrustedCaller(tempDir, () =>
@@ -141,12 +125,13 @@ describe('DR-2: caller-supplied evidence cannot satisfy a blocking gate', () => 
     expect(result.error?.unmetGates).toContain('static-analysis');
   });
 
+  /**
+   * `static-analysis` is the one gate that `task_complete` enforces, and it is blocking. Thus
+   * the handler has no advisory path, and it refuses a delegated agent that holds write and
+   * shell capabilities. The last assertion pins that the gate is blocking. The handler tests that
+   * flag first, so the capability does not decide the result.
+   */
   it('TaskComplete_EvidenceBypassOnAdvisoryGate_RequiresOperatorCapability', async () => {
-    // The bypass survives ONLY for non-blocking gates behind an operator
-    // capability. `static-analysis` — the one gate task_complete enforces —
-    // is registered blocking, so there is no advisory path for a caller to
-    // take: the delegated agent, holding the richest posture an implementer
-    // ever gets (fs:write + shell:exec, worktree-isolated), is still refused.
     const store = await seededStore('dr2-advisory', 'T-01');
 
     const result = await runAsDelegatedAgent('agent-session-1', () =>
@@ -164,34 +149,29 @@ describe('DR-2: caller-supplied evidence cannot satisfy a blocking gate', () => 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('GATE_NOT_PASSED');
 
-    // Pin WHY the agent is refused: the gate it tried to buy off is declared
-    // blocking by the registry, so the capability question is never reached.
     expect(isBlockingGate('static-analysis')).toBe(true);
   });
 
+  /**
+   * `isBlockingGate` fails closed: a gate class with no registration is blocking. Without this
+   * default, a gate name that `task_complete` adds with no registration opens a new bypass.
+   */
   it('TaskComplete_UnknownGateClass_IsTreatedAsBlocking', () => {
-    // Fail-closed default: a gate class absent from the registry is the case
-    // we know least about, so it gets the strongest protection. Without this,
-    // adding a gate name to task_complete without registering it would
-    // silently open a new bypass.
     expect(isBlockingGate('no-such-gate-class')).toBe(true);
   });
 
+  /** The registry declares `mock-boundary` with `blocking: false`, and the handler holds no list. */
   it('TaskComplete_AdvisoryGateClass_IsReadFromRegistryNotHardcoded', () => {
-    // Blocking-ness comes from the registry's declared model, not a list
-    // restated in the handler: `mock-boundary` is registered
-    // `{ blocking: false, dimension: 'D1', gateClass: 'mock-boundary' }`.
-    // If this flips, the handler's behaviour flips with it — which is the
-    // point of reading the single source of truth.
     expect(isBlockingGate('mock-boundary')).toBe(false);
   });
 });
 
 describe('DR-2: evidence as PROVENANCE RECORD is preserved', () => {
+  /**
+   * When a passing `gate.executed` event satisfies the gate, the handler copies the caller
+   * evidence to `task.completed` unchanged and sets `verified` to `true`.
+   */
   it('TaskComplete_EvidenceWithPassingGate_StillRecordedAsProvenance', async () => {
-    // Evidence has two jobs; only "satisfy a gate" was removed. When a REAL
-    // gate.executed signal carries the completion, the caller's evidence is
-    // still stamped onto task.completed verbatim with verified===true.
     const store = await seededStore('dr2-record', 'T-01');
     await store.append('dr2-record', {
       type: 'gate.executed',
@@ -218,9 +198,8 @@ describe('DR-2: evidence as PROVENANCE RECORD is preserved', () => {
     expect(data.verified).toBe(true);
   });
 
+  /** With no evidence, the event holds an explicit `verified: false`, not an absent field. */
   it('TaskComplete_NoEvidenceWithPassingGate_RecordsVerifiedFalse', async () => {
-    // The other half of the recording contract: absent evidence still yields
-    // an explicit `verified: false` rather than a missing field.
     const store = await seededStore('dr2-unverified', 'T-01');
     await store.append('dr2-unverified', {
       type: 'gate.executed',

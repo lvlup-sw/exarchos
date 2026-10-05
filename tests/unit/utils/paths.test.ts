@@ -70,7 +70,6 @@ describe('isClaudeCodePlugin', () => {
 describe('resolveStateDir', () => {
   beforeEach(() => {
     vi.spyOn(os, 'homedir').mockReturnValue('/home/testuser');
-    // Clear all env vars that could affect resolution
     vi.stubEnv('WORKFLOW_STATE_DIR', '');
     vi.stubEnv('CLAUDE_PLUGIN_ROOT', '');
     vi.stubEnv('EXARCHOS_PLUGIN_ROOT', '');
@@ -102,9 +101,8 @@ describe('resolveStateDir', () => {
     expect(resolveStateDir()).toBe('/home/testuser/.local/state/exarchos/state');
   });
 
+  /** A leading `~` in `XDG_STATE_HOME` must not give a path relative to the cwd. */
   it('expands tilde when XDG_STATE_HOME contains tilde', () => {
-    // Parity with the WORKFLOW_STATE_DIR branch — a leading `~` must not leak
-    // through as a cwd-relative path.
     vi.stubEnv('XDG_STATE_HOME', '~/state');
     expect(resolveStateDir()).toBe('/home/testuser/state/exarchos/state');
   });
@@ -233,17 +231,22 @@ describe('resolveCacheDir', () => {
   });
 });
 
-// ─── deriveRepoKey (DR-5) ────────────────────────────────────────────────────
-//
-// Git-spawning cases carry an explicit ≥15s per-test timeout — vitest's 5s
-// default flakes for subprocess-spawning tests under CI load (repo memory).
-
+/**
+ * The cases that can spawn git carry a 20000 ms timeout.
+ * The 5 s default of vitest is too short for a subprocess under CI load.
+ */
 describe('deriveRepoKey', () => {
-  // Isolate the module-level memo between cases: it is keyed by `inputPath`
-  // alone, so a path reused across tests with different injected `deps` would
-  // otherwise return a stale cross-test cache hit (Sentry finding).
+  /**
+   * The memo key is the input path alone.
+   * Without the reset, a path that two tests use with different `deps` gives a stale hit.
+   */
   beforeEach(() => resetRepoKeyMemo());
 
+  /**
+   * A linked worktree gets the key of the main checkout, because the key comes from
+   * `--git-common-dir`. The key is absolute with POSIX separators: it starts with `/`
+   * on POSIX, or with a drive root such as `C:/` on Windows.
+   */
   it('DeriveRepoKey_WorktreePath_MatchesMainCheckoutKey', async () => {
     const mainRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'drk-main-'));
     const wtParent = fs.mkdtempSync(path.join(os.tmpdir(), 'drk-wt-'));
@@ -259,13 +262,7 @@ describe('deriveRepoKey', () => {
       const mainKey = deriveRepoKey(mainRoot);
       const worktreeKey = deriveRepoKey(wtPath);
 
-      // A linked worktree resolves to the SAME identity as the main checkout —
-      // the whole point of keying on --git-common-dir rather than the worktree
-      // root. Both are absolute, POSIX-separated.
       expect(worktreeKey).toBe(mainKey);
-      // Absolute + POSIX-separated on either host: a leading `/` on POSIX, or a
-      // drive-letter root (`C:/…`) on Windows (cf. DeriveRepoKey_WindowsSeparators,
-      // whose key is `C:/Users/…`). `startsWith('/')` was a POSIX-only assumption.
       expect(worktreeKey).toMatch(/^(\/|[A-Za-z]:\/)/);
       expect(worktreeKey).not.toContain('\\');
     } finally {
@@ -274,14 +271,14 @@ describe('deriveRepoKey', () => {
     }
   }, 20000);
 
+  /**
+   * The test assumes that the temp dir is outside a git repository. Then the git spawn
+   * fails, and the key is the real path of the input with POSIX separators.
+   */
   it('DeriveRepoKey_NonGitPath_FallsBackToNormalizedPath', () => {
-    // A temp dir outside any git repository: the git spawn exits non-zero, so we
-    // fall back to the canonicalized input path.
     const nonGit = fs.mkdtempSync(path.join(os.tmpdir(), 'drk-nongit-'));
     try {
       const key = deriveRepoKey(nonGit);
-      // Equals the realpath'd input (canonicalized: macOS /var → /private/var,
-      // no-op on Linux), POSIX-separated, never mangled to a git root.
       expect(key).toBe(fs.realpathSync.native(nonGit).replace(/\\/g, '/'));
       expect(key).not.toContain('\\');
     } finally {
@@ -289,10 +286,11 @@ describe('deriveRepoKey', () => {
     }
   }, 20000);
 
+  /**
+   * The injected `gitCommonDir` throws and the injected `realpath` is the identity.
+   * So the result for a win32 input is deterministic on a POSIX host.
+   */
   it('DeriveRepoKey_WindowsSeparators_ReturnsPosix', () => {
-    // A win32-form input on the POSIX CI host: force the non-git fallback and an
-    // identity realpath so the assertion is deterministic off Windows. The key
-    // MUST come back separator-normalized to POSIX (#1620).
     const key = deriveRepoKey('C:\\Users\\dev\\my-repo', {
       gitCommonDir: () => {
         throw new Error('not a git repo');
@@ -303,9 +301,8 @@ describe('deriveRepoKey', () => {
     expect(key).not.toContain('\\');
   });
 
+  /** The common dir of a non-bare repo ends in `.git`, so the key is its parent directory. */
   it('DeriveRepoKey_NonBareRepo_UsesDirnameOfDotGit', () => {
-    // A non-bare repo's `--git-common-dir` ends in `.git`, so the key is its
-    // dirname (the shared repo root).
     const key = deriveRepoKey('/whatever', {
       gitCommonDir: () => '/home/dev/my-repo/.git',
       realpath: (p) => p,
@@ -313,10 +310,11 @@ describe('deriveRepoKey', () => {
     expect(key).toBe('/home/dev/my-repo');
   });
 
+  /**
+   * A bare repo reports its own root, and the basename of that root is not `.git`.
+   * So the key is the common dir itself, not its parent.
+   */
   it('DeriveRepoKey_BareRepo_UsesCommonDirVerbatim', () => {
-    // Regression (Sentry): a BARE repo reports its own root (`<repo>.git`,
-    // basename ≠ `.git`). Applying `path.dirname` would wrongly climb to the
-    // parent, so the common dir is used verbatim as the identity key.
     const key = deriveRepoKey('/whatever', {
       gitCommonDir: () => '/srv/repos/thing.git',
       realpath: (p) => p,
@@ -324,9 +322,8 @@ describe('deriveRepoKey', () => {
     expect(key).toBe('/srv/repos/thing.git');
   });
 
+  /** Repeated calls for one input path call `gitCommonDir` one time. */
   it('DeriveRepoKey_RepeatedCall_UsesMemo', () => {
-    // The git subprocess is invoked at most ONCE across repeated calls for one
-    // input path — steady-state pipeline calls pay a map lookup, not a spawn.
     let spawnCount = 0;
     const uniquePath = `/tmp/drk-memo-probe-${Math.random().toString(36).slice(2)}`;
     const deps = {
@@ -345,13 +342,14 @@ describe('deriveRepoKey', () => {
     expect(second).toBe(first);
   });
 
+  /**
+   * A client can supply `repoRoot`, so the memo is a bounded FIFO.
+   * `MEMO_CAP` mirrors `REPO_KEY_MEMO_MAX` in `paths.ts`. One key more than the cap
+   * evicts the oldest key and keeps the newest. Each distinct key costs one spawn,
+   * and the keys carry the PID, so they do not collide with the keys of other tests.
+   */
   it('DeriveRepoKey_MemoBounded_EvictsOldestBeyondCap', () => {
-    // Regression (shepherd / CodeRabbit "unbounded memo"): `deriveRepoKey` is
-    // reachable with a client-supplied `repoRoot`, so the per-input memo is a
-    // bounded FIFO (cap REPO_KEY_MEMO_MAX = 500). Inserting more than the cap of
-    // distinct keys must evict the OLDEST and keep the NEWEST. A private spawn
-    // counter isolates this from any entries earlier tests left in the memo.
-    const MEMO_CAP = 500; // mirrors REPO_KEY_MEMO_MAX in paths.ts
+    const MEMO_CAP = 500;
     let spawns = 0;
     const deps = {
       gitCommonDir: (_cwd: string) => {
@@ -360,55 +358,47 @@ describe('deriveRepoKey', () => {
       },
       realpath: (p: string) => p,
     };
-    // Namespaced so these keys never collide with other tests' memo entries.
     const key = (i: number) => `/tmp/drk-evict-${process.pid}-${i}`;
 
-    // Insert cap+1 distinct keys: 0 is the oldest of ours, `MEMO_CAP` the newest.
     for (let i = 0; i <= MEMO_CAP; i++) deriveRepoKey(key(i), deps);
-    expect(spawns).toBe(MEMO_CAP + 1); // one spawn per distinct key
+    expect(spawns).toBe(MEMO_CAP + 1);
 
-    // Newest key is still memoized — no additional spawn.
     deriveRepoKey(key(MEMO_CAP), deps);
     expect(spawns).toBe(MEMO_CAP + 1);
 
-    // Oldest key was evicted — re-deriving it spawns again.
     deriveRepoKey(key(0), deps);
     expect(spawns).toBe(MEMO_CAP + 2);
   });
 });
 
-// ─── Store-path resolution (DR-11 B-5) ───────────────────────────────────────
-//
-// The CLI entry (index.ts) and the plugin MCP server MUST resolve the same
-// event store through ONE shared resolver. These pins exercise the resolver via
-// injected inputs (env / homedir / pluginMode) so they are hermetic — no
-// process.env mutation, no dependence on the real HOME.
-
+/**
+ * The CLI entry and the plugin MCP server must resolve the event store through one resolver.
+ * The tests inject `env`, `homedir` and `pluginMode`, so they read neither `process.env`
+ * nor the real home.
+ */
 describe('resolveStorePath (shared CLI/plugin resolver)', () => {
   const HOME = '/home/testuser';
 
   it('composes the state-dir cascade with the single-source-of-truth filename', () => {
-    // The leaf name is the shared constant, not a transcribed literal.
     expect(STORE_DB_FILENAME).toBe('exarchos.db');
     const p = resolveStorePath({ env: {}, homedir: HOME, pluginMode: false });
     expect(p).toBe(`${HOME}/.exarchos/state/${STORE_DB_FILENAME}`);
-    // The store path is exactly stateDir + filename — one resolver, no drift.
     expect(p).toBe(
       `${resolveStateDir({ env: {}, homedir: HOME, pluginMode: false })}/${STORE_DB_FILENAME}`,
     );
   });
 
+  /**
+   * `WORKFLOW_STATE_DIR` wins in both modes, so it pins the CLI and the plugin to one store.
+   * The last assertion compares the two modes for a pinned directory with a leading `~`.
+   */
   it('storePathResolution_CliAndPlugin_ResolveSameDefault', () => {
-    // DOCUMENTED PRECEDENCE: WORKFLOW_STATE_DIR wins in BOTH surfaces, so setting
-    // it pins the CLI (non-plugin) and the plugin (plugin-mode) to ONE store —
-    // this is the unification the B-5 fix guarantees.
     const env = { WORKFLOW_STATE_DIR: '/srv/shared-state' };
     const cli = resolveStorePath({ env, homedir: HOME, pluginMode: false });
     const plugin = resolveStorePath({ env, homedir: HOME, pluginMode: true });
     expect(cli).toBe(plugin);
     expect(cli).toBe(`/srv/shared-state/${STORE_DB_FILENAME}`);
 
-    // Tilde in the pinned dir expands against the injected home in both modes.
     const tildeEnv = { WORKFLOW_STATE_DIR: '~/shared-state' };
     expect(resolveStorePath({ env: tildeEnv, homedir: HOME, pluginMode: false })).toBe(
       resolveStorePath({ env: tildeEnv, homedir: HOME, pluginMode: true }),
@@ -420,8 +410,6 @@ describe('computeStorePathDivergence (DR-11 B-5 detection core)', () => {
   const HOME = '/home/testuser';
 
   it('reports divergence when no env override pins the two surfaces', () => {
-    // No WORKFLOW_STATE_DIR: the CLI defaults to ~/.exarchos/state while the
-    // plugin defaults to ~/.claude/workflow-state — a silent state split.
     const d = computeStorePathDivergence({ env: {}, homedir: HOME });
     expect(d.diverges).toBe(true);
     expect(d.cliPath).toBe(`${HOME}/.exarchos/state/${STORE_DB_FILENAME}`);

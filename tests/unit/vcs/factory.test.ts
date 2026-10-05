@@ -8,9 +8,8 @@ import type { ResolvedProjectConfig } from '../../../src/config/resolve.js';
 import type { VcsDetectorDeps } from '../../../src/vcs/detector.js';
 
 /**
- * Helper: builds detector deps that simulate a git remote URL.
- * The comprehensive detector uses `exec` (for running `git remote get-url origin`
- * and CLI version checks) and `env` (for env var overrides).
+ * Detector deps whose `git remote get-url` call returns `remoteUrl`, or throws when it is null.
+ * Each CLI version check throws, so no CLI is available. The env is empty.
  */
 function fakeDetectorDeps(remoteUrl: string | null): VcsDetectorDeps {
   return {
@@ -19,7 +18,6 @@ function fakeDetectorDeps(remoteUrl: string | null): VcsDetectorDeps {
         if (remoteUrl === null) throw new Error('no remote');
         return remoteUrl;
       }
-      // CLI version checks — simulate unavailable
       throw new Error('not found');
     },
     env: {},
@@ -27,10 +25,9 @@ function fakeDetectorDeps(remoteUrl: string | null): VcsDetectorDeps {
 }
 
 describe('createVcsProvider', () => {
-  // ── Existing behavior (explicit config) ─────────────────────────────────
-
+  /** The provider of `DEFAULTS` is `github`. */
   it('createVcsProvider_GitHub_ReturnsGitHubProvider', async () => {
-    const provider = await createVcsProvider({ config: DEFAULTS }); // default is github
+    const provider = await createVcsProvider({ config: DEFAULTS });
     expect(provider).toBeInstanceOf(GitHubProvider);
     expect(provider.name).toBe('github');
   });
@@ -64,19 +61,15 @@ describe('createVcsProvider', () => {
     expect(provider).toBeInstanceOf(GitHubProvider);
   });
 
+  /** The injected deps have no remote, so detection returns null on every host. */
   it('createVcsProvider_NoOpts_DefaultsToGitHub', async () => {
-    // When no opts at all, detection runs but in CI there may be no remote.
-    // We inject deps that return null to guarantee the GitHub fallback.
     const provider = await createVcsProvider({
       detectorDeps: fakeDetectorDeps(null),
     });
     expect(provider).toBeInstanceOf(GitHubProvider);
   });
 
-  // ── Auto-detection integration ──────────────────────────────────────────
-
   it('CreateVcsProvider_AutoDetect_UsesDetectedProvider', async () => {
-    // No explicit config -> detector runs; remote is a gitlab URL -> GitLabProvider
     const provider = await createVcsProvider({
       detectorDeps: fakeDetectorDeps('git@gitlab.com:org/repo.git'),
     });
@@ -84,9 +77,8 @@ describe('createVcsProvider', () => {
     expect(provider.name).toBe('gitlab');
   });
 
+  /** The config names `github` and the remote is a GitLab URL. The config must win. */
   it('CreateVcsProvider_ExplicitConfig_SkipsDetection', async () => {
-    // Explicit config says github, but remote points to gitlab.
-    // Explicit config must win — detection is skipped.
     const config: ResolvedProjectConfig = {
       ...DEFAULTS,
       vcs: { provider: 'github', settings: {} },
@@ -100,7 +92,6 @@ describe('createVcsProvider', () => {
   });
 
   it('CreateVcsProvider_NoRemote_DefaultsToGitHub', async () => {
-    // No config, no remote -> detection returns null -> fallback to GitHub
     const provider = await createVcsProvider({
       detectorDeps: fakeDetectorDeps(null),
     });
@@ -109,7 +100,6 @@ describe('createVcsProvider', () => {
   });
 
   it('CreateVcsProvider_AutoDetect_AzureDevOps', async () => {
-    // Detects Azure DevOps from dev.azure.com URL
     const provider = await createVcsProvider({
       detectorDeps: fakeDetectorDeps('https://dev.azure.com/org/project/_git/repo'),
     });
@@ -118,7 +108,6 @@ describe('createVcsProvider', () => {
   });
 
   it('CreateVcsProvider_AutoDetect_GitHub', async () => {
-    // Detects GitHub from github.com URL
     const provider = await createVcsProvider({
       detectorDeps: fakeDetectorDeps('git@github.com:org/repo.git'),
     });
@@ -127,7 +116,6 @@ describe('createVcsProvider', () => {
   });
 
   it('CreateVcsProvider_AutoDetect_UnknownHost_DefaultsToGitHub', async () => {
-    // Unknown hosting provider -> fallback to GitHub
     const provider = await createVcsProvider({
       detectorDeps: fakeDetectorDeps('git@bitbucket.org:org/repo.git'),
     });

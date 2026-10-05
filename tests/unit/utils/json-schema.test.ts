@@ -4,31 +4,28 @@ import { z } from 'zod';
 import { zodToJsonSchema } from '../../../src/utils/json-schema.js';
 
 describe('utils/json-schema', () => {
+  /** A tuple tells the drafts apart: 2020-12 emits `prefixItems`, and draft-7 emits an array in `items`. */
   it('zodToJsonSchema_DefaultTarget_EmitsNative2020Draft', () => {
-    // A tuple is a high-signal probe: 2020-12 emits `prefixItems`, draft-7
-    // emits an array-form `items`. The wrapper must produce the 2020-12 form
-    // by default — proving native emission (not the old relabel workaround).
     const schema = z.tuple([z.string(), z.number()]);
     const result = zodToJsonSchema(schema) as Record<string, unknown>;
 
     expect(result.$schema).toBe('https://json-schema.org/draft/2020-12/schema');
     expect(result.prefixItems).toBeDefined();
     expect(Array.isArray(result.prefixItems)).toBe(true);
-    // Confirm we did NOT fall back to draft-7's array-of-items form.
     expect(Array.isArray(result.items)).toBe(false);
   });
 
+  /**
+   * `unrepresentable: 'any'` is an option that only `z.toJSONSchema` reads.
+   * The assertions check only that the default target still applies with a caller option.
+   */
   it('zodToJsonSchema_RespectsCallerOpts_PassesThroughToUpstream', () => {
-    // Caller-supplied options must thread through to z.toJSONSchema. We use
-    // `unrepresentable: 'any'` (a v4-native option) to verify pass-through —
-    // it is meaningful only to the upstream call.
     const schema = z.object({ foo: z.string() });
     const result = zodToJsonSchema(schema, { unrepresentable: 'any' }) as Record<
       string,
       unknown
     >;
 
-    // Default target still wins when caller doesn't override it.
     expect(result.$schema).toBe('https://json-schema.org/draft/2020-12/schema');
     expect(result.type).toBe('object');
   });
@@ -40,7 +37,6 @@ describe('utils/json-schema', () => {
       unknown
     >;
 
-    // Caller-supplied target wins; result must carry the draft-7 marker, not 2020-12.
     expect(result.$schema).toBe('http://json-schema.org/draft-07/schema#');
     expect(result.$schema).not.toBe('https://json-schema.org/draft/2020-12/schema');
   });

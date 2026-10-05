@@ -3,7 +3,6 @@ import { createConfigHookRunner } from '../../../src/hooks/config-hooks.js';
 import { DEFAULTS } from '../../../src/config/resolve.js';
 import type { ResolvedProjectConfig } from '../../../src/config/resolve.js';
 
-// Mock child_process.spawn
 vi.mock('child_process', () => ({
   spawn: vi.fn(() => ({
     stdin: { write: vi.fn(), end: vi.fn(), on: vi.fn() },
@@ -144,7 +143,6 @@ describe('createConfigHookRunner', () => {
     } as unknown as ReturnType<typeof spawn>);
 
     const runner = createConfigHookRunner(config);
-    // Should not throw
     await expect(
       runner({ type: 'test.event', data: {}, featureId: 'test', timestamp: '' }),
     ).resolves.not.toThrow();
