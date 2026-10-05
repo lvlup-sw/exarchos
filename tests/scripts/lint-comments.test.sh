@@ -3,7 +3,7 @@
 # a clean file, a new violation, a baselined block, a swap, a duplicate, a stale entry, a comment
 # inside a function, a description that breaks an STE rule, a shell comment after a heredoc, a
 # hand-grown baseline entry, a missing config, a pull request run without its base branch, and a
-# report on an empty directory or a missing path.
+# report on the repository root, an empty directory or a missing path.
 # The trap restores every changed file.
 set -uo pipefail
 
@@ -103,6 +103,9 @@ check "LintComments_MissingConfig_ExitsTwo" 2 "$(gate --files "$FX" --no-admissi
 check "LintComments_PullRequestWithoutBase_ExitsTwo" 2 \
   "$(GITHUB_EVENT_NAME=pull_request GITHUB_BASE_REF='' node "$GATE" --files "$FX" --baseline "$TMP/empty.tsv" >"$TMP/out" 2>&1; echo $?)"
 expect_output "LintComments_PullRequestWithoutBase_NamesTheCause" "GITHUB_BASE_REF is not set"
+
+check "LintComments_ReportOnRepositoryRoot_ExitsZero" 0 "$(gate report .)"
+expect_output "LintComments_ReportOnRepositoryRoot_CoversTheTrackedFiles" "finding\\(s\\) in [0-9]{4,} file\\(s\\)"
 
 mkdir -p "$FX_DIR/empty"
 check "LintComments_ReportOnEmptyDirectory_ExitsTwo" 2 "$(gate report "$FX_DIR/empty")"

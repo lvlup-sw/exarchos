@@ -482,8 +482,9 @@ function commandSeed(args) {
 
 /**
  * `report`: print every finding in the named files and directories, with its baseline state. The
- * last line gives the lines of text in headers and descriptions, so a cleanup can show the drop. A
- * path that does not exist, or a directory with no tracked files, fails closed.
+ * last line gives the lines of text in headers and descriptions, so a cleanup can show the drop. The
+ * repository root names every tracked file. A path that does not exist, or a directory with no
+ * tracked files, fails closed.
  *
  * @param {Args} args
  * @returns {number}
@@ -494,7 +495,7 @@ function commandReport(args) {
   const tracked = trackedFiles(REPO_ROOT);
   const files = args.paths.map(rel).flatMap((target) => {
     const prefix = target.replace(/\/+$/, '');
-    const inside = tracked.filter((file) => file.startsWith(`${prefix}/`));
+    const inside = tracked.filter((file) => prefix === '' || file.startsWith(`${prefix}/`));
     if (inside.length > 0) return inside.filter((file) => isInLintScope(file) || sourceLanguage(file) !== undefined);
     const stat = fs.statSync(path.join(REPO_ROOT, target), { throwIfNoEntry: false });
     if (stat === undefined) throw new FailClosed(`${target} does not exist.`);
