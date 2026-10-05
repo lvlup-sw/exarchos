@@ -1,19 +1,12 @@
 // @oracle-sources: ../../../../src/verbs/execute/executor.ts, the rows a real EventStore holds under a leaf's DERIVED operation id — queried back from the store rather than read off the receipt the executor built, so a receipt that claims a leaf ran once cannot satisfy a comparison against rows nobody wrote twice
-
-// ─── The `reject-replay` durable gate ───────────────────────────────────────
 //
-// A compiled leaf's `reject-replay` declaration has exactly one production
-// enforcer: the executor, reading the leaf's own unconditionally-declared
-// rows back from the store under its stable derived operation identity before
-// ever calling its handler again on a crash-retry. This suite pins that gate
-// directly, at the unit the property belongs to, rather than only through the
-// one shipped action (`create_pr`) that happens to also carry its own remote
-// precheck — a suite that only exercised the shipped action could not tell
-// the durable gate's effect apart from the precheck's.
+// Tests for the `reject-replay` gate of the executor. On a crash-retry, the executor reads the
+// rows of a leaf under its derived operation id. When each unconditional emission of the leaf is
+// present, it does not call the handler again. These tests use fixture leaves, so the remote
+// precheck of `create_pr` cannot hide the effect of the gate.
 //
-// Every case here crashes a LATER leaf so the retry re-runs the segment from
-// the top under the SAME operation id — the only path that ever reaches a
-// completed leaf's turn twice.
+// Each case crashes a later leaf. The retry then runs the segment again under the same
+// operation id, and a completed leaf comes up a second time.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
@@ -109,6 +102,10 @@ const request = {
 };
 
 describe('a reject-replay leaf that already completed', () => {
+  /**
+   * A crash in the middle of the segment commits no claim event. Without the gate,
+   * the handler runs twice, which `reject-replay` forbids.
+   */
   it('RejectReplayLeaf_CompletedBeforeALaterLeafCrashed_IsNotReInvokedOnRetry', async () => {
     const completed = fixtureAction({
       name: 'fixture_completed',
@@ -133,24 +130,21 @@ describe('a reject-replay leaf that already completed', () => {
     );
 
     await expect(execute(request, deps)).rejects.toThrow('leaf crashed on its first attempt');
-    // No claim committed for a crash mid-segment — the same distinguishability
-    // the executor's own header promises independently of this gate.
     expect(await store.query(STREAM, { type: INTENT_EXECUTED_EVENT })).toHaveLength(0);
 
     const result = await execute(request, deps);
     expect(result.success).toBe(true);
 
-    // Kill probe: revert the gate and this becomes 2 — the leaf's own effect
-    // performed twice, which is exactly what `reject-replay` forbids.
     expect(counted.calls()).toBe(1);
     const derived = derivedLeafOperationId(request.operationId, 0, 'fixture_completed');
     expect(await rowsFor(derived, 'task.completed')).toHaveLength(1);
   });
 
+  /**
+   * The control case. Only the replay policy differs from the first case, so the gate
+   * skips a leaf because of `reject-replay` and not by default.
+   */
   it('SafeRepeatLeaf_InTheSamePosition_IsReInvokedOnRetry', async () => {
-    // The non-vacuity denominator: swap only the replay policy at the same
-    // position, and the gate's silence has to be a choice, not a default that
-    // would have elided this leaf too.
     const repeatable = fixtureAction({
       name: 'fixture_repeatable',
       replay: { kind: 'safe-repeat' },
@@ -177,12 +171,12 @@ describe('a reject-replay leaf that already completed', () => {
     expect(counted.calls()).toBe(2);
   });
 
+  /**
+   * The handler crashes before its own append, so no row exists under the derived id.
+   * A partial row set is not proof of the effect. Thus the recovery precheck of an
+   * action, such as `listPrs` for `create_pr`, stays reachable on retry.
+   */
   it('RejectReplayLeaf_CrashedMidHandler_StillRunsOnRetry', async () => {
-    // A partial (here, empty) row set under the derived id is not proof the
-    // effect happened. The handler crashes BEFORE its own append, so nothing
-    // durable exists for the retry to read as done — and this is the arm that
-    // keeps a shipped action's own recovery precheck (e.g. `create_pr`'s
-    // `listPrs`) reachable on retry instead of the gate eliding first.
     const flaky = fixtureAction({
       name: 'fixture_flaky',
       replay: {
@@ -213,10 +207,12 @@ describe('a reject-replay leaf that already completed', () => {
     expect(await rowsFor(derived, 'task.completed')).toHaveLength(1);
   });
 
+  /**
+   * The check that each owed event is present is true for an empty owed set. Without
+   * the empty-set branch in `replayElidedRows`, the gate skips this leaf on retry with
+   * no evidence that it ran.
+   */
   it('RejectReplayLeaf_DeclaringNoUnconditionalEmission_IsAlwaysInvoked', async () => {
-    // Pins the empty-obliged-set branch: without it, "every owed event is
-    // present" is vacuously true over the empty set and this leaf would be
-    // elided on its very first retry, having never actually run.
     const silent = fixtureAction({
       name: 'fixture_silent',
       replay: {
@@ -240,14 +236,12 @@ describe('a reject-replay leaf that already completed', () => {
     expect(counted.calls()).toBe(2);
   });
 
+  /**
+   * The gate reads only the unconditional emissions, so it cannot stand in for a declared
+   * `ensures`. A skip also skips `observeActionPostconditions`, so the leaf must run again.
+   * Without the `ensures.kind` guard in `replayElidedRows`, the call count is 1.
+   */
   it('RejectReplayLeaf_DeclaringEnsures_IsNeverElidedOnRetry', async () => {
-    // A declared `ensures` is a durable-evidence axis the elision gate cannot
-    // stand in for — its own check only reads the unconditional-emissions
-    // axis. Same shape as the first case (owed set fully landed before a
-    // later leaf crashes), but this leaf ALSO declares an ensures, so it must
-    // run its handler again on retry rather than being elided: eliding would
-    // skip `observeActionPostconditions` entirely, which is the only place
-    // this axis is actually checked.
     const withEnsures = fixtureAction({
       name: 'fixture_with_ensures',
       replay: {
@@ -275,19 +269,16 @@ describe('a reject-replay leaf that already completed', () => {
     const result = await execute(request, deps);
     expect(result.success).toBe(true);
 
-    // Kill probe: drop the `leaf.contract.ensures.kind !== 'none'` guard from
-    // `replayElidedRows` and this becomes 1 — the leaf elided on retry, its
-    // postcondition never observed a second time.
     expect(counted.calls()).toBe(2);
   });
 
+  /**
+   * The test seeds an `emission.violated` row next to the `task.completed` row under the
+   * derived id of the leaf. The emission verifier writes such a row when a first attempt
+   * lands its emission but trips a lifecycle finding. The skipped leaf must not report
+   * that row as an event of this run.
+   */
   it('RejectReplayLeaf_ElidedOnRetry_DoesNotFoldAPriorEmissionViolationRowIntoItsCaptures', async () => {
-    // Seed an `emission.violated` bookkeeping row under the leaf's OWN derived
-    // operation id, exactly as `runEmissionVerifierInterceptor` would have
-    // left behind from a first attempt that landed its unconditional emission
-    // but tripped a lifecycle finding. The row sits alongside the leaf's own
-    // `task.completed` append under the same derived id — the shape
-    // `replayElidedRows` actually queries on retry.
     const completed = fixtureAction({
       name: 'fixture_completed_with_prior_finding',
       replay: {
@@ -331,11 +322,8 @@ describe('a reject-replay leaf that already completed', () => {
 
     const result = await execute(request, deps);
     expect(result.success).toBe(true);
-    expect(counted.calls()).toBe(1); // elided, as the earlier case pins
+    expect(counted.calls()).toBe(1);
 
-    // Kill probe: drop the `EMISSION_VIOLATION_EVENT` filter from
-    // `replayElidedRows`'s return and `leaf.events`/`eventsAppended` below
-    // report the prior attempt's finding as something THIS run emitted.
     const receipt = result.data as {
       leaves?: readonly { events?: readonly { type: string }[] }[];
       interaction?: { eventsAppended?: number };

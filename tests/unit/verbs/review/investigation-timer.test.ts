@@ -1,4 +1,4 @@
-// ─── Investigation Timer Tests ──────────────────────────────────────────────
+// Tests for `handleInvestigationTimer`.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
@@ -12,9 +12,8 @@ import type { WorkflowEvent } from '../../../../src/events/schemas.js';
 const STATE_DIR = '/tmp/test-investigation-timer';
 
 /**
- * Minimal EventStore stub for fileless resolution. `node:fs` is auto-mocked
- * here (which breaks the SQLite-backed real EventStore), so we stub the only
- * method `resolveWorkflowState` calls — `query` — to return seeded events.
+ * An `EventStore` stub that returns seeded events from `query`. The `node:fs`
+ * mock breaks the real SQLite store, and `resolveWorkflowState` calls `query`.
  */
 function makeStubEventStore(events: WorkflowEvent[]): EventStore {
   return {
@@ -26,8 +25,6 @@ function evt(type: string, data: unknown): WorkflowEvent {
   return { type, data, timestamp: '2026-05-30T00:00:00.000Z' } as unknown as WorkflowEvent;
 }
 
-// ─── Tests ───────────────────────────────────────────────────────────────────
-
 describe('handleInvestigationTimer', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -38,10 +35,7 @@ describe('handleInvestigationTimer', () => {
     vi.useRealTimers();
   });
 
-  // ─── Within Budget → Continue ──────────────────────────────────────────────
-
   it('handleInvestigationTimer_WithinBudget_ReturnsContinue', async () => {
-    // Started 5 minutes ago, budget is 15 minutes
     const now = new Date('2026-03-11T10:05:00Z');
     vi.setSystemTime(now);
 
@@ -62,10 +56,7 @@ describe('handleInvestigationTimer', () => {
     expect(data.remainingMinutes).toBe(10);
   });
 
-  // ─── Exceeded Budget → Escalate ───────────────────────────────────────────
-
   it('handleInvestigationTimer_ExceededBudget_ReturnsEscalate', async () => {
-    // Started 20 minutes ago, budget is 15 minutes
     const now = new Date('2026-03-11T10:20:00Z');
     vi.setSystemTime(now);
 
@@ -85,8 +76,6 @@ describe('handleInvestigationTimer', () => {
     expect(data.elapsedMinutes).toBe(20);
     expect(data.remainingMinutes).toBe(0);
   });
-
-  // ─── Reads From State File ────────────────────────────────────────────────
 
   it('handleInvestigationTimer_ReadsFromStateFile', async () => {
     const now = new Date('2026-03-11T10:10:00Z');
@@ -111,11 +100,11 @@ describe('handleInvestigationTimer', () => {
     expect(data.elapsedMinutes).toBe(10);
   });
 
-  // ─── Fileless resolution: MCP-only workflow ────────────────────────────
-  //
-  // INV-1: the event store is the sole source of truth. An MCP-only debug
-  // workflow has no `.state.json` stamp; `investigation.startedAt` must
-  // resolve from the event-store projection via featureId + eventStore.
+  /**
+   * An MCP-only debug workflow has no `.state.json` file. Thus
+   * `investigation.startedAt` must resolve from the event-store projection
+   * through `featureId` and `eventStore`.
+   */
   it('FilelessMcpOnly_ResolvesStartedAtFromEventStore', async () => {
     const now = new Date('2026-03-11T10:10:00Z');
     vi.setSystemTime(now);
@@ -134,10 +123,8 @@ describe('handleInvestigationTimer', () => {
     expect(data.elapsedMinutes).toBe(10);
   });
 
-  // ─── Default Budget 15 Minutes ────────────────────────────────────────────
-
+  /** At exactly 15 minutes the timer is within budget. One second later it escalates. */
   it('handleInvestigationTimer_DefaultBudget15Minutes', async () => {
-    // Exactly at 15 minutes → still within budget (<=)
     const now = new Date('2026-03-11T10:15:00Z');
     vi.setSystemTime(now);
 
@@ -151,7 +138,6 @@ describe('handleInvestigationTimer', () => {
     expect(data.action).toBe('continue');
     expect(data.remainingMinutes).toBe(0);
 
-    // 15 minutes + 1 second → escalate
     const overBudget = new Date('2026-03-11T10:15:01Z');
     vi.setSystemTime(overBudget);
 
@@ -165,8 +151,6 @@ describe('handleInvestigationTimer', () => {
     expect(data2.action).toBe('escalate');
   });
 
-  // ─── Missing StartedAt → Error ────────────────────────────────────────────
-
   it('handleInvestigationTimer_MissingStartedAt_ReturnsError', async () => {
     const result = await handleInvestigationTimer({}, STATE_DIR);
 
@@ -175,12 +159,10 @@ describe('handleInvestigationTimer', () => {
     expect(result.error?.message).toContain('startedAt');
   });
 
-  // ─── Explicit stateFile errors are surfaced (not masked as "required") ─────
-  //
-  // Regression: a missing/corrupt explicit stateFile used to collapse to the
-  // generic "startedAt or stateFile is required" message because resolveStartedAt
-  // returned null on NO_STATE_SOURCE. The real cause must surface instead.
-
+  /**
+   * A missing explicit `stateFile` gives `FILE_NOT_FOUND`, not the generic
+   * message that `startedAt` or `stateFile` is required.
+   */
   it('MissingStateFile_NoFallback_ReturnsFileNotFound', async () => {
     vi.mocked(fs.existsSync).mockReturnValue(false);
 
@@ -194,6 +176,7 @@ describe('handleInvestigationTimer', () => {
     expect(result.error?.message).toContain('missing.state.json');
   });
 
+  /** A corrupt explicit `stateFile` gives `PARSE_ERROR`, not the generic message. */
   it('MalformedStateFile_ReturnsParseError', async () => {
     vi.mocked(fs.existsSync).mockReturnValue(true);
     vi.mocked(fs.readFileSync).mockReturnValue('{ corrupt json');
@@ -208,8 +191,6 @@ describe('handleInvestigationTimer', () => {
     expect(result.error?.message).toContain('bad.state.json');
   });
 
-  // ─── Invalid Timestamp → Error ────────────────────────────────────────────
-
   it('handleInvestigationTimer_InvalidTimestamp_ReturnsError', async () => {
     const result = await handleInvestigationTimer(
       { startedAt: 'not-a-timestamp' },
@@ -220,8 +201,6 @@ describe('handleInvestigationTimer', () => {
     expect(result.error?.code).toBe('INVALID_INPUT');
     expect(result.error?.message).toContain('timestamp');
   });
-
-  // ─── Report Contains Markdown ─────────────────────────────────────────────
 
   it('handleInvestigationTimer_ReportContainsMarkdown', async () => {
     const now = new Date('2026-03-11T10:05:00Z');

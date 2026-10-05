@@ -1,34 +1,17 @@
 // @oracle-sources: ../../../../src/verbs/execute/executor.ts, the by-hand primitive baseline this file drives — the same compiled leaves invoked one at a time through the orchestrate handler table against a SECOND event store with the runbook's stop policy applied by the loop rather than by the executor
 //
-// ─── Composition parity: driving the closeout vs executing the intent ──────
+// Compares the executor with a by-hand run of the synthesis-closeout runbook.
+// The executor changes who drives the runbook, not what the run does. This
+// segment opens a pull request, so the comparison covers a leaf with a remote
+// side effect. `create_pr` writes its intent and its result to the `vcs`
+// stream, so the comparison has rows to compare.
 //
-// The bounded executor's claim is that it changes WHO drives the runbook, not
-// WHAT running it does. For this segment the claim is worth more than usual,
-// because the middle of it opens a pull request — so the comparison covers a
-// leaf with a remote side effect rather than only local verdicts.
-//
-// The denominator is NOT empty, which is the reason this file exists. The body
-// check appends nothing, but `create_pr` journals its intent and its result
-// onto the shared `vcs` stream, and those two rows carry the title, the body
-// actually sent, the branch pair, then the number and url the provider
-// answered.
-//
-// What that compares and what it does not: BOTH paths build their leaf
-// arguments with the shipped compiler, the way the sibling parity suites do, so
-// a mis-bound argument moves both sides together and is not what this catches.
-// What it catches is the DRIVING — the order the leaves run in, the failure
-// policy applied between them, what each handler left on which stream, and the
-// one row the executor adds that a hand-followed runbook does not.
-//
-// The provider is the only thing stubbed, at the factory both paths import.
-// Stubbing it is not what the sibling parity suites exclude — those drop leaves
-// that shell out to git or the project's toolchain, whose verdict would depend
-// on the machine. A provider call answered in-process depends on nothing.
-//
-// EXCLUDED FROM THE COMPARISON, and why each can never byte-match: the
-// operation id (the executor stamps a DERIVED per-leaf id, the baseline the one
-// ambient dispatch id — the mechanism under test, not a divergence) and the
-// store-allocated or wall-clock scaffolding around it.
+// Both paths build leaf arguments with the shipped compiler, so this file does
+// not catch a wrong argument. It catches the leaf order, the failure policy
+// between leaves, the rows on each stream, and the one row that only the
+// executor adds. Only the provider is a stub, at the factory that both paths
+// import. The comparison leaves out the operation id and the store or clock
+// fields, which can never match.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'node:path';
@@ -87,20 +70,24 @@ function makeProvider(): VcsProvider {
   } as unknown as VcsProvider;
 }
 
+/**
+ * Uses the live orchestrate table, the same object that the composite gives the
+ * executor. Thus both paths reach the same handlers.
+ */
 function deps(): ExecuteIntentDeps {
   return {
     runbookTable: ALL_RUNBOOKS,
     findAction: findActionInRegistry,
     argSchemas: INTENT_ARG_SCHEMAS,
-    // The LIVE orchestrate table, not a fixture one — the composite hands the
-    // executor this same object, so both paths reach the same handlers.
     handlers: ACTION_HANDLERS,
     handlerTool: 'exarchos_orchestrate',
   };
 }
 
-// ─── Normalization ──────────────────────────────────────────────────────────
-
+/**
+ * Keys that differ between the two runs by design. The executor stamps a
+ * derived operation id for each leaf, and the baseline uses the ambient id.
+ */
 const EXCLUDED_KEYS = new Set([
   'operationId',
   'correlationId',
@@ -129,8 +116,6 @@ function leafFacts(events: readonly WorkflowEvent[]): unknown[] {
     .filter((event) => event.type !== INTENT_EXECUTED_EVENT)
     .map((event) => normalize({ type: event.type, streamId: event.streamId, data: event.data }));
 }
-
-// ─── Two identically seeded stores ──────────────────────────────────────────
 
 let baselineDir: string;
 let executorDir: string;
@@ -162,7 +147,10 @@ interface BaselineLeafOutcome {
   readonly success: boolean;
 }
 
-/** The primitive baseline: the registered handlers, called in runbook order. */
+/**
+ * The primitive baseline: the registered handlers, called in runbook order. The
+ * loop applies the stop policy of the runbook.
+ */
 async function runPrimitiveBaseline(ctx: DispatchContext): Promise<BaselineLeafOutcome[]> {
   const compiled = compileIntent(INTENT, { streamId: STREAM }, ARGS, deps());
   expect(compiled.ok).toBe(true);
@@ -173,13 +161,19 @@ async function runPrimitiveBaseline(ctx: DispatchContext): Promise<BaselineLeafO
     expect(handler).toBeTypeOf('function');
     const result = await handler?.(leaf.args, ctx.stateDir, ctx);
     outcomes.push({ action: leaf.action, success: result?.success === true });
-    // The runbook's failure policy, applied by hand.
     if (result?.success === false && leaf.onFail === 'stop') break;
   }
   return outcomes;
 }
 
 describe('synthesis-closeout driven by hand and by the executor', () => {
+  /**
+   * Both paths leave the same rows on the `vcs` stream, in the same order and
+   * with the same payload. The payload includes the body that the caller sent.
+   * The baseline holds the two journal rows, so the check is not vacuous. The
+   * leaf verdicts also match. Only the executor writes its operation record, on
+   * the subject stream.
+   */
   it('ExecutorAndPrimitiveBaseline_ProduceTheSameJournalFacts', async () => {
     const correlation = fixtureCorrelation();
 
@@ -198,19 +192,14 @@ describe('synthesis-closeout driven by hand and by the executor', () => {
     const baselineVcs = await baselineStore.query(VCS_STREAM);
     const executorVcs = await executorStore.query(VCS_STREAM);
 
-    // Same rows, same order, same stream, same payload — including the body
-    // that was sent, which is the argument this segment exists to carry.
     expect(leafFacts(executorVcs)).toEqual(leafFacts(baselineVcs));
 
-    // Not vacuous: the comparison ran over the two journal rows rather than
-    // over nothing, and the body inside them is the one the caller supplied.
     expect(baselineVcs.map((row) => row.type)).toEqual([
       'pr.create.requested',
       'pr.create.executed',
     ]);
     expect((baselineVcs[0]?.data as { body?: string }).body).toBe(ARGS.prBody);
 
-    // The per-leaf verdicts match too, which the log alone does not say.
     expect(baseline.map((leaf) => [leaf.action, leaf.success])).toEqual([
       ['validate_pr_body', true],
       ['create_pr', true],
@@ -220,8 +209,6 @@ describe('synthesis-closeout driven by hand and by the executor', () => {
       ['create_pr', 'passed'],
     ]);
 
-    // The one fact only the executor produces: its own operation record, on the
-    // SUBJECT stream while the leaves wrote to the shared one.
     expect(
       (await executorStore.query(STREAM)).filter((row) => row.type === INTENT_EXECUTED_EVENT),
     ).toHaveLength(1);
@@ -230,10 +217,11 @@ describe('synthesis-closeout driven by hand and by the executor', () => {
     ).toHaveLength(0);
   });
 
+  /**
+   * The executor applies the same failure policy as a by-hand run of the
+   * runbook. Thus neither path reaches the remote, and neither leaves a journal row.
+   */
   it('BothPathsHaltAtTheBodyCheck_WhenTheBodyIsDeficient', async () => {
-    // Parity on the refusing path as well: the failure policy the executor
-    // applies is the one an orchestrator following the runbook applies by hand,
-    // so neither path reaches the remote and neither leaves a journal row.
     const correlation = fixtureCorrelation();
     const deficient = { ...ARGS, prBody: 'no required sections here' };
 

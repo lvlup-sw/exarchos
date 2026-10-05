@@ -1,39 +1,24 @@
-// ─── Replay of a committed operation, through the REAL dispatch path ────────
+// Tests a replay of a committed operation through the real `dispatch()` path.
+// The executor suite calls `handleExecuteIntent` directly, so it cannot see the
+// checks that run after the handler returns.
 //
-// The executor's own suite drives `handleExecuteIntent` directly, and a replay
-// there is clean: the persisted receipt comes straight back. Everything that
-// runs AFTER the handler is invisible from that seam — and that is where the
-// replay contract and the action's declared bookkeeping meet.
+// After the handler returns, `dispatch()` checks that the declared events landed
+// under this operation id and that each applicable `ensures` holds. A replay
+// returns the persisted receipt and appends nothing. An unconditional emission
+// or an event-append ensure then reports each replay as drift and writes an
+// `emission.violated` row. Only the dispatch seam can check that declaration.
 //
-// `dispatch()` verifies, after the handler returns, that the events the action
-// declares unconditionally landed under THIS dispatch's operation id, and that
-// every applicable `ensures` is observable on it. A replay returns the
-// persisted receipt and appends nothing, by definition — so an unconditional
-// emission or an event-append ensure would report every replay as drift, fail
-// the call the caller was told is safe to make, and write an `emission.violated`
-// row saying so. The declaration is what makes the replay path honest, and
-// nothing below the dispatch seam can check it.
-//
-// The fixture intent goes in through the same seams a shipped intent uses: a
-// runbook in the runbook table, a typed argument schema in the intent table, a
-// registered action for the leaf, and a handler in the orchestrate table. No
-// dependency injection — the point is the path that has none.
-//
-// The step names `exarchos_orchestrate` rather than a private fixture tool
-// name, and the declaration is registered directly onto that tool's own
-// action list rather than through `registerCustomTool` (which refuses a name
-// colliding with a built-in tool). The executor now refuses a step whose tool
-// disagrees with the handler table's declared owner — this fixture leaf is
-// invoked through the REAL orchestrate table, so it has to be named the tool
-// that owns that table, the same as every shipped leaf is.
+// The fixture intent uses the seams of a shipped intent: the runbook table, the
+// intent argument table, a registered action, and the orchestrate handler table.
+// The executor refuses a step whose tool is not the owner of the handler table,
+// so the step names `exarchos_orchestrate`.
 
 import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
 import * as path from 'node:path';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
-// Hoisted with the `vi.mock` factories that read them: a factory runs before
-// this module's own top-level bindings are initialized.
+/** The `vi.mock` factories read these values and run before the top-level bindings of this module. */
 const { FIXTURE_TOOL, FIXTURE_LEAF, FIXTURE_INTENT, leaf } = vi.hoisted(() => ({
   FIXTURE_TOOL: 'exarchos_orchestrate',
   FIXTURE_LEAF: 'fixture_dispatch_leaf',
@@ -85,39 +70,29 @@ import { appendingHandler, fixtureAction } from './fixtures.js';
 let stateDir: string;
 let store: EventStore;
 
-// `registerCustomTool` refuses a name colliding with a built-in tool, and this
-// leaf is deliberately named `exarchos_orchestrate` now (see the header) — so
-// the declaration is spliced directly onto that tool's own action list rather
-// than through the custom-tool surface, and removed the same way afterward.
+/**
+ * `registerCustomTool` refuses a name that collides with a built-in tool.
+ * The fixture declaration goes directly onto the action list of `exarchos_orchestrate`, and `afterAll` removes it.
+ */
 const orchestrateTool = TOOL_REGISTRY.find((tool) => tool.name === FIXTURE_TOOL);
 if (orchestrateTool === undefined) {
   throw new Error(`'${FIXTURE_TOOL}' is missing from TOOL_REGISTRY`);
 }
 const orchestrateActions = orchestrateTool.actions as unknown as ToolAction[];
 
+/**
+ * Adds the fixture leaf to the shared registry and to the orchestrate handler table.
+ * `admitActionContract` runs the check of `registerCustomTool` and refuses `safe-repeat` without an idempotent annotation.
+ * It throws before the push, so an invalid fixture contract never reaches the shared array.
+ * The handler goes into the table object, because the composite reads that table and not the module export.
+ */
 beforeAll(() => {
   const fixtureLeaf = fixtureAction({
     name: FIXTURE_LEAF,
-    // `admitActionContract` below is what makes this real — it does not
-    // accept `safe-repeat` from a mutating annotation.
     replay: { kind: 'claim-required', scope: 'stream-subject-request' },
   });
-  // Admit the contract BEFORE touching the shared registry array, the same
-  // gate `registerCustomTool` runs for every action it accepts
-  // (`src/registry/custom-tools.ts`) — that surface refuses this fixture's
-  // name outright (it collides with the built-in `exarchos_orchestrate`,
-  // which this leaf is deliberately named to match the new handler-table
-  // owner fence in `compile.ts`), so the admission call is made directly
-  // here instead. Throwing here, before the push, means an invalid fixture
-  // contract never reaches the shared array in the first place — nothing
-  // for `afterAll` to have missed.
   admitActionContract(fixtureLeaf, FIXTURE_TOOL);
   orchestrateActions.push(fixtureLeaf);
-  // The leaf's handler goes into the orchestrate table ITSELF, which is the
-  // object the composite hands the executor. Replacing the module's export
-  // would not reach it: the composite reads its own table directly, so an
-  // override visible only to importers would leave the real path unchanged.
-  // Reverted below, so the table this file borrows is the table it returns.
   const inner = appendingHandler('task.completed');
   Object.assign(ACTION_HANDLERS, {
     [FIXTURE_LEAF]: async (
@@ -167,6 +142,10 @@ const REQUEST = {
 };
 
 describe('execute_intent replayed through dispatch()', () => {
+  /**
+   * The replay answers from the persisted claim before any effect. It runs nothing again and appends nothing.
+   * The post-dispatch check must accept that, so the replay writes no violation.
+   */
   it('SecondDispatchOfTheSameOperationId_ReturnsTheReceiptWithNoViolation', async () => {
     const first = await dispatch('exarchos_orchestrate', { ...REQUEST }, ctx());
     expect(
@@ -176,9 +155,6 @@ describe('execute_intent replayed through dispatch()', () => {
     expect(leaf.calls).toBe(1);
     expect(await store.query(STREAM, { type: INTENT_EXECUTED_EVENT })).toHaveLength(1);
 
-    // The replay. The handler answers from the persisted claim before any
-    // effect: nothing re-executes and nothing is appended, which is exactly
-    // what the post-dispatch verification has to be declared to tolerate.
     const second = await dispatch('exarchos_orchestrate', { ...REQUEST }, ctx());
     expect(
       second.success,
@@ -187,21 +163,17 @@ describe('execute_intent replayed through dispatch()', () => {
     expect(second.error).toBeUndefined();
     expect(leaf.calls).toBe(1);
 
-    // The persisted receipt, not a fresh one.
     const receipt = second.data as { operationId?: string; outcome?: string };
     expect(receipt.operationId).toBe(REQUEST.operationId);
     expect(receipt.outcome).toBe('committed');
 
-    // Nothing was written by the replay: no second operation record, and no
-    // finding recorded against it.
     expect(await store.query(STREAM, { type: INTENT_EXECUTED_EVENT })).toHaveLength(1);
     expect(await store.query(STREAM, { type: EMISSION_VIOLATION_EVENT })).toHaveLength(0);
     expect(await store.query(STREAM, { type: 'task.completed' })).toHaveLength(1);
   });
 
+  /** A replay is not a one-time allowance. The declaration accepts the path or it does not, so the test repeats it. */
   it('ThirdAndFourthReplays_StayClean', async () => {
-    // A replay is not a one-shot allowance. The declaration either tolerates
-    // the path or it does not, and repeating it is the cheapest way to say so.
     await dispatch('exarchos_orchestrate', { ...REQUEST }, ctx());
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const replay = await dispatch('exarchos_orchestrate', { ...REQUEST }, ctx());

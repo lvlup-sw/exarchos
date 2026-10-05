@@ -1,11 +1,7 @@
 /**
- * The doctor check that carries the ActionId closure verdict to a user.
- *
- * The roster characterization proves the check RUNS and stamps its identity.
- * That is not the same as proving it reports the verdict it reads, which is
- * the whole reason it exists — so each arm is driven here against a stubbed
- * evaluator, including the empty-denominator arm that a live tree cannot
- * produce on demand.
+ * Tests the doctor check that reports the ActionId closure verdict to a user.
+ * The roster characterization proves only that the check runs. This file proves that each arm reports the verdict that it reads.
+ * Each arm runs against a stubbed evaluator. This includes the empty-denominator arm, which a live tree cannot produce on demand.
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
@@ -35,6 +31,7 @@ describe('doctor check — action-contract closure', () => {
     evaluateCollectedActionContractClosure.mockReset();
   });
 
+  /** A Pass that does not give the count of judged actions looks the same as a Pass over zero actions. */
   it('ClosureCheck_ClosedTree_PassesAndNamesTheDenominator', async () => {
     collectLiveActionContractSubjects.mockReturnValue(subjects(124));
     evaluateCollectedActionContractClosure.mockReturnValue({
@@ -46,8 +43,6 @@ describe('doctor check — action-contract closure', () => {
     const result = await actionContractClosure(probes, signal);
 
     expect(result.status).toBe('Pass');
-    // The count is the point: a Pass that does not say how many actions it
-    // judged is indistinguishable from a Pass over none.
     expect(result.message).toContain('124');
   });
 
@@ -87,10 +82,8 @@ describe('doctor check — action-contract closure', () => {
     expect(result.message).toContain('+6 more');
   });
 
+  /** Zero subjects close vacuously, so the check must not report them as healthy. */
   it('ClosureCheck_EmptyDenominator_WarnsRatherThanPassing', async () => {
-    // Zero subjects close vacuously. Reporting that as health is the exact
-    // failure this arm exists to prevent, and a live tree cannot produce it
-    // on demand — which is why it is stubbed rather than left uncovered.
     collectLiveActionContractSubjects.mockReturnValue([]);
     evaluateCollectedActionContractClosure.mockReturnValue({
       closed: true,

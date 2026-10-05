@@ -1,19 +1,13 @@
 // @oracle-sources: ../../../../src/verbs/execute/executor.ts, the rows a real EventStore holds after the segment runs — queried back by each leaf's DERIVED operation id on the stream that leaf's contract declares, rather than read off the receipt the executor built, so a receipt that claims events nobody wrote cannot satisfy the comparison
 //
-// ─── Executing the synthesis-closeout segment end to end ────────────────────
+// Tests that run the synthesis-closeout segment end to end over the live orchestrate handler
+// table and a real store. The segment reaches a remote provider and commits one operation
+// record with no suspension, continuation, or hand-off to the host.
 //
-// The LIVE orchestrate handler table against a real store. Nothing here is a
-// fixture leaf: the shipped runbook, compiled by the shipped compiler, driven
-// by the shipped executor, reaching a remote provider — and committing one
-// operation record without a suspension, a continuation, or a hand-off back to
-// the host. External credentials do not imply a second agent round-trip.
-//
-// The provider is the ONLY thing stubbed, at the factory the handler imports.
-// The event store is real, because the claim under test is that the two `vcs`
-// rows land and are read back.
-//
-// Per-leaf scoping is asserted by DERIVED operation id, not by counting rows on
-// a stream. A count would be satisfied by one leaf writing everything.
+// This file mocks the VCS factory at module scope, before the handler loads, so no test
+// reaches a network. The store is real, because the two `vcs` rows must land and the tests read them back.
+// The tests read the rows of each leaf by its derived operation id, because a row count passes
+// when one leaf writes all the rows.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
@@ -40,9 +34,6 @@ import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { seedActivePhaseAttempt } from '../../../../tools/test-helpers/trusted-context.js';
 import { fixtureCorrelation, fixtureWiring, receiptOf } from './fixtures.js';
 
-// Mocked at module scope, before the handler that imports it is loaded — the
-// same seam `tests/unit/verbs/vcs/create-pr.test.ts` stubs, for the same
-// reason: nothing in this file may reach a network.
 vi.mock('../../../../src/vcs/factory.js', () => ({
   createVcsProvider: vi.fn(),
 }));
@@ -82,13 +73,13 @@ let stateDir: string;
 let store: EventStore;
 let createPr: ReturnType<typeof vi.fn>;
 
+/**
+ * Builds a stateful provider stub: `listPrs` returns each request that `createPr` opened.
+ * A stub that lists no request after a create defeats the recovery precheck of the handler.
+ * That precheck stops a retry from opening a second pull request. The journal dedups its rows
+ * by idempotency key, so a check on row types alone does not see a second create.
+ */
 function makeProvider(): VcsProvider {
-  // STATEFUL, and that is the point: a stub that reports no open request after
-  // one was created is a remote that cannot exist, and it defeats the handler's
-  // own crash-recovery precheck — the guard that stops a retry from opening a
-  // SECOND pull request. With it always empty, a retry re-fires `createPr` and
-  // a types-only assertion still passes, because the duplicate is hidden by the
-  // idempotency-key dedup on the journal rows.
   const opened: { number: number; url: string; headRefName: string; baseRefName: string }[] = [];
   createPr = vi.fn().mockImplementation(async (input: { headBranch: string; baseBranch: string }) => {
     const pr = {
@@ -103,8 +94,6 @@ function makeProvider(): VcsProvider {
   return {
     name: 'github',
     createPr,
-    // What the remote holds: empty until the create resolves, and the created
-    // request afterwards.
     listPrs: vi.fn().mockImplementation(async () => [...opened]),
     checkCi: vi.fn(),
     mergePr: vi.fn(),
@@ -147,10 +136,8 @@ async function vcsRowsFor(operationId: string): Promise<WorkflowEvent[]> {
 }
 
 /**
- * A body the section check must reject — an argument this intent accepts, so
- * the halt is driven by the SHIPPED handler under the shipped runbook rather
- * than by a fixture standing in for a refusal. Nothing is stubbed but the
- * provider.
+ * A PR body that the section check rejects. The intent accepts this body, so the shipped
+ * handler causes the halt, not a fixture.
  */
 const DEFICIENT_ARGS = {
   ...ARGS,
@@ -172,6 +159,7 @@ afterEach(async () => {
 });
 
 describe('synthesis-closeout over the live handler table', () => {
+  /** The segment calls the remote provider, but it needs only one request, with no suspension or continuation. */
   it('SynthesisCloseout_CoherentInput_CommitsOneOperationRecord', async () => {
     const result = await execute('op-synthesis-closeout', ARGS);
     const receipt = receiptOf(result);
@@ -183,8 +171,6 @@ describe('synthesis-closeout over the live handler table', () => {
       'create_pr',
     ]);
     expect(receipt.leaves.every((leaf) => leaf.status === 'passed')).toBe(true);
-    // One request in, one request out: no suspension and no continuation, even
-    // though the middle of the segment talked to a remote provider.
     expect(receipt.interaction.requests).toBe(1);
     expect(createPr).toHaveBeenCalledTimes(1);
 
@@ -192,25 +178,28 @@ describe('synthesis-closeout over the live handler table', () => {
     expect(operationRows).toHaveLength(1);
   });
 
+  /**
+   * Both rows sit under the derived id of the leaf, on the stream that its contract declares.
+   * A row count on `vcs` passes for any writer. The body check writes no row under its derived id.
+   */
   it('SynthesisCloseout_CreatePrLeaf_HoldsBothJournalRowsOnTheVcsStream', async () => {
     await execute('op-synthesis-closeout-rows', ARGS);
 
     const [index, action] = CREATE_LEAF;
     const derived = derivedLeafOperationId('op-synthesis-closeout-rows', index, action);
     const types = (await vcsRowsFor(derived)).map((row) => row.type).sort();
-    // Both rows, under THIS leaf's identity and on the stream its contract
-    // declares. Counting rows on `vcs` would be satisfied by anything at all
-    // writing there.
     expect(types).toEqual(['pr.create.executed', 'pr.create.requested']);
 
-    // The body check declares no emission and writes none, so its derived
-    // identity holds nothing on either stream — the negative half of the same
-    // scoping claim.
     const bodyLeaf = derivedLeafOperationId('op-synthesis-closeout-rows', 0, 'validate_pr_body');
     expect(await vcsRowsFor(bodyLeaf)).toHaveLength(0);
     expect(await store.query(STREAM, { operationId: bodyLeaf })).toHaveLength(0);
   });
 
+  /**
+   * The `vcs` rows carry sequences in the numbering of the `vcs` stream. The receipt reports
+   * the tail of the subject stream, and no leaf appends there, so the tail stays at 0. A tail
+   * from the cross-stream rows gives the caller a sequence that the subject stream does not hold.
+   */
   it('SynthesisCloseout_VcsLeaf_DoesNotMoveTheSegmentTail', async () => {
     const receipt = receiptOf(await execute('op-synthesis-closeout-tail', ARGS));
 
@@ -218,17 +207,16 @@ describe('synthesis-closeout over the live handler table', () => {
     const derived = derivedLeafOperationId('op-synthesis-closeout-tail', index, action);
     const vcsRows = await vcsRowsFor(derived);
     expect(vcsRows.length).toBeGreaterThan(0);
-    // The rows exist and carry real sequences — in the `vcs` stream's own
-    // numbering, which has nothing to do with the subject stream's.
     expect(vcsRows.every((row) => row.sequence > 0)).toBe(true);
 
-    // The tail the receipt reports is the SUBJECT stream's, and no leaf of this
-    // segment appended there, so it stays where it was. A tail folded from the
-    // cross-stream rows would hand the caller a sequence to resume from that
-    // does not exist in the stream they asked about.
     expect(receipt.tailSequence).toBe(0);
   });
 
+  /**
+   * The `tailSequence` of the receipt uses the numbering of the subject stream. Without a stream
+   * on each event, a caller reads the event sequences as positions in the subject stream and
+   * gets an unrelated event. The sequences must match the rows that the store holds.
+   */
   it('SynthesisCloseout_ReceiptEvents_CarryTheStreamTheirSequencesNumber', async () => {
     const receipt = receiptOf(await execute('op-synthesis-closeout-receipt', ARGS));
 
@@ -237,14 +225,8 @@ describe('synthesis-closeout over the live handler table', () => {
       'pr.create.executed',
       'pr.create.requested',
     ]);
-    // The same receipt carries a `tailSequence` in the SUBJECT stream's
-    // numbering. Without the stream on each event, these sequences read as
-    // positions in that stream — where they are somebody else's rows or
-    // nobody's — and a caller resolving one gets an unrelated event.
     expect(createLeaf?.events.every((event) => event.streamId === VCS_STREAM)).toBe(true);
 
-    // Not a constant on the type: the rows are where the store put them, which
-    // for this leaf is the stream its contract declares and not the subject's.
     const [index, action] = CREATE_LEAF;
     const derived = derivedLeafOperationId('op-synthesis-closeout-receipt', index, action);
     const rows = await vcsRowsFor(derived);
@@ -253,6 +235,7 @@ describe('synthesis-closeout over the live handler table', () => {
     );
   });
 
+  /** On replay, the provider gets no second call and neither log changes. */
   it('SynthesisCloseout_SameOperationIdSameRequest_ReplaysWithoutReExecuting', async () => {
     const first = receiptOf(await execute('op-synthesis-closeout-replay', ARGS));
     const beforeSubject = await store.query(STREAM);
@@ -262,7 +245,6 @@ describe('synthesis-closeout over the live handler table', () => {
     const second = receiptOf(await execute('op-synthesis-closeout-replay', ARGS));
 
     expect(second).toEqual(first);
-    // Nothing ran: the provider was not called again and neither log moved.
     expect(createPr.mock.calls.length).toBe(callsAfterFirst);
     expect((await store.query(STREAM)).map((row) => `${row.sequence}:${row.type}`)).toEqual(
       beforeSubject.map((row) => `${row.sequence}:${row.type}`),
@@ -285,13 +267,13 @@ describe('synthesis-closeout over the live handler table', () => {
     expect(result.error?.message).toContain('Nothing was executed.');
   });
 
+  /**
+   * A crash before the commit leaves no claim, so the retry runs the leaves again. The create
+   * handler journals its two rows itself, so each row must use the operation id that a retry
+   * reuses. The journal dedups on that key, so a retry that calls the remote again also leaves
+   * two rows. Thus the test also checks that `createPr` gets one call in total.
+   */
   it('SynthesisCloseout_CrashedMidSegmentThenRetried_LeavesOneRowPerJournalPhase', async () => {
-    // The uncommitted retry, which the replay case above cannot reach: a crash
-    // before the commit leaves no claim, so the retry re-runs the leaves rather
-    // than short-circuiting on a persisted receipt. The create handler journals
-    // its two rows itself, so each has to be keyed on the operation identity a
-    // retry reuses — keyed on a per-call uuid, the second attempt writes a
-    // second pair describing one pull request.
     let crash = true;
     const handlers: LeafHandlerTable = {
       ...ACTION_HANDLERS,
@@ -316,18 +298,17 @@ describe('synthesis-closeout over the live handler table', () => {
     const [index, action] = CREATE_LEAF;
     const derived = derivedLeafOperationId('op-synthesis-closeout-crash', index, action);
     const types = (await vcsRowsFor(derived)).map((row) => row.type).sort();
-    // One of each. Two of either would be one pull request journalled twice,
-    // and the receipt bakes those sequences in permanently.
     expect(types).toEqual(['pr.create.executed', 'pr.create.requested']);
 
-    // ONE pull request, which is the fact the row count alone cannot show: the
-    // journal dedups on the retried operation's key, so a retry that re-fired
-    // the remote would leave exactly these two rows while describing the first
-    // attempt's number and url and the caller's receipt described the second.
-    // The retry reaches the recovery precheck instead and never calls again.
     expect(createPr).toHaveBeenCalledTimes(1);
   });
 
+  /**
+   * The segment stops for the verdict of the leaf, not for a wiring fault. The receipt does not
+   * hold the leaf payload, so the missing sections reach the caller in the failure message. The
+   * create leaf never runs, and the operation record still commits. The error carries the
+   * receipt facts, because an envelope does not carry the `data` of a failed dispatch.
+   */
   it('SynthesisCloseout_BodyMissingRequiredSections_HaltsBeforeTheRemoteCall', async () => {
     const result = await execute('op-synthesis-closeout-halt', DEFICIENT_ARGS);
     const receipt = receiptOf(result);
@@ -336,26 +317,15 @@ describe('synthesis-closeout over the live handler table', () => {
     expect(receipt.outcome).toBe('failed');
     expect(receipt.failedLeaf).toBe('validate_pr_body');
     expect(receipt.failure?.code).toBe('INTENT_SEGMENT_FAILED');
-    // It stops for the leaf's OWN verdict rather than a wiring error — a halt
-    // for an admission or handler-lookup fault would prove nothing about the
-    // failure policy. The sections the body lacks reach the caller here, which
-    // is the only place a receipt can carry them: a leaf's payload is not on
-    // the receipt.
     expect(receipt.failure?.message).toContain('Summary');
     expect(receipt.failure?.message).toContain('Changes');
     expect(receipt.failure?.message).toContain('Test Plan');
-    // Halted: the create leaf never ran, so no request was opened and the
-    // shared stream is untouched.
     expect(receipt.leaves.map((leaf) => leaf.action)).toEqual(['validate_pr_body']);
     expect(createPr).not.toHaveBeenCalled();
     expect(await store.query(VCS_STREAM)).toHaveLength(0);
 
-    // "Ran and failed" is distinguishable from "crashed mid-segment": the
-    // operation record is there either way the segment ENDED.
     expect(await store.query(STREAM, { type: INTENT_EXECUTED_EVENT })).toHaveLength(1);
 
-    // The refusal reaches the caller with the receipt facts attached, not only
-    // on `data` — a failed dispatch's `data` is not what an envelope carries.
     const detail = result.error?.intentReceipt as
       | { operationId: string; outcome: string; leaves: { action: string }[] }
       | undefined;
@@ -364,13 +334,14 @@ describe('synthesis-closeout over the live handler table', () => {
     expect(detail?.leaves.map((leaf) => leaf.action)).toEqual(['validate_pr_body']);
   });
 
+  /**
+   * Both outcomes commit, so both outcomes replay. A failed segment that runs again on
+   * replay repeats its effects for a call that the claim already answered.
+   */
   it('SynthesisCloseout_FailedSegment_ReplaysToTheSameFailedReceipt', async () => {
     const first = await execute('op-synthesis-closeout-failreplay', DEFICIENT_ARGS);
     const second = await execute('op-synthesis-closeout-failreplay', DEFICIENT_ARGS);
 
-    // Both outcomes commit, so both outcomes replay. A failed segment that
-    // re-ran on replay would repeat its effects for a call the claim already
-    // answered.
     expect(receiptOf(second)).toEqual(receiptOf(first));
     expect(second.success).toBe(false);
     expect(createPr).not.toHaveBeenCalled();

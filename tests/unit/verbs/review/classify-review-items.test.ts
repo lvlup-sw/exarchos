@@ -114,8 +114,6 @@ describe('handleClassifyReviewItems', () => {
     expect(key1).toBe(key2);
   });
 
-  // ─── Idempotency Signature Robustness (#1161) ─────────────────────────────
-
   it('OrchestrateClassifyReviewItems_ReorderedItems_ProducesSameIdempotencyKey', async () => {
     const eventStoreA = makeEventStore();
     const eventStoreB = makeEventStore();
@@ -168,8 +166,6 @@ describe('handleClassifyReviewItems', () => {
     const keyB = (eventStoreB.append as ReturnType<typeof vi.fn>).mock.calls[0][2].idempotencyKey;
     expect(keyA).not.toBe(keyB);
   });
-
-  // ─── Telemetry Failure is Non-Fatal (#1161) ───────────────────────────────
 
   it('OrchestrateClassifyReviewItems_EventStoreThrows_StillReturnsResult', async () => {
     const eventStore = {

@@ -78,11 +78,11 @@ describe('buildProbes', () => {
     expect(recorded).toEqual([{ timeoutMs: 777 }]);
   });
 
+  /**
+   * The store has two integrity accessors. Each fake returns its own sentinel, so the test proves that the
+   * probe reaches the bundle sweep and not the sqlite pragma.
+   */
   it('BuildProbes_BundlesRunIntegrityCheck_DelegatesToTheBundleSweepNotTheSqlitePragma', async () => {
-    // Two integrity accessors live on the store, and a probe wired to the
-    // wrong one would report the sqlite pragma's verdict under the bundle
-    // check's name. Each fake accessor returns its own sentinel so the probe
-    // is shown to reach the sweep, not merely "an" integrity method.
     const bundleSentinel = { ok: 'skipped' as const, reason: 'bundle-sweep-marker' };
     const sqliteSentinel = { ok: 'skipped' as const, reason: 'sqlite-pragma-marker' };
     const fakeStore = {
@@ -103,32 +103,30 @@ describe('buildProbes', () => {
     expect(fakeStore.runIntegrityCheck).not.toHaveBeenCalled();
   });
 
+  /**
+   * The bundle carries the per-check budget, so a bounded check can size its sweep under its ceiling.
+   * The composer overrides the value per run. The factory value is the composer default.
+   */
   it('BuildProbes_CarriesTheComposersDefaultCheckBudget', () => {
-    // The bundle carries the per-check budget so a bounded check can size its
-    // own sweep under the ceiling it is racing. The composer overrides this
-    // per run; the factory's value is the composer's own default.
     const probes = buildProbes(fakeContext());
     expect(probes.checkBudgetMs).toBe(DEFAULT_CHECK_BUDGET_MS);
     expect(DEFAULT_CHECK_BUDGET_MS).toBeGreaterThan(0);
   });
 });
 
+/**
+ * Each test enters a temp dir and leaves it before the removal. Windows locks the cwd of the process, so `rmrf`
+ * of the current dir throws EPERM. The `afterEach` hook runs too late to prevent that.
+ */
 describe('buildProbes invariants.resolve — cwd-relative root resolution (#1482)', () => {
   const originalCwd = process.cwd();
   afterEach(() => process.chdir(originalCwd));
 
-  // Regression guard for the Seer HIGH finding: the invariants-catalog check
-  // resolved `.exarchos.yml` relative to THIS MODULE, not the user's cwd. In
-  // plugin mode the module lives under `~/.claude/plugins/...` (no
-  // `.exarchos.yml` ancestor), so the check silently Skipped and never
-  // validated the consumer's catalog. CI masked it because the module sits
-  // inside this repo, which HAS a root `.exarchos.yml`.
-  //
-  // This test pins resolution to cwd: from a temp dir with no `.exarchos.yml`
-  // ancestor the resolver must report not-configured. Under the bug,
-  // module-relative resolution would find the in-repo config (which registers
-  // a dev catalog) and report configured — so this fails RED on the bug, GREEN
-  // on the fix.
+  /**
+   * The resolver must find `.exarchos.yml` from the cwd, not from this module. In plugin mode the module has no
+   * `.exarchos.yml` ancestor. From a temp dir with no config, the resolver must report not configured.
+   * A module-relative lookup finds the repo config and fails this test.
+   */
   it('Resolve_CwdHasNoExarchosYmlAncestor_ReturnsNotConfigured', async () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-no-cfg-'));
     process.chdir(tmp);
@@ -138,24 +136,17 @@ describe('buildProbes invariants.resolve — cwd-relative root resolution (#1482
       expect(result.configured).toBe(false);
       expect(result.warnings).toEqual([]);
     } finally {
-      // Leave `tmp` before removing it: on Windows the process CWD is locked,
-      // so `rmrf(tmp)` while still chdir'd into it throws EPERM (the afterEach
-      // chdir-back runs too late — after this finally).
       process.chdir(originalCwd);
       rmrf(tmp);
     }
   });
 
-  // Regression for the Seer MEDIUM (#1482): `configured` must be
-  // phase-INDEPENDENT. A user catalog declared in `.exarchos.yml` counts as
-  // configured purely by being declared — even if it contributes zero entries
-  // for any phase. The old projected-entry-count signal returned 0 here and
-  // misreported a real configuration as "nothing to validate".
+  /**
+   * The `configured` value does not depend on the phase. A declared user catalog counts as configured with zero entries.
+   * The loader requires an `invariants:` array in the frontmatter, so the fixture declares an empty one.
+   */
   it('Resolve_UserCatalogDeclared_ReportsConfiguredRegardlessOfEntries', async () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-user-cat-'));
-    // A valid-but-empty user catalog: declared in config, loads without
-    // warning, contributes zero entries (frontmatter declares an empty
-    // `invariants:` array, which the loader requires).
     fs.writeFileSync(path.join(tmp, 'my-catalog.md'), '---\ninvariants: []\n---\n');
     fs.writeFileSync(
       path.join(tmp, '.exarchos.yml'),
@@ -168,19 +159,15 @@ describe('buildProbes invariants.resolve — cwd-relative root resolution (#1482
       expect(result.configured).toBe(true);
       expect(result.warnings).toEqual([]);
     } finally {
-      // Leave `tmp` before removing it: on Windows the process CWD is locked,
-      // so `rmrf(tmp)` while still chdir'd into it throws EPERM (the afterEach
-      // chdir-back runs too late — after this finally).
       process.chdir(originalCwd);
       rmrf(tmp);
     }
   });
 
-  // P1 T5: a USER-tier catalog claiming a reserved id (`INV-*` / `SDLC-*`) must
-  // surface a named advisory — the offending file AND id — without crashing the
-  // check. `INV-*` belongs to the dev tier; a consumer source impersonating it
-  // is a configuration error the operator needs pointed out, not a silent drop
-  // and not a thrown ReservedNamespaceError that aborts the whole probe.
+  /**
+   * A user catalog that claims a reserved id gets an advisory that names the file and the id.
+   * The built-in dev and sdlc catalogs own the reserved `INV-` and `SDLC-` prefixes. The probe reports the error and does not crash.
+   */
   it('DoctorInvariantsCatalog_UserSourceReservedId_EmitsAdvisory', async () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-reserved-'));
     fs.writeFileSync(
@@ -189,7 +176,7 @@ describe('buildProbes invariants.resolve — cwd-relative root resolution (#1482
         '---',
         'schema-version: 3',
         'invariants:',
-        '  - id: INV-42', // reserved namespace — user tier may not claim it
+        '  - id: INV-42',
         '    dimension: lint',
         '    axis: substrate',
         '    cost-of-load: always-load',
@@ -209,7 +196,6 @@ describe('buildProbes invariants.resolve — cwd-relative root resolution (#1482
     try {
       const probes = buildProbes(fakeContext());
       const result = await probes.invariants.resolve();
-      // Configured (a user catalog is declared) and degraded — never crashed.
       expect(result.configured).toBe(true);
       const advisory = result.warnings.find(
         (w) =>
@@ -219,19 +205,15 @@ describe('buildProbes invariants.resolve — cwd-relative root resolution (#1482
       );
       expect(advisory).toBeDefined();
     } finally {
-      // Leave `tmp` before removing it: on Windows the process CWD is locked,
-      // so `rmrf(tmp)` while still chdir'd into it throws EPERM (the afterEach
-      // chdir-back runs too late — after this finally).
       process.chdir(originalCwd);
       rmrf(tmp);
     }
   });
 
-  // P1 T5 (defense-in-depth): even if catalog resolution itself throws a
-  // ReservedNamespaceError (e.g. a built-in layer regression that escapes the
-  // resolver's own DR-9 pre-filter), the doctor probe must NOT crash — it folds
-  // the error into a named advisory. Inject a throwing resolver to drive the
-  // catch path directly.
+  /**
+   * When catalog resolution throws `ReservedNamespaceError`, the probe folds the error into a named advisory.
+   * An injected resolver throws to reach the catch path directly.
+   */
   it('DoctorInvariantsCatalog_ResolverThrowsReservedNamespace_FoldsToAdvisory', async () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-throw-'));
     fs.writeFileSync(path.join(tmp, 'team-catalog.md'), '---\ninvariants: []\n---\n');
@@ -244,14 +226,10 @@ describe('buildProbes invariants.resolve — cwd-relative root resolution (#1482
       const result = await resolveInvariantsCatalog(undefined, () => {
         throw new ReservedNamespaceError('SDLC-77');
       });
-      // Did not throw out of the probe; the error is a named advisory.
       expect(result.configured).toBe(true);
       const advisory = result.warnings.find((w) => w.includes('SDLC-77'));
       expect(advisory).toBeDefined();
     } finally {
-      // Leave `tmp` before removing it: on Windows the process CWD is locked,
-      // so `rmrf(tmp)` while still chdir'd into it throws EPERM (the afterEach
-      // chdir-back runs too late — after this finally).
       process.chdir(originalCwd);
       rmrf(tmp);
     }
@@ -259,30 +237,14 @@ describe('buildProbes invariants.resolve — cwd-relative root resolution (#1482
 });
 
 /**
- * DR-31 / T-43 — the doctor's `configured` signal is a REGISTRATION question.
- *
- * ## Why this block exists
- *
- * `resolveInvariantsCatalog` carried the FIFTH live read of the retired
- * boolean (`config.invariants.devCatalog === 'enabled'` + a disk-existence
- * probe on a privileged path, OR'd with a user-catalog count). It was a
- * production read that **no test observed**: every pre-existing fixture in
- * this file wrote `devCatalog: disabled` alongside a user catalog, so the
- * dev branch was dead in the suite and deleting it outright would have gone
- * unnoticed. That is the defect pattern T-31 was rejected twice for. These
- * tests are the missing observation.
- *
- * The signal is now one question asked through the single discovery authority
- * `resolveCatalogSources`: *is a catalog registered?* A `tier: dev`
- * registration and a `tier: user` registration count identically, and a
- * legacy `devCatalog:` config reaches the probe only after the schema has
- * desugared it into an ordinary registration.
+ * The doctor `configured` signal asks `resolveCatalogSources` one question: is a catalog registered?
+ * A `tier: dev` registration and a `tier: user` registration count the same.
+ * The schema turns a legacy `devCatalog:` config into a normal registration before the probe reads it.
  */
 describe('resolveInvariantsCatalog — registration gating (DR-31 / T-43)', () => {
   const originalCwd = process.cwd();
   afterEach(() => process.chdir(originalCwd));
 
-  /** Write a repo fixture with a valid-but-empty catalog + the given config. */
   function fixture(configYaml: string, catalogName = 'cat.md'): string {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-reg-'));
     fs.writeFileSync(path.join(tmp, catalogName), '---\ninvariants: []\n---\n');
@@ -299,13 +261,11 @@ describe('resolveInvariantsCatalog — registration gating (DR-31 / T-43)', () =
     }
   }
 
+  /**
+   * A `tier: dev` registration, the form in the root `.exarchos.yml` of this repository, must report configured.
+   * Remove the registration question from `probes.ts` and this test fails.
+   */
   it('DoctorInvariantsCatalog_DevTierRegistration_ReportsConfigured', async () => {
-    // THE GUARD ON THE REPLACED READ. A `tier: dev` REGISTRATION — the exact
-    // thing this repository's own `.exarchos.yml` now carries — must report
-    // configured. Under the deleted implementation this config had no
-    // `devCatalog` key at all, so `devConfigured` was false and `configured`
-    // rested entirely on the user-catalog count. Neutering the registration
-    // question in probes.ts reddens this.
     const tmp = fixture(
       'invariants:\n  catalogs:\n    - { path: ./cat.md, tier: dev }\n',
     );
@@ -318,11 +278,11 @@ describe('resolveInvariantsCatalog — registration gating (DR-31 / T-43)', () =
     }
   });
 
+  /**
+   * A repo with an `.exarchos.yml` must be able to report `configured: false`. Otherwise a probe that always
+   * returns `true` passes the test above. An empty `catalogs` list registers nothing.
+   */
   it('DoctorInvariantsCatalog_NoRegistration_ReportsNotConfigured', async () => {
-    // SENSITIVITY FLOOR. `configured` must be able to be FALSE for a repo that
-    // HAS an `.exarchos.yml` — otherwise the assertion above is satisfied by a
-    // probe that returns `true` unconditionally. An empty `invariants:` block
-    // registers nothing, so the doctor Skips.
     const tmp = fixture('invariants:\n  catalogs: []\n');
     try {
       const result = await resolveIn(tmp);
@@ -333,18 +293,13 @@ describe('resolveInvariantsCatalog — registration gating (DR-31 / T-43)', () =
     }
   });
 
+  /**
+   * The test runs the real `loadExarchosConfig`, schema, and probe path on a config with only the alias.
+   * The schema turns the alias into `{ path: .exarchos/invariants.md, tier: dev }`, so the probe reports configured.
+   * The deprecation reaches the operator as a warning that names the key and the replacement.
+   * It is the only warning, so the catalog itself loaded without error.
+   */
   it('DoctorInvariantsCatalog_LegacyDevCatalogAlias_ReportsConfiguredAndWarns', async () => {
-    // BACK-COMPAT + DEPRECATION EMISSION, end to end through the real
-    // `loadExarchosConfig` → schema → probe path.
-    //
-    // A consumer who never migrated writes the alias and nothing else. Two
-    // things must happen, and neither is asserted anywhere else:
-    //   (1) they keep their catalog — the schema desugars the alias into
-    //       `{ path: .exarchos/invariants.md, tier: dev }`, so the probe sees
-    //       a registration and reports configured (post-T-42, before this
-    //       task, they would have SILENTLY lost it);
-    //   (2) they are TOLD — the typed deprecation surfaces as an operator
-    //       warning naming both the key and the replacement edit.
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-alias-'));
     fs.mkdirSync(path.join(tmp, '.exarchos'), { recursive: true });
     fs.writeFileSync(
@@ -360,20 +315,17 @@ describe('resolveInvariantsCatalog — registration gating (DR-31 / T-43)', () =
       );
       expect(deprecation).toBeDefined();
       expect(deprecation).toContain('.exarchos/invariants.md');
-      // The catalog itself resolved cleanly — the deprecation is the ONLY
-      // warning, so this is not a load failure wearing a deprecation's coat.
       expect(result.warnings).toHaveLength(1);
     } finally {
       rmrf(tmp);
     }
   });
 
+  /**
+   * A positive control for the deprecation channel. The fixture matches the alias fixture except for the config,
+   * and it must give zero warnings. Together the two tests show that the channel is live and discriminates.
+   */
   it('DoctorInvariantsCatalog_CleanConfig_EmitsNoDeprecation', async () => {
-    // POSITIVE CONTROL for the deprecation channel. "No deprecation" must be
-    // a real verdict, not the absence of a code path: the fixture below is
-    // byte-identical to the alias fixture above except for the config key, and
-    // it must come back with zero warnings. Together the two tests show the
-    // deprecation channel is both live and discriminating.
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-clean-'));
     fs.mkdirSync(path.join(tmp, '.exarchos'), { recursive: true });
     fs.writeFileSync(

@@ -1,16 +1,13 @@
-// `settle` over the shipped task-completion runbook, uncut, when a blocking
-// gate blocks.
+// `settle` over the full shipped task-completion runbook, when a blocking gate blocks.
 //
-// The kill probe is the first gate of that runbook, and here it runs for real.
-// The capsule stamps the task medium-tier, and the claimed worktree is a git
-// repository whose branch ships a test that does not read the change. The probe
-// reverts the source, the test stays green, and the gate blocks on a success
-// carrier. The batch must be rejected with the halt named, and no completion
-// may be left on the stream.
+// The kill probe is the first gate of that runbook, and it runs for real here.
+// The capsule stamps the task medium-tier. The claimed worktree is a git repository whose branch ships a test that does not read the change.
+// The probe reverts the source, the test stays green, and the gate blocks on a success carrier.
+// The batch must be rejected with the halt named, and the stream must hold no completion.
 //
-// The fixture also passes lint, typecheck and the quality check, so a segment
-// that let the verdict through would run on to a completion the static
-// analysis admits. A rejection here can only be the kill probe's.
+// The fixture also passes lint, typecheck, and the quality check.
+// A segment that lets the verdict through thus runs on to a completion that static analysis admits.
+// A rejection here can only come from the kill probe.
 //
 // @oracle-sources: ../../../../src/verbs/settle/handler.ts, the rows a real event store holds after the batch, read back by type rather than off the receipt
 

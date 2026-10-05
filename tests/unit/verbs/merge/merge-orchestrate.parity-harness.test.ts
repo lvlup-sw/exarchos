@@ -1,17 +1,7 @@
-// ─── Wave 4 / Task 4.4 — parity-harness coverage for migrated merge-orchestrate
-//
-// Verifies the Wave 4 reference migration (audit §F1.2) preserves carrier
-// equivalence: `exarchos merge_orchestrate` projects byte-identical
-// ToolResults across the CLI and MCP carriers after the two-event split
-// insertion (Phase A `merge.requested` decide before executor delegation).
-//
-// The existing `merge-orchestrate.parity.test.ts` exercises the same
-// contract through hand-rolled arm setup. This test uses the shared
-// `MERGE_ORCHESTRATE_PARITY_FIXTURE` descriptor from the parity-harness
-// module + the harness's `callCli` / `callMcp` so the fixture itself
-// becomes the single source of truth for the carrier-invocation shape.
-// Future migrations to other orchestrate actions can register their own
-// fixtures next to this one with no per-suite boilerplate.
+// Carrier parity for `merge_orchestrate` through the shared parity harness.
+// The CLI and MCP carriers must project byte-identical ToolResults after the two-event split, which commits `merge.requested` before the executor runs.
+// `merge-orchestrate.parity.test.ts` tests the same contract with hand-built arms.
+// This test uses the `MERGE_ORCHESTRATE_PARITY_FIXTURE` descriptor and the harness `callCli` and `callMcp`, so the fixture owns the invocation shape.
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -34,8 +24,6 @@ import { handleMergeOrchestrate } from '../../../../src/verbs/merge/merge-orches
 import type { GitExec, MergePreflightResult } from '../../../../src/verbs/pure/merge-preflight.js';
 import type { HandleExecuteMergeInput } from '../../../../src/verbs/merge/execute-merge.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
-
-// ─── Fixtures ──────────────────────────────────────────────────────────────
 
 const MERGE_SHA = 'a'.repeat(40);
 const ROLLBACK_SHA = 'b'.repeat(40);
@@ -68,8 +56,6 @@ const PASSING_PREFLIGHT: MergePreflightResult = {
   },
 };
 
-// ─── Arm helper ────────────────────────────────────────────────────────────
-
 interface Arm {
   readonly stateDir: string;
   readonly ctx: DispatchContext;
@@ -90,11 +76,11 @@ async function createArm(prefix: string): Promise<Arm> {
   return { stateDir, ctx };
 }
 
+/**
+ * Builds a stub with a deterministic preflight, executor, and `persistState`, like the stub in `merge-orchestrate.parity.test.ts`.
+ * Two arms against this stub give byte-equal output.
+ */
 function buildDeterministicMergeOrchestrateStub(): CompositeHandler {
-  // Mirror the canonical stub pattern from `merge-orchestrate.parity.test.ts`:
-  // inject deterministic preflight/executor/persistState so two arms against
-  // the same stub produce byte-equal output. The executor mimics a success
-  // path that returns the canonical post-migration shape.
   return async (args, ctx): Promise<ToolResult> => {
     const { action, ...rest } = args;
     if (action !== 'merge_orchestrate') {
@@ -142,8 +128,6 @@ function normalize(value: unknown): unknown {
   });
 }
 
-// ─── Test ──────────────────────────────────────────────────────────────────
-
 describe('Wave 4 / Task 4.4 — parity-harness fixture for merge-orchestrate', () => {
   afterEach(async () => {
     vi.restoreAllMocks();
@@ -154,11 +138,12 @@ describe('Wave 4 / Task 4.4 — parity-harness fixture for merge-orchestrate', (
     );
   });
 
+  /**
+   * The deterministic stub sends both carriers through one handler with the same injected hooks.
+   * Without it, each arm runs git and reads the real workflow state file, which gives wall-clock and path drift.
+   * Both arms commit through the real `decide` path. Their events can differ in sequence numbers, but the normalized ToolResults must match byte for byte.
+   */
   it('Parity_MergeOrchestrate_CliAndMcpProduceIdenticalToolResult', async () => {
-    // Install the deterministic stub so both carriers route through the
-    // same handler with the same DI hooks. Without this, the CLI arm and
-    // MCP arm would each try to shell out to git (and to read the real
-    // workflow state file) which produces wall-clock + path drift.
     const restoreStub = stubCompositeHandler(
       'exarchos_orchestrate',
       buildDeterministicMergeOrchestrateStub(),
@@ -167,13 +152,9 @@ describe('Wave 4 / Task 4.4 — parity-harness fixture for merge-orchestrate', (
       const cliArm = await createArm('wave4-parity-cli-');
       const mcpArm = await createArm('wave4-parity-mcp-');
 
-      // Run the fixture's setup against each arm (no-op here per fixture,
-      // but the call is canonical so future fixtures that prime events
-      // can drop in without test refactoring).
       await MERGE_ORCHESTRATE_PARITY_FIXTURE.setup(cliArm.ctx);
       await MERGE_ORCHESTRATE_PARITY_FIXTURE.setup(mcpArm.ctx);
 
-      // Act — CLI arm via harness `callCli`.
       const { result: cliResult, exitCode: cliExit } = await harnessCallCli(
         cliArm.ctx,
         MERGE_ORCHESTRATE_PARITY_FIXTURE.cliCall.toolAlias,
@@ -181,22 +162,16 @@ describe('Wave 4 / Task 4.4 — parity-harness fixture for merge-orchestrate', (
         MERGE_ORCHESTRATE_PARITY_FIXTURE.cliCall.flags,
       );
 
-      // Act — MCP arm via harness `callMcp`.
       const mcpResult = await harnessCallMcp(
         mcpArm.ctx,
         MERGE_ORCHESTRATE_PARITY_FIXTURE.mcpCall.tool,
         MERGE_ORCHESTRATE_PARITY_FIXTURE.mcpCall.args,
       );
 
-      // Sanity — both arms succeed end-to-end.
       expect(cliResult.success).toBe(true);
       expect(mcpResult.success).toBe(true);
       expect(cliExit).toBe(0);
 
-      // Carrier-equivalence — byte-identical ToolResults after wall-clock
-      // + UUID normalization. The Wave 4 two-event split commits run on
-      // both carriers' real `decide` path; the resulting events drift in
-      // sequence numbers but the projected ToolResult must NOT.
       const normalizedCli = normalize(cliResult);
       const normalizedMcp = normalize(mcpResult);
       expect(normalizedCli).toEqual(normalizedMcp);

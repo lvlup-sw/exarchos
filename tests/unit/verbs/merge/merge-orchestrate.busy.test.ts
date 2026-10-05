@@ -1,22 +1,8 @@
-// ─── Wave 4 / Task 4.5a — storage-busy contention recovery fixture ─────────
-//
-// Audit §F2.1: the R-2 primitive layer raises `StorageBusyError` when the
-// SQLite substrate's `BEGIN IMMEDIATE` retry budget exhausts. That signal
-// is SEMANTICALLY EQUIVALENT to `ConcurrencyError` for the retry boundary —
-// both are transient. Task 4.1's widened `withStateRetry` recognizes both
-// classes; this fixture verifies the full loop closes end-to-end when only
-// the substrate-contention class is injected.
-//
-// Setup: spy on `appender.decide` and throw a synthetic `StorageBusyError`
-// on the first call (the substrate's BEGIN IMMEDIATE budget exhausted),
-// then delegate to the real implementation on subsequent calls (the other
-// writer committed; the lock is free).
-//
-// Asserts:
-//   - Handler returns success.
-//   - `decide` was invoked ≥ 2 times (withStateRetry kicked in).
-//   - Final event sequence is canonical
-//     (`merge.preflight → merge.requested → merge.executed`).
+/**
+ * Tests that `handleMergeOrchestrate` recovers from storage contention.
+ * The storage layer throws `StorageBusyError` when the SQLite `BEGIN IMMEDIATE` retry budget runs out.
+ * `withStateRetry` retries this error, the same as `ConcurrencyError`.
+ */
 
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -32,8 +18,6 @@ import { StorageBusyError } from '../../../../src/events/storage-busy-error.js';
 import '../../../../src/projections/merge-orchestrator/index.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 import { BYPASS_SECTION_0A } from '../../../helpers/section-0a-bypass.js';
-
-// ─── Fixtures ──────────────────────────────────────────────────────────────
 
 const MERGE_SHA = 'a'.repeat(40);
 const ROLLBACK_SHA = 'b'.repeat(40);
@@ -82,6 +66,10 @@ describe('handleMergeOrchestrate — Wave 4 / Task 4.5a storage-busy contention'
     vi.clearAllMocks();
   });
 
+  /**
+   * The first `decide` throws `StorageBusyError`, and later calls go to the real `decide`.
+   * The handler must succeed with one `merge.requested` and one `merge.executed`.
+   */
   it('MergeOrchestrate_StorageBusyContention_RetriesViaWithStateRetryAndEventuallySucceeds', async () => {
     const { eventStore, stateDir } = await makeScratchEventStore();
     const ctx = makeCtx(eventStore, stateDir);
@@ -111,11 +99,6 @@ describe('handleMergeOrchestrate — Wave 4 / Task 4.5a storage-busy contention'
     const persistState = vi.fn().mockResolvedValue(undefined);
     const readState = vi.fn().mockResolvedValue(undefined);
 
-    // Fault-inject: first `decide` call throws synthetic `StorageBusyError`
-    // (the substrate's `BEGIN IMMEDIATE` retry budget exhausted), then
-    // delegates to the real implementation on subsequent calls.
-    // `withStateRetry` (Task 4.1 GREEN) catches the typed error and
-    // re-runs the closure.
     const appender = eventStore.getAppender();
     const realDecide = appender.decide.bind(appender);
     let decideAttempts = 0;
@@ -149,20 +132,10 @@ describe('handleMergeOrchestrate — Wave 4 / Task 4.5a storage-busy contention'
       ctx,
     );
 
-    // Property 1: the handler eventually succeeds despite the transient
-    // contention signal. `withStateRetry` recognized `StorageBusyError`
-    // (Task 4.1 GREEN), waited for the backoff window, and re-ran the
-    // closure to a successful commit on attempt 2.
     expect(result.success).toBe(true);
 
-    // Property 2: the retry loop engaged — `decide` was invoked at least
-    // twice (first throws StorageBusyError; second succeeds).
     expect(decideAttempts).toBeGreaterThanOrEqual(2);
 
-    // Property 3: the final event sequence is canonical. No missing
-    // events (the retry observed the same closure produced the same
-    // intent), no duplicates (substrate idempotency_claims + the
-    // state-check-in-decide short-circuit both contribute).
     const events = await eventStore.query('feat-busy');
     const types = events.map((e) => e.type);
     expect(types).toContain('merge.preflight');

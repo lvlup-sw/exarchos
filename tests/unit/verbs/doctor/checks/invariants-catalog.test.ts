@@ -57,10 +57,11 @@ describe('invariantsCatalog', () => {
     expect(result.fix).toBeDefined();
   });
 
+  /**
+   * `configured: false` with no warnings means that `invariants.catalogs` registers nothing.
+   * The check skips, and the skip must carry a reason.
+   */
   it('InvariantsCatalog_NoCatalogConfigured_ReturnsSkipped', async () => {
-    // configured:false with no warnings means nothing is registered in
-    // `invariants.catalogs` — nothing to validate (DIM-2: no silent skip;
-    // reason is populated).
     const probes = makeStubProbes({
       invariants: { resolve: async () => ({ configured: false, warnings: [] }) },
     });
@@ -72,17 +73,11 @@ describe('invariantsCatalog', () => {
     expect(result.reason!.length).toBeGreaterThan(0);
   });
 
+  /**
+   * An operator reads `reason` and acts on it. The text must name the remedy that works,
+   * registration in `invariants.catalogs`. It must not name the retired `devCatalog` flag.
+   */
   it('InvariantsCatalog_SkipReason_NamesRegistrationNotRetiredFlag', async () => {
-    // DR-31 / T-43 — THE USER-FACING OUTPUT GUARD. `reason` is text an
-    // operator READS and acts on. It used to say "invariants.devCatalog is
-    // disabled ... Enable the dev catalog", naming a mechanism that no longer
-    // exists — advice that cannot be followed.
-    //
-    // The pre-existing coverage above only asserted `reason` is non-empty, so
-    // the stale mechanism name was completely unobserved. This pins the
-    // contract in both directions: it must name the remedy that WORKS
-    // (registration in `invariants.catalogs`) and must NOT name the retired
-    // one.
     const probes = makeStubProbes({
       invariants: { resolve: async () => ({ configured: false, warnings: [] }) },
     });
@@ -95,12 +90,12 @@ describe('invariantsCatalog', () => {
     expect(result.message.toLowerCase()).not.toContain('devcatalog');
   });
 
+  /**
+   * The check decides on `configured`, not on an entry count for one phase.
+   * A registered catalog with no entry for the resolver phase gives `configured: true`
+   * and no warnings. It must Pass, not Skip.
+   */
   it('InvariantsCatalog_ConfiguredButNoPhaseMatchingEntries_StillPasses', async () => {
-    // Regression for the Seer MEDIUM (#1482): the decision keys off `configured`,
-    // not a phase-projected entry count. A catalog that IS configured and loaded
-    // cleanly but whose entries do not project to the resolver's phase (e.g. all
-    // `phase-affinity: ['review']`) must Pass — never Skip as "nothing
-    // configured". The resolver surfaces this as configured:true, warnings:[].
     const probes = makeStubProbes({
       invariants: { resolve: async () => ({ configured: true, warnings: [] }) },
     });

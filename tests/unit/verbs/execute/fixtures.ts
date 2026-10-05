@@ -1,13 +1,10 @@
 // Fixture leaves and fixture intents for the bounded action executor.
 //
-// The executor takes its runbook table, its registry lookup, its argument
-// schemas and its handler table as injected dependencies. That seam exists so
-// these fixtures can exercise the core semantics — closure, admission order,
-// per-leaf emission checking, commit and replay — without adding a test-only
-// entry to the live registry and without shelling out to a real gate.
-//
-// The contracts below are built with the REAL `withActionContract`, so a
-// fixture leaf is normalized and validated exactly as a shipped action is.
+// The executor gets its runbook table, registry lookup, argument schemas, and
+// handler table as injected dependencies. Thus these fixtures can test closure,
+// admission order, emission checks, commit, and replay without a test entry in
+// the live registry or a real gate. The contracts use the real
+// `withActionContract`, so a fixture leaf gets the same validation as a shipped action.
 
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
@@ -70,10 +67,9 @@ export interface FixtureActionInput {
   readonly executionAuthority?: ActionContract['executionAuthority'];
   readonly requires?: ActionContract['requires'];
   /**
-   * Overridable because the registry's own admission rules read it: a
-   * `safe-repeat` declaration is only accepted from an action annotated
-   * idempotent, so a fixture registered through `registerCustomTool` rather
-   * than constructed in place has to declare the replay policy its mutating
+   * The registry admission rules read this field. They accept `safe-repeat`
+   * only from an action annotated idempotent. Thus a fixture registered through
+   * `registerCustomTool` must declare a replay policy that its mutating
    * annotation supports.
    */
   readonly replay?: ActionContract['replay'];
@@ -82,10 +78,9 @@ export interface FixtureActionInput {
 }
 
 /**
- * A fixture leaf's output declaration. Not exercised by anything here — the
- * fixtures never reach the response-economy path — but `ToolAction` requires
- * an output schema and an annotation set, and a fixture that satisfies the
- * real type is a fixture the real lookups accept.
+ * The output declaration of a fixture leaf. No fixture reaches the
+ * response-economy path. `ToolAction` requires an output schema and
+ * annotations, and a fixture of the real type passes the real lookups.
  */
 const fixtureOutputSchema = withCappedShape(
   EnvelopeSchema(z.object({ appended: z.string().nullable().optional() })),
@@ -174,11 +169,10 @@ export function appendingHandler(type: string): LeafHandler {
 }
 
 /**
- * The idempotency key the real durable gate runner would derive for a leaf's
- * append: a hash over the AMBIENT operation id plus a producer label. Mirrored
- * here rather than approximated, because the property under test is that the
- * executor's derived per-leaf operation id is STABLE across a crash-retry —
- * and stability only pays for anything if the key downstream is built from it.
+ * An idempotency key for the append of a leaf: a hash of the ambient operation
+ * id and a producer label. Like the evidence key of the gate runner, it comes
+ * from the operation id. Thus an operation id that stays the same across a
+ * crash retry gives the same key.
  */
 export function derivedEvidenceKey(operationId: string, producerRef: string): string {
   const digest = createHash('sha256')
@@ -194,9 +188,8 @@ function ambientOperationId(): string {
 }
 
 /**
- * A leaf that appends one event keyed the way the gate runner keys its own —
- * by an id derived from the ambient operation id. A re-run under the same
- * derived id collapses onto the first write instead of adding a row.
+ * A leaf that appends one event with the key from {@link derivedEvidenceKey}. A
+ * second run under the same operation id matches the first write and adds no row.
  */
 export function keyedAppendingHandler(type: string, producerRef: string): LeafHandler {
   return async (args, _stateDir, ctx) => {
@@ -211,10 +204,9 @@ export function keyedAppendingHandler(type: string, producerRef: string): LeafHa
 }
 
 /**
- * A leaf that records passing gate evidence for `requirementId` — the fact a
- * LATER leaf's declared `requires` reads out of the store. Built with the real
- * evidence schema and keyed like the gate runner's, so the admission evaluator
- * accepts or rejects it for the same reasons it would a shipped gate's.
+ * A leaf that records gate evidence for `requirementId`. A later leaf reads
+ * this evidence through its declared `requires`. The row uses the real evidence
+ * schema, so the admission evaluator judges it as it judges a shipped gate.
  */
 export function gateEvidenceHandler(input: {
   readonly requirementId: string;
@@ -222,13 +214,10 @@ export function gateEvidenceHandler(input: {
   readonly producerRef: string;
   readonly verdict?: 'pass' | 'fail';
   /**
-   * When set, the handler persists a real artifact blob and stamps its
-   * reference on the row, the way a shipped gate's report is carried.
-   * `root: 'state-dir'` writes under the executor's own evidence root
-   * (`evidenceArtifactStore(stateDir)`) — the root the executor's resolver
-   * will look under. `root: 'elsewhere'` writes under a sibling directory it
-   * never looks under, the same shape a two-root producer split leaves
-   * behind.
+   * When set, the handler stores a real artifact blob and puts its reference
+   * on the row. `root: 'state-dir'` writes under `evidenceArtifactStore(stateDir)`,
+   * where the resolver of the executor looks. `root: 'elsewhere'` writes under
+   * a sibling directory that the resolver does not read.
    */
   readonly artifact?: {
     readonly content: unknown;
@@ -334,10 +323,12 @@ export function findFixtureAction(
     tool === FIXTURE_TOOL ? actions.find((candidate) => candidate.name === action) : undefined;
 }
 
-// The gate-evidence policy capability is here because a fixture whose leaf
-// declares a real `requires` needs its evidence to be ACCEPTED — evidence the
-// caller was not authorized to issue denies admission for an authorization
-// reason, which would prove nothing about execution order.
+/**
+ * The capabilities of the fixture caller. They include the gate-evidence
+ * capability, so admission accepts the evidence for a declared `requires`.
+ * Without it, admission denies for an authorization reason, which proves
+ * nothing about execution order.
+ */
 const FIXTURE_CAPABILITIES = [
   'fs:read',
   'fs:write',

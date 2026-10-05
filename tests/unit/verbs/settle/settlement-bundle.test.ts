@@ -1,7 +1,6 @@
-// The bundle is what the ledger record POINTS AT, so the properties that matter
-// are the ones a digest depends on: one document always produces one byte
-// string, a document the schema rejects never reaches custody, and bytes that
-// round-trip give back what was written.
+// The ledger record points at the bundle by digest. One document always gives
+// one byte string. A document that the schema rejects never reaches custody.
+// Bytes that round-trip give back the written document.
 //
 // @oracle-sources: ../../../../src/verbs/settle/settlement-bundle.ts, and the canonical-JSON encoder in contract/request-context which is authored for the request surface and not for this module
 
@@ -42,18 +41,16 @@ function bundle(overrides: Partial<SettlementBundleV1> = {}): SettlementBundleV1
 }
 
 describe('the settlement bundle', () => {
+  /** The digest is the reference. Two encodings that differ by key order give two artifacts for one document. */
   it('SettlementBundle_TheSameDocument_EncodesToTheSameBytes', () => {
-    // The digest is the reference, so two encodings that differed by key order
-    // would be two artifacts for one document.
     expect(encodeSettlementBundle(bundle())).toEqual(encodeSettlementBundle(bundle()));
   });
 
+  /** The input has its top-level keys in a different insertion order. The canonical encoder must erase that difference. */
   it('SettlementBundle_KeyOrderInTheInput_DoesNotReachTheBytes', () => {
     const a = bundle();
     const reordered: SettlementBundleV1 = {
       ...bundle({ kind: SETTLEMENT_BUNDLE_KIND }),
-      // Rebuilt with the top-level keys in a different insertion order; the
-      // canonical encoder has to erase that difference.
       settledAt: a.settledAt,
       adjudicated: a.adjudicated,
       operationId: a.operationId,
@@ -72,9 +69,8 @@ describe('the settlement bundle', () => {
     expect(decodeSettlementBundle(encodeSettlementBundle(bundle()))).toEqual(bundle());
   });
 
+  /** Nothing can follow a digest of an unreadable document, so the refusal must occur at encode time. */
   it('SettlementBundle_ADocumentTheSchemaRejects_NeverReachesCustody', () => {
-    // A digest of an unreadable document is a reference nothing can follow, so
-    // the refusal has to happen at encode time rather than at read time.
     expect(() =>
       encodeSettlementBundle(bundle({ outcome: 'mostly-fine' } as unknown as Partial<SettlementBundleV1>)),
     ).toThrow();
@@ -83,30 +79,28 @@ describe('the settlement bundle', () => {
     ).toThrow();
   });
 
+  /** A reader that accepts a partial document reports facts that the producer did not write. */
   it('SettlementBundle_PartialBytes_AreRefusedRatherThanTolerated', () => {
-    // A reader that accepted a partial document would report facts the producer
-    // never wrote.
     const { findings: _dropped, ...partial } = bundle();
     const bytes = Buffer.from(`${JSON.stringify(partial)}\n`, 'utf8');
     expect(() => decodeSettlementBundle(bytes)).toThrow();
   });
 
+  /**
+   * The id holds both halves of the settlement key, so a reader with a ledger record can name the bundle without resolving it.
+   * A different batch or a different compilation gives a different id.
+   */
   it('SettlementBundle_ArtifactId_NamesTheBatchAndTheCompilation', () => {
-    // Both halves of the settlement key, so a reader holding a ledger record
-    // can name the bundle without first resolving it.
     const id = settlementBundleArtifactId('batch-0001', 3);
     expect(id).toContain('batch-0001');
     expect(id).toContain(SETTLEMENT_BUNDLE_KIND);
     expect(id.endsWith(':3')).toBe(true);
-    // Two batches of one capsule, and two compilations of one batch, are four
-    // different artifacts rather than one.
     expect(settlementBundleArtifactId('batch-0002', 3)).not.toBe(id);
     expect(settlementBundleArtifactId('batch-0001', 4)).not.toBe(id);
   });
 
+  /** The artifact id comes from caller text, so the id grammar rejects a path or a shell fragment. */
   it('SettlementBundle_AnIdTheGrammarRefuses_Throws', () => {
-    // The id grammar rejects a path or a shell fragment, and the artifact id is
-    // built from caller-influenced text.
     expect(() => settlementBundleArtifactId('../../etc/passwd', 1)).toThrow();
   });
 });

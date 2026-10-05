@@ -1,13 +1,7 @@
-// ─── Review Verdict Action Tests ─────────────────────────────────────────────
-//
-// Tests for the pure TypeScript review verdict implementation.
-// No bash script dependency — computes verdict and generates report in TS.
-// ────────────────────────────────────────────────────────────────────────────
+// Tests the TypeScript review verdict: `computeVerdict`, `generateVerdictReport`, and `handleReviewVerdict`.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { EventStore } from '../../../../src/events/store.js';
-
-// ─── Mock event store ────────────────────────────────────────────────────────
 
 const mockStore = {
   append: vi.fn().mockResolvedValue(undefined),
@@ -45,8 +39,6 @@ import { handleReviewVerdict, computeVerdict, generateVerdictReport } from '../.
 
 const STATE_DIR = '/tmp/test-review-verdict';
 
-// ─── Tests: computeVerdict (pure function) ──────────────────────────────────
-
 describe('computeVerdict', () => {
   it('computeVerdict_ZeroFindings_ReturnsApproved', () => {
     expect(computeVerdict({ high: 0, medium: 0, low: 0 })).toBe('APPROVED');
@@ -73,8 +65,6 @@ describe('computeVerdict', () => {
   });
 });
 
-// ─── Tests: generateVerdictReport (pure function) ───────────────────────────
-
 describe('generateVerdictReport', () => {
   it('generateVerdictReport_Approved_ContainsApprovedHeading', () => {
     const report = generateVerdictReport('APPROVED', { high: 0, medium: 1, low: 2 });
@@ -97,16 +87,12 @@ describe('generateVerdictReport', () => {
   });
 });
 
-// ─── Tests: handleReviewVerdict (handler integration) ───────────────────────
-
 describe('handleReviewVerdict', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockStore.append.mockResolvedValue(undefined);
     mockStore.query.mockResolvedValue([]);
   });
-
-  // ─── Validation ──────────────────────────────────────────────────────────
 
   describe('input validation', () => {
     it('handleReviewVerdict_MissingFeatureId_ReturnsError', async () => {
@@ -139,8 +125,6 @@ describe('handleReviewVerdict', () => {
     });
   });
 
-  // ─── Approved ────────────────────────────────────────────────────────────
-
   describe('approved verdict', () => {
     it('handleReviewVerdict_NoHighFindings_ReturnsApproved', async () => {
       const args = { featureId: 'feat-1', high: 0, medium: 1, low: 3 };
@@ -171,8 +155,6 @@ describe('handleReviewVerdict', () => {
     });
   });
 
-  // ─── Needs Fixes ─────────────────────────────────────────────────────────
-
   describe('needs fixes verdict', () => {
     it('handleReviewVerdict_HighFindings_ReturnsNeedsFixes', async () => {
       const args = { featureId: 'feat-1', high: 2, medium: 1, low: 0 };
@@ -202,8 +184,6 @@ describe('handleReviewVerdict', () => {
       expect(data.verdict).toBe('NEEDS_FIXES');
     });
   });
-
-  // ─── Blocked ─────────────────────────────────────────────────────────────
 
   describe('blocked verdict', () => {
     it('handleReviewVerdict_BlockedReason_ReturnsBlocked', async () => {
@@ -242,8 +222,6 @@ describe('handleReviewVerdict', () => {
     });
   });
 
-  // ─── Report Format ──────────────────────────────────────────────────────
-
   describe('report format', () => {
     it('handleReviewVerdict_Report_ContainsMarkdownHeading', async () => {
       const args = { featureId: 'feat-1', high: 0, medium: 1, low: 2 };
@@ -269,8 +247,6 @@ describe('handleReviewVerdict', () => {
       expect(data.report).toContain('1 high, 2 medium, 3 low');
     });
   });
-
-  // ─── Summary Gate Event ──────────────────────────────────────────────────
 
   describe('gate event emission', () => {
     it('handleReviewVerdict_EmitsSummaryGateEvent', async () => {
@@ -319,8 +295,6 @@ describe('handleReviewVerdict', () => {
     });
   });
 
-  // ─── Phase in Gate Event Details ──────────────────────────────────────────
-
   describe('phase in gate event details', () => {
     it('handleReviewVerdict_PerDimensionEvents_IncludePhaseInDetails', async () => {
       const args = {
@@ -334,7 +308,6 @@ describe('handleReviewVerdict', () => {
       };
       await handleReviewVerdict(args, STATE_DIR, mockStore as unknown as EventStore);
 
-      // Per-dimension event includes phase
       const perDimCall = mockStore.append.mock.calls[0];
       const perDimEvent = perDimCall[1] as {
         type: string;
@@ -357,9 +330,8 @@ describe('handleReviewVerdict', () => {
     });
   });
 
-  // ─── Plugin Findings ───────────────────────────────────────────────────
-
   describe('plugin findings', () => {
+    /** One native MEDIUM plus one plugin HIGH and one plugin MEDIUM give one HIGH and two MEDIUM findings. */
     it('HandleReviewVerdict_PluginFindings_MergesCountsIntoVerdict', async () => {
       const result = await handleReviewVerdict({
         featureId: 'test-plugin-merge',
@@ -372,8 +344,8 @@ describe('handleReviewVerdict', () => {
         ],
       }, STATE_DIR, mockStore as unknown as EventStore);
       expect(result.success).toBe(true);
-      expect((result as { data: { high: number } }).data.high).toBe(1); // 0 native + 1 plugin HIGH
-      expect((result as { data: { medium: number } }).data.medium).toBe(2); // 1 native + 1 plugin MEDIUM
+      expect((result as { data: { high: number } }).data.high).toBe(1);
+      expect((result as { data: { medium: number } }).data.medium).toBe(2);
       expect((result as { data: { verdict: string } }).data.verdict).toBe('NEEDS_FIXES');
     });
 
@@ -422,7 +394,6 @@ describe('handleReviewVerdict', () => {
     });
 
     it('HandleReviewVerdict_NoPluginFindings_BackwardsCompatible', async () => {
-      // Existing behavior — no pluginFindings param at all
       const result = await handleReviewVerdict({
         featureId: 'test-no-plugin',
         high: 1,
@@ -434,9 +405,8 @@ describe('handleReviewVerdict', () => {
     });
   });
 
-  // ─── Per-Dimension Gate Events ──────────────────────────────────────────
-
   describe('per-dimension gate events', () => {
+    /** Two dimension results give two per-dimension events and one summary event. */
     it('handleReviewVerdict_WithDimensionResults_EmitsPerDimensionEvents', async () => {
       const args = {
         featureId: 'feat-1',
@@ -450,10 +420,8 @@ describe('handleReviewVerdict', () => {
       };
       await handleReviewVerdict(args, STATE_DIR, mockStore as unknown as EventStore);
 
-      // 2 per-dimension + 1 summary = 3 total
       expect(mockStore.append).toHaveBeenCalledTimes(3);
 
-      // D1 dimension event
       const d1Call = mockStore.append.mock.calls[0];
       expect(d1Call[0]).toBe('feat-1');
       const d1Event = d1Call[1] as {
@@ -475,7 +443,6 @@ describe('handleReviewVerdict', () => {
         findingCount: 0,
       });
 
-      // D2 dimension event
       const d2Call = mockStore.append.mock.calls[1];
       expect(d2Call[0]).toBe('feat-1');
       const d2Event = d2Call[1] as {
@@ -497,7 +464,6 @@ describe('handleReviewVerdict', () => {
         findingCount: 3,
       });
 
-      // Summary event
       const summaryCall = mockStore.append.mock.calls[2];
       expect(summaryCall[0]).toBe('feat-1');
       const summaryEvent = summaryCall[1] as {
@@ -523,14 +489,11 @@ describe('handleReviewVerdict', () => {
     });
   });
 
-  // ─── Bounded Fix-Loop (DR-3, #1595) ──────────────────────────────────────
-
+  /**
+   * `needsFixesGateEvent` builds a prior NEEDS_FIXES `review-verdict` gate event.
+   * The handler counts these events to derive the fix-cycle iteration, so `n` seeded events give iteration `n`.
+   */
   describe('bounded fix-loop escalation', () => {
-    /**
-     * Build a prior `review-verdict` NEEDS_FIXES `gate.executed` event — the
-     * single event-sourced source the handler counts to derive the fix-cycle
-     * iteration. `count` of these seeds an iteration of `count`.
-     */
     const needsFixesGateEvent = () => ({
       type: 'gate.executed',
       data: {
@@ -547,9 +510,11 @@ describe('handleReviewVerdict', () => {
       );
     };
 
+    /**
+     * Two prior fix cycles under the default bound of 5 still route to fixes.
+     * The report shows the next fix cycle, and the handler emits no escalation event.
+     */
     it('SpecReview_FixLoop_BoundedByPolicy', async () => {
-      // 2 prior fix cycles, default bound of 5, mechanical findings → still
-      // routes to fixes, no escalation, report surfaces the remaining budget.
       seedPriorFixCycles(2);
       const result = await handleReviewVerdict(
         { featureId: 'feat-bound', high: 1, medium: 0, low: 0 },
@@ -561,12 +526,9 @@ describe('handleReviewVerdict', () => {
       const data = result.data as { verdict: string; escalate?: boolean; report: string };
       expect(data.verdict).toBe('NEEDS_FIXES');
       expect(data.escalate).toBeFalsy();
-      // Routes to fixes as today, with the next-cycle budget surfaced.
       expect(data.report).toMatch(/delegate.*fixes/i);
       expect(data.report).toContain('fix cycle 3/5');
 
-      // No escalation gate event emitted on the still-auto-fixable path: only the
-      // summary review-verdict event for this pass.
       const gateNames = mockStore.append.mock.calls.map(
         (c) => (c[1] as { data: { gateName: string } }).data.gateName,
       );
@@ -574,9 +536,11 @@ describe('handleReviewVerdict', () => {
       expect(gateNames).not.toContain('review-escalation');
     });
 
+    /**
+     * Five prior fix cycles reach the default bound.
+     * The handler escalates, does not route to `/delegate --fixes` again, and emits a `review-escalation` gate event.
+     */
     it('SpecReview_BoundHit_Escalates', async () => {
-      // 5 prior fix cycles == default bound → escalate, no further fix loop, and
-      // a structured escalation event is emitted.
       seedPriorFixCycles(5);
       const result = await handleReviewVerdict(
         { featureId: 'feat-hit', high: 2, medium: 0, low: 0 },
@@ -594,11 +558,9 @@ describe('handleReviewVerdict', () => {
       expect(data.verdict).toBe('NEEDS_FIXES');
       expect(data.escalate).toBe(true);
       expect(data.escalationReason).toMatch(/bound/i);
-      // The escalation report does NOT re-issue a /delegate --fixes instruction.
       expect(data.report).not.toMatch(/Route to `\/delegate --fixes`/);
       expect(data.report).toMatch(/escalat/i);
 
-      // A structured review-escalation gate event is emitted (event-sourced).
       const escalationCall = mockStore.append.mock.calls.find(
         (c) => (c[1] as { data: { gateName: string } }).data.gateName === 'review-escalation',
       );
@@ -614,9 +576,8 @@ describe('handleReviewVerdict', () => {
       expect(escalationEvent.data.details.findingClass).toBe('mechanical');
     });
 
+    /** A spec-category finding escalates at once, even with no prior fix cycles. */
     it('SpecReview_IntentTouchingFinding_EscalatesImmediately', async () => {
-      // No prior fix cycles (iteration 0, well under the bound) but a
-      // spec-category finding → escalate immediately, never loop.
       seedPriorFixCycles(0);
       const result = await handleReviewVerdict(
         {
@@ -649,8 +610,8 @@ describe('handleReviewVerdict', () => {
       expect(escalationEvent.data.details.priorFixCount).toBe(0);
     });
 
+    /** A `maxFixCycles` of 2 overrides the default bound of 5, so two prior cycles reach the bound. */
     it('SpecReview_PerLoopOverride_TightensBound', async () => {
-      // maxFixCycles override of 2 (vs default 5): 2 prior cycles hits the bound.
       seedPriorFixCycles(2);
       const result = await handleReviewVerdict(
         { featureId: 'feat-override', high: 1, medium: 0, low: 0, maxFixCycles: 2 },
@@ -663,8 +624,8 @@ describe('handleReviewVerdict', () => {
       expect(data.escalationReason).toMatch(/bound \(2\)/);
     });
 
+    /** A `projectConfig.escalation.maxIterations` of 3 sets the bound, so three prior cycles reach it. */
     it('SpecReview_ConfigBound_Resolves', async () => {
-      // projectConfig.escalation.maxIterations of 3: 3 prior cycles hits the bound.
       seedPriorFixCycles(3);
       const result = await handleReviewVerdict(
         {
@@ -683,8 +644,8 @@ describe('handleReviewVerdict', () => {
       expect(data.report).toContain('3/3');
     });
 
+    /** After nine prior fix cycles, an APPROVED verdict still has no escalation fields and emits no escalation event. */
     it('SpecReview_Approved_NoEscalationFields', async () => {
-      // APPROVED is unchanged — no escalate fields, no escalation event.
       seedPriorFixCycles(9);
       const result = await handleReviewVerdict(
         { featureId: 'feat-approved', high: 0, medium: 2, low: 0 },

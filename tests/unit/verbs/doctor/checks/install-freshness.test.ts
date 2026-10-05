@@ -18,7 +18,8 @@ let base: string;
 let root: string;
 let cacheDir: string;
 let stateDir: string;
-let installDir: string; // holds the identity lock — keyed to the install, not the store
+/** Holds the identity lock. The lock is keyed to the install, not to the state store. */
+let installDir: string;
 
 function seedInstall(overrides?: Partial<{ pkg: string }>): void {
   const pkg = overrides?.pkg ?? JSON.stringify({ name: 'exarchos', version: '2.11.0' });
@@ -37,10 +38,8 @@ function installedProbes(): DoctorProbes {
 }
 
 /**
- * Env for an installed posture with the identity lock redirected into the temp
- * tree. `EXARCHOS_INSTALL_STATE_DIR` is load-bearing for hermeticity: the lock
- * is keyed to the INSTALLATION rather than the state dir, so without it these
- * tests would read and write the real home directory.
+ * Env for an installed posture, with the identity lock in the temp tree.
+ * Without `EXARCHOS_INSTALL_STATE_DIR`, these tests read and write the lock in the real home directory.
  */
 function lockEnv(): Record<string, string> {
   return {
@@ -82,10 +81,10 @@ describe('doctor install-freshness check', () => {
     expect(r.message).toContain('fresh');
   });
 
+  /** A new `package.json` after the lock is recorded makes the binary dimension stale. */
   it('reports Warning naming the stale dimension, with a fix', async () => {
     seedInstall();
     recordLock();
-    // Upgrade the binary on disk after recording — binary dimension diverges.
     fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ version: '9.9.9' }));
     const r = await installFreshness(installedProbes(), signal);
     expect(r.status).toBe('Warning');
@@ -107,12 +106,15 @@ describe('doctor install-freshness check', () => {
     expect(fs.existsSync(installIdentityLockPath(root, { env: lockEnv() }))).toBe(false);
   });
 
+  /**
+   * With no plugin-root env, the posture is a dev checkout, or an install with no lock when the real plugin cache exists.
+   * Both give Pass.
+   */
   it('reports Pass with no plugin-root env (source checkout is not a corrupt install)', async () => {
     const r = await installFreshness(
       makeStubProbes({ env: { EXARCHOS_INSTALL_STATE_DIR: installDir }, stateDir }),
       signal,
     );
-    // Either dev-checkout (no cache) or installed-but-no-lock — both are Pass.
     expect(r.status).toBe('Pass');
   });
 });

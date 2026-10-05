@@ -1,8 +1,4 @@
-// ─── Select Debug Track Tests ────────────────────────────────────────────────
-//
-// Tests for the pure TypeScript debug track selection implementation.
-// Deterministic decision tree: urgency + root cause known → hotfix or thorough.
-// ────────────────────────────────────────────────────────────────────────────
+// Tests `handleSelectDebugTrack`, the deterministic decision tree that picks the hotfix or thorough track from urgency and a known root cause.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as fs from 'node:fs';
@@ -16,10 +12,8 @@ import type { WorkflowEvent } from '../../../../src/events/schemas.js';
 const STATE_DIR = '/tmp/test-select-debug-track';
 
 /**
- * Minimal EventStore stub for fileless resolution. `node:fs` is auto-mocked
- * in this suite (which breaks the SQLite-backed real EventStore), so we stub
- * the only method `resolveWorkflowState` calls — `query` — to return seeded
- * events the workflow-state projection materializes in memory.
+ * Minimal EventStore stub for fileless resolution. This suite mocks `node:fs`, which breaks the SQLite-backed EventStore.
+ * The stub implements `query`, the method that `resolveWorkflowState` calls, and returns the seeded events.
  */
 function makeStubEventStore(events: WorkflowEvent[]): EventStore {
   return {
@@ -35,8 +29,6 @@ describe('handleSelectDebugTrack', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
-
-  // ─── Decision Tree ──────────────────────────────────────────────────────
 
   describe('decision tree', () => {
     it('handleSelectDebugTrack_CriticalKnown_ReturnsHotfix', async () => {
@@ -109,8 +101,6 @@ describe('handleSelectDebugTrack', () => {
     });
   });
 
-  // ─── String-based rootCauseKnown ─────────────────────────────────────────
-
   describe('string rootCauseKnown normalization', () => {
     it('handleSelectDebugTrack_YesString_TreatedAsTrue', async () => {
       const result = await handleSelectDebugTrack(
@@ -135,8 +125,6 @@ describe('handleSelectDebugTrack', () => {
     });
   });
 
-  // ─── Validation Errors ──────────────────────────────────────────────────
-
   describe('validation', () => {
     it('handleSelectDebugTrack_InvalidUrgency_ReturnsError', async () => {
       const result = await handleSelectDebugTrack(
@@ -154,8 +142,6 @@ describe('handleSelectDebugTrack', () => {
       expect(result.error?.code).toBe('INVALID_INPUT');
     });
   });
-
-  // ─── State File ─────────────────────────────────────────────────────────
 
   describe('state file', () => {
     it('handleSelectDebugTrack_ReadsFromStateFile_ExtractsFields', async () => {
@@ -199,12 +185,10 @@ describe('handleSelectDebugTrack', () => {
       expect(result.error?.message).toContain('within the state directory');
     });
 
-    // ─── Fileless resolution: MCP-only workflow ──────────────────────────
-    //
-    // INV-1: the event store is the sole source of truth. An MCP-only debug
-    // workflow has no `.state.json` stamp; `urgency.level` and
-    // `investigation.rootCauseKnown` must resolve from the event-store
-    // projection via featureId + eventStore (no stateFile, no path check).
+    /**
+     * The event store is the source of truth. An MCP-only debug workflow has no `.state.json` stamp.
+     * Thus `urgency.level` and `investigation.rootCauseKnown` must resolve from the event-store projection, with no state file.
+     */
     it('FilelessMcpOnly_ResolvesUrgencyAndRootCauseFromEventStore', async () => {
       const featureId = 'fileless-debug';
       const eventStore = makeStubEventStore([
@@ -245,8 +229,6 @@ describe('handleSelectDebugTrack', () => {
       expect(data.rootCauseKnown).toBe(false);
     });
   });
-
-  // ─── Report Format ──────────────────────────────────────────────────────
 
   describe('report format', () => {
     it('handleSelectDebugTrack_ReportContainsMarkdown', async () => {

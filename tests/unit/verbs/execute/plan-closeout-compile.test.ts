@@ -1,19 +1,13 @@
 // @oracle-sources: ../../../../src/verbs/execute/compile.ts, the three-action runbook order written out by hand directly above the quantifier — the population `every` ranges over is pinned to exactly that list on the preceding line so a short or empty segment cannot satisfy the execution-authority predicate vacuously
 //
-// ─── Compiling the plan-closeout segment ────────────────────────────────────
+// One `specPath` argument binds onto four leaf parameters, so the runbook is one
+// intent and not three calls. `check_plan_coverage` and `check_provenance_chain`
+// name the spec `designPath` and `planPath`. `generate_traceability` names it
+// `designFile` and `planFile`.
 //
-// One argument binds onto four leaf parameters, and that is the whole reason
-// the runbook exists as one intent rather than three calls: `check_plan_coverage`
-// and `check_provenance_chain` spell the unified spec `designPath`/`planPath`,
-// while `generate_traceability` spells it `designFile`/`planFile`. The caller
-// answers once.
-//
-// The two refusal paths are exercised separately and deliberately. The schema
-// refuses a call that omits `specPath` — that is the path a real caller takes.
-// The compiler's own unbound-variable refusal is a SECOND fence, reachable only
-// by a validated-args set that satisfies its schema and still lacks the
-// variable; a fixture arranges exactly that, so removing either fence reddens
-// something.
+// The tests reach the two refusal paths separately. The schema refuses a call
+// without `specPath`. The compiler refusal of an unbound variable is a second
+// fence, so the removal of either fence makes a test fail.
 
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
@@ -61,6 +55,7 @@ describe('plan-closeout compiles against the live registry', () => {
     ).toBe(true);
   });
 
+  /** The matrix generator declares no subject field. It carries the path under its own names and has no `featureId`. */
   it('PlanCloseout_OneSpecPath_BindsOntoBothLeafSpellings', () => {
     const leaves = leavesOf(compileIntent(INTENT, SUBJECT, ARGS, PRODUCTION_COMPILE_DEPS));
     const byAction = new Map(leaves.map((leaf) => [leaf.action, leaf.args]));
@@ -75,8 +70,6 @@ describe('plan-closeout compiles against the live registry', () => {
       designPath: SPEC_PATH,
       planPath: SPEC_PATH,
     });
-    // The matrix generator declares no subject field, so it carries the path
-    // under its own spelling and nothing else.
     expect(byAction.get('generate_traceability')).toMatchObject({
       designFile: SPEC_PATH,
       planFile: SPEC_PATH,
@@ -98,12 +91,12 @@ describe('plan-closeout compiles against the live registry', () => {
     expect(refusal.message).toContain('planPath');
   });
 
+  /**
+   * A permissive fixture schema accepts a call that leaves the `<specPath>` placeholder unbound.
+   * The shipped schema makes the field required, so a real caller never reaches this fence.
+   * The refusal names the step, so a caller does not need to diff the runbook.
+   */
   it('PlanCloseout_ValidatedArgsWithoutTheVariable_HitTheUnboundFence', () => {
-    // The second fence, reached the only way it can be: a schema that accepts a
-    // call the runbook's `<specPath>` placeholder has nothing to bind to. The
-    // shipped schema makes the field required precisely so a real caller never
-    // gets here — which is also why the fence needs its own subject to stay
-    // non-vacuous.
     const permissive: CompileDeps = {
       ...PRODUCTION_COMPILE_DEPS,
       argSchemas: {
@@ -115,7 +108,6 @@ describe('plan-closeout compiles against the live registry', () => {
     const refusal = refusalOf(compileIntent(INTENT, SUBJECT, {}, permissive));
     expect(refusal.code).toBe('INTENT_TEMPLATE_VAR_UNBOUND');
     expect(refusal.message).toContain('specPath');
-    // The refusal names WHERE, so a caller does not have to diff the runbook.
     expect(refusal.step).toBe('0:check_plan_coverage');
   });
 });
