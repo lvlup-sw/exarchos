@@ -1,4 +1,4 @@
-// Caller evidence on `task_complete` cannot stand in for a gate run.
+// Caller evidence on `task_complete` cannot replace a gate run.
 //
 // `handleTaskComplete` enforces one gate, `static-analysis`, which the registry declares as
 // blocking. The handler applies three rules:
@@ -55,9 +55,10 @@ async function seededStore(streamId: string, taskId: string): Promise<EventStore
 }
 
 /**
- * Runs `fn` as a delegated agent, which is the posture of a governed implementer. It composes
- * the same production primitives as `runAsTrustedCaller`, so it cannot drift from real dispatch.
- * The only difference from the operator path is the transport-derived `role: 'agent'`.
+ * Runs `fn` as a delegated agent, which is the posture of a governed implementer. Like
+ * `runAsTrustedCaller`, it composes the production dispatch primitives, so it cannot drift from
+ * real dispatch. `deriveMcpCallerIdentity` gives the transport-derived `role: 'agent'`. That role
+ * is the difference from the operator path that the handler reads.
  */
 function runAsDelegatedAgent<T>(sessionId: string, fn: () => T | Promise<T>): Promise<T> {
   const authorization = snapshotCallerAuthorization(
@@ -127,8 +128,8 @@ describe('DR-2: caller-supplied evidence cannot satisfy a blocking gate', () => 
   /**
    * `static-analysis` is the one gate that `task_complete` enforces, and it is blocking. Thus
    * the handler has no advisory path, and it refuses a delegated agent that holds write and
-   * shell capabilities. The last assertion pins that the gate is blocking. The handler reads that
-   * flag before it reads the capability.
+   * shell capabilities. The last assertion pins that the gate is blocking. The handler tests that
+   * flag first, so the capability does not decide the result.
    */
   it('TaskComplete_EvidenceBypassOnAdvisoryGate_RequiresOperatorCapability', async () => {
     const store = await seededStore('dr2-advisory', 'T-01');
@@ -152,8 +153,8 @@ describe('DR-2: caller-supplied evidence cannot satisfy a blocking gate', () => 
   });
 
   /**
-   * `isBlockingGate` fails closed. Without this default, a gate name that `task_complete` adds
-   * with no registration opens a new bypass.
+   * `isBlockingGate` fails closed: a gate class with no registration is blocking. Without this
+   * default, a gate name that `task_complete` adds with no registration opens a new bypass.
    */
   it('TaskComplete_UnknownGateClass_IsTreatedAsBlocking', () => {
     expect(isBlockingGate('no-such-gate-class')).toBe(true);
@@ -167,8 +168,8 @@ describe('DR-2: caller-supplied evidence cannot satisfy a blocking gate', () => 
 
 describe('DR-2: evidence as PROVENANCE RECORD is preserved', () => {
   /**
-   * When a `gate.executed` event carries the completion, the handler copies the caller evidence
-   * to `task.completed` unchanged and sets `verified` to `true`.
+   * When a passing `gate.executed` event satisfies the gate, the handler copies the caller
+   * evidence to `task.completed` unchanged and sets `verified` to `true`.
    */
   it('TaskComplete_EvidenceWithPassingGate_StillRecordedAsProvenance', async () => {
     const store = await seededStore('dr2-record', 'T-01');

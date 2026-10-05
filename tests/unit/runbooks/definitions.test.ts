@@ -141,7 +141,7 @@ describe('Runbook definitions', () => {
     expect(SYNTHESIS_CLOSEOUT.steps.map((step) => step.onFail)).toEqual(['stop', 'stop']);
   });
 
-  /** The two gates stop the segment on failure. The matrix generator is not a gate, so it continues. */
+  /** The two gates stop the segment on failure. The matrix generator is not a gate, so its failure does not stop the segment. */
   it('PlanCloseout_HasThreeSteps_TwoBlockingGatesFirst', () => {
     expect(PLAN_CLOSEOUT.phase).toBe('plan');
     expect(PLAN_CLOSEOUT.steps).toHaveLength(3);
@@ -351,7 +351,7 @@ function freezeDelegationStamp(task: TaskInput): TaskClassification {
   return stamp;
 }
 
-/** The dispatch variables for a task: the two stamp fields from the classification, and fixed task coordinates. */
+/** The dispatch variables for a task: the task id and the two stamp fields from the classification, and sample task coordinates. */
 function dispatchVarsFrom(stamp: TaskClassification): Readonly<Record<string, unknown>> {
   return {
     taskId: stamp.taskId,
@@ -442,7 +442,7 @@ async function runGateWithParams(params: Readonly<Record<string, unknown>>) {
  * `prepare_delegation` freezes `riskTier` and `boundaryTouching` for each task. In
  * these tests the production classifier makes the stamp, the runbook `templateVars`
  * and step `params` carry it, and the production probe reads it. No test gives a
- * tier to the gate by hand: each value that reaches the gate comes from the stamp.
+ * tier to the gate by hand: each tier that reaches the gate comes from the stamp.
  */
 describe('DR-3 — delegation stamp threading (prepare_delegation → runbook → gate)', () => {
   /**
@@ -505,8 +505,8 @@ describe('DR-3 — delegation stamp threading (prepare_delegation → runbook �
    * `TASK_FIX` carries the same stamp, so a fix gets the same adequacy check as a
    * first completion. `resolvePolicySkip` needs both stamp fields. With both, the
    * low-tier profile skips `check_test_adequacy` by policy, and the high-tier
-   * boundary profile keeps it. With `boundaryTouching` absent, it returns null. The
-   * probe then blocks the high-tier fix that has no new test.
+   * boundary profile keeps it. With `boundaryTouching` absent, `resolvePolicySkip`
+   * returns null. The probe then blocks the high-tier fix that has no new test.
    */
   it('TaskFix_DelegationStamp_DeliversBoundaryTouchingToGate', async () => {
     const lowStamp = freezeDelegationStamp(LOW_TASK);

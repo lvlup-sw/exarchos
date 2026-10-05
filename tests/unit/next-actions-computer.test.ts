@@ -146,9 +146,9 @@ describe('computeNextActions (T040, DR-8)', () => {
   });
 
   /**
-   * Joins the two ends of the merge detour. A `task.completed` event with a `worktreePath` lets
-   * the `delegate` to `merge-pending` transition pass. The computer then surfaces
-   * `merge_orchestrate`.
+   * The test joins the two ends of the merge detour. A `task.completed` event with a
+   * `worktreePath` lets the `delegate` to `merge-pending` transition pass. The computer then
+   * surfaces `merge_orchestrate`.
    *
    * The computer gets the phase that the HSM returned, not a literal, so a different landing
    * phase fails. `mergeOrchestrator` is absent, which counts as not terminated.
@@ -254,7 +254,8 @@ describe('D.8 — annotations.safety is queryable from registry (DIM-1 SoT)', ()
   });
 
   /**
-   * A consumer must handle `undefined`, the result for an action that the registry does not hold.
+   * The lookup returns `undefined` for a tool or an action that the registry does not hold. A
+   * consumer must check for that result.
    */
   it('SafetyConsumerContract_UnknownToolOrAction_ReturnsUndefined', () => {
     expect(findActionInRegistry('exarchos_workflow', 'not-a-real-action')).toBeUndefined();
@@ -263,8 +264,8 @@ describe('D.8 — annotations.safety is queryable from registry (DIM-1 SoT)', ()
 
   /**
    * The test samples action names on the four visible tools through `findActionInRegistry`. It
-   * requires one action for each of `read-only`, `local-mutation` and `compensable`. The loop
-   * skips a name that a tool does not hold.
+   * requires at least one action for each of `read-only`, `local-mutation` and `compensable`. The
+   * loop skips a name that a tool does not hold.
    */
   it('SafetyConsumerContract_CurrentlyClassifiedSafetyValues_AllResolveThroughLookup', () => {
     const expectedCoverage: ReadonlyArray<'read-only' | 'local-mutation' | 'compensable'> = [
@@ -347,8 +348,8 @@ describe('computeNextActions — deep-rung affordances (DR-7, task 018)', () => 
 
 /**
  * `prune_worktrees` is a registry action, so `computeNextActions` does not publish it as a control
- * verb. These tests pin its absence in `synthesize` for each workflow type, and in the other
- * feature phases.
+ * verb. These tests pin its absence in `synthesize` for the four workflow types that hold that
+ * phase, and in the other feature phases.
  */
 describe('computeNextActions — post-synthesize prune cadence (DR-2, task 008, INV-12)', () => {
   it('NextActions_PostSynthesize_SuggestsPruneWorktreesDryRun', () => {
@@ -595,8 +596,8 @@ describe('computeNextActions — admission-derived affordances (DR-9, T-13)', ()
   });
 
   /**
-   * `discovery` has no shared IR, so the verdict map is empty. A missing verdict means no opinion,
-   * never a denial.
+   * The shared IR holds the `gathering` to `synthesizing` edge, and the two sources satisfy it, so
+   * the verdict is `allow`. The test does not reach the empty verdict map that its title names.
    */
   it('NextActions_UnknownWorkflowType_NoAdmissionOpinion_PublishesTopology', () => {
     const hsm = getHSMDefinition('discovery');

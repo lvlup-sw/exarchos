@@ -10,8 +10,8 @@ import { exec } from '../../../src/vcs/shell.js';
 const mockExec = vi.mocked(exec);
 
 /**
- * `glab mr create` has no `--json` flag, so `createPr` runs a bare create and then reads `iid` and `webUrl` from `glab mr view`.
- * The `createPr` tests stub those two `exec` calls in order.
+ * `glab mr create` has no `--json` flag, so `createPr` creates the MR and then reads `iid` and `webUrl` from `glab mr view`.
+ * The `createPr` tests stub those two `exec` calls in order. The provider does not parse the output of the first call.
  *
  * `getPrComments` reads all feedback from the paginated discussions endpoint. GitLab has no `review-summary` source.
  * `stubDiscussions` gives one canned payload for each page. It matches `[?&]page=`, so the `page` in `per_page` does not match.

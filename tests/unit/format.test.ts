@@ -70,7 +70,10 @@ describe('pickFields', () => {
 });
 
 describe('Envelope<T>', () => {
-  /** The check is at the type level: the literal must satisfy `Envelope<{ foo: string }>`. */
+  /**
+   * The annotation `Envelope<{ foo: string }>` is a type-level check of the envelope shape.
+   * `tests/tsconfig.json` excludes `tests/unit`, so no compiler runs that check. Only the runtime assertions run.
+   */
   it('Envelope_WrapsData_CarriesMetaAndPerf', () => {
     const env: Envelope<{ foo: string }> = {
       success: true,
@@ -119,7 +122,10 @@ describe('wrap<T>', () => {
     expect(env.data).toBe('scalar-data');
   });
 
-  /** The check is at the type level: `wrap` must return `Envelope<{ id: number }>`, so `env.data.id` is a `number`. */
+  /**
+   * The annotation `const id: number` is a type-level check that `wrap` returns `Envelope<{ id: number }>`.
+   * `tests/tsconfig.json` excludes `tests/unit`, so no compiler runs that check. Only the runtime assertion runs.
+   */
   it('Wrap_PreservesStrongDataTyping', () => {
     const env = wrap({ id: 99 });
     const id: number = env.data.id;

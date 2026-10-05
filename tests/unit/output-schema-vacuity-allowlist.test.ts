@@ -215,10 +215,12 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
    *
    * The pin in `output-schema-seed-pin.ts` is the digest of the allowlist ids and the retired ids.
    * A legal paydown moves an id from the first map to the second, so the pin does not change. A
-   * deletion with no retirement fails, and an id in the two maps is its own finding.
+   * deletion with no retirement fails, and an id in the two maps is its own finding. The live key
+   * set holds 112 ids, and a paydown does not change that count.
    *
-   * A retired id keeps the key that the seed gave it. `currentIdOf` maps `stack_place` to its
-   * current tool, because the live census uses the current id.
+   * A retired id keeps the key that the seed gave it, because a new key changes the pinned digest.
+   * `currentIdOf` maps `stack_place` to its current tool, because the live census uses the current
+   * id.
    */
   it('OutputSchema_AllowlistIdSwappedInPlace_FailsTheShrinkOnlyCheck', () => {
     const pinned = liveVacuitySeedDigest(['t.a', 't.b']);

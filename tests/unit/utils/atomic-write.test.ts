@@ -3,13 +3,14 @@
  *
  * Real concurrent IO cannot provoke the win32 rename race on a Linux host. So the publish
  * tests stub the platform and inject the rename. A test that runs only on win32 leaves the
- * retry untested on each other lane.
+ * retry untested on all other lanes.
  *
- * The promotion tests live here, not with `install/atomic-promotion.ts`. The durable order is
- * one property across two modules: `fsyncDirSync` and `DurabilityBarrier` here, and the
- * promotion sequence there. In two files, each half can pass while the order between them
- * regresses. These tests assert the order of calls through the injectable seams. They do not
- * assert that a directory fsync succeeds, because win32 refuses it.
+ * The durable-order tests of the promotion live here, not in
+ * `tests/unit/install/atomic-promotion.test.ts`. The durable order is one property across two
+ * modules: `fsyncDirSync` and `DurabilityBarrier` in `utils/atomic-write.ts`, and the promotion
+ * sequence in `install/atomic-promotion.ts`. In two files, each half can pass while the order
+ * between them regresses. These tests assert the order of calls through the injectable seams.
+ * They do not assert that a directory fsync succeeds, because win32 refuses it.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import * as os from 'node:os';
@@ -136,7 +137,7 @@ describe('publishTempFile', () => {
   /**
    * Two writers that collide at the same attempt number must sleep different durations,
    * or they collide again. Different delays across attempts do not prove that property.
-   * A deterministic `5 * attempt` has such delays and still wakes each writer on one tick.
+   * A deterministic `5 * attempt` has such delays and still wakes all writers on the same tick.
    * Each of the 24 writers collides one time, so each records only its attempt-0 sleep.
    */
   it('PublishTempFile_ManyWritersAtSameAttempt_SleepDifferentDurations', async () => {
@@ -244,7 +245,7 @@ describe('publishTempFile', () => {
   /**
    * Twelve writers with distinct temp files publish to one target.
    * Each writer must resolve, the target must hold the whole payload of one writer,
-   * and no temp file can stay.
+   * and the directory must hold no temp file.
    */
   it('PublishTempFile_ConcurrentPublishersOneTarget_AllResolveAndTargetIsWhole', async () => {
     const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'publish-concurrent-'));
@@ -664,7 +665,7 @@ describe('fsyncDirSync / fsyncDir (the DR-16 durability primitive)', () => {
   });
 
   /**
-   * The unsupported set is closed. A missing parent is a real fault, and an `unsupported`
+   * The unsupported set is closed. A missing directory is a real fault, and an `unsupported`
    * outcome for it hides that fault.
    */
   it('FsyncDirSync_MissingDirectory_PropagatesEnoentRatherThanSwallowingIt', () => {
@@ -800,7 +801,7 @@ describe('atomic promotion — DR-16 constructed ordering', () => {
   /**
    * The claim is the relative order, not presence. The journal is the only record of where
    * the old tree went. So its directory entry must be durable before the rename that moves
-   * the old tree away, and no rename can come before that fsync.
+   * the old tree away. The log must hold no rename before that fsync.
    */
   it('AtomicPromotion_JournalRename_IsDurablyOrderedBeforeBackup', () => {
     const root = makeTempDir();
@@ -1031,7 +1032,7 @@ async function promoteInChildAndSigkill(
  */
 describe('atomic promotion — T3 SIGKILL convergence (DR-16)', () => {
   /**
-   * win32 reports the kill as a non-zero code with no signal, and POSIX reports the signal.
+   * A host can report the kill as a signal or as a non-zero code, and never as a clean 0.
    * At the kill, the old tree is in the backup and the new tree is still in staging.
    * Then recovery from the journal alone restores the complete old tree.
    */

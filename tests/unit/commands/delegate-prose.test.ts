@@ -40,6 +40,7 @@ describe('delegate skill canonical event + transition discipline (#1370 PR-2; DR
     ).toMatch(/\{\{CHAIN\s+next=/);
   });
 
+  /** `review` is the only chain target. The `shepherd` skill owns the PR feedback workflow. */
   it('DelegateCommand_AutoChain_DocumentsTransitionTargets', () => {
     const body = fs.readFileSync(DELEGATE_SKILL, 'utf8');
     expect(

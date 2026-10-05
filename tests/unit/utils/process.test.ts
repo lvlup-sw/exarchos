@@ -32,7 +32,7 @@ describe('needsWindowsShell (#1623)', () => {
 
   /**
    * `resolveIntegrationCommand` can return each of these script runners as a bare command.
-   * A runner that is not a win32 shim cannot start the integration gate on Windows.
+   * If `needsWindowsShell` returns false for one of them, the integration gate cannot launch it on Windows.
    */
   it('NeedsWindowsShell_ScriptRunnersAgreeWithTheIntegrationGate', () => {
     for (const runner of ['npm', 'pnpm', 'yarn', 'bun']) {

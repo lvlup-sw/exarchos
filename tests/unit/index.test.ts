@@ -226,7 +226,7 @@ describe.skipIf(process.platform === 'win32')('isDirectExecution (#1085)', () =>
     expect(isDirectExecution('file:///Users/foo/repo/dist/exarchos.js', undefined)).toBe(false);
   });
 
-  /** `import.meta.url` percent-encodes a space, and `process.argv[1]` is a raw path. `fileURLToPath()` must decode the URL before the compare. */
+  /** `import.meta.url` percent-encodes a space, and `process.argv[1]` is a raw path. `fileURLToPath()` must decode the URL before the comparison. */
   it('matches a POSIX path containing a space (percent-encoded in import.meta.url)', () => {
     expect(
       isDirectExecution(

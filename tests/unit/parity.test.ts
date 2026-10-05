@@ -130,7 +130,8 @@ describe('CLI/MCP parity — workflow_status (C9, #1109)', () => {
 
 /**
  * `initWorkflow` gives each arm the same initial state, so `handleCheckpoint` has state to read.
- * The normalizer replaces the timestamps in the `_checkpoint` block with `<ISO>`.
+ * `handleCheckpoint` writes its timestamps to the state file, not to the envelope.
+ * The normalizer replaces the per-call UUIDs in `_meta` and drops `_perf`.
  */
 describe('CLI/MCP parity — workflow_checkpoint (C9, #1109)', () => {
   let cliArm: ParityArm;
@@ -185,7 +186,8 @@ describe('CLI/MCP parity — workflow_checkpoint (C9, #1109)', () => {
   /**
    * Both arms send the same `handoff` object.
    * The harness writes it as `--handoff <json>` for the CLI, and `coerceFlags` parses it back to an object.
-   * The MCP arm receives the object directly. The test fails when one surface drops a `handoff` key that the other keeps.
+   * The MCP arm receives the object directly. The test fails when one surface rejects the `handoff`.
+   * The envelope does not echo the `handoff`, so the test cannot see a surface that drops a `handoff` key.
    */
   it('CheckpointParity_McpCli_IdenticalEnvelope', async () => {
     const featureId = 'c9-parity-checkpoint-handoff';

@@ -194,6 +194,10 @@ describe('Task 7: Workflow + Event Round-Trip Tests', () => {
     });
   });
 
+  /**
+   * `handleInit` does not throw for an invalid input. `InitInputSchema` rejects the input, and the
+   * handler returns a failed `ToolResult` before it appends an event.
+   */
   describe('InvalidSchema_WorkflowInit_MissingFields_ThrowsStateStoreError', () => {
     it('should return error when featureId is missing from init', async () => {
       const result = await handleWorkflow(
@@ -330,8 +334,9 @@ describe('Task 8: View + Orchestrate + Sync Integration Tests', () => {
 describe('Task 9: Cross-Tool Lifecycle Integration Tests', () => {
   describe('CrossTool_WorkflowLifecycle_InitTransitionView', () => {
     /**
-     * `plan` is the initial phase, so the stream ends with two transitions: `plan` to
-     * `plan-review`, then `plan-review` to `delegate`. `handleSet` seeds each guard field.
+     * `plan` is the initial phase, so the stream holds exactly two `workflow.transition` events:
+     * `plan` to `plan-review`, then `plan-review` to `delegate`. `handleSet` seeds each guard
+     * field.
      */
     it('should maintain consistency across init, transition, event query, and view', async () => {
       const initResult = await handleWorkflow(

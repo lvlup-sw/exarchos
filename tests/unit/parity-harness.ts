@@ -3,7 +3,8 @@
  *
  * - `callCli` parses Commander in-process and returns the JSON envelope from stdout.
  * - `callMcp` calls `dispatch()` with the `{ action, ...args }` shape that the MCP SDK sends.
- * - `normalize` replaces timestamps, UUIDs and telemetry fields, so the two arms give equal trees.
+ * - `normalize` replaces or drops timestamps, UUIDs and telemetry fields, so the two arms give
+ *   equal trees.
  *
  * Each suite passes `normalize` options for the placeholders and the per-key transforms that its
  * fixtures need.
@@ -229,8 +230,9 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Replaces timestamps, UUIDs and telemetry fields with stable placeholders at each depth, so two
- * arms give equal trees. {@link NormalizeOptions} sets the placeholders and the per-key transforms.
+ * Replaces timestamps and UUIDs with stable placeholders at each depth, so two arms give equal
+ * trees. {@link NormalizeOptions} sets the placeholders, the per-key transforms and the keys to
+ * drop.
  */
 export function normalize(value: unknown, options: NormalizeOptions = {}): unknown {
   const opts = { ...DEFAULTS, ...options };
@@ -349,8 +351,9 @@ export const DELEGATE_PHASE_REHYDRATE_FIXTURE: ParityFixture = {
 };
 
 /**
- * Calls `merge_orchestrate` through the two carriers on a stream with no prior merge events.
- * `setup` is empty, because the orchestrator opens the stream itself.
+ * The fixture holds the arguments for a `merge_orchestrate` call through the two carriers, on a
+ * stream with no prior merge events. `setup` is empty, because the orchestrator opens the stream
+ * itself.
  *
  * The fixture installs no dependency hooks, and the real preflight and executor run git.
  * `merge-orchestrate.parity-harness.test.ts` wraps the fixture in `stubCompositeHandler`, which
@@ -387,7 +390,7 @@ export const MERGE_ORCHESTRATE_PARITY_FIXTURE: ParityFixture = {
 };
 
 /**
- * Requests the `plan` to `plan-review` transition with no `artifacts.plan`, so the
+ * The fixture requests the `plan` to `plan-review` transition with no `artifacts.plan`, so the
  * `planArtifactExists` guard fails. The structured error envelope must be equal across the CLI and
  * MCP carriers.
  *

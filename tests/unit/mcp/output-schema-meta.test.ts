@@ -1,8 +1,9 @@
 /**
  * The `outputSchema` of every registered action must accept the three correlation
- * fields in `_meta`. The dispatch wrapper adds them to each response after the
- * handler runs. If a schema rejects them, the MCP adapter replaces the response with
- * an `INTERNAL_ERROR` envelope.
+ * fields in `_meta`. The dispatch wrapper adds `operationId` and `correlationId` to
+ * each response, and `causationId` when the dispatch context has one. If a schema
+ * rejects them, the MCP adapter replaces the response with an `INTERNAL_ERROR`
+ * envelope.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -21,7 +22,7 @@ const CORRELATION_META = {
 };
 
 describe('Action outputSchema accepts three-field _meta (T20, #1291)', () => {
-  /** The action schemas wrap this envelope. The test parses each branch alone, then through the union. */
+  /** Each action `outputSchema` builds on this envelope. The test parses each branch alone, then through the union. */
   it('EnvelopeSchema_MetaShape_AcceptsThreeCorrelationFields', () => {
     const successSchema = SuccessEnvelopeSchema(z.unknown());
     const successParse = successSchema.safeParse({

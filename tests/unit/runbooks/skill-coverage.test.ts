@@ -9,6 +9,7 @@ const skillsDir = resolve(__dirname, '../../../content');
 
 /**
  * Reads `<skill>/<rest…>` from the authored `content/` tree, not from a rendered runtime variant.
+ * A runbook reference is the same in every runtime variant, so one check on the source is enough.
  * The first segment is a skill name, and `skillDir` finds the domain that owns it.
  */
 function readSkillFile(relativePath: string): string {

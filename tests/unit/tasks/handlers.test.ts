@@ -159,7 +159,10 @@ describe('handleTaskClaim', () => {
   });
 });
 
-/** `handleTaskComplete` needs a passing `static-analysis` gate event, so each success test seeds one. */
+/**
+ * `handleTaskComplete` needs a passing `static-analysis` gate event, so each success test seeds one.
+ * The handler does not read the `tdd-compliance` event that those tests also seed.
+ */
 describe('handleTaskComplete', () => {
   it('with artifacts emits completed event', async () => {
     await store.append('wf-001', {
@@ -592,8 +595,8 @@ describe('handleTaskClaim TOCTOU protection', () => {
   });
 
   /**
-   * `attemptTaskClaim` takes the sequence pin from `foldToTail`. The assertion passes when one
-   * `store.query` call or more has no `type` filter.
+   * `attemptTaskClaim` takes the sequence pin from `foldToTail`. The assertion passes when at
+   * least one `store.query` call has no `type` filter.
    */
   it('queries all events (not just task.claimed) to get accurate sequence', async () => {
     await sharedStore.append('wf-mixed', { type: 'workflow.started', data: {} });

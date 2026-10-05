@@ -218,6 +218,7 @@ describe('discoverProjectRoot', () => {
     /**
      * An unknown key must still fail full validation. The loader then falls back to section parsing:
      * `agents` survives and the typo does not.
+     * The project slice of a valid file also omits an unknown key, so these assertions hold on both paths.
      */
     it('loadProjectConfig_GenuineTypo_StillRejected', async () => {
       const { loadProjectConfig } = await import('../../../src/config/yaml-loader.js');

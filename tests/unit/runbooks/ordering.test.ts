@@ -3,9 +3,9 @@ import { ALL_RUNBOOKS } from '../../../src/runbooks/definitions.js';
 import { findActionInRegistry } from '../../../src/registry.js';
 
 /**
- * A task that is complete passed every gate that can block it. Thus no blocking gate can run
- * after `task_complete`. Each test reads every runbook in `ALL_RUNBOOKS`, so a new runbook
- * cannot skip the check.
+ * A complete task passed every gate that can block it, so a blocking gate must not run after
+ * `task_complete`. With such a gate, the record shows a task as complete before its last gate
+ * fails. Each test reads every runbook in `ALL_RUNBOOKS`, so a new runbook cannot skip the check.
  */
 describe('Runbook ordering invariant (DR-1 / WFQ-004)', () => {
   /**
@@ -43,7 +43,7 @@ describe('Runbook ordering invariant (DR-1 / WFQ-004)', () => {
 
   /**
    * Only `task-completion` and `task-fix` hold a `task_complete` step, and it is their last step.
-   * A step after it is a fault, also when that step does not block.
+   * A step after it is a fault, even if that step does not block.
    */
   it('RunbookOrdering_TaskCompletionAndTaskFix_HaveTaskCompleteAsLastStep', () => {
     const runbooksWithTaskComplete = ALL_RUNBOOKS.filter((runbook) =>

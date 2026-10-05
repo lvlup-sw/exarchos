@@ -1,8 +1,9 @@
 /**
- * Four `zodToJsonSchema()` call sites in `src/` go through `src/utils/json-schema.ts`.
- * A call site with no `target` emits the 2020-12 `$schema` URI.
+ * The suite checks one emission path in each of four `src/` files that call `zodToJsonSchema()`
+ * from `src/utils/json-schema.ts`. A call site with no `target` emits the 2020-12 `$schema` URI.
  * `projections/rehydration/fingerprint.ts` passes `target: 'draft-07'`, and the wrapper
- * must keep that target. A different target changes the hash in `PREFIX_FINGERPRINT`.
+ * must keep that target. A different target changes the computed digest, and the digest
+ * then differs from the committed `PREFIX_FINGERPRINT`.
  */
 import { describe, it, expect } from 'vitest';
 
@@ -15,7 +16,10 @@ import { zodToJsonSchema } from '../../../src/utils/json-schema.js';
 import { TOOL_REGISTRY } from '../../../src/registry.js';
 import { JSON_SCHEMA_2020_12_URI } from '../../../src/utils/json-schema.js';
 
-/** The draft-07 `$schema` URIs that the suite accepts, with the trailing `#` and without it. */
+/**
+ * The draft-07 `$schema` URIs that the suite accepts, with the trailing `#` and without it.
+ * The suite proves only that the wrapper keeps draft-07, so it does not pin one spelling.
+ */
 const DRAFT_07_URIS = new Set<string>([
   'http://json-schema.org/draft-07/schema#',
   'https://json-schema.org/draft-07/schema',

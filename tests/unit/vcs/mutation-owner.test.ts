@@ -112,7 +112,10 @@ describe('VCS mutation owner (P04-05)', () => {
     await store.initialize();
   });
 
-  /** `git worktree prune` detaches the worktrees that git still tracks, before the hook removes the temporary directories. */
+  /**
+   * `git worktree prune` drops the git records of worktrees whose directory is gone, before the hook removes the temporary directories.
+   * The call is best effort, so the hook ignores its failure.
+   */
   afterEach(async () => {
     vi.restoreAllMocks();
     store.close();
@@ -455,9 +458,12 @@ describe('VCS mutation owner (P04-05)', () => {
 
   /**
    * Each arm has its own ledger stream, so each assertion compares the whole stream as an ordered array.
-   * Each effect also reads the stream while it runs. That snapshot must hold only the intent, so the intent was durable first.
+   * The success effect and the failure effect each read the stream while they run.
+   * That snapshot must hold the intent and no terminal, because the owner appends the intent before the effect.
    * A failed run records the compensated terminal and no other terminal.
-   * The dry-run arm reads the declared plan, so the test compares the observed ledger with the emissions that the owner declares.
+   *
+   * The dry-run arm returns the declared plan and appends nothing.
+   * The emissions of the plan must name the events that the two observed ledgers hold.
    */
   it('MutationOwner_IntentThenTerminalOrdering_IsPreserved', async () => {
     function ownerOn(stream: string): VcsMutationOwner {

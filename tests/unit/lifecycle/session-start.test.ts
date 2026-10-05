@@ -7,8 +7,8 @@ import { readManifestEntries } from '../../../src/projections/session/manifest.j
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 /**
- * `session-start` is an observe-only hook. It writes a start entry to the session manifest and
- * returns the orientation directive as `additionalContext`.
+ * `session-start` is an observe-only hook. It writes a start entry to the session manifest.
+ * When the caller passes a directive, the hook returns it as `additionalContext`.
  * It must not write `sessions/<id>.events.jsonl`, because `session-end` uses that file as its
  * idempotency sentinel.
  */

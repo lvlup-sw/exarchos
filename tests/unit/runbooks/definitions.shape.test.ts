@@ -7,7 +7,7 @@ import type { RunbookDefinition, RunbookStep } from '../../../src/runbooks/types
  * The delegation stamp that `prepare_delegation` freezes. `TASK_COMPLETION` and
  * `TASK_FIX` must declare both fields as `templateVars`, and each gate step that
  * reads the stamp must bind both as `params`. Without the stamp the gate reads an
- * unset tier, and a high-tier task with no kill probe can get an advisory skip.
+ * unset tier, and a high-tier task without probed tests can get an advisory skip.
  */
 const STAMP_FIELDS = ['riskTier', 'boundaryTouching'] as const;
 
@@ -116,8 +116,8 @@ describe('Runbook parameter shape (DR-3 / T-05): delegation stamp threading', ()
 describe('Runbook executability (DR-8 / #1756): required fields are reachable', () => {
   /**
    * The loop skips a step that the registry does not hold, such as a `native:*`
-   * step for the host harness. The minimum on `checked` fails a derivation that
-   * resolves no required field.
+   * step for the host harness. `checked` must exceed 20, so a derivation that
+   * resolves few or no required fields fails.
    */
   it('EveryRunbookStep_RequiredSchemaFields_AreBoundOrDeclared', () => {
     const unbound: string[] = [];

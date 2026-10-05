@@ -230,9 +230,9 @@ export function checkPatchToolingLifetime(
 
 describe('DR-0 / task 050 — SDK patch lifetime policy', () => {
   /**
-   * Drives the rule with populations that the live tree cannot supply. Each failure mode must give
-   * its own code. The populations that agree must give no finding, so the rule does not fail on
-   * each input. A patch for a different package is outside this rule.
+   * The test drives the rule with populations that the live tree cannot supply. Each failure mode
+   * must give its own code. The populations that agree must give no finding, which shows that the
+   * rule does not reject every input. A patch for a different package is outside this rule.
    */
   it('CheckPatchLifetime_DisagreeingPopulations_AreRejected', () => {
     const pinned = { [V1_PACKAGE]: '1.29.0' };
@@ -350,7 +350,8 @@ describe('DR-0 / task 050 — SDK patch lifetime policy', () => {
   /**
    * The live tree has no patch files, so it must have no `patch-package` dependency and no
    * `postinstall` script. The last three expectations name that state, and they fail when a patch
-   * file returns.
+   * file returns. If you add a patch file, restore the dependency and the `postinstall` script,
+   * then change these three expectations.
    */
   it('PatchLifetime_LiveTree_CarriesNoToolingForAnEmptyPatchSet', () => {
     const pkg = readPackageJson();

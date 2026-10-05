@@ -112,6 +112,7 @@ describe('classifyArtifactLayout — characterization of the pre-DR-6 default', 
     expect(resolveArtifactDirs({})).toEqual(resolveArtifactDirs());
   });
 
+  /** The count check prevents a vacuous pass when the spec directory holds few files. */
   it.skipIf(!fs.existsSync(path.join(REPO_ROOT, DEFAULT_SPEC_DIR)))('ArtifactDir_NoConfiguration_DefaultsToDocsSpecs: classifies this repository’s real spec corpus as unified', () => {
     const specsDir = path.join(REPO_ROOT, DEFAULT_SPEC_DIR);
     const specs = fs.readdirSync(specsDir).filter((f) => f.endsWith('.md'));
@@ -133,7 +134,10 @@ describe('classifyArtifactLayout — configured prefixes', () => {
     );
   });
 
-  /** With the spec directory moved, only a `spec` key or the default fallthrough gives `unified`. */
+  /**
+   * With the spec directory moved, a path under `docs/specs/` is not a unified signal.
+   * Thus the legacy design doc decides the layout.
+   */
   it('ArtifactDir_ConfiguredPrefix_ClassifiesUnifiedSpecCorrectly: the OLD default no longer wins on its own', () => {
     const dirs = resolveArtifactDirs({ 'spec-dir': 'design-records' });
     expect(classifyArtifactLayout({ design: 'docs/designs/legacy.md', plan: 'docs/specs/x.md' }, dirs)).toBe(
@@ -211,7 +215,10 @@ describe('normalizeArtifactDir', () => {
 });
 
 describe('resolveArtifactDirs — a blank prefix fails back, never open', () => {
-  /** An empty prefix matches every path, and then two-artifact work classifies as `unified`. */
+  /**
+   * An empty prefix matches every path, and then two-artifact work classifies as `unified`.
+   * The fallback to the default prevents that.
+   */
   it.each(['', '   ', '/', '.'])('rejects %o in favour of the default', (blank) => {
     const dirs = resolveArtifactDirs({ 'spec-dir': blank, 'legacy-design-dir': blank });
     expect(dirs.specDir).toBe(DEFAULT_SPEC_DIR);

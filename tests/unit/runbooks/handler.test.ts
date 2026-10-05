@@ -149,9 +149,9 @@ describe('handleRunbook', () => {
   });
 
   /**
-   * The `native:Task` step of `task-fix` sets `resumeAgent` and `fallbackAgent`, and not
-   * `params.agent`. The platform selects one of the two at run time, so the step names no single
-   * agent spec for a hint.
+   * The `native:Task` step of `task-fix` sets `params.resumeAgent` and `params.fallbackAgent`, and
+   * not `params.agent`. The platform selects one of the two at run time, so the step names no
+   * single agent spec for a hint.
    */
   it('RunbookResolve_NativeTaskWithoutAgent_NoPlatformHint', async () => {
     const result = await handleRunbook({ id: 'task-fix' });

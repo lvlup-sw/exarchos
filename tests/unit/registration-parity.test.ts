@@ -4,7 +4,7 @@
  * The tests run the real builders, `buildCli` and `createMcpServer`.
  * The CLI builds a subcommand for each action of each tool.
  * The MCP server registers each tool that is not `hidden`, so only the CLI reaches a hidden tool.
- * An action that one surface builds and the other surface does not build is drift.
+ * For a visible tool, an action that one surface builds and the other surface does not build is drift.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { z } from 'zod';

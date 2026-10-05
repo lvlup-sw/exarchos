@@ -1,9 +1,9 @@
 // Runbook definitions must agree with the tool-action registry and the event emission registry.
 //
 // The last suite compares `runbook.autoEmits` with the emissions that the registry declares for
-// the steps. `registry.ts` reaches `definitions.ts` in the import graph, so the two sides are one
-// authority, not two independent oracles. Thus each assertion checks one element for membership,
-// and no assertion compares two full sets.
+// the steps. `registry.ts` reaches `definitions.ts` in the static import graph, so the two sides
+// are one authority, not two independent oracles. Thus the two direction checks test one element
+// at a time for membership. They do not compare two full sets.
 //
 // The suite proves that the two declarations agree. It cannot prove that the registry is correct
 // about the events that a tool emits.
@@ -28,9 +28,9 @@ type EmissionSubject = 'unconditional' | 'every';
  * The events that the steps of a runbook cause, read from the registry. No production module
  * needs this derivation, so it stays in this file.
  *
- * Native steps and decision steps make no MCP call, so they emit nothing. A step that does not
- * resolve in the registry throws. A silent skip gives an empty set, and an empty set agrees with
- * an empty declaration.
+ * Native steps and decision steps make no MCP call, so they emit nothing. The function throws
+ * when a step does not resolve in the registry. A silent skip gives an empty set, and an empty
+ * set agrees with an empty declaration.
  */
 function stepDerivedAutoEmits(
   runbook: RunbookDefinition,
@@ -75,7 +75,8 @@ describe('Runbook drift detection', () => {
 
   /**
    * `RunbookDrift_EveryStepReferencesValidRegistryAction` covers a step that does not resolve, so
-   * this test skips such a step. The composite router fills the `action` field.
+   * this test skips such a step. The composite router fills the `action` field, so the test
+   * does not require coverage for that field.
    */
   it('RunbookDrift_TemplateVarsCoverRequiredParams', () => {
     for (const runbook of ALL_RUNBOOKS) {
@@ -109,7 +110,7 @@ describe('Runbook drift detection', () => {
 
   /**
    * `KNOWN_UNRUNBOOKED_GATES` lists the blocking gates that no runbook holds. When a runbook
-   * gets one of these gates, remove its entry so the test covers it.
+   * gets one of these gates, remove that gate from the list so the test covers it.
    */
   it('RunbookDrift_EveryBlockingGateAppearsInRunbook', () => {
     const KNOWN_UNRUNBOOKED_GATES = new Set([
@@ -232,9 +233,9 @@ describe('Runbook autoEmits ⇄ step-derived emissions (bijection)', () => {
   /**
    * If a runbook does not declare an emission, the agent appends a second record.
    *
-   * The `agent-teams-saga` runbook proves that the condition filter does the work. Its transition
-   * step declares `workflow.fix-cycle` as conditional, and the runbook does not declare that event.
-   * The `'every'` subject reports the event, and the `'unconditional'` subject does not.
+   * The `agent-teams-saga` runbook proves that the condition filter does the work. The registry
+   * declares `workflow.fix-cycle` as conditional for its transition step, and the runbook does not
+   * declare that event. The `'every'` subject reports the event, and `'unconditional'` does not.
    */
   it('RunbookAutoEmits_StepEmitsButNotDeclared_FailsBijection', () => {
     for (const runbook of ALL_RUNBOOKS) {
@@ -263,9 +264,10 @@ describe('Runbook autoEmits ⇄ step-derived emissions (bijection)', () => {
   });
 
   /**
-   * The two tests above pass with no evidence when the derivation resolves nothing. Thus some
-   * runbooks must derive emissions, and some must derive none. For `TASK_COMPLETION` the derived
-   * count equals the declared count, so a derivation that returns every event also fails.
+   * A derivation that returns no event passes the check for undeclared emissions with no
+   * evidence. Thus some runbooks must derive emissions, and some must derive none. For
+   * `TASK_COMPLETION` the derived count equals the declared count, so a derivation that returns
+   * every event also fails.
    */
   it('RunbookAutoEmits_DerivationHasANonEmptySubject', () => {
     const emitting = ALL_RUNBOOKS.filter((r) => stepDerivedAutoEmits(r, 'unconditional').length > 0);

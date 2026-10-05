@@ -168,8 +168,8 @@ describe('Registration Pipeline', () => {
   });
 
   /**
-   * `workflow.started` is a built-in event type, so its registration fails after
-   * `deploy.started` registered.
+   * `workflow.started` is a built-in event type, so its registration fails after the
+   * registration of `deploy.started`. The rollback must remove `deploy.started`.
    */
   it('RegisterCustomWorkflows_EventRegistrationFails_RollsBack', () => {
     const config: ExarchosConfig = {

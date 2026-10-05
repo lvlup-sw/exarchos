@@ -103,13 +103,14 @@ describe('#1291 acceptance — correlation propagation across a wave', () => {
 
 describe('#1291 acceptance — causation chain across auto-dispatch', () => {
   /**
-   * This test covers the event store only. No production handler starts a follow-up dispatch from a `next_actions` hint.
+   * This test covers the dispatch context and the event store only. No production handler starts a follow-up dispatch from a `next_actions` hint.
    * The CLI and MCP adapters dispatch one time and return the envelope, and the caller of the tool does the follow-up.
    * Thus the test builds the second dispatch by hand, with `mintDispatchContext` and `runWithDispatchContext`.
+   * A future production handler for follow-up dispatches needs its own integration test, and this test must stay.
    *
-   * An event has no `eventId` field, so the causation pointer is `<streamId>#<sequence>` of the upstream event.
+   * A `WorkflowEvent` has no `eventId` field, so the causation pointer is `<streamId>#<sequence>` of the upstream event.
    * The second dispatch has its own `operationId`. It keeps the parent `correlationId` and carries the pointer as `causationId`.
-   * `Cli_OneShotDispatch_PreservesNextActionsField` in `tests/unit/adapters/cli/cli-format.test.ts` guards the one-shot pipeline.
+   * `Cli_OneShotDispatch_PreservesNextActionsField` in `tests/unit/adapters/cli/cli-format.test.ts` checks that the one-shot CLI pipeline keeps `next_actions`.
    */
   it('AutoDispatch_FromNextActionsHint_CarriesCausationIdReferencingUpstreamEvent', async () => {
     const parentCorrelation = 'parent-cor-causation';

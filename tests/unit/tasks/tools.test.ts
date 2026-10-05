@@ -102,7 +102,11 @@ describe('handleTaskClaim (materialized view)', () => {
     expect(result.error?.code).toBe('ALREADY_CLAIMED');
   });
 
-  /** The view holds no entry for a task with no `task.assigned` event, so the handler scans the raw events. */
+  /**
+   * The task-detail view holds an entry for this task, although the stream holds no
+   * `task.assigned` event. Thus the view check refuses the claim, and the raw-event scan of the
+   * handler does not run.
+   */
   it('should return ALREADY_CLAIMED via fallback when task.completed exists without task.assigned', async () => {
     const store = new EventStore(tempDir);
     await store.append('wf-fb-comp', {
@@ -120,7 +124,11 @@ describe('handleTaskClaim (materialized view)', () => {
     expect(result.error?.code).toBe('ALREADY_CLAIMED');
   });
 
-  /** The view holds no entry for a task with no `task.assigned` event, so the handler scans the raw events. */
+  /**
+   * The task-detail view holds an entry for this task, although the stream holds no
+   * `task.assigned` event. Thus the view check refuses the claim, and the raw-event scan of the
+   * handler does not run.
+   */
   it('should return ALREADY_CLAIMED via fallback when task.failed exists without task.assigned', async () => {
     const store = new EventStore(tempDir);
     await store.append('wf-fb-fail', {
@@ -158,7 +166,7 @@ describe('handleTaskClaim (materialized view)', () => {
 /**
  * `Math.random` returns 0, so the jitter is zero and each delay is exact. Each test replaces
  * `setTimeout` with a spy that calls the callback at once, so `sleep` does not wait. Each test
- * seeds the stream before it installs the spy.
+ * seeds the stream before it installs the spies, because the `append` spy rejects every append.
  */
 describe('handleTaskClaim Exponential Backoff', () => {
   beforeEach(() => {
@@ -679,7 +687,10 @@ describe('task_complete evidence field', () => {
  * per-task adequacy gate before this step.
  */
 describe('handleTaskComplete gate enforcement', () => {
-  /** The stream holds no gate event, so the absent `static-analysis` gate rejects the call. */
+  /**
+   * The stream holds no gate event. The handler rejects the call because `static-analysis` is
+   * unmet, not because a `tdd-compliance` event is absent.
+   */
   it('HandleTaskComplete_NoTddGate_RejectsCompletion', async () => {
     const store = new EventStore(tempDir);
     await store.append('wf-gate-1', {
@@ -839,7 +850,8 @@ describe('handleTaskComplete gate enforcement', () => {
 
   /**
    * The only gate event is `tdd-compliance` with no `details` field. The stream holds no
-   * `static-analysis` event, so the handler rejects the call.
+   * `static-analysis` event, so the handler rejects the call. The handler matches the gate name
+   * first, so it does not read the absent `details`.
    */
   it('HandleTaskComplete_GateEventWithNoDetails_DoesNotCrash', async () => {
     const store = new EventStore(tempDir);
@@ -892,8 +904,9 @@ describe('handleTaskComplete gate enforcement', () => {
     });
 
     /**
-     * A top-level `taskId` must equal the id of the completed task. The fixture holds only a
-     * `tdd-compliance` event, and that event names another task.
+     * A top-level `taskId` must equal the id of the task that the call completes. The fixture
+     * holds only a `tdd-compliance` event that names another task. With no `static-analysis`
+     * event, the handler rejects the call for any task id, so the test does not isolate the rule.
      */
     it('HandleTaskComplete_GateWithTopLevelTaskIdMismatch_RejectsCompletion', async () => {
       const store = new EventStore(tempDir);
@@ -939,7 +952,10 @@ describe('handleTaskComplete gate enforcement', () => {
       expect(result.error?.unmetGates).toContain('static-analysis');
     });
 
-    /** Evidence is substantive only when `passed` is `true` and the output is not empty. */
+    /**
+     * Evidence is substantive only when `passed` is `true` and the output is not empty. No caller
+     * evidence satisfies the blocking `static-analysis` gate, so the test does not isolate that rule.
+     */
     it('HandleTaskComplete_EvidenceWithEmptyOutput_DoesNotBypass', async () => {
       const store = new EventStore(tempDir);
       await store.append('wf-evempty', {
@@ -961,7 +977,11 @@ describe('handleTaskComplete gate enforcement', () => {
       expect(result.error?.code).toBe('GATE_NOT_PASSED');
     });
 
-    /** The handler trims the output before the length check, so whitespace is not evidence. */
+    /**
+     * The handler trims the output before the length check, so whitespace is not evidence. No
+     * caller evidence satisfies the blocking `static-analysis` gate, so the test does not isolate
+     * the trim.
+     */
     it('HandleTaskComplete_EvidenceWithWhitespaceOnlyOutput_DoesNotBypass', async () => {
       const store = new EventStore(tempDir);
       await store.append('wf-evws', {
@@ -1133,9 +1153,10 @@ describe('handleTaskComplete workflow state sync', () => {
 
   /**
    * The `task.completed` event lands before the sync and stays. The state document is corrupt,
-   * so the handler reports `STATE_SYNC_FAILED` with the event ack beside it. A retry repairs the
-   * document, because the task-keyed idempotency key returns the stored event and the sync runs
-   * again. The two gate events hold sequences 1 and 2, so the ack holds sequence 3.
+   * and the transition guards read that document. Thus the handler reports `STATE_SYNC_FAILED`
+   * with the event ack beside it. After the test restores the document, a retry syncs it: the
+   * task-keyed idempotency key returns the stored event, and the sync runs again. The two gate
+   * events hold sequences 1 and 2, so the ack holds sequence 3.
    */
   it('handleTaskComplete_WhenTheDocumentCannotBeWritten_ReportsTheFailureBesideTheDurableFact', async () => {
     const featureId = 'wf-sync-3';
@@ -1189,8 +1210,8 @@ describe('handleTaskComplete workflow state sync', () => {
 
 /**
  * The stream id is the bare feature id, so each task verb accepts `featureId` in place of
- * `streamId`. The tests assert the stream that receives the append, not only `success`. A
- * resolver that accepts `featureId` and writes to another stream passes a success-only check.
+ * `streamId`. The first two tests assert the stream that receives the append, not only `success`.
+ * A resolver that accepts `featureId` and writes to another stream passes a success-only check.
  */
 describe('streamId ⇄ featureId alias on the task verbs', () => {
   /**

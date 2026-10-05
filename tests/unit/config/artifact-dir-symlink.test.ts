@@ -230,8 +230,8 @@ describe('Rehydrate_WorkflowInitializedBeforeChange_StillResolves', () => {
 
 /**
  * Runs `fn` with the process rooted at `dir`. It uses a real `chdir`, not a `cwd()` stub,
- * so a filesystem probe by any route lands in `dir`. Without it, the handler never sees
- * the test repository.
+ * so a filesystem probe by any route lands in `dir`. Without the `chdir`, the handler never
+ * sees the test repository, and the test passes for the wrong reason.
  */
 async function withCwd<T>(dir: string, fn: () => Promise<T>): Promise<T> {
   const previous = process.cwd();

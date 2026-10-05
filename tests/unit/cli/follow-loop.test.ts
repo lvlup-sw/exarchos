@@ -1,7 +1,7 @@
 /**
  * `runFollowLoop`, the polling loop of the CLI `--follow` view commands: polling, line output,
- * the poll interval, and cancel on abort. The fixture stores hold only `getTask` and
- * `updateTaskStatus`.
+ * the poll interval, and cancel on abort. The fixture stores implement only the two
+ * `FollowTaskStore` methods, `getTask` and `updateTaskStatus`.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { PassThrough } from 'node:stream';
@@ -107,8 +107,9 @@ describe('runFollowLoop (#1273)', () => {
     });
 
     /**
-     * The test passes `pollIntervalMs` directly. On the fake clock, three polls at 50 ms
-     * cannot end before 100 ms.
+     * The test passes `pollIntervalMs` directly and reads no `.exarchos.yml`. The CLI adapter
+     * resolves `cli.followPollIntervalMs`. On the fake clock, three polls at 50 ms cannot end
+     * before 100 ms.
      */
     it('CliFollow_PollIntervalConfigurable_ReadsExarchosYml', async () => {
       const taskId = 'task-cfg-003';
@@ -148,7 +149,10 @@ describe('runFollowLoop (#1273)', () => {
       }
     });
 
-    /** A snapshot with the same status and a new `statusMessage` writes a line. */
+    /**
+     * The second snapshot keeps the status and changes `statusMessage` and `lastUpdatedAt`.
+     * The loop must write a line for it.
+     */
     it('CliFollow_PayloadChange_AlsoRenders', async () => {
       const taskId = 'task-payload-004';
       const script: Task[] = [
@@ -199,7 +203,7 @@ describe('runFollowLoop (#1273)', () => {
   });
 
   /**
-   * An abort stands in for SIGINT. The loop must write the `cancelled` status before it
+   * An abort simulates SIGINT. The loop must write the `cancelled` status before it
    * resolves, so the event is in the store before the CLI exits. The scripts never reach
    * a terminal status.
    */

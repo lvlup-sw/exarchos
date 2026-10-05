@@ -68,8 +68,9 @@ describe('Logger Factory', () => {
  * The product tree logs through pino to stderr.
  *
  * The installer is an interactive terminal program in the same tree, and its stdout is its output.
- * `TERMINAL_OUTPUT_MODULES` names each file that prints, with the reason. An exemption for all of
- * `src/install` also covers the installer modules that must not print.
+ * `TERMINAL_OUTPUT_MODULES` names each file that prints, with the reason. The map does not exempt
+ * all of `src/install`, because that exemption also covers the installer modules that must not
+ * print.
  */
 describe('No Console in Production Code', () => {
   const TERMINAL_OUTPUT_MODULES: ReadonlyMap<string, string> = new Map([
@@ -118,7 +119,10 @@ describe('No Console in Production Code', () => {
   });
 });
 
-/** Recursively find .ts production files (exclude tests, logger itself, node_modules). */
+/**
+ * Returns each `.ts` production file under `dir`, at any depth. It skips tests, benchmarks,
+ * `logger.ts`, and the `node_modules`, `__tests__` and `evals` directories.
+ */
 async function getProductionFiles(dir: string): Promise<string[]> {
   const results: string[] = [];
   const entries = await fs.readdir(dir, { withFileTypes: true });

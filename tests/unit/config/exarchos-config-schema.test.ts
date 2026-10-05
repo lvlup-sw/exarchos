@@ -241,8 +241,9 @@ describe('ExarchosConfigSchema', () => {
  *
  * `parseThenResolve` is the subject: the schema parse, then `resolveCatalogSources`.
  * `normalizeVerbatim` is the independent expectation, and it calls no production code.
- * It reads the raw `invariants:` block of the repository `.exarchos.yml`. A bare string
- * gets `tier: 'user'`, and an object gets `tier ?? 'user'`.
+ * It maps the `catalogs` list of a raw block: a bare string gets `tier: 'user'`, and an
+ * object gets `tier ?? 'user'`. `rawInvariantsBlock` clones the `invariants:` block of the
+ * repository `.exarchos.yml` before the schema parse, so no expectation uses schema output.
  */
 describe('ExarchosConfigSchema — invariants.devCatalog retirement (DR-31 / T-43)', () => {
   const REPO_ROOT = path.resolve(
@@ -361,7 +362,10 @@ describe('ExarchosConfigSchema — invariants.devCatalog retirement (DR-31 / T-4
     expect(collectConfigDeprecations(rawRepoDocument())).toEqual([]);
   });
 
-  /** `disabled` adds no registration, but the key still reports, with a `null` replacement. */
+  /**
+   * `disabled` adds no registration. `collectConfigDeprecations` still reports the key,
+   * with a `null` replacement.
+   */
   it('ExarchosConfig_DevCatalogDisabled_DeprecatedWithNoRegistration', () => {
     const doc = { invariants: { devCatalog: 'disabled' } };
     const [d] = collectConfigDeprecations(doc);
@@ -412,8 +416,8 @@ describe('ExarchosConfigSchema — invariants.devCatalog retirement (DR-31 / T-4
   });
 
   /**
-   * The alias appends after the other registrations. A conversion that replaces the list
-   * passes the dedupe test, so this test covers that case.
+   * The parse puts the alias registration after the other registrations. A conversion that
+   * replaces the list passes the dedupe test, so this test covers that case.
    */
   it('ExarchosConfig_AliasWithUnrelatedRegistrations_AppendsWithoutClobbering', () => {
     const parsed = ExarchosConfigSchema.safeParse({
@@ -545,7 +549,8 @@ describe('InvariantsConfigSchema — tiered catalog registrations (T1)', () => {
 
 /**
  * `ownership.firstParty` holds the globs of the first-party source trees. An absent key gets
- * a default that covers the repository source trees, so the scope is never empty.
+ * a default that covers the repository source trees, so a repository with no config does
+ * not get an empty scope.
  */
 describe('ExarchosConfigSchema — ownership manifest (slice 1, task 024)', () => {
   it('ExarchosConfig_OwnershipGlobs_Parsed', () => {

@@ -21,7 +21,10 @@ describe('resolveConfig', () => {
     expect(resolveConfig(project).storage.synchronous).toBe('full');
   });
 
-  /** The resolved gates must equal the per-gate defaults, which keep the advisory gates advisory. */
+  /**
+   * The resolved gates must equal the per-gate defaults, which keep the advisory gates advisory.
+   * A gate that the resolved map omits takes its dimension severity, and that default is `blocking`.
+   */
   it('resolveConfig_EmptyProject_ReturnsAllDefaults', () => {
     const result = resolveConfig({});
 

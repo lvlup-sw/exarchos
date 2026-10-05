@@ -1,5 +1,5 @@
 /**
- * Spawn tests that the Windows CI lane runs by name.
+ * Spawn tests that the Windows CI lane runs by name, so `.github/workflows/ci.yml` holds this file path.
  * The long-lived and metacharacter cases spawn a real child on the host platform.
  * The win32 shim cases drive `resolveSpawnPlan` and a captured spawn seam with
  * `platform: 'win32'`, so a POSIX host also checks the win32 plan.
@@ -62,7 +62,7 @@ function makeCaptureSpawn() {
 describe('spawnHarnessChild — cross-OS async spawn (DR-4 / DR-8)', () => {
   /**
    * The child idles until the test kills it.
-   * The kill gives a signal on POSIX and a non-zero code on win32.
+   * The exit must then carry a signal or a non-zero code.
    */
   it('AsyncSpawn_HarnessCli_LongLived', async () => {
     const handle = await spawnHarnessChild({

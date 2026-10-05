@@ -820,7 +820,7 @@ describe('AzureDevOpsProvider', () => {
     expect(reply.parentId).toBe(top.id);
   });
 
-  /** No Azure-native field name can be in the result. */
+  /** Each key of a result comment must be a contract key. The result must hold no Azure-native field name. */
   it('AzureDevOps_GetPrComments_EmitsOnlyContractKeys', async () => {
     mockExec
       .mockResolvedValueOnce(PR_SHOW_RESPONSE)

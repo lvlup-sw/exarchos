@@ -224,7 +224,10 @@ describe('loadConfig', () => {
     expect(result.tools?.['exarchos_deploy'].actions[0].handler).toBe('./tools/deploy-trigger.js');
   });
 
-  /** The tool has no `description` field. */
+  /**
+   * The tool has no `description` field, and its `actions` list is empty. The schema
+   * rejects each defect.
+   */
   it('LoadConfig_WithInvalidTools_Throws', async () => {
     const configContent = `
       export default {

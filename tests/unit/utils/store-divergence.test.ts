@@ -33,7 +33,7 @@ function existing(...paths: readonly string[]): (p: string) => boolean {
  * Dispatch treats the store as ambient when
  * `toPosix(path.resolve(ctx.stateDir)) === resolveStateDir()`. The production entry point
  * sets `ctx.stateDir` from `resolveStateDir()`. So that normalization must be idempotent on
- * the resolver output. If it is not, the divergence check stops with no refusal and no warning.
+ * the resolver output. If it is not, dispatch skips the divergence check, with no refusal and no warning.
  */
 describe('The ambient-cascade comparison holds on the real dispatch path', () => {
   /**
@@ -66,7 +66,7 @@ describe('The ambient-cascade comparison holds on the real dispatch path', () =>
 });
 
 describe('Active store divergence (#1839)', () => {
-  /** While this premise holds, divergence alone cannot trigger the refusal. */
+  /** A CLI call with an empty env diverges. While that holds, divergence alone cannot trigger the refusal. */
   it('Divergence_IsTrueByDefault_ForAnyNonPluginCli', () => {
     const bare = computeStorePathDivergence({ env: {}, homedir: HOME });
     expect(bare.diverges).toBe(true);

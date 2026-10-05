@@ -670,7 +670,10 @@ describe('resolveTestRuntime', () => {
     ).toThrow(/Invalid \.exarchos\.yml/);
   });
 
-  /** With no `eventStore` option there is no spy to assert on. The test proves only that the call returns. */
+  /**
+   * With no `eventStore` option there is no spy, so the test cannot observe an emission.
+   * It proves only that resolution succeeds without a store.
+   */
   it('resolveTestRuntime_NoEventStore_NoEmissions', () => {
     const dir = makeTmpDir();
     writeFileSync(
@@ -1078,7 +1081,7 @@ describe('resolveVerificationRuntime', () => {
 
   /**
    * A direct config value gives the structured `{ codegen, diff }` contract, and an override beats it.
-   * With no contract tool in any layer, the contract is null.
+   * A Rust marker alone gives null, because no built-in toolchain supplies a contract.
    */
   it('ResolveVerificationRuntime_ContractField_ResolvesStructured', () => {
     const dir = makeTmpDir();
@@ -1107,8 +1110,8 @@ describe('resolveVerificationRuntime', () => {
 
   /**
    * `resolveTestRuntime` returns only `test`, `typecheck`, `install`, `source` and an optional
-   * `remediation`. It must hold no `mutation`, `lint` or `contract` field.
-   * The unresolved result still carries the remediation.
+   * `remediation`. The result must hold no `mutation`, `lint` or `contract` field.
+   * An unresolved result still carries the remediation.
    */
   it('ResolveTestRuntime_Alias_BehaviorUnchanged', () => {
     const dir = makeTmpDir();
@@ -1266,7 +1269,8 @@ describe('top-level mutation config shape (WFQ-013 / DOC-5)', () => {
 
   /**
    * `mutation` is a valid top-level key, and the committed root config declares it. The load must not
-   * throw, and the value must reach `config.mutation`.
+   * throw, and the value must reach `config.mutation`. The schema is strict, so a schema that does not
+   * know the key rejects the committed file.
    */
   it('committed root .exarchos.yml loads clean and exposes a top-level `mutation`', () => {
     const result = loadExarchosConfig(REPO_ROOT);

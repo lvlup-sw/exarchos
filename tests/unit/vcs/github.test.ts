@@ -810,8 +810,8 @@ describe('GitHubProvider', () => {
   });
 
   /**
-   * First GraphQL throws: the read still resolves, and `resolved` is absent.
-   * Then GraphQL succeeds: comment 500 is in a resolved thread, so `resolved` is `true`.
+   * First the GraphQL call throws: the read still resolves, and `resolved` is absent.
+   * Then the GraphQL call succeeds: comment 500 is in a resolved thread, so `resolved` is `true`.
    * Comment 501 is in no thread, so `resolved` stays absent, which means unknown.
    * The call must be `gh api graphql` with `-F` values for owner, repo and PR, and a `-f` query.
    */

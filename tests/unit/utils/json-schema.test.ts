@@ -15,7 +15,10 @@ describe('utils/json-schema', () => {
     expect(Array.isArray(result.items)).toBe(false);
   });
 
-  /** `unrepresentable: 'any'` is an option that only `z.toJSONSchema` reads. */
+  /**
+   * `unrepresentable: 'any'` is an option that only `z.toJSONSchema` reads.
+   * The assertions check only that the default target still applies with a caller option.
+   */
   it('zodToJsonSchema_RespectsCallerOpts_PassesThroughToUpstream', () => {
     const schema = z.object({ foo: z.string() });
     const result = zodToJsonSchema(schema, { unrepresentable: 'any' }) as Record<

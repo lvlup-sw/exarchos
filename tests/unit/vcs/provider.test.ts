@@ -11,7 +11,10 @@ import {
 import type { PrComment, VcsProvider, CiCheck } from '../../../src/vcs/provider.js';
 
 describe('VcsProvider', () => {
-  /** The check is at the type level: the object literal must satisfy `VcsProvider`. */
+  /**
+   * The annotation `VcsProvider` is a type-level check that the object literal has each required method.
+   * `tests/tsconfig.json` excludes `tests/unit`, so no compiler runs that check. Only the `name` assertion runs.
+   */
   it('VcsProvider_Interface_DefinesRequiredMethods', () => {
     const provider: VcsProvider = {
       name: 'github',
@@ -218,7 +221,10 @@ describe('windowPrComments', () => {
  * These tests pin the fold directly. The `checkCi` tests of each provider cover it through the pipeline decode.
  */
 describe('computeOverallCiStatus (shared CI-status fold, DR-10)', () => {
-  /** An empty list passes, so a provider with no pipeline or no jobs does not block. */
+  /**
+   * An empty list gives `pass`.
+   * GitLab with no pipeline and Azure DevOps with no runs do not reach the fold, because `checkCi` returns `pending` first.
+   */
   it('ComputeOverallCiStatus_EmptyChecks_Passes', () => {
     expect(computeOverallCiStatus([])).toBe('pass');
   });

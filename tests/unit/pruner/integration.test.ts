@@ -62,7 +62,7 @@ describe('pruner_integration_with_phase_contract_multi_phase_fixture', () => {
   /**
    * Each phase gets one fresh state and one stale state. `design` and `review`
    * need every signal fresh. `implement` needs one fresh signal, and `branchActivity`
-   * inside its 1440-minute threshold keeps the phase fresh after `lastActivity` is stale.
+   * inside its 1440-minute threshold keeps the phase fresh when `lastActivity` is stale.
    */
   it('routes per-phase scoring through the typed contract', async () => {
     const file = writeTopology(MULTI_PHASE_TOPOLOGY);

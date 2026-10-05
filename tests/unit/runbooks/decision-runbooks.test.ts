@@ -27,7 +27,8 @@ describe('Decision runbooks', () => {
   /**
    * The `merge-pending` phase must have the `merge-orchestration` runbook. Its
    * `templateVars` must be the six fields of `expectedVars`. The first loop finds a
-   * missing field, and the second loop finds a field that is not in the list.
+   * missing field. The second loop finds a template var that has no value in
+   * `sampleBindings`, which holds the same six fields.
    */
   it('Runbook_MergePending_TemplateVarsExpand', () => {
     const mergePendingRunbooks = ALL_RUNBOOKS.filter(r => r.phase === 'merge-pending');
@@ -62,7 +63,7 @@ describe('Decision runbooks', () => {
         expect(decideSteps.length).toBeGreaterThanOrEqual(2);
       });
 
-      /** The four exempt runbooks have no `escalate` branch. For them the test returns before its assertion. */
+      /** No branch of the four exempt runbooks sets `escalate: true`. For them the test returns before its assertion. */
       it(`${id}_HasAtLeast1EscalateBranch`, () => {
         const exemptFromEscalation = ['task-classification', 'review-strategy', 'design-refinement', 'phase-compression'];
         if (exemptFromEscalation.includes(id)) return;

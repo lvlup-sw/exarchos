@@ -22,7 +22,10 @@ import { describe, it, expect } from 'vitest';
 import { parseModuleSpecifiers } from '../../tools/test-helpers/module-specifier-parser.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
-/** The repository root, which is also the package root. The repository has one manifest. */
+/**
+ * The repository root, which is also the package root. No manifest in the repository sits above
+ * it, so the test reads one manifest.
+ */
 const packageRoot = join(here, '../..');
 const packageJsonPath = join(packageRoot, 'package.json');
 
@@ -57,9 +60,9 @@ function readDependencies(): Record<string, string> {
 
 /**
  * Reads each declared dependency of a manifest, across each dependency map that npm installs from.
- * A read of `dependencies` only misses a v1 entry under `devDependencies`, which npm still
- * installs. It throws when the manifest has no dependency map, because an empty record lacks v1
- * for the wrong reason.
+ * A read of only `dependencies` misses a v1 entry under `devDependencies`, which npm still
+ * installs. The function throws when the manifest has no dependency map, because an empty record
+ * lacks v1 for the wrong reason.
  */
 function readAllDeclaredDeps(manifestPath: string): Record<string, string> {
   const pkg: unknown = JSON.parse(readFileSync(manifestPath, 'utf8'));
@@ -167,10 +170,10 @@ describe('MCP SDK pin policy (#1292, DR-0)', () => {
   });
 
   /**
-   * The manifest must not declare the v1 package, and no module in the package can import it.
+   * The manifest must not declare the v1 package, and a module in the package must not import it.
    *
-   * Two checks keep an empty scan from a pass. The walk must resolve more than 50 modules. It must
-   * also reach modules outside `src`, because a walk of `src` only passes the count and misses a
+   * Two checks stop a pass from an empty scan. The walk must resolve more than 50 modules. It must
+   * also reach modules outside `src`, because a walk of only `src` passes the count and misses a
    * v1 import in another tree.
    */
   it('SdkPinPolicy_V1Generation_IsFullyRemoved', () => {

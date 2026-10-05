@@ -119,7 +119,7 @@ describe('classifyReviewItems', () => {
     expect(result.summary.directCount + result.summary.delegateCount).toBe(3);
   });
 
-  /** Compares counts only: the groups hold as many items as the input, and so does `summary.totalItems`. */
+  /** Compares counts only: the groups together hold as many items as the input, and `summary.totalItems` equals the input length. */
   it('ClassifyReviewItems_PartitionInvariant', () => {
     fc.assert(
       fc.property(

@@ -43,8 +43,8 @@ describe('state-store resolveStateDir re-export', () => {
 /**
  * `findHardcodedPaths` scans each production `.ts` file under `src/`, except `utils/paths.ts`
  * and the `CONFIG_WRITERS` modules. A config writer writes a path for another process to
- * read, so the literal is its payload. The map names each writer by file. A directory test
- * cannot name a writer that lives in another directory.
+ * read, so the literal is its payload. The map names each writer by file, because an
+ * exclusion by directory misses a writer that lives in another directory.
  */
 describe('no hardcoded ~/.claude/ path constructions in production code', () => {
   const srcDir = path.resolve(__dirname, '../../../src');
@@ -150,7 +150,7 @@ describe('schema descriptions are platform-neutral', () => {
     expect(sessionIdDesc).toBe('Session identifier');
   });
 
-  /** The test reads only the Zod description of `agentId`, and asserts nothing when the field has none. */
+  /** The test reads only the Zod description of `agentId`. When the field has none, the test asserts nothing. */
   it('TaskSchema.agentId comment does not mention Claude Code', async () => {
     const { TaskSchema } = await import('../../../src/workflow/schemas.js');
     const shape = TaskSchema.shape;

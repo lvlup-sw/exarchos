@@ -40,7 +40,7 @@ describe('nextActionsFromResult — shape recognition', () => {
     expect(nextActionsFromResult(ok(null))).toEqual([]);
   });
 
-  /** `plan` to `plan-review` is the only transition out of `plan`. */
+  /** The feature HSM lists one transition out of `plan`, and its target is `plan-review`. */
   it('extracts shape 1 (handler payload) — phase + workflowType at top level', () => {
     const actions = nextActionsFromResult(
       ok({ phase: 'plan', workflowType: 'feature' }),
@@ -372,9 +372,9 @@ describe('nextActionsFromResult — shape recognition', () => {
 });
 
 /**
- * Composes the rehydration reducer with `nextActionsFromResult`, in process. The reducer folds a
- * `task.completed` event with a `worktreePath` into `phase: merge-pending`. The reader must then
- * surface `merge_orchestrate` from the `workflowState` segment.
+ * These tests compose the rehydration reducer with `nextActionsFromResult`, in process. The reducer
+ * folds a `task.completed` event with a `worktreePath` into `phase: merge-pending`. The reader must
+ * then surface `merge_orchestrate` from the `workflowState` segment.
  *
  * `tests/process/saga-merge-detour.test.ts` pins the same contract through a real MCP server. That
  * test covers the cross-process envelope, and this one covers the composition.
@@ -396,8 +396,8 @@ describe('nextActionsFromResult — #1374 cross-boundary pin (reducer ⇒ reader
   }
 
   /**
-   * Folds the event sequence that the saga test drives through MCP. The idempotency key must be
-   * `<featureId>:merge_orchestrate:<taskId>`.
+   * The test folds the event sequence that the saga test drives through MCP. The idempotency key
+   * must be `<featureId>:merge_orchestrate:<taskId>`.
    */
   it('NextActions_FromReducerProjectedRehydrationDoc_AfterWorktreeBearingTaskCompleted_SurfacesMergeOrchestrate', () => {
     let doc = rehydrationReducer.apply(

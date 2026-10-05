@@ -73,15 +73,11 @@ describe('DR-14: strict-flag ratchet (satellite projects)', () => {
 });
 
 /**
- * The census counts `x!`, `as` and `as any` sites in each tree that the repo compiles. Each count
- * must stay in `[BASELINE, BASELINE + DELTA_BUDGET]`, and `as any` cannot grow. A count less than
- * the baseline fails too, because a stale baseline hides a later regression.
+ * The census counts `x!`, `as` and `as any` sites in the non-test `.ts` files under `CENSUS_ROOTS`.
+ * Each count must stay in `[BASELINE, BASELINE + DELTA_BUDGET]`, and the `as any` count must not
+ * grow. `DELTA_BUDGET` is the number of sites that work can add before the next re-baseline.
  *
- * A paydown with a re-baseline moves the window down and does not widen it. A re-baseline must say
- * if it is a paydown, a measurement correction or a scope change.
- *
- * `CENSUS_ROOTS` names no nested root, because a nested root counts twice. `PACKAGE_ROOTS` holds
- * the package roots whose tsconfig projects define the typecheck scope.
+ * `PACKAGE_ROOTS` holds the directories whose tsconfig projects the census roots must cover.
  */
 describe('DR-14: escape-hatch census', () => {
   const BASELINE: CastCounts = { nonNull: 70, asCast: 1722, asAny: 0 };
@@ -98,6 +94,17 @@ describe('DR-14: escape-hatch census', () => {
 
   const PACKAGE_ROOTS: readonly string[] = ['.', 'tools/conformance', 'tools/evals-pkg'];
 
+  /**
+   * A count less than the baseline fails too, because a stale baseline hides a later regression.
+   * A re-baseline must set `BASELINE` to the count of the tree that ships, not of the tree before
+   * the edits. After a paydown, that moves the window down and does not widen it. `DELTA_BUDGET`
+   * must not grow to make room.
+   *
+   * Before `BASELINE` goes up, remove each new assertion that has a checked form. Narrowing, a type
+   * predicate and `satisfies` are checked forms. The census counts `as const` and does not count
+   * `satisfies`. Only a site with no cast-free form can stay. The commit must name the new sites,
+   * and must say if the change is a paydown, a measurement correction or a scope change.
+   */
   it('FixWave_CastBudget_MeasuredAndWithinDeclaredLimit', () => {
     const counts = countCasts(CENSUS_ROOTS.map((dir) => ({ dir: resolve(REPO_ROOT, dir) })));
     const delta = {
@@ -113,9 +120,12 @@ describe('DR-14: escape-hatch census', () => {
   });
 
   /**
-   * The census roots must cover each file that a tsconfig project compiles. The test finds the
-   * projects with a directory read, so a new project or a wider `include` fails here until the
-   * census covers it. It skips `.d.ts` files, because a declaration file holds no expression.
+   * The census roots must cover each file that a tsconfig project in `PACKAGE_ROOTS` compiles. The
+   * test reads each `tsconfig*.json` in those directories, so a new config there or a wider
+   * `include` fails until the census covers it. A project in another directory is outside this
+   * check. The test requires at least four configs, so an empty discovery does not pass.
+   *
+   * It skips `.d.ts` files, because a declaration file holds no expression.
    */
   it('ScriptsCastCensus_Roots_CoverEveryTypecheckedTree', () => {
     const configs: string[] = [];
@@ -156,6 +166,8 @@ describe('DR-14: escape-hatch census', () => {
 
   /**
    * A root that does not exist counts nothing. A root inside another root counts its files twice.
+   * Thus the list names `tools/audit` and `tools/release` and not `tools`, which also holds
+   * `tools/conformance` and `tools/evals-pkg`.
    */
   it('CensusRoots_RealRepo_AllExistAndNoneNests', () => {
     for (const root of CENSUS_ROOTS) {

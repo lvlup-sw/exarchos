@@ -2,8 +2,8 @@
  * Registration guard for the shared lifecycle field shapes in `projections/views/lifecycle/schema-fields.ts`.
  *
  * `buildRegistrationSchema` throws when two actions give one field name a different base kind,
- * enum value set or default. Each test adds a probe action with the shared shapes to the real
- * `exarchos_view` actions, then builds the registration schema.
+ * enum value set or default. The first two tests add a probe action with shared shapes to the real
+ * `exarchos_view` actions, then build the registration schema. The third test parses with each shape directly.
  * The subjects are the real `buildRegistrationSchema` and the real `TOOL_REGISTRY`, with no mocks.
  */
 

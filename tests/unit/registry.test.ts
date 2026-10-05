@@ -340,7 +340,7 @@ describe('buildRegistrationSchema', () => {
 
   /**
    * `doctor` and `onboard` declare `format` with the values `table` and `json`.
-   * A `format` field on `agent_spec` with `full` and `prompt-only` hides those values in the registration schema.
+   * `agent_spec` names its field `outputFormat`. A `format` field there with `full` and `prompt-only` collides with those values.
    */
   it('should accept doctor format values against the real orchestrate registration schema', () => {
     const orchestrate = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate')!;
@@ -563,7 +563,7 @@ describe('buildRegistrationSchema JSON Schema', () => {
   });
 });
 
-/** The phases of a feature workflow, which starts at `plan`. */
+/** The main phases of a feature workflow, which starts at `plan`. The set omits `merge-pending` and `blocked`. */
 const ALL_FEATURE_PHASES = new Set([
   'plan',
   'plan-review',
@@ -602,10 +602,10 @@ describe('TOOL_REGISTRY', () => {
   });
 
   /**
-   * The phase-kind binding is internal verification routing: the `PhaseKind` union, the obligations table,
+   * The phase-kind binding is internal verification routing: the `PhaseKind` union, the `KIND_OBLIGATIONS` table,
    * the gate-set resolver and the boundary that appends `phase.blocked`.
    * It must add no visible MCP tool and no composite. `exarchos_sync` is the only hidden composite.
-   * The four visible composites are the top-level CLI verbs and the visible MCP tools.
+   * The four visible composites are the visible MCP tools, and each one is a top-level CLI verb.
    */
   it('Registry_VisibleToolCount_UnchangedByPhaseKind', () => {
     const visibleTools = TOOL_REGISTRY.filter((t) => !t.hidden);
@@ -1152,7 +1152,7 @@ describe('TOOL_REGISTRY', () => {
 
     /**
      * This file imports `TOOL_REGISTRY`, so the `validateAction` loop at module load did not throw.
-     * The test runs `validateAction` again on each action, to name the action that fails.
+     * The test runs `validateAction` again on each of the three actions, to name the action that fails.
      */
     it('Registry_ModuleLoad_DoesNotThrowOnNewActions', () => {
       for (const [tool, name] of NEW_ACTIONS) {
@@ -2057,7 +2057,7 @@ describe('Registry_OutputSchema (Wave 0 / G.2)', () => {
  * An annotation record holds the server-trusted `safety` class and four advisory flags.
  * The flags are `readOnly`, `destructive`, `idempotent` and `openWorld`.
  * The schema rejects a record whose flags contradict its `safety` class, such as `read-only` with `readOnly: false`.
- * Without that rule, an action that emits events can carry a read-only label.
+ * Without that rule, a contradictory record can give an action that writes the server-trusted `read-only` class.
  */
 describe('ActionAnnotationsSchema', () => {
   const valid: ActionAnnotations = {
@@ -2280,7 +2280,7 @@ describe('Registry invariants — outputSchema + annotations', () => {
 
 /**
  * `validateAction` is the gate that the registry runs on each action at module load.
- * Its error names the `<tool>.<action>` that has no `outputSchema` or no `annotations`.
+ * Its error names the `<tool>.<action>` that has no `outputSchema`, no valid `annotations` or no `actionContract`.
  */
 describe('validateAction', () => {
   const importValidateAction = async () => {
@@ -2665,7 +2665,10 @@ describe('harness-launcher verb conformance + Windows CI lane (task 015, DR-1/DR
     expect(joined.toLowerCase()).toContain('generic');
   });
 
-  /** The registry must hold no tool and no action with the launcher verb name or a harness name. */
+  /**
+   * The registry must still hold four visible tools.
+   * It must hold no tool and no action named `launch`, `launcher`, the launcher verb or a Tier-1 harness.
+   */
   it('VisibleToolCount_Unchanged', () => {
     const visibleTools = TOOL_REGISTRY.filter((t) => !t.hidden);
     expect(visibleTools.length).toBe(4);
@@ -3293,6 +3296,7 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
     /**
      * Pins the count of typed-output actions, so a new typed action or a lost one fails here.
      * A schema whose `data` is `z.unknown()`, such as the workflow output schemas, does not count as typed.
+     * The count grows when a new action declares its `data`, or when an action leaves the vacuity allowlist.
      */
     it('every typed-output action validates a {summary,counts,firstPage} capped envelope', () => {
       const actions = typedOutputActions();
@@ -3342,13 +3346,13 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
    * Thus a new action or a new declaration file is in scope with no list to update.
    *
    * The `owner` of an edge is the declaration area of its action under `src/registry/actions/`.
-   * `actions/workflow.ts` is the `workflow` area, and each module under `actions/orchestrate/` is the `orchestrate` area.
-   * The area tells where the action is declared and not which event it emits.
+   * `actions/workflow.ts` is the `workflow` area. The modules under `actions/orchestrate/` and `actions/view/` are the `orchestrate` and `view` areas.
+   * The area tells which module group declares the action, not which event the action emits.
    */
   describe('AutoEmission role, owner, and recovery expiry', () => {
     /**
      * The role of an edge is its declared value and does not depend on the position of the edge in a list.
-     * The primary edge and the edge with no role have no expiry, so `validateAutoEmission` passes them.
+     * The primary edge and the edge with no role are not recovery edges, so `validateAutoEmission` passes them.
      * The recovery edge passes because its `recoveryExpiresAt` is in the future.
      */
     it('AutoEmission_DeclaredRole_IsNotInferred', () => {
@@ -3486,6 +3490,7 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
      * More than one action can declare one event, and that is conforming.
      * The test names that set of events, so the property has a denominator.
      * An event with two routes to one meaning, such as `worktree.released`, has a declaration for each route.
+     * `task.completed` is not in the set: `settle` runs `task_complete` as a leaf and does not declare the events of its leaves.
      *
      * The declarers of one event must all name one owner, or each name a different owner with at most one `primary`.
      * `gate.executed` shows many declarers in one area. `state.patched` shows two areas, where `update` is the primary edge.
