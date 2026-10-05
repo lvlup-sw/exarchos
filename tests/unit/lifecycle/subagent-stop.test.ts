@@ -6,11 +6,11 @@ import { EventStore } from '../../../src/events/store.js';
 import { handleSubagentStop, resolveTeammateByWorktree } from '../../../src/lifecycle/subagent-stop.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
-// #1525 W2 Half 1 (H1-A) — the restored SubagentStop hook reads the subagent's
-// own transcript, sums output tokens, resolves teammate identity by matching the
-// subagent cwd to a dispatched worktree, and appends subagent.tokens_used to the
-// feature stream. Observe-only / fail-open: never blocks a subagent.
-
+/**
+ * The SubagentStop hook reads the output tokens from the subagent transcript. It finds the teammate
+ * whose dispatched worktree equals the subagent cwd, then appends `subagent.tokens_used` to the
+ * feature stream. The hook fails open and never blocks a subagent.
+ */
 describe('handleSubagentStop (#1525 W2 H1-A)', () => {
   let tmpDir: string;
   let store: EventStore;
@@ -106,7 +106,7 @@ describe('handleSubagentStop (#1525 W2 H1-A)', () => {
     };
     const deps = { eventStore: store, readTranscriptOutputTokens: async () => 7 };
     await handleSubagentStop(payload, tmpDir, deps);
-    await handleSubagentStop(payload, tmpDir, deps); // retry — must not double-count
+    await handleSubagentStop(payload, tmpDir, deps);
 
     expect(await store.query('feat-1', { type: 'subagent.tokens_used' })).toHaveLength(1);
   });
@@ -125,10 +125,11 @@ describe('handleSubagentStop (#1525 W2 H1-A)', () => {
     expect(r).toBeNull();
   });
 
+  /**
+   * A later feature can use the same worktree path again. The resolver must pick the owner with the
+   * latest timestamp. The first match can be a stale stream, and the tokens then go to the wrong feature.
+   */
   it('resolveTeammateByWorktree_ReusedWorktree_PrefersMostRecentStream', async () => {
-    // A worktree path can be reused across features over time. The resolver must
-    // attribute to the MOST RECENT owner by timestamp, not the first encountered
-    // (taking the first would misattribute tokens to a stale stream — #1560).
     await store.append('old-feat', {
       timestamp: '2026-01-01T00:00:00.000Z',
       type: 'team.task.assigned',
@@ -144,9 +145,8 @@ describe('handleSubagentStop (#1525 W2 H1-A)', () => {
     expect(r).toEqual({ featureId: 'new-feat', teammateName: 'new-owner', taskId: 'NEW-1' });
   });
 
+  /** A run with zero output tokens has no usage to record, and the `team.*` events already record the run. */
   it('SubagentStop_ZeroOutputTokens_NoEmit', async () => {
-    // A zero-token run carries no usage signal; skip the atom so per-run token
-    // metrics stay clean (the run is already recorded by dispatch/completion).
     await store.append('feat-1', {
       type: 'team.task.assigned',
       data: { taskId: 'T-9', teammateName: 'alice', worktreePath: '/tmp/wt-a', modules: [] },
@@ -160,8 +160,8 @@ describe('handleSubagentStop (#1525 W2 H1-A)', () => {
     expect(await store.query('feat-1', { type: 'subagent.tokens_used' })).toHaveLength(0);
   });
 
+  /** A non-string `agent_id` fails the schema parse. The hook then fails open and does not throw. */
   it('SubagentStop_MalformedPayload_FailsOpen', async () => {
-    // Non-string load-bearing fields fail safeParse → fail-open, no throw/emit.
     const result = await handleSubagentStop(
       { agent_id: 123, agent_transcript_path: '/x.jsonl', cwd: '/tmp/wt-a' },
       tmpDir,

@@ -1,17 +1,8 @@
 /**
- * Bundle integration test (DR-7, v2.11) — typed phase contract end-to-end
- * through the pruner's pure scoring layer.
- *
- * Uses a multi-phase topology fixture covering BOTH `freshnessRequires`
- * modes:
- *   - phases declaring `'all'` (every signal must be fresh)
- *   - phases declaring `'any'` (one fresh signal suffices)
- *
- * The v2.10 fallback path (phases without a `staleness` block routed
- * through the v2.9 single-signal heuristic) was deleted in v2.11
- * (Phase 5c, DR-7). The topology loader now throws on any phase missing
- * `staleness`, so an integration fixture must declare a contract on every
- * phase. See `pruner.dr7-removal.test.ts` for the contractless invariant.
+ * Loads a topology from YAML and scores it through the pure scoring layer of the
+ * pruner. The fixture covers both `freshnessRequires` modes, `all` and `any`.
+ * The loader throws on a phase with no `staleness` block, so each fixture phase
+ * declares a contract. `pruner.dr7-removal.test.ts` covers a phase with no contract.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import * as fs from 'node:fs';
@@ -68,19 +59,21 @@ describe('pruner_integration_with_phase_contract_multi_phase_fixture', () => {
     __resetTopologyCacheForTesting();
   });
 
+  /**
+   * Each phase gets one fresh state and one stale state. `design` and `review`
+   * need every signal fresh. `implement` needs one fresh signal, and `branchActivity`
+   * inside its 1440-minute threshold keeps the phase fresh after `lastActivity` is stale.
+   */
   it('routes per-phase scoring through the typed contract', async () => {
     const file = writeTopology(MULTI_PHASE_TOPOLOGY);
     const topology = await loadTopology({ topologyPath: file });
 
-    // ─── design (all-fresh) ─────────────────────────────────────────────────
-    // Both signals fresh → not stale.
     expect(
       scoreStaleness(
         { lastActivityMinutes: 30, phaseTransitionMinutes: 30 },
         topology.phases.design.staleness!,
       ).isStale,
     ).toBe(false);
-    // One signal stale → stale.
     expect(
       scoreStaleness(
         { lastActivityMinutes: 30, phaseTransitionMinutes: 9999 },
@@ -88,15 +81,12 @@ describe('pruner_integration_with_phase_contract_multi_phase_fixture', () => {
       ).isStale,
     ).toBe(true);
 
-    // ─── implement (any-fresh, branchActivity slack window) ─────────────────
-    // lastActivity stale but branchActivity within 1440 → not stale.
     expect(
       scoreStaleness(
         { lastActivityMinutes: 9999, branchActivityMinutes: 600 },
         topology.phases.implement.staleness!,
       ).isStale,
     ).toBe(false);
-    // Both stale → stale.
     expect(
       scoreStaleness(
         { lastActivityMinutes: 9999, branchActivityMinutes: 99_999 },
@@ -104,8 +94,6 @@ describe('pruner_integration_with_phase_contract_multi_phase_fixture', () => {
       ).isStale,
     ).toBe(true);
 
-    // ─── review (all-fresh, three signals) ─────────────────────────────────
-    // All three fresh → not stale.
     expect(
       scoreStaleness(
         {
@@ -116,7 +104,6 @@ describe('pruner_integration_with_phase_contract_multi_phase_fixture', () => {
         topology.phases.review.staleness!,
       ).isStale,
     ).toBe(false);
-    // branchActivity (1440-min window) ages out → stale.
     expect(
       scoreStaleness(
         {

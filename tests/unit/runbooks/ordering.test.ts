@@ -2,23 +2,16 @@ import { describe, it, expect } from 'vitest';
 import { ALL_RUNBOOKS } from '../../../src/runbooks/definitions.js';
 import { findActionInRegistry } from '../../../src/registry.js';
 
-// ─── DR-1 / T-02: `task_complete` must be the TERMINAL step ─────────────────
-//
-// The delegation contract: a task marked complete has already passed every
-// gate that could block it. If a BLOCKING gate ran after `task_complete`, a
-// task could be recorded complete and only THEN fail its last gate — the
-// exact defect WFQ-004 named (`check_integration_suite` used to sit after
-// `task_complete` in TASK_COMPLETION).
-//
-// This asserts the invariant over EVERY runbook in the registry — enumerated
-// programmatically from `ALL_RUNBOOKS`, not a hardcoded list of two — so a
-// future runbook (or a re-ordering of an existing one) cannot silently
-// reintroduce the defect. Blocking-ness is read from the SAME model the
-// gate-runner / task_complete gate enforcement uses: `action.gate.blocking`
-// in the tool-action registry, resolved via `findActionInRegistry`. This test
-// does not restate a local list of which gates are blocking — it defers
-// entirely to the registry's own declaration.
+/**
+ * A task that is complete passed every gate that can block it. Thus no blocking gate can run
+ * after `task_complete`. Each test reads every runbook in `ALL_RUNBOOKS`, so a new runbook
+ * cannot skip the check.
+ */
 describe('Runbook ordering invariant (DR-1 / WFQ-004)', () => {
+  /**
+   * A runbook without a `task_complete` step has no order to check. The registry field
+   * `gate.blocking` decides which steps block, so the test holds no list of blocking gates.
+   */
   it('RunbookOrdering_NoBlockingGateFollowsTaskComplete', () => {
     const violations: string[] = [];
 
@@ -26,8 +19,6 @@ describe('Runbook ordering invariant (DR-1 / WFQ-004)', () => {
       const completeIndex = runbook.steps.findIndex(
         (step) => step.tool === 'exarchos_orchestrate' && step.action === 'task_complete',
       );
-      // A runbook with no `task_complete` step (review/merge/decision
-      // runbooks) has nothing to enforce ordering against — skip it.
       if (completeIndex === -1) continue;
 
       const stepsAfter = runbook.steps.slice(completeIndex + 1);
@@ -50,12 +41,11 @@ describe('Runbook ordering invariant (DR-1 / WFQ-004)', () => {
     ).toEqual([]);
   });
 
+  /**
+   * Only `task-completion` and `task-fix` hold a `task_complete` step, and it is their last step.
+   * A step after it is a fault, also when that step does not block.
+   */
   it('RunbookOrdering_TaskCompletionAndTaskFix_HaveTaskCompleteAsLastStep', () => {
-    // Characterization for the two runbooks that actually own a per-task
-    // completion chain today: task_complete is not merely "not followed by a
-    // blocking gate" — it is the LAST step, full stop. Any step landing after
-    // it (blocking or not) would mean the runbook keeps doing per-task work
-    // post-completion, which contradicts the "terminal step" contract.
     const runbooksWithTaskComplete = ALL_RUNBOOKS.filter((runbook) =>
       runbook.steps.some(
         (step) => step.tool === 'exarchos_orchestrate' && step.action === 'task_complete',
@@ -76,16 +66,12 @@ describe('Runbook ordering invariant (DR-1 / WFQ-004)', () => {
     }
   });
 
-  // ─── WFQ-004: repoRoot:'auto' must be RESOLVABLE where it is pinned ───────
-  //
-  // `gate-utils.resolveRepoRoot` resolves `'auto'` from exactly two sources:
-  // an explicit `worktreePath`, or the latest `worktree.created` event for a
-  // `taskId`. A step that pins `repoRoot: 'auto'` while binding NEITHER can
-  // never resolve — it returns ok:false → INVALID_INPUT and halts the runbook
-  // unconditionally (the AGENT_TEAMS_SAGA cumulative-suite defect). A step
-  // that needs a wave-level root must bind a template var (`'<repoRoot>'`)
-  // the orchestrator fills instead. Asserted over EVERY runbook definition so
-  // a future step cannot reintroduce the un-executable shape.
+  /**
+   * `resolveRepoRoot` resolves `'auto'` from a `worktreePath`, or from the latest
+   * `worktree.created` event for a `taskId`. A step that pins `repoRoot: 'auto'` and binds neither
+   * can never resolve its root. Such a step must bind one of them, or use a `'<repoRoot>'`
+   * template variable.
+   */
   it('RunbookParams_RepoRootAuto_AlwaysBindsWorktreePathOrTaskId', () => {
     const violations: string[] = [];
 

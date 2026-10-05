@@ -45,17 +45,18 @@ describe('pickFields', () => {
     expect(result).toEqual({});
   });
 
+  /**
+   * The objects have a null prototype, so `__proto__` is an own key.
+   * `pickFields` must skip each prototype path and must not pollute `Object.prototype`.
+   */
   it('pickFields_ProtoPollution_BlocksProtoKeys', () => {
-    // Use null-prototype objects with actual own __proto__ keys
     const obj = Object.create(null) as Record<string, unknown>;
     obj['__proto__'] = { polluted: true };
     obj['data'] = Object.create(null);
     (obj['data'] as Record<string, unknown>)['__proto__'] = { x: 1 };
     obj['normal'] = 'ok';
     const result = pickFields(obj, ['__proto__.polluted', 'data.__proto__.x', 'constructor.prototype', 'normal']);
-    // Proto paths are silently skipped; normal field is returned
     expect(result).toEqual({ normal: 'ok' });
-    // Verify no prototype pollution occurred
     expect(({} as Record<string, unknown>)['polluted']).toBeUndefined();
   });
 
@@ -64,15 +65,13 @@ describe('pickFields', () => {
     const obj = Object.create(proto) as Record<string, unknown>;
     obj['own'] = 'value';
     const result = pickFields(obj, ['inherited', 'own']);
-    // Only own properties are picked
     expect(result).toEqual({ own: 'value' });
   });
 });
 
 describe('Envelope<T>', () => {
+  /** The check is at the type level: the literal must satisfy `Envelope<{ foo: string }>`. */
   it('Envelope_WrapsData_CarriesMetaAndPerf', () => {
-    // Type-level assertion: this assignment compiles only if the Envelope<T>
-    // shape matches exactly (success, data: T, next_actions, _meta, _perf).
     const env: Envelope<{ foo: string }> = {
       success: true,
       data: { foo: 'bar' },
@@ -81,7 +80,6 @@ describe('Envelope<T>', () => {
       _perf: { ms: 1, bytes: 10, tokens: 3 },
     };
 
-    // Runtime assertion: data is strongly typed as { foo: string }.
     expect(env.data.foo).toBe('bar');
     expect(env.success).toBe(true);
     expect(env.next_actions).toEqual([]);
@@ -121,23 +119,14 @@ describe('wrap<T>', () => {
     expect(env.data).toBe('scalar-data');
   });
 
+  /** The check is at the type level: `wrap` must return `Envelope<{ id: number }>`, so `env.data.id` is a `number`. */
   it('Wrap_PreservesStrongDataTyping', () => {
-    // Type-level assertion: the return type is `Envelope<{ id: number }>`.
     const env = wrap({ id: 99 });
-    // This compiles only if `env.data` is typed as `{ id: number }`.
     const id: number = env.data.id;
     expect(id).toBe(99);
   });
 
-  // ─── T041: wrap() accepts computed next_actions ────────────────────────────
-  //
-  // DR-8: envelopes must carry affordance hints (`next_actions`) computed
-  // from the current workflow state + HSM topology. The composite layer
-  // (which already knows the state) computes them and passes the resulting
-  // `NextAction[]` into `wrap()`. When omitted, the default remains `[]`
-  // (backward-compatible with T014/T036 call sites that do not yet have
-  // workflow state at the wrap boundary).
-
+  /** The composite layer computes `next_actions` from the workflow state and passes them to `wrap`. */
   it('Envelope_NextActions_NonEmptyForActiveWorkflow', () => {
     const action: NextAction = {
       verb: 'delegate',
@@ -153,7 +142,6 @@ describe('wrap<T>', () => {
     );
 
     expect(env.next_actions).toEqual([action]);
-    // The rest of the envelope shape is untouched.
     expect(env.success).toBe(true);
     expect(env.data).toEqual({ phase: 'plan-review' });
     expect(env._meta).toEqual({ checkpointAdvised: false });
@@ -161,25 +149,21 @@ describe('wrap<T>', () => {
   });
 
   it('Envelope_NextActions_DefaultsToEmpty_WhenOmitted', () => {
-    // Backward-compat: existing call sites that do not pass `nextActions`
-    // still get an empty array, preserving the T036–T039 contract.
     const env = wrap({ phase: 'ideate' }, undefined, undefined);
     expect(env.next_actions).toEqual([]);
   });
 });
 
+/**
+ * `wrapWithPassthrough` copies `warnings`, `_corrections` and `_eventHints` from the handler `ToolResult` onto the envelope.
+ * Without it, the wrap of each composite drops those fields.
+ */
 describe('wrapWithPassthrough — diagnostic side-channels (CodeRabbit MEDIUM #1178)', () => {
-  // The composite-boundary helper threads `warnings` and `_corrections` from
-  // the source `ToolResult` onto an envelope. Without it, every composite
-  // (workflow / view / orchestrate / event) silently drops both fields when
-  // converting from the handler's `ToolResult` shape into `Envelope<T>`.
-
   function makeEnvelope(): Envelope<{ phase: string }> {
     return wrap({ phase: 'ideate' }, { fooMeta: 'bar' }, { ms: 5 });
   }
 
   it('WrapPassthrough_NoSideChannels_ReturnsEnvelopeUnchanged', () => {
-    // Normal-path output must stay minimal: no `warnings`, no `_corrections`.
     const source: ToolResult = { success: true, data: { phase: 'ideate' } };
     const env = makeEnvelope();
     const out = wrapWithPassthrough(source, env);
@@ -189,8 +173,6 @@ describe('wrapWithPassthrough — diagnostic side-channels (CodeRabbit MEDIUM #1
   });
 
   it('WrapPassthrough_WarningsPresent_ThreadOntoEnvelope', () => {
-    // Handlers attach human-visible advisory strings via `warnings`. Losing
-    // them at the composite boundary would silently swallow the signal.
     const source: ToolResult = {
       success: true,
       data: { phase: 'ideate' },
@@ -200,8 +182,8 @@ describe('wrapWithPassthrough — diagnostic side-channels (CodeRabbit MEDIUM #1
     expect(out.warnings).toEqual(['deprecated field used']);
   });
 
+  /** An empty `warnings` array carries no information, so the envelope leaves it out. */
   it('WrapPassthrough_EmptyWarnings_OmitFromEnvelope', () => {
-    // `[]` carries no information — keep the wire shape minimal.
     const source: ToolResult = {
       success: true,
       data: { phase: 'ideate' },
@@ -211,9 +193,8 @@ describe('wrapWithPassthrough — diagnostic side-channels (CodeRabbit MEDIUM #1
     expect(out.warnings).toBeUndefined();
   });
 
+  /** An empty `applied` array still shows that a correction pass ran, so the envelope keeps it. */
   it('WrapPassthrough_CorrectionsPresent_ThreadOntoEnvelope', () => {
-    // Auto-correction telemetry: even an empty `applied` array is signal
-    // ("a correction pass ran, found nothing"), so preserve as-is.
     const source: ToolResult = {
       success: true,
       data: { phase: 'ideate' },
@@ -224,10 +205,6 @@ describe('wrapWithPassthrough — diagnostic side-channels (CodeRabbit MEDIUM #1
   });
 
   it('WrapPassthrough_EventHintsPresent_ThreadOntoEnvelope', () => {
-    // Per-action event acks set on the source ToolResult by handlers that
-    // emit events (the field shape is shared with Envelope). Composite
-    // wrapping must forward this field; without the passthrough, callers
-    // would never see which events the handler emitted.
     const source: ToolResult = {
       success: true,
       data: { phase: 'ideate' },
@@ -248,16 +225,11 @@ describe('wrapWithPassthrough — diagnostic side-channels (CodeRabbit MEDIUM #1
   });
 });
 
-// ─── T051 (DR-14): Conditional cache_control hints ─────────────────────────
-//
-// The rehydration document (T050) has a stable prefix (`STABLE_PREFIX_KEYS`) and a
-// volatile suffix (`VOLATILE_KEYS`). On Anthropic-native runtimes we signal
-// a cache boundary between the two so that the consumer can wrap their API
-// call with `cache_control: { type: "ephemeral", ttl: "1h" }`. JSON has no
-// inline markup boundary, so we emit a sibling `_cacheHints` field on the
-// envelope (Option A in the task spec) — this preserves the single-document
-// envelope contract and is backward-compatible with consumers that don't
-// know about the hint.
+/**
+ * The rehydration document has a stable prefix (`STABLE_PREFIX_KEYS`) and a volatile suffix.
+ * On a runtime with native Anthropic caching, the envelope marks the boundary between them in a sibling `_cacheHints` field.
+ * JSON has no inline boundary markup, and a consumer that does not know the hint can ignore the field.
+ */
 describe('applyCacheHints (T051, DR-14)', () => {
   it('EnvelopeSerializer_AnthropicNative_IncludesCacheControl', () => {
     const resolver = createInMemoryResolver([ANTHROPIC_NATIVE_CACHING]);
@@ -272,27 +244,23 @@ describe('applyCacheHints (T051, DR-14)', () => {
       type: 'cache_boundary',
       position: `after:${STABLE_PREFIX_KEYS.join(',')}`,
     });
-    // Rest of envelope untouched.
     expect(hinted.success).toBe(true);
     expect(hinted.data).toEqual({ v: 1, projectionSequence: 7 });
     expect(hinted.next_actions).toEqual([]);
   });
 
   it('EnvelopeSerializer_OtherRuntime_OmitsMarkers', () => {
-    const resolver = createInMemoryResolver([]); // no anthropic_native_caching
+    const resolver = createInMemoryResolver([]);
     const envelope = wrap({ v: 1, projectionSequence: 7 });
 
     const hinted = applyCacheHints(envelope, resolver);
 
     expect(hinted._cacheHints).toBeUndefined();
     expect('_cacheHints' in hinted).toBe(false);
-    // Shape is otherwise unchanged.
     expect(hinted.success).toBe(true);
     expect(hinted.data).toEqual({ v: 1, projectionSequence: 7 });
   });
 });
-
-// ─── Wave 3 Task 3.13 / 3.13a — wrapError() typed-error envelope mapping ────
 
 describe('wrapError() — ConcurrencyError → CONCURRENCY_CONFLICT envelope (Task 3.13)', () => {
   it('Wrap_MapsConcurrencyErrorToConcurrencyConflictEnvelope', () => {
@@ -316,17 +284,14 @@ describe('wrapError() — ConcurrencyError → CONCURRENCY_CONFLICT envelope (Ta
     expect(e.actualVersion).toBe(47);
     expect(e.operationId).toBe('op-abc');
     expect(e.validTargets).toEqual(['retry']);
-    // suggestedFix mentions re-fetch + retry per design.
     expect(typeof e.suggestedFix).toBe('object');
     const fix = e.suggestedFix as Record<string, unknown>;
     const fixStr = JSON.stringify(fix).toLowerCase();
     expect(fixStr).toMatch(/re-?fetch|retry/);
 
-    // _meta.retryable: true (INV-5b).
     const meta = envelope._meta as Record<string, unknown>;
     expect(meta.retryable).toBe(true);
 
-    // _perf shape present with the canonical zero defaults.
     expect(envelope._perf).toEqual({ ms: 0, bytes: 0, tokens: 0 });
   });
 
@@ -362,22 +327,18 @@ describe('wrapError() — StorageBusyError → STORAGE_BUSY envelope (Task 3.13a
     expect(e.streamId).toBe('s');
     expect(e.attempts).toBe(5);
     expect(e.validTargets).toEqual(['retry']);
-    // suggestedFix mentions back-off / substrate contention.
     const fix = e.suggestedFix as Record<string, unknown>;
     const fixStr = JSON.stringify(fix).toLowerCase();
     expect(fixStr).toMatch(/back off|cross-process write contention/);
 
-    // _meta.retryable: true.
     const meta = envelope._meta as Record<string, unknown>;
     expect(meta.retryable).toBe(true);
 
-    // _perf shape present with zero defaults.
     expect(envelope._perf).toEqual({ ms: 0, bytes: 0, tokens: 0 });
   });
 
+  /** The two errors must have different codes, so a retry layer can give each one a different budget. */
   it('Wrap_MapsConcurrencyAndStorageBusyToDistinctCodes', () => {
-    // Sibling errors must surface with DIFFERENT codes so middleware can
-    // route them to different retry budgets (audit §F2.1).
     const cErr = new ConcurrencyError({
       streamId: 's',
       reducerId: 'r@v1',
@@ -427,10 +388,8 @@ describe('toEnvelope', () => {
     }
   });
 
+  /** Composite handlers set `validTargets` and `suggestedFix` on the error block, and `toEnvelope` must keep both. */
   it('toEnvelope_PreservesErrorAuxFields_ReturnsErrorEnvelope', () => {
-    // Composite handlers attach validTargets / suggestedFix on the
-    // ToolResult.error block; toEnvelope must thread these through
-    // unchanged so the carrier sees a full diagnostic envelope.
     const result: ToolResult = {
       success: false,
       error: {
@@ -473,15 +432,10 @@ describe('toEnvelope', () => {
     expect(parsed.success).toBe(true);
   });
 
-  // ─── #1208 saga-merge-detour regression / CodeRabbit PR #1369 HIGH/MED ────
-  //
-  // `envelopeWrap` (workflow/composite.ts) returns an Envelope cast as
-  // ToolResult with `next_actions`, `warnings`, `_corrections`, `_eventHints`,
-  // and `_cacheHints` already populated. The boundary adapter `toEnvelope`
-  // must thread those through — silently dropping them was what made the
-  // rehydrate envelope on a worktree-bearing task.completed return
-  // `next_actions: []` even though the composite computed
-  // `merge_orchestrate`.
+  /**
+   * `envelopeWrap` returns an envelope cast as `ToolResult`, with `next_actions` and the side channels already set.
+   * `toEnvelope` must keep them. If it drops `next_actions`, the caller does not see a computed `merge_orchestrate` action.
+   */
   it('toEnvelope_SuccessWithNextActions_PreservesAffordances', () => {
     const verb: NextAction = {
       verb: 'merge_orchestrate',
@@ -535,13 +489,10 @@ describe('toEnvelope', () => {
     });
   });
 
-  // ─── CodeRabbit PR #1369 CRITICAL: validTargets type narrowing ────────────
-  //
-  // `ToolResult.error.validTargets` accepts ValidTransitionTarget objects on
-  // guard-failure paths. The carrier-side ErrorEnvelope advertises strings
-  // only. Narrowing must extract the canonical `phase` string so the
-  // envelope contract holds and downstream consumers don't crash on an
-  // unexpected object.
+  /**
+   * `ToolResult.error.validTargets` can hold `ValidTransitionTarget` objects, but `ErrorEnvelope` declares strings.
+   * `toEnvelope` must replace each object with its `phase` string. A plain string entry stays as it is.
+   */
   it('toEnvelope_FailureWithValidTransitionTargets_NarrowsToPhaseStrings', () => {
     const result: ToolResult = {
       success: false,
@@ -551,7 +502,7 @@ describe('toEnvelope', () => {
         validTargets: [
           { phase: 'plan' },
           { phase: 'tdd', guard: { id: 'g.tdd', description: 'tdd guard' } },
-          'design', // mixed string entry — composite handlers can pass either
+          'design',
         ],
       },
     };
@@ -565,19 +516,10 @@ describe('toEnvelope', () => {
   });
 });
 
-// ─── F.5: wrapError round-trip — every branch validates as ErrorEnvelope ───
-//
-// `wrapError` has four real-world entry shapes (design §2.5 / format.ts):
-//   1. ConcurrencyError      — typed event-store conflict.
-//   2. StorageBusyError      — typed substrate contention.
-//   3. Plain `Error` instance — caught-and-rethrown handler crash.
-//   4. Plain string          — legacy fallthrough (some adapters still throw
-//                              raw strings on misuse paths).
-//
-// Each must produce an envelope that validates as `ErrorEnvelopeSchema`.
-// Without this gate, a future refactor could quietly emit a malformed
-// failure envelope (e.g. missing `_perf` or mis-shaped `error`) and the
-// only signal would be downstream consumer breakage.
+/**
+ * `wrapError` takes four input shapes: a `ConcurrencyError`, a `StorageBusyError`, a plain `Error`, and a plain string.
+ * Each one must give an envelope that passes `ErrorEnvelopeSchema`.
+ */
 describe('WrapError_AllBranches_ValidatesAgainstErrorEnvelopeSchema (F.5)', () => {
   it('WrapError_ConcurrencyError_RoundTripsThroughErrorEnvelopeSchema', () => {
     const err = new ConcurrencyError({
@@ -624,9 +566,6 @@ describe('WrapError_AllBranches_ValidatesAgainstErrorEnvelopeSchema (F.5)', () =
   });
 
   it('WrapError_StringInput_RoundTripsThroughErrorEnvelopeSchema', () => {
-    // Some legacy throw sites still pass plain strings — the wrapper must
-    // normalise them onto a valid ErrorEnvelope even when the input lacks
-    // an `Error.message` field.
     const env = wrapError('raw string failure');
     const parsed = ErrorEnvelopeSchema.safeParse(env);
     expect(

@@ -1,11 +1,9 @@
-// ─── VCS mutation owner — the single typed git/worktree mutation surface
-// (P04-05, EFF-010 / EFF-011) ───────────────────────────────────────────────
-//
-// HIGH-tier integration suite across the git ↔ event-store seam: the exit-proof
-// scenarios drive the REAL EventStore / SQLite substrate AND a REAL git repo
-// (per-test tmp dirs), so idempotency / fencing / convergence / dry-run are
-// pinned against actual on-disk branches + worktrees — not mocks. Pure helpers
-// (fencing predicate, capability gate, ledger fold) are unit-tested alongside.
+/**
+ * Tests for `VcsMutationOwner`, the one typed surface for git and worktree mutation.
+ * The scenarios use a real `EventStore` and a real git repository in temporary directories.
+ * Thus they check idempotency, fencing, convergence and dry-run against real branches and worktrees.
+ * The fencing predicate and the ledger fold also have direct unit tests.
+ */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
@@ -45,13 +43,11 @@ import {
 } from '../../../src/vcs/mutation-owner.js';
 import type { WorkflowEvent } from '../../../src/events/schemas.js';
 
-// ─── git + event-store helpers ──────────────────────────────────────────────
-
 async function git(cwd: string, args: readonly string[]): Promise<string> {
   return (await execFileAsync('git', args, { cwd })).trim();
 }
 
-/** Init a real repo on branch `main` with one commit; returns its canonical path. */
+/** Initializes a real repository on branch `main` with one commit, and returns its canonical path. */
 async function initRepo(dir: string): Promise<string> {
   await git(dir, ['init', '-q', '-b', 'main']);
   await git(dir, ['config', 'user.email', 'vcs@example.com']);
@@ -104,8 +100,6 @@ function neverRunner(): { runner: VcsGitRunner; calls: string[][] } {
 
 const SHARED_MUTATING: ReadonlySet<Capability> = capabilitiesForPosture('shared-mutating');
 
-// ─── suite ──────────────────────────────────────────────────────────────────
-
 describe('VCS mutation owner (P04-05)', () => {
   let root: string;
   let repo: string;
@@ -118,14 +112,13 @@ describe('VCS mutation owner (P04-05)', () => {
     await store.initialize();
   });
 
+  /** `git worktree prune` detaches the worktrees that git still tracks, before the hook removes the temporary directories. */
   afterEach(async () => {
     vi.restoreAllMocks();
     store.close();
-    // Detach any worktrees git still tracks before the tmp dir is removed.
     try {
       await git(repo, ['worktree', 'prune']);
     } catch {
-      /* best effort */
     }
     await rmrfAsync(root);
     await rmrfAsync(repo);
@@ -141,8 +134,6 @@ describe('VCS mutation owner (P04-05)', () => {
   async function ledgerEvents(): Promise<WorkflowEvent[]> {
     return store.query(VCS_MUTATION_STREAM);
   }
-
-  // ── pure fencing predicate ─────────────────────────────────────────────────
 
   describe('assertVcsEpochCurrent', () => {
     it('rejects a writer below the current epoch, allows equal / greater', () => {
@@ -166,15 +157,12 @@ describe('VCS mutation owner (P04-05)', () => {
     });
   });
 
-  // `canMutateShared` used to pick live-vs-dry-run from the caller's
-  // capabilities, and a caller that flunked got a dry-run plus a
-  // successful-looking result for a mutation that never ran. Removed under
-  // INV-11 (see `capabilities/shared-mutating-gate.test.ts`). The owner no
-  // longer takes capabilities at all, so that inference is now unwritable
-  // rather than merely unwritten — which is why there is no test here asserting
-  // "capabilities don't affect mode". There is no such input to vary.
-
+  /**
+   * The owner takes no capability input, so it cannot infer dry-run from the capabilities of the caller.
+   * A caller gets dry-run only through an explicit `mode: DRY_RUN`. Thus no test here varies capabilities.
+   */
   describe('mode is requested, never inferred', () => {
+    /** The branch on disk is the proof. A success outcome alone does not show that the mutation ran. */
     it('VcsMutationOwner_NoModeRequested_MutatesLive', async () => {
       const outcome = await owner().createBranch({
         repoRoot: repo,
@@ -184,8 +172,6 @@ describe('VCS mutation owner (P04-05)', () => {
         epoch: 1,
       });
 
-      // The on-disk branch is the assertion that matters: the old failure was a
-      // plausible outcome for work that never happened.
       expect(isSuccess(outcome)).toBe(true);
       expect(await branchExists(repo, 'feature/live-default')).toBe(true);
     });
@@ -201,16 +187,14 @@ describe('VCS mutation owner (P04-05)', () => {
         mode: DRY_RUN,
       });
 
-      // Dry-run did not disappear; it stopped being chosen for you.
       expect(isDryRun(outcome)).toBe(true);
       expect(calls).toEqual([]);
       expect(await branchExists(repo, 'feature/explicit-dry')).toBe(false);
     });
   });
 
-  // ── ledger fold ────────────────────────────────────────────────────────────
-
   describe('foldVcsLedger', () => {
+    /** Key `b` has an intent and no terminal, which is the state that an interrupted run leaves. */
     it('computes the max epoch, the terminal cache, and open intents', () => {
       const events = [
         { type: VCS_REQUESTED, data: { idempotencyKey: 'a', epoch: 1 } },
@@ -221,14 +205,15 @@ describe('VCS mutation owner (P04-05)', () => {
       expect(fold.currentEpoch).toBe(3);
       expect(fold.terminals.get('a')?.kind).toBe('executed');
       expect(fold.terminals.get('a')?.result).toEqual({ branch: 'x' });
-      // `b` has an intent but no terminal — the interrupted-run cohort.
       expect(fold.intents.has('b')).toBe(true);
       expect(fold.terminals.has('b')).toBe(false);
     });
   });
 
-  // ── (b) duplicate branch-create → ONE branch ───────────────────────────────
-
+  /**
+   * The second request has the same key, so it must replay with no mutating git call.
+   * The replay can run one read-only probe through `verifyReplay`, so the test filters out the read-only subcommands.
+   */
   it('(b) duplicate branch-create requests create exactly ONE branch and replay the outcome', async () => {
     const { runner, calls } = recordingRunner();
     const o = owner(runner);
@@ -245,10 +230,6 @@ describe('VCS mutation owner (P04-05)', () => {
     if (isSuccess(first)) expect(first.value.created).toBe(true);
     expect(await branchExists(repo, 'feature/dup')).toBe(true);
 
-    // Second request, SAME key: must replay WITHOUT any MUTATING git call.
-    // The replay path is allowed exactly one READ-ONLY reality probe
-    // (`show-ref`) — see `VcsMutationRequest.verifyReplay` — so filter to
-    // effectful subcommands rather than demanding zero traffic.
     calls.length = 0;
     const second = await o.createBranch(req);
     expect(isSuccess(second)).toBe(true);
@@ -256,9 +237,8 @@ describe('VCS mutation owner (P04-05)', () => {
     const mutating = calls.filter(
       (argv) => !['show-ref', 'rev-parse'].includes(argv[0] ?? ''),
     );
-    expect(mutating).toEqual([]); // replay short-circuits before any git EFFECT
+    expect(mutating).toEqual([]);
 
-    // Exactly one branch, exactly one terminal.
     const terminals = (await ledgerEvents()).filter((e) => e.type === VCS_EXECUTED);
     expect(terminals).toHaveLength(1);
     const branches = (await git(repo, ['branch', '--list', 'feature/dup']))
@@ -266,8 +246,6 @@ describe('VCS mutation owner (P04-05)', () => {
       .filter((l) => l.trim().length > 0);
     expect(branches).toHaveLength(1);
   });
-
-  // ── (c) duplicate worktree-add → ONE worktree ──────────────────────────────
 
   it('(c) duplicate worktree-create requests create exactly ONE worktree', async () => {
     const o = owner();
@@ -292,11 +270,14 @@ describe('VCS mutation owner (P04-05)', () => {
 
     const second = await o.createWorktree(req);
     expect(isSuccess(second)).toBe(true);
-    expect(await extraWorktreeCount(repo)).toBe(1); // still exactly one
+    expect(await extraWorktreeCount(repo)).toBe(1);
   });
 
-  // ── (c2) remove-then-recreate at the SAME path re-runs the effect ──────────
-
+  /**
+   * The remove uses a different key, so its terminal does not clear the create terminal in the ledger.
+   * The second create has the same key and the same path. The `verifyReplay` probe finds no worktree there.
+   * Thus the owner must create the worktree again, and must not replay the stale `executed` terminal.
+   */
   it('(c2) createWorktree after a real remove RE-CREATES instead of replaying the stale terminal', async () => {
     const o = owner();
     const wtPath = path.join(repo, 'wt', 'lifecycle');
@@ -313,8 +294,6 @@ describe('VCS mutation owner (P04-05)', () => {
     expect(isSuccess(first)).toBe(true);
     expect(existsSync(wtPath)).toBe(true);
 
-    // Routine wave lifecycle: the worktree is removed (different key — the
-    // remove terminal does NOT clear the create terminal in the ledger).
     const removed = await o.removeWorktree({
       repoRoot: repo,
       worktreePath: wtPath,
@@ -324,15 +303,13 @@ describe('VCS mutation owner (P04-05)', () => {
     expect(isSuccess(removed)).toBe(true);
     expect(existsSync(wtPath)).toBe(false);
 
-    // Re-request at the SAME deterministic path with the SAME key. Before the
-    // verifyReplay probe this replayed the stale `executed` terminal: success
-    // reported, no worktree on disk, forever. It must now actually create.
     const recreate = await o.createWorktree(req);
     expect(isSuccess(recreate)).toBe(true);
     expect(existsSync(wtPath)).toBe(true);
     expect(await extraWorktreeCount(repo)).toBe(1);
   });
 
+  /** After the recreate, the recorded remove terminal does not match the disk, so the second remove with the same key must run again. */
   it('(c3) removeWorktree after a recreate re-runs the remove instead of replaying', async () => {
     const o = owner();
     const wtPath = path.join(repo, 'wt', 'lifecycle3');
@@ -354,8 +331,6 @@ describe('VCS mutation owner (P04-05)', () => {
     expect(isSuccess(await o.createWorktree(create))).toBe(true);
     expect(isSuccess(await o.removeWorktree(remove))).toBe(true);
     expect(existsSync(wtPath)).toBe(false);
-    // Recreate (via c2's probe), then remove AGAIN with the original key:
-    // the recorded remove terminal no longer matches reality and must re-run.
     expect(isSuccess(await o.createWorktree(create))).toBe(true);
     expect(existsSync(wtPath)).toBe(true);
     const removedAgain = await o.removeWorktree(remove);
@@ -363,8 +338,11 @@ describe('VCS mutation owner (P04-05)', () => {
     expect(existsSync(wtPath)).toBe(false);
   });
 
-  // ── (d) duplicate provider PR/merge → ONE effect ───────────────────────────
-
+  /**
+   * The provider effect runs one time across the two requests, and the second request replays the recorded outcome.
+   * The first run ran the effect, so it carries `recorded` evidence.
+   * The second run ran no effect, so it carries `replayed` evidence that names the `VCS_EXECUTED` terminal of this key.
+   */
   it('(d) duplicate provider mutation (PR/merge) runs the effect exactly ONCE', async () => {
     const o = owner();
     let prCalls = 0;
@@ -382,18 +360,12 @@ describe('VCS mutation owner (P04-05)', () => {
     const first = await o.runProviderMutation(input, effect);
     const second = await o.runProviderMutation(input, effect);
 
-    expect(prCalls).toBe(1); // the provider effect ran once across duplicates
+    expect(prCalls).toBe(1);
     expect(isSuccess(first)).toBe(true);
     expect(isSuccess(second)).toBe(true);
     if (isSuccess(first) && isSuccess(second)) {
-      expect(second.value).toEqual(first.value); // replayed the recorded outcome
+      expect(second.value).toEqual(first.value);
 
-      // The two runs commit on DIFFERENT evidence, and the distinction is the
-      // whole point of the second arm. The first run minted receipts; the
-      // second performed no effect and minted nothing, so it carries a witness
-      // naming the terminal a previous run recorded. Asserting the arm and the
-      // event together is what stops a refactor pointing the witness at an
-      // event the ledger never wrote for this key.
       expect(first.evidence.kind).toBe('recorded');
       expect(second.evidence.kind).toBe('replayed');
       if (second.evidence.kind === 'replayed') {
@@ -403,8 +375,11 @@ describe('VCS mutation owner (P04-05)', () => {
     }
   });
 
-  // ── (e) interrupted worktree-create converges on retry, no orphan ──────────
-
+  /**
+   * The append of the success terminal throws, which simulates a crash after the git effect and before the terminal.
+   * The worktree is on disk and the intent is durable, so a reconciler can find the interrupted request.
+   * The retry with the same key finds the worktree and the branch, creates nothing, and records the terminal.
+   */
   it('(e) an interrupted worktree-create leaves an intent (not an event-less orphan) and converges on retry', async () => {
     const o = owner();
     const wtPath = path.join(repo, 'wt', 'interrupt');
@@ -417,8 +392,6 @@ describe('VCS mutation owner (P04-05)', () => {
       epoch: 1,
     };
 
-    // Simulate a crash AFTER the git effect but BEFORE the success terminal by
-    // making the terminal append throw exactly once.
     const originalAppend = store.append.bind(store);
     const appendSpy = vi
       .spyOn(store, 'append')
@@ -433,21 +406,17 @@ describe('VCS mutation owner (P04-05)', () => {
     expect(isError(interrupted)).toBe(true);
     if (isError(interrupted)) expect(interrupted.error.code).toBe('VCS_TERMINAL_APPEND_FAILED');
 
-    // The on-disk worktree exists, but it is NOT an event-less orphan: the
-    // durable INTENT is recorded, so a reconciler can find + converge it.
     expect(existsSync(wtPath)).toBe(true);
     expect(await extraWorktreeCount(repo)).toBe(1);
     const openBefore = await o.openIntents();
     expect(openBefore).toContain('wt-interrupt-1');
     expect((await ledgerEvents()).some((e) => e.type === VCS_EXECUTED)).toBe(false);
 
-    // Retry with the SAME key after recovery: the effect no-ops (worktree +
-    // branch already exist), the terminal lands, and there is still ONE worktree.
     appendSpy.mockRestore();
     const retried = await o.createWorktree(req);
     expect(isSuccess(retried)).toBe(true);
     if (isSuccess(retried)) {
-      expect(retried.value.createdWorktree).toBe(false); // converged, not re-created
+      expect(retried.value.createdWorktree).toBe(false);
       expect(retried.value.createdBranch).toBe(false);
     }
     expect(await extraWorktreeCount(repo)).toBe(1);
@@ -455,11 +424,11 @@ describe('VCS mutation owner (P04-05)', () => {
     expect((await ledgerEvents()).some((e) => e.type === VCS_EXECUTED)).toBe(true);
   });
 
-  // ── partial-failure compensation: no orphaned branch ───────────────────────
-
+  /**
+   * The runner fails `worktree add` and sends each other command to real git.
+   * The owner must delete the branch that it created, and must record a compensated terminal that closes the key.
+   */
   it('compensates the minted branch when worktree add fails (no orphaned on-disk state)', async () => {
-    // A runner that lets the branch create + probes through to real git but
-    // forces `worktree add` to fail, exercising the compensation path.
     const inner = recordingRunner();
     const failingAdd: VcsGitRunner = {
       run(args, cwd) {
@@ -480,32 +449,24 @@ describe('VCS mutation owner (P04-05)', () => {
     });
 
     expect(isError(result)).toBe(true);
-    // The branch minted for the failed worktree must have been deleted.
     expect(await branchExists(repo, 'feature/should-be-compensated')).toBe(false);
-    // A compensated terminal is recorded, so the key is closed, not orphaned.
     expect(await o.openIntents()).not.toContain('wt-fail-1');
   });
 
-  // ── intent → effect → terminal ordering ────────────────────────────────────
-
+  /**
+   * Each arm has its own ledger stream, so each assertion compares the whole stream as an ordered array.
+   * Each effect also reads the stream while it runs. That snapshot must hold only the intent, so the intent was durable first.
+   * A failed run records the compensated terminal and no other terminal.
+   * The dry-run arm reads the declared plan, so the test compares the observed ledger with the emissions that the owner declares.
+   */
   it('MutationOwner_IntentThenTerminalOrdering_IsPreserved', async () => {
-    // Each arm gets its own ledger stream so the assertions can be exact whole-
-    // stream arrays. An array read in stream order is what makes this ordering
-    // rather than presence: the reversed ledger is a different array, whereas
-    // the SET of events is the same either way.
     function ownerOn(stream: string): VcsMutationOwner {
       return new VcsMutationOwner({ eventStore: store, stream, gitRunner: neverRunner().runner });
     }
     const typesOn = async (stream: string): Promise<string[]> =>
       (await store.query(stream)).map((e) => e.type);
 
-    // ── the success arm ──────────────────────────────────────────────────────
     const successStream = 'ordering-success';
-    // What the ledger looked like AT THE MOMENT the effect ran. Snapshotting
-    // from inside the thunk is the other half of the ordering proof: an
-    // implementation that recorded both facts after the effect, or recorded the
-    // terminal first, leaves the FINAL stream looking plausible while producing
-    // a different snapshot here.
     let duringSuccess: string[] = [];
     const succeeded = await ownerOn(successStream).mutate<{ probe: string }>(
       {
@@ -521,12 +482,9 @@ describe('VCS mutation owner (P04-05)', () => {
     );
 
     expect(isSuccess(succeeded)).toBe(true);
-    // The INTENT was already durable when the effect ran, and NO terminal was.
     expect(duringSuccess).toEqual([VCS_REQUESTED]);
-    // Exactly one terminal, and it lands after the intent.
     expect(await typesOn(successStream)).toEqual([VCS_REQUESTED, VCS_EXECUTED]);
 
-    // ── the failure arm ──────────────────────────────────────────────────────
     const failureStream = 'ordering-failure';
     let duringFailure: string[] = [];
     const compensated = await ownerOn(failureStream).mutate<{ probe: string }>(
@@ -544,15 +502,8 @@ describe('VCS mutation owner (P04-05)', () => {
 
     expect(isError(compensated)).toBe(true);
     expect(duringFailure).toEqual([VCS_REQUESTED]);
-    // The two terminals are mutually exclusive: a failed run records the
-    // compensated one and ONLY it, still after the intent.
     expect(await typesOn(failureStream)).toEqual([VCS_REQUESTED, VCS_COMPENSATED]);
 
-    // ── and the ordering is DECLARED, not incidental ─────────────────────────
-    //
-    // The same request withheld as a dry-run reports the plan, so the ledger
-    // observed above can be compared against what the owner promised to write
-    // rather than against a sequence restated here.
     const withheld = await ownerOn('ordering-plan').mutate<{ probe: string }>(
       {
         kind: 'branch.create',
@@ -572,17 +523,13 @@ describe('VCS mutation owner (P04-05)', () => {
       expect(names('on-failure')).toEqual([VCS_COMPENSATED]);
       expect(withheld.plan.emits).toEqual(VCS_LEDGER_EMISSIONS);
     }
-    // A withheld run records nothing at all, so the declaration above cost the
-    // ledger nothing to read.
     expect(await typesOn('ordering-plan')).toEqual([]);
   });
 
-  // ── (f) fenced-out stale owner rejected ────────────────────────────────────
-
+  /** An owner at epoch 2 writes to the ledger first. The request at epoch 1 is then stale, and its branch must not exist. */
   it('(f) a fenced-out stale owner (lower epoch) is rejected and performs NO mutation', async () => {
     const o = owner();
 
-    // A newer owner takes over at epoch 2 (records epoch 2 in the ledger).
     const takeover = await o.createBranch({
       repoRoot: repo,
       branch: 'feature/owner-2',
@@ -592,7 +539,6 @@ describe('VCS mutation owner (P04-05)', () => {
     });
     expect(isSuccess(takeover)).toBe(true);
 
-    // The stale owner (epoch 1) attempts a mutation → fenced out.
     const stale = await o.createBranch({
       repoRoot: repo,
       branch: 'feature/owner-1-stale',
@@ -602,11 +548,8 @@ describe('VCS mutation owner (P04-05)', () => {
     });
     expect(isError(stale)).toBe(true);
     if (isError(stale)) expect(stale.error.code).toBe('VCS_STALE_EPOCH');
-    // The stale owner's branch was never created.
     expect(await branchExists(repo, 'feature/owner-1-stale')).toBe(false);
   });
-
-  // ── (g) dry-run performs no mutation ───────────────────────────────────────
 
   it('(g) an explicit dry-run creates NO branch, touches NO git, and appends NO event', async () => {
     const { runner, calls } = neverRunner();
@@ -625,23 +568,17 @@ describe('VCS mutation owner (P04-05)', () => {
       expect(outcome.plan.effectClass).toBe('vcs');
       expect(outcome.plan.idempotent).toBe(true);
     }
-    expect(calls).toEqual([]); // structurally never reached git
+    expect(calls).toEqual([]);
     expect(await branchExists(repo, 'feature/never')).toBe(false);
-    expect(await ledgerEvents()).toEqual([]); // no intent, no terminal
+    expect(await ledgerEvents()).toEqual([]);
   });
-
-  // A "degrades to dry-run when the caller lacks shared-mutating capability"
-  // case lived here. It is gone with the capability input itself — see the
-  // `mode is requested, never inferred` block above.
 });
 
-// ─── Shared git-mutation primitives (the single argv surface) ─────────────────
-//
-// These centralize the worktree/branch mutation argument vectors in the owner
-// module so the WLM (`worktree/manager.ts`) and the merge saga
-// (`verbs/merge/local-git-merge.ts`) — which carry their own idempotency — route
-// the raw git transport through the owner WITHOUT opening a second ledger, and
-// no mutation token survives outside `vcs/` for the architecture census to flag.
+/**
+ * The owner module holds the argument vectors for a forced worktree removal and a forced branch deletion.
+ * `verbs/worktree/manager.ts` and `verbs/merge/local-git-merge.ts` have their own idempotency.
+ * They pass their own git transport to these helpers, so they open no second ledger.
+ */
 describe('shared git-mutation primitives (P04-05)', () => {
   it('worktreeRemoveForceArgs builds the canonical forced-remove argv', () => {
     expect(worktreeRemoveForceArgs('/repo/.worktrees/task-x')).toEqual([

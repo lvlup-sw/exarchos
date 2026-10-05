@@ -1,12 +1,8 @@
 /**
- * Tests for `install-skills-bridge.js` runtimes resolution policy
- * (#1213 review-item #4 reversal, #1214).
+ * Tests for the runtime-selection policy of `install-skills-bridge.js`.
  *
- * The bridge MUST prefer `EMBEDDED_RUNTIMES` by default — otherwise
- * the compiled binary fails at user-runtime with "Runtimes directory
- * not found" because the YAML files are not part of the bundled
- * artifact graph. The `EXARCHOS_RUNTIMES_FROM_DISK=1` override exists
- * solely for dev hot-reload; CI's `runtimes:guard` enforces drift.
+ * The bridge uses `EMBEDDED_RUNTIMES` by default, because the compiled binary does not contain
+ * the runtime YAML files. `EXARCHOS_RUNTIMES_FROM_DISK=1` loads the YAML from disk for development.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { runInstallSkills, shouldLoadFromDisk } from '../../../src/lifecycle/install-skills-bridge.js';
@@ -16,7 +12,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-// Walk up from src/lifecycle → repo root.
+/** The repository root, three directories up from this test directory. */
 const REPO_ROOT = resolve(__dirname, '../../..');
 const RUNTIMES_DIR = resolve(REPO_ROOT, 'content/harness/runtimes');
 
@@ -56,13 +52,14 @@ describe('install-skills-bridge', () => {
     expect(callArg?.runtimes).toBe(fakeRuntimes);
   });
 
+  /**
+   * The test compares the runtimes by name, so the order of each source has no effect.
+   * The codegen must not drop or change a field: each embedded runtime must deep-equal its disk runtime.
+   */
   it('Bridge_EmbeddedAndDisk_ProduceIdenticalRuntimes', () => {
     const fromDisk = loadAllRuntimes(RUNTIMES_DIR);
     const fromEmbedded = [...EMBEDDED_RUNTIMES];
 
-    // Order may differ (FS yields alphabetical via readdirSync().sort();
-    // codegen yields REQUIRED_RUNTIME_NAMES order). Compare by name set
-    // and by per-name field equality.
     const diskByName = new Map(fromDisk.map((r) => [r.name, r] as const));
     const embeddedByName = new Map(fromEmbedded.map((r) => [r.name, r] as const));
 
@@ -71,8 +68,6 @@ describe('install-skills-bridge', () => {
     for (const [name, diskRt] of diskByName) {
       const embeddedRt = embeddedByName.get(name);
       expect(embeddedRt, `embedded missing ${name}`).toBeDefined();
-      // Deep-equal across the entire validated shape — the codegen
-      // round-trip must not drop or transform any field.
       expect(embeddedRt).toEqual(diskRt);
     }
   });

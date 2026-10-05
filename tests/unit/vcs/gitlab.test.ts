@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GitLabProvider } from '../../../src/vcs/gitlab.js';
 import type { PrComment } from '../../../src/vcs/provider.js';
 
-// Mock the shell execution helper
 vi.mock('../../../src/vcs/shell.js', () => ({
   exec: vi.fn(),
 }));
@@ -10,6 +9,13 @@ vi.mock('../../../src/vcs/shell.js', () => ({
 import { exec } from '../../../src/vcs/shell.js';
 const mockExec = vi.mocked(exec);
 
+/**
+ * `glab mr create` has no `--json` flag, so `createPr` runs a bare create and then reads `iid` and `webUrl` from `glab mr view`.
+ * The `createPr` tests stub those two `exec` calls in order.
+ *
+ * `getPrComments` reads all feedback from the paginated discussions endpoint. GitLab has no `review-summary` source.
+ * `stubDiscussions` gives one canned payload for each page. It matches `[?&]page=`, so the `page` in `per_page` does not match.
+ */
 describe('GitLabProvider', () => {
   let provider: GitLabProvider;
 
@@ -22,17 +28,12 @@ describe('GitLabProvider', () => {
     expect(provider.name).toBe('gitlab');
   });
 
-  // ── createPr ────────────────────────────────────────────────────────────
-
-  // `glab mr create` has no `--json` flag, so createPr issues a bare create
-  // then reads identity via `glab mr view <branch> --json iid,webUrl`. Tests
-  // stub the two exec calls in order: create (output ignored), then view.
   const VIEW_JSON = (iid: number, webUrl: string): string =>
     JSON.stringify({ iid, webUrl });
 
   it('GitLabProvider_CreatePr_CallsGlabWithCorrectArgs', async () => {
     mockExec
-      .mockResolvedValueOnce('') // create — output not parsed
+      .mockResolvedValueOnce('')
       .mockResolvedValueOnce(
         VIEW_JSON(10, 'https://gitlab.com/test/repo/-/merge_requests/10')
       );
@@ -182,8 +183,6 @@ describe('GitLabProvider', () => {
     ).rejects.toThrow('glab not found');
   });
 
-  // ── checkCi ─────────────────────────────────────────────────────────────
-
   it('GitLabProvider_CheckCi_ParsesPipelineJobs', async () => {
     mockExec.mockResolvedValue(
       JSON.stringify({
@@ -282,8 +281,6 @@ describe('GitLabProvider', () => {
     await expect(provider.checkCi('10')).rejects.toThrow('glab ci error');
   });
 
-  // ── mergePr ─────────────────────────────────────────────────────────────
-
   it('GitLabProvider_MergePr_CallsGlabMergeWithSquash', async () => {
     mockExec
       .mockResolvedValueOnce('Merged MR !10')
@@ -315,6 +312,7 @@ describe('GitLabProvider', () => {
     ]);
   });
 
+  /** The `merge` strategy adds no flag, because `glab mr merge` makes a merge commit by default. */
   it('GitLabProvider_MergePr_MergeStrategy', async () => {
     mockExec
       .mockResolvedValueOnce('Merged MR !10')
@@ -322,7 +320,6 @@ describe('GitLabProvider', () => {
 
     await provider.mergePr('10', 'merge');
 
-    // glab mr merge with no special flag (default is merge commit)
     expect(mockExec).toHaveBeenNthCalledWith(1, 'glab', [
       'mr',
       'merge',
@@ -358,8 +355,6 @@ describe('GitLabProvider', () => {
     expect(result.error).toBe('merge conflict');
   });
 
-  // ── addComment ──────────────────────────────────────────────────────────
-
   it('GitLabProvider_AddComment_CallsGlabMrComment', async () => {
     mockExec.mockResolvedValue('');
 
@@ -372,8 +367,6 @@ describe('GitLabProvider', () => {
       'LGTM',
     ]);
   });
-
-  // ── getReviewStatus ─────────────────────────────────────────────────────
 
   it('GitLabProvider_GetReviewStatus_ParsesApproved', async () => {
     mockExec.mockResolvedValue(
@@ -413,6 +406,7 @@ describe('GitLabProvider', () => {
     expect(result.reviewers[1].state).toBe('pending');
   });
 
+  /** One of two reviewers approved, so the overall state stays `pending`. */
   it('GitLabProvider_GetReviewStatus_PartialApproval', async () => {
     mockExec.mockResolvedValue(
       JSON.stringify({
@@ -422,7 +416,6 @@ describe('GitLabProvider', () => {
     );
 
     const result = await provider.getReviewStatus('10');
-    // Not all reviewers have approved, so still pending
     expect(result.state).toBe('pending');
     expect(result.reviewers[0].state).toBe('approved');
     expect(result.reviewers[1].state).toBe('pending');
@@ -441,18 +434,9 @@ describe('GitLabProvider', () => {
     expect(result.reviewers).toHaveLength(0);
   });
 
-  // ── getPrComments ─────────────────────────────────────────────────────────
-  // GitLab harvests ALL feedback from one paginated endpoint:
-  // `projects/:fullpath/merge_requests/<iid>/discussions`. Each test stubs that
-  // endpoint per page; a diff `position` ⇒ 'review-inline', everything else ⇒
-  // 'issue-comment'. There is no 'review-summary' surface on GitLab.
-
-  // Route mocked `exec` to a per-page canned discussions payload, keyed by the
-  // `page=` query param the implementation appends.
   function stubDiscussions(pages: readonly unknown[][]): void {
     mockExec.mockImplementation((_cmd: string, args?: readonly string[]) => {
       const endpoint = (args ?? []).find((a) => a.includes('discussions')) ?? '';
-      // Anchor on the separator so we don't match the `page` inside `per_page`.
       const m = endpoint.match(/[?&]page=(\d+)/);
       const page = m ? Number(m[1]) : 1;
       return Promise.resolve(JSON.stringify(pages[page - 1] ?? []));
@@ -615,6 +599,7 @@ describe('GitLabProvider', () => {
     expect(byId[2].resolved).toBe(false);
   });
 
+  /** The note carries `resolved: false` with `resolvable: false`, so the comment must have no `resolved` key. */
   it('GitLab_GetPrComments_LeavesResolvedAbsentOnNonResolvableNote', async () => {
     stubDiscussions([
       [
@@ -630,7 +615,7 @@ describe('GitLabProvider', () => {
               type: null,
               system: false,
               resolvable: false,
-              resolved: false, // present but resolvable:false ⇒ must stay absent
+              resolved: false,
             },
           ],
         },
@@ -691,8 +676,8 @@ describe('GitLabProvider', () => {
     expect(result[2].parentId).toBe(100);
   });
 
+  /** Page 1 holds 100 discussions, which is the `per_page` value, so the provider must fetch page 2. */
   it('GitLab_GetPrComments_PaginatesBeyondFirstPage', async () => {
-    // Page 1 is full (== per_page 100) ⇒ the loop must fetch page 2.
     const fullPage = Array.from({ length: 100 }, (_, i) => ({
       id: `d${i}`,
       individual_note: true,
@@ -782,7 +767,6 @@ describe('GitLabProvider', () => {
         expect(CONTRACT_KEYS.has(key as keyof PrComment)).toBe(true);
       }
     }
-    // Sanity: no raw GitLab field names leaked through.
     const leaked = result.flatMap((c) => Object.keys(c));
     expect(leaked).not.toContain('new_path');
     expect(leaked).not.toContain('resolvable');
@@ -790,6 +774,7 @@ describe('GitLabProvider', () => {
     expect(leaked).not.toContain('position');
   });
 
+  /** The resolvable note has no `resolved` field. The comment has no `resolved` key, and its other fields still map. */
   it('GitLab_GetPrComments_LeavesResolvedAbsentOnMissingResolutionField', async () => {
     stubDiscussions([
       [
@@ -805,7 +790,6 @@ describe('GitLabProvider', () => {
               type: 'DiffNote',
               system: false,
               resolvable: true,
-              // `resolved` deliberately omitted (missing/garbled field)
               position: { new_path: 'a.ts', new_line: 1 },
             },
           ],
@@ -816,8 +800,6 @@ describe('GitLabProvider', () => {
     const result = await provider.getPrComments('42');
 
     expect(result).toHaveLength(1);
-    // Per-field defensive: missing resolution leaves `resolved` absent, but the
-    // rest of the comment still maps.
     expect('resolved' in result[0]).toBe(false);
     expect(result[0]).toMatchObject({
       id: 1,
@@ -827,9 +809,8 @@ describe('GitLabProvider', () => {
     });
   });
 
+  /** A system note records label or description activity. It is not feedback, and the GitHub comment endpoints return no such note. */
   it('GitLab_GetPrComments_SkipsSystemNotes', async () => {
-    // System notes (label/description activity) are not feedback — GitHub's
-    // comment endpoints never surface these, so two-source parity drops them.
     stubDiscussions([
       [
         {

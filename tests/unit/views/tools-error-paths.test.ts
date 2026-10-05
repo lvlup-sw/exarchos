@@ -37,16 +37,9 @@ afterEach(async () => {
 });
 
 describe('projections/views/tools.ts composite error paths', () => {
-  // ─── T-12.1: ShepherdStatus — queryDeltaEvents throws non-Error ───────────
-
   describe('HandleViewShepherdStatus_QueryThrowsNonError_ReturnsViewError', () => {
+    /** `EventStore.prototype.query` throws a string. The handler puts `String(err)` in the error message. */
     it('should return VIEW_ERROR when queryDeltaEvents throws a string error', async () => {
-      // The handler internally calls getOrCreateEventStore which creates an
-      // EventStore. We can make the EventStore.query throw by providing
-      // an invalid streamId with uppercase characters, which fails assertSafeId.
-      // But a simpler approach: mock the module function.
-      //
-      // For a non-Error throw, we mock the EventStore.query to throw a string.
       const storeModule = await import('../../../src/events/store.js');
       vi.spyOn(storeModule.EventStore.prototype, 'query').mockImplementation(() => {
         // eslint-disable-next-line no-throw-literal
@@ -58,12 +51,9 @@ describe('projections/views/tools.ts composite error paths', () => {
       expect(result.success).toBe(false);
       expect(result.error).toBeDefined();
       expect(result.error!.code).toBe('VIEW_ERROR');
-      // Non-Error objects are stringified via String()
       expect(result.error!.message).toBe('string error from query');
     });
   });
-
-  // ─── T-12.2: Convergence — queryDeltaEvents throws Error ──────────────────
 
   describe('HandleViewConvergence_QueryThrowsError_ReturnsViewError', () => {
     it('should return VIEW_ERROR when queryDeltaEvents throws an Error', async () => {
@@ -81,8 +71,6 @@ describe('projections/views/tools.ts composite error paths', () => {
     });
   });
 
-  // ─── T-12.4: Provenance — queryDeltaEvents throws Error ───────────────────
-
   describe('HandleViewProvenance_QueryThrowsError_ReturnsViewError', () => {
     it('should return VIEW_ERROR when queryDeltaEvents throws an Error', async () => {
       const storeModule = await import('../../../src/events/store.js');
@@ -98,8 +86,6 @@ describe('projections/views/tools.ts composite error paths', () => {
       expect(result.error!.message).toBe('provenance query failed');
     });
   });
-
-  // ─── T-12.5: Unknown action returns UNKNOWN_ACTION ────────────────────────
 
   describe('HandleViewAction_UnknownAction_ReturnsUnknownAction', () => {
     it('should return UNKNOWN_ACTION for an unrecognized action string', async () => {

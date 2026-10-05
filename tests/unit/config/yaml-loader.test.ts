@@ -100,20 +100,20 @@ hooks:
     expect(result).toEqual({});
   });
 
+  /**
+   * The unknown top-level key `foo` fails strict validation. The loader then parses each section
+   * alone and keeps the valid `vcs` section.
+   * The warning goes to the structured logger, and this test does not assert it.
+   */
   it('loadProjectConfig_InvalidSchema_ReturnsPartialWithWarnings', async () => {
     const { loadProjectConfig } = await import('../../../src/config/yaml-loader.js');
-    // 'foo' is an unknown top-level key (strict mode rejects it)
-    // But valid sections should be returned via partial parsing
     const yaml = `
 vcs:
   provider: github
 foo: bar
 `;
     fs.writeFileSync(path.join(tmpDir, '.exarchos.yml'), yaml, 'utf-8');
-    // loadProjectConfig logs warnings via structured logger (pino) — not console
     const result = loadProjectConfig(tmpDir);
-    // When schema validation fails, we attempt section-level parse
-    // The valid vcs section should be preserved
     expect(result.vcs?.provider).toBe('github');
   });
 });
@@ -145,7 +145,6 @@ describe('discoverProjectRoot', () => {
 
   it('discoverProjectRoot_WalksUpForYml_FindsRoot', async () => {
     const { discoverProjectRoot } = await import('../../../src/config/yaml-loader.js');
-    // Create a nested dir structure with config in parent
     const childDir = path.join(tmpDir, 'src', 'deep');
     fs.mkdirSync(childDir, { recursive: true });
     fs.writeFileSync(path.join(tmpDir, '.exarchos.yml'), 'vcs:\n  provider: github\n', 'utf-8');
@@ -153,32 +152,28 @@ describe('discoverProjectRoot', () => {
     expect(result).toBe(tmpDir);
   });
 
-  // Windows mkdtemp yields an 8.3 short name (RUNNER~1) while git's
-  // --show-toplevel returns the long username (runneradmin); realpathSync
-  // doesn't reconcile them. discoverProjectRoot itself works (it uses git);
-  // only this temp-path comparison is a Windows FS quirk. (#1620)
+  /**
+   * The test does not run on Windows. There, `mkdtemp` gives an 8.3 short name and git gives the
+   * long name, and `realpathSync` does not reconcile them. Only this path comparison fails there.
+   * Git returns the real path with forward slashes, so the expectation uses `realpathSync` and `toPosix`.
+   */
   it.skipIf(process.platform === 'win32')('discoverProjectRoot_FallsBackToGitRoot', async () => {
     const { discoverProjectRoot } = await import('../../../src/config/yaml-loader.js');
-    // Create a temp git repo without .exarchos.yml
     const gitDir = fs.mkdtempSync(path.join(os.tmpdir(), 'discover-git-'));
     try {
       await execFileAsync('git', ['init'], { cwd: gitDir });
       const childDir = path.join(gitDir, 'src');
       fs.mkdirSync(childDir, { recursive: true });
       const result = discoverProjectRoot(childDir);
-      // `git rev-parse --show-toplevel` returns the realpath with forward
-      // slashes; on Windows mkdtemp yields an 8.3 short name (RUNNER~1) with
-      // backslashes, so normalize both sides via realpath + toPosix (#1620).
       expect(result).toBe(toPosix(fs.realpathSync(gitDir)));
     } finally {
       rmrf(gitDir);
     }
   });
 
+  /** The test assumes that no ancestor of the OS temp directory holds a config file or a git repository. */
   it('discoverProjectRoot_NothingFound_UsesCwd', async () => {
     const { discoverProjectRoot } = await import('../../../src/config/yaml-loader.js');
-    // Use /tmp itself — no config file, no git root (most likely)
-    // Create an isolated dir that is NOT a git repo
     const isolatedDir = fs.mkdtempSync(path.join(os.tmpdir(), 'discover-isolated-'));
     try {
       const result = discoverProjectRoot(isolatedDir);
@@ -188,14 +183,17 @@ describe('discoverProjectRoot', () => {
     }
   });
 
-  // ─── Dual-reader reconciliation (#1479) ───────────────────────────────────
-  //
-  // `.exarchos.yml` is read by two paths whose schemas are both `.strict()`.
-  // This loader used to validate with the narrow project-side schema, so a key
-  // owned by the OTHER reader (e.g. the top-level `mutation` runner) failed
-  // full validation, logged a startup warning, and silently degraded the file
-  // to partial section parsing. The repo's own committed config hit this.
+  /**
+   * Two readers with `.strict()` schemas read `.exarchos.yml`. The loader validates against the
+   * merged schema. A key of the other reader, such as the top-level `mutation`, must not degrade the
+   * file to section parsing.
+   */
   describe('reconciled full-config validation', () => {
+    /**
+     * `checkpoint` is not in the `SECTION_KEYS` fallback list, so it survives only when full
+     * validation passes. The fallback also recovers `agents`, so `agents` alone proves nothing.
+     * The `mutation` key of the other reader must not be in the project slice.
+     */
     it('loadProjectConfig_ForeignReaderKey_ValidatesWithoutDegrading', async () => {
       const { loadProjectConfig } = await import('../../../src/config/yaml-loader.js');
       fs.writeFileSync(
@@ -212,17 +210,15 @@ describe('discoverProjectRoot', () => {
 
       const config = loadProjectConfig(tmpDir);
 
-      // `checkpoint` is deliberately NOT in the loader's SECTION_KEYS fallback
-      // list, so it can ONLY survive via the full-validation success path.
-      // Asserting on it (rather than on `agents`, which the fallback also
-      // recovers) is what makes this test discriminate: validating with the
-      // narrow project-side schema drops `checkpoint` entirely.
       expect(config.checkpoint?.['operation-threshold']).toBe(7);
       expect(config.agents?.['default-model']).toBe('opus');
-      // The foreign-reader key is not leaked into the project slice.
       expect(config).not.toHaveProperty('mutation');
     });
 
+    /**
+     * An unknown key must still fail full validation. The loader then falls back to section parsing:
+     * `agents` survives and the typo does not.
+     */
     it('loadProjectConfig_GenuineTypo_StillRejected', async () => {
       const { loadProjectConfig } = await import('../../../src/config/yaml-loader.js');
       fs.writeFileSync(
@@ -233,19 +229,16 @@ describe('discoverProjectRoot', () => {
 
       const config = loadProjectConfig(tmpDir);
 
-      // Reconciliation must not become permissive: an unknown key still fails
-      // full validation, so we fall back to section parsing (agents survives,
-      // the typo is dropped) rather than silently accepting it.
       expect(config.agents?.['default-model']).toBe('opus');
       expect(config).not.toHaveProperty('nonsenseKey');
     });
 
+    /**
+     * The committed config of this repository must pass full validation. `invariants` is not in the
+     * `SECTION_KEYS` fallback list, so its presence proves that.
+     */
     it('loadProjectConfig_RepoOwnConfig_ValidatesCleanly', async () => {
       const { loadProjectConfig } = await import('../../../src/config/yaml-loader.js');
-      // The repository's own committed config must validate on the success
-      // path — it is the file every developer and CI run loads at startup.
-      // `invariants` is outside the SECTION_KEYS fallback, so its presence
-      // proves full validation succeeded rather than degrading.
       const repoRoot = path.resolve(__dirname, '../../..');
       const config = loadProjectConfig(repoRoot);
       expect(config.agents).toBeDefined();

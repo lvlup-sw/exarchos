@@ -1,18 +1,7 @@
 /**
- * runFollowLoop — CLI `--follow` polling-loop tests (#1273, T33 + T34).
- *
- * Wave C / PR 3. The CLI `view workflow_status --follow` and
- * `view shepherd_status --follow` subcommands consume the dispatch-core
- * `EventSourcedTaskStore` directly (function calls, not JSON-RPC) and
- * render each state transition to stdout. The MCP arm consumes the same
- * dispatch-core via `tasks/*` (C2) — INV-2 facade equivalence.
- *
- * These tests pin the polling, formatting, configuration, and cancellation
- * contracts without instantiating the full Commander entry. Fixture stores
- * implement the minimum slice of the `TaskStore` interface that the loop
- * exercises: `getTask` (for polling) and `updateTaskStatus` (for the
- * SIGINT → `cancelled` path), plus a small in-memory `cancelCalls`
- * spy used in the T34 SIGINT assertion.
+ * `runFollowLoop`, the polling loop of the CLI `--follow` view commands: polling, line output,
+ * the poll interval, and cancel on abort. The fixture stores hold only `getTask` and
+ * `updateTaskStatus`.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { PassThrough } from 'node:stream';
@@ -20,14 +9,10 @@ import type { V2Task as Task } from '../../../src/contract/sdk/seam.js';
 
 import { runFollowLoop, type FollowTaskStore } from '../../../src/cli/follow-loop.js';
 
-// ─── Fixture builder ───────────────────────────────────────────────────────
-//
-// `scriptedStore` constructs a tiny TaskStore facade that progresses
-// through a scripted sequence of Task snapshots on consecutive `getTask`
-// calls. The final snapshot in the script is returned forever once the
-// loop reaches it; tests assert the loop terminates only when the final
-// status is one of `completed | failed | cancelled` (per the SDK
-// `isTerminal` predicate).
+/**
+ * A task store that returns the scripted snapshots in order, then repeats the last one.
+ * `cancelCalls` records each `cancelled` status write.
+ */
 function scriptedStore(taskId: string, script: ReadonlyArray<Task>): FollowTaskStore & {
   cancelCalls: ReadonlyArray<{ taskId: string; reason?: string }>;
 } {
@@ -60,9 +45,6 @@ const ISO_FIXED = '2026-05-15T00:00:00.000Z';
 describe('runFollowLoop (#1273)', () => {
   describe('T33 — --follow polling loop', () => {
     it('CliFollow_WorkflowSubcommand_RendersTransitionsToStdout', async () => {
-      // Script the workflow_status task through working → completed.
-      // The loop must emit one stdout line per transition (status change)
-      // and exit when the terminal status is reached.
       const taskId = 'task-wf-001';
       const script: Task[] = [
         { taskId, status: 'working', ttl: 60_000, createdAt: ISO_FIXED, lastUpdatedAt: ISO_FIXED },
@@ -91,14 +73,10 @@ describe('runFollowLoop (#1273)', () => {
       expect(text).toContain('working');
       expect(text).toContain('completed');
       expect(result.terminalStatus).toBe('completed');
-      // Polling MUST stop once the terminal status is observed; no
-      // additional `lastUpdatedAt` events should leak out after.
       expect(result.transitions).toBeGreaterThanOrEqual(2);
     });
 
     it('CliFollow_ShepherdSubcommand_RendersTransitionsToStdout', async () => {
-      // Same shape for the shepherd_status entrypoint — the formatter is
-      // shared, so subcommand only affects the rendered prefix.
       const taskId = 'task-sh-002';
       const script: Task[] = [
         { taskId, status: 'working', ttl: 30_000, createdAt: ISO_FIXED, lastUpdatedAt: ISO_FIXED },
@@ -128,13 +106,11 @@ describe('runFollowLoop (#1273)', () => {
       expect(result.terminalStatus).toBe('failed');
     });
 
+    /**
+     * The test passes `pollIntervalMs` directly. On the fake clock, three polls at 50 ms
+     * cannot end before 100 ms.
+     */
     it('CliFollow_PollIntervalConfigurable_ReadsExarchosYml', async () => {
-      // T33 acceptance: `cli.followPollIntervalMs` is honored. The loop
-      // accepts the resolved value via `pollIntervalMs` (the resolver
-      // lives in the CLI adapter wiring); here we assert that supplying
-      // `50` actually paces the loop (not just rapid-fires through the
-      // script). On a fake clock, three polls with a 50ms cadence cannot
-      // finish before 100ms of clock time has passed.
       const taskId = 'task-cfg-003';
       const script: Task[] = [
         { taskId, status: 'working', ttl: 60_000, createdAt: ISO_FIXED, lastUpdatedAt: ISO_FIXED },
@@ -172,10 +148,8 @@ describe('runFollowLoop (#1273)', () => {
       }
     });
 
+    /** A snapshot with the same status and a new `statusMessage` writes a line. */
     it('CliFollow_PayloadChange_AlsoRenders', async () => {
-      // A status-message change (without a status flip) is still a
-      // transition the operator wants to see — pin the formatter to
-      // emit on any `lastUpdatedAt` advance, not just status flips.
       const taskId = 'task-payload-004';
       const script: Task[] = [
         { taskId, status: 'working', ttl: 60_000, createdAt: ISO_FIXED, lastUpdatedAt: ISO_FIXED, statusMessage: 'phase 1' },
@@ -203,15 +177,12 @@ describe('runFollowLoop (#1273)', () => {
     });
 
     it('CliFollow_MissingTask_ReturnsImmediately', async () => {
-      // `getTask` returning null is a not-found signal; render an error
-      // line and bail out so the operator isn't left polling forever.
       const stdout = new PassThrough();
       const store: FollowTaskStore = {
         async getTask() {
           return null;
         },
         async updateTaskStatus() {
-          /* unused */
         },
       };
       const result = await runFollowLoop({
@@ -227,18 +198,14 @@ describe('runFollowLoop (#1273)', () => {
     });
   });
 
+  /**
+   * An abort stands in for SIGINT. The loop must write the `cancelled` status before it
+   * resolves, so the event is in the store before the CLI exits. The scripts never reach
+   * a terminal status.
+   */
   describe('T34 — SIGINT cancels via task.cancelled', () => {
     it('CliFollow_SIGINT_CancelsTaskAndExits', async () => {
-      // Simulate SIGINT mid-loop via an AbortController; the loop must
-      // call `updateTaskStatus(taskId, 'cancelled', 'user-interrupt')`
-      // and only then resolve. Asserting the cancel call landed BEFORE
-      // the loop resolves is the load-bearing property: the project
-      // memory caution is "the CLI signal handler must NOT call
-      // process.exit until cancelTask resolves (event must land in the
-      // store)" — exposed here as `cancelCalls` populated by the time
-      // the await returns.
       const taskId = 'task-sigint-005';
-      // Long-running script — never reaches a terminal status on its own.
       const script: Task[] = [
         { taskId, status: 'working', ttl: 60_000, createdAt: ISO_FIXED, lastUpdatedAt: ISO_FIXED },
       ];
@@ -246,9 +213,6 @@ describe('runFollowLoop (#1273)', () => {
       const store = scriptedStore(taskId, script);
       const controller = new AbortController();
 
-      // Trigger cancellation after the first poll lands. setImmediate
-      // queues post-microtask so the loop has time to observe at least
-      // one snapshot before SIGINT is simulated.
       setTimeout(() => controller.abort(), 5);
 
       const result = await runFollowLoop({
@@ -270,11 +234,8 @@ describe('runFollowLoop (#1273)', () => {
       expect(text).toContain('cancelled');
     });
 
+    /** A 30 ms `updateTaskStatus` shows that the loop awaits the cancel write. */
     it('CliFollow_SIGINT_DoesNotExitBeforeCancelResolves', async () => {
-      // The SIGINT handler must await cancelTask before resolving. We
-      // simulate a slow updateTaskStatus to assert the loop's resolved
-      // promise lands strictly after the cancel call completes — never
-      // before. This is the explicit project-memory caution.
       const taskId = 'task-sigint-slow-006';
       const script: Task[] = [
         { taskId, status: 'working', ttl: 60_000, createdAt: ISO_FIXED, lastUpdatedAt: ISO_FIXED },
@@ -290,8 +251,6 @@ describe('runFollowLoop (#1273)', () => {
         },
         async updateTaskStatus(_id, status): Promise<void> {
           if (status === 'cancelled') {
-            // Slow cancel: ~30ms wall-clock so the assertion below is
-            // observable even on a fast runner.
             await new Promise((resolve) => setTimeout(resolve, 30));
             cancelResolved = true;
           }

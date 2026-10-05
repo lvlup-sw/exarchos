@@ -1,26 +1,15 @@
-// DR-14 (Task 024/025): strict-flag ratchets + the escape-hatch census.
+// Ratchets for the strict compiler flags, and the census of escape hatches.
 //
-// These suite tests guard the durable facts the fix wave established: the
-// strict flags stay enabled on every tsconfig the repo compiles, and the wave
-// did not smuggle in escape hatches beyond a declared budget.
-//
-// The "typecheck green" half of the acceptance bar is enforced by CI's
-// `npm run typecheck`. Re-spawning `tsc` from inside the suite would duplicate
-// that step and tax every run; no test in this repo does so. This guard fails
-// fast — in the suite, before the slow CI typecheck — if a flag is ever
-// silently removed, which is what would make the tree stop typechecking green.
+// The strict flags must stay enabled in each tsconfig that the repo compiles. The count of `x!`
+// and `as` sites must stay inside a declared budget. This suite does not run `tsc`, because the
+// `npm run typecheck` step in CI does that.
 //
 // @oracle-sources: ../../tools/audit/tsconfig-strictness/count-casts.ts, the TypeScript project resolver reading this repo's tsconfig files
 //
-// Two independent authorities meet here, and DR-30's scope rule (assertion
-// SHAPE, not annotation) correctly pulls both in. STATIC: one is the repo's own
-// AST cast census, which parses source and counts assertion nodes; the other is
-// TypeScript's config resolver, which answers a different question — which
-// files a tsconfig project resolves — and neither reads the other's output.
-// SEMANTIC: `CENSUS_ROOTS` is a hand-declared list of directories the census is
-// pointed at, while the resolver reports the directories the repo actually
-// compiles. Those two CAN disagree, and the whole reason
-// `ScriptsCastCensus_Roots_CoverEveryTypecheckedTree` exists is that they did.
+// The two authorities are independent. The cast census parses source and counts assertion nodes.
+// The TypeScript config resolver reports the files that each tsconfig project compiles.
+// `CENSUS_ROOTS` is a hand-written list, so it can disagree with the resolver.
+// `ScriptsCastCensus_Roots_CoverEveryTypecheckedTree` compares the two.
 
 import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -31,7 +20,7 @@ import { countCasts, type CastCounts } from '../../tools/audit/tsconfig-strictne
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
-/** Read a compilerOptions flag from a (comment-tolerant) tsconfig JSON. */
+/** Reads a `compilerOptions` flag from a tsconfig JSON file that can hold comments. */
 function readCompilerFlag(tsconfigPath: string, flag: string): unknown {
   const raw = readFileSync(tsconfigPath, 'utf8');
   const stripped = raw
@@ -43,38 +32,35 @@ function readCompilerFlag(tsconfigPath: string, flag: string): unknown {
   return parsed.compilerOptions?.[flag];
 }
 
+/**
+ * These tests pin the two strict flags in the root `tsconfig.json`. They do not run `tsc`. The
+ * `npm run typecheck` step in CI proves that the tree compiles with the flags.
+ */
 describe('DR-14: strict-flag ratchet (product project)', () => {
   it('TsconfigRoot_NoUncheckedIndexedAccessEnabled_TypecheckGreen', () => {
-    // The flag is ON and cannot be silently removed. Combined with CI's
-    // `npm run typecheck`, this pins "the tree typechecks green UNDER the
-    // flag" — proven clean at 0 errors with the flag enabled.
     expect(
       readCompilerFlag(resolve(REPO_ROOT, 'tsconfig.json'), 'noUncheckedIndexedAccess'),
     ).toBe(true);
   });
 
   it('TsconfigRoot_ExactOptionalPropertyTypesEnabled_TypecheckGreen', () => {
-    // DR-14 task 025 — same guard shape for the second strict flag.
     expect(
       readCompilerFlag(resolve(REPO_ROOT, 'tsconfig.json'), 'exactOptionalPropertyTypes'),
     ).toBe(true);
   });
 
   it('FixWave_BothStrictFlags_FullSuitesGreen', () => {
-    // Both ratchets live simultaneously. "Full suites green" under both is
-    // enforced by CI; this fails fast if either is dropped, which is what would
-    // let a suite go red under the ratchets.
     const root = resolve(REPO_ROOT, 'tsconfig.json');
     expect(readCompilerFlag(root, 'noUncheckedIndexedAccess')).toBe(true);
     expect(readCompilerFlag(root, 'exactOptionalPropertyTypes')).toBe(true);
   });
 });
 
+/**
+ * Each tsconfig that the repo compiles must enable the two strict flags, not only the product
+ * tsconfig. A satellite project is where a strict-flag gap opens with no notice.
+ */
 describe('DR-14: strict-flag ratchet (satellite projects)', () => {
-  // DR-14 requires BOTH strict flags in EVERY tsconfig the repo compiles, not
-  // just the product one — a satellite project is exactly where a strict-flag
-  // hole reopens unnoticed. `tools/evals-pkg` is the opt-in eval workspace DR-3
-  // created and named as "a hole this program opened itself".
   const SATELLITES = ['tools/conformance', 'tools/evals-pkg'] as const;
 
   for (const pkg of SATELLITES) {
@@ -86,137 +72,22 @@ describe('DR-14: strict-flag ratchet (satellite projects)', () => {
   }
 });
 
+/**
+ * The census counts `x!`, `as` and `as any` sites in each tree that the repo compiles. Each count
+ * must stay in `[BASELINE, BASELINE + DELTA_BUDGET]`, and `as any` cannot grow. A count less than
+ * the baseline fails too, because a stale baseline hides a later regression.
+ *
+ * A paydown with a re-baseline moves the window down and does not widen it. A re-baseline must say
+ * if it is a paydown, a measurement correction or a scope change.
+ *
+ * `CENSUS_ROOTS` names no nested root, because a nested root counts twice. `PACKAGE_ROOTS` holds
+ * the package roots whose tsconfig projects define the typecheck scope.
+ */
 describe('DR-14: escape-hatch census', () => {
-  // Escape-hatch census across every typechecked tree (test/bench/fixture files
-  // excluded — see count-casts.ts). The wave prefers real narrowing (guards,
-  // `?.`, `??`, destructuring defaults) and field widening (`?: T | undefined`)
-  // over `!`/`as`, so the introduced delta stays tiny and `as any` is barred
-  // outright.
-  //
-  // The numbers below are a ledger, not decoration: each movement records
-  // whether it was a PAYDOWN (debt removed), a MEASUREMENT CORRECTION (the
-  // instrument changed, the tree did not) or a SCOPE CHANGE (jurisdiction
-  // widened or narrowed). Conflating them is how a ratchet quietly stops
-  // ratcheting, so they are kept distinct.
-  //
-  // MEASUREMENT CORRECTION (task 058) — asCast 3258 -> 1753, nonNull 99 -> 78,
-  // asAny 3 -> 0. No debt was paid down. Until 058 the census matched
-  // `\bas\s+…` against RAW SOURCE TEXT, so it scored English prose in comments
-  // (-1260), namespace imports (-140), import aliases (-68) and string contents
-  // (-60) as type debt, while MISSING literal-type assertions (+23). It now
-  // counts parsed AST assertion nodes, so the budget is denominated in real
-  // type debt. The census was itself an instance of this program's defect
-  // class: an instrument that measures a property other than the one it names.
-  //
-  // SCOPE CHANGE (task 066) — asCast 1753 -> 1785. The census had scanned the
-  // two `src` trees only, so BOTH `scripts/` trees were outside its
-  // jurisdiction while also being typechecked by nothing. The 32 newly-counted
-  // assertions were already in the tree. A directory covered by one gate and
-  // not the other re-opens the class one gate at a time.
-  //
-  // CORRECTION + PAYDOWN (tasks 068, 070) — 1785 -> 1784 -> 1779. The 066
-  // baseline was measured on the tip BEFORE its own edits, so it shipped stale
-  // and the symmetric floor was red on arrival. The lesson, recorded because it
-  // cost a red floor nobody saw: measure the tree you are shipping, not the one
-  // you started from. The -5 that follows is task 068 replacing five successive
-  // assertions in the invariants catalog reader with an `isPlainRecord` type
-  // PREDICATE, so the compiler checks what the author used to assert.
-  //
-  // PAYDOWN (INV-11) — 1779 -> 1777. `enforceSharedMutatingGate` and
-  // `canMutateShared` were DELETED, and their assertions went with them.
-  //
-  // SCOPE CHANGE (task 019, the servers/ fold) — nonNull 78 -> 72,
-  // asCast 1777 -> 1698. **No type debt was paid down and none was
-  // introduced.** The fold dissolved the nested server package, and the layer
-  // map routed three of its subtrees to `tools/`: `evals/`, `bench/` and
-  // `benchmarks/` to `tools/evals/`, and `test-helpers/` to
-  // `tools/test-helpers/`. Those carried 6 nonNull + 79 asCast, and they left
-  // the census because they left the TYPECHECK — no tsconfig project compiles
-  // them any more. The roots below therefore still say exactly "every tree the
-  // repo compiles"; that set simply got smaller. The typecheck hole itself is
-  // the real finding and is tracked separately — this ledger records only that
-  // the two gates still agree with each other.
-  // Re-baselined for the action-contract surface. The paydown came first:
-  // decorative `as const` in contract literals became `satisfies` (which this
-  // census exempts by design), each closed vocabulary now declares its union
-  // instead of pinning an array and deriving it back, the validate-then-narrow
-  // sites became type predicates, and `Envelope` gained the field the wrapper
-  // was casting to reach. That took the delta from 77 to 24.
-  //
-  // What remains is boundary narrowing that has no cast-free form — dynamic
-  // `import()` results, parsed JSON snapshots, oracle fixtures — plus the
-  // `as const` this census counts although the module header defines its
-  // subject as assertions that "silence the checker without proving
-  // anything", which `as const` does not do. That mismatch is older than this
-  // change and is left as a separate question.
-  //
-  // PAYDOWN (#1867) — nonNull 73 -> 70, asCast 1722 -> 1719. The action-contract
-  // closure synthesis (§"Re-baselined for the action-contract surface" above)
-  // introduced six bridge assertions at the ES v2 fold sites in
-  // `src/workflow/handlers/get.ts` and `src/workflow/handlers/set.ts` —
-  // three `as WorkflowStateView`-style casts plus three `x!` non-null
-  // assertions — to span the materializer singleton that PR #1858 added.
-  // PR #1867 reverted the singleton (see `src/workflow/handlers/shared.ts`
-  // §"Module-Level ViewMaterializer (removed)") and folded the read path
-  // through `foldToTail<WorkflowStateView>`, which is generic and constrains
-  // the return type at the call site — every bridge assertion became dead
-  // and was removed in the same commit. Three casts and three non-nulls;
-  // no new debt introduced, no sym-floors widened.
-  //
-  // 1719 -> 1718: one `as const`, on the key tuple inside
-  // `resolveProjectionStreamId`. That function and its sibling
-  // `guardProjectionDegraded` were deleted from
-  // `src/projections/degraded-result.ts` once the fold seam left them without
-  // a consumer (see the removal note there). A paydown, not a paydown target —
-  // the site went away with the code that held it, so the floor SLIDES down by
-  // one and the window keeps its width.
-  // RE-BASELINE (#1856, the capsule contract) — asCast 1715 -> 1722, nonNull
-  // unchanged. Four of the seven predate this change: the tree had drifted to
-  // 1719 and the window was down to one site of headroom, so the next module to
-  // need any was going to pay for all of it. That is recorded here rather than
-  // absorbed silently, because a re-baseline that does not say which sites are
-  // new is indistinguishable from a budget bump.
-  //
-  // The three new ones are `src/contract/capsule/`, and they arrived after a
-  // paydown inside the same change: twelve down to three. What went away was
-  // avoidable — `as const` on closed vocabularies became `z.enum(...).options`,
-  // so the schema declares the vocabulary and the array is derived from it
-  // rather than the reverse; the JSON Schema accessor now returns the
-  // chokepoint's own emitted type instead of asserting a record; a second
-  // untyped view of a Zod node folded into the first; an `unknown` walk became
-  // an `in` narrowing; and the optional-unwrap helper became generic, so the
-  // kernel's leaf schema survives the unwrap instead of being asserted back.
-  //
-  // What is left has no cast-free form. Two are the single `as unknown as` that
-  // reads Zod's `_zod.def` — the library does not type its internals, and the
-  // derivation this contract is built on has to walk them. The third annotates a
-  // schema BUILT at runtime, which cannot carry a static shape out with it; what
-  // keeps that one honest is not the compiler but the derivation tests, which
-  // compare the emitted JSON Schema against the published kernel's own.
   const BASELINE: CastCounts = { nonNull: 70, asCast: 1722, asAny: 0 };
 
-  // Declared budget = MAX escape-hatch sites maintenance work may introduce
-  // before the NEXT documented re-baseline. `as any` may never grow.
-  //
-  // HOW THE WINDOW WORKS — the delta ceiling and the symmetric floor below
-  // together pin each count into `[BASELINE, BASELINE + DELTA_BUDGET]`. That
-  // window is DELTA_BUDGET wide no matter how deep a paydown precedes it:
-  // removing sites and re-baselining SLIDES the window down, it does not widen
-  // it. Work that legitimately needs more re-baselines in the open with
-  // provenance recorded above — the only path that keeps the floor meaningful.
   const DELTA_BUDGET: CastCounts = { nonNull: 5, asCast: 5, asAny: 0 };
 
-  /**
-   * Every tree the census has jurisdiction over — the ones the repo compiles.
-   *
-   * Kept identical to the typecheck scope by
-   * `ScriptsCastCensus_Roots_CoverEveryTypecheckedTree` below, so neither gate
-   * can quietly cover a directory the other does not. `src` subsumes
-   * `src/install`, so it is named once — listing a nested root as well would
-   * double-count it. For the same reason the repo automation is named as the
-   * two roots task 036 split it into rather than as a bare `tools`, which would
-   * swallow `conformance` and `evals-pkg` and count them twice.
-   */
   const CENSUS_ROOTS: readonly string[] = [
     'src',
     'tools/audit',
@@ -225,7 +96,6 @@ describe('DR-14: escape-hatch census', () => {
     'tools/evals-pkg',
   ];
 
-  /** The package roots whose tsconfig projects define the typecheck scope. */
   const PACKAGE_ROOTS: readonly string[] = ['.', 'tools/conformance', 'tools/evals-pkg'];
 
   it('FixWave_CastBudget_MeasuredAndWithinDeclaredLimit', () => {
@@ -235,36 +105,25 @@ describe('DR-14: escape-hatch census', () => {
       asCast: counts.asCast - BASELINE.asCast,
       asAny: counts.asAny - BASELINE.asAny,
     };
-    // `as any` is barred outright (zero-growth ceiling).
     expect(delta.asAny).toBeLessThanOrEqual(DELTA_BUDGET.asAny);
-    // Non-null assertions and `as` casts stay within the declared budget.
     expect(delta.nonNull).toBeLessThanOrEqual(DELTA_BUDGET.nonNull);
     expect(delta.asCast).toBeLessThanOrEqual(DELTA_BUDGET.asCast);
-    // The counts never fall BELOW baseline without a re-baseline (a stale
-    // baseline would otherwise silently mask a future regression) — symmetric
-    // floors on BOTH escape-hatch axes, not just non-null assertions.
     expect(counts.nonNull).toBeGreaterThanOrEqual(BASELINE.nonNull);
     expect(counts.asCast).toBeGreaterThanOrEqual(BASELINE.asCast);
   });
 
+  /**
+   * The census roots must cover each file that a tsconfig project compiles. The test finds the
+   * projects with a directory read, so a new project or a wider `include` fails here until the
+   * census covers it. It skips `.d.ts` files, because a declaration file holds no expression.
+   */
   it('ScriptsCastCensus_Roots_CoverEveryTypecheckedTree', () => {
-    // The structural fix for "same blind spot, different gate": two gates
-    // governing overlapping-but-unequal directories, with the difference
-    // invisible because neither stated its scope in terms the other could be
-    // checked against.
-    //
-    // Both scopes are DERIVED from the same source of truth — the tsconfig
-    // projects the repo compiles, discovered by globbing rather than listed —
-    // so a new project, or a widened `include`, drags the cast census along
-    // with it or fails here.
     const configs: string[] = [];
     for (const pkg of PACKAGE_ROOTS) {
       for (const entry of readdirSync(resolve(REPO_ROOT, pkg))) {
         if (/^tsconfig(\..+)?\.json$/.test(entry)) configs.push(join(pkg, entry));
       }
     }
-    // Non-empty denominator: a discovery that finds no projects would make the
-    // containment assertion below vacuously true.
     expect(configs.length).toBeGreaterThanOrEqual(4);
 
     const compiled = new Set<string>();
@@ -283,9 +142,6 @@ describe('DR-14: escape-hatch census', () => {
       );
       for (const file of parsed.fileNames) {
         const rel = relative(REPO_ROOT, file).split(sep).join('/');
-        // Ambient declarations are excluded on BOTH sides: `count-casts.ts`
-        // skips `__shims__/`, and a declaration file holds no expressions to
-        // assert in. Comparing them would be comparing a scope neither gate has.
         if (rel.endsWith('.d.ts')) continue;
         compiled.add(rel);
       }
@@ -298,10 +154,10 @@ describe('DR-14: escape-hatch census', () => {
     }
   });
 
+  /**
+   * A root that does not exist counts nothing. A root inside another root counts its files twice.
+   */
   it('CensusRoots_RealRepo_AllExistAndNoneNests', () => {
-    // A root that no longer exists censuses nothing and passes clean; a root
-    // nested inside another double-counts everything it holds. The fold
-    // produced both shapes elsewhere in this tree, so neither is hypothetical.
     for (const root of CENSUS_ROOTS) {
       expect(readdirSync(resolve(REPO_ROOT, root)).length, `${root} is empty or absent`)
         .toBeGreaterThan(0);

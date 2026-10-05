@@ -1,17 +1,12 @@
-// ── A DR-30 note on the bijection at the foot of this file ──────────────────
+// Runbook definitions must agree with the tool-action registry and the event emission registry.
 //
-// The two things it compares — `runbook.autoEmits` in `./definitions.ts` and the
-// `actionContract.emissions` the registry declares — are hand-written in two places,
-// but `../registry.ts` REACHES `./definitions.ts` in the static import graph, so
-// DR-30 counts them as one authority wearing two names. That is why the
-// assertions are per-element membership checks rather than
-// `expect(missingIds).toEqual([])`: a census-diff assertion claims two
-// independent oracles, and this comparison has one. Same form as the emission
-// registry containment check above, for the same reason.
+// The last suite compares `runbook.autoEmits` with the emissions that the registry declares for
+// the steps. `registry.ts` reaches `definitions.ts` in the import graph, so the two sides are one
+// authority, not two independent oracles. Thus each assertion checks one element for membership,
+// and no assertion compares two full sets.
 //
-// This is a real limit on what the check proves. It cannot witness that the
-// REGISTRY is right about what a tool emits — only that the runbook's summary
-// and the registry's own declaration agree.
+// The suite proves that the two declarations agree. It cannot prove that the registry is correct
+// about the events that a tool emits.
 import { describe, it, expect } from 'vitest';
 import { zodToJsonSchema } from '../../../src/utils/json-schema.js';
 import { ALL_RUNBOOKS, TASK_COMPLETION } from '../../../src/runbooks/definitions.js';
@@ -20,43 +15,23 @@ import { EVENT_EMISSION_REGISTRY } from '../../../src/events/schemas.js';
 import type { RunbookDefinition } from '../../../src/runbooks/types.js';
 
 /**
- * The events a runbook's STEPS actually cause, derived from the registry.
+ * The emission edges that a derivation reads.
  *
- * This lived in `runbooks/compute.ts` until it was deleted as dead production
- * code — correctly, since its only callers were tests. Deleting the module took
- * the bijection with it, which is the part that was not dead: what survived is
- * one-directional (every declared name is a real `'auto'` event) and that
- * direction cannot see a runbook declaring an event no step emits. So the
- * derivation is re-homed HERE, where its only caller lives, rather than restored
- * as a production module with no production importer.
- *
- * Native steps (`native:` tools) and decision steps (`none`) are skipped: they
- * are not MCP calls and emit nothing through the registry.
- *
- * ── The two directions do NOT range over the same edges ─────────────────────
- *
- * `condition: 'conditional'` means the edge fires on a predicate the registry
- * cannot evaluate here — `workflow.fix-cycle` lands only when a phase is
- * re-entered rather than advanced. That asymmetry is the whole reason the
- * subject is a parameter:
- *
- *   `'unconditional'` — what a runbook OWES a declaration. `autoEmits` is read
- *      by an agent to decide it need not append the record itself, and that
- *      inference is only safe for an edge that always fires. Demanding a
- *      conditional edge be declared would force the runbook to promise a record
- *      the tool may never write.
- *   `'every'` — what a declaration is ALLOWED to name. Declaring a conditional
- *      emission is legitimate: it tells the agent the tool covers that event
- *      when the predicate holds. Only an event no step can emit under any
- *      condition is a phantom.
- *
- * Reading one subject for both directions is what made this check wrong: a
- * newly declared conditional edge read as an undeclared emission, which is the
- * same conflation `interceptors/emission-verifier.ts` calls out — a conditional
- * edge is not required, and its absence is not evidence of anything.
+ * `'unconditional'` holds the edges that always fire. A runbook must declare these, because an
+ * agent reads `autoEmits` to know that it need not append the record.
+ * `'every'` adds the conditional edges, which a runbook can declare but does not owe. For
+ * example, `workflow.fix-cycle` fires only when a workflow enters a phase again.
  */
 type EmissionSubject = 'unconditional' | 'every';
 
+/**
+ * The events that the steps of a runbook cause, read from the registry. No production module
+ * needs this derivation, so it stays in this file.
+ *
+ * Native steps and decision steps make no MCP call, so they emit nothing. A step that does not
+ * resolve in the registry throws. A silent skip gives an empty set, and an empty set agrees with
+ * an empty declaration.
+ */
 function stepDerivedAutoEmits(
   runbook: RunbookDefinition,
   subject: EmissionSubject,
@@ -65,12 +40,6 @@ function stepDerivedAutoEmits(
   for (const step of runbook.steps) {
     if (step.tool.startsWith('native:') || step.tool === 'none') continue;
     const action = findActionInRegistry(step.tool, step.action);
-    // `action?.autoEmits === undefined` folded two different facts into one
-    // `continue`: "this action emits nothing" and "there is no such action".
-    // Under the second, a runbook whose steps had all stopped resolving derived
-    // an EMPTY emission set — and an empty set agrees with an empty declaration
-    // in both directions, so the bijection below passed by having nothing to
-    // compare. An unresolved step is a broken runbook, not a quiet one.
     if (action === undefined) {
       throw new Error(
         `Runbook '${runbook.id}' step references ${step.tool}.${step.action}, which does not ` +
@@ -87,13 +56,12 @@ function stepDerivedAutoEmits(
   return [...events].sort();
 }
 
+/** A `native:` step and a `none` step are not MCP tool calls, so the registry checks skip them. */
 describe('Runbook drift detection', () => {
   it('RunbookDrift_EveryStepReferencesValidRegistryAction', () => {
     for (const runbook of ALL_RUNBOOKS) {
       for (const step of runbook.steps) {
-        // Skip native tools — they are Claude Code native tools, not MCP tools
         if (step.tool.startsWith('native:')) continue;
-        // Skip decision steps — they are advisory-only, not MCP tool calls
         if (step.tool === 'none') continue;
 
         const action = findActionInRegistry(step.tool, step.action);
@@ -105,6 +73,10 @@ describe('Runbook drift detection', () => {
     }
   });
 
+  /**
+   * `RunbookDrift_EveryStepReferencesValidRegistryAction` covers a step that does not resolve, so
+   * this test skips such a step. The composite router fills the `action` field.
+   */
   it('RunbookDrift_TemplateVarsCoverRequiredParams', () => {
     for (const runbook of ALL_RUNBOOKS) {
       for (const step of runbook.steps) {
@@ -112,7 +84,7 @@ describe('Runbook drift detection', () => {
         if (step.tool === 'none') continue;
 
         const action = findActionInRegistry(step.tool, step.action);
-        if (!action) continue; // covered by EveryStepReferencesValidRegistryAction
+        if (!action) continue;
 
         const jsonSchema = zodToJsonSchema(action.schema) as {
           required?: string[];
@@ -120,7 +92,6 @@ describe('Runbook drift detection', () => {
         const required = jsonSchema.required ?? [];
 
         for (const field of required) {
-          // The 'action' field is the discriminator — auto-filled by the composite router
           if (field === 'action') continue;
 
           const covered =
@@ -136,18 +107,17 @@ describe('Runbook drift detection', () => {
     }
   });
 
+  /**
+   * `KNOWN_UNRUNBOOKED_GATES` lists the blocking gates that no runbook holds. When a runbook
+   * gets one of these gates, remove its entry so the test covers it.
+   */
   it('RunbookDrift_EveryBlockingGateAppearsInRunbook', () => {
-    // Plan-phase blocking gates that don't yet have runbooks.
-    // When a plan-phase runbook is added, remove entries from this set to enforce coverage.
     const KNOWN_UNRUNBOOKED_GATES = new Set([
-      // check_provenance_chain and check_plan_coverage left this set when
-      // PLAN_CLOSEOUT gave them a runbook.
       'exarchos_orchestrate.check_exploration_depth',
       'exarchos_orchestrate.debug_review_gate',
       'exarchos_orchestrate.pre_synthesis_check',
     ]);
 
-    // Collect all blocking gate actions from the registry
     const blockingGateActions: Array<{ tool: string; action: string }> = [];
     for (const tool of getFullRegistry()) {
       for (const action of tool.actions) {
@@ -159,7 +129,6 @@ describe('Runbook drift detection', () => {
 
     expect(blockingGateActions.length).toBeGreaterThan(0);
 
-    // Collect all (tool, action) pairs referenced in runbooks
     const runbookStepPairs = new Set<string>();
     for (const runbook of ALL_RUNBOOKS) {
       for (const step of runbook.steps) {
@@ -178,7 +147,6 @@ describe('Runbook drift detection', () => {
   });
 
   it('RunbookDrift_AutoEmitsMatchEventEmissionRegistry', () => {
-    // Get all valid event names from the emission registry
     const validEventNames = new Set(Object.keys(EVENT_EMISSION_REGISTRY));
 
     for (const runbook of ALL_RUNBOOKS) {
@@ -204,26 +172,9 @@ describe('Runbook drift detection', () => {
   });
 });
 
-// ─── The bijection, re-homed (task 085) ─────────────────────────────────────
-//
-// `RunbookDrift_AutoEmitsMatchEventEmissionRegistry` above checks CONTAINMENT in
-// one direction: every declared name is a registered `'auto'` event. It says
-// nothing about whether the runbook's own steps produce that event, so a runbook
-// advertising an emission no step causes reads as correct — and `autoEmits` is
-// what an agent consults to decide it need not append the record itself.
-//
-// Both directions are asserted below, against a set DERIVED from the registry
-// rather than transcribed.
-
 /**
- * The two directions as callables, so the negative fixtures can RUN them.
- *
- * They were inline `expect`s over `ALL_RUNBOOKS`, and the fixtures below only
- * re-checked their own preconditions — that the phantom event is absent from the
- * derived set, that the under-declarer derives something. Neither ever put a
- * malformed runbook through the assertion it was built to trip, so deleting the
- * assertion entirely would have left both fixtures green. Throwing rather than
- * `expect`ing is what makes them executable against a subject expected to fail.
+ * Throws when the runbook declares an event that no step can emit. It throws and does not call
+ * `expect`, so a test can run it on a runbook that must fail.
  */
 function assertNothingDeclaredThatNoStepEmits(runbook: RunbookDefinition): void {
   const derived = new Set(stepDerivedAutoEmits(runbook, 'every'));
@@ -238,6 +189,7 @@ function assertNothingDeclaredThatNoStepEmits(runbook: RunbookDefinition): void 
   }
 }
 
+/** Throws when a step always emits an event that the runbook does not declare. */
 function assertNothingEmittedThatIsNotDeclared(runbook: RunbookDefinition): void {
   const declared = new Set(runbook.autoEmits);
   for (const event of stepDerivedAutoEmits(runbook, 'unconditional')) {
@@ -249,18 +201,22 @@ function assertNothingEmittedThatIsNotDeclared(runbook: RunbookDefinition): void
   }
 }
 
+/**
+ * `RunbookDrift_AutoEmitsMatchEventEmissionRegistry` proves only that each declared name is a
+ * registered `'auto'` event. This suite also compares the declaration with the events that the
+ * steps of the runbook cause, in the two directions.
+ */
 describe('Runbook autoEmits ⇄ step-derived emissions (bijection)', () => {
+  /**
+   * No runbook declares an event that its steps cannot emit. The fixture is `TASK_COMPLETION`
+   * with one added event that no step emits. The assertion rejects the fixture, which proves
+   * that the assertion can fail.
+   */
   it('RunbookAutoEmits_EventDeclaredButNoStepEmits_FailsBijection', () => {
-    // FORWARD: nothing is advertised that the steps do not produce. This is the
-    // direction the deletion lost.
     for (const runbook of ALL_RUNBOOKS) {
       expect(() => assertNothingDeclaredThatNoStepEmits(runbook)).not.toThrow();
     }
 
-    // The fixture proves the assertion can fail: a runbook that declares one more
-    // event than its steps produce is rejected. Built from a REAL runbook so the
-    // only difference from a passing subject is the phantom entry — and put
-    // THROUGH the assertion, not merely inspected.
     const phantomDeclarer: RunbookDefinition = {
       ...TASK_COMPLETION,
       autoEmits: [...TASK_COMPLETION.autoEmits, 'workflow.transition'],
@@ -273,10 +229,14 @@ describe('Runbook autoEmits ⇄ step-derived emissions (bijection)', () => {
     );
   });
 
+  /**
+   * If a runbook does not declare an emission, the agent appends a second record.
+   *
+   * The `agent-teams-saga` runbook proves that the condition filter does the work. Its transition
+   * step declares `workflow.fix-cycle` as conditional, and the runbook does not declare that event.
+   * The `'every'` subject reports the event, and the `'unconditional'` subject does not.
+   */
   it('RunbookAutoEmits_StepEmitsButNotDeclared_FailsBijection', () => {
-    // REVERSE: nothing the steps produce goes unadvertised. An undeclared
-    // emission is the mirror failure — the agent appends a duplicate record
-    // because the runbook did not say the tool already had.
     for (const runbook of ALL_RUNBOOKS) {
       expect(() => assertNothingEmittedThatIsNotDeclared(runbook)).not.toThrow();
     }
@@ -287,13 +247,6 @@ describe('Runbook autoEmits ⇄ step-derived emissions (bijection)', () => {
       /which it does not declare in autoEmits/,
     );
 
-    // The narrowing is load-bearing, so prove it is what carries the pass and
-    // not an empty subject. `agent-teams-saga` steps through
-    // `exarchos_workflow.transition`, which declares `workflow.fix-cycle`
-    // CONDITIONALLY and does not name it in the runbook's `autoEmits`. Under the
-    // `'every'` subject that reads as an undeclared emission; under
-    // `'unconditional'` it is correctly out of subject. Both halves are asserted:
-    // drop the condition filter and the first expectation fails.
     const conditionalUnderDeclarer = ALL_RUNBOOKS.find((r) => r.id === 'agent-teams-saga');
     expect(conditionalUnderDeclarer).toBeDefined();
     if (conditionalUnderDeclarer !== undefined) {
@@ -309,17 +262,16 @@ describe('Runbook autoEmits ⇄ step-derived emissions (bijection)', () => {
     }
   });
 
+  /**
+   * The two tests above pass with no evidence when the derivation resolves nothing. Thus some
+   * runbooks must derive emissions, and some must derive none. For `TASK_COMPLETION` the derived
+   * count equals the declared count, so a derivation that returns every event also fails.
+   */
   it('RunbookAutoEmits_DerivationHasANonEmptySubject', () => {
-    // The denominator. Both assertions above are vacuously true if the derivation
-    // resolves nothing — a moved registry, a renamed action, a `findActionInRegistry`
-    // that started returning `undefined`. At least one runbook must actually
-    // derive emissions, and the whole set must be non-trivial.
     const emitting = ALL_RUNBOOKS.filter((r) => stepDerivedAutoEmits(r, 'unconditional').length > 0);
     expect(emitting.length).toBeGreaterThan(0);
     expect(ALL_RUNBOOKS.length).toBeGreaterThan(emitting.length);
 
-    // Cardinality both ways on a concrete runbook, so "every declared entry is
-    // derived" cannot be satisfied by a derivation that returns everything.
     const derived = stepDerivedAutoEmits(TASK_COMPLETION, 'unconditional');
     expect(derived.length).toBe(TASK_COMPLETION.autoEmits.length);
     expect(derived.length).toBeGreaterThan(1);

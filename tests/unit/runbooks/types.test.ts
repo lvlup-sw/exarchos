@@ -53,10 +53,7 @@ describe('Runbook types', () => {
     expect(resolved.gate?.blocking).toBe(true);
   });
 
-  // ─── Decision Runbook Types ──────────────────────────────────────────
-
   it('DecisionField_ValidBranches_TypeChecks', () => {
-    // Create a decision step that compiles correctly
     const step: RunbookStep = {
       tool: 'none',
       action: 'decide',
@@ -76,7 +73,6 @@ describe('Runbook types', () => {
   });
 
   it('RunbookStep_WithoutDecide_StillValid', () => {
-    // Existing steps without decide should still compile
     const step: RunbookStep = {
       tool: 'exarchos_orchestrate',
       action: 'check_tdd_compliance',

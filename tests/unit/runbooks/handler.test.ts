@@ -4,8 +4,6 @@ import { ALL_RUNBOOKS } from '../../../src/runbooks/definitions.js';
 import type { ResolvedRunbookStep } from '../../../src/runbooks/types.js';
 
 describe('handleRunbook', () => {
-  // ─── List Mode ────────────────────────────────────────────────────────
-
   it('HandleRunbook_ListMode_NoParams_ReturnsAllRunbooks', async () => {
     const result = await handleRunbook({});
     expect(result.success).toBe(true);
@@ -27,7 +25,6 @@ describe('handleRunbook', () => {
     for (const entry of data) {
       expect(entry.phase).toBe('delegate');
     }
-    // Should match only delegate-phase runbooks
     const expected = ALL_RUNBOOKS.filter(r => r.phase === 'delegate');
     expect(data).toHaveLength(expected.length);
   });
@@ -38,8 +35,6 @@ describe('handleRunbook', () => {
     const data = result.data as Array<unknown>;
     expect(data).toHaveLength(0);
   });
-
-  // ─── Detail Mode ──────────────────────────────────────────────────────
 
   it('HandleRunbook_DetailMode_ValidId_ReturnsResolvedSteps', async () => {
     const result = await handleRunbook({ id: 'task-completion' });
@@ -53,7 +48,6 @@ describe('handleRunbook', () => {
     expect(data.id).toBe('task-completion');
     expect(data.phase).toBe('delegate');
     expect(data.steps.length).toBeGreaterThan(0);
-    // Verify seq numbers are 1-based
     for (let i = 0; i < data.steps.length; i++) {
       expect(data.steps[i].seq).toBe(i + 1);
     }
@@ -65,7 +59,6 @@ describe('handleRunbook', () => {
     const data = result.data as {
       steps: Array<{ seq: number; tool: string; action: string; schema: unknown }>;
     };
-    // task-completion uses exarchos_orchestrate actions — schema should be resolved
     const orchSteps = data.steps.filter(s => s.tool === 'exarchos_orchestrate');
     expect(orchSteps.length).toBeGreaterThan(0);
     for (const step of orchSteps) {
@@ -74,30 +67,28 @@ describe('handleRunbook', () => {
     }
   });
 
+  /**
+   * In `task-completion`, the `check_test_adequacy` step resolves a blocking gate with dimension
+   * `D1`. The runbook holds no `check_tdd_compliance` step.
+   */
   it('HandleRunbook_DetailMode_ResolvesGateFromRegistry', async () => {
-    // task-completion's check_test_adequacy has gate: { blocking: true,
-    // dimension: 'D1' } — the load-bearing kill-probe gate, and the sole per-task
-    // verification gate after #1587 retired check_tdd_compliance.
     const result = await handleRunbook({ id: 'task-completion' });
     expect(result.success).toBe(true);
     const data = result.data as {
       steps: Array<{ action: string; gate: { blocking: boolean; dimension?: string } | null }>;
     };
 
-    // The blocking kill-probe gate resolves from the registry.
     const adequacyStep = data.steps.find(s => s.action === 'check_test_adequacy');
     expect(adequacyStep).toBeDefined();
     expect(adequacyStep!.gate).not.toBeNull();
     expect(adequacyStep!.gate!.blocking).toBe(true);
     expect(adequacyStep!.gate!.dimension).toBe('D1');
 
-    // The retired test-FIRST ordering gate is gone from every chain (#1587).
     const tddStep = data.steps.find(s => s.action === 'check_tdd_compliance');
     expect(tddStep).toBeUndefined();
   });
 
   it('HandleRunbook_DetailMode_SkipsSchemaForNativeTools', async () => {
-    // agent-teams-saga has native: tools
     const result = await handleRunbook({ id: 'agent-teams-saga' });
     expect(result.success).toBe(true);
     const data = result.data as {
@@ -135,10 +126,8 @@ describe('handleRunbook', () => {
     expect(data.autoEmits.length).toBeGreaterThan(0);
   });
 
-  // ─── Platform Hint ────────────────────────────────────────────────────
-
+  /** The `native:Task` step of `agent-teams-saga` sets `params.agent` to `'teammate'`. */
   it('RunbookResolve_NativeTaskWithAgent_IncludesPlatformHint', async () => {
-    // agent-teams-saga has a native:Task step with params.agent = 'teammate'
     const result = await handleRunbook({ id: 'agent-teams-saga' });
     expect(result.success).toBe(true);
     const data = result.data as {
@@ -159,10 +148,12 @@ describe('handleRunbook', () => {
     );
   });
 
+  /**
+   * The `native:Task` step of `task-fix` sets `resumeAgent` and `fallbackAgent`, and not
+   * `params.agent`. The platform selects one of the two at run time, so the step names no single
+   * agent spec for a hint.
+   */
   it('RunbookResolve_NativeTaskWithoutAgent_NoPlatformHint', async () => {
-    // task-fix uses resumeAgent/fallbackAgent (not params.agent) because
-    // platformHint only applies when a single agent spec is referenced.
-    // Resume/fallback is a runtime decision — the platform picks which agent to use.
     const result = await handleRunbook({ id: 'task-fix' });
     expect(result.success).toBe(true);
     const data = result.data as {
@@ -176,7 +167,6 @@ describe('handleRunbook', () => {
   });
 
   it('RunbookResolve_McpStep_NoPlatformHint', async () => {
-    // task-completion has only exarchos_orchestrate steps (non-native MCP steps)
     const result = await handleRunbook({ id: 'task-completion' });
     expect(result.success).toBe(true);
     const data = result.data as {
@@ -189,8 +179,6 @@ describe('handleRunbook', () => {
       expect(step.platformHint).toBeUndefined();
     }
   });
-
-  // ─── Decision Runbook Serving ──────────────────────────────────────────
 
   it('handleRunbook_DecisionRunbook_ReturnsDecideFields', async () => {
     const result = await handleRunbook({ id: 'triage-decision' });
@@ -219,13 +207,13 @@ describe('handleRunbook', () => {
     }
   });
 
+  /** A runbook that holds no decision step returns no `decide` field. */
   it('handleRunbook_LinearRunbook_UnchangedResponse', async () => {
     const result = await handleRunbook({ id: 'task-completion' });
     expect(result.success).toBe(true);
     const data = result.data as {
       steps: Array<{ decide?: unknown }>;
     };
-    // Linear runbooks should have NO decide fields
     for (const step of data.steps) {
       expect(step.decide).toBeUndefined();
     }

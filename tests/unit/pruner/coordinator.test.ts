@@ -1,9 +1,6 @@
 /**
- * Coordinator unit tests (DR-7, v2.11) — `scoreEntryThroughTopology`
- * looks up `topology.phases[phase].staleness` and delegates to
- * `scoreStaleness`. Throws on missing-contract / missing-phase
- * synthetic Topologies (production-loaded Topologies cannot reach
- * those states because the loader hard-throws).
+ * `scoreEntryThroughTopology` reads `topology.phases[phase].staleness` and delegates
+ * to `scoreStaleness`. It throws for a phase that is absent or has no contract.
  */
 import { describe, it, expect } from 'vitest';
 import { scoreEntryThroughTopology } from '../../../src/pruner/coordinator.js';
@@ -20,7 +17,7 @@ const topology: Topology = Object.freeze({
         ]),
       }),
     }),
-    // Synthetic fixture: in production the loader rejects this shape.
+    /** A synthetic entry. The loader rejects a phase with no `staleness` block. */
     scaffolding: Object.freeze({}),
   }),
 }) as Topology;

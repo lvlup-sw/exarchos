@@ -1,21 +1,13 @@
-// ─── Shared CLI/MCP Parity Test Harness ─────────────────────────────────────
-//
-// Extracted from the 5 parity test suites (task 024 follow-up F-024 #8).
-//
-// Each parity test in the codebase needs three primitives:
-//   • `callCli(ctx, toolAlias, action, flags)` — parse Commander in-process,
-//      capture the JSON line from stdout, return the parsed ToolResult.
-//   • `callMcp(ctx, tool, args)` — invoke the MCP dispatch() directly with
-//      the same `{ action, ...args }` shape the MCP SDK would produce.
-//   • `normalize(payload, opts)` — strip wall-clock / UUID / `_perf`
-//      fields so two arm invocations produce byte-equal trees.
-//
-// Previously each suite defined its own copies with subtle drift (different
-// placeholders, different key sets, slightly different regex). This module
-// is the single source of truth. Suites pass `normalize` options to select
-// the placeholder vocabulary and per-key transforms their fixtures need.
-// ────────────────────────────────────────────────────────────────────────────
-
+/**
+ * The shared harness for the CLI and MCP parity suites. It is the only copy of these helpers.
+ *
+ * - `callCli` parses Commander in-process and returns the JSON envelope from stdout.
+ * - `callMcp` calls `dispatch()` with the `{ action, ...args }` shape that the MCP SDK sends.
+ * - `normalize` replaces timestamps, UUIDs and telemetry fields, so the two arms give equal trees.
+ *
+ * Each suite passes `normalize` options for the placeholders and the per-key transforms that its
+ * fixtures need.
+ */
 import { vi } from 'vitest';
 import { CommanderError } from 'commander';
 
@@ -31,29 +23,20 @@ import {
   type CliExitCode,
 } from '../../src/adapters/cli/cli.js';
 
-// ─── Callers ────────────────────────────────────────────────────────────────
-
-/** Options governing CLI-call behaviour. Mostly knobs for edge cases. */
+/** Options for {@link callCli}. */
 export interface CliCallOptions {
   /**
-   * When set, Commander errors that escape our action callback are funneled
-   * through `commanderErrorToResult` and the parsed result is returned
-   * instead of re-thrown. Required for malformed-args tests that want to
-   * assert on the CLI's INVALID_INPUT contract for Commander-thrown cases
-   * (unknown subcommand, missing mandatory option, etc.).
+   * When `true`, {@link callCli} maps a Commander error through `commanderErrorToResult` and
+   * returns the result. A test of the `INVALID_INPUT` contract needs it for an unknown subcommand
+   * or a missing mandatory option.
    */
   readonly captureCommanderErrors?: boolean;
 }
 
-/** Return shape from {@link callCli}.
- *
- * Post-PR-B (W2 / #1368): `result` is the carrier-bound envelope
- * (`Envelope<unknown> | ErrorEnvelope`) because `emitResult` now routes
- * `--json` through `toCliResult(toEnvelope(...))`. The shape exposes the
- * same `success` / `error.code` / `data` access paths as the pre-envelope
- * `ToolResult`, so existing assertions on those fields continue to work
- * without code-changes; what changes is the deep-equal envelope shape
- * (extra `next_actions`, always-present `_meta` / `_perf`).
+/**
+ * The return shape of {@link callCli}. `result` is the envelope that `--json` prints through
+ * `toCliResult(toEnvelope(...))`. It carries `next_actions`, `_meta` and `_perf` beside `success`,
+ * `error.code` and `data`.
  */
 export interface CliCallResult {
   readonly result: Envelope<unknown> | ErrorEnvelope;
@@ -61,16 +44,15 @@ export interface CliCallResult {
 }
 
 /**
- * Invoke a CLI action via Commander in-process. Captures the single JSON
- * line emitted by `--json` mode, parses it, and returns the ToolResult.
+ * Runs a CLI action through Commander in-process and returns the parsed `--json` envelope.
  *
- * `flags` may contain any mix of primitives and objects; objects are
- * JSON-stringified and booleans become their `--flag` / `--no-flag`
- * Commander counterparts. Keys are camelCase and converted to kebab-case.
+ * `flags` keys are camelCase and become kebab-case options. An object value becomes a JSON string.
+ * A boolean becomes `--flag` or `--no-flag`.
  *
- * When `options.captureCommanderErrors` is true, a Commander-thrown error
- * (e.g. missing mandatory option) is mapped through
- * `commanderErrorToResult` — the same mapping the production binary uses.
+ * The CLI prints the envelope as pretty JSON on many lines, so the parser reads from the first `{`
+ * to the end of stdout. The function restores `process.exitCode` before it throws again, because
+ * a non-zero value corrupts the exit-code assertions of later tests. A captured Commander error
+ * returns as an envelope, so each path gives the same shape.
  */
 export async function callCli(
   ctx: DispatchContext,
@@ -121,9 +103,6 @@ export async function callCli(
     if (err instanceof CommanderError && options.captureCommanderErrors) {
       commanderError = err;
     } else {
-      // Restore process.exitCode before bubbling — the CLI parseAsync()
-      // may have set it to a non-zero value during validation, and leaking
-      // that into subsequent tests corrupts their exit-code assertions.
       process.exitCode = savedExitCode;
       stdoutSpy.mockRestore();
       stderrSpy.mockRestore();
@@ -142,13 +121,6 @@ export async function callCli(
 
   const stdoutText = capturedStdout.join('').trim();
   if (stdoutText) {
-    // Post-PR-B (#1368): the adapter emits a pretty-printed JSON envelope
-    // (`toCliResult(toEnvelope(...), 'json')` → `JSON.stringify(env, null, 2)`),
-    // which spans multiple lines. The pre-envelope harness sliced by the
-    // first newline to grab a single-line JSON document; that breaks under
-    // pretty output (first newline lands immediately after the opening `{`).
-    // Parse from the first `{` to end-of-stdout instead — `JSON.parse`
-    // tolerates trailing whitespace and stops at the matching brace.
     const firstBrace = stdoutText.indexOf('{');
     if (firstBrace < 0) {
       throw new Error(
@@ -161,9 +133,6 @@ export async function callCli(
   }
 
   if (commanderError) {
-    // PR-B (#1368): wrap the legacy ToolResult into an envelope so the
-    // commander-error branch matches the success/stdout branch's return
-    // shape (both arms of the harness now surface envelopes).
     const { result, exitCode: mappedExit } = commanderErrorToResult(commanderError);
     return { result: toEnvelope(result), exitCode: mappedExit };
   }
@@ -174,33 +143,21 @@ export async function callCli(
 }
 
 /**
- * Invoke a composite tool action through the MCP dispatch entry point.
- * This is what the MCP SDK calls after arg validation; we skip the stdio
- * transport since it only affects wire formatting, not the payload.
+ * Calls a composite tool action through `dispatch`, the entry point that the MCP SDK calls after
+ * argument validation. `args` must include `action`, as in the MCP JSON-RPC shape.
  *
- * The `args` object must already include `action` (matching MCP's JSON-RPC
- * shape). Suites that prefer a separate `action` parameter should wrap
- * this helper themselves — the canonical shape keeps the harness honest
- * about what the MCP dispatch contract actually accepts.
+ * The result goes through `toEnvelope`, as in `src/adapters/mcp/mcp.ts`, so the two arms return
+ * the same carrier shape.
  *
- * When the suite did not stamp a caller, bind the same local-operator
- * identity `buildCli` already stamps on the CLI arm. Production MCP uses
- * `createMcpDispatchContext` (session subject + the process resolver);
- * in-process parity fixtures historically omitted both, so admission
- * fail-closed the MCP arm while the CLI arm received the identity-layer
- * grant. Suites that want an untrusted session must set `callerIdentity`.
+ * When `ctx` has no `callerIdentity`, the helper binds the local-operator identity that `buildCli`
+ * binds on the CLI arm. Without it, admission denies the MCP arm and grants the CLI arm. A suite
+ * that needs an untrusted session must set `callerIdentity`.
  */
 export async function callMcp(
   ctx: DispatchContext,
   tool: string,
   args: Record<string, unknown>,
 ): Promise<Envelope<unknown> | ErrorEnvelope> {
-  // PR-B (#1368): The production MCP server path runs the dispatch result
-  // through `toEnvelope` before handing it to `toMcpResult` (see
-  // `src/adapters/mcp.ts`). Mirror that here so the parity arm returns the
-  // same carrier shape as the CLI arm. This is the inverse of the CLI
-  // adapter's `toCliResult(toEnvelope(result), 'json')` route — both arms
-  // surface envelopes so deep-equal comparisons are well-defined.
   const trusted =
     ctx.callerIdentity === undefined
       ? { ...ctx, callerIdentity: deriveLocalOperatorIdentity(ctx.stateDir) }
@@ -208,8 +165,6 @@ export async function callMcp(
   const result = await dispatch(tool, args, trusted);
   return toEnvelope(result);
 }
-
-// ─── Normalization ──────────────────────────────────────────────────────────
 
 export const ISO_TIMESTAMP_RE =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:?\d{2})$/;
@@ -223,35 +178,27 @@ export const TMP_PATH_RE =
 
 /** Options for {@link normalize}. */
 export interface NormalizeOptions {
-  /** Placeholder to use for ISO timestamps. Default `<TS>`. */
+  /** The placeholder for an ISO timestamp. The default is `<TS>`. */
   readonly timestampPlaceholder?: string;
-  /** Placeholder to use for UUIDs. Default `<UUID>`. */
+  /** The placeholder for a UUID. The default is `<UUID>`. */
   readonly uuidPlaceholder?: string;
-  /** Placeholder to use for commit SHAs. Default `<SHA>`. Set `null` to skip SHA detection. */
+  /** The placeholder for a commit SHA. The default is `null`, which skips SHA detection. */
   readonly shaPlaceholder?: string | null;
-  /** Placeholder to use for tmp paths. Default `<TMP_PATH>`. Set `null` to skip. */
+  /** The placeholder for a temporary path. The default is `null`, which skips the replacement. */
   readonly tmpPathPlaceholder?: string | null;
-  /** UUID regex to apply. Default `UUID_V4_RE` (strict). Pass `UUID_ANY_RE` for legacy. */
+  /** The UUID regex. The default is the strict `UUID_V4_RE`. `UUID_ANY_RE` accepts each version. */
   readonly uuidRegex?: RegExp;
-  /** Keys whose values should be replaced with a placeholder (keyed transform). */
+  /** Keys whose values become the timestamp placeholder. */
   readonly timestampKeys?: ReadonlySet<string>;
-  /** Keys whose values should be replaced with the UUID placeholder. */
+  /** Keys whose values become the UUID placeholder. */
   readonly uuidKeys?: ReadonlySet<string>;
-  /**
-   * Keys whose values should be replaced with a stable string placeholder
-   * (e.g. `minutesSinceActivity` → `<MINUTES>`). Map key → placeholder.
-   */
+  /** A map from a key to its fixed placeholder, such as `minutesSinceActivity` to `<MINUTES>`. */
   readonly keyPlaceholders?: Readonly<Record<string, string>>;
-  /**
-   * Keys to drop entirely from object nodes (telemetry-derived fields that
-   * are wholly non-deterministic).
-   */
+  /** Keys that each object node loses. Use it for telemetry fields that are not deterministic. */
   readonly dropKeys?: ReadonlySet<string>;
   /**
-   * When true, any string field whose value matches an ISO timestamp or
-   * UUID regex is dropped from its parent object rather than replaced.
-   * Matches the event-store harness convention; incompatible with
-   * placeholder replacement.
+   * When `true`, an object loses each string field whose value matches the ISO timestamp regex or
+   * the UUID regex. Those fields get no placeholder.
    */
   readonly stripTimeSensitiveValues?: boolean;
 }
@@ -282,11 +229,8 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Recursively replace wall-clock / UUID / telemetry fields with stable
- * placeholders so two independent arm invocations produce byte-equal
- * trees. Configurable via {@link NormalizeOptions}; defaults match the
- * workflow parity suite (task 014) so existing tests migrate with no
- * behavioural change.
+ * Replaces timestamps, UUIDs and telemetry fields with stable placeholders at each depth, so two
+ * arms give equal trees. {@link NormalizeOptions} sets the placeholders and the per-key transforms.
  */
 export function normalize(value: unknown, options: NormalizeOptions = {}): unknown {
   const opts = { ...DEFAULTS, ...options };
@@ -340,41 +284,30 @@ export function normalize(value: unknown, options: NormalizeOptions = {}): unkno
   return visit(value);
 }
 
-// ─── Re-exports for convenience ──────────────────────────────────────────────
-
 export { applyExitOverrideRecursively, commanderErrorToResult, type CliExitCode };
 
-// ─── Parity Fixtures (T42, DR-5) ────────────────────────────────────────────
-//
-// Self-contained fixture descriptors for the parity harness. Each fixture
-// describes a scenario both CLI and MCP arms must execute identically; the
-// `setup` callback primes the `DispatchContext` (state + events), and the
-// `act` callbacks invoke the action through each carrier. Suites import
-// the fixture and feed it into the equivalent of `expect(normalize(cli))
-// .toEqual(normalize(mcp))`.
-//
-// First fixture covers a transition-guard-failure case for DR-5: the
-// structured error envelope (validTargets / expectedShape / suggestedFix)
-// must be byte-equivalent across carriers. Adding more fixtures here keeps
-// the carrier-equivalence contract test-driven from a single source.
-
+/**
+ * A scenario that the CLI arm and the MCP arm must run with equal results. `setup` primes the
+ * `DispatchContext`. `cliCall` and `mcpCall` hold the arguments for each carrier. A suite compares
+ * the two normalized results.
+ */
 export interface ParityFixture {
-  /** Stable identifier so suites can reference a single fixture. */
+  /** A stable identifier for the fixture. */
   readonly name: string;
-  /** Human-readable description for failure messages. */
+  /** A description for failure messages. */
   readonly description: string;
   /**
-   * Prime a {@link DispatchContext} for the fixture (init workflow, append
-   * fixture events, etc.). Called once per arm with fresh context.
+   * Primes a {@link DispatchContext}, for example with a workflow or with seed events. A suite
+   * calls it one time for each arm, with a fresh context.
    */
   readonly setup: (ctx: DispatchContext) => Promise<void>;
-  /** CLI arm — invoked through {@link callCli}. */
+  /** The CLI arm, for {@link callCli}. */
   readonly cliCall: {
     readonly toolAlias: string;
     readonly action: string;
     readonly flags: Record<string, unknown>;
   };
-  /** MCP arm — invoked through {@link callMcp}. */
+  /** The MCP arm, for {@link callMcp}. */
   readonly mcpCall: {
     readonly tool: string;
     readonly args: Record<string, unknown>;
@@ -382,20 +315,12 @@ export interface ParityFixture {
 }
 
 /**
- * T-24 (rehydration-machinery-refactor) — delegate-phase rehydrate fixture.
+ * A feature workflow in the `delegate` phase, for the rehydrate test in `workflow/parity.test.ts`.
+ * `handleRehydrate` composes a non-null `phasePlaybook` for that phase. The rehydration envelope
+ * must be equal across the CLI and MCP carriers.
  *
- * Drives a feature workflow into the `delegate` phase via two seed events
- * (`workflow.started` then `workflow.transition` to `delegate`) so that
- * `handleRehydrate` composes a non-null `phasePlaybook` (delegation skill,
- * per the L4 registry — see `workflow/playbooks.ts`). Used by
- * `workflow/parity.test.ts` to pin INV-2 — the v:3 rehydration envelope
- * (including `phasePlaybook`) must be byte-equivalent across the CLI and
- * MCP carriers. If a future change makes one carrier compose
- * `phasePlaybook` differently than the other, the parity assertion fails.
- *
- * Seed via `eventStore.append` rather than `handleInit` + `handleTransition`
- * so the fixture is independent of HSM guard state — the goal is to land
- * the document in `delegate` phase, not to exercise the transition pipeline.
+ * `setup` appends two seed events and does not call `handleInit` or `handleTransition`. Thus the
+ * fixture does not depend on HSM guard state.
  */
 export const DELEGATE_PHASE_REHYDRATE_FIXTURE: ParityFixture = {
   name: 'delegate_phase_rehydrate',
@@ -424,40 +349,18 @@ export const DELEGATE_PHASE_REHYDRATE_FIXTURE: ParityFixture = {
 };
 
 /**
- * Wave 4 / Task 4.4 — merge-orchestrate parity fixture (post-migration).
+ * Calls `merge_orchestrate` through the two carriers on a stream with no prior merge events.
+ * `setup` is empty, because the orchestrator opens the stream itself.
  *
- * Drives `exarchos_orchestrate { action: 'merge_orchestrate' }` via both
- * carriers (CLI's auto-generated `orch merge_orchestrate` and the MCP
- * dispatch entry point) on a feature stream that has NOT been primed
- * with prior merge events. The setup is intentionally empty — the
- * orchestrator opens the stream itself by emitting `merge.preflight`,
- * Phase A's `merge.requested`, and the executor's `merge.executed` in
- * order. The fixture's `cliCall` / `mcpCall` shape is the canonical
- * post-Wave-4 invocation surface.
- *
- * Note: this fixture descriptor does NOT install the DI hooks the
- * happy-path test needs (real `preflightFn` / `executeMergeFn` would
- * shell out to git). The consumer test
- * (`merge-orchestrate.parity-harness.test.ts`) wraps the fixture in a
- * `stubCompositeHandler` that provides the deterministic adapters so
- * two arms produce byte-equal output. Splitting the descriptor from the
- * stub keeps the fixture's argv shape declarative (matching the other
- * fixtures here) while letting tests handle the carrier-specific stub
- * setup imperatively.
- *
- * Verifies the Wave 4 reference migration (audit §F1.2) preserves
- * carrier equivalence: both `exarchos merge_orchestrate` surfaces must
- * project byte-identical ToolResults after the two-event split insertion.
+ * The fixture installs no dependency hooks, and the real preflight and executor run git.
+ * `merge-orchestrate.parity-harness.test.ts` wraps the fixture in `stubCompositeHandler`, which
+ * supplies deterministic adapters so the two arms give equal output.
  */
 export const MERGE_ORCHESTRATE_PARITY_FIXTURE: ParityFixture = {
   name: 'merge_orchestrate_post_wave4',
   description:
     'merge_orchestrate(feature/x → main, squash) with passing preflight + completed executor — post Wave 4 two-event split. CLI and MCP carriers MUST project byte-equal ToolResults.',
   async setup(_ctx: DispatchContext) {
-    // No event-store priming needed — the orchestrator opens the stream
-    // itself. The test's `stubCompositeHandler` injects the deterministic
-    // preflight/executor adapters that make the orchestrator's stream
-    // writes reproducible across arms.
   },
   cliCall: {
     toolAlias: 'orch',
@@ -484,27 +387,24 @@ export const MERGE_ORCHESTRATE_PARITY_FIXTURE: ParityFixture = {
 };
 
 /**
- * T42 / DR-5 — transition-guard-failure fixture. Drives an `ideate → plan`
- * transition WITHOUT the required `artifacts.design` field, so the HSM
- * primitive's composite guard fails. The structured error envelope
- * (validTargets / expectedShape / suggestedFix) must be byte-equivalent
- * across CLI and MCP carriers.
+ * Requests the `plan` to `plan-review` transition with no `artifacts.plan`, so the
+ * `planArtifactExists` guard fails. The structured error envelope must be equal across the CLI and
+ * MCP carriers.
+ *
+ * `setup` imports the workflow handler lazily, because each parity test loads this module at cold
+ * start.
  */
 export const TRANSITION_GUARD_FAILURE_FIXTURE: ParityFixture = {
   name: 'transition_guard_failure',
   description:
     'transition({target:"plan-review"}) without required artifacts → GUARD_FAILED with structured envelope',
   async setup(ctx: DispatchContext) {
-    // Lazy-import the workflow handler so this module's import cost is
-    // bounded — parity-harness is loaded on every parity-test cold start.
     const { handleInit } = await import('../../src/workflow/tools.js');
     await handleInit(
       { featureId: 'parity-guard-fail', workflowType: 'feature' },
       ctx.stateDir,
       ctx.eventStore,
     );
-    // DR-4 (#1581): plan is initial. Deliberately NOT priming `artifacts.plan`
-    // so the plan→plan-review guard (planArtifactExists) fails.
   },
   cliCall: {
     toolAlias: 'wf',

@@ -2,8 +2,6 @@ import { describe, it, expect } from 'vitest';
 import { sentryAdapter } from '../../../../src/review/providers/sentry.js';
 import type { PrComment as VcsPrComment } from '../../../../src/vcs/provider.js';
 
-// ─── Test Helpers ────────────────────────────────────────────────────────────
-
 function makeComment(overrides: Partial<VcsPrComment> = {}): VcsPrComment {
   return {
     id: 12345,
@@ -100,11 +98,11 @@ describe('sentryAdapter', () => {
     expect(sentryAdapter.parse(malformed)).toBeNull();
   });
 
+  /**
+   * Many Sentry comments have no tier marker. If the adapter sets `unknownTier` for
+   * them, the `provider.unknown-tier` events are false positives.
+   */
   it('SentryAdapter_NoTier_DoesNotSetUnknownTier', () => {
-    // Sentry comments often arrive without a tier marker — that's normal,
-    // not drift. The adapter must NOT flag those as unknownTier or it
-    // floods the provider.unknown-tier event stream with false positives
-    // (PR #1161 review feedback).
     const result = sentryAdapter.parse({
       id: 5,
       author: 'sentry-io[bot]',

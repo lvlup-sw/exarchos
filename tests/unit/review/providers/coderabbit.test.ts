@@ -2,8 +2,6 @@ import { describe, it, expect } from 'vitest';
 import { coderabbitAdapter } from '../../../../src/review/providers/coderabbit.js';
 import type { PrComment as VcsPrComment } from '../../../../src/vcs/provider.js';
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
 function makeComment(overrides: Partial<VcsPrComment> = {}): VcsPrComment {
   return {
     id: 1,
@@ -13,8 +11,6 @@ function makeComment(overrides: Partial<VcsPrComment> = {}): VcsPrComment {
     ...overrides,
   };
 }
-
-// ─── Tests ──────────────────────────────────────────────────────────────────
 
 describe('coderabbitAdapter', () => {
   it('CoderabbitAdapter_PotentialIssueTier_NormalizesToHigh', () => {
@@ -63,6 +59,7 @@ describe('coderabbitAdapter', () => {
     expect(result?.normalizedSeverity).toBe('LOW');
   });
 
+  /** `unknownTier` lets a caller tell the default MEDIUM from a MEDIUM marker. */
   it('CoderabbitAdapter_UnrecognizedTier_DefaultsToMedium', () => {
     const comment = makeComment({
       body: 'Some prose with no tier marker whatsoever.',
@@ -72,10 +69,6 @@ describe('coderabbitAdapter', () => {
 
     expect(result).not.toBeNull();
     expect(result?.normalizedSeverity).toBe('MEDIUM');
-    // Sibling indicator that the tier was not recognized; the spec leaves the
-    // exact field name to the implementer. We assert that the returned object
-    // contains some marker keyed on "unknownTier" so callers can distinguish
-    // explicit MEDIUM from default-MEDIUM.
     const withMarker = result as unknown as Record<string, unknown>;
     expect(withMarker.unknownTier).toBe(true);
   });
@@ -137,9 +130,8 @@ describe('coderabbitAdapter', () => {
     expect(result?.rawTier).toBe('_:rocket: Brand new tier_');
   });
 
+  /** "Minor" and "Nitpick" count only in heading position. The same word inside a sentence must not give LOW. */
   it('CoderabbitAdapter_MidSentenceMinor_DoesNotMatchLow', () => {
-    // Regression for #1161 review feedback: "minor"/"nitpick" used mid-sentence
-    // must NOT classify the comment as LOW. Heading-position anchor required.
     const comment = makeComment({
       body: 'This is a minor concern, but it could surface a real bug under load.',
     });
@@ -160,9 +152,6 @@ describe('coderabbitAdapter', () => {
   });
 
   it('CoderabbitAdapter_MalformedInput_DoesNotThrow', () => {
-    // Defensive check: a comment with a body that breaks string ops
-    // (e.g., body coerced from a non-string upstream) must return null
-    // rather than throwing into queryPrComments and killing the batch.
     const malformed = {
       ...makeComment(),
       body: null as unknown as string,

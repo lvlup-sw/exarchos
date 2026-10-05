@@ -183,11 +183,10 @@ describe('WorkflowStatusView', () => {
     });
   });
 
-  // ── C4 (#1226): projection dedup by taskId ────────────────────────────
-  // Duplicate task.assigned / task.completed events (from #1228 retries or
-  // #1230 historical replay) must be counted at most once per taskId so the
-  // counters remain monotonic and tasksCompleted <= tasksTotal.
-
+  /**
+   * A retry or a replay can repeat `task.assigned` and `task.completed` for one `taskId`.
+   * The view counts each `taskId` one time, so `tasksCompleted` stays at or below `tasksTotal`.
+   */
   describe('workflowStatus_replayWithDuplicateTaskCompleted_dedupsByTaskId', () => {
     it('counts a single task.completed when the same taskId appears twice', () => {
       const events = [
@@ -227,8 +226,6 @@ describe('WorkflowStatusView', () => {
 
   describe('workflowStatus_tasksCompletedExceedsTotal_invariantHolds', () => {
     it('keeps tasksCompleted <= tasksTotal under any duplicate-event sequence (#1226)', () => {
-      // Pathological log: two assigns and many duplicate completes for the
-      // same taskId. Pre-fix this drove tasksCompleted past tasksTotal.
       const events = [
         makeEvent(1, 'workflow.started', { featureId: 'f1', workflowType: 'feature' }),
         makeEvent(2, 'task.assigned', { taskId: 't1', title: 'Task 1' }),

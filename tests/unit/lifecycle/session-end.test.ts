@@ -5,8 +5,6 @@ import * as path from 'node:path';
 import type { SessionEvent, SessionSummaryEvent } from '../../../src/projections/session/types.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
-// ─── Mocks ──────────────────────────────────────────────────────────────────
-
 vi.mock('../../../src/projections/session/transcript-parser.js', () => ({
   parseTranscript: vi.fn(),
 }));
@@ -19,8 +17,6 @@ vi.mock('../../../src/projections/session/manifest.js', async (importOriginal) =
   };
 });
 
-// ─── Test Data ──────────────────────────────────────────────────────────────
-
 function makeMockEvents(sessionId: string): SessionEvent[] {
   return [
     { t: 'tool', ts: '2026-02-24T10:00:00Z', tool: 'Read', cat: 'native', inB: 100, outB: 200, sid: sessionId },
@@ -28,8 +24,6 @@ function makeMockEvents(sessionId: string): SessionEvent[] {
     { t: 'summary', ts: '2026-02-24T10:00:02Z', sid: sessionId, tools: { Read: 1 }, tokTotal: { in: 100, out: 50, cacheR: 5000, cacheW: 2000 }, files: [], dur: 2000, turns: 1 },
   ];
 }
-
-// ─── Test Suite ─────────────────────────────────────────────────────────────
 
 describe('session-end command', () => {
   let tmpDir: string;
@@ -42,7 +36,6 @@ describe('session-end command', () => {
     await fs.mkdir(path.join(stateDir, 'sessions'), { recursive: true });
     transcriptPath = path.join(tmpDir, 'transcript.jsonl');
 
-    // Reset mocks
     vi.resetAllMocks();
   });
 
@@ -54,13 +47,10 @@ describe('session-end command', () => {
     it('handleSessionEnd_MissingSessionId_ReturnsError', async () => {
       const { handleSessionEnd } = await import('../../../src/lifecycle/session-end.js');
 
-      // Arrange
       const stdinData = { transcript_path: transcriptPath };
 
-      // Act
       const result = await handleSessionEnd(stdinData, stateDir);
 
-      // Assert
       expect(result).toEqual({
         error: { code: 'MISSING_SESSION_ID', message: 'session_id is required' },
       });
@@ -69,13 +59,10 @@ describe('session-end command', () => {
     it('handleSessionEnd_MissingTranscriptPath_ReturnsError', async () => {
       const { handleSessionEnd } = await import('../../../src/lifecycle/session-end.js');
 
-      // Arrange
       const stdinData = { session_id: 'abc' };
 
-      // Act
       const result = await handleSessionEnd(stdinData, stateDir);
 
-      // Assert
       expect(result).toEqual({
         error: { code: 'MISSING_TRANSCRIPT_PATH', message: 'transcript_path is required' },
       });
@@ -84,10 +71,8 @@ describe('session-end command', () => {
     it('handleSessionEnd_EmptyStdin_ReturnsError', async () => {
       const { handleSessionEnd } = await import('../../../src/lifecycle/session-end.js');
 
-      // Act
       const result = await handleSessionEnd({}, stateDir);
 
-      // Assert
       expect(result).toHaveProperty('error');
       expect(result.error).toBeDefined();
       expect(result.error!.code).toBe('MISSING_SESSION_ID');
@@ -96,13 +81,10 @@ describe('session-end command', () => {
     it('handleSessionEnd_NonStringSessionId_ReturnsError', async () => {
       const { handleSessionEnd } = await import('../../../src/lifecycle/session-end.js');
 
-      // Arrange
       const stdinData = { session_id: 123, transcript_path: transcriptPath };
 
-      // Act
       const result = await handleSessionEnd(stdinData, stateDir);
 
-      // Assert
       expect(result).toEqual({
         error: { code: 'MISSING_SESSION_ID', message: 'session_id is required' },
       });
@@ -111,13 +93,10 @@ describe('session-end command', () => {
     it('handleSessionEnd_NonStringTranscriptPath_ReturnsError', async () => {
       const { handleSessionEnd } = await import('../../../src/lifecycle/session-end.js');
 
-      // Arrange
       const stdinData = { session_id: 'abc', transcript_path: 42 };
 
-      // Act
       const result = await handleSessionEnd(stdinData, stateDir);
 
-      // Assert
       expect(result).toEqual({
         error: { code: 'MISSING_TRANSCRIPT_PATH', message: 'transcript_path is required' },
       });
@@ -131,16 +110,13 @@ describe('session-end command', () => {
       const sessionId = 'test-session-001';
       const mockEvents = makeMockEvents(sessionId);
 
-      // Arrange — create transcript file and set up mock
       await fs.writeFile(transcriptPath, '{"type":"assistant"}\n', 'utf-8');
       vi.mocked(parseTranscript).mockResolvedValue(mockEvents);
 
       const stdinData = { session_id: sessionId, transcript_path: transcriptPath };
 
-      // Act
       const result = await handleSessionEnd(stdinData, stateDir);
 
-      // Assert
       expect(result).toEqual({ continue: true });
       const eventsPath = path.join(stateDir, 'sessions', `${sessionId}.events.jsonl`);
       const content = await fs.readFile(eventsPath, 'utf-8');
@@ -152,6 +128,10 @@ describe('session-end command', () => {
       expect(parsed[2].t).toBe('summary');
     });
 
+    /**
+     * The mock summary holds one `Read` tool call. The total of 150 tokens is 100 in plus 50 out, and
+     * it excludes the cache tokens.
+     */
     it('handleSessionEnd_ValidTranscript_UpdatesManifestWithCompletion', async () => {
       const { handleSessionEnd } = await import('../../../src/lifecycle/session-end.js');
       const { parseTranscript } = await import('../../../src/projections/session/transcript-parser.js');
@@ -159,7 +139,6 @@ describe('session-end command', () => {
       const sessionId = 'test-session-002';
       const mockEvents = makeMockEvents(sessionId);
 
-      // Arrange
       await fs.writeFile(transcriptPath, '{"type":"assistant"}\n', 'utf-8');
       vi.mocked(parseTranscript).mockResolvedValue(mockEvents);
 
@@ -169,19 +148,17 @@ describe('session-end command', () => {
         end_reason: 'user_exit',
       };
 
-      // Act
       await handleSessionEnd(stdinData, stateDir);
 
-      // Assert
       expect(writeManifestCompletion).toHaveBeenCalledOnce();
       const callArgs = vi.mocked(writeManifestCompletion).mock.calls[0];
       expect(callArgs[0]).toBe(stateDir);
       const completion = callArgs[1];
       expect(completion.sessionId).toBe(sessionId);
       expect(completion.endReason).toBe('user_exit');
-      expect(completion.toolCalls).toBe(1); // 1 Read tool call
+      expect(completion.toolCalls).toBe(1);
       expect(completion.turns).toBe(1);
-      expect(completion.totalTokens).toBe(150); // 100 in + 50 out
+      expect(completion.totalTokens).toBe(150);
       expect(completion.extractedAt).toBeDefined();
     });
 
@@ -191,16 +168,13 @@ describe('session-end command', () => {
       const sessionId = 'test-session-003';
       const mockEvents = makeMockEvents(sessionId);
 
-      // Arrange
       await fs.writeFile(transcriptPath, '{"type":"assistant"}\n', 'utf-8');
       vi.mocked(parseTranscript).mockResolvedValue(mockEvents);
 
       const stdinData = { session_id: sessionId, transcript_path: transcriptPath };
 
-      // Act
       await handleSessionEnd(stdinData, stateDir);
 
-      // Assert
       const eventsPath = path.join(stateDir, 'sessions', `${sessionId}.events.jsonl`);
       const content = await fs.readFile(eventsPath, 'utf-8');
       const events = content.trim().split('\n').map((l) => JSON.parse(l));
@@ -213,36 +187,31 @@ describe('session-end command', () => {
     it('handleSessionEnd_TranscriptNotFound_ReturnsErrorGracefully', async () => {
       const { handleSessionEnd } = await import('../../../src/lifecycle/session-end.js');
 
-      // Arrange — do NOT create the transcript file
       const stdinData = {
         session_id: 'test-session-004',
         transcript_path: path.join(tmpDir, 'nonexistent-transcript.jsonl'),
       };
 
-      // Act
       const result = await handleSessionEnd(stdinData, stateDir);
 
-      // Assert
       expect(result).toHaveProperty('error');
       expect(result.error!.code).toBe('TRANSCRIPT_NOT_FOUND');
     });
 
+    /** An events file that exists marks the session as extracted. */
     it('handleSessionEnd_AlreadyExtracted_SkipsReextraction', async () => {
       const { handleSessionEnd } = await import('../../../src/lifecycle/session-end.js');
       const { parseTranscript } = await import('../../../src/projections/session/transcript-parser.js');
       const sessionId = 'test-session-005';
 
-      // Arrange — create events file to simulate already-extracted session
       const eventsPath = path.join(stateDir, 'sessions', `${sessionId}.events.jsonl`);
       await fs.writeFile(eventsPath, '{"t":"summary"}\n', 'utf-8');
       await fs.writeFile(transcriptPath, '{"type":"assistant"}\n', 'utf-8');
 
       const stdinData = { session_id: sessionId, transcript_path: transcriptPath };
 
-      // Act
       const result = await handleSessionEnd(stdinData, stateDir);
 
-      // Assert
       expect(result).toEqual({ continue: true });
       expect(parseTranscript).not.toHaveBeenCalled();
     });
@@ -252,16 +221,13 @@ describe('session-end command', () => {
       const { parseTranscript } = await import('../../../src/projections/session/transcript-parser.js');
       const sessionId = 'test-session-006';
 
-      // Arrange
       await fs.writeFile(transcriptPath, '{"type":"assistant"}\n', 'utf-8');
       vi.mocked(parseTranscript).mockRejectedValue(new Error('Parse failed'));
 
       const stdinData = { session_id: sessionId, transcript_path: transcriptPath };
 
-      // Act
       const result = await handleSessionEnd(stdinData, stateDir);
 
-      // Assert
       expect(result).toHaveProperty('error');
       expect(result.error!.code).toBe('EXTRACTION_FAILED');
       expect(result.error!.message).toContain('Parse failed');
@@ -274,16 +240,13 @@ describe('session-end command', () => {
       const sessionId = 'test-session-007';
       const mockEvents = makeMockEvents(sessionId);
 
-      // Arrange — stdinData without end_reason
       await fs.writeFile(transcriptPath, '{"type":"assistant"}\n', 'utf-8');
       vi.mocked(parseTranscript).mockResolvedValue(mockEvents);
 
       const stdinData = { session_id: sessionId, transcript_path: transcriptPath };
 
-      // Act
       await handleSessionEnd(stdinData, stateDir);
 
-      // Assert
       const callArgs = vi.mocked(writeManifestCompletion).mock.calls[0];
       expect(callArgs[1].endReason).toBe('unknown');
     });

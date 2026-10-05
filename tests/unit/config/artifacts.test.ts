@@ -1,15 +1,10 @@
 /**
- * Artifact-directory resolution and classification (DR-6, task 005).
+ * Resolution of the artifact directories, and layout classification under them.
  *
- * Two independent authorities, per DR-30. `./artifacts.ts` is the shipped
- * resolver — it computes. `characterization-corpus-captured-pre-dr6` is the
- * hand-authored expectation table below, transcribed from the literal-based
- * classifier BEFORE the extraction; it reads nothing and computes nothing, so
- * it cannot agree with the resolver by construction. Neither reaches the other.
- *
- * The classifier itself (`../workflow/rehydrate.ts`) is deliberately NOT
- * declared: it imports `./artifacts.ts`, so naming both would be one authority
- * wearing two names.
+ * The expectation table below is hand-written and reads nothing from the resolver. It pins
+ * the verdicts for the default directories. A case must not change to match a new
+ * implementation: a disagreement is a regression. The classifier in `workflow/rehydrate.ts`
+ * is not a declared source, because it imports the resolver.
  *
  * @oracle-sources: ../../../src/config/artifacts.ts, characterization-corpus-captured-pre-dr6
  */
@@ -30,17 +25,7 @@ import { resolveConfig } from '../../../src/config/resolve.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../..');
 
-// ─── Characterization ────────────────────────────────────────────────────────
-//
-// Task 005 is a behaviour-preserving extraction: two module-private literals in
-// `workflow/rehydrate.ts` become one configured value. The extraction is only
-// safe if the DEFAULT path is byte-identical to what shipped, so the corpus
-// below pins the pre-change verdict for every artifact-map shape the repository
-// actually produces. These cases were captured against the literal-based
-// classifier; they must not be edited to match a new implementation — a
-// disagreement here is a regression, not a stale expectation.
-
-/** Artifact maps drawn from the shapes real workflows record. */
+/** Artifact maps in the shapes that workflows record, with the expected layout of each. */
 const CHARACTERIZATION_CORPUS: ReadonlyArray<{
   readonly name: string;
   readonly artifacts: Readonly<Record<string, string>>;
@@ -107,7 +92,6 @@ describe('classifyArtifactLayout — characterization of the pre-DR-6 default', 
   it.each(CHARACTERIZATION_CORPUS)(
     'ArtifactDir_NoConfiguration_DefaultsToDocsSpecs: $name',
     ({ artifacts, expected }) => {
-      // No second argument — exactly how every pre-DR-6 call site invoked it.
       expect(classifyArtifactLayout(artifacts)).toBe(expected);
     },
   );
@@ -131,7 +115,6 @@ describe('classifyArtifactLayout — characterization of the pre-DR-6 default', 
   it.skipIf(!fs.existsSync(path.join(REPO_ROOT, DEFAULT_SPEC_DIR)))('ArtifactDir_NoConfiguration_DefaultsToDocsSpecs: classifies this repository’s real spec corpus as unified', () => {
     const specsDir = path.join(REPO_ROOT, DEFAULT_SPEC_DIR);
     const specs = fs.readdirSync(specsDir).filter((f) => f.endsWith('.md'));
-    // Guards against a vacuous pass if the corpus ever moves out from under us.
     expect(specs.length).toBeGreaterThan(10);
     for (const file of specs) {
       expect(classifyArtifactLayout({ plan: path.posix.join(DEFAULT_SPEC_DIR, file) })).toBe(
@@ -140,8 +123,6 @@ describe('classifyArtifactLayout — characterization of the pre-DR-6 default', 
     }
   });
 });
-
-// ─── Configured behaviour ────────────────────────────────────────────────────
 
 describe('classifyArtifactLayout — configured prefixes', () => {
   it('ArtifactDir_ConfiguredPrefix_ClassifiesUnifiedSpecCorrectly', () => {
@@ -152,19 +133,15 @@ describe('classifyArtifactLayout — configured prefixes', () => {
     );
   });
 
+  /** With the spec directory moved, only a `spec` key or the default fallthrough gives `unified`. */
   it('ArtifactDir_ConfiguredPrefix_ClassifiesUnifiedSpecCorrectly: the OLD default no longer wins on its own', () => {
     const dirs = resolveArtifactDirs({ 'spec-dir': 'design-records' });
-    // A `docs/specs/` path under a project that moved its specs is no longer a
-    // unified signal by location — only the explicit `spec` key or the
-    // forward-default fallthrough can produce 'unified' here.
     expect(classifyArtifactLayout({ design: 'docs/designs/legacy.md', plan: 'docs/specs/x.md' }, dirs)).toBe(
       'two-artifact',
     );
   });
 
   it('ArtifactDir_LegacyDesignPrefix_StillClassifiesAsTwoArtifact', () => {
-    // The legacy discriminator survives configuration of the spec dir: a
-    // pre-collapse workflow must still complete on the old path.
     const dirs = resolveArtifactDirs({ 'spec-dir': 'design-records' });
     expect(classifyArtifactLayout({ design: 'docs/designs/2026-04-01-old.md' }, dirs)).toBe(
       'two-artifact',
@@ -195,8 +172,6 @@ describe('classifyArtifactLayout — configured prefixes', () => {
   });
 });
 
-// ─── Normalization ───────────────────────────────────────────────────────────
-
 describe('normalizeArtifactDir', () => {
   it('appends exactly one trailing slash', () => {
     expect(normalizeArtifactDir('docs/specs')).toBe('docs/specs/');
@@ -219,11 +194,13 @@ describe('normalizeArtifactDir', () => {
     }
   });
 
+  /**
+   * The first `unified` is the default fallthrough, not a prefix match. The second case adds a
+   * legacy design doc, which decides only when the prefix does not match.
+   */
   it('the trailing slash prevents a sibling-directory false match', () => {
     const dirs = resolveArtifactDirs({ 'spec-dir': 'docs/spec' });
     expect(classifyArtifactLayout({ plan: 'docs/specifications/x.md' }, dirs)).toBe('unified');
-    // …'unified' above is the forward default, not a prefix hit. Prove the
-    // prefix genuinely did not match by giving it a legacy design doc to find.
     expect(
       classifyArtifactLayout(
         { design: 'docs/designs/old.md', plan: 'docs/specifications/x.md' },
@@ -233,15 +210,12 @@ describe('normalizeArtifactDir', () => {
   });
 });
 
-// ─── Blank-config safety ─────────────────────────────────────────────────────
-
 describe('resolveArtifactDirs — a blank prefix fails back, never open', () => {
+  /** An empty prefix matches every path, and then two-artifact work classifies as `unified`. */
   it.each(['', '   ', '/', '.'])('rejects %o in favour of the default', (blank) => {
     const dirs = resolveArtifactDirs({ 'spec-dir': blank, 'legacy-design-dir': blank });
     expect(dirs.specDir).toBe(DEFAULT_SPEC_DIR);
     expect(dirs.legacyDesignDir).toBe(DEFAULT_LEGACY_DESIGN_DIR);
-    // An empty prefix would `.includes('')`-match every path and strand
-    // in-flight two-artifact work on the wrong path.
     expect(classifyArtifactLayout({ design: 'docs/designs/old.md' }, dirs)).toBe('two-artifact');
   });
 
@@ -250,8 +224,6 @@ describe('resolveArtifactDirs — a blank prefix fails back, never open', () => 
     expect(Object.isFrozen(dirs)).toBe(true);
   });
 });
-
-// ─── Resolver wiring ─────────────────────────────────────────────────────────
 
 describe('resolveConfig — artifacts block', () => {
   it('defaults to the shipped literals when no `artifacts:` block is present', () => {

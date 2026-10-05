@@ -6,13 +6,10 @@ import {
   UUID_V4_RE,
 } from './parity-harness.js';
 
-// ─── Harness Self-Tests ─────────────────────────────────────────────────────
-//
-// `callCli`/`callMcp` are exercised end-to-end by the 5 migrating parity
-// suites — those are the real fitness tests. The only pure unit under
-// harness test here is `normalize`, which is config-heavy and easy to
-// get wrong silently.
-
+/**
+ * The parity suites exercise `callCli` and `callMcp` end to end. `normalize` is the only pure unit,
+ * and its many options make a silent error easy.
+ */
 describe('parity harness normalize()', () => {
   it('Normalize_DefaultOptions_ReplacesTimestampsAndUuids', () => {
     const input = {
@@ -107,9 +104,11 @@ describe('parity harness normalize()', () => {
     });
   });
 
+  /**
+   * The fixture UUID has version nibble `0`, so `UUID_V4_RE` rejects it and `UUID_ANY_RE` accepts
+   * it.
+   */
   it('Normalize_LegacyUuidRegex_AcceptsNonV4', () => {
-    // A UUID with version nibble `0` (not v4) — the default V4 regex
-    // should reject it, the any-version regex should accept.
     const notV4 = '550e8400-e29b-01d4-a716-446655440000';
     expect(UUID_V4_RE.test(notV4)).toBe(false);
     expect(UUID_ANY_RE.test(notV4)).toBe(true);

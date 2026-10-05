@@ -1,3 +1,11 @@
+/**
+ * Compares the action sets that the CLI and the MCP server build from `getFullRegistry()`.
+ *
+ * The tests run the real builders, `buildCli` and `createMcpServer`.
+ * The CLI builds a subcommand for each action of each tool.
+ * The MCP server registers each tool that is not `hidden`, so only the CLI reaches a hidden tool.
+ * An action that one surface builds and the other surface does not build is drift.
+ */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { z } from 'zod';
 import * as fs from 'node:fs/promises';
@@ -9,26 +17,6 @@ import { EventStore } from '../../src/events/store.js';
 import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 import type { DispatchContext } from '../../src/dispatch/core/dispatch.js';
 
-// ─── B-6 (DR-11): plugin-registration ↔ CLI action parity ────────────────────
-//
-// Both facades derive their action set from `getFullRegistry()` — the MCP
-// adapter registers one tool per NON-hidden composite tool (its `action`
-// discriminator enum), while the CLI builder emits one subcommand per action
-// of EVERY tool. The single documented asymmetry is `CompositeTool.hidden`:
-// hidden tools (today only `exarchos_sync`) are CLI-reachable for operators /
-// scripts but excluded from MCP `tools/list` so they don't consume model
-// context (mcp.ts:`if (tool.hidden) continue;`, triaged as intentional in
-// bug #1218).
-//
-// These tests drive the REAL builders (`buildCli` + `createMcpServer`) and pin
-// the two surfaces against each other so any future drift — an action
-// advertised/registered by one facade but not built into the other — fails
-// CI. They also codify the B-6 audit finding: `rehydrate`/`deliveryPath`,
-// `worktrees`/`ps`/`invariants_effective` now exist in the CLI build.
-
-// The mcp adapter configures the state-store backend at server construction;
-// stub it so `createMcpServer` stays a pure registration probe (mirrors
-// mcp.test.ts).
 vi.mock('../../src/workflow/state-store.js', async (importOriginal) => {
   const original = await importOriginal<typeof import('../../src/workflow/state-store.js')>();
   return {
@@ -37,8 +25,10 @@ vi.mock('../../src/workflow/state-store.js', async (importOriginal) => {
   };
 });
 
-/** Minimal context for `buildCli` — it reads registry STRUCTURE at build time; the
- * eventStore is only dereferenced by per-action handlers at dispatch time. */
+/**
+ * A minimal context for `buildCli`, which reads only the structure of the registry.
+ * Only a dispatched handler reads `eventStore`, so an empty object is sufficient.
+ */
 function cliContext(): DispatchContext {
   return {
     stateDir: '/tmp/registration-parity',
@@ -47,7 +37,7 @@ function cliContext(): DispatchContext {
   };
 }
 
-/** Extract the string members of a `z.enum([...])` field across Zod-v4 shapes. */
+/** Returns the string members of a `z.enum` field. It reads `options` first, then `_def.entries`. */
 function enumValues(field: z.ZodType | undefined): string[] {
   if (!field) return [];
   const opts = (field as unknown as { options?: unknown }).options;
@@ -57,7 +47,7 @@ function enumValues(field: z.ZodType | undefined): string[] {
   return entries ? Object.values(entries) : [];
 }
 
-/** Parse the "Actions: a, b, c" advertisement out of a tool's slimDescription. */
+/** Returns the action names in the `Actions: a, b, c` line of a `slimDescription`. */
 function advertisedActions(slim: string | undefined): string[] {
   if (!slim) return [];
   const m = slim.match(/Actions:\s*([^\n]+)/);
@@ -70,18 +60,20 @@ function advertisedActions(slim: string | undefined): string[] {
 
 const registry = getFullRegistry();
 
-/** toolName → canonical Set(action.name) straight from the registry. */
+/** Maps each tool name to its action names in the registry. */
 const registryActions = new Map<string, Set<string>>(
   registry.map((t) => [t.name, new Set(t.actions.map((a) => a.name))]),
 );
 
-/** CLI top-level command name (e.g. `wf`) → registry tool name (`exarchos_workflow`). */
+/** Maps each top-level CLI command name, such as `wf`, to its registry tool name. */
 const cliToolNameToRegistry = new Map<string, string>(
   registry.map((t) => [t.cli?.alias ?? t.name.replace(/^exarchos_/, ''), t.name]),
 );
 
-/** toolName → (CLI subcommand name → canonical action.name). Accounts for
- * action-level `cli.alias` (e.g. `get`→`status`, `pipeline`→`ls`). */
+/**
+ * Maps each tool name to a map from CLI subcommand name to action name.
+ * The subcommand name is the `cli.alias` of the action when the action has one.
+ */
 const cliSubToActionName = new Map<string, Map<string, string>>(
   registry.map((t) => [
     t.name,
@@ -89,13 +81,16 @@ const cliSubToActionName = new Map<string, Map<string, string>>(
   ]),
 );
 
-/** Drive the real Commander tree and reduce it to toolName → Set(action.name). */
+/**
+ * Builds the real Commander tree and returns the action names of each tool.
+ * It skips each top-level command that is not a registry tool.
+ */
 function enumerateCliActions(): Map<string, Set<string>> {
   const program = buildCli(cliContext());
   const out = new Map<string, Set<string>>();
   for (const toolCmd of program.commands) {
     const toolName = cliToolNameToRegistry.get(toolCmd.name());
-    if (!toolName) continue; // top-level convenience commands (schema, mcp, doctor, …)
+    if (!toolName) continue;
     const subMap = cliSubToActionName.get(toolName)!;
     const set = new Set<string>();
     for (const sub of toolCmd.commands) {
@@ -107,18 +102,17 @@ function enumerateCliActions(): Map<string, Set<string>> {
   return out;
 }
 
-/** Drive the real MCP registration path and capture each registered tool's
- * `action` discriminator enum → toolName → Set(action.name). Hidden tools are
- * skipped by `createMcpServer`, so they never appear here. */
+/**
+ * Runs `createMcpServer` and returns the `action` enum of each registered `exarchos_` tool.
+ * `createMcpServer` skips a hidden tool, so the result has no entry for it.
+ * The spy on `registerTool` needs the class that production constructs, which is `V2_MCP_SERVER_CLASS`.
+ */
 async function enumerateMcpRegisteredActions(): Promise<Map<string, Set<string>>> {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'registration-parity-'));
   const eventStore = new EventStore(tmpDir);
   await eventStore.initialize();
   const ctx: DispatchContext = { stateDir: tmpDir, eventStore, enableTelemetry: false };
 
-  // DR-26 (task 053): the SDK class is drawn through the owned seam. The spy
-  // needs the CONSTRUCTOR IDENTITY the production path calls through, which a
-  // factory cannot supply — see `V2_MCP_SERVER_CLASS`.
   const { V2_MCP_SERVER_CLASS } = await import('../../src/contract/sdk/seam.js');
   const spy = vi.spyOn(V2_MCP_SERVER_CLASS.prototype, 'registerTool');
   const out = new Map<string, Set<string>>();
@@ -155,6 +149,11 @@ describe('plugin-registration ↔ CLI action parity (B-6, DR-11)', () => {
     vi.restoreAllMocks();
   });
 
+  /**
+   * The CLI must build each registry action of each tool, hidden tools included.
+   * The MCP server must register the same actions for a visible tool, and no hidden tool.
+   * Thus the only actions that the CLI builds and MCP does not register belong to the hidden tools.
+   */
   it('registration_PluginVsCliActionList_NoDrift', () => {
     const hiddenToolNames = registry.filter((t) => t.hidden).map((t) => t.name);
 
@@ -162,22 +161,16 @@ describe('plugin-registration ↔ CLI action parity (B-6, DR-11)', () => {
       const canonical = registryActions.get(tool.name)!;
       const cliSet = cliActions.get(tool.name) ?? new Set<string>();
 
-      // The CLI builds a subcommand for every action of every tool — hidden
-      // tools included (operator/script reachability).
       expect(sorted(cliSet), `CLI action set for ${tool.name}`).toEqual(sorted(canonical));
 
       const mcpSet = mcpActions.get(tool.name) ?? new Set<string>();
       if (tool.hidden) {
-        // Documented exception: hidden tools are NEVER MCP-registered.
         expect(mcpSet.size, `${tool.name} is hidden and must not be MCP-registered`).toBe(0);
       } else {
-        // Visible tools: plugin registration and CLI expose the identical
-        // action set — no drift in either direction.
         expect(sorted(mcpSet), `MCP action set for ${tool.name}`).toEqual(sorted(canonical));
       }
     }
 
-    // No plugin-registered action is missing from the CLI surface.
     for (const [toolName, mcpSet] of mcpActions) {
       const cliSet = cliActions.get(toolName) ?? new Set<string>();
       for (const action of mcpSet) {
@@ -185,8 +178,6 @@ describe('plugin-registration ↔ CLI action parity (B-6, DR-11)', () => {
       }
     }
 
-    // The ONLY CLI-exclusive actions belong to hidden tools (the documented
-    // intentional exception) — a CLI-only action on a VISIBLE tool is drift.
     const cliOnly: string[] = [];
     for (const [toolName, cliSet] of cliActions) {
       const mcpSet = mcpActions.get(toolName) ?? new Set<string>();
@@ -200,18 +191,16 @@ describe('plugin-registration ↔ CLI action parity (B-6, DR-11)', () => {
     expect(cliOnly.sort()).toEqual(expectedCliOnly.sort());
   });
 
+  /** `deliveryPath` is a parameter of `rehydrate`, so the CLI must build a `--delivery-path` flag for it. */
   it('registration_B6FlaggedActions_ExistInBothSurfaces', () => {
-    // rehydrate — exarchos_workflow (visible on both facades)
     expect(cliActions.get('exarchos_workflow')?.has('rehydrate')).toBe(true);
     expect(mcpActions.get('exarchos_workflow')?.has('rehydrate')).toBe(true);
 
-    // worktrees / ps / invariants_effective — exarchos_view (visible on both)
     for (const action of ['worktrees', 'ps', 'invariants_effective']) {
       expect(cliActions.get('exarchos_view')?.has(action), `CLI missing view.${action}`).toBe(true);
       expect(mcpActions.get('exarchos_view')?.has(action), `MCP missing view.${action}`).toBe(true);
     }
 
-    // deliveryPath — a `rehydrate` param — surfaces as a CLI flag in the build.
     const program = buildCli(cliContext());
     const wf = program.commands.find((c) => c.name() === 'wf');
     const rehydrate = wf?.commands.find((c) => c.name() === 'rehydrate');
@@ -219,12 +208,11 @@ describe('plugin-registration ↔ CLI action parity (B-6, DR-11)', () => {
     expect(flagLongs).toContain('--delivery-path');
   });
 
+  /**
+   * Each action that the `Actions:` line of a `slimDescription` names must be a registry action.
+   * The reverse is not a requirement, because that line can be a subset of the actions.
+   */
   it('advertisedActions_AllDispatchable_NoPhantom', () => {
-    // Every action named in a tool's slimDescription "Actions:" advertisement
-    // MUST correspond to a real, dispatchable action. The reverse is NOT
-    // required — the advertisement is a deliberately curated, token-economy
-    // subset that points at describe(actions) for the full list. This guard
-    // is the direct B-6 "advertised but not built" tripwire.
     for (const tool of registry) {
       const advertised = advertisedActions(tool.slimDescription);
       const built = registryActions.get(tool.name)!;

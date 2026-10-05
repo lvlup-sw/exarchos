@@ -1,32 +1,27 @@
-// ─── T-23 mutation adequacy — `synced` must be EARNED by the real fsync call ──
-//
-// A mutant that deletes `fs.fsyncSync(fd)` inside `fsyncDirSync` (or
-// `handle.sync()` inside `fsyncDir`) but still returns `{ status: 'synced' }`
-// survived the entire utils+install suite: every existing test observes only
-// the RETURNED outcome, and a directory fsync has no filesystem-visible effect
-// a test could read back. These tests close that gap at the only observable
-// seam there is — the module boundary to `node:fs` / `node:fs/promises` —
-// verifying the syscall wrapper is actually INVOKED, on the fd opened on the
-// directory, and that `synced` is claimed only when that call succeeded.
-//
-// The mocks below are strict passthroughs (every un-instrumented member is the
-// real implementation); the instrumented members RECORD and then delegate,
-// except when a test injects an errno to drive the error arms.
+/**
+ * Mutation adequacy for `fsyncDirSync` and `fsyncDir`: a `synced` outcome needs a real fsync call.
+ * A directory fsync leaves nothing on the filesystem that a test can read back.
+ * So the mocks of `node:fs` and `node:fs/promises` record each fsync call.
+ * Each mock passes all other members through to the real module.
+ * A test can inject an errno to reach the error arms.
+ */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+/**
+ * The record that the mocks fill and the tests read.
+ * `syncFdCalls` holds each fd that the `fs.fsyncSync` wrapper receives, in call order.
+ * `openedSyncPaths` maps each fd from `fs.openSync` to its path.
+ * `handleSyncCalls` counts the `FileHandle.sync()` calls.
+ * When `syncError` or `handleSyncError` is set, the wrapper throws it and does not sync.
+ */
 const control = vi.hoisted(() => ({
-  /** Every fd handed to the real `fs.fsyncSync` wrapper, in call order. */
   syncFdCalls: [] as number[],
-  /** Injected error thrown by the `fs.fsyncSync` wrapper INSTEAD of syncing. */
   syncError: undefined as Error | undefined,
-  /** fd → path for every `fs.openSync`, so "the fd opened on the parent directory" is checkable. */
   openedSyncPaths: new Map<number, string>(),
-  /** `FileHandle.sync()` invocations observed through the promises seam. */
   handleSyncCalls: 0,
-  /** Injected error thrown by the `FileHandle.sync()` wrapper. */
   handleSyncError: undefined as Error | undefined,
 }));
 
@@ -65,7 +60,6 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   return { ...actual, open };
 });
 
-// Imported AFTER the mocks so the module under test binds the instrumented seam.
 import { mkdtempSync } from 'node:fs';
 import {
   DIRECTORY_SYNC_UNSUPPORTED_CODES,
@@ -94,9 +88,11 @@ afterEach(() => {
 });
 
 describe('fsyncDirSync — the syscall is call-verified, not assumed', () => {
-  // win32 has no directory fsync (the REAL call fails EPERM), so the
-  // synced-success arm only exists on POSIX. The call-verification itself is
-  // platform-independent and covered by the tests below.
+  /**
+   * win32 cannot fsync a directory, so the `synced` arm exists only on POSIX.
+   * The test expects one fsync, on the fd that was opened on the directory.
+   * A mutant that skips the fsync and still returns `synced` records zero calls.
+   */
   it.skipIf(IS_WIN32)(
     'FsyncDirSync_Synced_IsClaimedOnlyAfterFsyncingTheDirectoryFd',
     () => {
@@ -104,31 +100,24 @@ describe('fsyncDirSync — the syscall is call-verified, not assumed', () => {
 
       const outcome = fsyncDirSync(dir);
 
-      // The claim…
       expect(outcome).toEqual({ directory: dir, status: 'synced' });
-      // …was EARNED: exactly one real fsync, on the fd that was opened on the
-      // parent directory itself. A mutant that skips the fsync but still
-      // returns `synced` fails HERE — zero recorded calls.
       expect(control.syncFdCalls.length).toBe(1);
       expect(control.openedSyncPaths.get(control.syncFdCalls[0]!)).toBe(dir);
     },
   );
 
+  /** `EIO` is not in the unsupported set, so it is a real fault and must propagate. */
   it('FsyncDirSync_FsyncFailsWithRealFault_PropagatesInsteadOfClaimingSynced', () => {
-    // EIO is deliberately OUTSIDE the closed unsupported set: a real fault
-    // must surface, never be laundered into `synced` (or `unsupported`).
     expect(DIRECTORY_SYNC_UNSUPPORTED_CODES).not.toContain('EIO');
     const dir = mkdtempSync(join(tmpdir(), 'fsync-adequacy-'));
     control.syncError = errno('EIO');
 
     expect(() => fsyncDirSync(dir)).toThrow(/injected EIO/);
-    // The failure came from the REAL seam being exercised, not a shortcut.
     expect(control.syncFdCalls.length).toBe(1);
   });
 
+  /** `ENOSYS` is in the unsupported set, so the outcome carries the code and is not `synced`. */
   it('FsyncDirSync_FsyncDeclinedByHost_DegradesToExplicitUnsupported', () => {
-    // The other arm of the same call: an errno from the CLOSED set is an
-    // explicit refusal, carried on the outcome — still never `synced`.
     const dir = mkdtempSync(join(tmpdir(), 'fsync-adequacy-'));
     control.syncError = errno('ENOSYS');
 
