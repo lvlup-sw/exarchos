@@ -1,6 +1,6 @@
 /**
  * Parity test for the `event.query` action between the CLI and the MCP transport.
- * It writes a workflow and two `task.assigned` events through MCP, then queries the stream on both transports.
+ * It starts a workflow and appends two `task.assigned` events through MCP, then queries the stream on both transports.
  * Both transports return the envelope `{ success, data: { events, page }, next_actions, _meta, _perf }`.
  * The `event.query` entry of `PARITY_CONTRACT` needs equal `success`, `data` and `next_actions`.
  * `_meta` and `_perf` can differ, because the `_perf` values change with each run.

@@ -3,9 +3,10 @@
 // The fixture is a real repository with three branches. `main` is the start. The integration
 // branch holds wave one: a source change and a real test for it. The task branch forks from the
 // integration branch, and its own test asserts nothing.
-// When the base is `main`, the probe also reverts wave one, sees the test of wave one fail, and
-// passes the task. When the base is the integration branch, the vacuous test survives and the
-// probe blocks the task.
+//
+// When the base is `main`, the probe also reverts wave one and sees the test of wave one fail.
+// Then it passes the task on work that the task did not do. When the base is the integration
+// branch, the vacuous test survives and the probe blocks the task.
 //
 // Every call goes through the real dispatcher. `prepare` freezes the base from
 // `synthesis.integrationBranch`, and the claim names no base. `settle` runs the gate under the

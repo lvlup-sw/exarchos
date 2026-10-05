@@ -2,7 +2,8 @@
  * Process tests for `exarchos onboard --runtime claude`, run as the installed binary.
  * They assert only the stable results: the exit code and the hook binding counts in `<home>/.claude/settings.json`.
  * The list of applied steps changes with the doctor state of the host, so the tests do not read it.
- * `withHermeticEnv` gives each test a temporary `HOME` and a new git repository, so `onboard` touches no real one.
+ * `withHermeticEnv` gives each test a temporary `HOME` and a new git repository.
+ * Thus `onboard` does not read or write the real home directory or the real repository.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -98,8 +99,9 @@ describe('exarchos onboard --runtime claude (process-fidelity smoke)', () => {
   );
 
   /**
-   * After a second run, no SessionStart binding and exactly one SubagentStop binding must stay.
-   * The `retired-hooks-present` step removes the SessionStart directive, because the launcher owns the session lifecycle.
+   * The first run writes the SessionStart directive in the same pass as the SubagentStop binding.
+   * The second run removes that directive in its `retired-hooks-present` step, because the launcher owns the session lifecycle.
+   * Thus after two runs, no SessionStart binding and exactly one SubagentStop binding must stay.
    */
   it(
     'onboard_idempotent_secondRunRetiresSessionStartAndKeepsSubagentStop',

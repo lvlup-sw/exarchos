@@ -102,7 +102,10 @@ describe('withBuildLock (T-38 / DR-29 mutual-exclusion primitive)', () => {
     expect(fs.existsSync(lockPath)).toBe(false);
   });
 
-  /** A lock file with a fresh mtime is a live holder, so the waiter must not reclaim it. */
+  /**
+   * A lock file with a fresh mtime counts as held, so the waiter must not reclaim it. The call
+   * must throw after `timeoutMs`.
+   */
   it('WithBuildLock_GenuinelyHeldLock_TimesOutWithClearError', async () => {
     const dir = await makeTempDir('exarchos-buildlock-timeout-');
     const lockPath = path.join(dir, 'artifact.lock');
@@ -126,7 +129,7 @@ describe('withBuildLock (T-38 / DR-29 mutual-exclusion primitive)', () => {
 describe('ensureBinaryBuilt (T-38 / DR-29 serialized build)', () => {
   /**
    * The fake build has two await points, where two builds that are not serialized interleave.
-   * One caller must build. No lock file and no `.build-tmp-` scratch directory must remain.
+   * Exactly one caller must build. No lock file and no `.build-tmp-` scratch directory must remain.
    */
   it('EnsureBinaryBuilt_NConcurrentCallers_BuildsExactlyOnceAndNeverOverlaps', async () => {
     const repoRoot = await makeTempDir('exarchos-ensure-built-repo-');

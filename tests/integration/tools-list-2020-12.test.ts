@@ -397,7 +397,8 @@ describe('tools/list schema conformance — v2 @modelcontextprotocol/server 2.0.
 
   /**
    * The subject is the production envelope, not a toy union. v2 `registerTool` takes a Zod v4
-   * discriminated union as `outputSchema` directly.
+   * discriminated union as `outputSchema` directly. The SDK adds the root `type` only when each
+   * branch of the union is provably an object, and it does not follow a `$ref`.
    *
    * BLOCKING ARM: the `outputSchema` reaches the wire, has `type: 'object'` at the root, and keeps
    * its union branches.

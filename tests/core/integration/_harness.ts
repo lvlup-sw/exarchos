@@ -3,7 +3,7 @@
  * The public-root tests and most governance tests under `tests/core/integration` drive the system through this module.
  *
  * - The production composition root (`initializeContext`) builds the dispatch context over a real SQLite backend.
- *   The state directory is a real temporary directory. This module never builds the context by hand.
+ *   The state directory is a real temporary directory. This module adds only `cwd` and the overrides of the caller to that context.
  * - The entry point is the real `dispatch`. Nothing is mocked.
  *   `assertNoStubbedCompositeHandlers` proves that each cached handler is the module export.
  * - `toEnvelope`, the adapter that the CLI facade uses, makes the wire envelope.
@@ -83,7 +83,8 @@ export function packagedActionDenominator(
 /**
  * Why dispatch did not route a call to the named action:
  * - `unknown-tool`: `UNKNOWN_TOOL`, because no composite has this tool name.
- * - `unknown-action`: `UNKNOWN_ACTION` or `MISSING_ACTION` on the custom-tool path, or `INVALID_INPUT` on the built-in path.
+ * - `unknown-action`: `UNKNOWN_ACTION` or `MISSING_ACTION` on the custom-tool path.
+ *   On the built-in path, it is an `INVALID_INPUT` whose message reports an unknown or missing `action`.
  * - `handler-load-failed`: `COMPOSITE_LOAD_FAILED`.
  * - `threw`: `dispatch()` rejected.
  * - `timed-out`: no envelope arrived in the budget of the action.
@@ -139,7 +140,7 @@ export interface DispatchObservation {
   readonly reached: boolean;
   readonly success?: boolean;
   readonly errorCode?: string;
-  /** The contract failure layer of `errorCode`, from the stable error registry. */
+  /** The contract failure layer of `errorCode`, from the stable error registry. An unregistered code maps to `handler`. */
   readonly layer?: FailureLayer;
   /**
    * True when dispatch reached the action and only the composite handler can produce the outcome.
@@ -251,7 +252,7 @@ async function mkTemp(prefix: string): Promise<string> {
 /**
  * Builds a public-root harness: a real SQLite backend, a real event store, and a dispatch context from the production composition root.
  * `toEnvelope`, the adapter that the CLI facade uses, makes each envelope.
- * `dispose` is best-effort and ignores a store that is already closed.
+ * `dispose` ignores a store that is already closed and a directory that it cannot remove.
  */
 export async function createPublicRootHarness(
   options: HarnessOptions = {},

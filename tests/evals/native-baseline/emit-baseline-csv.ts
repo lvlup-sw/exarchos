@@ -3,7 +3,7 @@
  * delegation transcripts in `fixtures/`. The table has one row for each observed subagent.
  * `stampProvenance` stamps each row, and it throws when a provenance field is missing.
  *
- * The script reads no clock and no network, so the same fixtures give the same file.
+ * The script uses no clock and no network, so the same fixtures give the same file.
  *
  * - Regenerate: `tsx tests/evals/native-baseline/emit-baseline-csv.ts`
  * - Check for drift: `tsx tests/evals/native-baseline/emit-baseline-csv.ts --check`

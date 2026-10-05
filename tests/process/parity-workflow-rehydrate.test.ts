@@ -1,9 +1,11 @@
 /**
- * Process tests for the `workflow.rehydrate` action, both with the `workflow.rehydrate` entry of `PARITY_CONTRACT`.
+ * Process tests for the `workflow.rehydrate` action.
+ * Each test compares two envelopes on the fields of the `workflow.rehydrate` entry of `PARITY_CONTRACT`.
  * The first test compares the CLI envelope with the MCP envelope over one state directory.
+ *
  * The second test proves that the events alone rebuild a projection.
  * It replays the event stream of one server into a second server that has an independent state directory.
- * The two rehydration documents must then be equal.
+ * The two rehydration documents must then be equal on those fields.
  * A difference shows projection state that does not come from the events, or a defect in `replayInto`.
  */
 import * as path from 'node:path';

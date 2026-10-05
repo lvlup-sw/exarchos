@@ -186,14 +186,14 @@ describe('T2 governance — denied transitions (DR-5, DR-7, DR-8, DR-9)', () => 
   }, 120_000);
 
   /**
-   * Only the HSM-guarded `transition` action can mutate the phase.
+   * The criterion: only the HSM-guarded `transition` action mutates the phase.
    * BLOCKING ARM (a): the `update` action refuses a `phase` key, and the refusal suggests the `transition` action.
-   * BLOCKING ARM (b): event-data validation refuses a hand-made `workflow.transition` or `phase.entered` event.
+   * BLOCKING ARM (b): event-data validation refuses a hand-made `workflow.transition` or `phase.entered` event with an incomplete payload.
    * The phase read back after both attempts does not change.
    * NEGATIVE TWIN: the `transition` action moves the phase and appends the full trail, with exactly one `workflow.transition`.
    *
    * KNOWN GAP: `cancel` also moves the phase, but it appends `workflow.cancel` and no phase-boundary event.
-   * Thus `cancel` is a second path that mutates the phase.
+   * Thus `cancel` is a second path that mutates the phase, and the shipped code does not meet the criterion.
    * The assertions pin the gap, so a fix must change them deliberately.
    */
   it('Governance_Dr7_PhaseMutation_OnlyThroughGuardedTransition', async () => {

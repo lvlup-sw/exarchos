@@ -86,7 +86,7 @@ describe('packaged reserved-event append authorization (EFF-007)', () => {
 
   /**
    * Fail-closed means that the rejection comes before persistence. A guard that denies the caller
-   * but still writes the fact leaves forged evidence in the log for each projection.
+   * but still writes the fact leaves forged evidence in the log, where each projection reads it.
    */
   it('PackagedEventAppend_RejectedReservedEvent_NeverReachesTheLog', async () => {
     const fx = await openFixture(BINARY_PATH, REPO_ROOT);

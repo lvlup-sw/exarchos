@@ -359,7 +359,9 @@ describe('DR-30 part 2 — the real corpus', () => {
 
   /**
    * The three named Class B instances must be separate entries, each with its
-   * own owner and expiry date. They must not sit in the bulk backlog.
+   * own owner and expiry date. They must not sit in the bulk backlog. Each
+   * entry must name the requirement that closes it. Its files must be in the
+   * corpus and match a covered shape.
    */
   it('SuiteInvariant_KnownClassBInstances_AreIndividuallyRegisteredNotBulkExempt', () => {
     const bulk = new Set(LEGACY_SHAPE_DEBT);

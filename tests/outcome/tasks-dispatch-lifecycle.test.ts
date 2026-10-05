@@ -1,7 +1,7 @@
 /**
  * Outcome test for the `task.*` events of a dispatch with the `task: { ttl }` augmentation.
  *
- * The dispatch core must append three events to the stream `task-store/<taskId>`. `task.created`
+ * The task store must append three events to the stream `task-store/<taskId>`. `task.created`
  * comes when dispatch creates the task, and `task.polled` comes on a `getTask` read. `task.result`
  * comes when the handler resolves. `task.created` and `task.result` must carry the `operationId` of
  * the dispatch.

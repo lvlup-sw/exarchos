@@ -21,8 +21,9 @@ describe('exarchos mcp', () => {
 
   /**
    * `terminate` closes the client, and the transport then ends the stdin of the child.
-   * The transport and `terminate` each send `SIGKILL` only to a child that stays alive.
-   * The test passes when `SIGKILL` did not end the child, and it measures no time.
+   * If the child stays alive, the transport sends `SIGTERM` and then `SIGKILL`, and `terminate` also sends `SIGKILL`.
+   * The assertion fails only when `SIGKILL` ended the child.
+   * Thus the test measures no time, and it also passes after a `SIGTERM` exit.
    */
   it('mcp_sigterm_exitsCleanlyWithinThreeSeconds', async () => {
     await withHermeticEnv(async () => {

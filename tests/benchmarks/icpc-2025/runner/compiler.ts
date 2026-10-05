@@ -42,10 +42,10 @@ export function detectLanguage(solutionPath: string): Language {
  * MinGW g++ on Windows appends `.exe` to an `-o` target with no dot in its name, so the output
  * path ends in `.exe` on win32.
  *
- * The g++ timeout is 60 seconds on win32, because a cold g++ on a loaded win32 runner exceeds
- * the 30 seconds of the other platforms. An exceeded timeout does not look like a timeout:
- * `execFile` reports an error, and the result is `success: false`. Both values are less than the
- * 90-second timeout of the cold-compile test.
+ * The g++ timeout is 30 seconds, and 60 seconds on win32. A cold g++ on a loaded win32 runner
+ * can exceed 30 seconds. An exceeded timeout does not look like a timeout: `execFile` reports an
+ * error, and the result is `success: false`. Both values must stay below the 90-second timeout
+ * of the cold-compile test, so the g++ timeout ends a slow compile first.
  */
 export async function compile(solutionPath: string, language?: string): Promise<CompileResult> {
   const lang = language ?? detectLanguage(solutionPath);

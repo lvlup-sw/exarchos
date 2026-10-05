@@ -9,7 +9,7 @@
  *
  * The seeded fixtures show that the two reads can disagree. A deleted file reports `missing`, and
  * rewritten bytes report `content-mismatch`. Only `npm-files` kinds are tarball entries. The
- * `runtime` kind is compiled into the binary, and `checkShippedCoverage` is its proof.
+ * build compiles the `runtime` kind into the binary, and `checkShippedCoverage` is its proof.
  *
  * @oracle-sources: authored projection tree committed in the repository working copy, npm pack tarball bytes unpacked from the generated archive
  */
@@ -147,9 +147,9 @@ function scratchCopy(label: string): string {
 /**
  * Reads the packed tree from disk and checks it against the source inventory from the setup hook.
  * It makes the comparison of `verifyPackedContainment` without a new walk of the source tree in
- * each loop pass. The two reads stay independent: the packed side is read after each mutation, and
- * the source side was read before any mutation. Each test that uses this helper also calls
- * `assertPackedContainment`, which reads both sides itself.
+ * each loop pass. The two reads stay independent. The helper reads the packed side after each
+ * mutation. The setup hook read the source side before any mutation. Each test that uses this
+ * helper also calls `assertPackedContainment`, which reads both sides itself.
  */
 function verifyPackedAgainstSource(packageDir: string): ContainmentResult {
   const packed = readPackedProjectionLayer(packageDir);
@@ -270,8 +270,8 @@ describe('seeded packed-artifact defects', () => {
    * @kill-seam: the content digest of the packed bytes versus the authored source digest — rewrite one packed projection file in place and verification must report `content-mismatch`, not merely `missing`
    *
    * NEGATIVE TWIN: a rewrite of the same content with CRLF line endings must pass, because the
-   * digest ignores line endings. A failure there means that the fixture detects any write, not a
-   * content change. Last, `assertPackedContainment` must throw a `PackedContainmentError` that
+   * digest changes CRLF to LF first. A failure there means that the fixture detects any write, not
+   * a content change. Last, `assertPackedContainment` must throw a `PackedContainmentError` that
    * names the path and `content-mismatch`.
    */
   it('PackedContainment_RewrittenProjectionBytes_FailsVerification', () => {

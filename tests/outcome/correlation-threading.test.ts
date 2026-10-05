@@ -1,8 +1,8 @@
 /**
  * Outcome tests for the `operationId` that a dispatch stamps on events.
  *
- * Each `dispatch` call makes its own `operationId`. The event store stamps it on every event that
- * it appends during that call, so the events of one dispatch share one `operationId`.
+ * Each `dispatch` call makes its own `operationId`. The event store stamps it on each event that
+ * the call appends without one, so the events of one dispatch share one `operationId`.
  */
 
 import { describe, it, expect, afterEach } from 'vitest';
@@ -31,9 +31,10 @@ describe('Three-field correlation threading at dispatch boundary (#1291)', () =>
   });
 
   /**
-   * One `init` dispatch appends at least one event. Every event of the stream must carry the same
-   * `operationId`, and none can lack it. Every event must also carry a `correlationId`. The event
-   * store fills it from the dispatch context when the caller supplies none.
+   * One `init` dispatch appends at least one event. Each event of the stream must carry an
+   * `operationId`, and all of them must carry the same one. Each event must also carry a
+   * `correlationId`. The event store fills it from the dispatch context when the caller supplies
+   * none.
    */
   it('EventStore_EventsEmittedDuringDispatch_ShareIdenticalOperationId', async () => {
     const stateDir = await mktemp('share-opid');
@@ -70,8 +71,8 @@ describe('Three-field correlation threading at dispatch boundary (#1291)', () =>
 
   /**
    * Each dispatch is one operation, so two dispatches that append to one stream must not share an
-   * `operationId`. The test accepts both outcomes of the `update` dispatch. It compares the IDs
-   * only when that dispatch appends an event.
+   * `operationId`. The test accepts success or failure from the `update` dispatch. It requires two
+   * distinct IDs only when the stream grows after the `init` dispatch.
    */
   it('EventStore_TwoDispatches_ProduceDistinctOperationIds', async () => {
     const stateDir = await mktemp('distinct-opid');

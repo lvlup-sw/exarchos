@@ -217,7 +217,8 @@ async function waitForSentinel(
 
 /**
  * Reads a directory into a map from POSIX relative path to content. A path that is not a directory
- * gives `undefined`, so the scaffolding scans can read the journal file like each other sibling.
+ * gives `undefined` and no error. Thus the scaffolding scans can pass each sibling of the target,
+ * and the journal file is one such sibling.
  */
 function readTree(dir: string): Tree | undefined {
   if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return undefined;

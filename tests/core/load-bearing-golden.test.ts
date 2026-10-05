@@ -41,8 +41,8 @@ const EXPECTED_DOC_FIXTURE = path.join(
 );
 
 /**
- * One line of the events fixture. `EventStore.append` assigns `sequence`, `timestamp` and
- * `streamId`, so the fixture is the same on every machine.
+ * One line of the events fixture, with `type` and `data` only. `EventStore.append` assigns
+ * `sequence`, `timestamp` and `streamId`, so the fixture holds no value that differs between runs.
  */
 interface FixtureEventLine {
   readonly type: string;

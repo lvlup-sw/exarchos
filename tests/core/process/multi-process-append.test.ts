@@ -8,7 +8,8 @@
  * alias to `better-sqlite3` does not apply to a child process.
  *
  * The test measures the contention, because a run with no overlap is also dense and unique. It
- * counts the contiguous blocks of one writer in sequence order, and it needs many blocks.
+ * counts the contiguous blocks of one writer in sequence order, and it needs at least
+ * `MIN_INTERLEAVE_RUNS` blocks.
  *
  * The second case builds a divergence between the gate and the tail on disk and starts a fresh
  * process. It observes from outside that the repair lands before that process accepts a write.

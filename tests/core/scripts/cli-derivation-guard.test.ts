@@ -109,7 +109,10 @@ const KILL_FIXTURE_SOURCE = [
   'mergeOrchestrateCmd.action(async () => {});',
 ].join('\n');
 
-/** The three derivation helpers that take their name from a registry declaration. */
+/**
+ * The argument expressions of the three derived sites. Each site takes its name from a registry
+ * declaration.
+ */
 const EXPECTED_DERIVED_EXPRESSIONS: readonly string[] = ['cliName', 'commandName', 'harness'];
 
 function governedSourcePath(): string {
@@ -120,8 +123,8 @@ function governedSourcePath(): string {
 
 describe('cli-derivation-guard (DR-5 / G1)', () => {
   /**
-   * The live composition root. Each site is a derivation loop or a hand-written literal, and none is
-   * indeterminate. The total is derived from the two populations, so a correct paydown does not
+   * In the live composition root, each site is a derivation loop or a hand-written literal, and none
+   * is indeterminate. The total is derived from the two populations, so a correct paydown does not
    * break it. The guard must not report the three derivation loops.
    *
    * The shipped allowlist must equal the expected literals minus the kill fixtures, and no kill
@@ -129,7 +132,8 @@ describe('cli-derivation-guard (DR-5 / G1)', () => {
    * meaning only because the seeded tests show a rejection.
    *
    * A text scan counts more `.command(` sites than the parser, because comments in `cli.ts` hold the
-   * call form. The test finds those comment lines by shape and asserts that no site is on one.
+   * call form. The test finds those comment lines by shape. The site count must equal the text count
+   * minus those lines, and no site can be on one.
    */
   it('CliDerivationGuard_CompositionRoot_ReportsOnlyAllowlistedHandWrittenLiterals', () => {
     const scan = scanGovernedSources();
@@ -280,13 +284,13 @@ describe('cli-derivation-guard (DR-5 / G1)', () => {
   });
 
   /**
-   * The test reads the shipped policy as raw JSON, because the parsed view refuses a file that holds
-   * the kill fixture. It checks the `allowed` map and the `retired` map, then the parsed view, then
-   * {@link KILL_FIXTURE_COMMANDS}.
+   * The name must be absent from the `allowed` map, the `retired` map and the parsed view. The test
+   * reads the two maps as raw JSON, because the parsed view refuses a file that holds the kill
+   * fixture. The name must be present in {@link KILL_FIXTURE_COMMANDS}, so the exclusion is declared.
    *
    * Those absence checks cannot show that the reader rejects a new entry. Thus the test seeds an
    * allowlist that names the kill fixture, and `readAllowlist` must throw. The same file with no
-   * kill fixture must load, so the reader does not refuse each allowlist.
+   * kill fixture must load, so the rejection is specific to that name.
    */
   it('CliDerivationGuard_MergeOrchestrate_IsAbsentFromTheAllowlist', () => {
     const rawAllowlist: unknown = JSON.parse(
@@ -366,10 +370,11 @@ describe('cli-derivation-guard (DR-5 / G1)', () => {
    * An author reads the policy `$comment` to decide whether an entry is legitimate. Thus each file
    * that the comment names must exist, or the reader refuses the policy.
    *
-   * The shipped comment must give a non-empty reference list with the expected paths, because an
-   * extractor that matches nothing reports each policy file clean. A comment that names the old
-   * module path, a bare filename, or no file must fail, and so must a policy with no `$comment` key.
-   * The correct path must load, so the reader does not refuse each comment.
+   * The shipped comment must give a non-empty reference list that holds the expected paths, because
+   * the reader cannot check a path that the extractor misses. A comment that names the old module
+   * path, a bare filename, or no file must fail. A policy with no `$comment` key must fail too. Its
+   * body is valid, so only the reference rule can refuse it. The correct path must load, so the
+   * rejection is specific to the bad reference.
    *
    * When a stale path and a kill fixture are in one file, the kill-fixture error must win.
    */

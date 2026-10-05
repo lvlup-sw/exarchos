@@ -1,7 +1,7 @@
 /**
  * Shared fixtures for the tests that drive the compiled binary.
  *
- * `ensureBinaryBuilt` rebuilds the host binary when it is absent or older than its inputs. Many
+ * `ensureBinaryBuilt` rebuilds the host binary when it is absent or older than its inputs. Several
  * test files call it from `beforeAll`, and vitest can run those files in separate OS processes.
  * A promise memo cannot serialize the build across processes, so `withBuildLock` uses an
  * exclusive lock file. The build goes to a scratch directory and an atomic rename puts the binary
@@ -239,7 +239,8 @@ export async function withBuildLock<T>(
 /**
  * Runs the real `bun run tools/release/build-binary.ts --outdir <outDir>` build. A test injects a
  * fake through `EnsureBinaryBuiltOptions.runBuild`. On win32, `bun` is a `.cmd` shim that needs a
- * shell, and `spawnAsync` applies that rule.
+ * shell, and `spawnAsync` applies that rule. A raw spawn with no shell gives exit `null` and no
+ * output there.
  */
 async function defaultRunBuild(repoRoot: string, outDir: string): Promise<void> {
   const result = await spawnAsync(
@@ -264,7 +265,7 @@ export interface EnsureBinaryBuiltOptions {
    * without `bun`.
    */
   readonly runBuild?: (repoRoot: string, outDir: string) => void | Promise<void>;
-  /** Passed to `withBuildLock`. A test uses it for short timeouts. */
+  /** `ensureBinaryBuilt` passes it to `withBuildLock`. A test uses it for short timeouts. */
   readonly lockOptions?: BuildLockOptions;
 }
 
@@ -361,7 +362,7 @@ export async function openFixture(binaryPath: string, repoRoot: string): Promise
   }
 }
 
-/** Closes the client and removes the state directory. An error in either step is ignored. */
+/** Closes the client and removes the state directory. It ignores an error in either step. */
 export async function closeFixture(fx: Fixture): Promise<void> {
   try {
     await fx.client.close();

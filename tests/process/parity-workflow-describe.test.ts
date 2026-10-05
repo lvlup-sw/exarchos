@@ -1,7 +1,7 @@
 /**
  * Parity test for the workflow state between the CLI and the MCP transport.
- * It writes a workflow and two `task.assigned` events through MCP, then reads the state on both transports.
- * The contract key is `workflow.describe`, but its required fields (`phase`, `featureId`, `tasks`) are workflow state.
+ * It starts a workflow and appends two `task.assigned` events through MCP, then reads the state on both transports.
+ * The contract key is `workflow.describe`, but its required fields (`data.phase`, `data.featureId`, `data.tasks`) are workflow state.
  * Thus the test calls `exarchos_workflow.get` through MCP and `exarchos workflow status` through the CLI.
  */
 import * as path from 'node:path';

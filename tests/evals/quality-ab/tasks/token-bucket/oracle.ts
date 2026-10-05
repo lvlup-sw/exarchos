@@ -1,5 +1,5 @@
 /**
- * Hidden oracle. The agent under test never sees this file. It grades `impl.ts` against the edge cases of the spec.
+ * Hidden oracle. The agent under test never sees this file. The oracle grades `impl.ts` against the edge cases of the spec.
  * Run `tsx oracle.ts` in a directory that holds the `impl.ts` to grade.
  */
 import { TokenBucket, type Clock } from './impl.ts';

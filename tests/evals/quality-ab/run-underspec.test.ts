@@ -1,5 +1,5 @@
 /**
- * Tests for the run harness of experiment 3. The dispatch calls a live model, so each test injects the `runModel` seam.
+ * Tests for the run harness of experiment 3. The dispatch calls a live model, so the dispatch tests inject the `runModel` seam.
  * The tests cover the deterministic parts:
  * - Parse: the `===FILE:<name>===` block parser turns model text into files.
  * - Prompt: arm E carries the production verification steer, and arm N does not.
@@ -34,7 +34,7 @@ import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 const SUBPROCESS_TIMEOUT = 120_000;
 /**
  * The grading path starts `tsx` and `git` subprocesses, and the npm `.cmd` shims do not spawn cleanly on win32.
- * The suite that grades skips there and runs on the Linux lane. The other suites run on every platform.
+ * So the `captureCell` suite does not run on win32. The other suites run on every platform.
  */
 const WIN32 = process.platform === 'win32';
 

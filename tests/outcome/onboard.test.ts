@@ -101,8 +101,10 @@ const subagentStopBindingCount = (home: string): number =>
 
 describe('onboard outcome', () => {
   /**
-   * The second run proves idempotence: no SessionStart binding, and still one SubagentStop
-   * binding.
+   * The install step writes the SessionStart, SessionEnd and SubagentStop bindings in one pass, so
+   * the first run also writes the retired SessionStart binding. The `retired-hooks-present` check
+   * removes that binding on the second run, so the test asserts its absence only then. The second
+   * run must not add a second SubagentStop binding.
    */
   it('Onboard_claude_DrivesRepoGreenAndInstallsSubagentStopHook', async () => {
     await withTmpHome(async (home) => {

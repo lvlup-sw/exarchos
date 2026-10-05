@@ -54,7 +54,7 @@ beforeAll(async () => {
 
 describe('the reduced documentation site', () => {
   /**
-   * The index must hold the hero text, not only exist.
+   * The index must contain the text `Exarchos`, not only exist.
    * `public/` is served verbatim, and the deploy workflow stages the bootstrap installers into it.
    * A build that omits `public/` breaks the install one-liner in the README.
    */
@@ -94,7 +94,7 @@ describe('the reduced documentation site', () => {
   /**
    * With no mount, as on CI, the test prints a warning and checks only that `docs/index.md` exists.
    * Each mount is a symlink to a directory of documents. If VitePress follows one, the documents appear as rendered pages under that name.
-   * The match needs an `.html` file under the mount name, not the name alone.
+   * The match needs an `.html` file under the mount name. A match on the name alone reports a false leak on each build.
    * Vite writes its chunks and fonts to `dist/assets/`, and `docs/assets` is one of the mounted subtrees.
    */
   it('Documentation_WithDocumentsMounted_ExcludesEveryMountedSubtree', () => {
@@ -149,7 +149,7 @@ describe('the reduced documentation site', () => {
 
   /**
    * The exclusion depends on this premise. If the site source leaves the directory that the documents mount into,
-   * the exclusion from symlinks excludes nothing and the other tests still pass.
+   * the symlink-based exclusion excludes nothing, and the other tests still pass.
    */
   it('the mount point and the site source are the same directory', () => {
     expect(existsSync(path.join(DOCS_DIR, '.vitepress', 'config.ts'))).toBe(true);

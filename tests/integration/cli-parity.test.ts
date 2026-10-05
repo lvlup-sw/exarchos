@@ -84,7 +84,7 @@ describe('F.3 — CLI ↔ MCP parity (Wave 0 §7)', () => {
   /**
    * The CLI arm uses `buildCli` in-process, not a spawned `tsx`, so both arms use the SQLite backend alias of the vitest process.
    * `exitOverride` stops a Commander parse exit from ending the test worker.
-   * The two arms compare on `success` and on the masked `data` only.
+   * The test compares the two arms on `success` and on the masked `data` only.
    */
   it('CliParity_VwLs_DataLevelMatch_AcrossCarriers', async () => {
     const chunks: string[] = [];

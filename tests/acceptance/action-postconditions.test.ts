@@ -206,9 +206,10 @@ describe('durable action postcondition observation', () => {
   });
 
   /**
-   * A `kind: 'artifact'` subject with no persisted bytes is a different fact from a row that names
-   * an artifact reference. Custody keys on the reference of the row, never on the kind of the
-   * subject.
+   * When a gate run has no `taskId` and `HEAD` does not resolve, the gate producer mints a
+   * `kind: 'artifact'` subject with no persisted bytes. Such a subject is a different fact from a
+   * row that names an artifact reference. Custody keys on the reference of the row, never on the
+   * kind of the subject.
    */
   it('Postconditions_ArtifactKindSubjectWithoutReference_IsSatisfied', async () => {
     const evidence = memorySource([
@@ -324,7 +325,7 @@ describe('durable action postcondition observation — artifact-backed evidence'
 
   /**
    * The denominator for the seeded violations in this block. Without it, those tests can pass
-   * vacuously, because no row that reaches the resolver arm carries a reference.
+   * vacuously when no row that reaches the resolver arm carries a reference.
    */
   it('Postconditions_ArtifactBackedCorpus_IsNotEmpty', async () => {
     const reference = await seedArtifactRow();
@@ -718,8 +719,8 @@ describe('dispatch gates success on applicable ensures', () => {
   });
 
   /**
-   * The subject is `discover_bridge`, not `cutover_decide`. A host obligation stops the dispatch
-   * before the handler runs, so the subject must declare one. `discover_bridge` declares
+   * The subject is `discover_bridge`, not `cutover_decide`. A blocking host obligation stops the
+   * dispatch before the handler runs, so the subject must declare one. `discover_bridge` declares
    * `executionAuthority: { kind: 'host', obligation: 'human-approval' }`.
    * `cutover_decide` is `kind: 'local'`. It checks the operator posture in its handler, and its
    * `ensures` requires it to append the rollout-decision fact, so it must run.
@@ -791,8 +792,8 @@ describe('dispatch gates success on applicable ensures', () => {
   });
 
   /**
-   * The partner of the test above, with the blob left in place. It proves that the failure of the
-   * first test comes from the missing blob, not from the fixture.
+   * The partner of the test above, with the blob left in place. It proves that the failure of
+   * that test comes from the missing blob, not from the fixture.
    */
   it('Dispatch_ResolvableArtifactEvidence_Succeeds', async () => {
     const stateDir = await mkdtemp(path.join(os.tmpdir(), 'ensure-dispatch-artifact-ok-'));

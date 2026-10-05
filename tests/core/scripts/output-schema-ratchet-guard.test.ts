@@ -80,8 +80,8 @@ const LAST_LIVE_DAY = VACUITY_EXPIRY_HORIZON;
 const FIRST_DEAD_DAY = '2027-03-01';
 
 /**
- * The live schedule, derived once from the shipped artifacts. The tests thus hold no date and no
- * team name that needs maintenance with the seed.
+ * The live schedule, derived once from the shipped artifacts. The schedule tests thus hold no slot
+ * date and no owner name that needs maintenance with the seed.
  */
 const LIVE_COHORTS = deriveOwnerCohorts(
   VACUITY_ALLOWLIST,
@@ -191,7 +191,7 @@ describe('DR-4: the vacuity allowlist expiry is enforced, not advisory', () => {
    * - The live run injects only the day, so the entries come from the live allowlist. The entry
    *   count equals the live id count and is not zero.
    * - The report names the legal repair, and the guard exits 1 and names an expired id.
-   * - One stale waiver is sufficient to fail.
+   * - One expired waiver is sufficient to fail.
    * - A waiver is still live on its expiry day. The boundary is inclusive.
    */
   it('OutputSchemaExpiry_PastExpiryEntry_FailsTheGuard', () => {
@@ -236,8 +236,9 @@ describe('DR-4: the vacuity allowlist expiry is enforced, not advisory', () => {
   /**
    * The green side of the kill fixture: the same live seed and code path, before any deadline.
    *
-   * - The schedule is staggered, so the last day that the whole seed is live is the slot of the
+   * - The schedule is staggered, so the last day on which every waiver is live is the slot of the
    *   first cohort. The test derives that day from the schedule.
+   * - `205` is the count of days from `SEEDED_ON` to the pinned anchor. A new anchor changes it.
    * - The report states its denominator. Both counts come from the live artifacts, because a
    *   paydown or a new action changes a literal count.
    * - The report names each cohort with its live count over its seeded count.
@@ -357,7 +358,7 @@ describe('DR-4: the vacuity allowlist expiry is enforced, not advisory', () => {
    * a date that the global cap accepts. The anchor comes from the pin, not from the schedule.
    *
    * - Red: the global expiry audit is clean on this input, so only the per-owner slot can fail
-   *   the guard. No other finding appears.
+   *   the guard. The report holds no drift, unwaived or expired finding.
    * - Green: the same guard on the same day passes with the entry on its shipped date.
    * - The entries of the last cohort sit on the anchor and pass, so the finding is about the
    *   owner and not about the date. An earlier date is legal here too.
@@ -560,8 +561,8 @@ describe('DR-4: the vacuity allowlist expiry is enforced, not advisory', () => {
 
   /**
    * An allowlist with zero entries makes "no expired waiver" true, and a census with zero
-   * declarations makes "no unwaived vacuity" true. Both are the result of a moved module or a
-   * broken import, so both must fail. One entry passes the expiry audit, and a census of two
+   * declarations makes "no unwaived vacuity" true. A moved module or a broken import gives each
+   * of these states, so both must fail. One entry passes the expiry audit, and a census of two
    * declarations is not empty. The check is about emptiness, not about size.
    */
   it('OutputSchemaExpiry_EmptyAllowlistOrEmptyCensus_FailsClosed', () => {
@@ -673,8 +674,8 @@ describe('DR-4: the vacuity allowlist expiry is enforced, not advisory', () => {
 
   /**
    * The membership and seed audits are pure functions of the registry and the seed, and they run
-   * with no clock. A `new Date()` default for `today` breaks that property. The census module
-   * holds no clock read, and the test reads only its code lines, not its prose.
+   * with no clock. The test pins that property, because a `new Date()` default for `today`
+   * removes it. The census module holds no clock read, and the test reads only its code lines.
    *
    * The whole ratchet at a named day holds all three audits and joins their findings. The failing
    * case has a paid-down id that is still waived (`t.a`) and a new vacuous id (`t.c`). It also

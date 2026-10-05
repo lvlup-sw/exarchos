@@ -7,7 +7,8 @@
  * changes the output shows as a snapshot diff.
  *
  * A second test builds the tree again and compares it with the committed tree, byte for byte. The
- * walk skips the `test-fixtures` and `trigger-tests` directories, which hold no deployable skill.
+ * snapshot walk skips a directory with the name `test-fixtures` or `trigger-tests`, because such a
+ * directory holds no deployable skill.
  */
 
 import { describe, it, expect } from 'vitest';

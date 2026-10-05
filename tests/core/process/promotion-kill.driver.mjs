@@ -5,16 +5,17 @@
  * filesystem. Thus it must run under `bun`, and a change to the engine shows with no build step.
  *
  * Modes: `promote` stages `--entries` and promotes them into `--target`. `recover` runs only
- * `recoverInterruptedPromotion`. `idle` parks immediately.
+ * `recoverInterruptedPromotion`. `idle` parks immediately, as the positive control for the kill.
  *
  * `promote-hang` wraps only `rename` of the default IO, and parks on the rename whose destination
  * is the target. At that moment the old tree is in the backup and the staged tree is not yet in
  * place. The parent kills the process there. An in-process `throw` cannot replace the kill,
  * because it runs the recovery in the `catch` block.
  *
- * The driver prints one JSON line behind `RESULT_PREFIX`. The `--sentinel` file tells the parent
- * that the process is parked, and it holds the pid of this process. The parent must kill that
- * pid: on Windows `child.pid` is the `cmd.exe` wrapper of the `bun` shim.
+ * The driver prints one JSON line behind `RESULT_PREFIX`, so the parent can tell it from log
+ * output. The `--sentinel` file tells the parent that the process is parked, and it holds the pid
+ * of this process. The parent must kill that pid: on Windows `child.pid` is the `cmd.exe` wrapper
+ * of the `bun` shim.
  */
 
 import * as fs from 'node:fs';
@@ -43,7 +44,7 @@ function emit(payload) {
 
 /**
  * Publishes the readiness sentinel with a temp file and a rename. The parent kills the pid in
- * the file as soon as the file exists, so it must never read a partial JSON body.
+ * the file as soon as the file exists, so the parent must never read a partial JSON body.
  */
 function publishSentinel(sentinelPath, payload) {
   const tmp = `${sentinelPath}.tmp`;

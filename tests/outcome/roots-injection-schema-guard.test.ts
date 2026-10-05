@@ -133,10 +133,10 @@ describe('Roots featureId inference is gated on the receiving schema (#1838)', (
 
   /**
    * The registry tests prove the predicate, not that `dispatch` calls it. This test dispatches each
-   * `exarchos_view` action that omits `featureId` and is not on the skip list. Those actions are
-   * read-only, so the dispatch changes nothing. A call can fail for other reasons. It must not fail
-   * because dispatch refused a `featureId` that dispatch added. The population must hold at least
-   * 20 actions, or the loop proves nothing.
+   * `exarchos_view` action that omits `featureId` and is not on the skip list. `READ_ONLY_ACTIONS`
+   * marks each `exarchos_view` action as read-only, so the dispatch changes nothing. A call can
+   * fail for other reasons. It must not fail because dispatch refused a `featureId` that dispatch
+   * added. The population must hold at least 20 actions, or the loop proves nothing.
    */
   it('Dispatch_EveryReadOnlyVictimUnderResolvingRoots_IsNotRefusedForInjectedFeatureId', async () => {
     const workspace = await mkWorkspace('outcome-1838-wiring-');

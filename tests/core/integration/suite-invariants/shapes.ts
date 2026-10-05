@@ -7,8 +7,8 @@
 // decide it. Otherwise, a person deletes the annotation, the file leaves scope
 // and the guard passes. The annotation is an input to compliance only.
 //
-// The shapes are matched against the code view of the file (see
-// `source-view.ts`), so comments and string bodies do not count.
+// Each matcher runs against the code view of the file (see `source-view.ts`),
+// so comments and string bodies do not count.
 //
 // `registry.ts` holds a floor for the corpus match count of each shape. A
 // matcher that matches nothing fails that floor.
@@ -25,10 +25,10 @@ export interface ShapeDefinition {
   /** The matcher. It runs against the code view of the file. */
   readonly pattern: RegExp;
   /**
-   * An optional second stage. `pattern` finds candidates, and `refine` rejects
-   * the candidates that are not the property. The floor in `registry.ts`
-   * applies to the refined count, so it also catches a `refine` that rejects
-   * all files.
+   * An optional second stage. `pattern` finds candidate files, and `refine`
+   * returns false for a file whose matches are not the property. The floor in
+   * `registry.ts` applies to the refined count, so it also catches a `refine`
+   * that rejects all files.
    */
   readonly refine?: (source: string, code: string) => boolean;
 }

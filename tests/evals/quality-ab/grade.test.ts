@@ -124,9 +124,9 @@ describe.skipIf(WIN32)('gradeAdequacy — mechanical diff-scoped kill-probe (DR-
  * `wroteTests` cells without the timing of the probe. The real probe derives `passed` and
  * `disposition` from `verdict`, so the stand-in states all three consistently.
  *
- * The baseline is the committed `results.json`. `beforeAll` copies the csv-line task and its two
- * run directories to a temporary tree. Thus the grader writes its oracle copy outside the
- * committed fixtures.
+ * The baseline is the committed `results.json`. `beforeAll` copies the csv-line task and the first
+ * run directory of each arm to a temporary tree. Thus the grader writes its oracle copy outside
+ * the committed fixtures.
  */
 describe.skipIf(WIN32)('gradeRun — characterization: adequacy is additive, existing cells unchanged', () => {
   const fixedProbe: ProbeFn = async () => ({

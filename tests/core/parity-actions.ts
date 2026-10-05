@@ -190,8 +190,9 @@ export const ACTION_TABLE: readonly ActionSpec[] = [
  * equal. When `requiresInitSeed` is true, an `init` call for a `feature` workflow seeds each arm
  * first.
  *
- * The CLI exit code must agree with the MCP `success` flag: `SUCCESS` on both arms, or not
- * `SUCCESS` on both. That check finds an error code with a wrong mapping in `CLI_EXIT_CODES`.
+ * The CLI exit code must agree with the MCP `success` flag. A successful MCP result needs
+ * `CLI_EXIT_CODES.SUCCESS`, and a failed MCP result needs any other exit code. The check does not
+ * compare which error exit code the CLI gives.
  *
  * The harness results keep their inferred envelope type. A `ToolResult` annotation does not
  * typecheck, because the envelope has a wider `_eventHints`.

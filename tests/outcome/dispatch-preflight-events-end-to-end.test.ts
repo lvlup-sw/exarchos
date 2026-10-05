@@ -4,6 +4,7 @@
  * The handler runs against a real git repo and a real `EventStore`, with no module mocks. Each
  * dispatch must append one `dispatch.preflight` event with the result of each guard and the
  * aggregate `passed` flag. A repo with no stash must append no `stash.detected` event.
+ * `tests/unit/verbs/team/dispatch-guard.test.ts` covers a repo that has a stash.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -45,7 +46,8 @@ describe('dispatch.preflight + stash.detected end-to-end (#1261)', () => {
   /**
    * The branch `feature/work` descends from `main`, so the ancestry guard passes. The repo is under
    * `os.tmpdir()`, and the test assumes that this path does not hold `.claude/worktrees/`, so the
-   * worktree guards pass. The test asserts the events, not the readiness verdict of the handler.
+   * `worktree` and `mainWorktree` guards pass. The test asserts the events, not the readiness
+   * verdict of the handler.
    */
   it('PrepareDelegation_AllGuardsPass_EmitsOneDispatchPreflightPassedTrue', async () => {
     await withTmpGit(async (repoPath) => {

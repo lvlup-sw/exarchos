@@ -3,7 +3,7 @@
 // A replay identity is stable only when two different requests with the same
 // meaning give the same digest. One side is the identity that the dispatch
 // layer snapshots from a live authenticated caller. The other side is the
-// varied input that the test author fixes. With both sides derived from
+// varied input that the test author fixes. If both sides come from
 // `request-context`, the test compares the digest function with itself.
 
 import { describe, expect, it, vi } from 'vitest';

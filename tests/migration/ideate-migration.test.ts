@@ -57,7 +57,11 @@ afterEach(() => {
 });
 
 describe('task 015 — ideate canary migration', () => {
-  /** `toBe` on the two strings is a byte-exact comparison, and it marks the first difference. */
+  /**
+   * The baseline is a committed copy of the render. An intended change of the skill source or of
+   * the renderer must also update the baseline. `toBe` on the two strings is a byte-exact
+   * comparison, and it marks the first difference.
+   */
   it('Migration_Ideate_ClaudeVariantByteIdenticalToCurrent', () => {
     expect(existsSync(BASELINE_PATH)).toBe(true);
     const baseline = readBaselineFixture();

@@ -11,7 +11,8 @@
  * - The frozen `riskTier` reaches the gate.
  * - The frozen resolution is monotonic.
  *
- * `tests/unit/projections/fold-at-tail.test.ts` covers the degraded-projection marker, so no case here covers it.
+ * No case here covers the degraded-projection marker. A read that can prove its own coverage does not refuse on a durable marker.
+ * `tests/unit/projections/fold-at-tail.test.ts` asserts that behavior at the seam.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -156,6 +157,7 @@ describe('T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)', () =
    *
    * BLOCKING ARM: a `fail` verdict mints a signal with `passed: false`.
    * NEGATIVE TWIN: a policy-skipped run on the same chain returns `passed: true` in the payload, but mints an `indeterminate` signal with `passed: false`.
+   * The payload does not block, because policy excludes the gate at this tier. The signal is not proof.
    * Thus a gate that did not run is distinguishable from a gate that passed.
    * In both arms, `signal.passed` equals `persisted.verdict === 'pass'`.
    */
@@ -253,7 +255,7 @@ describe('T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)', () =
    * If the tier does not reach the gate, both arms return the same verdict.
    *
    * Both task runbooks declare the coordinate as template variables and bind it into the params of a step.
-   * The test also applies the predicate to a stripped copy, so a predicate that always reports no gap fails.
+   * The test also applies the predicate to a step list with no coordinate, so a predicate that always reports no gap fails.
    */
   it('Governance_Dr3_FrozenRiskTier_ReachesTheGate', async () => {
     const featureId = 'gov-t2-risk-tier';
@@ -335,11 +337,12 @@ describe('T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)', () =
 
   /**
    * The frozen resolution is monotonic: a re-entry of a phase can raise the coordinate but never weaken it.
-   * `runCycle` freezes `plan-review` at `first`, goes back to `plan`, and freezes again at `second`.
+   * `runCycle` enters `plan-review` with the state at `first`, goes back to `plan`, sets the state to `second`, and enters `plan-review` again.
    * The state does change to `second`, so only the freeze refuses a weaker coordinate.
    *
-   * BLOCKING ARM: frozen at `high` and then lowered to `low`, each `phase.entered` still records `high`, and the last keeps the gate set.
-   * NEGATIVE TWIN: frozen at `low` and then raised to `high`, the last `phase.entered` records `high`, so the first `high` is a decision.
+   * BLOCKING ARM: when the state goes from `high` to `low`, each `phase.entered` still records `high`, and the last keeps the gate set of the first.
+   * NEGATIVE TWIN: when the state goes from `low` to `high`, the last `phase.entered` records `high`.
+   * Thus the `high` of the first arm is a decision, not a constant.
    *
    * An absent coordinate fails safe: the frozen `riskTier` is `unknown`, not `low`, and `boundaryTouching` is true.
    */

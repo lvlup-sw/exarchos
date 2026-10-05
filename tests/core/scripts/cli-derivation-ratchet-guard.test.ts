@@ -107,8 +107,9 @@ describe('DR-5: the CLI-derivation allowlist is seeded from the live parse', () 
   /**
    * The test derives both sides from the tree and states no count, so a correct paydown moves them
    * together. The live root holds no kill fixture. `KILL_FIXTURE_COMMANDS` must still be non-empty,
-   * or the exclusion is vacuous. Each entry must have an owner and a real expiry day. The test also
-   * pins the `retired` map as present and empty, because that map is half of the pinned key set.
+   * or the exclusion is vacuous. Each entry must have an owner and a real expiry day. The `retired`
+   * map is empty, because no verb is paid down yet. The map must exist, because it is half of the
+   * pinned key set.
    */
   it('CliRatchet_SeededAllowlist_CoversEveryLiteralExceptTheKillFixture', () => {
     const literalNames = [...new Set(LIVE_SCAN.literals.map((s) => s.name))].sort();
@@ -132,7 +133,7 @@ describe('DR-5: the CLI-derivation allowlist is seeded from the live parse', () 
   });
 
   /**
-   * The positive control for each kill fixture below: the live artifacts on a named day inside the
+   * The positive control for each kill probe below: the live artifacts on a named day inside the
    * horizon give no finding. The guard exits 0 and its report states its denominators. The
    * production defaults of the guard must be the live artifacts and not a stub.
    */
@@ -160,9 +161,11 @@ describe('DR-5: the CLI-derivation allowlist is seeded from the live parse', () 
 describe('DR-5: the allowlist may only SHRINK', () => {
   /**
    * The kill probe: one entry more than the live key set must fail the guard. The count is derived,
-   * so a paydown does not make the probe a no-op. Two independent checks fail. The key set grew, so
-   * the digest does not match the pin. No literal has the seeded name, so the entry is also a stale
-   * waiver. The guard exits 1 and its report names the repair.
+   * so a paydown does not make the probe a no-op. The guard exits 1. Its report names the seeded
+   * entry and says not to regenerate the pin.
+   *
+   * Two independent checks fail. The key set grew, so the digest does not match the pin. No literal
+   * has the seeded name, so the entry is also a stale waiver.
    */
   it('CliRatchet_EleventhEntrySeeded_FailsTheGuard', () => {
     const seededName = 'seeded-eleventh';
@@ -194,7 +197,7 @@ describe('DR-5: the allowlist may only SHRINK', () => {
    * passes it, and so does membership when the new name is a live literal. Only the pinned prior
    * state fails it.
    *
-   * A paydown that moves the entry to `retired` keeps the pin valid, so the check does not fail each
+   * A paydown that moves the entry to `retired` keeps the pin valid, so the check passes a legal
    * edit. A paydown that deletes the entry fails. A copy to `retired` keeps the digest, because a
    * set union is idempotent, and fails as `RETIRED_AND_WAIVED`.
    */
@@ -256,8 +259,8 @@ describe('DR-5: the allowlist may only SHRINK', () => {
 describe('DR-5: membership is checked in BOTH directions', () => {
   /**
    * A new hand-written verb that the allowlist does not track must fail, which stops growth of the
-   * debt. The repair message must not tell the author to add an entry. A tracked name that is not a
-   * live literal must fail too, or a paid-down entry can stay in the list. A move of that entry to
+   * debt. The repair message must say that a new entry is not the repair. A tracked name that is not
+   * a live literal must fail too, or a paid-down entry can stay in the list. A move of that entry to
    * `retired` passes membership. An entry in `retired` whose literal is still live fails with two
    * findings, because `retired` records paydowns and suppresses nothing.
    */
@@ -354,7 +357,7 @@ describe('DR-5: the expiry is enforced, not advisory', () => {
    * live list and must be non-empty. The report names the owner and the legal repair, and the guard
    * exits 1.
    *
-   * One planted entry that expired the day before shows that one stale waiver is sufficient. An
+   * One planted entry that expired the day before shows that one expired waiver is sufficient. An
    * entry is live on its expiry day. An off-by-one error there adds or removes a day for each waiver.
    */
   it('CliRatchetExpiry_PastExpiryEntry_FailsTheGuard', () => {
@@ -409,7 +412,8 @@ describe('DR-5: the expiry is enforced, not advisory', () => {
   /**
    * A deadline that its owner can move is not a deadline. A commit that moves each date later is the
    * cheapest way to a green gate, so it must fail against the pinned horizon. One day past the
-   * horizon is sufficient. An earlier date is always legal, because it only shortens the debt.
+   * horizon is sufficient. An earlier date is always legal, because it only shortens the life of
+   * the waiver.
    */
   it('CliRatchetExpiry_SelfRenewedWaiver_FailsAgainstThePinnedHorizon', () => {
     const bumped = auditCliDerivationExpiry(SEEDED_ON, reDated('2099-01-01'));
@@ -434,10 +438,10 @@ describe('DR-5: the expiry is enforced, not advisory', () => {
   });
 
   /**
-   * "No expired waiver" is true for zero waivers, and a moved policy file gives zero waivers. Thus an
-   * empty allowlist must fail, and one entry must be sufficient. An entry with no owner, a date that
-   * does not parse, and a calendar date that does not exist are malformed. A clock or a horizon that
-   * does not parse must fail, because it disables the comparison.
+   * "No expired waiver" is true for zero waivers, so an audit of an empty allowlist proves nothing.
+   * Thus an empty allowlist must fail, and one entry must be sufficient. An entry with a blank owner,
+   * a date that does not parse, and a calendar date that does not exist are malformed. A clock or a
+   * horizon that does not parse must fail, because it disables the comparison.
    */
   it('CliRatchetExpiry_EmptyAllowlistOrUnreadableClock_FailsClosed', () => {
     const noEntries = auditCliDerivationExpiry(SEEDED_ON, {});
@@ -475,9 +479,10 @@ describe('DR-5: the expiry is enforced, not advisory', () => {
 
   /**
    * `resolveToday` must equal a UTC day that the test computes independently. The test asserts no
-   * verdict of the live clock, because such an assertion fails on a calendar date. The day is UTC, so
-   * "expired" does not depend on the machine that runs the gate. An invalid `Date` gives the empty
-   * string, which the audit reports as `UNREADABLE_CLOCK` and does not read as an old day.
+   * verdict of the live clock, because that verdict changes when the horizon passes. The day is UTC,
+   * so "expired" does not depend on the machine that runs the gate. An invalid `Date` gives the empty
+   * string. The audit must report it as `UNREADABLE_CLOCK`, because an empty day sorts before each
+   * date and then no waiver expires.
    */
   it('CliRatchetExpiry_TheClockIsReadOnlyAtTheGate', () => {
     const now = new Date();

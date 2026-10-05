@@ -4,7 +4,7 @@
  * `prettyPrint` in `cli-format.ts` infers the format from the shape of `result.data`.
  * `isTabular` gives a table, `isTreeLike` gives a tree, and any other shape gives JSON.
  * Each test calls an action with no format flag, and its snapshot pins the inferred branch.
- * The inference rule is part of the contract.
+ * The inference rule is part of the contract. Both actions return tree-like data, so no test here renders a table.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';

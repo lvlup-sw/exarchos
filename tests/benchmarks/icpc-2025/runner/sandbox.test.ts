@@ -14,6 +14,7 @@ let TEST_DIR = '';
 /**
  * Runs `g++ --version`, because `which g++` is not enough.
  * The windows-latest runners ship a g++ shim that resolves but cannot compile.
+ * The shim does not answer `--version`, so the probe fails on it.
  */
 async function hasGpp(): Promise<boolean> {
   try {
@@ -24,12 +25,16 @@ async function hasGpp(): Promise<boolean> {
   }
 }
 
+/**
+ * Runs the suite only when g++ works.
+ * The large-output case prints about 2 MB (2048 lines of 1001 bytes) against an output limit of 1 KB.
+ */
 const describeWithGpp = (await hasGpp()) ? describe : describe.skip;
 
 /**
  * Test timeout for a case that compiles its fixture with g++ before it runs the sandbox.
  * A cold compile can exceed the default timeout of 5 seconds.
- * The win32 factor scales the budget, because the `unit` tier timeout on Windows is already 30 seconds.
+ * The win32 factor scales the budget. Without it, 30 seconds adds nothing on Windows, where the `unit` tier timeout is already 30 seconds.
  * The `timeLimitMs` of the sandbox still bounds the behavior under test.
  */
 const COMPILE_BEARING_TIMEOUT_MS = 30_000 * WIN32_SPAWN_HEADROOM;

@@ -70,8 +70,9 @@ let savedCwd = '';
  * non-git scratch cwd. Thus git and gh actions fail fast in contract, and no
  * action reaches the home directory, the repository or the network.
  *
- * The loop iterates `registeredActions()`, but no assertion uses that array.
- * Coverage is scored against the packaged denominator with the runtime ledger.
+ * The loop iterates `registeredActions()`, but coverage is not scored against
+ * that array. The tests score the runtime ledger against the packaged
+ * denominator.
  */
 beforeAll(async () => {
   harness = await createPublicRootHarness();
@@ -131,10 +132,10 @@ afterAll(async () => {
 describe('DR-27 — T1 public-root tier', () => {
   /**
    * The denominator is the derivation of the packaged sweep. The numerator is
-   * the ledger that the harness records at runtime inside `dispatch()`. The
-   * first assertions guard the two-source property: the ledger is not the
-   * denominator array, and the sweep ran. The covered count also has a floor,
-   * so a smaller surface cannot lower it.
+   * the ledger that the harness records at runtime, from each `dispatch()`
+   * result. The first assertions guard the two-source property: the ledger is
+   * not the denominator array, and the sweep ran. The covered count also has a
+   * floor, so a surface that shrinks below the floor fails.
    */
   it('PublicRoot_EveryRegisteredAction_ReachableThroughDispatch', () => {
     const denominator = packagedActionDenominator();

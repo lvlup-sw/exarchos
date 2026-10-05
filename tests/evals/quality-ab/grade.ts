@@ -68,7 +68,7 @@ export interface RunResult {
 
 /**
  * Runs the hidden oracle of `task` against the impl in `runDir`. It removes the oracle from the run directory in every case.
- * When the oracle cannot run (a missing export, a throw at load, a syntax error), the run passes 0 of {@link countOracleChecks}.
+ * When the oracle cannot run (a missing export, a throw at load, a syntax error), the run passes 0 of the checks that {@link countOracleChecks} counts.
  */
 export async function gradeOracle(
   runDir: string,
@@ -276,7 +276,7 @@ export interface GradeRunOptions {
 
 /**
  * Grades one run directory: oracle, typecheck, `wroteTests` and adequacy.
- * It throws on a directory name that is not `<task>__<arm>__r<rep>`, because a row with an empty task or arm still enters the averages.
+ * It throws when the directory name has fewer than three parts between `__` separators, because a mislabeled row still enters the averages.
  */
 export async function gradeRun(baseDir: string, run: string, options: GradeRunOptions): Promise<RunResult> {
   const runDir = path.join(baseDir, run);
@@ -422,7 +422,7 @@ async function main(): Promise<void> {
   process.stdout.write(`\n[written] ${path.relative(REPO_ROOT, outMd)}\n[written] ${path.relative(REPO_ROOT, outJson)}\n`);
 }
 
-/** The URL of the invoked script. `main` runs only when it is this module, so an import by a test never calls `process.exit`. */
+/** The URL of the invoked script. `main` runs only when that script is this module, so an import by a test never calls `process.exit`. */
 const invokedPath = process.argv[1] ? pathToFileURL(process.argv[1]).href : '';
 if (invokedPath === import.meta.url) {
   main().catch((err) => {

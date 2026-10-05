@@ -133,8 +133,8 @@ describe('action-contract next_actions — allow-only registry advertisements', 
   });
 
   /**
-   * The result adapter does not read `designDepth` from the payload. The control verb is a schema
-   * member, and it is outside ActionId totality.
+   * `nextActionsFromResult` does not read `designDepth` from the payload. `divergent_loop` is a
+   * control verb in the schema, and it is outside ActionId totality.
    */
   it('NextActions_DivergentLoop_IsNotAnActionId', () => {
     const hsm = getHSMDefinition('feature');

@@ -20,8 +20,8 @@ const REPO_ROOT = resolve(__dirname, '..', '..');
 const SKILLS_DIR = join(REPO_ROOT, 'rendered/skills');
 
 /**
- * The runtimes of the smoke tests, the same names as `REQUIRED_RUNTIME_NAMES` in `src/install/runtimes/load.ts`.
- * This file repeats them, so it imports nothing from `src`.
+ * The runtime names that `loadRuntimeSkills` accepts, the same names as `REQUIRED_RUNTIME_NAMES` in `src/install/runtimes/load.ts`.
+ * This file repeats them, so it imports nothing from `src`. No test reads `generic`.
  */
 type RuntimeName =
   | 'claude'
@@ -151,7 +151,7 @@ function assertFrontmatterValid(
 }
 
 /**
- * Matches one `{{TOKEN}}` placeholder, and group 1 is the token name.
+ * Matches one `{{TOKEN}}` placeholder, with or without arguments, and group 1 is the token name.
  * It follows `PLACEHOLDER_REGEX` in `src/install/skill-vocabulary.ts`, but this file imports nothing from `src`.
  * It has no `g` flag, so it keeps no `lastIndex` state between lines.
  */
@@ -177,7 +177,8 @@ function assertNoUnsubstitutedPlaceholders(s: ParsedSkill): void {
 
 /**
  * Returns the `delegate` skill of a loaded set, and throws when the set has none.
- * It is the smoke target because it holds `SPAWN_AGENT_CALL`, the substitution that differs most between runtimes.
+ * The delegate skill is the smoke target, because it holds the rendered `SPAWN_AGENT_CALL`.
+ * That substitution differs most between runtimes.
  */
 function findDelegateSkill(skills: ParsedSkill[]): ParsedSkill {
   const hit = skills.find((s) => s.skill === 'delegate');

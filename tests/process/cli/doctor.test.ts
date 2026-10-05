@@ -4,8 +4,8 @@ import { runCli } from '../../helpers/cli-runner.js';
 
 describe('exarchos doctor', () => {
   /**
-   * In a clean temporary HOME, `doctor` can report warnings but no failed check.
-   * A failed check makes the exit code non-zero.
+   * In a clean temporary HOME, `doctor` can report warnings, but it must report no failed check.
+   * A failed check makes the exit code non-zero, and a warning does not.
    */
   it('doctor_cleanTmpHome_exitsZero', async () => {
     await withHermeticEnv(async () => {
@@ -16,8 +16,8 @@ describe('exarchos doctor', () => {
 
   /**
    * `--json` prints the `ToolResult`, and its `data` holds `checks` and `summary`.
-   * The three check names are stable identifiers, so the test catches a rename or a lost list.
-   * A hermetic environment permits warnings but no failed check.
+   * The three check names are stable identifiers, so the test catches a renamed or removed check.
+   * A hermetic environment can give warnings, but it must give no failed check.
    */
   it('doctor_jsonFlag_outputsValidJson', async () => {
     await withHermeticEnv(async () => {

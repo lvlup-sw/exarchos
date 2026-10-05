@@ -381,7 +381,7 @@ export function buildCsv(rows: readonly CellRow[], provenance: Provenance): stri
   return lines.join('\n') + '\n';
 }
 
-/** The summary of one model, task and arm for the console table. The counts after `blocked` cover only the `ok` cells. */
+/** The summary of one model, task and arm for the console table. The fields after `blocked` cover only the `ok` cells. */
 export interface CellAgg {
   readonly key: string;
   readonly runs: number;

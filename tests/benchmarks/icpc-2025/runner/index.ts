@@ -60,6 +60,7 @@ export interface ResumeState {
 /**
  * Builds an `ArmResult` from a session result and the optional compile output.
  * When the session did not complete or no compile output exists, the exit reason sets the verdict.
+ * A completed session with no compile output gets `rte`.
  */
 function buildArmResultFromSession(
   armId: ArmId,

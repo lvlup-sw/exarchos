@@ -68,7 +68,7 @@ describe('exarchos version (subcommand)', () => {
 
   /**
    * The plain `version` subcommand must also print before the backend opens.
-   * Concurrent preflight workers that open the backend race on WAL recovery and exit 1 with empty stderr.
+   * When concurrent preflight workers open the backend, they race on WAL recovery and exit 1 with empty stderr.
    */
   it('versionSubcommand_doesNotInitializeSqliteBackend', async () => {
     await withHermeticEnv(async ({ stateDir }) => {

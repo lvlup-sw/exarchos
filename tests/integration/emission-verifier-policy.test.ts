@@ -70,11 +70,11 @@ afterEach(async () => {
 
 describe('emission verifier policy', () => {
   /**
-   * The verifier can assess none of the three dispatches. They have no unconditional contract, no
-   * stream, and an unreadable store. The first two are `not-applicable` and the third is
-   * `indeterminate`. With zero determinate verdicts, the run is not clean although it has zero
-   * violations. The summary counts the two statuses apart, so a store outage does not look like an
-   * ordinary skip.
+   * The verifier can assess none of the three dispatches. The first has no unconditional contract,
+   * the second has no stream, and the third has an unreadable store. The first two are
+   * `not-applicable` and the third is `indeterminate`. With zero determinate verdicts, the run is
+   * not clean although it has zero violations. The summary counts the two statuses apart, so a
+   * store outage does not look like an ordinary skip.
    */
   it('EmissionVerifier_AllIndeterminateRun_FailsRatherThanReportingClean', async () => {
     const noContract = await runEmissionVerifierInterceptor(store, {
@@ -126,9 +126,9 @@ describe('emission verifier policy', () => {
   });
 
   /**
-   * The action declares `workflow.started` unconditionally and nothing appends it. No dispatch
-   * fails, so the verifier must find the miss. The default mode, which a run with no project config
-   * gets, blocks on the verdict. The finding is a record on the stream, not only a log line.
+   * The call declares `workflow.started` unconditionally and nothing appends it. No error shows the
+   * miss, so the verifier must find it. The default mode, which a run with no project config gets,
+   * blocks on the verdict. The finding is a record on the stream, not only a log line.
    * The contrast case keeps the same declaration, and is determinate and clean. `operationId` is on
    * the event, not on the append options, because the verifier queries by it.
    */
@@ -531,8 +531,9 @@ describe('emission verifier over the safe corpus', () => {
   /**
    * `verifyDeclaredEmissions` is the comparison that `runEmissionVerifierInterceptor` makes. Its
    * input is the set of appends that the store confirmed durable for the probe, without the setup
-   * appends. The assertion message carries the denominator, because "0 violated" has meaning only
-   * next to the determinate count.
+   * appends. The test asserts that the determinate count is more than zero, because a run with no
+   * determinate verdict checked nothing. It does not assert that the violation count is zero. The
+   * last assertion fails when the loop skips a probe.
    */
   it('EmissionVerifier_SafeCorpus_HasNonZeroDeterminateCoverage', async () => {
     const makeContext: DispatchContextFactory = (dir) => ({

@@ -18,9 +18,12 @@ export interface SandboxResult {
 const DEFAULT_MAX_OUTPUT_BYTES = 1024 * 1024;
 
 /**
- * Runs a command with a time limit and an output limit. The promise always resolves.
- * The process runs detached, so the timeout kills its whole process group, child processes included.
+ * Runs a command with a time limit and an output limit. The promise never rejects.
+ * A spawn failure resolves with the error message in `stderr` and a null exit code.
  * When stdout or stderr exceeds the byte limit, the result keeps only the bytes that fit.
+ *
+ * The process runs detached, so the timeout kills its whole process group, child processes included.
+ * When the group kill fails, the timeout kills only the process. It ignores a second failure, because the process can exit first.
  */
 export async function runInSandbox(
   command: string,

@@ -1,7 +1,7 @@
 /**
  * Governance tier: the chain from gate to durable evidence to completion.
  *
- * Each test drives the real `dispatch()` against the production composition root that `createPublicRootHarness` builds.
+ * Each test drives the real `dispatch()` through `createPublicRootHarness`, which builds the context with the production composition root.
  * Nothing is a stub. `check_static_analysis` runs the npm scripts of a real fixture repository.
  * The verdict persists as an `admission.evidence-recorded` row.
  * `task_complete` reads the `gate.executed` signal that the gate runner mints from that row.
@@ -54,7 +54,7 @@ function payload(obs: DispatchObservation): Rec {
 
 /**
  * Reads the durable `gate.executed` rows for one task from the real event store.
- * `task_complete` consults only this oracle.
+ * The gate check of `task_complete` reads only `gate.executed` events.
  */
 async function gateSignalsFor(taskId: string): Promise<readonly Rec[]> {
   const events = await harness.events(FEATURE_ID);
@@ -162,7 +162,7 @@ describe('T2 governance — gate before completion (DR-1, DR-2, DR-6)', () => {
    * BLOCKING ARM: a local operator supplies passing `evidence` for a task with no gate row, and still gets `GATE_NOT_PASSED`.
    * The self-supplied evidence does not become a gate row.
    * NEGATIVE TWIN: the identical call without an `evidence` field succeeds for a task whose gate ran green.
-   * That signal comes from the gate runner and refers to the persisted evidence record.
+   * The signal of that gate comes from the gate runner and refers to the persisted evidence record.
    * Both arms use the same operator identity and the same action, so they differ only in the durable evidence.
    */
   it('Governance_Dr1Dr2_CallerSuppliedEvidence_CannotSatisfyBlockingGate', async () => {

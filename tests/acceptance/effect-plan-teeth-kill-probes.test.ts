@@ -8,7 +8,7 @@
  *
  * Each relaxation applies to a copy of the carrier in a temp directory. A probe that edits `src/`
  * cannot restore it after a thrown assertion, a timeout or a worker crash. The last test asserts
- * that the live carrier keeps each guard.
+ * that the live carrier still declares its guards.
  *
  * For a type-level gate, `tsc` accepts the fixture after the relaxation. The recorder gate also
  * has a runtime half, the brand check. That gate gets a compile probe on the parameter and a
@@ -35,9 +35,10 @@ import { rmrf } from '../../tools/test-helpers/temp-dir.js';
  * fixture.
  *
  * `accepted === false` alone is not sufficient. The control keeps the proof block of the carrier,
- * and the treatment truncates it. If the control fails for an unrelated reason (for example a
- * proof alias that fails with the widened `EventType` stub), it passes on a false negative. The
- * treatment then passes on the truncation, and neither arm measures the guard.
+ * and the treatment truncates it. If the control compile fails for an unrelated reason (for
+ * example a proof alias that fails with the widened `EventType` stub), the control assertion
+ * passes on that false signal. The treatment then passes on the truncation, and neither arm
+ * measures the guard.
  */
 async function expectRejectedForTheFixture(
   dir: string,
@@ -61,8 +62,8 @@ async function expectRejectedForTheFixture(
  * like a refused effect.
  *
  * The function emits the local stubs with the carrier, because replay identity is a runtime
- * import. `tsc` emits output when it reports errors, and the copy can produce some. Thus the
- * function ignores the exit status of `tsc`.
+ * import. `tsc` emits JavaScript even when it reports errors, and the relaxed copy can produce
+ * errors. Thus the function ignores the exit status of `tsc`.
  */
 async function runLiveWithNoRecorder(dir: string, relaxations: readonly Relaxation[]): Promise<string> {
   materializeCarrier(dir, relaxations);
@@ -265,7 +266,7 @@ describe('kill probes: every gate is shown to fail', () => {
   });
 
   /**
-   * The probe that runs code. The relaxation restores the `declaredEmissions(plan).length > 0 &&`
+   * The probe that runs code. The relaxation adds the `declaredEmissions(plan).length > 0 &&`
    * condition. The parameter stays required, so the compile probe above stays green. A
    * `records-nothing` plan then needs no capability, and only a run of the code shows that.
    * The `find` text has two lines, because the first line alone also matches `recordEmissions`.
@@ -296,8 +297,8 @@ describe('kill probes: every gate is shown to fail', () => {
   /**
    * The check covers only what the probes write, not the byte identity of the repository. Other
    * tiers write coverage, SQLite and `.exarchos/` state at the same time, and a whole-repository
-   * assertion measures their work. The live carrier must still declare each guard that the
-   * probes relaxed.
+   * assertion measures their work. After a relaxed copy exists, the live carrier must still declare
+   * the `emits` field, the recorder parameter, the brand and one proof alias.
    */
   it('KillProbes_LeaveNoResidue_InTheirOwnWriteSet', () => {
     materializeCarrier(dir, [

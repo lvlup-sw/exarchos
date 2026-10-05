@@ -8,7 +8,8 @@
 // The fixtures live in a module that is not a `.test.ts` file. The corpus scan
 // lists `*.test.ts` files only, and some fixtures hold the defects that the
 // detectors look for. `checkCouldNotRunVerdicts` reads string bodies, so the
-// same strings inside `suite-invariants.test.ts` make the meta-test flag itself.
+// same strings inside a test block of `suite-invariants.test.ts` make the
+// meta-test flag itself.
 
 /** An assertion that puts a fixture in scope by its shape. */
 const IN_SCOPE_ASSERTION = `  it('SomeCensusClaim', () => {

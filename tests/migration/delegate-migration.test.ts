@@ -1,11 +1,11 @@
 /**
  * Render tests for the delegate skill.
  *
- * The skill source has one dispatch section. The `{{SPAWN_AGENT_CALL}}` placeholder gives the
- * dispatch call, and the YAML of each runtime supplies the primitive for that runtime.
+ * The skill source holds no runtime-specific dispatch call. Each `{{SPAWN_AGENT_CALL}}` placeholder
+ * renders to the dispatch call that the YAML of the runtime supplies.
  *
  * - Three tests pin the source: it holds no `Task({` call and no runtime-specific dispatch section.
- * - Seven tests pin the dispatch primitive in the six rendered variants.
+ * - Seven tests read the six rendered variants for the dispatch text of each runtime.
  */
 
 import { describe, it, expect, afterEach } from 'vitest';

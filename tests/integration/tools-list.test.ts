@@ -141,7 +141,8 @@ describe('F.1 — tools/list shape (Wave 0 §7)', () => {
 
   /**
    * Pins the aggregation formula at the `tools/list` boundary. `readOnlyHint` and `idempotentHint`
-   * need each action, and `destructiveHint` and `openWorldHint` need one action or more.
+   * are true only when each action of the tool has the flag. `destructiveHint` and `openWorldHint`
+   * are true when one action or more has the flag.
    */
   it('ToolsList_AnnotationsAggregation_MatchesRegistryFormula', async () => {
     const { tools } = await client.listTools();

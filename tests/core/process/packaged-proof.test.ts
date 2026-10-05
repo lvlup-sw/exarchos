@@ -284,9 +284,9 @@ async function driveEveryAction(binaryPath: string): Promise<ActionObservation[]
  * `INVALID_INPUT` for its absent flags and has no effect. Both prove that the binary routes the
  * verb through the contract envelope.
  *
- * The filesystem probe is a `wf init` that must leave files in the state directory. The process
- * probe is `orch list_prs`. It passes when stdout holds a `gh` or git failure text, or the code
- * `VCS_ERROR`.
+ * The filesystem probe is a `wf init` that must succeed and leave files in the state directory.
+ * The process probe is `orch list_prs`. It passes when the run gives an envelope and stdout names
+ * a `gh` or git failure.
  */
 async function runSweep(binaryPath: string): Promise<SweepResult> {
   const observations = await driveEveryAction(binaryPath);
@@ -556,7 +556,8 @@ describe('Effect families through the compiled binary (P05-02)', () => {
 describe('Cancellation path through the compiled binary (P05-02)', () => {
   /**
    * The `wf cancel` call must return a contract envelope, and its exit must be the stable exit
-   * code of its error code. The test does not assert that the cancel succeeds.
+   * code of its error code. The test does not assert that the cancel succeeds, so a cancel that
+   * fails with the matching exit code also passes.
    */
   it('CooperativeCancel_RoundTripsToAContractEnvelopeWithAStableExit', () => {
     expect(SWEEP.cancelEnvelope).toBe(true);

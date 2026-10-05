@@ -1,6 +1,6 @@
 // @oracle-sources: ../../src/events/registration-validate.ts, the per-action `emissions` clause each shipped contract carries — authored beside its action and never derived from the event catalog
 //
-// The two sides have independent authors on purpose. The event catalog says
+// Neither side derives from the other, on purpose. The event catalog says
 // which `(action, event)` edges the registration validator can prove. The
 // contracts say which edges their actions promise. A contract compared with a
 // restatement of itself agrees by construction, so only the catalog lets the

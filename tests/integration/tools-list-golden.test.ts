@@ -5,8 +5,13 @@
 // description. This test pins the bytes. It canonicalises the full `tools/list` result (sorted
 // keys, tools in name order) and compares it with a committed golden file.
 //
-// A diff is a change of the wire contract. Review the diff before you regenerate the golden:
+// A diff is a change of the wire contract: it changes what a model-side agent receives. Do not
+// regenerate the golden only to make the test pass. Regenerate it with this command, then do the
+// review that the description of `goldenPath` gives, before you commit:
 //   UPDATE_TOOLS_LIST_GOLDEN=1 npx vitest run --project core tests/integration/tools-list-golden.test.ts
+//
+// No tool entry holds an `execution` block. The v2 `registerTool` config has no `execution`
+// member, so the adapter cannot advertise `taskSupport`.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -26,6 +31,17 @@ import type { DispatchContext } from '../../src/dispatch/core/dispatch.js';
 import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+/**
+ * The committed golden. Each tool description in it holds one signature line and one contract
+ * digest row for each action. Thus a change of an action signature, an action description or a
+ * contract declaration moves the golden, also when no JSON schema moves.
+ *
+ * Before you commit a new golden, parse the old golden and the new golden, and compare them for
+ * each tool and each field. A line diff is not sufficient, because a description is one JSON line
+ * and the diff cannot tell an addition from a rewrite. Each changed field must come from the
+ * change that you made. Make sure that no other tool, action, order, schema or digest moved. A
+ * change that refuses a call that was valid must be deliberate.
+ */
 const goldenPath = path.join(here, '__goldens__', 'tools-list.golden.json');
 
 /**
@@ -81,10 +97,10 @@ describe('DR-0 — tools/list wire golden', () => {
   });
 
   /**
-   * The test puts the tools in name order, so a registry reorder is not a wire change. With
-   * `UPDATE_TOOLS_LIST_GOLDEN=1`, it writes the golden before the comparison. The comparison is
-   * byte for byte. The last assertion rejects an empty manifest, which equals an empty golden and
-   * proves nothing.
+   * The test puts the tools in name order, so a reorder of the registry does not show as a diff. A
+   * renamed tool still shows. With `UPDATE_TOOLS_LIST_GOLDEN=1`, the test writes the golden before
+   * the comparison, so that run always passes. The comparison is byte for byte. The last assertion
+   * rejects an empty manifest, which equals an empty golden and proves nothing.
    */
   it('ToolsList_AfterV2Migration_ByteIdenticalToGolden', async () => {
     const { tools } = await client.listTools();

@@ -21,8 +21,9 @@ export { LEGACY_SHAPE_DEBT };
  *   match. A matcher that matches nothing reports zero violations and zero
  *   matches, and the floor catches it.
  *
- * `observed` is the count on the day of the floor (2026-08-05, 920 files).
- * A floor is about 80% of `observed`, so ordinary churn does not fail it.
+ * `observed` is the match count on the date that set the floor (2026-08-05,
+ * a corpus of 920 files). A floor is about 80% of `observed`, so ordinary
+ * churn does not fail it.
  */
 export interface ShapeRatchetEntry {
   readonly id: string;
@@ -43,8 +44,9 @@ export const SHAPE_RATCHET: readonly ShapeRatchetEntry[] = Object.freeze([
 ]);
 
 /**
- * Floors for the file count of each scan root. An empty root makes the
- * meta-test vacuous and green, and a floor stops that.
+ * Floors for the file count of a scan root. An empty root makes the meta-test
+ * vacuous and green, and a floor stops that. The `src` and `tools/conformance`
+ * roots have no floor here.
  *
  * A floor goes with its files. The floors of `tests/unit` and
  * `tests/integration` sum to 728, the floor of the `src` root that held their
@@ -115,7 +117,7 @@ export interface AcceptedGap {
    */
   readonly suppresses: readonly string[];
   readonly owner: string;
-  /** ISO `YYYY-MM-DD`. After this date the suite fails. */
+  /** ISO `YYYY-MM-DD`. The suite fails from 00:00 UTC on this date. */
   readonly expires: string;
   readonly why: string;
   /** The requirement or the work that closes the gap. */

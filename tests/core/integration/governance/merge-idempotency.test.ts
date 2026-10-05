@@ -360,7 +360,8 @@ describe('DR-12 — duplicate merge and duplicate PR prevention (shipped path)',
    * and the base branch. `verbs/vcs/create-pr.ts` looks for an open PR with
    * that identity before it creates one. The argv assertions pin that the
    * shipped `GitHubProvider` built the `pr create` call and the `pr list`
-   * lookup. Each attempt records a `pr.create.executed` event for the one PR.
+   * lookup. Each of the two duplicate attempts records a `pr.create.executed`
+   * event for the one PR.
    *
    * NEGATIVE TWIN: a different head, or a different base, must create a new PR.
    * A replay of the first identity after the twins must still dedup.

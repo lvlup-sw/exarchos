@@ -6,13 +6,14 @@
 //
 // `settle` accepts the capsule from `prepare` by version, and answers a retry of the same batch
 // from the claim. It refuses an edited capsule, and only `prepare` can write the prepared record.
-// A settled batch runs the production static-analysis gate on a real project and persists the
-// verdict. Its tasks are then complete on the stream, in the projection and on the state
-// document, so the guards admit the next transition. When the lint of the project fails, the same
-// call rejects the batch and names the halt.
+// To settle a batch, `settle` runs the production static-analysis gate on a real project and
+// persists the verdict. The tasks are then complete on the stream, in the projection and on the
+// state document, so the guards admit the next transition. When the lint of the project fails,
+// the same call rejects the batch and names the halt.
 //
 // The tasks are low-risk and off the boundary, so the ladder runs static analysis only. Policy
-// skips the kill probe and the contract-drift gate, and no test needs a git repository.
+// skips the kill probe, the contract-drift gate and the mock-boundary gate. No test needs a git
+// repository.
 //
 // @oracle-sources: ../../src/verbs/prepare/handler.ts, the settlement record and bundle blobs counted out of the real event store and content-addressed store after each dispatched call
 
@@ -194,7 +195,10 @@ describe('prepare then settle, through the dispatcher', () => {
     expect(gates.filter((g) => g.data.gateName === 'static-analysis' && g.data.passed)).toHaveLength(3);
   });
 
-  /** The retry also verifies nothing a second time. */
+  /**
+   * The retry returns the first answer. It appends no row, verifies nothing a second time and
+   * writes no blob.
+   */
   it('PrepareSettle_ARetriedBatch_IsAnsweredFromTheClaim', async () => {
     await seedDelegatingFeature();
     const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
@@ -218,8 +222,8 @@ describe('prepare then settle, through the dispatcher', () => {
    * the same leaf. `verified` is the flag of that leaf for caller-attached evidence, and a settled
    * claim attaches none. The verification is the durable gate row, not a field on the fact.
    *
-   * Each ladder gate leaves an evidence row, and a policy-skipped gate records the skip. The three
-   * static-analysis rows hold the verdicts that decided the batch.
+   * Each of the four ladder gates leaves an evidence row for each task, and a policy-skipped gate
+   * records the skip. The three static-analysis rows hold the verdicts that decided the batch.
    *
    * The projection reads the facts as progress. The transition is a separate call with its own
    * guard, and the guard admits it.
@@ -316,8 +320,8 @@ describe('prepare then settle, through the dispatcher', () => {
 
   /**
    * The capsule declares `worktreePath` as a string. A number on one claim is a field-type
-   * mismatch, and it refuses the batch although `settle` admits the other two claims. A refused
-   * batch is a settlement but not progress: `settle` verifies none of its tasks.
+   * mismatch. The mismatch rejects the batch, although `settle` admits the other two claims. A
+   * rejected batch is a settlement but not progress: `settle` verifies none of its tasks.
    */
   it('PrepareSettle_ABatchRejectedOnShape_VerifiesNothingAndLeavesNoCompletion', async () => {
     await seedDelegatingFeature();

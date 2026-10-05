@@ -70,7 +70,7 @@ describe('doctor end-to-end acceptance (task 022)', () => {
    * - The handler output must parse with the Zod schema that the MCP adapter uses, or the wire contract breaks.
    * - The run-bundle custody check passes on a fresh state directory and says that it had nothing to check.
    * - The schema refinement already enforces the tally. The test asserts it again so that a failure names the field.
-   * - At least one check that is not a pass must offer an init-style fix (`exarchos init`, `git init` or `mkdir -p .exarchos`).
+   * - At least one check with the status `Warning` or `Fail` must offer an init-style fix (`exarchos init`, `git init` or `mkdir -p .exarchos`).
    *   The host decides which check shows the gap, so the pattern accepts all three.
    * - No `fix` string is only whitespace or ends in whitespace. The schema rejects only the empty string.
    */
@@ -120,7 +120,7 @@ describe('doctor end-to-end acceptance (task 022)', () => {
    * The claude-code detector in `runtime/agent-environment-detector.ts` needs no other field.
    * The guarantees are zero failed checks and a pass for the two agent checks. A warning, such as a missing git repo, is acceptable.
    *
-   * "Mostly pass" means that more than half of the checks pass. The remote-MCP check always skips.
+   * "Mostly pass" means that more than half of the checks pass. The remote-MCP check always has the status `Skipped`.
    * The win32 runner adds expected environment warnings that can tip that majority, so the majority check does not run on win32.
    */
   it('Doctor_ProjectWithClaudeJsonAndExarchosMcp_ReturnsMostlyPass', async () => {

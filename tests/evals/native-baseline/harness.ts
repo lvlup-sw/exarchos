@@ -4,7 +4,7 @@
  * asks for Task-tool delegation. Then it reads the model, the tool calls and the token spend of
  * each dispatched subagent from the transcript.
  *
- * The two captured runs in `fixtures/` show two transcript shapes. In one, each subagent streams
+ * The two delegation runs in `fixtures/` show two transcript shapes. In one, each subagent streams
  * its `assistant` messages with `parent_tool_use_id`, so `message.model` gives its model. In the
  * other, only `task_started` and `task_notification` events name the subagent. For that shape,
  * {@link resolveSubagentModels} uses the terminal `result.modelUsage` when it holds one model.
@@ -49,10 +49,10 @@ export interface ModelUsageEntry {
 }
 
 /**
- * One parsed stream-json line, with only the fields that matter to this harness. `message` and
+ * One parsed stream-json line. The type declares a subset of the fields. `message` and
  * `parent_tool_use_id` belong to `assistant` and `user` events. The fields from `task_id` to
- * `usage` belong to `task_started` and `task_notification` events. The last three fields belong
- * to the `result` event.
+ * `usage` belong to `task_started` and `task_notification` events. `is_error` and `modelUsage`
+ * belong to the `result` event. Each event in the captured transcripts holds `session_id`.
  */
 export interface StreamEvent {
   readonly type?: string;
@@ -124,8 +124,8 @@ export interface SubagentTokens {
  * How the harness found {@link SubagentObservation.model}.
  * - `assistant`: the subagent streamed its `assistant` messages to the parent transcript, and
  *   `message.model` gives the model.
- * - `session-single`: only the `task_notification` of the subagent is in the transcript. The
- *   terminal `result.modelUsage` holds exactly one model, so the subagent ran on it.
+ * - `session-single`: no `assistant` message of the subagent gave a model. The terminal
+ *   `result.modelUsage` holds exactly one model, so the subagent ran on it.
  * - `unresolved`: neither signal is available, and the model stays `null`.
  */
 export type ModelSource = 'assistant' | 'session-single' | 'unresolved';

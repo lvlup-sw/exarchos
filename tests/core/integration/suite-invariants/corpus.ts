@@ -1,12 +1,13 @@
 // The scan corpus and the static import graph.
 //
 // The corpus is each `*.test.ts` file under the roots in `SCAN_ROOTS`. Each
-// root names one test tree. A root of all of `tests/` also takes the migration,
-// smoke, e2e and architecture suites, which this register does not govern.
+// root names one test tree. No root is all of `tests/`, because that root also
+// takes the migration, smoke, e2e and architecture suites. This register does
+// not govern those suites.
 //
-// A governed file keeps its membership when it moves, so a root goes with its
-// files to their new directory. A root that is left out discharges the
-// shape-annotation debt of its files by relocation.
+// A governed file keeps its membership when it moves. When governed files
+// move, point a root at their new directory. Without that root, the move
+// discharges the shape-annotation debt of those files.
 
 import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs';
 import * as path from 'node:path';
@@ -114,7 +115,11 @@ export function loadCorpus(): readonly CorpusFile[] {
   return cached;
 }
 
-/** Matches the specifier of an `import`, an `export … from`, an `import()` or a `require()`. */
+/**
+ * Matches the specifier of an `import … from`, an `export … from`, an
+ * `import()` or a `require()`. A side-effect `import '…'` has no `from`, so it
+ * makes no edge in the graph.
+ */
 const IMPORT_RE =
   /(?:^|\n)\s*(?:import|export)\s[\s\S]{0,400}?from\s*['"]([^'"]+)['"]|(?:^|[^\w.])import\s*\(\s*['"]([^'"]+)['"]\s*\)|(?:^|[^\w.])require\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
 

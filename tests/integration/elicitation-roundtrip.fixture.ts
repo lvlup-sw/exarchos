@@ -7,7 +7,7 @@
  * - The dispatch context carries a `capabilityResolver`. At `oninitialized`, `createMcpServer` snapshots the client capabilities into it.
  *   Without the resolver, the dispatch gate never reads `isElicitationDeclared() === true`.
  * - With `clientCapabilities.elicitation`, the client registers a request handler that forwards to `elicitInputHandler`.
- *   With no such capability, the client registers no handler, as a real client without elicitation support.
+ *   With no such capability, the client registers no handler, like a real client that does not support elicitation.
  */
 
 import {
@@ -41,7 +41,7 @@ export interface ElicitInputParams {
 
 /**
  * The answer of the mock handler to the elicitation request, in the shape of the SDK elicit result.
- * - `accept` with `content`: gives the field value. The dispatcher reads `content[<missingField>]`.
+ * - `accept` with `content`: gives the field value. The server adapter reads `content[<missingField>]`.
  * - `decline` or `cancel`: the dispatch helper emits `elicitation.declined`, not `elicitation.fulfilled`.
  */
 export interface ElicitInputResult {
@@ -93,7 +93,7 @@ export interface ElicitationTestPair {
  *
  * Always call `cleanup()` after a test. It closes the client and the store, then removes the temp directory.
  * On Windows an open SQLite handle blocks the unlink of the database file.
- * `cleanup` ignores a close error for a client or transport that is already closed, and throws any other error.
+ * `cleanup` ignores a close error for a client or transport that is already closed. It throws any other error, because a silent teardown failure hides a resource leak.
  */
 export async function createElicitationTestPair(
   opts: ElicitationTestPairOpts,

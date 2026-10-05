@@ -37,8 +37,8 @@ const RUNTIME_NAMES = [
 
 /**
  * The skill names. A skill name is also its directory name. The first 16 are procedural skills, and
- * the last 3 are orchestration skills. No directory with one of these names can be directly under
- * `rendered/skills`.
+ * the last 3 are orchestration skills. A directory with one of these names must not be directly
+ * under `rendered/skills`.
  */
 const CANONICAL_SKILLS = [
   'checkpoint',
@@ -113,8 +113,8 @@ describe('task 018 — post-migration structural invariants', () => {
   });
 
   /**
-   * `content/` must hold no directory with a runtime name, because render output goes only to
-   * `rendered/skills`.
+   * A directory with a runtime name must not be directly under `content/`, because render output
+   * goes only to `rendered/skills`. The test does not look below the first level.
    */
   it('PostMigration_SkillsSrcTree_ContainsNoCommittedGeneratedFiles', () => {
     expect(existsSync(SKILLS_SRC_DIR)).toBe(true);
@@ -128,7 +128,7 @@ describe('task 018 — post-migration structural invariants', () => {
   });
 
   /**
-   * No directory with a skill name can be directly under `rendered/skills`. A skill renders to
+   * A directory with a skill name must not be directly under `rendered/skills`. A skill renders to
    * `standard/<name>` or to `<runtime>/<name>`, so a directory at that level is a leftover of an
    * older layout.
    */

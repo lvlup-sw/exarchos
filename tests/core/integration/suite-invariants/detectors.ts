@@ -27,6 +27,10 @@ const ORACLE_ANNOTATION = /@oracle-sources:[ \t]*([^\r\n]*)/g;
 /**
  * Parses the oracle-sources tag lines of a file. It reads the comment view
  * only, so a string literal in a test body is never a declaration.
+ *
+ * A tag line holds the tag, a colon, and the authorities as a comma-separated
+ * list. The list stops at the end of the line. Each tag line is one
+ * declaration.
  */
 export function parseOracleDeclarations(source: string): readonly OracleDeclaration[] {
   const { comments } = sourceViews(source);
@@ -43,7 +47,12 @@ export function parseOracleDeclarations(source: string): readonly OracleDeclarat
   return out;
 }
 
-/** Returns true when an authority token looks like a file path or a module path. */
+/**
+ * Returns true when an authority token looks like a file path or a module
+ * path. Such a token starts with `.` or `/`, or it ends in a known file
+ * extension. Each other token is a label, so a prose label must not end in a
+ * file name.
+ */
 export function isPathAuthority(token: string): boolean {
   return /^[./]/.test(token) || /\.(ts|tsx|js|mjs|json|md|ya?ml)$/.test(token);
 }
@@ -67,7 +76,7 @@ function normaliseOpaque(t: string): string {
 }
 
 /**
- * Rules R1 to R4, the oracle-sources family.
+ * Rules R1 to R4, the oracle-sources family. R2 to R4 apply to each tag line.
  *
  * - R1 `oracle-sources-missing`: the file is in scope and declares nothing.
  * - R2 `oracle-sources-too-few`: fewer than two distinct authorities. Tokens
@@ -75,6 +84,7 @@ function normaliseOpaque(t: string): string {
  * - R3 `oracle-sources-derived`: one authority is reachable from another, in
  *   the static import graph for paths or in `knownDerivations` for labels.
  * - R4 `oracle-sources-unresolvable`: a path-shaped authority is not a file.
+ *   A path resolves from the directory of the file that declares it.
  *
  * Scope comes from the assertion shapes alone (see `shapes.ts`), so a deleted
  * annotation does not remove a file from scope.
@@ -172,7 +182,7 @@ export interface TestBlock {
   readonly start: number;
   /** Offset just past the block's closing paren. */
   readonly end: number;
-  /** Offset of the comment block directly above the test, or `start` when there is none. */
+  /** Offset of the block comment directly above the test, or `start` when there is none. */
   readonly docStart: number;
 }
 
@@ -195,10 +205,11 @@ function matchParen(code: string, openIdx: number): number {
 /**
  * Splits a test file into `it(...)` and `test(...)` blocks. It balances
  * parentheses over the code view, so a parenthesis in a string or a comment
- * has no effect. Each block also takes the comment block directly above it,
+ * has no effect. Each block also records the block comment directly above it,
  * because the suite writes its `BLOCKING ARM` and `NEGATIVE TWIN` prose there.
- * The code view blanks string bodies, so the test name comes from the raw
- * source.
+ * A `//` line comment above the test, or a comment above a `describe` call, is
+ * not part of a block. The code view blanks string bodies, so the test name
+ * comes from the raw source.
  */
 export function extractTestBlocks(source: string): readonly TestBlock[] {
   const { code } = sourceViews(source);
@@ -235,9 +246,11 @@ export function extractTestBlocks(source: string): readonly TestBlock[] {
  * `NEGATIVE TWIN` comment. The twin is the kill fixture. It proves that the
  * guard, not the setup, causes the blocking assertion.
  *
- * A block with a blocking claim must name the seam on the line of a
- * `@kill-seam` annotation or of a `NEGATIVE TWIN` marker. The seam prose needs
- * at least `MIN_SEAM_CHARS` characters, so a bare divider declares no seam.
+ * The rule reads the comments of a test block and the block comment directly
+ * above it. A block with a blocking claim must name the seam. The seam text
+ * follows a `NEGATIVE TWIN` marker, or a `@kill-seam` annotation and its
+ * colon, on the same line. Without divider characters, that text needs at
+ * least `MIN_SEAM_CHARS` characters, so a bare divider declares no seam.
  */
 export const BLOCKING_CLAIM_MARKER = /\bBLOCKING(?:\s+(?:ARM|CLAIM|arm|claim))\b|@blocking-claim\b/;
 export const KILL_SEAM_ANNOTATION = /@kill-seam:[ \t]*([^\r\n]*)/g;
@@ -286,7 +299,8 @@ export function checkBlockingClaims(file: string, source: string): readonly Viol
  * The defect: a probe that did not run reports through the same channel as a
  * probe that ran and passed. The rule reads one test block with the comments
  * blank and the string bodies kept, because a verdict is usually a string. It
- * fires on `expect(<subject>.passed).toBe(true)` in two cases:
+ * fires on a match of `PASSED_TRUE_ASSERT`, such as
+ * `expect(<subject>.passed).toBe(true)`, in two cases:
  * - the subject itself matches `COULD_NOT_RUN_MARKER`
  * - the subject is one identifier, and its initializer in the block matches
  *
@@ -348,7 +362,9 @@ export function checkCouldNotRunVerdicts(file: string, source: string): readonly
 /**
  * R7: the integration tier must not synthesize its own root.
  *
- * Without this rule, a file can import `dispatch` and give it an object
+ * The rule fires on an object that a file types as `DispatchContext` by an
+ * annotation, a cast or `satisfies`. It also fires on a `vi.mock` of a
+ * composite module. Without this rule, a file can give `dispatch` an object
  * literal as its context, and no test fails. The harness is the one module
  * that builds the context, and it uses the production composition root.
  *

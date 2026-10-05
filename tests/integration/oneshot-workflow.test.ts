@@ -1,11 +1,11 @@
 // End-to-end integration tests for the `oneshot` workflow type.
 //
 // The tests run the chain from init through plan and implementing to finalize, with a real temp
-// state directory and a real EventStore. They cover the four combinations of `synthesisPolicy` and
-// the `synthesize.requested` event, and a cancel in `implementing`.
+// state directory and a real EventStore. They cover four combinations of `synthesisPolicy` and the
+// `synthesize.requested` event, and a cancel in `implementing`.
 //
-// The unit tests in `verbs/tasks/finalize-oneshot.test.ts` stop at the handler boundary. These
-// tests call the handlers in the runtime order: `handleInit`, `handleSet` (plan artifact),
+// The unit tests in `tests/unit/verbs/tasks/finalize-oneshot.test.ts` stop at the handler boundary.
+// These tests call the handlers in the runtime order: `handleInit`, `handleSet` (plan artifact),
 // `handleSet` (phase transition), `handleRequestSynthesize` (optional), then
 // `handleFinalizeOneshot` or `handleCancel`. Thus the choice state resolves through the real HSM.
 
@@ -161,8 +161,9 @@ describe('oneshot workflow integration (T16)', () => {
   });
 
   /**
-   * `handleRequestSynthesize` does not read the policy, so it appends the event. The guard stops on
-   * `never`, so the workflow still completes directly.
+   * `handleRequestSynthesize` does not read the policy, so it appends the event. For the `never`
+   * policy, each guard decides before it reads the events. Thus the workflow still completes
+   * directly.
    */
   it('oneshotIntegration_policyNeverWithEvent_stillDirectCommit', async () => {
     const featureId = 'oneshot-never-with-event';
@@ -189,7 +190,7 @@ describe('oneshot workflow integration (T16)', () => {
     expect(await readPhase(featureId)).toBe('completed');
   });
 
-  /** The cancel uses the `cancelled` transition that the HSM base gives each workflow type. */
+  /** The cancel uses the universal `cancelled` transition, which each non-final phase has. */
   it('oneshotIntegration_cancelMidImplementing_transitionsToCancelled', async () => {
     const featureId = 'oneshot-cancel-mid';
 

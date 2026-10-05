@@ -100,7 +100,7 @@ export function buildInContainerCommand(opts: BuildInContainerOpts): string {
   ].join(' && ');
 }
 
-/** Builds the argv for `docker run`. The bootstrap script mounts read-only at {@link MOUNT_PATH}. */
+/** Builds the argv for `docker run`. It mounts the bootstrap script read-only at {@link MOUNT_PATH}. */
 export function buildDockerArgs(
   image: string,
   inContainerCommand: string,
@@ -182,8 +182,9 @@ describe('task 2.9 — fresh-environment bootstrap smoke (unit)', () => {
   });
 
   /**
-   * The mount is read-only as a defense against a `chmod` in the script. A missing `-v` reads
-   * `undefined`, and the test names that failure apart from a mount without `:ro`.
+   * The mount is read-only as a defense against a `chmod` in the script. The `undefined` guard
+   * fires only when `-v` is the last argument. With no `-v`, `indexOf` gives -1, so `volArg` is
+   * `args[0]` and the `:ro` assertion fails.
    */
   it('buildDockerArgs_WiresReadOnlyVolumeMount', () => {
     const args = buildDockerArgs('ubuntu:24.04', 'echo hi');
@@ -198,8 +199,9 @@ describe('task 2.9 — fresh-environment bootstrap smoke (unit)', () => {
 });
 
 /**
- * A `download-missing` outcome means that the release assets are not published. The case then logs
- * the fact and asserts only the download error.
+ * A `download-missing` outcome means that the script printed `failed to download binary`. Each
+ * case reads it as a release with no published assets. The case then logs the fact, asserts only
+ * the download error, and passes.
  */
 describe('task 2.9 — fresh-environment bootstrap smoke', () => {
   it.skipIf(skipReason !== null)(
@@ -237,6 +239,9 @@ describe('task 2.9 — fresh-environment bootstrap smoke', () => {
    * Alpine has only musl. The bootstrap warns and still downloads the glibc binary, which cannot
    * run under musl. A `fail` outcome is thus the expected result, and the case asserts a loader
    * or glibc signature in the output. A `pass` outcome means that a musl build shipped.
+   *
+   * A `fail` outcome with no such signature fails the case. Do not replace the list with a match
+   * on `exarchos`, because an unrelated failure that prints that word then passes.
    *
    * The first three signatures are the busybox missing-loader message, the exec failure on musl,
    * and a missing libc in the musl loader. The last three are a libc symbol mismatch, a missing

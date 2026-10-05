@@ -139,8 +139,10 @@ afterEach(() => {
 
 describe('task 016 — batch migration of simple skills', () => {
   /**
-   * The loop collects each mismatch, so one run shows each broken source. Then the test asserts on
-   * the first broken skill, so vitest prints the string diff.
+   * Each baseline is a committed copy of the render. An intended change of a skill source or of the
+   * renderer must also update the baseline. The loop collects each mismatch, so one run shows each
+   * broken source. Then the test asserts on the first broken skill, so vitest prints the string
+   * diff.
    */
   it('BatchMigration_AllTenSkills_ClaudeVariantByteIdenticalToBaseline', () => {
     const outDir = buildIntoTemp();

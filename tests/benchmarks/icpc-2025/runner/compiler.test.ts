@@ -24,9 +24,9 @@ async function hasGpp(): Promise<boolean> {
 }
 
 /**
- * Runs a block only when g++ works. The first g++ run of the suite is a cold compile. On a loaded
- * CI runner it can exceed the 5-second default timeout of vitest, so the first compile test has a
- * 90-second timeout.
+ * Runs a block only when g++ works. The first g++ compile of the suite is cold. On a loaded CI
+ * runner it can exceed the 5-second test timeout of the tier, so
+ * `compile_ValidCpp_ReturnsExecutablePath` has a 90-second timeout.
  */
 const describeWithGpp = (await hasGpp()) ? describe : describe.skip;
 

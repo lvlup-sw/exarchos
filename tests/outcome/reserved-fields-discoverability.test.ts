@@ -130,7 +130,7 @@ describe('reserved-fields discoverability outcome (#1360)', () => {
   /**
    * A key that starts with `_` is reserved for projection and event-store metadata. The `rule` of
    * the error is the `underscorePrefixRule` of the descriptor, and its `^_.*` entry gives the
-   * alternate path.
+   * alternate path. The test asserts the type of each value, not its text.
    */
   it('Update_WithUnderscorePrefixedField_ReturnsStructuredErrorData', async () => {
     const stateDir = await fs.mkdtemp(

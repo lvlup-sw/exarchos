@@ -1,6 +1,7 @@
 // Integration smoke test from shepherd to the classifier.
 //
-// A mocked PR holds comments from CodeRabbit (Critical), Sentry (Medium) and a human (nit).
+// A mocked PR holds one comment from CodeRabbit (the `Potential issue` marker), one from Sentry
+// (`Severity: MEDIUM`) and one from a human (a nit).
 // The comments go through `assess_stack` and the adapter registry to `classify_review_items`.
 // The recommendation of each group must match the severity routing of its reviewer.
 
@@ -45,8 +46,8 @@ function mockProvider(comments: PrComment[]): VcsProvider {
 
 describe('shepherd → classifier integration (#1159)', () => {
   /**
-   * The CodeRabbit Critical comment is HIGH and goes to `delegate-fixer`. The Sentry Medium comment
-   * and the human nit are MEDIUM and go to `direct`.
+   * The CodeRabbit comment has the `Potential issue` marker, so it is HIGH and goes to
+   * `delegate-fixer`. The Sentry comment and the human nit are MEDIUM and go to `direct`.
    */
   it('ShepherdIteration_MixedSeverityComments_RoutesPerClassifier', async () => {
     const comments: PrComment[] = [

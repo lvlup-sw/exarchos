@@ -97,9 +97,9 @@ function findSolutionFile(outputDir: string, language: string): string | undefin
  * Spawns a Claude Code session for one problem and one arm.
  *
  * On a timeout, the function sends SIGTERM. If the child does not close in 5 seconds, it sends
- * SIGKILL and ignores the error of a child that is already dead. The guard is
- * `typeof child.kill`, not truthiness, because the declared type says that `kill` always exists.
- * A test stand-in built from an `EventEmitter` can lack it. The function drains stdout, so a full
+ * SIGKILL and ignores the error of a child that is already dead. The guard is a `typeof` check,
+ * because the declared type makes a truthiness check always true for the type checker. A test
+ * stand-in built from an `EventEmitter` can lack `kill`. The function drains stdout, so a full
  * pipe buffer cannot block the child.
  *
  * `tokenUsage` is optional, so the result omits the key when no usage parses. A child that a

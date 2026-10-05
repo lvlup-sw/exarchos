@@ -10,7 +10,7 @@ interface MetaJson {
 
 /**
  * Reads and validates `meta.json`. `tags` is optional, so the result omits it when the file holds
- * no tag array. Under `exactOptionalPropertyTypes`, an explicit `undefined` is a different claim.
+ * no tag array. Under `exactOptionalPropertyTypes`, an explicit `undefined` is not an absent key.
  */
 function parseMetaJson(filePath: string): MetaJson {
   const raw = readFileSync(filePath, 'utf-8');

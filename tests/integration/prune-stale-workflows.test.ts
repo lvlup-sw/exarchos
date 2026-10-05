@@ -1,9 +1,9 @@
 // End-to-end integration test for the prune of stale workflows.
 //
-// The unit tests in `verbs/team/prune-stale-workflows.test.ts` stub the handler dependencies. This
-// test runs the handler on real state files, through `handleInit`, `handleList` and `handleCancel`,
-// with a real `EventStore` in a `mkdtemp` directory. The stubs are the safeguards (`hasOpenPR`,
-// `hasRecentCommits`), the branch name and the two second-signal readers.
+// The unit tests in `tests/unit/verbs/team/prune-stale-workflows.test.ts` stub the handler
+// dependencies. This test runs the handler on real state files, through `handleInit`, `handleList`
+// and `handleCancel`, with a real `EventStore` in a `mkdtemp` directory. The stubs are the
+// safeguards (`hasOpenPR`, `hasRecentCommits`), the branch name and the two second-signal readers.
 //
 // The test pins what the unit tests cannot:
 //   1. `handleList` returns the `_checkpoint` shape that `selectPruneCandidates` reads.
@@ -105,8 +105,8 @@ function daysAgoIso(days: number): string {
 
 /**
  * The handler reads the typed staleness contract from a loaded topology. The hook writes a minimal
- * `topology.yaml` that gives each phase a `lastActivity` threshold of 14 days (20160 minutes), and
- * loads it.
+ * `topology.yaml` that gives each phase in it a `lastActivity` threshold of 14 days (20160
+ * minutes), and loads it.
  */
 beforeEach(async () => {
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'prune-integration-'));
@@ -171,10 +171,10 @@ afterEach(async () => {
 
 describe('pruneIntegration_dryRunThenApply_cleansStaleWorkflows', () => {
   /**
-   * `terminal-wf-1` is cancelled before the prune run, so the terminal-phase filter excludes it.
-   * `stale-wf-2` and `stale-wf-3` are 30 and 20 days old. The safeguards always pass, so selection
-   * is the only filter. A dry run must omit `pruned`, because `[]` reads as an apply run that
-   * pruned nothing. The dry run must not change the state on disk. The apply run uses
+   * The test cancels `terminal-wf-1` before the prune run, so the terminal-phase filter excludes
+   * it. `stale-wf-2` and `stale-wf-3` are 30 and 20 days old. The safeguards always pass, so
+   * selection is the only filter. A dry run must omit `pruned`, because `[]` reads as an apply run
+   * that pruned nothing. The dry run must not change the state on disk. The apply run uses
    * `force: true`, which skips the safeguards and records `skippedSafeguards` on the event.
    */
   it('lists 2 stale candidates on dry-run and cancels them on apply', async () => {
@@ -328,8 +328,8 @@ describe('pruneIntegration_safeguardOpenPrSkipsOneCandidate', () => {
  */
 describe('pruneIntegration_respectsThresholdInProduction', () => {
   /**
-   * Only `stale-c` is backdated past the 14-day threshold of the topology. The fresh workflows
-   * must stay non-terminal on disk, with no `workflow.pruned` event.
+   * The test backdates only `stale-c` past the 14-day threshold of the topology. The fresh
+   * workflows must stay non-terminal on disk, with no `workflow.pruned` event.
    */
   it(
     'handlePruneStaleWorkflows_respectsThresholdInProduction_readingRealStateFiles',

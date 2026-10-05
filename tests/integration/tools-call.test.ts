@@ -8,7 +8,7 @@
 //   2. `JSON.parse(content[0].text)` deep-equals `structuredContent`, so the carrier does not
 //      reshape or truncate either surface.
 //   3. `structuredContent` parses with `EnvelopeSchema(z.unknown())` from
-//      `contract/schemas/envelope.ts`.
+//      `src/contract/schemas/envelope.ts`.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';

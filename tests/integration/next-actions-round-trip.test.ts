@@ -2,11 +2,11 @@
 //
 // For each built-in workflow type, the test calls `computeNextActions` for each phase of the HSM
 // definition. Each result must parse as a `NextAction[]` with the schema that
-// `contract/schemas/envelope.ts` exports. An envelope carries these hints, and agents match on
+// `src/contract/schemas/envelope.ts` exports. An envelope carries these hints, and agents match on
 // `verb` and `validTargets`.
 //
-// `BUILT_IN_WORKFLOW_TYPES` lists the five types that the HSM registry holds. `hotfix` is a track
-// of `debug`, not a top-level type.
+// `BUILT_IN_WORKFLOW_TYPES` is a copy of the five built-in types of the HSM registry, so a new
+// built-in type needs a new entry. `hotfix` is a track of `debug`, not a top-level type.
 
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';

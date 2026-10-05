@@ -144,9 +144,9 @@ describe('cli-vocab-guard: findVocabViolations (PASS path)', () => {
 
 describe('cli-vocab-guard: extractCliSurface', () => {
   /**
-   * A small Commander program shows that `extractCliSurface` reads the tree that `buildCli` makes.
-   * The program root is not a verb. Names and aliases are verbs. Each flag has the path of the
-   * command that declares it.
+   * A small hand-built Commander program has the shape of the tree that `buildCli` makes. The test
+   * runs `extractCliSurface` on it. The program root is not a verb. Names and aliases are verbs. Each
+   * flag has the path of the command that declares it.
    */
   it('walks command names, aliases, and long flags (skipping the program root)', () => {
     const program = new Command('exarchos');
@@ -238,8 +238,9 @@ describe('G1 self-test: a clean-vocabulary hand-written command still fails (DR-
   /**
    * `cli.ts` registers the name through a derived site. A twin built from the registry name gives
    * the same surface, which is why the derivation guard reads source. The test seeds the command
-   * into the live `cli.ts` source and measures each count relative to the baseline scan. The seed
-   * must add exactly one literal and one violation.
+   * into the live `cli.ts` source. It measures each count relative to the baseline scan, because a
+   * correct paydown changes each absolute count. The seed must add exactly one literal and one
+   * violation.
    *
    * The decisive step rewrites only the argument of the one seeded call, from a string literal to
    * an identifier. One site then moves from `literal` to `derived`, and the violation goes. A guard

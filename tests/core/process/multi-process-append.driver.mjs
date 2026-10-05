@@ -19,8 +19,9 @@ import * as fs from 'node:fs';
 import { SqliteBackend } from '../../../src/storage/sqlite-backend.ts';
 
 /**
- * The prefixes of the two JSON lines that the program writes to stdout. The parent finds each
- * line by its prefix, so logger output on the same stream does not confuse it.
+ * The prefixes of the JSON lines that the program writes to stdout. Each mode writes a RESULT
+ * line, and `startup-repair` mode writes a READY line first. The parent finds each line by its
+ * prefix, so logger output on the same stream does not confuse it.
  */
 const READY_PREFIX = 'EXARCHOS_DRIVER_READY ';
 const RESULT_PREFIX = 'EXARCHOS_DRIVER_RESULT ';
@@ -37,8 +38,9 @@ function arg(name, fallback) {
 /**
  * `append` mode issues `--count` appends. The process first sleeps until the `--start-at` epoch
  * time, so all writers reach `BEGIN IMMEDIATE` together. It sleeps `--gap-ms` between appends.
- * With no gap, each writer finishes its burst before the others start, and the run is serial but
- * still dense and unique. A writer that exhausts its busy retries reports the error and goes on.
+ * With no gap, each writer finishes its burst before the others start. That run is serial but
+ * still dense and unique, so only the interleaving check of the parent fails. A writer that
+ * exhausts its busy retries reports the error and goes on.
  *
  * `startup-repair` mode reads the sequence gate after `initialize()` and before any append, and
  * prints it in the READY line. It then waits for the `--go-file` sentinel, so the parent can
