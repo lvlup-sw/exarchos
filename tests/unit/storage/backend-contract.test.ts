@@ -72,8 +72,9 @@ interface BackendFactoryResult {
   backend: StorageBackend;
   cleanup: () => void;
   /**
-   * Moves the injected clock of SqliteBackend forward by `ms`, so a row past its
-   * `nextRetryAt` is due again. It does nothing for InMemoryBackend, which has no backoff.
+   * Moves the injected clock of SqliteBackend forward by `ms`, so an outbox entry
+   * past its `nextRetryAt` is due again. It does nothing for InMemoryBackend, which
+   * has no backoff.
    */
   advanceClock: (ms: number) => void;
 }
@@ -393,8 +394,8 @@ describe.each([
 
   /**
    * The send of entry 2 fails, so the drain stops and entry 3 stays queued behind
-   * entry 2. SqliteBackend sets a `nextRetryAt` backoff on the failed row, so the
-   * test moves the clock forward 60 s before the second drain.
+   * entry 2. SqliteBackend sets a `nextRetryAt` backoff on the failed entry, so
+   * the test moves the clock forward 60 s before the second drain.
    */
   it('drainOutbox_FailedMidBatch_StopsAndPreservesFifoOrder', async () => {
     const b = setup();
@@ -528,9 +529,9 @@ describe('SqliteBackend outbox retry behavior', () => {
   });
 
   /**
-   * SqliteBackend sets an exponential backoff on a failed outbox row: 2 s after
+   * SqliteBackend sets an exponential backoff on a failed outbox entry: 2 s after
    * the first failure and 4 s after the second. A drain inside the backoff window
-   * skips the row. InMemoryBackend has no backoff.
+   * skips the entry. InMemoryBackend has no backoff.
    */
   it('drainOutbox_FailedSend_SqliteBackendRetriesWithBackoff', async () => {
     dir = mkdtempSync(join(tmpdir(), 'contract-sqlite-retry-'));
@@ -629,9 +630,10 @@ describe('StorageBackend DR-2 AC3 substitutability witness (T13)', () => {
  */
 describe('StorageBackend projection-snapshot accessor contract', () => {
   /**
-   * `interfaceSurface` has the type of a `Pick` of the two snapshot members. A
-   * type check of this file fails if the interface drops or renames one of them.
-   * The runtime half makes sure that both backends expose the two methods.
+   * `interfaceSurface` has the type of a `Pick` of the two snapshot members. If
+   * the interface drops or renames one of them, a type check fails. No `tsc`
+   * program includes the `tests/unit` tier, so that check does not run. Only the
+   * runtime half runs: both backends must expose the two methods.
    */
   it('BackendContract_DeclaresProjectionSnapshotAccessors', () => {
     const interfaceSurface: Pick<

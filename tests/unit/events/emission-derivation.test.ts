@@ -7,8 +7,8 @@
 //
 // A built-in event type has no site where a source can be written. So the kill probe seeds the
 // contradiction on both sides and asserts two halves. First, the derivation follows the tier and
-// reads no authored value. Second, the census that takes a declared map reports the contradiction
-// by name. Without the second half, the claim has no way to be wrong.
+// reads no authored value. Second, `findTierSourceDisagreement` reports the contradiction for a
+// declared source. Without the second half, the claim has no way to be wrong.
 //
 // The type-level proofs are the exported `_EventRegistration_*` aliases in `event-registration.ts`.
 // `tsconfig.json` excludes test files, so `npm run typecheck` verifies the aliases there.
@@ -53,8 +53,9 @@ describe('EmissionDerivation — source follows the tier, and cannot be authored
   /**
    * Half 1: `seeded.verdict` has the `judgment` tier, which derives `'model'`. The authored `'auto'`
    * sits in a map that the derivation never reads. Half 2: `findTierSourceDisagreement` reports the
-   * contradiction by name. The lifecycle exemption is not a blanket pass. A `retired` registration
-   * agrees with `'retired'` and not with `'auto'`, which its capability tier derives when active.
+   * contradiction with its code, both sources, and the tier. The lifecycle exemption is not a blanket pass.
+   * A `retired` registration agrees with `'retired'` and not with `'auto'`, which its capability tier
+   * derives when active.
    */
   it('EmissionDerivation_SeededSourceContradictingItsTier_HasNoEffectAndIsReported', () => {
     const authored: Readonly<Record<string, EventEmissionSource>> = { 'seeded.verdict': 'auto' };
@@ -81,8 +82,10 @@ describe('EmissionDerivation — source follows the tier, and cannot be authored
    * The case builds the registry again from the inputs that `schemas.ts` uses and compares each entry.
    * A hand-written registry that drifts from the annotations fails here. The counts come first,
    * because an empty catalog makes the comparison vacuous. The live catalog has no standing exception.
+   *
    * `benchmark.completed` is `capability` and `planned`, so its lifecycle gives the source.
    * With an `active` lifecycle, the tier gives `'auto'`, a claim that an effect provider appends the event.
+   * No module appends that event, so the claim is false.
    */
   it('EmissionDerivation_LiveRegistry_IsTheDerivationOfEveryAnnotation', () => {
     const rebuilt = deriveEmissionRegistry(EventTypes, ANNOTATED_EVENTS.registrationOf);

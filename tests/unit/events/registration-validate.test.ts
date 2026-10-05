@@ -7,8 +7,10 @@
  * The expectations about the live catalog come from the live modules, so a renamed provider
  * changes the assertion.
  *
- * The second oracle is a label, not the path of `event-annotations.ts`. That module reaches
- * `providers.ts` through a type import, so the derivation check reads the two as one authority.
+ * The second oracle is a label, not the path of `event-annotations.ts`. The derivation check walks
+ * static imports, and that module reaches `providers.ts` through a type import. With two paths,
+ * the check reports one authority, although a person writes the annotations from emission evidence.
+ * `effect-ledger.ts` is no alternative path, because `providers.ts` imports it.
  *
  * The compile-time proofs are the `_RegistrationValidate_*` aliases in the source module.
  * `tsconfig.json` excludes test files, so a type assertion in this file proves nothing.
@@ -69,7 +71,7 @@ import {
 
 /**
  * The path of the pinned stale-cover eligible count. A person writes the file, and no code computes
- * it. The test reads the file with `fs` and does not import it as a module.
+ * it. `resolveJsonModule` is off, so the test reads the file with `fs` and does not import it.
  */
 const EMISSION_ELIGIBLE_BASELINE_PATH = fileURLToPath(
   new URL('../../support/emission-eligible-baseline.json', import.meta.url),
@@ -256,7 +258,10 @@ const DIAGNOSTIC_SEEDS: readonly DiagnosticSeed[] = [
     annotations: UNRESOLVABLE_SEED_CATALOG,
     providers: EFFECT_PROVIDERS,
     rules: EFFECT_OWNERSHIP,
-    /** From the seeded catalog, so an edge names the added event. Only the provider is at fault. */
+    /**
+     * The edges come from the seeded catalog, so an edge names the added event.
+     * Only the provider is at fault.
+     */
     emissions: conformingEmissionEdgesFor(UNRESOLVABLE_SEED_CATALOG),
   },
   {
@@ -288,7 +293,7 @@ const DIAGNOSTIC_SEEDS: readonly DiagnosticSeed[] = [
     emissions: [...CONFORMING_EMISSIONS, disagreeingEmissionEdge()],
   },
   /**
-   * Boot-resolvable events exist, and no edge names one of them.
+   * Boot-resolvable events exist, and no edge names any of them.
    * `EMPTY_CAPABILITY_DENOMINATOR` is the case where the events are absent.
    */
   {
@@ -299,7 +304,8 @@ const DIAGNOSTIC_SEEDS: readonly DiagnosticSeed[] = [
     emissions: [],
   },
   /**
-   * One conforming edge: not empty, no disagreement, and below the floor. Only the size is wrong.
+   * The set holds one conforming edge. It is not empty and no edge disagrees, so only its size is
+   * wrong: it is below the floor.
    */
   {
     code: 'NARROWED_EMISSION_DENOMINATOR',
@@ -411,10 +417,11 @@ describe('RegistrationValidate — the DR-2 boot-time weld resolution gate', () 
   /**
    * The shipped catalog is `ok`, which is stronger than `bootable`. The seeded tests show the
    * difference between the two flags.
-   * Each count is above zero and equals a count that the test derives from the live modules.
-   * A gate over zero welds, zero providers or zero edges gives the same verdict shape.
-   * The compared set is a strict subset of the declared edges, because most edges name events of
-   * a tier that this gate does not resolve. The report reads as clean and carries each count.
+   * The weld, provider and edge counts equal counts that the test derives from the live modules,
+   * and no count is zero. A gate over zero welds, zero providers or zero edges gives the same
+   * verdict shape. The compared set is a strict subset of the declared edges, because some edges
+   * name events of a tier that this gate does not resolve. The report reads as clean and carries
+   * the weld, provider and compared-edge counts.
    */
   it('RegistrationWelds_LiveCatalog_ResolvesAgainstNonEmptyPopulations', () => {
     const verdict = validateRegistrationWelds();
@@ -737,8 +744,9 @@ describe('StartupAssertion — the severity axis on the boot refusal', () => {
   });
 
   /**
-   * The same seeds with each code at `observe`. The gate returns and reports one time, and the
-   * report holds the code and the counts. `ok` stays false, because an observation is a finding.
+   * The test runs all the seeds with each code at `observe`. The gate returns and reports one
+   * time, and the report holds the code and the counts. `ok` stays false, because an observation
+   * is a finding.
    * Together with the blocking test, this shows that only the severity table decides the refusal.
    * The module emissions are empty, so a shipped row cannot cover a seed.
    */
@@ -1077,7 +1085,7 @@ describe('ProviderComparison — the declaring tool against the declared provide
 
 /**
  * `liveIntersectionSize` counts the declared emissions whose event has a boot-resolvable weld.
- * It walks the annotation table and the tool registry with `Reflect.get`, and does not call
+ * It reads the annotation table and walks the tool registry with `Reflect.get`. It does not call
  * `declaredEmissionEdges`, which is part of the subject. `offTierEmissionEdges` returns the
  * declared edges that the gate does not compare.
  */
@@ -1142,12 +1150,13 @@ describe('ComparisonDenominator — the size of the set the provider comparison 
   /**
    * The emission set holds each off-tier edge and only three conforming edges, so only the size of
    * the compared set changes. The empty guards and the mismatch check do not fire.
+   * The nested `expect` runs the floor expectation of the live test on this set, and it throws.
    * The gate reports one `NARROWED_EMISSION_DENOMINATOR` finding with the compared count and the
    * floor. The finding is `observe`: a blocking floor makes a valid re-tiering unbootable.
    *
    * The verdict is still not bootable, because each weld without an edge is stale cover, which
    * blocks. The control uses the full conforming population and is clean. With zero compared edges,
-   * only the empty code fires.
+   * the empty code fires and the narrowing code does not.
    */
   it('ComparisonDenominator_SeededShrink_FailsRatherThanPassingClean', () => {
     const offTier = offTierEmissionEdges();
@@ -1284,8 +1293,8 @@ describe('ProviderBreakSet — every reported disagreement is answered for', () 
   }
 
   /**
-   * The test first pins the compared set at its floor, because a ledger reconciled with an empty
-   * comparison is clean over nothing. The audit must be clean in both directions.
+   * The test first pins the compared set at or above its floor, because a ledger reconciled with
+   * an empty comparison is clean over nothing. The audit must be clean in both directions.
    * The break set is closed: the comparison reports no disagreement and the ledger is empty.
    * A new disagreement has no row, so the audit reports it and this test fails.
    */

@@ -6,10 +6,12 @@
 // The boot sequence decides whether the process starts. The effect-provider registry decides which
 // provider ids resolve. The tests assert that the two agree on the seeded id.
 // The second oracle is a label, not the path of `providers.ts`. `context.ts` imports that module
-// through `registration-validate.ts`, so the derivation check reads the two paths as one authority.
+// through `registration-validate.ts`. The derivation check walks static imports, so with two paths
+// it reports one authority, although the boot sequence does not write the provider map.
 //
 // The gate is real, and the tests seed the annotation table that it reads. Without the
 // `assertRegistrationWeldsAtStartup()` call in `initializeContext`, the first test fails.
+// `createServer` in `index.ts` has no production caller, so a gate there never runs.
 // The import from `registration-validate.js` is type-only, so it pins no module instance across
 // the `vi.resetModules()` cycles.
 
@@ -139,7 +141,7 @@ describe('DR-2 boot gate — initializeContext refuses to start on an unresolvab
   /**
    * `initializeContext` takes no severity table, so the test calls the gate directly with the
    * populations of the boot path. Only the severity table changes: each code is `observe`.
-   * The seeded catalog that stops the boot is then reported, and the call returns.
+   * The gate then reports the seeded fault that stops the boot, and the call returns.
    * The table is a spread of the shipped table, so its type stays total over the diagnostic codes.
    *
    * The second call is the control. It uses the real catalog and one conforming emission edge for
@@ -218,7 +220,7 @@ describe('DR-2 boot gate — initializeContext refuses to start on an unresolvab
    * live provider, so its only fault is that no action declares the emission.
    * `InitializeContext_LiveCatalog_BootsClean` is the control: a conforming tree boots.
    * `blockingCount` is 1, so the stale-cover diagnostic alone causes the refusal. The code comes
-   * from its exported constant, so a renamed code fails here.
+   * from its exported constant, so the test holds no second copy of the literal.
    * The gate writes nothing to stderr, because a refusal throws and reports nothing.
    */
   it('EmissionTeeth_BlockingMode_HaltsBootOnAViolation', async () => {

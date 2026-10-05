@@ -171,7 +171,8 @@ describe('InMemoryBackend State Operations', () => {
 
   /**
    * A write with `expectedVersion: 0` is an exclusive create. Its version is the
-   * current version plus 1, not `state._version`.
+   * current version plus 1, not `state._version`. The fixture has `_version: 1`,
+   * so both rules give version 1 here.
    */
   it('InMemoryBackend_setState_CASCreate_IgnoresStateVersion', () => {
     const backend = new InMemoryBackend();

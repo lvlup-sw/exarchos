@@ -100,7 +100,8 @@ describe('reserved admission event authorization (DR-3)', () => {
   /**
    * The run-bundle oracle keys on the operation record of the bounded executor. If the generic
    * append surface accepts this type, a caller can settle an operation that never ran. The
-   * schema admits that forgery, so the type is reserved for the writer that stores the bytes.
+   * record can then cite bundle bytes that no writer stored. The schema admits that forgery, so
+   * the type is reserved for the executor, which puts the run bundle in custody first.
    */
   it('ExecutionLedgerAppend_ForgedSettlement_IsRefusedEvenWhenWellFormed', async () => {
     const result = await dispatch(

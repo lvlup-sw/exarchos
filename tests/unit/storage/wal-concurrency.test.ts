@@ -58,7 +58,7 @@ describe('SqliteBackend WAL Concurrency (file-based)', () => {
 
   /**
    * Two backends hold the same file open. The writes and the reads run in
-   * sequence, and no read must throw SQLITE_BUSY.
+   * sequence, and a read must not throw SQLITE_BUSY.
    */
   it('SqliteBackend_twoInstances_ConcurrentReadWriteNoBlocking', () => {
     const dbPath = createTempDb();

@@ -124,7 +124,8 @@ describe('provider-area audit', () => {
 
   /**
    * A tool calls modules outside its area, so an append in an area that no provider owns does not
-   * show a wrong annotation. The append must not fail the audit, but the audit must report it.
+   * prove that the annotation is wrong. The append must not fail the audit, but the audit must
+   * report it.
    */
   it('ProviderArea_AppendOutsideEveryArea_IsUngovernedNotAFault', () => {
     const audit = auditProviderAreas(censusOf({ 'seeded.event': ['tasks/tools.ts'] }), {

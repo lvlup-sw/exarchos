@@ -57,7 +57,7 @@ function makeCompletedState(featureId: string, daysAgo: number): WorkflowState {
   } as WorkflowState;
 }
 
-/** Zero retention: each completed workflow compacts, and each telemetry event is pruned. */
+/** Zero retention: `compactWorkflow` compacts each completed workflow, and `rotateTelemetry` prunes each telemetry event. */
 function shortRetentionPolicy(): LifecyclePolicy {
   return {
     retentionDays: 0,
@@ -168,7 +168,7 @@ describe('Lifecycle with SqliteBackend', () => {
     expect(eventsAfter).toHaveLength(0);
   });
 
-  /** The archive must be whole JSON, and no `.tmp` file must stay in the archive directory. */
+  /** The archive must parse as JSON, and no `.tmp` file must stay in the archive directory. */
   it('compactWorkflow_SqliteBackend_ArchiveCreatedAtomically', async () => {
     const { stateDir } = setup();
     const featureId = 'atomic-archive';

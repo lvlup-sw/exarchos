@@ -3,7 +3,7 @@
 // A retry with the same key collapses onto the stored row. The invariant for idempotency at the
 // boundary has no mechanical checker, so this suite is the check for these appends.
 //
-// Each assertion reads rows back from a file-backed `EventStore` after a second append.
+// Each retry assertion reads rows back from a file-backed `EventStore` after a second append.
 // The suite compares two authorities. The first is the envelope that the typed writer returns
 // on each dispatch. The second is the set of durable rows that `eventStore.query` reads from disk.
 // The comparison computes neither side from the other, so the two sides can disagree:
@@ -67,7 +67,7 @@ function dispositionInput(overrides: Record<string, unknown> = {}) {
 
 /**
  * Records one disposition through the typed writer in a new dispatch. Each call gets a new
- * `operationId` and its own `resolvedAt`, so only `dispositionId` is stable across a retry.
+ * `operationId` and its own `resolvedAt`, so `dispositionId` is the only stable identity of a retry.
  */
 async function recordDisposition(
   eventStore: EventStore,
@@ -109,7 +109,7 @@ describe('DR-36 / T-49 — admission.disagreement-disposition retry collapses', 
   /**
    * The retry is the same disposition at a later instant in a new dispatch. It returns the
    * stored result, and the one stored row keeps the time and the sequence of the first append.
-   * The key on that row is the natural identity.
+   * The key on that row is the key that the test recomputes from `DISPOSITION_ID`.
    */
   it('AdmissionDisposition_ReplayedAppend_ReturnsStoredResultNotDuplicate', async () => {
     const first = await recordDisposition(eventStore, FIRST_TIME);

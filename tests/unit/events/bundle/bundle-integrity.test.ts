@@ -28,8 +28,8 @@ import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 const FS_TIMEOUT_MS = 15_000;
 /**
- * The settlement type and the two versions are literals, not reads of the module under test.
- * A drift in the module then fails the membership case and does not rename the fixtures.
+ * The settlement type and the custody epoch are literals, not reads of the constants in `digest-references.ts`.
+ * A drift in a constant then fails the membership case and does not rename the fixtures.
  */
 const SETTLED_TYPE = 'orchestrate.intent_executed';
 /** The payload version from which a settlement must reference bytes. */
@@ -288,7 +288,7 @@ describe('checkRunBundleIntegrity', () => {
 
   /**
    * An unreadable version stamp does not exempt a settlement from the custody rule.
-   * `Number()` converts each of these stamps to a version before the epoch.
+   * A parser that trusts `Number()` for each component reads each of these stamps as a version before the epoch.
    */
   it(
     'BundleIntegrity_SettlementWithAnUnreadableVersionStamp_IsHeldToTheCustodyRule',
@@ -340,7 +340,7 @@ describe('checkRunBundleIntegrity', () => {
   );
 
   /**
-   * The settled stream of the violation case passes when its settlement references bytes.
+   * The settled stream of the `CustodialSettlementWithZeroReferences` case passes when its settlement references bytes.
    * So that violation is about the missing reference, not about the settlement.
    */
   it(
@@ -641,8 +641,9 @@ describe('checkRunBundleIntegrity', () => {
   });
 
   /**
-   * The other abort cases set the signal from a callback of the sweep. The timeout of a caller is a timer,
-   * and a timer needs the event loop. A ledger with many streams and no reference awaits no read that yields.
+   * No abort case above needs the sweep to yield. Each sets the signal before the sweep, from a callback
+   * of the sweep, or during a pending read. The timeout of a caller is a timer, and a timer needs the
+   * event loop. A ledger with many streams and no reference awaits no read that yields.
    * So the sweep must yield, or the timer never fires. This case aborts from a real timer.
    */
   it('BundleIntegrity_ReferenceFreeLedger_StillLetsATimerAbortIt', async () => {
@@ -690,7 +691,7 @@ describe('settlementCustody', () => {
   });
 
   /**
-   * `Number()` converts each stamp of the first loop to a version before the epoch.
+   * A parser that trusts `Number()` for each component reads each stamp of the first loop as a version before the epoch.
    * A component that is not a run of decimal digits makes the stamp unreadable, and an unreadable stamp is custodial.
    * The second loop pins the boundary: a minus sign, a comma, and a word are also custodial.
    */

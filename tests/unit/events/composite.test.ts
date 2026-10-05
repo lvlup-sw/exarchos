@@ -125,7 +125,8 @@ describe('handleEvent', () => {
 /**
  * Asserts the envelope shape that `handleEvent` returns for a successful action:
  * `success`, `data`, an empty `next_actions`, an object `_meta`, and a numeric `_perf.ms`.
- * The file mocks the handlers, so the envelope suite checks only the wrap at the tool boundary.
+ * The file mocks the append, query, and batch handlers. For those actions, the envelope suite
+ * checks only the wrap at the tool boundary. The `describe` action runs its real handler.
  * An event response carries no workflow state, so `next_actions` is empty.
  */
 function assertEnvelopeShape(result: unknown): void {

@@ -68,10 +68,10 @@ describe('AtomicAppender race fixtures', () => {
 
   /**
    * Two appenders share one database file. The winner commits first, and the loser then appends
-   * with the same key. A stub hides the claim from the first lookup of the loser, as in a lookup
-   * that runs before the commit. A warm-up append opens the backend of the loser for the stub.
-   * The `atomicAppend` of the loser fails on `idempotency_claims`. The next lookup is real, so
-   * the loser must return the stored events of the winner as a cache-hit.
+   * with the same key. A stub hides the claim from the first lookup of the loser, which simulates
+   * a lookup that runs before the commit. A warm-up append opens the backend of the loser for the
+   * stub. The `atomicAppend` of the loser fails on `idempotency_claims`. The next lookup is real,
+   * so the loser must return the stored events of the winner as a cache-hit.
    */
   it('SqliteAtomicAppender_RaceLoserOnIdempotencyConflict_ReturnsCacheHitFromDurableState', async () => {
     const streamId = 'race-idem-conflict';

@@ -7,9 +7,9 @@
 // falsifying weight: they take the declared-source map as a parameter and can come out wrong.
 //
 // The second authority is a label and not a module path. The derivation check walks module
-// reachability, and `event-annotations.ts` reaches `schemas.ts` through type imports. Two paths
-// report a derivation that does not exist at the value level, because a person writes the
-// annotations from emission and consumer evidence.
+// reachability, and `event-annotations.ts` reaches `schemas.ts` through type imports. With both
+// authorities as paths, the check reports a derivation that does not exist at the value level.
+// A person writes the annotations from emission and consumer evidence.
 //
 // `tsconfig.json` excludes test files, so the type-level assertions are the exported
 // `_EventAnnotations_*` aliases in the source module.
@@ -176,8 +176,8 @@ describe('EventAnnotations — the DR-2 tier and lifecycle assignment for the ev
    * `emission.violated` is the finding of the post-dispatch verifier: a handler completed an
    * operation without an event that its registration declares unconditionally.
    * The verifier appends its own finding, so the derived source is `auto` and no model reports it.
-   * `workflow.started` has a different rationale, so the equality does not pass for each
-   * substrate row.
+   * `workflow.started` is a substrate row with a different rationale, so the tier alone does not
+   * satisfy the equality.
    *
    * The `substrate` tier keeps the event out of the boot-resolved weld set and the stale-cover set.
    * The weld set must be non-empty and hold `task.completed`, so an empty resolver fails here.

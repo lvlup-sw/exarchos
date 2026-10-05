@@ -158,7 +158,10 @@ describe('SubagentStreamRouter retirement — observable parity (T27)', () => {
     expect(events).toHaveLength(1);
   });
 
-  /** The dynamic import of the router module must throw. The specifier resolves relative to this test file. */
+  /**
+   * The specifier resolves relative to this test file, so it names a path under `tests/unit/runtime/agents`.
+   * The import throws whether or not `src` holds a router module, so this test cannot detect that module.
+   */
   it('SubagentRouterRetired_ModuleDeleted_NoProductionImports', async () => {
     let importErr: unknown = null;
     try {

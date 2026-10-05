@@ -592,8 +592,9 @@ describe('SqliteBackend Outbox Operations', () => {
 
   /**
    * The row becomes a dead letter at the fifth failed attempt. Each failure
-   * doubles the backoff, so the clock moves 60 seconds between drains. Without
-   * that, the row stays in backoff and `attempts` stays at 1.
+   * doubles the backoff, so the clock moves 60 seconds between drains, which is
+   * longer than each backoff. Without that, the row stays in backoff and
+   * `attempts` stays at 1.
    */
   it('SqliteBackend_drainOutbox_MaxRetries_MarksDeadLetter', async () => {
     const event = makeEvent({ streamId: 'test-stream', sequence: 1 });
@@ -1107,8 +1108,9 @@ describe('SqliteBackend Cleanup Operations', () => {
 /**
  * `initialize()` must throw on a corrupt file or a file that is not a
  * database, and must not rebuild it. A silent rebuild destroys the bytes that
- * an operator needs to find the cause, and can hide a data loss. The lifecycle
- * code relies on this throw and does not probe for corruption itself.
+ * an operator needs to find the cause, and can hide a data loss.
+ * `initializeBackend` relies on this throw and does not probe for corruption
+ * itself.
  */
 describe('SqliteBackend Startup Corruption (T10)', () => {
   let tmpDir: string;
@@ -1440,8 +1442,8 @@ describe('SqliteBackend queryEvents correlation filters (Wave 4 / #1437)', () =>
 
   /**
    * A correlation filter must combine with an existing predicate, here
-   * `sinceSequence`. The single-field tests still pass if the new clause cancels
-   * the existing ones.
+   * `sinceSequence`. The single-field tests still pass if the correlation
+   * clause cancels the other predicates.
    */
   it('SqliteBackend_QueryEvents_CombinesCorrelationWithExistingFilters', () => {
     seedSplitByCorrelation();
@@ -1461,9 +1463,9 @@ describe('SqliteBackend queryEvents correlation filters (Wave 4 / #1437)', () =>
 /**
  * `correlationFilteredQueries` counts the queries that filter on
  * `operationId`, `correlationId` or `causationId`. It makes the use of the
- * indexed WHERE path visible, because a lost index clause still gives correct
- * answers and shows only as latency. Each query counts once, with one filter
- * or with all three.
+ * indexed WHERE path visible. A lost index still gives correct rows through a
+ * full scan, and shows only as latency. Each query counts once, with one
+ * filter or with all three.
  */
 describe('SqliteBackend correlationFilteredQueries counter (#1448 Task 2)', () => {
   let backend: SqliteBackend;
@@ -1522,20 +1524,21 @@ describe('SqliteBackend correlationFilteredQueries counter (#1448 Task 2)', () =
 });
 
 /**
- * A stale startup repair must not lower the gate. A sibling process can repair
- * and append between the SELECT and the upserts of a repair. A blind overwrite
- * then sets the gate of the sibling back to the stale tail. The next append
- * reuses a stored sequence and violates the primary key. The repair has two
- * guards: one `BEGIN IMMEDIATE` transaction for both steps, and a monotonic
- * upsert (`MAX(sequence, excluded.sequence)`). This test pins the monotonic
- * upsert.
+ * A stale startup repair must not lower the gate, the `sequences` row of a
+ * stream. If the SELECT and the upserts of a repair run apart, a sibling
+ * process can repair and append between them. A blind overwrite then sets the
+ * advanced gate back to the stale tail. The next append reuses a stored
+ * sequence and violates the primary key. The repair has two guards: one
+ * `BEGIN IMMEDIATE` transaction for both steps, and a monotonic upsert
+ * (`MAX(sequence, excluded.sequence)`). This test pins the monotonic upsert.
  */
 describe('SqliteBackend EFF-001 repair TOCTOU (gate-lowering)', () => {
   /**
-   * The seed has events 1 to 5 and a gate forced back to 3. Process A computes
-   * the corrective value 5. Then process B starts, repairs the gate to 5, and
-   * appends to 8. A applies its stale value through `upsertSequenceMonotonic`,
-   * and the gate must stay at 8. A gate of 5 gives out sequence 6 again.
+   * The seed has events 1 to 5 and a gate forced back to 3. `staleTail` stands
+   * for the value 5 that the repair of a first process computes. Then backend B
+   * starts, repairs the gate to 5, and appends to 8. The test applies the stale
+   * value through `upsertSequenceMonotonic`, and the gate must stay at 8. A
+   * gate of 5 gives out sequence 6 again.
    */
   it('Sqlite_StaleRepairAfterConcurrentAdvance_NeverLowersTheGate', async () => {
     const stateDir = await mkdtemp(path.join(tmpdir(), 'repair-toctou-'));

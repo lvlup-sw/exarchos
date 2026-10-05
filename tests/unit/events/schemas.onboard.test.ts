@@ -174,7 +174,8 @@ describe('EventSchema_OnboardRequestedExecuted_RoundTrips', () => {
 
   /**
    * `onboard.requested` and `onboard.executed` are the audit trail of onboarding, so no
-   * `init.executed` event exists. The `doctor` composite keeps `diagnostic.executed`.
+   * `init.executed` event exists. The `doctor` action still appends `diagnostic.executed` when it
+   * runs without `--fix`.
    */
   it('removes init.executed entirely (DR-5 / task 018)', () => {
     expect(EventTypes as readonly string[]).not.toContain('init.executed');

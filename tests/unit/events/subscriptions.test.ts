@@ -297,7 +297,7 @@ describe('EventStore.subscribe (DR-1 cursor-pump, Tier-1)', () => {
   /**
    * Store level: a repeated append with the same idempotency key delivers no new event.
    * Appender level: the commit hook fires for the first commit and not for the cache hit.
-   * The hook count proves that no wake occurs, apart from the cursor check.
+   * Only the hook count proves that no wake occurs. At store level, the cursor also prevents a second delivery.
    */
   it('Subscribe_IdempotencyCacheHit_NoWakeNoRedelivery', async () => {
     const received: WorkflowEvent[] = [];
@@ -379,7 +379,7 @@ describe('EventStore.subscribe (DR-1 cursor-pump, Tier-1)', () => {
   });
 });
 
-/** Registry tests on the `FakeLog` fixture: handle disposal, the zero-subscriber guard, and the delivery property. */
+/** Registry tests on the `FakeLog` fixture and its wrappers. No test in this suite opens SQLite. */
 describe('SubscriptionRegistry (DR-1 invariants)', () => {
   /**
    * The registry returns to size 0 after each handle is disposed.
@@ -572,7 +572,8 @@ function makeEvent(streamId: string, sequence: number, type: string): WorkflowEv
 
 describe('StorageBackend.dataVersion (DR-1 Tier-2 change token)', () => {
   /**
-   * Two real SQLite connections on one database file in WAL mode, each with `busy_timeout` 5000.
+   * The test opens two real SQLite connections on one database file in WAL mode.
+   * `SqliteBackend` sets `busy_timeout` to 5000 on each connection, so short contention between the two gives no `SQLITE_BUSY`.
    * A mock cannot reproduce the difference between own and foreign commits in `PRAGMA data_version`.
    * An own commit must not change the token of the observer, because Tier 1 delivers own commits.
    * Each foreign commit must change it.
@@ -676,7 +677,7 @@ describe('EventStore.subscribe Tier-2 poll floor (DR-1, real backends)', () => {
 
   /**
    * A floor tick delivers the foreign sequence 1. The Tier-1 wake of the own append then delivers sequence 2.
-   * A further tick finds the token consumed and the cursor at 2, so it delivers nothing.
+   * A further tick finds the token unchanged, so it delivers nothing.
    */
   it('Floor_ForeignThenOwnAppend_NoGapNoDoubleDelivery', async () => {
     const clock = new ManualClock();
@@ -777,7 +778,7 @@ describe('SubscriptionRegistry Tier-2 poll floor (DR-1 invariants)', () => {
     expect(clock.loopCount).toBe(0);
   });
 
-  /** With no override, `DEFAULT_FLOOR_MS` appears in `perf()` and schedules the floor loop. */
+  /** With no override, `perf()` reports `DEFAULT_FLOOR_MS`, and the floor loop uses it as its interval. */
   it('Floor_DefaultInterval_SurfacedInPerf', () => {
     const log = new FakeLog();
     const clock = new ManualClock();
@@ -997,7 +998,7 @@ describe('Subscription disposal lifecycle — AbortSignal + task-cancel (DR-1/DR
 
   /**
    * The carrier joins an external signal to its internal controller. The external signal never aborts in this test,
-   * so `{ once: true }` does not remove the listener. Only the explicit teardown on `cancel()` removes it.
+   * so `{ once: true }` does not remove the listener. The carrier must remove it when the follow ends, here through `cancel()`.
    */
   it('TasksFollow_EndsBeforeExternalAbort_ExternalListenerRemovedNoSignalLeak', async () => {
     const log = new FakeLog();
@@ -1206,7 +1207,9 @@ describe('Tier-2 poll floor over real SQLite — Windows handle-close (DR-8/INV-
    * The reader has the shape that `EventStore.subscribe` wires in production, on the real SQLite connection of the observer.
    * Eight ticks each follow a foreign commit. A floor that keeps a statement open pins a read snapshot and hides new foreign rows.
    * Thus full delivery shows that no statement stays open across ticks.
-   * The test then closes both connections and removes the directory.
+   *
+   * The test then closes both connections and removes the directory. `SqliteBackend.close()` does not throw on a failed close.
+   * `rmrf` throws when a handle under the directory stays open, so it is the portable check for the Windows handle pin.
    */
   it('Floor_RealSqlite_NoOpenStatementAcrossTicks_ClosesCleanBusyTimeout', () => {
     const dir = makeTempDir('floor-win32-');

@@ -52,7 +52,7 @@ const WELL_FORMED_EVENT = {
 } as const;
 
 describe('batch_append event-data validation (DR-1)', () => {
-  /** The store is authoritative and events are immutable, so no invalid event can land. */
+  /** The store is authoritative and events are immutable, so an invalid event must not land. */
   it('BatchAppend_EventWithSchemaViolatingData_IsRejected', async () => {
     const result = await handleBatchAppend(
       { stream: 'kill-fixture', events: [{ ...STRING_EVIDENCE_EVENT }] },
@@ -98,8 +98,9 @@ describe('batch_append event-data validation (DR-1)', () => {
 
   /**
    * `resolveBatchEvents` keeps the first occurrence of an idempotency key. An event that is
-   * never appended cannot reject the append, so both validation classes read the survivors.
-   * A discarded duplicate with a misplaced field and one with invalid `data` both pass.
+   * never appended cannot reject the append. Thus the structural checks and the per-type `data`
+   * check both read the survivors. A batch passes when its discarded duplicate has a misplaced
+   * field, and also when that duplicate has invalid `data`.
    */
   it('BatchAppend_DiscardedDuplicate_IsNotValidated_InEitherClass', async () => {
     const key = 'dup-key-1';
@@ -136,8 +137,8 @@ describe('batch_append event-data validation (DR-1)', () => {
   });
 
   /**
-   * A malformed element such as `null` must return the typed `INVALID_INPUT` envelope and must
-   * not throw in `resolveBatchEvents`. The error names the position of the element.
+   * For a malformed element such as `null`, the handler must return the typed `INVALID_INPUT`
+   * envelope, and `resolveBatchEvents` must not throw. The error names the position of the element.
    */
   it('BatchAppend_MalformedElement_ReturnsInvalidInputRatherThanThrowing', async () => {
     for (const malformed of [null, 42, 'an event', []] as unknown[]) {
@@ -163,7 +164,7 @@ describe('batch_append event-data validation (DR-1)', () => {
     expect(storedEvents(query)).toHaveLength(0);
   });
 
-  /** The length check makes a run that compares zero payloads fail. */
+  /** The length check fails a run that compares zero payloads. */
   it('AppendAndBatchAppend_IdenticalPayload_AgreeOnValidity', async () => {
     const payloads: ReadonlyArray<{ label: string; event: Record<string, unknown> }> = [
       { label: 'string-evidence', event: { ...STRING_EVIDENCE_EVENT } },
@@ -235,8 +236,8 @@ describe('non-empty denominator (DR-1)', () => {
   });
 
   /**
-   * If the registry resolves zero schemas, a validator accepts each payload. Thus
-   * `validateEventData` must throw.
+   * A registry that resolves zero schemas cannot reject a payload. Thus `validateEventData` must
+   * throw on an empty registry.
    */
   it('ValidateEventData_EmptySchemaRegistry_Fails', () => {
     expect(() =>

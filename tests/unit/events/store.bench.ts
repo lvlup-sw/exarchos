@@ -4,7 +4,8 @@
  * `bench()` only observes. It cannot fail CI. The merge gate for append throughput is
  * `append-cost-budget.test.ts`. That test counts the statements and transactions of each
  * append and fails on an extra one, so its verdict does not depend on the runner.
- * The `AppendUnkeyed_5000Sequential_SqliteBackend` arm measures the appends per second on one stream.
+ * The `AppendUnkeyed_5000Sequential_SqliteBackend` arm times 5000 sequential appends on one stream.
+ * Its reference figure is 1000 appends per second.
  *
  * Run: `npm run bench`, or `npx vitest bench --run store.bench`.
  */

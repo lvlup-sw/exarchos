@@ -54,7 +54,7 @@ describe('EventStore cross-path race (#1293)', () => {
 
   /**
    * Two `EventStore` instances on one `stateDir` must both initialize. No PID lock guards the directory.
-   * SQLite WAL, `BEGIN IMMEDIATE` and the `(stream_id, sequence)` primary key serialize the writers across processes.
+   * SQLite WAL, `BEGIN IMMEDIATE` and the `(streamId, sequence)` primary key serialize the writers across processes.
    */
   it('EventStore_Initialize_NoLongerThrowsOnConcurrentAttach', async () => {
     const storeA = new EventStore(stateDir);
@@ -335,7 +335,7 @@ function raceGitExec(
  * The race runs in one process. Both invocations share stub leaves, so only the event-store appends contend.
  *
  * The test asserts:
- * 1. Both invocations settle with a structured result. `allSettled` shows a throw that escapes the handler.
+ * 1. Both invocations settle with a structured result. A throw that escapes the handler shows as a `rejected` entry of `allSettled`.
  * 2. At least one invocation succeeds. The other succeeds as an idempotency replay or fails with `STATE_CONFLICT`.
  * 3. The stream holds one `merge.executed` event. The idempotency key and `expectedSequence` collapse the second attempt.
  * 4. The sequences are unique and dense from 1.

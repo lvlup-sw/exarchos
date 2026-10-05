@@ -315,8 +315,8 @@ describe('Workflow Compaction', () => {
   });
 
   /**
-   * Two old completed workflows and one active workflow. With no backend,
-   * `checkCompaction` finds them from the `.state.json` files.
+   * The directory holds two old completed workflows and one active workflow.
+   * With no backend, `checkCompaction` finds them from the `.state.json` files.
    */
   it('checkCompaction_OnStartup_CompactsEligibleWorkflows', async () => {
     await writeState(stateDir, 'old-a', 'completed', daysAgo(60));

@@ -5,7 +5,8 @@
  * returns the recorded result of a settled operation and reads no bundle byte.
  * As a result, replay reports success after a referenced artifact is deleted. Only the oracle names the loss.
  *
- * Each case opens a real SQLite store in a temp directory, so each case sets `FS_TIMEOUT_MS`.
+ * Most cases open a real SQLite store in a temp directory.
+ * As a result, every case sets `FS_TIMEOUT_MS` as its own timeout in place of the tier default.
  *
  * @oracle-sources: ../../../src/events/store.ts, the blob files themselves on disk under the temp state dir — deleted and rewritten directly so custody is judged against the filesystem rather than against the ledger that named it
  */

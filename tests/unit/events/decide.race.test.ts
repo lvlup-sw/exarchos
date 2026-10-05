@@ -49,9 +49,10 @@ describe('decide<TState> — race / OCC (Task 3.5)', () => {
   });
 
   /**
-   * The per-stream mutex belongs to one appender. So a second appender on the same backend can
-   * write while the `decide` closure waits on a gate. The closure runs after the fold and the
-   * tail read. The side write moves the tail from 2 to 3, and the commit still expects 2.
+   * The side appender shares the `SqliteBackend` of the first appender, and not its per-stream mutex.
+   * `decide` holds no lock while its closure waits on a gate, so the side write lands before the commit.
+   * The closure runs after the fold and the tail read. The side write moves the tail from 2 to 3,
+   * and the commit still expects 2.
    * The case runs the race again with an `operationId`, to read the fields of the error.
    * A lost race has an `expectedVersion` less than the `actualVersion`.
    */

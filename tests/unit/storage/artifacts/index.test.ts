@@ -17,7 +17,8 @@ async function countFiles(root: string): Promise<number> {
 
 /**
  * The tests reach the store only through the barrel `index.js`, as a consumer
- * does. They prove that the barrel exports and enforces the store guarantees.
+ * does. They prove that the barrel exports the public contract, and that the
+ * store keeps its guarantees through the barrel.
  */
 describe('artifacts packaged entry point', () => {
   it('PackagedArtifactSurface_ExportsPublicContract', () => {

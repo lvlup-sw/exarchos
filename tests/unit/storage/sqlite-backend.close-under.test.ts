@@ -1,4 +1,5 @@
-// `closeOpenUnder` must close a handle whose path is an alias of the swept dir.
+// `closeOpenUnder` must close a handle whose path reaches the swept dir through
+// an alias.
 //
 // `rmrf()` and `rmrfAsync()` close every open SQLite handle under a temp dir
 // before they delete it. The sweep compares paths, so both paths must spell

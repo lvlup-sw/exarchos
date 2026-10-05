@@ -672,7 +672,7 @@ describe('EventStore Query Sequence Pre-filter', () => {
 
   /**
    * 1050 events make the sequences reach 4 digits. The test covers the sequence filter of the query, not the append path.
-   * One `batchAppend` seeds the stream in one transaction, so the run time does not depend on the fsync speed of the host.
+   * One `batchAppend` seeds the stream in one transaction, so the run time does not depend on the disk speed of the host.
    * 1050 awaited appends took about 35 s on a Windows runner, which is more than the 30 s budget.
    * Each `i` with `i % 3 === 0` is `task.completed`. Sequences 1001 to 1050 hold 16 such events.
    */

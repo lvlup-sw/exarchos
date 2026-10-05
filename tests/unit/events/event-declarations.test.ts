@@ -218,7 +218,8 @@ describe('isEventRegistration — the caller-supplied guard for withSubject', ()
   /**
    * The type rejects each of these values. A guard that checks only `typeof` accepts most of them
    * and narrows a subject onto a type that it does not have.
-   * The first cases are an emission source and a registration with no weld at each tier.
+   * The first cases are an emission source and a registration with no weld at each tier but
+   * `harness`.
    * The next cases break one closed vocabulary at a time or give a capability no consumer.
    * Two cases give `contentSchema` a value that is not a live schema.
    * The last cases drop or misname the lifecycle or the tier, blank a reference id, or are not

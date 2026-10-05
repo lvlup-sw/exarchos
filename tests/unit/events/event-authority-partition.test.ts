@@ -439,13 +439,15 @@ describe('EventAuthority — the partition is derived, and telemetry means dropp
 
   /**
    * The charter names these types as telemetry examples, and the derivation still classifies nine
-   * of them as governance. Some have a live reader outside the fold. Most derive `auto` from a
-   * substrate tier, and only a charter demotion row moves such a type to telemetry.
+   * of them as governance. The team types and `shepherd.iteration` carry a governance witness:
+   * the canonical fold or a reader outside the fold consumes them.
+   * `launch.executing_started` derives `auto` from its tier, and only a charter demotion row moves
+   * an `auto` type to telemetry.
    * The pinned set is the backlog. Each flip deletes its row here, so the list only shrinks and a
    * new disagreement cannot arrive silently.
    *
-   * A demotion is a judgment against the tree and not against the charter text. The tree reads
-   * `launch.executing_started` as the start claim of the launch liveness pair.
+   * A demotion is a judgment against the tree and not against the charter text. The `worktrees@v1`
+   * reducer reads `launch.executing_started` as the start claim of the launch liveness pair.
    */
   it('CharterTension_TelemetryExamplesStillClassifiedGovernance_AreThePinnedBacklog', () => {
     const catalog = new Set<string>(EventTypes);

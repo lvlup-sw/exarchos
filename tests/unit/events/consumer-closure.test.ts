@@ -24,7 +24,7 @@ import { createWorktreesReducer } from '../../../src/verbs/worktree/projections/
 
 /**
  * The live consumer population: every reducer id and every registered view name.
- * The function imports each consumer, so a deleted reducer breaks this file at the import.
+ * This file imports each reducer, so a deleted reducer breaks the file at the import.
  * The population cannot shrink without a failure of this suite.
  */
 function liveConsumerPopulation(): ReadonlySet<string> {

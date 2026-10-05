@@ -41,8 +41,8 @@ describe('EventName_MalformedFixtures_AreRejectedAtRuntime', () => {
   });
 
   /**
-   * The defect must be the clause that the table names. A checker with one code for each failure
-   * passes a bare `ok === false` assertion and gives the census nothing to ratchet on.
+   * The defect must be the clause that the table names. A checker that returns the same code for
+   * all failures passes a bare `ok === false` assertion and gives the census nothing to ratchet on.
    */
   it.each(MALFORMED_EVENT_NAMES)('rejects $name with $defect', ({ name, defect }) => {
     const verdict = classifyEventName(name);
@@ -97,8 +97,8 @@ describe('EventName_WellFormedSamples_AreAcceptedAtRuntime', () => {
   });
 
   /**
-   * The samples must span the shapes of the catalog. A table of plain two-segment names accepts a
-   * grammar that rejects each hyphen and underscore name.
+   * The samples must span the shapes of the catalog. A table of plain two-segment names also
+   * passes for a grammar that rejects every name with a hyphen or an underscore.
    */
   it('covers both live word-separator styles', () => {
     expect(WELL_FORMED_EVENT_NAME_SAMPLES.some((name) => name.includes('-'))).toBe(true);
@@ -111,8 +111,9 @@ describe('EventName_WellFormedSamples_AreAcceptedAtRuntime', () => {
 
 describe('EventName_DataForms_AreCompleteVocabularies', () => {
   /**
-   * A person writes both `LOWER_ALPHA` and the `LowerAlpha` union. A letter dropped from both
-   * passes the type-level proof and narrows the grammar, so this check is independent.
+   * The `LowerAlpha` union derives from the `LOWER_ALPHA` tuple, so the type-level proof compares
+   * the tuple with itself. A dropped letter passes that proof and narrows the grammar. This check
+   * is independent.
    */
   it('LOWER_ALPHA is the 26 letters, in order, with no gaps', () => {
     expect(LOWER_ALPHA.length).toBe(26);

@@ -61,7 +61,8 @@ describe('SqliteAtomicAppender', () => {
    * The transaction holds the claim INSERT and the event INSERTs. If an event INSERT throws, the
    * rollback must also remove the claim, so a retry with the same key commits. A stub on
    * `insertEventStrict.run` injects the fault after the claim INSERT. The appender opens the
-   * backend lazily, so a warm-up append on a second stream runs before the patch.
+   * backend lazily, so a warm-up append runs before the patch. The warm-up uses a second stream,
+   * so the retry on the test stream gets sequence 1.
    */
   it('SqliteAtomicAppender_TransactionRollback_IdempotencyKeyNotCommitted', async () => {
     const appender = new AtomicAppender({ stateDir });
@@ -123,9 +124,9 @@ describe('SqliteAtomicAppender', () => {
   }
 
   /**
-   * SQLITE_BUSY can come from a writer in a second process. The backend retries the transaction
-   * up to 5 attempts with exponential backoff. The stub throws an error with
-   * `code: 'SQLITE_BUSY'` for the first 4 attempts, because the retry layer reads `error.code`
+   * SQLITE_BUSY can come from a writer in a second process. The backend runs the transaction at
+   * most 5 times, with exponential backoff between the attempts. The stub fails the first 4
+   * attempts. Its error carries `code: 'SQLITE_BUSY'`, because the retry layer reads `error.code`
    * and not the message. The sleeps are 5, 10, 20 and 40 ms.
    */
   it('SqliteAtomicAppender_SqliteBusy_RetriesUpToFiveTimesWithBackoff', async () => {

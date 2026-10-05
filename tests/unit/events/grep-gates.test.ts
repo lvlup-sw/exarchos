@@ -50,6 +50,8 @@ describe('Grep Gates (Wave 1, R-1, #1313)', () => {
    * No production code can issue `UPDATE streams SET workflow_type`. The column is immutable after
    * the insert. The recovery backfill of the migration in `sqlite-backend.ts` is the only allowed
    * UPDATE, and that file is exempt. Another write can replace the registered type of a stream.
+   * `events/event-migration.ts` is also exempt, although it holds no such UPDATE.
+   * The gate tests one line at a time, so it does not see a statement that spans two lines.
    */
   it('GrepGate_NoUpdateStreamsSetWorkflowType', () => {
     const pattern = /UPDATE\s+streams\s+SET\s+workflow_type/i;

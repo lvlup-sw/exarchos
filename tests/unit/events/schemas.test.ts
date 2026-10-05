@@ -108,7 +108,7 @@ import { tmpdir } from 'node:os';
 import * as nodePath from 'node:path';
 
 describe('EVENT_EMISSION_REGISTRY', () => {
-  /** A `retired` source keeps its schema for replay, and no emitter writes it. */
+  /** A type with the `retired` source keeps its schema for replay, and no emitter writes it. */
   it('EventEmissionRegistry_AllEventTypes_HaveClassification', () => {
     for (const eventType of EventTypes) {
       expect(EVENT_EMISSION_REGISTRY).toHaveProperty(eventType);
@@ -134,7 +134,7 @@ describe('EVENT_EMISSION_REGISTRY', () => {
     expect(EVENT_EMISSION_REGISTRY['task.assigned']).toBe('auto');
   });
 
-  /** Dispatch-core handlers emit `review.routed`, `ci.status` and `quality.regression`. */
+  /** Action handlers emit `review.routed`, `ci.status` and `quality.regression`, so each source is `auto`. */
   it('EventEmissionRegistry_AutoEvents_IncludesWorkflowAndTask', () => {
     const autoSpotChecks: Array<typeof EventTypes[number]> = [
       'workflow.started',
@@ -155,7 +155,10 @@ describe('EVENT_EMISSION_REGISTRY', () => {
     }
   });
 
-  /** The event store rejects an unregistered type, and `prepare_delegation` emits both preflight types. */
+  /**
+   * `prepare_delegation` emits both preflight types, and the event store rejects an unregistered type.
+   * The emitter only logs a failed append, so a lost registration drops each preflight event without an error.
+   */
   it('EventTypes_PreflightEventsRegistered_BothNamesPresent', () => {
     expect(EventTypes).toContain('preflight.executed');
     expect(EventTypes).toContain('preflight.blocked');
@@ -509,7 +512,7 @@ describe('EventTypes', () => {
 
   /**
    * The count pins the size of the catalog, so a type cannot join or leave it without a change here.
-   * The retired `init.executed` type must stay out of the catalog.
+   * The onboard pair is the audit trail of onboarding, so the catalog must not contain `init.executed`.
    */
   it('EventTypes_HasExpectedCount', () => {
     expect(EventTypes).toHaveLength(184);
@@ -834,7 +837,10 @@ describe('EventTypes', () => {
 });
 
 describe('WorkflowStartedData repoRoot (DR-5)', () => {
-  /** `z.object` strips an unknown key, so only the value assertion fails when the schema loses `repoRoot`. */
+  /**
+   * If the schema loses `repoRoot`, `z.object` strips the unknown key and the parse still succeeds.
+   * Then only the value assertion fails.
+   */
   it('WorkflowStartedData_WithRepoRoot_Parses', () => {
     const result = WorkflowStartedData.safeParse({
       featureId: 'f1',
@@ -1926,7 +1932,7 @@ describe('registerEventType', () => {
 
   /**
    * The retired name pattern has no `_`, so it refuses this name, and the registration seam accepts it.
-   * `WorkflowEventBase` refuses a type that is not in the registry, so the parse proves the type is usable.
+   * `WorkflowEventBase` refuses an unregistered type, so the parse proves that the type is usable.
    */
   it('RegisterEventType_SnakeCaseNameTheRetiredPatternRefused_NowRegisters', () => {
     const retiredPattern = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$/;
@@ -2769,7 +2775,7 @@ describe('MergeCompletedData', () => {
 
 /**
  * The command resolver emits `command.resolved` for audit.
- * Its `source` field separates a configured `null` command from an unresolved one.
+ * The union discriminates on `source`: only `unresolved` carries `command: null`, with a remediation.
  */
 describe('CommandResolvedEventSchema', () => {
   it('CommandResolved_Registered_InEventTypesAndRegistry', () => {
@@ -3207,7 +3213,8 @@ describe('SessionMachineryConsumedDataSchema', () => {
 
 /**
  * These tests check that the ten two-event split types are registered.
- * Each schema must accept a canonical payload and reject a broken one.
+ * Each schema must accept a canonical payload.
+ * Each `requested` schema must reject a payload without `operationId`.
  * Handler idempotency is not in scope.
  */
 describe('EventSchemaRegistry_RegistersAllNewTwoEventSplitTypes', () => {
@@ -3768,6 +3775,7 @@ describe('WLM worktree lifecycle schemas', () => {
  * `worktree.merge_requested` claims the merge lease and `worktree.merge_executed` releases it.
  * Both events are on the singleton `worktrees` stream.
  * `operationId` is the only discriminator, so two merges onto one `integrationRef` have distinct keys.
+ * This block also holds tests of the catalog count, the VCS ledger, `promotion.executed` and `emission.violated`.
  */
 describe('WLM operational-core merge lease schemas', () => {
   const MERGE_TYPES = ['worktree.merge_requested', 'worktree.merge_executed'] as const;
@@ -3803,6 +3811,7 @@ describe('WLM operational-core merge lease schemas', () => {
    * A runtime registration puts a name in the custom set.
    * That name has no `EventDataMap` entry and no coupling annotation.
    * The test reads the names from the constants of the mutation owner, so a rename on one side fails.
+   * The mutation owner must not export `ensureVcsMutationEventTypes`, because that name implies a live registration path.
    * A custom name still registers, so the two `toThrow` checks are facts about these three names.
    */
   it('VcsLedgerEvents_RuntimeSeam_IsNoLongerUsed', () => {
@@ -3867,7 +3876,8 @@ describe('WLM operational-core merge lease schemas', () => {
 
   /**
    * The plan, the owner and the digest come from the production functions, so a promoter rename fails here.
-   * The dry run must not write a file or record an event, so the recorder throws.
+   * A dry run must not write a file or record an event.
+   * The recorder throws, so a dry run that records an event fails here.
    * The source is `planned`: the type has a schema and no emitter.
    * `recoveredPriorAttempt` is required, because a default of `false` hides a recovered run.
    * `admission.cutover-ready` says that a cutover can proceed, and its schema rejects this payload.
@@ -4082,7 +4092,11 @@ describe('harness-launcher event schemas (DR-2)', () => {
     }
   });
 
-  /** The launcher pair `worktree.create` leaves the task-scoped `worktree.created` type as it is. */
+  /**
+   * The task-scoped `worktree.created` type is separate from the launcher pair,
+   * `worktree.create.requested` and `worktree.create.executed`.
+   * It requires `taskId` and `branch`, and its source is `model`.
+   */
   it('EventTypes_WorktreeCreated_Untouched', () => {
     expect(EventTypes).toContain('worktree.created');
     expect(EVENT_EMISSION_REGISTRY['worktree.created']).toBe('model');
@@ -4100,7 +4114,7 @@ describe('harness-launcher event schemas (DR-2)', () => {
 
   /**
    * The start payload carries the holder fields that a dead-holder reconciler needs.
-   * The terminal accepts a null `exitCode` for a child that a signal ended or whose code is not captured.
+   * The `exitCode` of the terminal is null after a signal, or when no code was captured.
    */
   it('LaunchExecutingStarted_CarriesWorktreeIdAndHolderPid', () => {
     const parsed = LaunchExecutingStartedData.parse({
@@ -4146,7 +4160,8 @@ describe('harness-launcher event schemas (DR-2)', () => {
 
 /**
  * Each of the four liveness pairs (merge, launch, mutation, prune) has an optional `instanceId`.
- * The fixtures hold the stored payload shapes, and none carries `instanceId`.
+ * The `started` and `terminal` fixtures are payload shapes of stored rows, and none carries `instanceId`.
+ * The `instanceId` of a fixture is the key that the emitter of that surface stamps.
  * A payload without `instanceId` must stay valid.
  * `instanceId` is a typed field, so a wrong-typed or empty value must fail.
  * If the schema does not know the key, Zod strips the value and the malformed payload passes.
@@ -4354,7 +4369,7 @@ describe('Export event contract (DR-6, lifecycle-verbs task 012)', () => {
 
   /**
    * `outputPath` is required, so the timeline shows the destination after a crash during the write.
-   * An empty `idempotencyKey` must fail, because it merges unrelated exports into one.
+   * An empty `idempotencyKey` must fail, because an empty key merges unrelated exports into one.
    */
   it('ExportRequested_CarriesResolvedPathIntent', () => {
     const schema = requestedSchema();

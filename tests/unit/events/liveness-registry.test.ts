@@ -5,8 +5,9 @@
 // `EventTypes` catalog in `schemas.ts`. A new `<surface>.executing_started` type with no registry
 // entry thus fails here and not at a consumer.
 //
-// The `void` statement at the end of the file is a type-level check only: each `startType` must
-// be an `EventType`. It has no runtime effect.
+// The `void` statement at the end of the file is a type-level statement only: each `startType`
+// must be an `EventType`. It has no runtime effect. `tests/tsconfig.json` excludes `unit/**`, so
+// `tsc` does not check it.
 
 import { describe, it, expect } from 'vitest';
 import { fc } from '@fast-check/vitest';

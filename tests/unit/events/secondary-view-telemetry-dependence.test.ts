@@ -110,8 +110,9 @@ describe('secondary-view telemetry dependence', () => {
   );
 
   /**
-   * The denominator. An empty partition, an empty roster, or a corpus that does not
-   * discriminate makes each equality in this suite a vacuous pass.
+   * The denominator. With an empty partition, an empty roster, or a corpus that does not
+   * discriminate, the differential measures no dependence.
+   * An empty measurement equals an empty declaration table and proves nothing.
    */
   it('SecondaryViews_TheDifferentialCanSeeSomething_IsAsserted', () => {
     expect(TELEMETRY_EVENTS.size).toBeGreaterThan(0);

@@ -37,7 +37,7 @@ function blobPath(root: string, digest: ContentDigestV1): string {
 }
 
 describe('RunBundleStore', () => {
-  /** The root comes from the state directory, because the ledger and the bytes must share one root. */
+  /** The last assertion checks that the root comes from the state directory. The ledger and the bytes must share one root. */
   it(
     'RunBundleStore_PutThenResolve_RoundTripsBytes',
     async () => {
@@ -53,7 +53,7 @@ describe('RunBundleStore', () => {
     FS_TIMEOUT_MS,
   );
 
-  /** The `ok` probe comes first. Without it, a probe that never returns `ok` also gives the two failure verdicts. */
+  /** The `ok` probe comes first. Without it, a probe that never returns `ok` can still pass the two failure assertions. */
   it(
     'RunBundleStore_Has_SeparatesOkFromMissingFromMismatch',
     async () => {
@@ -76,7 +76,7 @@ describe('RunBundleStore', () => {
 
   /**
    * A read that fails with `EACCES` is an environment fault, not a custody violation.
-   * A `missing` verdict makes the oracle report lost bytes that are on disk.
+   * A `missing` verdict for that fault makes the oracle report a loss of bytes that are on disk.
    * The last probe reads the same blob through the real store, so the rejection is about the fault.
    */
   it(

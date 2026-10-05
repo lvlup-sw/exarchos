@@ -460,6 +460,7 @@ describe('EventTypes', () => {
   /**
    * `ResolvedGateFamilySchema` is an inline `z.enum`. The test pins it to the families that
    * `resolveGateSet` returns across all kinds for a high-risk `feature` context.
+   * The REVIEW kind returns a `review` gate only for a known workflow type or the high tier.
    */
   it('ResolvedGateFamily_MatchesResolverOutput', () => {
     const ctx = { riskTier: 'high', boundaryTouching: true, workflowType: 'feature' } as const;

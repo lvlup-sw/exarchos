@@ -305,7 +305,7 @@ describe('handleBatchAppend', () => {
     expect(result.error!.code).toBe('INVALID_INPUT');
   });
 
-  /** Two events in one batch share a key, so only the first one is appended. */
+  /** Two events in one batch share a key, so the handler appends only the first one. */
   it('batchAppend_IdempotencyKey_DeduplicatesAcrossBatch', async () => {
     const result = await handleBatchAppend(
       {
@@ -354,9 +354,10 @@ describe('handleBatchAppend', () => {
   });
 
   /**
-   * Every event of the first batch shares one `idempotencyKey`, which becomes the
-   * batch key. A retry with that key hits the cache and must return the committed
-   * batch. On a cache hit, each ack takes its type from the persisted event.
+   * The three events of the first batch share one `idempotencyKey`. The handler
+   * keeps only the first one, and that key becomes the batch key. A retry with
+   * that key hits the cache and must return the committed batch. On a cache hit,
+   * each ack takes its type from the persisted event.
    */
   it('batchAppend_cacheHitWithFewerCurrentEvents_returnsOriginalBatchWithoutCrash', async () => {
     const store = new EventStore(tempDir);
@@ -393,8 +394,8 @@ describe('handleBatchAppend', () => {
 
   /**
    * Two concurrent batches must each get a contiguous run of sequences, and the
-   * stream must hold 1 to 6 with no gap. The query returns newest-first, so the
-   * test sorts the sequences before it compares them.
+   * stream must hold sequences 1 to 6 with no gap. The query returns newest-first,
+   * so the test sorts the sequences before it compares them.
    */
   it('batchAppend_ConcurrentWrite_RespectsStreamLock', async () => {
     const batch1 = handleBatchAppend(
@@ -490,7 +491,7 @@ describe('handleBatchAppend', () => {
     }
   });
 
-  /** Concurrent batches must not share a sequence, and the stream must hold exactly 1 to `2 * N`. */
+  /** Concurrent batches must not share a sequence, and the stream must hold exactly sequences 1 to `2 * N`. */
   it('handleEventBatchAppend_concurrentCalls_noDuplicateSequences', async () => {
     const N = 8;
     const batches = Array.from({ length: N }, (_, i) =>
@@ -574,8 +575,8 @@ describe('handleBatchAppend', () => {
 
   /**
    * A retry that hits the idempotency cache must return the `operationId` of the
-   * first write. The retry here runs with no dispatch context, so a value from
-   * the retry caller is `undefined`.
+   * first write. The retry here runs with no dispatch context, so the persisted
+   * event is the only source of `op-xyz`.
    */
   it('BatchAppend_CacheHit_ReturnsOperationId', async () => {
     const store = new EventStore(tempDir);
@@ -762,7 +763,8 @@ describe('handleEventQuery DR-5 default limit + page metadata', () => {
 
   /**
    * The default query on a 112-event stream must stay within 1,600 estimated
-   * tokens, and `page.hasMore` must show that older events exist.
+   * tokens, and `page.hasMore` must show that older events exist. An audit of a
+   * 112-event stream measured 5,755 tokens with no limit and 1,490 at limit 20.
    */
   it('eventQuery_DefaultLimitOn112EventStream_StaysUnderTokenBudget', async () => {
     await seed('dr5-budget', 112);

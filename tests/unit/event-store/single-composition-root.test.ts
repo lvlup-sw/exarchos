@@ -31,6 +31,8 @@ describe('EventStore single composition root (#1182, Fix 1)', () => {
   /**
    * The views tools module must export no module-global `EventStore` factory
    * and no registry. Then `ctx.eventStore` is the only instance in a bootstrap.
+   * Each `initializeContext` call builds a new `EventStore` by design, so the
+   * test does not compare the stores of two calls.
    */
   it('InitializeContext_ReturnsSingleEventStore_PerStateDir', async () => {
     const toolsModule = await import('../../../src/projections/views/tools.js');

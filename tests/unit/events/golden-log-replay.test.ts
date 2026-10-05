@@ -95,7 +95,8 @@ describe('Golden-log replay across a version bump (#1556)', () => {
 
   /**
    * The `0.9` shape holds `data.name` and not `data.title`, so a reducer for the current shape
-   * sees undefined titles. The test pins this failure, so a change that drops the upcast fails.
+   * sees undefined titles. This is the control: the golden view of the first test comes from the
+   * migration and not from the reducer.
    */
   it('GoldenLogV09_WithoutMigration_FoldsToEmptyTitles', () => {
     const raw = migrateEvents(GOLDEN_LOG_V09, []);

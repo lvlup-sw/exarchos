@@ -104,9 +104,9 @@ const REAL_WALKER_FS: WalkerFs = { readdirSync, statSync };
  * `.d.ts`. The `storage` directory is the abstraction, and all other code must
  * go through it.
  *
- * A `readdirSync` or `statSync` error is thrown again with the path. A swallowed
- * error gives a partial list, and the import guard then passes for a tree that
- * it did not fully scan.
+ * The walker throws a `readdirSync` or `statSync` error again with the path in
+ * the message. A swallowed error gives a partial list, and the import guard then
+ * passes for a tree that it did not fully scan.
  */
 function collectProductionTsFiles(rootDir: string, fs: WalkerFs = REAL_WALKER_FS): string[] {
   const out: string[] = [];

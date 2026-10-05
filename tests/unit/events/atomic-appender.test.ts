@@ -299,9 +299,9 @@ type SqliteDbHandle = {
 };
 
 /**
- * An append under an active dispatch context stores `operation_id`, `correlation_id` and
- * `causation_id` as non-NULL columns. The payload JSON stays the record, and the columns are
- * the indexed filter handle.
+ * An append under an active dispatch context copies each dispatch id that the context holds
+ * into its column: `operation_id`, `correlation_id` or `causation_id`. The payload JSON stays the
+ * record, and the columns are the indexed filter handle.
  *
  * Each test opens a second `SqliteBackend` on the same database file (`exarchos.db` by default)
  * and reads the columns with raw SQL. The read is safe because the write transaction is complete
@@ -352,7 +352,7 @@ describe('AtomicAppender correlation column persistence (#1437 Wave 3)', () => {
 
   /**
    * Single and batch appends share `SqliteBackend.atomicAppend` and `insertEventStrict`. This
-   * test pins the shared contract, so a later split of the two paths cannot break one of them.
+   * test pins the batch path, so a later split that breaks only the batch path fails here.
    */
   it('AtomicAppender_BatchAppendUnderDispatchContext_PopulatesAllCorrelationColumns', async () => {
     const store = new EventStore(stateDir);

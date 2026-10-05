@@ -177,9 +177,11 @@ describe('Outbox StorageBackend Integration', () => {
   });
 
   /**
-   * Two outboxes on one directory write one stream in the same millisecond.
-   * Both writes must resolve, and the file must stay whole JSON. The test claims
-   * no merge: the two writers still race, and the last one wins.
+   * Two outboxes on one directory write one stream in the same millisecond. A
+   * temp name made from `Date.now()` alone is then the same for both writers,
+   * and the second rename fails. Both writes must resolve, and the file must
+   * stay whole JSON. The test claims no merge: the two writers still race, and
+   * the last one wins.
    */
   it('Outbox_TwoOutboxesWriteOneStreamInOneMillisecond_BothResolveAndTheFileIsWhole', async () => {
     const first = new Outbox(tempDir);

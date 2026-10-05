@@ -136,8 +136,8 @@ describe('Event Migration', () => {
 
   describe('assertMigrationCoverage (version-coverage build guard)', () => {
     /**
-     * The live registry must cover `EVENT_SCHEMA_VERSION`. A version change with no matching
-     * migration fails here.
+     * Each `from` version in the live registry must have a path to `EVENT_SCHEMA_VERSION`.
+     * An empty registry has no `from` version, so the check passes whatever the current version is.
      */
     it('AssertMigrationCoverage_LiveRegistry_DoesNotThrow', () => {
       expect(() => assertMigrationCoverage(EVENT_SCHEMA_VERSION, eventMigrations)).not.toThrow();
@@ -197,8 +197,8 @@ describe('Event Migration', () => {
     }
 
     /**
-     * The event holds the current `schemaVersion`, so `migrateEvent` must return the same reference.
-     * A migration that changes '1.0' events with no bump of `EVENT_SCHEMA_VERSION` fails this test.
+     * The event holds the current `schemaVersion`, so `migrateEvent` must return the same reference
+     * with no copy and no coercion. A reader that copies or rewrites a current event fails this test.
      */
     it('MigrateEvent_V2EraEvent_IsByteEquivalentUnderV3Reader', () => {
       const v2EraEvent = {
