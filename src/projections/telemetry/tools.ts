@@ -1,4 +1,4 @@
-// ─── Telemetry MCP Tool Handler ──────────────────────────────────────────────
+/** Handler for the telemetry action of `exarchos_view`. */
 
 import { toViewFailure } from '../degraded-result.js';
 import { foldToTail } from '../fold-at-tail.js';
@@ -24,23 +24,17 @@ import {
 } from '../../workflow/capabilities/resolver.js';
 import type { NextAction } from '../../next-action.js';
 
-// ─── Types ──────────────────────────────────────────────────────────────────
-
+/**
+ * Arguments of the telemetry view.
+ * Rows are compact by default. `detail: true` or `compact: false` adds the rolling `durations`, `sizes`, and `tokenEstimates` arrays.
+ * The correlation filters scope `EventStore.query` to the events of one dispatch boundary.
+ */
 const ViewTelemetryArgsSchema = z.object({
   compact: z.boolean().optional(),
-  // DR-8 / B-4 (Task 014) — compact-by-default is the telemetry contract, so
-  // the `--compact` flag was a no-op against the default (both stripped the
-  // heavy rolling-window arrays). `detail: true` is now the explicit restore
-  // path — matching the 013/024 view contract — so `compact: true` measurably
-  // reduces output relative to the `detail: true` full response. The legacy
-  // `compact: false` restore remains honored for backward compatibility.
   detail: z.boolean().optional(),
   tool: z.string().optional(),
   sort: z.enum(['tokens', 'invocations', 'duration']).optional(),
   limit: z.number().int().positive().optional(),
-  // Wave 5 (#1437) — correlation tuple filters scope `EventStore.query`
-  // to events stamped by the same dispatch boundary. Honored at the
-  // backend layer (SQL indexed-WHERE / in-memory post-fetch filter).
   operationId: z.string().optional(),
   correlationId: z.string().optional(),
   causationId: z.string().optional(),
@@ -61,11 +55,7 @@ interface CompactToolEntry {
   readonly p95Bytes: number;
   readonly p50Tokens: number;
   readonly p95Tokens: number;
-  // PR3/T10 (#1364) — structured action-level failure counters. These
-  // mirror the `TelemetryToolEntrySchema` fields registered for the
-  // `view.telemetry` action's output schema; omitting them here would
-  // make `validateAgainstActionSchema` reject the envelope and surface
-  // INTERNAL_ERROR/outputSchemaViolation to the caller.
+  /** The output schema `TelemetryToolEntrySchema` requires this field and `actionErrorBreakdown`. Without them, `validateAgainstActionSchema` rejects the envelope. */
   readonly actionErrors: number;
   readonly actionErrorBreakdown: Readonly<Record<string, number>>;
 }
@@ -76,16 +66,18 @@ interface FullToolEntry extends CompactToolEntry {
   readonly tokenEstimates: readonly number[];
 }
 
-// ─── Sort Field Mapping ─────────────────────────────────────────────────────
-
 const SORT_FIELDS: Record<string, keyof ToolMetrics> = {
   tokens: 'totalTokens',
   invocations: 'invocations',
   duration: 'totalDurationMs',
 };
 
-// ─── Handler ────────────────────────────────────────────────────────────────
-
+/**
+ * Returns the telemetry view: session totals, per-tool rows, and hints.
+ * With a correlation filter, it folds only the matching events and skips the materializer cache, so the filtered fold does not change unfiltered reads.
+ * The `tool` filter, the descending `sort`, and the `limit` apply in that order.
+ * Each output-token hint goes in `next_actions[]` with its `idempotencyKey`, so callers can dedupe repeated hints for one streak.
+ */
 export async function handleViewTelemetry(
   args: unknown,
   stateDir: string,
@@ -108,15 +100,6 @@ export async function handleViewTelemetry(
     const store = eventStore;
     const materializer = getOrCreateMaterializer(stateDir);
 
-    // Materialize the telemetry view from the telemetry stream.
-    // Wave 5 (#1437) — when a correlation filter arg is present, scope the
-    // query to that dispatch boundary so the rollup reflects only matching
-    // events. The filter handle is the indexed columns on the SQLite
-    // substrate / a post-fetch JS filter on the in-memory backend; INV-1
-    // keeps the value of truth on the payload, mirrored to the columns.
-    // Filtered queries bypass the materializer cache (see ViewQueryFilters
-    // doc in views/tools.ts) so an unfiltered call before or after is not
-    // contaminated by the filtered fold.
     const correlationFilters = deriveCorrelationFilters(validated);
     const filtered = hasCorrelationFilters(correlationFilters);
     let view: TelemetryViewState;
@@ -132,25 +115,16 @@ export async function handleViewTelemetry(
       )).view;
     }
 
-    // DR-8 / B-4 (Task 014) — compact-by-default; the full per-tool rolling
-    // window arrays (`durations`/`sizes`/`tokenEstimates`, capped at 1000 each
-    // and the heaviest secondary sub-structure) are restored only under an
-    // explicit `detail: true` (or the legacy `compact: false`). This makes the
-    // `--compact` flag measurably reduce output against the `detail: true`
-    // response instead of being a no-op against an already-compact default.
     const wantFull = validated.detail === true || validated.compact === false;
 
-    // Convert tools map to array of { tool, ...metrics } entries
     let toolEntries = Object.entries(view.tools).map(([name, metrics]) =>
       toToolEntry(name, metrics, !wantFull),
     );
 
-    // Apply tool filter
     if (validated.tool) {
       toolEntries = toolEntries.filter((entry) => entry.tool === validated.tool);
     }
 
-    // Apply sort (descending)
     if (validated.sort) {
       const sortField = SORT_FIELDS[validated.sort];
       if (sortField) {
@@ -162,27 +136,17 @@ export async function handleViewTelemetry(
       }
     }
 
-    // Apply limit
     if (validated.limit !== undefined) {
       toolEntries = toolEntries.slice(0, validated.limit);
     }
 
-    // Generate hints
     const hints = generateHints(view);
 
-    // #1262 — compute output-token quality hints and surface them via
-    // `next_actions[]` so the envelope-wrap boundary lifts them onto the
-    // outgoing payload alongside any HSM-derived verbs. Each hint becomes
-    // one `NextAction` entry with `verb: 'checkpoint'`. The threshold is
-    // resolved from `.exarchos.yml` → `qualityHints.outputTokenThreshold`
-    // (default 80% of the per-turn cap).
     const threshold = getQualityHintThreshold('output_tokens', config);
     const tokenHints = computeOutputTokenHints(view, threshold);
     const nextActions: readonly NextAction[] = tokenHints.map((h) => ({
       verb: h.verb,
       reason: h.reason,
-      // Sentry MEDIUM #1424: thread idempotencyKey through so downstream
-      // dedup of repeated checkpoint hints on the same streak works.
       idempotencyKey: h.idempotencyKey,
     }));
 
@@ -203,8 +167,6 @@ export async function handleViewTelemetry(
     return toViewFailure(err, { tool: 'exarchos_view', action: 'telemetry' });
   }
 }
-
-// ─── Entry Builder ──────────────────────────────────────────────────────────
 
 function toToolEntry(
   name: string,

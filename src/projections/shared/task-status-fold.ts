@@ -1,31 +1,18 @@
 /**
- * Shared monotonic task-status fold helper (#1359 / PR4 T13).
+ * Monotonic task-status fold, shared by the rehydration reducer and the pipeline view.
+ * Both compute task counts and per-id status from one ranking table.
  *
- * Used by both the rehydration projection reducer
- * (`projections/rehydration/reducer.ts`) and the pipeline view projection
- * (`projections/views/pipeline-view.ts`) so both surfaces compute taskCount /
- * completedCount / per-id status from a single ranking table.
- *
- * Canonical vocabulary mirrors the workflow-side `TaskSchema.status` enum
- * (`workflow/schemas.ts`): `pending | in_progress | complete | failed`.
- *
- * Monotonic promotion rule: a fold can ONLY advance an entry up the
- * precedence ladder (pending → in_progress → complete/failed). It must NOT
- * regress a terminal status back to pending (the planner stamps the plan
- * repeatedly; events / later state.patched re-assertions must not undo
- * execution truth). Per CR review 4178067854.
+ * A fold only moves an entry up the ladder: pending, in_progress, then complete
+ * or failed. The planner stamps the plan again and again, so a later
+ * `state.patched` must not move a terminal status back to pending.
  */
 
-/**
- * Canonical task-progress status union — single source of truth for both
- * projection reducers. Mirrors `TaskSchema.status` post-#1359.
- */
+/** Canonical task-progress status. It mirrors `TaskSchema.status` in `workflow/schemas.ts`. */
 export type TaskStatus = 'pending' | 'in_progress' | 'complete' | 'failed';
 
 /**
- * Status precedence ladder. Higher rank "wins" when promoting an entry.
- * `complete` and `failed` are sibling terminal ranks (rank 2) — neither
- * regresses to the other.
+ * Status ladder. The higher rank wins a promotion. `complete` and `failed` share
+ * rank 2, so neither replaces the other.
  */
 export const STATUS_RANK: Readonly<Record<TaskStatus, number>> = {
   pending: 0,
@@ -34,11 +21,7 @@ export const STATUS_RANK: Readonly<Record<TaskStatus, number>> = {
   failed: 2,
 };
 
-/**
- * Look up the rank of an arbitrary string status, defaulting to 0 for any
- * value outside the canonical ladder so unknown statuses can never block a
- * known promotion.
- */
+/** Rank of a status string. An unknown status ranks 0, so it cannot block a promotion. */
 export function rankOf(status: string): number {
   return Object.prototype.hasOwnProperty.call(STATUS_RANK, status)
     ? STATUS_RANK[status as TaskStatus]
@@ -46,24 +29,13 @@ export function rankOf(status: string): number {
 }
 
 /**
- * Normalize a `TaskSchema.status` value (or close approximation thereof)
- * into the canonical TaskStatus surface. Anything not recognized falls
- * back to `pending` — the safe default for plan-state assertion folds.
+ * Map a status value to `TaskStatus`. An unknown value becomes `pending`.
  *
- * Legacy aliases (Sentry follow-ups on PR #1394) — `state.patched`
- * events emitted by `handleSet` do NOT route their `input.updates`
- * through `TaskStatusSchema`'s `z.preprocess`, so historical events with
- * pre-#1359 vocabulary arrive at projections unchanged. The mappings
- * below mirror `upgradeRehydrationDocumentV3toV4` (`projections/
- * rehydration/upgrade.ts`) so the on-disk migration and the live event
- * fold agree byte-for-byte on legacy → canonical:
- *
- *   - `'completed'` → `'complete'`     (matches `TaskStatusSchema` preprocess)
- *   - `'assigned'`  → `'in_progress'`  (matches v3→v4 task vocabulary rename)
- *
- * Without these, tasks silently downgrade to `pending` (the
- * unrecognized-value fallback), breaking taskCount / completedCount and
- * risking re-dispatch of work already in flight or finished.
+ * `state.patched` events from `handleSet` skip the `TaskStatusSchema` preprocess,
+ * so old events keep the legacy words. This function maps `'completed'` to
+ * `'complete'` and `'assigned'` to `'in_progress'`, the same as
+ * `upgradeRehydrationDocumentV3toV4`. Without that map, those tasks fall back to
+ * `pending` and the counts go wrong.
  */
 export function normalizeTaskStatus(raw: unknown): TaskStatus {
   if (raw === 'failed') return 'failed';
@@ -73,9 +45,8 @@ export function normalizeTaskStatus(raw: unknown): TaskStatus {
 }
 
 /**
- * Monotonically promote `tasksById[id]` to `nextStatus` if and only if
- * `nextStatus` outranks the existing entry. Returns a new map; never
- * mutates the input.
+ * Set `tasksById[id]` to `nextStatus` when the entry is absent or has a lower rank.
+ * It does not change the input. It returns a new map, or the input when nothing changes.
  */
 export function promoteStatus(
   tasksById: Readonly<Record<string, string>>,
@@ -92,21 +63,17 @@ export function promoteStatus(
   return tasksById as Record<string, string>;
 }
 
-/**
- * Extract `{id, status}[]` from a `state.patched` event's `data.patch.tasks`
- * subtree, mapping each entry onto canonical TaskStatus. Returns
- * `undefined` when the event has no actionable tasks subtree.
- *
- * The workflow-side `TaskSchema` carries many fields; we only consume id +
- * status. Anything without a non-empty string `id` is skipped — the patch
- * could carry an intentionally partial entry (e.g. only `title` updates)
- * that we should not invent an id for.
- */
+/** The id and canonical status of one task from a `state.patched` patch. */
 export interface ExtractedPlanTask {
   readonly id: string;
   readonly status: TaskStatus;
 }
 
+/**
+ * Read the id and status of each entry in `data.patch.tasks` of a `state.patched`
+ * event. An entry without a non-empty string `id` is skipped, because a partial
+ * entry can update other fields only. Returns `undefined` when no entry remains.
+ */
 export function extractPlanTasksFromPatch(
   data: { readonly [key: string]: unknown } | undefined,
 ): readonly ExtractedPlanTask[] | undefined {

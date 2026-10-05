@@ -1,17 +1,7 @@
 /**
- * CLI / `exarchos_view` facade over the effective invariant catalog (DR-7).
- *
- * This is the NOW facade (INV-5c): the `exarchos_view invariants_effective`
- * action and the CLI `--json` form both route here. It does NOT recompute the
- * catalog — it delegates to the single core function
- * `resolveEffectiveCatalog` and surfaces its output verbatim, so the CLI
- * payload is byte-identical to any other facade's (INV-2).
- *
- * SEAM (#1275): expose this same payload as
- * resources/exarchos-invariants/effective when MCP Resources land. The
- * Resource read handler will call `resolveEffectiveCatalog` with the same
- * ctx and return the same `{ entries, warnings }` shape this facade returns —
- * do NOT register any `resources/*` today.
+ * CLI and `exarchos_view invariants_effective` facade over the effective invariant catalog.
+ * It does not recompute the catalog. It calls `resolveEffectiveCatalog` and returns that output unchanged, so every facade returns the same payload.
+ * An MCP Resource at `resources/exarchos-invariants/effective` can later return the same payload. No `resources/*` handler is registered.
  */
 import type { ToolResult } from '../../format.js';
 import { loadExarchosConfig } from '../../config/load-exarchos-config.js';
@@ -20,12 +10,11 @@ import {
   type ResolveEffectiveCatalogResult,
 } from '../../architecture/resolve-effective-catalog.js';
 
-/** Args accepted by the effective-catalog view facade (DR-7). */
+/** Args accepted by the effective-catalog view facade. */
 export interface ViewInvariantsEffectiveArgs {
   /**
-   * Repository root used to (a) load `.exarchos.yml` and (b) resolve the
-   * built-in dev catalog path. Defaults to `process.cwd()` so the CLI and
-   * MCP arms behave the same when omitted.
+   * Repository root for loading `.exarchos.yml` and for resolving the built-in dev catalog path.
+   * Defaults to `process.cwd()`, so the CLI and MCP arms behave the same when it is absent.
    */
   repoRoot?: string;
   /** SDLC phase to project for. */
@@ -37,13 +26,10 @@ export interface ViewInvariantsEffectiveArgs {
 }
 
 /**
- * Resolve + return the effective invariant catalog for the given context.
- *
- * Loads `.exarchos.yml` (catalog registrations, overrides) from the
- * repo root, then delegates the merge/override/project pipeline to
- * `resolveEffectiveCatalog`. The returned `data` is exactly the core fn's
- * `{ entries, warnings }` result — the facade adds no fields, so every
- * surface (CLI `--json`, MCP action, future Resource) sees the same payload.
+ * Resolves the effective invariant catalog for the given context.
+ * It loads `.exarchos.yml` from the repo root and passes the config to `resolveEffectiveCatalog`.
+ * With no config file, the config is `undefined`, and the core function uses its defaults.
+ * The returned `data` is the `{ entries, warnings }` result of the core function, with no added fields.
  */
 export async function handleViewInvariantsEffective(
   args: ViewInvariantsEffectiveArgs,
@@ -51,9 +37,6 @@ export async function handleViewInvariantsEffective(
   try {
     const repoRoot = args.repoRoot ?? process.cwd();
 
-    // Load `.exarchos.yml` so the dev gate, user `catalogs`, and `overrides`
-    // flow into the core fn. `loadExarchosConfig` returns null when no config
-    // file exists — the core fn treats an undefined config as default-disabled.
     const loaded = loadExarchosConfig(repoRoot);
     const config = loaded?.config;
 

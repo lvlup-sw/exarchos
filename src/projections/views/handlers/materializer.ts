@@ -18,19 +18,10 @@ import { TEAM_PERFORMANCE_VIEW, teamPerformanceProjection } from '../team-perfor
 import { WORKFLOW_STATE_VIEW, workflowStateProjection } from '../workflow-state-projection.js';
 import { WORKFLOW_STATUS_VIEW, workflowStatusProjection } from '../workflow-status-view.js';
 
-// ─── Helper: create a materializer with all projections registered ─────────
-
-
-// #1555 — shared `asOf` bounded-fold seam (dispatch-core, INV-2).
-// ─── Helper: create a materializer with all projections registered ─────────
-
 /**
  * One registered view, with its state type sealed inside.
- *
- * Each projection folds to its own state shape, so a plain table of them has no
- * single element type that is not a cast. Closing over the type at construction
- * keeps both capabilities the roster needs — registration and a fold — without
- * one.
+ * Each projection folds to its own state shape, so a plain table of projections needs a cast.
+ * A closure over the type gives the roster registration and a fold without a cast.
  */
 export interface RegisteredView {
   readonly id: string;
@@ -51,15 +42,8 @@ function registeredView<T>(id: string, projection: ViewProjection<T>): Registere
 
 /**
  * Every view the runtime materializes.
- *
- * Exported because registration is not the only thing that has to see this
- * roster. The telemetry-dependence differential folds each of these twice — once
- * over a full corpus and once with telemetry dropped — and a view reachable at
- * runtime but absent from the roster that differential walks would be an
- * unmeasured verdict surface, which is the gap that oracle exists to close.
- *
- * `createMaterializer` registers FROM this list rather than repeating it, so a
- * view cannot reach the runtime without joining the measured population.
+ * The telemetry-dependence differential folds each view twice: once over a full corpus, and once with telemetry dropped.
+ * `createMaterializer` registers from this list, so a view cannot reach the runtime without that measurement.
  */
 export const REGISTERED_VIEWS: readonly RegisteredView[] = Object.freeze([
   registeredView(WORKFLOW_STATUS_VIEW, workflowStatusProjection),
@@ -80,11 +64,11 @@ export const REGISTERED_VIEWS: readonly RegisteredView[] = Object.freeze([
   registeredView(GATE_RELIABILITY_VIEW, gateReliabilityProjection),
 ]);
 
+/**
+ * Builds a materializer with every view in `REGISTERED_VIEWS`.
+ * Pipeline view snapshots use the versioned name `PIPELINE_SNAPSHOT_NAME`, so the store ignores older snapshots and the stream folds again.
+ */
 function createMaterializer(stateDir: string): ViewMaterializer {
-  // DR-5/DR-6 snapshot-lineage registration: the pipeline view's snapshots move
-  // to a versioned filename (`pipeline-v2`) so pre-upgrade v1 snapshots are
-  // ignored and the stream re-folds to pick up `repoRoot`. The projection is
-  // still registered under `PIPELINE_VIEW` below — only the on-disk lineage moves.
   const snapshotStore = new SnapshotStore(stateDir, {
     [PIPELINE_VIEW]: PIPELINE_SNAPSHOT_NAME,
   });
@@ -95,18 +79,10 @@ function createMaterializer(stateDir: string): ViewMaterializer {
   return materializer;
 }
 
-// EventStore is no longer obtained through this module. After the
-// constructor-injection refactor (#1182), every consumer receives the
-// EventStore via DispatchContext. The previous registry/lazy-fallback
-// pattern was eliminated to avoid the DIM-1 recurrence trap — see
-// docs/rca/2026-04-26-v29-event-projection-cluster.md.
-
-// ─── Cached Materializer ─────────────────────────────────────────────────────
-
 let cachedMaterializer: ViewMaterializer | null = null;
 let cachedStateDir: string | null = null;
 
-/** @internal Exported for testing only */
+/** @internal Returns the cached materializer for `stateDir`. A different `stateDir` replaces the cache. */
 export function getOrCreateMaterializer(stateDir: string): ViewMaterializer {
   if (cachedMaterializer && cachedStateDir === stateDir) {
     return cachedMaterializer;

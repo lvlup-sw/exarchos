@@ -7,18 +7,19 @@ import { foldToTail } from '../../fold-at-tail.js';
 import { getOrCreateMaterializer } from './materializer.js';
 import { deriveCorrelationFilters, hasCorrelationFilters, materializeFiltered, queryDeltaEvents } from './query.js';
 
-// ─── View Eval Results Handler ──────────────────────────────────────────────
-
+/**
+ * Handles the `eval_results` view.
+ * With a correlation filter, it folds a fresh projection from `init()`, so the materializer cache keeps the unfiltered view.
+ * The result reports `scope` and `unscopedTotal`, the skill count before the `skill` filter.
+ */
 export async function handleViewEvalResults(
   args: {
     workflowId?: string;
     skill?: string;
     limit?: number;
-    // DR-8 (Task 024) — compact-by-default; `detail: true` restores the full
-    // projection (including the `calibrations` array stripped by default).
+    /** When true, the result keeps the `calibrations` array. By default, the handler drops it. */
     detail?: boolean;
-    // Wave 5 (#1437) — correlation filters scope the projection fold to
-    // a single dispatch boundary.
+    /** A correlation filter. With any correlation filter, the fold covers one dispatch boundary. */
     operationId?: string;
     correlationId?: string;
     causationId?: string;
@@ -33,8 +34,6 @@ export async function handleViewEvalResults(
 
     const correlationFilters = deriveCorrelationFilters(args);
     const correlationFiltered = hasCorrelationFilters(correlationFilters);
-    // Wave 5 (#1437) — under a correlation filter, fold a fresh projection
-    // off `init()` so the materializer cache stays the unfiltered truth.
     const view = correlationFiltered
       ? materializeFiltered<EvalResultsViewState>(
           materializer,
@@ -43,7 +42,6 @@ export async function handleViewEvalResults(
         )
       : (await foldToTail<EvalResultsViewState>(store, materializer, streamId, EVAL_RESULTS_VIEW)).view;
 
-    // Apply optional filters
     let filtered: EvalResultsViewState = { ...view };
 
     if (args.skill) {
@@ -62,8 +60,6 @@ export async function handleViewEvalResults(
       };
     }
 
-    // DR-8 (Task 024) P5 — a skill filter scopes the skills record, so report
-    // `scope` + `unscopedTotal` (the pre-filter skill count) + the escape hatch.
     const filterActive = args.skill !== undefined;
     const unscopedTotal = Object.keys(view.skills).length;
     const scopedTotal = Object.keys(filtered.skills).length;
@@ -71,8 +67,6 @@ export async function handleViewEvalResults(
     const nextActions =
       s.nextActions.length > 0 ? { next_actions: s.nextActions } : {};
 
-    // DR-8 compact-by-default — drop the `calibrations` array (secondary, and
-    // un-capped today); `detail: true` restores the full projection.
     if (args.detail) {
       return {
         success: true,

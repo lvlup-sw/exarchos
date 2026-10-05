@@ -13,23 +13,24 @@ import { getOrCreateMaterializer } from './materializer.js';
 import { buildPage } from './pipeline.js';
 import { deriveCorrelationFilters, hasCorrelationFilters, materializeFiltered, queryDeltaEvents } from './query.js';
 
-// ─── View Quality Attribution Handler ─────────────────────────────────────────
-
+/**
+ * Returns the quality attribution for one dimension, with the `entries` list in pages.
+ * Both projections fold from one sequence: the filtered event list, or the one tail that `foldPairToTail` pins.
+ * Separate folds can let an append between them produce a comparison of a state that the stream never had.
+ * The correlation filters scope both projections to the same dispatch boundary.
+ *
+ * The handler converts a `{ start, end }` time range into a whole-day ISO 8601 duration, such as `P7D`.
+ * By default, each entry is compact and the `correlations` matrix is absent. `detail: true` returns the full result.
+ */
 export async function handleViewQualityAttribution(
   args: {
     workflowId?: string;
     dimension?: string;
     skill?: string;
     timeRange?: { start: string; end: string };
-    // DR-8 (Task 024) — `entries` is a paged list; compact-by-default drops the
-    // secondary roll-up counts per entry and the `correlations` matrix;
-    // `detail: true` restores the full attribution result.
     limit?: number;
     offset?: number;
     detail?: boolean;
-    // Wave 5 (#1437) — correlation filters scope both underlying projections
-    // (CQ + ER) to the same dispatch boundary so the attribution roll-up
-    // stays internally consistent.
     operationId?: string;
     correlationId?: string;
     causationId?: string;
@@ -56,12 +57,6 @@ export async function handleViewQualityAttribution(
     const correlationFilters = deriveCorrelationFilters(args);
     const correlationFiltered = hasCorrelationFilters(correlationFilters);
 
-    // Both projections describe ONE state of the stream, so both must come from
-    // one sequence. Filtered, that is the single fetched event list they each
-    // fold; unfiltered, it is the single tail `foldPairToTail` pins for the
-    // pair. Folding them independently would let an append between the two
-    // produce a comparison of a state the stream was never in — and would also
-    // charge every unfiltered read for an event query it does not use.
     let cqView: CodeQualityViewState;
     let erView: EvalResultsViewState;
     if (correlationFiltered) {
@@ -86,8 +81,6 @@ export async function handleViewQualityAttribution(
       erView = pair.second;
     }
 
-    // AttributionQuery.timeRange expects ISO 8601 duration string (e.g., 'P7D'),
-    // but the MCP handler receives { start, end } — compute duration from the range
     let timeRange: string | undefined;
     if (args.timeRange) {
       const startMs = Date.parse(args.timeRange.start);
@@ -110,9 +103,6 @@ export async function handleViewQualityAttribution(
       timeRange,
     };
     const attribution = computeAttribution(query, cqView, erView);
-    // DR-8 (Task 024) — `entries` is the dominant list, so page it. Compact-by-
-    // default compacts each entry to its headline and drops the `correlations`
-    // matrix; `detail: true` restores the full attribution roll-up.
     const { start, effectiveLimit } = resolveInventoryWindow(args);
     const windowed = attribution.entries.slice(start, start + effectiveLimit);
     const page = buildPage(attribution.entries.length, start, effectiveLimit, windowed.length);

@@ -135,13 +135,16 @@ function subjectKey(subject: EvidenceSubjectV1): string {
   return JSON.stringify(subject);
 }
 
+/**
+ * Read a gate verdict from a canonical-runner `admission.evidence-recorded` event. The event
+ * `operationId` must equal the producer `invocationId`, because the runner stamps both from one dispatch.
+ */
 function observedVerdict(event: WorkflowEvent): ObservedVerdict | undefined {
   if (event.type !== 'admission.evidence-recorded') return undefined;
   const gateClass = gateClassFromSource(event.source);
   if (gateClass === undefined) return undefined;
   const parsed = AdmissionEvidenceRecordedData.safeParse(event.data);
   if (!parsed.success || parsed.data.evidence.kind !== 'gate') return undefined;
-  // The canonical runner stamps both values from the same trusted dispatch.
   if (
     event.operationId === undefined ||
     event.operationId !== parsed.data.evidence.producer.invocationId
@@ -203,6 +206,12 @@ function metricKey(gateClass: string, gateIdentity: string): string {
   return `${gateClass}\0${gateIdentity}`;
 }
 
+/**
+ * Fold the events, sorted by source key, into one metric for each built-in or observed gate.
+ * The runner is idempotent, so one evidence ID is one execution. A duplicate ID in a malformed
+ * import keeps its first coordinate. A gate with no observation gets {@link emptyMetric}, never
+ * an invented reading.
+ */
 function recompute(events: readonly FoldEvent[]): readonly GateReliabilityMetric[] {
   const ordered = events
     .map(({ event }) => event)
@@ -213,8 +222,6 @@ function recompute(events: readonly FoldEvent[]): readonly GateReliabilityMetric
   for (const event of ordered) {
     const verdict = observedVerdict(event);
     if (verdict !== undefined) {
-      // Runner idempotency makes an evidence ID one execution. Keep the first
-      // durable coordinate if a malformed imported history contains duplicates.
       if (!observationsByEvidenceId.has(verdict.record.evidence.evidenceId)) {
         observationsByEvidenceId.set(verdict.record.evidence.evidenceId, verdict);
       }
@@ -306,9 +313,6 @@ function recompute(events: readonly FoldEvent[]): readonly GateReliabilityMetric
           compareText(left.timestamp, right.timestamp) ||
           compareText(sourceKey(left), sourceKey(right)),
         );
-        // Non-empty by construction (the zero-observation case returned above),
-        // but proving it to the checker keeps the module's own stance: an
-        // unmeasurable gate reports `emptyMetric`, never a fabricated reading.
         const latest = timeline.at(-1);
         if (latest === undefined) return emptyMetric(gateClass, gateIdentity);
 

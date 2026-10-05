@@ -6,8 +6,11 @@ import { CompactTeammateMetrics, compactTeammate } from './inventory-contract.js
 import { getOrCreateMaterializer } from './materializer.js';
 import { foldToTail } from '../../fold-at-tail.js';
 
-// ─── View Team Performance Handler ──────────────────────────────────────────
-
+/**
+ * Returns the team performance view. With `detail: true` it returns the full projection.
+ * The compact default keeps the core metrics of each teammate and drops the heavier
+ * `modules` and `teamSizing` roll-ups and the `moduleExpertise` list of each teammate.
+ */
 export async function handleViewTeamPerformance(
   args: { workflowId?: string; detail?: boolean },
   stateDir: string,
@@ -20,11 +23,6 @@ export async function handleViewTeamPerformance(
 
     const { view } = await foldToTail<TeamPerformanceViewState>(store, materializer, streamId, TEAM_PERFORMANCE_VIEW);
 
-    // DR-8 — `detail: true` returns the full projection (teammates + modules +
-    // sizing). The compact default keeps the per-teammate CORE metrics (the
-    // headline the agent reads) but strips the heavier `modules` / `teamSizing`
-    // roll-ups and each teammate's `moduleExpertise` list, which drive the bulk
-    // of the payload on a large team.
     if (args.detail) {
       return { success: true, data: view };
     }

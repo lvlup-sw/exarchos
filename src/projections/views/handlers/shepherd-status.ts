@@ -10,13 +10,13 @@ import { getOrCreateMaterializer } from './materializer.js';
 import { buildPage } from './pipeline.js';
 import { foldToTail } from '../../fold-at-tail.js';
 
-// ─── View Shepherd Status Handler ────────────────────────────────────────────
-
+/**
+ * Handles the `shepherd_status` view. It pages the `prs` list, because that list is the largest part of the view.
+ * Each PR leaves out its count for each severity, unless `detail` is true.
+ */
 export async function handleViewShepherdStatus(
   args: {
     workflowId?: string;
-    // DR-8 (Task 024) — `prs` is a paged list; compact-by-default drops the
-    // per-PR severity breakdown; `detail: true` restores it.
     limit?: number;
     offset?: number;
     detail?: boolean;
@@ -31,8 +31,6 @@ export async function handleViewShepherdStatus(
 
     const { view } = await foldToTail<ShepherdStatusState>(store, materializer, streamId, SHEPHERD_STATUS_VIEW);
 
-    // DR-8 (Task 024) — `prs` is the dominant list, so page it. Compact-by-
-    // default drops each PR's per-severity breakdown; `detail: true` restores it.
     const { start, effectiveLimit } = resolveInventoryWindow(args);
     const windowed = view.prs.slice(start, start + effectiveLimit);
     const page = buildPage(view.prs.length, start, effectiveLimit, windowed.length);

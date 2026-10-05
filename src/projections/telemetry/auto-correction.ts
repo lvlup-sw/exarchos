@@ -6,8 +6,6 @@ import {
 } from './constants.js';
 import type { ToolMetrics } from './telemetry-projection.js';
 
-// ─── Types ──────────────────────────────────────────────────────────────────
-
 /** Keys of ToolMetrics that are numeric (excludes array fields). */
 type NumericMetricKey = {
   [K in keyof ToolMetrics]: ToolMetrics[K] extends number ? K : never;
@@ -28,8 +26,6 @@ export interface Correction {
   readonly value: unknown;
   readonly rule: string;
 }
-
-// ─── Correction Rules ───────────────────────────────────────────────────────
 
 export const CORRECTION_RULES: readonly CorrectionRule[] = [
   {
@@ -60,8 +56,6 @@ export const CORRECTION_RULES: readonly CorrectionRule[] = [
     check: (args) => args.fields === undefined && args.query === undefined,
   },
 ];
-
-// ─── Match Correction ───────────────────────────────────────────────────────
 
 /**
  * Checks whether a correction rule matches the given tool invocation.
@@ -109,13 +103,9 @@ export function matchCorrection(
   };
 }
 
-// ─── Apply Corrections ──────────────────────────────────────────────────────
-
 /**
- * Applies corrections to args, returning the modified args and the list of
- * applied corrections.
- *
- * Respects `skipAutoCorrection: true` opt-out — returns args unchanged.
+ * Applies corrections to a copy of `args` and returns it with the applied corrections.
+ * With `skipAutoCorrection: true`, it returns `args` unchanged.
  */
 export function applyCorrections(
   args: Record<string, unknown>,
@@ -136,13 +126,10 @@ export function applyCorrections(
   return { args: modified, applied };
 }
 
-// ─── Consistency Tracker ────────────────────────────────────────────────────
-
 /**
- * Tracks consecutive threshold breaches per tool+action key.
- *
- * A breach increments the counter; a non-breach resets it to 0.
- * `shouldCorrect` returns true once the counter reaches CONSISTENCY_WINDOW_SIZE.
+ * Counts consecutive threshold breaches for each tool and action key.
+ * A breach increments the counter, and a non-breach resets it to 0.
+ * `shouldCorrect` returns true when the counter reaches `CONSISTENCY_WINDOW_SIZE`.
  */
 export class ConsistencyTracker {
   private breaches = new Map<string, number>();

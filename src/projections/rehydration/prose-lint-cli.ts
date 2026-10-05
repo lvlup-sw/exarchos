@@ -1,28 +1,12 @@
 /**
- * Thin CLI entrypoint that runs the rehydration prose lint and reports
- * violations in a machine-friendly text format.
+ * The CLI entrypoint for the rehydration prose lint. `tools/audit/gates/check-prose-lint.mjs` runs it
+ * under `tsx`, because that wrapper cannot import TypeScript. The pattern catalog stays in `prose-lint.ts`.
  *
- * Intended to be invoked under `tsx` by `tools/audit/gates/check-prose-lint.mjs`
- * (T049, DR-13). The wrapper at the repo root cannot directly import
- * TypeScript, so this stub exposes the canonical `lintTemplate()` /
- * `lintProse()` functions through a child-process boundary. Single
- * source of truth for the pattern catalog stays in `prose-lint.ts`.
+ * With no flag, it lints the live template with `lintTemplate()`. With `--template-source <path>`, it runs
+ * `lintProse()` over that file, so the wrapper tests can seed patterns and not change the real template.
  *
- * Modes:
- *   - Default: lint the live rehydration document template via
- *     `lintTemplate()` (which reads `schema.ts` doc comments + every
- *     `compactGuidance` literal in `playbooks.ts`).
- *   - `--template-source <path>`: read the file at <path> as a string
- *     and run `lintProse()` over its contents. Used by the wrapper's
- *     test suite to seed AI-writing patterns without mutating the real
- *     template; also useful as a one-off lint of an arbitrary file.
- *
- * Output:
- *   - On clean input: prints nothing and exits 0.
- *   - On violations: prints one line per violation to stderr in the
- *     `pattern\tline\texcerpt` format, then exits 1. The wrapper
- *     forwards this stderr to the npm-run-validate console.
- *   - On usage / IO errors: prints a diagnostic to stderr and exits 2.
+ * On clean input it prints nothing and exits 0. On violations it writes a tab-separated table to stderr
+ * and exits 1. On a usage or read error it exits 2.
  */
 import { readFileSync } from 'node:fs';
 import { lintProse, lintTemplate, type Violation } from './prose-lint.js';
@@ -62,10 +46,8 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
   return { templateSource };
 }
 
+/** Formats a header line, then one tab-separated line for each violation. */
 function formatViolations(violations: readonly Violation[]): string {
-  // One line per violation. Tab-separated so wrappers can pipe the output
-  // through `column -t` or `cut` if they want a different layout. The
-  // header line keeps the format self-documenting in CI logs.
   const header = 'pattern\tline\texcerpt';
   const rows = violations.map(
     (v) => `${v.pattern}\t${v.line}\t${v.excerpt}`,

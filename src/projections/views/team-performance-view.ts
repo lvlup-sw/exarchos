@@ -1,11 +1,7 @@
 import type { ViewProjection } from './materializer.js';
 import type { WorkflowEvent } from '../../events/schemas.js';
 
-// ─── View Name Constant ────────────────────────────────────────────────────
-
 export const TEAM_PERFORMANCE_VIEW = 'team-performance';
-
-// ─── View State ────────────────────────────────────────────────────────────
 
 export interface TeammateMetrics {
   tasksCompleted: number;
@@ -14,12 +10,14 @@ export interface TeammateMetrics {
   totalDurationMs: number;
   moduleExpertise: string[];
   qualityGatePassRate: number;
-  // #1525 — token telemetry, folded from subagent.tokens_used atoms emitted by
-  // the SubagentStop hook (attributed to this teammate by worktree↔cwd match).
-  // `subagentRuns` is the number of token atoms folded (≈ subagent invocations);
-  // `avgOutputTokensPerRun` = totalOutputTokens / subagentRuns (order-independent).
+  /**
+   * Output tokens from `subagent.tokens_used` events. The SubagentStop hook attributes each event
+   * to a teammate when the subagent `cwd` matches a dispatched worktree.
+   */
   totalOutputTokens: number;
+  /** The count of folded `subagent.tokens_used` events. */
   subagentRuns: number;
+  /** `totalOutputTokens / subagentRuns`, so the value does not depend on event order. */
   avgOutputTokensPerRun: number;
 }
 
@@ -43,8 +41,6 @@ export interface TeamPerformanceViewState {
   modules: Record<string, ModuleMetrics>;
   teamSizing: TeamSizingState;
 }
-
-// ─── Helpers ───────────────────────────────────────────────────────────────
 
 /** Extract module name from a file path (first segment after src/). */
 function extractModule(filePath: string): string | null {
@@ -105,8 +101,11 @@ function calcPassRate(completed: number, failed: number): number {
   return total > 0 ? completed / total : 0;
 }
 
-// ─── Projection ────────────────────────────────────────────────────────────
-
+/**
+ * Folds task, token, fix-cycle, and team-sizing events into the team performance view.
+ * A `subagent.tokens_used` event can arrive before or after `team.task.completed`, so a task
+ * completion carries the token fields forward unchanged.
+ */
 export const teamPerformanceProjection: ViewProjection<TeamPerformanceViewState> = {
   init: () => ({
     teammates: {},
@@ -134,7 +133,6 @@ export const teamPerformanceProjection: ViewProjection<TeamPerformanceViewState>
         const durationMs = data?.durationMs ?? 0;
         const filesChanged = data?.filesChanged ?? [];
 
-        // Update teammate metrics
         const prev = getTeammate(view.teammates, name);
         const newCompleted = prev.tasksCompleted + 1;
         const newModules = extractModules(filesChanged);
@@ -146,14 +144,11 @@ export const teamPerformanceProjection: ViewProjection<TeamPerformanceViewState>
           totalDurationMs: prev.totalDurationMs + durationMs,
           moduleExpertise: [...new Set([...prev.moduleExpertise, ...newModules])],
           qualityGatePassRate: calcPassRate(newCompleted, prev.tasksFailed),
-          // Token telemetry is folded from a separate atom (subagent.tokens_used)
-          // that may arrive before or after this event — carry it forward verbatim.
           totalOutputTokens: prev.totalOutputTokens,
           subagentRuns: prev.subagentRuns,
           avgOutputTokensPerRun: prev.avgOutputTokensPerRun,
         };
 
-        // Update module metrics
         const updatedModules = { ...view.modules };
         for (const mod of newModules) {
           const prevMod = updatedModules[mod] ?? defaultModule();
@@ -174,9 +169,6 @@ export const teamPerformanceProjection: ViewProjection<TeamPerformanceViewState>
       }
 
       case 'subagent.tokens_used': {
-        // #1525 — clean single-stream left-fold: the SubagentStop hook already
-        // resolved teammate identity (worktree↔cwd) before emitting, so the view
-        // just attributes the output-token total to that teammate.
         const data = event.data as {
           teammateName?: string;
           outputTokens?: number;

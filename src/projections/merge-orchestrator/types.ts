@@ -1,64 +1,24 @@
 /**
- * `merge-orchestrator@v1` projection state (Wave 2B.1 / #1304).
+ * `merge-orchestrator@v1` projection state: the merge lifecycle of one feature stream, as a fold over `merge.*` events.
  *
- * Captures the per-feature-stream lifecycle of a merge as a fold over the
- * `merge.*` event family. Replaces the in-memory side-database that pre-
- * preview.2 `merge-orchestrate.ts` carried; mirrors the durable event-source-
- * of-truth pattern Wave 2A applies to TaskStore.
+ * The expected event order gives these phases:
+ * - idle -> preflight (merge.preflight)
+ * - preflight -> requested (merge.requested) -> executed (merge.executed) -> completed (merge.completed)
+ * - preflight -> executed (merge.executed), for old streams with no merge.requested
+ * - any phase -> recovering (merge.recovered, or the retired merge.rollback)
  *
- * ## Phase machine
- *
- *   idle ──merge.preflight──▶ preflight
- *                              │
- *                              ├──merge.requested──▶ requested   (audit §F1.2)
- *                              │                       │
- *                              │                       ▼
- *                              │                   merge.executed
- *                              │                       │
- *                              │                       ▼
- *                              ▼                    executed ──merge.completed──▶ completed
- *                          (legacy
- *                          path,
- *                          merge.executed
- *                          directly)
- *
- *   any ──merge.recovered / merge.rollback (legacy)──▶ recovering
- *
- * The `requested` phase (audit findings §F1.2) is the durable INTENT recorded
- * BEFORE the non-idempotent side effect (e.g., GitHub merge API). Wave 4's
- * two-event split commits `merge.requested` purely under `withStateRetry`,
- * fires the side effect OUTSIDE the retry boundary, then commits
- * `merge.executed`. This reducer's `preflight → requested → executed`
- * transition is the projection's view of that split: the projection sees
- * intent before outcome, never one without the other (after Wave 4 migrates
- * the call sites — preview.2 still allows legacy `preflight → executed`
- * sequences for streams predating the migration).
- *
- * ## Naming note (#1306 rename / DR-2 retirement)
- *
- * `merge.recovered` (#1306) is the canonical recovery event and, since DR-2
- * (task 006), the sole emitted one. The legacy `merge.rollback` is retired —
- * read-tolerant-not-emittable — so the reducer still folds it from old event
- * logs but nothing writes it. The projection state captures the outcome
- * (`recovering` phase) identically regardless of which event type fired the
- * transition.
+ * The reducer does not check the order. Each event sets its own phase.
+ * `requested` is the durable intent, recorded before a side effect that is not idempotent, such as the GitHub merge API.
  */
 
 /**
- * Lifecycle phase for a merge on the feature stream.
- *
- * - `idle`        — initial; no merge activity observed yet.
- * - `preflight`   — `merge.preflight` was folded; the gate ran (passed or
- *                   failed; consult `preflight.passed` for the verdict).
- * - `requested`   — `merge.requested` was folded; durable intent is recorded.
- *                   This is the audit §F1.2 phase: the side effect has NOT
- *                   yet fired. Wave 4's Phase B reads this state.
- * - `executed`    — `merge.executed` was folded; the merge has been performed
- *                   on the target branch (mergeSha is durable).
- * - `recovering`  — `merge.recovered` (or its legacy alias `merge.rollback`)
- *                   was folded; recovery is in flight or completed.
- * - `completed`   — `merge.completed` was folded; the orchestrator has
- *                   formally terminated the lifecycle. Terminal phase.
+ * Lifecycle phase of a merge on the feature stream.
+ * - `idle`: no merge event folded yet.
+ * - `preflight`: the gate ran. `preflight.passed` holds the verdict.
+ * - `requested`: the intent is durable, and the merge side effect did not run yet.
+ * - `executed`: the merge is on the target branch.
+ * - `recovering`: a recovery event folded.
+ * - `completed`: the terminal phase.
  */
 export type MergeOrchestratorPhase =
   | 'idle'
@@ -68,33 +28,17 @@ export type MergeOrchestratorPhase =
   | 'recovering'
   | 'completed';
 
-/**
- * Preflight gate metadata captured from `merge.preflight`. Reflects the
- * outcome of the pre-merge guard run (ancestry, branch protection, worktree
- * cleanliness, drift). Failure reasons surface the operator-facing diagnostic
- * the preflight subroutine produced.
- */
+/** Outcome of the pre-merge gate, from `merge.preflight`. */
 export interface MergePreflightMetadata {
-  /** True iff every preflight sub-check passed. */
+  /** True when every preflight sub-check passed. */
   readonly passed: boolean;
-  /**
-   * Operator-facing failure description (e.g., the `describePreflightFailure`
-   * output). Absent on `passed === true`; present otherwise.
-   */
+  /** Failure description for the operator. It is absent when `passed` is true. */
   readonly reason?: string;
 }
 
 /**
- * Merge action metadata captured across the `requested → executed` split.
- *
- * Fields appear progressively as events fold:
- *
- *   - `taskId`, `sourceBranch`, `targetBranch`, `strategy` are first set on
- *     `merge.requested` (Wave 4) OR `merge.executed` (legacy / preview.1).
- *   - `mergeSha`, `rollbackSha` are first set on `merge.executed`.
- *
- * All fields are `readonly` on `MergeOrchestratorState`; mutation only occurs
- * via a fresh reducer output (DR-1 purity contract).
+ * Merge fields that the merge events set.
+ * A later event overwrites each field that it has and keeps the others.
  */
 export interface MergeActionMetadata {
   /** Originating task id (matches `task.completed.taskId` for the worktree). */
@@ -103,102 +47,59 @@ export interface MergeActionMetadata {
   readonly sourceBranch?: string;
   /** Target branch the merge lands on. */
   readonly targetBranch?: string;
-  /** Operator-selected strategy (Wave 4's `merge.requested` carries this). */
+  /** Merge strategy that the operator selected. */
   readonly strategy?: 'squash' | 'rebase' | 'merge';
-  /** Pull-request number (Wave 4 only; preview.2 may have no PR yet). */
+  /** Pull-request number, when a pull request exists. */
   readonly prNumber?: number;
   /** Resulting commit sha on the target branch (set on `merge.executed`). */
   readonly mergeSha?: string;
   /**
-   * Parent commit captured prior to the merge so a rollback can rewind to
-   * `<rollbackSha>` deterministically via the INV-14 ladder (`git merge --abort`
-   * → `git reset --keep`, never `--hard`).
+   * Parent commit recorded before the merge. Recovery runs `git merge --abort`,
+   * then `git reset --keep <rollbackSha>`, and never `--hard`.
    */
   readonly rollbackSha?: string;
 }
 
 /**
- * Recovery context captured from `merge.recovered` (or its legacy alias `merge.rollback`).
- *
- * Three fields with distinct roles:
- *
- *   - `reason` — *why the merge failed* (closed enum on the event-store
- *     schema: `'merge-failed' | 'verification-failed' | 'timeout'`).
- *     Widened to `string` here so the #1306 rename can extend the enum
- *     without re-shaping the projection state type.
- *   - `recoveryError` — INV-14 discriminator on *what happened during
- *     recovery*. A closed enum so consumers can branch on the three
- *     indeterminate-worktree outcomes the invariant names without parsing
- *     prose. Absent on a clean recovery.
- *   - `error` — free-form recovery-side detail (advisory; carry the message
- *     verbatim from the substrate for human triage). Presence signals an
- *     indeterminate worktree; `recoveryError` says which kind.
- *
- * The `recoveryError` enum values map to INV-14's three cases:
- *
- *   - `'reset-keep-blocked'`     — `git reset --keep` refused (would discard
- *                                   uncommitted work). Recoverable: the
- *                                   operator inspects and decides.
- *   - `'reset-failed'`           — the substrate undo itself failed
- *                                   (non-zero exit from the reset).
- *   - `'unexpected-mid-merge-drift'` — a post-merge drift check observed an
- *                                   inconsistency the recovery primitive
- *                                   cannot resolve.
- *
- * Reserved values not yet emitted by the current producer; see the schema
- * comment on `MergeRollbackData.recoveryError` in `events/schemas.ts`
- * for the producer-coverage caveat.
+ * Recovery context from `merge.recovered` or the retired `merge.rollback`.
+ * The event schema gives `reason` a closed enum, and this type widens it to `string`.
+ * `recoveryError` is absent on a clean recovery.
  */
 export interface MergeRecoveryContext {
-  /** Cause of the rollback (e.g., `'merge-failed'`, `'verification-failed'`). */
+  /** Cause of the rollback, for example `'merge-failed'`. */
   readonly reason?: string;
-  /** INV-14 discriminator on the recovery outcome — see interface doc. */
+  /**
+   * Recovery outcome of an indeterminate worktree, as a closed enum so that consumers do not parse prose.
+   * `reset-keep-blocked`: `git reset --keep` refused to discard local work.
+   * `reset-failed`: the reset failed.
+   * `unexpected-mid-merge-drift`: HEAD is not the anchor after recovery.
+   */
   readonly recoveryError?:
     | 'reset-keep-blocked'
     | 'reset-failed'
     | 'unexpected-mid-merge-drift';
-  /** Free-form recovery-side error detail (advisory; triage only). */
+  /** Failure detail from the `rollbackError` field of the event, for triage only. */
   readonly error?: string;
 }
 
 /**
- * Per-feature-stream projection state for `merge-orchestrator@v1`.
- *
- * Folded by {@link mergeOrchestratorReducer} over the `merge.*` event family.
- * `phase` is the discriminator; the metadata sub-records (`preflight`,
- * `merge`, `recovery`) are populated as the corresponding events fold and
- * preserved across subsequent transitions (a `merge.executed` does not blank
- * out the preflight outcome — observability replay needs both).
- *
- * `projectionSequence` is the standard monotonic counter (DR-3 contract): it
- * increments exactly once per *handled* event, so downstream consumers (snapshot
- * cadence, fingerprint comparisons) can detect "did anything change" without
- * deep equality.
+ * Projection state of `merge-orchestrator@v1` for one feature stream.
+ * `phase` is the discriminator. Each metadata sub-record stays across later transitions.
  */
 export interface MergeOrchestratorState {
-  /**
-   * Monotonic counter — bumped once per handled `merge.*` event. Unhandled
-   * event types (or events the reducer treats as no-ops) leave this unchanged
-   * so the counter tracks truth-of-handled-events, not truth-of-stream.
-   */
+  /** Increments once for each handled `merge.*` event. Other event types leave it unchanged. */
   readonly projectionSequence: number;
-  /** Current lifecycle phase; see {@link MergeOrchestratorPhase}. */
+  /** Current lifecycle phase. */
   readonly phase: MergeOrchestratorPhase;
-  /** Preflight gate metadata; populated on `merge.preflight`. */
+  /** Preflight gate metadata from `merge.preflight`. */
   readonly preflight?: MergePreflightMetadata | undefined;
-  /** Merge action metadata; populated across `merge.requested` + `merge.executed`. */
+  /** Merge metadata. `merge.preflight`, `merge.requested` and `merge.executed` set it. */
   readonly merge?: MergeActionMetadata | undefined;
-  /** Recovery context; populated on `merge.recovered` (or legacy `merge.rollback`). */
+  /** Recovery context from `merge.recovered` or `merge.rollback`. */
   readonly recovery?: MergeRecoveryContext | undefined;
 }
 
-/**
- * Canonical initial state for `merge-orchestrator@v1`. Folding the reducer over
- * an empty event stream MUST yield this value (DR-1 reducer contract).
- *
- * Exported so tests can compare against the canonical value rather than
- * re-declaring an identical literal.
- */
+/** Initial state of `merge-orchestrator@v1`. A fold over an empty stream returns this value. */
 export const initialMergeOrchestratorState: MergeOrchestratorState = {
   projectionSequence: 0,
   phase: 'idle',

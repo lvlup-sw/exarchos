@@ -1,17 +1,12 @@
+/** The structural delta between two projected `State` values. */
+
+// RESERVED(issue: #1475, owner: exarchos, expires: 2027-01-31) — dead stub, deleted at expiry if no caller adopts it.
+
 /**
- * The structural delta between two projected {@link State} values.
- *
- * Leaves are keyed by **dot-path** (e.g. `phase`, `tasks.0.status`). Arrays and
- * objects are descended structurally; primitives compare by value equality.
- *
- * - `added` — paths present in `b` but not `a`, mapped to their value in `b`.
- * - `removed` — paths present in `a` but not `b`, mapped to their value in `a`.
- * - `changed` — paths present in both whose leaf value differs, mapped to
- *   `{ from, to }`.
+ * Leaf differences keyed by dot-path, such as `phase` or `tasks.0.status`.
+ * `added` and `removed` hold the values from the one side that has the path.
+ * `changed` holds `{ from, to }` for a path on both sides.
  */
-
-// RESERVED(issue: #1475, owner: exarchos, expires: 2027-01-31) — reserved dead stub; deletion at expiry if unadopted (DR-7 module-intent gate)
-
 export interface StateDelta {
   added: Record<string, unknown>;
   removed: Record<string, unknown>;
@@ -23,11 +18,8 @@ function isPlainContainer(value: unknown): value is Record<string, unknown> | un
 }
 
 /**
- * Stable, insertion-order-independent key listing for a container.
- *
- * Arrays yield numeric indices `0..length-1`; objects yield their own keys
- * sorted lexicographically so the walk — and therefore the emitted delta — is
- * deterministic regardless of property insertion order.
+ * Lists the keys of a container in a stable order. An array gives its indices.
+ * An object gives its own keys in sorted order, so the delta does not depend on insertion order.
  */
 function containerKeys(value: Record<string, unknown> | unknown[]): string[] {
   if (Array.isArray(value)) {
@@ -41,10 +33,10 @@ function joinPath(prefix: string, key: string): string {
 }
 
 /**
- * Recursively walk a `(a, b)` pair rooted at `path`, accumulating leaf-level
- * differences into `delta`. Two containers are compared key-by-key; whenever
- * one side descends into a container and the other does not (or the leaf
- * values simply differ), the difference is recorded at the current path.
+ * Walks `a` and `b` from `path` and records the leaf differences in `delta`.
+ * Two containers of the same kind are compared key by key.
+ * A primitive difference, or a mismatch in container shape, records one changed leaf at `path`.
+ * This keeps the delta lossless.
  */
 function walk(a: unknown, b: unknown, path: string, delta: StateDelta): void {
   if (Object.is(a, b)) {
@@ -54,9 +46,6 @@ function walk(a: unknown, b: unknown, path: string, delta: StateDelta): void {
   const aIsContainer = isPlainContainer(a);
   const bIsContainer = isPlainContainer(b);
 
-  // When both sides are containers of the same kind we descend; a mismatch in
-  // container-ness (or array-vs-object) is treated as a single changed leaf so
-  // the delta stays lossless under round-trip.
   if (
     aIsContainer &&
     bIsContainer &&
@@ -84,14 +73,12 @@ function walk(a: unknown, b: unknown, path: string, delta: StateDelta): void {
     return;
   }
 
-  // Leaf-level difference (primitive ≠ primitive, or container-shape mismatch).
   delta.changed[path] = { from: a, to: b };
 }
 
 /**
- * Sort key for the merged child-key set. Numeric (array) segments sort
- * numerically; object keys sort lexicographically. Mixed sets are stabilized
- * by falling back to string comparison.
+ * Sorts the merged child keys. Numeric segments sort by number and come first.
+ * Other keys sort by string comparison.
  */
 function byPathSegment(x: string, y: string): number {
   const xn = /^\d+$/.test(x);
@@ -102,11 +89,9 @@ function byPathSegment(x: string, y: string): number {
 }
 
 /**
- * Flatten a subtree present on only one side into `bucket`, one entry per leaf
- * dot-path so the delta replays key-by-key. Used for both `added` (subtree only
- * in `b`) and `removed` (subtree only in `a`) — the only difference is which
- * bucket the leaves land in. A bare primitive is itself a leaf and is written
- * directly at `path`.
+ * Writes each leaf of a one-sided subtree into `bucket`, keyed by dot-path.
+ * A primitive is a leaf. An empty `{}` or `[]` is also a leaf, so a one-sided
+ * empty container stays in the delta and the delta round-trips.
  */
 function collectLeaves(
   value: unknown,
@@ -115,11 +100,6 @@ function collectLeaves(
 ): void {
   if (isPlainContainer(value)) {
     const keys = containerKeys(value);
-    // An empty container is itself a leaf: emit the bare `{}`/`[]` so a
-    // one-sided empty object/array (e.g. removed `x: {}`) survives in the
-    // delta. Without this a zero-key container iterates nothing and silently
-    // vanishes from added/removed, breaking structural fidelity and the
-    // round-trip property (INV-1).
     if (keys.length === 0) {
       bucket[path] = Array.isArray(value) ? [] : {};
       return;
@@ -133,26 +113,13 @@ function collectLeaves(
 }
 
 /**
- * Compute the pure structural delta between two projected `State` values.
+ * Computes the structural delta between two plain-data values.
+ * The function does no I/O and reads no store. Keys come in a stable order, so equal inputs give identical output.
+ * It does not import `projectAt`. The caller projects the two snapshots.
  *
- * `diffStates` is reducer-agnostic and performs **no I/O and no store access** —
- * it is a deterministic deep-compare over plain data. Output keys are emitted in
- * a stable order (object keys sorted lexicographically, array indices
- * numerically), so repeated calls on equal inputs are byte-identical.
- *
- * ## Primary consumers
- *
- * 1. **Review** — `diffStates(projectAt(N - 1), projectAt(N))` to show what one
- *    event changed in the projected workflow state.
- * 2. **Rehydrate "since last handoff"** (#1475) — the delta between the
- *    projection at the previous handoff and now.
- *
- * `diffStates` itself stays standalone: it does not import `projectAt`. Callers
- * project the two `State` snapshots and pass them in.
- *
- * @param a - The "before" state (any plain-data value).
- * @param b - The "after" state (any plain-data value).
- * @returns A {@link StateDelta} of dot-path-keyed added / removed / changed leaves.
+ * @param a - The "before" state.
+ * @param b - The "after" state.
+ * @returns The added, removed, and changed leaves, keyed by dot-path.
  */
 export function diffStates(a: unknown, b: unknown): StateDelta {
   const delta: StateDelta = { added: {}, removed: {}, changed: {} };

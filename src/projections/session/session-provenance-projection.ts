@@ -1,8 +1,7 @@
-// ─── Session Provenance Projection ──────────────────────────────────────────
-//
-// CQRS view projection that materializes session events into queryable
-// aggregates. Completely lazy — never hydrated at startup, reads session
-// JSONL files on-demand with a bounded LRU cache.
+/**
+ * Materializes session events into provenance aggregates. It reads the session JSONL files on demand,
+ * never at startup, and keeps the parsed events in a bounded LRU cache.
+ */
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
@@ -13,8 +12,6 @@ import type {
   SessionSummaryEvent,
 } from './types.js';
 import { readManifestEntries } from './manifest.js';
-
-// ─── Public Types ───────────────────────────────────────────────────────────
 
 export interface SessionProvenanceQuery {
   sessionId?: string | undefined;
@@ -36,8 +33,6 @@ export interface SessionProvenanceResult {
   fileAttribution?: Array<{ file: string; tools: string[] }>;
 }
 
-// ─── LRU Cache ──────────────────────────────────────────────────────────────
-
 const MAX_CACHE_SIZE = 20;
 
 interface CacheEntry {
@@ -45,17 +40,17 @@ interface CacheEntry {
   mtimeMs: number;
 }
 
+/** The LRU cache. A `Map` keeps insertion order, so its first key is the least recently used. */
 const sessionCache = new Map<string, CacheEntry>();
 
+/** Returns the cached events and marks them as most recently used. A changed file mtime drops the entry. */
 function getCachedEvents(key: string, currentMtimeMs: number): SessionEvent[] | undefined {
   const entry = sessionCache.get(key);
   if (entry !== undefined) {
-    // Invalidate if file has been modified since caching
     if (entry.mtimeMs !== currentMtimeMs) {
       sessionCache.delete(key);
       return undefined;
     }
-    // Move to end (most recently used)
     sessionCache.delete(key);
     sessionCache.set(key, entry);
     return entry.events;
@@ -63,9 +58,9 @@ function getCachedEvents(key: string, currentMtimeMs: number): SessionEvent[] | 
   return undefined;
 }
 
+/** Caches the events. When the cache is full, it first evicts the least recently used entry. */
 function setCachedEvents(key: string, events: SessionEvent[], mtimeMs: number): void {
   if (sessionCache.size >= MAX_CACHE_SIZE) {
-    // Evict oldest (first key)
     const oldest = sessionCache.keys().next().value;
     if (oldest !== undefined) {
       sessionCache.delete(oldest);
@@ -74,19 +69,20 @@ function setCachedEvents(key: string, events: SessionEvent[], mtimeMs: number): 
   sessionCache.set(key, { events, mtimeMs });
 }
 
-// ─── Event File Reading ─────────────────────────────────────────────────────
-
+/**
+ * Reads the events of one session. A session id with characters outside `[a-zA-Z0-9_-]` gives no events,
+ * so the id cannot traverse paths. A missing file gives no events. A malformed line, from a partial write
+ * or corruption, is skipped.
+ */
 async function readSessionEvents(
   stateDir: string,
   sessionId: string,
 ): Promise<SessionEvent[]> {
-  // Guard against path traversal in sessionId
   if (!/^[a-zA-Z0-9_-]+$/.test(sessionId)) return [];
 
   const eventsPath = path.join(stateDir, 'sessions', `${sessionId}.events.jsonl`);
   const cacheKey = `${stateDir}:${sessionId}`;
 
-  // Stat the file to check mtime for cache validation
   let stat: { mtimeMs: number };
   try {
     stat = await fs.stat(eventsPath);
@@ -109,7 +105,6 @@ async function readSessionEvents(
     try {
       events.push(JSON.parse(line) as SessionEvent);
     } catch {
-      // Skip malformed lines — partial writes or corruption should not crash the query
       continue;
     }
   }
@@ -118,8 +113,12 @@ async function readSessionEvents(
   return events;
 }
 
-// ─── Single-Session Aggregation ─────────────────────────────────────────────
-
+/**
+ * Aggregates the tools, tokens, files, duration, and turns of the events. Summary events are authoritative
+ * for tools, tokens, turns, and duration. With no summary, tool and turn events give the tools, tokens,
+ * and turns, and the duration stays 0.
+ * Tool events always give the category counts and add their files.
+ */
 function aggregateSession(events: SessionEvent[]): {
   tools: Record<string, number>;
   toolsByCategory: { native: number; mcp_exarchos: number; mcp_other: number };
@@ -135,8 +134,6 @@ function aggregateSession(events: SessionEvent[]): {
   let duration = 0;
   let turns = 0;
 
-  // Summary events are authoritative — if present, use them for tools/tokens/turns/duration.
-  // Individual tool/turn events are only used for aggregation when no summary exists.
   const summaryEvents = events.filter((e): e is SessionSummaryEvent => e.t === 'summary');
   const hasSummary = summaryEvents.length > 0;
 
@@ -153,7 +150,6 @@ function aggregateSession(events: SessionEvent[]): {
       duration += su.dur;
       turns += su.turns;
     }
-    // Still process tool events for category breakdown and file tracking
     for (const event of events) {
       if (event.t === 'tool') {
         const te = event as SessionToolEvent;
@@ -164,7 +160,6 @@ function aggregateSession(events: SessionEvent[]): {
       }
     }
   } else {
-    // No summary — aggregate from individual events
     for (const event of events) {
       switch (event.t) {
         case 'tool': {
@@ -199,8 +194,7 @@ function aggregateSession(events: SessionEvent[]): {
   };
 }
 
-// ─── Attribution (file → tool mapping) ──────────────────────────────────────
-
+/** Maps each file to the tools that touched it. */
 function buildFileAttribution(
   events: SessionEvent[],
 ): Array<{ file: string; tools: string[] }> {
@@ -226,13 +220,14 @@ function buildFileAttribution(
   }));
 }
 
-// ─── Cost breakdown by session ──────────────────────────────────────────────
-
+/**
+ * Returns the input and output tokens of each session. Summary events take priority over turn events,
+ * so the tokens are not counted twice.
+ */
 function buildCostBySession(
   sessionsEvents: Array<{ sid: string; events: SessionEvent[] }>,
 ): Array<{ sid: string; tokens: { in: number; out: number } }> {
   return sessionsEvents.map(({ sid, events }) => {
-    // Summary events are authoritative — prefer them over turn events to avoid double-counting
     const summaryEvents = events.filter((e): e is SessionSummaryEvent => e.t === 'summary');
     if (summaryEvents.length > 0) {
       let tokIn = 0;
@@ -243,7 +238,6 @@ function buildCostBySession(
       }
       return { sid, tokens: { in: tokIn, out: tokOut } };
     }
-    // Fallback to turn events when no summary exists
     let tokIn = 0;
     let tokOut = 0;
     for (const event of events) {
@@ -257,13 +251,15 @@ function buildCostBySession(
   });
 }
 
-// ─── Public API ─────────────────────────────────────────────────────────────
-
+/**
+ * Aggregates one session, or every session of a workflow from the manifest. A `workflowId` takes
+ * priority over a `sessionId`, and with neither the result holds empty totals. The `attribution` metric
+ * adds the file-to-tool map. The `cost` metric adds the tokens of each session to a workflow result.
+ */
 export async function materializeSessionProvenance(
   stateDir: string,
   query: SessionProvenanceQuery,
 ): Promise<SessionProvenanceResult> {
-  // Single session query
   if (query.sessionId && !query.workflowId) {
     const events = await readSessionEvents(stateDir, query.sessionId);
     const agg = aggregateSession(events);
@@ -280,7 +276,6 @@ export async function materializeSessionProvenance(
     return result;
   }
 
-  // Workflow query — find all sessions with matching workflowId
   if (query.workflowId) {
     const entries = await readManifestEntries(stateDir);
     const matchingEntries = entries.filter((e) => e.workflowId === query.workflowId);
@@ -291,7 +286,6 @@ export async function materializeSessionProvenance(
       sessionsEvents.push({ sid: entry.sessionId, events });
     }
 
-    // Aggregate across all sessions
     const allEvents = sessionsEvents.flatMap((s) => s.events);
     const agg = aggregateSession(allEvents);
 
@@ -312,7 +306,6 @@ export async function materializeSessionProvenance(
     return result;
   }
 
-  // Neither sessionId nor workflowId — return empty
   return {
     tools: {},
     toolsByCategory: { native: 0, mcp_exarchos: 0, mcp_other: 0 },
