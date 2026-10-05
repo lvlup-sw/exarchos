@@ -19,8 +19,6 @@ import { SqliteBackend } from '../../../../../src/storage/sqlite-backend.js';
 import { foldWorkflowSummaries } from '../../../../../src/projections/views/lifecycle/workflow-fold.js';
 import { rmrf } from '../../../../../tools/test-helpers/temp-dir.js';
 
-// ─── Fixtures ────────────────────────────────────────────────────────────────
-
 interface WorkflowSpec {
   featureId: string;
   workflowType: string;
@@ -76,7 +74,7 @@ function makeMemory(): { backend: InMemoryBackend; cleanup: () => void } {
   return { backend, cleanup: () => backend.close() };
 }
 
-// A representative multi-type, multi-status corpus reused across tests.
+/** A corpus with two workflow types and each lifecycle status. */
 const CORPUS: WorkflowSpec[] = [
   { featureId: 'feat-active', workflowType: 'feature', phase: 'delegate' },
   { featureId: 'feat-blocked', workflowType: 'feature', phase: 'blocked' },
@@ -85,8 +83,6 @@ const CORPUS: WorkflowSpec[] = [
   { featureId: 'dbg-active', workflowType: 'debug', phase: 'triage' },
   { featureId: 'dbg-done', workflowType: 'debug', phase: 'completed' },
 ];
-
-// ─── Cleanup registry ────────────────────────────────────────────────────────
 
 const cleanups: Array<() => void> = [];
 afterEach(() => {
@@ -102,52 +98,41 @@ function sqliteWithCorpus(): SqliteBackend {
   return backend;
 }
 
-// ─── WorkflowFold_TypeFilter_PushedDownToSql ─────────────────────────────────
-
 describe('workflow-fold view (DR-3)', () => {
+  /**
+   * The JavaScript lifecycle filter does not check `workflowType`. Without the SQL predicate, the
+   * `feature` rows stay in the result. The counter shows that the pushdown ran one time.
+   */
   it('WorkflowFold_TypeFilter_PushedDownToSql', () => {
     const backend = sqliteWithCorpus();
 
     const rows = foldWorkflowSummaries(backend, { workflowType: 'debug', includeTerminal: true });
 
-    // Behavioural proof: only debug workflows returned. If the type predicate
-    // were NOT pushed down to SQL, the join would return every type and
-    // — because the JS lifecycle filter deliberately does not re-check
-    // workflowType — feature rows would leak through here. This is the real
-    // guarantee: the type filter lives in SQL, never in JS.
     expect(rows.map((r) => r.featureId).sort()).toEqual(['dbg-active', 'dbg-done']);
 
-    // Counter proof: the pushdown path fired exactly once.
     expect(backend.getStats().workflowTypePushdownQueries).toBe(1);
   });
 
-  // An unfiltered read must NOT emit the type predicate nor bump the counter.
   it('WorkflowFold_NoTypeFilter_DoesNotPushDown', () => {
     const backend = sqliteWithCorpus();
     foldWorkflowSummaries(backend, { includeTerminal: true });
     expect(backend.getStats().workflowTypePushdownQueries).toBe(0);
   });
 
-  // ─── WorkflowFold_StatusFilter_ReturnsMatchingRows ─────────────────────────
-
+  /** An explicit terminal `status` returns terminal rows without `includeTerminal`. */
   it('WorkflowFold_StatusFilter_ReturnsMatchingRows', () => {
     const backend = sqliteWithCorpus();
 
-    // 'active' is non-terminal, so this is independent of the terminal default.
     const active = foldWorkflowSummaries(backend, { status: 'active' });
     expect(active.map((r) => r.featureId).sort()).toEqual(['dbg-active', 'feat-active']);
     expect(active.every((r) => r.status === 'active')).toBe(true);
 
-    // 'blocked' is non-terminal too.
     const blocked = foldWorkflowSummaries(backend, { status: 'blocked' });
     expect(blocked.map((r) => r.featureId)).toEqual(['feat-blocked']);
 
-    // An explicit terminal status is authoritative even without includeTerminal.
     const completed = foldWorkflowSummaries(backend, { status: 'completed' });
     expect(completed.map((r) => r.featureId).sort()).toEqual(['dbg-done', 'feat-done']);
   });
-
-  // ─── WorkflowFold_PhaseFilter_ReturnsMatchingRows ──────────────────────────
 
   it('WorkflowFold_PhaseFilter_ReturnsMatchingRows', () => {
     const backend = sqliteWithCorpus();
@@ -160,24 +145,18 @@ describe('workflow-fold view (DR-3)', () => {
     expect(triage.map((r) => r.featureId)).toEqual(['dbg-active']);
   });
 
-  // ─── WorkflowFold_Default_ExcludesTerminalStates ───────────────────────────
-
   it('WorkflowFold_Default_ExcludesTerminalStates', () => {
     const backend = sqliteWithCorpus();
 
     const rows = foldWorkflowSummaries(backend);
     const ids = rows.map((r) => r.featureId).sort();
 
-    // completed + cancelled workflows are hidden by default.
     expect(ids).toEqual(['dbg-active', 'feat-active', 'feat-blocked']);
     expect(ids).not.toContain('feat-done');
     expect(ids).not.toContain('feat-cancelled');
     expect(ids).not.toContain('dbg-done');
-    // No returned row is terminal.
     expect(rows.every((r) => r.status !== 'completed' && r.status !== 'cancelled')).toBe(true);
   });
-
-  // ─── WorkflowFold_AllFlag_IncludesCompleted ────────────────────────────────
 
   it('WorkflowFold_AllFlag_IncludesCompleted', () => {
     const backend = sqliteWithCorpus();
@@ -185,7 +164,6 @@ describe('workflow-fold view (DR-3)', () => {
     const all = foldWorkflowSummaries(backend, { includeTerminal: true });
     const ids = all.map((r) => r.featureId).sort();
 
-    // Every workflow, terminal included.
     expect(ids).toEqual([
       'dbg-active',
       'dbg-done',
@@ -198,24 +176,20 @@ describe('workflow-fold view (DR-3)', () => {
     expect(ids).toContain('dbg-done');
   });
 
-  // ─── Age is computed from the event envelope ───────────────────────────────
-
+  /** `nowMs` is 10 s after `T0`, so each `ageMs` is 10000. Rows with equal ages sort by `featureId`. */
   it('WorkflowFold_Age_ComputedFromEventEnvelope', () => {
     const backend = sqliteWithCorpus();
-    const nowMs = Date.parse('2026-07-01T00:00:10.000Z'); // 10s after T0
+    const nowMs = Date.parse('2026-07-01T00:00:10.000Z');
     const rows = foldWorkflowSummaries(backend, { includeTerminal: true, nowMs });
     for (const row of rows) {
       expect(row.ageMs).toBe(10_000);
     }
-    // Oldest-first ordering with equal ages falls back to featureId.
     expect(rows[0].featureId).toBe('dbg-active');
   });
 });
 
-// ─── ListWorkflowSummaries_BackendContract_SharedAcrossSqliteAndInMemory ──────
-
+/** `normalize` removes `createdAt` and sorts the rows by `featureId`, so the rows of two backends compare directly. */
 describe('listWorkflowSummaries backend contract', () => {
-  /** Strip createdAt (backend-derived, identical here) → stable comparison key. */
   function normalize(rows: WorkflowSummary[]): Array<Omit<WorkflowSummary, 'createdAt'>> {
     return rows
       .map(({ featureId, workflowType, phase, status }) => ({ featureId, workflowType, phase, status }))
@@ -236,6 +210,10 @@ describe('listWorkflowSummaries backend contract', () => {
     { phase: 'completed', includeTerminal: true },
   ];
 
+  /**
+   * Each filter must give the same rows on both backends. `createdAt` must also agree, because
+   * both backends read the earliest event timestamp.
+   */
   it('ListWorkflowSummaries_BackendContract_SharedAcrossSqliteAndInMemory', () => {
     const sqlite = makeSqlite();
     const memory = makeMemory();
@@ -251,7 +229,6 @@ describe('listWorkflowSummaries backend contract', () => {
         expect(fromMemory, `filter=${JSON.stringify(filter)}`).toEqual(fromSqlite);
       }
 
-      // And the event-envelope createdAt agrees too (both read MIN timestamp).
       const sqliteAll = sqlite.backend.listWorkflowSummaries({ includeTerminal: true });
       const memoryAll = memory.backend.listWorkflowSummaries({ includeTerminal: true });
       const byId = (rows: WorkflowSummary[]) =>
@@ -263,12 +240,13 @@ describe('listWorkflowSummaries backend contract', () => {
     }
   });
 
+  /**
+   * A `workflow_state` row can exist with no `streams` row, because init ignores a
+   * `registerStream()` error. An inner join drops that workflow, and the in-memory backend keeps
+   * it. The `workflowType` filter must use the coalesced expression of the SELECT. A bare
+   * `s.workflow_type = ?` is NULL for the orphan and drops it again.
+   */
   it('ListWorkflowSummaries_StateRowWithoutRegistryRow_StillListedAndBackendsAgree', () => {
-    // `registerStream()` is attempted on init but its write errors are
-    // SWALLOWED, so a `workflow_state` row can outlive a missing `streams` row.
-    // An INNER JOIN drops those workflows entirely — they vanish from `ps` and
-    // the SQLite backend disagrees with the in-memory one, which reads
-    // workflowType off the state object and never consults a registry (INV-2).
     const sqlite = makeSqlite();
     const memory = makeMemory();
     try {
@@ -277,20 +255,15 @@ describe('listWorkflowSummaries backend contract', () => {
         workflowType: 'feature',
         phase: 'delegate',
       };
-      // A registered sibling, so the JOIN has a matching row to find as well.
       seed(sqlite.backend, CORPUS[0]);
       seed(memory.backend, CORPUS[0]);
       seed(sqlite.backend, orphan, true);
       seed(memory.backend, orphan, true);
 
-      // Listed at all, with workflowType recovered from the state row …
       const rows = sqlite.backend.listWorkflowSummaries();
       expect(rows.map((r) => r.featureId)).toContain('orphan-feat');
       expect(rows.find((r) => r.featureId === 'orphan-feat')!.workflowType).toBe('feature');
 
-      // … and the two backends agree — unfiltered AND under the workflowType
-      // pushdown, which must filter on the same coalesced expression it selects
-      // (a bare `s.workflow_type = ?` is NULL for the orphan and re-drops it).
       const filters: WorkflowSummaryFilter[] = [
         {},
         { workflowType: 'feature' },
@@ -312,8 +285,6 @@ describe('listWorkflowSummaries backend contract', () => {
     }
   });
 });
-
-// ─── Property tests (collections) ─────────────────────────────────────────────
 
 describe('workflow-fold filter properties', () => {
   const statusArb = fc.constantFrom('active', 'completed', 'cancelled', 'blocked');
@@ -343,8 +314,7 @@ describe('workflow-fold filter properties', () => {
     { requiredKeys: [] },
   );
 
-  // filter(filter(rows)) === filter(rows): the lifecycle predicate is pure and
-  // idempotent, so re-filtering an already-filtered collection is a no-op.
+  /** The lifecycle predicate is pure, so a second filter pass removes no row. */
   it('WorkflowFold_Filter_Idempotent', () => {
     fc.assert(
       fc.property(fc.array(summaryArb, { maxLength: 30 }), filterArb, (rows, filter) => {
@@ -355,8 +325,7 @@ describe('workflow-fold filter properties', () => {
     );
   });
 
-  // filtered ⊆ unfiltered: every row that survives a filter is present in the
-  // full (includeTerminal, no-axis) set.
+  /** Each row that passes a filter also passes the filter `{ includeTerminal: true }`. */
   it('WorkflowFold_Filtered_SubsetOfUnfiltered', () => {
     fc.assert(
       fc.property(fc.array(summaryArb, { maxLength: 30 }), filterArb, (rows, filter) => {
@@ -371,7 +340,7 @@ describe('workflow-fold filter properties', () => {
     );
   });
 
-  // Idempotence + subset through the real in-memory backend + view.
+  /** The subset property also holds through the real in-memory backend and the view. */
   it('WorkflowFold_ViewFiltered_SubsetOfAll', () => {
     const { backend, cleanup } = makeMemory();
     try {

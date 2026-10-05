@@ -7,16 +7,12 @@ import { withTelemetry } from '../../../../src/projections/telemetry/middleware.
 import { EventStore } from '../../../../src/events/store.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
 function makeHandler(response: Record<string, unknown> = { success: true, data: {} }) {
   return async (_args: Record<string, unknown>) => ({
     content: [{ type: 'text' as const, text: JSON.stringify(response) }],
     isError: false,
   });
 }
-
-// ─── TraceWriter Unit Tests ─────────────────────────────────────────────────
 
 describe('TraceWriter', () => {
   let tmpDir: string;
@@ -30,13 +26,12 @@ describe('TraceWriter', () => {
     await rmrfAsync(tmpDir);
   });
 
+  /** The file name is `{featureId}-{sessionId}.trace.jsonl`. */
   it('TraceWriter_SessionScoped_WritesToCorrectFile', async () => {
-    // Arrange
     vi.stubEnv('EXARCHOS_EVAL_CAPTURE', '1');
     vi.stubEnv('EXARCHOS_EVAL_CAPTURE_DIR', tmpDir);
     const writer = new TraceWriter();
 
-    // Act
     await writer.writeTrace({
       toolName: 'exarchos_workflow',
       action: 'get',
@@ -48,7 +43,6 @@ describe('TraceWriter', () => {
       sessionId: 'sess-abc',
     });
 
-    // Assert — file should be named {featureId}-{sessionId}.trace.jsonl
     const expectedFile = path.join(tmpDir, 'feat-123-sess-abc.trace.jsonl');
     const content = await fs.readFile(expectedFile, 'utf-8');
     const parsed = JSON.parse(content.trim());
@@ -58,7 +52,6 @@ describe('TraceWriter', () => {
   });
 
   it('TraceWriter_AppendMode_AppendsToExistingFile', async () => {
-    // Arrange
     vi.stubEnv('EXARCHOS_EVAL_CAPTURE', '1');
     vi.stubEnv('EXARCHOS_EVAL_CAPTURE_DIR', tmpDir);
     const writer = new TraceWriter();
@@ -74,11 +67,9 @@ describe('TraceWriter', () => {
       sessionId: 'sess-1',
     };
 
-    // Act — write two entries
     await writer.writeTrace(baseEntry);
     await writer.writeTrace({ ...baseEntry, action: 'set', durationMs: 20 });
 
-    // Assert — both entries should be in the same file, one per line
     const expectedFile = path.join(tmpDir, 'feat-1-sess-1.trace.jsonl');
     const content = await fs.readFile(expectedFile, 'utf-8');
     const lines = content.trim().split('\n');
@@ -87,13 +78,12 @@ describe('TraceWriter', () => {
     expect(JSON.parse(lines[1]).action).toBe('set');
   });
 
+  /** `/dev/null` is not a directory, so the writer cannot create the capture directory. */
   it('TraceWriter_WriteFailure_DoesNotThrowOrBlockToolCall', async () => {
-    // Arrange — point to an invalid directory that can't be created
     vi.stubEnv('EXARCHOS_EVAL_CAPTURE', '1');
     vi.stubEnv('EXARCHOS_EVAL_CAPTURE_DIR', '/dev/null/impossible/path');
     const writer = new TraceWriter();
 
-    // Act & Assert — should not throw
     await expect(
       writer.writeTrace({
         toolName: 'exarchos_workflow',
@@ -108,8 +98,6 @@ describe('TraceWriter', () => {
     ).resolves.toBeUndefined();
   });
 });
-
-// ─── withTelemetry + TraceWriter Integration Tests ──────────────────────────
 
 describe('withTelemetry trace capture', () => {
   let tmpDir: string;
@@ -129,21 +117,18 @@ describe('withTelemetry trace capture', () => {
   });
 
   it('WithTelemetry_CaptureEnabled_WritesTraceEntry', async () => {
-    // Arrange
     vi.stubEnv('EXARCHOS_EVAL_CAPTURE', '1');
     vi.stubEnv('EXARCHOS_EVAL_CAPTURE_DIR', tmpDir);
 
     const handler = makeHandler({ success: true, data: { key: 'val' } });
     const wrapped = withTelemetry(handler, 'exarchos_workflow', eventStore);
 
-    // Act
     await wrapped({
       action: 'get',
       featureId: 'feat-abc',
       sessionId: 'sess-xyz',
     });
 
-    // Assert — trace file should exist with the entry
     const files = await fs.readdir(tmpDir);
     const traceFiles = files.filter((f) => f.endsWith('.trace.jsonl'));
     expect(traceFiles).toHaveLength(1);
@@ -157,25 +142,23 @@ describe('withTelemetry trace capture', () => {
     expect(entry.timestamp).toBeDefined();
   });
 
+  /** Only the value `1` enables capture, so an empty `EXARCHOS_EVAL_CAPTURE` disables it. */
   it('WithTelemetry_CaptureDisabled_NoTraceWritten', async () => {
-    // Arrange — EXARCHOS_EVAL_CAPTURE is NOT set (default: disabled)
     vi.stubEnv('EXARCHOS_EVAL_CAPTURE', '');
     vi.stubEnv('EXARCHOS_EVAL_CAPTURE_DIR', tmpDir);
 
     const handler = makeHandler();
     const wrapped = withTelemetry(handler, 'exarchos_workflow', eventStore);
 
-    // Act
     await wrapped({ action: 'get', featureId: 'feat-1', sessionId: 'sess-1' });
 
-    // Assert — no trace files should be written
     const files = await fs.readdir(tmpDir);
     const traceFiles = files.filter((f) => f.endsWith('.trace.jsonl'));
     expect(traceFiles).toHaveLength(0);
   });
 
+  /** The writer truncates the serialized input to 2048 bytes. */
   it('WithTelemetry_CaptureEnabled_TruncatesLargeInput', async () => {
-    // Arrange
     vi.stubEnv('EXARCHOS_EVAL_CAPTURE', '1');
     vi.stubEnv('EXARCHOS_EVAL_CAPTURE_DIR', tmpDir);
 
@@ -183,7 +166,6 @@ describe('withTelemetry trace capture', () => {
     const handler = makeHandler();
     const wrapped = withTelemetry(handler, 'exarchos_workflow', eventStore);
 
-    // Act
     await wrapped({
       action: 'set',
       featureId: 'feat-big',
@@ -191,7 +173,6 @@ describe('withTelemetry trace capture', () => {
       largeField: largeInput,
     });
 
-    // Assert — input should be truncated to 2KB
     const files = await fs.readdir(tmpDir);
     const traceFiles = files.filter((f) => f.endsWith('.trace.jsonl'));
     expect(traceFiles).toHaveLength(1);
@@ -202,14 +183,12 @@ describe('withTelemetry trace capture', () => {
   });
 
   it('WithTelemetry_CaptureEnabled_IncludesSkillContext', async () => {
-    // Arrange
     vi.stubEnv('EXARCHOS_EVAL_CAPTURE', '1');
     vi.stubEnv('EXARCHOS_EVAL_CAPTURE_DIR', tmpDir);
 
     const handler = makeHandler();
     const wrapped = withTelemetry(handler, 'exarchos_view', eventStore);
 
-    // Act
     await wrapped({
       action: 'pipeline',
       featureId: 'feat-ctx',
@@ -217,7 +196,6 @@ describe('withTelemetry trace capture', () => {
       skillContext: 'delegation',
     });
 
-    // Assert — trace entry should include skillContext
     const files = await fs.readdir(tmpDir);
     const traceFiles = files.filter((f) => f.endsWith('.trace.jsonl'));
     expect(traceFiles).toHaveLength(1);

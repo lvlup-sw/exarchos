@@ -8,8 +8,6 @@ import type { ViewProjection } from '../../../../src/projections/views/materiali
 import type { WorkflowEvent } from '../../../../src/events/schemas.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
-// ─── Test View: simple counter ─────────────────────────────────────────────
-
 interface CounterView {
   count: number;
   lastType: string;
@@ -32,8 +30,6 @@ function makeEvent(seq: number, type: string, streamId = 'test-stream'): Workflo
     schemaVersion: '1.0',
   };
 }
-
-// ─── A07: View Materializer Engine ─────────────────────────────────────────
 
 describe('ViewMaterializer', () => {
   let materializer: ViewMaterializer;
@@ -60,6 +56,7 @@ describe('ViewMaterializer', () => {
   });
 
   describe('IncrementalUpdate_OnlyProcessesNewEvents', () => {
+    /** The second batch repeats events 1 to 5. A count of 8 shows that the fold applied only events 6 to 8. */
     it('should only process events past the high-water mark on subsequent calls', () => {
       materializer.register('counter', counterProjection);
 
@@ -71,11 +68,9 @@ describe('ViewMaterializer', () => {
         makeEvent(5, 'event.five'),
       ];
 
-      // First materialization: processes all 5
       const view1 = materializer.materialize<CounterView>('test-stream', 'counter', batch1);
       expect(view1.count).toBe(5);
 
-      // Second batch: events 1-5 plus 3 new ones (6, 7, 8)
       const batch2 = [
         ...batch1,
         makeEvent(6, 'event.six'),
@@ -83,7 +78,6 @@ describe('ViewMaterializer', () => {
         makeEvent(8, 'event.eight'),
       ];
 
-      // Incremental materialization: should only process 3 new events
       const view2 = materializer.materialize<CounterView>('test-stream', 'counter', batch2);
       expect(view2.count).toBe(8);
       expect(view2.lastType).toBe('event.eight');
@@ -149,7 +143,6 @@ describe('ViewMaterializer', () => {
       expect(viewA.count).toBe(2);
       expect(viewB.count).toBe(1);
 
-      // Add more to stream-a, stream-b unchanged
       const moreA = [...streamAEvents, makeEvent(3, 'a.three')];
       const viewA2 = materializer.materialize<CounterView>('stream-a', 'counter', moreA);
       const viewB2 = materializer.materialize<CounterView>('stream-b', 'counter', streamBEvents);
@@ -242,18 +235,18 @@ describe('ViewMaterializer', () => {
       expect(state!.highWaterMark).toBe(100);
     });
 
+    /** The loaded state has a high-water mark of 50, so the fold applies only events 51 to 55. */
     it('should allow materialize to continue from loaded state', () => {
       materializer.register('counter', counterProjection);
       const preloaded: CounterView = { count: 50, lastType: 'event.50' };
       materializer.loadState('test-stream', 'counter', preloaded, 50);
 
-      // Feed events 1-55; only 51-55 should be processed incrementally
       const events = Array.from({ length: 55 }, (_, i) =>
         makeEvent(i + 1, `event.${i + 1}`),
       );
       const view = materializer.materialize<CounterView>('test-stream', 'counter', events);
 
-      expect(view.count).toBe(55); // 50 preloaded + 5 new
+      expect(view.count).toBe(55);
       expect(view.lastType).toBe('event.55');
     });
 
@@ -268,15 +261,14 @@ describe('ViewMaterializer', () => {
   });
 
   describe('materialize_WithoutSnapshotStore', () => {
+    /** The default materializer has no snapshot store. The 100 events are more than the default snapshot interval of 50. */
     it('should work correctly without a snapshot store configured', () => {
-      // Default materializer has no snapshot store
       materializer.register('counter', counterProjection);
 
       const events = Array.from({ length: 100 }, (_, i) =>
         makeEvent(i + 1, `event.${i + 1}`),
       );
 
-      // Should not throw even though we exceed the default snapshot interval
       const view = materializer.materialize<CounterView>('test-stream', 'counter', events);
       expect(view.count).toBe(100);
       expect(view.lastType).toBe('event.100');
@@ -291,22 +283,18 @@ describe('ViewMaterializer', () => {
       const mat = new ViewMaterializer({ snapshotStore, snapshotInterval: 50 });
       mat.register('counter', counterProjection);
 
-      // Process only 10 events — well below the 50-event interval
       const events = Array.from({ length: 10 }, (_, i) =>
         makeEvent(i + 1, `event.${i + 1}`),
       );
 
       mat.materialize<CounterView>('test-stream', 'counter', events);
 
-      // save should NOT have been called since we're below the interval
       expect(saveSpy).not.toHaveBeenCalled();
 
       saveSpy.mockRestore();
     });
   });
 });
-
-// ─── A10: View Snapshot Mechanism ──────────────────────────────────────────
 
 describe('SnapshotStore', () => {
   let tempDir: string;
@@ -373,7 +361,6 @@ describe('ViewMaterializer with Snapshots', () => {
 
       materializer.materialize<CounterView>('test-stream', 'counter', events);
 
-      // Await pending snapshot writes
       await materializer.flush();
 
       const snapshot = await snapshotStore.load<CounterView>('test-stream', 'counter');
@@ -384,10 +371,10 @@ describe('ViewMaterializer with Snapshots', () => {
   });
 
   describe('WithSnapshot_RebuildsFromSnapshot', () => {
+    /** The snapshot holds a count of 50 at sequence 50. A count of 60 shows that the fold applied only events 51 to 60. */
     it('should rebuild from snapshot and only process new events', async () => {
       const snapshotStore = new SnapshotStore(tempDir);
 
-      // Save a snapshot at sequence 50
       await snapshotStore.save(
         'test-stream',
         'counter',
@@ -395,31 +382,30 @@ describe('ViewMaterializer with Snapshots', () => {
         50,
       );
 
-      // New materializer loads snapshot
       const materializer = new ViewMaterializer({ snapshotStore, snapshotInterval: 50 });
       materializer.register('counter', counterProjection);
 
-      // Load from snapshot
       await materializer.loadFromSnapshot('test-stream', 'counter');
 
-      // Feed 60 events total (50 already snapshotted + 10 new)
       const events = Array.from({ length: 60 }, (_, i) =>
         makeEvent(i + 1, `event.${i + 1}`),
       );
 
       const view = materializer.materialize<CounterView>('test-stream', 'counter', events);
 
-      // Should have 50 (from snapshot) + 10 (new events) = 60
       expect(view.count).toBe(60);
       expect(view.lastType).toBe('event.60');
     });
   });
 
   describe('CorruptSnapshot_RebuildsFromScratch', () => {
+    /**
+     * The test writes a snapshot file that is not valid JSON. `loadFromSnapshot` must not throw,
+     * and the fold starts from the initial view.
+     */
     it('should rebuild from scratch when snapshot is corrupt', async () => {
       const snapshotStore = new SnapshotStore(tempDir);
 
-      // Write a corrupt snapshot file directly
       const snapshotPath = path.join(tempDir, 'test-stream.counter.snapshot.json');
       const { writeFile, mkdir } = await import('node:fs/promises');
       await mkdir(path.dirname(snapshotPath), { recursive: true });
@@ -428,17 +414,14 @@ describe('ViewMaterializer with Snapshots', () => {
       const materializer = new ViewMaterializer({ snapshotStore, snapshotInterval: 50 });
       materializer.register('counter', counterProjection);
 
-      // loadFromSnapshot should handle corrupt gracefully
       await materializer.loadFromSnapshot('test-stream', 'counter');
 
-      // Process events from scratch
       const events = Array.from({ length: 10 }, (_, i) =>
         makeEvent(i + 1, `event.${i + 1}`),
       );
 
       const view = materializer.materialize<CounterView>('test-stream', 'counter', events);
 
-      // Should rebuild from scratch: 10 events processed
       expect(view.count).toBe(10);
     });
   });
@@ -460,19 +443,21 @@ describe('ViewMaterializer with Snapshots', () => {
   });
 
   describe('SnapshotIntervalNotCrossed_NoSnapshotCreated', () => {
+    /**
+     * Ten events are below the interval of 50. The 50 ms wait lets an unexpected snapshot write
+     * reach the disk before the read.
+     */
     it('should not create a snapshot when event count is below the interval', async () => {
       const snapshotStore = new SnapshotStore(tempDir);
       const materializer = new ViewMaterializer({ snapshotStore, snapshotInterval: 50 });
       materializer.register('counter', counterProjection);
 
-      // Process only 10 events (below the 50-event snapshot interval)
       const events = Array.from({ length: 10 }, (_, i) =>
         makeEvent(i + 1, `event.${i + 1}`),
       );
 
       materializer.materialize<CounterView>('test-stream', 'counter', events);
 
-      // Allow async operations to settle
       await new Promise((resolve) => setTimeout(resolve, 50));
 
       const snapshot = await snapshotStore.load<CounterView>('test-stream', 'counter');

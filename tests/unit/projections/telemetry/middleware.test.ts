@@ -26,17 +26,14 @@ describe('withTelemetry', () => {
 
   describe('successful handler', () => {
     it('should emit tool.invoked and tool.completed events', async () => {
-      // Arrange
       const handler: CoreHandler = async () => ({
         success: true,
         data: { key: 'val' },
       });
 
-      // Act
       const wrapped = withTelemetry(handler, 'test_tool', eventStore);
       await wrapped({});
 
-      // Assert
       const events = await eventStore.query(TELEMETRY_STREAM);
       expect(events).toHaveLength(2);
       expect(events[0].type).toBe('tool.invoked');
@@ -49,41 +46,35 @@ describe('withTelemetry', () => {
       expect(completedData.tokenEstimate).toBeGreaterThan(0);
     });
 
+    /** The result carries `_perf` directly. It has no `content` or `isError` field of the MCP envelope. */
     it('WithTelemetry_ReturnsToolResult_NotMcpToolResult', async () => {
-      // Arrange
       const handler: CoreHandler = async () => ({
         success: true,
         data: { key: 'val' },
       });
 
-      // Act
       const wrapped = withTelemetry(handler, 'test_tool', eventStore);
       const result = await wrapped({});
 
-      // Assert — result should be a ToolResult with _perf directly, not wrapped in content[0].text
       expect(result.success).toBe(true);
       expect(result.data).toEqual({ key: 'val' });
       expect(result._perf).toBeDefined();
       expect(result._perf!.ms).toBeGreaterThanOrEqual(0);
       expect(result._perf!.bytes).toBeGreaterThan(0);
       expect(result._perf!.tokens).toBeGreaterThan(0);
-      // Should NOT have content/isError (MCP envelope shape)
       expect((result as Record<string, unknown>).content).toBeUndefined();
       expect((result as Record<string, unknown>).isError).toBeUndefined();
     });
 
     it('InjectPerf_SetsFieldDirectly_NoJsonParsing', async () => {
-      // Arrange
       const handler: CoreHandler = async () => ({
         success: true,
         data: { key: 'val' },
       });
 
-      // Act
       const wrapped = withTelemetry(handler, 'test_tool', eventStore);
       const result = await wrapped({});
 
-      // Assert — _perf is set directly on ToolResult object
       expect(result._perf).toBeDefined();
       expect(typeof result._perf!.ms).toBe('number');
       expect(typeof result._perf!.bytes).toBe('number');
@@ -91,17 +82,14 @@ describe('withTelemetry', () => {
     });
 
     it('should preserve _meta field if present', async () => {
-      // Arrange
       const handler: CoreHandler = async () => ({
         success: true,
         _meta: { hint: 'test' },
       });
 
-      // Act
       const wrapped = withTelemetry(handler, 'test_tool', eventStore);
       const result = await wrapped({});
 
-      // Assert
       expect(result._meta).toEqual({ hint: 'test' });
       expect(result._perf).toBeDefined();
     });
@@ -109,12 +97,10 @@ describe('withTelemetry', () => {
 
   describe('failing handler', () => {
     it('should emit tool.errored event and re-throw', async () => {
-      // Arrange
       const handler: CoreHandler = async () => {
         throw new Error('Handler failed');
       };
 
-      // Act & Assert
       const wrapped = withTelemetry(handler, 'fail_tool', eventStore);
       await expect(wrapped({})).rejects.toThrow('Handler failed');
 
@@ -128,30 +114,28 @@ describe('withTelemetry', () => {
     });
   });
 
-  // ─── PR3/T8 (#1364): action-errored emission on structured failure ───────
   describe('structured action-level failure', () => {
+    /**
+     * The wrapper returns a `success: false` result and does not throw. It emits
+     * `tool.completed` and `tool.action_errored` with equal perf fields. It emits
+     * no `tool.errored`, because the handler returned.
+     */
     it('WithTelemetry_StructuredFailure_EmitsActionErrored', async () => {
-      // Arrange — handler returns the standard MCP envelope failure shape.
       const handler: CoreHandler = async () => ({
         success: false,
         error: { code: 'RESERVED_FIELD', message: 'state.tasks is reserved' },
       });
 
-      // Act
       const wrapped = withTelemetry(handler, 'exarchos_orchestrate', eventStore);
       const result = await wrapped({});
 
-      // Result is propagated unchanged on the success-branch contract;
-      // the wrapper does NOT re-throw structured failures.
       expect(result.success).toBe(false);
 
-      // Assert — both `tool.completed` AND `tool.action_errored` are emitted.
       const events = await eventStore.query(TELEMETRY_STREAM);
       const types = events.map((e) => e.type);
       expect(types).toContain('tool.invoked');
       expect(types).toContain('tool.completed');
       expect(types).toContain('tool.action_errored');
-      // Transport-level errored must NOT fire when the handler returned cleanly.
       expect(types).not.toContain('tool.errored');
 
       const completed = events.find((e) => e.type === 'tool.completed');
@@ -164,7 +148,6 @@ describe('withTelemetry', () => {
       const aeData = actionErrored.data as Record<string, unknown>;
       expect(aeData.tool).toBe('exarchos_orchestrate');
       expect(aeData.errorCode).toBe('RESERVED_FIELD');
-      // Perf fields match the paired tool.completed event.
       expect(aeData.durationMs).toBe(completedData.durationMs);
       expect(aeData.responseBytes).toBe(completedData.responseBytes);
       expect(aeData.tokenEstimate).toBe(completedData.tokenEstimate);
@@ -173,7 +156,6 @@ describe('withTelemetry', () => {
     it('WithTelemetry_StructuredFailure_MissingErrorCode_DefaultsToUnknown', async () => {
       const handler: CoreHandler = async () => ({
         success: false,
-        // Intentionally omit error.code to exercise the fallback path.
         error: { message: 'opaque failure' },
       } as unknown as ReturnType<CoreHandler> extends Promise<infer R> ? R : never);
 
@@ -187,6 +169,7 @@ describe('withTelemetry', () => {
       expect((actionErrored.data as Record<string, unknown>).errorCode).toBe('UNKNOWN');
     });
 
+    /** The catch branch must not also emit `tool.action_errored` or `tool.completed`. */
     it('WithTelemetry_JsThrow_StillEmitsToolErroredOnly', async () => {
       const handler: CoreHandler = async () => {
         throw new Error('transport explode');
@@ -198,9 +181,7 @@ describe('withTelemetry', () => {
       const events = await eventStore.query(TELEMETRY_STREAM);
       const types = events.map((e) => e.type);
       expect(types).toContain('tool.errored');
-      // Regression guard against double-emitting from the catch branch.
       expect(types).not.toContain('tool.action_errored');
-      // And no spurious tool.completed.
       expect(types).not.toContain('tool.completed');
     });
 
@@ -222,8 +203,8 @@ describe('withTelemetry', () => {
   });
 
   describe('telemetry failure resilience', () => {
+    /** The store points to a directory that does not exist. */
     it('should succeed even when telemetry append fails', async () => {
-      // Arrange - Create a store pointing to a non-existent dir
       const brokenStore = new EventStore('/nonexistent/path/that/wont/work');
 
       const handler: CoreHandler = async () => ({
@@ -231,12 +212,9 @@ describe('withTelemetry', () => {
         data: {},
       });
 
-      // Act
       const wrapped = withTelemetry(handler, 'test_tool', brokenStore);
-      // Should not throw even though telemetry fails
       const result = await wrapped({});
 
-      // Assert — result is a ToolResult directly
       expect(result.success).toBe(true);
     });
   });
@@ -256,18 +234,14 @@ describe('createInstrumentedRegistrar', () => {
   });
 
   it('should return a function', () => {
-    // Arrange
     const mockServer = { tool: () => {} };
 
-    // Act
     const registrar = createInstrumentedRegistrar(mockServer as unknown as { tool: (...args: unknown[]) => void }, eventStore);
 
-    // Assert
     expect(typeof registrar).toBe('function');
   });
 
   it('should call server.tool with wrapped handler', () => {
-    // Arrange
     let registeredName: string | undefined;
     let registeredHandler: ((...args: unknown[]) => unknown) | undefined;
     const mockServer = {
@@ -282,17 +256,18 @@ describe('createInstrumentedRegistrar', () => {
       success: true,
     });
 
-    // Act
     registrar('my_tool', 'My tool description', {}, originalHandler);
 
-    // Assert
     expect(registeredName).toBe('my_tool');
     expect(registeredHandler).toBeDefined();
-    // The registered handler should NOT be the original (it's wrapped)
     expect(registeredHandler).not.toBe(originalHandler);
   });
 });
 
+/**
+ * A `p95Bytes` of 1500 is over the 1200-byte threshold of the `tasks` view. Five
+ * consecutive breaches fill the consistency window, so the `fields` rule matches.
+ */
 describe('auto-correction integration', () => {
   let tmpDir: string;
   let eventStore: EventStore;
@@ -306,13 +281,11 @@ describe('auto-correction integration', () => {
     await rmrfAsync(tmpDir);
   });
 
-  /** Helper: creates ToolMetrics with specified overrides. */
   function makeMetrics(overrides: Partial<ToolMetrics> = {}): ToolMetrics {
     return { ...initToolMetrics(), ...overrides };
   }
 
   it('WithTelemetry_ThresholdExceeded_AppliesAutoCorrection', async () => {
-    // Arrange
     let receivedArgs: Record<string, unknown> | undefined;
     const handler: CoreHandler = async (args) => {
       receivedArgs = args;
@@ -327,21 +300,17 @@ describe('auto-correction integration', () => {
       consecutiveBreaches: 5,
     });
 
-    // Act
     const result = await wrapped({ action: 'tasks' });
 
-    // Assert — handler should receive corrected args with fields injected
     expect(receivedArgs).toBeDefined();
     expect(receivedArgs!.fields).toEqual(['id', 'title', 'status', 'assignee']);
 
-    // Response should include _corrections metadata directly on ToolResult
     expect(result._corrections).toBeDefined();
     expect(result._corrections!.applied).toHaveLength(1);
     expect(result._corrections!.applied[0].param).toBe('fields');
   });
 
   it('WithTelemetry_SkipAutoCorrection_BypassesCorrection', async () => {
-    // Arrange
     let receivedArgs: Record<string, unknown> | undefined;
     const handler: CoreHandler = async (args) => {
       receivedArgs = args;
@@ -356,20 +325,16 @@ describe('auto-correction integration', () => {
       consecutiveBreaches: 5,
     });
 
-    // Act
     const result = await wrapped({ action: 'tasks', skipAutoCorrection: true });
 
-    // Assert — handler should receive original args unchanged
     expect(receivedArgs).toBeDefined();
     expect(receivedArgs!.fields).toBeUndefined();
     expect(receivedArgs!.skipAutoCorrection).toBe(true);
 
-    // Response should not include _corrections
     expect(result._corrections).toBeUndefined();
   });
 
   it('WithTelemetry_AutoCorrectionApplied_EmitsQualityHintGenerated', async () => {
-    // Arrange
     const handler: CoreHandler = async () => ({
       success: true,
       data: {},
@@ -383,10 +348,8 @@ describe('auto-correction integration', () => {
       consecutiveBreaches: 5,
     });
 
-    // Act
     await wrapped({ action: 'tasks' });
 
-    // Assert — quality.hint.generated event should be emitted
     const events = await eventStore.query(TELEMETRY_STREAM);
     const hintEvents = events.filter((e) => e.type === 'quality.hint.generated');
     expect(hintEvents).toHaveLength(1);
@@ -399,16 +362,12 @@ describe('auto-correction integration', () => {
   });
 });
 
-// Renamed from 'D3 token-budget gate emission' with the behaviour it covers.
-//
-// The wrapper used to append a `gate.executed` to the FEATURE stream carrying
-// `details.dimension: 'D3'`. D3 is a real convergence dimension (Context
-// Economy), so the convergence view folded the row as a failed gate result
-// under the name `token-budget` — a name nothing ever re-runs, so the dimension
-// could not recover. One breach anywhere in a feature stream pinned
-// `overallConverged` false for the rest of that workflow's life. The assertions
-// below used to PIN that placement ("should be emitted to the workflow stream")
-// (#1898 item 8).
+/**
+ * The wrapper records a breach as `tool.budget_exceeded` on the telemetry stream.
+ * It must not append a `gate.executed` row with dimension `D3` to the feature stream.
+ * The convergence view folds such a row as a failed gate that nothing runs again, so
+ * one breach keeps `overallConverged` false.
+ */
 describe('token-budget breach record', () => {
   let tmpDir: string;
   let eventStore: EventStore;
@@ -422,8 +381,8 @@ describe('token-budget breach record', () => {
     await rmrfAsync(tmpDir);
   });
 
+  /** A response of about 10 kB is about 2500 tokens, which is more than the 2048 threshold. */
   it('withTelemetry_TokenThresholdExceeded_RecordsBreachOnTheTelemetryStream', async () => {
-    // Arrange: ~10KB response -> ~2560 tokens (exceeds 2048 threshold)
     const handler: CoreHandler = async () => ({
       success: true,
       data: { content: 'x'.repeat(10_000) },
@@ -431,11 +390,8 @@ describe('token-budget breach record', () => {
 
     const wrapped = withTelemetry(handler, 'test-tool', eventStore);
 
-    // Act
     await wrapped({ featureId: 'test-feature' });
 
-    // Assert: the breach lands on the TELEMETRY stream, beside the rest of the
-    // wrapper's records.
     const telemetryEvents = await eventStore.query(TELEMETRY_STREAM);
     const breaches = telemetryEvents.filter((e) => e.type === 'tool.budget_exceeded');
     expect(breaches).toHaveLength(1);
@@ -448,9 +404,7 @@ describe('token-budget breach record', () => {
     expect(data.responseBytes as number).toBeGreaterThan(10_000 - 1);
   });
 
-  // The regression this split exists to prevent, stated at the stream rather
-  // than at the view: nothing the wrapper appends may reach the feature stream,
-  // because that is where the convergence view reads from.
+  /** The wrapper must append nothing to the feature stream, because the convergence view reads that stream. */
   it('withTelemetry_TokenThresholdExceeded_WritesNothingToTheFeatureStream', async () => {
     const handler: CoreHandler = async () => ({
       success: true,
@@ -464,9 +418,7 @@ describe('token-budget breach record', () => {
     expect(workflowEvents).toEqual([]);
   });
 
-  // The featureId used to GATE the emission, because the row needed a stream to
-  // be written to. On the telemetry stream it does not, so a breach from a call
-  // that named no workflow is recorded instead of dropped.
+  /** The telemetry stream needs no `featureId`, so a call that names no workflow still records its breach. */
   it('withTelemetry_NoFeatureId_StillRecordsTheBreachWithoutOne', async () => {
     const handler: CoreHandler = async () => ({
       success: true,
@@ -482,8 +434,8 @@ describe('token-budget breach record', () => {
     expect((breaches[0].data as Record<string, unknown>).featureId).toBeUndefined();
   });
 
+  /** An empty payload is far below the 2048-token threshold. */
   it('withTelemetry_TokenBelowThreshold_NoBreachRecord', async () => {
-    // Arrange: small response (~25 tokens, well below 2048 threshold)
     const handler: CoreHandler = async () => ({
       success: true,
       data: {},
@@ -491,23 +443,20 @@ describe('token-budget breach record', () => {
 
     const wrapped = withTelemetry(handler, 'test-tool', eventStore);
 
-    // Act
     await wrapped({ featureId: 'test-feature' });
 
-    // Assert: no breach record anywhere.
     const telemetryEvents = await eventStore.query(TELEMETRY_STREAM);
     expect(telemetryEvents.filter((e) => e.type === 'tool.budget_exceeded')).toHaveLength(0);
     const workflowEvents = await eventStore.query('test-feature');
     expect(workflowEvents.filter((e) => e.type === 'tool.budget_exceeded')).toHaveLength(0);
   });
 
-  // Was `withTelemetry_NoFeatureIdInArgs_SkipsGateEmission`, which pinned the
-  // drop this split removed. What survives is the half worth keeping: the
-  // wrapper appends no `gate.executed` anywhere, and the composition of the
-  // telemetry stream is stated rather than merely filtered — a stream assertion
-  // that only filters cannot tell "the row is absent" from "the stream is".
+  /**
+   * The wrapper appends no `gate.executed` row. The test also asserts the full type
+   * list of the telemetry stream, because a filter alone cannot tell an absent row
+   * from an empty stream.
+   */
   it('withTelemetry_NoFeatureIdInArgs_AppendsNoGateRowAndNamesTheWholeStream', async () => {
-    // Arrange: large response but no featureId in args
     const handler: CoreHandler = async () => ({
       success: true,
       data: { content: 'x'.repeat(10_000) },
@@ -515,7 +464,6 @@ describe('token-budget breach record', () => {
 
     const wrapped = withTelemetry(handler, 'test-tool', eventStore);
 
-    // Act — no featureId provided
     await wrapped({ action: 'get' });
 
     const telemetryEvents = await eventStore.query(TELEMETRY_STREAM);
@@ -528,13 +476,12 @@ describe('token-budget breach record', () => {
   });
 });
 
-// ─── injectEventHints tests ─────────────────────────────────────────────────
-
+/**
+ * These tests exercise a local `injectEventHints` that edits the JSON text of an
+ * MCP envelope. The private `injectEventHints` of `middleware.ts` sets `_eventHints`
+ * on the `ToolResult`, so these tests do not cover it.
+ */
 describe('injectEventHints', () => {
-  // injectEventHints is a private function in middleware.ts, so we test the
-  // logic by re-implementing the same algorithm here. The integration with
-  // withTelemetry is tested separately via the full middleware path.
-
   interface EventHint {
     readonly eventType: string;
     readonly description: string;
@@ -552,7 +499,6 @@ describe('injectEventHints', () => {
     [key: string]: unknown;
   };
 
-  /** Mirror of the private injectEventHints function in middleware.ts */
   function injectEventHints(result: McpToolResult, payload: EventHintsPayload): McpToolResult {
     if (payload.missing.length === 0) return result;
 
@@ -603,7 +549,6 @@ describe('injectEventHints', () => {
     const payload: EventHintsPayload = { missing: [], phase: 'delegate', checked: 0 };
     const injected = injectEventHints(result, payload);
 
-    // Should return the exact same object (identity check)
     expect(injected).toBe(result);
     expect(injected.content[0].text).toBe('{"success":true}');
   });
@@ -622,7 +567,6 @@ describe('injectEventHints', () => {
 
     const injected = injectEventHints(result, payload);
 
-    // Should return unchanged, not crash
     expect(injected.content[0].text).toBe('not valid json at all');
   });
 });

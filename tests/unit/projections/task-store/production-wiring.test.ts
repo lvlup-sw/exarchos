@@ -1,29 +1,21 @@
 /**
- * Production wiring grep — no `InMemoryTaskStore` outside test fixtures (#1272).
+ * Static scan: no production file under `src/` builds an `InMemoryTaskStore`.
  *
- * INV-1 acceptance: the SDK's `InMemoryTaskStore` is demo-only ("not
- * suitable for production use as all data is lost on restart" — see
- * `node_modules/@modelcontextprotocol/sdk/.../in-memory.js`). Production
- * code paths must instantiate `EventSourcedTaskStore` instead so task
- * lifecycle state is durable and event-sourced.
- *
- * This is a static-analysis test: it walks the `src/` tree and asserts
- * that `new InMemoryTaskStore(` appears nowhere outside test fixtures.
- * Pair test: `EventSourcedTaskStore_IsWiredAtCanonicalSite` asserts the
- * production composer (`adapters/mcp/mcp.ts:createMcpServer`) imports +
- * instantiates the event-sourced variant.
+ * The SDK `InMemoryTaskStore` loses all data on restart. Production code must build
+ * `EventSourcedTaskStore`, so the task lifecycle state is durable. A second test makes sure
+ * that the MCP server composer, `adapters/mcp/mcp.ts`, builds that store.
  */
 import { describe, it, expect } from 'vitest';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// Task 012 moved this file one level deeper (task-store/ -> projections/task-store/),
-// so reaching src/ now costs two hops, not one.
+/** Absolute path of the repository `src/` directory. */
 const SRC_DIR = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   '../../../../src');
 
+/** Lists the source files under `dir`. It skips `node_modules` and `dist`, so the SDK copy stays out of the scan. */
 async function walk(dir: string): Promise<string[]> {
   const out: string[] = [];
   const entries = await readdir(dir, { withFileTypes: true });
@@ -39,10 +31,8 @@ async function walk(dir: string): Promise<string[]> {
   return out;
 }
 
+/** True for a test file, a path under `__tests__` or a fixture path. */
 function isTestFile(filePath: string): boolean {
-  // Vitest convention: `.test.ts`, `__tests__/` directories, and fixture
-  // suffixes. The InMemoryTaskStore reference inside the SDK's
-  // `node_modules/` is excluded by the `node_modules` skip in `walk`.
   return (
     /\.test\.[mc]?[jt]sx?$/.test(filePath) ||
     /\b__tests__\b/.test(filePath) ||
@@ -52,8 +42,9 @@ function isTestFile(filePath: string): boolean {
 }
 
 describe('Production wiring — no InMemoryTaskStore (#1272)', () => {
+  /** `stat` rejects when `SRC_DIR` does not exist, so a wrong path cannot give an empty scan. */
   it('Production_NoInMemoryTaskStore_Instances', async () => {
-    await stat(SRC_DIR); // sanity: SRC_DIR exists
+    await stat(SRC_DIR);
     const files = await walk(SRC_DIR);
     const productionFiles = files.filter((f) => !isTestFile(f));
 
@@ -71,13 +62,8 @@ describe('Production wiring — no InMemoryTaskStore (#1272)', () => {
     ).toEqual([]);
   });
 
+  /** A text check only: the composer source must name and build `EventSourcedTaskStore`. */
   it('EventSourcedTaskStore_IsWiredAtCanonicalSite', async () => {
-    // The MCP server composer is the canonical wiring point — every
-    // production MCP server constructed via `createMcpServer` must
-    // receive an `EventSourcedTaskStore` instance backed by
-    // `ctx.eventStore`. Asserted as a textual presence-check (the
-    // composer's runtime behavior is exercised end-to-end by
-    // `adapters/mcp/mcp.test.ts`).
     const composerPath = path.join(SRC_DIR, 'adapters', 'mcp', 'mcp.ts');
     const text = await readFile(composerPath, 'utf8');
     expect(

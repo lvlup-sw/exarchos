@@ -1,18 +1,8 @@
 /**
- * Wave 2A.3 — taskStoreReducer.apply unit tests (#1284).
+ * Tests for `taskStoreReducer.apply`: one test for each handled `task.*` event type, and tests
+ * for the events that it ignores.
  *
- * One `it(...)` per registered `task.*` event type per the plan:
- *
- *   - Apply_TaskAssigned_CreatesAssignedRecord
- *   - Apply_TaskClaimed_TransitionsToClaimed
- *   - Apply_TaskProgressed_UpdatesProgressMetadata
- *   - Apply_TaskCompleted_TransitionsToCompleted
- *   - Apply_TaskFailed_TransitionsToFailed
- *   - Apply_UnknownEvent_ReturnsStateUnchanged
- *
- * Each test seeds an initial state, applies one event, and asserts on the
- * resulting record + the `projectionSequence` monotonic bump for handled
- * events (or identity preservation for the unknown-event case).
+ * A handled event increments `projectionSequence`. An ignored event returns the state by identity.
  */
 import { describe, it, expect } from 'vitest';
 import type { WorkflowEvent } from '../../../../src/events/schemas.js';
@@ -20,12 +10,7 @@ import { taskStoreReducer } from '../../../../src/projections/taskstore/reducer.
 import type { TaskStoreState } from '../../../../src/projections/taskstore/types.js';
 import { assertReducerImmutable } from '../../../../src/projections/testing.js';
 
-/**
- * Construct a `WorkflowEvent` shape with sane defaults for the fields the
- * reducer does not consume. Sequence is monotonic across the per-test event
- * list (the reducer does not require a per-stream sequence; this is only to
- * keep WorkflowEventBase happy).
- */
+/** Builds a `WorkflowEvent` with defaults for the fields that the reducer does not read. */
 function buildEvent(overrides: {
   type: string;
   streamId?: string;
@@ -70,8 +55,8 @@ describe('taskStoreReducer.apply (Wave 2A.3, #1284)', () => {
     });
   });
 
+  /** The claim keeps the `title` from the earlier `task.assigned` event. */
   it('Apply_TaskClaimed_TransitionsToClaimed', () => {
-    // Seed with a prior assignment so the claim transitions a known record.
     const seeded = taskStoreReducer.apply(
       taskStoreReducer.initial,
       buildEvent({
@@ -95,7 +80,6 @@ describe('taskStoreReducer.apply (Wave 2A.3, #1284)', () => {
     expect(next.tasks['T-1'].status).toBe('claimed');
     expect(next.tasks['T-1'].agentId).toBe('agent-2');
     expect(next.tasks['T-1'].claimedAt).toBe('2026-05-10T00:01:00.000Z');
-    // Passthrough fields from prior assignment are preserved.
     expect(next.tasks['T-1'].title).toBe('Implement');
   });
 
@@ -181,13 +165,12 @@ describe('taskStoreReducer.apply (Wave 2A.3, #1284)', () => {
 
     const next = taskStoreReducer.apply(state, unknownEvent);
 
-    expect(next).toBe(state); // identity preserved
+    expect(next).toBe(state);
     expect(next.projectionSequence).toBe(0);
     expect(Object.keys(next.tasks)).toHaveLength(0);
   });
 
   it('Apply_TaskAssigned_MissingTaskId_ReturnsStateUnchanged', () => {
-    // Robustness: a malformed task.assigned without a taskId should be a no-op.
     const state: TaskStoreState = taskStoreReducer.initial;
     const malformed = buildEvent({
       type: 'task.assigned',
@@ -199,11 +182,8 @@ describe('taskStoreReducer.apply (Wave 2A.3, #1284)', () => {
     expect(next.projectionSequence).toBe(0);
   });
 
-  // ─── Task 2A.4 — assertReducerImmutable ────────────────────────────────
+  /** `assertReducerImmutable` freezes each intermediate state, so a mutation inside `apply` throws a `TypeError`. */
   it('TaskStoreReducer_IsImmutable', () => {
-    // Folds a representative event sequence through assertReducerImmutable.
-    // The harness deep-freezes every intermediate state; any in-place mutation
-    // inside `apply` throws a TypeError under ESM strict mode.
     const events: WorkflowEvent[] = [
       buildEvent({
         type: 'task.assigned',
@@ -244,11 +224,8 @@ describe('taskStoreReducer.apply (Wave 2A.3, #1284)', () => {
     expect(() => assertReducerImmutable(taskStoreReducer, events)).not.toThrow();
   });
 
+  /** Pins `scope: 'stream'` on the reducer itself. `src/projections/taskstore/types.ts` gives the reason. */
   it('TaskStoreReducer_HasStreamScope', () => {
-    // This reducer MUST be `scope: 'stream'` — see `TaskStoreState`'s key space
-    // in `./types.ts` for why. Wired through the registry check in 2A.5, but
-    // asserted statically here so a misconfiguration surfaces in the reducer
-    // test, not via a side-effect import in another file.
     expect(taskStoreReducer.scope).toBe('stream');
     expect(taskStoreReducer.id).toBe('task-store@v1');
     expect(taskStoreReducer.version).toBe(1);

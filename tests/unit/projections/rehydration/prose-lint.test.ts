@@ -1,12 +1,6 @@
 /**
- * T048 — Prose lint on document template (DR-13).
- *
- * Ensures the rehydration document's prose surface (phasePlaybook
- * compactGuidance literals and surrounding doc comments — v:3, T-50) does
- * not drift into
- * AI-writing patterns cataloged by the `humanize` skill. The lint here is
- * deliberately a small subset of that catalog — the highest-signal tells —
- * so it stays deterministic and fast enough for a CI pre-commit gate.
+ * Tests for the prose lint of the rehydration document template. The lint finds a small,
+ * high-signal subset of the AI-writing patterns from the `humanize` skill.
  */
 import { describe, it, expect } from 'vitest';
 import { lintProse, lintTemplate } from '../../../../src/projections/rehydration/prose-lint.js';
@@ -55,12 +49,11 @@ describe('prose-lint', () => {
       expect(violations).toEqual([]);
     });
 
+    /** Two em dashes on one line are normal punctuation. The lint flags three or more. */
     it('tolerates a single em dash used as punctuation', () => {
       const clean =
         'The loader reads the fingerprint file — a tiny SHA-256 digest — and compares it to the committed value.';
       const violations = lintProse(clean);
-      // A single em-dash pair is acceptable punctuation; only sustained chains
-      // (three or more within one paragraph) should trip the lint.
       const emdashHits = violations.filter((v) => v.pattern === 'em-dash-chain');
       expect(emdashHits).toEqual([]);
     });

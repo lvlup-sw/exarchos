@@ -4,16 +4,14 @@ import { ViewMaterializer } from '../../../../src/projections/views/materializer
 import { codeQualityProjection, CODE_QUALITY_VIEW } from '../../../../src/projections/views/code-quality-view.js';
 import type { WorkflowEvent } from '../../../../src/events/schemas.js';
 
-// ─── Event Generators ─────────────────────────────────────────────────────
-
-/** Event types that the code quality projection actually processes. */
+/** The generated event types. The code quality projection folds the first two and ignores `workflow.transition`. */
 const RELEVANT_EVENT_TYPES = [
   'gate.executed',
   'benchmark.completed',
   'workflow.transition',
 ] as const;
 
-/** Generate a random event type from those relevant to the projection. */
+/** Generates one of the event types in `RELEVANT_EVENT_TYPES`. */
 const arbRelevantEventType = fc.constantFrom(...RELEVANT_EVENT_TYPES);
 
 /** Generate a gate.executed event with realistic data. */
@@ -67,7 +65,6 @@ function arbWorkflowEvent(sequence: number, streamId: string): fc.Arbitrary<Work
         data,
       }));
     }
-    // workflow.transition -- projection ignores this, useful for noise
     return fc.constant({
       streamId,
       sequence,
@@ -99,23 +96,19 @@ function arbEventSequence(
     .map((tuple) => [...tuple]);
 }
 
-// ─── Property Tests ─────────────────────────────────────────────────────
-
 describe('ViewMaterializer Property Tests', () => {
   const STREAM_ID = 'test-stream';
   const VIEW_NAME = CODE_QUALITY_VIEW;
 
   describe('Materializer_DoubleApplication_Idempotent', () => {
+    /** The second call passes the same events. The high-water mark filters them all, so the view does not change. */
     it('materializing same events twice produces identical view state', () => {
       fc.assert(
         fc.property(arbEventSequence(STREAM_ID), (events) => {
-          // First materialization
           const mat1 = new ViewMaterializer();
           mat1.register(VIEW_NAME, codeQualityProjection);
           const view1 = mat1.materialize(STREAM_ID, VIEW_NAME, events);
 
-          // Second materialization of same events on same materializer
-          // (should be idempotent due to high-water mark)
           const view2 = mat1.materialize(STREAM_ID, VIEW_NAME, events);
 
           expect(view1).toEqual(view2);
@@ -126,21 +119,21 @@ describe('ViewMaterializer Property Tests', () => {
   });
 
   describe('Materializer_IncrementalVsBatch_SameResult', () => {
+    /**
+     * The incremental run passes a longer prefix of the events on each call. The high-water mark
+     * makes the fold apply only the new event.
+     */
     it('materializing events one-at-a-time vs all-at-once produces same view state', () => {
       fc.assert(
         fc.property(arbEventSequence(STREAM_ID), (events) => {
-          // Batch: all events at once
           const batchMat = new ViewMaterializer();
           batchMat.register(VIEW_NAME, codeQualityProjection);
           const batchView = batchMat.materialize(STREAM_ID, VIEW_NAME, events);
 
-          // Incremental: one event at a time
           const incMat = new ViewMaterializer();
           incMat.register(VIEW_NAME, codeQualityProjection);
           let incView: unknown;
           for (let i = 0; i < events.length; i++) {
-            // Pass all events up to current index -- materializer uses
-            // high-water mark to only process new ones
             incView = incMat.materialize(STREAM_ID, VIEW_NAME, events.slice(0, i + 1));
           }
 

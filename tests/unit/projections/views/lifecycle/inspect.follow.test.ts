@@ -1,18 +1,7 @@
-// ─── Tests for the `inspect --follow` streaming carriers (DR-4, task-009) ─────
-//
-// Two carriers stream a live workflow tail over the ONE DR-1 cursor-pump
-// subscription:
-//   • CLI (NDJSON)  — `runInspectFollow` frames each delivered event as an
-//     NDJSON `event` frame, deduped by sequence, with heartbeat frames on
-//     silence driven by an INJECTED timer (INV-16 — no wall-clock).
-//   • MCP (Tasks)   — `tasksFollow` drives the SAME core over the SAME
-//     subscription contract; `tasks/cancel` → subscription dispose.
-//
-// Boundary discipline: the named cases drive a REAL `EventStore` subscription
-// and observe disposal on the real handle. The dedup roundtrip property test
-// exercises the pure frame transform against an adversarial (owned) source
-// fixture — the killable heart of the by-sequence dedup guarantee.
-// ─────────────────────────────────────────────────────────────────────────────
+// Tests for the two `inspect --follow` carriers. `runInspectFollow` (CLI) and
+// `tasksFollow` (MCP Tasks) share one core and one subscription contract. The
+// delivery and disposal tests use a real `EventStore` subscription. The
+// heartbeat tests and the property test use a fixture that the test drives.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { fc } from '@fast-check/vitest';
@@ -37,8 +26,6 @@ import {
   type FollowSubscribe,
 } from '../../../../../src/cli/follow-loop.js';
 import { tasksFollow } from '../../../../../src/mcp/tasks-methods.js';
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /** Collect a PassThrough's bytes once ended. */
 async function collect(stream: PassThrough): Promise<string> {
@@ -69,9 +56,8 @@ function evt(sequence: number): WorkflowEvent {
 }
 
 /**
- * Manually-driven clock (INV-16). `now()` is fixed so heartbeat timestamps are
- * deterministic; `scheduleInterval` records the tick so a test fires it with no
- * wall-clock sleep. Cancelling drops the loop.
+ * A clock that the test drives. `now()` returns a fixed time, so heartbeat timestamps are
+ * deterministic. `scheduleInterval` records the tick, and `fireAll` runs it with no sleep.
  */
 class ManualClock implements SubscriptionClock {
   readonly fixedNow: number;
@@ -99,10 +85,7 @@ class ManualClock implements SubscriptionClock {
   }
 }
 
-/**
- * A hermetic subscribe fixture that captures the listener so a test can drive
- * exact deliveries. Returns a disposable handle; tracks disposal.
- */
+/** A subscribe fixture that captures the listener, so a test delivers exact events. It records disposal. */
 function capturingSubscribe(): {
   subscribe: FollowSubscribe;
   deliver(event: WorkflowEvent): void;
@@ -161,8 +144,6 @@ function spySubscribe(inner: FollowSubscribe): {
   return { subscribe, calls };
 }
 
-// ─── Real-EventStore fixture ────────────────────────────────────────────────
-
 let tempDir: string;
 let store: EventStore;
 
@@ -178,7 +159,7 @@ afterEach(async () => {
   await rmrfAsync(tempDir);
 });
 
-/** The real DR-1 subscription contract, bound to the fixture store. */
+/** The subscription contract of the fixture store. */
 function realSubscribe(): FollowSubscribe {
   return (filter, onEvent, options) => store.subscribe(filter, onEvent, options);
 }
@@ -193,9 +174,11 @@ async function seed(streamId: string, n: number): Promise<void> {
   }
 }
 
-// ─── CLI (NDJSON) carrier ────────────────────────────────────────────────────
-
 describe('inspect --follow — CLI NDJSON carrier (DR-4)', () => {
+  /**
+   * The call passes no clock, so no heartbeat runs. The post-commit hook of the store delivers each
+   * event during its append, so the test aborts with no wait.
+   */
   it('InspectFollow_AppendedEvents_NdjsonFramesDedupedBySequence', async () => {
     const FEATURE = 'feat-ndjson';
     const sink = new PassThrough();
@@ -208,11 +191,8 @@ describe('inspect --follow — CLI NDJSON carrier (DR-4)', () => {
       fromSequence: 0,
       onFrame: (frame) => encoder.write(frame),
       signal: controller.signal,
-      // No clock → no heartbeat, so the frame stream is purely event + end.
     });
 
-    // Live appends over the REAL subscription — delivered synchronously
-    // post-commit by the Tier-1 hook.
     await seed(FEATURE, 3);
 
     controller.abort();
@@ -223,18 +203,17 @@ describe('inspect --follow — CLI NDJSON carrier (DR-4)', () => {
     const eventFrames = frames.filter((f) => f.type === 'event');
     const seqs = eventFrames.map((f) => (f as { sequence: number }).sequence);
 
-    // Each committed sequence appears EXACTLY once, in ascending order.
     expect(seqs).toEqual([1, 2, 3]);
-    expect(new Set(seqs).size).toBe(seqs.length); // no duplicate frame
-    // Terminal `end` frame closes the stream in-band.
+    expect(new Set(seqs).size).toBe(seqs.length);
     expect(frames.at(-1)).toMatchObject({ type: 'end' });
   });
 
+  /**
+   * The heartbeat calls the sink of the caller inside a timer tick, where a throw becomes an
+   * uncaught process error. The tick must catch the throw. After the event frame, the first tick
+   * emits nothing, because the event counts as activity. The second tick emits a heartbeat.
+   */
   it('InspectFollow_HeartbeatSinkThrows_ContainedAndLaterFramesStillFlow', async () => {
-    // `onFrame` is a CALLER-supplied sink (NDJSON encoder write / MCP
-    // task-update push). The heartbeat fires inside `scheduleInterval`, so a
-    // throwing sink must be contained — otherwise it escapes the tick as an
-    // unhandled process-level exception, the same gap `floorTick()` had.
     const clock = new ManualClock();
     const src = capturingSubscribe();
     const frames: Frame[] = [];
@@ -253,24 +232,25 @@ describe('inspect --follow — CLI NDJSON carrier (DR-4)', () => {
       heartbeatIntervalMs: 1000,
     });
 
-    // The heartbeat tick's sink throws → contained, not process-level.
     expect(() => clock.fireAll()).not.toThrow();
-    expect(frames).toHaveLength(0); // the throwing heartbeat delivered nothing
+    expect(frames).toHaveLength(0);
 
-    // The follow loop survives: real event frames still flow afterwards …
     src.deliver(evt(1));
     expect(frames.map((f) => f.type)).toEqual(['event']);
 
-    // … and a later heartbeat still emits once the sink recovers.
     failNextHeartbeat = false;
-    clock.fireAll(); // suppressed — the delivered event reset the idle marker
-    clock.fireAll(); // silence → heartbeat resumes
+    clock.fireAll();
+    clock.fireAll();
     expect(frames.map((f) => f.type)).toEqual(['event', 'heartbeat']);
 
     controller.abort();
     await handle.done;
   });
 
+  /**
+   * A tick after an event emits nothing, so a heartbeat marks only an idle gap. Each heartbeat
+   * timestamp comes from the injected clock. The abort cancels the heartbeat loop.
+   */
   it('InspectFollow_SilentGap_HeartbeatFramesOnInjectedTimer', async () => {
     const clock = new ManualClock();
     const src = capturingSubscribe();
@@ -286,31 +266,25 @@ describe('inspect --follow — CLI NDJSON carrier (DR-4)', () => {
       heartbeatIntervalMs: 1000,
     });
 
-    // Silence: an injected tick emits a heartbeat with the INJECTED timestamp.
     clock.fireAll();
-    // Activity: a delivered event resets the idle marker...
     src.deliver(evt(1));
-    // ...so the very next tick is SUPPRESSED (heartbeat only marks silence).
     clock.fireAll();
-    // Silence again → heartbeat resumes.
     clock.fireAll();
 
     const heartbeats = frames.filter((f) => f.type === 'heartbeat');
-    expect(heartbeats).toHaveLength(2); // one before, one after — NOT during activity
-    // INV-16: timestamp is derived from the injected clock, not wall-clock.
+    expect(heartbeats).toHaveLength(2);
     const expectedTs = new Date(clock.fixedNow).toISOString();
     for (const hb of heartbeats) {
       expect((hb as { timestamp: string }).timestamp).toBe(expectedTs);
     }
-    // The event frame landed between the two heartbeats.
     expect(frames.map((f) => f.type)).toEqual(['heartbeat', 'event', 'heartbeat']);
 
     controller.abort();
     await handle.done;
-    // Heartbeat loop cancelled on teardown — no live timer leaks.
     expect(clock.loopCount).toBe(0);
   });
 
+  /** The abort disposes the real store subscription. The test sends no process signal. */
   it('InspectFollow_Abort_SubscriptionDisposed', async () => {
     const spy = spySubscribe(realSubscribe());
     const controller = new AbortController();
@@ -322,34 +296,30 @@ describe('inspect --follow — CLI NDJSON carrier (DR-4)', () => {
       signal: controller.signal,
     });
 
-    // Live before abort — no process signal involved.
     expect(handle.disposed()).toBe(false);
     expect(spy.calls[0].disposeCount).toBe(0);
 
     controller.abort();
     await handle.done;
 
-    // The abort disposed the REAL DR-1 subscription (INV-15).
     expect(handle.disposed()).toBe(true);
     expect(spy.calls[0].disposeCount).toBe(1);
   });
 });
 
-// ─── MCP (Tasks) carrier ─────────────────────────────────────────────────────
-
 describe('inspect --follow — MCP Tasks carrier (DR-4)', () => {
+  /**
+   * Both carriers receive one subscribe spy. Equal filters and options show that they use the same
+   * subscription contract. `cancel` on the MCP handle disposes its subscription.
+   */
   it('InspectFollow_McpTasks_SharesSubscriptionContract', async () => {
     const FEATURE = 'feat-shared';
-    // ONE subscribe spy handed to BOTH facades proves they drive the SAME
-    // DR-1 subscription contract (same filter + options), not two divergent
-    // paths.
     const spy = spySubscribe(realSubscribe());
 
     const cliFrames: Frame[] = [];
     const mcpFrames: Frame[] = [];
     const cliCtl = new AbortController();
 
-    // CLI arm.
     const cli = runInspectFollow({
       subscribe: spy.subscribe,
       featureId: FEATURE,
@@ -357,7 +327,6 @@ describe('inspect --follow — MCP Tasks carrier (DR-4)', () => {
       onFrame: (f) => cliFrames.push(f),
       signal: cliCtl.signal,
     });
-    // MCP Tasks arm — SAME core, SAME contract; owns its cancel seam.
     const mcp = tasksFollow({
       subscribe: spy.subscribe,
       featureId: FEATURE,
@@ -365,14 +334,12 @@ describe('inspect --follow — MCP Tasks carrier (DR-4)', () => {
       onFrame: (f) => mcpFrames.push(f),
     });
 
-    // Both registered against the same contract.
     expect(spy.calls).toHaveLength(2);
     expect(spy.calls[0].filter).toEqual({ streamId: FEATURE });
     expect(spy.calls[1].filter).toEqual({ streamId: FEATURE });
     expect(spy.calls[0].options).toEqual({ fromSequence: 0 });
     expect(spy.calls[1].options).toEqual({ fromSequence: 0 });
 
-    // Same live events → byte-identical event-frame streams (INV-2).
     await seed(FEATURE, 3);
 
     const cliSeqs = cliFrames.filter((f) => f.type === 'event').map((f) => (f as { sequence: number }).sequence);
@@ -380,7 +347,6 @@ describe('inspect --follow — MCP Tasks carrier (DR-4)', () => {
     expect(cliSeqs).toEqual([1, 2, 3]);
     expect(mcpSeqs).toEqual(cliSeqs);
 
-    // task-cancel → subscription dispose (the MCP-facade wire).
     expect(mcp.disposed()).toBe(false);
     mcp.cancel();
     await mcp.done;
@@ -393,14 +359,14 @@ describe('inspect --follow — MCP Tasks carrier (DR-4)', () => {
   });
 });
 
-// ─── Dedup roundtrip property (data-transformation) ──────────────────────────
-
 describe('inspect --follow — dedup roundtrip property (DR-4)', () => {
+  /**
+   * The source delivers sequences with duplicates and in any order. The expected output holds
+   * each sequence that is higher than every sequence before it.
+   */
   it('InspectFollow_FrameStream_ContainsEachSequenceExactlyOnceMonotonic', () => {
     fc.assert(
       fc.property(
-        // A source of (possibly duplicated, possibly out-of-order) sequences —
-        // the adversary the by-sequence dedup guard must collapse.
         fc.array(fc.integer({ min: 1, max: 40 }), { minLength: 0, maxLength: 30 }),
         (seqs) => {
           const src = capturingSubscribe();
@@ -418,7 +384,6 @@ describe('inspect --follow — dedup roundtrip property (DR-4)', () => {
             .filter((f) => f.type === 'event')
             .map((f) => (f as { sequence: number }).sequence);
 
-          // Expected = the "record highs" of the input (monotonic, exactly once).
           const expected: number[] = [];
           let running = 0;
           for (const s of seqs) {
@@ -428,11 +393,9 @@ describe('inspect --follow — dedup roundtrip property (DR-4)', () => {
             }
           }
           expect(out).toEqual(expected);
-          // Strictly increasing → no duplicate, always monotonic.
           for (let i = 1; i < out.length; i++) {
             expect(out[i]).toBeGreaterThan(out[i - 1]);
           }
-          // Every emitted sequence came from the source.
           const inputSet = new Set(seqs);
           for (const s of out) expect(inputSet.has(s)).toBe(true);
         },

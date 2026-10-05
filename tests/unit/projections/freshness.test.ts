@@ -1,22 +1,10 @@
-// ─── EFF-002: projection-degraded signal on cursor/tail disagreement ─────────
-//
-// A phase-gate dogfood run found workflow views serving a silently stale fold —
-// a cancelled workflow still reported at `plan-review`, 7 of 10 completed tasks
-// visible, lag past 500s — with nothing on the response saying the answer did
-// not derive from the current event tail.
-//
-// The comparison is pure (`assessProjectionFreshness`). Its consumer is
-// `planRehydrationSource`, which REPAIRS what it reports — folds a lagging fold
-// forward, discards and replays a contradictory one — and
-// `projections/fold-at-tail.ts` runs that decision ahead of every
-// projection-derived read.
-//
-// #1855 removed the stream-wide sibling `assessStreamFreshness`, which required
-// every cached fold of a stream to sit on the tail while a read advances only
-// one. The tests that pinned it are rewritten below to the claim that replaced
-// them, not deleted: what a stale sibling fold must do is exactly the question
-// that got answered wrongly, so it is worth an explicit test of the new answer.
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Tests for projection freshness: the comparison of one projection cursor with the durable event tail.
+ * `assessProjectionFreshness` is pure, and its verdict is for one named fold, not for a stream.
+ * `planRehydrationSource` calls it and plans the repair.
+ * The plan folds a lagging fold forward, and discards and replays a contradictory fold.
+ * `src/projections/fold-at-tail.ts` runs that plan before each read that answers from a projection.
+ */
 
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -68,22 +56,19 @@ describe('projection freshness comparison (EFF-002)', () => {
     expect(toProjectionDegradedMeta(result)).toMatchObject({ reason: 'projection-behind' });
   });
 
+  /** A snapshot restored over a pruned or rebuilt log claims events that the store cannot produce. The fold contradicts the log. */
   it('Freshness_CursorAheadOfTail_DegradedAsProjectionAhead', () => {
-    // A snapshot restored over a pruned/rebuilt log: the fold claims events the
-    // store cannot produce. Contradiction, not staleness — but equally unusable.
     const result = assessProjectionFreshness({ eventTail: 10, projectionCursor: 25 });
     expect(result.degraded).toBe(true);
     expect(result.reason).toBe('projection-ahead');
     expect(result.lag).toBe(-15);
   });
 
+  /**
+   * The verdict is for one named fold. A read advances one fold only, so no read can make every fold of a stream fresh.
+   * A sibling fold of the same stream is judged separately and can be fresh at the same time.
+   */
   it('Freshness_IsPerFold_NotPerStream', () => {
-    // `assessStreamFreshness` used to answer this question for a whole stream
-    // by requiring EVERY cached fold to sit on the tail. That is a different
-    // and false obligation: a read advances one fold, so the predicate could
-    // not come back clean on any stream with two of them, and the staleness of
-    // a fold nobody is reading is not a fact about the answer being produced.
-    // The comparison that survives is per-fold and names the fold it judged.
     const behind = assessProjectionFreshness({
       eventTail: 100,
       projectionCursor: 60,
@@ -92,8 +77,6 @@ describe('projection freshness comparison (EFF-002)', () => {
     expect(behind.staleViews, 'the verdict is about one named fold').toEqual(['workflow-state']);
     expect(behind.lag).toBe(40);
 
-    // A sibling fold of the same stream is judged separately and can be fresh
-    // at the same instant. Nothing collapses the two into one stream verdict.
     const sibling = assessProjectionFreshness({
       eventTail: 100,
       projectionCursor: 100,
@@ -130,15 +113,14 @@ describe('view chokepoint marks degraded reads (EFF-002)', () => {
     return meta?.[PROJECTION_DEGRADED_META] as Record<string, unknown> | undefined;
   }
 
+  /** The first read folds to the tail. The second read sees the same current fold. */
   it('HandleView_FreshProjection_NoDegradedMarker', async () => {
     await seedEvents(4);
-    // First read folds to the tail.
     const first = await handleView(
       { action: 'workflow_status', workflowId: STREAM },
       ctx,
     );
     expect(first.success).toBe(true);
-    // Second read observes the same, still-current fold.
     const second = await handleView(
       { action: 'workflow_status', workflowId: STREAM },
       ctx,
@@ -147,15 +129,16 @@ describe('view chokepoint marks degraded reads (EFF-002)', () => {
     expect(degradedMeta(second)).toBeUndefined();
   });
 
+  /**
+   * The test warms the fold, then sets each cursor to 25, past the tail of 4.
+   * An incremental read from sequence 25 returns no event, so the fold cannot repair itself.
+   * The event log is the source of truth, so the read discards the fold, replays it, and answers.
+   * The cursor then sits on the real tail.
+   */
   it('HandleView_ProjectionAheadOfPrunedLog_IsRepairedAndAnswered', async () => {
     await seedEvents(4);
-    // Warm the fold so a cursor exists…
     await handleView({ action: 'workflow_status', workflowId: STREAM }, ctx);
 
-    // …then inject the contradiction a snapshot restored over a pruned or
-    // rebuilt log produces: the fold claims events the store cannot produce.
-    // The incremental read path asks for `sinceSequence: 25` and gets nothing,
-    // so the impossible fold cannot heal itself.
     const materializer = getOrCreateMaterializer(stateDir);
     const cursors = materializer.getStreamCursors(STREAM);
     expect(cursors.length).toBeGreaterThan(0);
@@ -166,29 +149,20 @@ describe('view chokepoint marks degraded reads (EFF-002)', () => {
 
     const result = await handleView({ action: 'workflow_status', workflowId: STREAM }, ctx);
 
-    // #1855 ORACLE UPDATE — deliberate, and the second time this line has
-    // moved. It first read `success: true` (the impossible fold was SERVED,
-    // with the verdict whispered on `_meta`). It then became a refusal.
-    // Both readings shared an assumption: that the only choices are serving a
-    // bad fold or withholding an answer. There is a third — the event log is
-    // authoritative — it is the source of truth — so the fold is DISCARDED and
-    // replayed, and the
-    // answer that comes back is correct rather than merely marked.
     expect(result.success, JSON.stringify(result.error)).toBe(true);
     expect(result.error?.code).not.toBe('PROJECTION_DEGRADED');
     expect(result.data, 'a repaired read answers with real data').toBeDefined();
 
-    // The cursor now sits on the real tail, not the impossible one.
     const repaired = materializer.getState(STREAM, 'workflow-status');
     expect(repaired?.highWaterMark).toBe(4);
   });
 
+  /**
+   * A stale sibling fold is not a fact about this answer, because a read refreshes only its own fold.
+   * The read of the current projection answers with no degraded marker and leaves the sibling stale.
+   * A read of the sibling repairs the sibling.
+   */
   it('HandleView_StaleSiblingFold_DoesNotDegradeAnUnrelatedAnswer', async () => {
-    // This test previously asserted the OPPOSITE — "a stale sibling fold must
-    // degrade the stream answer" — and that assertion is #1855. It made the
-    // staleness of a fold nobody was reading into a property of every read of
-    // the stream, and since a read refreshes only its own fold, the condition
-    // could not be cleared by any read at all.
     await seedEvents(4);
     await handleView({ action: 'workflow_status', workflowId: STREAM }, ctx);
     await handleView({ action: 'delegation_readiness', workflowId: STREAM }, ctx);
@@ -204,8 +178,6 @@ describe('view chokepoint marks degraded reads (EFF-002)', () => {
     if (siblingState === undefined) return;
     materializer.loadState(STREAM, sibling.viewName, siblingState.view, 1);
 
-    // Reading the CURRENT projection answers, and answers cleanly. The sibling
-    // stays stale in cache and is repaired by the next read OF IT.
     const result = await handleView({ action: 'workflow_status', workflowId: STREAM }, ctx);
     expect(result.success, JSON.stringify(result.error)).toBe(true);
     expect(degradedMeta(result), 'an unread fold is not a fact about this answer').toBeUndefined();
@@ -214,7 +186,6 @@ describe('view chokepoint marks degraded reads (EFF-002)', () => {
       'reading one fold must not silently touch another',
     ).toBe(1);
 
-    // …and reading the sibling repairs the sibling.
     const siblingRead = await handleView({ action: 'delegation_readiness', workflowId: STREAM }, ctx);
     expect(siblingRead.success, JSON.stringify(siblingRead.error)).toBe(true);
     expect(materializer.getState(STREAM, sibling.viewName)?.highWaterMark).toBe(4);
@@ -226,32 +197,16 @@ describe('view chokepoint marks degraded reads (EFF-002)', () => {
   });
 });
 
-// ─── DR-4: one durable projection-degraded state ────────────────────────────
-//
-// CHARACTERIZATION of what came before (the tests above still pin it):
-// `_meta.projectionDegraded` is an EPHEMERAL per-response annotation.
-// `stampProjectionFreshness` recomputes it on every read from the in-memory
-// materializer LRU and stamps it on ONE envelope. Nothing is persisted, so the
-// verdict does not survive the response — let alone a process restart — and a
-// consumer that does not read `_meta` (or runs in another process with a cold
-// cache) still receives the stale fold as `success: true`.
-//
-// WHAT CHANGED: the same cursor/tail verdict is now also PUBLISHED — as
-// `projection.degraded` / `projection.recovered` on the dedicated durable
-// `meta/projection-health` stream — and read back as a folded state through
-// `readProjectionDegradedState`. The `_meta` annotation is deliberately
-// untouched; it remains a per-response courtesy, not the state of record.
-//
-// T-07 (DR-4, consumption half): the durable state is now READ by every
-// projection-derived consumer (`exarchos_view`, `exarchos_workflow get`, the
-// four materializer-backed `exarchos_orchestrate` readiness/reliability
-// actions), each returning the ONE shared typed degraded result
-// (`projections/degraded-result.ts`) instead of `success: true` with a stale
-// payload. `HandleView_ProjectionAheadOfPrunedLog_ReturnsTypedDegradedMarker`
-// above carries the resulting oracle update; the other three `HandleView_*`
-// cases are unchanged. See `degraded-consumers.test.ts` for the consumer sweep.
-// ─────────────────────────────────────────────────────────────────────────────
-
+/**
+ * `publishProjectionFreshness` also writes the cursor and tail verdict as `projection.degraded` and `projection.recovered` events.
+ * The events go to the durable `meta/projection-health` stream, and `readProjectionDegradedState` folds them back.
+ * `_meta.projectionDegraded` stays a per-response annotation and is not the state of record.
+ *
+ * `JUDGED_VIEW` is the one named fold that these cases judge.
+ * `warmFoldAndSetCursor` warms a fold through the view handler, then sets its high-water mark to `cursor`.
+ * It changes one fold only, because a read advances exactly one fold.
+ * `assessLive` compares the live cursor with the tail of the real store.
+ */
 describe('durable projection-degraded state (DR-4)', () => {
   let stateDir: string;
   let store: EventStore;
@@ -276,21 +231,8 @@ describe('durable projection-degraded state (DR-4)', () => {
     }
   }
 
-  /** The fold these journal cases judge — one named view, as production does. */
   const JUDGED_VIEW = 'workflow-status';
 
-  /**
-   * Warm a REAL fold through the real view chokepoint, then drive its cursor to
-   * `cursor`. This is the fault under test: a materialized projection whose
-   * high-water mark no longer matches the durable tail.
-   *
-   * It rewinds ONE named fold. The version before #1855 looped over every
-   * cursor on the stream and set them all, because the verdict under test
-   * quantified over all of them — which meant the recovery case reached its
-   * precondition through an input no production path can produce (a read
-   * advances exactly one fold). Judging one named fold keeps the fixture inside
-   * what the system can actually do.
-   */
   async function warmFoldAndSetCursor(cursor: number): Promise<void> {
     await handleView({ action: 'workflow_status', workflowId: STREAM }, ctx);
     const materializer = getOrCreateMaterializer(stateDir);
@@ -299,7 +241,6 @@ describe('durable projection-degraded state (DR-4)', () => {
     if (state) materializer.loadState(STREAM, JUDGED_VIEW, state.view, cursor);
   }
 
-  /** The REAL cursor/tail comparison — no synthetic numbers, no mocked store. */
   async function assessLive(): Promise<ReturnType<typeof assessProjectionFreshness>> {
     const materializer = getOrCreateMaterializer(stateDir);
     return assessProjectionFreshness({
@@ -309,9 +250,15 @@ describe('durable projection-degraded state (DR-4)', () => {
     });
   }
 
+  /**
+   * The fold stops 3 events short of the tail.
+   * The test closes the store and opens a second `EventStore` on the same directory.
+   * The degraded state must come back from the stream id alone, with no materializer and no `_meta`.
+   * The `finally` block opens a new store because `afterEach` closes `store`.
+   */
   it('ProjectionFreshness_StaleCursor_PublishesDurableDegradedState', async () => {
     await seedEvents(4);
-    await warmFoldAndSetCursor(1); // fold stops 3 events short of the tail
+    await warmFoldAndSetCursor(1);
 
     const freshness = await assessLive();
     expect(freshness.degraded, 'fault injection must produce a real disagreement').toBe(true);
@@ -327,10 +274,6 @@ describe('durable projection-degraded state (DR-4)', () => {
       lag: 3,
     });
 
-    // DURABILITY — the whole point. Drop the store (and with it every
-    // in-memory cursor), reopen the same state directory through a SEPARATE,
-    // independent EventStore, and read the state back with nothing but a
-    // stream id. No materializer, no warm LRU, no `_meta`.
     store.close();
     const reopened = new EventStore(stateDir);
     await reopened.initialize();
@@ -346,8 +289,6 @@ describe('durable projection-degraded state (DR-4)', () => {
       });
       expect(durable?.staleViews.length).toBeGreaterThan(0);
 
-      // It is a real persisted event on the dedicated health stream, readable
-      // by any consumer that never imported this module.
       const persisted = await reopened.query(PROJECTION_HEALTH_STREAM_ID, {
         type: PROJECTION_DEGRADED_EVENT_TYPE,
       });
@@ -355,13 +296,13 @@ describe('durable projection-degraded state (DR-4)', () => {
       expect(persisted[0]?.data).toMatchObject({ streamId: STREAM, eventTail: 4 });
     } finally {
       reopened.close();
-      store = new EventStore(stateDir); // afterEach closes this handle
+      store = new EventStore(stateDir);
     }
   });
 
   it('ProjectionFreshness_TailMatchesCursor_PublishesNoDegradedState', async () => {
     await seedEvents(4);
-    await warmFoldAndSetCursor(4); // fold covers the tail exactly
+    await warmFoldAndSetCursor(4);
 
     const freshness = await assessLive();
     expect(freshness.degraded).toBe(false);
@@ -394,23 +335,22 @@ describe('durable projection-degraded state (DR-4)', () => {
     );
   });
 
+  /**
+   * The stream degrades, recovers, then degrades again at the identical tail and cursor.
+   * A key of stream, tail and cursor alone dedupes the second `projection.degraded` onto the first row.
+   * That row comes before the recovery, so the fold ends recovered and the stream reads as healthy.
+   * The second detection must write a new row after the recovery.
+   * Repeated detections in one generation still collapse onto one row.
+   */
   it('ProjectionDegraded_RedetectionAfterRecovery_FoldEndsDegraded', async () => {
-    // Regression: the degraded key used to be keyed on (streamId, eventTail,
-    // cursor) alone. Degrade → recover → degrade AGAIN at the IDENTICAL pair
-    // (cursor regression via snapshot restore/rebuild — this module's own
-    // documented scenario) deduped the second `projection.degraded` onto the
-    // ORIGINAL row, whose sequence precedes the recovered event — so the fold
-    // ended 'recovered' and the degraded stream was served as healthy.
     await seedEvents(4);
     await warmFoldAndSetCursor(1);
     expect(await publishProjectionFreshness(store, STREAM, await assessLive())).toBeDefined();
 
-    // The fold catches the tail: recovered.
     await warmFoldAndSetCursor(4);
     await publishProjectionFreshness(store, STREAM, await assessLive());
     expect(await readProjectionDegradedState(store, STREAM)).toBeUndefined();
 
-    // The cursor regresses to the IDENTICAL (eventTail, cursor) pair.
     await warmFoldAndSetCursor(1);
     const freshness = await assessLive();
     expect(freshness).toMatchObject({ degraded: true, eventTail: 4, projectionCursor: 1 });
@@ -418,8 +358,6 @@ describe('durable projection-degraded state (DR-4)', () => {
     const republished = await publishProjectionFreshness(store, STREAM, freshness);
     expect(republished, 'the re-detection must produce a durable state').toBeDefined();
 
-    // The fold must end 'degraded': the re-detection minted a NEW row PAST the
-    // recovered event instead of collapsing onto the pre-recovery one.
     const durable = await readProjectionDegradedState(store, STREAM);
     expect(durable, 'a re-degraded stream must not be served as healthy').toMatchObject({
       streamId: STREAM,
@@ -428,8 +366,6 @@ describe('durable projection-degraded state (DR-4)', () => {
       projectionCursor: 1,
     });
 
-    // Two degraded rows persisted (one per generation) — history, not spam:
-    // repeated re-detections WITHIN the new generation still collapse.
     await publishProjectionFreshness(store, STREAM, await assessLive());
     const persisted = await store.query(PROJECTION_HEALTH_STREAM_ID, {
       type: PROJECTION_DEGRADED_EVENT_TYPE,
@@ -437,10 +373,11 @@ describe('durable projection-degraded state (DR-4)', () => {
     expect(persisted).toHaveLength(2);
   });
 
+  /**
+   * The publish must not append to the assessed stream.
+   * Such an append moves the tail that the verdict compares against, so each read appends again without end.
+   */
   it('ProjectionDegraded_PublishedOnMetaStream_LeavesAssessedStreamTailUntouched', async () => {
-    // Publishing onto the assessed stream would move the very tail the verdict
-    // is computed against — each read would observe a NEW disagreement and
-    // append again, forever.
     await seedEvents(4);
     await warmFoldAndSetCursor(1);
     await publishProjectionFreshness(store, STREAM, await assessLive());
@@ -449,13 +386,13 @@ describe('durable projection-degraded state (DR-4)', () => {
     expect(await store.query(STREAM, { type: PROJECTION_DEGRADED_EVENT_TYPE })).toEqual([]);
   });
 
+  /** When the fold catches the tail, the durable state must clear. A second healthy read publishes no more events. */
   it('ProjectionDegraded_FoldCatchesTail_ResolvesTheDurableState', async () => {
     await seedEvents(4);
     await warmFoldAndSetCursor(1);
     expect(await publishProjectionFreshness(store, STREAM, await assessLive())).toBeDefined();
     expect(await readProjectionDegradedState(store, STREAM)).toBeDefined();
 
-    // The fold catches up: the durable state must clear, not stick forever.
     await warmFoldAndSetCursor(4);
     expect(await publishProjectionFreshness(store, STREAM, await assessLive())).toBeUndefined();
     expect(await readProjectionDegradedState(store, STREAM)).toBeUndefined();
@@ -465,7 +402,6 @@ describe('durable projection-degraded state (DR-4)', () => {
     });
     expect(recovered).toHaveLength(1);
 
-    // …and a second healthy read publishes nothing further.
     await publishProjectionFreshness(store, STREAM, await assessLive());
     expect(
       await store.query(PROJECTION_HEALTH_STREAM_ID, {
@@ -484,6 +420,7 @@ describe('durable projection-degraded state (DR-4)', () => {
     expect(await readProjectionDegradedState(store, 'some-other-stream')).toBeUndefined();
   });
 
+  /** The persisted payload must parse against the registered schema, so the stored data cannot drift from the emitter. */
   it('ProjectionDegraded_EventTypes_RegisteredWithSourceAndSchema', async () => {
     for (const type of [PROJECTION_DEGRADED_EVENT_TYPE, PROJECTION_RECOVERED_EVENT_TYPE]) {
       expect(EventTypes).toContain(type);
@@ -491,8 +428,6 @@ describe('durable projection-degraded state (DR-4)', () => {
       expect(EVENT_DATA_SCHEMAS[type], `${type} needs a data schema`).toBeDefined();
     }
 
-    // The persisted payload parses against the REGISTERED schema — the wire
-    // contract T-07 reads it back through cannot drift from the emitter.
     await seedEvents(4);
     await warmFoldAndSetCursor(1);
     await publishProjectionFreshness(store, STREAM, await assessLive());

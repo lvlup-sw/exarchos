@@ -1,15 +1,7 @@
-// ─── WFQ-002: wave-scoped delegation readiness ───────────────────────────────
-//
-// CB-2 (phase-gate v2.12 dogfood): a 4-task wave inside a 17-task workflow was
-// blocked because readiness derived `expected` from EVERY historical
-// `task.assigned` event, then waited for all 17 worktrees. Readiness for a wave
-// must be computed over exactly the wave's task set.
-//
-// The scoping core is `computeScopedWorktrees`. These tests pin BOTH consumers
-// to it — `prepare_delegation` (which threads `args.tasks`) and the
-// `delegation_readiness` view action (which threads `tasks`) — so the two
-// surfaces cannot report different readiness for the same wave (DIM-1).
-// ─────────────────────────────────────────────────────────────────────────────
+// Tests for wave-scoped delegation readiness.
+// Readiness for a wave counts only the tasks of that wave, not each `task.assigned` event on the stream.
+// Without that scope, a 4-task wave waits for the worktree of each historical task.
+// The tests call `computeScopedWorktrees` directly and through the `delegation_readiness` view action.
 
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -79,12 +71,11 @@ function foldHistoricalWorkflow(readyTaskIds: readonly string[]): DelegationRead
 }
 
 describe('wave-scoped delegation readiness (WFQ-002)', () => {
+  /** The projection counts the whole stream, but the scoped result counts only the four tasks of the wave. */
   it('Readiness_EighteenHistoricalAssignments_ScopesExpectedToWaveSize', () => {
     const state = foldHistoricalWorkflow([]);
-    // The projection still tracks the whole stream…
     expect(state.worktrees.expected).toBe(HISTORICAL_TASK_COUNT + 1);
 
-    // …but the wave is judged on exactly its own four tasks.
     const scoped = computeScopedWorktrees(state, WAVE);
     expect(scoped.expected).toBe(WAVE.length);
     expect(scoped.ready).toBe(0);
@@ -92,9 +83,8 @@ describe('wave-scoped delegation readiness (WFQ-002)', () => {
     expect(scoped.blockers).toContain('4 worktrees pending');
   });
 
+  /** The worktrees of the wave tasks make the wave ready, although 14 other tasks have no worktree. */
   it('Readiness_WaveWorktreesCreated_ReadyAfterExactlyNEvents', () => {
-    // N worktree.created events for the WAVE's tasks must clear the wave, even
-    // though 14 other historical tasks have no worktree at all.
     const state = foldHistoricalWorkflow(WAVE.map((t) => t.id));
     expect(state.worktrees.expected).toBe(HISTORICAL_TASK_COUNT + 1);
     expect(state.worktrees.ready).toBe(WAVE.length);
@@ -109,8 +99,8 @@ describe('wave-scoped delegation readiness (WFQ-002)', () => {
     ).toEqual([]);
   });
 
+  /** A worktree for a task outside the wave does not count toward the wave. */
   it('Readiness_OtherWaveWorktreesCreated_DoesNotSatisfyThisWave', () => {
-    // Worktrees for tasks OUTSIDE the wave must not count toward it.
     const state = foldHistoricalWorkflow([taskId(1), taskId(2), taskId(3), taskId(4)]);
     const scoped = computeScopedWorktrees(state, WAVE);
     expect(scoped.ready).toBe(0);

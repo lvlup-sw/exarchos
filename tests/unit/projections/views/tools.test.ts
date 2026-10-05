@@ -1,14 +1,10 @@
-// DR-8 (Task 013) — the INVENTORY / list-shaped view-contract batch.
-//
-// These tests pin the generalized view contract on the inventory views migrated
-// in this task (`delegation_timeline`, `team_performance`, `workflow_status`,
-// `tasks`): compact-by-default with `detail: true` restoring full rows, `page`
-// metadata when list-shaped, P5 scope perceivability (`scope` + `unscopedTotal`),
-// and a DR-2-style token-budget guard. Analytic/correlation views are Task 024.
-//
-// Kill-probe note: each assertion below fails if the migrated source hunks are
-// reverted (compact/paging/scope disappear, or the payload blows past budget).
-
+/**
+ * Tests for the view contract on the inventory views and the analytic views.
+ *
+ * Each view is compact by default, and `detail: true` restores the full rows. A list-shaped view
+ * returns `page` metadata. A scoped view reports `scope` and `unscopedTotal`, so a caller can see
+ * that rows are hidden. Each default response stays under the effective token budget of its action.
+ */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
@@ -36,7 +32,7 @@ import { TOOL_REGISTRY, resolveEconomyBudget } from '../../../../src/registry.js
 import { estimateOutputTokens, DEFAULT_VIEW_ITEM_CAP } from '../../../../src/dispatch/core/economy.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
-/** Effective per-action response budget the dispatch-core backstop enforces (Task 003). */
+/** The effective response budget of a view action, which the dispatch core enforces. */
 function effectiveBudget(action: string): number {
   const viewTool = TOOL_REGISTRY.find((t) => t.name === 'exarchos_view')!;
   const descriptor = viewTool.actions.find((a) => a.name === action)!;
@@ -62,6 +58,7 @@ async function seedAssignedTask(
   });
 }
 
+/** The inventory views: `delegation_timeline`, `team_performance`, `workflow_status` and `tasks`. */
 describe('DR-8 inventory view contract (Task 013)', () => {
   let tmpDir: string;
   let store: EventStore;
@@ -77,16 +74,16 @@ describe('DR-8 inventory view contract (Task 013)', () => {
     await rmrfAsync(tmpDir);
   });
 
-  // ─── Required: list-shaped views return page metadata and honor detail ──────
-
+  /**
+   * The compact rows omit the `assignedAt` and `completedAt` timestamps, and `detail: true`
+   * restores them. An explicit `limit` narrows the window and sets `page.hasMore`.
+   */
   it('viewsContract_ListShaped_ReturnPageMetadataAndHonorDetail', async () => {
     const streamId = 'contract-list';
     await seedAssignedTask(store, streamId, 'task-1', 'w1');
     await seedAssignedTask(store, streamId, 'task-2', 'w2');
     await seedAssignedTask(store, streamId, 'task-3', 'w3');
 
-    // Compact-by-default: `page` metadata is present and rows omit the verbose
-    // ISO timestamps.
     const compact = await handleViewDelegationTimeline({ workflowId: streamId }, tmpDir, store);
     expect(compact.success).toBe(true);
     const compactData = compact.data as {
@@ -102,12 +99,10 @@ describe('DR-8 inventory view contract (Task 013)', () => {
     expect(compactData.tasks).toHaveLength(3);
     for (const row of compactData.tasks) {
       expect(row).toHaveProperty('taskId');
-      // Compaction dropped the timestamps — the observable compact/detail split.
       expect(row).not.toHaveProperty('assignedAt');
       expect(row).not.toHaveProperty('completedAt');
     }
 
-    // `detail: true` restores the full TimelineTask rows.
     const detailed = await handleViewDelegationTimeline(
       { workflowId: streamId, detail: true },
       tmpDir,
@@ -119,7 +114,6 @@ describe('DR-8 inventory view contract (Task 013)', () => {
       expect(row).toHaveProperty('completedAt');
     }
 
-    // An explicit `limit` narrows the window and flips `page.hasMore`.
     const paged = await handleViewDelegationTimeline(
       { workflowId: streamId, limit: 1, offset: 0 },
       tmpDir,
@@ -133,13 +127,12 @@ describe('DR-8 inventory view contract (Task 013)', () => {
     expect(pagedData.page).toMatchObject({ total: 3, limit: 1, hasMore: true });
   });
 
-  // ─── Required: a migrated view stays under its effective token budget ───────
-
+  /**
+   * The stream holds 120 tasks, more than `DEFAULT_VIEW_ITEM_CAP`. The compact rows and the
+   * default cap must keep the response under the effective budget.
+   */
   it('viewsContract_MigratedView_StaysUnderEffectiveBudget', async () => {
     const streamId = 'contract-budget';
-    // Populate a store whose FULL, un-capped, un-compacted timeline would blow
-    // past the effective budget; the compact + default-cap contract must keep
-    // the response under budget.
     for (let i = 0; i < 120; i++) {
       await seedAssignedTask(store, streamId, `t${i}`, 'w');
     }
@@ -149,17 +142,17 @@ describe('DR-8 inventory view contract (Task 013)', () => {
 
     const budget = effectiveBudget('delegation_timeline');
     const data = result.data as { tasks: unknown[] };
-    // The default window caps the row count regardless of how many were seeded.
     expect(data.tasks.length).toBe(DEFAULT_VIEW_ITEM_CAP);
     expect(estimateOutputTokens(result.data)).toBeLessThanOrEqual(budget);
   });
 
-  // ─── Required: a scoped view reports scope + unscopedTotal (P5) ─────────────
-
+  /**
+   * The correlation filter is the scope of this view. One of the two tasks is in scope, but
+   * `unscopedTotal` still reports both, and a `next_actions` entry points to the hidden row.
+   * A call with no filter reports the scope `all`.
+   */
   it('viewsContract_ScopedView_ReportsUnscopedTotal', async () => {
     const streamId = 'contract-scope';
-    // Two tasks tagged with different correlation IDs — the correlation filter
-    // is this view's scope.
     await seedAssignedTask(store, streamId, 'task-X', 'wx', 'cor-X');
     await seedAssignedTask(store, streamId, 'task-Y', 'wy', 'cor-Y');
 
@@ -176,25 +169,24 @@ describe('DR-8 inventory view contract (Task 013)', () => {
       tasks: Array<{ taskId: string }>;
     };
 
-    // Only the cor-X task is in scope, but the pre-scope total is still perceivable.
     expect(data.tasks).toHaveLength(1);
     expect(data.tasks[0].taskId).toBe('task-X');
     expect(data.scope).toBe('correlation');
     expect(data.page.total).toBe(1);
     expect(data.unscopedTotal).toBe(2);
 
-    // The hidden-rows escape hatch is surfaced so the elided cor-Y task is perceivable.
     expect(result.next_actions?.some((a) => a.verb === 'delegation_timeline')).toBe(true);
 
-    // An unscoped call reports scope 'all' and unscopedTotal === total.
     const unscoped = await handleViewDelegationTimeline({ workflowId: streamId }, tmpDir, store);
     const unscopedData = unscoped.data as { scope: string; unscopedTotal: number };
     expect(unscopedData.scope).toBe('all');
     expect(unscopedData.unscopedTotal).toBe(2);
   });
 
-  // ─── Peer: team_performance honors detail (compact drops modules roll-ups) ──
-
+  /**
+   * The compact response drops the `modules` roll-up and the `moduleExpertise` of each teammate.
+   * `detail: true` restores both.
+   */
   it('viewsContract_TeamPerformance_CompactByDefault_DetailRestoresModules', async () => {
     const streamId = 'contract-team';
     await store.append(streamId, {
@@ -209,8 +201,6 @@ describe('DR-8 inventory view contract (Task 013)', () => {
       },
     });
 
-    // Compact default: teammates present, but the heavy `modules` roll-up and
-    // per-teammate `moduleExpertise` are stripped.
     const compact = await handleViewTeamPerformance({ workflowId: streamId }, tmpDir, store);
     expect(compact.success).toBe(true);
     const compactData = compact.data as {
@@ -221,7 +211,6 @@ describe('DR-8 inventory view contract (Task 013)', () => {
     expect(compactData.modules).toBeUndefined();
     expect(compactData.teammates['worker-1']).not.toHaveProperty('moduleExpertise');
 
-    // detail:true restores the full projection.
     const detailed = await handleViewTeamPerformance(
       { workflowId: streamId, detail: true },
       tmpDir,
@@ -235,8 +224,7 @@ describe('DR-8 inventory view contract (Task 013)', () => {
     expect(detailedData.teammates['worker-1']).toHaveProperty('moduleExpertise');
   });
 
-  // ─── Peer: workflow_status honors detail (compact strips internal task store) ─
-
+  /** The compact response keeps the public fields and omits the internal `_taskStore`. */
   it('viewsContract_WorkflowStatus_CompactStripsInternalTaskStore', async () => {
     const streamId = 'contract-status';
     await store.append(streamId, {
@@ -251,7 +239,6 @@ describe('DR-8 inventory view contract (Task 013)', () => {
     const compact = await handleViewWorkflowStatus({ workflowId: streamId }, tmpDir, store);
     expect(compact.success).toBe(true);
     const compactData = compact.data as Record<string, unknown>;
-    // Public fields still present; the internal mirror is not leaked by default.
     expect(compactData.featureId).toBe('status-feature');
     expect(compactData).not.toHaveProperty('_taskStore');
 
@@ -263,8 +250,11 @@ describe('DR-8 inventory view contract (Task 013)', () => {
     expect((detailed.data as Record<string, unknown>)).toHaveProperty('_taskStore');
   });
 
-  // ─── Peer: tasks — bare-array data, page/scope/unscopedTotal on `_meta` ─────
-
+  /**
+   * `data` stays a bare array, so `page`, `scope` and `unscopedTotal` go on `_meta`. The compact
+   * rows drop `artifacts` and `duration`, and `detail: true` restores them. A status filter gives
+   * the scope `filtered`, and `unscopedTotal` still reports both tasks.
+   */
   it('viewsContract_Tasks_FilterScope_ReportsUnscopedTotalOnMeta', async () => {
     const streamId = 'contract-tasks';
     await store.append(streamId, {
@@ -280,7 +270,6 @@ describe('DR-8 inventory view contract (Task 013)', () => {
       data: { taskId: 't1', artifacts: ['a.ts'], duration: 30 },
     });
 
-    // Unfiltered: bare array preserved, page metadata + scope 'all' on `_meta`.
     const all = await handleViewTasks({ workflowId: streamId }, tmpDir, store);
     expect(all.success).toBe(true);
     expect(Array.isArray(all.data)).toBe(true);
@@ -297,12 +286,10 @@ describe('DR-8 inventory view contract (Task 013)', () => {
     });
     expect(allMeta.scope).toBe('all');
     expect(allMeta.unscopedTotal).toBe(2);
-    // Compact-by-default drops the verbose `artifacts`/`duration` fields.
     const completed = (all.data as Array<Record<string, unknown>>).find((t) => t.taskId === 't1')!;
     expect(completed).not.toHaveProperty('artifacts');
     expect(completed).not.toHaveProperty('duration');
 
-    // Filtered (scope): unscopedTotal stays perceivable above the scoped total.
     const filtered = await handleViewTasks(
       { workflowId: streamId, filter: { status: 'completed' } },
       tmpDir,
@@ -318,7 +305,6 @@ describe('DR-8 inventory view contract (Task 013)', () => {
     expect(filteredMeta.page.total).toBe(1);
     expect(filteredMeta.unscopedTotal).toBe(2);
 
-    // detail:true restores the verbose fields on the completed task.
     const detailed = await handleViewTasks(
       { workflowId: streamId, detail: true },
       tmpDir,
@@ -331,22 +317,6 @@ describe('DR-8 inventory view contract (Task 013)', () => {
   });
 });
 
-// ─── DR-8 (Task 024) — the ANALYTIC / correlation view-contract batch ─────────
-//
-// These tests pin the generalized view contract on the analytic views migrated
-// in Task 024 (`code_quality`, `eval_results`, `quality_hints`,
-// `quality_correlation`, `quality_attribution`, `session_provenance`,
-// `delegation_readiness`, `synthesis_readiness`, `shepherd_status`,
-// `provenance`, `convergence`): compact-by-default with `detail: true` restoring
-// the stripped sub-structure, `page` metadata on the list-shaped views, P5 scope
-// perceivability (`scope` + `unscopedTotal`) on the filter-scoped views, and a
-// DR-2-style token-budget guard per view.
-//
-// Kill-probe note: every per-view assertion below fails if the migrated source
-// hunk is reverted — the compact strip disappears (so the field is present by
-// default AND under detail, breaking the compact/detail split), or the `page` /
-// `scope` metadata vanishes.
-
 interface Page {
   total: number;
   offset: number;
@@ -358,6 +328,11 @@ function asRecord(data: unknown): Record<string, unknown> {
   return data as Record<string, unknown>;
 }
 
+/**
+ * The analytic views: `code_quality`, `eval_results`, `quality_hints`, `quality_correlation`,
+ * `quality_attribution`, `session_provenance`, `delegation_readiness`, `synthesis_readiness`,
+ * `shepherd_status`, `provenance` and `convergence`.
+ */
 describe('DR-8 analytic view contract (Task 024)', () => {
   let tmpDir: string;
   let store: EventStore;
@@ -391,11 +366,12 @@ describe('DR-8 analytic view contract (Task 024)', () => {
     });
   }
 
-  // ─── Required: analytic views return page AND scope metadata ────────────────
-
+  /**
+   * A skill filter on `code_quality` gives the scope `filtered`. The records before the filter are
+   * two skills and one shared `typecheck` gate, so `unscopedTotal` is 3. The list-shaped
+   * `provenance` view carries `page`.
+   */
   it('viewsContract_AnalyticViews_ReturnPageAndScopeMetadata', async () => {
-    // SCOPE facet — a skill filter on `code_quality` scopes the skills record,
-    // so `scope`/`unscopedTotal` stay perceivable and the escape hatch fires.
     const scopeStream = 'analytic-scope';
     await seedGate(scopeStream, { skill: 'delegation' });
     await seedGate(scopeStream, { skill: 'synthesis' });
@@ -408,15 +384,12 @@ describe('DR-8 analytic view contract (Task 024)', () => {
     expect(scoped.success).toBe(true);
     const scopedData = asRecord(scoped.data);
     expect(scopedData.scope).toBe('filtered');
-    // Pre-filter records = 2 skills + 1 shared `typecheck` gate = 3; the skill
-    // filter hides one skill, so the elided record stays perceivable.
     expect(scopedData.unscopedTotal).toBe(3);
     expect(scoped.next_actions?.some((a) => a.verb === 'code_quality')).toBe(true);
 
     const unscoped = await handleViewCodeQuality({ workflowId: scopeStream }, tmpDir, store);
     expect(asRecord(unscoped.data).scope).toBe('all');
 
-    // PAGE facet — a list-shaped analytic view (`provenance`) carries `page`.
     const pageStream = 'analytic-page';
     await store.append(pageStream, {
       type: 'workflow.started',
@@ -436,14 +409,13 @@ describe('DR-8 analytic view contract (Task 024)', () => {
     );
   });
 
-  // ─── Required: an analytic view stays under its effective token budget ──────
-
+  /**
+   * 250 per-model records make the full projection exceed the effective budget. The compact
+   * response drops `models`, which brings it under the budget. All events share one skill, so the
+   * per-model records are the payload that the strip removes.
+   */
   it('viewsContract_AnalyticView_StaysUnderEffectiveBudget', async () => {
     const streamId = 'analytic-budget';
-    // A populated store whose FULL projection (every per-model roll-up) blows
-    // past the effective budget; the compact contract strips `models` so the
-    // default response stays under budget. All events share one skill so the
-    // per-model records — not the skills — are the payload the strip removes.
     for (let i = 0; i < 250; i++) {
       await seedGate(streamId, { model: `model-${i}`, skill: 'delegation' });
     }
@@ -453,16 +425,12 @@ describe('DR-8 analytic view contract (Task 024)', () => {
     expect(compact.success).toBe(true);
 
     const budget = effectiveBudget('code_quality');
-    // The full detail payload exceeds budget; the compact strip pulls it under —
-    // the load-bearing compaction, killed if the source hunk is reverted.
     expect(estimateOutputTokens(detail.data)).toBeGreaterThan(budget);
     expect(estimateOutputTokens(compact.data)).toBeLessThanOrEqual(budget);
     expect(estimateOutputTokens(compact.data)).toBeLessThan(estimateOutputTokens(detail.data));
     expect(asRecord(compact.data).models).toBeUndefined();
     expect(asRecord(detail.data).models).toBeDefined();
   });
-
-  // ─── Per-view budget + compact/detail contract ──────────────────────────────
 
   it('viewsContract_CodeQuality_StaysUnderEffectiveBudget_StripsModelsByDefault', async () => {
     const streamId = 'cq';
@@ -476,6 +444,7 @@ describe('DR-8 analytic view contract (Task 024)', () => {
     expect(estimateOutputTokens(compact.data)).toBeLessThanOrEqual(effectiveBudget('code_quality'));
   });
 
+  /** The test also checks that a skill filter gives the scope `filtered`. */
   it('viewsContract_EvalResults_StaysUnderEffectiveBudget_StripsCalibrationsByDefault', async () => {
     const streamId = 'er';
     await seedEvalRun(streamId, 'delegation', 'run-1');
@@ -485,7 +454,6 @@ describe('DR-8 analytic view contract (Task 024)', () => {
     expect(compact.success).toBe(true);
     expect(asRecord(compact.data).calibrations).toBeUndefined();
     expect(asRecord(detail.data).calibrations).toBeDefined();
-    // A skill filter scopes the skills record → scope metadata is perceivable.
     const scoped = await handleViewEvalResults({ workflowId: streamId, skill: 'delegation' }, tmpDir, store);
     expect(asRecord(scoped.data).scope).toBe('filtered');
     expect(estimateOutputTokens(compact.data)).toBeLessThanOrEqual(effectiveBudget('eval_results'));
@@ -505,6 +473,7 @@ describe('DR-8 analytic view contract (Task 024)', () => {
     expect(estimateOutputTokens(compact.data)).toBeLessThanOrEqual(effectiveBudget('quality_hints'));
   });
 
+  /** The compact skill row keeps `evalScore`. Only `detail: true` shows `regressionCount`. */
   it('viewsContract_QualityCorrelation_StaysUnderEffectiveBudget_StripsSkillTrendsByDefault', async () => {
     const streamId = 'qc';
     await seedGate(streamId, { skill: 'delegation' });
@@ -516,7 +485,6 @@ describe('DR-8 analytic view contract (Task 024)', () => {
     const compactSkill = asRecord(asRecord(compact.data).skills)['delegation'] as Record<string, unknown>;
     const detailSkill = asRecord(asRecord(detail.data).skills)['delegation'] as Record<string, unknown>;
     expect(compactSkill).toBeDefined();
-    // Headline kept; the trend + regression-count detail is detail-gated.
     expect(compactSkill).toHaveProperty('evalScore');
     expect(compactSkill).not.toHaveProperty('regressionCount');
     expect(detailSkill).toHaveProperty('regressionCount');

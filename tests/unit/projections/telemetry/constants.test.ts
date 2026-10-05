@@ -12,8 +12,6 @@ import {
 
 describe('Threshold Constants', () => {
   it('ThresholdConstants_AllHintThresholds_ExportedFromConstants', () => {
-    // Arrange & Act — import-time binding
-    // Assert
     expect(VIEW_TASKS_BYTES_THRESHOLD).toBe(1200);
     expect(WORKFLOW_GET_BYTES_THRESHOLD).toBe(600);
     expect(EVENT_QUERY_BYTES_THRESHOLD).toBe(2000);

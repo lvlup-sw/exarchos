@@ -1,16 +1,7 @@
-// ─── Quality-hint catalog tests (#1262) ─────────────────────────────────────
-//
-// PR A2 / T03: A catalog of structured quality-hint *types* keyed by a stable
-// identifier (e.g. `output_tokens_high`). Each entry declares:
-//
-//   - `verb` — the NextAction verb to surface (e.g. `checkpoint`).
-//   - `reasonTemplate` — a printf-style template populated by the projection.
-//
-// The projection looks up a hint by id and uses the template to build the
-// `next_actions[].reason` string. Keeping the catalog separate from the
-// projection means the verb/template can evolve without touching the
-// threshold-detection logic, and the parity tests can reason about hint
-// payloads without instantiating the full projection state.
+/**
+ * Tests for the catalog of quality-hint types. Each entry gives the NextAction
+ * `verb` and a `reasonTemplate` for one stable id such as `output_tokens_high`.
+ */
 
 import { describe, it, expect } from 'vitest';
 import {
@@ -40,11 +31,10 @@ describe('QualityHintCatalog', () => {
     expect(hint).toBeUndefined();
   });
 
+  /** The reason template must name output tokens, so the agent that reads the rendered reason understands the hint. */
   it('QualityHint_OutputTokensHighType_ReasonTemplateReferencesTokens', () => {
     const hint = getQualityHintType('output_tokens_high');
     expect(hint).toBeDefined();
-    // The template should mention "output tokens" so the rendered reason
-    // is comprehensible to the agent reading the hint.
     expect(hint!.reasonTemplate.toLowerCase()).toMatch(/output tokens/);
   });
 });

@@ -5,8 +5,6 @@ import {
   WORKFLOW_STATE_VIEW,
 } from '../../../../src/projections/views/workflow-state-projection.js';
 
-// ─── Test Helpers ──────────────────────────────────────────────────────────
-
 let seq = 0;
 
 function makeEvent(
@@ -26,15 +24,11 @@ function makeEvent(
   } as WorkflowEvent;
 }
 
-// ─── View Name ─────────────────────────────────────────────────────────────
-
 describe('WORKFLOW_STATE_VIEW', () => {
   it('should export the view name constant', () => {
     expect(WORKFLOW_STATE_VIEW).toBe('workflow-state');
   });
 });
-
-// ─── init() ────────────────────────────────────────────────────────────────
 
 describe('WorkflowStateProjection init', () => {
   describe('Init_NoEvents_ReturnsMinimalSkeleton', () => {
@@ -75,8 +69,6 @@ describe('WorkflowStateProjection init', () => {
   });
 });
 
-// ─── Workflow Lifecycle ────────────────────────────────────────────────────
-
 describe('WorkflowStateProjection workflow lifecycle', () => {
   describe('Apply_WorkflowStarted_SetsFeatureIdAndPhase', () => {
     it('should set featureId, workflowType, phase, createdAt, updatedAt from workflow.started', () => {
@@ -92,17 +84,17 @@ describe('WorkflowStateProjection workflow lifecycle', () => {
 
       expect(next.featureId).toBe('my-feature');
       expect(next.workflowType).toBe('feature');
-      // DR-4 (#1581): workflow.started folds to the initial phase, now 'plan'.
       expect(next.phase).toBe('plan');
       expect(next.createdAt).toBe(ts);
       expect(next.updatedAt).toBe(ts);
     });
 
+    /**
+     * `reconcileFromEvents` replays from sequence 0 when a state has no `_eventSequence`. Thus
+     * `workflow.started` can fold onto a stamped view, and that fold must keep `createdAt`.
+     * `updatedAt` still moves.
+     */
     it('should preserve an existing createdAt when workflow.started is re-folded (reconcile idempotency)', () => {
-      // Regression: reconcileFromEvents replays from sequence 0 when a state
-      // lacks `_eventSequence`, re-folding `workflow.started` onto an
-      // already-stamped view. createdAt must NOT be clobbered to the (same)
-      // event timestamp on the second fold — it is set once, then preserved.
       const created = '2026-02-19T10:00:00.000Z';
       const later = '2026-03-01T12:00:00.000Z';
       const start = workflowStateProjection.apply(
@@ -116,8 +108,8 @@ describe('WorkflowStateProjection workflow lifecycle', () => {
         makeEvent('workflow.started', { featureId: 'f', workflowType: 'feature' }, { timestamp: later }),
       );
 
-      expect(refolded.createdAt).toBe(created); // preserved, not overwritten
-      expect(refolded.updatedAt).toBe(later); // updatedAt still advances
+      expect(refolded.createdAt).toBe(created);
+      expect(refolded.updatedAt).toBe(later);
     });
 
     it('should set phase to triage for debug workflows', () => {
@@ -205,12 +197,10 @@ describe('WorkflowStateProjection workflow lifecycle', () => {
       const next = workflowStateProjection.apply(state, event);
 
       expect(next._checkpoint.phase).toBe('review');
-      expect(next._checkpoint.operationsSince).toBe(0); // unchanged from init
+      expect(next._checkpoint.operationsSince).toBe(0);
     });
   });
 });
-
-// ─── Task Events ───────────────────────────────────────────────────────────
 
 describe('WorkflowStateProjection task events', () => {
   describe('Apply_TaskAssigned_PushesToTasksArray', () => {
@@ -239,7 +229,6 @@ describe('WorkflowStateProjection task events', () => {
     it('should update the existing task instead of duplicating', () => {
       let state = workflowStateProjection.init();
 
-      // Assign first task
       state = workflowStateProjection.apply(
         state,
         makeEvent('task.assigned', {
@@ -249,7 +238,6 @@ describe('WorkflowStateProjection task events', () => {
         }),
       );
 
-      // Assign same taskId again with different data
       state = workflowStateProjection.apply(
         state,
         makeEvent('task.assigned', {
@@ -318,8 +306,6 @@ describe('WorkflowStateProjection task events', () => {
   });
 });
 
-// ─── state.patched ─────────────────────────────────────────────────────────
-
 describe('WorkflowStateProjection state.patched', () => {
   describe('Apply_StatePatched_DeepMergesIntoState', () => {
     it('should patch top-level fields into state', () => {
@@ -337,7 +323,6 @@ describe('WorkflowStateProjection state.patched', () => {
     it('should recursively merge nested objects', () => {
       let state = workflowStateProjection.init();
 
-      // First patch sets some synthesis fields
       state = workflowStateProjection.apply(
         state,
         makeEvent('state.patched', {
@@ -345,7 +330,6 @@ describe('WorkflowStateProjection state.patched', () => {
         }),
       );
 
-      // Second patch merges additional synthesis fields without overwriting existing ones
       state = workflowStateProjection.apply(
         state,
         makeEvent('state.patched', {
@@ -405,23 +389,27 @@ describe('WorkflowStateProjection state.patched', () => {
       expect(next).toEqual(state);
     });
 
+    /**
+     * An empty patch must return the same reference, not only an equal value.
+     * `reconcileFromEvents` counts a new reference as a change.
+     */
     it('should return the SAME reference for an empty patch (no-op identity)', () => {
-      // Regression (Seer): an empty `{}` patch must not structuredClone into a
-      // fresh reference — reconcileFromEvents' `next !== folded` check would
-      // miscount it as applied and force a spurious no-op write-back.
       const state = workflowStateProjection.init();
       const event = makeEvent('state.patched', { patch: {} });
       const next = workflowStateProjection.apply(state, event);
 
-      expect(next).toBe(state); // reference identity, not just deep equality
+      expect(next).toBe(state);
     });
   });
 
   describe('Apply_StatePatched_ArrayIndexPath_MergesInPlace', () => {
+    /**
+     * `tasks[0].nativeTaskId` is an array-index patch. The fold must change that one element as
+     * the file write does, and keep the other task.
+     */
     it('should apply an array-index dot-path patch in place without clobbering sibling tasks', () => {
       let state = workflowStateProjection.init();
 
-      // Two tasks land via task.assigned.
       state = workflowStateProjection.apply(
         state,
         makeEvent('task.assigned', { taskId: 'task-1', title: 'First', branch: 'feat/1', worktree: '/tmp/wt-1' }),
@@ -431,14 +419,11 @@ describe('WorkflowStateProjection state.patched', () => {
         makeEvent('task.assigned', { taskId: 'task-2', title: 'Second' }),
       );
 
-      // An array-index patch (the shape handleSet emits for `tasks[0].nativeTaskId`).
       state = workflowStateProjection.apply(
         state,
         makeEvent('state.patched', { patch: { 'tasks[0].nativeTaskId': 'nt-1' } }),
       );
 
-      // fold ≡ write: tasks[0] keeps its identity AND gains the patched field,
-      // and tasks[1] survives (the array is NOT replaced wholesale).
       expect(state.tasks).toHaveLength(2);
       expect(state.tasks[0]).toMatchObject({
         id: 'task-1',
@@ -471,8 +456,6 @@ describe('WorkflowStateProjection state.patched', () => {
     });
   });
 });
-
-// ─── Stack and Review Events ───────────────────────────────────────────────
 
 describe('WorkflowStateProjection stack/review events', () => {
   describe('Apply_StackPositionFilled_UpdatesTaskBranch', () => {
@@ -520,8 +503,6 @@ describe('WorkflowStateProjection stack/review events', () => {
     });
   });
 });
-
-// ─── Team Events (_events projection) ─────────────────────────────────────
 
 describe('WorkflowStateProjection team events', () => {
   describe('Apply_TeamSpawned_AppendsToViewEvents', () => {
@@ -594,8 +575,6 @@ describe('WorkflowStateProjection team events', () => {
     });
   });
 });
-
-// ─── Oneshot / Pruning Events (_events projection) ────────────────────────
 
 describe('WorkflowStateProjection oneshot/pruning events', () => {
   describe('workflowStateProjection_synthesizeRequested_appendsToEvents', () => {
@@ -739,8 +718,6 @@ describe('WorkflowStateProjection oneshot/pruning events', () => {
   });
 });
 
-// ─── Observability and Unknown Events ──────────────────────────────────────
-
 describe('WorkflowStateProjection passthrough events', () => {
   describe('Apply_UnknownEventType_ReturnsStateUnchanged', () => {
     it('should return state unchanged for unrecognized event types', () => {
@@ -779,8 +756,6 @@ describe('WorkflowStateProjection passthrough events', () => {
   });
 });
 
-// ─── Mutation-adequacy dimension (DR-2a) ─────────────────────────────────────
-
 describe('WorkflowStateProjection mutation-adequacy dimension (DR-2a)', () => {
   type Dim = {
     status?: string;
@@ -812,9 +787,11 @@ describe('WorkflowStateProjection mutation-adequacy dimension (DR-2a)', () => {
     expect(dim!.skipped ?? false).toBe(false);
   });
 
+  /**
+   * A run with no toolchain emits a passing gate with `skipped`. The dimension records `pass` and
+   * `skipped`, with no `degraded` marker.
+   */
   it('foldsSkipPassWhenNoToolchain', () => {
-    // No-toolchain emits a skip-passing gate.executed; the dimension is recorded
-    // as skip-pass so review→synthesize is not dead-locked at HIGH tier.
     const state = workflowStateProjection.init();
     const next = workflowStateProjection.apply(
       state,
@@ -827,16 +804,15 @@ describe('WorkflowStateProjection mutation-adequacy dimension (DR-2a)', () => {
     );
     expect(dimOf(next)!.status).toBe('pass');
     expect(dimOf(next)!.skipped).toBe(true);
-    // RVC-R1: a no-toolchain skip-pass carries NO degrade marker.
     expect(dimOf(next)!.degraded ?? false).toBe(false);
   });
 
+  /**
+   * A runner that fails with a toolchain present emits `skipped` and `degraded`. The fold must
+   * keep `degraded`, so `allReviewsPassed` can fail the dimension under block enforcement.
+   * `skipped` alone does not tell a broken runner from a missing toolchain.
+   */
   it('foldsDegradedMarkerFromDegradePath_RVC_R1', () => {
-    // RVC-R1: a degrade path (toolchain present but runner failed / unparseable
-    // report) emits skipped:true AND degraded:true. The projection must carry the
-    // degraded flag so `allReviewsPassed` Check 4 can fail it closed under block
-    // enforcement — a shared skipped:true marker alone would let a broken runner
-    // silently pass review→synthesize.
     const state = workflowStateProjection.init();
     const next = workflowStateProjection.apply(
       state,
@@ -852,9 +828,8 @@ describe('WorkflowStateProjection mutation-adequacy dimension (DR-2a)', () => {
     expect(dimOf(next)!.degraded).toBe(true);
   });
 
+  /** The dimension status is always `pass`. The raw gate result stays in `passed`. */
   it('advisoryPassEvenWhenScoreBelowThreshold', () => {
-    // DR-2a records the dimension as advisory 'pass'; the raw sub-threshold
-    // verdict rides `passed` for the DR-3 (task 006) score-enforcement check.
     const state = workflowStateProjection.init();
     const next = workflowStateProjection.apply(
       state,
@@ -879,10 +854,10 @@ describe('WorkflowStateProjection mutation-adequacy dimension (DR-2a)', () => {
     expect(next).toEqual(state);
   });
 
-  // ── DR-6: the fold ADDITIVELY carries `noCoverage` so the block-mode guard's
-  // orthogonal axis can read it off the folded dimension. Legacy events WITHOUT
-  // the field must fold byte-identical to before (INV-1).
-
+  /**
+   * The fold keeps `noCoverage` from the event details, because `allReviewsPassed` reads it from
+   * the dimension under block enforcement. The fold copies `mutationScore` as the event gives it.
+   */
   it('Fold_MutationEventWithNoCoverage_CarriesField', () => {
     const state = workflowStateProjection.init();
     const next = workflowStateProjection.apply(
@@ -896,16 +871,12 @@ describe('WorkflowStateProjection mutation-adequacy dimension (DR-2a)', () => {
     );
     const dim = dimOf(next)!;
     expect(dim.status).toBe('pass');
-    // mutationScore unchanged (INV-5b) AND noCoverage now carried (DR-6).
     expect(dim.mutationScore).toBe(1.0);
     expect(dim.noCoverage).toBe(3);
   });
 
+  /** An old event with no `noCoverage` in its details must fold to a dimension with no `noCoverage` key. */
   it('Fold_LegacyMutationEventWithoutNoCoverage_FoldsIdentically', () => {
-    // A legacy mutation gate.executed predates DR-6 and carries NO `noCoverage`
-    // in its details. The extended fold must produce a dimension with NO
-    // `noCoverage` key — byte-identical to the pre-DR-6 replay (INV-1: pure
-    // left-fold, identical legacy replay).
     const legacyEvent = makeEvent('gate.executed', {
       gateName: 'mutation-adequacy',
       layer: 'review',
@@ -913,7 +884,6 @@ describe('WorkflowStateProjection mutation-adequacy dimension (DR-2a)', () => {
       details: { mutationScore: 0.82, threshold: 0.4 },
     });
     const dim = dimOf(workflowStateProjection.apply(workflowStateProjection.init(), legacyEvent))!;
-    // The dimension folds to EXACTLY the pre-DR-6 shape — no `noCoverage` key.
     expect(dim).toEqual({
       status: 'pass',
       gateName: 'mutation-adequacy',
@@ -924,14 +894,11 @@ describe('WorkflowStateProjection mutation-adequacy dimension (DR-2a)', () => {
   });
 });
 
-// ─── Round-Trip Integration ────────────────────────────────────────────────
-
 describe('WorkflowStateProjection round-trip', () => {
   describe('RoundTrip_FullEventSequence_ProducesCompleteState', () => {
     it('should produce a complete state from a realistic event sequence', () => {
       let state = workflowStateProjection.init();
 
-      // 1. workflow.started
       state = workflowStateProjection.apply(
         state,
         makeEvent(
@@ -943,7 +910,6 @@ describe('WorkflowStateProjection round-trip', () => {
       expect(state.featureId).toBe('round-trip');
       expect(state.phase).toBe('plan');
 
-      // 2. state.patched (add artifacts)
       state = workflowStateProjection.apply(
         state,
         makeEvent('state.patched', {
@@ -952,7 +918,6 @@ describe('WorkflowStateProjection round-trip', () => {
       );
       expect(state.artifacts.design).toBe('docs/design.md');
 
-      // 3. workflow.transition (ideate -> plan)
       state = workflowStateProjection.apply(
         state,
         makeEvent(
@@ -963,7 +928,6 @@ describe('WorkflowStateProjection round-trip', () => {
       );
       expect(state.phase).toBe('plan');
 
-      // 4. task.assigned x 3
       state = workflowStateProjection.apply(
         state,
         makeEvent('task.assigned', { taskId: 't1', title: 'Task 1', branch: 'feat/t1' }),
@@ -978,7 +942,6 @@ describe('WorkflowStateProjection round-trip', () => {
       );
       expect(state.tasks).toHaveLength(3);
 
-      // 5. task.completed x 2
       state = workflowStateProjection.apply(
         state,
         makeEvent(
@@ -996,13 +959,11 @@ describe('WorkflowStateProjection round-trip', () => {
         ),
       );
 
-      // 6. task.failed x 1
       state = workflowStateProjection.apply(
         state,
         makeEvent('task.failed', { taskId: 't3', error: 'test failure' }),
       );
 
-      // Verify task statuses
       const t1 = state.tasks.find((t) => t.id === 't1');
       const t2 = state.tasks.find((t) => t.id === 't2');
       const t3 = state.tasks.find((t) => t.id === 't3');
@@ -1011,7 +972,6 @@ describe('WorkflowStateProjection round-trip', () => {
       expect(t2?.status).toBe('complete');
       expect(t3?.status).toBe('failed');
 
-      // 7. state.patched (synthesis data)
       state = workflowStateProjection.apply(
         state,
         makeEvent('state.patched', {
@@ -1028,7 +988,6 @@ describe('WorkflowStateProjection round-trip', () => {
       expect(state.synthesis.integrationBranch).toBe('main');
       expect(state.synthesis.prUrl).toBe('https://github.com/pr/99');
 
-      // 8. workflow.transition -> completed
       state = workflowStateProjection.apply(
         state,
         makeEvent(
@@ -1040,7 +999,6 @@ describe('WorkflowStateProjection round-trip', () => {
       expect(state.phase).toBe('completed');
       expect(state.updatedAt).toBe('2026-02-19T12:00:00.000Z');
 
-      // Final assertions
       expect(state.featureId).toBe('round-trip');
       expect(state.workflowType).toBe('feature');
       expect(state.tasks).toHaveLength(3);
@@ -1049,8 +1007,6 @@ describe('WorkflowStateProjection round-trip', () => {
     });
   });
 });
-
-// ─── Immutability ──────────────────────────────────────────────────────────
 
 describe('WorkflowStateProjection immutability', () => {
   it('should not mutate the input state', () => {
@@ -1062,7 +1018,6 @@ describe('WorkflowStateProjection immutability', () => {
       makeEvent('workflow.started', { featureId: 'immut-test', workflowType: 'feature' }),
     );
 
-    // Original should be unchanged
     expect(original).toEqual(frozen);
   });
 
@@ -1080,12 +1035,9 @@ describe('WorkflowStateProjection immutability', () => {
       makeEvent('task.assigned', { taskId: 't2', title: 'T2' }),
     );
 
-    // Original tasks array should not have been mutated
     expect(tasksBefore).toHaveLength(1);
   });
 });
-
-// ─── phase.entered / phase.exited (DR-13, epic #1546) ────────────────────────
 
 describe('WorkflowStateProjection phase.entered / phase.exited', () => {
   const enteredData = {
@@ -1107,6 +1059,10 @@ describe('WorkflowStateProjection phase.entered / phase.exited', () => {
       workflowStateProjection.init(),
     );
 
+  /**
+   * The fold keeps the frozen obligation from `phase.entered`. A second fold of the same log gives
+   * the same obligation, because the fold reads `kind` from the event and not from the phase name.
+   */
   it('workflowStateProjection_PhaseEnteredExited_FoldedAndReplayStable', () => {
     const events: WorkflowEvent[] = [
       makeEvent('workflow.started', { featureId: 'f1', workflowType: 'feature' }),
@@ -1115,7 +1071,6 @@ describe('WorkflowStateProjection phase.entered / phase.exited', () => {
     ];
 
     const afterEntered = fold(events);
-    // The frozen obligation is folded onto the view — NOT lost to the default case.
     expect(afterEntered.phaseObligation).toEqual({
       phase: 'implement',
       kind: 'IMPLEMENT',
@@ -1129,14 +1084,11 @@ describe('WorkflowStateProjection phase.entered / phase.exited', () => {
       allRequiredGatesPassed: null,
     });
 
-    // Replay determinism (#1208-class single-trigger): folding the identical
-    // event log from init reconstructs a byte-identical obligation — resolve-
-    // then-freeze is a pure left-fold and reads `kind` from the frozen event,
-    // never re-derived from the phase name.
     const replayed = fold(events);
     expect(replayed.phaseObligation).toEqual(afterEntered.phaseObligation);
   });
 
+  /** `phase.exited` records the gate status only. The frozen resolver and gate set do not change. */
   it('workflowStateProjection_PhaseExited_RecordsAggregateStatus_FreezeUntouched', () => {
     const afterEntered = fold([
       makeEvent('workflow.started', { featureId: 'f1', workflowType: 'feature' }),
@@ -1150,7 +1102,6 @@ describe('WorkflowStateProjection phase.entered / phase.exited', () => {
 
     expect(afterExited.phaseObligation?.exited).toBe(true);
     expect(afterExited.phaseObligation?.allRequiredGatesPassed).toBe(true);
-    // Exit records status only — the frozen resolver + gate-set are immutable.
     expect(afterExited.phaseObligation?.resolver).toBe('verification-ladder');
     expect(afterExited.phaseObligation?.resolvedGates).toEqual(enteredData.resolvedGates);
   });
@@ -1174,7 +1125,11 @@ describe('WorkflowStateProjection phase.entered / phase.exited', () => {
     expect(afterEntered.phaseObligation?.posture).toBe('read-only');
   });
 
-  // ─── DR-3 (#1581 task 005): per-feature designDepth freeze round-trips ──────
+  /**
+   * The fold keeps the `designDepth` of the PLAN `phase.entered`, and a replay gives the same value.
+   * A later `phase.entered` with no `designDepth` does not clear it. A workflow with no PLAN depth
+   * leaves it undefined, and readers then use `standard`.
+   */
   it('DesignDepth_ProjectionRoundTrip_RecoversFrozenValue', () => {
     const planEntered = {
       phase: 'plan',
@@ -1191,11 +1146,9 @@ describe('WorkflowStateProjection phase.entered / phase.exited', () => {
       makeEvent('phase.entered', { ...planEntered }),
     ];
 
-    // The frozen depth is folded onto the view and survives a clean replay.
     expect(fold(events).designDepth).toBe('deep');
     expect(fold(events).designDepth).toBe('deep');
 
-    // Sticky: a later non-PLAN phase.entered (no designDepth) must NOT clear it.
     const afterNonPlan = workflowStateProjection.apply(
       fold(events),
       makeEvent('phase.entered', {
@@ -1210,8 +1163,6 @@ describe('WorkflowStateProjection phase.entered / phase.exited', () => {
     );
     expect(afterNonPlan.designDepth).toBe('deep');
 
-    // A workflow that never enters PLAN with a depth leaves it undefined (the
-    // resolver then defaults to 'standard') — no phantom freeze.
     const noPlan = fold([
       makeEvent('workflow.started', { featureId: 'f2', workflowType: 'feature' }),
     ]);
@@ -1219,11 +1170,10 @@ describe('WorkflowStateProjection phase.entered / phase.exited', () => {
   });
 });
 
-// ─── Merge Orchestrator fold (#1504/#1554 — close the projection gap) ───────
-// Pre-fix, workflowStateProjection dropped merge.* on the floor (default arm),
-// so resolveWorkflowState materialized state with NO mergeOrchestrator block —
-// the headline gap the #1504 field-coverage audit found. These fold the merge
-// terminal events the file-path applyEventToState (state-store.ts:804-853) did.
+/**
+ * The fold records each terminal merge event in `mergeOrchestrator`, so `resolveWorkflowState`
+ * can rebuild that block.
+ */
 describe('WorkflowStateProjection mergeOrchestrator fold', () => {
   it('MergeExecuted_FoldsCompletedBlock', () => {
     let view = workflowStateProjection.init();
@@ -1276,19 +1226,16 @@ describe('WorkflowStateProjection mergeOrchestrator fold', () => {
     });
   });
 
+  /** A passing preflight writes no block. The next terminal write comes from `merge.executed`. */
   it('MergePreflightPassed_IsObservationOnly_NoBlock', () => {
     let view = workflowStateProjection.init();
     view = workflowStateProjection.apply(view, makeEvent('merge.preflight', {
       passed: true, taskId: 't4', sourceBranch: 'task/t4', targetBranch: 'integration',
     }));
 
-    // A passing preflight is observation; the executor's merge.executed produces
-    // the next terminal write. Mirrors applyEventToState (returns false → no-op).
     expect(view.mergeOrchestrator).toBeUndefined();
   });
 });
-
-// ─── Plan-review revise count (DR-1) ─────────────────────────────────────────
 
 describe('WorkflowStateProjection plan-revision count (DR-1)', () => {
   type View = ReturnType<typeof workflowStateProjection.init>;
@@ -1297,12 +1244,14 @@ describe('WorkflowStateProjection plan-revision count (DR-1)', () => {
     return planReview?.revisionCount;
   }
 
+  /**
+   * The count folds into the nested `planReview.revisionCount`, the field that
+   * `revisionsExhausted` reads. It is not a top-level field.
+   */
   it('Apply_PlanRevision_FoldsIntoNestedPlanReviewRevisionCount', () => {
-    // AC (c): the count folds into the NESTED `planReview.revisionCount` — the
-    // exact field `revisionsExhausted` reads — not a top-level field.
     let state = workflowStateProjection.init();
     expect(revisionCountOf(state)).toBeUndefined();
-    expect(state.revisionCount).toBeUndefined(); // never a top-level field
+    expect(state.revisionCount).toBeUndefined();
 
     state = workflowStateProjection.apply(
       state,
@@ -1318,9 +1267,8 @@ describe('WorkflowStateProjection plan-revision count (DR-1)', () => {
     expect(state.revisionCount).toBeUndefined();
   });
 
+  /** The fold spreads the prior `planReview`, so an `approved` from `state.patched` stays. */
   it('Apply_PlanRevision_PreservesOtherPlanReviewFields', () => {
-    // The fold spreads the prior planReview, so an `approved` / `gapsFound`
-    // written via state.patched survives the revision-count increment.
     let state = workflowStateProjection.init();
     state = workflowStateProjection.apply(
       state,
@@ -1339,10 +1287,11 @@ describe('WorkflowStateProjection plan-revision count (DR-1)', () => {
     expect(planReview.revisionCount).toBe(1);
   });
 
+  /**
+   * The count derives only from events, so a rebuild from `init()` must give the same count.
+   * The test folds one log two times from `init()` and compares the two results.
+   */
   it('Apply_PlanRevision_CountIsEventDerivedAndSurvivesReplay', () => {
-    // AC (d): the count is purely event-derived — replaying the log from a fresh
-    // `init()` reconstructs the identical count (a left-fold of +1 per event),
-    // so a reconcile/rebuild can never drift from the live projection.
     const events: WorkflowEvent[] = [
       makeEvent('workflow.started', { featureId: 'f', workflowType: 'feature' }),
       makeEvent('workflow.plan-revision', { count: 1, featureId: 'f' }),
@@ -1365,8 +1314,6 @@ describe('WorkflowStateProjection plan-revision count (DR-1)', () => {
   });
 });
 
-// ─── Plan-review dispatch count (WLM-6 DR-2) ─────────────────────────────────
-
 describe('WorkflowStateProjection plan-review-dispatch count (WLM-6 DR-2)', () => {
   type View = ReturnType<typeof workflowStateProjection.init>;
   function revisionCountOf(state: View): number | undefined {
@@ -1376,44 +1323,40 @@ describe('WorkflowStateProjection plan-review-dispatch count (WLM-6 DR-2)', () =
   const dispatched = (ordinal: number): WorkflowEvent =>
     makeEvent('workflow.plan-review-dispatched', { featureId: 'f', ordinal });
 
+  /**
+   * `workflow.plan-review-dispatched` events fold into `planReview.revisionCount`, the field that
+   * `revisionsExhausted` reads. The first review has ordinal 0 and is revision 0. A dispatch with
+   * ordinal N is revision N.
+   */
   it('RevisionCount_FoldsFromDispatchEvent_NotStandardEdge', () => {
-    // WLM-6 (DR-2): `planReview.revisionCount` (the field `revisionsExhausted`
-    // reads) folds from the `prepare_review scope:plan` provisioning seam's
-    // `workflow.plan-review-dispatched` events — NOT the retired standard-edge
-    // `workflow.plan-revision`. The ordinal-0 initial review is revision 0 (no
-    // counter increment); each re-dispatch (ordinal N) is revision N.
     let state = workflowStateProjection.init();
     expect(revisionCountOf(state)).toBeUndefined();
 
-    // Initial review — ordinal 0 folds to revisionCount 0 (NOT +1).
     state = workflowStateProjection.apply(state, dispatched(0));
     expect(revisionCountOf(state)).toBe(0);
-    expect(state.revisionCount).toBeUndefined(); // never a top-level field
+    expect(state.revisionCount).toBeUndefined();
 
-    // First re-dispatch — ordinal 1 → revision 1.
     state = workflowStateProjection.apply(state, dispatched(1));
     expect(revisionCountOf(state)).toBe(1);
 
-    // Second re-dispatch — ordinal 2 → revision 2.
     state = workflowStateProjection.apply(state, dispatched(2));
     expect(revisionCountOf(state)).toBe(2);
   });
 
+  /**
+   * The fold takes the max of the count and the ordinal, so a duplicate ordinal does not count
+   * twice. Thus `revisionCount` stays the number of re-dispatches.
+   */
   it('Apply_PlanReviewDispatch_FoldsMaxOrdinal_IdempotentUnderDuplicate', () => {
-    // The fold is `max(current, ordinal)`, not `+1 per event` — so a duplicate
-    // ordinal (e.g. one that slipped past the storage-layer idempotency key) does
-    // NOT double-count. This keeps revisionCount = number of RE-DISPATCHES, which
-    // is what makes the guard's `revisionCount >= cap` semantics correct.
     let state = workflowStateProjection.init();
     state = workflowStateProjection.apply(state, dispatched(0));
     state = workflowStateProjection.apply(state, dispatched(1));
-    state = workflowStateProjection.apply(state, dispatched(1)); // duplicate ordinal
+    state = workflowStateProjection.apply(state, dispatched(1));
     expect(revisionCountOf(state)).toBe(1);
   });
 
+  /** The fold spreads the prior `planReview`, so an `approved` from `state.patched` stays. */
   it('Apply_PlanReviewDispatch_PreservesOtherPlanReviewFields', () => {
-    // The fold spreads the prior planReview, so an `approved` written via
-    // state.patched survives the revision-count fold (mirrors the DR-1 fold).
     let state = workflowStateProjection.init();
     state = workflowStateProjection.apply(
       state,

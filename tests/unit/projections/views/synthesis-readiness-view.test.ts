@@ -105,10 +105,8 @@ describe('SynthesisReadinessView', () => {
     expect(view.review.reviewPassed).toBe(true);
   });
 
+  /** The old `spec-review` gate name also sets `reviewPassed`, so historical events still project. */
   it('Apply_GateExecuted_LegacySpecReview_Passed_FoldsToReviewPassed', () => {
-    // The two review dimensions collapsed into one (`review`); legacy
-    // 'spec-review' / 'quality-review' gate names are still folded so
-    // historical events project onto the single `reviewPassed` boolean.
     const events = [
       makeEvent(1, 'gate.executed', {
         gateName: 'spec-review',
@@ -268,7 +266,6 @@ describe('SynthesisReadinessView', () => {
       makeEvent(1, 'task.assigned', { taskId: 't1', title: 'Task 1' }),
       makeEvent(2, 'task.assigned', { taskId: 't2', title: 'Task 2' }),
       makeEvent(3, 'task.completed', { taskId: 't1' }),
-      // t2 not completed
       makeEvent(4, 'gate.executed', {
         gateName: 'spec-review',
         layer: 'review',

@@ -1,12 +1,8 @@
-// EventStore speed, measured in the benchmark gate rather than asserted in a
-// correctness test (#2029).
+// Benchmarks for the speed of the `EventStore`. A timing assertion measures the host as well as
+// the code, so these arms only report.
 //
-// These arms replace `event-store.test.ts`, whose timing assertions ran only
-// when RUN_BENCHMARKS was set and whose verdict measured the host. The budgets
-// they asserted are the `event_store_*` keys in
-// `src/projections/telemetry/benchmarks/baselines.json`: single append 50 ms,
-// batch of 50 200 ms, 10 concurrent streams 500 ms, query of 100 events 100 ms
-// (with and without a type filter), sequence init from 100 events 100 ms.
+// The reference budgets are the `event_store_*` keys in
+// `src/projections/telemetry/benchmarks/baselines.json`.
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';

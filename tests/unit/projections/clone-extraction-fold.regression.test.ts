@@ -1,23 +1,12 @@
+/**
+ * Regression test for the extractors that the rehydration and task-store reducers share.
+ * The golden strings pin the output of both folds, which read event data through `src/projections/shared/event-data-extractors.ts`.
+ */
+
 import { describe, it, expect } from 'vitest';
 import { rehydrationReducer } from '../../../src/projections/rehydration/reducer.js';
 import { taskStoreReducer } from '../../../src/projections/taskstore/reducer.js';
 import type { WorkflowEvent } from '../../../src/events/schemas.js';
-
-// ─── DR-10 / INV-1: shared-extractor fold-identity regression ────────────────
-//
-// Task 019 collapsed the byte-identical `extractTaskId` / `extractString`
-// (and generic `extractNumber` / `extractStringArray`) copies out of the
-// rehydration and task-store reducers into
-// `projections/shared/event-data-extractors.ts`. That extraction MUST be
-// behavior-preserving: a fixture event log has to fold BYTE-IDENTICAL through
-// both reducers after the extraction as it did before.
-//
-// The two golden strings below were captured from the reducers BEFORE the
-// extraction (the pre-refactor behavior). The reducers now share the extracted
-// primitives, so these assertions pin that the shared extractors reproduce the
-// prior fold exactly. The `check_test_adequacy` kill-probe (revert the source
-// hunk, keep this test) — and the manual kill-probe in the task's verify step
-// (mutate a shared extractor) — both drive at least one of these to red.
 
 function evt(
   sequence: number,
@@ -34,14 +23,11 @@ function evt(
   } as unknown as WorkflowEvent;
 }
 
-// A fixture log that exercises every shared extractor across BOTH reducers:
-//   - extractTaskId      — every task.* event
-//   - extractString      — title/branch/worktree/assignee/agentId/claimedAt/
-//                          detail/error (task-store) + featureId/workflowType/
-//                          to (rehydration)
-//   - extractNumber      — task.completed `duration` (task-store)
-//   - extractStringArray — task.completed `artifacts` (task-store)
-// plus rehydration-local decoders (state.patched artifacts + plan tasks).
+/**
+ * A log that reaches each shared extractor in each reducer that calls it.
+ * Only the task-store reducer reads the `duration` number and the `artifacts` string array of `task.completed`.
+ * `state.patched` reaches the decoders that only the rehydration reducer has.
+ */
 const FIXTURE_LOG: readonly WorkflowEvent[] = [
   evt(1, 'workflow.started', { featureId: 'feat-x', workflowType: 'feature' }),
   evt(2, 'workflow.transition', { to: 'delegate' }),
@@ -73,7 +59,7 @@ const FIXTURE_LOG: readonly WorkflowEvent[] = [
   evt(9, 'task.failed', { taskId: '002', error: 'boom' }),
 ];
 
-// Pre-extraction golden — captured from the reducers before Task 019.
+/** The golden JSON of the rehydration fold of {@link FIXTURE_LOG}. */
 const EXPECTED_REHYDRATION_JSON =
   '{"v":4,"projectionSequence":7,"workflowState":{"featureId":"feat-x","phase":"delegate","workflowType":"feature"},"taskProgress":[{"id":"001","status":"complete"},{"id":"002","status":"failed"}],"decisions":[],"artifacts":{"design":"docs/x.md"},"blockers":[],"recentHandoffs":[],"phasePlaybook":null}';
 
@@ -95,16 +81,14 @@ function foldTaskStore() {
 }
 
 describe('shared-extractor fold identity (DR-10, INV-1)', () => {
+  /** The reducers build the state with spreads, so the key order of the JSON is deterministic. */
   it('Reducers_SharedExtractors_FoldFixtureLogIdentically', () => {
-    // Byte-identical: JSON serialization (deterministic key order from the
-    // reducers' spread construction) must equal the pre-extraction golden.
     expect(JSON.stringify(foldRehydration())).toBe(EXPECTED_REHYDRATION_JSON);
     expect(JSON.stringify(foldTaskStore())).toBe(EXPECTED_TASKSTORE_JSON);
   });
 
+  /** Two folds of one log give the same output, so the golden comparison does not depend on one run. */
   it('Reducers_SharedExtractors_FoldIsDeterministicAcrossRuns', () => {
-    // Purity guard: folding the same log twice yields identical output, so the
-    // byte-identity assertion above is not an artifact of a single run.
     expect(JSON.stringify(foldRehydration())).toBe(
       JSON.stringify(foldRehydration()),
     );

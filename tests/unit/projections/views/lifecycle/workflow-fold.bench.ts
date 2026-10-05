@@ -1,21 +1,18 @@
+// Cold-read benchmark for the workflow-fold view. The SLA is p95 < 250 ms over
+// the 10k-event corpus. `vitest bench` collects this file, and `vitest run`
+// does not. `tools/audit/benchmark-baseline.json` holds the regression
+// threshold of each bench.
+//
+// The corpus is 200 workflows with 50 events each, in one in-memory SQLite
+// database. The workflows cycle through three workflow types and six phases.
+// The summary query reads the phase with `json_extract`, and the start time
+// with a `MIN(timestamp)` subquery for each stream.
+
 import { bench, describe } from 'vitest';
 import type { WorkflowEvent } from '../../../../../src/events/schemas.js';
 import type { WorkflowState } from '../../../../../src/storage/backend.js';
 import { SqliteBackend } from '../../../../../src/storage/sqlite-backend.js';
 import { foldWorkflowSummaries } from '../../../../../src/projections/views/lifecycle/workflow-fold.js';
-
-/**
- * Cold-read benchmark for the workflow-fold view (DR-3 SLA: p95 < 250 ms over
- * a 10k-event store). Lives OUTSIDE the `src/bench` directory so it is excluded
- * from the vitest hot loop (test.include only globs the `src/bench` tree), and
- * runs only under `vitest bench` (benchmark.include globs all bench files under
- * src) at the boundary/offline cadence.
- *
- * Corpus: 200 workflows × 50 events = 10,000 events, spread across workflow
- * types and lifecycle phases, in a single in-memory SQLite database. Exercises
- * the indexed `workflow_type` join, `json_extract` phase read, and the
- * `MIN(events.timestamp)` per-stream envelope subquery under realistic density.
- */
 
 const WORKFLOW_COUNT = 200;
 const EVENTS_PER_WORKFLOW = 50;

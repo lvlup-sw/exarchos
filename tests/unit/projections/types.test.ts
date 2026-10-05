@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import type { ProjectionReducer } from '../../../src/projections/types.js';
 
 describe('ProjectionReducer', () => {
+  /** `expectTypeOf` does nothing at run time here, so the last assertion gives the test a runtime check. */
   it('ProjectionReducer_TypeShape_Compiles', () => {
     const reducer: ProjectionReducer<{ count: number }, { type: 'inc' }> = {
       id: 'test@v1',
@@ -16,36 +17,10 @@ describe('ProjectionReducer', () => {
     expectTypeOf(reducer).toMatchTypeOf<
       ProjectionReducer<{ count: number }, { type: 'inc' }>
     >();
-    // Runtime sanity so vitest records a pass
     expect(reducer.apply(reducer.initial, { type: 'inc' })).toEqual({ count: 1 });
   });
 });
 
-// ─── ProjectionScope is a compile-time guard ────────────────────────────────
-
-/**
- * Pins the reducer-scope guarantee stated in `projections/types.ts` — see the
- * `scope` field's docstring there for the rule and its exact limits. This file
- * does not restate them; it tests them.
- *
- * The guarantee is a compile-time one, so it needs a test that actually
- * consults the compiler. Two facts make a plain `expectTypeOf` useless here:
- *
- *  1. `tsconfig.json` EXCLUDES every `.test.ts` file, so
- *     `npm run typecheck` never sees this file.
- *  2. Vitest's `typecheck` mode is not enabled in `vitest.config.ts`, so
- *     `expectTypeOf` erases to a runtime no-op and would pass vacuously.
- *
- * So the probe below drives the TypeScript compiler API directly over an
- * in-memory source file that imports the REAL `./types.js`, and asserts that
- * authoring `scope: 'global'` produces a diagnostic. The `'stream'` control
- * case asserts the harness reports a CLEAN compile for valid input — without
- * it, a broken probe (bad path, bad options) would "pass" by erroring on
- * everything.
- *
- * If `ProjectionScope` is ever re-widened, the negative case stops erroring
- * and this test goes red.
- */
 const PROJECTIONS_DIR = path.dirname(fileURLToPath(import.meta.url));
 
 const PROBE_COMPILER_OPTIONS: ts.CompilerOptions = {
@@ -59,9 +34,8 @@ const PROBE_COMPILER_OPTIONS: ts.CompilerOptions = {
 };
 
 /**
- * Type-check `source` as if it were a file sitting next to `types.ts`, so its
- * relative `./types.js` import resolves to the real module under test. The
- * probe file is virtual — nothing is written to disk.
+ * Typechecks `source` as a virtual file next to `types.ts`, so its `./types.js`
+ * import resolves to the real module. The probe writes nothing to disk.
  */
 function typecheckProbe(source: string): readonly ts.Diagnostic[] {
   const probePath = path.join(PROJECTIONS_DIR, '../../../src/projections/__scope_probe__.ts');
@@ -100,11 +74,19 @@ export const probe: ProjectionReducer<{ n: number }, { type: string }> = {
 `;
 }
 
+/**
+ * This suite pins the compile-time rule in the `scope` docstring of `src/projections/types.ts`.
+ * `tsconfig.json` excludes test files, and vitest does not run its typecheck mode.
+ * As a result, `expectTypeOf` proves nothing here, so the probe calls the TypeScript compiler API.
+ */
 describe('ProjectionScope — compile-time scope guard', () => {
+  /**
+   * The `'stream'` control must compile with no diagnostic. The control proves that
+   * the probe resolves `./types.js` and reports real diagnostics. Without it, the
+   * `'global'` case can pass for a wrong reason.
+   * TS2322 is the "not assignable" diagnostic.
+   */
   it('ProjectionScope_ReducerAuthoredGlobal_FailsTypecheck', () => {
-    // Control: the only representable scope compiles clean. This proves the
-    // probe harness resolves `./types.js` and reports real diagnostics —
-    // without it the negative assertion below could pass for the wrong reason.
     const streamDiagnostics = typecheckProbe(reducerSource('stream'));
     expect(
       streamDiagnostics.map((d) =>
@@ -112,17 +94,12 @@ describe('ProjectionScope — compile-time scope guard', () => {
       ),
     ).toEqual([]);
 
-    // A reducer authored as `scope: 'global'` must not compile. This probe pins
-    // the narrow claim (unauthorable in typechecked code), not a broader one —
-    // the exact guarantee and its limit are stated once, in the `scope`
-    // docstring in `types.ts`.
     const globalDiagnostics = typecheckProbe(reducerSource('global'));
     const messages = globalDiagnostics.map((d) =>
       ts.flattenDiagnosticMessageText(d.messageText, ' '),
     );
 
     expect(globalDiagnostics.length).toBeGreaterThan(0);
-    // TS2322: Type '"global"' is not assignable to type '"stream"'.
     expect(globalDiagnostics.some((d) => d.code === 2322)).toBe(true);
     expect(messages.join('\n')).toMatch(/"global"[\s\S]*not assignable[\s\S]*"stream"/);
   });

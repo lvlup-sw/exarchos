@@ -1,15 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { EventStore } from '../../../../src/events/store.js';
 
-// ─── Test Helper ────────────────────────────────────────────────────────────
-
 function createMockEventStore(): { append: ReturnType<typeof vi.fn> } {
   return {
     append: vi.fn().mockResolvedValue({}),
   };
 }
-
-// ─── detectRegressions Tests ────────────────────────────────────────────────
 
 describe('detectRegressions', () => {
   it('detectRegressions_ThreeConsecutiveFailures_ReturnsRegression', async () => {
@@ -54,11 +50,10 @@ describe('detectRegressions', () => {
     expect(regressions).toHaveLength(0);
   });
 
+  /** The code-quality view removes a tracker when its gate passes, so an empty tracker map stands for the reset. */
   it('detectRegressions_FailureThenPass_ResetsCounter', async () => {
     const { detectRegressions } = await import('../../../../src/projections/quality/regression-detector.js');
 
-    // After a pass, the tracker would be removed from _failureTrackers
-    // (as done in code-quality-view.ts), so an empty tracker means reset
     const viewState = {
       _failureTrackers: {},
     };
@@ -68,8 +63,6 @@ describe('detectRegressions', () => {
     expect(regressions).toHaveLength(0);
   });
 });
-
-// ─── emitRegressionEvents Tests ─────────────────────────────────────────────
 
 describe('emitRegressionEvents', () => {
   let mockEventStore: ReturnType<typeof createMockEventStore>;

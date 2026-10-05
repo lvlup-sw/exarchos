@@ -3,19 +3,13 @@ import { computePrefixFingerprint, loadPrefixFingerprint } from '../../../../src
 
 describe('prefix-fingerprint', () => {
   it('PrefixFingerprint_FileExists_ReturnsHash', () => {
-    // T018 / DR-12 — placeholder scaffold. The real hash is wired in T046
-    // (Q3 quality gate). For now, `loadPrefixFingerprint()` must read the
-    // co-located `PREFIX_FINGERPRINT` file and return its contents as a
-    // trimmed string. A placeholder value (e.g. `<unset>`) is acceptable.
     const fingerprint = loadPrefixFingerprint();
 
     expect(typeof fingerprint).toBe('string');
   });
 
+  /** A digest that changes between two calls in one process makes the CI gate meaningless. */
   it('PrefixFingerprint_StableAcrossTwoRuns_Matches', () => {
-    // T046 / DR-12 — the computation must be deterministic across invocations
-    // inside a single process. If this fails, the fingerprint is not a stable
-    // cache-invariant over the prefix bytes and the CI gate is meaningless.
     const first = computePrefixFingerprint();
     const second = computePrefixFingerprint();
 
@@ -23,11 +17,8 @@ describe('prefix-fingerprint', () => {
     expect(first).toMatch(/^[0-9a-f]{64}$/u);
   });
 
+  /** The input overrides change one input each, so the real schema and registry stay untouched. */
   it('PrefixFingerprint_TemplateEdit_Diverges', () => {
-    // T046 / DR-12 — if any byte of the input set changes, the hash must
-    // diverge. `computePrefixFingerprint()` accepts an optional inputs
-    // override so tests can exercise the divergence path without mutating
-    // the real schema or registry.
     const baseline = computePrefixFingerprint();
     const mutated = computePrefixFingerprint({
       schemaJson: '{"mutated":true}',
@@ -41,11 +32,8 @@ describe('prefix-fingerprint', () => {
     expect(mutated).not.toBe(mutatedDescription);
   });
 
+  /** CI makes the same comparison. This test shows the drift in a local run before a push. */
   it('PrefixFingerprint_CommittedValueMatches', () => {
-    // T046 / DR-12 — the committed `PREFIX_FINGERPRINT` file must match the
-    // computed hash. CI (T047) wraps this comparison; the test makes the
-    // assertion visible at the unit level so a local `vitest` run catches
-    // drift before push.
     const committed = loadPrefixFingerprint();
     const computed = computePrefixFingerprint();
 

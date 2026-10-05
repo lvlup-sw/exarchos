@@ -20,18 +20,15 @@ describe('Telemetry Integration', () => {
   });
 
   it('should include telemetry metrics in view response when events exist', async () => {
-    // Arrange
     const store = new EventStore(stateDir);
     await store.append(TELEMETRY_STREAM, {
       type: 'tool.completed',
       data: { tool: 'test_tool', durationMs: 10, responseBytes: 200, tokenEstimate: 50 },
     });
 
-    // Act — call the telemetry view handler
     const { handleViewTelemetry } = await import('../../../../../src/projections/telemetry/tools.js');
     const result = await handleViewTelemetry({}, stateDir, store);
 
-    // Assert
     expect(result.success).toBe(true);
     const data = result.data as {
       session: { totalInvocations: number };
@@ -43,7 +40,6 @@ describe('Telemetry Integration', () => {
   });
 
   it('should emit tool.invoked and tool.completed events when instrumented handler runs', async () => {
-    // Arrange
     const store = new EventStore(stateDir);
     const { withTelemetry } = await import('../../../../../src/projections/telemetry/middleware.js');
 
@@ -53,10 +49,8 @@ describe('Telemetry Integration', () => {
     });
     const instrumented = withTelemetry(mockHandler, 'test_handler', store);
 
-    // Act
     await instrumented({});
 
-    // Assert — check telemetry stream
     const events = await store.query(TELEMETRY_STREAM);
     const types = events.map(e => e.type);
     expect(types).toContain('tool.invoked');
@@ -72,10 +66,7 @@ describe('Telemetry Integration', () => {
   });
 
   it('should materialize telemetry view from event stream', async () => {
-    // Arrange
     const store = new EventStore(stateDir);
-
-    // Seed multiple tool.completed events
     for (let i = 0; i < 5; i++) {
       await store.append(TELEMETRY_STREAM, {
         type: 'tool.completed',
@@ -83,11 +74,9 @@ describe('Telemetry Integration', () => {
       });
     }
 
-    // Act
     const { handleViewTelemetry } = await import('../../../../../src/projections/telemetry/tools.js');
     const result = await handleViewTelemetry({}, stateDir, store);
 
-    // Assert
     expect(result.success).toBe(true);
     const data = result.data as {
       session: { totalInvocations: number; totalTokens: number };

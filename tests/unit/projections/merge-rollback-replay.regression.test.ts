@@ -1,21 +1,10 @@
 /**
- * DR-2 (task 006) — merge.rollback replay-safety regression.
- *
- * The `merge.rollback` WRITE path is RETIRED (`verbs/pure/execute-merge.ts` now
- * emits only the canonical `merge.recovered`), but the READ path is KEPT
- * (its data schema + type-map entry survive). This suite is the INV-1 replay
- * proof: a legacy event log that ALREADY contains `merge.rollback` must still
- * fold to the SAME workflow state across ALL THREE folding reducers —
- *   1. `workflowStateProjection` (views/workflow-state-projection.ts),
- *   2. the rehydration reducer (projections/rehydration/reducer.ts),
- *   3. the `merge-orchestrator@v1` reducer (projections/merge-orchestrator/reducer.ts),
- * AND the HSM `merge-pending-exit` guard must behave identically —
- * as it did before the write path was retired.
- *
- * It ALSO proves forward-equivalence: the canonical `merge.recovered` successor
- * folds to the SAME observable recovery state in every one of those sites, so
- * retiring the legacy write path is a behavioural no-op for the live path while
- * remaining replay-safe for old streams.
+ * Replay regression for the retired `merge.rollback` event.
+ * `src/verbs/merge/execute-merge.ts` appends only `merge.recovered`, but the data schema of `merge.rollback` stays.
+ * An old log with `merge.rollback` must still fold to its recovery state in three reducers.
+ * They are `workflowStateProjection`, the rehydration reducer and the `merge-orchestrator@v1` reducer.
+ * The HSM `merge-pending-exit` guard must also accept the event.
+ * `merge.recovered` must fold to the same recovery state in each of those sites.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -27,15 +16,14 @@ import { rehydrationReducer } from '../../../src/projections/rehydration/reducer
 import { mergeOrchestratorReducer } from '../../../src/projections/merge-orchestrator/reducer.js';
 import { getHSMDefinition, executeTransition } from '../../../src/workflow/state-machine.js';
 
-// ─── Shared fixture facts ────────────────────────────────────────────────────
-
 const FEATURE_ID = 'feat-replay';
 const TASK_ID = 'T1';
 const SOURCE_BRANCH = 'feat/x';
 const TARGET_BRANCH = 'main';
-// The SAME sha is used as the legacy `rollbackSha` and the canonical
-// `recoveryPointSha` so the two events fold to a byte-identical `rollbackSha`
-// in the workflow-state view (the projection maps recoveryPointSha → rollbackSha).
+/**
+ * One sha serves as the `rollbackSha` of the old event and the `recoveryPointSha` of the new event.
+ * The workflow-state view maps `recoveryPointSha` to `rollbackSha`, so the two events fold to the same value.
+ */
 const RECOVERY_SHA = 'a'.repeat(40);
 const REASON = 'merge-failed' as const;
 
@@ -54,7 +42,7 @@ function makeEvent(
   } as WorkflowEvent;
 }
 
-/** Legacy terminal event payload (pre-DR-2 recovery streams carry this). */
+/** The payload of the retired `merge.rollback` event, as old recovery streams hold it. */
 const LEGACY_ROLLBACK_DATA = {
   taskId: TASK_ID,
   sourceBranch: SOURCE_BRANCH,
@@ -63,7 +51,7 @@ const LEGACY_ROLLBACK_DATA = {
   reason: REASON,
 };
 
-/** Canonical successor payload (post-DR-2 recovery streams carry this). */
+/** The payload of `merge.recovered`, the recovery event that writers append. */
 const CANONICAL_RECOVERED_DATA = {
   taskId: TASK_ID,
   sourceBranch: SOURCE_BRANCH,
@@ -71,8 +59,6 @@ const CANONICAL_RECOVERED_DATA = {
   recoveryPointSha: RECOVERY_SHA,
   reason: REASON,
 };
-
-// ─── Cross-reducer fold helper ───────────────────────────────────────────────
 
 interface FoldedRecoveryState {
   /** workflow-state-projection `mergeOrchestrator` block. */
@@ -92,10 +78,11 @@ interface FoldedRecoveryState {
 }
 
 /**
- * Fold a recovery-terminal event (`merge.rollback` OR `merge.recovered`) through
- * all three reducers plus the HSM merge-pending-exit guard, each supplied with
- * the realistic preceding context that reducer requires, and return the
- * observable recovery state.
+ * Folds a recovery event through the three reducers and the HSM `merge-pending-exit` guard, and returns the observable state.
+ * Each site gets the context that it needs. The workflow-state view folds the event from `init()`.
+ * The rehydration reducer first folds a `task.completed` event with a worktree, which creates the `pending` merge state.
+ * The `merge-orchestrator@v1` reducer starts from `executed`.
+ * The guard gets the recovery event after the latest `task.completed` event.
  */
 function foldRecoveryTerminal(
   terminalType: 'merge.rollback' | 'merge.recovered',
@@ -103,13 +90,9 @@ function foldRecoveryTerminal(
 ): FoldedRecoveryState {
   const terminal = makeEvent(terminalType, terminalData, 5);
 
-  // 1) workflow-state-projection — the merge.* case fully determines the
-  //    `mergeOrchestrator` block, so fold the terminal from init().
   let view = workflowStateProjection.init();
   view = workflowStateProjection.apply(view, terminal);
 
-  // 2) rehydration reducer — needs a worktree-bearing task.completed to create
-  //    the `pending` mergeOrchestrator that the terminal event then exits.
   let rehydrate = rehydrationReducer.apply(
     rehydrationReducer.initial,
     makeEvent('workflow.started', { featureId: FEATURE_ID, workflowType: 'feature' }, 0),
@@ -124,8 +107,6 @@ function foldRecoveryTerminal(
   );
   rehydrate = rehydrationReducer.apply(rehydrate, terminal);
 
-  // 3) merge-orchestrator@v1 — the recovery transition fires from an `executed`
-  //    state (mirrors the reducer's own suite: executed → recovering).
   let orchestrator = mergeOrchestratorReducer.apply(
     mergeOrchestratorReducer.initial,
     makeEvent(
@@ -142,8 +123,6 @@ function foldRecoveryTerminal(
   );
   orchestrator = mergeOrchestratorReducer.apply(orchestrator, terminal);
 
-  // 4) HSM merge-pending-exit guard — the terminal event after the latest
-  //    task.completed must satisfy the merge-pending → delegate transition.
   const hsm = getHSMDefinition('feature');
   const hsmState = {
     phase: 'merge-pending',
@@ -165,18 +144,13 @@ function foldRecoveryTerminal(
   };
 }
 
-// ─── Tests ───────────────────────────────────────────────────────────────────
-
 describe('merge.rollback replay-safety (DR-2, task 006)', () => {
+  /** The old payload still parses against the kept `MergeRollbackData` schema, and each of the four sites folds it to the recovery state. */
   it('replayFixture_LegacyRollbackEvents_FoldsToIdenticalWorkflowState', () => {
-    // READ tolerance intact: the legacy payload still parses against the KEPT
-    // data schema (nothing was deleted from the read path).
     expect(MergeRollbackData.safeParse(LEGACY_ROLLBACK_DATA).success).toBe(true);
 
     const folded = foldRecoveryTerminal('merge.rollback', LEGACY_ROLLBACK_DATA);
 
-    // 1) workflow-state-projection folds the legacy event to the rolled-back
-    //    block — the exact shape the pre-DR-2 code produced.
     expect(folded.view).toEqual({
       phase: 'rolled-back',
       taskId: TASK_ID,
@@ -186,33 +160,29 @@ describe('merge.rollback replay-safety (DR-2, task 006)', () => {
       reason: REASON,
     });
 
-    // 2) rehydration reducer reverts to delegate + stamps rolled-back.
     expect(folded.rehydratePhase).toBe('delegate');
     expect(folded.rehydrateOrchestrator).toEqual({
       taskId: TASK_ID,
       phase: 'rolled-back',
     });
 
-    // 3) merge-orchestrator@v1 advances to recovering with the captured reason.
     expect(folded.orchestratorPhase).toBe('recovering');
     expect(folded.orchestratorReason).toBe(REASON);
 
-    // 4) HSM merge-pending-exit guard fires: merge-pending → delegate.
     expect(folded.hsmExitSucceeded).toBe(true);
     expect(folded.hsmNewPhase).toBe('delegate');
   });
 
+  /**
+   * `merge.recovered` validates and folds to the same observable state as `merge.rollback` in each site.
+   * The two payloads share the sha, and a clean recovery has no error detail.
+   */
   it('replayFixture_ModernRecoveredEvents_FoldsToSameStateAsLegacyRollback', () => {
-    // Forward-equivalence: the canonical successor still validates and folds to
-    // the SAME observable recovery state across every site — so retiring the
-    // legacy write path is behaviour-preserving on the live path.
     expect(MergeRecoveredData.safeParse(CANONICAL_RECOVERED_DATA).success).toBe(true);
 
     const legacy = foldRecoveryTerminal('merge.rollback', LEGACY_ROLLBACK_DATA);
     const modern = foldRecoveryTerminal('merge.recovered', CANONICAL_RECOVERED_DATA);
 
-    // Every folded observable is identical between the legacy and canonical
-    // terminals (the SHA is shared and clean-recovery carries no error detail).
     expect(modern.view).toEqual(legacy.view);
     expect(modern.rehydratePhase).toBe(legacy.rehydratePhase);
     expect(modern.rehydrateOrchestrator).toEqual(legacy.rehydrateOrchestrator);
@@ -221,7 +191,6 @@ describe('merge.rollback replay-safety (DR-2, task 006)', () => {
     expect(modern.hsmExitSucceeded).toBe(legacy.hsmExitSucceeded);
     expect(modern.hsmNewPhase).toBe(legacy.hsmNewPhase);
 
-    // ...and both reach the concrete rolled-back/recovering terminal.
     expect(modern.rehydrateOrchestrator).toEqual({
       taskId: TASK_ID,
       phase: 'rolled-back',

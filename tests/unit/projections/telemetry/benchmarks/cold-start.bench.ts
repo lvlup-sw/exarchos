@@ -1,10 +1,9 @@
-// Cold-start view materialization speed, measured in the benchmark gate rather
-// than asserted in a correctness test (#2029).
+// Benchmarks for the speed of a cold-start view materialization. A timing assertion measures
+// the host as well as the code, so these arms only report.
 //
-// These arms replace `cold-start.test.ts`, whose timing assertions ran only
-// when RUN_BENCHMARKS was set. The budgets it asserted: full replay of up to
-// 100 events 200 ms and of 500 events 500 ms, a snapshot-assisted cold start
-// of 100 events 100 ms, a warm cache hit 5 ms, and a raw snapshot load 50 ms.
+// Reference budgets: 200 ms for a full replay of up to 100 events, and 500 ms for 500 events.
+// A snapshot-assisted cold start of 100 events has 100 ms. A warm cache hit has 5 ms, and a raw
+// snapshot load has 50 ms.
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';

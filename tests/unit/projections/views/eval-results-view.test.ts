@@ -15,8 +15,6 @@ const makeEvent = (type: string, data: Record<string, unknown>, seq = 1): Workfl
   schemaVersion: '1.0',
 });
 
-// ─── T09: EvalResultsView Projection Tests ──────────────────────────────────
-
 describe('EvalResultsView', () => {
   describe('init', () => {
     it('evalResultsProjection_Init_ReturnsEmptyState', () => {
@@ -209,14 +207,12 @@ describe('EvalResultsView', () => {
         duration: 100,
       }, 1));
 
-      // The case was tracked internally (no regression)
       expect(state.regressions).toHaveLength(0);
     });
 
     it('evalResultsProjection_CasePreviouslyPassedNowFails_DetectsRegression', () => {
       let state = evalResultsProjection.init();
 
-      // First: case passes
       state = evalResultsProjection.apply(state, makeEvent('eval.case.completed', {
         runId: 'run-001',
         caseId: 'case-001',
@@ -227,7 +223,6 @@ describe('EvalResultsView', () => {
         duration: 100,
       }, 1));
 
-      // Second: same case fails
       state = evalResultsProjection.apply(state, makeEvent('eval.case.completed', {
         runId: 'run-002',
         caseId: 'case-001',
@@ -248,7 +243,6 @@ describe('EvalResultsView', () => {
     it('evalResultsProjection_CaseFailsThenPasses_ClearsRegression', () => {
       let state = evalResultsProjection.init();
 
-      // Pass
       state = evalResultsProjection.apply(state, makeEvent('eval.case.completed', {
         runId: 'run-001',
         caseId: 'case-001',
@@ -259,7 +253,6 @@ describe('EvalResultsView', () => {
         duration: 100,
       }, 1));
 
-      // Fail (creates regression)
       state = evalResultsProjection.apply(state, makeEvent('eval.case.completed', {
         runId: 'run-002',
         caseId: 'case-001',
@@ -272,7 +265,6 @@ describe('EvalResultsView', () => {
 
       expect(state.regressions).toHaveLength(1);
 
-      // Pass again (clears regression)
       state = evalResultsProjection.apply(state, makeEvent('eval.case.completed', {
         runId: 'run-003',
         caseId: 'case-001',
@@ -289,7 +281,6 @@ describe('EvalResultsView', () => {
     it('evalResultsProjection_ConsecutiveFailures_IncrementsRegressionCount', () => {
       let state = evalResultsProjection.init();
 
-      // Pass first
       state = evalResultsProjection.apply(state, makeEvent('eval.case.completed', {
         runId: 'run-001',
         caseId: 'case-001',
@@ -300,7 +291,6 @@ describe('EvalResultsView', () => {
         duration: 100,
       }, 1));
 
-      // Fail twice
       state = evalResultsProjection.apply(state, makeEvent('eval.case.completed', {
         runId: 'run-002',
         caseId: 'case-001',
@@ -346,11 +336,8 @@ describe('EvalResultsView', () => {
     });
   });
 
-  // ─── Integration: CLI event sequence materializes into view state ──────────
-
   describe('integration — CLI eval event sequences', () => {
     it('EvalResultsView_AfterEvalRunEvents_MaterializesSkillMetrics', () => {
-      // Arrange: simulate full eval run event sequence as emitted by CLI harness
       let state = evalResultsProjection.init();
       const events: WorkflowEvent[] = [
         makeEvent('eval.run.started', {
@@ -398,19 +385,16 @@ describe('EvalResultsView', () => {
         }, 5),
       ];
 
-      // Act: apply all events in sequence (as the materializer would)
       for (const event of events) {
         state = evalResultsProjection.apply(state, event);
       }
 
-      // Assert: skill metrics are materialized with correct values
       expect(state.skills['delegation']).toBeDefined();
       expect(state.skills['delegation'].latestScore).toBe(0.7);
       expect(state.skills['delegation'].lastRunId).toBe('run-abc');
       expect(state.skills['delegation'].totalRuns).toBe(1);
       expect(state.skills['delegation'].capabilityPassRate).toBeCloseTo(2 / 3, 5);
 
-      // Assert: run record is present
       expect(state.runs).toHaveLength(1);
       expect(state.runs[0].runId).toBe('run-abc');
       expect(state.runs[0].total).toBe(3);
@@ -419,10 +403,8 @@ describe('EvalResultsView', () => {
     });
 
     it('EvalResultsView_MultipleRuns_TracksRegression', () => {
-      // Arrange: first run — case-1 passes; second run — case-1 fails
       let state = evalResultsProjection.init();
 
-      // Run 1: case-1 passes
       const run1Events: WorkflowEvent[] = [
         makeEvent('eval.case.completed', {
           runId: 'run-001',
@@ -445,7 +427,6 @@ describe('EvalResultsView', () => {
         }, 2),
       ];
 
-      // Run 2: same case-1 fails (regression)
       const run2Events: WorkflowEvent[] = [
         makeEvent('eval.case.completed', {
           runId: 'run-002',
@@ -468,19 +449,16 @@ describe('EvalResultsView', () => {
         }, 4),
       ];
 
-      // Act: apply all events across both runs
       for (const event of [...run1Events, ...run2Events]) {
         state = evalResultsProjection.apply(state, event);
       }
 
-      // Assert: regression detected for case-1
       expect(state.regressions).toHaveLength(1);
       expect(state.regressions[0].caseId).toBe('case-1');
       expect(state.regressions[0].suiteId).toBe('quality-review');
       expect(state.regressions[0].firstFailedRunId).toBe('run-002');
       expect(state.regressions[0].consecutiveFailures).toBe(1);
 
-      // Assert: two runs tracked
       expect(state.runs).toHaveLength(2);
       expect(state.skills['quality-review'].totalRuns).toBe(2);
       expect(state.skills['quality-review'].latestScore).toBe(0.0);

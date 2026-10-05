@@ -1,11 +1,10 @@
 /**
- * `handleViewPipeline` integration tests for #1359 / PR4 T14 + T15.
+ * `handleViewPipeline` integration tests.
  *
- * Covers the response-envelope additions:
- *   - `data.projectionAsOf` — ISO timestamp of the most-recent folded event
- *     across the union of materialized streams.
- *   - `_meta.projectionLag` — sparse millisecond delta surfaced only when
- *     the projection is stale beyond PROJECTION_LAG_THRESHOLD_MS.
+ * They cover the `_meta` fields, the exclusion of streams with no `workflow.started`, compact rows
+ * and the `detail` flag, the summary fallback, and the repo scope.
+ * `_meta.projectionAsOf` is the newest `_asOf` of the folded streams. `_meta.projectionLag` shows
+ * only when the lag exceeds `PROJECTION_LAG_THRESHOLD_MS`.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
@@ -63,10 +62,8 @@ describe('handleViewPipeline — projectionAsOf + projectionLag (#1359 / PR4)', 
     expect(Number.isFinite(Date.parse(meta!.projectionAsOf as string))).toBe(true);
   });
 
+  /** A `state.patched` with no `task.*` event must still give correct counters, because the view folds plan tasks. */
   it('ViewPipeline_StatePatchedCompleteTask_CountsViaTasksById', async () => {
-    // Bug A end-to-end: a state.patched without paired task.* events must
-    // still surface accurate counters because the view folds plan tasks
-    // through `tasksById`.
     const featureId = 'view-state-patched';
     await store.append(featureId, {
       type: 'workflow.started',
@@ -134,17 +131,13 @@ describe('handleViewPipeline — projectionAsOf + projectionLag (#1359 / PR4)', 
   });
 });
 
-// ─── DR-4 (task 004): phantom exclusion from page AND totals ─────────────────
-//
-// A feature-named stream that carries events but never a `workflow.started`
-// event folds to a degenerate row (empty featureId). Such a row must never
-// appear in the page and must never be counted in `page.total`/`unscopedTotal`,
-// in any scope mode. `includeCompleted: true` is used to isolate the phantom
-// filter from the terminal-phase filter (a phantom's phase is '' — non-terminal
-// — so without the DR-4 filter it would otherwise leak through regardless).
+/**
+ * A stream with events but no `workflow.started` folds to a row with an empty `featureId`. That row
+ * must not show in the page, and `total` must not count it. `includeCompleted: true` turns the
+ * terminal-phase filter off, so only the empty-`featureId` filter can drop the row.
+ */
 describe('handleViewPipeline — DR-4 phantom exclusion (task 004)', () => {
   it('Pipeline_StreamWithoutStarted_ExcludedFromPageAndTotals', async () => {
-    // A stream with a task event but NO workflow.started foundation.
     await store.append('phantom-stream', {
       type: 'task.assigned',
       data: { taskId: 'T1' },
@@ -161,20 +154,16 @@ describe('handleViewPipeline — DR-4 phantom exclusion (task 004)', () => {
       workflows?: ReadonlyArray<{ featureId: string }>;
       total?: number;
     };
-    // No empty-featureId row surfaces …
     expect((data.workflows ?? []).some((w) => w.featureId === '')).toBe(false);
     expect(data.workflows ?? []).toHaveLength(0);
-    // … and the total does not count it.
     expect(data.total).toBe(0);
   });
 
   it('Pipeline_PhantomAndReal_TotalsCountOnlyReal', async () => {
-    // One genuine workflow (has workflow.started) …
     await store.append('real-feature', {
       type: 'workflow.started',
       data: { featureId: 'real-feature', workflowType: 'feature' },
     });
-    // … alongside a phantom (events, but no workflow.started foundation).
     await store.append('phantom-a', {
       type: 'task.assigned',
       data: { taskId: 'T1' },
@@ -195,7 +184,6 @@ describe('handleViewPipeline — DR-4 phantom exclusion (task 004)', () => {
       workflows: ReadonlyArray<{ featureId: string }>;
       total: number;
     };
-    // Only the real workflow appears; the total counts it alone.
     expect(data.workflows).toHaveLength(1);
     expect(data.workflows[0]?.featureId).toBe('real-feature');
     expect(data.workflows.every((w) => w.featureId !== '')).toBe(true);
@@ -203,14 +191,13 @@ describe('handleViewPipeline — DR-4 phantom exclusion (task 004)', () => {
   });
 });
 
-// ─── DR-1 (task 005): compact default entries + schema-level detail flag ─────
-//
-// By default a pipeline entry carries only summary fields and OMITS the
-// unbounded per-task `tasksById` map. `detail: true` restores the full row.
-// The per-entry `hasMore` (stack-position eviction flag) survives compaction.
-// `summary.firstPage` rows are compacted identically.
+/**
+ * A pipeline row holds summary fields by default and omits the unbounded `tasksById` map.
+ * `detail: true` restores the full row. The row `hasMore`, which is the stack eviction flag, stays
+ * in a compact row. The `summary.firstPage` rows are compact in the same way.
+ * Each payload exceeds `TINY_THRESHOLD`, so a call that passes it takes the summary fallback.
+ */
 describe('handleViewPipeline — DR-1 compact entries + detail flag (task 005)', () => {
-  // Threshold so tiny any non-trivial payload trips the summary fallback.
   const TINY_THRESHOLD: QualityHintsConfig = { qualityHints: { outputTokenThreshold: 0.00001 } };
 
   async function seedWithTasks(featureId: string, statuses: string[]): Promise<void> {
@@ -275,22 +262,22 @@ describe('handleViewPipeline — DR-1 compact entries + detail flag (task 005)',
     };
     const entry = data.workflows.find((w) => w.featureId === 'compact-counts');
     expect(entry).toBeDefined();
-    // Counts are present and correct WITHOUT the per-task map beside them.
     expect(entry!.taskCount).toBe(4);
     expect(entry!.completedCount).toBe(2);
     expect(entry!.failedCount).toBe(1);
     expect(entry!.tasksById).toBeUndefined();
   });
 
+  /**
+   * `MAX_STACK_POSITIONS` is 100, so the 101st position evicts one and sets the row `hasMore`.
+   * That flag is not the paging flag of the page, and a compact row must keep it.
+   */
   it('Pipeline_CompactEntry_RetainsEvictionHasMore', async () => {
     const featureId = 'compact-eviction';
     await store.append(featureId, {
       type: 'workflow.started',
       data: { featureId, workflowType: 'feature' },
     });
-    // MAX_STACK_POSITIONS is 100 — the 101st fill evicts and sets the per-entry
-    // `hasMore` eviction flag. That flag is unrelated to page-level paging and
-    // must survive DR-1 compaction.
     for (let i = 0; i < 101; i++) {
       await store.append(featureId, {
         type: 'stack.position-filled',
@@ -306,15 +293,12 @@ describe('handleViewPipeline — DR-1 compact entries + detail flag (task 005)',
     };
     const entry = data.workflows.find((w) => w.featureId === featureId);
     expect(entry).toBeDefined();
-    // Compacted (no task map) …
     expect(entry!.tasksById).toBeUndefined();
-    // … but the eviction `hasMore` is retained through compaction.
     expect(entry!.hasMore).toBe(true);
   });
 
+  /** The `firstPage` rows of the summary fallback must be compact, with the counts intact. */
   it('PipelineSummary_FirstPage_Compacted', async () => {
-    // Enough task-heavy workflows that the tiny-threshold summary fallback
-    // fires; its firstPage rows must be compacted (no tasksById), counts intact.
     for (let i = 0; i < 5; i++) {
       await seedWithTasks(`sum-${i}`, ['complete', 'pending', 'failed']);
     }
@@ -340,12 +324,11 @@ describe('handleViewPipeline — DR-1 compact entries + detail flag (task 005)',
     }
   });
 
+  /**
+   * The summary `page.hasMore` must account for `offset`. With 5 rows and offset 3, the window is
+   * the last 2 rows, so `hasMore` must be false.
+   */
   it('PipelineSummary_LastPageOffset_HasMoreFalse', async () => {
-    // Regression (shepherd / Seer + CodeRabbit): the summary-fallback
-    // `page.hasMore` must account for the paging `offset`. With 5 rows and
-    // offset 3, the window is the final 2 rows — `hasMore` must be false. The
-    // prior formula (`total > firstPage.length`) ignored the offset and returned
-    // true, telling a caller already on the last page that more rows remained.
     for (let i = 0; i < 5; i++) {
       await seedWithTasks(`page-${i}`, ['complete', 'pending', 'failed']);
     }
@@ -362,15 +345,12 @@ describe('handleViewPipeline — DR-1 compact entries + detail flag (task 005)',
       summary?: unknown;
       page?: { total: number; offset: number; hasMore: boolean };
     };
-    // Summary fallback fired (tiny threshold) …
     expect(data.summary).toBeDefined();
-    // … and the final-window page reports no further rows.
     expect(data.page).toMatchObject({ total: 5, offset: 3, hasMore: false });
   });
 
+  /** A window that is not the last one must still report more rows. */
   it('PipelineSummary_MidPage_HasMoreTrue', async () => {
-    // Complement: a non-final window still advertises more rows, so the
-    // offset-aware fix does not suppress a legitimate `hasMore`.
     for (let i = 0; i < 5; i++) {
       await seedWithTasks(`more-${i}`, ['complete', 'pending', 'failed']);
     }
@@ -387,12 +367,12 @@ describe('handleViewPipeline — DR-1 compact entries + detail flag (task 005)',
     expect(data.page?.hasMore).toBe(true);
   });
 
+  /**
+   * The summary `page.hasMore` must come from the full window, not from the `firstPage` preview.
+   * With 15 rows and limit 25, the window holds all rows, but `firstPage` holds only 10.
+   * Thus `hasMore` must be false.
+   */
   it('PipelineSummary_WindowExceedsPreviewCap_HasMoreFromWindow', async () => {
-    // Regression (Sentry): the summary `page.hasMore` must derive from the full
-    // offset/limit window, NOT the capped `firstPage` preview. With 15 rows and
-    // limit 25, the window covers all 15 but `firstPage` caps at 10 — so keying
-    // off `firstPage.length` (10 < 15) would spuriously report more pages. The
-    // window covers everything, so `hasMore` must be false (matching detail).
     for (let i = 0; i < 15; i++) {
       await seedWithTasks(`win-${i}`, ['complete', 'pending', 'failed']);
     }
@@ -409,21 +389,21 @@ describe('handleViewPipeline — DR-1 compact entries + detail flag (task 005)',
       summary?: unknown;
       page?: { total: number; hasMore: boolean };
     };
-    // Summary fallback fired, and the whole result set is within the window.
     expect(data.summary).toBeDefined();
     expect(data.page).toMatchObject({ total: 15, hasMore: false });
   });
 });
 
-// ─── DR-6 / DR-7 (task 007): repo-scoped default view + perceivability ───────
-//
-// Scope resolution precedence (pinned): scope:'all' → unfiltered; explicit
-// repoRoot → filter to deriveRepoKey(repoRoot); else composite-supplied caller
-// key → filter to it; else (direct call, no key) → unscoped; scope:'repo' with
-// no resolvable key → structured error. `data.scope`/`data.unscopedTotal` ride
-// every response; the scope-all escape hatch fires whenever `unscopedTotal >
-// page.total`. Git-spawning cases carry ≥15s per-test timeouts per the vitest
-// spawn-flake memory.
+/**
+ * Scope order: `scope: 'all'` gives no filter. Next, an explicit `repoRoot` filters to its repo
+ * key. Next, the handler filters to the caller key that the composite supplies. A direct call with
+ * no key is unscoped, and `scope: 'repo'` with no key is an error. Each response holds
+ * `data.scope` and `data.unscopedTotal`. A hint for `--scope all` shows when `unscopedTotal`
+ * exceeds `total`.
+ *
+ * The tests that spawn git have a 20 s timeout. On a loaded machine, a git spawn can exceed the
+ * default test timeout.
+ */
 describe('handleViewPipeline — DR-6/DR-7 repo scoping + perceivability (task 007)', () => {
   type Row = { featureId: string };
   interface ScopeData {
@@ -446,8 +426,6 @@ describe('handleViewPipeline — DR-6/DR-7 repo scoping + perceivability (task 0
       },
     });
     if (opts?.terminal) {
-      // Drive the row to a terminal phase ('completed') so the terminal filter
-      // (includeCompleted=false) elides it — used by the ordering-guard test.
       await store.append(featureId, {
         type: 'workflow.transition',
         data: { featureId, from: 'started', to: 'completed' },
@@ -455,9 +433,11 @@ describe('handleViewPipeline — DR-6/DR-7 repo scoping + perceivability (task 0
     }
   }
 
+  /**
+   * The composite derives the caller key from `ctx.cwd`. A workflow from another repo must not
+   * show in the default result.
+   */
   it('Pipeline_CompositeDispatch_FiltersToCallerRepo', async () => {
-    // The composite computes the caller key from `ctx.cwd` and threads it — a
-    // workflow started in another repo must NOT appear in the caller's default.
     const callerKey = deriveRepoKey(stateDir);
     await seedStarted('here-1', { repoRoot: callerKey });
     await seedStarted('there-1', { repoRoot: '/some/other/repo' });
@@ -478,10 +458,8 @@ describe('handleViewPipeline — DR-6/DR-7 repo scoping + perceivability (task 0
     expect(ids).not.toContain('there-1');
   }, 20000);
 
+  /** A direct handler call with no caller key and no explicit scope is unscoped. */
   it('Pipeline_DirectHandlerNoKey_Unscoped', async () => {
-    // A direct handler call with no caller key and no explicit scope stays
-    // UNSCOPED by construction — this is what preserves the existing suites'
-    // semantics without per-test edits.
     await seedStarted('a', { repoRoot: '/repo/a' });
     await seedStarted('b', { repoRoot: '/repo/b' });
 
@@ -495,9 +473,8 @@ describe('handleViewPipeline — DR-6/DR-7 repo scoping + perceivability (task 0
     expect(ids).toEqual(expect.arrayContaining(['a', 'b']));
   });
 
+  /** `scope: 'repo'` with no `repoRoot` and no caller key gives a structured error, not an unscoped result. */
   it('Pipeline_ScopeRepoWithoutKey_ReturnsStructuredError', async () => {
-    // scope:'repo' explicitly requested but no repoRoot arg and no caller key —
-    // never a silent unscoped result; a structured, self-correcting error.
     await seedStarted('x', { repoRoot: '/repo/x' });
 
     const result = await handleViewPipeline(
@@ -515,14 +492,12 @@ describe('handleViewPipeline — DR-6/DR-7 repo scoping + perceivability (task 0
     });
   });
 
+  /**
+   * `pipeline` and `ps` share one `scope` field, so a `ps` scope can reach this handler. The
+   * handler must not treat `workflow` or `worktree` as unscoped. It returns `INVALID_INPUT` with
+   * the valid targets `repo` and `all`, and a `suggestedFix` that points to `ps`.
+   */
   it('Pipeline_ScopeOutOfSubset_RejectedAsInvalidInput', async () => {
-    // Task fix-C: the shared `scopeField` widening (task 007 → the 4-member
-    // union so `pipeline` and `ps` share ONE `scope` definition) lets a `ps`-only
-    // scope (`workflow`/`worktree`) reach the pipeline handler. GA rejected
-    // out-of-subset scopes; the widening must NOT silently coerce them to
-    // unscoped. A `ps`-only member returns a structured INVALID_INPUT with
-    // validTargets ['repo','all'] (mirroring how `ps` rejects the pipeline-only
-    // `repo` member) and a self-correcting `suggestedFix` routing to `ps`.
     await seedStarted('scope-reject', { repoRoot: '/repo/z' });
 
     const workflowResult = await handleViewPipeline(
@@ -538,7 +513,6 @@ describe('handleViewPipeline — DR-6/DR-7 repo scoping + perceivability (task 0
       scope: 'workflow',
     });
 
-    // The sibling ps-only member is rejected identically.
     const worktreeResult = await handleViewPipeline(
       { scope: 'worktree', includeCompleted: true },
       stateDir,
@@ -549,10 +523,9 @@ describe('handleViewPipeline — DR-6/DR-7 repo scoping + perceivability (task 0
     expect(worktreeResult.error?.validTargets).toEqual(['repo', 'all']);
   });
 
+  /** `scope: 'all'` also returns a row with no `repoRoot`. Such a row matches only an unscoped query. */
   it('Pipeline_ScopeAll_IncludesLegacyUnscopedRows', async () => {
-    // scope:'all' reproduces the full cross-repo inventory INCLUDING legacy rows
-    // that carry no `repoRoot` (undefined) — those match only unscoped/'all'.
-    await seedStarted('legacy'); // no repoRoot
+    await seedStarted('legacy');
     await seedStarted('scoped', { repoRoot: '/repo/s' });
 
     const result = await handleViewPipeline(
@@ -568,10 +541,12 @@ describe('handleViewPipeline — DR-6/DR-7 repo scoping + perceivability (task 0
     expect(ids).toEqual(expect.arrayContaining(['legacy', 'scoped']));
   });
 
+  /**
+   * `deriveRepoKey` gives a linked worktree the key of its main checkout. Thus a worktree path as
+   * `repoRoot` matches a row with the main key, and excludes a row with no `repoRoot`. A Windows
+   * path with backslashes becomes the POSIX key form before the handler compares the keys.
+   */
   it('Pipeline_ExplicitRepoRoot_NormalizedBeforeMatch', async () => {
-    // ── Worktree-form: a linked-worktree path input matches a row seeded with
-    //    the MAIN-checkout key (deriveRepoKey collapses worktrees to one key),
-    //    and a legacy (no-repoRoot) row is excluded from the scoped result. ──
     const mainRoot = fs.mkdtempSync(path.join(tmpdir(), 'pipe-drk-main-'));
     const wtParent = fs.mkdtempSync(path.join(tmpdir(), 'pipe-drk-wt-'));
     const wtPath = path.join(wtParent, 'linked');
@@ -585,9 +560,8 @@ describe('handleViewPipeline — DR-6/DR-7 repo scoping + perceivability (task 0
 
       const mainKey = deriveRepoKey(mainRoot);
       await seedStarted('wt-scoped', { repoRoot: mainKey });
-      await seedStarted('wt-legacy'); // no repoRoot — must not appear under repo scope
+      await seedStarted('wt-legacy');
 
-      // Called with the WORKTREE path; the handler derives the SAME key.
       const result = await handleViewPipeline(
         { repoRoot: wtPath, includeCompleted: true },
         stateDir,
@@ -605,8 +579,6 @@ describe('handleViewPipeline — DR-6/DR-7 repo scoping + perceivability (task 0
       rmrf(wtParent);
     }
 
-    // ── Windows-form: a backslash `C:\…` input normalizes to the POSIX key
-    //    form before comparison (#1620), so it matches a POSIX-seeded row. ──
     await seedStarted('win-scoped', { repoRoot: 'C:/Users/dev/win-repo' });
     const winResult = await handleViewPipeline(
       { repoRoot: 'C:\\Users\\dev\\win-repo', includeCompleted: true },
@@ -619,9 +591,11 @@ describe('handleViewPipeline — DR-6/DR-7 repo scoping + perceivability (task 0
     expect(winData.workflows.map((w) => w.featureId)).toContain('win-scoped');
   }, 20000);
 
+  /**
+   * The scoped result holds two rows, and the scope hides three rows of other repos. The hint must
+   * still show, and its reason must hold the hidden count: `unscopedTotal - total`, which is 3.
+   */
   it('Pipeline_MixedState_EmitsScopeAllHintWithHiddenCount', async () => {
-    // Scoped-NONEMPTY with additional hidden other-repo rows: the escape-hatch
-    // hint still fires (mixed steady state) and reports the exact hidden count.
     const key = deriveRepoKey(stateDir);
     await seedStarted('mine-1', { repoRoot: key });
     await seedStarted('mine-2', { repoRoot: key });
@@ -642,15 +616,15 @@ describe('handleViewPipeline — DR-6/DR-7 repo scoping + perceivability (task 0
     expect(data.unscopedTotal).toBe(5);
     const hint = (result.next_actions ?? []).find((a) => a.hint?.includes('--scope all'));
     expect(hint).toBeDefined();
-    // Hidden count = unscopedTotal - page.total = 5 - 2 = 3.
     expect(hint!.reason).toContain('3');
   }, 20000);
 
+  /**
+   * `scope: 'all'` hides nothing, so no hint shows. The handler counts `unscopedTotal` after the
+   * terminal-phase filter. Thus the three completed rows are in neither count, and the handler
+   * does not report them as hidden by the repo scope.
+   */
   it('Pipeline_ScopeAll_NoEscapeHatchHint', async () => {
-    // scope:'all' hides nothing, so no escape hatch. Crucially, seed COMPLETED
-    // (terminal) rows: because `unscopedTotal` is computed POST-terminal-filter,
-    // those rows are NOT counted and must NOT be mis-attributed as repo-hidden
-    // (the ordering guard — a pre-terminal `unscopedTotal` would falsely fire).
     await seedStarted('active-1', { repoRoot: '/r/1' });
     await seedStarted('active-2', { repoRoot: '/r/2' });
     await seedStarted('done-1', { repoRoot: '/r/3', terminal: true });
@@ -662,16 +636,14 @@ describe('handleViewPipeline — DR-6/DR-7 repo scoping + perceivability (task 0
     expect(result.success).toBe(true);
     const data = result.data as ScopeData;
     expect(data.scope).toBe('all');
-    // Terminal rows dropped from BOTH counts (post-terminal-filter ordering).
     expect(data.total).toBe(2);
     expect(data.unscopedTotal).toBe(2);
     const hint = (result.next_actions ?? []).find((a) => a.hint?.includes('--scope all'));
     expect(hint).toBeUndefined();
   });
 
+  /** Each response holds `data.scope` and `data.unscopedTotal`. A direct call with no key reports `all`. */
   it('Pipeline_Data_CarriesScopeAndUnscopedTotal', async () => {
-    // Every response reports `data.scope` (effective mode) and
-    // `data.unscopedTotal` (pre-scope count) — always-on perceivability.
     await seedStarted('d1', { repoRoot: '/r/1' });
     await seedStarted('d2', { repoRoot: '/r/2' });
 
@@ -679,7 +651,7 @@ describe('handleViewPipeline — DR-6/DR-7 repo scoping + perceivability (task 0
 
     expect(result.success).toBe(true);
     const data = result.data as ScopeData;
-    expect(data.scope).toBe('all'); // direct call, no key → unscoped/all
+    expect(data.scope).toBe('all');
     expect(data.unscopedTotal).toBe(2);
   });
 });

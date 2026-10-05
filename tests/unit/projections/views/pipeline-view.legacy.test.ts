@@ -32,25 +32,21 @@ describe('PipelineView', () => {
   });
 
   describe('MultipleWorkflows_AggregatesAll', () => {
+    /** The materializer keeps a separate pipeline view for each stream. The test reads each view and aggregates nothing. */
     it('should aggregate workflow events from multiple streams into the pipeline view', () => {
-      // Stream 1
       const stream1Events = [
         makeEvent(1, 'workflow.started', { featureId: 'feat-a', workflowType: 'feature' }, 'wf-001'),
         makeEvent(2, 'task.assigned', { taskId: 't1', title: 'Task 1' }, 'wf-001'),
       ];
 
-      // Stream 2
       const stream2Events = [
         makeEvent(1, 'workflow.started', { featureId: 'feat-b', workflowType: 'debug' }, 'wf-002'),
         makeEvent(2, 'task.assigned', { taskId: 't2', title: 'Task 2' }, 'wf-002'),
       ];
 
-      // Materialize both streams
       materializer.materialize<PipelineViewState>('wf-001', PIPELINE_VIEW, stream1Events);
       const view = materializer.materialize<PipelineViewState>('wf-002', PIPELINE_VIEW, stream2Events);
 
-      // The pipeline view for each stream tracks its own workflow
-      // but we can get independent views per stream
       const view1 = materializer.materialize<PipelineViewState>('wf-001', PIPELINE_VIEW, stream1Events);
       const view2 = materializer.materialize<PipelineViewState>('wf-002', PIPELINE_VIEW, stream2Events);
 
@@ -158,11 +154,9 @@ describe('PipelineView', () => {
     });
   });
 
-  // ─── T19: Cap pipeline stackPositions array ──────────────────────────
-
   describe('StackPositionBounds', () => {
+    /** 110 positions exceed `MAX_STACK_POSITIONS` (100), so the view drops the oldest ten. */
     it('Apply_StackPositionFilled_ExceedsMax_EvictsOldest', () => {
-      // Fill 110 stack positions (exceeds MAX_STACK_POSITIONS = 100)
       const events = [
         makeEvent(1, 'workflow.started', { featureId: 'feat-a', workflowType: 'feature' }),
       ];
@@ -182,19 +176,15 @@ describe('PipelineView', () => {
         events,
       );
 
-      // Should be capped at 100
       expect(view.stackPositions).toHaveLength(100);
-      // Oldest (t0 through t9) should be evicted
       expect(view.stackPositions[0].taskId).toBe('t10');
       expect(view.stackPositions[99].taskId).toBe('t109');
     });
   });
 
-  // ─── T21: hasMore indicator for pipeline view ─────────────────────
-
   describe('PipelineHasMore', () => {
+    /** 100 positions fit `MAX_STACK_POSITIONS`. One more position evicts the oldest and sets `hasMore`. */
     it('ViewState_HasEvicted_HasMoreIsTrue', () => {
-      // Under the limit
       const events100 = [
         makeEvent(1, 'workflow.started', { featureId: 'feat-a', workflowType: 'feature' }),
       ];
@@ -215,7 +205,6 @@ describe('PipelineView', () => {
       );
       expect(view100.hasMore).toBe(false);
 
-      // Over the limit
       const events101 = [
         makeEvent(1, 'workflow.started', { featureId: 'feat-a', workflowType: 'feature' }),
       ];

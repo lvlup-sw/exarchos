@@ -1,20 +1,9 @@
-// ─── End-to-end test: output_tokens_high hint surfaces in next_actions ─────
-//
-// PR A2 follow-up (#1262). The catalog + projection + threshold resolver
-// landed in the parent commits; this test pins the *end-to-end* contract:
-//
-//   1. Per-turn `turn.completed` events with `outputTokens` above threshold
-//      are appended to the telemetry stream.
-//   2. The composite `exarchos_view` `telemetry` action dispatches through
-//      `handleView`, which calls `envelopeWrap`.
-//   3. The returned envelope's `next_actions[]` contains a single entry
-//      with `verb: 'checkpoint'` and a `reason` mentioning output tokens.
-//
-// And the below-threshold mirror: no such entry.
-//
-// The test exercises real envelope wrapping (no vi.mock of the wrap helper)
-// so a future refactor that breaks the wire cannot pass this test by
-// accident.
+/**
+ * End-to-end test of the `output_tokens_high` hint. A `turn.completed` event above
+ * the output-token threshold makes the `telemetry` view return one `checkpoint`
+ * entry in `next_actions`. A turn below the threshold returns none. The test uses
+ * the real `envelopeWrap`, so a break between the projection and the envelope fails the test.
+ */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -30,6 +19,7 @@ interface MaybeEnvelope {
   next_actions?: ReadonlyArray<{ verb?: string; reason?: string }>;
 }
 
+/** `sequence` is unused and only labels the call site, because `append` assigns the sequence. */
 async function emitTurn(
   store: EventStore,
   sequence: number,
@@ -40,8 +30,6 @@ async function emitTurn(
     type: 'turn.completed',
     data: { turnId, outputTokens },
   });
-  // sequence param is unused — append returns its own sequence; kept for
-  // call-site readability of the test scenario.
   void sequence;
 }
 
@@ -62,8 +50,8 @@ describe('CompositeViewTelemetry_OutputTokenHint_EndToEnd (#1262)', () => {
     await rmrfAsync(stateDir);
   });
 
+  /** 30000 is more than the default threshold of 25600, which is 0.8 of the 32000 cap. */
   it('CompositeViewTelemetry_AboveThreshold_HintInNextActions', async () => {
-    // 30000 > default threshold (32000 * 0.8 = 25600) → hint fires.
     await emitTurn(ctx.eventStore, 1, 'e2e-above-1', 30000);
 
     const result = (await handleView({ action: 'telemetry' }, ctx)) as MaybeEnvelope;
@@ -77,8 +65,8 @@ describe('CompositeViewTelemetry_OutputTokenHint_EndToEnd (#1262)', () => {
     expect(hintEntries[0].reason).toMatch(/output tokens/i);
   });
 
+  /** 10000 is less than the default threshold of 25600. */
   it('CompositeViewTelemetry_BelowThreshold_NoHint', async () => {
-    // 10000 < 25600 → no hint.
     await emitTurn(ctx.eventStore, 1, 'e2e-below-1', 10000);
 
     const result = (await handleView({ action: 'telemetry' }, ctx)) as MaybeEnvelope;

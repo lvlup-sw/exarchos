@@ -1,16 +1,10 @@
-// ─── Telemetry Query Abstraction Tests ───────────────────────────────────────
+/**
+ * Unit tests for the telemetry query API, which maps the telemetry view to runtime
+ * metrics. The fold is the seam, so the suite stubs `foldToTail`.
+ * `tests/unit/projections/fold-at-tail.test.ts` tests the fold against a real store.
+ */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-
-// ─── Mock event store and fold seam ──────────────────────────────────────────
-//
-// These are unit tests of the MAPPING — telemetry view onto runtime metrics —
-// so the fold itself is the seam to stub, not the materializer underneath it.
-// The mock used to stub `ViewMaterializer.materialize`, which meant it also
-// asserted a fold protocol it had reimplemented by hand; #1855 moved that
-// protocol behind `foldToTail`, and the stub is now the one thing this file
-// legitimately fakes. What the fold actually guarantees is covered against a
-// real store in `tests/unit/projections/fold-at-tail.test.ts`.
 
 const mockStore = {
   append: vi.fn().mockResolvedValue(undefined),
@@ -53,15 +47,12 @@ import { initToolMetrics } from '../../../../src/projections/telemetry/telemetry
 
 const STATE_DIR = '/tmp/test-telemetry-queries';
 
-// ─── Tests ───────────────────────────────────────────────────────────────────
-
 describe('queryRuntimeMetrics', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   it('QueryRuntimeMetrics_WithTelemetryEvents_ReturnsMetrics', async () => {
-    // Arrange: telemetry state with tool data
     const telemetryState: TelemetryViewState = {
       tools: {
         'exarchos_workflow': {
@@ -82,17 +73,14 @@ describe('queryRuntimeMetrics', () => {
     };
     foldReturns(telemetryState);
 
-    // Act
     const metrics = await queryRuntimeMetrics(mockStore as never, STATE_DIR);
 
-    // Assert
     expect(metrics.sessionTokens).toBe(5000);
     expect(metrics.toolCount).toBe(2);
     expect(metrics.totalInvocations).toBe(10);
   });
 
   it('QueryRuntimeMetrics_EmptyStream_ReturnsZeroMetrics', async () => {
-    // Arrange: empty telemetry state
     const telemetryState: TelemetryViewState = {
       tools: {},
       sessionStart: '2026-01-01T00:00:00.000Z',
@@ -102,23 +90,18 @@ describe('queryRuntimeMetrics', () => {
     };
     foldReturns(telemetryState);
 
-    // Act
     const metrics = await queryRuntimeMetrics(mockStore as never, STATE_DIR);
 
-    // Assert
     expect(metrics.sessionTokens).toBe(0);
     expect(metrics.toolCount).toBe(0);
     expect(metrics.totalInvocations).toBe(0);
   });
 
   it('QueryRuntimeMetrics_MaterializationFailure_ReturnsZeroMetrics', async () => {
-    // Arrange: materializer throws
     foldThrows();
 
-    // Act
     const metrics = await queryRuntimeMetrics(mockStore as never, STATE_DIR);
 
-    // Assert
     expect(metrics.sessionTokens).toBe(0);
     expect(metrics.toolCount).toBe(0);
     expect(metrics.totalInvocations).toBe(0);
@@ -131,7 +114,6 @@ describe('queryTelemetryState', () => {
   });
 
   it('QueryTelemetryState_WithData_ReturnsState', async () => {
-    // Arrange
     const telemetryState: TelemetryViewState = {
       tools: {
         'workflow_get': {
@@ -147,23 +129,18 @@ describe('queryTelemetryState', () => {
     };
     foldReturns(telemetryState);
 
-    // Act
     const state = await queryTelemetryState(mockStore as never, STATE_DIR);
 
-    // Assert
     expect(state).not.toBeNull();
     expect(state!.totalTokens).toBe(1500);
     expect(state!.tools['workflow_get']).toBeDefined();
   });
 
   it('QueryTelemetryState_MaterializationFailure_ReturnsNull', async () => {
-    // Arrange
     foldThrows();
 
-    // Act
     const state = await queryTelemetryState(mockStore as never, STATE_DIR);
 
-    // Assert
     expect(state).toBeNull();
   });
 });

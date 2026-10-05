@@ -79,17 +79,16 @@ describe('Transcript Parser — Tool Call Extraction', () => {
     const metadata: SessionMetadata = { sessionId: 'test-session' };
     const events = extractToolCalls(lines, metadata);
 
-    // Write tool has file_path in input
     const writeEvent = events.find((e) => e.tool === 'Write');
     expect(writeEvent).toBeDefined();
     expect(writeEvent!.files).toContain('/tmp/hello.ts');
 
-    // Read tool also has file_path
     const readEvent = events.find((e) => e.tool === 'Read');
     expect(readEvent).toBeDefined();
     expect(readEvent!.files).toContain('/tmp/hello.ts');
   });
 
+  /** A `tool_use` without a matching `tool_result` still gives a tool event, with an `outB` of 0. */
   it('extractToolCalls_MissingToolResult_SkipsGracefully', async () => {
     const { extractToolCalls } = await import('../../../../src/projections/session/transcript-parser.js');
     const lines: unknown[] = [
@@ -111,13 +110,11 @@ describe('Transcript Parser — Tool Call Extraction', () => {
           usage: { input_tokens: 100, output_tokens: 50, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
         },
       },
-      // No user entry with tool_result for toolu_orphan
     ];
 
     const metadata: SessionMetadata = { sessionId: 'sess-1' };
     const events = extractToolCalls(lines, metadata);
 
-    // Should still produce a tool event even without a matching result
     expect(events).toHaveLength(1);
     expect(events[0].tool).toBe('Bash');
     expect(events[0].outB).toBe(0);
@@ -281,6 +278,7 @@ describe('Transcript Parser — Session Summary', () => {
     expect(summary.turns).toBe(2);
   });
 
+  /** `dur` is the time between the earliest and the latest event timestamp, in milliseconds. */
   it('buildSessionSummary_CalculatesTotalDuration', async () => {
     const { buildSessionSummary } = await import('../../../../src/projections/session/transcript-parser.js');
     const metadata: SessionMetadata = { sessionId: 'sess-1' };
@@ -296,10 +294,10 @@ describe('Transcript Parser — Session Summary', () => {
 
     const summary = buildSessionSummary(toolEvents, turnEvents, metadata);
 
-    // Duration should be 8000ms (from 10:00:00 to 10:00:08)
     expect(summary.dur).toBe(8000);
   });
 
+  /** The fixture holds four assistant entries. Their token counts add to 340 in and 110 out. */
   it('parseTranscript_FullFixture_ReturnsAllEventTypes', async () => {
     const { parseTranscript } = await import('../../../../src/projections/session/transcript-parser.js');
     const fixturePath = path.resolve(import.meta.dirname, '__fixtures__', 'sample-transcript.jsonl');
@@ -312,10 +310,9 @@ describe('Transcript Parser — Session Summary', () => {
     const summaryEvents = events.filter((e) => e.t === 'summary');
 
     expect(toolEvents.length).toBe(3);
-    expect(turnEvents.length).toBe(4); // 4 assistant entries in fixture
+    expect(turnEvents.length).toBe(4);
     expect(summaryEvents.length).toBe(1);
 
-    // Verify summary aggregates correctly
     const summary = summaryEvents[0] as import('../../../../src/projections/session/types.js').SessionSummaryEvent;
     expect(summary.turns).toBe(4);
     expect(summary.tools).toEqual({
@@ -323,7 +320,6 @@ describe('Transcript Parser — Session Summary', () => {
       Read: 1,
       mcp__plugin_exarchos_exarchos__exarchos_workflow: 1,
     });
-    // Total tokens: 100+80+90+70 = 340 in, 50+30+20+10 = 110 out
     expect(summary.tokTotal.in).toBe(340);
     expect(summary.tokTotal.out).toBe(110);
   });

@@ -24,7 +24,6 @@ describe('Token Economy Benchmarks', () => {
   });
 
   it('telemetry view compact response should be under 400 tokens for 5 tools', async () => {
-    // Arrange — seed events for 5 different tools
     const tools = ['workflow_get', 'event_append', 'view_tasks', 'view_pipeline', 'workflow_set'];
     for (const tool of tools) {
       for (let i = 0; i < 3; i++) {
@@ -35,18 +34,15 @@ describe('Token Economy Benchmarks', () => {
       }
     }
 
-    // Act
     const result = await handleViewTelemetry({ compact: true }, stateDir, store);
 
-    // Assert
     expect(result.success).toBe(true);
     const responseBytes = Buffer.byteLength(JSON.stringify(result), 'utf-8');
     const tokenEstimate = Math.ceil(responseBytes / 4);
-    expect(tokenEstimate).toBeLessThan(400); // Conservative budget for 5 tools
+    expect(tokenEstimate).toBeLessThan(400);
   });
 
   it('telemetry view with tool filter should be under 150 tokens', async () => {
-    // Arrange
     for (let i = 0; i < 10; i++) {
       await store.append(TELEMETRY_STREAM, {
         type: 'tool.completed',
@@ -54,10 +50,8 @@ describe('Token Economy Benchmarks', () => {
       });
     }
 
-    // Act
     const result = await handleViewTelemetry({ tool: 'workflow_get', compact: true }, stateDir, store);
 
-    // Assert
     expect(result.success).toBe(true);
     const responseBytes = Buffer.byteLength(JSON.stringify(result), 'utf-8');
     const tokenEstimate = Math.ceil(responseBytes / 4);
@@ -65,18 +59,15 @@ describe('Token Economy Benchmarks', () => {
   });
 
   it('_perf field adds less than 15 tokens overhead per response', async () => {
-    // Arrange
     const mockHandler = async () => ({
       content: [{ type: 'text' as const, text: JSON.stringify({ success: true, data: { key: 'value' } }) }],
       isError: false,
     });
     const instrumented = withTelemetry(mockHandler, 'overhead_test', store);
 
-    // Act
     const withPerf = await instrumented({});
     const withoutPerf = await mockHandler({});
 
-    // Assert
     const withPerfBytes = Buffer.byteLength(withPerf.content[0].text, 'utf-8');
     const withoutPerfBytes = Buffer.byteLength(withoutPerf.content[0].text, 'utf-8');
     const overheadBytes = withPerfBytes - withoutPerfBytes;
