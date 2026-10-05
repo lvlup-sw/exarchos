@@ -1,49 +1,18 @@
 /**
- * P01-04 — phase-attempt frozen admission state (DR-4, DR-9).
+ * Reconstructs, for each phase attempt, the frozen requirement set, its bound evidence and its decision.
+ * The fold reads only persisted event payloads: no policy, no clock, no filesystem, no event store.
+ * A replay of the same facts always gives the same state, so a later policy edit cannot change a historical attempt.
  *
- * Reconstructs, per phase attempt, the frozen requirement set, the evidence
- * bound to it, and the decision taken against it — using ONLY persisted event
- * payloads. The fold takes no policy handle, no clock, no filesystem, and no
- * event store: replaying the same append-only facts always yields the same
- * state, so a later policy edit cannot retroactively change what a historical
- * attempt was required to satisfy.
+ * `admission.requirement-resolved` carries one requirement and the `requirementSetDigest` of its complete set.
+ * Each digest names one immutable generation of the requirement set of an attempt.
+ * The generation of the last resolution is the active frozen set. Earlier generations stay in `requirementSetHistory`.
  *
- * ## Frozen requirement sets
+ * The fold never drops a fact silently and never trusts one silently. A malformed payload never enters the trusted slots.
+ * A payload that fails its schema, or contradicts the frozen set, gets an {@link AdmissionFoldDiagnostic}.
+ * Its attempt (when known) and the fold become `'contested'`. Replay never throws.
+ * An identical repeat of a resolution collapses with no diagnostic, because at-least-once delivery produces it.
  *
- * `admission.requirement-resolved` carries exactly ONE requirement plus the
- * `requirementSetDigest` of the complete set that requirement belongs to. The
- * fold therefore groups an attempt's resolutions by that digest: each digest
- * identifies one immutable *generation* of the attempt's requirement set. The
- * generation named by the attempt's LAST resolution is the active frozen set;
- * earlier generations stay visible in `requirementSetHistory` so a re-freeze is
- * auditable rather than destructive.
- *
- * ## Malformed / untrustworthy persisted facts — explicit policy
- *
- * This fold NEVER silently drops and NEVER silently trusts. Every persisted
- * payload is `safeParse`d against its registered schema; anything that fails,
- * or that parses but cannot be reconciled with the attempt's frozen set, is
- * QUARANTINED:
- *
- *   1. it is excluded from the trusted `frozenRequirementSet` / `evidence` /
- *      `decision` slots (fail closed — it can never satisfy anything),
- *   2. a typed {@link AdmissionFoldDiagnostic} naming the reason is emitted, and
- *   3. the owning attempt (when the payload is attributable to one) and the
- *      whole fold are marked `'contested'`, so a consumer that reads only
- *      `integrity` still cannot mistake a partial reconstruction for a complete
- *      one.
- *
- * Replay stays total: a malformed historical fact degrades the reconstruction
- * to `'contested'`, it never throws and never aborts the projection.
- *
- * The one deliberate exception is a byte-identical repeat of an already-folded
- * resolution: at-least-once delivery legitimately produces those, nothing is
- * lost by collapsing them, and they do not contest the attempt. A repeat that
- * differs in ANY field is a contradiction and is quarantined.
- *
- * Scope: this module reconstructs state. It does not evaluate policy, decide
- * admission, allocate attempt identities, or perform supersession selection
- * (see `select-evidence.ts`).
+ * This module does not evaluate policy, decide admission, allocate attempt ids, or select superseding evidence (see `select-evidence.ts`).
  */
 import { z } from 'zod';
 import {
@@ -68,29 +37,26 @@ import {
   type RequirementId,
 } from './types.js';
 
-// ─── Public shapes ──────────────────────────────────────────────────────────
-
-/** Why the fold refused to trust a persisted admission fact. */
+/**
+ * Why the fold refused to trust a persisted admission fact.
+ * - `MALFORMED_*`: the payload does not satisfy the schema of its event.
+ * - `CONTRADICTORY_REQUIREMENT_RESOLUTION`: one requirement id was frozen twice, with different content.
+ * - `INCONSISTENT_REQUIREMENT_SET_PROVENANCE`: resolutions with one set digest disagree on their policy inputs.
+ * - `EVIDENCE_OUTSIDE_FROZEN_REQUIREMENT_SET`: evidence names a requirement outside the frozen set.
+ * - `DECISION_REQUIREMENT_SET_MISMATCH`: a decision names a set that is not the frozen set.
+ */
 export type AdmissionFoldDiagnosticCode =
-  /** Payload does not satisfy `AdmissionRequirementResolvedData`. */
   | 'MALFORMED_REQUIREMENT_RESOLUTION'
-  /** Payload does not satisfy `AdmissionEvidenceRecordedData`. */
   | 'MALFORMED_EVIDENCE_RECORD'
-  /** Payload does not satisfy `AdmissionTransitionDecidedData`. */
   | 'MALFORMED_TRANSITION_DECISION'
-  /** The same requirement id was frozen twice, with different content. */
   | 'CONTRADICTORY_REQUIREMENT_RESOLUTION'
-  /** Resolutions sharing a requirement-set digest disagree on their policy inputs. */
   | 'INCONSISTENT_REQUIREMENT_SET_PROVENANCE'
-  /** Evidence names a requirement absent from the attempt's frozen set. */
   | 'EVIDENCE_OUTSIDE_FROZEN_REQUIREMENT_SET'
-  /** A decision names a requirement set that is not the attempt's frozen set. */
   | 'DECISION_REQUIREMENT_SET_MISMATCH';
 
 /**
- * A quarantined persisted fact. Identity fields appear only when they could be
- * *validated* out of the raw payload — a malformed record never launders an
- * unchecked string into a branded id.
+ * A quarantined persisted fact. An identity field appears only when it passes validation.
+ * Thus a malformed record never puts an unchecked string into a branded id.
  */
 export interface AdmissionFoldDiagnostic {
   readonly code: AdmissionFoldDiagnosticCode;
@@ -116,7 +82,7 @@ export interface FrozenRequirementSet {
   readonly policyVersion: string;
   readonly policyDigest: ContentDigestV1;
   readonly inputDigest: ContentDigestV1;
-  /** Members in resolution order; each requirement id appears at most once. */
+  /** Members in resolution order. Each requirement id appears at most once. */
   readonly requirements: readonly AdmissionRequirementV1[];
   readonly requirementIds: readonly RequirementId[];
 }
@@ -126,7 +92,7 @@ export interface PhaseAttemptAdmissionState {
   readonly phaseAttemptId: PhaseAttemptId;
   /** Every generation this attempt froze, in first-resolution order. */
   readonly requirementSetHistory: readonly FrozenRequirementSet[];
-  /** The generation named by the attempt's last resolution; `null` if none. */
+  /** The generation of the last resolution of the attempt, or `null` when there is none. */
   readonly frozenRequirementSet: FrozenRequirementSet | null;
   /** Evidence bound to a requirement in the active frozen set, in append order. */
   readonly evidence: readonly AdmissionEvidenceV1[];
@@ -151,21 +117,14 @@ export interface PhaseAttemptAdmissionFold {
 }
 
 /**
- * Raw persisted payloads, each in append order. `unknown` is deliberate: a
- * replay must diagnose historical facts, not assume they are well-formed.
- * Ordering matters only WITHIN a stream; the fold attributes across streams in
- * a second pass, so evidence persisted before its resolution still binds.
+ * Raw persisted payloads, each in append order. The type is `unknown`, because a replay must diagnose historical facts.
+ * Order matters only inside one stream. The fold binds across streams in a later pass, so evidence persisted before its resolution still binds.
  */
 export interface PhaseAttemptAdmissionFoldInput {
   readonly requirementEvents?: readonly unknown[];
   readonly evidenceEvents?: readonly unknown[];
   readonly decisionEvents?: readonly unknown[];
 }
-
-// ─── Validated probes for diagnostics ───────────────────────────────────────
-// A malformed payload still often carries a well-formed identity. These probes
-// PARSE that identity with the same branded schemas the trusted path uses, so a
-// diagnostic can never smuggle an unvalidated string into a branded slot.
 
 const RequirementAttemptProbe = z.object({
   requirement: z.object({ phaseAttemptId: PhaseAttemptIdSchema }),
@@ -216,16 +175,13 @@ function probeDecisionId(input: unknown): DecisionId | undefined {
   return parsed.success ? parsed.data.decision.decisionId : undefined;
 }
 
-// ─── Internal helpers ───────────────────────────────────────────────────────
-
 function digestKey(digest: ContentDigestV1): string {
   return `${digest.algorithm}:${digest.value}`;
 }
 
 /**
- * Order-independent serialization of already-parsed (therefore JSON-shaped)
- * schema output. Used only to compare two resolutions of the same requirement
- * id for exact equality; it is not a persisted content address.
+ * An order-independent serialization of parsed, JSON-shaped schema output.
+ * It only compares two resolutions of one requirement id for exact equality. It is not a persisted content address.
  */
 function stableSerialize(value: unknown): string {
   if (value === undefined) return 'null';
@@ -315,12 +271,10 @@ function freezeGeneration(generation: GenerationBuilder): FrozenRequirementSet {
   };
 }
 
-// ─── The fold ───────────────────────────────────────────────────────────────
-
 /**
- * Reconstruct every phase attempt's frozen admission state from persisted
- * facts alone. Pure: the inputs are never mutated and the result depends on
- * nothing but the supplied payloads.
+ * Reconstructs the frozen admission state of every phase attempt from persisted facts alone. It does not mutate its inputs.
+ * Four passes run: requirement sets, evidence, decisions, then the binding of evidence and decisions to the frozen set.
+ * A valid resolution always moves the active generation, even when the fold contests its provenance.
  */
 export function foldPhaseAttemptAdmission(
   input: PhaseAttemptAdmissionFoldInput,
@@ -350,7 +304,6 @@ export function foldPhaseAttemptAdmission(
     if (phaseAttemptId !== undefined) builderFor(phaseAttemptId).contested = true;
   };
 
-  // ── Pass 1: frozen requirement sets ──────────────────────────────────────
   for (const candidate of input.requirementEvents ?? []) {
     const parsed = AdmissionRequirementResolvedData.safeParse(candidate);
     if (!parsed.success) {
@@ -397,8 +350,6 @@ export function foldPhaseAttemptAdmission(
         ),
       );
     }
-    // A structurally valid resolution always names the attempt's latest
-    // generation, even when it was quarantined for provenance drift.
     attempt.activeGenerationKey = generationKey;
 
     const serialized = stableSerialize(requirement);
@@ -421,7 +372,6 @@ export function foldPhaseAttemptAdmission(
     }
   }
 
-  // ── Pass 2: evidence ─────────────────────────────────────────────────────
   for (const candidate of input.evidenceEvents ?? []) {
     const parsed = AdmissionEvidenceRecordedData.safeParse(candidate);
     if (!parsed.success) {
@@ -440,7 +390,6 @@ export function foldPhaseAttemptAdmission(
     builderFor(evidence.phaseAttemptId).evidence.push(evidence);
   }
 
-  // ── Pass 3: decisions ────────────────────────────────────────────────────
   for (const candidate of input.decisionEvents ?? []) {
     const parsed = AdmissionTransitionDecidedData.safeParse(candidate);
     if (!parsed.success) {
@@ -459,7 +408,6 @@ export function foldPhaseAttemptAdmission(
     builderFor(decision.phaseAttemptId).decisions.push(decision);
   }
 
-  // ── Pass 4: bind evidence and decisions to the frozen set ────────────────
   const attempts: PhaseAttemptAdmissionState[] = [];
   for (const key of builderOrder) {
     const builder = builders.get(key);
@@ -552,11 +500,8 @@ export function foldPhaseAttemptAdmission(
 }
 
 /**
- * Look up one attempt's reconstructed state by identity.
- *
- * The id is PARSED with the branded schema rather than cast, so an
- * unvalidated carrier (for example a projected `phaseAttemptId` string read off
- * a historical state file) can never select an attempt by accident.
+ * Returns the reconstructed state of one attempt, or `null`.
+ * The id is parsed with the branded schema and not cast, so an unvalidated string cannot select an attempt.
  */
 export function selectPhaseAttempt(
   fold: PhaseAttemptAdmissionFold,

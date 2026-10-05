@@ -270,7 +270,7 @@ export interface ActionAdmissionDecision {
   readonly digest: ContentDigestV1;
 }
 
-/** Snapshot-resident freshness window; wall-clock is not an evaluator input. */
+/** The evidence freshness window. It counts from the snapshot `resolvedAt`, not from the wall clock. */
 export const ACTION_ADMISSION_FRESHNESS_HORIZON_MS = 60 * 60 * 1000;
 
 function digestText(value: string): ContentDigestV1 {
@@ -353,15 +353,13 @@ function snapshotAuthorizesEvidence(
 }
 
 /**
- * Evaluate registry ActionId admission against a frozen snapshot and contract.
+ * Evaluate ActionId admission against a frozen snapshot and a contract.
  *
- * Order is fixed and total: known ActionId, then execution ownership /
- * capabilities, then ActionId-wide requires. Waivers are considered only when
- * the snapshot carries a phase attempt. Missing trusted inputs, capability
- * failure, unsatisfied requires, contradiction, and snapshot-resident stale or
- * unauthorized evidence never allow. The decision does not select a transition
- * target and does not replace the HSM transition guard — HSM edge conditions
- * remain a separate conjunct.
+ * The checks run in a fixed order: a known ActionId, then capabilities, then the
+ * ActionId requires. Without a phase attempt, a waivable `missing` or `failed` result
+ * gives `indeterminate`. Missing trusted input, a capability failure, unsatisfied
+ * requires, and contradictory, stale or unauthorized evidence never allow. The decision
+ * selects no transition target and does not replace the HSM transition guard.
  */
 export function evaluateActionAdmission(
   actionId: unknown,

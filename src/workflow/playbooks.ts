@@ -2,24 +2,15 @@ import { getRequiredReviewsPrerequisite } from './review-contract.js';
 import { phaseEventInstructions, phaseRuntimeEmissions } from './topology/phase-events.js';
 import { resolveVerificationPolicy } from './verification-policy-resolver.js';
 
-// ─── Verification-Ladder Gate Guidance (vls1-b1, task 008) ──────────────────
-//
-// The delegate-phase guidance advertises the verification-ladder gates a task
-// must clear. Those gate names are SOURCED FROM the verification policy via the
-// single composer (`resolveVerificationPolicy`) — never hand-written, and never
-// the frozen table directly (task 004 single-composer rule) — so any change to
-// the policy propagates into the playbook text automatically. This guidance is
-// config-blind by intent (no project config is in scope at module-load render
-// time), so the resolver falls through to the built-in table here, leaving the
-// rendered text byte-identical to the pre-task-004 table call. The medium tier
-// base sequence is the minimum ladder a non-trivial task clears; the
-// medium+boundary sequence surfaces the additional contract/mock gates that
-// boundary-touching tasks pick up.
-
+/**
+ * The verification-ladder text for the delegate guidance.
+ * The gate names come from `resolveVerificationPolicy`, so a policy change updates the text.
+ * The text renders at module load without project config, so the resolver uses the built-in table.
+ * The text gives the medium-tier sequence and the gates that a boundary-touching task adds.
+ */
 function verificationLadderGuidance(): string {
   const mediumGates = resolveVerificationPolicy('medium', false).sequence;
   const boundaryGates = resolveVerificationPolicy('medium', true).sequence;
-  // The boundary-only delta — gates a boundary-touching task adds on top.
   const boundaryDelta = boundaryGates.filter((g) => !mediumGates.includes(g));
   const base = `Verification ladder (by riskTier/boundaryTouching): medium clears ${mediumGates.join(' → ')}`;
   const boundary =
@@ -28,8 +19,6 @@ function verificationLadderGuidance(): string {
       : '';
   return `${base}${boundary}.`;
 }
-
-// ─── Phase Playbook Types ──────────────────────────────────────────────────
 
 export interface ToolInstruction {
   readonly tool: string;
@@ -44,14 +33,9 @@ export interface EventInstruction {
 }
 
 /**
- * Auto-emitted event surface (#1227, T6). Lists events the runtime emits on
- * the model's behalf — e.g. `task.completed` / `task.failed` fired by the
- * `task_complete` / `task_fail` orchestrate handlers. Distinct from
- * {@link EventInstruction} to make it impossible to accidentally invite the
- * model to manually re-emit a runtime-owned event.
- *
- * `source` is fixed to `'auto'`; `emittedBy` names the runtime surface that
- * fires the event (typically an `exarchos_orchestrate <action>` invocation).
+ * An event that the runtime emits for the model, for example `task.completed` from `task_complete`.
+ * It is a separate type from {@link EventInstruction}, so the guidance does not list it as an event for the model to emit.
+ * `emittedBy` names the runtime surface, usually an `exarchos_orchestrate <action>` call.
  */
 export interface AutoEmittedEventInstruction extends EventInstruction {
   readonly source: 'auto';
@@ -65,10 +49,7 @@ export interface PhasePlaybook {
   readonly skillRef: string;
   readonly tools: readonly ToolInstruction[];
   readonly events: readonly EventInstruction[];
-  /**
-   * Events the runtime emits on the model's behalf for this phase (#1227).
-   * Phases without runtime-emitted events leave this undefined.
-   */
+  /** The events that the runtime emits for the model in this phase. It is undefined when there are none. */
   readonly autoEmittedEvents?: readonly AutoEmittedEventInstruction[] | undefined;
   readonly transitionCriteria: string;
   readonly guardPrerequisites: string;
@@ -77,15 +58,11 @@ export interface PhasePlaybook {
   readonly compactGuidance: string;
 }
 
-// ─── Playbook Registry ────────────────────────────────────────────────────
-
 const registry = new Map<string, PhasePlaybook>();
 
 function register(playbook: PhasePlaybook): void {
   registry.set(`${playbook.workflowType}:${playbook.phase}`, playbook);
 }
-
-// ─── Lookup ───────────────────────────────────────────────────────────────
 
 export function getPlaybook(
   workflowType: string,
@@ -94,8 +71,10 @@ export function getPlaybook(
   return registry.get(`${workflowType}:${phase}`) ?? null;
 }
 
-// ─── Renderer ─────────────────────────────────────────────────────────────
-
+/**
+ * Renders a playbook as Markdown guidance.
+ * Auto-emitted events go on their own line, because the contract keeps model-emitted and runtime-emitted events apart.
+ */
 export function renderPlaybook(playbook: PhasePlaybook): string {
   const lines: string[] = [];
 
@@ -125,12 +104,6 @@ export function renderPlaybook(playbook: PhasePlaybook): string {
     lines.push('**Events to emit:** None');
   }
 
-  // CodeRabbit major on PR #1297: render the autoEmittedEvents sibling
-  // surface so the model knows which events the runtime fires on its
-  // behalf. The `events:` line above is intentionally exclusive of these
-  // (the contract keeps model-emitted and runtime-emitted rows apart); rendering them on a
-  // separate line preserves that contract while making the auto-emit
-  // surface visible to consumers reading the rendered guidance.
   if (playbook.autoEmittedEvents && playbook.autoEmittedEvents.length > 0) {
     const autoEntries = playbook.autoEmittedEvents
       .map((e) => `${e.type} (${e.emittedBy}) — ${e.when}`)
@@ -150,8 +123,6 @@ export function renderPlaybook(playbook: PhasePlaybook): string {
 
   return lines.join('\n');
 }
-
-// ─── Terminal Playbook Factory ────────────────────────────────────────────
 
 function terminalPlaybook(
   workflowType: string,
@@ -173,14 +144,6 @@ function terminalPlaybook(
     compactGuidance: guidance,
   };
 }
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Feature Workflow Playbooks
-// ═══════════════════════════════════════════════════════════════════════════
-
-// #1581 (DR-4): the former `ideate` (GATHER) playbook is retired — feature
-// workflows start at `plan`, and the Design & Rationale authoring guidance it
-// carried now lives in the `feature:plan` playbook below.
 
 register({
   phase: 'plan',
@@ -261,20 +224,11 @@ register({
   ],
   events: phaseEventInstructions('delegate'),
   autoEmittedEvents: phaseRuntimeEmissions('delegate'),
-  // Auto-emitted events (#1227, T6) — `task.completed` / `task.failed`
-  // fired by the `task_complete` / `task_fail` orchestrate handlers.
-  // Sibling to `events` so downstream surfaces (telemetry, docs, agent
-  // context) can discover them without inviting the model to manually
-  // re-emit runtime-owned events.
   transitionCriteria: 'All tasks complete → review',
   guardPrerequisites:
     "tasks[].status = 'complete' for every task",
   validationScripts: ['post_delegation_check'],
   humanCheckpoint: false,
-  // vls1-b1 (task 008): the verification-ladder gate names are appended from
-  // `verificationLadderGuidance()`, which sources them from the policy via the
-  // single composer (`resolveVerificationPolicy`) — changing the policy changes
-  // this text.
   compactGuidance:
     'Dispatch implementation tasks. Emit task.assigned via exarchos_event per dispatch. Complete tasks via exarchos_orchestrate task_complete (emits event, syncs state). Use exarchos_workflow update only for metadata/phase transitions. Before task_complete, run check_test_adequacy (per-task, tier-scaled — the outcome-based kill probe, test-after not test-first) and check_static_analysis (once, mandatory). Run post-delegation-check.sh when all tasks finish. Transition to review when complete. Call exarchos_event describe(eventTypes: [...]) before first emission of any event type. Parallel vs sequential dispatch; self-contained subagent prompts. Anti-pattern: referencing plan without pasting context. Escalate: same task fails 3x or scope exceeds declared module. Build context packages via runbook(task-classification). ' +
     verificationLadderGuidance(),
@@ -420,10 +374,6 @@ register({
   compactGuidance:
     'Workflow is blocked waiting for human intervention. Wait for user to provide unblock decision. Use exarchos_workflow update to record the decision and transition back to delegate.',
 });
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Debug Workflow Playbooks
-// ═══════════════════════════════════════════════════════════════════════════
 
 register({
   phase: 'triage',
@@ -695,10 +645,6 @@ register({
   compactGuidance:
     'Workflow is blocked waiting for human intervention. Wait for user to provide unblock decision. Use exarchos_workflow update to record the decision.',
 });
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Refactor Workflow Playbooks
-// ═══════════════════════════════════════════════════════════════════════════
 
 register({
   phase: 'explore',
@@ -1020,27 +966,13 @@ register({
     'Workflow is blocked waiting for human intervention. Wait for user to provide unblock decision. Use exarchos_workflow update to record the decision.',
 });
 
-// ═══════════════════════════════════════════════════════════════════════════
-// Oneshot Workflow Playbooks (T10)
-// ═══════════════════════════════════════════════════════════════════════════
-//
-// The oneshot workflow is a lightweight in-session flow for one-line fixes,
-// config tweaks, and exploratory changes that do not warrant the ceremony of
-// the feature workflow. Lifecycle:
-//
-//   plan ──► implementing ──┬── [synthesisOptedOut] ──► completed
-//                           └── [synthesisOptedIn]  ──► synthesize ──► completed
-//
-// The `implementing → ?` branch is a choice state resolved by pure guards
-// over (synthesisPolicy, synthesize.requested events). See T8 / T11 for the
-// guard implementations and HSM transitions.
-//
-// The `plan` and `implementing` playbooks reference the `oneshot`
-// skill which is authored in T17 — the skillRef is declared here so that
-// the skill-ref check in compactGuidance drift tests skips min-length /
-// tool-keyword assertions for these in-session phases whose guidance is
-// delegated to the skill.
-
+/**
+ * The oneshot playbooks: a light in-session flow for small fixes, config changes and exploratory work.
+ * The flow goes from `plan` to `implementing`, then to `completed` directly or through `synthesize`.
+ * Pure guards over `synthesisPolicy` and `synthesize.requested` events choose the branch.
+ * The `oneshot` skill holds the guidance for `plan` and `implementing`.
+ * Thus the drift tests skip the length and tool-keyword checks for these phases.
+ */
 export const oneshotPlaybook: readonly PhasePlaybook[] = [
   {
     phase: 'plan',
@@ -1136,10 +1068,6 @@ for (const pb of oneshotPlaybook) {
   register(pb);
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// Discovery Workflow Playbooks
-// ═══════════════════════════════════════════════════════════════════════════
-
 register({
   phase: 'gathering',
   workflowType: 'discovery',
@@ -1200,14 +1128,7 @@ register(
   ),
 );
 
-// ─── Aggregate Export: workflowPlaybooks ─────────────────────────────────────
-//
-// Map of workflow type → the declared playbook entries for that type, for
-// consumers that want to iterate phase-by-phase without touching the private
-// registry. The oneshot entry is the canonical example used by T10 tests; the
-// built-in feature/debug/refactor entries are derived from the registry on
-// first access so they stay in sync with the individual register() calls.
-
+/** Returns the registered playbooks of one workflow type. */
 function collectRegisteredForType(workflowType: string): readonly PhasePlaybook[] {
   const out: PhasePlaybook[] = [];
   for (const pb of registry.values()) {
@@ -1216,6 +1137,10 @@ function collectRegisteredForType(workflowType: string): readonly PhasePlaybook[
   return out;
 }
 
+/**
+ * The playbooks of each workflow type, without access to the private registry.
+ * The map is built at module load, after all `register` calls.
+ */
 export const workflowPlaybooks: ReadonlyMap<string, readonly PhasePlaybook[]> =
   new Map<string, readonly PhasePlaybook[]>([
     ['feature', collectRegisteredForType('feature')],
@@ -1224,8 +1149,6 @@ export const workflowPlaybooks: ReadonlyMap<string, readonly PhasePlaybook[]> =
     ['oneshot', oneshotPlaybook],
     ['discovery', collectRegisteredForType('discovery')],
   ]);
-
-// ─── Serialization Types ─────────────────────────────────────────────────────
 
 export interface SerializedPlaybooks {
   readonly workflowType: string;
@@ -1236,18 +1159,12 @@ export interface SerializedPlaybooks {
 export interface SerializedPhasePlaybook {
   readonly skill: string;
   readonly skillRef: string;
-  // Array-level readonly dropped so this matches the schema-inferred
-  // type at `RehydrationDocumentV3['phasePlaybook']` (PhasePlaybookSchema's
-  // arrays are mutable). Element-level readonly modifiers stay on
-  // ToolInstruction / EventInstruction — only the array container is mutable.
+  /** The arrays are mutable to match `RehydrationDocumentV3['phasePlaybook']`. The elements stay readonly. */
   readonly tools: ToolInstruction[];
   readonly events: EventInstruction[];
   /**
-   * Auto-emitted event surface for delegate-shaped phases (#1227, T6).
-   * Carried through serialization so CLI describe / telemetry / agent
-   * context consumers see the runtime-emitted events as part of the
-   * phase contract. Phases without auto-emit leave this undefined —
-   * explicit absence (not `[]`) keeps the contract minimal.
+   * The runtime-emitted events, as part of the phase contract.
+   * A phase without them leaves the field absent, not `[]`.
    */
   readonly autoEmittedEvents?: AutoEmittedEventInstruction[];
   readonly transitionCriteria: string;
@@ -1257,30 +1174,15 @@ export interface SerializedPhasePlaybook {
   readonly compactGuidance: string;
 }
 
-// ─── Serialization Functions ─────────────────────────────────────────────────
-
 /**
- * Serialize a single {@link PhasePlaybook} into the
- * {@link SerializedPhasePlaybook} JSON shape. Pure of side effects.
- *
- * Used by handler-time playbook composition (T-20: `handleRehydrate` /
- * checkpoint envelopes attach a single phase's serialized playbook to the
- * rehydration document). `serializePlaybooks` below delegates per-phase to
- * this helper so the entry shape lives in one place.
- *
- * Spread-on-condition for `autoEmittedEvents` preserves absence (vs `[]`)
- * for phases that don't declare auto-emit — matching the PhasePlaybook
- * shape and the digest-stable contract from #1297 / T6.
+ * Serializes one {@link PhasePlaybook} into the {@link SerializedPhasePlaybook} shape.
+ * It copies each instruction and each `fields` array, because the serialized arrays are mutable.
+ * Thus a consumer cannot change the registry playbook.
+ * An absent `autoEmittedEvents` stays absent, which keeps the digest stable.
  */
 export function serializePhasePlaybookEntry(
   playbook: PhasePlaybook,
 ): SerializedPhasePlaybook {
-  // Deep-copy each instruction object and any nested `fields` array. F-07
-  // dropped array-level `readonly` from `SerializedPhasePlaybook` so the
-  // schema-derived (mutable) target type accepts these arrays. With mutable
-  // payloads, a downstream consumer that mutates a returned `tools[i]` /
-  // `events[i].fields` would corrupt the registry-backed playbook unless
-  // the per-element clone happens here.
   const cloneEvent = <E extends EventInstruction>(e: E): E => ({
     ...e,
     ...(e.fields !== undefined && { fields: [...e.fields] }),
@@ -1302,19 +1204,10 @@ export function serializePhasePlaybookEntry(
 }
 
 /**
- * Resolve and serialize the playbook for a single (workflowType, phase)
- * pair. Used by handler-time composition (T-20: `handleRehydrate`; T-23:
- * `handleCheckpoint`) so callers get a single entry point that returns a
- * JSON-serializable shape directly attachable to the rehydration envelope.
- *
- * Returns `null` when no playbook is registered for the pair (terminal
- * phases, unknown workflow types, or phases that legitimately have no
- * authoring playbook). Surfacing the null explicitly is the contract — the
- * v:3 rehydration envelope's `phasePlaybook` field is nullable, not
- * optional, so callers can spread the return value directly without
- * guarding for `undefined`.
- *
- * Pure function with no side effects.
+ * Resolves and serializes the playbook for one workflow type and phase.
+ * `handleRehydrate` and `handleCheckpoint` attach the result to the rehydration envelope.
+ * It returns `null` when no playbook exists for the pair.
+ * The `phasePlaybook` field of the envelope is nullable and not optional, so callers can use the result directly.
  */
 export function composePhasePlaybook(
   workflowType: string,
@@ -1325,10 +1218,8 @@ export function composePhasePlaybook(
 }
 
 /**
- * Serialize all playbooks for a given workflow type into a plain
- * JSON-serializable object keyed by phase name.
- *
- * Pure function with no side effects. Throws for unknown workflow types.
+ * Serializes all playbooks of a workflow type into an object keyed by phase.
+ * @throws {Error} When the workflow type has no playbooks.
  */
 export function serializePlaybooks(workflowType: string): SerializedPlaybooks {
   const phases: Record<string, SerializedPhasePlaybook> = {};
@@ -1351,11 +1242,7 @@ export function serializePlaybooks(workflowType: string): SerializedPlaybooks {
   };
 }
 
-/**
- * List distinct workflow types that have playbooks registered.
- *
- * Pure function with no side effects.
- */
+/** Lists the distinct workflow types that have registered playbooks. */
 export function listPlaybookWorkflowTypes(): string[] {
   const types = new Set<string>();
   for (const playbook of registry.values()) {

@@ -1,8 +1,6 @@
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
 /**
- * Resolve a dot-path against an object, returning the value at that path.
- * Returns undefined if the path does not exist.
+ * Returns the value at a dot-path in an object, or undefined when the path does not exist.
+ * A segment can use bracket notation, such as `tasks[0]`.
  */
 export function resolveDotPath(obj: Record<string, unknown>, dotPath: string): unknown {
   const segments = dotPath.split('.');
@@ -11,7 +9,6 @@ export function resolveDotPath(obj: Record<string, unknown>, dotPath: string): u
   for (const segment of segments) {
     if (current === null || current === undefined) return undefined;
 
-    // Handle array bracket notation: "tasks[0]"
     const bracketMatch = segment.match(/^([^[]+)\[(\d+)\]$/);
     if (bracketMatch) {
       current = (current as Record<string, unknown>)[bracketMatch[1] ?? ''];

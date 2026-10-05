@@ -12,8 +12,11 @@ const migrations: readonly Migration[] = [
   {
     from: '1.0',
     to: '1.1',
+    /**
+     * Maps the legacy `jules` assignee to `subagent`.
+     * Removes `_events` and `_eventSequence`, because the events live in the event store.
+     */
     migrate: (state) => {
-      // Normalize legacy assignee values in tasks
       const tasks = Array.isArray(state.tasks)
         ? (state.tasks as Record<string, unknown>[]).map((task) => ({
             ...task,
@@ -22,7 +25,6 @@ const migrations: readonly Migration[] = [
           }))
         : state.tasks;
 
-      // Remove deprecated _events and _eventSequence (events now in external JSONL store)
       const { _events, _eventSequence, ...rest } = state;
 
       return {
@@ -46,10 +48,7 @@ const migrations: readonly Migration[] = [
   },
 ];
 
-/**
- * Create a backup copy of the state file before migration.
- * Returns the path to the backup file.
- */
+/** Copies the state file to `<stateFile>.bak` and returns the backup path. */
 export async function backupStateFile(stateFile: string): Promise<string> {
   const backupPath = `${stateFile}.bak`;
   await fs.copyFile(stateFile, backupPath);
@@ -63,9 +62,8 @@ export interface MigrationRecord {
 }
 
 /**
- * Migrate a raw state object to the current schema version.
- * Applies migration chain from the detected version to CURRENT_VERSION.
- * Throws with 'MIGRATION_FAILED' message for unknown or missing versions.
+ * Applies the migration chain from the state version (`1.0` when absent) to `CURRENT_VERSION`.
+ * @throws an error with a `MIGRATION_FAILED` message when the input is not an object or no migration path exists.
  */
 export function migrateState(raw: unknown): unknown {
   if (typeof raw !== 'object' || raw === null) {
@@ -79,7 +77,6 @@ export function migrateState(raw: unknown): unknown {
     return state;
   }
 
-  // Build migration chain from current version to CURRENT_VERSION
   let current = { ...state };
   let currentVersion = version;
 

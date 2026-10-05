@@ -1,36 +1,15 @@
-// ─── Cancellation process manager (P04-02 / EFF-005, transition task 053) ────
-//
-// A replayable saga over the feature event log. Every state transition of a
-// cancellation — intent, fencing-epoch acquisition, per-action compensation
-// intent/result, retry scheduling, manual-intervention escalation, and the
-// final readiness proof — is a durable event. The manager holds NO in-memory
-// state: `foldCancelSaga` reconstructs the entire saga from the log, so restart
-// and takeover fold to identical decisions.
-//
-// The five structural properties this module enforces:
-//   1. Replayable       — state is a pure fold over `cancel.*` events.
-//   2. Idempotent       — a completed compensation is `satisfied`; the decision
-//                          engine never re-issues it (across restart OR takeover).
-//   3. Fenced           — a monotonically increasing epoch is allocated on
-//                          ownership acquisition; a stale-epoch writer is rejected
-//                          with a typed `StaleEpochError`. Enforcement is atomic:
-//                          the epoch check runs inside the same SQLite
-//                          transaction that would append (via `decideOnce`), so a
-//                          fenced-out write can never land.
-//   4. No premature done — the ONLY constructor of a readiness proof
-//                          (`buildCancelReadiness`) refuses unless every required
-//                          action has a durably-recorded success. Premature
-//                          completion is structurally impossible, not merely
-//                          avoided by convention.
-//   5. Bounded + surfaced — retries are bounded; exhaustion transitions to
-//                          `manual-intervention-required`, a real, queryable
-//                          terminal state rather than a swallowed failure.
-//
-// This module is intentionally decoupled from the concrete compensation effects
-// (worktree teardown, branch deletion, …). It owns the DECISIONS; a driver owns
-// the EFFECTS. See `cancel-process-manager.saga.test.ts` for an end-to-end
-// driver exercising all four exit proofs against a real `EventStore`.
-
+/**
+ * Cancellation process manager: a replayable saga over the feature event log.
+ *
+ * Each step of a cancellation is a durable `cancel.*` event, and the manager holds
+ * no in-memory state. `foldCancelSaga` rebuilds the saga from the log, so restart
+ * and takeover reach the same decisions. A completed compensation is never issued again.
+ *
+ * Each owner gets a higher fencing epoch, and the epoch check runs in the same SQLite
+ * transaction as the append. Only `buildCancelReadiness` makes the readiness proof.
+ * Retries are bounded, and exhaustion escalates to `manual-intervention-required`.
+ * The module owns the decisions, and a driver owns the effects.
+ */
 import { createHash } from 'node:crypto';
 import type { EventStore } from '../events/store.js';
 import type { EventInput } from '../events/atomic-appender.js';
@@ -42,21 +21,16 @@ import {
   type EventType,
 } from '../events/schemas.js';
 
-// ─── Foldable event shape ────────────────────────────────────────────────────
-
 /**
- * The minimal event projection the fold consumes. Satisfied by both
- * `WorkflowEvent` (from `EventStore.query`) and the transaction-scoped
- * `DecideOnceStoredEvent` (from `decideOnce`), so the SAME fold enforces
- * fencing both after a fresh read and inside an atomic append.
+ * The minimal event shape that the fold reads. `WorkflowEvent` and
+ * `DecideOnceStoredEvent` both satisfy it, so one fold enforces fencing after a
+ * read and inside an atomic append.
  */
 export interface FoldableCancelEvent {
   readonly type: string;
   readonly data?: Record<string, unknown> | undefined;
   readonly sequence?: number | undefined;
 }
-
-// ─── Saga state (a pure fold) ────────────────────────────────────────────────
 
 export type CompensationActionStatus =
   | 'pending'
@@ -83,7 +57,7 @@ export interface CompensationActionState {
 export interface CancelSagaState {
   readonly cancelId: string | undefined;
   readonly requested: boolean;
-  /** Highest fencing epoch observed; 0 when no owner has been acquired. */
+  /** The highest fencing epoch in the log. It is 0 when no owner exists. */
   readonly currentEpoch: number;
   /** Instance id holding `currentEpoch`, when any. */
   readonly owner: string | undefined;
@@ -94,13 +68,9 @@ export interface CancelSagaState {
 
 export type CompensationFailureReason = 'effect-failed' | 'malformed-result';
 
-// ─── Typed fencing error ─────────────────────────────────────────────────────
-
 /**
- * A stale-epoch write was rejected. Thrown by the fencing guard (and, atomically,
- * inside `appendFencedCancelEvent`) when a writer's epoch is lower than the
- * epoch of the current owner. The classic distributed-lock fencing token: the
- * coordinator (here, the folded log) refuses any token below the latest issued.
+ * The fencing guard rejected a write because the writer epoch is lower than the
+ * epoch of the current owner.
  */
 export class StaleEpochError extends Error {
   readonly code = 'CANCEL_STALE_EPOCH' as const;
@@ -117,8 +87,6 @@ export class StaleEpochError extends Error {
     this.name = 'StaleEpochError';
   }
 }
-
-// ─── Fold ────────────────────────────────────────────────────────────────────
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return typeof value === 'object' && value !== null
@@ -163,12 +131,9 @@ function deriveStatus(acc: ActionAccumulator): CompensationActionStatus {
 }
 
 /**
- * Reconstruct the saga state from the event log. Pure and total: any event
- * whose payload does not parse is ignored (fail-closed — an unrecognised event
- * cannot advance the saga), so a malformed outcome leaves the action re-runnable
- * rather than silently "done".
- *
- * When `cancelId` is provided, only events for that cancellation are folded.
+ * Rebuild the saga state from the event log. The fold is pure. An event without a
+ * string `actionId` cannot advance an action. With a `cancelId`, the fold skips
+ * events that name a different cancellation.
  */
 export function foldCancelSaga(
   events: readonly FoldableCancelEvent[],
@@ -302,17 +267,14 @@ function actionOrPending(
   );
 }
 
-// ─── Fencing ─────────────────────────────────────────────────────────────────
-
-/** The next fencing epoch to allocate (strictly greater than every prior). */
+/** The next fencing epoch, one more than the current epoch. */
 export function nextCancelEpoch(saga: CancelSagaState): number {
   return saga.currentEpoch + 1;
 }
 
 /**
- * Reject a write from a fenced-out (stale) epoch. A writer holding an epoch
- * lower than the current owner has lost ownership and MUST NOT write. An epoch
- * equal to `currentEpoch` (the reigning owner) is allowed.
+ * Reject a write from a stale epoch. A writer with an epoch lower than the current
+ * owner lost ownership. An epoch equal to `currentEpoch` can write.
  */
 export function assertEpochCurrent(saga: CancelSagaState, writerEpoch: number): void {
   if (writerEpoch < saga.currentEpoch) {
@@ -320,17 +282,14 @@ export function assertEpochCurrent(saga: CancelSagaState, writerEpoch: number): 
   }
 }
 
-// ─── Decision engine ─────────────────────────────────────────────────────────
-
 export interface CancelRetryPolicy {
   /** Maximum compensation attempts before escalating to manual intervention. */
   readonly maxAttempts: number;
 }
 
 /**
- * The next action the driver should take for one compensation action, decided
- * purely from the folded saga. `satisfied` is the idempotency guarantee: a
- * completed compensation is never re-issued, on restart or takeover.
+ * The next step for one compensation action, from the folded saga. `satisfied`
+ * means that the compensation is complete and is never issued again.
  */
 export type CompensationActionPlan =
   | { readonly kind: 'satisfied'; readonly actionId: string }
@@ -352,14 +311,12 @@ export type CompensationActionPlan =
     };
 
 /**
- * Decide the next step for a single compensation action.
+ * Decide the next step for one compensation action from the fold counts.
  *
- * Attempt accounting is derived entirely from the fold:
- *   - `attempts`  = count of `cancel.compensation-requested`
- *   - `failures`  = count of `cancel.compensation-failed`
- * A completed compensation is terminal-success (`satisfied`). A manual escalation
- * is terminal-unresolved (`blocked-manual`). Otherwise the bounded ladder is:
- * execute → (fail) → retry → execute → … → exhaust → escalate-manual.
+ * A completed action is `satisfied`, and a manual escalation is `blocked-manual`.
+ * An attempt without an outcome, after a crash, resumes as the same attempt, so the
+ * effect must be idempotent. When each attempt failed, the action retries until
+ * `maxAttempts`, then escalates.
  */
 export function decideCompensationAction(
   saga: CancelSagaState,
@@ -380,12 +337,9 @@ export function decideCompensationAction(
   if (action.attempts === 0) {
     return { kind: 'execute', actionId, attempt: 1 };
   }
-  // An attempt was requested but has no terminal outcome (crash mid-attempt).
-  // Resume the SAME attempt — the effect is required to be idempotent.
   if (action.attempts > action.failures) {
     return { kind: 'execute', actionId, attempt: action.attempts };
   }
-  // Every issued attempt resolved as a failure (attempts === failures).
   if (action.failures >= policy.maxAttempts) {
     return {
       kind: 'escalate-manual',
@@ -404,8 +358,6 @@ export function decideCompensationAction(
   };
 }
 
-// ─── Completion gate (no premature done) ─────────────────────────────────────
-
 export type CancelCompletionPlan =
   | { readonly kind: 'ready'; readonly completedActionIds: readonly string[] }
   | {
@@ -415,11 +367,9 @@ export type CancelCompletionPlan =
     };
 
 /**
- * Decide whether cancellation may be reported complete. `ready` is returned
- * ONLY when every required action has a durably-recorded success. If any action
- * is in manual-intervention the plan is blocked on that; if any outcome is not
- * yet recorded the plan is blocked on that. This is the structural gate that
- * makes "reporting complete before outcomes are recorded" impossible.
+ * Decide if the cancellation is complete. The plan is `ready` only when each
+ * required action has a durable success. When both block, the plan names the manual
+ * escalation and not the unrecorded outcome.
  */
 export function planCancelCompletion(
   saga: CancelSagaState,
@@ -464,11 +414,9 @@ export type CancelReadinessResult =
   | { readonly ok: false; readonly plan: CancelCompletionPlan };
 
 /**
- * The SOLE constructor of a `cancel.ready` readiness proof. Returns a validated
- * payload ONLY when `planCancelCompletion` is `ready`; otherwise returns the
- * blocking plan and NO event. Because this is the only exported builder, a
- * premature readiness event cannot be constructed — the "no premature
- * completion" property is enforced by construction, not by discipline.
+ * The only constructor of a `cancel.ready` proof. It returns a validated payload
+ * only when `planCancelCompletion` is `ready`. Otherwise it returns the blocking plan.
+ * A success without a positive sequence also blocks, so no proof is unbacked.
  */
 export function buildCancelReadiness(
   saga: CancelSagaState,
@@ -484,9 +432,6 @@ export function buildCancelReadiness(
   for (const actionId of requiredActionIds) {
     const seq = saga.actions.get(actionId)?.completedSequence;
     if (typeof seq !== 'number' || seq <= 0) {
-      // Defensive: `ready` implies every action succeeded, and a durable
-      // success always carries a positive sequence. If the sequence is somehow
-      // absent, refuse rather than emit an unbacked proof.
       return {
         ok: false,
         plan: {
@@ -535,8 +480,6 @@ export function buildCancelReadiness(
   return { ok: true, data };
 }
 
-// ─── Store-backed atomic helpers ─────────────────────────────────────────────
-
 function sha256(value: string): string {
   return createHash('sha256').update(value, 'utf8').digest('hex');
 }
@@ -568,10 +511,9 @@ export interface AcquireOwnershipParams {
 }
 
 /**
- * Atomically allocate the next fencing epoch and append a
- * `cancel.ownership-acquired` fact. Read → compute `currentEpoch + 1` → append
- * all run inside one SQLite transaction, so two racing acquisitions cannot mint
- * the same epoch.
+ * Allocate the next fencing epoch and append `cancel.ownership-acquired`. The read,
+ * the increment, and the append run in one SQLite transaction, so two acquisitions
+ * cannot get the same epoch.
  */
 export async function acquireCancelOwnership(
   store: EventStore,
@@ -612,13 +554,9 @@ export async function acquireCancelOwnership(
 }
 
 /**
- * Append a cancellation process event under an ATOMIC fencing check. The epoch
- * comparison happens inside the same transaction that would append, so a
- * fenced-out (stale-epoch) writer's event can never be committed — the closure
- * throws `StaleEpochError` and the transaction rolls back with nothing written.
- *
- * `operationId` must be distinct per logical write so a legitimate retry dedupes
- * (fast-path claim hit, no re-append) while distinct writes each run the check.
+ * Append a cancellation event under an atomic fencing check. The epoch check runs
+ * in the append transaction. A stale writer gets `StaleEpochError`, and nothing is
+ * written. Each logical write needs its own `operationId`, so a retry deduplicates.
  */
 export async function appendFencedCancelEvent(
   store: EventStore,
@@ -657,8 +595,6 @@ export async function appendFencedCancelEvent(
   );
 }
 
-// ─── Query helper ────────────────────────────────────────────────────────────
-
 /** Fold the durable log for `featureId` into the current saga state. */
 export async function queryCancelSaga(
   store: EventStore,
@@ -677,7 +613,7 @@ export function isCompensationSatisfied(
   return actionOrPending(saga, actionId).status === 'succeeded';
 }
 
-/** Actions currently escalated to manual intervention (a queryable terminal). */
+/** The actions that are escalated to manual intervention. */
 export function manualInterventionActions(
   saga: CancelSagaState,
 ): readonly CompensationActionState[] {
@@ -688,6 +624,4 @@ export function manualInterventionActions(
   return out;
 }
 
-// Re-export the completed-outcome schema so drivers can validate durable results
-// against the same contract the fold trusts.
 export { CancelCompensationCompletedData, CancelOwnershipAcquiredData };

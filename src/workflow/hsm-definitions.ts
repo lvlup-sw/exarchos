@@ -4,29 +4,17 @@ import type { HSMDefinition, State, Transition } from './state-machine.js';
 import { eventDataHasWorktreeAssociation } from '../projections/rehydration/reducer.js';
 import type { WorkflowEvent } from '../events/schemas.js';
 
-// ─── Merge Orchestrator Phase Filtering (T17 / T19) ─────────────────────────
-
 /**
- * Phases of `state.mergeOrchestrator.phase` that mean the merge has already
- * terminated and a `merge-pending` transition should NOT fire (and the
- * `merge_orchestrate` next-action should NOT be surfaced).
- *
- * Shared by:
- *   - The feature HSM `merge-pending` entry predicate (this file, T17).
- *   - `next-actions-computer` surfacing filter (T19).
- *
- * Reusing one constant keeps the entry predicate and the surfacing filter in
- * lockstep so a `merge-pending` HSM state can never sit live without a
- * corresponding next-action, and a completed/rolled-back merge can never be
- * re-entered.
+ * Phases of `state.mergeOrchestrator.phase` that mean the merge is over. In
+ * these phases the `merge-pending` transition does not fire, and
+ * `next-actions-computer` does not surface `merge_orchestrate`. One constant
+ * keeps the entry predicate and the surfacing filter in step.
  */
 export const EXCLUDED_MERGE_PHASES: ReadonlySet<string> = new Set<string>([
   'completed',
   'rolled-back',
   'aborted',
 ]);
-
-// ─── merge-pending guards (T17 / DR-MO-1, DR-MO-2) ──────────────────────────
 
 /**
  * Returns the most recent `task.completed` event from `state._events`, or
@@ -42,36 +30,27 @@ function findLatestTaskCompleted(
 }
 
 /**
- * True when the most recent `task.completed` event in `state._events` carries
- * a worktree association (either `data.worktree` or `data.worktreePath`).
+ * True when the latest `task.completed` event in `state._events` carries a
+ * worktree association (`data.worktree` or `data.worktreePath`).
  *
- * Captures the design's "task whose state carries a `worktree` association"
- * trigger from DR-MO-1 / DR-MO-2. The same predicate is reused by the
- * rehydration projection (`eventDataHasWorktreeAssociation` in
- * projections/rehydration/reducer.ts) so HSM guard and projection observe
- * the same trigger condition — see #1208.
+ * It delegates to `eventDataHasWorktreeAssociation` from the rehydration
+ * reducer, so the live HSM and the replayed projection see the same trigger.
+ * Otherwise a whitespace-only worktree value moves only the live state to
+ * `merge-pending`, and a restart loses `merge_orchestrate`.
  */
 function latestTaskCompletedHasWorktree(state: Record<string, unknown>): boolean {
   const events = (state._events as readonly Record<string, unknown>[]) ?? [];
   const latest = findLatestTaskCompleted(events);
   if (!latest) return false;
-  // Single source of truth: delegate to the rehydration reducer's predicate
-  // so the HSM guard and the rehydration projection NEVER diverge on what
-  // counts as a worktree association. Per #1109 Constraint 1
-  // (event-sourcing integrity), the live HSM and the replayed projection
-  // must observe the same trigger — otherwise a whitespace-only worktree
-  // value would advance the live state to merge-pending while the
-  // rehydrated state would not, and consumers downstream would miss
-  // merge_orchestrate after a server restart.
   return eventDataHasWorktreeAssociation(
     latest.data as WorkflowEvent['data'],
   );
 }
 
 /**
- * True when `state.mergeOrchestrator?.phase` is NOT one of the terminal
- * `EXCLUDED_MERGE_PHASES`. Undefined / missing is treated as "not excluded"
- * (i.e. transition is permitted) — first-time entry has no prior phase.
+ * True when `state.mergeOrchestrator?.phase` is not one of the terminal
+ * `EXCLUDED_MERGE_PHASES`. A missing phase counts as not excluded, because a
+ * first entry has no prior phase.
  */
 function mergeOrchestratorPhaseNotExcluded(state: Record<string, unknown>): boolean {
   const merge = state.mergeOrchestrator as Record<string, unknown> | undefined;
@@ -113,9 +92,13 @@ const mergePendingEntry: Guard = {
 };
 
 /**
- * Guard for `merge-pending → delegate`: fires when the event stream contains
- * a `merge.executed`, `merge.rollback`/`merge.recovered`, or any explicit abort
- * signal (`merge.aborted`, or `mergeOrchestrator.phase === 'aborted'`).
+ * Guard for `merge-pending → delegate`. It fires when a `merge.executed`,
+ * `merge.rollback`, `merge.recovered`, or `merge.aborted` event follows the
+ * latest `task.completed`, or when `mergeOrchestrator.phase` is terminal.
+ *
+ * Only events after the latest `task.completed` count. A check over the whole
+ * history stays true after the first merge cycle, so each later entry exits at
+ * once. The `merge.rollback` arm lets old event logs exit too.
  */
 const mergePendingExit: Guard = {
   id: 'merge-pending-exit',
@@ -123,10 +106,6 @@ const mergePendingExit: Guard = {
     'A merge.executed/merge.rollback/merge.recovered/merge.aborted must follow the latest task.completed (or mergeOrchestrator.phase must be terminal)',
   evaluate: (state: Record<string, unknown>): GuardResult => {
     const events = (state._events as readonly Record<string, unknown>[]) ?? [];
-    // Cycle-scoped: only terminal events that follow the latest task.completed
-    // count. A history-wide `some()` would stay true forever after the first
-    // merge cycle, so subsequent task.completed → merge-pending entries would
-    // exit immediately on stale events from prior cycles.
     let latestTaskCompletedIdx = -1;
     for (let i = events.length - 1; i >= 0; i -= 1) {
       if (events[i]?.type === 'task.completed') {
@@ -141,9 +120,6 @@ const mergePendingExit: Guard = {
       (e) =>
         e.type === 'merge.executed' ||
         e.type === 'merge.rollback' ||
-        // #1306 — merge.recovered is the successor to merge.rollback and, since
-        // DR-2 (task 006), the sole emitted recovery terminal; the legacy
-        // merge.rollback arm stays so old event logs still exit merge-pending.
         e.type === 'merge.recovered' ||
         e.type === 'merge.aborted',
     );
@@ -159,45 +135,34 @@ const mergePendingExit: Guard = {
   },
 };
 
-// ─── Feature Workflow HSM ───────────────────────────────────────────────────
-
+/**
+ * The feature workflow HSM, with `plan` as the initial state. `maxFixCycles: 3`
+ * bounds the delegate and review loop. Keep it separate from the escalation
+ * auto-fix bound `DEFAULT_MAX_ITERATIONS`.
+ *
+ * `merge-pending` has kind MERGE, not SYNTHESIZE, so the boundary does not
+ * freeze synthesis legs that the merge playbook never runs. Transitions are
+ * first-match-wins, so `blocked` comes before the revise edge, and the revision
+ * cap ends the loop. The revise edge sets `isRevision`, which emits the counted
+ * `plan-revision` event that the cap reads.
+ */
 export function createFeatureHSM(): HSMDefinition {
   const states: Record<string, State> = {
-    // DR-4 (#1581): GATHER collapsed into PLAN. The former `ideate` (GATHER)
-    // state is removed; `plan` (PLAN, read-only) is the feature workflow's
-    // INITIAL state (initialPhaseRegistry.feature === 'plan'). Entry obligation
-    // is the unified `docs/specs/` artifact's existence; `plan-review` remains
-    // the single human approval point. No new kind (INV-6); a phase removed
-    // (INV-15).
     plan: { id: 'plan', type: 'atomic', kind: 'PLAN' },
     'plan-review': { id: 'plan-review', type: 'atomic', kind: 'PLAN' },
     implementation: {
       id: 'implementation',
       type: 'compound',
       initial: 'delegate',
-      // HSM circuit-breaker fix-cycle bound for the delegate↔review loop. This
-      // is the structural delegate-loop guard and is a DELIBERATE value, kept
-      // distinct from the shared escalation auto-fix bound
-      // (`DEFAULT_MAX_ITERATIONS` = 5 in verbs/review/escalation-policy.ts, DR-3
-      // #1595) that governs the spec/quality/shepherd fix-loops — do not fold
-      // the two together.
       maxFixCycles: 3,
       onEntry: ['log'],
       onExit: ['log'],
     },
     delegate: { id: 'delegate', type: 'atomic', kind: 'IMPLEMENT', parent: 'implementation' },
     review: { id: 'review', type: 'atomic', kind: 'REVIEW', parent: 'implementation' },
-    // T17: substate entered when a delegated subagent worktree task completes
-    // and an autonomous merge is required before progressing. Exits back to
-    // `delegate` once `merge.executed` / `merge.recovered` (or legacy
-    // `merge.rollback`) / `merge.aborted` is observed.
     'merge-pending': {
       id: 'merge-pending',
       type: 'atomic',
-      // MERGE (not SYNTHESIZE): this substate's obligation is event-driven merge
-      // orchestration, not the synthesis-readiness gate-set. Tagging it MERGE
-      // (gates: null) stops the boundary from freezing synthesis legs the
-      // merge-orchestrator playbook never runs.
       kind: 'MERGE',
       parent: 'implementation',
     },
@@ -208,23 +173,13 @@ export function createFeatureHSM(): HSMDefinition {
   };
 
   const transitions: Transition[] = [
-    // DR-4 (#1581): the `ideate → plan` transition (guarded by
-    // `designArtifactExists`) is retired with the `ideate` state — `plan` is now
-    // initial, so it needs no inbound bootstrap transition.
     { from: 'plan', to: 'plan-review', guard: guards.planArtifactExists },
     { from: 'plan-review', to: 'delegate', guard: guards.planReviewComplete },
-    // DR-1: `blocked` must precede the revise edge. Transitions are evaluated
-    // first-match-wins and `composeGuards` cannot express ¬, so precedence is
-    // expressed by ordering: at the revision cap `revisionsExhausted` fires and
-    // the loop terminates instead of revising forever.
     { from: 'plan-review', to: 'blocked', guard: guards.revisionsExhausted },
     {
       from: 'plan-review',
       to: 'plan',
       guard: guards.planReviewGapsFound,
-      // DR-1: traversing the revise edge emits a counted `plan-revision` event
-      // (state-machine.ts), folded into `planReview.revisionCount` — the
-      // event-sourced fact the cap is checked against.
       isRevision: true,
       effects: ['log'],
     },
@@ -234,12 +189,7 @@ export function createFeatureHSM(): HSMDefinition {
       guards.allTasksComplete,
       guards.teamDisbandedEmitted,
     ) },
-    // T17: auto-trigger entry into `merge-pending` when a delegated task
-    // completed inside a subagent worktree and the merge has not already
-    // terminated. See DR-MO-1 / DR-MO-2.
     { from: 'delegate', to: 'merge-pending', guard: mergePendingEntry },
-    // T17: exit `merge-pending` once the merge has been executed, rolled
-    // back, or explicitly aborted.
     { from: 'merge-pending', to: 'delegate', guard: mergePendingExit },
     { from: 'review', to: 'synthesize', guard: guards.allReviewsPassed },
     {
@@ -257,14 +207,11 @@ export function createFeatureHSM(): HSMDefinition {
   return { id: 'feature', states, transitions };
 }
 
-// ─── Debug Workflow HSM ─────────────────────────────────────────────────────
-
 export function createDebugHSM(): HSMDefinition {
   const states: Record<string, State> = {
     triage: { id: 'triage', type: 'atomic', kind: 'GATHER' },
     investigate: { id: 'investigate', type: 'atomic', kind: 'GATHER' },
 
-    // Thorough track compound
     'thorough-track': {
       id: 'thorough-track',
       type: 'compound',
@@ -294,7 +241,6 @@ export function createDebugHSM(): HSMDefinition {
       parent: 'thorough-track',
     },
 
-    // Hotfix track compound
     'hotfix-track': {
       id: 'hotfix-track',
       type: 'compound',
@@ -324,7 +270,6 @@ export function createDebugHSM(): HSMDefinition {
   const transitions: Transition[] = [
     { from: 'triage', to: 'investigate', guard: guards.triageComplete },
 
-    // Investigate -> thorough or hotfix
     { from: 'investigate', to: 'rca', guard: guards.thoroughTrackSelected },
     {
       from: 'investigate',
@@ -334,7 +279,6 @@ export function createDebugHSM(): HSMDefinition {
     { from: 'investigate', to: 'cancelled', guard: guards.escalationRequired },
     { from: 'investigate', to: 'completed', guard: guards.fixVerifiedDirectly },
 
-    // Thorough track flow
     { from: 'rca', to: 'design', guard: guards.rcaDocumentComplete },
     { from: 'design', to: 'debug-implement', guard: guards.fixDesignComplete },
     {
@@ -345,7 +289,6 @@ export function createDebugHSM(): HSMDefinition {
     { from: 'debug-validate', to: 'debug-review', guard: guards.validationPassed },
     { from: 'debug-review', to: 'synthesize', guard: guards.reviewPassed },
 
-    // Hotfix track flow
     {
       from: 'hotfix-implement',
       to: 'hotfix-validate',
@@ -359,7 +302,6 @@ export function createDebugHSM(): HSMDefinition {
     ) },
     { from: 'hotfix-validate', to: 'completed', guard: guards.validationPassed },
 
-    // Synthesize -> retry (track-aware) or completed
     { from: 'synthesize', to: 'debug-implement', guard: composeGuards(
       'synthesize-retryable+thorough-track',
       'Synthesis retryable on thorough track',
@@ -378,20 +320,13 @@ export function createDebugHSM(): HSMDefinition {
   return { id: 'debug', states, transitions };
 }
 
-// ─── Oneshot Workflow HSM ───────────────────────────────────────────────────
-//
-// Lightweight lifecycle for small changes: plan → implementing → (choice state).
-// The `implementing` phase evaluates two mutually exclusive guards
-// (synthesisOptedIn / synthesisOptedOut) which are pure functions of
-// (synthesisPolicy, synthesize.requested events) per the design doc.
-//
-// Declaration order matters: the state machine tries transitions in array
-// order. We keep both branches listed so getValidTransitions advertises
-// both to callers; exactly one will pass its guard for any given state
-// (enforced by the choice-state mutual-exclusivity property test in
-// state-machine.test.ts and the inverse-guard property test in
-// guards.test.ts).
-
+/**
+ * Oneshot lifecycle for small changes: plan, implementing, then a choice state.
+ * `implementing` has two mutually exclusive guards, `synthesisOptedIn` and
+ * `synthesisOptedOut`. Both are pure functions of `synthesisPolicy` and the
+ * `synthesize.requested` events. The list keeps both branches, so
+ * `getValidTransitions` advertises both, and exactly one guard passes.
+ */
 export const oneshotTransitions: readonly Transition[] = [
   { from: 'plan', to: 'implementing', guard: guards.oneshotPlanSet },
   { from: 'implementing', to: 'synthesize', guard: guards.synthesisOptedIn },
@@ -411,8 +346,6 @@ export function createOneshotHSM(): HSMDefinition {
   return { id: 'oneshot', states, transitions: [...oneshotTransitions] };
 }
 
-// ─── Discovery Workflow HSM ─────────────────────────────────────────────────
-
 export function createDiscoveryHSM(): HSMDefinition {
   const states: Record<string, State> = {
     gathering:    { id: 'gathering', type: 'atomic', kind: 'GATHER' },
@@ -429,14 +362,18 @@ export function createDiscoveryHSM(): HSMDefinition {
   return { id: 'discovery', states, transitions };
 }
 
-// ─── Refactor Workflow HSM ──────────────────────────────────────────────────
-
+/**
+ * The refactor workflow HSM, with a polish track and an overhaul track.
+ * Transitions are first-match-wins, so `blocked` comes before the overhaul
+ * revise edge, and the revision cap ends the loop. The revise edge sets
+ * `isRevision`. Without it the revision count never increments, and the cap
+ * never trips.
+ */
 export function createRefactorHSM(): HSMDefinition {
   const states: Record<string, State> = {
     explore: { id: 'explore', type: 'atomic', kind: 'GATHER' },
     brief: { id: 'brief', type: 'atomic', kind: 'PLAN' },
 
-    // Polish track compound
     'polish-track': {
       id: 'polish-track',
       type: 'compound',
@@ -463,7 +400,6 @@ export function createRefactorHSM(): HSMDefinition {
       parent: 'polish-track',
     },
 
-    // Overhaul track compound
     'overhaul-track': {
       id: 'overhaul-track',
       type: 'compound',
@@ -512,7 +448,6 @@ export function createRefactorHSM(): HSMDefinition {
   const transitions: Transition[] = [
     { from: 'explore', to: 'brief', guard: guards.scopeAssessmentComplete },
 
-    // Brief -> polish or overhaul
     {
       from: 'brief',
       to: 'polish-implement',
@@ -520,7 +455,6 @@ export function createRefactorHSM(): HSMDefinition {
     },
     { from: 'brief', to: 'overhaul-plan', guard: guards.overhaulTrackSelected },
 
-    // Polish track flow
     {
       from: 'polish-implement',
       to: 'polish-validate',
@@ -533,7 +467,6 @@ export function createRefactorHSM(): HSMDefinition {
     },
     { from: 'polish-update-docs', to: 'completed', guard: guards.docsUpdated },
 
-    // Overhaul track flow
     {
       from: 'overhaul-plan',
       to: 'overhaul-plan-review',
@@ -544,19 +477,11 @@ export function createRefactorHSM(): HSMDefinition {
       to: 'overhaul-delegate',
       guard: guards.planReviewComplete,
     },
-    // DR-1: `blocked` must precede the revise edge — transitions are
-    // first-match-wins, so at the revision cap `revisionsExhausted` fires and the
-    // loop terminates instead of revising forever. Mirrors the feature HSM
-    // (Sentry: the overhaul track had the revise edge first AND lacked
-    // `isRevision`, so the counter never incremented → unbounded plan-review loop).
     { from: 'overhaul-plan-review', to: 'blocked', guard: guards.revisionsExhausted },
     {
       from: 'overhaul-plan-review',
       to: 'overhaul-plan',
       guard: guards.planReviewGapsFound,
-      // DR-1: traversing the revise edge emits a counted `plan-revision` event
-      // folded into `planReview.revisionCount` — the fact the cap is checked
-      // against. Without it the count never increments and the cap never trips.
       isRevision: true,
       effects: ['log'],
     },
@@ -580,7 +505,6 @@ export function createRefactorHSM(): HSMDefinition {
     },
     { from: 'overhaul-update-docs', to: 'synthesize', guard: guards.docsUpdated },
 
-    // Synthesize -> retry or completed
     { from: 'synthesize', to: 'overhaul-delegate', guard: guards.synthesizeRetryable },
     { from: 'synthesize', to: 'completed', guard: guards.prUrlExists },
   ];

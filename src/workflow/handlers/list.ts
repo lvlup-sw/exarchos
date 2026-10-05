@@ -3,8 +3,10 @@ import { isStale } from '../checkpoint.js';
 import { listStateFiles } from '../state-store.js';
 import type { ListInput } from '../types.js';
 
-// ─── handleList ─────────────────────────────────────────────────────────────
-
+/**
+ * List the workflows whose stored state is valid. Each corrupt state gives a warning.
+ * Each entry includes `_checkpoint`, so the prune handler can read `lastActivityTimestamp`.
+ */
 export async function handleList(
   _input: ListInput,
   stateDir: string,
@@ -17,10 +19,6 @@ export async function handleList(
     phase: entry.state.phase,
     stateFile: entry.stateFile,
     stale: isStale(entry.state._checkpoint),
-    // Expose `_checkpoint` so downstream consumers (e.g. prune-stale-workflows
-    // `extractListEntries`) can read `lastActivityTimestamp` directly. Before
-    // this field was added the prune handler saw every non-terminal workflow
-    // as maximally stale because the fallback was `new Date(0)`.
     _checkpoint: entry.state._checkpoint,
   }));
 

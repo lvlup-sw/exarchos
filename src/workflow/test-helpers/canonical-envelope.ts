@@ -1,21 +1,10 @@
-// Shared property-style assertion for #1325 envelope tests.
-//
-// Asserts the canonical-envelope invariant on a batch of WorkflowEvents:
-//   1. `correlationId` is a non-empty string.
-//   2. `source` is a non-empty string (registered emitter identifier).
-//   3. If a per-event-type data schema is registered in
-//      `EVENT_DATA_SCHEMAS`, the event's `data` shape parses cleanly.
-//
-// Used by:
-//   - cancel.envelope.test.ts                (α-07)
-//   - hsm-transition-guard.envelope.test.ts  (α-09)
-//   - rehydrate.envelope.test.ts             (α-11)
-//   - tools.envelope.test.ts                 (α-13)
-//
-// History: extracted preemptively in α-07 when the cancel.envelope test
-// was written, then adopted by α-09 / α-11 / α-13 verbatim. α-15
-// verified all four call sites resolve to this helper (no per-test
-// inlined assertion shapes remain) and tidied the header comment.
+/**
+ * Asserts the canonical envelope on a batch of workflow events.
+ *
+ * Each event must have a non-empty `correlationId` and a non-empty `source`.
+ * If `EVENT_DATA_SCHEMAS` has a schema for the event type, the event `data` must parse.
+ * The envelope tests for cancel, the HSM transition guard, rehydrate and tools use this helper.
+ */
 
 import { expect } from 'vitest';
 import type { WorkflowEvent } from '../../events/schemas.js';
@@ -23,10 +12,8 @@ import { EVENT_DATA_SCHEMAS } from '../../events/schemas.js';
 
 export interface AssertEnvelopeOptions {
   /**
-   * Skip the per-event-type data-schema check for these event types. Useful
-   * when a fixture intentionally exercises a partial-data path that does
-   * not satisfy the registered schema (e.g. compensation events whose data
-   * shape is upstream of the data-schema work).
+   * Event types that skip the data-schema check.
+   * Use it when a fixture sends partial data on purpose, for example compensation events.
    */
   skipDataSchema?: ReadonlyArray<string>;
 }

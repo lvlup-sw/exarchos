@@ -19,8 +19,7 @@ import type { SnapshotStore } from '../projections/views/snapshot-store.js';
 import type { ToolResult } from '../format.js';
 import * as path from 'node:path';
 
-// ─── Event-Sourcing Version Discriminator ───────────────────────────────────
-
+/** The `_esVersion` of a workflow on the pure event-sourcing path. */
 const CURRENT_ES_VERSION = 2;
 
 /** Check whether a workflow state uses the pure event-sourcing path. */
@@ -28,8 +27,7 @@ function isEventSourced(state: Record<string, unknown>): boolean {
   return state._esVersion === CURRENT_ES_VERSION;
 }
 
-// ─── Module-Level SnapshotStore Configuration ────────────────────────────────
-
+/** The store whose derived snapshot files cleanup deletes. `null` skips the deletion. */
 let moduleSnapshotStore: SnapshotStore | null = null;
 
 /** Configure the SnapshotStore instance used by cleanup handlers. */
@@ -37,8 +35,7 @@ export function configureCleanupSnapshotStore(store: SnapshotStore | null): void
   moduleSnapshotStore = store;
 }
 
-// ─── Event-First Emission ───────────────────────────────────────────────────
-
+/** The input of `emitCleanupEvents`. */
 interface CleanupEventPayload {
   featureId: string;
   currentPhase: string;
@@ -62,21 +59,12 @@ interface CleanupEventPayload {
 }
 
 /**
- * Emit cleanup events to the event store (v2 event-first contract).
+ * Append the cleanup trail of an event-sourced (v2) workflow to the event store.
+ * The trail is the `state.patched` backfill when present, the HSM transition events, and the `workflow.cleanup` completion event.
+ * The whole trail commits in one atomic transaction, so the stream gets the complete trail or nothing.
+ * The operation id uses the retry-stable `phaseAttemptId`, so a retry of the same cleanup reuses it.
  *
- * Events are emitted in order:
- * 1. `state.patched` — synthesis/review backfill (if applicable)
- * 2. `workflow.cleanup` — HSM transition events with idempotency keys
- * 3. `workflow.cleanup` — explicit cleanup completion event
- *
- * DR-7 (INV-9), third criterion — the whole trail commits in ONE atomic
- * transaction via `EventStore.appendTrailAtomically`. Previously these were
- * three sequential `append` calls, so a failure after event k left a PARTIAL
- * trail durably on the stream (characterized: injecting a failure on the
- * second append left exactly `["state.patched"]` behind, a half-written phase
- * mutation). Now the stream ends up with either the complete trail or nothing.
- *
- * @throws Error if the atomic append fails (caller aborts the state write)
+ * @throws When the atomic append fails. The caller then does not write the state.
  */
 async function emitCleanupEvents(
   store: EventStore,
@@ -87,15 +75,11 @@ async function emitCleanupEvents(
     Parameters<EventStore['appendTrailAtomically']>[1][number]
   > = [];
 
-  // 1. state.patched for backfilled fields
   const backfillPatch: Record<string, unknown> = {};
   if (payload.hasSynthesisBackfill) {
     backfillPatch.synthesis = payload.synthesis;
     backfillPatch.artifacts = payload.artifacts;
   }
-  // DR-8: there is no `reviews` member here any more. Cleanup used to patch
-  // `reviews` because it had just force-approved them; with the pass-state fix
-  // retired, reviews are read-only evidence and there is nothing to backfill.
   if (Object.keys(backfillPatch).length > 0) {
     trail.push({
       type: 'state.patched' as EventType,
@@ -110,7 +94,6 @@ async function emitCleanupEvents(
     });
   }
 
-  // 2. Transition events with idempotency keys
   for (const evt of payload.transitionEvents) {
     trail.push({
       type: mapInternalToExternalType(evt.type) as EventType,
@@ -127,7 +110,6 @@ async function emitCleanupEvents(
     });
   }
 
-  // 3. workflow.cleanup completion event
   trail.push({
     type: 'workflow.cleanup' as EventType,
     correlationId: featureId,
@@ -139,7 +121,6 @@ async function emitCleanupEvents(
       trigger: 'cleanup',
       phaseAttemptId: payload.phaseAttemptId,
       previousPhase: currentPhase,
-      // DR-8: recorded from the collected evidence, never a hard-coded literal.
       mergeVerified: payload.mergeVerified,
       mergeArtifact: payload.mergeArtifact,
       prUrl: payload.prUrl,
@@ -148,8 +129,6 @@ async function emitCleanupEvents(
     idempotencyKey: `${featureId}:cleanup:complete`,
   });
 
-  // `phaseAttemptId` is retry-stable (derived from the predecessor attempt),
-  // so the operation id is stable across retries of the SAME cleanup.
   await store.appendTrailAtomically(
     featureId,
     trail,
@@ -157,14 +136,9 @@ async function emitCleanupEvents(
   );
 }
 
-// ─── Guarded-primitive error mapping ────────────────────────────────────────
-
 /**
- * Map a `HSMTransitionGuard` failure code onto the MCP `ErrorCode` surface.
- * The primitive preserves CIRCUIT_OPEN / PHASE_BLOCKED as distinct codes
- * rather than collapsing them into GUARD_FAILED; that distinction must survive
- * the hop into cleanup's `ToolResult` (a substrate-integrity failure must not
- * masquerade as a generic guard fault).
+ * Map a `HSMTransitionGuard` failure code to the MCP `ErrorCode`.
+ * `CIRCUIT_OPEN` and `PHASE_BLOCKED` stay distinct, so a substrate-integrity failure does not look like a generic guard failure.
  */
 function mapAttemptErrorCode(
   code: 'GUARD_FAILED' | 'CIRCUIT_OPEN' | 'PHASE_BLOCKED' | 'INVALID_TRANSITION',
@@ -181,14 +155,9 @@ function mapAttemptErrorCode(
   }
 }
 
-// ─── V1 Legacy Event Emission ───────────────────────────────────────────────
-
 /**
- * Emit transition events after state write (v1 legacy best-effort).
- * Failures are silently swallowed — state is already written.
- *
- * DR-7: still ONE atomic trail, so even the best-effort legacy path cannot
- * leave a half-written lifecycle trail behind.
+ * Emit the transition events of a legacy (v1) workflow after the state write, as one atomic trail.
+ * The function ignores a failure, because the state file is the primary store and is already written.
  */
 async function emitLegacyTransitionEvents(
   store: EventStore,
@@ -220,20 +189,12 @@ async function emitLegacyTransitionEvents(
       operationId,
     );
   } catch {
-    // V1 legacy: external store is supplementary; append failure must not break cleanup
   }
 }
 
-// ─── DR-8: cleanup evidence collection (replaces the pass-state fix) ────────
-
 /**
- * What cleanup can PROVE about the merge, read out of the workflow state.
- *
- * DR-8 retires the `pass-state-fix` class for cleanup: production code must not
- * write the fields the guard reads. This collector is strictly read-only — it
- * never touches `state` — and its verdict is what cleanup hands to
- * `guards.mergeVerified` via the guarded primitive. Absent evidence therefore
- * FAILS the guard instead of manufacturing a pass.
+ * What cleanup can prove about the merge, read from the workflow state.
+ * The collector never writes `state`. Its verdict goes to `guards.mergeVerified`, so absent evidence fails the guard.
  */
 export interface CleanupEvidence {
   /** True only when every evidence requirement below is satisfied. */
@@ -246,13 +207,7 @@ export interface CleanupEvidence {
   readonly mergeArtifact: string | null;
 }
 
-/**
- * Read the first usable artifact reference out of a state field.
- *
- * Mirrors the DR-5 / T-08 discipline: an artifact reference is a non-empty
- * TRIMMED string (or the first such string in a list). `''`, `'   '`, `[]` and
- * non-strings are not references.
- */
+/** Read the first artifact reference from a state field: a non-empty trimmed string, or the first such string in a list. */
 function firstArtifactRef(value: unknown): string | null {
   if (typeof value === 'string') {
     const trimmed = value.trim();
@@ -268,17 +223,10 @@ function firstArtifactRef(value: unknown): string | null {
 }
 
 /**
- * Collect the evidence that a merge was actually verified.
- *
- * Two independent requirements, both read from state:
- *
- *  1. **Reviews that were actually approved.** Every review entry carrying a
- *     `status` (and every nested sub-review carrying one) must already read
- *     `'approved'`. Cleanup no longer rewrites them.
- *  2. **A merge that was actually recorded.** A typed artifact reference must
- *     exist under `synthesis.prUrl`, `artifacts.pr` or `synthesis.mergedBranches`.
- *     A bare `mergeVerified: true` boolean from the caller is an assertion, not
- *     evidence, and no longer suffices on its own.
+ * Collect the evidence that a merge happened. Both requirements read only the state.
+ *  1. Every review entry with a `status`, or else each nested sub-review with a `status`, reads `'approved'`.
+ *  2. A merge artifact reference exists under `synthesis.prUrl`, `artifacts.pr`, or `synthesis.mergedBranches`.
+ * A `mergeVerified: true` from the caller is an assertion, not evidence.
  */
 export function collectCleanupEvidence(
   state: Record<string, unknown>,
@@ -330,19 +278,18 @@ export function collectCleanupEvidence(
   };
 }
 
-// ─── handleCleanup ──────────────────────────────────────────────────────────
-
 /**
- * Clean up a workflow by transitioning it to completed.
+ * Clean up a workflow by moving it to `completed`.
+ * The merge guard reads the evidence in the state before cleanup backfills the `prUrl` and `mergedBranches` inputs.
+ * Cleanup does not rewrite reviews, and it sets the `_cleanup.mergeVerified` guard input from the evidence verdict.
+ * Insufficient evidence gives `GUARD_FAILED`, not the downstream `INVALID_TRANSITION`.
+ * The phase change goes through `hsmTransitionGuard.attempt` with `eventStore: null`, so this handler owns the emission.
+ * `allowUniversalFinalTransition` admits `completed`, a universal final edge with no explicit HSM definition.
  *
- * **Event-first contract (ES v2):** When the workflow uses event-sourcing v2,
- * cleanup events (`state.patched`, `workflow.cleanup`) are appended to the
- * event store BEFORE the state file is written. If event append fails, no
- * state file is written and an error is returned. All events carry
- * idempotency keys for safe retry.
- *
- * **Legacy path (v1):** State file is written first; events are emitted
- * after as best-effort (failures are silently swallowed).
+ * With an event store, an event-sourced (v2) workflow appends the whole trail before the state write.
+ * When that append fails, the state file stays unchanged.
+ * Otherwise cleanup writes the state first, and then emits the events on a best-effort basis when a store exists.
+ * A failed deletion of derived snapshot files does not fail cleanup.
  */
 export async function handleCleanup(
   input: CleanupInput,
@@ -367,7 +314,6 @@ export async function handleCleanup(
     throw err;
   }
 
-  // Guard: terminal states
   if (state.phase === 'completed') {
     return {
       success: false,
@@ -388,7 +334,6 @@ export async function handleCleanup(
     };
   }
 
-  // Guard: merge verification
   if (!input.mergeVerified) {
     return {
       success: false,
@@ -399,59 +344,12 @@ export async function handleCleanup(
     };
   }
 
-  // ─── Build mutations ──────────────────────────────────────────────────
-
   const mutableState = structuredClone(state) as Record<string, unknown>;
   const currentPhase = state.phase;
   const dryRun = input.dryRun ?? false;
 
-  // ─── DR-8: the guard's inputs are EVIDENCE, never force-written ───────
-  //
-  // Characterized behaviour this replaces (the `pass-state-fix` class named in
-  // `retirement/retirement-safety.ts`): cleanup walked `state.reviews` and
-  // force-assigned `entry.status = 'approved'` (including nested sub-reviews),
-  // then stamped `_cleanup = { mergeVerified: true }` — literally writing the
-  // inputs of `guards.mergeVerified` on the line before asking it for
-  // permission. Measured: `{ 't1': { status: 'needs_fixes' },
-  // 't2': { specReview: { status: 'fail' } } }` came out of cleanup with every
-  // status rewritten to `approved` and the phase advanced to `completed`. The
-  // guard could not fail; it was decoration.
-  //
-  // Now cleanup READS the evidence and hands the guard the verdict that
-  // evidence supports. Reviews are never rewritten, and when the evidence is
-  // absent `mergeVerified` is FALSE, so the guarded primitive rejects the
-  // transition instead of rubber-stamping it.
-  //
-  // T-12: the evidence is collected from the state AS THIS CALL FOUND IT —
-  // strictly BEFORE `input.prUrl` / `input.mergedBranches` are backfilled onto
-  // it. The prior order wrote the caller's own `prUrl` into `synthesis.prUrl` /
-  // `artifacts.pr` and then read exactly those fields back as the merge
-  // artifact, so `cleanup({ mergeVerified: true, prUrl: 'anything' })`
-  // satisfied the merge arm with an unverified same-call assertion — the
-  // pass-state fix reborn one level up. The input fields are now strictly
-  // POST-GUARD metadata backfill (applied in the mutations section below).
   const evidence = collectCleanupEvidence(mutableState);
   mutableState._cleanup = { mergeVerified: evidence.verified };
-
-  // ─── HSM transition — the SINGLE guarded primitive (DR-7 / INV-9) ─────
-  //
-  // Characterized bypass this replaces: cleanup called `executeTransition`
-  // directly (cleanup.ts:303), so the phase mutation ran with NO guard
-  // dispatch and NO shadow observation — `hsmTransitionGuard.attempt` was
-  // called zero times on the cleanup path. `handleSet` was the only phase
-  // mutation the primitive saw.
-  //
-  // Now the decision is the primitive's. `eventStore: null` puts it in its
-  // documented pure-evaluation mode: it decides and shadow-observes, and this
-  // handler keeps ownership of emission so the whole cleanup trail
-  // (state.patched + lifecycle + completion) commits in ONE atomic
-  // transaction — the third DR-7 criterion, which per-event emission inside
-  // the primitive cannot give (its own docs note compound siblings are
-  // sequenced independently).
-  //
-  // `allowUniversalFinalTransition` is why the bypass existed: `completed` is
-  // a universal final edge with no explicit HSM definition, so the primitive's
-  // Step-1 lookup used to reject it outright.
 
   const phaseAttemptId = dryRun
     ? undefined
@@ -475,24 +373,12 @@ export async function handleCleanup(
       workflowType: state.workflowType,
       eventStore: null,
       allowUniversalFinalTransition: true,
-      // The SAME live shadow observer `tools.ts` wires onto the guarded
-      // transition path, so cleanup's phase mutation is observed identically
-      // to every other one. DR-23 / T-31: the guard context is in
-      // pure-evaluation mode (`eventStore: null`) because THIS handler owns
-      // authoritative emission — the non-authoritative shadow evidence is
-      // still durable, via this handler's real store.
       shadowObserver: (observation) =>
         recordLiveTransition(observation, mutableState, eventStore),
     },
   );
 
   if (!attempt.ok) {
-    // DR-8: when the EVIDENCE was insufficient, the failure is a guard failure
-    // and must be reported as one. `guards.mergeVerified` denying the universal
-    // cleanup edge makes `executeTransition` fall through to the ordinary
-    // transition lookup, which then reports INVALID_TRANSITION — a downstream
-    // artefact of the guard denial, not the cause. Report the cause, and name
-    // the evidence the caller must actually produce (never have cleanup write).
     if (!evidence.verified) {
       return {
         success: false,
@@ -511,7 +397,6 @@ export async function handleCleanup(
     };
   }
 
-  // dryRun: return preview without modifying state
   if (dryRun) {
     return {
       success: true,
@@ -528,12 +413,6 @@ export async function handleCleanup(
     };
   }
 
-  // ─── Apply state mutations ────────────────────────────────────────────
-
-  // Backfill synthesis metadata — POST-GUARD on purpose (T-12). The guard's
-  // verdict above was derived from pre-existing evidence only; these input
-  // fields are recorded as metadata on the admitted transition and can no
-  // longer feed the evidence collection that admitted it.
   const synthesis = (mutableState.synthesis ?? {}) as Record<string, unknown>;
   if (input.prUrl !== undefined) {
     synthesis.prUrl = input.prUrl;
@@ -543,7 +422,6 @@ export async function handleCleanup(
   }
   mutableState.synthesis = synthesis;
 
-  // Also mirror onto artifacts.pr for consumers that read there
   const artifacts = (mutableState.artifacts ?? {}) as Record<string, unknown>;
   if (input.prUrl !== undefined && artifacts.pr == null) {
     artifacts.pr = input.prUrl;
@@ -573,11 +451,6 @@ export async function handleCleanup(
   delete mutableState._cleanup;
   delete mutableState._pendingPhaseAttemptId;
 
-  // ─── Event emission + state write ─────────────────────────────────────
-
-  // Same nullish trap as `cancel.ts`: `!== null` does not exclude `undefined`,
-  // and the block below needs a definite store. Narrowing into a local binds
-  // the proof for the checker instead of re-asserting at each use.
   const eventFirstStore =
     isEventSourced(state) && eventStore !== null && eventStore !== undefined
       ? eventStore
@@ -585,7 +458,6 @@ export async function handleCleanup(
   const useEventFirst = eventFirstStore !== undefined;
 
   if (eventFirstStore !== undefined && phaseAttemptId !== undefined) {
-    // ES v2: emit events BEFORE writing state
     try {
       await emitCleanupEvents(eventFirstStore, {
         featureId: input.featureId,
@@ -611,10 +483,8 @@ export async function handleCleanup(
     }
   }
 
-  // Write state file (after events for v2, as primary store for v1)
   await writeStateFile(stateFile, mutableState as WorkflowState);
 
-  // V1 legacy: best-effort event emission AFTER state write
   if (!useEventFirst && eventStore) {
     await emitLegacyTransitionEvents(
       eventStore,
@@ -624,12 +494,10 @@ export async function handleCleanup(
     );
   }
 
-  // Clean up derived snapshot files (best-effort — failures do not block cleanup)
   if (moduleSnapshotStore) {
     try {
       await moduleSnapshotStore.deleteAllForStream(input.featureId);
     } catch {
-      // Snapshot files are derived artifacts; deletion failure is non-critical
     }
   }
 

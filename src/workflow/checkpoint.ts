@@ -1,7 +1,5 @@
 import type { CheckpointState, CheckpointMeta } from './types.js';
 
-// ─── Configurable Constants ────────────────────────────────────────────────
-
 export const CHECKPOINT_OPERATION_THRESHOLD: number = Math.max(
   1,
   parseInt(process.env.CHECKPOINT_OPERATION_THRESHOLD || '', 10) || 20,
@@ -12,9 +10,7 @@ export const STALE_AFTER_MINUTES: number = Math.max(
   parseInt(process.env.STALE_AFTER_MINUTES || '', 10) || 120,
 );
 
-// ─── Checkpoint Functions ──────────────────────────────────────────────────
-
-/** Increment operation counter, return updated checkpoint state (immutable). */
+/** Return a copy of the checkpoint with the operation counter incremented. */
 export function incrementOperations(checkpoint: CheckpointState): CheckpointState {
   const now = new Date().toISOString();
   return {
@@ -24,15 +20,12 @@ export function incrementOperations(checkpoint: CheckpointState): CheckpointStat
   };
 }
 
-/** Check if checkpoint is advised based on operation threshold. */
+/** Tell if the operation count reached the checkpoint threshold. */
 export function isCheckpointAdvised(checkpoint: CheckpointState): boolean {
   return checkpoint.operationsSince >= CHECKPOINT_OPERATION_THRESHOLD;
 }
 
-/**
- * Reset counter on phase transition or explicit checkpoint.
- * Updates timestamp, phase, summary, and resets operationsSince to 0.
- */
+/** Reset the counter on a phase transition or an explicit checkpoint. */
 export function resetCounter(
   checkpoint: CheckpointState,
   phase: string,
@@ -49,13 +42,13 @@ export function resetCounter(
   };
 }
 
-/** Detect staleness: returns true if time since last activity exceeds staleAfterMinutes. */
+/** Tell if the time since the last activity is more than `staleAfterMinutes`. */
 export function isStale(checkpoint: CheckpointState): boolean {
   const minutesSince = getMinutesSinceActivity(checkpoint);
   return minutesSince > checkpoint.staleAfterMinutes;
 }
 
-/** Get minutes since last activity (rounded down). */
+/** Whole minutes since the last activity. An unreadable timestamp gives 0. */
 export function getMinutesSinceActivity(checkpoint: CheckpointState): number {
   const lastActivity = new Date(checkpoint.lastActivityTimestamp).getTime();
   if (Number.isNaN(lastActivity)) return 0;
@@ -64,8 +57,10 @@ export function getMinutesSinceActivity(checkpoint: CheckpointState): number {
   return Math.floor(diffMs / (60 * 1000));
 }
 
-/** Build the _meta response block included in every tool response.
- *  Returns slim shape when no action needed, full shape when checkpoint or staleness attention required. */
+/**
+ * Build the `_meta` block for each tool response. The block is slim when no
+ * checkpoint is advised and the workflow is not stale.
+ */
 export function buildCheckpointMeta(checkpoint: CheckpointState): CheckpointMeta {
   const advised = isCheckpointAdvised(checkpoint);
   const stale = isStale(checkpoint);
@@ -84,8 +79,6 @@ export function buildCheckpointMeta(checkpoint: CheckpointState): CheckpointMeta
   };
 }
 
-// ─── Checkpoint Gate (DR-5, DR-10) ────────────────────────────────────────
-
 export interface CheckpointGateResult {
   gated: boolean;
   gate?: 'checkpoint_required';
@@ -101,23 +94,19 @@ export interface CheckpointEnforcementConfig {
 }
 
 /**
- * Evaluate whether a checkpoint gate should block the current action.
- *
- * - Nullish checkpoint state: graceful degradation (DR-10) — returns not-gated with warning.
- * - Action-type enforcement toggles: config can disable gate per action type.
- * - Threshold comparison: operationsSince >= operationThreshold triggers the gate.
+ * Tell if the checkpoint gate blocks the current action. The gate blocks when
+ * `operationsSince` reaches `operationThreshold`. A missing checkpoint does not block
+ * and gives a warning. The config can turn off the gate for each action type.
  */
 export function shouldEnforceCheckpoint(
   checkpoint: CheckpointState | undefined | null,
   config: CheckpointEnforcementConfig,
   actionType: 'phase-transition' | 'wave-dispatch',
 ): CheckpointGateResult {
-  // DR-10: graceful degradation when checkpoint state is missing
   if (checkpoint == null) {
     return { gated: false, warning: 'checkpoint-state-missing' };
   }
 
-  // Check action-type enforcement toggles
   if (actionType === 'phase-transition' && !config.enforceOnPhaseTransition) {
     return { gated: false };
   }
@@ -125,7 +114,6 @@ export function shouldEnforceCheckpoint(
     return { gated: false };
   }
 
-  // Threshold comparison
   if (checkpoint.operationsSince >= config.operationThreshold) {
     return {
       gated: true,
@@ -138,7 +126,7 @@ export function shouldEnforceCheckpoint(
   return { gated: false };
 }
 
-/** Create initial checkpoint state for new workflows. */
+/** Create the initial checkpoint state for a new workflow. */
 export function createInitialCheckpoint(phase: string): CheckpointState {
   const now = new Date().toISOString();
   return {

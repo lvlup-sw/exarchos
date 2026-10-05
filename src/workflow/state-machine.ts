@@ -1,3 +1,11 @@
+// The HSM registry and the pure transition algorithm. `executeTransition` computes the result
+// of a transition and does no I/O. The caller persists the state and appends the events.
+//
+// On an advance into an atomic state, the algorithm resolves the gate-set of the target kind.
+// Then it freezes the result on one `phase.entered` event, with the danger coordinate, the posture
+// and, for PLAN, the `designDepth`. A replay of the log gives the same obligation as the live run,
+// and a later policy edit cannot change it. A resolver fault refuses the transition with `PHASE_BLOCKED`.
+
 import type { Guard, GuardResult } from './guards.js';
 import { guards } from './guards.js';
 import { PHASE_EVENT_CONTRACTS, assertContractPhasesAreRegistered } from './topology/phase-events.js';
@@ -23,18 +31,14 @@ import {
   createDiscoveryHSM,
 } from './hsm-definitions.js';
 
-// Re-export guard types for consumers
 export type { Guard, GuardResult };
-
-// ─── HSM Types ──────────────────────────────────────────────────────────────
 
 export type Effect = 'checkpoint' | 'log' | 'increment-fix-cycle';
 
-// All shared/optional fields live on the base so existing `.initial` /
-// `.maxFixCycles` / `.parent` reads keep compiling without narrowing. Only the
-// `atomic` variant carries `kind` — an atomic state literal without `kind` is a
-// COMPILE error (DR-2), while compound/final states are exempt (they have no
-// kind in the obligation layer). See docs/designs/archive/2026-06-16-phase-kind-binding.md.
+/**
+ * The fields that every state variant shares, so a read of `.initial`, `.maxFixCycles` or `.parent` needs no narrowing.
+ * Only the `atomic` variant of `State` carries `kind`, so an atomic state without `kind` is a compile error.
+ */
 interface StateBase {
   readonly id: string;
   readonly parent?: string;
@@ -56,13 +60,9 @@ export interface Transition {
   readonly effects?: readonly Effect[] | undefined;
   readonly isFixCycle?: boolean | undefined;
   /**
-   * Marks a plan-review revise loop edge (DR-1). When traversed, the executor
-   * emits one counted `plan-revision` event — the exact analog of `isFixCycle`
-   * → `fix-cycle`. The `plan-review → plan` transition carries this so the
-   * revise loop can be bounded (the projection folds the count into
-   * `state.planReview.revisionCount`, the location the `revisionsExhausted`
-   * guard reads). An `Effect` is deliberately NOT the mechanism — a counted
-   * cycle must be an event so the count is event-derived and replay-stable.
+   * Marks a revise edge. The executor emits a counted `plan-revision` event for it, except on the standard feature `plan-review → plan` edge.
+   * The count is an event and not an `Effect`, so it comes from the log and is stable on replay.
+   * The projection folds it into `state.planReview.revisionCount`, which the `revisionsExhausted` guard reads.
    */
   readonly isRevision?: boolean;
 }
@@ -72,8 +72,6 @@ export interface HSMDefinition {
   readonly states: Record<string, State>;
   readonly transitions: readonly Transition[];
 }
-
-// ─── Transition Result ──────────────────────────────────────────────────────
 
 export interface TransitionEvent {
   readonly type: string;
@@ -90,16 +88,14 @@ export interface ValidTransitionTarget {
 }
 
 /**
- * DR-10 (T-15): the obligation floor a transition must be resolved AT LEAST at.
- *
- * Both members are pure lower bounds — supplying them can only ever add gates,
- * never remove one — so a caller that supplies nothing gets byte-identical
- * behaviour to the historical single-coordinate resolve.
+ * The obligation floor of a transition. Both members are lower bounds, so they can only add gates.
+ * The transition resolves at each coordinate and unions the results.
+ * No single coordinate dominates, because the ladder escalates an unknown tier and the review roster treats it as no tier claim.
  */
 export interface TransitionObligationFloor {
   /** Danger coordinates to ALSO resolve at, unioning the results. */
   readonly coordinates?: readonly DangerCoordinate[];
-  /** Gates a prior freeze for this same phase already recorded. */
+  /** Gates that a prior freeze of this phase recorded. They lead the union, so a policy edit between attempts cannot remove a frozen gate. */
   readonly gates?: readonly ResolvedGate[];
 }
 
@@ -120,16 +116,11 @@ export interface TransitionResult {
     readonly params: Record<string, unknown>;
   };
   /**
-   * The gate-set resolved for the target phase's kind at the transition
-   * boundary (DR-10). Present on a successful transition into an atomic state;
-   * absent for compound/final targets (cancel, cleanup) which carry no kind.
-   * In S3 this is the structural PDP output; S4 freezes it as a `phase.entered`
-   * event.
+   * The gate-set of the target kind. It is present after an advance into an atomic state with a kind, and empty for IMPLEMENT.
+   * The `phase.entered` event freezes the same list.
    */
   readonly resolvedGates?: readonly ResolvedGate[];
 }
-
-// ─── Serialization Types ────────────────────────────────────────────────────
 
 export interface SerializedTopology {
   workflowType: string;
@@ -163,10 +154,12 @@ export interface WorkflowTypeSummary {
   }>;
 }
 
-// ─── HSM Registry ───────────────────────────────────────────────────────────
-
 const BUILT_IN_TYPES = new Set(['feature', 'debug', 'refactor', 'oneshot', 'discovery']);
 
+/**
+ * The HSM registry: the built-in types, and the custom types that `registerWorkflowType` adds.
+ * At load, each phase in the phase event contract must be a state of a built-in HSM.
+ */
 const hsmRegistry: Record<string, HSMDefinition> = {
   feature: createFeatureHSM(),
   debug: createDebugHSM(),
@@ -175,17 +168,13 @@ const hsmRegistry: Record<string, HSMDefinition> = {
   discovery: createDiscoveryHSM(),
 };
 
-// The phase event contract names phases by string; the names are authoritative
-// here, so a row for a phase no built-in HSM registers throws at this load
-// rather than sitting dead in the table.
 assertContractPhasesAreRegistered(
   PHASE_EVENT_CONTRACTS,
   new Set(Object.values(hsmRegistry).flatMap((hsm) => Object.keys(hsm.states))),
 );
 
 const initialPhaseRegistry: Record<string, string> = {
-  // DR-4 (#1581): GATHER (`ideate`) collapsed into PLAN — feature workflows now
-  // start in `plan` (the unified design+plan phase). See createFeatureHSM.
+  /** Feature workflows start in `plan`, the unified design and plan phase. */
   feature: 'plan',
   debug: 'triage',
   refactor: 'explore',
@@ -212,8 +201,6 @@ export function getInitialPhase(workflowType: string): string {
   }
   return phase;
 }
-
-// ─── Topology Serialization ─────────────────────────────────────────────────
 
 /**
  * Derive tracks from compound states: for each compound state, collect
@@ -307,16 +294,14 @@ export function listWorkflowTypes(): WorkflowTypeSummary {
   return { workflowTypes };
 }
 
-// ─── Workflow Definition → HSM Conversion ────────────────────────────────────
-
 import type { WorkflowDefinition, GuardDefinition } from '../config/define.js';
 
-// Re-export for consumers that imported from here
 export type { WorkflowDefinition };
 
 /**
- * Create a Guard object from a config guard definition.
- * The guard shells out to the command and treats exit code 0 as pass.
+ * Creates a pass-through Guard from a config guard definition. The HSM `evaluate` is synchronous, but a custom guard runs an external command.
+ * Thus `hsm-transition-guard.ts` runs `executeGuard` from `config/guards.ts` before the transition, and blocks it when the guard fails.
+ * Built-in guards in `workflow/guards.ts` evaluate inline and synchronously. Only custom guards need `executeGuard`.
  */
 function createGuardFromDefinition(guardId: string, guardDef: GuardDefinition): Guard {
   return {
@@ -324,25 +309,20 @@ function createGuardFromDefinition(guardId: string, guardDef: GuardDefinition): 
     custom: true,
     description: guardDef.description ?? `Custom guard: ${guardId}`,
     evaluate: (_state: Record<string, unknown>) => {
-      // DESIGN: Custom config guards use a two-layer execution model:
-      // 1. HSM layer (here): pass-through — returns true to allow the transition
-      // 2. Orchestrator layer: calls executeGuard() from config/guards.ts
-      //    before attempting the HSM transition, blocking if the guard fails.
-      //
-      // This split exists because HSM evaluate() is synchronous but custom
-      // guards shell out to external commands (async). The orchestrator
-      // checks getRegisteredGuard() and runs executeGuard() pre-transition.
-      // Built-in guards (workflow/guards.ts) remain inline/synchronous.
       return true;
     },
   };
 }
 
+/**
+ * Converts a config workflow definition to an HSM. An `extends` definition starts from copies of the parent states and transitions.
+ * A new custom phase becomes an atomic state of kind GATHER, which has no gates and a read-only posture.
+ * The HSM gets `cancelled` and `completed` final states when they are absent. A custom transition replaces a base transition with the same `from` and `to`.
+ */
 function convertToHSM(name: string, definition: WorkflowDefinition): HSMDefinition {
   let baseStates: Record<string, State> = {};
   let baseTransitions: readonly Transition[] = [];
 
-  // Build guard lookup from definition
   const guardLookup = new Map<string, Guard>();
   if (definition.guards) {
     for (const [guardId, guardDef] of Object.entries(definition.guards)) {
@@ -355,24 +335,18 @@ function convertToHSM(name: string, definition: WorkflowDefinition): HSMDefiniti
     if (!parent) {
       throw new Error(`Cannot extend unknown workflow type: ${definition.extends}`);
     }
-    // Deep clone the parent
     baseStates = Object.fromEntries(
       Object.entries(parent.states).map(([k, v]) => [k, { ...v }]),
     );
     baseTransitions = [...parent.transitions];
   }
 
-  // Add custom phases as atomic states. A user-defined phase carries no
-  // inherent kind, so it defaults to GATHER — the only kind whose obligation
-  // row has `gates: null`, i.e. no kind-driven verification gates. This is
-  // behavior-neutral: custom phases never had kind-driven gates before DR-2.
   for (const phase of definition.phases) {
     if (!baseStates[phase]) {
       baseStates[phase] = { id: phase, type: 'atomic', kind: 'GATHER' };
     }
   }
 
-  // Ensure cancelled/completed final states exist
   if (!baseStates['cancelled']) {
     baseStates['cancelled'] = { id: 'cancelled', type: 'final' };
   }
@@ -380,7 +354,6 @@ function convertToHSM(name: string, definition: WorkflowDefinition): HSMDefiniti
     baseStates['completed'] = { id: 'completed', type: 'final' };
   }
 
-  // Convert transitions, resolving string guard IDs to Guard objects
   const customTransitions: Transition[] = definition.transitions.map((t) => {
     const base: { from: string; to: string; guard?: Guard } = { from: t.from, to: t.to };
     if (t.guard) {
@@ -393,7 +366,6 @@ function convertToHSM(name: string, definition: WorkflowDefinition): HSMDefiniti
     return base;
   });
 
-  // Merge: custom transitions override base transitions with same from+to
   const transitionKey = (t: Transition): string => `${t.from}->${t.to}`;
   const mergedMap = new Map<string, Transition>();
   for (const t of baseTransitions) {
@@ -430,8 +402,6 @@ export function unregisterWorkflowType(name: string): void {
   delete hsmRegistry[name];
   delete initialPhaseRegistry[name];
 }
-
-// ─── Transition Algorithm (10 Steps) ────────────────────────────────────────
 
 /**
  * Find the parent compound state for a given state, if any.
@@ -477,18 +447,9 @@ function countFixCycles(
 }
 
 /**
- * Count `plan-revision` events in the log (DR-1) — the revise-cycle analog of
- * `countFixCycles`. Unlike fix cycles (bounded per-compound by the circuit
- * breaker), plan-review revisions are bounded by a single workflow-level count
- * that `revisionsExhausted` reads from `state.planReview.revisionCount`, so the
- * count is global (not scoped to a compound). The projection folds these same
- * events into that nested field; this function derives the identical count
- * directly from the event log, so the bound is event-sourced and replay-stable.
- *
- * Accepts both the internal HSM-emitted shape (`type: 'plan-revision'`) and the
- * persisted external shape (`type: 'workflow.plan-revision'`) so a caller can
- * derive the count from either an in-flight `result.events` list or a rehydrated
- * event log.
+ * Counts `plan-revision` events in the log. The count is global and not scoped to a compound, because `revisionsExhausted` reads one workflow-level count.
+ * The projection folds the same events into `state.planReview.revisionCount`.
+ * It accepts the HSM shape (`plan-revision`) and the persisted shape (`workflow.plan-revision`), so it works on `result.events` and on a rehydrated log.
  */
 export function countPlanRevisions(
   events: readonly Record<string, unknown>[]
@@ -523,12 +484,10 @@ export function getValidTransitions(
     );
   }
 
-  // Add universal cancel if not already present
   if (!seen.has('cancelled') && hsm.states['cancelled']) {
     targets.push({ phase: 'cancelled', universal: true });
   }
 
-  // Add universal cleanup (completed) if not already present
   if (!seen.has('completed') && hsm.states['completed']) {
     targets.push({ phase: 'completed', guard: { id: guards.mergeVerified.id, description: guards.mergeVerified.description }, universal: true });
   }
@@ -551,27 +510,23 @@ export function findTransition(
 }
 
 /**
- * Execute a transition in the HSM. This is a PURE function that computes
- * what should happen but does not perform I/O. The caller handles persistence.
+ * Computes a transition and does no I/O. A guard failure, an open circuit and a blocked phase return diagnostic events, and the caller must append them.
+ * When the mergeVerified guard of the universal cleanup fails, the normal lookup runs, so an edge such as `synthesize → completed` still works.
  *
- * Returns diagnostic events in `result.events` even on failure (guard-failed,
- * circuit-open). The caller is responsible for emitting these to the event store
- * before returning the error to the client.
+ * A fix-cycle edge records `phase.exited` with `allRequiredGatesPassed: false`. The `phase.exited` event comes before `phase.entered`.
+ * A top-level phase has no parent, so `fix-cycle` and `plan-revision` omit `compoundStateId` and never set it to `undefined`.
+ * The standard feature `plan-review → plan` edge emits no `plan-revision`, because `prepare_review` counts that loop.
+ *
+ * The gate union keeps the resolution order, because gate order is evaluation order. IMPLEMENT records no phase-level gate sequence, because the wave stamp holds its per-task sequences.
+ * `policySource` and `mode` are fixed defaults. The orchestrate layer resolves the IMPLEMENT mode, so this module does not depend on that layer.
+ * @param resolveGatesFn the gate-set resolver. A test injects it to reach the fail-closed branch.
+ * @param floor the coordinates and the prior frozen gates that the resolution must also cover.
  */
 export function executeTransition(
   hsm: HSMDefinition,
   state: Record<string, unknown>,
   targetPhase: string,
-  // The phase-kind gate-set resolver (DR-10). Defaults to the real resolver;
-  // injectable so the fail-closed branch is directly testable. The resolve runs
-  // non-optionally at this single boundary — no phase can opt out of the PDP.
   resolveGatesFn?: (kind: PhaseKind, ctx: ResolveGateSetCtx) => readonly ResolvedGate[],
-  // DR-10 (T-15): the obligation floor this transition must ALSO be resolved
-  // at. `coordinates` names danger coordinates a same-call update must not be
-  // allowed to lower; `gates` is the sequence a PRIOR freeze for this same
-  // phase already recorded, read back verbatim so a re-resolution can only add
-  // to it. Absent / empty ⇒ resolution is exactly the single-coordinate
-  // resolution it has always been.
   floor?: TransitionObligationFloor,
 ): TransitionResult {
   const currentPhase = state.phase as string;
@@ -582,7 +537,6 @@ export function executeTransition(
   const events = (state._events as readonly Record<string, unknown>[]) ?? [];
   const history = (state._history as Record<string, string>) ?? {};
 
-  // ─── Step 1: Idempotency Check ──────────────────────────────────────
   if (currentPhase === targetPhase) {
     return {
       success: true,
@@ -593,12 +547,10 @@ export function executeTransition(
     };
   }
 
-  // ─── Step 2: Lookup transition ──────────────────────────────────────
   const isCancel =
     targetPhase === 'cancelled' && hsm.states['cancelled']?.type === 'final';
   const currentState = hsm.states[currentPhase];
 
-  // Cannot transition from a final state
   if (currentState?.type === 'final') {
     return {
       success: false,
@@ -611,12 +563,10 @@ export function executeTransition(
     };
   }
 
-  // Handle universal cancel transition
   if (isCancel) {
     const exitEffects: Effect[] = [];
     const historyUpdates: Record<string, string> = {};
 
-    // Step 5: Exit actions for current state and parent compounds
     const currentAncestors = getCompoundAncestors(hsm, currentPhase);
     if (currentState?.onExit) {
       exitEffects.push(...currentState.onExit);
@@ -626,7 +576,6 @@ export function executeTransition(
       historyUpdates[ancestor.id] = currentPhase;
     }
 
-    // If current state is in a compound, record history
     const parent = getParentCompound(hsm, currentPhase);
     if (parent) {
       historyUpdates[parent.id] = currentPhase;
@@ -651,11 +600,9 @@ export function executeTransition(
     };
   }
 
-  // Handle universal cleanup transition (mergeVerified → completed)
   const isCleanup = targetPhase === 'completed' && hsm.states['completed']?.type === 'final';
 
   if (isCleanup) {
-    // Evaluate mergeVerified guard
     const guardResult = guards.mergeVerified.evaluate(state);
     const guardPassed = typeof guardResult === 'boolean' ? guardResult : false;
 
@@ -663,7 +610,6 @@ export function executeTransition(
       const exitEffects: Effect[] = [];
       const historyUpdates: Record<string, string> = {};
 
-      // Exit actions for current state and parent compounds (same pattern as cancel)
       const currentAncestors = getCompoundAncestors(hsm, currentPhase);
       if (currentState?.onExit) {
         exitEffects.push(...currentState.onExit);
@@ -673,7 +619,6 @@ export function executeTransition(
         historyUpdates[ancestor.id] = currentPhase;
       }
 
-      // If current state is in a compound, record history
       const parent = getParentCompound(hsm, currentPhase);
       if (parent) {
         historyUpdates[parent.id] = currentPhase;
@@ -697,11 +642,8 @@ export function executeTransition(
           Object.keys(historyUpdates).length > 0 ? historyUpdates : undefined,
       };
     }
-    // If mergeVerified guard fails, fall through to normal transition lookup
-    // This allows existing transitions like synthesize → completed (prUrlExists) to work
   }
 
-  // Find matching transition
   const transition = findTransition(hsm, currentPhase, targetPhase);
 
   if (!transition) {
@@ -717,7 +659,6 @@ export function executeTransition(
     };
   }
 
-  // ─── Step 3: Guard Evaluation ───────────────────────────────────────
   if (transition.guard) {
     let rawResult: GuardResult;
     try {
@@ -773,9 +714,7 @@ export function executeTransition(
     }
   }
 
-  // ─── Step 4: Circuit Breaker Check ──────────────────────────────────
   if (transition.isFixCycle) {
-    // Find the compound state that contains the current state
     const parent = getParentCompound(hsm, currentPhase);
     if (parent?.maxFixCycles != null) {
       const fixCount = countFixCycles(events, parent.id);
@@ -803,35 +742,27 @@ export function executeTransition(
     }
   }
 
-  // ─── Step 5: Exit Actions ──────────────────────────────────────────
   const effects: Effect[] = [];
   const historyUpdates: Record<string, string> = {};
 
-  // Collect exit effects for current state
   if (currentState?.onExit) {
     effects.push(...currentState.onExit);
   }
 
-  // Determine which compounds we're leaving
   const currentAncestors = getCompoundAncestors(hsm, currentPhase);
   const targetAncestors = getCompoundAncestors(hsm, targetPhase);
   const targetAncestorIds = new Set(targetAncestors.map((a) => a.id));
 
-  // Exit effects for compounds being left (not shared with target)
   for (const ancestor of currentAncestors) {
     if (!targetAncestorIds.has(ancestor.id)) {
       if (ancestor.onExit) effects.push(...ancestor.onExit);
     }
   }
 
-  // ─── Step 6: State Update (caller handles persistence) ─────────────
   const newPhase = targetPhase;
 
-  // ─── Step 7: Entry Actions ─────────────────────────────────────────
   const currentAncestorIds = new Set(currentAncestors.map((a) => a.id));
 
-  // Entry effects for compounds being entered (not shared with current)
-  // Process outermost to innermost
   const targetAncestorsReversed = [...targetAncestors].reverse();
   for (const ancestor of targetAncestorsReversed) {
     if (!currentAncestorIds.has(ancestor.id)) {
@@ -839,26 +770,21 @@ export function executeTransition(
     }
   }
 
-  // Collect entry effects for target state
   const targetState = hsm.states[targetPhase];
   if (targetState?.onEntry) {
     effects.push(...targetState.onEntry);
   }
 
-  // Add transition-specific effects
   if (transition.effects) {
     effects.push(...transition.effects);
   }
 
-  // ─── Step 8: History Update ────────────────────────────────────────
-  // Record last sub-state when leaving a compound
   for (const ancestor of currentAncestors) {
     if (!targetAncestorIds.has(ancestor.id)) {
       historyUpdates[ancestor.id] = currentPhase;
     }
   }
 
-  // ─── Step 9: Event Append ──────────────────────────────────────────
   const transitionEvents: TransitionEvent[] = [
     {
       type: 'transition',
@@ -869,7 +795,6 @@ export function executeTransition(
     },
   ];
 
-  // Add compound-entry event if entering a compound
   for (const ancestor of targetAncestorsReversed) {
     if (!currentAncestorIds.has(ancestor.id)) {
       transitionEvents.push({
@@ -882,7 +807,6 @@ export function executeTransition(
     }
   }
 
-  // Add compound-exit event if leaving a compound
   for (const ancestor of currentAncestors) {
     if (!targetAncestorIds.has(ancestor.id)) {
       transitionEvents.push({
@@ -894,7 +818,6 @@ export function executeTransition(
     }
   }
 
-  // If fix cycle, add fix-cycle event
   if (transition.isFixCycle) {
     const parent = getParentCompound(hsm, currentPhase);
     transitionEvents.push({
@@ -902,41 +825,10 @@ export function executeTransition(
       from: currentPhase,
       to: targetPhase,
       trigger: 'execute-transition',
-      // A top-level (non-compound) child has no parent compound. Omit the key
-      // entirely rather than emitting `compoundStateId: undefined`, which would
-      // violate WorkflowFixCycleData's optional-string contract (#1339).
       metadata: { ...(parent ? { compoundStateId: parent.id } : {}) },
     });
   }
 
-  // If a plan-review revise cycle, add a counted plan-revision event (DR-1).
-  // The exact analog of the fix-cycle emission above: a counted *event* (not an
-  // Effect) so the revise count is event-derived and survives replay. The
-  // emission boundary (hsm-transition-guard) folds in the 1-based ordinal as
-  // `count` and the projection folds occurrences into
-  // `state.planReview.revisionCount`. `compoundStateId` follows the same
-  // omit-when-absent rule as fix-cycle (#1339) — plan-review is a top-level
-  // atomic phase today, but mirroring keeps the shape stable if it is ever
-  // nested in a compound.
-  //
-  // WLM-6 (DR-2): the standard feature `plan-review → plan` revise edge is
-  // RETIRED as a counter source here. That loop is now counted at its
-  // unskippable `prepare_review scope:plan` provisioning seam
-  // (verbs/team/prepare-review.ts → `workflow.plan-review-dispatched`), closing
-  // the skippable-edge bypass — so this edge must NOT also emit, or the count
-  // would double when the prescribed flow both re-provisions AND transitions.
-  // The retirement is scoped to that ONE edge (`plan-review → plan`): the
-  // overhaul track's `overhaul-plan-review → overhaul-plan` revise edge is a
-  // HUMAN CHECKPOINT (playbooks.ts) that never dispatches through
-  // `prepare_review`, so it KEEPS its edge counter (belt: the Sentry-regression
-  // class stays closed on that track). Scoped by edge here — NOT by removing the
-  // `isRevision` flag from the definition (hsm-definitions.ts) — so the flag
-  // stays a truthful "this is a revise edge" marker and any other `isRevision`
-  // edge (incl. the overhaul edge and the test mechanism HSMs) still emits.
-  // Gated on `hsm.id === 'feature'` so the retirement binds ONLY the standard
-  // feature HSM: a custom/test HSM that happens to name phases `plan-review`/
-  // `plan` (and never routes through the `prepare_review` seam) keeps its edge
-  // counter instead of silently losing its `plan-revision` cap feed.
   const isStandardPlanReviseEdge =
     hsm.id === 'feature' && currentPhase === 'plan-review' && targetPhase === 'plan';
   if (transition.isRevision && !isStandardPlanReviseEdge) {
@@ -950,13 +842,6 @@ export function executeTransition(
     });
   }
 
-  // ─── Resolve-then-freeze: phase.exited on advance (DR-13) ─────────
-  // Exiting `currentPhase` to advance to `targetPhase`. `allRequiredGatesPassed`
-  // is the aggregate gate status derived structurally from the HSM walk: a
-  // forward advance means the phase's required gates passed; a fix-cycle
-  // (backward loop) is precisely "required gates did NOT pass — revise". Pushed
-  // BEFORE the phase.entered freeze so the log/projection observe exit-then-enter
-  // ordering. Cancel/cleanup return earlier and never reach this advance path.
   transitionEvents.push({
     type: 'phase.exited',
     from: currentPhase,
@@ -968,48 +853,10 @@ export function executeTransition(
     },
   });
 
-  // ─── Step 9.5: Phase-Kind Gate-Set Resolution (DR-10, the PDP) ─────
-  // Resolve the target kind's gate-set NON-OPTIONALLY at this single boundary.
-  // Only atomic targets carry a `kind`; compound/final targets (handled by the
-  // earlier cancel/cleanup returns) do not. A resolver fault fails CLOSED — the
-  // transition is refused with PHASE_BLOCKED, never proceeds silently.
   let resolvedGates: readonly ResolvedGate[] | undefined;
-  // Every production atomic state carries a `kind` (type-enforced on `State`).
-  // The `&& targetState.kind` guard only short-circuits degenerate fixtures /
-  // loosely-typed custom states with no kind, which have no obligation to resolve.
   if (targetState?.type === 'atomic' && targetState.kind) {
-    // ─── Resolve half of resolve-then-freeze for `designDepth` (DR-3) ───
-    // The per-FEATURE planning depth, the depth-axis analog of per-task
-    // `riskTier`. Read loosely from the workflow state (an author override is
-    // patched there before PLAN entry; absent ⇒ the behavior-neutral
-    // `'standard'`). Once the first PLAN `phase.entered` freezes it onto the
-    // projected state, this read is sticky — re-entering PLAN re-resolves the
-    // SAME frozen value, so it is never re-resolved to a different depth.
     const resolvedDesignDepth: DesignDepth =
       (state.designDepth as DesignDepth | undefined) ?? 'standard';
-    // ─── DR-10 (T-15): the THIRD weakest-coordinate collapse ────────────
-    // This boundary used to read `(state.riskTier as RiskTier|undefined) ?? 'low'`
-    // and `Boolean(state.boundaryTouching)` — the same collapse T-14 removed
-    // from the delegation path, but sitting at the FREEZE point, which makes it
-    // strictly worse: the obligation recorded on `phase.entered` (the record a
-    // replay and every later attempt read back as authority) could itself be
-    // minted at the weakest cell of the ladder, on no evidence. Routing through
-    // the canonical resolvers means an absent or malformed stamp resolves to
-    // `'unknown'` / boundary-touching and each downstream resolver applies its
-    // own fail-safe, exactly as `ResolveGateSetCtx.riskTier` was widened for.
-    //
-    // The transition is then resolved at EVERY coordinate the floor names, not
-    // just this one. A same-call `updates: { riskTier: … }` must never lower
-    // the transition it accompanies, and the floor cannot be applied by simply
-    // picking a "stronger" coordinate: the two gate resolvers project an
-    // unknown tier in OPPOSITE directions (the ladder escalates it, the review
-    // roster reads it as no tier claim and emits FEWER dimensions), so no
-    // single coordinate dominates both. The join is therefore taken where it
-    // IS unambiguous — on the resolved obligation. Resolving at each
-    // coordinate and unioning the results is at least as strong as every input
-    // by construction, is idempotent when the coordinates agree (the
-    // overwhelmingly common case, where this costs one extra pure call), and
-    // needs no arithmetic on the tier itself.
     const stateCoordinate = resolveDangerCoordinate({
       risk: state.riskTier,
       boundary: state.boundaryTouching,
@@ -1021,11 +868,6 @@ export function executeTransition(
     const unioned: ResolvedGate[] = [];
     const seenGateKeys = new Set<string>();
     let frozenCoordinate: DangerCoordinate = stateCoordinate;
-    // The gates a PRIOR freeze for this same phase recorded lead the union: the
-    // frozen record is the authority, so its sequence keeps its position and a
-    // re-resolution can only append. This is what survives a policy-table edit
-    // between attempts — re-resolving alone would silently return the NEW
-    // table's answer and call it the frozen one.
     for (const gate of floor?.gates ?? []) {
       const key = `${gate.family}\u0000${gate.gate}`;
       if (seenGateKeys.has(key)) continue;
@@ -1061,9 +903,6 @@ export function executeTransition(
           errorMessage: `Gate-set resolution failed for ${targetState.kind} phase '${targetPhase}': ${resolved.reason}`,
         };
       }
-      // Order-preserving union: the state's own resolution keeps its sequence
-      // (gate ORDER is evaluation order and must not be re-sorted); a coordinate
-      // that contributes a gate nobody else named appends it.
       for (const gate of resolved.gates) {
         const key = `${gate.family}\u0000${gate.gate}`;
         if (seenGateKeys.has(key)) continue;
@@ -1073,24 +912,8 @@ export function executeTransition(
       frozenCoordinate = joinDangerCoordinates(frozenCoordinate, coordinate);
     }
     const obligation: PhaseObligationOutcome = { ok: true, gates: unioned };
-    // F3 (#1546): per-phase kinds record their FULL resolved sequence; IMPLEMENT
-    // defers its per-task sequences to the wave stamp (the design's two documented
-    // resolution granularities), so it records NO phase-level sequence. Emptied
-    // HERE — at the single source — so the frozen `phase.entered` event AND the
-    // transition-result return field stay consistent: never the low-risk,
-    // ctx-defaulted ladder a replay/left-fold consumer could mistake for the
-    // authoritative per-task gate-set. The obligation was still resolved above
-    // (the fail-closed check already ran), so IMPLEMENT blocking semantics are
-    // intact — only the recorded sequence is deferred.
     resolvedGates = targetState.kind === 'IMPLEMENT' ? [] : obligation.gates;
 
-    // ─── Resolve-THEN-FREEZE (DR-13, DR-10 freeze half) ───────────────
-    // Append exactly one `phase.entered` carrying the obligation just resolved.
-    // `resolvedGates` is snapshotted to plain `{family, gate}` value copies, so a
-    // later policy-table edit cannot retroactively change this in-flight phase —
-    // a left-fold of the log reconstructs the identical obligation a live HSM
-    // observed (#1208-class single-trigger: `kind` is frozen here, never
-    // re-derived downstream from the phase name).
     transitionEvents.push({
       type: 'phase.entered',
       from: currentPhase,
@@ -1100,51 +923,17 @@ export function executeTransition(
         phase: targetPhase,
         kind: targetState.kind,
         resolver: KIND_OBLIGATIONS[targetState.kind].gates?.resolver ?? null,
-        // Value-snapshot the frozen sequence — already emptied for IMPLEMENT at
-        // the single source above (F3 #1546): the FULL sequence for per-phase
-        // kinds, [] for IMPLEMENT (per-task sequences defer to the wave stamp).
-        // resolver / posture / mode stay frozen for IMPLEMENT regardless.
         resolvedGates: resolvedGates.map((g) => ({ family: g.family, gate: g.gate })),
-        // ─── DR-10 (T-15): freeze the COORDINATE the gates resolved from ──
-        // Without this the frozen record is not self-describing: IMPLEMENT
-        // defers its sequence to the wave stamp (F3 above), and every kind
-        // whose resolver ignores one axis records a gate list from which the
-        // coordinate cannot be recovered. A later attempt — or a replay — then
-        // has nothing to read back and must RE-RESOLVE from current state,
-        // which is precisely DR-10's defect. Recording the resolved tier and
-        // boundary makes the freeze the authority it claims to be: folding the
-        // log reconstructs the same requirement set the live run observed, and
-        // a later weaker stamp cannot change it. `'unknown'` is carried as a
-        // first-class value — the record says "nobody classified this", never
-        // the fabricated `'low'` the old collapse wrote. When a floor applied,
-        // this is the JOINED coordinate; the recorded `resolvedGates` remain
-        // the union across every coordinate resolved, so the gate list — not a
-        // re-resolution of this coordinate — is the authority on read-back.
         riskTier: frozenCoordinate.risk,
         boundaryTouching: dangerBoundaryTouching(frozenCoordinate),
-        // DR-14: freeze the kind's POLA posture (trust tier). The capability
-        // bundle (capabilities/resolver.ts:mintCapabilitiesForKind) is derived
-        // from this — a read-only kind's bundle can never hold fs:write.
         posture: KIND_OBLIGATIONS[targetState.kind].posture,
-        // 'builtin'/'enforce' are the structural defaults frozen at this
-        // foundational layer. Per-workflow IMPLEMENT graduation (oneshot→audit)
-        // and config-overlay provenance are bound at the orchestrate gate layer
-        // (Task 18 / DR-16), which owns `resolveImplementMode` — kept out of the
-        // state machine to preserve the workflow→orchestrate dependency direction.
         policySource: 'builtin',
         mode: 'enforce',
-        // ─── Freeze half: per-feature `designDepth` (DR-3) ──────────────
-        // Carried ONLY on the PLAN phase's `phase.entered` (the single
-        // per-feature freeze point — the analog of per-task `riskTier`'s wave
-        // stamp). The projection folds this onto the view; the plan-structure
-        // resolver reads the frozen value on every subsequent resolution. Other
-        // kinds omit the field so the freeze has exactly one author.
         ...(targetState.kind === 'PLAN' ? { designDepth: resolvedDesignDepth } : {}),
       },
     });
   }
 
-  // ─── Step 10: Return ───────────────────────────────────────────────
   return {
     success: true,
     idempotent: false,

@@ -7,32 +7,14 @@ import { readStateFile } from '../state-store.js';
 import * as path from 'node:path';
 import { handleSet } from './set.js';
 
-// ─── handleTransition ───────────────────────────────────────────────────────
-//
-// T36/T37/DR-4: `workflow.transition({target})` is the canonical phase-mutation
-// action after the HSM API single-path consolidation. The deprecated
-// `workflow.set({phase})` action delegates here through the shared
-// `applyTransition()` helper so both handlers emit byte-equivalent
-// `workflow.transition` events from the same code path — eliminating the
-// "second phase-write surface" the v2.9 substrate carried.
-//
-// T42/DR-5: guard-failure responses are shaped through `buildGuardFailureError()`
-// so the structured envelope (`validTargets`, `expectedShape`, `suggestedFix`)
-// is identical regardless of whether the failure surfaced via the canonical
-// or deprecated entry point.
-
 export interface TransitionInput {
   readonly featureId: string;
   readonly target: string;
 }
 
 /**
- * Canonical phase-transition handler. Routes through the shared
- * `applyTransition()` helper which is also consumed by `handleSet({phase})`.
- *
- * Returns the same `ToolResult` shape as `handleSet({phase})`'s success
- * branch; on failure, returns the structured guard-failure envelope
- * (DR-5) populated via `buildGuardFailureError()`.
+ * The canonical phase-transition handler.
+ * It returns the `handleSet` success shape. A guard failure returns the envelope of {@link buildGuardFailureError}.
  */
 export async function handleTransition(
   input: TransitionInput,
@@ -43,26 +25,19 @@ export async function handleTransition(
     requiredReviews?: readonly string[];
     checkpoint?: CheckpointEnforcementConfig;
     /**
-     * DR-1: resolved `.exarchos.yml workflow.maxPlanRevisions` cap. Injected
-     * into the reserved ephemeral `state._maxPlanRevisions` for the pure
-     * `revisionsExhausted` guard, then stripped before persistence — never
-     * event-sourced (INV-1: a config threshold is not a fact).
+     * The `workflow.maxPlanRevisions` cap from `.exarchos.yml`, for the `revisionsExhausted` guard.
+     * It goes into the ephemeral `state._maxPlanRevisions` and is stripped before persistence. A config threshold is not a fact.
      */
     maxPlanRevisions?: number;
     /**
-     * DR-3: resolved `.exarchos.yml review.mutationEnforcement` mode and the
-     * resolved mutation threshold. Injected (HIGH tier only) into
-     * `_mutationEnforcement` / `_mutationThreshold` for the pure `allReviewsPassed`
-     * score check, then stripped before persistence — never event-sourced (INV-1).
+     * The `review.mutationEnforcement` mode from `.exarchos.yml`, with the mutation threshold below.
+     * For the high tier only, both go into ephemeral fields for the `allReviewsPassed` score check. They are stripped before persistence.
      */
     mutationEnforcement?: 'block' | 'advisory';
     mutationThreshold?: number;
     /**
-     * DR-6: resolved NoCoverage budget for the pure `allReviewsPassed` guard's
-     * SECOND, orthogonal axis. Injected (HIGH tier only) into `_maxNoCoverage`,
-     * then stripped before persistence — never event-sourced (INV-1). Config
-     * plumbing beside `_mutationThreshold`, not a facade fork: the pass-decision
-     * lives in the guard, both facades reach it through this same injector.
+     * The NoCoverage budget, the second axis of the `allReviewsPassed` guard.
+     * For the high tier only, a non-negative integer budget goes into the ephemeral `_maxNoCoverage`. It is stripped before persistence.
      */
     maxNoCoverage?: number;
   },
@@ -76,17 +51,8 @@ export async function handleTransition(
 }
 
 /**
- * Shared private helper consumed by both `handleTransition` (canonical)
- * and `handleSet({phase})` (deprecated). The body delegates to `handleSet`
- * with `phase = target` so the existing CAS / HSM-guard wiring stays in a
- * single code path; on guard-failure outcomes the response is enriched
- * with the structured DR-5 envelope.
- *
- * Keeping this as a thin pass-through (rather than re-implementing the
- * CAS loop) honors INV-2 facade equivalence — the substrate-level guard
- * primitive is the canonical core, and both action surfaces route through
- * it. The DR-5 enrichment lives here so it cannot be bypassed by callers
- * that reach for `handleSet` directly.
+ * Calls `handleSet` with `phase = target`, so the CAS and HSM-guard wiring stays in one code path.
+ * Then it adds the structured envelope to a guard failure.
  */
 async function applyTransition(
   input: { featureId: string; target: string },
@@ -96,28 +62,12 @@ async function applyTransition(
     skipPhases?: readonly string[];
     requiredReviews?: readonly string[];
     checkpoint?: CheckpointEnforcementConfig;
-    /**
-     * DR-1: resolved `.exarchos.yml workflow.maxPlanRevisions` cap. Injected
-     * into the reserved ephemeral `state._maxPlanRevisions` for the pure
-     * `revisionsExhausted` guard, then stripped before persistence — never
-     * event-sourced (INV-1: a config threshold is not a fact).
-     */
+    /** See {@link handleTransition}. */
     maxPlanRevisions?: number;
-    /**
-     * DR-3: resolved `.exarchos.yml review.mutationEnforcement` mode and the
-     * resolved mutation threshold. Injected (HIGH tier only) into
-     * `_mutationEnforcement` / `_mutationThreshold` for the pure `allReviewsPassed`
-     * score check, then stripped before persistence — never event-sourced (INV-1).
-     */
+    /** See {@link handleTransition}. */
     mutationEnforcement?: 'block' | 'advisory';
     mutationThreshold?: number;
-    /**
-     * DR-6: resolved NoCoverage budget for the pure `allReviewsPassed` guard's
-     * SECOND, orthogonal axis. Injected (HIGH tier only) into `_maxNoCoverage`,
-     * then stripped before persistence — never event-sourced (INV-1). Config
-     * plumbing beside `_mutationThreshold`, not a facade fork: the pass-decision
-     * lives in the guard, both facades reach it through this same injector.
-     */
+    /** See {@link handleTransition}. */
     maxNoCoverage?: number;
   },
 ): Promise<ToolResult> {
@@ -128,7 +78,6 @@ async function applyTransition(
     options,
   );
 
-  // Enrich guard-failure responses with the structured DR-5 envelope.
   if (!result.success && result.error) {
     return enrichGuardFailureError(result, input.featureId, input.target, stateDir);
   }
@@ -136,13 +85,9 @@ async function applyTransition(
 }
 
 /**
- * Augment a guard-failure ToolResult with the DR-5 structured envelope:
- * `validTargets[]` enumerated from the HSM topology, `expectedShape`
- * describing the action's `target` field, and a `suggestedFix` referencing
- * the closest valid transition (Levenshtein-nearest among the declared
- * targets). The closest-target heuristic gives operators a one-step
- * correction path; falls back to the first valid target when the input
- * is empty or no targets exist.
+ * Adds the structured envelope to `GUARD_FAILED`, `INVALID_TRANSITION`, `CIRCUIT_OPEN` and `PHASE_BLOCKED` failures.
+ * Other failures pass unchanged. The current phase comes from the state file.
+ * When that read fails, default values apply, and the envelope stays valid.
  */
 async function enrichGuardFailureError(
   result: ToolResult,
@@ -158,16 +103,9 @@ async function enrichGuardFailureError(
     code !== ErrorCode.CIRCUIT_OPEN &&
     code !== ErrorCode.PHASE_BLOCKED
   ) {
-    // Non-guard failures (STATE_NOT_FOUND, EVENT_APPEND_FAILED, etc.)
-    // pass through unchanged. PHASE_BLOCKED is a transition-boundary fault, so
-    // it gets the same validTargets enrichment as the other guard failures.
     return result;
   }
 
-  // Read the current phase from the state file so `validTargets` is computed
-  // against the actual `from` phase. Best-effort: a missing state file is
-  // already a separate error path (STATE_NOT_FOUND) and would have been
-  // caught upstream.
   let currentPhase = 'unknown';
   let workflowType = 'feature';
   try {
@@ -176,24 +114,18 @@ async function enrichGuardFailureError(
     currentPhase = state.phase;
     workflowType = state.workflowType as string;
   } catch {
-    // Fall through with defaults; the structured envelope still carries
-    // the (possibly empty) validTargets list and a generic suggestedFix.
   }
 
   return buildGuardFailureError(result, featureId, target, currentPhase, workflowType);
 }
 
 /**
- * Build the DR-5 structured guard-failure envelope. Pure function: given a
- * failed ToolResult and the topology-relative context, return a result with
- * `validTargets[]`, `expectedShape`, and `suggestedFix` populated. Existing
- * `validTargets` (from HSMTransitionGuard) is preserved when present; the
- * `suggestedFix` heuristic prefers the Levenshtein-closest valid target.
+ * Builds the pure guard-failure envelope: `validTargets`, `expectedShape` and `suggestedFix`.
+ * It keeps the `validTargets` of the guard when present, and otherwise uses the targets of the HSM topology.
+ * `suggestedFix` names the valid target nearest by Levenshtein distance. With an empty target, that is the shortest phase.
  *
- * Identical envelope shape across CLI and MCP carriers (T42 / DR-5): the
- * `parity-harness.TRANSITION_GUARD_FAILURE_FIXTURE` test asserts byte
- * equivalence so any drift in the failure-path serialization is caught at
- * compile-time review rather than at runtime in client code.
+ * `expectedShape` describes the `target` input, and keeps the state shape of the guard under `requiredState`.
+ * The CLI and MCP envelopes are identical. `TRANSITION_GUARD_FAILURE_FIXTURE` in the parity harness asserts it.
  */
 function buildGuardFailureError(
   result: ToolResult,
@@ -213,16 +145,11 @@ function buildGuardFailureError(
     validTargetPhases = [];
   }
 
-  // Prefer the validTargets the guard primitive already surfaced; otherwise
-  // fall back to the topology query above.
   const existingValidTargets = result.error.validTargets;
   const validTargets = existingValidTargets && existingValidTargets.length > 0
     ? existingValidTargets
     : validTargetPhases;
 
-  // Closest-by-Levenshtein heuristic. With an empty target string, the
-  // first valid target "wins" (string-distance from empty is the length
-  // of the candidate, so any non-empty list returns the shortest).
   const candidatePhases = validTargets.map((t) =>
     typeof t === 'string' ? t : t.phase,
   );
@@ -245,12 +172,6 @@ function buildGuardFailureError(
       }
     : undefined;
 
-  // DR-5 surfaces a target-shape `expectedShape` describing the action's
-  // input (`target`), not the guarded-state shape the HSM primitive may
-  // already have populated. Both are valuable: the state-shape tells the
-  // caller what's missing, the input-shape tells them how to reformulate
-  // the call. Keep the inner state-shape (when present) under
-  // `requiredState` so neither signal is lost.
   const targetExpectedShape: Record<string, unknown> = {
     target: candidatePhases.length > 0
       ? candidatePhases.join(' | ')
@@ -271,7 +192,7 @@ function buildGuardFailureError(
   };
 }
 
-/** Levenshtein edit distance — shared closest-valid-target heuristic. */
+/** The Levenshtein edit distance between two strings. */
 function levenshtein(a: string, b: string): number {
   if (a === b) return 0;
   if (a.length === 0) return b.length;

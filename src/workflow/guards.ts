@@ -1,7 +1,5 @@
 import { isPlainObject } from './state-mutation.js';
 
-// ─── Guard Types ────────────────────────────────────────────────────────────
-
 export interface GuardFailure {
   readonly passed: false;
   readonly reason: string;
@@ -22,8 +20,6 @@ export interface Guard {
   readonly custom?: boolean;
 }
 
-// ─── Guard Composition ──────────────────────────────────────────────────────
-
 /**
  * Compose multiple guards into a single guard that requires all to pass.
  * Returns the first failure encountered, or true if all pass.
@@ -42,24 +38,11 @@ export function composeGuards(id: string, description: string, ...innerGuards: G
   };
 }
 
-// ─── Guard Helpers ──────────────────────────────────────────────────────────
-
 /**
- * Reads a nested object field off untyped workflow state.
- *
- * The field is NARROWED with `isPlainObject`, never asserted (DR-14). Guard
- * state arrives as `Record<string, unknown>` straight off the projection, so a
- * `string`, number, array, or `null` can appear under any field. An assertion
- * would hand the checker a claim it cannot back — `state.reviews` given an
- * object type while holding `"pending"` — and every downstream property read would
- * then be silently `undefined` with no type error to show for it. Narrowing
- * collapses those malformed shapes onto the SAME `undefined` that a missing
- * field produces, which is the branch every caller already handles as "guard
- * not satisfied".
- *
- * This is the read the mutation-adequacy NoCoverage check (Check 4b in
- * `allReviewsPassed`) already performed inline; hoisting it makes the whole
- * guard table share the one narrowing instead of half-asserting.
+ * Read a nested object field from untyped workflow state. The reader narrows the value
+ * with `isPlainObject` and does not assert its type. A string, number, array, or `null`
+ * gives the same `undefined` as a missing field, so a malformed field takes the branch of
+ * a missing field.
  */
 function readObjectField(
   state: Record<string, unknown>,
@@ -70,15 +53,8 @@ function readObjectField(
 }
 
 /**
- * Reads a field expected to hold a list of record-shaped entries (e.g.
- * `state._events`), keeping only the entries that ARE records.
- *
- * Asserting `readonly Record<string, unknown>[]` here was doubly unbacked: a
- * non-array field would blow up on `.some(...)` at runtime with the checker
- * insisting the call was fine, and a `null` entry inside the array would throw
- * on the first property read. Narrowing yields an empty list for the former and
- * drops the latter, so callers get the "no matching event" answer they already
- * handle instead of a TypeError (DR-14).
+ * Read a field that holds a list of records, such as `state._events`. A field that is
+ * not an array gives an empty list, and entries that are not records drop out.
  */
 function readRecordArrayField(
   state: Record<string, unknown>,
@@ -88,12 +64,7 @@ function readRecordArrayField(
   return Array.isArray(value) ? value.filter(isPlainObject) : [];
 }
 
-/**
- * Reads a string-typed property off a value of unknown shape, yielding
- * `undefined` when the value is not a record or the property is not a string.
- * Used where an element type was previously asserted onto untyped projection
- * data (DR-14).
- */
+/** Read a string property from a value of unknown shape, or give `undefined`. */
 function readStringField(value: unknown, field: string): string | undefined {
   if (!isPlainObject(value)) return undefined;
   const raw = value[field];
@@ -101,45 +72,31 @@ function readStringField(value: unknown, field: string): string | undefined {
 }
 
 /**
- * A TYPED ARTIFACT REFERENCE (DR-5). An artifact field carries either a path
- * (`docs/specs/…md`, a URL) or the artifact contents — both of which are
- * strings. Anything else is not a reference to anything.
+ * A typed artifact reference: a non-blank string that holds a path, a URL, or the
+ * artifact contents. Each other value refers to nothing.
  *
- * This is the SAME narrowing `oneshotPlanSet` (F23 / #1213), the
- * `delegationReadinessProjection`'s `artifactPresent`, and the admission
- * algebra's `artifacts.planNonEmpty` fact already apply. Keeping one predicate
- * is what stops the three surfaces from drifting back apart.
- *
- * Exported so consumers that CAN import this module (e.g. the
- * delegation-readiness view) share the one predicate instead of re-deriving
- * it. The admission algebra (`admission/legacy-state-translation.ts`) is the
- * deliberate exception: it must stay import-free of this module
- * (`built-in-workflow-ir.structure.test.ts`), so it carries an intentional
- * duplicate held in lockstep by `legacy-guard-parity.test.ts`.
+ * Consumers that can import this module, such as the delegation-readiness view,
+ * must share this predicate. The admission algebra in
+ * `admission/legacy-state-translation.ts` must not import this module, so it keeps a
+ * duplicate. `legacy-guard-parity.test.ts` keeps the two in lockstep.
  */
 export function isTypedArtifactReference(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
+/**
+ * Build a guard that requires a typed artifact reference at `artifacts[field]` or at
+ * the top-level `field`. A bare boolean, an object, or a blank string is not an
+ * artifact. Both reads are narrowed, because a loose fallback is an open bypass.
+ */
 function makeArtifactGuard(field: string, description: string, customId?: string): Guard {
   const id = customId ?? `${field}-artifact-exists`;
   return {
     id,
     description,
     evaluate: (state: Record<string, unknown>): GuardResult => {
-      // DR-5 (#T-08): this used to be a bare `!= null` presence probe, so
-      // `artifacts.plan = true` — or `false`, `0`, `''`, `'   '`, `{}` —
-      // satisfied a phase gate whose whole purpose is to require a real
-      // artifact. A bare boolean is not a plan. The admission algebra already
-      // rejected these at the schema level, but that rejection lived only in
-      // the shadow layer; the shipped transition path (tools.ts →
-      // hsmTransitionGuard.attempt → executeTransition → guard.evaluate) read
-      // this loose check, so the rejection never reached production. Both the
-      // canonical `artifacts[field]` read AND the legacy top-level fallback are
-      // narrowed — tightening only one leaves the other as an open bypass.
       const artifacts = readObjectField(state, 'artifacts');
       if (artifacts != null && isTypedArtifactReference(artifacts[field])) return true;
-      // Fallback: check top-level field
       if (isTypedArtifactReference(state[field])) return true;
       const featureId = (typeof state.featureId === 'string' ? state.featureId : '<featureId>');
       return {
@@ -170,12 +127,9 @@ const REVIEW_EXPECTED_SHAPE: Record<string, unknown> = {
 };
 
 /**
- * Extract the review status string from an entry, checking `status` first,
- * then `verdict` as a synonym (see GitHub #1004). Values are normalized to
- * lowercase so that uppercase verdicts like `"PASS"` / `"APPROVED"` —
- * commonly produced by agents copying `check_review_verdict`'s uppercase
- * discriminated-union return values into state — match the lowercase
- * PASSED_STATUSES / FAILED_STATUSES sets (see GitHub #1075).
+ * Extract the review status from an entry. The reader checks `status` first, then
+ * `verdict` as a synonym. Values are lowercased, so an uppercase verdict such as
+ * `"PASS"` matches `PASSED_STATUSES` and `FAILED_STATUSES`.
  */
 function extractStatus(entry: Record<string, unknown>): string | undefined {
   if (typeof entry.status === 'string') return entry.status.toLowerCase();
@@ -184,32 +138,22 @@ function extractStatus(entry: Record<string, unknown>): string | undefined {
 }
 
 /**
- * Collects all review status values from a reviews object, handling both flat
- * and nested shapes:
- *   - flat:   reviews.overhaul = { status: "approved", ... }
- *   - flat:   reviews.overhaul = { verdict: "pass", ... }
- *   - nested: reviews.A1 = { specReview: { status: "pass" }, qualityReview: { verdict: "approved" } }
- * Also supports the legacy `passed: boolean` shape for backward compatibility.
+ * Collect each review status from a reviews object. An entry is flat, with `status`
+ * or `verdict`, or nested one level, as in `reviews.A1.specReview.status`. The legacy
+ * `passed: boolean` shape also counts. An entry that is not a plain object is skipped.
  */
 export function collectReviewStatuses(
   reviews: Record<string, unknown>,
 ): Array<{ path: string; status: string }> {
   const results: Array<{ path: string; status: string }> = [];
   for (const [key, entry] of Object.entries(reviews)) {
-    // `isPlainObject` replaces a `typeof … === 'object'` probe followed by an
-    // assertion to the very type the probe could not establish: `typeof []` is
-    // also `'object'`, so an array review entry used to reach `extractStatus`
-    // given a record type. The predicate narrows for real (DR-14).
     if (!isPlainObject(entry)) continue;
     const status = extractStatus(entry);
     if (status !== undefined) {
-      // Flat review: { status: "approved", ... } or { verdict: "pass", ... }
       results.push({ path: key, status });
     } else if (typeof entry.passed === 'boolean') {
-      // Legacy: { passed: true/false }
       results.push({ path: key, status: entry.passed ? 'passed' : 'failed' });
     } else {
-      // Nested: { specReview: { status: "pass" }, qualityReview: { verdict: "approved" } }
       for (const [subKey, sub] of Object.entries(entry)) {
         if (!isPlainObject(sub)) continue;
         const subStatus = extractStatus(sub);
@@ -227,21 +171,16 @@ export function collectReviewStatuses(
 const UNSAFE_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 
 /**
- * A fresh prototype-less record. `Object.create(null)` is declared to return
- * `any`, so the RETURN ANNOTATION — not an assertion at each call site — is
- * what pins the type and stops the `any` from spreading (DR-14).
+ * A fresh record without a prototype. `Object.create(null)` returns `any`, so the
+ * return annotation pins the type.
  */
 function emptyRecord(): Record<string, unknown> {
   return Object.create(null);
 }
 
 /**
- * Builds an expectedShape for failed reviews, listing each failed path with { status: 'pass' }.
- * Handles dotted paths (e.g. "A1.specReview") by building nested objects.
- *
- * The `reviews` key is declared in the return type rather than re-asserted by
- * the caller: `allReviewsPassed` merges these entries into its own
- * expectedShape and previously had to assert the property back into existence.
+ * Build an `expectedShape` that sets `{ status: 'pass' }` at each failed path. A
+ * dotted path such as `A1.specReview` becomes nested objects. Unsafe keys are skipped.
  */
 function buildFailedReviewsExpectedShape(
   notPassed: Array<{ path: string; status: string }>,
@@ -254,9 +193,6 @@ function buildFailedReviewsExpectedShape(
     for (let i = 0; i < parts.length - 1; i += 1) {
       const key = parts[i];
       if (key === undefined || UNSAFE_KEYS.has(key)) { skip = true; break; }
-      // Reuse an existing branch only when it really is a record. The old
-      // `typeof … === 'object'` probe accepted arrays and then asserted them
-      // to a record; `isPlainObject` decides and narrows in one step.
       const existing = cursor[key];
       const branch = isPlainObject(existing) ? existing : emptyRecord();
       cursor[key] = branch;
@@ -271,33 +207,24 @@ function buildFailedReviewsExpectedShape(
   return { reviews: reviewEntries };
 }
 
-// ─── Constants ──────────────────────────────────────────────────────────────
-
-// DR-1: default plan-revision cap when `.exarchos.yml workflow.maxPlanRevisions`
-// is not injected (`state._maxPlanRevisions`). One adversarial revise cycle then
-// escalate — down from the prior hardcoded 3 (an intentional, flagged change).
+/**
+ * The plan-revision cap when `.exarchos.yml` injects no `state._maxPlanRevisions`.
+ * One revise cycle runs, then the workflow escalates.
+ */
 export const DEFAULT_MAX_PLAN_REVISIONS = 1;
 const MAX_SYNTHESIZE_RETRIES = 3;
 
-// ─── Synthesis Guard Helpers ────────────────────────────────────────────────
-
 /**
- * Returns true if `state._events` contains at least one `synthesize.requested` event.
- * Pure: reads only the provided events array. Used by both synthesisOptedIn and
- * synthesisOptedOut; do NOT use it to compose one guard from the other — each
- * guard must inline its own branch logic to avoid the "missing inverse guard"
- * anti-pattern seen in hotfixTrackSelected/thoroughTrackSelected.
+ * Tell if `state._events` holds a `synthesize.requested` event. `synthesisOptedIn` and
+ * `synthesisOptedOut` both call it. Each guard keeps its own branch logic, so a change
+ * to one cannot skew the other.
  */
 function hasSynthesizeRequestEvent(state: Record<string, unknown>): boolean {
   const events = readRecordArrayField(state, '_events');
   return events.some((e) => e.type === 'synthesize.requested');
 }
 
-/**
- * Reads `state.oneshot?.synthesisPolicy`, defaulting to `'on-request'` when the
- * oneshot object or its policy field is missing. Returns one of the three
- * policy literals; unrecognized values collapse to the default.
- */
+/** Read `state.oneshot.synthesisPolicy`. A missing or unknown value gives `on-request`. */
 function readSynthesisPolicy(state: Record<string, unknown>): 'always' | 'never' | 'on-request' {
   const oneshot = readObjectField(state, 'oneshot');
   const raw = oneshot?.synthesisPolicy;
@@ -305,29 +232,19 @@ function readSynthesisPolicy(state: Record<string, unknown>): 'always' | 'never'
   return 'on-request';
 }
 
-// ─── Guards ─────────────────────────────────────────────────────────────────
-
 export const guards = {
   designArtifactExists: makeArtifactGuard('design', 'Design artifact must exist'),
 
   planArtifactExists: makeArtifactGuard('plan', 'Plan artifact must exist'),
 
+  /**
+   * Pass when each task has the status `complete`. An absent task list passes. A
+   * present `tasks` value that is not an array fails, so corrupt state never reads as done.
+   */
   allTasksComplete: {
     id: 'all-tasks-complete',
     description: 'All tasks must be complete',
     evaluate: (state: Record<string, unknown>): GuardResult => {
-      // Asserting `Array<{ id?: string; status: string }>` promised the checker
-      // a shape nothing verified: `state.tasks` is projected untyped, so a
-      // `null` entry made `t.status` a TypeError the types said was impossible,
-      // and an array-LIKE object (`{ length: 1, 0: … }`) made `.every` one too.
-      // Both used to surface only via a caught exception. Now the malformed list
-      // is REJECTED explicitly and a task whose `status` is absent or non-string
-      // simply is not 'complete' (DR-14).
-      //
-      // Absent `tasks` still passes — a workflow with no task list has nothing
-      // outstanding — but a PRESENT-yet-unusable `tasks` must never read as
-      // "zero tasks, all complete"; that would turn corrupt state into a green
-      // gate. `state-machine.legacy.test.ts` pins this transition to a failure.
       const rawTasks = state.tasks;
       if (rawTasks == null) return true;
       const featureId = (typeof state.featureId === 'string' ? state.featureId : '<featureId>');
@@ -365,6 +282,17 @@ export const guards = {
     },
   },
 
+  /**
+   * Pass when each required review dimension is present and each review entry passes.
+   * The guard collects the failures into one result, so one retry can fix them. A
+   * required key that is not a string, is unsafe, or has no recognizable status counts
+   * as missing. The fix payload skips unsafe keys to prevent prototype pollution.
+   *
+   * The mutation checks read injected values, never the project config. In `block`
+   * mode, a degraded run, a non-finite score, or a score below `_mutationThreshold`
+   * fails. A skipped run stays advisory. For a scored run, an unreadable NoCoverage
+   * count or a count above `_maxNoCoverage` fails.
+   */
   allReviewsPassed: {
     id: 'all-reviews-passed',
     description: 'All required reviews must be present and have passed',
@@ -379,25 +307,11 @@ export const guards = {
         };
       }
 
-      // Accumulate ALL failures rather than short-circuiting on the first
-      // one (see GitHub #1074). An agent hitting multiple contract violations
-      // should see everything wrong in one error message so it can fix
-      // everything in a single retry.
       const featureId = typeof state.featureId === 'string' ? state.featureId : '<featureId>';
       const reasons: string[] = [];
       const expectedReviews: Record<string, unknown> = {};
       const suggestedUpdates: Record<string, unknown> = {};
 
-      // Check 1: required review dimensions present AND have a
-      // recognizable status? `!reviews[key]` is not enough — it accepts
-      // `{}` (truthy but no status field) and prototype-inherited keys
-      // like `__proto__`. A present-but-empty entry would then be
-      // skipped by `collectReviewStatuses` and the guard would return
-      // true with nothing actually verified. CodeRabbit finding on #1076.
-      // Narrowed rather than asserted to `readonly string[]` (DR-14). Entries
-      // are checked one at a time so a non-string entry stays REPORTED as
-      // missing — filtering the list would quietly shrink the requirement set,
-      // which is the one direction this guard must never move.
       const requiredReviews: readonly unknown[] = Array.isArray(state._requiredReviews)
         ? state._requiredReviews
         : [];
@@ -405,9 +319,6 @@ export const guards = {
       if (requiredReviews.length > 0) {
         for (const rawKey of requiredReviews) {
           if (typeof rawKey !== 'string' || UNSAFE_KEYS.has(rawKey)) {
-            // Never trust proto-pollution keys as "present" — they're
-            // inherited on every object. A non-string requirement names no
-            // dimension that can be satisfied, so it is missing by definition.
             missing.push(String(rawKey));
             continue;
           }
@@ -421,8 +332,6 @@ export const guards = {
             missing.push(key);
             continue;
           }
-          // Must carry at least one recognizable shape: status, verdict,
-          // or legacy `passed: boolean`. An empty `{}` is not present.
           const hasStatus = extractStatus(entry) !== undefined;
           const hasLegacyPassed = typeof entry.passed === 'boolean';
           if (!hasStatus && !hasLegacyPassed) {
@@ -433,11 +342,6 @@ export const guards = {
           reasons.push(
             `Missing required review dimensions: ${missing.join(', ')}. Run the review skills for these dimensions before transitioning.`,
           );
-          // Populate expectedShape and suggestedFix payloads, but filter
-          // UNSAFE_KEYS out — an agent blindly applying the suggestedFix
-          // must not be tricked into writing `reviews.__proto__.status`
-          // (prototype pollution). The reason string still names the
-          // unsafe key so the caller understands what was rejected.
           for (const key of missing) {
             if (UNSAFE_KEYS.has(key)) continue;
             expectedReviews[key] = { status: 'pass' };
@@ -446,12 +350,8 @@ export const guards = {
         }
       }
 
-      // Check 2: at least one recognizable review entry exists.
       const statuses = collectReviewStatuses(reviews);
       if (statuses.length === 0) {
-        // If no entries AND required dimensions were missing, the "missing
-        // dimensions" message is more actionable. Only surface the
-        // no-entries message when it adds information.
         if (missing.length === 0) {
           return {
             passed: false,
@@ -462,7 +362,6 @@ export const guards = {
         }
       }
 
-      // Check 3: every present review entry passes.
       const notPassed = statuses.filter((s) => !PASSED_STATUSES.has(s.status));
       if (notPassed.length > 0) {
         reasons.push(
@@ -472,14 +371,6 @@ export const guards = {
         for (const [k, v] of Object.entries(failedShape)) {
           expectedReviews[k] = v;
         }
-        // Include failing entries in the suggestedFix dot-path patch so
-        // an agent applying the fix can resolve BOTH missing dimensions
-        // AND present-but-failing entries in a single retry (CodeRabbit
-        // finding on PR #1076). `s.path` may be dotted for nested
-        // reviews (e.g., "A1.specReview"), which dot-path assignment
-        // handles correctly downstream. Skip any path whose segments
-        // contain an UNSAFE_KEY for the same prototype-pollution reason
-        // as the missing-dimensions loop above.
         for (const s of notPassed) {
           const segments = s.path.split('.');
           if (segments.some((seg) => UNSAFE_KEYS.has(seg))) continue;
@@ -487,30 +378,11 @@ export const guards = {
         }
       }
 
-      // Check 4a: mutation SCORE enforcement (DR-3). PURE — reads only the
-      // values `workflow/tools.ts` pre-resolves and injects (`_mutationEnforcement`,
-      // `_mutationThreshold`, and — for Check 4b's orthogonal NoCoverage axis —
-      // `_maxNoCoverage`), never `ResolvedProjectConfig`. Advisory by default
-      // (#1520/R5): enforcement fires ONLY when the injected mode is `block` and a
-      // finite threshold was injected (both set together, HIGH tier only). This is
-      // the score gate — distinct from the dimension's presence/advisory status
-      // (Checks 1/3, DR-2a); the gate-level run stays blocking:false (no double-block).
-      // Two skip-pass flavors differ HERE: a no-toolchain skip-pass (`skipped:true`,
-      // no `degraded`) carries no real score and stays advisory even under block —
-      // it is a backstop the repo cannot run (DR-2a trade-off). A DEGRADED run
-      // (`degraded:true` — toolchain present but the runner failed or emitted an
-      // unparseable report) fails CLOSED under block: it produced no verifiable
-      // score, so silently passing it would defeat the enforcement (review finding
-      // RVC-R1). The shared `skipped:true` marker alone must NOT be treated as
-      // "score verified".
       if (
         state._mutationEnforcement === 'block' &&
         typeof state._mutationThreshold === 'number' &&
         Number.isFinite(state._mutationThreshold)
       ) {
-        // Narrowed, not asserted — the same read Check 4b performs below
-        // (DR-14). A non-object `reviews['mutation-adequacy']` carries no
-        // score, which is exactly the `undefined` branch.
         const dim = readObjectField(reviews, 'mutation-adequacy');
         if (dim?.degraded === true) {
           reasons.push(
@@ -521,10 +393,6 @@ export const guards = {
           const score = dim?.mutationScore;
           if (dim && dim.skipped !== true && typeof score === 'number') {
             if (!Number.isFinite(score)) {
-              // A present-but-non-finite score (e.g. NaN from a 0/0 mutation ratio
-              // when every mutant was uncovered) is UNVERIFIABLE. `NaN < threshold`
-              // is always false, which would silently pass — the opposite of the
-              // fail-closed intent (RVC-R1 / CodeRabbit). Block it under enforcement.
               reasons.push(
                 `mutation-adequacy produced a non-finite score (unverifiable) ` +
                   `(review.mutationEnforcement: block)`,
@@ -539,34 +407,17 @@ export const guards = {
         }
       }
 
-      // Check 4b: mutation NoCoverage enforcement (DR-6). The SECOND, ORTHOGONAL
-      // blocking axis — deterministic (runner-budget-insensitive), so the safest
-      // to block on. Still PURE: reads only the pre-resolved `_maxNoCoverage`
-      // injection (plumbed in workflow/tools.ts beside `_mutationThreshold`),
-      // never config. Fires under block mode with a finite injected budget and a
-      // REAL run: a skip-pass / degraded dimension carries no verifiable
-      // NoCoverage count (both emit noCoverage:0, and Check 4a already fails a
-      // degraded run closed), so the axis reads only a scored run. `mutationScore`
-      // stays UNCHANGED (INV-5b) — this blocks on a DIFFERENT signal, orthogonally
-      // to the score axis above.
       if (
         state._mutationEnforcement === 'block' &&
         typeof state._maxNoCoverage === 'number' &&
         Number.isInteger(state._maxNoCoverage) &&
         state._maxNoCoverage >= 0
       ) {
-        // Capture the narrowed budget right after the `typeof` check above
-        // (real narrowing, not an escape-hatch cast — DR-14).
         const maxNoCoverage = state._maxNoCoverage;
         const dim = readObjectField(reviews, 'mutation-adequacy');
         if (dim && dim.skipped !== true && dim.degraded !== true) {
           const noCoverage = dim.noCoverage;
           if (typeof noCoverage !== 'number' || !Number.isInteger(noCoverage) || noCoverage < 0) {
-            // A REAL (non-skipped, non-degraded) dimension under block mode must
-            // carry a verifiable NoCoverage COUNT. `undefined`/NaN/nonnumeric/
-            // negative/fractional is unverifiable — `noCoverage > budget` would
-            // be silently false and pass the axis by default, so fail closed
-            // instead (DR-10 mirrors the non-finite-score guard in Check 4a).
             reasons.push(
               `mutation-adequacy produced no verifiable NoCoverage count ` +
                 `(review.mutationEnforcement: block)`,
@@ -791,11 +642,11 @@ export const guards = {
     },
   },
 
+  /** Pass when `explore.scopeAssessment` or the legacy top-level `scopeAssessment` is set. */
   scopeAssessmentComplete: {
     id: 'scope-assessment-complete',
     description: 'Scope assessment must be complete',
     evaluate: (state: Record<string, unknown>): GuardResult => {
-      // Check under explore.scopeAssessment (canonical) or root scopeAssessment (legacy/convenience)
       const explore = readObjectField(state, 'explore');
       if (explore?.scopeAssessment != null) return true;
       if (state.scopeAssessment != null) return true;
@@ -933,12 +784,12 @@ export const guards = {
     },
   },
 
+  /** Pass when no team was spawned, as in subagent mode, or when `team.disbanded` is in `_events`. */
   teamDisbandedEmitted: {
     id: 'team-disbanded-emitted',
     description: 'Team must be disbanded before transitioning out of delegation',
     evaluate: (state: Record<string, unknown>): GuardResult => {
       const events = readRecordArrayField(state, '_events');
-      // No team spawned (subagent mode) — guard passes automatically
       const hasTeamSpawned = events.some((e) => e.type === 'team.spawned');
       if (!hasTeamSpawned) return true;
       const hasDisbanded = events.some((e) => e.type === 'team.disbanded');
@@ -972,36 +823,17 @@ export const guards = {
     },
   },
 
+  /**
+   * Pass only when `artifacts.plan` is a typed artifact reference. `oneshot.planSummary`
+   * is a label and not a plan, so it never satisfies the guard.
+   */
   oneshotPlanSet: {
     id: 'oneshot-plan-set',
     description:
       'Oneshot workflow plan artifact is captured in state.artifacts.plan as a non-empty string (plan contents or path). `oneshot.planSummary` is a pipeline-view hint, not a plan, and is not sufficient alone to transition plan → implementing.',
     evaluate: (state: Record<string, unknown>): GuardResult => {
-      // Tightened: require `artifacts.plan` as the primary (and only
-      // sufficient) condition. Previously either `oneshot.planSummary`
-      // OR `artifacts.plan` satisfied the guard, but `planSummary` is a
-      // one-line pipeline-view hint — not a real plan — and accepting it
-      // as a substitute meant oneshot workflows could enter `implementing`
-      // with no persisted plan artifact at all. `planSummary` is still
-      // recommended as a human-readable label, but it is not the artifact
-      // the guard enforces.
-      //
-      // F23 (#1213): tightened further to require a STRING. Previously
-      // any non-string truthy value (e.g. `true`, an object, a number)
-      // also satisfied the guard, which diverged from the
-      // `delegationReadinessProjection`'s `artifactPresent` projection
-      // (which already required `typeof === 'string' && .length > 0`).
-      // Aligning the two surfaces on "non-empty string" is the most
-      // defensible contract — `artifacts.plan` is a plan path or plan
-      // contents, both of which are strings. Patches that set
-      // `artifacts.plan = true` or `= {}` no longer silently advance
-      // the workflow.
       const artifacts = readObjectField(state, 'artifacts');
       const plan = artifacts?.plan;
-      // Whitespace-only plan strings are not a real plan artifact — they
-      // satisfy `.length > 0` but carry no content, which would let a
-      // oneshot transition `plan → implementing` with a blank document.
-      // Require at least one non-whitespace character.
       if (isTypedArtifactReference(plan)) return true;
       const featureId = typeof state.featureId === 'string' ? state.featureId : '<featureId>';
       return {
@@ -1034,7 +866,6 @@ export const guards = {
           reason: 'synthesis-opted-in not satisfied: synthesisPolicy=never (direct-commit path)',
         };
       }
-      // policy === 'on-request'
       if (hasSynthesizeRequestEvent(state)) return true;
       const featureId = typeof state.featureId === 'string' ? state.featureId : '<featureId>';
       return {
@@ -1058,8 +889,6 @@ export const guards = {
     description:
       'Oneshot workflow opted out of synthesis: synthesisPolicy=never OR an on-request policy with no synthesize.requested event (direct-commit path)',
     evaluate: (state: Record<string, unknown>): GuardResult => {
-      // Inlined inverse of synthesisOptedIn — NOT composed via `!synthesisOptedIn.evaluate`
-      // so that refactoring one guard cannot silently skew the other.
       const policy = readSynthesisPolicy(state);
       if (policy === 'never') return true;
       if (policy === 'always') {
@@ -1068,7 +897,6 @@ export const guards = {
           reason: 'synthesis-opted-out not satisfied: synthesisPolicy=always (synthesize path)',
         };
       }
-      // policy === 'on-request'
       if (!hasSynthesizeRequestEvent(state)) return true;
       return {
         passed: false,
@@ -1092,6 +920,10 @@ export const guards = {
     },
   },
 
+  /**
+   * Pass when `planReview.revisionCount` reaches the cap. The cap is the injected
+   * `_maxPlanRevisions` config value, or the default. It is not event-sourced state.
+   */
   revisionsExhausted: {
     id: 'revisions-exhausted',
     description: 'Plan revision count has reached the maximum allowed',
@@ -1099,10 +931,6 @@ export const guards = {
       const planReview = readObjectField(state, 'planReview');
       const rawCount = planReview?.revisionCount;
       const count = typeof rawCount === 'number' && Number.isFinite(rawCount) ? rawCount : 0;
-      // Cap is the injected `.exarchos.yml` value (`_maxPlanRevisions`, set in
-      // tools.ts beside `_requiredReviews`); falls back to the default when no
-      // config was injected. The cap is a config threshold, not event-sourced
-      // state (INV-1) — `revisionCount` is the event-sourced fact.
       const rawCap = state._maxPlanRevisions;
       const cap = typeof rawCap === 'number' && Number.isFinite(rawCap) ? rawCap : DEFAULT_MAX_PLAN_REVISIONS;
       if (count >= cap) return true;

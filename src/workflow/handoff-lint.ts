@@ -1,53 +1,21 @@
 /**
- * #1244 — markdown-aware handoff lint at `handleCheckpoint`.
- *
- * Thin fan-out over `lintProse` (the canonical prose-lint at
- * `projections/rehydration/prose-lint.ts`). Scans each of the three
- * text-bearing fields of a `CheckpointHandoffSchema` payload —
- * `context`, `nextSteps`, `suggestions` — and tags every finding with
- * the field it originated in so the checkpoint handler (and the human
- * reading the warning) can localize the offending text.
- *
- * Design notes:
- *
- *   1. **No duplicate catalog.** The pattern set lives in `prose-lint.ts`
- *      (DR-13 / T048). This wrapper imports `lintProse` directly; any
- *      future drift between "what the rehydration template lints" and
- *      "what the handoff dispatch lints" would be a footgun, so the
- *      single source of truth is enforced by import, not convention.
- *
- *   2. **Per-field fan-out.** `nextSteps` and `suggestions` are arrays
- *      of short strings (DIM-7 caps each at 256 bytes). We lint each
- *      string independently rather than joining them first — joining
- *      would let the em-dash-chain pattern's `minHits: 3` rule mask a
- *      single-line AI-tell that the operator could otherwise see and
- *      fix.
- *
- *   3. **Short-circuit on empty.** Empty `context` / undefined arrays
- *      yield zero findings without entering the lint loop. Pre-#1240
- *      callers that omit `handoff` entirely (it's optional on
- *      `CheckpointInputSchema`) also pass through cleanly.
+ * Lints the prose of a checkpoint handoff with `lintProse` from `projections/rehydration/prose-lint.ts`.
+ * The pattern catalog lives only in that module. This file imports it and keeps no copy.
+ * The lint checks `context` and each `nextSteps` and `suggestions` string alone.
+ * Each finding names the handoff field that produced it.
  */
 
 import { lintProse, type Violation } from '../projections/rehydration/prose-lint.js';
 
-/**
- * A prose-lint violation annotated with the handoff field it came from.
- * Inherits the full `Violation` shape (`pattern`, `line`, `excerpt`) so
- * downstream consumers — the soft-warning event hint, the hard-fail
- * `data` block — see the same fields they would from a direct
- * `lintProse` call.
- */
+/** A `lintProse` violation with the handoff field that produced it. */
 export interface HandoffLintFinding extends Violation {
   /** Which handoff field produced this finding. */
   readonly source: 'context' | 'nextSteps' | 'suggestions';
 }
 
 /**
- * Handoff payload shape accepted by the lint. Mirrors
- * `CheckpointHandoffSchema` structurally but is declared inline so the
- * helper has no cross-module dependency on the dispatch schema — keeps
- * this file unit-testable without dragging in the workflow surface.
+ * The handoff fields that the lint reads.
+ * The type matches `CheckpointHandoffSchema` by structure, so this file does not import the dispatch schema.
  */
 export interface HandoffLintInput {
   readonly context?: string | undefined;

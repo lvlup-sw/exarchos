@@ -1,38 +1,14 @@
-// ─── P06-07 / Transition task 050 — reassessment under an explicit policy ────
+// Reassesses the obligations of a phase attempt under a newer, explicit policy version. History does not change.
+// RESERVED(issue: #1590, owner: exarchos, expires: 2027-01-31): this module waits for the legacy HSM cutover.
 //
-// RESERVED(issue: #1590, owner: exarchos, expires: 2027-01-31) — production
-// code awaiting the legacy HSM cutover, same staging as `bootstrap-attempts.ts`.
-// Reassessing an attempt's obligations presupposes admission owns them, which
-// happens at P07-02 migration; P07-05 removes the legacy path.
+// When the frozen set changes, a new generation with its own digest becomes active.
+// The prior generation stays in `requirementSetHistory`.
 //
-// Reassessment re-evaluates an existing phase attempt's obligations under a
-// NEWER, explicitly-named policy version, WITHOUT touching history. The attempt
-// keeps its originally-frozen requirement generation (referenced, never
-// mutated); reassessment produces a NEW frozen generation with its own
-// `requirementSetDigest`, and the DRIFT between the two is explicit — the prior
-// generation stays in `requirementSetHistory`, the new one becomes active.
-//
-// The monotonicity guarantee (P06-03), extended across policy versions
-// (requirement #4): re-evaluating is free ONLY when the new obligations are AT
-// LEAST AS STRONG as the frozen ones. Strength is judged by the P06-03 partial
-// order `atLeastAsStrong` — never a second, ad-hoc comparison. When the new set
-// is NOT at least as strong (weaker or incomparable), adopting it WEAKENS the
-// attempt's obligations, and that weakening is not free: it requires an
-// applicable, unexpired, AUTHORIZED waiver (the P06-04 waiver model). Without
-// one, reassessment FAILS CLOSED — nothing is appended, the frozen set stands.
-//
-// Authenticity is load-bearing. The caller supplies the obligations the attempt
-// was originally frozen under; reassessment re-freezes them and refuses to
-// proceed unless their digest equals the attempt's PERSISTED active
-// `requirementSetDigest`. A caller therefore cannot fabricate a strong "prior"
-// to sneak a weakening past the monotonicity gate.
-//
-// Idempotency (requirement #5): the append is one `decideOnce` transaction keyed
-// on `operationId`, so a same-key retry returns the identical recorded result.
-//
-// Pure decisions, then one atomic append: strength, drift, and waiver
-// applicability are decided from pure inputs BEFORE the transaction; the
-// transaction only reads the stream to enforce authenticity and appends.
+// A new set that is at least as strong (`atLeastAsStrong`) is free.
+// A weaker or incomparable set needs an authorized waiver for each dropped requirement.
+// Without that waiver, the reassessment fails closed and appends nothing.
+// The prior obligations must match the persisted active digest, so a caller cannot fabricate a strong prior.
+// The strength and waiver decisions are pure. One `decideOnce` transaction, keyed on `operationId`, then appends the events.
 
 import type { EventInput } from '../../events/atomic-appender.js';
 import { freezeRequirements } from './freeze-requirements.js';
@@ -71,8 +47,6 @@ import {
   type WaiverProvenanceV1,
 } from './types.js';
 
-// ─── Public command shape ─────────────────────────────────────────────────────
-
 export interface ReassessmentInput {
   readonly appender: AdmissionDecider;
   readonly streamId: string;
@@ -83,11 +57,7 @@ export interface ReassessmentInput {
   readonly subject: EvidenceSubjectV1;
   /** The prior admission decision this reassessment reconsiders (provenance). */
   readonly priorDecisionId: DecisionId;
-  /**
-   * The obligations the attempt was ORIGINALLY frozen under. Re-frozen and
-   * checked against the persisted active `requirementSetDigest`; a mismatch
-   * fails closed. (This is P06-03's `ResolvedRequirements`, the pure lattice.)
-   */
+  /** The obligations of the original freeze. A mismatch with the persisted active `requirementSetDigest` fails closed. */
   readonly priorObligations: ResolvedRequirements;
   /** The obligations resolved under the NEW policy version. */
   readonly newObligations: ResolvedRequirements;
@@ -98,7 +68,7 @@ export interface ReassessmentInput {
   readonly policyDigest: ContentDigestV1;
   /** Waiver lifecycle facts available to authorize a weakening. */
   readonly waivers?: readonly WaiverProvenanceV1[];
-  /** Out-of-band trust oracle (P01-07); self-asserted roles cannot authorize. */
+  /** The out-of-band trust oracle. A self-asserted role cannot authorize. */
   readonly authority: PolicyAuthority;
   /** Trusted RFC3339 evaluation instant — never `Date.now()`. */
   readonly evaluatedAt: string;
@@ -126,16 +96,19 @@ export interface ReassessmentApplied {
   readonly foldIntegrity: PhaseAttemptAdmissionFold['integrity'];
 }
 
+/**
+ * Why a reassessment failed closed.
+ * - `attempt-not-found`: the stream has no such phase attempt.
+ * - `no-frozen-set`: the attempt has no frozen requirement set.
+ * - `prior-obligations-mismatch`: the prior obligations do not match the persisted digest.
+ * - `not-waivable`: no waiver can authorize a weakening of the prior obligations.
+ * - `waiver-required`: a weakening has no applicable, unexpired, authorized waiver.
+ */
 export type ReassessmentRejectionReason =
-  /** No such phase attempt on the stream. */
   | 'attempt-not-found'
-  /** The attempt carries no frozen requirement set to reassess. */
   | 'no-frozen-set'
-  /** The supplied prior obligations do not match the persisted frozen digest. */
   | 'prior-obligations-mismatch'
-  /** The prior obligations are not waivable — a weakening can never be authorized. */
   | 'not-waivable'
-  /** A weakening lacked an applicable, unexpired, authorized waiver. */
   | 'waiver-required';
 
 /** A reassessment that failed closed — NOTHING was appended, the frozen set stands. */
@@ -149,13 +122,9 @@ export interface ReassessmentRejected {
 
 export type ReassessmentResult = ReassessmentApplied | ReassessmentRejected;
 
-// ─── Fail-closed signal ─────────────────────────────────────────────────────────
-
 /**
- * Thrown from inside the `decideOnce` closure to fail a reassessment closed.
- * `decideOnce` requires at least one appended event, so a rejection cannot
- * commit zero events; the sentinel aborts the transaction (appending NOTHING)
- * and is translated into a {@link ReassessmentRejected} by the command.
+ * Fails a reassessment closed from inside the `decideOnce` closure.
+ * `decideOnce` cannot commit zero events. Thus the throw aborts the transaction, and the command returns a {@link ReassessmentRejected}.
  */
 class ReassessmentRejectedSignal extends Error {
   constructor(
@@ -168,17 +137,11 @@ class ReassessmentRejectedSignal extends Error {
   }
 }
 
-// ─── The command ────────────────────────────────────────────────────────────────
-
 /**
- * Re-evaluate a phase attempt under an explicit new policy version.
- *
- * Strength and waiver applicability are decided from pure inputs; the single
- * `decideOnce` transaction reads the stream to enforce that the supplied prior
- * obligations match the attempt's persisted frozen set, then appends the new
- * generation (when drift occurs) and the reassessment record. A weakening
- * without an authorized waiver, or against a not-waivable prior obligation set,
- * fails closed with nothing appended.
+ * Re-evaluates a phase attempt under an explicit new policy version.
+ * The transaction checks the prior obligations against the persisted frozen set.
+ * Then it appends the reassessment record, and the new generation when the set changed.
+ * Without drift, the new generation is not appended, because a duplicate generation under another policy version contests the fold.
  */
 export async function runReassessment(
   input: ReassessmentInput,
@@ -186,7 +149,6 @@ export async function runReassessment(
   const approvalClassOpt =
     input.approvalClass !== undefined ? { approvalClass: input.approvalClass } : {};
 
-  // ─── Pure: freeze both generations ────────────────────────────────────────
   const priorFrozen: FrozenRequirementSetProjection = freezeRequirements({
     resolved: input.priorObligations,
     phaseAttemptId: input.phaseAttemptId,
@@ -204,7 +166,6 @@ export async function runReassessment(
   const newDigest = newFrozen.requirementSetDigest;
   const drift = digestKey(newDigest) !== digestKey(priorDigest);
 
-  // ─── Pure: strength + weakened-away requirement ids ───────────────────────
   const weakened = !atLeastAsStrong(input.newObligations, input.priorObligations);
   const newIds = new Set<string>(
     newFrozen.requirements.map((requirement) => requirement.requirementId),
@@ -213,13 +174,11 @@ export async function runReassessment(
     .filter((requirement) => !newIds.has(requirement.requirementId))
     .map((requirement) => requirement.requirementId);
 
-  // ─── Pure: waiver decision for a weakening ────────────────────────────────
   const waivers = input.waivers ?? [];
   const appliedWaiverIds = new Set<WaiverId>();
   let waiverBlock: ReassessmentRejectionReason | null = null;
   if (weakened) {
     if (!input.priorObligations.waivable) {
-      // The strongest obligation lattice element cannot be weakened at all.
       waiverBlock = 'not-waivable';
     } else {
       for (const requirementId of weakenedRequirementIds) {
@@ -237,7 +196,6 @@ export async function runReassessment(
     }
   }
 
-  // ─── Pure: the events a successful reassessment would append ──────────────
   const provenance: GenerationProvenance = {
     operationId: input.operationId,
     policyId: input.policyId,
@@ -257,10 +215,6 @@ export async function runReassessment(
 
   const successEvents = (): readonly EventInput[] => {
     const events: EventInput[] = [];
-    // A drift adopts a NEW generation; no drift means the obligations are
-    // identical, so re-freezing them would only duplicate the active generation
-    // under a different policy version (which the fold would contest). Record
-    // only the reassessment fact in that case.
     if (drift) {
       events.push(
         ...buildRequirementResolvedEvents(
@@ -304,8 +258,6 @@ export async function runReassessment(
             undefined,
           );
         }
-        // Authenticity: the supplied prior obligations MUST match the persisted
-        // frozen set, or a weakening could be judged against a fabricated prior.
         if (digestKey(active.requirementSetDigest) !== digestKey(priorDigest)) {
           throw new ReassessmentRejectedSignal(
             'not-reassessable',
@@ -313,7 +265,6 @@ export async function runReassessment(
             active.requirementSetDigest,
           );
         }
-        // Monotonicity gate: a weakening needs an authorized waiver.
         if (waiverBlock !== null) {
           throw new ReassessmentRejectedSignal(
             'weakening-blocked',
@@ -356,8 +307,6 @@ export async function runReassessment(
     throw error;
   }
 }
-
-// ─── Event construction ───────────────────────────────────────────────────────
 
 function reassessmentRequestedEvent(
   input: ReassessmentInput,

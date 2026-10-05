@@ -1,40 +1,16 @@
-// ─── P07-02 / Transition tasks 027/051 — Live shadow observer ─────────────────
+// The live side of the shadow. The guard passes a legacy transition through
+// `GuardContext.shadowObserver`, and the caller of the guard binds the real
+// legacy state. The module runs the evidence-backed admission engine beside
+// the legacy decision, classifies any disagreement, and records the pair for
+// the cutover gate.
 //
-// The LIVE side of the shadow. P07-01 built the passive `shadowObserver?` seam
-// on `GuardContext` (error-isolated, defaulted-off) and the event-sourced
-// cutover gate, but no production caller fed the seam, so the gate's live
-// conditions (>=20 attempts, all 6 phase kinds, both outcomes) could never be
-// met. This module is that feed: given a legacy transition observation and the
-// real legacy state, it runs the evidence-backed admission engine BESIDE the
-// authoritative legacy decision (via P07-01's `runShadowDecision`), classifies
-// any disagreement, and records the pair into a sink the cutover gate can read.
+// The observer is not authoritative. The legacy decision is already made, and
+// nothing here can change it. Every path is error-isolated, and the guard also
+// wraps the observer call.
 //
-// Three preserved safety properties:
-//   1. NON-AUTHORITATIVE — it only observes; the legacy decision is already made
-//      and is returned untouched by the guard. Nothing here can change it.
-//   2. ERROR-ISOLATED — every path is wrapped so a shadow failure (a projection
-//      throw, a schema-parse throw, a sink throw) is swallowed. The guard ALSO
-//      wraps the observer call; this is defence in depth.
-//   3. NON-AUTHORITATIVE PERSISTENCE — the durable evidence append (DR-23, T-31)
-//      is fire-and-forget and error-isolated, so it cannot change the returned
-//      legacy decision, cannot reorder the authoritative transition events and
-//      cannot fail a transition. It DOES change what is persisted: that is the
-//      point — see below.
-//
-// ─── DR-23 / T-31: durable evidence ──────────────────────────────────────────
-//
-// Until T-31 the ONLY substrate was `liveShadowSink`, a process-scoped in-memory
-// ring buffer. That is an INV-1 violation: the evidence the cutover gate reads
-// evaporated on process exit, and the two registered replay shapes
-// (`admission.shadow-attempt`, `admission.disagreement-disposition`) were
-// registered-but-never-emitted. T-31 makes the observer append BOTH facts to the
-// real event store through the same `EventStore.append` path every other
-// admission producer uses (see `verbs/gates/gate-runner.ts` for
-// `admission.evidence-recorded`). The in-memory sink survives only as a
-// same-process cache; the store is now the substrate.
-//
-// Enforcement still does NOT flip here: the cutover gate remains the only place
-// that can approve enforcement, and only once its four conditions hold.
+// The durable append of the two shadow facts is fire-and-forget. It cannot
+// change the decision, reorder the transition events, or fail a transition. The
+// in-memory sink is only a same-process cache in front of the store.
 
 import { createHash } from 'node:crypto';
 
@@ -82,13 +58,11 @@ import {
   type ContentDigestV1,
 } from './types.js';
 
-// ─── Sink ──────────────────────────────────────────────────────────────────────
-
 /** One recorded live shadow observation: the gate substrate + the full record. */
 export interface LiveShadowObservationRecord {
   /** The coverage substrate the cutover gate folds (phase kind + legacy outcome). */
   readonly attempt: LiveShadowAttempt;
-  /** The full typed shadow decision (legacy vs admission + disposition). */
+  /** The full typed shadow decision: legacy, admission, and disposition. */
   readonly decision: ShadowDecisionRecord;
   /** The shared-IR edge this observation covered. */
   readonly edgeKey: string;
@@ -100,9 +74,9 @@ export interface LiveShadowSink {
 }
 
 /**
- * A bounded in-memory sink. Bounded so wiring the observer into every production
- * transition cannot leak memory; a drop of the oldest record is acceptable
- * because the cutover gate cares about coverage/threshold, not exhaustive history.
+ * A bounded in-memory sink, so the observer cannot leak memory. The drop of the
+ * oldest record is safe, because the cutover gate reads coverage and a
+ * threshold, not the full history.
  */
 export class InMemoryLiveShadowSink implements LiveShadowSink {
   private readonly buffer: LiveShadowObservationRecord[] = [];
@@ -137,24 +111,12 @@ export class InMemoryLiveShadowSink implements LiveShadowSink {
   }
 }
 
-// ─── Observer health (DR-23 / T-32) ──────────────────────────────────────────
-//
-// DR-23 bullet 3: "a dead observer is DETECTED (health counter), not silently
-// zero". Before T-32 every shadow failure was swallowed by one of three arms —
-// the durable-append promise rejection, an unresolvable evidence stream, and the
-// outer `catch` in {@link observeLiveTransition} — so an observer that produced
-// NOTHING was indistinguishable from a system that simply never transitioned.
-// Both read as "zero shadow evidence".
-//
-// The counter below is what makes those two states distinguishable. It is
-// deliberately NOT a single scalar: "20 attempts observed, 0 appends succeeded,
-// 20 appends failed" (a dead observer) and "0 attempts observed" (a quiet one)
-// must be different readings, and {@link liveShadowObserverStatus} folds the
-// fields into exactly that judgement. The cutover gate consumes the fold, so a
-// dead observer cannot present itself as clean evidence (see `cutover-gate.ts`,
-// condition `live-observer-health`).
-
-/** An immutable reading of the observer's health. */
+/**
+ * An immutable reading of the observer's health. The fields are separate so that
+ * a dead observer and a quiet one give different readings. "20 attempts, 0
+ * appends succeeded" is dead, and "0 attempts" is quiet. The cutover gate reads
+ * the {@link liveShadowObserverStatus} fold in `live-observer-health`.
+ */
 export interface LiveShadowHealth {
   /** Guarded-edge transitions the observer actually compared. */
   readonly attemptsObserved: number;
@@ -164,7 +126,7 @@ export interface LiveShadowHealth {
   readonly appendsSucceeded: number;
   /** Durable appends that REJECTED (store outage, validation, disk). */
   readonly appendsFailed: number;
-  /** Observations whose evidence stream could not be resolved (no `featureId`). */
+  /** Observations with no resolvable evidence stream (no `featureId`). */
   readonly streamUnresolved: number;
   /** Observations that threw anywhere in the observer body. */
   readonly observationsThrew: number;
@@ -181,12 +143,11 @@ export const ZERO_LIVE_SHADOW_HEALTH: LiveShadowHealth = Object.freeze({
 });
 
 /**
- * The four distinguishable observer states.
+ * The four observer states.
  *
- * `dead` is the one DR-23 exists to surface: transitions WERE observed and not a
- * single durable fact landed. That covers a store outage, an unresolvable
- * stream, a throwing observer body AND the memory-only degradation — all of
- * which produce an empty evidence stream that must never be read as "clean".
+ * `dead` means that the observer saw transitions and no durable fact landed. A
+ * store outage, an unresolvable stream, a throwing observer body, or a run with
+ * no store can cause it. An empty evidence stream in that state is never clean.
  */
 export type LiveShadowObserverStatus =
   | 'unobserved'
@@ -208,13 +169,10 @@ export function liveShadowObserverStatus(
 }
 
 /**
- * The mutable counter production increments.
- *
- * A class instance rather than module-level mutable state so it is INJECTABLE
- * ({@link LiveShadowDeps.health} is required — a caller cannot forget to thread
- * one) and RESETTABLE ({@link reset}); the single process-level instance
- * ({@link liveShadowHealth}) exists only because the production observer
- * callback is itself process-level, mirroring {@link liveShadowSink}.
+ * The mutable counter that production increments. It is a class so that a
+ * caller injects it through the required {@link LiveShadowDeps.health} and can
+ * {@link reset} it. The one process-level instance, {@link liveShadowHealth},
+ * exists because the production observer callback is process-level.
  */
 export class LiveShadowHealthCounter {
   private attemptsObserved = 0;
@@ -273,13 +231,9 @@ export class LiveShadowHealthCounter {
   }
 }
 
-// ─── Durable evidence (DR-23 / T-31) ─────────────────────────────────────────
-
 /**
- * The structural slice of `EventStore` the observer needs. Declared narrowly so
- * this module never constructs, owns or reaches for a store handle of its own —
- * it appends through the SAME `EventStore.append` path every other admission
- * producer uses. `EventStore` satisfies this interface structurally.
+ * The structural slice of `EventStore` that the observer needs. The observer
+ * owns no store handle of its own. It appends through `EventStore.append`.
  */
 export interface ShadowEvidenceAppender {
   append(
@@ -303,9 +257,8 @@ export interface ShadowEvidenceAppendOptions {
 export interface LiveShadowEvidenceTarget {
   readonly appender: ShadowEvidenceAppender;
   /**
-   * Resolves the stream a given legacy state's evidence belongs to. Defaults to
-   * the feature's SIDECAR shadow stream — see
-   * {@link liveShadowEvidenceStreamId}.
+   * Resolves the evidence stream for a legacy state. The default is the sidecar
+   * shadow stream of the feature, {@link liveShadowEvidenceStreamId}.
    */
   readonly streamIdFor?: (state: Record<string, unknown>) => string | undefined;
 }
@@ -317,36 +270,19 @@ export const LIVE_SHADOW_OBSERVATION_SOURCE = 'live-shadow-observer';
 const SHADOW_POLICY_VERSION = TRANSLATION_PROVIDER_VERSION;
 
 /**
- * DR-36 / INV-8 (T-49) — natural-identity idempotency keys.
- *
- * Every append below already has a NATURAL identity in hand (`shadowAttemptId`
- * for the attempt, `dispositionId` for the disposition). Both are a pure
- * function of the observed attempt (see `attemptIdentity` in
- * {@link emitShadowEvidence}): stream, edge key, phase-attempt id, legacy
- * outcome and input digest, hashed. NOTHING random and NOTHING wall-clock
- * participates — the evaluation instant is recorded on the payload but is
- * deliberately EXCLUDED from the hash, because the production binding
- * ({@link recordLiveTransition}) mints a fresh `evaluatedAt` per call and a
- * genuine retry would otherwise derive a fresh key and duplicate the fact.
- * So the SAME logical observation recomputes the SAME key and its append
- * collapses onto the stored row instead of duplicating it.
- *
- * INV-13 (intent-before / result-after) is satisfied vacuously here: both
- * facts are pure OBSERVATION records of an already-completed, side-effect-free
- * adjudication. They describe no non-idempotent external effect, so there is
- * no effect to bracket with a separate intent event — the retry-safety these
- * events need is exactly the claim key returned below.
- *
- * The derived key stays well inside `WorkflowEventBase`'s 200-char
- * `idempotencyKey` bound (`<prefix>:<64 hex>` ≤ 89 chars).
+ * Idempotency options keyed on the natural identity of one shadow fact. The
+ * identity hashes stream, edge key, phase-attempt id, legacy outcome, and input
+ * digest. It excludes the evaluation instant, because
+ * {@link recordLiveTransition} mints a fresh `evaluatedAt` for each call. Thus a
+ * retry computes the same key, and its append collapses onto the stored row.
+ * The facts record an adjudication with no external effect, so they need no
+ * intent event. The key stays inside the 200-character `idempotencyKey` bound.
  */
 function evidenceAppendOptions(
   naturalIdentity: string,
 ): ShadowEvidenceAppendOptions {
   return { idempotencyKey: naturalIdentity };
 }
-
-// ─── Identity + digest derivation (deterministic, never random) ───────────────
 
 function sha256Hex(value: string): string {
   return createHash('sha256').update(value, 'utf8').digest('hex');
@@ -361,8 +297,8 @@ function digestOf(value: string): ContentDigestV1 {
 
 /**
  * Coerce an arbitrary token into the admission stable-id alphabet
- * (`[A-Za-z0-9][A-Za-z0-9._:-]*`). Feature ids and phase names are caller data;
- * a stable id built from them must never be able to fail schema validation.
+ * (`[A-Za-z0-9][A-Za-z0-9._:-]*`). Feature ids and phase names are caller data.
+ * A stable id built from them must never fail schema validation.
  */
 function stableToken(raw: string, fallback: string): string {
   const cleaned = raw
@@ -381,21 +317,15 @@ function readString(
 }
 
 /**
- * The namespaced SIDECAR segment carrying a feature's durable shadow evidence.
+ * The namespaced sidecar segment for the durable shadow evidence of a feature.
  *
- * Shadow observation is NON-AUTHORITATIVE and the observer's contract is that a
- * transition behaves identically whether or not it ran. Appending to the
- * feature's own stream would break that contract three ways:
- *   1. the durable append is fire-and-forget, so it interleaves at a
- *      nondeterministic sequence — racing the authoritative CAS/`expectedVersion`
- *      writes in `handleSet`/`appendTrailAtomically` and able to raise a
- *      SPURIOUS `ConcurrencyError` in production;
- *   2. it desynchronises the state file's `_eventSequence` from the stream tail,
- *      which reconciliation reads as drift;
- *   3. it changes `query(featureId)` for every existing consumer.
- * The `<feature-id>/<segment>` namespaced form is admitted by `validateStreamId`
- * precisely for this kind of sidecar. Evidence stays durable and per-feature
- * queryable; the authoritative stream stays byte-identical.
+ * A transition must behave the same with or without the observer. An append to
+ * the feature stream breaks that in three ways. The fire-and-forget append can
+ * race the CAS writes in `handleSet` and `appendTrailAtomically` and cause a
+ * false `ConcurrencyError`. It moves the stream tail away from `_eventSequence`,
+ * which reconciliation reads as drift. It also changes `query(featureId)` for
+ * every consumer. `validateStreamId` accepts the `<feature-id>/<segment>` form
+ * for this kind of sidecar.
  */
 export const LIVE_SHADOW_EVIDENCE_STREAM_SEGMENT = 'admission-shadow';
 
@@ -411,8 +341,6 @@ function defaultStreamIdFor(
   const featureId = readString(state, 'featureId');
   return featureId === undefined ? undefined : liveShadowEvidenceStreamId(featureId);
 }
-
-// ─── Provenance ───────────────────────────────────────────────────────────────
 
 /**
  * The observer's own service identity, used when no dispatch authorization is
@@ -473,17 +401,15 @@ function shadowProvenance(resolvedAt: string): ShadowProvenance {
   };
 }
 
-// ─── Decision-record projection ───────────────────────────────────────────────
-
 /**
  * Project the shadow admission result onto the persisted
  * {@link AdmissionDecisionRecordV1} shape.
  *
- * The requirement dispositions come from the REAL policy evaluation of the same
- * edge and state, so the persisted record is a faithful account of what the
- * admission engine actually decided rather than a fabricated stand-in. Only the
- * route-denial fallback (a legal-route failure carries no requirement) is
- * synthesised, and it is labelled `route:<edge>` so it is unmistakable.
+ * The requirement dispositions and `waiverIds` come from the real policy
+ * evaluation of the same edge and state. Thus the record is a true account of
+ * the admission decision, and `waiverIds` agrees with `waivedRequirementIds`.
+ * A legal-route failure carries no requirement. When no evaluated requirement
+ * applies, the record uses the synthetic requirement id `route:<edge>`.
  */
 function projectDecisionRecord(args: {
   readonly key: string;
@@ -514,11 +440,6 @@ function projectDecisionRecord(args: {
     requirementSetDigest: args.requirementSetDigest,
     inputDigest: args.inputDigest,
     evidenceIds: [...args.evidenceIds],
-    // DR-35: the waivers the REAL evaluation applied, not a hardcoded `[]`. The
-    // waiver branch of `evaluatePolicy` is reachable now (a gate obligation is
-    // waivable), so an empty literal here would make the durable record claim
-    // "no waiver" while `waivedRequirementIds` below names waived requirements —
-    // an internal contradiction in the audit trail.
     waiverIds: [...new Set(
       (args.evaluation?.appliedWaiverIds ?? []).map((id) => String(id)),
     )].sort(),
@@ -592,27 +513,19 @@ function projectDecisionRecord(args: {
   });
 }
 
-// ─── In-flight append tracking ────────────────────────────────────────────────
-//
-// The `shadowObserver` seam is synchronous and its return value is discarded by
-// the guard (that is what keeps it behaviour-preserving), so the durable append
-// is necessarily scheduled rather than awaited inside the transition. Tracking
-// the in-flight promises lets a caller — a test, or a shutdown hook — wait for
-// the evidence to land instead of guessing.
-
+/**
+ * The in-flight durable appends. The guard discards the return value of the
+ * synchronous `shadowObserver` seam, so the observer schedules the append and
+ * does not await it. A test or a shutdown hook can wait on this set.
+ */
 const pendingEvidenceAppends = new Set<Promise<void>>();
 
-// ─── Durable-append success hook (#1739 — cutover auto-export) ────────────────
-//
-// The cutover promotion path wants to notice, from INSIDE the observer's
-// durable-append success path, when enough evidence may have accumulated to
-// satisfy the gate. The observer itself must not evaluate the gate (importing
-// `cutover-gate.ts` here would be a runtime import cycle — that module already
-// imports this one), so the seam is a registered listener: the auto-export
-// module (`cutover-auto-export.ts`) installs its hook at lifecycle wiring time
-// (`dispatch/core/context.ts`). The listener call is error-isolated — a throwing hook
-// is swallowed, so nothing it does can reach the transition path.
-
+/**
+ * A listener that runs after each durable shadow append lands. The cutover
+ * auto-export module installs it from `dispatch/core/context.ts`. The observer
+ * cannot import the gate, because `cutover-gate.ts` already imports this
+ * module. The observer swallows a throw from the listener.
+ */
 export type DurableAppendSuccessListener = () => void;
 
 let durableAppendSuccessListener: DurableAppendSuccessListener | undefined;
@@ -625,15 +538,14 @@ export function setDurableAppendSuccessListener(
 }
 
 /**
- * T-32 — the observer-failure health counter (DR-23 bullet 3, "a dead observer
- * is DETECTED").
+ * Track one durable shadow append and count its result. The function swallows a
+ * rejection, so a store outage cannot reach the transition path. Both arms
+ * increment {@link LiveShadowHealthCounter}, so "nothing happened" and "every
+ * append failed" are different readings.
  *
- * This is the ONE place a durable shadow append can fail silently: the promise
- * rejection is swallowed here so a store outage cannot propagate into the
- * authoritative transition path. Swallowing is still correct — but it is no
- * longer INVISIBLE: both arms increment {@link LiveShadowHealthCounter}, so
- * "zero shadow evidence because nothing happened" and "zero shadow evidence
- * because every append rejected" are different readings.
+ * On success it notifies the durable-append listener and swallows a listener
+ * throw. The transition path can await this settlement chain, and the listener
+ * counts its own failures.
  */
 function trackEvidenceAppend(
   work: Promise<unknown>,
@@ -643,15 +555,9 @@ function trackEvidenceAppend(
   const settled = work.then(
     () => {
       health.appendSucceeded();
-      // #1739: notify the cutover auto-export hook that one more durable fact
-      // landed. Error-isolated — the hook MUST NOT throw into this settlement
-      // chain (which the transition path's flush may be awaiting).
       try {
         durableAppendSuccessListener?.();
       } catch {
-        // A hook failure is the hook's problem (it counts its own failures);
-        // the observer's contract is that persistence side-channels never
-        // affect the transition.
       }
     },
     () => {
@@ -677,15 +583,16 @@ export function pendingLiveShadowEvidenceCount(): number {
   return pendingEvidenceAppends.size;
 }
 
-// ─── Emission ─────────────────────────────────────────────────────────────────
-
 /**
- * Build and schedule the durable facts for one observation.
+ * Build and schedule the durable facts for one observation. It appends
+ * `admission.shadow-attempt`, and it appends
+ * `admission.disagreement-disposition` only for a disagreement, because the
+ * disposition enum has no `agree` member.
  *
- * `admission.shadow-attempt` is appended for EVERY shadowed edge;
- * `admission.disagreement-disposition` is appended ONLY when the pair actually
- * disagreed (the registered disposition enum has no `agree` member, so an
- * agreement has nothing to dispose of).
+ * An unresolvable stream counts as a dead observer, not as no activity. The
+ * phase-attempt id reads `_pendingPhaseAttemptId` first. Callers stamp the
+ * current attempt there before `attempt()`, and `phaseAttemptId` still names
+ * the previous attempt at that time.
  */
 function emitShadowEvidence(args: {
   readonly target: LiveShadowEvidenceTarget;
@@ -699,8 +606,6 @@ function emitShadowEvidence(args: {
   const { target, edge, key, state, context, record, health } = args;
 
   const streamId = (target.streamIdFor ?? defaultStreamIdFor)(state);
-  // T-32: an unresolvable stream is a DEAD observer, not an absence of activity.
-  // Counted, so the evidence stream being empty is attributable.
   if (streamId === undefined) {
     health.unresolvedStream();
     return Promise.resolve();
@@ -726,11 +631,6 @@ function emitShadowEvidence(args: {
     ),
   ].sort();
 
-  // T-31: the CURRENT attempt. Every production caller stamps the attempt
-  // allocated for the observed transition as `_pendingPhaseAttemptId` before
-  // `attempt()` and only persists it as `phaseAttemptId` after success — so
-  // reading the persisted field first would name the PREDECESSOR attempt on
-  // every durable shadow fact. Pending first, persisted as the fallback.
   const phaseAttemptId = stableToken(
     readString(state, '_pendingPhaseAttemptId') ??
       readString(state, 'phaseAttemptId') ??
@@ -738,11 +638,6 @@ function emitShadowEvidence(args: {
     'live-shadow:phase-attempt',
   );
 
-  // NATURAL identity (INV-8): a pure function of the observed attempt. Two
-  // replays of the same attempt derive the same id; nothing here is random
-  // and nothing is wall-clock (T-49: `recordedAt` is payload, NOT identity —
-  // a retry mints a fresh evaluation instant, and hashing it would mint a
-  // fresh key and duplicate the fact for one logical attempt).
   const attemptIdentity = sha256Hex(
     JSON.stringify([
       streamId,
@@ -832,8 +727,6 @@ function emitShadowEvidence(args: {
   );
 }
 
-// ─── Observer ────────────────────────────────────────────────────────────────
-
 /** Live disagreements are conservatively unexplained pending human disposition. */
 const defaultLiveExplain: ExplainResolver = (): DisagreementExplanation => ({
   disposition: 'unexplained',
@@ -845,27 +738,32 @@ export interface LiveShadowDeps {
   readonly context: TranslationContext;
   readonly explain?: ExplainResolver;
   /**
-   * DR-23 — where the durable `admission.shadow-attempt` /
-   * `admission.disagreement-disposition` facts are appended. Supplied by the
-   * caller; there is deliberately no module-level default, so a path that
-   * forgets to thread the store cannot silently degrade to memory-only.
+   * Where the observer appends the durable `admission.shadow-attempt` and
+   * `admission.disagreement-disposition` facts. There is no module-level
+   * default, so a path that forgets the store cannot silently fall back to
+   * memory only.
    */
   readonly evidence?: LiveShadowEvidenceTarget;
   /**
-   * DR-23 / T-32 — the health counter this observation increments. REQUIRED for
-   * the same reason `evidence` has no default: an observation that reports its
-   * failures nowhere is exactly the dead observer this task exists to surface,
-   * and a defaulted counter would let a call site acquire one silently.
+   * The health counter that this observation increments. It is required, so a
+   * call site cannot get a hidden default counter and report its failures
+   * nowhere.
    */
   readonly health: LiveShadowHealthCounter;
 }
 
 /**
  * Observe one legacy transition against the evidence-backed admission engine and
- * record the pair. Only guarded edges present in the shared IR are shadowed;
- * unmodelled edges (universal cancel/cleanup, idempotent no-ops) are skipped.
- * Total and error-isolated: this never throws. The returned promise settles
- * when the durable write has landed or failed, and it never rejects (#2026).
+ * record the pair. It shadows only guarded edges in the shared IR. It skips
+ * unmodelled edges, such as universal cancel or cleanup and idempotent no-ops.
+ * It never throws, and it counts a thrown failure. The returned promise settles
+ * when the durable write lands or fails, and it never rejects.
+ *
+ * It counts the attempt before it schedules the durable append, so "observed
+ * but nothing landed" is a readable state. The durable fact comes before the
+ * sink write and does not depend on it. The live attempt carries the
+ * disagreement class, so the gate can tell a failed adjudication from a clean
+ * comparison.
  */
 export function observeLiveTransition(
   observation: LegacyTransitionObservation,
@@ -905,17 +803,9 @@ export function observeLiveTransition(
     const liveAttempt: LiveShadowAttempt = {
       phaseKind: edge.toPhaseKind satisfies PhaseKind,
       outcome: observation.legacyOutcome,
-      // DR-23 / T-32: the class the cutover gate's live conditions read. Without
-      // it the gate can only see the LEGACY verdict, so attempts whose shadow
-      // adjudication threw look exactly like clean comparisons.
       disagreementClass: record.disagreementClass,
     };
-    // T-32: an attempt was genuinely compared — count it BEFORE any of the three
-    // swallowing arms, so "observed but nothing landed" is a readable state.
     deps.health.observedAttempt();
-    // DR-23: the DURABLE fact first. It is deliberately not conditioned on the
-    // in-memory sink write succeeding — the store is the substrate now, and the
-    // ring buffer is a same-process cache in front of it.
     if (deps.evidence !== undefined) {
       written = emitShadowEvidence({
         target: deps.evidence,
@@ -929,47 +819,35 @@ export function observeLiveTransition(
     }
     deps.sink.record({ attempt: liveAttempt, decision: record, edgeKey: key });
   } catch {
-    // Shadow observation is never authoritative — a failure is swallowed. T-32:
-    // swallowed, but COUNTED, so a total observation failure is not read as an
-    // absence of transitions.
     deps.health.observationThrew();
   }
   return written;
 }
 
-// ─── Production wiring ──────────────────────────────────────────────────────────
-
-/** The process-level live shadow sink the cutover gate reads (RESERVED gate). */
+/** The process-level live shadow sink that the cutover gate reads. */
 export const liveShadowSink = new InMemoryLiveShadowSink();
 
 /**
- * The process-level observer health counter (DR-23 / T-32).
- *
- * Process-level for the same reason {@link liveShadowSink} is: the production
- * observer callback {@link recordLiveTransition} is itself a process-level
- * binding invoked from the guard seam, which has nowhere to hang per-request
- * state. It is NOT hidden global state in the sense T-31 removed (a defaulted
- * dependency a call site could acquire without asking): the counter is a
- * required, injectable {@link LiveShadowDeps.health} everywhere else, and this
- * instance is `reset()`-able so no test leaks into the next.
+ * The process-level observer health counter. It is process-level for the same
+ * reason as {@link liveShadowSink}. The guard seam calls the process-level
+ * {@link recordLiveTransition} and holds no per-request state. Every other path
+ * injects the counter through {@link LiveShadowDeps.health}, and `reset()`
+ * isolates each test.
  */
 export const liveShadowHealth = new LiveShadowHealthCounter();
 
-// The trust directory is out-of-band and stable; build it once.
+/** The trust directory is out-of-band and stable, so the module builds it once. */
 const SHARED_TRANSLATION_AUTHORITY = createTranslationAuthority();
 const LIVE_FRESHNESS_HORIZON_MS = 60 * 60 * 1000;
 
 /**
- * The production observer callback: binds the given legacy state to the live
- * sink and a fresh (trusted-at-observe-time) evaluation instant. Wired into the
- * production transition path via `GuardContext.shadowObserver`. Because minted
- * evidence is stamped at `evaluatedAt` and compared against it, the exact
- * instant is immaterial to the verdict — it never renders evidence stale.
+ * The production observer callback, wired through `GuardContext.shadowObserver`.
+ * It binds the legacy state to the live sink and a fresh evaluation instant.
+ * Minted evidence carries `evaluatedAt`, and the check compares against it. Thus
+ * the exact instant never makes evidence stale.
  *
- * DR-23 / T-31 — `appender` is the durable substrate, handed down from
- * `GuardContext.eventStore` by `notifyShadowObserver`. When it is `null` (a
- * caller in pure-evaluation mode that supplies no store at all) the observation
- * degrades to the in-memory cache; every production caller passes a real store.
+ * `appender` is the durable store from the caller. When it is `null` or
+ * `undefined`, the observation uses only the in-memory cache.
  */
 export function recordLiveTransition(
   observation: LegacyTransitionObservation,
