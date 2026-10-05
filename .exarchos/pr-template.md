@@ -1,18 +1,19 @@
-## Summary
+## Background
 
-<!-- 2-3 sentences: What changed, why it matters, what problem it solves -->
+<!-- Why this change exists. State the problem, the constraint, or the linked issue. Use two to four sentences. Put `Closes #N` on its own line. -->
+
+## Design Decisions
+
+<!-- Choices that a reviewer cannot infer from the diff. If there are none, write None. -->
 
 ## Changes
 
-<!-- Scannable list. Use **Bold** for component names and — (em-dash) as separator -->
-- **Component** — Brief description of what changed
+<!-- What landed, at component level. Do not list files. -->
 
-## Test Plan
+## Verification Performed
 
-<!-- 1-2 sentences: Testing approach and coverage summary -->
+<!-- Commands you ran and the result, in the past tense. Do not write a future checklist. -->
 
----
+## Post-Merge Operations
 
-**Results:** Tests X ✓ · Build 0 errors
-**Design:** <!-- link to design doc if applicable -->
-**Related:** <!-- #issue, Continues #PR -->
+<!-- Steps a human must do after merge. If there are none, write None. -->

@@ -8,6 +8,7 @@ description: >
   Do not use this skill for commit messages alone.
 metadata:
   version: "1.0.0"
+  internal: true
 ---
 
 # Write a Pull Request
