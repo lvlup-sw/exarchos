@@ -1,10 +1,7 @@
 /**
- * Exit-proof tests for P06-02 — deterministic edge (route) selection
- * (Transition task 010).
- *
- * Proves:
- *   (d) route selection is deterministic and explicit for zero-match and
- *       multi-match, and fails closed on a leading indeterminate.
+ * Tests for edge selection. Selection is deterministic. Zero matches and
+ * multiple matches give explicit results, and a leading indeterminate candidate
+ * blocks the route. The live transition path also selects over all candidates.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
@@ -58,7 +55,7 @@ const declaration = {
 
 const compile = (raw: unknown) => compileEdgeCondition(raw, declaration);
 
-// Against facts { phaseKind: 'review' } (boundaryClear absent):
+/** Against these facts, `trueCond` is true and `falseCond` is false. `indetCond` is indeterminate because `boundaryClear` is absent. */
 const facts: EdgeConditionFacts = { fields: { phaseKind: 'review' }, events: [] };
 const trueCond = compile({ kind: 'factEquals', field: 'phaseKind', value: 'review' });
 const falseCond = compile({ kind: 'factEquals', field: 'phaseKind', value: 'plan' });
@@ -154,28 +151,17 @@ describe('evaluateEdgeCandidates', () => {
   });
 });
 
-
-// ─── DR-34 — the route selector is LIVE, not merely built ─────────────────────
-//
-// `selectEdge`'s only caller used to be the RESERVED `runTransitionCommand`,
-// while the SHIPPED path decided route legality by evaluating ONE edge's
-// condition in isolation (`adjudicateEdge` -> `evaluateEdgeCondition(
-// edge.routeCondition, facts)`), reached from the real HSM guard via
-// `recordLiveTransition` and from affordance publication via
-// `adjudicateOutboundEdges`. Both selector rules were therefore INERT in
-// production: a phase with two simultaneously-true outbound conditions looked
-// exactly like an unambiguous one, and a lower-priority edge fell straight
-// through a higher-priority candidate whose legality was unknown.
-//
-// These tests drive the LIVE path (a real event store + state dir, the real
-// composite workflow handler, the real HSM guard, the real state projection)
-// over topologies that are genuinely ambiguous / genuinely indeterminate.
-
 const LIVE_CTX = defaultTranslationContext('2025-01-01T00:00:00.000Z');
 
 /** The shipped feature outbound set from `plan-review`, in priority order. */
 const PLAN_REVIEW_TARGETS = ['delegate', 'blocked', 'plan'] as const;
 
+/**
+ * Drives the live path with a real event store, the composite workflow handler,
+ * the HSM guard, and the state projection. A check of one edge condition alone
+ * cannot see two true outbound routes, so the live path selects over all
+ * candidates.
+ */
 describe('DR-34 — multi-match detection on the live transition path', () => {
   let stateDir: string;
   let eventStore: EventStore;
@@ -196,13 +182,18 @@ describe('DR-34 — multi-match detection on the live transition path', () => {
     await rmrfAsync(stateDir);
   });
 
+  /**
+   * The shipped feature topology out of `plan-review` can be ambiguous. The
+   * `delegate` edge has an approval obligation and no route condition, so its
+   * route is always legal. While `planReview.gapsFound` is false, only
+   * `delegate` is route-legal. When it is true, the `plan` route is also true.
+   * The transition goes through the HSM guard and `recordLiveTransition` to
+   * `adjudicateEdge`, which calls `selectEdge`. The decision names the matched
+   * edges in priority order, and its verdict stays `allow`.
+   */
   it('SelectEdge_TwoSimultaneouslyTrueConditions_ReportsMultiMatch', async () => {
     const featureId = 'route-selector-multi-match';
 
-    // The SHIPPED feature topology out of `plan-review` is genuinely ambiguous:
-    // `-> delegate` carries the always-legal route (its obligation is an
-    // approval, not a route condition), so the moment `planReview.gapsFound`
-    // turns true the `-> plan` route is simultaneously true.
     const outbound = BUILT_IN_WORKFLOW_IR.filter(
       (e) => e.workflowType === 'feature' && e.from === 'plan-review',
     );
@@ -224,8 +215,6 @@ describe('DR-34 — multi-match detection on the live transition path', () => {
     );
     expect(toReview.success).toBe(true);
 
-    // ── Control: the SAME phase, read out of the real store, is unambiguous
-    // while `gapsFound` is false. Only `-> delegate` is route-legal. ──────────
     const unambiguous = (
       await handleGet({ featureId }, stateDir, eventStore)
     ).data as Record<string, unknown>;
@@ -238,7 +227,6 @@ describe('DR-34 — multi-match detection on the live transition path', () => {
     expect(before.get('delegate')?.multiMatch).toBe(false);
     expect(before.get('plan')?.multiMatch).toBe(false);
 
-    // ── Make the shipped topology genuinely ambiguous. ───────────────────────
     await handleSet(
       { featureId, updates: { 'planReview.gapsFound': true } },
       stateDir,
@@ -249,9 +237,6 @@ describe('DR-34 — multi-match detection on the live transition path', () => {
     ).data as Record<string, unknown>;
     expect(ambiguous['planReview']).toMatchObject({ gapsFound: true });
 
-    // The LIVE transition: real composite handler -> real HSM guard ->
-    // `GuardContext.shadowObserver` -> `recordLiveTransition` ->
-    // `adjudicateEdge`, which now routes through `selectEdge`.
     const transition = await handleWorkflow(
       { action: 'transition', featureId, target: 'plan' },
       ctx(),
@@ -269,8 +254,6 @@ describe('DR-34 — multi-match detection on the live transition path', () => {
     );
     expect(durable.decision.outcome).toBe('allow');
 
-    // ── The ambiguity is DETECTED, not silently resolved to whichever edge
-    // the caller happened to ask about. ──────────────────────────────────────
     const verdicts = adjudicateOutboundEdges(
       'feature',
       'plan-review',
@@ -285,22 +268,20 @@ describe('DR-34 — multi-match detection on the live transition path', () => {
     expect(planEdge).toBeDefined();
     const decision = adjudicateEdgeDecision(planEdge!, ambiguous, LIVE_CTX);
     expect(decision.multiMatch).toBe(true);
-    // The colliding edges are NAMED, in priority order — a report, not a flag.
     expect(decision.matchedEdgeIds).toEqual([
       edgeKey('feature', 'plan-review', 'delegate'),
       edgeKey('feature', 'plan-review', 'plan'),
     ]);
-    // Ambiguity is surfaced WITHOUT changing the verdict: route legality still
-    // composes with admission downstream.
     expect(decision.verdict).toBe('allow');
   });
 });
 
-// A REAL two-edge topology whose highest-priority route is `indeterminate`
-// against a state that has not been triaged yet: `triage.symptom` is a presence
-// fact, so `factEquals` over it is UNKNOWN (K3) while the symptom is absent.
-// The fallback edge below is definitely route-legal, which is exactly the
-// fall-through the DR-9 fail-closed rule exists to refuse.
+/**
+ * A two-edge topology. Before triage, `triage.symptom` is absent, so the
+ * `factEquals` route of the first edge is indeterminate. The fallback edge is
+ * always legal, so a per-edge check falls through to it. The fail-closed rule
+ * refuses that fall-through.
+ */
 const TRIAGE_TOPOLOGY: readonly WorkflowEdgeIR[] = Object.freeze([
   Object.freeze({
     workflowType: 'feature',
@@ -330,18 +311,20 @@ const TRIAGE_TOPOLOGY: readonly WorkflowEdgeIR[] = Object.freeze([
 const FALLBACK_EDGE = TRIAGE_TOPOLOGY[1]!;
 
 describe('DR-34 / DR-9 — fail-closed routing on the live transition path', () => {
+  /**
+   * Alone, the fallback edge is legal and the higher-priority edge is unknown.
+   * `adjudicateEdge` selects over the full candidate set, so it blocks.
+   * Affordance publication also fails closed for the whole phase.
+   */
   it('SelectEdge_IndeterminateHighestPriority_BlocksRatherThanFallsThrough', () => {
     const untriaged = {};
 
-    // The fallback edge, evaluated IN ISOLATION the way the live path used to,
-    // is definitely route-legal — so a per-edge decision admits it.
     expect(
       evaluateEdgeCondition(
         FALLBACK_EDGE.routeCondition,
         projectStateToFacts(untriaged),
       ),
     ).toBe('true');
-    // ...while the higher-priority candidate's legality is genuinely UNKNOWN.
     expect(
       evaluateEdgeCondition(
         TRIAGE_TOPOLOGY[0]!.routeCondition,
@@ -349,8 +332,6 @@ describe('DR-34 / DR-9 — fail-closed routing on the live transition path', () 
       ),
     ).toBe('indeterminate');
 
-    // The LIVE decision body (`adjudicateEdge` — what `observeLiveTransition`
-    // calls) now selects over the FULL candidate set and BLOCKS.
     expect(
       adjudicateEdge(FALLBACK_EDGE, untriaged, LIVE_CTX, {
         topology: TRIAGE_TOPOLOGY,
@@ -363,7 +344,6 @@ describe('DR-34 / DR-9 — fail-closed routing on the live transition path', () 
     expect(blocked.route).toBe('indeterminate');
     expect(blocked.verdict).toBe('indeterminate');
 
-    // Affordance publication fails closed for the whole phase, too.
     const outbound = adjudicateOutboundEdges('feature', 'triage', untriaged, LIVE_CTX, {
       topology: TRIAGE_TOPOLOGY,
       eventLogAvailable: true,
@@ -372,9 +352,8 @@ describe('DR-34 / DR-9 — fail-closed routing on the live transition path', () 
     expect(outbound.get('regression-repro')?.verdict).toBe('indeterminate');
   });
 
+  /** This control shows that the block above comes from the unknown candidate, not from a denial of the fallback edge. */
   it('a DEFINITELY-false higher-priority candidate is skipped, not blocked', () => {
-    // The control that proves the block above comes from the UNKNOWN candidate
-    // and not from a blanket denial of the fallback edge.
     expect(
       adjudicateEdge(FALLBACK_EDGE, { triage: { symptom: 'flaky test' } }, LIVE_CTX, {
         topology: TRIAGE_TOPOLOGY,
@@ -382,13 +361,13 @@ describe('DR-34 / DR-9 — fail-closed routing on the live transition path', () 
     ).toBe('allow');
   });
 
+  /**
+   * Both candidates are legal, so the phase is ambiguous. Selection picks the
+   * first in order and names the collision. The lower-priority edge keeps an
+   * `allow` verdict, because route legality composes with admission later.
+   */
   it('a definitely-true higher-priority candidate wins the route and is reported', () => {
     const state = { triage: { symptom: 'regression' } };
-    // Both candidates are now definitely legal (the fallback is always-legal),
-    // so the phase is AMBIGUOUS. Selection resolves the winner deterministically
-    // (first in order) and NAMES the collision instead of hiding it — route
-    // legality still composes with admission downstream, so the lower-priority
-    // edge is not denied on route grounds alone.
     const winner = adjudicateEdgeDecision(TRIAGE_TOPOLOGY[0]!, state, LIVE_CTX, {
       topology: TRIAGE_TOPOLOGY,
     });
@@ -405,9 +384,8 @@ describe('DR-34 / DR-9 — fail-closed routing on the live transition path', () 
     ]);
   });
 
+  /** With a never-legal fallback route, no outbound route is legal, so the selector denies. */
   it('a NO-MATCH candidate set denies every outbound edge', () => {
-    // Same topology, but the fallback route is never-legal: nothing leaving the
-    // phase is legal, and the selector says so explicitly.
     const neverLegal: readonly WorkflowEdgeIR[] = [
       TRIAGE_TOPOLOGY[0]!,
       {

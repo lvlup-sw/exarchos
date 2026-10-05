@@ -1,14 +1,9 @@
-// Exit-proof tests for P06-06 remediation (Transition tasks 025, 026).
+// Tests for the remediation of admission denials.
 //
-// Proves the load-bearing obligations:
-//   (a) every PolicyDenyReason yields a safe verb OR a stable terminal reason —
-//       exhaustive, no gaps;
-//   (b) no remediation verb mutates state — structural (import census + verb
-//       deny-list) AND behavioural;
-//   (c) every emitted next_action validates against the LIVE schema, and a
-//       non-conforming action is rejected by that same schema;
-//   (d) terminal reasons align to the P03-02 STABLE_ERROR_REGISTRY, not a
-//       parallel vocabulary.
+// Each `PolicyDenyReason` yields a safe verb or a stable terminal reason.
+// No remediation verb mutates state. An import census, a verb deny-list and behavior tests check this.
+// Each emitted next action passes the live `NextAction` schema, and that schema rejects a non-conforming action.
+// Terminal reasons use codes from `STABLE_ERROR_REGISTRY`.
 import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 
@@ -35,8 +30,6 @@ import {
 } from '../../../../src/workflow/admission/remediation.js';
 import { auditRemediationPurity } from '../../../../src/workflow/admission/remediation-purity.js';
 import { lexModule } from '../../../../tools/test-helpers/module-lexer.js';
-
-// ─── Fixtures ─────────────────────────────────────────────────────────────────
 
 const phaseAttemptId = PhaseAttemptIdSchema.parse('pa.remediation-001');
 const subject = createEvidenceSubject(
@@ -89,33 +82,28 @@ function verbOf(outcome: RemediationOutcome): string | undefined {
   return outcome.kind === 'action' ? outcome.action.verb : undefined;
 }
 
-// ─── (a) Exhaustive: every reason → safe verb OR stable terminal reason ──────
-
 describe('remediateDenial — exhaustive over PolicyDenyReason (no unexplained denial)', () => {
+  /** The census holds the six deny reasons. The exhaustive tests iterate this census. */
   it('ReasonCensus_MatchesThePolicyDenyReasonUnion', () => {
-    // The runtime-iterable census is exactly the six sound deny reasons — the
-    // basis on which "no gaps" is proven.
     expect([...POLICY_DENY_REASONS].sort()).toEqual(
       ['contradictory', 'failed', 'malformed', 'missing', 'stale', 'unauthorized'].sort(),
     );
   });
 
+  /** An action carries a safe, schema-valid verb. A terminal carries a registry code and a summary. */
   it('EveryReason_ForEveryRequirementKind_YieldsAVerbOrTerminalReason', () => {
     for (const reason of POLICY_DENY_REASONS) {
       for (const requirement of ALL_REQUIREMENTS) {
         for (const waivable of [true, false]) {
           const outcome = remediateDenial(input(reason, requirement, waivable));
 
-          // No third case: strictly action | terminal.
           expect(outcome.kind === 'action' || outcome.kind === 'terminal').toBe(true);
           expect(outcome.reason).toBe(reason);
 
           if (outcome.kind === 'action') {
-            // A safe verb — from the closed safe set, schema-valid.
             expect(SAFE_REMEDIATION_VERBS).toContain(outcome.action.verb);
             expect(() => NextAction.parse(outcome.action)).not.toThrow();
           } else {
-            // A stable terminal reason — aligned to the P03-02 registry.
             expect(REMEDIATION_TERMINAL_REASONS[outcome.terminalReason]).toBeDefined();
             expect(outcome.stableErrorCode in STABLE_ERROR_REGISTRY).toBe(true);
             expect(outcome.summary.length).toBeGreaterThan(0);
@@ -125,10 +113,10 @@ describe('remediateDenial — exhaustive over PolicyDenyReason (no unexplained d
     }
   });
 
+  /** The requirement kind selects the verb. The reason does not. */
   it('ProducibleReasons_MapToTheProducingVerbByRequirementKind', () => {
     const producible: PolicyDenyReason[] = ['missing', 'failed', 'stale', 'malformed'];
     for (const reason of producible) {
-      // Producing verb is chosen by requirement KIND, never by the reason.
       expect(verbOf(remediateDenial(input(reason, gateRequirement, false)))).toBe('run_gate');
       expect(verbOf(remediateDenial(input(reason, approvalRequirement, false)))).toBe(
         'request_approval',
@@ -139,14 +127,16 @@ describe('remediateDenial — exhaustive over PolicyDenyReason (no unexplained d
     }
   });
 
+  /**
+   * A waivable requirement gets a waiver request, not a grant.
+   * A requirement that is not waivable gets the `AUTHORIZATION_DENIED` terminal.
+   */
   it('StructuralReasons_RequestWaiverWhenWaivable_TerminateWhenNot', () => {
     for (const reason of ['unauthorized', 'contradictory'] as const) {
-      // Waivable → a legitimate WAIVER REQUEST (a request, never a grant).
       const waivableOutcome = remediateDenial(input(reason, gateRequirement, true));
       expect(waivableOutcome.kind).toBe('action');
       expect(verbOf(waivableOutcome)).toBe('request_waiver');
 
-      // Not waivable → a stable terminal reason; nothing safe to do in band.
       const terminalOutcome = remediateDenial(input(reason, gateRequirement, false));
       expect(terminalOutcome.kind).toBe('terminal');
       if (terminalOutcome.kind === 'terminal') {
@@ -155,25 +145,23 @@ describe('remediateDenial — exhaustive over PolicyDenyReason (no unexplained d
     }
   });
 
+  /** Each deny-reason code belongs to the `authorization` layer. */
   it('StableReasonCode_ForEveryDenyReason_IsARegistryCode', () => {
     for (const reason of POLICY_DENY_REASONS) {
       const code = stableErrorCodeForDenyReason(reason);
       expect(code in STABLE_ERROR_REGISTRY).toBe(true);
-      // Admission denials are authorization failures — the aligned family.
       expect(STABLE_ERROR_REGISTRY[code].layer).toBe('authorization');
     }
   });
 });
 
-// ─── (b) No remediation verb mutates state — structural + behavioural ─────────
-
 describe('remediation is data, never a mutation', () => {
+  /** `request_waiver` is a safe verb. `grant_waiver` is a mutation verb. */
   it('SafeVerbs_AreDisjointFromStateMutationVerbs', () => {
     const safe = new Set<string>(SAFE_REMEDIATION_VERBS);
     for (const mutation of STATE_MUTATION_VERBS) {
       expect(safe.has(mutation)).toBe(false);
     }
-    // request_waiver is safe (a request); grant_waiver would be a mutation.
     expect(safe.has('request_waiver')).toBe(true);
     expect([...STATE_MUTATION_VERBS]).toContain('grant_waiver');
   });
@@ -221,9 +209,8 @@ describe('remediation is data, never a mutation', () => {
     expect(explanationVerdict.ok).toBe(true);
   });
 
+  /** A detector that always passes proves nothing. This module reaches the event store, so the census must flag it. */
   it('Structural_Census_ActuallyDetectsAForbiddenImport', () => {
-    // The census must be able to FAIL — a stubbed detector that always passes
-    // would be worthless. Feed it a module that reaches the event store.
     const tainted = [
       "import { AtomicAppender } from '../../events/atomic-appender.js';",
       "export const x = AtomicAppender;",
@@ -233,23 +220,21 @@ describe('remediation is data, never a mutation', () => {
     expect(verdict.forbidden.map((f) => f.marker)).toContain('events/');
   });
 
+  /** A type-only import is erased at compile time. A value import of the same module is forbidden. */
   it('Structural_Census_IgnoresErasedTypeOnlyImports_ButCatchesValueImports', () => {
-    // A type-only import of the mutator is erased at compile time — harmless.
     const typeOnly = "import type { TransitionDecided } from './transition-command.js';";
     expect(auditRemediationPurity('a.ts', typeOnly, lexModule).ok).toBe(true);
-    // A VALUE import of the same module could mutate — it must be caught.
     const valueImport = "import { runTransitionCommand } from './transition-command.js';";
     const verdict = auditRemediationPurity('a.ts', valueImport, lexModule);
     expect(verdict.ok).toBe(false);
     expect(verdict.forbidden.map((f) => f.marker)).toContain('./transition-command');
   });
 
+  /** The input requirement stays unchanged, and the action holds no function values. */
   it('Behavioural_RemediatingADenial_DoesNotMutateItsInputs', () => {
     const before = JSON.stringify(gateRequirement);
     const outcome = remediateDenial(input('failed', gateRequirement, false));
-    // The requirement the remediation was derived from is untouched…
     expect(JSON.stringify(gateRequirement)).toBe(before);
-    // …and the outcome is inert data (no functions to invoke an effect through).
     expect(typeof outcome).toBe('object');
     if (outcome.kind === 'action') {
       for (const value of Object.values(outcome.action)) {
@@ -259,9 +244,8 @@ describe('remediation is data, never a mutation', () => {
   });
 });
 
-// ─── (c) Emitted next_actions validate against the LIVE schema ────────────────
-
 describe('emitted next_actions conform to the live NextAction schema', () => {
+  /** The indeterminate retry verb also passes the schema. */
   it('ProducingAndWaiverActions_RoundTripThroughTheLiveSchema', () => {
     const samples: RemediationOutcome[] = [
       remediateDenial(input('missing', gateRequirement, false)),
@@ -278,22 +262,17 @@ describe('emitted next_actions conform to the live NextAction schema', () => {
         expect(sample.action.reason.length).toBeGreaterThan(0);
       }
     }
-    // The indeterminate retry verb also conforms.
     expect(() => NextAction.parse(remediateIndeterminate(phaseAttemptId))).not.toThrow();
   });
 
+  /** The schema rejects an empty `idempotencyKey` and a missing verb. A stub validator does not throw. */
   it('LiveSchema_RejectsANonConformingAction_ProvingItIsTheRealGate', () => {
-    // An empty idempotencyKey is rejected by the real schema (DR-MO-1); if our
-    // "validation" were a stub this would pass. It must throw.
     expect(() =>
       NextAction.parse({ verb: 'run_gate', reason: 'x', idempotencyKey: '' }),
     ).toThrow();
-    // A missing verb is rejected too.
     expect(() => NextAction.parse({ reason: 'x' })).toThrow();
   });
 });
-
-// ─── (d) Terminal reasons align to the stable registry ────────────────────────
 
 describe('terminal reasons align to the P03-02 STABLE_ERROR_REGISTRY', () => {
   it('EveryTerminalReason_ReferencesARegistryCode', () => {

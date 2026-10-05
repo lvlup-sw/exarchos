@@ -1,12 +1,8 @@
-// ─── #1739 — production DurableShadowEvidenceReader tests ────────────────────
-//
-// The load-bearing claims:
-//   * MULTIPLE sidecar streams are enumerated and folded — evidence from every
-//     `<featureId>/admission-shadow` stream counts, non-sidecar streams never do;
-//   * an EMPTY store reads as NO evidence (unmet gate conditions), never as
-//     clean evidence — even when every live condition is satisfiable;
-//   * the disposition fold pairs each durable disagreement with its LATEST
-//     `admission.disagreement-disposition` row, defaulting to `unexplained`.
+// Tests for the durable shadow evidence reader. The reader folds each
+// `<featureId>/admission-shadow` sidecar stream and ignores other streams. An
+// empty store reads as no evidence, which leaves gate conditions unmet. Each
+// durable disagreement takes its latest `admission.disagreement-disposition`
+// row, and a disagreement with no row is `unexplained`.
 
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -31,8 +27,6 @@ import {
 import { ADMISSION_EVENT_TYPES } from '../../../../src/workflow/admission/types.js';
 import type { LiveShadowHealth } from '../../../../src/workflow/admission/live-shadow-observer.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
-
-// ─── Fixtures ─────────────────────────────────────────────────────────────────
 
 const AT = '2026-07-21T20:00:00.000Z';
 const SHA_A = 'a'.repeat(64);
@@ -177,9 +171,8 @@ function healthyObserver(): LiveShadowHealth {
   };
 }
 
-// ─── Multi-stream fold ────────────────────────────────────────────────────────
-
 describe('EvidenceReader — sidecar enumeration and fold', () => {
+  /** The decoy disagreement on the feature stream does not count, because only sidecar streams contribute evidence. */
   it('EvidenceReader_MultipleSidecarStreams_FoldsAllComparableAttempts', async () => {
     const source = fakeSource({
       'feat-a/admission-shadow': [
@@ -189,7 +182,6 @@ describe('EvidenceReader — sidecar enumeration and fold', () => {
       'feat-b/admission-shadow': [
         shadowAttemptEvent('shadow-attempt:b1', 'allow', 'allow'),
       ],
-      // Non-sidecar streams must never contribute evidence.
       'feat-a': [shadowAttemptEvent('shadow-attempt:decoy', 'allow', 'deny')],
       'exarchos-doctor': [],
     });
@@ -198,8 +190,6 @@ describe('EvidenceReader — sidecar enumeration and fold', () => {
 
     const durable = await readDurableShadowEvidence(source);
     expect(durable.featureIds).toEqual(['feat-a', 'feat-b']);
-    // All three sidecar attempts folded; the decoy on the authoritative
-    // stream (a would-be disagreement) is invisible.
     expect(durable.attempts.map((a) => a.disagreementClass)).toEqual([
       'agree',
       'agree',
@@ -220,12 +210,15 @@ describe('EvidenceReader — sidecar enumeration and fold', () => {
     expect(durable.attempts).toHaveLength(1);
   });
 
+  /**
+   * A disagreement with no disposition row folds as unexplained, and the later
+   * of two rows wins. The unexplained disagreement makes the corpus condition
+   * of the gate unmet even when each live condition is met.
+   */
   it('EvidenceReader_UndisposedDisagreement_FoldsAsUnexplained_LatestDispositionWins', async () => {
     const source = fakeSource({
       'feat-a/admission-shadow': [
-        // A disagreement with NO disposition row: conservatively unexplained.
         shadowAttemptEvent('shadow-attempt:d1', 'allow', 'deny'),
-        // A disagreement disposed twice — the LATER row wins.
         shadowAttemptEvent('shadow-attempt:d2', 'deny', 'allow'),
         dispositionEvent('shadow-attempt:d2', 'unexplained'),
         dispositionEvent('shadow-attempt:d2', 'explained-legacy'),
@@ -235,8 +228,6 @@ describe('EvidenceReader — sidecar enumeration and fold', () => {
     expect(durable.dispositionTally.unexplained).toBe(1);
     expect(durable.dispositionTally['explained-legacy']).toBe(1);
 
-    // The unexplained durable disagreement drives the gate's corpus condition
-    // red even when every live condition is satisfied.
     const { evidence } = await assembleCutoverGateEvidence(source, {
       liveAttempts: satisfiableLiveAttempts(),
       observerHealth: healthyObserver(),
@@ -246,8 +237,6 @@ describe('EvidenceReader — sidecar enumeration and fold', () => {
     expect(report.unmet).toContain('deterministic-corpus-clean');
   });
 });
-
-// ─── Empty store ──────────────────────────────────────────────────────────────
 
 describe('EvidenceReader — empty store semantics', () => {
   let stateDir: string;
@@ -264,15 +253,17 @@ describe('EvidenceReader — empty store semantics', () => {
     await rmrfAsync(stateDir);
   });
 
+  /**
+   * With no durable evidence, "no disagreements" and "the observer never ran"
+   * look the same. So an empty store must block even when each live condition
+   * is met.
+   */
   it('EvidenceReader_EmptyStore_ReportsNoEvidenceNotCleanEvidence', async () => {
     const durable = await readDurableShadowEvidence(eventStore);
     expect(durable.featureIds).toEqual([]);
     expect(durable.attempts).toEqual([]);
     expect(durable.decisions).toEqual([]);
 
-    // Even with EVERY live condition satisfiable, an empty durable substrate
-    // must refuse: "no disagreements" and "the observer never ran" are
-    // indistinguishable without durable evidence (INV-1 / DR-23).
     const { evidence } = await assembleCutoverGateEvidence(eventStore, {
       liveAttempts: satisfiableLiveAttempts(),
       observerHealth: healthyObserver(),
@@ -283,8 +274,6 @@ describe('EvidenceReader — empty store semantics', () => {
     expect(report.durableAttemptCount).toBe(0);
   });
 });
-
-// ─── readPersistedEvidence — the durable-evidence observation ─────────────────
 
 const GATE_DIGEST = { algorithm: 'sha256' as const, value: 'b'.repeat(64) };
 
@@ -347,6 +336,7 @@ const ARTIFACT_REF = {
 };
 
 describe('readPersistedEvidence — the observation the durable-evidence ensure reads', () => {
+  /** The list is empty, not undefined, so a caller that checks `.length` gets one answer for an omitted field and an empty array. */
   it('EvidenceReader_RowWithNoArtifactRefs_ObservesEmptyList', async () => {
     const source = persistedSource([gateEvidenceRow('op-1')]);
 
@@ -357,9 +347,6 @@ describe('readPersistedEvidence — the observation the durable-evidence ensure 
     });
 
     expect(observed).toHaveLength(1);
-    // Empty, never undefined: a caller that only ever checks `.length` must
-    // see the same "no blobs named" answer whether the field was omitted or
-    // an empty array — the schema treats both identically.
     expect(observed[0]?.artifactRefs).toEqual([]);
   });
 
@@ -380,12 +367,12 @@ describe('readPersistedEvidence — the observation the durable-evidence ensure 
     expect(observed[0]?.artifactRefs).toEqual([ARTIFACT_REF]);
   });
 
+  /**
+   * `EvidenceArtifactReferenceV1Schema` needs an artifact-kind subject. A task
+   * subject fails the row-level `safeParse`, so the reader drops the row like
+   * any unreadable payload.
+   */
   it('EvidenceReader_RowWhoseReferenceNamesANonArtifactSubject_IsDropped', async () => {
-    // `EvidenceArtifactReferenceV1Schema` requires an artifact-kind subject on
-    // the reference. A row whose reference names a `task` subject fails the
-    // row-level `safeParse` this reader already runs, and is dropped exactly
-    // as any other unreadable payload is — no second, redundant check of the
-    // reference is added here to re-discover what the parse already knows.
     const malformedRef = {
       ...ARTIFACT_REF,
       subject: { kind: 'task', taskId: 'task.wrong-kind', digest: GATE_DIGEST },

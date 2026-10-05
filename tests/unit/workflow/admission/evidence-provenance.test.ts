@@ -1,34 +1,17 @@
 /**
- * DR-35 — evidence provenance is EVALUATED, not minted; waivers are REACHABLE.
+ * For a requirement that a recorded fact claims, the legacy-state translation
+ * evaluates the recorded evidence. It derives an attestation only for an
+ * unclaimed requirement. So admission can deny for `stale`, `unauthorized`,
+ * `malformed`, `contradictory`, and `failed` evidence, and a scoped waiver can
+ * rescue a gate.
  *
- * `legacy-state-translation.ts` used to be both the producer and the judge of
- * every record it evaluated. It minted evidence from the very fact projection
- * it then judged, stamped `createdAt` at the evaluation instant, attributed the
- * record to the one principal its own authority trusted, and derived the
- * subject digest from the facts so the subject always matched the requirement.
- * Four sound deny reasons were therefore unreachable BY CONSTRUCTION —
- * `stale`, `unauthorized`, `malformed`, `contradictory` — and with the
- * obligation lattice pinned to `waivable: false` and neither `contradictions`
- * nor `waivers` ever threaded into `evaluatePolicy`, the entire waiver branch
- * was dead code.
- *
- * These tests drive the assertions from the PUBLIC ROOT, because a proof that
- * calls `adjudicateEdge` (or `evaluatePolicy`) directly is exactly the vacuous
- * shape that let the defect ship:
- *
- *   - the deny tests go through `handleWorkflow({action:'transition'})` — the
- *     real composite handler, the real HSM guard, the real `GuardContext`
- *     shadow observer, a real `EventStore` and a real state dir — and assert on
- *     the DURABLE `admission.shadow-attempt` record the live path persists;
- *   - the waiver tests go through `adjudicateOutboundEdges`, the affordance
- *     root `next-actions-computer.ts` publishes from, over state hydrated by
- *     the production `hydrateEventsFromStore`.
- *
- * Nothing here is hand-mocked: the admission proof facts are appended to the
- * feature's own append-only stream exactly as `verbs/gates/gate-runner.ts`
- * appends them in production, and reach the translation because
- * `workflow/tools.ts` hydrates that stream onto `state._events` before the
- * guarded transition runs.
+ * The tests start at the public root, because a test that calls `adjudicateEdge`
+ * or `evaluatePolicy` directly can pass while the live path is wrong. The deny
+ * tests run `handleWorkflow` transitions on a real `EventStore` and read the
+ * durable `admission.shadow-attempt` record. The waiver tests call
+ * `adjudicateOutboundEdges` over state that `hydrateEventsFromStore` builds.
+ * The tests append the proof facts to the feature stream, as the gate runner
+ * does in production.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
@@ -61,8 +44,6 @@ import { handleWorkflow } from '../../../../src/workflow/composite.js';
 import { handleGet, handleSet } from '../../../../src/workflow/tools.js';
 import { hydrateEventsFromStore } from '../../../../src/workflow/state-store.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
-
-// ─── Fixtures ────────────────────────────────────────────────────────────────
 
 /** The shipped gate edge under test: `feature: plan -> plan-review`. */
 const GATE_EDGE: WorkflowEdgeIR = (() => {
@@ -111,9 +92,8 @@ interface GateEvidenceOptions {
 }
 
 /**
- * One `admission.evidence-recorded` payload. Every field a producer controls is
- * a parameter — that is the whole point: the pre-DR-35 translation controlled
- * all of them itself and could therefore never be surprised by any of them.
+ * One `admission.evidence-recorded` payload. Each field that a producer
+ * controls is a parameter, so a test can vary each one.
  */
 function gateEvidenceEvent(options: GateEvidenceOptions): Record<string, unknown> {
   const scope = options.scope ?? GATE_SCOPE;
@@ -187,8 +167,11 @@ function waiverEvent(options: WaiverOptions): Record<string, unknown> {
   };
 }
 
-// ─── Live-path harness ───────────────────────────────────────────────────────
-
+/**
+ * Each test starts a feature workflow at `plan` with the plan artifact, so the
+ * legacy guard admits the transition. A deny that follows comes from the
+ * recorded evidence, not from an unready workflow.
+ */
 describe('DR-35 — recorded evidence provenance denies on the LIVE transition path', () => {
   let stateDir: string;
   let eventStore: EventStore;
@@ -209,11 +192,6 @@ describe('DR-35 — recorded evidence provenance denies on the LIVE transition p
     await rmrfAsync(stateDir);
   });
 
-  /**
-   * Init a real feature workflow at `plan` with the plan artifact present, so
-   * the LEGACY guard admits the transition. Any admission deny that follows is
-   * attributable to the recorded evidence, not to the workflow being unready.
-   */
   async function seedFeatureAtPlan(featureId: string): Promise<void> {
     const init = await handleWorkflow(
       { action: 'init', featureId, workflowType: 'feature' },
@@ -227,7 +205,6 @@ describe('DR-35 — recorded evidence provenance denies on the LIVE transition p
     );
   }
 
-  /** Append an admission proof fact to the feature's OWN append-only stream. */
   async function record(
     featureId: string,
     type: string,
@@ -241,7 +218,6 @@ describe('DR-35 — recorded evidence provenance denies on the LIVE transition p
     );
   }
 
-  /** Drive the real guarded transition and read back the durable shadow record. */
   async function transitionAndReadShadow(featureId: string) {
     const transition = await handleWorkflow(
       { action: 'transition', featureId, target: 'plan-review' },
@@ -266,11 +242,11 @@ describe('DR-35 — recorded evidence provenance denies on the LIVE transition p
     return [...(decision.unsatisfiedRequirements ?? [])].map((r) => r.reason);
   };
 
-  // ── Control ────────────────────────────────────────────────────────────────
-  //
-  // The SAME workflow, the SAME transition, with NOTHING recorded. The derived
-  // attestation still governs an unclaimed requirement, so admission allows.
-  // Without this control every deny below could be an artefact of the harness.
+  /**
+   * Control: the same transition with nothing recorded. The derived attestation
+   * governs an unclaimed requirement, so admission allows. Without this control,
+   * each deny below can come from the harness.
+   */
   it('Admission_NoRecordedEvidence_FallsBackToDerivedAttestationAndAllows', async () => {
     const featureId = 'provenance-control';
     await seedFeatureAtPlan(featureId);
@@ -281,15 +257,11 @@ describe('DR-35 — recorded evidence provenance denies on the LIVE transition p
     expect(durable.decision.outcome).toBe('allow');
   });
 
-  // ── Required test: stale ───────────────────────────────────────────────────
+  /** The evidence is well formed and authorized, so its age is the only fault. */
   it('Admission_StaleEvidence_Denies', async () => {
     const featureId = 'provenance-stale';
     await seedFeatureAtPlan(featureId);
 
-    // Well-formed and authorized, so it clears `missing`, `malformed` and
-    // `unauthorized` — the ONLY thing wrong with it is its age. The pre-DR-35
-    // translation stamped `createdAt` at `ctx.evaluatedAt`, which made an age
-    // of anything other than zero impossible to express.
     await record(
       featureId,
       'admission.evidence-recorded',
@@ -307,15 +279,11 @@ describe('DR-35 — recorded evidence provenance denies on the LIVE transition p
     expect(denyReasons(durable)).toContain('stale');
   });
 
-  // ── unauthorized ───────────────────────────────────────────────────────────
+  /** The evidence is fresh, well formed, and says `pass`, but the authority does not trust its producer. */
   it('Admission_UnauthorizedProducerEvidence_Denies', async () => {
     const featureId = 'provenance-unauthorized';
     await seedFeatureAtPlan(featureId);
 
-    // Fresh, well-formed, and asserting `pass` — but issued by a principal the
-    // out-of-band authority does not trust to issue gate evidence. The
-    // pre-DR-35 translation was its own sole producer AND granted itself
-    // `ISSUE_GATE_EVIDENCE`, so no untrusted issuer could ever appear.
     await record(
       featureId,
       'admission.evidence-recorded',
@@ -333,15 +301,11 @@ describe('DR-35 — recorded evidence provenance denies on the LIVE transition p
     expect(denyReasons(durable)).toContain('unauthorized');
   });
 
-  // ── malformed ──────────────────────────────────────────────────────────────
+  /** The evidence names the right requirement but carries the subject and phase attempt of another edge. */
   it('Admission_MalformedEvidence_Denies', async () => {
     const featureId = 'provenance-malformed';
     await seedFeatureAtPlan(featureId);
 
-    // Claims the RIGHT requirement but carries a DIFFERENT phase attempt and
-    // subject — evidence about another attempt filed against this one. The
-    // pre-DR-35 translation built the subject from the same facts it judged,
-    // so the subject and the requirement could not disagree.
     expect(APPROVAL_SCOPE.subject).not.toEqual(GATE_SCOPE.subject);
 
     await record(
@@ -362,14 +326,12 @@ describe('DR-35 — recorded evidence provenance denies on the LIVE transition p
     expect(denyReasons(durable)).toContain('malformed');
   });
 
-  // ── contradictory — proves `selectEvidence` is LIVE ────────────────────────
-  //
-  // Nothing here records an `admission.contradiction-recorded` fact. The
-  // contradiction can ONLY exist because `selectEvidence` DETECTED it: two
-  // active records in one (requirement, subject, attempt, policy) scope making
-  // opposite statements, neither superseding the other. If the selector were
-  // not called on the wired path, `evaluateGate` would find a passing record
-  // and ALLOW, because a `pass` short-circuits before `fail` is even examined.
+  /**
+   * No `admission.contradiction-recorded` fact exists. The contradiction exists
+   * only because `selectEvidence` finds two active records with opposite
+   * statements in one scope. Without the selector, `evaluateGate` finds the
+   * passing record and allows.
+   */
   it('Admission_ContradictoryEvidence_Denies_ViaLiveSelectEvidence', async () => {
     const featureId = 'provenance-contradictory';
     await seedFeatureAtPlan(featureId);
@@ -393,12 +355,11 @@ describe('DR-35 — recorded evidence provenance denies on the LIVE transition p
     expect(denyReasons(durable)).toContain('contradictory');
   });
 
-  // ── supersession — the other half of `selectEvidence` being live ───────────
-  //
-  // Byte-identical to the contradiction case EXCEPT for the append-only
-  // supersession link. Honouring it is what turns a contradiction into a
-  // single active record, so this pins that the recorded ledger is the real
-  // P01-06 selection and not a naive filter over the raw facts.
+  /**
+   * The two records have opposite verdicts, as in the contradiction case, but
+   * the `pass` record supersedes the `fail` record. The recorded ledger honors
+   * the link, so one active record remains and admission allows.
+   */
   it('Admission_SupersededEvidence_IsNotActive_AndAllows', async () => {
     const featureId = 'provenance-supersede';
     await seedFeatureAtPlan(featureId);
@@ -425,12 +386,11 @@ describe('DR-35 — recorded evidence provenance denies on the LIVE transition p
     expect(durable.decision.outcome).toBe('allow');
   });
 
-  // ── failed — the recorded verdict, not the projection, decides ─────────────
-  //
-  // The legacy state HAS the plan artifact, so the self-derived attestation
-  // would say `pass`. A trusted, fresh producer says `fail`. Recorded facts
-  // govern the requirement they claim, so admission denies `failed` — the
-  // translation no longer gets to overrule a producer with its own opinion.
+  /**
+   * The legacy state has the plan artifact, so the derived attestation says
+   * `pass`. A trusted, fresh producer says `fail`. Recorded facts govern the
+   * requirement they claim, so admission denies with `failed`.
+   */
   it('Admission_RecordedFailure_OverridesTheSelfDerivedAttestation', async () => {
     const featureId = 'provenance-failed';
     await seedFeatureAtPlan(featureId);
@@ -449,8 +409,13 @@ describe('DR-35 — recorded evidence provenance denies on the LIVE transition p
   });
 });
 
-// ─── Waivers ─────────────────────────────────────────────────────────────────
-
+/**
+ * Waiver-grant trust is out of band, like evidence-issuance trust. The default
+ * translation context declares no grantors, so waivers fail closed until a
+ * deployment declares one. `trusting()` declares `WAIVER_ACTOR_ID`. The workflow
+ * has no plan artifact, so the gate is unsatisfied with `missing` and a waiver
+ * has something to rescue.
+ */
 describe('DR-35 — the waiver branch is reachable and strictly scoped', () => {
   let stateDir: string;
   let eventStore: EventStore;
@@ -458,12 +423,6 @@ describe('DR-35 — the waiver branch is reachable and strictly scoped', () => {
 
   const ctx = () => ({ stateDir, eventStore, enableTelemetry: false });
 
-  /**
-   * Waiver-GRANT trust is out-of-band, exactly like evidence-issuance trust:
-   * the authority must be told which principals may grant. The live translation
-   * context declares NO grantors, so waivers are fail-closed on the shipped
-   * path until a deployment declares one.
-   */
   const trusting = () =>
     defaultTranslationContext(new Date().toISOString(), {
       waiverGrantors: [WAIVER_ACTOR_ID],
@@ -479,9 +438,6 @@ describe('DR-35 — the waiver branch is reachable and strictly scoped', () => {
       ctx(),
     );
     expect(init.success).toBe(true);
-    // Deliberately NO plan artifact: the gate is genuinely unsatisfied
-    // (`missing`), which is what a waiver has to rescue for the branch to mean
-    // anything.
   });
 
   afterEach(async () => {
@@ -506,7 +462,6 @@ describe('DR-35 — the waiver branch is reachable and strictly scoped', () => {
     );
   }
 
-  /** Real state + the production event hydration `workflow/tools.ts` performs. */
   async function liveState(): Promise<Record<string, unknown>> {
     const base = (await handleGet({ featureId }, stateDir, eventStore)).data as Record<
       string,
@@ -522,25 +477,25 @@ describe('DR-35 — the waiver branch is reachable and strictly scoped', () => {
     }).get('plan-review')?.verdict;
   };
 
-  // ── Required test ──────────────────────────────────────────────────────────
+  /**
+   * The unsatisfied gate denies first, so a later allow means something. A
+   * waiver does not apply when it names another subject or requirement, is
+   * expired, or comes from an untrusted grantor. The other-subject waiver names
+   * this requirement, so only the subject check rejects it. The exact waiver
+   * applies, keeps the recorded failure, and does not rescue the approval edge.
+   */
   it('Admission_ScopedWaiver_AppliesOnlyToDeclaredSubject', async () => {
-    // Baseline: the unsatisfied gate denies. If this were already `allow` the
-    // waiver assertion below would prove nothing.
     expect(await gateVerdict()).toBe('deny');
 
-    // ── A waiver naming a DIFFERENT subject rescues NOTHING. ────────────────
     expect(APPROVAL_SCOPE.subject).not.toEqual(GATE_SCOPE.subject);
     await recordWaiver({
       key: 'other-subject',
       waiverId: 'waiver:other-subject',
       scope: APPROVAL_SCOPE,
-      // Names THIS requirement, but scoped to another subject: only the
-      // subject check can reject it.
       waivedRequirementIds: [GATE_SCOPE.requirementId],
     });
     expect(await gateVerdict()).toBe('deny');
 
-    // ── A waiver naming a DIFFERENT requirement rescues NOTHING. ────────────
     await recordWaiver({
       key: 'other-requirement',
       waiverId: 'waiver:other-requirement',
@@ -548,7 +503,6 @@ describe('DR-35 — the waiver branch is reachable and strictly scoped', () => {
     });
     expect(await gateVerdict()).toBe('deny');
 
-    // ── An EXPIRED waiver rescues NOTHING. ─────────────────────────────────
     await recordWaiver({
       key: 'expired',
       waiverId: 'waiver:expired',
@@ -556,7 +510,6 @@ describe('DR-35 — the waiver branch is reachable and strictly scoped', () => {
     });
     expect(await gateVerdict()).toBe('deny');
 
-    // ── A waiver from an UNTRUSTED grantor rescues NOTHING. ────────────────
     await recordWaiver({
       key: 'untrusted',
       waiverId: 'waiver:untrusted',
@@ -564,12 +517,9 @@ describe('DR-35 — the waiver branch is reachable and strictly scoped', () => {
     });
     expect(await gateVerdict()).toBe('deny');
 
-    // ── The waiver that names BOTH the declared subject AND the declared
-    // requirement, unexpired, from a trusted grantor, DOES apply. ───────────
     await recordWaiver({ key: 'exact', waiverId: 'waiver:plan-artifact' });
     expect(await gateVerdict()).toBe('allow');
 
-    // ── ...and it never rewrites the failure it permitted admission despite.
     const evaluation = evaluateEdgeAdmission(GATE_EDGE, await liveState(), trusting());
     expect(evaluation.verdict).toBe('allow');
     expect(evaluation.appliedWaiverIds).toContain('waiver:plan-artifact');
@@ -585,10 +535,6 @@ describe('DR-35 — the waiver branch is reachable and strictly scoped', () => {
       expect.objectContaining({ status: 'waived', waivedReason: 'missing' }),
     );
 
-    // ── ...and it rescues NO OTHER edge. The same log, the same trusted
-    // grantor, a different source phase: the approval obligation out of
-    // `plan-review` is a different requirement over a different subject and
-    // stays denied. ─────────────────────────────────────────────────────────
     const elsewhere = adjudicateOutboundEdges(
       'feature',
       'plan-review',
@@ -599,11 +545,10 @@ describe('DR-35 — the waiver branch is reachable and strictly scoped', () => {
     expect(elsewhere.get('delegate')?.verdict).toBe('deny');
   });
 
+  /** The default live context declares no waiver grantors, so the waiver that applies under `trusting()` grants nothing. */
   it('Admission_WaiverWithoutADeclaredGrantor_IsFailClosed', async () => {
     await recordWaiver({ key: 'exact', waiverId: 'waiver:plan-artifact' });
 
-    // The SHIPPED live context declares no waiver grantors at all. The very
-    // same waiver that applies under `trusting()` grants nothing here.
     const shipped = defaultTranslationContext(new Date().toISOString());
     const state = await liveState();
     const verdict = adjudicateOutboundEdges('feature', 'plan', state, shipped, {
@@ -616,23 +561,26 @@ describe('DR-35 — the waiver branch is reachable and strictly scoped', () => {
     ).toEqual([]);
   });
 
-  // ── `obligations.waivable` must be able to be `true` ───────────────────────
+  /**
+   * A waiver must not stand in for a required human approval. So the gate
+   * obligation is waivable and the approval obligation is not.
+   */
   it('Admission_GateObligationIsWaivable_ApprovalObligationIsNot', async () => {
     const state = await liveState();
 
     const gate = translateEdgeAdmission(GATE_EDGE, state, trusting());
     expect(gate.obligations.waivable).toBe(true);
 
-    // The complement matters just as much: if EVERY obligation were waivable
-    // we would have traded one dead branch (`waivable: false`) for another
-    // (`evaluateWaiver`'s `not-waivable` rejection). A waiver standing in for
-    // a required human approval would make the approval decorative.
     const approval = translateEdgeAdmission(APPROVAL_EDGE, state, trusting());
     expect(approval.obligations.waivable).toBe(false);
     expect(APPROVAL_SCOPE.requirementId).not.toBe(GATE_SCOPE.requirementId);
   });
 
-  // ── The ledger projection itself ───────────────────────────────────────────
+  /**
+   * A state with no event log gives an empty ledger. This is the fail-safe
+   * direction for a caller whose payload lost its events at a serialization
+   * boundary.
+   */
   it('Admission_RecordedLedger_IsProjectedFromTheWorkflowsOwnEventLog', async () => {
     await recordWaiver({ key: 'exact', waiverId: 'waiver:plan-artifact' });
     await eventStore.append(
@@ -659,13 +607,9 @@ describe('DR-35 — the waiver branch is reachable and strictly scoped', () => {
       'ev:gate:plan-artifact:ledger',
     ]);
 
-    // A state with no event log at all yields the empty ledger — the fail-SAFE
-    // direction for an affordance caller whose payload was stripped at a
-    // serialization boundary.
     expect(projectRecordedAdmissionFacts({}).evidence).toEqual([]);
   });
 
-  // ── Provenance is reported, not assumed ────────────────────────────────────
   it('Admission_EvidenceProvenance_DistinguishesRecordedFromDerived', async () => {
     const before = translateEdgeAdmission(GATE_EDGE, await liveState(), trusting());
     expect(before.evidenceProvenance).toBe('derived');

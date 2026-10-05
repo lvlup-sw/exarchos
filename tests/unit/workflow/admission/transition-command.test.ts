@@ -1,18 +1,15 @@
-// Exit-proof tests for P06-05 — the sole admission chokepoint (Transition
-// tasks 003, 023, 024, 045).
+// Exit-proof tests for the sole admission chokepoint.
 //
-// Proves the six exit obligations:
-//   (a) the admission decision and the phase-transition lifecycle event are ONE
-//       atomic unit — both siblings commit together, and a fault before commit
-//       leaves NEITHER (no partial siblings);
-//   (b) a retried transition returns the IDENTICAL recorded decision;
-//   (c) a denied attempt records the attempt + decision but leaves phase UNCHANGED;
-//   (d) an indeterminate verdict fails closed and does not mutate phase;
-//   (e) a stale expected-version raises a typed ConcurrencyError;
-//   (f) cleanup routes through the SAME atomic primitive.
+// (a) The admission decision and the phase-transition lifecycle event commit together as one atomic unit.
+//     A fault before the commit leaves neither event.
+// (b) A retried transition returns the identical recorded decision.
+// (c) A denied attempt records the attempt and the decision, and the phase does not change.
+// (d) An indeterminate verdict fails closed and does not change the phase.
+// (e) A stale expected version raises a typed `ConcurrencyError`.
+// (f) Cleanup uses the same atomic primitive.
 //
-// The route-legality ordering (route THEN admission) is also pinned: an illegal
-// edge never reaches admission and never persists anything.
+// Route legality comes before admission. An illegal edge never reaches admission and persists nothing.
+
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -57,8 +54,6 @@ import {
 } from '../../../../src/workflow/admission/types.js';
 import type { ResolvedGate } from '../../../../src/workflow/phase-kind.js';
 
-// ─── Fixtures ─────────────────────────────────────────────────────────────────
-
 const AT = '2026-08-03T12:00:00.000Z';
 const digestA: ContentDigestV1 = { algorithm: 'sha256', value: 'a'.repeat(64) };
 const digestB: ContentDigestV1 = { algorithm: 'sha256', value: 'b'.repeat(64) };
@@ -69,8 +64,7 @@ const subject = createEvidenceSubject(
   { phase: 'gather', attempt: 1 },
 );
 
-// GATHER carries no phase-kind gates, so the sole obligation is the single
-// declared gate — one gate-evidence requirement, controlled and predictable.
+/** GATHER has no phase-kind gates, so the declared gate is the only obligation: one gate-evidence requirement. */
 const declaredGate: ResolvedGate = { family: 'ladder', gate: 'check_static_analysis' };
 const requirementContext = buildRequirementContext({
   phaseKind: 'GATHER',
@@ -81,8 +75,7 @@ const requirementContext = buildRequirementContext({
   policy: { minimumApprovals: 0, waivable: true },
 });
 
-// The frozen requirement id the chokepoint will mint (deterministic) — used to
-// bind matching evidence.
+/** The deterministic requirement ID that the chokepoint mints. Matching evidence binds to it. */
 const gateRequirementId = (() => {
   const resolved = resolveRequirements(requirementContext);
   const frozen = freezeRequirements({ resolved, phaseAttemptId, subject });
@@ -131,8 +124,6 @@ const authorization = {
   resolverVersion: '1.0',
   resolvedAt: AT,
 } as const;
-
-// ─── Route candidates ─────────────────────────────────────────────────────────
 
 const declaration = {
   fields: { ready: 'boolean' },
@@ -195,8 +186,6 @@ function assertDecided(result: {
   }
 }
 
-// ─── Real-backend suite ─────────────────────────────────────────────────────
-
 describe('runTransitionCommand — atomic admission over a real appender', () => {
   let stateDir: string;
   let appender: AtomicAppender;
@@ -217,6 +206,7 @@ describe('runTransitionCommand — atomic admission over a real appender', () =>
       sequence: Number((event as { sequence: unknown }).sequence),
     }));
 
+  /** (a) Both events are present with consecutive sequences, so they are one atomic unit. */
   it('Admit_AllowVerdict_AppendsDecisionAndLifecycleAsAtomicSiblings', async () => {
     const streamId = 'workflow.allow';
     const result = await runTransitionCommand(makeInput(appender, { streamId }));
@@ -231,7 +221,6 @@ describe('runTransitionCommand — atomic admission over a real appender', () =>
       'workflow.transition',
     ]);
 
-    // (a) both siblings are present with consecutive sequences — one atomic unit.
     const events = eventsOf(streamId);
     expect(events.map((e) => e.type)).toEqual([
       'admission.transition-decided',
@@ -240,6 +229,7 @@ describe('runTransitionCommand — atomic admission over a real appender', () =>
     expect(events[1]!.sequence).toBe(events[0]!.sequence + 1);
   });
 
+  /** (b) The retry returns the recorded decision and commits no new events. */
   it('Retry_SameOperationId_ReturnsIdenticalDecisionWithoutDuplicateEvents', async () => {
     const streamId = 'workflow.retry';
     const first = await runTransitionCommand(makeInput(appender, { streamId }));
@@ -247,16 +237,15 @@ describe('runTransitionCommand — atomic admission over a real appender', () =>
     assertDecided(first);
     assertDecided(second);
 
-    // (b) identical recorded decision, never re-evaluated to a different one.
     expect(second.decision).toEqual(first.decision);
     expect(second.decision.decisionId).toBe(first.decision.decisionId);
-    // The retry committed no new events — still exactly the two siblings.
     expect(eventsOf(streamId).map((e) => e.type)).toEqual([
       'admission.transition-decided',
       'workflow.transition',
     ]);
   });
 
+  /** (c) The attempt and the decision are recorded. The phase does not advance, and no lifecycle event exists. */
   it('Deny_MissingEvidence_RecordsAttemptButLeavesPhaseUnchanged', async () => {
     const streamId = 'workflow.deny';
     const result = await runTransitionCommand(
@@ -264,7 +253,6 @@ describe('runTransitionCommand — atomic admission over a real appender', () =>
     );
     assertDecided(result);
 
-    // (c) the attempt + decision are recorded; the phase does NOT advance.
     expect(result.outcome).toBe('denied');
     expect(result.verdict).toBe('deny');
     expect(result.phaseChanged).toBe(false);
@@ -275,18 +263,16 @@ describe('runTransitionCommand — atomic admission over a real appender', () =>
     }
     const events = eventsOf(streamId);
     expect(events.map((e) => e.type)).toEqual(['admission.transition-decided']);
-    // Structurally impossible to observe a lifecycle sibling on a deny.
     expect(events.some((e) => e.type === 'workflow.transition')).toBe(false);
   });
 
+  /** An authority that trusts no principal makes the passing gate evidence unauthorized. */
   it('Deny_UnauthorizedProducer_PersistsUnauthorizedReason', async () => {
     const streamId = 'workflow.unauthorized';
     const noTrustAppenderInput = makeInput(appender, {
       streamId,
       activeEvidence: [gateEvidence('pass')],
     });
-    // Swap in an authority that trusts no one, so the (otherwise passing)
-    // gate evidence is unauthorized — the additive `unauthorized` reason.
     const result = await runTransitionCommand({
       ...noTrustAppenderInput,
       admission: {
@@ -302,6 +288,7 @@ describe('runTransitionCommand — atomic admission over a real appender', () =>
     expect(eventsOf(streamId).some((e) => e.type === 'workflow.transition')).toBe(false);
   });
 
+  /** (d) An indeterminate verdict fails closed and never advances the phase. */
   it('Indeterminate_UndecidedGate_FailsClosedWithoutPhaseMutation', async () => {
     const streamId = 'workflow.indeterminate';
     const result = await runTransitionCommand(
@@ -309,7 +296,6 @@ describe('runTransitionCommand — atomic admission over a real appender', () =>
     );
     assertDecided(result);
 
-    // (d) indeterminate is first-class, fails closed, never advances the phase.
     expect(result.outcome).toBe('indeterminate');
     expect(result.verdict).toBe('indeterminate');
     expect(result.phaseChanged).toBe(false);
@@ -318,17 +304,18 @@ describe('runTransitionCommand — atomic admission over a real appender', () =>
     expect(events.map((e) => e.type)).toEqual(['admission.transition-decided']);
   });
 
+  /**
+   * (e) A concurrent writer advances the stream, but the caller expects version 0.
+   * The command raises a typed conflict and persists no admission event.
+   */
   it('OCC_StaleExpectedVersion_RaisesTypedConcurrencyError', async () => {
     const streamId = 'workflow.stale';
-    // Advance the stream out from under the caller (a concurrent writer).
     await appender.appendUnkeyed(streamId, [{ type: 'noise.event', data: {} }]);
 
-    // (e) the caller still believes the stream is at version 0 → typed conflict.
     await expect(
       runTransitionCommand(makeInput(appender, { streamId, expectedVersion: 0 })),
     ).rejects.toBeInstanceOf(ConcurrencyError);
 
-    // The rolled-back attempt persisted NO admission facts.
     expect(eventsOf(streamId).some((e) => e.type.startsWith('admission.'))).toBe(false);
   });
 
@@ -341,6 +328,10 @@ describe('runTransitionCommand — atomic admission over a real appender', () =>
     expect(eventsOf(streamId)).toEqual([]);
   });
 
+  /**
+   * (f) The cleanup phase change is one atomic `decideOnce` append.
+   * A stale version is a typed conflict, as on the transition path. A retry with the same operation ID adds no cleanup event.
+   */
   it('Cleanup_RoutesThroughSameAtomicPrimitive', async () => {
     const streamId = 'workflow.cleanup';
     const result = await runCleanupCommand({
@@ -354,11 +345,9 @@ describe('runTransitionCommand — atomic admission over a real appender', () =>
       featureId: 'feature-alpha',
       phaseAttemptId,
     });
-    // (f) cleanup's phase mutation is one atomic decideOnce append.
     expect(result.outcome).toBe('cleaned-up');
     expect(eventsOf(streamId).map((e) => e.type)).toEqual(['workflow.cleanup']);
 
-    // Same OCC gate as the transition path: a stale version is a typed conflict.
     await expect(
       runCleanupCommand({
         appender,
@@ -372,7 +361,6 @@ describe('runTransitionCommand — atomic admission over a real appender', () =>
       }),
     ).rejects.toBeInstanceOf(ConcurrencyError);
 
-    // Idempotent retry adds no duplicate cleanup event.
     await runCleanupCommand({
       appender,
       streamId,
@@ -388,12 +376,9 @@ describe('runTransitionCommand — atomic admission over a real appender', () =>
   });
 });
 
-// ─── Recording-double suite: single-transaction + no-partial-siblings ────────
-
 /**
- * A recording {@link AdmissionDecider} that runs the closure (so the chokepoint's
- * events are observable) and either returns the result or throws a simulated I/O
- * fault BEFORE the atomic commit — never persisting anything.
+ * A recording {@link AdmissionDecider}. It runs the closure, so the chokepoint events are observable.
+ * Then it returns the result, or throws a simulated I/O fault before the commit. It persists nothing.
  */
 class RecordingDecider implements AdmissionDecider {
   readonly calls: {
@@ -422,16 +407,14 @@ class RecordingDecider implements AdmissionDecider {
 }
 
 describe('runTransitionCommand — single atomic unit (no partial siblings)', () => {
+  /** The chokepoint makes one `decideOnce` call that carries both events in order. It never appends the decision alone. */
   it('Atomic_AllowVerdict_IssuesOneDecideOnceCarryingBothSiblings', async () => {
     const decider = new RecordingDecider('commit');
     const result = await runTransitionCommand(makeInput(decider));
     assertDecided(result);
 
-    // Exactly ONE decideOnce call — never a decision append separate from the
-    // lifecycle append.
     expect(decider.calls).toHaveLength(1);
     const only = decider.calls[0]!;
-    // That single atomic decision carries BOTH siblings, in order.
     expect(only.decision.events.map((e) => e.type)).toEqual([
       'admission.transition-decided',
       'workflow.transition',
@@ -439,18 +422,17 @@ describe('runTransitionCommand — single atomic unit (no partial siblings)', ()
     expect(only.decision.expectedSequence).toBe(0);
   });
 
+  /**
+   * (a) A fault between the decision and the commit rejects the command.
+   * Both events live in the single `decideOnce` unit, so nothing commits. With two separate appends, the same fault leaves the decision behind.
+   */
   it('Atomic_FaultBeforeCommit_LeavesNeitherSibling', async () => {
     const decider = new RecordingDecider('fault-before-commit');
 
-    // (a) a fault injected between deciding and committing surfaces — and,
-    // because BOTH siblings live in the single decideOnce unit, nothing is
-    // committed. A naive two-append impl would have left the decision behind.
     await expect(runTransitionCommand(makeInput(decider))).rejects.toThrow(
       /injected I\/O fault/,
     );
     expect(decider.calls).toHaveLength(1);
-    // The chokepoint constructed the decision + lifecycle events as siblings of
-    // ONE atomic unit; it never issued a standalone decision append.
     expect(decider.calls[0]!.decision.events.map((e) => e.type)).toEqual([
       'admission.transition-decided',
       'workflow.transition',

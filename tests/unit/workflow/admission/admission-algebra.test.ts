@@ -1,12 +1,9 @@
 /**
- * Exit-proof tests for P01-03 Evidence and Admission Algebra.
- *
- * Demonstrates:
- * 1. Bare booleans cannot satisfy requirements.
- * 2. Malformed evidence subjects are rejected.
- * 3. Malformed/mismatched artifact content digests are rejected.
- * 4. Contradiction and reassessment types are exhaustive.
- * 5. Admission event vocabulary is closed and round-trips correctly.
+ * Tests for the evidence and admission algebra schemas. Bare booleans do not
+ * satisfy a requirement, and malformed subjects and content digests fail.
+ * Contradiction and reassessment records parse, and a boolean in a typed field
+ * fails. The admission event vocabulary is closed, and so is each set of kinds
+ * and outcomes.
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -37,8 +34,6 @@ import {
   mapInternalToExternalType,
 } from '../../../../src/workflow/events.js';
 import { INTERNAL_ADMISSION_EVENT_TYPES } from '../../../../src/events/schemas.js';
-
-// ─── Shared test fixtures ────────────────────────────────────────────────────
 
 const SHA256_A = 'a'.repeat(64);
 const SHA256_B = 'b'.repeat(64);
@@ -89,29 +84,23 @@ const decisionBase = {
   decidedAt: AT,
 } as const;
 
-// ─── Exit proof 1: Bare booleans cannot satisfy requirements ─────────────────
-
 describe('bare booleans cannot satisfy requirements', () => {
   it('AdmissionAlgebra_BareBoolean_CannotSatisfyRequirement', () => {
-    // A bare boolean MUST NOT parse as a valid requirement
     expect(AdmissionRequirementV1Schema.safeParse(true).success).toBe(false);
     expect(AdmissionRequirementV1Schema.safeParse(false).success).toBe(false);
   });
 
   it('AdmissionAlgebra_BareBoolean_CannotSubstituteForEvidence', () => {
-    // A bare boolean MUST NOT parse as valid evidence
     expect(AdmissionEvidenceV1Schema.safeParse(true).success).toBe(false);
     expect(AdmissionEvidenceV1Schema.safeParse(false).success).toBe(false);
   });
 
   it('AdmissionAlgebra_BareBoolean_CannotSubstituteForDecision', () => {
-    // A bare boolean MUST NOT parse as a valid decision record
     expect(AdmissionDecisionRecordV1Schema.safeParse(true).success).toBe(false);
     expect(AdmissionDecisionRecordV1Schema.safeParse(false).success).toBe(false);
   });
 
   it('AdmissionAlgebra_PassedBoolean_CannotSatisfyEvidenceVerdict', () => {
-    // An evidence record with verdict as a bare boolean MUST be rejected
     const evidenceWithBooleanVerdict = {
       contractVersion: '1.0',
       evidenceId: 'evidence-001',
@@ -124,7 +113,7 @@ describe('bare booleans cannot satisfy requirements', () => {
       contentDigest: digest(SHA256_B),
       createdAt: AT,
       kind: 'gate',
-      verdict: true, // bare boolean instead of 'pass'/'fail'/'indeterminate'
+      verdict: true,
     };
     expect(AdmissionEvidenceV1Schema.safeParse(evidenceWithBooleanVerdict).success).toBe(
       false,
@@ -132,7 +121,6 @@ describe('bare booleans cannot satisfy requirements', () => {
   });
 
   it('AdmissionAlgebra_PassedField_CannotReplaceStructuredDecision', () => {
-    // An object with only {passed: true} MUST NOT parse as a decision
     expect(
       AdmissionDecisionRecordV1Schema.safeParse({ passed: true }).success,
     ).toBe(false);
@@ -145,10 +133,9 @@ describe('bare booleans cannot satisfy requirements', () => {
   });
 
   it('AdmissionAlgebra_BooleanOutcome_CannotReplaceStringOutcome', () => {
-    // A decision record with boolean outcome MUST be rejected
     const decisionWithBooleanOutcome = {
       ...decisionBase,
-      outcome: true, // boolean instead of 'allow'/'deny'/'indeterminate'
+      outcome: true,
       satisfiedRequirementIds: ['requirement-001'],
       waivedRequirementIds: [],
     };
@@ -158,7 +145,6 @@ describe('bare booleans cannot satisfy requirements', () => {
   });
 
   it('AdmissionAlgebra_BooleanRequirementKind_IsRejected', () => {
-    // A requirement with boolean kind MUST be rejected
     const reqWithBoolKind = {
       contractVersion: '1.0',
       kind: true,
@@ -171,20 +157,16 @@ describe('bare booleans cannot satisfy requirements', () => {
   });
 
   it('AdmissionAlgebra_UntypedObject_CannotSatisfyRequirement', () => {
-    // An untyped object without proper discriminant MUST be rejected
     expect(
       AdmissionRequirementV1Schema.safeParse({
         contractVersion: '1.0',
         requirementId: 'requirement-001',
         phaseAttemptId: 'phase-attempt-001',
         subject,
-        // missing 'kind' discriminant
       }).success,
     ).toBe(false);
   });
 });
-
-// ─── Exit proof 2: Malformed evidence subjects are rejected ──────────────────
 
 describe('malformed evidence subjects are rejected', () => {
   it('AdmissionAlgebra_MissingSubjectKind_IsRejected', () => {
@@ -207,7 +189,6 @@ describe('malformed evidence subjects are rejected', () => {
   });
 
   it('AdmissionAlgebra_MissingSubjectId_IsRejected', () => {
-    // Task subject without taskId
     expect(
       EvidenceSubjectV1Schema.safeParse({
         kind: 'task',
@@ -227,7 +208,6 @@ describe('malformed evidence subjects are rejected', () => {
   });
 
   it('AdmissionAlgebra_SubjectWithExtraFields_IsRejected', () => {
-    // Strict schemas reject extra fields
     expect(
       EvidenceSubjectV1Schema.safeParse({
         kind: 'task',
@@ -284,14 +264,12 @@ describe('malformed evidence subjects are rejected', () => {
     ] as const;
 
     for (const [kind, idField] of kindsAndFields) {
-      // Without the ID field: fails
       const withoutId = { kind, digest: digest() };
       expect(
         EvidenceSubjectV1Schema.safeParse(withoutId).success,
         `${kind} without ${idField} should fail`,
       ).toBe(false);
 
-      // With the ID field: succeeds
       const withId = { kind, [idField]: 'test-001', digest: digest() };
       expect(
         EvidenceSubjectV1Schema.safeParse(withId).success,
@@ -300,8 +278,6 @@ describe('malformed evidence subjects are rejected', () => {
     }
   });
 });
-
-// ─── Exit proof 3: Malformed/mismatched artifact content digests ─────────────
 
 describe('malformed artifact content digests are rejected', () => {
   it('AdmissionAlgebra_UnsupportedAlgorithm_IsRejected', () => {
@@ -320,8 +296,8 @@ describe('malformed artifact content digests are rejected', () => {
     ).toBe(false);
   });
 
+  /** Uppercase, short, long, and non-hex digest values all fail. */
   it('AdmissionAlgebra_MalformedHexDigest_IsRejected', () => {
-    // Uppercase hex
     expect(
       ContentDigestV1Schema.safeParse({
         algorithm: 'sha256',
@@ -329,7 +305,6 @@ describe('malformed artifact content digests are rejected', () => {
       }).success,
     ).toBe(false);
 
-    // Too short
     expect(
       ContentDigestV1Schema.safeParse({
         algorithm: 'sha256',
@@ -337,7 +312,6 @@ describe('malformed artifact content digests are rejected', () => {
       }).success,
     ).toBe(false);
 
-    // Too long
     expect(
       ContentDigestV1Schema.safeParse({
         algorithm: 'sha256',
@@ -345,7 +319,6 @@ describe('malformed artifact content digests are rejected', () => {
       }).success,
     ).toBe(false);
 
-    // Contains non-hex characters
     expect(
       ContentDigestV1Schema.safeParse({
         algorithm: 'sha256',
@@ -370,7 +343,6 @@ describe('malformed artifact content digests are rejected', () => {
       { content: 'original' },
     );
 
-    // Verification with different content fails
     expect(() =>
       verifyEvidenceSubject(realSubject, { content: 'tampered' }),
     ).toThrow(
@@ -387,7 +359,6 @@ describe('malformed artifact content digests are rejected', () => {
       { content: 'original' },
     );
 
-    // Forge a different digest
     const tamperedSubject = {
       ...realSubject,
       digest: { algorithm: 'sha256' as const, value: SHA256_B },
@@ -415,8 +386,6 @@ describe('malformed artifact content digests are rejected', () => {
     expect(Object.isFrozen(verified)).toBe(true);
   });
 });
-
-// ─── Contradiction records ───────────────────────────────────────────────────
 
 describe('contradiction records', () => {
   it('AdmissionAlgebra_ActiveEvidenceContradiction_ParsesCorrectly', () => {
@@ -454,8 +423,8 @@ describe('contradiction records', () => {
     expect(parsed.source).toBe('downstream-event');
   });
 
+  /** A contradiction needs at least two evidence IDs. */
   it('AdmissionAlgebra_ContradictionWithSingleEvidence_IsRejected', () => {
-    // Contradictions require at least 2 evidence IDs
     const singleEvidence = {
       contractVersion: '1.0',
       source: 'active-evidence',
@@ -516,13 +485,10 @@ describe('contradiction records', () => {
       detectedAt: AT,
     });
 
-    // Exhaustive: every source arm produces a valid record
     const sources = [activeEvidence.source, downstream.source].sort();
     expect(sources).toEqual(['active-evidence', 'downstream-event']);
   });
 });
-
-// ─── Reassessment records ────────────────────────────────────────────────────
 
 describe('reassessment records', () => {
   const reassessmentBase = {
@@ -614,12 +580,9 @@ describe('reassessment records', () => {
   });
 });
 
-// ─── Admission event vocabulary ──────────────────────────────────────────────
-
 describe('admission event vocabulary', () => {
+  /** The constants and INTERNAL_ADMISSION_EVENT_TYPES hold the same set of types. */
   it('AdmissionAlgebra_EventTypes_MatchRegisteredEventStoreTypes', () => {
-    // Every admission event type constant must match a registered
-    // INTERNAL_ADMISSION_EVENT_TYPES entry
     const registeredSet = new Set(INTERNAL_ADMISSION_EVENT_TYPES);
     for (const eventType of ADMISSION_EVENT_TYPE_VALUES) {
       expect(
@@ -628,7 +591,6 @@ describe('admission event vocabulary', () => {
       ).toBe(true);
     }
 
-    // And every registered type must have a constant
     const constantSet = new Set<string>(ADMISSION_EVENT_TYPE_VALUES);
     for (const registered of INTERNAL_ADMISSION_EVENT_TYPES) {
       expect(
@@ -638,15 +600,14 @@ describe('admission event vocabulary', () => {
     }
   });
 
+  /** The internal-to-external map and its inverse return each admission type unchanged, with no `workflow.` prefix. */
   it('AdmissionAlgebra_EventTypes_RoundTripThroughTypeMap', () => {
-    // Every admission event type must round-trip as identity through the
-    // internal-to-external and external-to-internal mappings
     for (const eventType of ADMISSION_EVENT_TYPE_VALUES) {
       const external = mapInternalToExternalType(eventType);
-      expect(external).toBe(eventType); // identity, not workflow.admission.*
+      expect(external).toBe(eventType);
 
       const internal = mapExternalToInternalType(eventType);
-      expect(internal).toBe(eventType); // identity round-trip
+      expect(internal).toBe(eventType);
     }
   });
 
@@ -655,7 +616,6 @@ describe('admission event vocabulary', () => {
   });
 
   it('AdmissionAlgebra_EventTypeConstants_AreExhaustive', () => {
-    // The constant object has exactly the expected keys
     const expectedKeys = [
       'REQUIREMENT_RESOLVED',
       'EVIDENCE_RECORDED',
@@ -668,7 +628,6 @@ describe('admission event vocabulary', () => {
       'DISAGREEMENT_DISPOSITION',
       'ROLLOUT_DECISION',
       'ENFORCEMENT_ENABLED',
-      // #1739 — the cutover promotion path's first-readiness export fact.
       'CUTOVER_READY',
     ] as const;
 
@@ -701,8 +660,6 @@ describe('admission event vocabulary', () => {
     );
   });
 });
-
-// ─── Cross-cutting algebra exhaustiveness ────────────────────────────────────
 
 describe('admission algebra exhaustiveness', () => {
   it('AdmissionAlgebra_RequirementKinds_AreExhaustive', () => {
@@ -848,13 +805,13 @@ describe('admission algebra exhaustiveness', () => {
 
   it('AdmissionAlgebra_StableIdSchema_RejectsMalformedIdentities', () => {
     const invalid = [
-      '', // blank
-      '  ', // whitespace
-      'has space', // spaces
-      '../path', // path traversal
-      '.starts-with-dot', // leading dot
-      '-starts-with-hyphen', // leading hyphen
-      'a'.repeat(257), // too long
+      '',
+      '  ',
+      'has space',
+      '../path',
+      '.starts-with-dot',
+      '-starts-with-hyphen',
+      'a'.repeat(257),
     ];
 
     for (const id of invalid) {

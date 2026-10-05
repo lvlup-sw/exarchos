@@ -1,15 +1,9 @@
-// Every surface that used to hold its own copy of the phase event facts is a
-// projection of `PHASE_EVENT_CONTRACTS` now. This suite reads each one back
-// and compares it to the contract, for every phase, in both directions — the
-// successor to the four delegate-only equalities the old reducer-contract test
-// asserted against a two-case switch that called itself a registry.
+// Each surface that carries phase event facts is a projection of `PHASE_EVENT_CONTRACTS`.
+// This suite reads each surface back and compares it to the contract, for every phase, in both directions.
 //
-// Two authorities meet here. The projection checks compare the gate tables and
-// the playbooks to the contract they are computed from — one authority, read
-// through its derivations, which is what makes them consistency checks rather
-// than an oracle. The independent second authority is the hand-written golden
-// of the six gate rows as they stood on main before the contract existed: the
-// one assertion in this file that can disagree with the contract on its own.
+// The projection checks compare the gate tables and the playbooks to the contract that they derive from.
+// They are consistency checks, not an oracle. The independent authority is `BEFORE_THE_CONTRACT`.
+// That hand-written golden is the one assertion here that can disagree with the contract on its own.
 //
 // @oracle-sources: ../../../../src/workflow/topology/phase-events.ts, the hand-written golden of the six gate rows as they stood on main before the contract (BEFORE_THE_CONTRACT in this file)
 
@@ -33,9 +27,8 @@ function disclosedTypes(phase: string): readonly string[] {
 }
 
 describe('the gate table projects the contract', () => {
+  /** The keys keep contract order and are not sorted, because the gate table is a projection of the contract. */
   it('PhaseExpectedEvents_EveryPhase_EqualsTheContractInOrder', () => {
-    // Keys in contract order, not sorted: the gate table is a projection of the
-    // contract, so its key order is the contract's and is asserted as such.
     const expectingPhases = Object.entries(PHASE_EVENT_CONTRACTS)
       .filter(([, contract]) => contract.expects.length > 0)
       .map(([phase]) => phase);
@@ -46,16 +39,13 @@ describe('the gate table projects the contract', () => {
     }
   });
 
+  /**
+   * `BEFORE_THE_CONTRACT` holds the six gate rows from before the contract, and no other phase has a gate row.
+   * A row must change only by a deliberate edit here, in the same commit as the contract change, and never by drift in the derivation.
+   * The delegation rows omit `task.assigned`, because the runtime appends it in `prepare` and `prepare_delegation`.
+   * Those phases disclose it in `runtimeEmits`.
+   */
   it('PhaseExpectedEvents_RowsThatPredateTheContract_AreUnchanged', () => {
-    // The golden pin #1774's acceptance asks for: the six rows the gate had
-    // before the contract, as they stood on main when the contract landed. A
-    // row may change only by a deliberate edit here in the same commit — a
-    // charter act for a type leaving governance, or a phase gaining an
-    // expectation — never by the derivation drifting.
-    // Deliberate edit, 2026-09-14: `task.assigned` left both delegation rows
-    // when the runtime took its append — `prepare` on the capsule path,
-    // `prepare_delegation` on the primitive path — and the row moved to the
-    // phases' `runtimeEmits`. The event is disclosed, no longer expected.
     const BEFORE_THE_CONTRACT: Readonly<Record<string, readonly string[]>> = {
       delegate: [
         'team.spawned',
@@ -83,7 +73,6 @@ describe('the gate table projects the contract', () => {
     for (const [phase, row] of Object.entries(BEFORE_THE_CONTRACT)) {
       expect(PHASE_EXPECTED_EVENTS[phase], phase).toEqual(row);
     }
-    // And no phase gained a gate row the golden does not know about.
     expect(Object.keys(PHASE_EXPECTED_EVENTS).filter((p) => BEFORE_THE_CONTRACT[p] === undefined)).toEqual([]);
   });
 
@@ -132,10 +121,11 @@ describe('the playbooks project the contract', () => {
     }
   });
 
+  /**
+   * An instruction is for a model-emitted event, and a disclosure is for a runtime-emitted event.
+   * A playbook must not put a type on both sides.
+   */
   it('Playbooks_NoPhase_InstructsTheModelToEmitARuntimeOwnedEvent', () => {
-    // The fact the contract exists to keep true: an instruction is for a
-    // model-emitted event, a disclosure is for a runtime-emitted one, and no
-    // playbook may put a type on both sides.
     for (const { workflowType, playbook } of registered) {
       const label = `${workflowType}/${playbook.phase}`;
       const instructed = playbook.events.map((e) => e.type);

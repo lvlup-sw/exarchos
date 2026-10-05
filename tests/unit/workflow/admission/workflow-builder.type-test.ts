@@ -1,3 +1,10 @@
+// Type test: the closed edge-condition algebra survives the authoring builder.
+// Each `@ts-expect-error` below asserts that an escape hatch is a type error: a closure, a raw string, a raw object, or a forged brand.
+// If the builder accepts one, its directive becomes unused and `tsc` fails with TS2578.
+// The positive controls at the end carry no directive, so they must compile.
+// `tests/tsconfig.json` excludes `unit/**`, so `npm run typecheck` does not check this file.
+// Vitest strips types and runs only the anchor test.
+
 import { it, expect } from 'vitest';
 
 import {
@@ -14,63 +21,39 @@ import {
   type ObligationSpec,
 } from '../../../../src/workflow/admission/workflow-builder.js';
 
-// ─── P07-03 exit-proof (c) — the closure property survives the builder ────────
-//
-// The REAL gate for this file is `tsc --noEmit`: `.type-test.ts` is deliberately
-// named to dodge the tsconfig `**/*.test.ts` exclude, so the compiler checks it.
-// Every `@ts-expect-error` below asserts that a would-be ESCAPE HATCH is a TYPE
-// ERROR — if the builder ever widened to accept a raw string expression, a
-// closure, an arbitrary predicate, or a raw AST node, the corresponding
-// `@ts-expect-error` would become UNUSED and `tsc` would fail (TS2578). So this
-// file passing tsc is the standing proof that the closed edge-condition algebra
-// cannot be smuggled around through the authoring API.
-
-// ── 1. A leaf value may not be a closure ──────────────────────────────────────
 // @ts-expect-error — a function is not a FactScalar; no executable escape hatch.
 equals('validation.testsPass', () => true);
 
-// ── 2. A leaf value may not be a structured object (would-be sub-expression) ──
 // @ts-expect-error — a FactScalar is string | number | boolean, never an object.
 equals('track', { expression: 'a && b' });
 
-// ── 3. A connective operand may not be a raw string expression ────────────────
 // @ts-expect-error — `all` accepts ConditionSpec operands, not a string.
 all('planReview.approved === true');
 
-// ── 4. A connective operand may not be a closure ──────────────────────────────
 // @ts-expect-error — `any` accepts ConditionSpec operands, not a predicate fn.
 any(() => true);
 
-// ── 5. A connective operand may not be a raw AST-shaped object literal ────────
 // @ts-expect-error — a bare node object is not the branded ConditionSpec.
 all({ kind: 'factPresent', field: 'artifacts.plan' });
 
-// ── 6. `not` may not negate a raw predicate ───────────────────────────────────
 // @ts-expect-error — `not` requires a ConditionSpec, not an arbitrary value.
 not(() => false);
 
-// ── 7. A gate presence probe may not be a raw string expression ───────────────
 // @ts-expect-error — `gate` presence must be a ConditionSpec, not a string.
 gate('plan-artifact', 'artifacts.plan != null');
 
-// ── 8. An approval presence probe may not be a closure ────────────────────────
 // @ts-expect-error — `approval` presence must be a ConditionSpec, not a fn.
 approval('plan-review', () => true);
 
-// ── 9. A ConditionSpec cannot be forged from a bare object literal ────────────
 // @ts-expect-error — the brand is unconstructable outside the combinators.
 const _forged: ConditionSpec = { kind: 'factPresent', field: 'artifacts.plan' };
 void _forged;
 
-// ── 10. An ObligationSpec cannot be forged from a bare object literal ─────────
 // @ts-expect-error — the brand is unconstructable outside the combinators.
 const _forgedObl: ObligationSpec = { kind: 'none' };
 void _forgedObl;
 
-// ── Positive controls: the SUPPORTED authoring forms DO typecheck ─────────────
-// (These carry no `@ts-expect-error`; if the API regressed to reject a valid
-// authoring form, the file would fail to compile here instead — proving the
-// closure is not achieved by simply breaking the builder.)
+/** The positive controls start here. Each supported form must compile, so the type errors above do not come from a builder that rejects every form. */
 const _leafOk: ConditionSpec = present('artifacts.plan');
 const _boolOk: ConditionSpec = equals('planReview.approved', true);
 const _strOk: ConditionSpec = equals('track', 'thorough');
@@ -85,7 +68,5 @@ void _gateOk;
 void _approvalOk;
 
 it('workflow-builder closure type-test anchor', () => {
-  // Vitest strips types, so this file's real assertions are the tsc-checked
-  // `@ts-expect-error`s above; this anchor keeps the file a discoverable spec.
   expect(typeof present).toBe('function');
 });

@@ -1,12 +1,8 @@
-// ─── P07-02 exit-proof (c) — live shadow observer records without altering prod ─
+// Tests for the live shadow observer.
 //
-// The live observer must accumulate the cutover-gate evidence substrate (phase
-// kind + outcome, plus a typed shadow decision) WITHOUT changing any production
-// behaviour. These tests pin: (1) the observer records guarded-edge attempts and
-// skips unmodelled edges; (2) it classifies a known legacy defect as a
-// legacy-allow / admission-deny disagreement; (3) it is fully error-isolated;
-// and (4) wired through the real guard, the transition result is byte-identical
-// to the unobserved path while the sink still accumulates an attempt.
+// The observer records the cutover-gate evidence (phase kind, outcome and a typed shadow decision) and does not change production behavior.
+// It records guarded-edge attempts and skips unmodelled edges. It classifies a known legacy defect as a legacy-allow, admission-deny disagreement.
+// It isolates its own errors. Through the real guard, the transition result equals the unobserved result, and the sink still records the attempt.
 
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, readFile } from 'node:fs/promises';
@@ -60,6 +56,7 @@ function deps(
 }
 
 describe('observeLiveTransition — records the cutover-gate substrate', () => {
+  /** The plan is present, so admission also allows and the two decisions agree. */
   it('records a guarded-edge attempt with the target phase kind + legacy outcome', () => {
     const sink = new InMemoryLiveShadowSink();
     observeLiveTransition(
@@ -79,10 +76,10 @@ describe('observeLiveTransition — records the cutover-gate substrate', () => {
       outcome: 'allow',
       disagreementClass: 'agree',
     });
-    // legacy allow + admission allow (plan present) → agreement
     expect(sink.decisionRecords()[0]?.disagreementClass).toBe('agree');
   });
 
+  /** The legacy `implementation-complete` guard always passes, but admission denies when `implementation.complete` is false. */
   it('classifies a known legacy defect as legacy-allow / admission-deny (unexplained)', () => {
     const sink = new InMemoryLiveShadowSink();
     observeLiveTransition(
@@ -90,7 +87,7 @@ describe('observeLiveTransition — records the cutover-gate substrate', () => {
         workflowType: 'debug',
         fromPhase: 'debug-implement',
         toPhase: 'debug-validate',
-        legacyOutcome: 'allow', // legacy `implementation-complete` always passes
+        legacyOutcome: 'allow',
         idempotent: false,
       },
       { implementation: { complete: false } },
@@ -107,13 +104,14 @@ describe('observeLiveTransition — records the cutover-gate substrate', () => {
     });
   });
 
+  /** `plan → cancelled` is a universal edge, not a guarded IR edge. */
   it('skips an unmodelled edge (no shared-IR entry) without recording', () => {
     const sink = new InMemoryLiveShadowSink();
     observeLiveTransition(
       {
         workflowType: 'feature',
         fromPhase: 'plan',
-        toPhase: 'cancelled', // universal edge, not a guarded IR edge
+        toPhase: 'cancelled',
         legacyOutcome: 'allow',
         idempotent: false,
       },
@@ -220,24 +218,13 @@ describe('exit-proof (c) — production wiring is behaviour-preserving', () => {
   });
 });
 
-// ─── DR-23 / T-31 — durable shadow evidence emitted FROM PRODUCTION ──────────
-//
-// The audit finding these tests answer: `liveShadowSink` was a process-scoped
-// in-memory ring buffer and the two registered replay shapes
-// (`admission.shadow-attempt` / `admission.disagreement-disposition`) had no
-// producer at all. Reading the in-memory buffer back would therefore prove
-// nothing. Every assertion below is made against an event READ BACK OUT of a
-// real file-backed `EventStore`, after driving a REAL transition through the
-// production `exarchos_workflow` composite handler — not against the payload
-// object handed to `append`.
-//
-// ANTI-VACUITY, one level up: nothing in this file connects the observer to
-// the store. The tests supply only a `DispatchContext.eventStore`, which is the
-// ordinary production dispatch contract every tool already receives. The path
-// `ctx.eventStore` → `handleSet` → `GuardContext.eventStore` →
-// `notifyShadowObserver` → `recordLiveTransition` is ENTIRELY production code.
-// Make `notifyShadowObserver` forward `null` and these tests go red.
-
+/**
+ * The durable assertions read the events back out of a real file-backed `EventStore`, not out of the in-memory buffer or the appended payload.
+ * The tests that transition through `handleWorkflow` or `dispatch()` supply only `DispatchContext.eventStore`, the ordinary dispatch contract.
+ * The path from `ctx.eventStore` through `handleSet`, `GuardContext.eventStore` and `notifyShadowObserver` to `recordLiveTransition` is production code.
+ * If `notifyShadowObserver` forwards `null`, those tests fail.
+ * `handleCancel` and `handleCleanup` pass their own store to the observer, so each of them has its own test.
+ */
 describe('DR-23 / T-31 — durable shadow evidence from the production path', () => {
   let stateDir: string;
   let eventStore: EventStore;
@@ -246,13 +233,12 @@ describe('DR-23 / T-31 — durable shadow evidence from the production path', ()
     return { stateDir, eventStore, enableTelemetry: false };
   }
 
+  /** The setup injects nothing, so the observer gets its durable store from production wiring alone. */
   beforeEach(async () => {
     stateDir = await mkdtemp(join(tmpdir(), 'live-shadow-durable-'));
     eventStore = new EventStore(stateDir);
     await eventStore.initialize();
     liveShadowSink.clear();
-    // NOTHING is bound or injected here. The observer must obtain its durable
-    // substrate from production wiring alone.
   });
 
   afterEach(async () => {
@@ -262,6 +248,13 @@ describe('DR-23 / T-31 — durable shadow evidence from the production path', ()
     await rmrfAsync(stateDir);
   });
 
+  /**
+   * The transition runs through the composite handler, `handleSet`, the HSM guard and `GuardContext.shadowObserver`.
+   * The registered schema parses the event that the store returns, not the object that the observer appended.
+   * The fact names the attempt that this transition allocated, not the predecessor attempt.
+   * An agreement writes no disposition fact, because the disposition enum has no `agree` member.
+   * No shadow event appears on the feature stream, where a fire-and-forget append can race the CAS writes in `handleSet`.
+   */
   it('ShadowObserver_LiveTransition_EmitsDurableShadowAttempt', async () => {
     const featureId = 'durable-shadow-attempt';
 
@@ -276,8 +269,6 @@ describe('DR-23 / T-31 — durable shadow evidence from the production path', ()
       eventStore,
     );
 
-    // The live path: the real composite handler → handleSet → the real HSM
-    // guard → `GuardContext.shadowObserver` → `recordLiveTransition`.
     const transition = await handleWorkflow(
       { action: 'transition', featureId, target: 'plan-review' },
       ctx(),
@@ -286,7 +277,6 @@ describe('DR-23 / T-31 — durable shadow evidence from the production path', ()
 
     await flushLiveShadowEvidence();
 
-    // ── Read the fact back OUT of the store. ──────────────────────────────
     const persisted = await eventStore.query(liveShadowEvidenceStreamId(featureId), {
       type: 'admission.shadow-attempt',
     });
@@ -295,44 +285,35 @@ describe('DR-23 / T-31 — durable shadow evidence from the production path', ()
     expect(event.type).toBe('admission.shadow-attempt');
     expect(event.source).toBe('live-shadow-observer');
 
-    // Re-validate the PERSISTED bytes against the registered schema — the event
-    // has round-tripped through JSONL, so this is not the object we appended.
     const data = AdmissionShadowAttemptData.parse(event.data);
     expect(data.legacyOutcome).toBe('allow');
     expect(data.subject.kind).toBe('phase-attempt');
     expect(data.decision.outcome).toBe('allow');
-    // Natural (non-random) identity — a pure function of the observed attempt.
     expect(data.shadowAttemptId).toMatch(/^shadow-attempt:[0-9a-f]{64}$/);
     expect(data.caller.principalKind).toBe('service');
 
-    // T-31: the durable fact names the CURRENT attempt — the one this very
-    // transition allocated (stamped `_pendingPhaseAttemptId` pre-attempt and
-    // persisted as `phaseAttemptId` post-success) — never the predecessor
-    // attempt that was sitting in `phaseAttemptId` when the observer ran.
     const persistedState = JSON.parse(
       await readFile(join(stateDir, `${featureId}.state.json`), 'utf-8'),
     ) as Record<string, unknown>;
     expect(persistedState.phaseAttemptId).toBeDefined();
     expect(data.phaseAttemptId).toBe(persistedState.phaseAttemptId);
 
-    // An AGREEMENT has nothing to dispose of: the disposition enum has no
-    // `agree` member, so no disposition fact may be written for this attempt.
     expect(
       await eventStore.query(liveShadowEvidenceStreamId(featureId), {
         type: 'admission.disagreement-disposition',
       }),
     ).toEqual([]);
 
-    // ── The observer must not perturb the AUTHORITATIVE stream. ───────────
-    // Shadow evidence is non-authoritative and appended fire-and-forget; on the
-    // feature's own stream it would interleave at a nondeterministic sequence
-    // and could race the CAS writes in `handleSet`. Nothing shadow-shaped may
-    // appear there.
     const authoritative = await eventStore.query(featureId);
     expect(authoritative.length).toBeGreaterThan(0);
     expect(authoritative.filter((e) => e.type.startsWith('admission.'))).toEqual([]);
   });
 
+  /**
+   * The test walks the debug workflow to `debug-implement` through the composite handler.
+   * On `debug-implement → debug-validate`, the legacy `implementation-complete` guard always passes, but admission needs `implementation.complete === true`.
+   * The disposition points at the attempt fact that the store holds for the same edge.
+   */
   it('ShadowObserver_Disagreement_EmitsDispositionEvent', async () => {
     const featureId = 'durable-shadow-disposition';
 
@@ -342,8 +323,6 @@ describe('DR-23 / T-31 — durable shadow evidence from the production path', ()
     );
     expect(init.success).toBe(true);
 
-    // Walk the real debug workflow to `debug-implement` through the production
-    // composite handler. Every step is a legacy-authoritative transition.
     const steps: ReadonlyArray<
       readonly [Record<string, unknown> | undefined, string]
     > = [
@@ -363,9 +342,6 @@ describe('DR-23 / T-31 — durable shadow evidence from the production path', ()
       expect(stepped.success, `transition to ${target}`).toBe(true);
     }
 
-    // `debug-implement` → `debug-validate` is the P06-01 obsolete predicate:
-    // the legacy `implementation-complete` guard ALWAYS passes, while admission
-    // requires `implementation.complete === true`. Legacy allow / admission deny.
     const defect = await handleWorkflow(
       { action: 'transition', featureId, target: 'debug-validate' },
       ctx(),
@@ -386,8 +362,6 @@ describe('DR-23 / T-31 — durable shadow evidence from the production path', ()
     expect(disposition.disposition).toBe('unexplained');
     expect(disposition.rationale).toContain('live shadow disagreement');
 
-    // Cross-event linkage, read from a SECOND independent store read: the
-    // disposition must point at the attempt fact persisted for the same edge.
     const attempts = await eventStore.query(liveShadowEvidenceStreamId(featureId), {
       type: 'admission.shadow-attempt',
     });
@@ -399,15 +373,13 @@ describe('DR-23 / T-31 — durable shadow evidence from the production path', ()
     expect(disposition.shadowAttemptId).toBe(denied[0]!.shadowAttemptId);
   });
 
+  /**
+   * `recordLiveTransition` sets a new `evaluatedAt` from the real clock on each call.
+   * The attempt identity does not hash that instant, so a retry of one observation gives one durable row for each fact.
+   * The test uses no pinned clock. It waits 10 ms between the two calls, so the two instants differ.
+   * The obsolete-predicate edge makes the test cover both the attempt fact and the disposition fact.
+   */
   it('ShadowObserver_RealClockRetry_CollapsesOntoOneDurableRowPerFact', async () => {
-    // T-49 — the production binding `recordLiveTransition` mints a FRESH
-    // `evaluatedAt: new Date().toISOString()` on every call. The attempt
-    // identity therefore must NOT hash the evaluation instant: a genuine retry
-    // of one logical observation would otherwise derive a fresh key and
-    // DUPLICATE both durable facts. Deliberately NO pinned clock here — the
-    // whole point is that two real-clock invocations, wall-clock apart, still
-    // collapse. (The P06-01 obsolete-predicate edge is used so BOTH facts —
-    // attempt AND disagreement disposition — are exercised.)
     const featureId = 'durable-shadow-retry-realclock';
     const observation: LegacyTransitionObservation = {
       workflowType: 'debug',
@@ -424,8 +396,6 @@ describe('DR-23 / T-31 — durable shadow evidence from the production path', ()
 
     recordLiveTransition(observation, { ...state }, eventStore);
     await flushLiveShadowEvidence();
-    // Force the wall clock forward so the retry's `evaluatedAt` is provably
-    // different — a hash that still included it would mint a second key.
     await new Promise((resolve) => setTimeout(resolve, 10));
     recordLiveTransition(observation, { ...state }, eventStore);
     await flushLiveShadowEvidence();
@@ -445,12 +415,12 @@ describe('DR-23 / T-31 — durable shadow evidence from the production path', ()
     );
   });
 
+  /**
+   * Production callers stamp the attempt for the observed transition as `_pendingPhaseAttemptId` before `attempt()`.
+   * They persist `phaseAttemptId` only after success, so a read of the persisted field names the predecessor attempt.
+   * The durable fact and its evidence subject must name the current attempt.
+   */
   it('ShadowObserver_PendingAttemptStamped_DurableFactNamesTheCurrentAttempt', async () => {
-    // T-31 — every production caller (tools.ts / cleanup.ts / cancel.ts)
-    // stamps the attempt allocated for the OBSERVED transition as
-    // `_pendingPhaseAttemptId` before `attempt()` and only persists
-    // `phaseAttemptId` after success. Reading the persisted field first would
-    // label every durable shadow fact with the PREDECESSOR attempt.
     const featureId = 'durable-shadow-current-attempt';
     observeLiveTransition(
       {
@@ -482,17 +452,17 @@ describe('DR-23 / T-31 — durable shadow evidence from the production path', ()
     const data = AdmissionShadowAttemptData.parse(persisted[0]!.data);
     expect(data.phaseAttemptId).toBe('pa-current');
     expect(data.phaseAttemptId).not.toBe('pa-predecessor');
-    // The evidence subject names the same attempt.
     expect(data.subject.kind).toBe('phase-attempt');
     if (data.subject.kind === 'phase-attempt') {
       expect(data.subject.phaseAttemptId).toBe('pa-current');
     }
   });
 
+  /**
+   * The same check runs through `dispatch()`, the entry point that the MCP server calls, with schema validation and the read-only gate.
+   * The test does not name the shadow observer.
+   */
   it('ShadowObserver_ShippedDispatchPath_EmitsDurableShadowAttempt', async () => {
-    // The same proof, one layer further out: through `dispatch()` — the exact
-    // entry point the MCP server calls, including schema validation and the
-    // read-only gate. Nothing here mentions the shadow observer at all.
     const featureId = 'durable-shadow-dispatch';
 
     const initRes = await dispatch(
@@ -525,11 +495,12 @@ describe('DR-23 / T-31 — durable shadow evidence from the production path', ()
     expect(data.decision.outcome).toBe('allow');
   });
 
+  /**
+   * The HSM primitive must hand `GuardContext.eventStore` to the observer. This test is the narrowest check of that wiring.
+   * If `notifyShadowObserver` forwards `null`, this test fails.
+   * The test compares identity with the store that it created, not with an observer output.
+   */
   it('ShadowObserver_GuardSeam_ForwardsEventStoreFromGuardContext', async () => {
-    // The narrowest possible pin on the production wiring: the HSM primitive
-    // must hand `GuardContext.eventStore` to the observer. Without this, the
-    // observer has no substrate and DR-23 bullet 1 is unclosed. Neuter
-    // `notifyShadowObserver` to forward `null` and this test fails alone.
     const guard = new DefaultHSMTransitionGuard();
     const featureId = 'durable-shadow-seam';
     const state = { featureId, phase: 'plan', artifacts: { plan: 'docs/x.md' } };
@@ -546,15 +517,11 @@ describe('DR-23 / T-31 — durable shadow evidence from the production path', ()
 
     expect(result.ok).toBe(true);
     expect(seen.length).toBe(1);
-    // Identity against the store THIS TEST created and handed to the guard
-    // context — not against anything the observer produced.
     expect(seen[0]).toBe(eventStore);
   });
 
+  /** With no store in the guard context, the in-memory cache still fills, but the observer writes no durable fact. */
   it('emits nothing durable when the guard context carries no store', async () => {
-    // The degradation branch (`cancel`/`cleanup`-style pure evaluation with a
-    // genuinely absent store): the in-memory cache still fills, but no durable
-    // fact is written. This is the only remaining memory-only mode.
     const guard = new DefaultHSMTransitionGuard();
     const featureId = 'durable-shadow-nostore';
     const state = { featureId, phase: 'plan', artifacts: { plan: 'docs/x.md' } };
@@ -571,28 +538,9 @@ describe('DR-23 / T-31 — durable shadow evidence from the production path', ()
     expect(
       await eventStore.query(liveShadowEvidenceStreamId(featureId), { type: 'admission.shadow-attempt' }),
     ).toEqual([]);
-    // ...but the in-memory cache still saw it, proving the transition really ran.
     expect(liveShadowSink.size).toBeGreaterThan(0);
   });
 
-  // ─── The other two production emission sites ──────────────────────────────
-  //
-  // `tools.ts` reads the store FORWARDED by `notifyShadowObserver`, so the
-  // forward-severing probe guards it. `cancel.ts` / `cleanup.ts` deliberately
-  // build their guard context with `eventStore: null` (pure-evaluation mode —
-  // those handlers own authoritative emission so their trails commit atomically
-  // via `appendTrailAtomically`) and hand the observer their OWN lexical store
-  // instead. Forwarding the context's `null` would silently disable durable
-  // evidence on both paths, so the forward probe cannot reach them. These two
-  // tests are their dedicated regression guard: delete either handler's
-  // `shadowObserver` and exactly one of them goes red.
-  //
-  // Both drive `debug` to `investigate`, from which the shared IR models BOTH
-  // `debug:investigate:cancelled` (route-condition, `investigation.escalate`)
-  // and `debug:investigate:completed` (admission-requirement) — so each handler
-  // reaches a real guarded edge rather than an unmodelled universal one.
-
-  /** Init a `debug` feature and walk it to `investigate` via production. */
   async function driveToInvestigate(featureId: string): Promise<void> {
     const init = await handleWorkflow(
       { action: 'init', featureId, workflowType: 'debug' },
@@ -609,11 +557,19 @@ describe('DR-23 / T-31 — durable shadow evidence from the production path', ()
       ctx(),
     );
     expect(stepped.success).toBe(true);
-    // Drain the evidence the walk itself produced so the delta assertions below
-    // can only be satisfied by the cancel/cleanup transition.
     await flushLiveShadowEvidence();
   }
 
+  /**
+   * `handleCancel` builds its guard context with `eventStore: null` and passes its own store to the observer.
+   * Thus a test of the store that `notifyShadowObserver` forwards does not cover this handler.
+   * If the handler drops its store argument, the attempt count does not change.
+   *
+   * The helper walks a `debug` feature to `investigate`, where the shared IR models a guarded `cancelled` edge.
+   * From a phase with only the universal `cancelled` edge, the observer records nothing.
+   * The helper flushes the evidence of its walk, so only the cancel transition can add the next attempt.
+   * No shadow event appears on the feature stream. A fire-and-forget append there can interleave with the trail that `handleCancel` commits atomically.
+   */
   it('ShadowObserver_CancelTransition_EmitsDurableShadowAttempt', async () => {
     const featureId = 'durable-shadow-cancel';
     await driveToInvestigate(featureId);
@@ -624,7 +580,6 @@ describe('DR-23 / T-31 — durable shadow evidence from the production path', ()
       })
     ).length;
 
-    // The real production cancel handler, through the composite entry point.
     const cancelled = await handleWorkflow(
       { action: 'cancel', featureId, reason: 'shadow evidence regression guard' },
       ctx(),
@@ -632,8 +587,6 @@ describe('DR-23 / T-31 — durable shadow evidence from the production path', ()
     expect(cancelled.success).toBe(true);
     await flushLiveShadowEvidence();
 
-    // `handleCancel` builds its guard context with `eventStore: null` and passes
-    // its OWN store to the observer. If that argument is dropped, this is 0.
     const attempts = await eventStore.query(
       liveShadowEvidenceStreamId(featureId),
       { type: 'admission.shadow-attempt' },
@@ -645,14 +598,16 @@ describe('DR-23 / T-31 — durable shadow evidence from the production path', ()
     expect(data.shadowAttemptId).toMatch(/^shadow-attempt:[0-9a-f]{64}$/);
     expect(data.subject.kind).toBe('phase-attempt');
 
-    // The OCC hazard that motivated the sidecar would surface HERE first:
-    // `handleCancel` commits its authoritative trail atomically, and a
-    // fire-and-forget shadow append on that same stream could interleave.
     const authoritative = await eventStore.query(featureId);
     expect(authoritative.length).toBeGreaterThan(0);
     expect(authoritative.filter((e) => e.type.startsWith('admission.'))).toEqual([]);
   });
 
+  /**
+   * `handleCleanup` also builds its guard context with `eventStore: null` and passes its own store to the observer.
+   * The shared IR models `debug:investigate:completed`, so cleanup reaches a guarded edge.
+   * The guard notifies the observer on the allow arm and the deny arm, so the assertion does not depend on cleanup success.
+   */
   it('ShadowObserver_CleanupTransition_EmitsDurableShadowAttempt', async () => {
     const featureId = 'durable-shadow-cleanup';
     await driveToInvestigate(featureId);
@@ -663,16 +618,12 @@ describe('DR-23 / T-31 — durable shadow evidence from the production path', ()
       })
     ).length;
 
-    // The real production cleanup handler: `investigate` → `completed`.
     await handleWorkflow(
       { action: 'cleanup', featureId, mergeVerified: true },
       ctx(),
     );
     await flushLiveShadowEvidence();
 
-    // Emitted on BOTH the allow and deny arms of the guard — the observer is
-    // notified regardless of the legacy verdict — so this assertion does not
-    // depend on cleanup succeeding, only on the observer being wired.
     const attempts = await eventStore.query(
       liveShadowEvidenceStreamId(featureId),
       { type: 'admission.shadow-attempt' },
@@ -690,24 +641,6 @@ describe('DR-23 / T-31 — durable shadow evidence from the production path', ()
   });
 });
 
-// ─── DR-23 / T-32 — a DEAD observer is detectable, and the gate is sound ──────
-//
-// DR-23's remaining two bullets. The audit found (a) every shadow failure was
-// swallowed into an indistinguishable silence — "zero shadow evidence because
-// nothing happened" read exactly like "zero shadow evidence because every
-// append rejected"; and (b) the cutover gate's live conditions read only the
-// LEGACY verdict, so "20 attempts that all threw would satisfy three of four
-// conditions".
-//
-// ANTI-VACUITY, stated up front: not one assertion below increments a counter
-// itself. Every health reading is taken AFTER driving a real transition (through
-// `dispatch()` where possible, otherwise through the production
-// `observeLiveTransition`) against a store or an admission authority that is
-// rigged to FAIL — so the counters can only move if production moves them. The
-// errored-attempt fixtures are likewise PRODUCED: the classes are assigned by
-// the production classifier from a real adjudication that really threw, never
-// written into a literal.
-
 /** A trust directory that is unavailable — the admission engine throws. */
 const UNAVAILABLE_AUTHORITY: PolicyAuthority = {
   authorizesGateEvidence(): boolean {
@@ -724,9 +657,9 @@ const UNAVAILABLE_AUTHORITY: PolicyAuthority = {
 const ERRORING_CTX = { ...CTX, authority: UNAVAILABLE_AUTHORITY };
 
 /**
- * Six REAL shared-IR edges — one per {@link PhaseKind} — each carrying a gate or
- * approval obligation on an unconditionally legal route, so the admission engine
- * genuinely consults the trust directory on every one of them.
+ * Six shared-IR edges, one for each {@link PhaseKind}.
+ * Each edge carries a gate or approval obligation, and its route is always legal.
+ * Thus the admission engine consults the trust directory on each edge.
  */
 const COVERING_EDGES: ReadonlyArray<{
   readonly edge: Omit<LegacyTransitionObservation, 'legacyOutcome' | 'idempotent'>;
@@ -742,15 +675,12 @@ const COVERING_EDGES: ReadonlyArray<{
   },
   {
     edge: { workflowType: 'feature', fromPhase: 'delegate', toPhase: 'review' },
-    // `tasks.count` / `tasks.allComplete` are PROJECTED from the real task
-    // array, and `team.disbandedOk` is vacuously true when no team was spawned,
-    // so this state genuinely satisfies the edge's obligation.
+    /** The projection derives the task facts from the task array, and `team.disbandedOk` is true when no team was spawned. */
     state: { tasks: [{ status: 'complete' }, { status: 'complete' }] },
   },
   {
     edge: { workflowType: 'feature', fromPhase: 'delegate', toPhase: 'merge-pending' },
-    // `mergePending.entryReady` is projected from the last `task.completed`
-    // event carrying a worktree — not from a state flag.
+    /** The projection derives `mergePending.entryReady` from the last `task.completed` event with a worktree. */
     state: { _events: [{ type: 'task.completed', data: { worktree: 'wt-1' } }] },
   },
   {
@@ -763,7 +693,10 @@ const COVERING_EDGES: ReadonlyArray<{
   },
 ];
 
-/** {@link MINIMUM_LIVE_ATTEMPTS} observations: every phase kind, both outcomes. */
+/**
+ * {@link MINIMUM_LIVE_ATTEMPTS} observations that cover each phase kind and both outcomes.
+ * The legacy verdict is an input to an observation, and it alternates to model a mixed live corpus.
+ */
 function coveringObservations(featureId: string): ReadonlyArray<{
   readonly observation: LegacyTransitionObservation;
   readonly state: Record<string, unknown>;
@@ -773,9 +706,6 @@ function coveringObservations(featureId: string): ReadonlyArray<{
     return {
       observation: {
         ...fixture.edge,
-        // The LEGACY verdict is an INPUT to an observation (the legacy guard has
-        // already decided); alternating it is what a mixed live corpus looks
-        // like, and it is what gave the pre-T-32 gate its outcome coverage.
         legacyOutcome: i % 2 === 0 ? ('allow' as const) : ('deny' as const),
         idempotent: false,
       },
@@ -784,6 +714,11 @@ function coveringObservations(featureId: string): ReadonlyArray<{
   });
 }
 
+/**
+ * Health counters make a dead observer detectable, and the cutover gate counts only comparable attempts toward its live conditions.
+ * No test increments a health counter. Each counter reading follows a `dispatch()` or `observeLiveTransition` call, so only production code moves the counters.
+ * `failSidecarAppends` rejects only the sidecar appends and leaves the authoritative appends unchanged.
+ */
 describe('DR-23 / T-32 — observer health + gate soundness', () => {
   let stateDir: string;
   let eventStore: EventStore;
@@ -808,10 +743,6 @@ describe('DR-23 / T-32 — observer health + gate soundness', () => {
     await rmrfAsync(stateDir);
   });
 
-  /**
-   * Rig the SIDECAR evidence appends to reject, leaving every authoritative
-   * append untouched. This is a store outage as production would meet one.
-   */
   function failSidecarAppends(store: EventStore): () => void {
     const original = store.append.bind(store);
     const patched: EventStore['append'] = async (streamId, event, options) => {
@@ -830,11 +761,12 @@ describe('DR-23 / T-32 — observer health + gate soundness', () => {
     };
   }
 
+  /**
+   * The test drives `dispatch()` over a store whose shadow-evidence appends reject, and it does not touch the counter.
+   * The evidence outage does not fail the transition. The counter reports the lost appends, and the observer status is `dead`.
+   * The sidecar stream is empty, so only the counter shows that the observer is dead and not quiet.
+   */
   it('ShadowObserver_SinkThrows_IncrementsHealthCounter', async () => {
-    // The named acceptance test. NOTHING here touches the counter: the whole
-    // drive is `dispatch()` — the shipped MCP entry point — over a store whose
-    // shadow-evidence appends reject. The health reading afterwards is whatever
-    // PRODUCTION recorded.
     const featureId = 'shadow-health-sink-throws';
     const restore = failSidecarAppends(eventStore);
     try {
@@ -860,7 +792,6 @@ describe('DR-23 / T-32 — observer health + gate soundness', () => {
         { action: 'transition', featureId, target: 'plan-review' },
         ctx(),
       );
-      // NON-AUTHORITATIVE: the evidence outage must not fail the transition.
       expect(transition.isError ?? false).toBe(false);
 
       await flushLiveShadowEvidence();
@@ -871,14 +802,10 @@ describe('DR-23 / T-32 — observer health + gate soundness', () => {
     const health = liveShadowHealth.snapshot();
     expect(health.attemptsObserved).toBeGreaterThan(0);
     expect(health.appendsScheduled).toBeGreaterThan(0);
-    // The evidence really was LOST — and the counter says so.
     expect(health.appendsFailed).toBeGreaterThan(0);
     expect(health.appendsSucceeded).toBe(0);
     expect(liveShadowObserverStatus(health)).toBe('dead');
 
-    // Corroboration from the substrate itself: the sidecar stream is empty. A
-    // reader that only looked here would see "no disagreements"; the counter is
-    // what makes that reading attributable to a dead observer.
     expect(
       await eventStore.query(liveShadowEvidenceStreamId(featureId), {
         type: 'admission.shadow-attempt',
@@ -886,10 +813,8 @@ describe('DR-23 / T-32 — observer health + gate soundness', () => {
     ).toEqual([]);
   });
 
+  /** The drive matches the failing-store test, with a working store. Without this test, a counter that always increments satisfies `appendsFailed > 0`. */
   it('ShadowObserver_HealthyStore_CountsLandedAppendsAndStaysHealthy', async () => {
-    // The positive twin of the test above, byte-for-byte the same drive with a
-    // WORKING store. Without it, "appendsFailed > 0" could be satisfied by a
-    // counter that increments unconditionally.
     const featureId = 'shadow-health-healthy';
     const init = await dispatch(
       'exarchos_workflow',
@@ -922,9 +847,8 @@ describe('DR-23 / T-32 — observer health + gate soundness', () => {
     expect(liveShadowObserverStatus(health)).toBe('healthy');
   });
 
+  /** A throwing in-memory sink moves only the `observationsThrew` field. `appendsFailed` does not change. */
   it('ShadowObserver_ObservationThrows_IncrementsThrewCounterAlone', async () => {
-    // Independence (i): kill the in-memory record path and ONLY the
-    // observation-threw field moves. `appendsFailed` must not ride on it.
     const health = new LiveShadowHealthCounter();
     const throwingSink = {
       record(): void {
@@ -952,10 +876,11 @@ describe('DR-23 / T-32 — observer health + gate soundness', () => {
     expect(liveShadowObserverStatus(snapshot)).toBe('dead');
   });
 
+  /**
+   * A state without `featureId` has no evidence stream. This condition counts as a dead observer, and only the `streamUnresolved` field moves.
+   * The in-memory cache still records the attempt, but the durable stream holds nothing.
+   */
   it('ShadowObserver_UnresolvableStream_IncrementsUnresolvedCounterAlone', async () => {
-    // Independence (ii): a state with no `featureId` has nowhere to put its
-    // evidence. That is a dead observer, not an absence of activity — and it
-    // must move ONLY the unresolved-stream field.
     const health = new LiveShadowHealthCounter();
     const sink = new InMemoryLiveShadowSink();
     observeLiveTransition(
@@ -966,7 +891,7 @@ describe('DR-23 / T-32 — observer health + gate soundness', () => {
         legacyOutcome: 'allow',
         idempotent: false,
       },
-      { artifacts: { plan: 'docs/x.md' } }, // no featureId → unresolvable stream
+      { artifacts: { plan: 'docs/x.md' } },
       { sink, context: CTX, health, evidence: { appender: eventStore } },
     );
     await flushLiveShadowEvidence();
@@ -977,13 +902,11 @@ describe('DR-23 / T-32 — observer health + gate soundness', () => {
     expect(snapshot.appendsScheduled).toBe(0);
     expect(snapshot.appendsFailed).toBe(0);
     expect(snapshot.observationsThrew).toBe(0);
-    // The in-memory cache still saw it — which is exactly the ambiguity DR-23
-    // names: memory says "observed", the durable stream says "nothing".
     expect(sink.size).toBe(1);
   });
 
+  /** A dead observer must not read as a quiet one. */
   it('ShadowObserver_DeadAndQuietObservers_AreDifferentReadings', () => {
-    // The bullet, stated directly: a dead observer must not read as a quiet one.
     expect(liveShadowObserverStatus(ZERO_LIVE_SHADOW_HEALTH)).toBe('unobserved');
     expect(
       liveShadowObserverStatus({
@@ -1004,9 +927,6 @@ describe('DR-23 / T-32 — observer health + gate soundness', () => {
     ).toBe('degraded');
   });
 
-  // ─── The gate ──────────────────────────────────────────────────────────────
-
-  /** A deterministic corpus with nothing unexplained, so ONLY live conditions bite. */
   function cleanCorpus(): ShadowDecisionRecord[] {
     return [
       {
@@ -1026,7 +946,6 @@ describe('DR-23 / T-32 — observer health + gate soundness', () => {
     ];
   }
 
-  /** Drive 20 real observations through the production observer. */
   async function driveCoveringAttempts(
     featureId: string,
     context: typeof CTX,
@@ -1045,11 +964,14 @@ describe('DR-23 / T-32 — observer health + gate soundness', () => {
     return { sink, health };
   }
 
+  /**
+   * The trust directory is unavailable, so each adjudication throws, and the production classifier assigns `shadow-error`.
+   * The clean corpus holds nothing unexplained, so only the live conditions can block.
+   * The test reads `durableAttempts` from the durable sidecar stream, not from the in-memory buffer.
+   * The attempts cover each phase kind and both legacy outcomes, and the observer is healthy. The gate still blocks, because no attempt is comparable.
+   */
   it('CutoverGate_AllAttemptsErrored_DoesNotSatisfyLiveConditions', async () => {
     const featureId = 'cutover-all-errored';
-    // Every adjudication genuinely THROWS: the trust directory the admission
-    // engine consults is unavailable. Nothing below writes a `shadow-error`
-    // class — the production classifier assigns it.
     const { sink, health } = await driveCoveringAttempts(featureId, ERRORING_CTX);
 
     expect(sink.size).toBe(MINIMUM_LIVE_ATTEMPTS);
@@ -1057,7 +979,6 @@ describe('DR-23 / T-32 — observer health + gate soundness', () => {
       sink.decisionRecords().every((r) => r.admission.status === 'error'),
     ).toBe(true);
 
-    // The gate reads the DURABLE sidecar stream, not the process-scoped buffer.
     const durableAttempts = await readDurableShadowAttempts(eventStore, [featureId]);
     expect(durableAttempts.length).toBe(MINIMUM_LIVE_ATTEMPTS);
 
@@ -1068,8 +989,6 @@ describe('DR-23 / T-32 — observer health + gate soundness', () => {
       observerHealth: health.snapshot(),
     });
 
-    // The audited premise HOLDS: 20 attempts accrued, every phase kind was
-    // exercised and both legacy outcomes are present…
     expect(report.liveAttemptCount).toBe(MINIMUM_LIVE_ATTEMPTS);
     expect(
       new Set(sink.liveAttempts().map((a) => a.phaseKind)),
@@ -1077,8 +996,6 @@ describe('DR-23 / T-32 — observer health + gate soundness', () => {
     expect(new Set(sink.liveAttempts().map((a) => a.outcome))).toEqual(
       new Set(['allow', 'deny']),
     );
-    // …and the observer was HEALTHY, so nothing below is attributable to a dead
-    // observer. The gate blocks purely on the disagreement class.
     expect(report.observerStatus).toBe('healthy');
 
     expect(report.satisfied).toBe(false);
@@ -1099,10 +1016,8 @@ describe('DR-23 / T-32 — observer health + gate soundness', () => {
     );
   });
 
+  /** The same edges and driver run with a working admission engine. If no input satisfies the gate, the errored-attempts test proves nothing. */
   it('CutoverGate_ComparableAttempts_SatisfyLiveConditions', async () => {
-    // The positive twin: the SAME twenty edges, the SAME driver, the only
-    // difference being that the admission engine actually works. If the gate
-    // were un-satisfiable by construction the test above would prove nothing.
     const featureId = 'cutover-all-comparable';
     const { sink, health } = await driveCoveringAttempts(featureId, CTX);
 
@@ -1125,10 +1040,8 @@ describe('DR-23 / T-32 — observer health + gate soundness', () => {
     expect(report.satisfied).toBe(true);
   });
 
+  /** Comparable in-memory attempts whose durable evidence never lands do not satisfy the gate. The health counter is part of the gate decision. */
   it('CutoverGate_DeadObserver_CannotPresentAsCleanEvidence', async () => {
-    // The health counter is LOAD-BEARING on the gate, not merely observable:
-    // twenty perfectly comparable in-memory attempts whose durable evidence
-    // never landed must not satisfy it.
     const featureId = 'cutover-dead-observer';
     const restore = failSidecarAppends(eventStore);
     let sink: InMemoryLiveShadowSink;
@@ -1149,7 +1062,6 @@ describe('DR-23 / T-32 — observer health + gate soundness', () => {
       observerHealth: health.snapshot(),
     });
 
-    // In memory everything looks perfect — that is precisely the trap.
     expect(report.comparableLiveAttemptCount).toBe(MINIMUM_LIVE_ATTEMPTS);
     expect(report.observerStatus).toBe('dead');
     expect(report.satisfied).toBe(false);
@@ -1158,10 +1070,8 @@ describe('DR-23 / T-32 — observer health + gate soundness', () => {
     );
   });
 
+  /** The authoritative feature stream carries no `admission.` events, so a reader that points at it returns nothing. */
   it('CutoverGate_ReadsTheSidecarStream_NotTheAuthoritativeOne', async () => {
-    // Pins WHERE the durable evidence is read from. The authoritative feature
-    // stream carries no `admission.*` events (T-31 sidecar purity), so a reader
-    // pointed at it returns nothing at all.
     const featureId = 'cutover-sidecar-read';
     await driveCoveringAttempts(featureId, CTX);
 

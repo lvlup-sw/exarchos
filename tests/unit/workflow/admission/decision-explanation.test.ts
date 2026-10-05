@@ -1,16 +1,9 @@
-// Exit-proof tests for P06-06 explainable decisions (Transition tasks 025, 026).
-//
-// `explainDecision` is exercised over REAL persisted decisions produced by the
-// P06-05 chokepoint (a recording appender, no backend), so the explanation is
-// proven against the same records callers see. Proves:
-//   • per-requirement results + evidence references + policy identity;
-//   • a stable reason code per unsatisfied requirement (aligned to P03-02);
-//   • every denial carries a remediation (safe verb OR terminal reason) — no
-//     unexplained denial;
-//   • (d) a waiver-driven `allow` surfaces the waived failures AND waiver ids;
-//   • (b) explaining a deny never yields an allow and never mutates the decided
-//     input (behavioural no-pass-state proof);
-//   • every emitted next_action validates against the LIVE schema.
+// Tests for `explainDecision` over real decisions from `runTransitionCommand`,
+// with a recording appender and no backend. A denial carries per-requirement
+// results, the policy identity, a stable reason code, and a remediation for each
+// unsatisfied requirement. A waiver-driven allow shows the waived failure and
+// the waiver ID. The explanation of a deny never gives an allow and does not
+// change the decided input. Each next action parses with the `NextAction` schema.
 import { describe, it, expect } from 'vitest';
 
 import type {
@@ -51,8 +44,6 @@ import {
 } from '../../../../src/workflow/admission/types.js';
 import type { ResolvedGate } from '../../../../src/workflow/phase-kind.js';
 import { explainDecision, deriveWaivable } from '../../../../src/workflow/admission/decision-explanation.js';
-
-// ─── Fixtures (mirrors transition-command.test.ts) ───────────────────────────
 
 const AT = '2026-08-03T12:00:00.000Z';
 const EXPIRES = '2027-08-03T12:00:00.000Z';
@@ -213,9 +204,12 @@ async function decide(overrides: Parameters<typeof makeInput>[0]): Promise<Trans
   return result;
 }
 
-// ─── Explanation of a denial ─────────────────────────────────────────────────
-
 describe('explainDecision — a denial is fully explained (no unexplained denial)', () => {
+  /**
+   * The policy identity holds references, not copies of policy material. The
+   * policy is waivable, but missing evidence can be produced, so the remediation
+   * is the safe verb `run_gate`.
+   */
   it('Deny_Missing_CarriesResults_Identity_StableReason_AndASafeVerb', async () => {
     const decided = await decide({ activeEvidence: [] });
     const explanation = explainDecision(decided);
@@ -224,7 +218,6 @@ describe('explainDecision — a denial is fully explained (no unexplained denial
     expect(explanation.outcome).toBe('denied');
     expect(explanation.phaseChanged).toBe(false);
 
-    // Policy identity — references, not copies of policy material.
     expect(explanation.policyIdentity.policyId).toBe(decided.decision.policyId);
     expect(explanation.policyIdentity.policyVersion).toBe('1.0');
     expect(explanation.policyIdentity.policyDigest).toEqual(digestA);
@@ -233,7 +226,6 @@ describe('explainDecision — a denial is fully explained (no unexplained denial
     );
     expect(explanation.decisionId).toBe(decided.decision.decisionId);
 
-    // Per-requirement result + stable reason code.
     expect(explanation.requirementResults).toHaveLength(1);
     const [result] = explanation.requirementResults;
     expect(result?.status).toBe('denied');
@@ -244,7 +236,6 @@ describe('explainDecision — a denial is fully explained (no unexplained denial
     expect(unsatisfied.stableReason).toBe('AUTHORIZATION_DENIED');
     expect(unsatisfied.stableReason in STABLE_ERROR_REGISTRY).toBe(true);
 
-    // Remediation is a SAFE VERB (waivable set → but 'missing' is producible).
     expect(unsatisfied.remediation.kind).toBe('action');
     expect(explanation.nextActions).toHaveLength(1);
     expect(explanation.nextActions[0]!.verb).toBe('run_gate');
@@ -255,7 +246,6 @@ describe('explainDecision — a denial is fully explained (no unexplained denial
   it('Deny_EveryUnsatisfiedRequirement_HasARemediation_NeverAGap', async () => {
     const decided = await decide({ activeEvidence: [] });
     const explanation = explainDecision(decided);
-    // The exit proof: no unsatisfied requirement is left unexplained.
     for (const unsatisfied of explanation.unsatisfied) {
       const isSafeVerb = unsatisfied.remediation.kind === 'action';
       const isTerminal = unsatisfied.remediation.kind === 'terminal';
@@ -264,18 +254,16 @@ describe('explainDecision — a denial is fully explained (no unexplained denial
     expect(explanation.unsatisfied.length).toBeGreaterThan(0);
   });
 
+  /** Each next action is inert data with no function value. */
   it('Deny_ExplainingNeverFlipsToAllow_AndNeverMutatesTheDecidedInput', async () => {
     const decided = await decide({ activeEvidence: [] });
     const before = JSON.stringify(decided);
 
     const explanation = explainDecision(decided);
 
-    // The verdict stays a deny — explanation is not a pass-state shortcut.
     expect(explanation.verdict).toBe('deny');
     expect(explanation.requirementResults.some((r) => r.status === 'satisfied')).toBe(false);
-    // The decided record is byte-for-byte untouched by explaining it.
     expect(JSON.stringify(decided)).toBe(before);
-    // Every emitted action is inert data (no callable effect handle).
     for (const action of explanation.nextActions) {
       for (const value of Object.values(action)) {
         expect(typeof value).not.toBe('function');
@@ -283,8 +271,6 @@ describe('explainDecision — a denial is fully explained (no unexplained denial
     }
   });
 });
-
-// ─── Explanation of an allow, and waiver-driven allow fidelity (d) ───────────
 
 describe('explainDecision — allow and waiver-driven allow', () => {
   it('Allow_Satisfied_ReportsNoUnsatisfiedNoWaivedAndNoNextActions', async () => {
@@ -300,9 +286,11 @@ describe('explainDecision — allow and waiver-driven allow', () => {
     expect(explanation.terminalReasons).toEqual([]);
   });
 
+  /**
+   * A scoped, authorized, unexpired waiver rescues a failing gate. Admission
+   * succeeds, but the explanation must show the failure and the waiver.
+   */
   it('WaiverDrivenAllow_SurfacesTheWaivedFailureAndTheWaiverId', async () => {
-    // A failing gate that a scoped, authorized, unexpired waiver rescues:
-    // admission SUCCEEDS, but the failure stays recorded and must be surfaced.
     const decided = await decide({
       activeEvidence: [gateEvidence('fail')],
       waivers: [issuedWaiver],
@@ -312,7 +300,6 @@ describe('explainDecision — allow and waiver-driven allow', () => {
     expect(explanation.verdict).toBe('allow');
     expect(explanation.phaseChanged).toBe(true);
 
-    // The requirement result records the waiver, its reason, and the waiver id.
     const waivedResult = explanation.requirementResults.find((r) => r.status === 'waived');
     expect(waivedResult).toBeDefined();
     if (waivedResult?.status === 'waived') {
@@ -321,7 +308,6 @@ describe('explainDecision — allow and waiver-driven allow', () => {
       expect(waivedResult.waiverId).toBe('waiver.gate-001');
     }
 
-    // (d) the durable waived-failure surface: which failure, by which waiver.
     expect(explanation.waivedFailures).toHaveLength(1);
     const waived = explanation.waivedFailures[0]!;
     expect(waived.requirementId).toBe(gateRequirementId);
@@ -329,13 +315,10 @@ describe('explainDecision — allow and waiver-driven allow', () => {
     expect(waived.waiverId).toBe('waiver.gate-001');
     expect(explanation.waiverIds).toContain('waiver.gate-001');
 
-    // A waiver-driven allow is NOT a denial — no unsatisfied, no terminal.
     expect(explanation.unsatisfied).toEqual([]);
     expect(explanation.terminalReasons).toEqual([]);
   });
 });
-
-// ─── Explanation of an indeterminate verdict ─────────────────────────────────
 
 describe('explainDecision — indeterminate fails closed with a retry verb', () => {
   it('Indeterminate_UndecidedGate_ExplainedWithACodeAndARetryAction', async () => {
@@ -352,12 +335,9 @@ describe('explainDecision — indeterminate fails closed with a retry verb', () 
       expect(result.remediation.verb).toBe('retry_transition');
       expect(() => NextAction.parse(result.remediation)).not.toThrow();
     }
-    // The retry verb is surfaced as a safe next action.
     expect(explanation.nextActions.map((a) => a.verb)).toContain('retry_transition');
   });
 });
-
-// ─── deriveWaivable is faithful to the persisted decision ────────────────────
 
 describe('deriveWaivable — read faithfully from the persisted decision', () => {
   it('Deny_WithWaivablePolicy_DerivesWaivableTrueFromTheRecord', async () => {

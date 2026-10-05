@@ -1,24 +1,12 @@
-// ─── P07-03 exit-proofs (a,b,d) — builder decision parity over the corpus ─────
+// Builder decision parity over the transition corpus.
+// The harness authors the five built-in workflows through the public builder combinators and proves three things:
 //
-// This harness AUTHORS the five built-in workflows THROUGH the public builder
-// combinators (`workflow-builder.ts`) and proves three things against the frozen
-// P06-01 characterization corpus (108 deterministic fixtures):
+// (a) Round trip: each builder edge lowers to shared IR that serializes equal to its `BUILT_IN_WORKFLOW_IR` edge.
+// (b) Decision parity: for each corpus fixture, the builder decision equals the hand IR decision.
+//     It also equals the expected legacy decision, except on the six known legacy defects.
+// (d) Shadow delta: the disagreement set stays the same six safe-direction defects.
 //
-//   (a) ROUND-TRIP — every builder-authored edge lowers to shared IR that is
-//       byte-identical (serialize-equal) to the hand-authored `BUILT_IN_WORKFLOW_IR`
-//       edge, and back through the compiler without loss.
-//   (b) DECISION PARITY — for every corpus fixture, the decision produced via the
-//       builder-authored definition equals the expected legacy decision (except
-//       the six known legacy guard-soundness defects) AND equals the decision the
-//       hand-authored IR produces. The equivalence relation is the three-valued
-//       `PolicyVerdict` — a DECISION, never the shape of a legacy guard object.
-//   (d) SHADOW DELTA — the disagreement set is unchanged (still exactly the six
-//       explained, safe-direction defects) when the decisions come from
-//       builder-authored definitions.
-//
-// The design instruction (P07-03): "compare compiled decisions rather than
-// preserving legacy guard object shape." This harness never deep-equals a legacy
-// guard object; parity is asserted purely over `adjudicateEdge`'s `PolicyVerdict`.
+// Parity compares the three-valued `PolicyVerdict` of `adjudicateEdge`. It never deep-equals a legacy guard object.
 
 import { describe, expect, it } from 'vitest';
 
@@ -57,11 +45,8 @@ import {
 const CTX = defaultTranslationContext('2025-01-01T00:00:00.000Z');
 
 /**
- * Canonicalize an obligation to a comparable string. This is a DECISION-shape
- * canonicalization (kind + id/class/threshold + compiled presence AST), NOT a
- * legacy guard object — the presence probe is serialized through the closed
- * edge-condition serializer, so two obligations compare equal iff they impose
- * the same admission requirement, however they were authored.
+ * Serializes an obligation to a comparable string: kind, ID or class, threshold, and the compiled presence AST.
+ * Two obligations compare equal when they impose the same admission requirement, however they were authored.
  */
 function serializeObligation(obligation: EdgeObligation): string {
   switch (obligation.kind) {
@@ -77,8 +62,7 @@ function serializeObligation(obligation: EdgeObligation): string {
 /** The MAX_SYNTHESIZE_RETRIES cap the hand IR uses. */
 const MAX_SYNTHESIZE_RETRIES = 3;
 
-// Shared presence probes, re-authored through the builder combinators (the same
-// composition the hand IR expresses with its private helpers).
+/** The shared presence probes start here, authored through the builder combinators. */
 const PLAN_ARTIFACT_PRESENT = any(present('artifacts.plan'), present('plan'));
 const PR_URL_PRESENT = any(present('synthesis.prUrl'), present('artifacts.pr'));
 const TASKS_COMPLETE = all(
@@ -89,11 +73,10 @@ const RETRYABLE = all(
   present('synthesis.lastError'),
   compare('synthesis.retryCount', 'lt', MAX_SYNTHESIZE_RETRIES),
 );
-// The plan-revision cap and the review obligations are NOT constants here: they
-// are per-project config the legacy guards read, resolved by the projection and
-// consumed as derived facts. Re-authoring them as a hardcoded
-// `compare('planReview.revisionCount', 'gte', 1)` would reintroduce exactly the
-// second authority the IR was fixed to remove.
+/**
+ * The plan-revision cap and the review obligations are per-project config, so they are derived facts and not constants here.
+ * A hardcoded `compare('planReview.revisionCount', 'gte', 1)` makes a second authority.
+ */
 const REVISIONS_EXHAUSTED = equals('planReview.revisionsExhausted', true);
 const REQUIRED_REVIEWS_SATISFIED = equals('reviews.requiredSatisfied', true);
 const SYNTHESIS_OPTED_IN = any(
@@ -108,8 +91,7 @@ const SYNTHESIS_OPTED_OUT = any(
   ),
 );
 
-// ─── Builder-authored built-in workflows (mirrors BUILT_IN_WORKFLOW_IR) ───────
-
+/** The builder-authored feature edges. Each workflow list below mirrors `BUILT_IN_WORKFLOW_IR`. */
 const FEATURE_SPECS: readonly WorkflowEdgeSpec[] = [
   { workflowType: 'feature', from: 'plan', to: 'plan-review', toPhaseKind: 'PLAN', category: 'admission-requirement', legacyGuardId: 'plan-artifact-exists', obligation: gate('plan-artifact', PLAN_ARTIFACT_PRESENT) },
   { workflowType: 'feature', from: 'plan-review', to: 'delegate', toPhaseKind: 'IMPLEMENT', category: 'approval', legacyGuardId: 'plan-review-complete', obligation: approval('plan-review', equals('planReview.approved', true)) },
@@ -203,7 +185,7 @@ function decisionOf(edge: WorkflowEdgeIR, fixture: LegacyTransitionFixture): Pol
 }
 
 /**
- * The six known P06-01 legacy guard-soundness defects (from
+ * The six known legacy guard-soundness defects (from
  * `built-in-workflow-decisions.test.ts`): fixtures where the legacy path admits
  * a fail-shaped state the evidence-backed engine correctly denies. All are the
  * SAFE direction (legacy allow / admission deny).
@@ -216,8 +198,6 @@ const EXPECTED_DISAGREEMENTS: ReadonlySet<string> = new Set([
   'bypass-empty-task-collection-is-complete',
   'bypass-always-pass-implementation-ignores-fail-shaped-state',
 ]);
-
-// ─── Exit-proof (a): builder output round-trips shared IR losslessly ──────────
 
 describe('builder-authored edges round-trip the shared IR (exit-proof a)', () => {
   it('covers exactly the hand-authored IR edge set (no missing / extra edges)', () => {
@@ -234,15 +214,12 @@ describe('builder-authored edges round-trip the shared IR (exit-proof a)', () =>
       const built = builderEdge(hand.workflowType, hand.from, hand.to);
       const label = edgeKey(hand.workflowType, hand.from, hand.to);
 
-      // Route legality: the compiled AST is byte-identical.
       expect(serializeEdgeCondition(built.routeCondition), `${label} route`).toBe(
         serializeEdgeCondition(hand.routeCondition),
       );
-      // Admission obligation (requirement declaration): byte-identical.
       expect(serializeObligation(built.obligation), `${label} obligation`).toBe(
         serializeObligation(hand.obligation),
       );
-      // Metadata the IR consumers key on.
       expect(built.toPhaseKind, `${label} phaseKind`).toBe(hand.toPhaseKind);
       expect(built.category, `${label} category`).toBe(hand.category);
       expect(built.legacyGuardId, `${label} legacyGuardId`).toBe(hand.legacyGuardId);
@@ -255,8 +232,6 @@ describe('builder-authored edges round-trip the shared IR (exit-proof a)', () =>
     }
   });
 });
-
-// ─── Exit-proof (b): builder decisions match the corpus ───────────────────────
 
 describe('builder-authored definitions produce the expected decisions (exit-proof b)', () => {
   it('resolves a builder edge for every corpus fixture', () => {
@@ -286,10 +261,6 @@ describe('builder-authored definitions produce the expected decisions (exit-proo
   });
 
   it('DECISION-matches the hand-authored IR on every fixture (parity is decisional, not structural)', () => {
-    // The equivalence relation is `PolicyVerdict` — the DECISION — never a
-    // deep-equal of any legacy guard object. Two edges are "the same" here iff
-    // they decide the same way, which is the whole point of P07-03: compare
-    // compiled decisions, not preserve legacy guard object shape.
     for (const fixture of transitionAdmissionCorpus) {
       const built = builderEdge(fixture.workflowType, fixture.from, fixture.to);
       const hand = getEdgeIR(fixture.workflowType, fixture.from, fixture.to);
@@ -301,8 +272,6 @@ describe('builder-authored definitions produce the expected decisions (exit-proo
     }
   });
 });
-
-// ─── Exit-proof (d): the shadow disagreement delta is unchanged ───────────────
 
 function disagreementIds(resolve: (f: LegacyTransitionFixture) => WorkflowEdgeIR): Set<string> {
   const ids = new Set<string>();

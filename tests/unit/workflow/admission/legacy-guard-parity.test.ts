@@ -1,29 +1,14 @@
-// ─── Dual-authority differential — admission vs the REAL legacy guards ────────
+// The legacy guard can read a threshold from config while the admission IR
+// hardcodes it. A fixed corpus of default inputs cannot catch this drift. This
+// test enumerates the config space and compares the two authorities at each
+// point. Legacy is `executeTransition` on the real HSM, and admission is
+// `adjudicateEdge` on the shared IR. They must agree. For each oneshot policy
+// and event set, admission allows exactly one outbound edge of `implementing`,
+// so the shadow authority cannot deadlock the workflow.
 //
-// The corpus proves agreement on a FIXED set of fixtures. That is necessary but
-// not sufficient: the defect this test exists to prevent is a THRESHOLD that the
-// legacy guard reads from injected config while the admission IR hardcodes a
-// constant. Such a drift is invisible on any corpus generated from default /
-// no-config inputs — the constant and the config agree exactly there — so a
-// fixture list can assert the safety property over a set on which it cannot
-// fail.
-//
-// This test instead ENUMERATES the config space and compares the two authorities
-// pointwise:
-//
-//   legacy   = executeTransition(realHSM, state, to).success    (guards.ts)
-//   admission = adjudicateEdge(sharedIR, state, ctx)            (the shadow)
-//
-// and asserts admission NEVER admits where legacy denies (the unsafe direction),
-// and — for the edges whose obligations are config-derived — that the two agree
-// outright. It also asserts LIVENESS: for every oneshot policy/event
-// combination, at least one outbound edge of `implementing` is admitted, so the
-// shadow authority can never deadlock a workflow the legacy path can advance.
-//
-// Like `corpus-legacy-baseline.test.ts`, this is a TEST that deliberately
-// imports the legacy guard path — that import is what makes it a cross-check.
-// The production shared-IR modules stay structurally guard-free
-// (`built-in-workflow-ir.structure.test.ts`).
+// This test imports the legacy guard path on purpose, as a cross-check.
+// `built-in-workflow-ir.structure.test.ts` proves that the shared-IR modules do
+// not import guard code.
 
 import { describe, expect, it } from 'vitest';
 
@@ -61,10 +46,9 @@ function admissionAllows(ref: EdgeRef, state: Record<string, unknown>): boolean 
 }
 
 /**
- * The load-bearing assertion. `admission allows ⇒ legacy allows` is the SAFETY
- * property (no over-admission). Where the obligation is config-derived we demand
- * full agreement, because a spurious admission-deny on a configured repo is a
- * liveness bug the cutover would ship.
+ * Asserts that admission and legacy give the same verdict. An admission allow
+ * where legacy denies is an over-admission. An admission deny where legacy
+ * allows on a configured repo is a liveness bug.
  */
 function expectAgreement(
   ref: EdgeRef,
@@ -111,8 +95,6 @@ const ONESHOT_DIRECT_COMMIT: EdgeRef = {
   to: 'completed',
 };
 
-// ─── DEFECT 1(a) — the plan-revision cap is CONFIG, not a constant ────────────
-
 describe('plan-revision cap: admission reads the same injected cap as the guard', () => {
   const caps: readonly (number | undefined)[] = [undefined, 0, 1, 2, 3, 5];
   const counts: readonly number[] = [0, 1, 2, 3, 5, 6];
@@ -131,9 +113,8 @@ describe('plan-revision cap: admission reads the same injected cap as the guard'
     });
   }
 
+  /** With a hardcoded cap, this fact stays 1 for each config, and the comparison above over-admits. */
   it('the projected cap tracks the injected value (not a frozen constant)', () => {
-    // Directly pins the seam: had the cap stayed hardcoded, this fact would be
-    // 1 regardless of config and the comparison above would over-admit.
     expect(projectStateToFacts({}).fields['policy.maxPlanRevisions']).toBe(1);
     expect(
       projectStateToFacts({ _maxPlanRevisions: 3 }).fields['policy.maxPlanRevisions'],
@@ -159,8 +140,6 @@ describe('plan-revision cap: admission reads the same injected cap as the guard'
     }
   });
 });
-
-// ─── DEFECT 1(b) — required review dimensions + mutation enforcement ──────────
 
 describe('all-reviews-passed: admission enforces the same resolved obligations', () => {
   it('agrees across required-review-dimension permutations', () => {
@@ -236,9 +215,8 @@ describe('all-reviews-passed: admission enforces the same resolved obligations',
     }
   });
 
+  /** The debug `reviewPassed` guard does not read `_requiredReviews`. One shared fact for both guards makes one of the two edges wrong. */
   it('keeps the WEAKER debug review-passed contract on its own fact', () => {
-    // `reviewPassed` (debug) does NOT read `_requiredReviews`; collapsing both
-    // guards onto one fact would make one of the two edges wrong.
     const state = {
       reviews: { quality: { status: 'pass' } },
       _requiredReviews: ['quality', 'security'],
@@ -253,8 +231,6 @@ describe('all-reviews-passed: admission enforces the same resolved obligations',
     );
   });
 });
-
-// ─── DEFECT 1(c) — oneshot plan must be a TRIMMED NON-EMPTY STRING ────────────
 
 describe('oneshot-plan-set: admission demands the same value SHAPE as the guard', () => {
   it('agrees across every plan value shape', () => {
@@ -284,13 +260,12 @@ describe('oneshot-plan-set: admission demands the same value SHAPE as the guard'
     }
   });
 
+  /**
+   * The feature edge and the oneshot edge both demand a typed artifact
+   * reference: a string that is not empty after a trim. So
+   * `artifacts.plan = true` does not satisfy the phase gate.
+   */
   it('holds the feature plan-artifact edge to the SAME typed-reference contract', () => {
-    // DR-5 (T-08): `planArtifactExists` used to accept ANY non-null value, so
-    // this test asserted the feature edge stayed loose while oneshot was
-    // tightened. That divergence WAS the defect — `artifacts.plan = true`
-    // satisfied a phase gate on the shipped transition path. Both surfaces now
-    // demand a typed artifact reference (a trimmed non-empty string), and the
-    // projection was tightened alongside so admission does not over-admit.
     const FEATURE_PLAN: EdgeRef = { workflowType: 'feature', from: 'plan', to: 'plan-review' };
     for (const plan of [true, false, 0, 1, {}, [], '', '   ', '\t\n ']) {
       expect(
@@ -317,15 +292,14 @@ describe('oneshot-plan-set: admission demands the same value SHAPE as the guard'
   });
 });
 
-// ─── DEFECT 2 — the oneshot synthesis branch, including the DEFAULT policy ────
-
+/** An unrecognized policy such as `sometimes` falls back to the `on-request` default. */
 describe('oneshot synthesis branch: agreement AND liveness', () => {
   const policies: readonly (string | undefined)[] = [
     undefined,
     'always',
     'never',
     'on-request',
-    'sometimes', // unrecognized → collapses to the on-request default
+    'sometimes',
   ];
   const eventSets: readonly Record<string, unknown>[][] = [
     [],
@@ -357,6 +331,7 @@ describe('oneshot synthesis branch: agreement AND liveness', () => {
     }
   });
 
+  /** The two branches are a choice state, so admission allows exactly one of them. */
   it('NEVER deadlocks: some outbound edge of `implementing` is always admitted', () => {
     for (const policy of policies) {
       for (const events of eventSets) {
@@ -371,7 +346,6 @@ describe('oneshot synthesis branch: agreement AND liveness', () => {
           `${label}: admission denied BOTH outbound edges — the workflow ` +
             `would deadlock under the shadow authority`,
         ).toBe(true);
-        // The two branches are mutually exclusive (a choice state).
         expect(synthesize && direct, `${label}: both branches admitted`).toBe(false);
       }
     }

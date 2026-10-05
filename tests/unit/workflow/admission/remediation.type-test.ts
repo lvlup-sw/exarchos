@@ -1,3 +1,8 @@
+/**
+ * Compile-time totality checks for the deny-reason census, the stable-code map and the verdict union.
+ * Vitest strips types, so only a `tsc` program that includes this file reports these failures.
+ * `tests/tsconfig.json` excludes `unit/**`.
+ */
 import { it, expect } from 'vitest';
 
 import {
@@ -7,17 +12,10 @@ import {
 import type { PolicyDenyReason, PolicyVerdict } from '../../../../src/workflow/admission/policy-evaluation.js';
 import type { StableErrorCode } from '../../../../src/contract/error-families.js';
 
-// ─── Compile-time totality proofs (the real gate is `tsc --noEmit`) ──────────
-//
-// These `.type-test.ts` assertions fail the TypeScript build — not vitest — if
-// the explanation/remediation contract ever loses totality. This is exit-proof
-// (e): adding a reason (or a verdict) without an explanation arm is a COMPILE
-// error, caught here and by the `assertNever` guards in the modules themselves.
-
 /**
- * Proof 1 — the runtime deny-reason census is EXACTLY the `PolicyDenyReason`
- * union, both directions. Adding a 7th reason without listing it in
- * `DENY_REASON_TABLE` (which backs `POLICY_DENY_REASONS`) drops this to `never`.
+ * The two conditional types compare the element type of `POLICY_DENY_REASONS` with the `PolicyDenyReason` union, one direction each.
+ * The declared element type is `PolicyDenyReason`, so both types are always `true`.
+ * The `satisfies` clause on `DENY_REASON_TABLE` in `remediation.ts` keeps the census total.
  */
 type _CensusCoversUnion = PolicyDenyReason extends (typeof POLICY_DENY_REASONS)[number]
   ? true
@@ -31,10 +29,8 @@ void _censusCovers;
 void _unionCovers;
 
 /**
- * Proof 2 — every deny reason maps to a stable code. This exact-shape
- * `Record<PolicyDenyReason, …>` reconstruction requires an entry per reason;
- * omitting one is a missing-property compile error (TS2741). The values call
- * the real mapper, so the aligned code is always a `StableErrorCode`.
+ * Each deny reason maps to a stable code.
+ * The `Record<PolicyDenyReason, StableErrorCode>` type needs one entry for each reason, and the values call the real mapper.
  */
 const _reasonToStableCode: Record<PolicyDenyReason, StableErrorCode> = {
   missing: stableErrorCodeForDenyReason('missing'),
@@ -46,12 +42,7 @@ const _reasonToStableCode: Record<PolicyDenyReason, StableErrorCode> = {
 };
 void _reasonToStableCode;
 
-/**
- * Proof 3 — the verdict union is closed at exactly three members. Adding a
- * fourth `PolicyVerdict` without an entry here is a missing-property compile
- * error, mirroring the `assertNever(evaluation.verdict)` guard in
- * `explainDecision`.
- */
+/** The `PolicyVerdict` union has three members. A fourth member without an entry here is a compile error. */
 const _everyVerdictExplained: Record<PolicyVerdict, true> = {
   allow: true,
   deny: true,
@@ -59,7 +50,7 @@ const _everyVerdictExplained: Record<PolicyVerdict, true> = {
 };
 void _everyVerdictExplained;
 
+/** The runtime census holds six reasons. */
 it('remediation type-test anchor', () => {
-  // The census list is frozen and matches the union proven above at compile time.
   expect(POLICY_DENY_REASONS.length).toBe(6);
 });

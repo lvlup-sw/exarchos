@@ -1,15 +1,9 @@
-// Exit-proof tests for P06-07 — reassessment under an explicit policy version
-// (Transition task 050). Proves "weaker reassessment requires an authorized
-// waiver", the cross-version monotonicity guarantee:
+// Tests for reassessment under an explicit policy version.
 //
-//   (d) a STRONGER-OR-EQUAL reassessment proceeds WITHOUT a waiver;
-//   (e) a WEAKER reassessment WITHOUT an authorized waiver FAILS CLOSED;
-//   (f) a WEAKER reassessment WITH a valid authorized waiver proceeds and
-//       records the weakening (via the applied waiver + explicit digest drift);
-//   (g) an expired / unauthorized / out-of-scope waiver does NOT permit weakening;
-//   plus: a not-waivable prior obligation set can never be weakened; the prior
-//   frozen set is referenced, never mutated; authenticity of the supplied prior
-//   is enforced; and same-operationId retries are idempotent.
+// A stronger or equal reassessment proceeds without a waiver.
+// A weaker reassessment needs a valid, authorized, in-scope waiver, and records that waiver. Otherwise it fails closed.
+// A not-waivable prior set cannot be weakened. The supplied prior must match the frozen history.
+// A retry with the same operation id is idempotent.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -46,8 +40,6 @@ import {
   type WaiverScopeV1,
 } from '../../../../src/workflow/admission/types.js';
 import type { ResolvedGate } from '../../../../src/workflow/phase-kind.js';
-
-// ─── Fixtures ─────────────────────────────────────────────────────────────────
 
 const AT = '2026-08-03T12:00:00.000Z';
 const FUTURE = '2026-08-04T12:00:00.000Z';
@@ -175,7 +167,6 @@ describe('runReassessment — cross-version monotonicity gate', () => {
   const foldOf = (events: readonly unknown[]) =>
     foldAdmissionStream(events as readonly DecideOnceStoredEvent[]);
 
-  /** Bootstrap the [gateA, gateB] prior generation; return the new stream tail. */
   async function bootstrapPrior(
     streamId: string,
     waivable = true,
@@ -232,6 +223,7 @@ describe('runReassessment — cross-version monotonicity gate', () => {
     };
   }
 
+  /** The new generation is active, and the prior generation stays in the history. */
   it('Reassess_StrongerObligations_ProceedsWithoutWaiver', async () => {
     const streamId = 'workflow.stronger';
     const tail = await bootstrapPrior(streamId);
@@ -242,14 +234,12 @@ describe('runReassessment — cross-version monotonicity gate', () => {
       makeReassess(streamId, tail, { newObligations: strongerObligations }),
     );
 
-    // (d) stronger obligations are always admissible — no waiver consulted.
     expect(result.outcome).toBe('reassessed');
     if (result.outcome !== 'reassessed') throw new Error('unreachable');
     expect(result.weakened).toBe(false);
     expect(result.drift).toBe(true);
     expect(result.appliedWaiverIds).toEqual([]);
 
-    // The NEW generation is active; the PRIOR generation is preserved in history.
     const attempt = selectPhaseAttempt(foldOf(rawEvents(streamId)), phaseAttemptId);
     expect(digestKey(attempt!.frozenRequirementSet!.requirementSetDigest)).toBe(
       digestKey(result.newRequirementSetDigest),
@@ -261,6 +251,7 @@ describe('runReassessment — cross-version monotonicity gate', () => {
     ).toBe(true);
   });
 
+  /** No new requirement generation is frozen. Only the reassessment fact is appended. */
   it('Reassess_EqualObligations_NoDriftRecordsReassessmentOnly', async () => {
     const streamId = 'workflow.equal';
     const tail = await bootstrapPrior(streamId);
@@ -274,11 +265,11 @@ describe('runReassessment — cross-version monotonicity gate', () => {
     if (result.outcome !== 'reassessed') throw new Error('unreachable');
     expect(result.drift).toBe(false);
     expect(result.weakened).toBe(false);
-    // No new requirement generation is frozen; only the reassessment fact lands.
     const appended = rawEvents(streamId).slice(before);
     expect(appended.map((e) => e.type)).toEqual(['admission.reassessment-requested']);
   });
 
+  /** The prior generation stays active. */
   it('Reassess_WeakerWithoutWaiver_FailsClosedAppendsNothing', async () => {
     const streamId = 'workflow.weaker-no-waiver';
     const tail = await bootstrapPrior(streamId);
@@ -288,20 +279,19 @@ describe('runReassessment — cross-version monotonicity gate', () => {
       makeReassess(streamId, tail, { newObligations: weakerObligations }),
     );
 
-    // (e) a weakening with no waiver fails closed — NOTHING is appended.
     expect(result.outcome).toBe('weakening-blocked');
     if (result.outcome !== 'weakening-blocked') throw new Error('unreachable');
     expect(result.reason).toBe('waiver-required');
     expect(result.weakenedRequirementIds.length).toBeGreaterThan(0);
     expect(rawEvents(streamId).length).toBe(before);
 
-    // The attempt's active frozen set is unchanged (still the prior generation).
     const attempt = selectPhaseAttempt(foldOf(rawEvents(streamId)), phaseAttemptId);
     expect(digestKey(attempt!.frozenRequirementSet!.requirementSetDigest)).toBe(
       digestKey(result.priorRequirementSetDigest!),
     );
   });
 
+  /** The weaker generation becomes active, and the reassessment fact carries the waiver id. */
   it('Reassess_WeakerWithAuthorizedWaiver_ProceedsAndRecordsWeakening', async () => {
     const streamId = 'workflow.weaker-waived';
     const tail = await bootstrapPrior(streamId);
@@ -320,8 +310,6 @@ describe('runReassessment — cross-version monotonicity gate', () => {
       }),
     );
 
-    // (f) a weakening WITH a valid authorized waiver proceeds AND records the
-    // applied waiver — the weakening is explicit, not silent.
     expect(result.outcome).toBe('reassessed');
     if (result.outcome !== 'reassessed') throw new Error('unreachable');
     expect(result.weakened).toBe(true);
@@ -329,8 +317,6 @@ describe('runReassessment — cross-version monotonicity gate', () => {
     expect(result.appliedWaiverIds).toEqual(['waiver-weakening-001']);
     expect(result.weakenedRequirementIds).toEqual(dropped);
 
-    // The new (weaker) generation is now active; the reassessment fact carries
-    // the authorizing waiver id.
     const events = rawEvents(streamId);
     const attempt = selectPhaseAttempt(foldOf(events), phaseAttemptId);
     expect(digestKey(attempt!.frozenRequirementSet!.requirementSetDigest)).toBe(
@@ -350,7 +336,7 @@ describe('runReassessment — cross-version monotonicity gate', () => {
       waiverId: 'waiver-expired-001',
       waivedRequirementIds: dropped,
       scope: phaseAttemptScope,
-      expiresAt: PAST, // before the evaluation instant
+      expiresAt: PAST,
     });
     const before = rawEvents(streamId).length;
 
@@ -361,13 +347,13 @@ describe('runReassessment — cross-version monotonicity gate', () => {
       }),
     );
 
-    // (g.1) an expired waiver cannot authorize a weakening.
     expect(result.outcome).toBe('weakening-blocked');
     if (result.outcome !== 'weakening-blocked') throw new Error('unreachable');
     expect(result.reason).toBe('waiver-required');
     expect(rawEvents(streamId).length).toBe(before);
   });
 
+  /** The authority does not grant `GRANT_WAIVER` to the waiver actor. */
   it('Reassess_UnauthorizedWaiver_DoesNotPermitWeakening', async () => {
     const streamId = 'workflow.unauthorized-waiver';
     const tail = await bootstrapPrior(streamId);
@@ -380,7 +366,6 @@ describe('runReassessment — cross-version monotonicity gate', () => {
     });
     const before = rawEvents(streamId).length;
 
-    // The actor is not granted GRANT_WAIVER by this authority.
     const result = await runReassessment(
       makeReassess(streamId, tail, {
         newObligations: weakerObligations,
@@ -389,14 +374,13 @@ describe('runReassessment — cross-version monotonicity gate', () => {
       }),
     );
 
-    // (g.2) a waiver whose actor the trusted authority does not authorize cannot
-    // permit a weakening.
     expect(result.outcome).toBe('weakening-blocked');
     if (result.outcome !== 'weakening-blocked') throw new Error('unreachable');
     expect(result.reason).toBe('waiver-required');
     expect(rawEvents(streamId).length).toBe(before);
   });
 
+  /** The waiver scope names a different phase attempt. */
   it('Reassess_OutOfScopeWaiver_DoesNotPermitWeakening', async () => {
     const streamId = 'workflow.out-of-scope-waiver';
     const tail = await bootstrapPrior(streamId);
@@ -404,7 +388,6 @@ describe('runReassessment — cross-version monotonicity gate', () => {
     const waiver = issuedWaiver({
       waiverId: 'waiver-scope-001',
       waivedRequirementIds: dropped,
-      // Scope covers a DIFFERENT phase attempt — not this target.
       scope: { kind: 'phase-attempt', phaseAttemptId: otherPhaseAttemptId },
       expiresAt: FUTURE,
     });
@@ -417,13 +400,13 @@ describe('runReassessment — cross-version monotonicity gate', () => {
       }),
     );
 
-    // (g.3) a waiver scoped to another subject cannot permit this weakening.
     expect(result.outcome).toBe('weakening-blocked');
     if (result.outcome !== 'weakening-blocked') throw new Error('unreachable');
     expect(result.reason).toBe('waiver-required');
     expect(rawEvents(streamId).length).toBe(before);
   });
 
+  /** A not-waivable prior set blocks the weakening, even with an otherwise valid waiver. */
   it('Reassess_NotWaivablePrior_CannotBeWeakenedEvenWithWaiver', async () => {
     const streamId = 'workflow.not-waivable';
     const tail = await bootstrapPrior(streamId, false);
@@ -444,21 +427,18 @@ describe('runReassessment — cross-version monotonicity gate', () => {
       }),
     );
 
-    // The strongest obligation lattice element (not-waivable) can never be
-    // weakened, even by an otherwise-valid waiver.
     expect(result.outcome).toBe('weakening-blocked');
     if (result.outcome !== 'weakening-blocked') throw new Error('unreachable');
     expect(result.reason).toBe('not-waivable');
     expect(rawEvents(streamId).length).toBe(before);
   });
 
+  /** The caller claims a weaker prior than the frozen history, so that a real weakening looks like no change. */
   it('Reassess_ForgedPriorObligations_FailsClosedOnAuthenticity', async () => {
     const streamId = 'workflow.forged-prior';
     const tail = await bootstrapPrior(streamId);
     const before = rawEvents(streamId).length;
 
-    // Claim a WEAKER "prior" than what history actually froze, to try to make a
-    // genuine weakening look like a no-op / strengthening.
     const result = await runReassessment(
       makeReassess(streamId, tail, {
         priorObligations: weakerObligations,
@@ -487,6 +467,7 @@ describe('runReassessment — cross-version monotonicity gate', () => {
     expect(result.reason).toBe('attempt-not-found');
   });
 
+  /** A retry returns the same result and appends no event. */
   it('Reassess_SameOperationId_IsIdempotent', async () => {
     const streamId = 'workflow.reassess-idem';
     const tail = await bootstrapPrior(streamId);
@@ -505,7 +486,6 @@ describe('runReassessment — cross-version monotonicity gate', () => {
         newObligations: strongerObligations,
       }),
     );
-    // Same operationId retry → identical recorded result, no duplicate events.
     expect(second).toEqual(first);
     expect(rawEvents(streamId).length).toBe(afterFirst);
   });

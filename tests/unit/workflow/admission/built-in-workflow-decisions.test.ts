@@ -1,23 +1,11 @@
-// ─── P07-02 exit-proof (a) + corpus-delta — decision fixtures per workflow ────
-//
-// Drives the FULL transition corpus (`transitionAdmissionCorpus` = the frozen
-// P06-01 default-input baseline PLUS the config-bearing fixtures) through the
-// shared-IR admission adjudicator (`adjudicateEdge`) and compares the
-// evidence-backed verdict against the authoritative legacy verdict recorded in
-// the corpus (itself machine-attested against the real guards by
-// `corpus-legacy-baseline.test.ts`). Two things are proved:
-//
-//   (a) every built-in-workflow edge in the corpus resolves to a shared-IR edge
-//       and produces the EXPECTED decision (agreement wherever the legacy guard
-//       is sound); and
-//   (delta) the real state-driven translation produces EXACTLY the set of
-//       disagreements that correspond to genuine P06-01 legacy guard-soundness
-//       defects — no more, no fewer — and every one is in the SAFE direction
-//       (legacy over-admits; admission denies).
-//
-// The config-bearing half matters: running this delta over DEFAULT-input
-// fixtures only would assert the "no dangerous over-admission" property over
-// exactly the input region where a hardcoded-threshold drift CANNOT show up.
+// Runs the full transition corpus through the shared-IR adjudicator
+// `adjudicateEdge` and compares each verdict with the legacy verdict that the
+// corpus records. `corpus-legacy-baseline.test.ts` checks those legacy verdicts
+// against the real guards. Every corpus edge resolves to a shared-IR edge and
+// agrees with the legacy verdict, except the known legacy guard defects. Each
+// defect is in the safe direction: legacy allows and admission denies. The
+// corpus holds config-bearing fixtures because threshold drift does not show on
+// default inputs.
 
 import { describe, expect, it } from 'vitest';
 
@@ -36,10 +24,10 @@ import type { PolicyVerdict } from '../../../../src/workflow/admission/policy-ev
 const CTX = defaultTranslationContext('2025-01-01T00:00:00.000Z');
 
 /**
- * The disagreements that survive the REAL translation. Each is a known P06-01
- * legacy guard-soundness defect where the legacy path admits a fail-shaped
- * state that the evidence-backed engine correctly denies. All are the SAFE
- * direction (legacy-allow / admission-deny).
+ * The disagreements that remain under the real translation. Each is a known
+ * legacy guard defect: the legacy path admits a fail-shaped state and the
+ * evidence-backed engine denies it. A new disagreement from an IR fault does
+ * not belong here. Correct the IR.
  */
 const EXPECTED_DISAGREEMENTS: ReadonlyMap<string, string> = new Map([
   [
@@ -125,12 +113,12 @@ describe('built-in workflow decision fixtures (exit-proof a)', () => {
 });
 
 describe('corpus disagreement delta (real translation vs scenario proxy)', () => {
+  /**
+   * The over-admission checks below mean nothing unless the corpus holds the
+   * inputs where a dual-authority drift shows. Each config axis that the legacy
+   * guards read must appear.
+   */
   it('exercises the CONFIG-BEARING fixtures (the delta is not measured on defaults alone)', () => {
-    // Anti-vacuity. The "no dangerous over-admission" claim below is only worth
-    // anything if the corpus actually contains the inputs on which a
-    // dual-authority drift can manifest. Silently dropping them would make the
-    // assertions pass trivially, which is precisely how the original defect
-    // stayed invisible.
     expect(configBearingCorpus.length).toBeGreaterThanOrEqual(20);
     const ids = new Set(transitionAdmissionCorpus.map((f) => f.id));
     for (const fixture of configBearingCorpus) {
@@ -138,7 +126,6 @@ describe('corpus disagreement delta (real translation vs scenario proxy)', () =>
         true,
       );
     }
-    // Every config axis the legacy guards read must be represented.
     const states = configBearingCorpus.map((f) => JSON.stringify(f.state));
     for (const key of [
       '_maxPlanRevisions',
@@ -155,20 +142,15 @@ describe('corpus disagreement delta (real translation vs scenario proxy)', () =>
     }
   });
 
+  /**
+   * The real translation reads the same state fields as the guards, and the IR
+   * resolves config thresholds from the same injected state. So only the known
+   * legacy guard defects disagree.
+   */
   it('surfaces EXACTLY the known-defect disagreements — 6, down from P07-01’s 9', () => {
     const disagreements = collectDisagreements();
     const ids = new Set(disagreements.map((d) => d.id));
 
-    // Down from P07-01's 9: the 3 removed were scenario-proxy artifacts (the
-    // proxy split identical states by their `scenario` label). The real
-    // translation reads the same state fields the guard reads and AGREES on
-    // those three, so only genuine defects remain.
-    //
-    // Still 6 after the config-bearing fixtures were added: those fixtures
-    // exposed 14 further disagreements (11 of them DANGEROUS over-admissions)
-    // caused by the IR hardcoding thresholds the guards read from config. Those
-    // were FIXED at the source — the projection now resolves the obligations
-    // from the same injected state — rather than being registered as expected.
     expect(ids).toEqual(new Set(EXPECTED_DISAGREEMENTS.keys()));
     expect(disagreements).toHaveLength(6);
   });
@@ -180,9 +162,8 @@ describe('corpus disagreement delta (real translation vs scenario proxy)', () =>
     }
   });
 
+  /** Collects every offender, so a regression reports all of them and not only the first. */
   it('surfaces no dangerous legacy-deny / admission-allow disagreement', () => {
-    // Collect ALL offenders rather than dying on the first, so a regression
-    // reports the full blast radius instead of one arbitrary fixture.
     const dangerous = collectDisagreements().filter(
       (d) => d.legacy === 'deny' && d.shadow === 'allow',
     );

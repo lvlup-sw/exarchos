@@ -29,13 +29,9 @@ export interface LegacyTransitionDecision {
 }
 
 /**
- * `config-bearing` fixtures carry the INJECTED `.exarchos.yml` / tier state the
- * legacy guards read (`_maxPlanRevisions`, `_requiredReviews`,
- * `_mutationEnforcement` / `_mutationThreshold` / `_maxNoCoverage`) or a
- * non-default oneshot synthesis policy. They live in {@link configBearingCorpus},
- * NOT in the frozen {@link legacyTransitionCorpus}, so the frozen baseline keeps
- * its "exactly one representative-pass + one representative-fail per edge"
- * invariant.
+ * One transition input and the decision that the legacy path gives for it.
+ * A `config-bearing` fixture carries injected config or tier state, a plan shape, or a oneshot synthesis policy.
+ * These fixtures live in {@link configBearingCorpus}, so the frozen {@link legacyTransitionCorpus} keeps one pass and one fail fixture per edge.
  */
 export interface LegacyTransitionFixture {
   readonly id: string;
@@ -256,7 +252,7 @@ const debugCases: readonly LegacyTransitionFixture[] = [
     pass: { investigation: { escalate: true } },
     fail: {},
     failReason: 'escalation-required not satisfied',
-    // executeTransition handles cancelled as a universal edge before guards.
+    /** executeTransition handles cancelled as a universal edge before guards. */
     failExpected: allow('investigate', 'cancelled'),
   }),
   ...edgeCases({
@@ -668,33 +664,12 @@ export const legacyTransitionCorpus: readonly LegacyTransitionFixture[] = Object
   ...bypassCases,
 ]);
 
-// ─── Config-bearing fixtures (the inputs the frozen corpus cannot reach) ───────
-//
-// The frozen corpus above is generated from DEFAULT / no-config fixtures ONLY.
-// That is precisely the input region where the legacy guards and the shared
-// admission IR CANNOT disagree about a configured threshold — the guards fall
-// back to the same constants the IR hardcoded. Asserting "admission never
-// over-admits" over that corpus asserts a safety property on a set where it
-// cannot fail.
-//
-// These fixtures carry the injected config/tier state the legacy guards actually
-// read at runtime (`workflow/tools.ts` writes them onto the state before the
-// pure guards run):
-//
-//   `_maxPlanRevisions`   — `.exarchos.yml workflow.maxPlanRevisions`
-//   `_requiredReviews`    — the resolved required review dimensions
-//   `_mutationEnforcement` / `_mutationThreshold` / `_maxNoCoverage`
-//                         — HIGH-tier mutation-adequacy enforcement
-//   `oneshot.synthesisPolicy` + `synthesize.requested` events
-//                         — the oneshot direct-commit / synthesize branch
-//
-// plus the value SHAPES the `oneshot-plan-set` guard rejects but a naive
-// presence probe admits (`true`, `'   '`, an object).
-//
-// Every `expected` verdict here is machine-attested against the real guard path
-// by `admission/corpus-legacy-baseline.test.ts` — none is hand-transcribed and
-// left unverified.
-
+/**
+ * Builds a `config-bearing` fixture. The frozen corpus uses default inputs only, where the legacy guards and the admission IR use the same constants.
+ * The two authorities cannot disagree on those inputs, so a safety check over the frozen corpus alone cannot fail.
+ * These fixtures carry the injected config and tier state that the guards read, and plan shapes that `oneshot-plan-set` rejects.
+ * `admission/corpus-legacy-baseline.test.ts` checks every `expected` verdict against the real guard path.
+ */
 const configCase = (
   id: string,
   workflowType: BuiltInWorkflowType,
@@ -733,9 +708,8 @@ const planRevisionCapCases: readonly LegacyTransitionFixture[] = [
     'allow',
     'Legacy HSM admitted plan-review -> blocked at the configured cap',
   ),
+  /** Under the default cap of 1, a count of 0 denies. An engine that ignores the injected cap denies here. */
   configCase(
-    // Discriminating case: under the DEFAULT cap of 1 a count of 0 DENIES, so an
-    // admission engine that ignored the injected cap would deny here.
     'config-max-plan-revisions-0-count-0-allows-blocked',
     'feature',
     'plan-review',
@@ -879,8 +853,8 @@ const mutationEnforcementCases: readonly LegacyTransitionFixture[] = [
     'deny',
     "Guard 'all-reviews-passed' failed: mutation-adequacy gate degraded — no verifiable score",
   ),
+  /** Advisory is the default posture, so the same failing score must not block. */
   configCase(
-    // Advisory is the DEFAULT posture: the same failing score must NOT block.
     'config-advisory-mutation-below-threshold-allows-synthesize',
     'feature',
     'review',
@@ -940,11 +914,9 @@ const oneshotPlanShapeCases: readonly LegacyTransitionFixture[] = [
 ];
 
 /**
- * DEFECT 2 — the oneshot DEFAULT `on-request` policy. `readSynthesisPolicy`
- * defaults a MISSING policy to `'on-request'`, under which `synthesisOptedOut`
- * admits the direct-commit edge whenever no `synthesize.requested` event exists.
- * Both outbound edges of `implementing` are covered here, so a shadow authority
- * that denies BOTH (a liveness deadlock) is detectable rather than invisible.
+ * DEFECT 2: `readSynthesisPolicy` defaults a missing policy to `'on-request'`.
+ * Under that policy, `synthesisOptedOut` admits the direct-commit edge when no `synthesize.requested` event exists.
+ * The cases cover both outbound edges of `implementing`, so a shadow authority that denies both (a deadlock) is visible.
  */
 const oneshotSynthesisPolicyCases: readonly LegacyTransitionFixture[] = [
   configCase(
@@ -989,9 +961,8 @@ const oneshotSynthesisPolicyCases: readonly LegacyTransitionFixture[] = [
     'deny',
     "Guard 'synthesis-opted-out' failed: a synthesize.requested event opted into synthesis",
   ),
+  /** `never` is an absolute opt-out. A stray synthesize.requested event must not open the synthesize branch again. */
   configCase(
-    // `never` is an ABSOLUTE opt-out: a stray synthesize.requested event must not
-    // re-open the synthesize branch.
     'config-oneshot-never-policy-with-request-event-denies-synthesize',
     'oneshot',
     'implementing',
@@ -1015,10 +986,9 @@ const oneshotSynthesisPolicyCases: readonly LegacyTransitionFixture[] = [
 ];
 
 /**
- * Fixtures carrying real injected config / tier state. Kept SEPARATE from the
- * frozen {@link legacyTransitionCorpus} so the frozen baseline's per-edge
- * pass/fail invariant (asserted by `guard-classification.test.ts` and
- * `hsm-transition-guard.test.ts`) is untouched.
+ * Fixtures that carry real injected config or tier state.
+ * They stay out of {@link legacyTransitionCorpus}, so that corpus keeps exactly one pass and one fail fixture per edge.
+ * `guard-classification.test.ts` and `hsm-transition-guard.test.ts` both check that rule.
  */
 export const configBearingCorpus: readonly LegacyTransitionFixture[] = Object.freeze([
   ...planRevisionCapCases,
@@ -1029,9 +999,8 @@ export const configBearingCorpus: readonly LegacyTransitionFixture[] = Object.fr
 ]);
 
 /**
- * The FULL differential corpus the shadow admission authority is measured
- * against: the frozen default-input baseline PLUS the config-bearing inputs on
- * which a dual-authority drift can actually manifest.
+ * The full differential corpus for the shadow admission authority.
+ * It holds the frozen default-input baseline and the config-bearing inputs, where drift between the two authorities can occur.
  */
 export const transitionAdmissionCorpus: readonly LegacyTransitionFixture[] =
   Object.freeze([...legacyTransitionCorpus, ...configBearingCorpus]);

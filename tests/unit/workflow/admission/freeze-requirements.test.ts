@@ -1,13 +1,9 @@
-// Exit-proof tests for P06-05 / Transition task 019 — freeze the obligation
-// lattice into persisted, content-addressed requirement records.
-//
-// Proves the projection is:
-//   - faithful   (one gate-evidence record per gate; approval / corroboration
-//                 records appear iff the lattice demanded them);
-//   - floored    (a positive corroboration obligation floors at 2 sources);
-//   - stable     (same obligations + binding ⇒ identical ids and digest);
-//   - bound      (records are content-addressed to the phase attempt + subject);
-//   - monotone   (a stronger lattice element ⇒ a superset of records).
+// Tests for the freeze of the obligation lattice into content-addressed
+// requirement records. Each gate gives one gate-evidence record, and approval
+// and corroboration records appear only when the lattice demands them. A
+// positive corroboration obligation floors at two sources. The same obligations
+// and binding give the same IDs and digest. Records bind to the phase attempt
+// and subject. A stronger lattice element gives a superset of records.
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -40,11 +36,11 @@ const resolved = (over: Partial<ResolvedRequirements> = {}): ResolvedRequirement
   });
 
 describe('freezeRequirements — faithful projection', () => {
+  /** The empty set also has a stable digest, so a second freeze keeps the same identity. */
   it('Freeze_EmptyObligations_ProjectsNoRecordsWithStableDigest', () => {
     const first = freezeRequirements({ resolved: resolved(), phaseAttemptId, subject });
     const second = freezeRequirements({ resolved: resolved(), phaseAttemptId, subject });
     expect(first.requirements).toEqual([]);
-    // A stable digest even for the empty set — a re-freeze is a no-op in identity.
     expect(first.requirementSetDigest).toEqual(second.requirementSetDigest);
     expect(first.requirementSetDigest.algorithm).toBe('sha256');
   });
@@ -61,7 +57,6 @@ describe('freezeRequirements — faithful projection', () => {
       expect(requirement.phaseAttemptId).toBe(phaseAttemptId);
       expect(requirement.subject).toEqual(subject);
     }
-    // Distinct gates project to distinct gate ids and requirement ids.
     const gateIds = requirements.map((r) =>
       r.kind === 'gate-evidence' ? r.gateId : '',
     );
@@ -110,9 +105,12 @@ describe('freezeRequirements — faithful projection', () => {
 });
 
 describe('freezeRequirements — corroboration floor and self-source', () => {
+  /**
+   * A lattice value of 1 floors to 2 in the persisted record. The record is its
+   * own source: independent evidence items bound to its own ID discharge it.
+   */
   it('Freeze_PositiveCorroboration_FloorsAtTwoAndSelfSources', () => {
     const { requirements } = freezeRequirements({
-      // A lattice value of 1 is meaningless as a persisted record; it floors to 2.
       resolved: resolved({ minimumCorroboratingSources: 1 }),
       phaseAttemptId,
       subject,
@@ -121,8 +119,6 @@ describe('freezeRequirements — corroboration floor and self-source', () => {
     expect(corroboration?.kind).toBe('corroboration');
     if (corroboration?.kind === 'corroboration') {
       expect(corroboration.minimumIndependentSources).toBe(CORROBORATION_RECORD_FLOOR);
-      // Self-source: the obligation is discharged by N independent evidence
-      // items bound to its own id.
       expect(corroboration.sourceRequirementId).toBe(corroboration.requirementId);
     }
   });
@@ -204,7 +200,6 @@ describe('freezeRequirements — determinism, binding, monotonicity', () => {
     });
     const weakIds = new Set(weak.requirements.map((r) => r.requirementId));
     const strongIds = new Set(strong.requirements.map((r) => r.requirementId));
-    // Every weak requirement id survives in the stronger projection (superset).
     for (const id of weakIds) expect(strongIds.has(id)).toBe(true);
     expect(strong.requirements.length).toBeGreaterThan(weak.requirements.length);
     expect(strong.requirementSetDigest).not.toEqual(weak.requirementSetDigest);

@@ -1,10 +1,9 @@
 /**
- * P06-04 — Trusted issuer authority unit tests.
+ * Unit tests for the trusted issuer authority.
  *
- * The authority answers "may THIS principal issue THIS kind of artifact?" from
- * an out-of-band directory only. A record cannot self-assert its way past it:
- * an unknown principal, or a known principal lacking the specific capability, is
- * unauthorized. Capabilities do not cross kinds.
+ * The authority decides from an out-of-band directory if a principal can issue a kind of artifact.
+ * An unknown principal, or a known principal without the capability, is unauthorized.
+ * Capabilities do not cross kinds.
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -53,8 +52,8 @@ describe('createCapabilityAuthority', () => {
     expect(authority.authorizesGateEvidence(producer('p.unknown'))).toBe(false);
   });
 
+  /** The gate producer cannot approve or waive. The approver cannot issue gate evidence. */
   it('Authority_CapabilitiesDoNotCrossKinds', () => {
-    // The gate producer cannot approve or waive; the approver cannot issue gates.
     expect(authority.authorizesApproval(principal('p.gate'))).toBe(false);
     expect(authority.authorizesWaiver(principal('p.gate'), authorization())).toBe(false);
     expect(authority.authorizesGateEvidence(producer('p.approve'))).toBe(false);
@@ -77,9 +76,8 @@ describe('createCapabilityAuthority', () => {
     expect(merged.authorizesWaiver(principal('p.multi'), authorization())).toBe(true);
   });
 
+  /** The snapshot claims a waiver capability, but the principal is not in the trusted directory. */
   it('Authority_IgnoresSelfAssertedAuthorizationSnapshot', () => {
-    // The snapshot claims a waiver capability, but the principal is not in the
-    // trusted directory: the record cannot authorize itself.
     const empty = createCapabilityAuthority([]);
     expect(empty.authorizesWaiver(principal('p.waive'), authorization())).toBe(false);
   });

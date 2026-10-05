@@ -1,15 +1,12 @@
-// ─── #1739 — cutover readiness auto-export tests ─────────────────────────────
+// Tests for the cutover readiness auto-export. The first satisfied evaluation
+// writes `<stateDir>/admission/cutover-readiness.json` and appends one
+// `admission.cutover-ready` event. Below MINIMUM_LIVE_ATTEMPTS observed
+// attempts, the export does not read the durable store.
 //
-// The load-bearing claims:
-//   * FIRST satisfaction exports: the report lands atomically at
-//     `<stateDir>/admission/cutover-readiness.json` AND exactly one
-//     `admission.cutover-ready` fact is appended;
-//   * the cheap pre-filter is real: below MINIMUM_LIVE_ATTEMPTS observed
-//     attempts the durable reader is NEVER touched;
-//   * repeats after readiness do not duplicate the fact — the in-memory latch
-//     short-circuits, and even across a simulated restart (latch reset) the
-//     DETERMINISTIC store-identity idempotency key collapses the re-append
-//     onto the stored row (T-49: nothing clock- or random-derived).
+// After readiness, a repeat appends no second event. An in-memory latch stops
+// repeats in one process. After a restart, the export appends again with the
+// same idempotency key, which is a hash of the stateDir path. The store keeps
+// the stored row and adds no new row.
 
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdtemp } from 'node:fs/promises';
@@ -34,8 +31,6 @@ import {
 import type { ShadowEvidenceSource } from '../../../../src/workflow/admission/evidence-reader.js';
 import type { LiveShadowHealth } from '../../../../src/workflow/admission/live-shadow-observer.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
-
-// ─── Fixtures ─────────────────────────────────────────────────────────────────
 
 const AT = '2026-07-21T20:00:00.000Z';
 const SHA_A = 'a'.repeat(64);
@@ -115,8 +110,6 @@ function healthWithAttempts(attemptsObserved: number): LiveShadowHealth {
   };
 }
 
-// ─── Suite ────────────────────────────────────────────────────────────────────
-
 describe('CutoverAutoExport (#1739)', () => {
   let stateDir: string;
   let eventStore: EventStore;
@@ -160,7 +153,6 @@ describe('CutoverAutoExport (#1739)', () => {
     maybeExportCutoverReadiness();
     await flushCutoverAutoExport();
 
-    // The report artifact landed, and it is the SATISFIED report.
     const reportPath = join(stateDir, 'admission', 'cutover-readiness.json');
     expect(existsSync(reportPath)).toBe(true);
     const written = JSON.parse(readFileSync(reportPath, 'utf8')) as {
@@ -170,7 +162,6 @@ describe('CutoverAutoExport (#1739)', () => {
     expect(written.report.satisfied).toBe(true);
     expect(written.report.unmet).toEqual([]);
 
-    // Exactly ONE readiness fact, carrying the deterministic identity.
     const events = await eventStore.query(ADMISSION_STREAM_ID, {
       type: 'admission.cutover-ready',
     });
@@ -186,6 +177,7 @@ describe('CutoverAutoExport (#1739)', () => {
     });
   });
 
+  /** At one attempt below the threshold, the pre-filter stops the export before a durable read. */
   it('AutoExport_BelowPrefilter_NeverRunsFullEvaluation', async () => {
     let durableReads = 0;
     const spyStore: ShadowEvidenceSource & {
@@ -205,8 +197,6 @@ describe('CutoverAutoExport (#1739)', () => {
       store: spyStore,
       stateDir,
       liveAttempts: () => satisfiableLiveAttempts(),
-      // One short of the threshold: the pre-filter must refuse BEFORE any
-      // durable read.
       observerHealth: () => healthWithAttempts(MINIMUM_LIVE_ATTEMPTS - 1),
       now: () => AT,
     });
@@ -225,6 +215,11 @@ describe('CutoverAutoExport (#1739)', () => {
     ).toBe(false);
   });
 
+  /**
+   * In one process, the latch stops a repeat before evaluation. A reconfigure
+   * resets the latch like a restart, so the export appends again. The key has
+   * no clock or random input, so the store dedupes the second append.
+   */
   it('AutoExport_RepeatAttemptsAfterReady_DoNotDuplicateEvent', async () => {
     await seedSatisfiableDurableEvidence();
     configureSatisfiable();
@@ -234,7 +229,6 @@ describe('CutoverAutoExport (#1739)', () => {
     const afterFirst = cutoverAutoExportDiagnostics();
     expect(afterFirst.exported).toBe(true);
 
-    // Same-process repeats: the latch short-circuits before any evaluation.
     maybeExportCutoverReadiness();
     maybeExportCutoverReadiness();
     await flushCutoverAutoExport();
@@ -242,9 +236,6 @@ describe('CutoverAutoExport (#1739)', () => {
       afterFirst.evaluations,
     );
 
-    // Simulated RESTART: reconfigure resets the in-memory latch, so the hook
-    // re-evaluates and re-appends — and the deterministic store-identity key
-    // collapses that append onto the stored row (INV-8 / T-49).
     configureSatisfiable();
     maybeExportCutoverReadiness();
     await flushCutoverAutoExport();

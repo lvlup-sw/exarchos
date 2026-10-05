@@ -248,6 +248,7 @@ describe('content-addressed evidence artifacts', () => {
     });
   });
 
+  /** A failed publish leaves no file: no complete or partial artifact, and no staged temp file. */
   it('EvidenceArtifact_PartialPublishFailure_LeavesNoResolvableArtifact', async () => {
     const failing = new ContentAddressedStore(artifactRoot, failingPublishIo());
 
@@ -260,8 +261,6 @@ describe('content-addressed evidence artifacts', () => {
       ),
     ).rejects.toThrow('injected publish failure');
 
-    // Nothing was published, so nothing — complete or partial — is readable,
-    // and no staged temp file was left behind.
     const entries = await readdir(artifactRoot, {
       withFileTypes: true,
       recursive: true,
@@ -286,7 +285,6 @@ describe('content-addressed evidence artifacts', () => {
       }),
     ).rejects.toThrow('injected publish failure');
 
-    // The previously published evidence still resolves and verifies.
     await expect(resolveEvidenceArtifact(store, reference)).resolves.toEqual(
       normalizeEvidenceSubjectContent(content),
     );
@@ -307,25 +305,22 @@ describe('content-addressed evidence artifacts', () => {
       ),
     );
 
-    // Every concurrent writer produced the identical content-addressed reference.
     for (const reference of references) {
       expect(reference).toEqual(references[0]);
     }
-    // Exactly one canonical blob survived the collision, and it resolves.
     expect(await onlyStoredBlob(artifactRoot)).toBeTruthy();
     await expect(resolveEvidenceArtifact(store, references[0]!)).resolves.toEqual(
       normalizeEvidenceSubjectContent(content),
     );
   });
 
+  /**
+   * The artifact subject of the reference schema must be a real object schema,
+   * not a `.refine` over the general subject union. A `.refine` projects to
+   * nothing in JSON Schema, so a sampler never reaches the artifact shape. A
+   * regression then fails here and names the schema.
+   */
   it('EvidenceArtifactReference_SampledFromItsJsonSchema_ParsesUnderItself', () => {
-    // Regression pin for the reference schema's artifact subject being a real
-    // object schema rather than a `.refine` over the general union: a
-    // `.refine` projects to nothing in JSON Schema, so a sampler walking the
-    // union's branches never reaches the artifact shape and a genuine
-    // artifact reference looks unparseable to any tooling that only ever
-    // sees the sampled shape. If this regresses, it fails HERE, naming the
-    // schema, rather than as a mystery failure in a differential-fold corpus.
     const sample = sampleEventData(EvidenceArtifactReferenceV1Schema);
     const parsed = EvidenceArtifactReferenceV1Schema.safeParse(sample);
     expect(parsed.success).toBe(true);

@@ -1,13 +1,8 @@
-// Exit-proof tests for P06-07 — bootstrapping existing workflows (Transition
-// task 050). Proves the bootstrap half of the exit obligation "existing
-// workflows gain attempts/requirements without mutable backfill":
-//
-//   (a) a pre-existing workflow gains an attempt + frozen requirements PURELY
-//       by appended `admission.requirement-resolved` events;
-//   (b) folding the stream up to the pre-bootstrap sequence yields the IDENTICAL
-//       pre-bootstrap result — history is a byte-identical prefix;
-//   (c) no `.state.json` mutable backfill occurs (only append events land);
-//   (h) bootstrapping twice is idempotent — one attempt, never two.
+// Tests for the bootstrap of an existing workflow. A workflow with no admission
+// state gains an attempt and frozen requirements only from appended
+// `admission.requirement-resolved` events. The pre-bootstrap prefix stays
+// byte-identical and folds to the same result. No `.state.json` file appears,
+// and a second bootstrap of the same attempt appends nothing.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -31,8 +26,6 @@ import {
 } from '../../../../src/workflow/admission/types.js';
 import type { ResolvedGate } from '../../../../src/workflow/phase-kind.js';
 
-// ─── Fixtures ─────────────────────────────────────────────────────────────────
-
 const AT = '2026-08-03T12:00:00.000Z';
 const digestA: ContentDigestV1 = { algorithm: 'sha256', value: 'a'.repeat(64) };
 
@@ -42,8 +35,7 @@ const subject = createEvidenceSubject(
   { phase: 'gather', attempt: 1 },
 );
 
-// GATHER carries no phase-kind gates, so the sole obligation is the single
-// declared gate — one gate-evidence requirement, controlled and predictable.
+/** GATHER has no phase-kind gates, so the one declared gate is the only obligation. */
 const declaredGate: ResolvedGate = { family: 'ladder', gate: 'check_static_analysis' };
 const requirementContext = buildRequirementContext({
   phaseKind: 'GATHER',
@@ -113,23 +105,24 @@ describe('runBootstrapAttempt — event-sourced bootstrap over a real appender',
     (appender.getSqliteBackend()?.queryEvents(streamId) ??
       []) as unknown as DecideOnceStoredEvent[];
 
+  /**
+   * A workflow with prior events and no admission state gains the attempt from
+   * appended requirement-resolved events only. The prior events stay first.
+   */
   it('Bootstrap_PreExistingWorkflow_GainsAttemptByAppendedEventsOnly', async () => {
     const streamId = 'workflow.gains-attempt';
-    // A pre-existing workflow: prior lifecycle events, NO admission state.
     await appender.appendUnkeyed(streamId, [
       { type: 'workflow.started', data: { featureId: 'legacy' } },
       { type: 'noise.event', data: {} },
     ]);
     const preTail = rawEvents(streamId);
     expect(preTail).toHaveLength(2);
-    // Nothing admission-shaped exists yet: the attempt has no frozen set.
     expect(selectPhaseAttempt(foldOf(preTail), phaseAttemptId)).toBeNull();
 
     const result = await runBootstrapAttempt(
       makeInput(appender, { streamId, expectedVersion: preTail.length }),
     );
 
-    // (a) the attempt is established purely by appended requirement-resolved facts.
     expect(result.outcome).toBe('bootstrapped');
     if (result.outcome !== 'bootstrapped') throw new Error('unreachable');
     expect(result.frozenRequirements.length).toBeGreaterThan(0);
@@ -139,8 +132,6 @@ describe('runBootstrapAttempt — event-sourced bootstrap over a real appender',
     expect(result.foldIntegrity).toBe('intact');
 
     const all = rawEvents(streamId);
-    // The appended suffix is exactly the requirement-resolved facts; the two
-    // pre-existing events are untouched and still lead the stream.
     expect(all.slice(0, 2).map((e) => e.type)).toEqual([
       'workflow.started',
       'noise.event',
@@ -149,8 +140,6 @@ describe('runBootstrapAttempt — event-sourced bootstrap over a real appender',
       all.slice(2).every((e) => e.type === 'admission.requirement-resolved'),
     ).toBe(true);
 
-    // Folding the FULL stream now reconstructs the attempt with a frozen set
-    // whose digest matches the recorded projection.
     const attempt = selectPhaseAttempt(foldOf(all), phaseAttemptId);
     expect(attempt).not.toBeNull();
     expect(attempt?.frozenRequirementSet).not.toBeNull();
@@ -159,6 +148,10 @@ describe('runBootstrapAttempt — event-sourced bootstrap over a real appender',
     ).toBe(digestKey(result.requirementSetDigest));
   });
 
+  /**
+   * Bootstrap only appends. The pre-bootstrap prefix folds to the same result,
+   * so at that point the attempt has no frozen requirement set.
+   */
   it('Bootstrap_HistoricalReplay_ByteIdenticalBeforeAndAfter', async () => {
     const streamId = 'workflow.replay-invariant';
     await appender.appendUnkeyed(streamId, [
@@ -176,15 +169,11 @@ describe('runBootstrapAttempt — event-sourced bootstrap over a real appender',
     const all = rawEvents(streamId);
     const prefixAfter = all.filter((e) => e.sequence <= preTailSeq);
 
-    // (b) the pre-bootstrap prefix is byte-identical — bootstrap only appends.
     expect(prefixAfter.map((e) => ({ type: e.type, data: e.data }))).toEqual(
       prefixBefore.map((e) => ({ type: e.type, data: e.data })),
     );
-    // Replaying that identical prefix yields the identical fold: the attempt was
-    // NOT retroactively required to satisfy anything at the pre-bootstrap point.
     expect(foldOf(prefixAfter)).toEqual(foldBefore);
     expect(selectPhaseAttempt(foldOf(prefixAfter), phaseAttemptId)).toBeNull();
-    // While the full stream DOES now carry the frozen set.
     expect(
       selectPhaseAttempt(foldOf(all), phaseAttemptId)?.frozenRequirementSet,
     ).not.toBeNull();
@@ -198,7 +187,6 @@ describe('runBootstrapAttempt — event-sourced bootstrap over a real appender',
       makeInput(appender, { streamId, expectedVersion: 1 }),
     );
 
-    // (c) bootstrap never retro-stamps a `.state.json` — no such file appears.
     const entries = await readdir(stateDir, { withFileTypes: true, recursive: true });
     const stateFiles = entries
       .filter((entry) => entry.isFile() && entry.name.endsWith('.state.json'))
@@ -206,6 +194,7 @@ describe('runBootstrapAttempt — event-sourced bootstrap over a real appender',
     expect(stateFiles).toEqual([]);
   });
 
+  /** A retry with the same operationId returns the cached `decideOnce` result and appends nothing. */
   it('Bootstrap_SameOperationId_IsIdempotentWithNoDuplicateEvents', async () => {
     const streamId = 'workflow.idem-same-op';
     await appender.appendUnkeyed(streamId, [{ type: 'workflow.started', data: {} }]);
@@ -215,8 +204,6 @@ describe('runBootstrapAttempt — event-sourced bootstrap over a real appender',
     );
     const afterFirst = rawEvents(streamId).length;
 
-    // Same operationId retry → decideOnce cache returns the identical result and
-    // appends NOTHING more.
     const second = await runBootstrapAttempt(
       makeInput(appender, { streamId, operationId: 'operation-idem-A', expectedVersion: 1 }),
     );
@@ -224,6 +211,10 @@ describe('runBootstrapAttempt — event-sourced bootstrap over a real appender',
     expect(rawEvents(streamId).length).toBe(afterFirst);
   });
 
+  /**
+   * A different operationId finds the existing frozen set and appends nothing.
+   * The attempt keeps one requirement set.
+   */
   it('Bootstrap_DifferentOperationId_AlreadyBootstrappedNoOp', async () => {
     const streamId = 'workflow.idem-diff-op';
     await appender.appendUnkeyed(streamId, [{ type: 'workflow.started', data: {} }]);
@@ -234,8 +225,6 @@ describe('runBootstrapAttempt — event-sourced bootstrap over a real appender',
     expect(first.outcome).toBe('bootstrapped');
     const afterFirst = rawEvents(streamId);
 
-    // A DIFFERENT operationId targeting the already-bootstrapped attempt is a
-    // no-op: it detects the existing frozen set and appends nothing.
     const second = await runBootstrapAttempt(
       makeInput(appender, { streamId, operationId: 'operation-idem-C', expectedVersion: afterFirst.length }),
     );
@@ -244,8 +233,6 @@ describe('runBootstrapAttempt — event-sourced bootstrap over a real appender',
     expect(digestKey(second.requirementSetDigest)).toBe(
       digestKey(first.requirementSetDigest),
     );
-    // (h) bootstrapping twice never forks the attempt: same event count, ONE
-    // generation, ONE frozen set.
     const all = rawEvents(streamId);
     expect(all.length).toBe(afterFirst.length);
     const attempt = selectPhaseAttempt(foldOf(all), phaseAttemptId);

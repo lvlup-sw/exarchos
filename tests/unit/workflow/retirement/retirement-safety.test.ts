@@ -1,15 +1,9 @@
-// ─── P07-05 exit-proof tests — Retirement-safety scan (Transition task 037) ────
+// Exit-proof tests for the retirement-safety scan.
 //
-// Proves, mechanically, the P07-05 gating discipline:
-//   (a) the scan reports ZERO production references for anything it calls
-//       safe-to-delete (the safe path is exercised, not vacuous);
-//   (b) a PLANTED production reference flips a safe disposition to
-//       blocked-by-live-reference (the scan is not a rubber stamp);
-//   (c) the cutover gate correctly reports its unmet conditions and REFUSES to
-//       event-source enforcement enablement (the legacy guard stays authoritative);
-//   (d) the REAL tree + REAL gate disposition: every legacy authority is blocked,
-//       the legacy HSM guard by the cutover gate with its unmet conditions named,
-//       the playbook registry by live references — nothing is safe to delete now.
+// (a) The scan reports zero production references for each safe-to-delete authority.
+// (b) A planted production reference changes a safe disposition to blocked-by-live-reference.
+// (c) The cutover gate names its unmet conditions and refuses to build the enforcement-enabled event data.
+// (d) On the real tree, every legacy authority is blocked, so nothing is safe to delete now.
 
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
@@ -50,10 +44,8 @@ import {
   type SourceModule,
 } from '../../../../src/workflow/retirement/retirement-safety.js';
 
-// ─── Shared source-tree fixtures ───────────────────────────────────────────────
-
 const HERE = dirname(fileURLToPath(import.meta.url));
-const SRC_ROOT = resolve(HERE, '../../../../src'); // …/src
+const SRC_ROOT = resolve(HERE, '../../../../src');
 
 const TEST_PATH_RE = /\.(test|spec|bench)\.[cm]?[jt]sx?$/;
 const TEST_DIR_RE = /(^|\/)(__tests__|__fixtures__|test-fixtures|test-helpers|evals)(\/|$)/;
@@ -82,14 +74,8 @@ function collectSourceModules(root: string): readonly SourceModule[] {
   return modules;
 }
 
-// Cached once — the walk reads the whole tree.
+/** Read once, because the walk reads the whole tree. */
 const REAL_MODULES = collectSourceModules(SRC_ROOT);
-
-// ─── Real cutover-gate evidence: 6 explained disagreements, 0 live attempts ────
-//
-// This mirrors the CURRENT production state the work package describes: the
-// deterministic corpus is clean (all disagreements explained), but the live
-// observer has accumulated NO attempts, so three conditions remain unmet.
 
 function attempt(): ShadowDecisionRecord['attempt'] {
   return { workflowType: 'feature', fromPhase: 'a', toPhase: 'b', phaseKind: 'IMPLEMENT' };
@@ -119,15 +105,17 @@ function explainedDisagreement(): ShadowDecisionRecord {
   };
 }
 
+/**
+ * Gate evidence for the current production state. The corpus is clean, with six disagreements that are all explained.
+ * The live attempts and the durable shadow evidence are empty, and the observer health is the zero reading. The gate weighs all three.
+ */
 function currentProductionGateEvidence(): CutoverGateEvidence {
   return {
     corpusRecords: [
       agreeRecord(),
       ...Array.from({ length: 6 }, () => explainedDisagreement()),
     ],
-    liveAttempts: [], // P07-02 wired the observer; no production evidence has accrued yet
-    // DR-23 / T-32: no durable shadow evidence has accrued either, and no
-    // observer health has been reported — both of which the gate now weighs.
+    liveAttempts: [],
     durableAttempts: [],
     observerHealth: ZERO_LIVE_SHADOW_HEALTH,
   };
@@ -139,8 +127,6 @@ function currentProductionGateStatus(): CutoverGateStatus {
 }
 
 const SATISFIED_GATE: CutoverGateStatus = { satisfied: true, unmetConditions: [] };
-
-// ─── Dependency-scan primitives ────────────────────────────────────────────────
 
 describe('RetirementSafety_DependencyScan (path + import resolution)', () => {
   it('strips module extensions so a .js specifier matches its .ts source', () => {
@@ -204,7 +190,6 @@ describe('RetirementSafety_DependencyScan (path + import resolution)', () => {
     const modules: readonly SourceModule[] = [
       { path: 'workflow/guards.ts', content: '// leaf', isTest: false },
       {
-        // internal edge — part of the same authority, must NOT block deletion
         path: 'workflow/hsm-definitions.ts',
         content: "import { guards } from './guards.js';",
         isTest: false,
@@ -213,8 +198,6 @@ describe('RetirementSafety_DependencyScan (path + import resolution)', () => {
     expect(productionReferencesForAuthority(authority, modules)).toEqual([]);
   });
 });
-
-// ─── Disposition core ──────────────────────────────────────────────────────────
 
 describe('RetirementSafety_Disposition (evidence → verdict)', () => {
   const ungated: LegacyAuthority = {
@@ -247,6 +230,7 @@ describe('RetirementSafety_Disposition (evidence → verdict)', () => {
     expect(d.liveBehaviorTests).toEqual(['legacy/widget-inventory.test.ts']);
   });
 
+  /** The disposition still reports the live references as secondary evidence. */
   it('a cutover-gated authority is blocked-by-cutover-gate and names the unmet conditions', () => {
     const gated: LegacyAuthority = { ...ungated, id: 'legacy-guard', kind: 'legacy-guard', cutoverGated: true };
     const gate: CutoverGateStatus = {
@@ -260,7 +244,6 @@ describe('RetirementSafety_Disposition (evidence → verdict)', () => {
       'phase-kind-coverage',
       'outcome-coverage',
     ]);
-    // secondary evidence (live refs) is still surfaced
     expect(d.productionReferences).toEqual(['workflow/state-machine.ts']);
   });
 
@@ -275,8 +258,6 @@ describe('RetirementSafety_Disposition (evidence → verdict)', () => {
     expect(disposeAuthority(gated, [], SATISFIED_GATE, []).disposition).toBe('safe-to-delete');
   });
 });
-
-// ─── Exit-proof (c): the cutover gate refuses enforcement enablement ───────────
 
 describe('RetirementSafety_CutoverGateRefusesEnablement (P07-05 exit-proof c)', () => {
   const digest: ContentDigestV1 = { algorithm: 'sha256', value: 'a'.repeat(64) };
@@ -300,15 +281,15 @@ describe('RetirementSafety_CutoverGateRefusesEnablement (P07-05 exit-proof c)', 
     inputDigest: digest,
   };
 
+  /**
+   * Only `deterministic-corpus-clean` is met.
+   * Without durable evidence and observer health, zero disagreements is an unknown reading, so `live-disagreement-class` and `live-observer-health` stay unmet.
+   */
   it('the current-production gate is NOT satisfied and names exactly the unmet conditions', () => {
     const report = evaluateCutoverGate(currentProductionGateEvidence());
     expect(report.satisfied).toBe(false);
     expect(report.unexplainedDisagreements).toBe(0);
     expect(report.liveAttemptCount).toBe(0);
-    // deterministic-corpus-clean is met (all disagreements explained); the other
-    // five are not. `live-disagreement-class` and `live-observer-health` are the
-    // DR-23 / T-32 additions: with no durable evidence and no observer to vouch
-    // for it, "zero disagreements" is not a clean reading, it is an unknown one.
     expect(new Set(report.unmet)).toEqual(
       new Set([
         'live-attempt-threshold',
@@ -337,8 +318,6 @@ describe('RetirementSafety_CutoverGateRefusesEnablement (P07-05 exit-proof c)', 
   });
 });
 
-// ─── Exit-proof (d): the REAL disposition over the live tree ───────────────────
-
 describe('RetirementSafety_LiveDisposition (P07-05 exit-proof d)', () => {
   const gate = currentProductionGateStatus();
   const report = runRetirementScan(LEGACY_AUTHORITIES, REAL_MODULES, gate);
@@ -346,12 +325,12 @@ describe('RetirementSafety_LiveDisposition (P07-05 exit-proof d)', () => {
 
   it('the source walk actually found the tree (sanity floor)', () => {
     expect(REAL_MODULES.length).toBeGreaterThan(100);
-    // The legacy guard modules are present in the walked tree.
     const paths = new Set(REAL_MODULES.map((m) => m.path));
     expect(paths.has('workflow/guards.ts')).toBe(true);
     expect(paths.has('workflow/state-machine.ts')).toBe(true);
   });
 
+  /** Real production modules still import the legacy HSM guard. */
   it('the legacy HSM guard is blocked-by-cutover-gate with the gate\'s unmet conditions', () => {
     const d = byId.get('legacy-hsm-guard');
     expect(d).toBeDefined();
@@ -361,25 +340,20 @@ describe('RetirementSafety_LiveDisposition (P07-05 exit-proof d)', () => {
         'live-attempt-threshold',
         'phase-kind-coverage',
         'outcome-coverage',
-        // DR-23 / T-32 — see `currentProductionGateEvidence` above.
         'live-disagreement-class',
         'live-observer-health',
       ]),
     );
-    // It is also demonstrably live: real production modules still import it.
     expect((d?.productionReferences.length ?? 0)).toBeGreaterThan(0);
     expect(d?.productionReferences).toContain('workflow/state-machine.ts');
     expect(d?.productionReferences).toContain('verbs/tasks/finalize-oneshot.ts');
   });
 
+  /** The importer is the transition handler, which drives the legacy executor. */
   it('the legacy HSM registry is blocked-by-cutover-gate and still has live importers', () => {
     const d = byId.get('legacy-hsm-registry');
     expect(d?.disposition).toBe('blocked-by-cutover-gate');
     expect((d?.productionReferences.length ?? 0)).toBeGreaterThan(0);
-    // The importer is the TRANSITION handler specifically — which is the more
-    // precise fact. It read as `workflow/tools.ts` only while every handler
-    // shared one module; splitting the surface per action narrowed the
-    // reference to the one handler that actually drives the legacy executor.
     expect(d?.productionReferences).toContain('workflow/handlers/transition.ts');
   });
 
@@ -398,14 +372,11 @@ describe('RetirementSafety_LiveDisposition (P07-05 exit-proof d)', () => {
   it('NOTHING is safe to delete in this pass — the honest, evidence-backed result', () => {
     expect(report.safeToDelete).toEqual([]);
     expect(new Set(report.blocked)).toEqual(new Set(LEGACY_AUTHORITIES.map((a) => a.id)));
-    // The disposition table renders for the human-facing exit-proof report.
     const table = formatDispositionTable(report);
     expect(table).toContain('blocked-by-cutover-gate');
     expect(table).toContain('legacy-hsm-guard');
   });
 });
-
-// ─── The authority registry is well-formed ─────────────────────────────────────
 
 describe('RetirementSafety_AuthorityRegistry', () => {
   it('every authority has a unique id and at least one module', () => {

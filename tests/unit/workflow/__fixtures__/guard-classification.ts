@@ -1,39 +1,19 @@
 /**
- * P06-01 Legacy Guard Classification Corpus (DR-1)
+ * Classification corpus for the legacy guard predicates of the workflow engine.
+ * Each entry maps a stable guard ID to exactly one of six categories:
  *
- * Machine-readable classification of every legacy guard predicate in the
- * Exarchos workflow engine. Each entry maps a stable guard ID to exactly one
- * of the six DR-1 categories:
+ * - `route-condition`: a pure selector that picks one outbound edge at a branch point.
+ * - `admission-requirement`: proves a precondition, artifact, or event fact before a phase advances.
+ * - `bounded-loop-rule`: a numeric cap that ends a revision or retry loop.
+ * - `approval`: requires an explicit approval signal from a human or an authorized process.
+ * - `waiver`: a scoped bypass. The legacy engine has none, because its bypass is a direct state mutation and not a typed waiver event.
+ * - `obsolete-predicate`: always passes, or no active HSM transition references it.
  *
- *   route-condition      — pure declarative selector that picks one of multiple
- *                          outbound edges at a branch point; no enforcement
- *                          severity, remediation, or I/O.
- *   admission-requirement — certifies a precondition, artifact, or event-
- *                          sourced fact before a phase may advance.
- *   bounded-loop-rule    — enforces a numeric cycle/iteration cap to terminate
- *                          a revision or retry loop.
- *   approval             — requires an explicit approval signal from a human
- *                          operator or an authorized process.
- *   waiver               — an exceptional scoped bypass allowance. None exist
- *                          in the legacy engine; the legacy bypass mechanism is
- *                          direct state mutation, not a typed waiver event.
- *   obsolete-predicate   — always passes (no-op) OR is defined but not
- *                          referenced in any currently active HSM transition.
- *
- * This corpus is migration input for the evidence-backed admission engine
- * (P06-02+). It characterizes CURRENT behavior — including permissive no-op
- * guards — rather than defining target policy.
- *
- * Sources:
- *   - src/workflow/guards.ts  (37 guards)
- *   - src/workflow/hsm-definitions.ts  (2 composite guards)
+ * The corpus records current behavior, including permissive no-op guards. It does not define target policy.
+ * The sources are `src/workflow/guards.ts` and the composite guards in `src/workflow/hsm-definitions.ts`.
  */
 
-// ─── Types ───────────────────────────────────────────────────────────────────
-
-/**
- * The six DR-1 guard categories. Every legacy guard must map to exactly one.
- */
+/** The six guard categories. Every legacy guard maps to exactly one. */
 export type GuardCategory =
   | 'route-condition'
   | 'admission-requirement'
@@ -61,10 +41,8 @@ export interface GuardClassificationEntry {
    */
   readonly rationale: string;
   /**
-   * When true, this guard's behavior is a known defect or permissive anomaly
-   * that should be addressed in a later remediation package. Captured here so
-   * the characterization corpus acts as a living defect inventory, not just a
-   * snapshot.
+   * When true, the guard behavior is a known defect or permissive anomaly.
+   * The corpus keeps these entries as a defect inventory for later remediation.
    */
   readonly flaggedForRemediation?: true;
   /**
@@ -74,25 +52,12 @@ export interface GuardClassificationEntry {
   readonly defectNote?: string;
 }
 
-// ─── Classification Record ───────────────────────────────────────────────────
-
 /**
  * Classification of every legacy guard, keyed by stable guard ID.
- * The record is the authoritative machine-readable source: later packages may
- * consume it to generate admission IR, migration reports, and validation gates.
- *
- * Constraints enforced by guard-classification.test.ts:
- *   - Total coverage: every guard in guards.ts + composite guards in
- *     hsm-definitions.ts has exactly one entry.
- *   - No duplicates: each guard ID appears exactly once.
- *   - Valid categories: every category value is a member of GUARD_CATEGORIES.
+ * `guard-classification.test.ts` checks total coverage, unique IDs, and valid categories.
  */
 export const GUARD_CLASSIFICATIONS: Readonly<Record<string, GuardClassificationEntry>> =
   Object.freeze({
-
-    // ── Route Conditions ─────────────────────────────────────────────────────
-    // These guards select one outbound edge at a branch point. They carry no
-    // enforcement severity, evidence requirements, or remediation hints.
 
     'hotfix-track-selected': {
       id: 'hotfix-track-selected',
@@ -176,11 +141,6 @@ export const GUARD_CLASSIFICATIONS: Readonly<Record<string, GuardClassificationE
         'bypass: investigate→cancelled ALLOWS even when escalation-required FAILS. ' +
         'The guard is therefore advisory rather than enforcing for this transition.',
     },
-
-    // ── Admission Requirements ───────────────────────────────────────────────
-    // These guards certify that a precondition, artifact, or event-sourced fact
-    // is present before a phase may advance. Each maps to a typed evidence
-    // requirement in the new admission engine.
 
     'plan-artifact-exists': {
       id: 'plan-artifact-exists',
@@ -354,10 +314,6 @@ export const GUARD_CLASSIFICATIONS: Readonly<Record<string, GuardClassificationE
         'events from prematurely exiting merge-pending.',
     },
 
-    // ── Bounded-Loop Rules ───────────────────────────────────────────────────
-    // These guards terminate a revision or retry loop when a numeric counter
-    // reaches a configurable cap.
-
     'revisions-exhausted': {
       id: 'revisions-exhausted',
       category: 'bounded-loop-rule',
@@ -375,11 +331,6 @@ export const GUARD_CLASSIFICATIONS: Readonly<Record<string, GuardClassificationE
         'synthesis.lastError is set AND synthesis.retryCount < MAX_SYNTHESIZE_RETRIES (3). ' +
         'Combines error presence (admission) with retry cap (loop rule).',
     },
-
-    // ── Approvals ────────────────────────────────────────────────────────────
-    // These guards require an explicit approval signal from a human operator or
-    // an authorized process. In the legacy system these are patched booleans;
-    // the new system requires typed waiver/approval evidence.
 
     'plan-review-complete': {
       id: 'plan-review-complete',
@@ -426,11 +377,6 @@ export const GUARD_CLASSIFICATIONS: Readonly<Record<string, GuardClassificationE
         'guard for hotfix-validate→synthesize. Represents an explicit intent to create a PR ' +
         'rather than pushing directly. Effectively an opt-in approval for the PR path.',
     },
-
-    // ── Obsolete Predicates ──────────────────────────────────────────────────
-    // These guards are either always-passing no-ops or are not referenced in
-    // any currently active HSM transition. They are retained in guards.ts for
-    // backward compatibility but carry no enforcement weight.
 
     'design-artifact-exists': {
       id: 'design-artifact-exists',
@@ -499,10 +445,6 @@ export const GUARD_CLASSIFICATIONS: Readonly<Record<string, GuardClassificationE
         'Dead code. Should be removed when the legacy guard registry is retired (Program-07).',
     },
 
-    // ── Composite Guards (hsm-definitions.ts) ────────────────────────────────
-    // These compound guards are created via composeGuards() and are only defined
-    // inside hsm-definitions.ts. They are not exported from guards.ts.
-
     'all-tasks-complete+team-disbanded': {
       id: 'all-tasks-complete+team-disbanded',
       category: 'admission-requirement',
@@ -541,8 +483,6 @@ export const GUARD_CLASSIFICATIONS: Readonly<Record<string, GuardClassificationE
         'thorough-track variant on the same source phase.',
     },
   });
-
-// ─── Convenience Accessors ───────────────────────────────────────────────────
 
 /** All guard IDs that are classified as obsolete predicates. */
 export const OBSOLETE_GUARD_IDS: ReadonlySet<string> = new Set(

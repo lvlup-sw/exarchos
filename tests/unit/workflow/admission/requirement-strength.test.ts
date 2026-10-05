@@ -1,8 +1,6 @@
-// Exit-proof + algebraic-law tests for the requirement-strength partial order
-// (P06-03 / Task 042). Proves the order is reflexive, antisymmetric, transitive;
-// that `join` is a true least upper bound (commutative, associative, idempotent,
-// absorptive); that the order is genuinely PARTIAL (incomparable elements exist);
-// and that resolved sets are deeply frozen.
+// Algebraic-law tests for the requirement-strength partial order.
+// The order is reflexive, antisymmetric and transitive, and incomparable elements exist.
+// `join` is a least upper bound. Resolved sets are deeply frozen.
 
 import { describe, expect, it } from 'vitest';
 import type { ResolvedGate } from '../../../../src/workflow/phase-kind.js';
@@ -19,8 +17,6 @@ import {
   type ResolvedRequirements,
 } from '../../../../src/workflow/admission/requirement-strength.js';
 
-// ─── Gate atoms ──────────────────────────────────────────────────────────────
-
 const STATIC: ResolvedGate = { family: 'ladder', gate: 'check_static_analysis' };
 const ADEQUACY: ResolvedGate = { family: 'ladder', gate: 'check_test_adequacy' };
 const INTEG: ResolvedGate = { family: 'ladder', gate: 'check_integration_suite' };
@@ -34,8 +30,7 @@ const req = (over: Partial<ResolvedRequirements> = {}): ResolvedRequirements => 
   ...over,
 });
 
-// A representative spread of lattice points, chosen to exercise every field and
-// to include incomparable pairs (distinct gate families / disjoint gate atoms).
+/** Lattice points that exercise each field. The set includes incomparable pairs. */
 const SAMPLE: readonly ResolvedRequirements[] = [
   BOTTOM_REQUIREMENTS,
   req({ gates: [STATIC] }),
@@ -53,7 +48,6 @@ describe('requirement-strength — canonical gate sets', () => {
     const a = canonicalizeGates([INTEG, STATIC, ADEQUACY, STATIC]);
     const b = canonicalizeGates([ADEQUACY, INTEG, STATIC]);
     expect(a.map(canonicalGateKey)).toEqual(b.map(canonicalGateKey));
-    // dedup: STATIC appeared twice, must appear once.
     expect(a.filter((g) => canonicalGateKey(g) === canonicalGateKey(STATIC))).toHaveLength(1);
   });
 
@@ -140,10 +134,11 @@ describe('requirement-strength — join is the least upper bound', () => {
     }
   });
 
+  /** The join of `a` and `b` holds both gates, one approval, two corroborating sources, and stays waivable. */
   it('LEAST bound is non-vacuous: a hand-built upper bound dominates the join', () => {
     const a = req({ gates: [STATIC], minimumApprovals: 1 });
     const b = req({ gates: [REVIEW], minimumCorroboratingSources: 2 });
-    const j = joinRequirements(a, b); // {static,review} appr1 corrob2 waivable
+    const j = joinRequirements(a, b);
     const upper = req({
       gates: [STATIC, ADEQUACY, REVIEW],
       minimumApprovals: 5,
@@ -153,7 +148,6 @@ describe('requirement-strength — join is the least upper bound', () => {
     expect(atLeastAsStrong(upper, a)).toBe(true);
     expect(atLeastAsStrong(upper, b)).toBe(true);
     expect(atLeastAsStrong(upper, j)).toBe(true);
-    // and the join is strictly weaker than that loose upper bound
     expect(compareStrength(j, upper)).toBe('weaker');
   });
 

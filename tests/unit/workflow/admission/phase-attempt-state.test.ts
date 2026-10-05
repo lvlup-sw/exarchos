@@ -1,15 +1,9 @@
 /**
- * Exit-proof tests for P01-04 — phase attempts and frozen state.
+ * Tests for phase attempts and their frozen admission state.
  *
- * Exit proof: replay reconstructs the same active attempt, requirements,
- * evidence, and decision WITHOUT current policy or external I/O.
- *
- * The tests below establish that as three separable facts:
- *   1. the fold is a pure function of persisted payloads (identical replays,
- *      untouched inputs, no policy/clock/store handle in its signature);
- *   2. a later policy edit cannot retroactively change a frozen attempt;
- *   3. malformed or unreconcilable persisted facts are QUARANTINED — never
- *      silently dropped, never silently trusted.
+ * Replay reconstructs the same active attempt, requirements, evidence and decision without current policy or external I/O.
+ * The fold is a pure function of persisted payloads. A later policy edit does not change a frozen attempt.
+ * The fold quarantines malformed or unreconcilable facts. It does not drop them or trust them.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -21,8 +15,6 @@ import {
 import { ADMISSION_RUNTIME_CONTRACT_VERSION } from '../../../../src/workflow/admission/types.js';
 import { workflowStateProjection } from '../../../../src/projections/views/workflow-state-projection.js';
 import type { WorkflowEvent } from '../../../../src/events/schemas.js';
-
-// ─── Fixtures ────────────────────────────────────────────────────────────────
 
 const AT = '2026-07-21T19:00:00.000Z';
 const hex = (seed: string) => seed.repeat(64).slice(0, 64);
@@ -174,8 +166,6 @@ function intactHistory(): PhaseAttemptAdmissionFoldInput {
   };
 }
 
-// ─── Exit proof 1: replay reconstructs identical frozen state ────────────────
-
 describe('replay reconstructs the same attempt, requirements, evidence, decision', () => {
   it('PhaseAttemptFold_Replay_ReconstructsIdenticalFrozenState', () => {
     const history = intactHistory();
@@ -204,6 +194,7 @@ describe('replay reconstructs the same attempt, requirements, evidence, decision
     expect(attempt?.unattributedEvidence).toEqual([]);
   });
 
+  /** The fold must reconstruct the decision from the untouched inputs, so an empty fold cannot pass. */
   it('PhaseAttemptFold_ReplayIsPure_NeverMutatesPersistedHistories', () => {
     const requirementEvents = [requirementResolved('requirement.typecheck')];
     const evidenceEvents = [evidenceRecorded('evidence.1', 'requirement.typecheck')];
@@ -223,14 +214,11 @@ describe('replay reconstructs the same attempt, requirements, evidence, decision
     expect(
       JSON.stringify({ requirementEvents, evidenceEvents, decisionEvents }),
     ).toBe(snapshot);
-    // Guard against a vacuous pass: the fold must actually have reconstructed
-    // something from those untouched inputs.
     expect(fold.attempts[0]?.decision?.decisionId).toBe('decision.1');
   });
 
+  /** The fold binds evidence and decisions to the frozen set in a last pass, so the order of the three histories does not matter. */
   it('PhaseAttemptFold_CrossStreamOrder_DoesNotChangeReconstruction', () => {
-    // Evidence persisted before its requirement resolution still binds: the
-    // fold attributes in a second pass, so no stream ordering is privileged.
     const forward = foldPhaseAttemptAdmission({
       requirementEvents: [requirementResolved('requirement.typecheck')],
       evidenceEvents: [evidenceRecorded('evidence.1', 'requirement.typecheck')],
@@ -255,9 +243,8 @@ describe('replay reconstructs the same attempt, requirements, evidence, decision
   });
 });
 
-// ─── Exit proof 2: frozen against current policy ─────────────────────────────
-
 describe('frozen requirement sets ignore current policy', () => {
+  /** A later policy revision freezes a different set for a new attempt. The reconstruction of the first attempt stays the same. */
   it('FreezeRequirements_PolicyChange_PreservesSnapshot', () => {
     const frozenAtEntry = [
       requirementResolved('requirement.typecheck'),
@@ -265,8 +252,6 @@ describe('frozen requirement sets ignore current policy', () => {
     ];
     const before = foldPhaseAttemptAdmission({ requirementEvents: frozenAtEntry });
 
-    // A later policy revision freezes a DIFFERENT set for a NEW attempt. The
-    // historical attempt's reconstruction is byte-identical regardless.
     const after = foldPhaseAttemptAdmission({
       requirementEvents: [
         ...frozenAtEntry,
@@ -360,9 +345,8 @@ describe('frozen requirement sets ignore current policy', () => {
   });
 });
 
-// ─── Exit proof 3: malformed persisted facts are quarantined ─────────────────
-
 describe('malformed persisted facts are quarantined, never dropped or trusted', () => {
+  /** The malformed resolution does not enter the frozen set. */
   it('PhaseAttemptFold_MalformedRequirementResolution_IsQuarantinedAndContests', () => {
     const malformed = {
       ...(requirementResolved('requirement.tests') as Record<string, unknown>),
@@ -383,13 +367,13 @@ describe('malformed persisted facts are quarantined, never dropped or trusted', 
         requirementId: 'requirement.tests',
       },
     ]);
-    // Quarantined: it never enters the trusted frozen set.
     expect(fold.attempts[0]?.frozenRequirementSet?.requirementIds).toEqual([
       'requirement.typecheck',
     ]);
     expect(fold.attempts[0]?.integrity).toBe('contested');
   });
 
+  /** A bare boolean is not a valid gate verdict. */
   it('PhaseAttemptFold_MalformedEvidence_IsQuarantinedAndContests', () => {
     const malformed = {
       eventVersion: '1.0',
@@ -397,7 +381,6 @@ describe('malformed persisted facts are quarantined, never dropped or trusted', 
         evidenceId: 'evidence.broken',
         requirementId: 'requirement.typecheck',
         phaseAttemptId: ATTEMPT_ONE,
-        // A bare boolean cannot stand in for a gate verdict.
         verdict: true,
       },
     };
@@ -419,6 +402,7 @@ describe('malformed persisted facts are quarantined, never dropped or trusted', 
     expect(fold.attempts[0]?.integrity).toBe('contested');
   });
 
+  /** An `allow` decision cannot carry the deny-only `unsatisfiedRequirements` field. */
   it('PhaseAttemptFold_MalformedDecision_IsQuarantinedAndLeavesNoActiveDecision', () => {
     const malformed = {
       eventVersion: '1.0',
@@ -426,7 +410,6 @@ describe('malformed persisted facts are quarantined, never dropped or trusted', 
       decision: {
         ...((transitionDecided('decision.broken') as Record<string, unknown>)
           .decision as Record<string, unknown>),
-        // `allow` records may not carry deny-only fields (strict union arms).
         unsatisfiedRequirements: [
           { requirementId: 'requirement.typecheck', reason: 'failed' },
         ],
@@ -466,8 +449,8 @@ describe('malformed persisted facts are quarantined, never dropped or trusted', 
     }
   });
 
+  /** A decision is not active without a resolved requirement set. */
   it('PhaseAttemptFold_DecisionWithoutFrozenRequirementSet_IsNeverActive', () => {
-    // Task 019: an entry cannot become actionable without resolved requirements.
     const fold = foldPhaseAttemptAdmission({
       decisionEvents: [transitionDecided('decision.1')],
     });
@@ -553,11 +536,11 @@ describe('malformed persisted facts are quarantined, never dropped or trusted', 
     ).toBe('gate.original');
   });
 
+  /** The set digest matches, but the policy digest differs, so the set is not coherent. */
   it('PhaseAttemptFold_InconsistentSetProvenance_ContestsTheAttempt', () => {
     const fold = foldPhaseAttemptAdmission({
       requirementEvents: [
         requirementResolved('requirement.typecheck'),
-        // Same set digest, different policy identity — the set is not coherent.
         requirementResolved('requirement.tests', { policyDigest: POLICY_DIGEST_V2 }),
       ],
     });
@@ -573,14 +556,11 @@ describe('malformed persisted facts are quarantined, never dropped or trusted', 
   });
 });
 
-// ─── Parse, don't cast ───────────────────────────────────────────────────────
-
 describe('attempt selection parses identity instead of trusting it', () => {
   it('PhaseAttemptSelect_UnvalidatedIdentity_SelectsNothing', () => {
     const fold = foldPhaseAttemptAdmission(intactHistory());
 
     expect(selectPhaseAttempt(fold, ATTEMPT_ONE)?.phaseAttemptId).toBe(ATTEMPT_ONE);
-    // Values that cannot be a branded phase-attempt id never select an attempt.
     expect(selectPhaseAttempt(fold, '')).toBeNull();
     expect(selectPhaseAttempt(fold, '  phase-attempt.plan.1  ')).toBeNull();
     expect(selectPhaseAttempt(fold, '../../etc/passwd')).toBeNull();
@@ -590,8 +570,6 @@ describe('attempt selection parses identity instead of trusting it', () => {
     expect(selectPhaseAttempt(fold, 'phase-attempt.plan.unknown')).toBeNull();
   });
 });
-
-// ─── Projection integration: the canonical workflow-state fold ───────────────
 
 function event(sequence: number, type: string, data: unknown): WorkflowEvent {
   return {
@@ -636,6 +614,10 @@ describe('WorkflowProjection replay reconstructs the active attempt', () => {
     ),
   ];
 
+  /**
+   * The incremental projection fold equals a from-zero fold of the same payloads.
+   * Both folds hold two attempts with content, so two empty folds cannot pass.
+   */
   it('WorkflowProjection_Replay_MatchesLiveState', () => {
     const first = log.reduce(
       workflowStateProjection.apply,
@@ -649,8 +631,6 @@ describe('WorkflowProjection replay reconstructs the active attempt', () => {
     expect(second.admissionProof).toEqual(first.admissionProof);
     expect(second.phaseAttemptId).toBe(first.phaseAttemptId);
 
-    // The incremental projection fold agrees with a from-zero fold of the
-    // same persisted payloads — one reconstruction, not two.
     const direct = foldPhaseAttemptAdmission({
       requirementEvents: first.admissionProof.requirementHistory,
       evidenceEvents: first.admissionProof.evidenceHistory,
@@ -660,8 +640,6 @@ describe('WorkflowProjection replay reconstructs the active attempt', () => {
     expect(first.admissionProof.phaseAttemptIntegrity).toBe('intact');
     expect(first.admissionProof.phaseAttemptDiagnostics).toEqual([]);
 
-    // …and the agreed reconstruction is the non-trivial one the log describes,
-    // so an empty fold on both sides cannot satisfy this test.
     expect(
       first.admissionProof.phaseAttempts.map((attempt) => attempt.phaseAttemptId),
     ).toEqual([ATTEMPT_ONE, ATTEMPT_TWO]);
@@ -677,14 +655,16 @@ describe('WorkflowProjection replay reconstructs the active attempt', () => {
     ]);
   });
 
+  /**
+   * The active attempt is the one that the lifecycle events froze, and it differs from the first attempt.
+   * The superseded attempt keeps its own frozen set, evidence and decision.
+   */
   it('WorkflowProjection_Reentry_ReconstructsActiveAttemptRequirementsAndDecision', () => {
     const view = log.reduce(
       workflowStateProjection.apply,
       workflowStateProjection.init(),
     );
 
-    // The active attempt is the one the lifecycle events froze, and it is a
-    // DIFFERENT identity from the initial entry.
     expect(view.phaseAttemptId).toBe(ATTEMPT_TWO);
     expect(ATTEMPT_TWO).not.toBe(ATTEMPT_ONE);
 
@@ -702,7 +682,6 @@ describe('WorkflowProjection replay reconstructs the active attempt', () => {
     expect(active?.evidence.map((record) => record.evidenceId)).toEqual(['evidence.2']);
     expect(active?.decision).toBeNull();
 
-    // The superseded attempt keeps its own frozen set, evidence, and decision.
     const previous = selectPhaseAttempt(fold, ATTEMPT_ONE);
     expect(previous?.frozenRequirementSet?.requirementIds).toEqual([
       'requirement.typecheck',
@@ -750,9 +729,9 @@ describe('WorkflowProjection replay reconstructs the active attempt', () => {
     ).toEqual(['requirement.typecheck']);
   });
 
+  /** A legacy state holds only the evidence slots of `admissionProof`. */
   it('WorkflowProjection_PreP0104State_AcceptsAttemptFactsWithoutBackfill', () => {
     const seeded = workflowStateProjection.init();
-    // A state persisted before P01-04 carries the evidence slots only.
     const legacy = {
       ...seeded,
       admissionProof: {
