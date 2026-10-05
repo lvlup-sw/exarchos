@@ -54,11 +54,11 @@ describe('PluginManifestSchema', () => {
     ).toThrow();
   });
 
+  /**
+   * The fixture has the shape of the live `.claude-plugin/plugin.json`. The test reads the fixture,
+   * not the live file, so it is deterministic and runs from a packaged tarball.
+   */
   it('PluginManifestSchema_AcceptsRepresentativeManifest', () => {
-    // Self-contained fixture mirrors the live `.claude-plugin/plugin.json`
-    // shape (agents, commands, skills, mcpServers, metadata) without
-    // coupling the test to whatever the repo root currently holds — keeps
-    // the test deterministic and runnable from a packaged tarball.
     const fixturePath = path.join(__dirname, '__fixtures__/plugin-manifest.fixture.json');
     const fixture = JSON.parse(fs.readFileSync(fixturePath, 'utf8')) as unknown;
     expect(() => PluginManifestSchema.parse(fixture)).not.toThrow();

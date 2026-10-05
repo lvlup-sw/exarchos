@@ -1,15 +1,16 @@
-// ─── Agent Spec Types & Definitions Tests ──────────────────────────────────
+/** Tests for the `AgentSpec` types and the four agent spec definitions. */
 
 import { describe, it, expect } from 'vitest';
 import type { AgentSpec, AgentSkill, AgentValidationRule, AgentSpecId } from '../../../../src/runtime/agents/types.js';
 import { IMPLEMENTER, FIXER, REVIEWER, SCAFFOLDER, ALL_AGENT_SPECS } from '../../../../src/runtime/agents/definitions.js';
 import { resolveCapabilities } from '../../../../src/workflow/capabilities/posture-mapping.js';
 
-// ─── Task 1: AgentSpec Types ────────────────────────────────────────────────
-
 describe('AgentSpec Types', () => {
+  /**
+   * The capabilities come from `resolveCapabilities`, because `AgentSpec` has no `capabilities` field.
+   * The second spec omits each optional field.
+   */
   it('AgentSpecTypes_ValidateShape_AcceptsCompleteSpec', () => {
-    // Arrange: create a complete spec using the type interfaces
     const skill: AgentSkill = { name: 'test-skill', content: 'skill content' };
     const rule: AgentValidationRule = { trigger: 'pre-write', rule: 'test must exist', command: 'test' };
     const ruleNoCommand: AgentValidationRule = { trigger: 'post-test', rule: 'must pass' };
@@ -29,12 +30,9 @@ describe('AgentSpec Types', () => {
       maxTurns: 50,
     };
 
-    // Assert: all fields are accessible and correctly typed
     expect(spec.id).toBe('implementer');
     expect(spec.description).toBe('TDD implementer');
     expect(spec.systemPrompt).toBe('You are an implementer');
-    // Capabilities are derived via the resolver (#1333). Assert the
-    // resolved set contains the trust-tier baseline for `task-isolated`.
     const resolved = resolveCapabilities(spec.posture, spec.id);
     expect(resolved.has('fs:read')).toBe(true);
     expect(resolved.has('fs:write')).toBe(true);
@@ -50,7 +48,6 @@ describe('AgentSpec Types', () => {
     expect(spec.memoryScope).toBe('project');
     expect(spec.maxTurns).toBe(50);
 
-    // Assert: optional fields can be omitted
     const minimalSpec: AgentSpec = {
       id: 'reviewer' as AgentSpecId,
       description: 'Code reviewer',
@@ -67,8 +64,8 @@ describe('AgentSpec Types', () => {
     expect(minimalSpec.maxTurns).toBeUndefined();
   });
 
+  /** `effort` is optional. Its type accepts `low`, `medium`, `high` and `max`. */
   it('AgentSpecTypes_EffortField_AcceptsValidValues', () => {
-    // Arrange: effort field is optional and accepts specific string literals
     const lowEffort: AgentSpec = {
       id: 'scaffolder' as AgentSpecId,
       description: 'Scaffolder',
@@ -128,7 +125,6 @@ describe('AgentSpec Types', () => {
       resumable: true,
     };
 
-    // Assert: all effort values are accepted
     expect(lowEffort.effort).toBe('low');
     expect(mediumEffort.effort).toBe('medium');
     expect(highEffort.effort).toBe('high');
@@ -136,8 +132,6 @@ describe('AgentSpec Types', () => {
     expect(noEffort.effort).toBeUndefined();
   });
 });
-
-// ─── Task 2: Agent Spec Definitions ─────────────────────────────────────────
 
 describe('Agent Spec Definitions', () => {
   it('ImplementerSpec_HasRequiredFields_Complete', () => {
@@ -156,8 +150,6 @@ describe('Agent Spec Definitions', () => {
     expect(IMPLEMENTER.disallowedTools).toContain('Agent');
     expect(IMPLEMENTER.skills.length).toBeGreaterThanOrEqual(1);
     const skillNames = IMPLEMENTER.skills.map(s => s.name);
-    // #1590: the dangling `tdd-patterns` skill ref (no source, empty content) was
-    // dropped; `testing-patterns` remains as the tier-neutral test-pattern ref.
     expect(skillNames).not.toContain('tdd-patterns');
     expect(skillNames).toContain('testing-patterns');
     expect(IMPLEMENTER.validationRules.length).toBeGreaterThanOrEqual(2);
@@ -181,20 +173,16 @@ describe('Agent Spec Definitions', () => {
     expect(FIXER.mcpServers).toEqual(['exarchos']);
   });
 
+  /**
+   * The reviewer keeps MCP access for read-only views through the `mcp:exarchos:readonly` tier.
+   * The capability tier and the dispatch-layer action allowlist enforce the trust boundary, so the prompt has no "Forbidden MCP Actions" block.
+   */
   it('ReviewerSpec_HasReadOnlyTools_NoWriteEdit', () => {
     expect(REVIEWER.id).toBe('reviewer');
     expect(REVIEWER.model).toBe('inherit');
     expect(REVIEWER.resumable).toBe(false);
     const reviewerCaps = resolveCapabilities(REVIEWER.posture, REVIEWER.id);
     expect(reviewerCaps.has('fs:read')).toBe(true);
-    // Per #1109 Constraint 3 (Basileus-forward), MCP remains first-class
-    // for the reviewer so it can consult read-only views (exarchos_view's
-    // pure-read actions, workflow.get/describe, event.query/describe,
-    // orchestrate.describe). T11: the trust boundary is now enforced
-    // structurally by the `mcp:exarchos:readonly` capability tier (T03)
-    // combined with the dispatch-layer action allowlist (T04) — not by
-    // prose-layer prohibitions. The previous "Forbidden MCP Actions"
-    // systemPrompt block is therefore removed.
     expect(reviewerCaps.has('mcp:exarchos:readonly')).toBe(true);
     expect(reviewerCaps.has('mcp:exarchos')).toBe(false);
     expect(reviewerCaps.has('shell:exec')).toBe(false);
@@ -205,46 +193,33 @@ describe('Agent Spec Definitions', () => {
     expect(REVIEWER.disallowedTools).toContain('Bash');
     expect(REVIEWER.systemPrompt).toContain('{{reviewScope}}');
     expect(REVIEWER.systemPrompt).toContain('{{designRequirements}}');
-    // The prose "Forbidden MCP Actions" guard is gone — capability-tier
-    // + dispatch-layer enforcement supersedes it.
     expect(REVIEWER.systemPrompt).not.toContain('Forbidden MCP Actions');
     expect(REVIEWER.mcpServers).toEqual(['exarchos']);
   });
 
+  /**
+   * The model must be `inherit`. A pinned model id outranks the `agents.tier-models` policy, which selects the model from the risk tier of the task.
+   * `effort` stays `low`, because it describes the role of the scaffolder, not a model tier.
+   */
   it('ScaffolderSpec_HasCorrectConfig_InheritsModelLowEffort', () => {
-    // Assert: scaffolder identity and model config
     expect(SCAFFOLDER.id).toBe('scaffolder');
-    // `inherit`, not a pinned id. This assertion was previously
-    // `toBe('sonnet')` and the test was NAMED for it; the pin was a second
-    // model authority that silently outranked the `agents.tier-models` policy
-    // (default low→haiku), so a low-tier scaffold got sonnet regardless of
-    // what the operator configured. Model strength follows RISK; the agent
-    // choice selects the ROLE. Restated rather than deleted so the property
-    // stays pinned in the new direction — a spec that re-pins a model id here
-    // must fail.
     expect(SCAFFOLDER.model).toBe('inherit');
-    // `effort` is NOT covered by that reasoning and stays asserted: it is this
-    // agent's role (the low-complexity agent by construction), not a model tier.
     expect(SCAFFOLDER.effort).toBe('low');
     expect(SCAFFOLDER.isolation).toBe('worktree');
     expect(SCAFFOLDER.resumable).toBe(false);
 
-    // Assert: capabilities include filesystem + shell + MCP access
     const scaffolderCaps = resolveCapabilities(SCAFFOLDER.posture, SCAFFOLDER.id);
     expect(scaffolderCaps.has('fs:read')).toBe(true);
     expect(scaffolderCaps.has('fs:write')).toBe(true);
     expect(scaffolderCaps.has('shell:exec')).toBe(true);
     expect(scaffolderCaps.has('mcp:exarchos')).toBe(true);
 
-    // Assert: Agent tool is disallowed
     expect(SCAFFOLDER.disallowedTools).toContain('Agent');
 
-    // Assert: conciseness-focused system prompt with required template vars
     expect(SCAFFOLDER.systemPrompt).toContain('{{taskDescription}}');
     expect(SCAFFOLDER.systemPrompt).toContain('{{filePaths}}');
     expect(SCAFFOLDER.systemPrompt.toLowerCase()).toMatch(/concis/);
 
-    // Assert: description is present
     expect(SCAFFOLDER.description).toBeTruthy();
   });
 
@@ -252,7 +227,6 @@ describe('Agent Spec Definitions', () => {
     const ids = ALL_AGENT_SPECS.map(s => s.id);
     const uniqueIds = new Set(ids);
     expect(uniqueIds.size).toBe(ids.length);
-    // Must include all 4 agent specs
     expect(ids).toHaveLength(4);
     expect(ids).toContain('implementer');
     expect(ids).toContain('fixer');
@@ -260,6 +234,7 @@ describe('Agent Spec Definitions', () => {
     expect(ids).toContain('scaffolder');
   });
 
+  /** The test validates the output of `resolveCapabilities` for each spec, because a spec holds no capability list. */
   it('AllSpecs_CapabilitiesAreValid_KnownCapabilityNames', () => {
     const KNOWN_CAPS = new Set([
       'fs:read', 'fs:write', 'shell:exec',
@@ -269,8 +244,6 @@ describe('Agent Spec Definitions', () => {
     ]);
     const KNOWN_DISALLOWED = new Set(['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob', 'Agent', 'WebFetch', 'WebSearch']);
     for (const spec of ALL_AGENT_SPECS) {
-      // Capabilities are resolved from posture (#1333); validate the
-      // resolver's output rather than a per-literal array.
       for (const cap of resolveCapabilities(spec.posture, spec.id)) {
         expect(KNOWN_CAPS.has(cap), `${spec.id}: unknown capability '${cap}'`).toBe(true);
       }

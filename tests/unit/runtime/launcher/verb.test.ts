@@ -17,32 +17,32 @@ import { TIER1_HARNESSES } from '../../../../src/runtime/launcher/harness-regist
 import { deriveWorktreePath } from '../../../../src/runtime/launcher/topology.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
-// A POSIX base whose parent is deterministic, so derived sibling paths are
-// stable across hosts for the pure-derivation assertions.
+/** A POSIX base path, so the derived sibling paths are the same on each host. */
 const POSIX_BASE = '/repo/base-worktree';
 
 describe('exarchos <harness> launcher verb (DR-1)', () => {
+  /** The schema refuses a value outside the enum, accepts each Tier-1 harness, and defaults `dryRun` to false. */
   it('Verb_Schema_ConstrainsEnum', () => {
-    // Rejects a non-enum harness at the schema level...
     expect(LauncherVerbSchema.safeParse({ harness: 'not-a-harness' }).success).toBe(false);
     expect(LauncherVerbSchema.safeParse({ harness: 'generic' }).success).toBe(false);
     expect(LauncherVerbSchema.safeParse({ harness: '' }).success).toBe(false);
 
-    // ...and accepts each of the five Tier-1 harnesses.
     for (const harness of TIER1_HARNESSES) {
       const parsed = LauncherVerbSchema.safeParse({ harness });
       expect(parsed.success).toBe(true);
       if (parsed.success) {
         expect(parsed.data.harness).toBe(harness);
-        // dryRun defaults to false when omitted.
         expect(parsed.data.dryRun).toBe(false);
       }
     }
   });
 
+  /**
+   * The base is a real temp directory, so the derived sibling path has a real parent directory.
+   * A wrong creation can then succeed, so the check that the sibling path is absent can fail.
+   * The dry run must not call the lifecycle runner and must not create that sibling path.
+   */
   it('Verb_DryRun_ShowsPathAndPlanNoSpawn', async () => {
-    // Real temp dir as the base so "no worktree created" is a genuine
-    // filesystem assertion, not a tautology over a non-existent path.
     const base = fs.mkdtempSync(path.join(os.tmpdir(), 'launcher-dryrun-'));
     try {
       const lifecycle = vi.fn<LifecycleRunner>();
@@ -56,9 +56,7 @@ describe('exarchos <harness> launcher verb (DR-1)', () => {
       expect(isDryRunPlan(result.data)).toBe(true);
       const plan = result.data as DryRunPlan;
 
-      // Shows the derived path...
       expect(plan.worktreePath).toBe(deriveWorktreePath(base, plan.worktreeId));
-      // ...and the full ordered event plan.
       expect(plan.eventPlan).toEqual(LAUNCH_EVENT_PLAN);
 
       const rendered = renderDryRunPlan(plan);
@@ -67,15 +65,14 @@ describe('exarchos <harness> launcher verb (DR-1)', () => {
         expect(rendered).toContain(event);
       }
 
-      // NO spawn: the lifecycle runner is never invoked on the dry-run path.
       expect(lifecycle).not.toHaveBeenCalled();
-      // NO worktree creation: the derived sibling path does not exist on disk.
       expect(fs.existsSync(plan.worktreePath)).toBe(false);
     } finally {
       rmrf(base);
     }
   });
 
+  /** Write confinement is not a goal of the launcher, so the dry-run output must not claim it. */
   it('Verb_DryRun_NoEnforcementClaimInOutput', async () => {
     const result = await runLauncherVerb(
       { harness: 'codex', feature: 'demo-feature', dryRun: true },
@@ -85,8 +82,6 @@ describe('exarchos <harness> launcher verb (DR-1)', () => {
     const plan = result.data as DryRunPlan;
     const rendered = renderDryRunPlan(plan).toLowerCase();
 
-    // Filesystem-write confinement / space enforcement is an explicit non-goal
-    // of this launcher — no such claim may leak into the dry-run output.
     for (const forbidden of [
       'space',
       'enforce',
@@ -101,20 +96,20 @@ describe('exarchos <harness> launcher verb (DR-1)', () => {
     }
   });
 
+  /**
+   * With and without a feature, the dry-run path equals the result of `deriveWorktreePath` for the same
+   * base and id. The dry run does not run the containment guard.
+   */
   it('Verb_DryRun_DerivesPathViaSameGuardAsCreation', async () => {
-    // With a feature (drives the worktree-id derivation).
     const withFeature = await runLauncherVerb(
       { harness: 'cursor', feature: 'my-feat', dryRun: true },
       { base: POSIX_BASE },
     );
     expect(withFeature.success).toBe(true);
     const planA = withFeature.data as DryRunPlan;
-    // The dry-run path is EXACTLY what the shared creation guard produces for
-    // the same base + id — proving reuse, not a re-implementation.
     expect(planA.worktreePath).toBe(deriveWorktreePath(planA.base, planA.worktreeId));
     expect(planA.worktreeId).toBe(deriveLaunchWorktreeId('cursor', 'my-feat'));
 
-    // And without a feature.
     const noFeature = await runLauncherVerb(
       { harness: 'opencode', dryRun: true },
       { base: POSIX_BASE },
@@ -125,9 +120,12 @@ describe('exarchos <harness> launcher verb (DR-1)', () => {
     expect(planB.worktreePath).toBe('/repo/exarchos-opencode');
   });
 
+  /**
+   * The test injects the payload, so the verb does not read `binding/standard/block.md`.
+   * The previewed channel is the first declared candidate of the harness, with no help probe.
+   * Cursor declares no native channel, so its preview reports `none`.
+   */
   it('launcherVerb_DryRun_PrintsResolvedChannelAndPayload', async () => {
-    // Deterministic payload injected so the preview is hermetic (no reliance on
-    // the repo `binding/standard/block.md` being on disk under the test cwd).
     const payload = 'ORIENT-BLOCK-CONTENT: route workflow ops through Exarchos.';
 
     const result = await runLauncherVerb(
@@ -138,16 +136,13 @@ describe('exarchos <harness> launcher verb (DR-1)', () => {
     expect(result.success).toBe(true);
     const plan = result.data as DryRunPlan;
 
-    // The resolved channel is the PROBE-FREE preview: claude's primary candidate.
     expect(plan.injection.channel).toBe('flag:--append-system-prompt-file');
     expect(plan.injection.payload).toBe(payload);
 
     const rendered = renderDryRunPlan(plan);
-    // The render prints BOTH the resolved channel and the payload.
     expect(rendered).toContain('orientation channel: flag:--append-system-prompt-file');
     expect(rendered).toContain(payload);
 
-    // Cursor has NO native channel — the preview reports `none`.
     const cursor = await runLauncherVerb(
       { harness: 'cursor', dryRun: true },
       { base: POSIX_BASE, orientationContent: payload },
@@ -157,13 +152,13 @@ describe('exarchos <harness> launcher verb (DR-1)', () => {
     expect(renderDryRunPlan(cursorPlan)).toContain('orientation channel: none');
   });
 
+  /** An empty payload string counts as unavailable, so the plan holds a `null` payload. */
   it('launcherVerb_DryRun_PayloadUnavailable_RendersGracefully', async () => {
     const result = await runLauncherVerb(
       { harness: 'opencode', dryRun: true },
       { base: POSIX_BASE, orientationContent: '' },
     );
     const plan = result.data as DryRunPlan;
-    // Empty string is treated as unavailable → null payload, graceful render.
     expect(plan.injection.payload).toBeNull();
     expect(plan.injection.channel).toBe('env:OPENCODE_CONFIG_CONTENT');
     expect(renderDryRunPlan(plan)).toContain('orientation payload: (unavailable');
@@ -173,7 +168,6 @@ describe('exarchos <harness> launcher verb (DR-1)', () => {
     const result = await runLauncherVerb({ harness: 'jetbrains', dryRun: true });
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('INVALID_INPUT');
-    // The structured error carries the five enum members as validTargets.
     expect(result.error?.validTargets).toEqual(TIER1_HARNESSES);
     expect(result.error?.validTargets).toEqual([
       'claude-code',
@@ -184,12 +178,8 @@ describe('exarchos <harness> launcher verb (DR-1)', () => {
     ]);
   });
 
-  // ─── Seam contract (non-dry-run) ──────────────────────────────────────────
-
+  /** With no `lifecycle` and no `lifecycleDeps`, the verb has no event store, so it returns `NOT_WIRED` and does not throw. */
   it('Verb_NonDryRun_UnwiredReturnsNotWired', async () => {
-    // No explicit `lifecycle` AND no `lifecycleDeps` → the verb has no event-store
-    // substrate to supervise a launch, so it returns a structured NOT_WIRED
-    // rather than throwing or spawning against a bare base path.
     const result = await runLauncherVerb(
       { harness: 'claude-code', dryRun: false },
       { base: POSIX_BASE },

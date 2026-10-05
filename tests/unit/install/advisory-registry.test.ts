@@ -1,29 +1,17 @@
 /**
- * Self-tests for the advisory registry + its DR-15 exhaustive-discovery and
- * CI-path-filter ratchets.
+ * Tests for the advisory registry and its ratchets. They pin four properties:
  *
- * The four properties DR-15 demands, and where each is pinned:
+ *   - Exhaustive discovery: a seeded `continue-on-error: true`, `--observe` or `|| true` that
+ *     no registry entry claims must fail. The scan finds the softening itself, so it needs
+ *     no marker.
+ *   - Entry completeness: `validateAdvisoryGovernance` rejects a blank owner, threshold,
+ *     expiry or kill fixture.
+ *   - Path-filter model: the parsed trigger and the job and step `if:` gates decide whether a
+ *     CI path is unfiltered. The shape of a filename does not.
+ *   - Live tree: the ratchet passes on the real repository.
  *
- *   (a) EXHAUSTIVE DISCOVERY — a `continue-on-error: true`, a `--observe`, or a
- *       `|| true` seeded in a realistic location that no registry row claims
- *       must FAIL. `discoverSofteningSites` scans the real surfaces
- *       (`.github/workflows/**`, `package.json`, `scripts/**`) for the softening
- *       ITSELF, so it does not depend on anyone writing an `ADVISORY(...)`
- *       marker — the exact hole that let `check-mutation-gate --observe` and the
- *       `eval-gate.yml` capability step sit outside the registry.
- *       → `AdvisoryDiscovery_Seeded*` + `AdvisoryRatchet_UnregisteredSoftening*`
- *
- *   (b) ROW COMPLETENESS — owner / promotion threshold / removal threshold /
- *       expiry / kill fixture are structurally mandatory (the TYPE forbids
- *       omitting them; `validateAdvisoryGovernance` forbids blanking them).
- *       → `AdvisoryGovernance_Missing_*`
- *
- *   (c) PATH-FILTER MODELLING — "runs on an unfiltered CI path" is decided
- *       against the PARSED trigger + job/step `if:` gates, not against a
- *       filename shape. → `CiPathFilters_*` + `AdvisoryRatchet_CiPath*`
- *
- *   (d) LIVE TREE — the whole ratchet is green over the real repository, so a
- *       future regression trips it. → `ADVISORY_REGISTRY (real repo)`
+ * `analyzeCiPathFilters` is zero-dependency ESM under `tools/`, outside the `tsc` rootDir of
+ * `src/`. Thus this file composes the registry and that model.
  */
 import { describe, it, expect } from 'vitest';
 import { dirname, join, sep } from 'node:path';
@@ -52,32 +40,23 @@ import {
   type SofteningSite,
 } from '../../../src/install/advisory-registry.js';
 import { runKillProbe } from '../../../src/install/advisory-kill-probes.js';
-// The CI path-filter model is owned by the enforcer-wiring gate (Part B of
-// DR-15). It is authored as zero-dependency ESM `.mjs` because it runs in the
-// grep-gates zero-dep prefix BEFORE any `npm ci`; `src/` and `scripts/` are
-// separate `tsc` rootDirs, so the composition happens here, in the caller.
 // @ts-expect-error — no .d.ts for this .mjs gate; its contract is asserted here.
 import { analyzeCiPathFilters, isNonFilteringIf, audit } from '../../../tools/audit/gates/check-enforcer-wiring.mjs';
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 /**
- * A seeded enforcement primary, addressed the way the scanner addresses one.
- *
- * The scan only recognizes primaries under `ENFORCEMENT_PRIMARY_DIR`, so a
- * fixture that spells the prefix itself silently stops being seen when the tree
- * moves — and "no softening sites found" is indistinguishable from "clean".
- * Deriving from the exported constant makes the fixture move with the scanner.
+ * The path of a seeded enforcement primary. The scan recognizes primaries only under
+ * `ENFORCEMENT_PRIMARY_DIR`. A fixture with a hard-coded prefix can drift from that value.
+ * The scan then finds zero sites, and that empty result looks the same as a clean result.
  */
 const primary = (name: string): string => `${ENFORCEMENT_PRIMARY_DIR}/${name}`;
 
-/** A far-future clock so real registry expiries are never "in the past". */
+/** A fixed clock before each expiry in the real registry, so no real entry is expired under it. */
 const CLOCK = new Date('2026-01-01T00:00:00Z');
 
 const FORK_GUARD =
   "github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'";
-
-// ─── Fixture builders ────────────────────────────────────────────────────────
 
 /** Build a well-formed registry entry, overridable field-by-field. */
 function entry(over: Partial<AdvisoryEntry> = {}): AdvisoryEntry {
@@ -195,16 +174,15 @@ function pkg(scripts: Readonly<Record<string, string>>): string {
   return JSON.stringify({ name: 'exarchos', scripts }, null, 2);
 }
 
-// ─── (b) Row completeness: the four mandated fields ──────────────────────────
-
+/**
+ * The type makes each mandated field required, and `validateAdvisoryGovernance` rejects a blank
+ * value. The loop blanks one mandated field at a time, in the validator and then through the ratchet.
+ */
 describe('validateAdvisoryGovernance', () => {
   it('AdvisoryGovernance_CompleteEntry_NoProblems', () => {
     expect(validateAdvisoryGovernance(entry(), CLOCK)).toEqual([]);
   });
 
-  // DR-15: owner, threshold, expiry and kill fixture are MANDATORY. The type
-  // makes omission impossible; this pass makes blanking impossible. Exhaustive,
-  // one field at a time.
   const mandated: ReadonlyArray<keyof AdvisoryEntry> = [
     'owner',
     'promotionThreshold',
@@ -222,7 +200,6 @@ describe('validateAdvisoryGovernance', () => {
     });
 
     it(`AdvisoryRatchet_Missing_${field}_Fails`, () => {
-      // The same gap fails at the RATCHET level, not just in the validator.
       const e = entry({ [field]: '' } as Partial<AdvisoryEntry>);
       const result = ratchet({ registry: [e] });
       expect(result.ok).toBe(false);
@@ -236,8 +213,8 @@ describe('validateAdvisoryGovernance', () => {
     ).toBe(true);
   });
 
+  /** A control with no softening site is blocking or dead. It is not an advisory. */
   it('AdvisoryGovernance_NoSofteningSite_IsMalformed', () => {
-    // An advisory with nothing softened is either blocking or dead — not advisory.
     const problems = validateAdvisoryGovernance(entry({ softening: [] }), CLOCK);
     expect(problems.some((p) => p.kind === 'malformed' && p.detail.includes('softening'))).toBe(
       true,
@@ -288,8 +265,8 @@ describe('validateAdvisoryGovernance', () => {
     expect(problems.some((p) => p.detail.includes('ciFilterRationale'))).toBe(true);
   });
 
+  /** The rule has two sides: a rationale on an unfiltered entry is stale text. */
   it('AdvisoryGovernance_UnfilteredClaimWithRationale_IsMalformed', () => {
-    // Two-sided: a rationale on an unfiltered row is stale decoration.
     const problems = validateAdvisoryGovernance(
       entry({ ciPathFiltered: false, ciFilterRationale: 'left over from when it was filtered' }),
       CLOCK,
@@ -320,8 +297,6 @@ describe('validateAdvisoryGovernance', () => {
     expect(validateAdvisoryGovernance(entry({ expires: '2099-01-01' }), onDay)).toEqual([]);
   });
 });
-
-// ─── (a) Exhaustive discovery over the real surfaces ────────────────────────
 
 describe('discoverSofteningSites', () => {
   const CI_WITH_OBSERVE = [
@@ -378,8 +353,8 @@ describe('discoverSofteningSites', () => {
     });
   });
 
+  /** The `|| true` catches an npm script, and the script chain reaches a primary. */
   it('AdvisoryDiscovery_SeededOrTrueInNpmChain_IsFound', () => {
-    // The real shape: `|| true` catching an npm script that reaches a primary.
     const found = discoverSofteningSites({
       repoRoot: REPO_ROOT,
       fs: memFs({
@@ -413,9 +388,8 @@ describe('discoverSofteningSites', () => {
     expect(found[0]).toMatchObject({ file: primary('run-gates.sh'), kind: 'or-true' });
   });
 
+  /** A `|| true` that catches a grep exit code or a shell function softens no enforcement primary. */
   it('AdvisoryDiscovery_ShellIdiomOrTrue_IsNotASofteningSite', () => {
-    // The narrowing that keeps the scan usable: `|| true` that catches a grep
-    // exit code or a shell FUNCTION softens no enforcement primary.
     const found = discoverSofteningSites({
       repoRoot: REPO_ROOT,
       fs: memFs({
@@ -446,8 +420,8 @@ describe('discoverSofteningSites', () => {
     expect(found).toEqual([]);
   });
 
+  /** A `.test.sh` file that softens its subject is a test harness, not an advisory. */
   it('AdvisoryDiscovery_SelfTestScripts_AreExcluded', () => {
-    // A `.test.sh` softening its own subject is a test harness, not an advisory.
     const found = discoverSofteningSites({
       repoRoot: REPO_ROOT,
       fs: memFs({
@@ -458,9 +432,8 @@ describe('discoverSofteningSites', () => {
     expect(found).toEqual([]);
   });
 
+  /** A `continue-on-error` outside any step still gives a site, with a coarse `job-level:` target. */
   it('AdvisoryDiscovery_JobLevelContinueOnError_StillProducesASite', () => {
-    // A `continue-on-error` that belongs to no step must not escape; it gets a
-    // coarse `job-level:` target rather than being dropped.
     const sites = discoverWorkflowSoftening(
       [
         'name: X',
@@ -545,8 +518,8 @@ describe('resolveEnforcementRefs / principalTarget', () => {
 });
 
 describe('scanCommandSoftening', () => {
+  /** The code of a gate that parses its own `--observe` argument is not a site. */
   it('SofteningScan_ObserveWithoutAnEnforcementRef_IsIgnored', () => {
-    // The gate's own `--observe` argument parsing / usage text is not a site.
     expect(
       scanCommandSoftening("} else if (arg === '--observe') {", 'scripts/check-x.mjs', 1, {}),
     ).toEqual([]);
@@ -563,8 +536,6 @@ describe('scanCommandSoftening', () => {
     expect(sites[0]).toMatchObject({ kind: 'observe', target: primary('check-x.mjs'), line: 10 });
   });
 });
-
-// ─── (a) The ratchet reacts to unregistered softening ───────────────────────
 
 describe('verifyAdvisoryRatchet — softening reconciliation', () => {
   it('AdvisoryRatchet_RegisteredAndDiscoveredAndProbed_Ok', () => {
@@ -626,9 +597,8 @@ describe('verifyAdvisoryRatchet — softening reconciliation', () => {
     expect(result.violations.some((v) => v.kind === 'unregistered')).toBe(true);
   });
 
+  /** An entry that claims the `continue-on-error` in a file does not cover a new `|| true` in that file. */
   it('AdvisoryRatchet_SameFileDifferentKind_IsStillUnregistered', () => {
-    // A row claiming the `continue-on-error` in a file must not launder a NEW
-    // `|| true` added to the same file.
     const e = entry();
     const result = ratchet({
       registry: [e],
@@ -718,8 +688,6 @@ describe('verifyAdvisoryRatchet — softening reconciliation', () => {
   });
 });
 
-// ─── (c) The CI-path claim is verified, not asserted ────────────────────────
-
 describe('verifyAdvisoryRatchet — CI-path claims', () => {
   it('AdvisoryRatchet_UnfilteredClaimOnAFilteredLane_Fails', () => {
     const e = entry({ ciPathFiltered: false, ciFilterRationale: '' });
@@ -731,8 +699,8 @@ describe('verifyAdvisoryRatchet — CI-path claims', () => {
     expect(result.violations.some((v) => v.kind === 'ci-path-mismatch')).toBe(true);
   });
 
+  /** The check has two sides: a filtered claim on an unfiltered lane is also drift. */
   it('AdvisoryRatchet_FilteredClaimOnAnUnfilteredLane_Fails', () => {
-    // Two-sided: over-claiming in the "safe" direction is still drift.
     const e = entry({ ciPathFiltered: true, ciFilterRationale: 'hosted on a filtered job' });
     const result = ratchet({ registry: [e], ciPathAnalyses: new Map([[e.id, unfiltered()]]) });
     expect(result.ok).toBe(false);
@@ -779,8 +747,6 @@ describe('assertAdvisoryRatchet', () => {
     ).not.toThrow();
   });
 });
-
-// ─── (c) The path-filter MODEL itself (Part B, check-enforcer-wiring.mjs) ────
 
 describe('analyzeCiPathFilters (path-filter modelling)', () => {
   const wf = (opts: {
@@ -850,8 +816,8 @@ describe('analyzeCiPathFilters (path-filter modelling)', () => {
     expect(a.filters.map((f: { kind: string }) => f.kind)).toContain('branches');
   });
 
+  /** `types:` selects pull-request lifecycle events, not file paths. */
   it('CiPathFilters_TypesNarrowing_IsNotAPathFilter', () => {
-    // `types:` selects PR lifecycle events, not file paths.
     const a = analyzeCiPathFilters(
       wf({ on: ['  pull_request:', '    types: [opened, synchronize, reopened]'] }),
       { stepMatch: MATCH },
@@ -859,8 +825,8 @@ describe('analyzeCiPathFilters (path-filter modelling)', () => {
     expect(a.unfiltered).toBe(true);
   });
 
+  /** The job `if:` reads the output of a `dorny/paths-filter` job, the form that `ci.yml` uses. */
   it('CiPathFilters_JobLevelIfGate_FailsTheUnfilteredClaim', () => {
-    // The dorny/paths-filter idiom this repo actually uses.
     const a = analyzeCiPathFilters(
       wf({ jobIf: `(${FORK_GUARD}) && needs.changes.outputs.root == 'true'` }),
       { stepMatch: MATCH },
@@ -878,9 +844,8 @@ describe('analyzeCiPathFilters (path-filter modelling)', () => {
     expect(a.filters.map((f: { kind: string }) => f.kind)).toContain('step-if');
   });
 
+  /** The fork guard is a security guard, not a path filter. A model that counts it marks each guarded job as filtered. */
   it('CiPathFilters_ForkGuardOnly_IsStillUnfiltered', () => {
-    // The fork guard is a security guard, not a path filter — if it counted,
-    // every job in this repo would be "filtered" and the model would be useless.
     expect(analyzeCiPathFilters(wf({ jobIf: FORK_GUARD }), { stepMatch: MATCH }).unfiltered).toBe(
       true,
     );
@@ -904,8 +869,8 @@ describe('analyzeCiPathFilters (path-filter modelling)', () => {
     expect(a.filters.map((f: { kind: string }) => f.kind)).toContain('step-not-found');
   });
 
+  /** A step that runs in a filtered job and also in an unfiltered job is unfiltered. */
   it('CiPathFilters_ReassertedOnAnUnfilteredJob_IsUnfiltered', () => {
-    // DR-10 re-assert pattern: filtered copy + unfiltered copy ⇒ unfiltered.
     const text = wf({
       jobIf: `(${FORK_GUARD}) && needs.changes.outputs.mcp == 'true'`,
       extraJob: [
@@ -919,9 +884,8 @@ describe('analyzeCiPathFilters (path-filter modelling)', () => {
     expect(analyzeCiPathFilters(text, { stepMatch: MATCH }).unfiltered).toBe(true);
   });
 
+  /** A workflow with a well-formed path and a narrowed lane must fail the claim. The shape of the path proves nothing. */
   it('CiPathFilters_FilenameShapeAloneNoLongerSatisfiesTheClaim', () => {
-    // The exact defect DR-15 names: a well-shaped `.github/workflows/*.yml`
-    // whose lane is narrowed must FAIL, where the old check accepted it.
     const a = analyzeCiPathFilters(
       wf({ on: ['  pull_request:', '    paths:', "      - 'docs/**'"] }),
       { stepMatch: MATCH },
@@ -973,12 +937,6 @@ describe('discoverAdvisories (injectable fs)', () => {
   });
 });
 
-// ─── (c2) The claim wired into the enforcer-wiring gate's audit() ────────────
-//
-// analyzeCiPathFilters is the model; audit() is where the manifest's
-// `unfilteredCiPath` claim is actually adjudicated. Testing only the model
-// would leave the wiring — the thing DR-15 is about — unasserted.
-
 const AUDIT_STEP = primary('check-alpha.mjs');
 
 /** Minimal audit() input carrying one primary that claims an unfiltered path. */
@@ -1029,6 +987,10 @@ const AUDIT_FILTERED = [
   '',
 ].join('\n');
 
+/**
+ * `analyzeCiPathFilters` is the model. `audit()` is where the gate judges the
+ * `unfilteredCiPath` claim of the manifest, so these tests cover that wiring.
+ */
 describe('check-enforcer-wiring audit() — unfilteredCiPath claim (DR-15)', () => {
   it('EnforcerWiring_UnfilteredClaimOnAnUnfilteredWorkflow_Passes', () => {
     const result = audit(auditFixture(AUDIT_UNFILTERED)) as {
@@ -1084,15 +1046,13 @@ describe('check-enforcer-wiring audit() — unfilteredCiPath claim (DR-15)', () 
     expect(result.violations.join('\n')).toContain('[unfiltered-path-unverifiable]');
   });
 
+  /** The claim is opt-in: a primary with no claim gets no violation for a filtered lane. */
   it('EnforcerWiring_NoUnfilteredClaim_IsNotAdjudicated', () => {
-    // Opt-in: a primary that makes no claim is not penalised for a filtered lane.
     const fx = auditFixture(AUDIT_FILTERED, { unfilteredCiPath: undefined });
     const result = audit(fx) as { ok: boolean; violations: string[] };
     expect(result.violations.join('\n')).not.toContain('filtered-ci-path');
   });
 });
-
-// ─── (d) The live tree ───────────────────────────────────────────────────────
 
 /** Compose the real-repo ratchet inputs (discovery + path model + probes). */
 function liveRatchetInputs() {
@@ -1134,9 +1094,8 @@ describe('ADVISORY_REGISTRY (real repo)', () => {
     }
   });
 
+  /** In the real tree, a registry entry claims each `continue-on-error`, `--observe` and `|| true` site. */
   it('EverySofteningSiteOnDisk_IsRegistered', () => {
-    // DR-15's first acceptance criterion, over the real tree: every
-    // `continue-on-error` / `--observe` / `|| true` is registered.
     const claimed = new Set(
       ADVISORY_REGISTRY.flatMap((e) =>
         e.softening.map((r) => `${r.file}\u0000${r.kind}\u0000${r.target}`),
@@ -1153,9 +1112,8 @@ describe('ADVISORY_REGISTRY (real repo)', () => {
     ).toEqual([]);
   });
 
+  /** The registry governs each advisory primary in the enforcer-wiring manifest. The manifest names three or more. */
   it('EveryManifestAdvisory_IsRegistered', () => {
-    // The audit's finding, pinned: the enforcer-wiring manifest names three
-    // advisories and one of them used to sit outside the registry.
     const manifest = JSON.parse(
       readFileSync(join(REPO_ROOT, 'tools', 'audit', 'gates', 'enforcer-wiring-manifest.json'), 'utf8'),
     ) as { primaries: { script: string; disposition: string }[] };

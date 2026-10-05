@@ -4,7 +4,7 @@ import {
   type DetectorDeps,
 } from '../../../src/runtime/agent-environment-detector.js';
 
-/** Helper: build a fs probe whose `readFile` and `stat` both throw ENOENT. */
+/** Build an fs probe whose `readFile` and `stat` both throw ENOENT. */
 function enoentFs(): NonNullable<DetectorDeps['fs']> {
   return {
     readFile: async (_p: string): Promise<string> => {
@@ -54,12 +54,11 @@ describe('detectAgentEnvironments — baseline', () => {
   });
 });
 
+/**
+ * `mapFs` builds an fs probe from a map of absolute path to file content. `readFile` throws ENOENT for a path that is not in the map.
+ * `stat` reports each path in `dirs` as a directory, and it throws ENOENT for a path that is in neither.
+ */
 describe('detectAgentEnvironments — claude-code', () => {
-  /**
-   * Build a fs probe that returns file contents keyed by absolute path.
-   * Any path not in the map throws ENOENT. Directories declared in
-   * `dirs` return `isDirectory: true` from `stat`.
-   */
   function mapFs(files: Record<string, string>, dirs: string[] = []): NonNullable<DetectorDeps['fs']> {
     return {
       readFile: async (p: string): Promise<string> => {
@@ -114,11 +113,11 @@ describe('detectAgentEnvironments — claude-code', () => {
     expect(claude.mcpRegistered).toBe(false);
   });
 
+  /**
+   * A plugin install registers the MCP server in the plugin manifest, not in `~/.claude.json`.
+   * Thus the detector must also read `installed_plugins.json` and the manifest of the installed plugin.
+   */
   it('DetectAgentEnvironments_ExarchosPluginInstalledAndManifestWiresMcp_ReturnsMcpRegisteredTrue', async () => {
-    // Regression: #1128. Plugin-marketplace install is exarchos's primary
-    // distribution path — the claude-code MCP is wired via the plugin
-    // manifest, not the top-level `~/.claude.json`. The detector must
-    // consult `installed_plugins.json` + the per-plugin manifest.
     const home = '/tmp/home-plugin-installed';
     const claudeJson = `${home}/.claude.json`;
     const installedPluginsJson = `${home}/.claude/plugins/installed_plugins.json`;
@@ -257,6 +256,7 @@ describe('detectAgentEnvironments — cursor/codex/copilot/opencode', () => {
     expect(cursor.mcpRegistered).toBe(true);
   });
 
+  /** The codex probe checks only that `.codex/` exists, so `configValid` equals `configPresent`. */
   it('DetectAgentEnvironments_CodexDirPresent_ReturnsCodexConfigPresent', async () => {
     const cwd = '/tmp/proj-codex';
     const codexDir = `${cwd}/.codex`;
@@ -269,8 +269,6 @@ describe('detectAgentEnvironments — cursor/codex/copilot/opencode', () => {
 
     const codex = result.find((r) => r.name === 'codex')!;
     expect(codex.configPresent).toBe(true);
-    // Codex probing here is presence-only; validity and mcp registration
-    // require reading a config file we don't assume exists.
     expect(codex.configValid).toBe(true);
   });
 

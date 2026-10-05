@@ -20,7 +20,6 @@ describe('ExarchosConfig I/O (A3)', () => {
     rmrf(tmpDir);
   });
 
-  /** Helper: create a valid config object for testing. */
   function createValidConfig(): ExarchosConfig {
     return {
       version: '1.0.0',
@@ -110,9 +109,8 @@ describe('ExarchosConfig I/O (A3)', () => {
       writeConfig(filePath, config);
 
       const raw = fs.readFileSync(filePath, 'utf-8');
-      // Pretty-printed JSON should have newlines and indentation
       expect(raw).toContain('\n');
-      expect(raw).toMatch(/^\{\n\s{2}/); // Opening brace, newline, 2-space indent
+      expect(raw).toMatch(/^\{\n\s{2}/);
     });
 
     it('writeConfig_CreatesParentDirectories', () => {

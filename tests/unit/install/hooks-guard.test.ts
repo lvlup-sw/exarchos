@@ -1,11 +1,10 @@
 /**
- * Tests for the `hooks:guard` CI check (#1476 T10).
+ * Tests for the `hooks:guard` CI check. This file is the hooks twin of
+ * `skills-guard.test.ts`.
  *
- * Mirrors `skills-guard.test.ts`: the guard re-renders the hooks tree
- * in-process against a project root and invokes `git diff --exit-code
- * hooks/`. A non-empty diff (stale committed output, or a hand-edit of a
- * generated file the build just overwrote) makes the guard report a
- * non-zero result so CI fails the PR with a remediation message.
+ * The guard builds the hooks tree in process and runs `git diff --exit-code` on
+ * `hooks/` and `binding/`. A diff means stale committed output or a hand edit of
+ * a generated file. On a diff, the guard returns exit code 1.
  */
 
 import { describe, it, expect, afterEach } from 'vitest';
@@ -25,13 +24,13 @@ function makeTempDir(): string {
   return dir;
 }
 
+/** Removes the temp directories. A removal failure does not fail the test. */
 afterEach(() => {
   while (tempDirs.length > 0) {
     const d = tempDirs.pop()!;
     try {
       rmrf(d);
     } catch {
-      /* best-effort */
     }
   }
 });
@@ -105,10 +104,12 @@ function writeHooksSource(srcDir: string): void {
   );
 }
 
+/**
+ * Writes a binding block with no placeholder. The build renders it once, into
+ * `binding/standard/block.md`.
+ */
 function writeBindingSource(srcDir: string): void {
   mkdirSync(srcDir, { recursive: true });
-  // Runtime-neutral logical prose (DR-5): the block is placeholder-free, so the
-  // build renders it once into `binding/standard/block.md`.
   writeFileSync(
     join(srcDir, 'binding.md'),
     'This project uses Exarchos. Route via `exarchos:exarchos_workflow`.\n',
@@ -176,12 +177,15 @@ function shrunkRuntimeYaml(name: string, hooksLines: string[]): string {
 }
 
 /**
- * Provision a temp project shaped like the post-shrink (DR-7) world: a hooks.json
- * source with SessionStart + SubagentStop (no SessionEnd), and runtimes exercising
- * every post-shrink dispatch branch — claude (`claude-json` → the sole active
- * hooks.json), codex (`claude-json` non-Claude → note), opencode (`opencode-plugin`
- * → note; a plugin template is present so a *reverted* renderer would still build
- * and emit the retired plugin, making the shape assertions the drift detector).
+ * Provision a temp project whose `hooks.json` source holds `SessionStart` and
+ * `SubagentStop`, and no `SessionEnd`. The runtimes cover the `claude-json`,
+ * `opencode-plugin` and `none` profiles. The claude runtime gets the one active
+ * `hooks.json`, and each other runtime gets a note. Codex also declares
+ * `claude-json`, so it covers the note branch of that profile.
+ *
+ * The opencode plugin template is present, although the renderer does not read
+ * it. Thus a renderer that emits the plugin again still builds, and the shape
+ * assertions catch it.
  */
 async function provisionShrunkProject(): Promise<{ root: string; outDir: string }> {
   const root = makeTempDir();
@@ -204,8 +208,6 @@ async function provisionShrunkProject(): Promise<{ root: string; outDir: string 
       2,
     ) + '\n',
   );
-  // Present only so a reverted (pre-shrink) renderer can still build; the current
-  // renderer never reads it (opencode falls through to a note).
   writeFileSync(join(srcDir, 'opencode-plugin.ts.tmpl'), 'export const X = 1;\n');
 
   writeBindingSource(join(root, 'content/harness/binding'));
@@ -278,10 +280,9 @@ describe('runHooksGuard — #1476 T10', () => {
     expect(result.exitCode).toBe(0);
   });
 
+  /** The test changes the hook source after the commit, so the committed `hooks/` tree is stale. */
   it('HooksGuard_SourceChangedNotRegenerated_FailsWithDrift', async () => {
     const root = await provisionProject();
-    // Mutate the source AFTER committing — the committed hooks/ tree is now
-    // stale relative to what the build would produce.
     writeFileSync(
       join(root, 'content/harness/hooks', 'hooks.json'),
       JSON.stringify(
@@ -303,11 +304,12 @@ describe('runHooksGuard — #1476 T10', () => {
     expect(result.message).toMatch(/build:hooks|hooks:guard|stale|drift/i);
   });
 
+  /**
+   * The test commits a tampered generated file. The guard builds the correct
+   * content, and `git diff` shows the drift.
+   */
   it('HooksGuard_CommittedTreeStale_FailsWithDrift', async () => {
     const root = await provisionProject();
-    // Commit a tampered generated file so the committed hooks/ tree no longer
-    // matches what the build produces. The build regenerates the correct
-    // content; `git diff` against the stale committed version shows drift.
     writeFileSync(join(root, 'hooks', 'hooks.json'), '{"hooks":{"tampered":[]}}\n');
     await execFileAsync('git', ['add', '-A'], { cwd: root, env: gitEnv });
     await execFileAsync('git', ['commit', '-q', '-m', 'tamper'], { cwd: root, env: gitEnv });
@@ -319,17 +321,18 @@ describe('runHooksGuard — #1476 T10', () => {
 });
 
 describe('runHooksGuard — shrunk hook tree (DR-7)', () => {
+  /**
+   * A pass of the guard is not sufficient, so the test also asserts the shape of
+   * the shrunk tree. The Claude `hooks.json` is the one active artifact, and
+   * codex and opencode emit no lifecycle artifact.
+   */
   it('hooksGuard_ShrunkTree_Passes', async () => {
     const { root, outDir } = await provisionShrunkProject();
 
-    // The freshly built + committed shrunk tree round-trips with no drift.
     const result = runHooksGuard({ cwd: root });
     expect(result.ok, result.message).toBe(true);
     expect(result.exitCode).toBe(0);
 
-    // Tie the guard-pass to the actual shrink so a reverted renderer is caught:
-    // the sole active artifact is the Claude plugin hooks.json (SubagentStop, no
-    // SessionEnd), and neither codex nor opencode emit a lifecycle artifact.
     const claude = JSON.parse(readFileSync(join(outDir, 'hooks.json'), 'utf8'));
     expect(Object.keys(claude.hooks)).toContain('SubagentStop');
     expect(Object.keys(claude.hooks)).not.toContain('SessionEnd');

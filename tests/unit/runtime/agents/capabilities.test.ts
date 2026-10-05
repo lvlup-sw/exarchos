@@ -33,11 +33,9 @@ describe('Capability vocabulary', () => {
     expect(CAPABILITY_KEYS.size).toBe(Capability.options.length);
   });
 
+  /** `Object.freeze` does not protect the entries of a `Set`, so the test also checks that `add`, `delete` and `clear` throw. */
   it('CapabilityKeys_IsReadonly', () => {
     expect(Object.isFrozen(CAPABILITY_KEYS)).toBe(true);
-    // `Object.freeze` alone does not protect Set internals — verify that
-    // mutators actually throw (the freezeCapabilityKeys helper replaces
-    // .add/.delete/.clear with throwing stubs).
     const mutable = CAPABILITY_KEYS as unknown as Set<string>;
     const sizeBefore = CAPABILITY_KEYS.size;
     expect(() => mutable.add('not-a-real-capability')).toThrow(TypeError);

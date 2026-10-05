@@ -1,12 +1,7 @@
-// ─── OpenCode adapter contract tests ───────────────────────────────────────
-//
-// OpenCode agents are Markdown files with YAML frontmatter at
-// `.opencode/agents/<name>.md`. The frontmatter shape differs from
-// Claude's: `tools` is a boolean object/map (not an array), and the
-// agent kind is declared via `mode: subagent`.
-//
-// See docs/designs/archive/2026-04-25-delegation-runtime-parity.md §4.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Contract tests for the OpenCode `RuntimeAdapter`. OpenCode agents are Markdown with YAML frontmatter at `.opencode/agents/<name>.md`.
+ * Unlike the Claude format, `tools` is a boolean map, and `mode: subagent` declares the agent kind.
+ */
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { parse as parseYaml } from 'yaml';
@@ -63,14 +58,13 @@ describe('OpenCodeAdapter', () => {
     expect(tools.edit).toBe(true);
   });
 
+  /** The reviewer does not resolve to `fs:write`, so `write` and `edit` must be explicitly `false`, not absent. */
   it('OpenCodeAdapter_LowerReviewer_EmitsReadOnlyTools', () => {
-    // REVIEWER declares fs:read + mcp:exarchos (no fs:write, no shell:exec).
     const { contents } = OpenCodeAdapter.lowerSpec(REVIEWER);
     const { data } = splitFrontmatter(contents);
 
     const tools = data.tools as Record<string, boolean>;
     expect(tools.read).toBe(true);
-    // fs:write is NOT declared — write/edit must be explicitly false.
     expect(tools.write).toBe(false);
     expect(tools.edit).toBe(false);
   });
@@ -93,11 +87,11 @@ describe('OpenCodeAdapter', () => {
     }
   });
 
+  /**
+   * The readonly tier must still enable the `exarchos` server in the `mcp` map.
+   * The dispatch layer limits the tier to the read-only actions.
+   */
   it('OpenCodeAdapter_LowerSpec_Readonly_GrantsExarchosTool', () => {
-    // Item 1, T10 (#1192): the readonly tier of mcp:exarchos must still
-    // surface the exarchos MCP server in OpenCode's `mcp` map. The server-
-    // side allowlist (T04) is what enforces read-only action filtering;
-    // the adapter just needs to grant the tool so the agent can dial it.
     forceCapabilities(['fs:read', 'mcp:exarchos:readonly']);
     const { contents } = OpenCodeAdapter.lowerSpec(IMPLEMENTER);
     const { data } = splitFrontmatter(contents);
@@ -107,20 +101,18 @@ describe('OpenCodeAdapter', () => {
     expect(mcp?.exarchos).toBe(true);
   });
 
+  /**
+   * The body must hold the spec description and the system prompt.
+   * `## Task` and `{{taskDescription}}` are anchors from the implementer prompt.
+   * They fail a render that drops the prompt but keeps the description.
+   */
   it('OpenCodeAdapter_LowerSpec_BodyContainsSpecDescriptionAndSystemPromptSentinels', () => {
     const { contents } = OpenCodeAdapter.lowerSpec(IMPLEMENTER);
     const { body } = splitFrontmatter(contents);
-    // The lowered markdown body must include the spec's systemPrompt content
-    // (or, at minimum, the spec's description so dispatch context is preserved).
     expect(body).toContain(IMPLEMENTER.description);
-    // Sentinels from IMPLEMENTER.systemPrompt — structural anchors unlikely to
-    // be edited. Without these, a regression dropping most of systemPrompt
-    // would still pass the description-only assertion. See #1192 Item 10.
     expect(body).toContain('## Task');
     expect(body).toContain('{{taskDescription}}');
   });
-
-  // ─── #1333 β-04: adapter routes capability rendering through resolver ────
 
   it('OpenCodeAdapter_RenderAgentSpec_CallsResolveCapabilitiesNotSpecField', () => {
     const spy = vi.spyOn(PostureMapping, 'resolveCapabilities');

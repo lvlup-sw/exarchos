@@ -1,12 +1,8 @@
-// ─── runtimes/claude.yaml supportedCapabilities tests ──────────────────────
-//
-// Asserts that `content/harness/runtimes/claude.yaml` declares a `supportedCapabilities`
-// YAML mapping (NOT a list) that mirrors `claudeAdapter.supportLevels`.
-// This declaration is consumed by the prose renderer (Tasks 8/9) to gate
-// `<!-- requires:* -->` and `<!-- requires:native:* -->` blocks.
-//
-// Implements: Task 7a of docs/plans/archive/2026-04-25-delegation-runtime-parity.md.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Tests that `content/harness/runtimes/claude.yaml` declares `supportedCapabilities` as a YAML mapping
+ * that agrees with `claudeAdapter.supportLevels`. The skills renderer reads the mapping to gate the
+ * `<!-- requires:CAP -->` and `<!-- requires:native:CAP -->` blocks.
+ */
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -18,8 +14,7 @@ import { claudeAdapter } from '../../../../src/runtime/agents/adapters/claude.js
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// `content/harness/runtimes/claude.yaml` lives at the repo root, four levels up from this
-// test file (src/runtime/runtimes/claude.test.ts).
+/** The path of the Claude runtime map. The repository root is four directories above this file. */
 const CLAUDE_YAML_PATH = resolve(
   __dirname,
   '../../../../content/harness/runtimes/claude.yaml');
@@ -52,13 +47,14 @@ function loadClaudeYaml(): Record<string, unknown> {
 }
 
 describe('content/harness/runtimes/claude.yaml supportedCapabilities', () => {
+  /**
+   * `supportedCapabilities` must be a YAML mapping, not a list, because the renderer reads one support level per capability.
+   * The mapping must hold the eleven capability keys and no other key.
+   */
   it('ClaudeYaml_SupportedCapabilities_AllElevenAreNative', () => {
     const data = loadClaudeYaml();
     const supported = data.supportedCapabilities;
 
-    // Must be a YAML mapping (object), not a list/array. The prose renderer
-    // (Tasks 8/9) needs per-capability support-level strings to gate
-    // `<!-- requires:* -->` vs `<!-- requires:native:* -->` blocks.
     expect(supported).toBeDefined();
     expect(supported).not.toBeNull();
     expect(Array.isArray(supported)).toBe(false);
@@ -71,17 +67,19 @@ describe('content/harness/runtimes/claude.yaml supportedCapabilities', () => {
       expect(map[key], `capability '${key}' should be 'native'`).toBe('native');
     }
 
-    // No additional keys beyond the canonical eleven.
     expect(Object.keys(map).sort()).toEqual([...REQUIRED_CAPABILITY_KEYS].sort());
   });
 
+  /**
+   * The YAML level must equal the adapter level for each capability that the adapter supports.
+   * The loop skips an `unsupported` capability and does not check that the YAML omits it.
+   */
   it('ClaudeYaml_AdapterAlignment_MatchesSupportLevels', () => {
     const data = loadClaudeYaml();
     const supported = data.supportedCapabilities as Record<string, unknown>;
 
     for (const [cap, level] of Object.entries(claudeAdapter.supportLevels)) {
       if (level === 'unsupported') {
-        // Unsupported capabilities are absent from the YAML by contract.
         continue;
       }
       expect(

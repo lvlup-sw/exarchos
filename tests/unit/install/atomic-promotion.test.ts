@@ -1,22 +1,16 @@
 /**
- * atomic-promotion.test.ts — exit-proof tests for staged, atomic, rollback-proof
- * multi-file tree promotion (P04-04; EFF-009, EFF-012).
+ * Tests for the staged, atomic promotion of a multi-file tree. They run on the real filesystem
+ * and force failures through the {@link PromotionIo} seam at these stages:
  *
- * The proofs exercise the promotion on the REAL filesystem (temp dirs) and force
- * failures through the injectable {@link PromotionIo} seam at four distinct
- * stages plus a double-fault "hard crash":
+ *   - mid-stage: a file write fails before the stage is complete
+ *   - stage-verify: the engine rejects a corrupt stage before the promotion
+ *   - start of promotion: the rename of `target` to the backup fails
+ *   - mid-promotion: the rename of the staging directory to `target` fails
+ *   - hard crash: the mid-promotion rename and the rollback restore both fail
+ *   - finalize: the removal of the backup after the commit fails
  *
- *   - mid-stage (a file write fails before staging completes),
- *   - stage-verify (a corrupt stage is rejected before any promote),
- *   - after-stage / start-of-promote (the `target → backup` rename fails),
- *   - mid-promote (the `staging → target` rename fails after `target` moved aside),
- *   - hard crash (mid-promote AND the rollback restore also fail).
- *
- * After every injected failure the destination is asserted to be either the
- * COMPLETE old tree or the COMPLETE new tree (verified by {@link digestTree},
- * never by file count), and a retry is asserted to converge. Dry-run is asserted
- * to mutate nothing, and a promoted tree is asserted to be content-faithful
- * (the projection-containment "present" property).
+ * After each failure, the destination must be the complete old tree or the complete new tree,
+ * by {@link digestTree}. A retry must converge, and a dry run must change nothing.
  */
 
 import { fileURLToPath } from 'node:url';
@@ -43,18 +37,17 @@ import {
 } from '../../../src/install/atomic-promotion.js';
 import { PromotionExecutedData } from '../../../src/events/schemas.js';
 
-// ─── Fixtures + helpers ───────────────────────────────────────────────────────
-
 const OLD_TREE: DigestEntry[] = [
   { path: 'a.md', content: 'OLD alpha\n' },
   { path: 'nested/b.md', content: 'OLD beta\n' },
   { path: 'nested/deep/c.md', content: 'OLD gamma\n' },
 ];
 
+/** Compared with `OLD_TREE`, this tree has no `nested/deep/c.md` and adds `d.md`. */
 const NEW_TREE: DigestEntry[] = [
   { path: 'a.md', content: 'NEW alpha (rewritten)\n' },
   { path: 'nested/b.md', content: 'NEW beta (rewritten)\n' },
-  { path: 'd.md', content: 'NEW delta (added)\n' }, // c.md removed, d.md added
+  { path: 'd.md', content: 'NEW delta (added)\n' },
 ];
 
 /** Materialize a tree on disk under `dir`. */
@@ -87,9 +80,8 @@ function diskDigest(dir: string): string {
 }
 
 /**
- * Wrap a base IO so `hook` runs BEFORE each delegated operation — a `hook` that
- * throws forces a fault at exactly that operation (before the real write/rename
- * happens, so the failure is genuine).
+ * Wrap a base IO so that `hook` runs before each operation. A `hook` that throws faults that
+ * operation before the real write or rename occurs.
  */
 function wrapIo(
   base: PromotionIo,
@@ -134,8 +126,6 @@ function expectNoScaffolding(): void {
   expect(fs.existsSync(journalFile())).toBe(false);
 }
 
-// ─── Happy paths ──────────────────────────────────────────────────────────────
-
 describe('promoteTreeSync — happy path', () => {
   it('promotes a new tree into an ABSENT target and leaves no scaffolding', () => {
     const report = promoteTreeSync({ target, entries: NEW_TREE });
@@ -145,6 +135,7 @@ describe('promoteTreeSync — happy path', () => {
     expectNoScaffolding();
   });
 
+  /** The swap replaces the full tree and does not merge: `c.md` is absent and `d.md` is present. */
   it('replaces an EXISTING old tree with the new tree, whole', () => {
     writeTree(target, OLD_TREE);
     expect(diskDigest(target)).toBe(OLD_DIGEST);
@@ -153,7 +144,6 @@ describe('promoteTreeSync — happy path', () => {
 
     expect(report.promoted).toBe(true);
     expect(diskDigest(target)).toBe(NEW_DIGEST);
-    // The removed c.md is gone; the added d.md is present — a whole swap, not a merge.
     expect(fs.existsSync(path.join(target, 'nested', 'deep', 'c.md'))).toBe(false);
     expect(fs.existsSync(path.join(target, 'd.md'))).toBe(true);
     expectNoScaffolding();
@@ -168,9 +158,8 @@ describe('promoteTreeSync — happy path', () => {
   });
 });
 
-// ─── Fault injection: exit-proof (either fully-old or fully-new) ──────────────
-
 describe('promoteTreeSync — fault injection leaves no torn state', () => {
+  /** The second staged write fails. The destination stays the complete old tree, and the engine removes the partial stage. */
   it('FAULT mid-stage: target stays fully OLD; retry converges to NEW', () => {
     writeTree(target, OLD_TREE);
     let writes = 0;
@@ -182,20 +171,18 @@ describe('promoteTreeSync — fault injection leaves no torn state', () => {
     });
 
     expect(() => promoteTreeSync({ target, entries: NEW_TREE }, io)).toThrow(PromotionError);
-    // Exit proof: the destination is the COMPLETE old tree, never a mix.
     expect(diskDigest(target)).toBe(OLD_DIGEST);
-    expect(fs.existsSync(stageDir())).toBe(false); // partial stage dropped
+    expect(fs.existsSync(stageDir())).toBe(false);
 
-    // Retry with a clean IO converges to NEW.
     const report = promoteTreeSync({ target, entries: NEW_TREE });
     expect(diskDigest(target)).toBe(NEW_DIGEST);
     expect(report.promoted).toBe(true);
     expectNoScaffolding();
   });
 
+  /** The IO writes different bytes for `a.md`, so the staged digest does not match the request. */
   it('FAULT stage-verify: a corrupt stage is rejected before any promote (target OLD)', () => {
     writeTree(target, OLD_TREE);
-    // Corrupt one staged file's bytes so the staged digest disagrees with the request.
     const io = wrapIo(defaultPromotionIo(), () => {});
     const corrupting: PromotionIo = {
       ...io,
@@ -236,6 +223,10 @@ describe('promoteTreeSync — fault injection leaves no torn state', () => {
     expectNoScaffolding();
   });
 
+  /**
+   * The in-line rollback restores the old tree and removes the scaffolding. Thus the retry has
+   * no prior attempt to recover.
+   */
   it('FAULT mid-promote (staging→target rename): in-line rollback restores fully OLD', () => {
     writeTree(target, OLD_TREE);
     const io = wrapIo(defaultPromotionIo(), (op, from) => {
@@ -245,16 +236,19 @@ describe('promoteTreeSync — fault injection leaves no torn state', () => {
     });
 
     expect(() => promoteTreeSync({ target, entries: NEW_TREE }, io)).toThrow(PromotionError);
-    // The window between the two renames is closed by rollback → fully OLD.
     expect(diskDigest(target)).toBe(OLD_DIGEST);
     expectNoScaffolding();
 
     const report = promoteTreeSync({ target, entries: NEW_TREE });
     expect(diskDigest(target)).toBe(NEW_DIGEST);
-    expect(report.recoveredPriorAttempt).toBe(false); // in-line rollback already cleaned up
+    expect(report.recoveredPriorAttempt).toBe(false);
     expectNoScaffolding();
   });
 
+  /**
+   * A cleanup fault after the commit point does not fail the promotion. The backup stays
+   * beside a complete new tree, and the next run removes it.
+   */
   it('FAULT finalize (backup cleanup after commit): destination is fully NEW', () => {
     writeTree(target, OLD_TREE);
     const io = wrapIo(defaultPromotionIo(), (op, first) => {
@@ -263,12 +257,10 @@ describe('promoteTreeSync — fault injection leaves no torn state', () => {
       }
     });
 
-    // Cleanup faults after the commit point are swallowed — the promotion succeeds.
     const report = promoteTreeSync({ target, entries: NEW_TREE }, io);
     expect(report.promoted).toBe(true);
-    expect(diskDigest(target)).toBe(NEW_DIGEST); // fully NEW
+    expect(diskDigest(target)).toBe(NEW_DIGEST);
 
-    // A leftover backup is still a fully-NEW destination; recovery/retry cleans it.
     const cleaned = promoteTreeSync({ target, entries: NEW_TREE });
     expect(diskDigest(target)).toBe(NEW_DIGEST);
     expect(cleaned.promoted).toBe(true);
@@ -276,19 +268,19 @@ describe('promoteTreeSync — fault injection leaves no torn state', () => {
   });
 });
 
-// ─── Staging containment: DigestEntry.path may not escape the staging dir ─────
-//
-// Regression: `stageEntries` used to join `entry.path` under the staging dir
-// with no containment validation, so a `..` segment wrote OUTSIDE the staging
-// dir (`../escape.txt` landed beside the target's parent). Entry paths are
-// caller-supplied data; every component is now validated through the same
-// guard the artifact store uses, and a violation fails with the module's
-// typed error before any byte is written.
-
+/**
+ * An entry path is caller data, and it must not escape the staging directory. The engine checks
+ * each path component with the guard of the artifact store. A violation throws the typed
+ * error of the module, and the engine writes no byte of that entry.
+ */
 describe('promoteTreeSync — staging containment', () => {
+  /**
+   * Without the guard, `../escape.txt` lands at `escape.txt` in the parent of `target`. A
+   * containment violation is a stage failure, so `target` stays the old tree.
+   */
   it('a `..` entry path is rejected typed and writes NOTHING outside the staging dir', () => {
     writeTree(target, OLD_TREE);
-    const escapeLanding = path.join(root, 'escape.txt'); // where `../escape.txt` would land
+    const escapeLanding = path.join(root, 'escape.txt');
 
     const err = (() => {
       try {
@@ -308,7 +300,6 @@ describe('promoteTreeSync — staging containment', () => {
       fs.existsSync(escapeLanding),
       'a traversal entry must not write outside the staging dir',
     ).toBe(false);
-    // A containment violation is a stage failure: target fully OLD, stage dropped.
     expect(diskDigest(target)).toBe(OLD_DIGEST);
     expect(fs.existsSync(stageDir())).toBe(false);
   });
@@ -335,14 +326,14 @@ describe('promoteTreeSync — staging containment', () => {
   });
 });
 
-// ─── Hard crash (double fault) + journal recovery ────────────────────────────
-
 describe('promoteTreeSync — hard crash + idempotent recovery (EFF-012)', () => {
+  /**
+   * Faults the commit rename and the rollback restore, as a process kill during the promotion
+   * does. Then `target` is absent, the backup holds the complete old tree, and the journal
+   * stays. A retry recovers the old tree and then promotes the new tree.
+   */
   it('double fault (promote AND rollback) leaves the OLD tree recoverable; retry converges', () => {
     writeTree(target, OLD_TREE);
-    // Fault BOTH the commit rename (staging→target) and the rollback restore
-    // (backup→target) — simulating a process kill mid-promote where the in-line
-    // rollback cannot complete either.
     const io = wrapIo(defaultPromotionIo(), (op, from) => {
       if (op === 'rename' && from.includes('.exarchos-stage')) throw new InjectedFault('commit killed');
       if (op === 'rename' && from.includes('.exarchos-backup')) throw new InjectedFault('rollback killed');
@@ -350,19 +341,17 @@ describe('promoteTreeSync — hard crash + idempotent recovery (EFF-012)', () =>
 
     expect(() => promoteTreeSync({ target, entries: NEW_TREE }, io)).toThrow(PromotionError);
 
-    // Crash state: target absent, but the COMPLETE old tree survives in backup and
-    // the journal records how to finish — nothing is torn, no bytes lost.
     expect(fs.existsSync(target)).toBe(false);
     expect(diskDigest(backupDir())).toBe(OLD_DIGEST);
     expect(fs.existsSync(journalFile())).toBe(true);
 
-    // Retry with a clean IO recovers OLD, then promotes NEW — converged.
     const report = promoteTreeSync({ target, entries: NEW_TREE });
     expect(report.recoveredPriorAttempt).toBe(true);
     expect(diskDigest(target)).toBe(NEW_DIGEST);
     expectNoScaffolding();
   });
 
+  /** Recovery alone restores the complete old tree. A second recovery finds no journal and returns `false`. */
   it('recoverInterruptedPromotion alone restores the OLD tree after a crash (no re-promote)', () => {
     writeTree(target, OLD_TREE);
     const io = wrapIo(defaultPromotionIo(), (op, from) => {
@@ -372,24 +361,20 @@ describe('promoteTreeSync — hard crash + idempotent recovery (EFF-012)', () =>
     expect(() => promoteTreeSync({ target, entries: NEW_TREE }, io)).toThrow(PromotionError);
     expect(fs.existsSync(target)).toBe(false);
 
-    // Standalone recovery converges the destination to the COMPLETE old tree.
     const recovered = recoverInterruptedPromotion(target);
     expect(recovered).toBe(true);
     expect(diskDigest(target)).toBe(OLD_DIGEST);
     expectNoScaffolding();
 
-    // And a fresh recover on a clean tree is a no-op.
     expect(recoverInterruptedPromotion(target)).toBe(false);
   });
 });
 
-// ─── Effect carrier + dry-run (P04-01) ───────────────────────────────────────
-
+/**
+ * `collectingRecorder` is a stand-in for the durable store that a production caller supplies.
+ * It keeps each record in call order.
+ */
 describe('promoteTree — effect carrier', () => {
-  /**
-   * A recorder standing in for the durable store a production caller supplies:
-   * it keeps every record it was handed, in the order it was handed them.
-   */
   function collectingRecorder(): {
     recorder: (record: PromotionExecutedRecord) => void;
     records: PromotionExecutedRecord[];
@@ -403,6 +388,7 @@ describe('promoteTree — effect carrier', () => {
     };
   }
 
+  /** The IO seam gets no call, the target does not change, and the recorder gets no record. */
   it('dry-run performs NO promotion, returns the withheld plan, and records NOTHING', async () => {
     writeTree(target, OLD_TREE);
     let touched = false;
@@ -417,12 +403,9 @@ describe('promoteTree — effect carrier', () => {
       expect(outcome.plan.idempotent).toBe(true);
       expect(outcome.plan.compensation).toContain('roll back');
     }
-    // Structurally proven: the IO seam was never touched, and the target is unchanged.
     expect(touched).toBe(false);
     expect(diskDigest(target)).toBe(OLD_DIGEST);
     expectNoScaffolding();
-    // A withheld effect leaves the ledger as silent as it leaves the disk: the
-    // recorder was supplied and still never reached.
     expect(records).toEqual([]);
   });
 
@@ -437,6 +420,10 @@ describe('promoteTree — effect carrier', () => {
     expect(diskDigest(target)).toBe(NEW_DIGEST);
   });
 
+  /**
+   * The engine rolls back to the complete old tree. A rollback records nothing, because the
+   * plan declares only a success emission.
+   */
   it('live failure is captured into a structured error carrier (no throw)', async () => {
     writeTree(target, OLD_TREE);
     const io = wrapIo(defaultPromotionIo(), (op, from) => {
@@ -449,27 +436,23 @@ describe('promoteTree — effect carrier', () => {
       expect(outcome.error.code).toBe('INSTALL_EFFECT_FAILED');
       expect(typeof outcome.error.message).toBe('string');
     }
-    // Rolled back to fully OLD despite the failure.
     expect(diskDigest(target)).toBe(OLD_DIGEST);
-    // A promotion that rolled back records nothing — there is no success
-    // terminal to fire and the plan declares no failure terminal to invent one.
     expect(records).toEqual([]);
   });
 
+  /**
+   * The recorder blocks, so the test can see whether the promotion promise settles while its
+   * record is in flight. A fire-and-forget append lets the promise settle first. One log gets
+   * an entry from the recorder and an entry from the promise continuation, so it gives their
+   * order. The two event-loop turns after `entered` give an early settle the time to show.
+   * The record must parse with the catalog schema, and its owner must be the plan owner.
+   */
   it('PromoteTree_LiveMode_CommitsItsEventBeforeReturning', async () => {
-    // "Committed before returning" cannot be observed after the fact: by then
-    // "committed first" and "committed at some point" look identical. So the
-    // recorder is made to BLOCK, and the question becomes whether the promotion
-    // promise can settle while its record is still in flight. If the append
-    // were fire-and-forget — or moved after the return — it could, and the
-    // assertion below that nothing has settled yet turns red.
     let releaseRecorder!: () => void;
     let recorderEntered!: () => void;
     const held = new Promise<void>((resolve) => { releaseRecorder = resolve; });
     const entered = new Promise<void>((resolve) => { recorderEntered = resolve; });
 
-    // One log, written by both the recorder and the promotion's continuation,
-    // so the ORDER of the two is what is being read back — not their presence.
     const order: string[] = [];
     const recorded: PromotionExecutedRecord[] = [];
 
@@ -488,9 +471,7 @@ describe('promoteTree — effect carrier', () => {
       return outcome;
     });
 
-    // The recorder is inside its append and has not been let out.
     await entered;
-    // Give the promotion every chance to settle early, if it were going to.
     await new Promise((resolve) => { setImmediate(resolve); });
     await new Promise((resolve) => { setTimeout(resolve, 0); });
     expect(order, 'the promotion returned while its record was still in flight').toEqual([]);
@@ -498,45 +479,34 @@ describe('promoteTree — effect carrier', () => {
     releaseRecorder();
     const outcome = await settling;
 
-    // The commit strictly precedes the return, read off ONE ordered log.
     expect(order).toEqual(['committed', 'returned']);
     expect(isSuccess(outcome)).toBe(true);
 
-    // And what was committed is the registered fact, with the payload the
-    // catalog's schema demands — read through the schema, not restated.
     expect(recorded).toHaveLength(1);
     const record = recorded[0];
     expect(PromotionExecutedData.parse(record)).toEqual(record);
     expect(record?.target).toBe(target);
     expect(record?.treeDigest).toBe(NEW_DIGEST);
     expect(record?.recoveredPriorAttempt).toBe(false);
-    // The owner on the record is the plan's own, so the two cannot drift.
     expect(record?.owner).toBe(promotionPlan('install/atomic-promotion', target).owner);
-    // The site declares exactly this name, on success only.
     expect(promotionPlan('install/atomic-promotion', target).emits).toEqual({
       kind: 'records',
       emissions: [{ event: PROMOTION_EXECUTED, when: 'on-success' }],
     });
-    // The tree really did land — the record describes a promotion that happened.
     expect(diskDigest(target)).toBe(NEW_DIGEST);
   });
 
+  /**
+   * The plan declares an emission, so a live call with no recorder throws before any IO. The
+   * refusal is a throw and not an error carrier, because a missing recorder is a wiring fault
+   * in the caller. `promoteTree` makes the check itself. The carrier sees a wrapper around the
+   * recorder, so its own check fires only after the tree moves.
+   */
   it('PromoteTree_LiveModeWithNoRecorder_RefusesBeforeTouchingTheTree', async () => {
     writeTree(target, OLD_TREE);
     let touched = false;
     const io = wrapIo(defaultPromotionIo(), () => { touched = true; });
 
-    // The plan declares an emission, so a live call with no capability to
-    // record it is refused UP FRONT. The refusal propagates rather than
-    // arriving as an error carrier: an unrecordable fact is a wiring fault in
-    // the caller, not a failure of the promotion.
-    //
-    // The refusal now comes from this owner's own guard rather than from the
-    // carrier. It has to: the owner WRAPS the caller's recorder in a real
-    // capability, so a wrapper around nothing satisfies the carrier's brand
-    // check and the refusal would otherwise land at the success terminal —
-    // after the tree had moved. The invariant this test exists for is the last
-    // two assertions, and they are unchanged.
     await expect(
       promoteTree(
         { target, entries: NEW_TREE },
@@ -546,18 +516,18 @@ describe('promoteTree — effect carrier', () => {
       ),
     ).rejects.toThrow(/requires a recorder|EMISSION_NOT_RECORDED/);
 
-    // The one thing that must be true of a refusal: nothing moved.
     expect(touched).toBe(false);
     expect(diskDigest(target)).toBe(OLD_DIGEST);
     expectNoScaffolding();
   });
 });
 
-// ─── Projection-containment "present" property ───────────────────────────────
-
 describe('promoted tree is content-faithful (projection-containment present)', () => {
+  /**
+   * The promoted tree gives the same content digest as the source entries. A changed byte at
+   * the same path changes the digest.
+   */
   it('every source projection is present with a byte-faithful digest after promotion', () => {
-    // A skills-shaped tree: skills/<runtime>/<skill>/SKILL.md.
     const skills: DigestEntry[] = [
       { path: 'claude/planning/SKILL.md', content: '# planning\nbody\n' },
       { path: 'claude/planning/examples.md', content: 'example\n' },
@@ -565,8 +535,6 @@ describe('promoted tree is content-faithful (projection-containment present)', (
     ];
     promoteTreeSync({ target, entries: skills });
 
-    // "present": the shipped tree resolves to the SAME content-addressed digest as
-    // the authored source — a same-path byte replacement would change the digest.
     expect(digestTree(readTree(target))).toBe(digestTree(skills));
     for (const entry of skills) {
       const onDisk = fs.readFileSync(path.join(target, ...entry.path.split('/')), 'utf8');
@@ -574,8 +542,6 @@ describe('promoted tree is content-faithful (projection-containment present)', (
     }
   });
 });
-
-// ─── atomicCopyTreeSync (production copyDir seam) ────────────────────────────
 
 describe('atomicCopyTreeSync — the atomic copyDir seam', () => {
   it('copies a source dir into an absent dest, whole', () => {
@@ -598,7 +564,6 @@ describe('atomicCopyTreeSync — the atomic copyDir seam', () => {
       }
     });
     expect(() => atomicCopyTreeSync(src, dest, io)).toThrow(PromotionError);
-    // dest never became a torn partial tree.
     expect(fs.existsSync(dest)).toBe(false);
 
     atomicCopyTreeSync(src, dest);
@@ -606,9 +571,7 @@ describe('atomicCopyTreeSync — the atomic copyDir seam', () => {
   });
 });
 
-// ─── EFF-012: idempotent retry + rollback across the supported runtimes ───────
-
-/** Read the declared runtime ids from the repo-root `content/harness/runtimes/*.yaml`. */
+/** Return the sorted `name` of each runtime YAML file in `content/harness/runtimes`. */
 function declaredRuntimes(): string[] {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const runtimesDir = path.resolve(here, '../../../content/harness/runtimes');
@@ -625,17 +588,20 @@ function declaredRuntimes(): string[] {
 describe('EFF-012 — onboarding install converges per supported runtime', () => {
   const runtimes = declaredRuntimes();
 
+  /** Without this check, the loop below can run for zero runtimes and pass. */
   it('discovers the supported runtimes from content/harness/runtimes/*.yaml', () => {
-    // Guards the loop below against silently testing zero runtimes.
     expect(runtimes).toEqual(
       expect.arrayContaining(['claude', 'codex', 'copilot', 'cursor', 'generic', 'opencode']),
     );
   });
 
   for (const runtime of runtimes) {
+    /**
+     * Models the skill tree of one runtime that the onboarding install promotes. The first run
+     * fails at the swap rename and must leave the complete old tree. The second run converges
+     * to the new tree, and a third run changes nothing.
+     */
     it(`[${runtime}] a failed install rolls back to OLD, and re-running converges to NEW`, () => {
-      // Model the per-runtime skill tree the onboarding install promotes:
-      // skills/<runtime>/<skill>/SKILL.md.
       const runtimeDir = path.join(root, 'skills', runtime);
       const oldTree: DigestEntry[] = [
         { path: 'planning/SKILL.md', content: `# planning (${runtime})\nOLD\n` },
@@ -643,13 +609,12 @@ describe('EFF-012 — onboarding install converges per supported runtime', () =>
       ];
       const newTree: DigestEntry[] = [
         { path: 'planning/SKILL.md', content: `# planning (${runtime})\nNEW\n` },
-        { path: 'implement/SKILL.md', content: `# implement (${runtime})\nNEW\n` }, // added
+        { path: 'implement/SKILL.md', content: `# implement (${runtime})\nNEW\n` },
       ];
       const oldDigest = digestTree(oldTree);
       const newDigest = digestTree(newTree);
       writeTree(runtimeDir, oldTree);
 
-      // First run is interrupted mid-promote (process-kill on the swap rename).
       const io = wrapIo(defaultPromotionIo(), (op, from) => {
         if (op === 'rename' && from.includes('.exarchos-stage')) {
           throw new InjectedFault(`[${runtime}] install interrupted mid-promote`);
@@ -657,15 +622,12 @@ describe('EFF-012 — onboarding install converges per supported runtime', () =>
       });
       expect(() => promoteTreeSync({ target: runtimeDir, entries: newTree }, io)).toThrow(PromotionError);
 
-      // Exit proof: the runtime's skill tree is the COMPLETE old tree, never torn.
       expect(digestTree(readTree(runtimeDir))).toBe(oldDigest);
 
-      // Re-running onboarding install converges to the complete new tree.
       const report = promoteTreeSync({ target: runtimeDir, entries: newTree });
       expect(report.promoted).toBe(true);
       expect(digestTree(readTree(runtimeDir))).toBe(newDigest);
 
-      // A third run is a converged no-op (idempotent).
       promoteTreeSync({ target: runtimeDir, entries: newTree });
       expect(digestTree(readTree(runtimeDir))).toBe(newDigest);
     });

@@ -1,17 +1,15 @@
-// ─── Agent Spec Handler Tests ──────────────────────────────────────────────
+// Tests for the `agent_spec` action handler and its argument schema.
 
 import { describe, it, expect } from 'vitest';
 import { handleAgentSpec, agentSpecSchema } from '../../../../src/runtime/agents/handler.js';
 
 describe('handleAgentSpec', () => {
+  /** Each skill has its name and an empty `content`, because the runtime loads the skill content. */
   it('AgentSpec_ValidAgent_ReturnsFullSpec', async () => {
-    // Arrange
     const args = { agent: 'implementer' as const, outputFormat: 'full' as const };
 
-    // Act
     const result = await handleAgentSpec(args);
 
-    // Assert
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
     expect(data.agent).toBe('implementer');
@@ -25,7 +23,6 @@ describe('handleAgentSpec', () => {
     expect(data.memoryScope).toBe('project');
     expect(data.validationRules).toBeDefined();
     expect(data.skills).toBeDefined();
-    // Skills should have name but empty content (deferred to runtime)
     const skills = data.skills as Array<{ name: string; content: string }>;
     expect(skills.length).toBeGreaterThan(0);
     for (const skill of skills) {
@@ -35,17 +32,13 @@ describe('handleAgentSpec', () => {
   });
 
   it('AgentSpec_UnknownAgent_ReturnsError', async () => {
-    // Arrange
     const args = { agent: 'unknown-agent' } as unknown as Parameters<typeof handleAgentSpec>[0];
 
-    // Act
     const result = await handleAgentSpec(args);
 
-    // Assert
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('UNKNOWN_AGENT');
     expect(result.error?.message).toContain('unknown-agent');
-    // Should include validTargets in the error (matching codebase error pattern)
     expect(result.error?.validTargets).toBeDefined();
     const validTargets = result.error!.validTargets as string[];
     expect(validTargets).toContain('implementer');
@@ -54,7 +47,6 @@ describe('handleAgentSpec', () => {
   });
 
   it('AgentSpec_WithContext_InterpolatesTemplateVars', async () => {
-    // Arrange
     const args = {
       agent: 'implementer' as const,
       context: {
@@ -65,10 +57,8 @@ describe('handleAgentSpec', () => {
       outputFormat: 'full' as const,
     };
 
-    // Act
     const result = await handleAgentSpec(args);
 
-    // Assert
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
     const prompt = data.systemPrompt as string;
@@ -80,8 +70,8 @@ describe('handleAgentSpec', () => {
     expect(prompt).not.toContain('{{filePaths}}');
   });
 
+  /** The context fills one of the three placeholders of the implementer prompt. */
   it('AgentSpec_UnresolvedVars_ReportsUnresolved', async () => {
-    // Arrange: only provide one of three template vars
     const args = {
       agent: 'implementer' as const,
       context: {
@@ -90,10 +80,8 @@ describe('handleAgentSpec', () => {
       outputFormat: 'full' as const,
     };
 
-    // Act
     const result = await handleAgentSpec(args);
 
-    // Assert
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
     const unresolvedVars = data.unresolvedVars as string[];
@@ -104,8 +92,8 @@ describe('handleAgentSpec', () => {
     expect(unresolvedVars).not.toContain('taskDescription');
   });
 
+  /** The `prompt-only` format omits the spec fields but still reports `unresolvedVars`. */
   it('AgentSpec_PromptOnlyFormat_ReturnsJustPrompt', async () => {
-    // Arrange
     const args = {
       agent: 'reviewer' as const,
       context: {
@@ -115,23 +103,19 @@ describe('handleAgentSpec', () => {
       outputFormat: 'prompt-only' as const,
     };
 
-    // Act
     const result = await handleAgentSpec(args);
 
-    // Assert
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
     expect(data.agent).toBe('reviewer');
     expect(data.systemPrompt).toBeDefined();
     expect(data.systemPrompt).toContain('PR #42');
-    // prompt-only format should NOT include tools, model, etc.
     expect(data.tools).toBeUndefined();
     expect(data.model).toBeUndefined();
     expect(data.isolation).toBeUndefined();
     expect(data.validationRules).toBeUndefined();
     expect(data.skills).toBeUndefined();
     expect(data.resumable).toBeUndefined();
-    // unresolvedVars should still be reported
     expect(data.unresolvedVars).toBeDefined();
   });
 });

@@ -88,13 +88,13 @@ describe('runReleaseVerify (installer delegation CLI)', () => {
     expect(outcome.message).toMatch(/verified/);
   });
 
+  /** The trust root holds the key of an attacker, so the publisher signature does not verify. */
   it('CLI_BadSignature_Exits2', () => {
     const keys = makeKeyPair();
     const attacker = makeKeyPair();
     const io = makeIo({
       text: {
         'manifest.json': serializeSignedManifest(makeSigned(keys.privateKeyPem)),
-        // Trust root is the ATTACKER's key — the publisher signature won't chain.
         'pub.pem': attacker.publicKeyPem,
       },
       bytes: { 'asset.bin': ASSET_BYTES },
@@ -108,7 +108,7 @@ describe('runReleaseVerify (installer delegation CLI)', () => {
     const keys = makeKeyPair();
     const io = makeIo({
       text: { 'manifest.json': serializeSignedManifest(makeSigned(keys.privateKeyPem)), 'pub.pem': keys.publicKeyPem },
-      bytes: { 'asset.bin': new Uint8Array([0x00, 0x01]) }, // wrong bytes
+      bytes: { 'asset.bin': new Uint8Array([0x00, 0x01]) },
     });
     const outcome = runReleaseVerify(baseArgs(), io);
     expect(outcome.exitCode).toBe(2);

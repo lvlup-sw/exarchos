@@ -1,17 +1,10 @@
-// ─── #1840 — freshness is a property of the INSTALL, not of the store ────────
-//
-// The recorded install-identity lock was written into the WORKFLOW_STATE_DIR-
-// resolved event store, so the freshness verdict was a function of which store
-// the invocation happened to resolve. The same installation reported "fresh"
-// under its default store and "stale or mixed" under a pinned one — and the
-// gate blocked precisely the pinning an operator adopts to collapse a
-// store-path divergence. There was no configuration in which a plain CLI could
-// correctly write to the plugin's store.
-//
-// Second defect, and the sharper one: the binary version falls back to a
-// sentinel when it cannot be read, and the comparison used equality, so
-// unknown === unknown reported the dimension as MATCHING. `doctor` claimed all
-// five dimensions matched while separately warning that two were unknown.
+/**
+ * Install freshness is a property of the installation, not of the event store.
+ *
+ * The identity lock is keyed to the plugin root, so the verdict must not change
+ * with `WORKFLOW_STATE_DIR`. A binary version that cannot be read falls back to
+ * a sentinel. Two sentinel values must give `indeterminate`, not a match.
+ */
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import path from 'node:path';
@@ -86,20 +79,19 @@ function depsWithStateDir(files: Map<string, string>, workflowStateDir: string):
 beforeEach(() => resetInstallFreshnessGateForTest());
 
 describe('Install freshness is invariant under WORKFLOW_STATE_DIR (#1840)', () => {
+  /**
+   * The first run records the lock. The next two runs use two different stores,
+   * and both must report `fresh`.
+   */
   it('Freshness_SameInstallTwoStores_ReportsTheSameVerdict', () => {
     const files = coherentFiles();
 
-    // First run under store A bootstraps the TOFU lock.
     const bootstrap = evaluateInstallFreshness(depsWithStateDir(files, '/home/u/.exarchos/state'));
     expect(bootstrap.status).toBe('bootstrapped');
 
-    // Re-evaluating under store A sees the lock and reports fresh.
     resetInstallFreshnessGateForTest();
     const underA = evaluateInstallFreshness(depsWithStateDir(files, '/home/u/.exarchos/state'));
 
-    // The SAME installation under a DIFFERENT store must reach the SAME
-    // verdict. Pre-fix this returned 'bootstrapped' (a second, independent
-    // lock) or 'blocked'; the operator saw one install report two verdicts.
     resetInstallFreshnessGateForTest();
     const underB = evaluateInstallFreshness(depsWithStateDir(files, '/home/u/.claude/workflow-state'));
 
@@ -107,19 +99,20 @@ describe('Install freshness is invariant under WORKFLOW_STATE_DIR (#1840)', () =
     expect(underB.status, 'freshness changed when only WORKFLOW_STATE_DIR changed').toBe(underA.status);
   });
 
+  /**
+   * An operator pins the CLI at the store of the plugin to remove a store
+   * divergence. That pin must not block an install that works.
+   */
   it('Freshness_PinningTheStore_DoesNotBlockMutations', () => {
     const files = coherentFiles();
-    // Bootstrap under the CLI default store.
     evaluateInstallFreshness(depsWithStateDir(files, '/home/u/.exarchos/state'));
 
-    // Now adopt the documented remedy for a store divergence: pin the CLI at
-    // the plugin's store. That must not turn a working install into a blocked
-    // one — the trap this issue reported.
     resetInstallFreshnessGateForTest();
     const pinned = evaluateInstallFreshness(depsWithStateDir(files, '/home/u/.claude/workflow-state'));
     expect(pinned.status, 'pinning the store must not block mutations').not.toBe('blocked');
   });
 
+  /** The lock must sit outside each store, and two installs must not share one lock. */
   it('LockPath_IsKeyedToTheInstall_NotTheStateDir', () => {
     const a = installIdentityLockPath(PLUGIN_ROOT, {
       env: { ...BASE_ENV, WORKFLOW_STATE_DIR: '/store/a' },
@@ -131,12 +124,10 @@ describe('Install freshness is invariant under WORKFLOW_STATE_DIR (#1840)', () =
     });
     expect(a).toBe(b);
 
-    // And it must not live inside either store.
     expect(a).not.toContain('/store/a');
     expect(a).not.toContain('/store/b');
     expect(a.startsWith(resolveInstallIdentityDir({ env: BASE_ENV, homedir: HOME }))).toBe(true);
 
-    // Two DIFFERENT installs must not share one lock.
     const other = installIdentityLockPath('/opt/exarchos-next', { env: BASE_ENV, homedir: HOME });
     expect(other).not.toBe(a);
   });
@@ -148,9 +139,8 @@ describe('An undetermined dimension cannot report as matching (#1840)', () => {
     return collectInstallIdentity(PLUGIN_ROOT, { env: BASE_ENV, homedir: HOME, ...seams(files) });
   }
 
+  /** Each side carries the sentinel for a version that cannot be read. */
   it('Verify_BothVersionsUnknown_IsIndeterminateNotFresh', () => {
-    // The exact reported shape: the version could not be read on either side,
-    // so both carry the sentinel. Equality made this a PASS.
     const unknown = identityWithBinaryVersion(UNKNOWN_VERSION_SENTINEL);
     const result = verifyInstallFreshness(unknown, unknown);
 
@@ -162,7 +152,6 @@ describe('An undetermined dimension cannot report as matching (#1840)', () => {
   });
 
   it('Verify_MissingPackageJson_IsIndeterminate', () => {
-    // No package.json at all — collect substitutes the sentinel.
     const files = coherentFiles();
     files.delete(path.join(PLUGIN_ROOT, 'package.json'));
     const observed = collectInstallIdentity(PLUGIN_ROOT, { env: BASE_ENV, homedir: HOME, ...seams(files) });
@@ -174,14 +163,15 @@ describe('An undetermined dimension cannot report as matching (#1840)', () => {
   });
 
   it('Verify_KnownMatchingVersions_StillFresh', () => {
-    // The converse — the fix must not have made everything indeterminate.
     const known = identityWithBinaryVersion('2.12.0-preview.4');
     expect(verifyInstallFreshness(known, known).fresh).toBe(true);
   });
 
+  /**
+   * The lock holds a known version, and the observed install has no
+   * `package.json`. The gate must report `degraded` and must not block.
+   */
   it('Gate_IndeterminateInstall_DegradesRatherThanBlocking', () => {
-    // Cannot-tell is reported as cannot-tell, and must never become a block —
-    // an unreadable package.json must not turn the gate into an outage.
     const lockFiles = coherentFiles();
     const observedFiles = coherentFiles();
     observedFiles.delete(path.join(PLUGIN_ROOT, 'package.json'));

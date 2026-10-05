@@ -37,7 +37,6 @@ describe('formatPrerequisiteReport', () => {
 
     expect(result).toContain('bun');
     expect(result).toContain('1.5.0');
-    // Should have a check mark for found items
     expect(result).toMatch(/[✓]/);
   });
 
@@ -54,7 +53,6 @@ describe('formatPrerequisiteReport', () => {
     const result = formatPrerequisiteReport(report);
 
     expect(result).toContain('bun');
-    // Should have an error indicator for missing items
     expect(result).toMatch(/[✗]/);
     expect(result).toContain('curl');
   });

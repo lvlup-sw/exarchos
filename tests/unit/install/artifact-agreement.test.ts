@@ -46,16 +46,15 @@ function readTree(root: string): DigestEntry[] {
   return out;
 }
 
-// ─── Pure agreement semantics ────────────────────────────────────────────────
-
 describe('checkArtifactAgreement', () => {
+  /** A text digest ignores trailing newlines and the CRLF line ending. */
   it('identical copies agree', () => {
     const artifact: Artifact = {
       name: 'demo',
       copies: [
         { dimension: 'source', kind: 'text', text: 'hello\n' },
-        { dimension: 'package', kind: 'text', text: 'hello' }, // trailing-newline-insensitive
-        { dimension: 'install', kind: 'text', text: 'hello\r\n' }, // CRLF-insensitive
+        { dimension: 'package', kind: 'text', text: 'hello' },
+        { dimension: 'install', kind: 'text', text: 'hello\r\n' },
       ],
     };
     const result = checkArtifactAgreement(artifact);
@@ -63,7 +62,7 @@ describe('checkArtifactAgreement', () => {
     expect(result.disagreements).toEqual([]);
   });
 
-  // Exit proof (b): a seeded disagreement FAILS and names the diverging copy.
+  /** A disagreement fails and names the dimension of the copy that differs from the first copy. */
   it('ArtifactAgreement_SeededDisagreement_Fails', () => {
     const artifact: Artifact = {
       name: 'demo',
@@ -77,6 +76,7 @@ describe('checkArtifactAgreement', () => {
     expect(result.disagreements.map((d) => d.dimension)).toEqual(['cache']);
   });
 
+  /** The second copy has a different entry order, a CRLF line ending and backslash separators. */
   it('tree copies agree order-independently and across path separators', () => {
     const artifact: Artifact = {
       name: 'tree',
@@ -93,7 +93,7 @@ describe('checkArtifactAgreement', () => {
           dimension: 'install',
           kind: 'tree',
           entries: [
-            { path: 'b\\two.md', content: 'y\r\n' }, // reordered + CRLF + backslash
+            { path: 'b\\two.md', content: 'y\r\n' },
             { path: 'a\\one.md', content: 'x\n' },
           ],
         },
@@ -159,9 +159,11 @@ describe('assertArtifactsAgree', () => {
   });
 });
 
-// ─── Real-repo agreement (exit proof a) ──────────────────────────────────────
-
 describe('standard artifacts agree — real repo (exit proof a)', () => {
+  /**
+   * The `source` copy is a new render of the authored directive. The `emitted` copy is the
+   * committed `binding/standard/block.md`.
+   */
   it('BindingBlock_SourceRenderAndEmitted_Agree', () => {
     const directive = readFileSync(
       join(REPO_ROOT, 'content/harness/binding', BINDING_SOURCE_FILE),
@@ -170,9 +172,7 @@ describe('standard artifacts agree — real repo (exit proof a)', () => {
     const artifact: Artifact = {
       name: 'binding-block',
       copies: [
-        // source: re-rendered from the single authored directive.
         { dimension: 'source', kind: 'text', text: renderBindingBlock(directive) },
-        // emitted: the committed block the package/install/cache carry.
         {
           dimension: 'emitted',
           kind: 'text',
@@ -185,9 +185,12 @@ describe('standard artifacts agree — real repo (exit proof a)', () => {
     expect(result.agree).toBe(true);
   });
 
+  /**
+   * Renders the authored content into a temporary tree and compares it with the committed
+   * `rendered/skills` tree. The comparison keeps only the committed entries under a top-level
+   * directory that the new render also writes.
+   */
   it('SkillTree_SourceRenderAndEmitted_Agree', () => {
-    // Render the authored content into a throwaway tree, then digest it
-    // against the committed skills/ tree that flows into package/install/cache.
     const outDir = mkdtempSync(join(tmpdir(), 'p0307-skills-'));
     mkdirSync(outDir, { recursive: true });
     buildAllSkills({
@@ -196,11 +199,6 @@ describe('standard artifacts agree — real repo (exit proof a)', () => {
       runtimesDir: join(REPO_ROOT, 'content/harness/runtimes'),
     });
 
-    // The committed `skills/` tree carries NON-generated auxiliary files
-    // (`test-fixtures/`, `trigger-tests/`, loose `*.sh` validators) alongside
-    // the rendered output. The agreement is scoped to the GENERATED surface —
-    // the top-level subtrees the renderer actually writes (`standard/` + one
-    // per runtime) — derived from the fresh render, not hard-coded.
     const source = readTree(outDir);
     const generatedRoots = new Set(source.map((e) => e.path.split('/')[0]));
     const emitted = readTree(join(REPO_ROOT, 'rendered/skills')).filter((e) =>
@@ -219,7 +217,7 @@ describe('standard artifacts agree — real repo (exit proof a)', () => {
     expect(result.agree).toBe(true);
   }, 30000);
 
-  // Exit proof (b) on real data: a tampered emitted copy is caught.
+  /** One changed entry in a copy of the committed tree is a disagreement. */
   it('SkillTree_TamperedEmittedCopy_Disagrees', () => {
     const committed = readTree(join(REPO_ROOT, 'rendered/skills'));
     expect(committed.length).toBeGreaterThan(0);
@@ -237,8 +235,6 @@ describe('standard artifacts agree — real repo (exit proof a)', () => {
     expect(result.disagreements.map((d) => d.dimension)).toEqual(['cache']);
   });
 });
-
-// ─── Sanity on the digest primitive ──────────────────────────────────────────
 
 describe('digestText', () => {
   it('is line-ending and trailing-newline stable', () => {

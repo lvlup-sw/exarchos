@@ -1,12 +1,7 @@
-// ─── Claude adapter contract tests ──────────────────────────────────────────
-//
-// Asserts the Claude `RuntimeAdapter` implementation conforms to the port
-// defined in `./types.ts`. Byte-level output regression is enforced separately
-// by the snapshot suite in `generate-agents.test.ts` (pinned to the committed
-// `agents/*.md` fixtures), which is the canonical contract Claude users
-// depend on.
-// See docs/designs/archive/2026-04-25-delegation-runtime-parity.md §4.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Contract tests for the Claude `RuntimeAdapter` against the port in `src/runtime/agents/adapters/types.ts`.
+ * The snapshot suite in `generate-agents.test.ts` pins the output bytes against committed fixtures.
+ */
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { parse as parseYaml } from 'yaml';
@@ -31,10 +26,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-// Extracts the `---\n…\n---` YAML frontmatter block (without the
-// surrounding fences) from a generated Claude agent file. Returns the
-// raw YAML text so callers can `parseYaml` it and assert round-trip
-// fidelity against the input spec.
+/** Return the YAML text between the `---` fences of a generated Claude agent file, without the fences. */
 function extractFrontmatter(contents: string): string {
   const match = contents.match(/^---\n([\s\S]*?)\n---\n/);
   if (!match) throw new Error('No YAML frontmatter delimiters found');
@@ -52,18 +44,15 @@ describe('Claude adapter', () => {
     );
   });
 
+  /** The test asserts the parsed frontmatter, not the raw bytes, because the YAML library selects the quote style of each scalar. */
   it('ClaudeAdapter_LowerImplementer_ProducesNonEmptyMarkdownWithFrontmatter', () => {
     const out = claudeAdapter.lowerSpec(IMPLEMENTER);
     expect(out.contents.length).toBeGreaterThan(0);
     expect(out.contents.startsWith('---\n')).toBe(true);
-    // Parse the frontmatter rather than asserting on raw bytes — the
-    // YAML library may render scalars unquoted/quoted/plain depending
-    // on content. The contract is the parsed value, not the byte form.
     const fm = parseYaml(extractFrontmatter(out.contents)) as Record<string, unknown>;
     expect(fm.name).toBe('exarchos-implementer');
     expect(Array.isArray(fm.tools)).toBe(true);
     expect((fm.tools as string[]).length).toBeGreaterThan(0);
-    // Body should include some implementer description text.
     expect(out.contents).toContain('verification ladder');
   });
 
@@ -82,13 +71,10 @@ describe('Claude adapter', () => {
     }
   });
 
-  // ─── C5 (#1220): worktree isolation rendered for write-capable specs ─────
-  //
-  // The adapter renders `isolation: worktree` only when the spec declares
-  // the `'isolation:worktree'` capability (see claude.ts:135–137). FIXER
-  // and SCAFFOLDER must produce that frontmatter field so the Claude Code
-  // runtime spawns them in an isolated worktree on parallel dispatch.
-
+  /**
+   * The adapter renders `isolation: worktree` only when the resolved capabilities of the spec hold `isolation:worktree`.
+   * The fixer and the scaffolder need that field, so Claude Code starts each of them in an isolated worktree.
+   */
   it('claudeAdapter_fixerSpec_rendersWorktreeIsolation', () => {
     const out = claudeAdapter.lowerSpec(FIXER);
     const fm = parseYaml(extractFrontmatter(out.contents)) as Record<string, unknown>;
@@ -102,24 +88,10 @@ describe('Claude adapter', () => {
   });
 });
 
-// ─── Adversarial YAML field tests ──────────────────────────────────────────
-//
-// The Claude adapter renders agent files as Markdown with YAML frontmatter.
-// A safe renderer must escape any character that would otherwise change
-// YAML semantics (embedded quotes, leading colons, leading whitespace,
-// shell `$(…)` substitutions inside hook commands, etc).
-//
-// These tests construct synthetic AgentSpecs with YAML-hostile field
-// values, render them, parse the resulting frontmatter back through a
-// real YAML parser, and assert that the parsed value matches the
-// original input. This is a round-trip contract: render → parse must be
-// the identity for the field under test.
-//
-// Item 4 of #1192 (worktree-anchored hooks) introduces hook command
-// strings containing `$(git rev-parse --show-toplevel)` and embedded
-// double quotes — exactly the inputs the current concat renderer
-// mangles. These tests pin the contract that must hold before that work
-// can land.
+/**
+ * Tests for YAML-hostile field values: embedded quotes, colons, leading whitespace, and `$(...)` in a hook command.
+ * A round-trip test renders a synthetic `AgentSpec`, parses the frontmatter with a YAML parser, and expects the input value back.
+ */
 describe('ClaudeAdapter_GenerateMarkdown_HandlesYamlSpecialChars', () => {
   function withOverrides(spec: AgentSpec, overrides: Partial<AgentSpec>): AgentSpec {
     return { ...spec, ...overrides };
@@ -141,10 +113,8 @@ describe('ClaudeAdapter_GenerateMarkdown_HandlesYamlSpecialChars', () => {
     expect(parsed.description).toBe(description);
   });
 
+  /** One line of the description starts with whitespace. A block-scalar renderer that strips indentation fails this test. */
   it('Description_WithLeadingWhitespaceMultiline_RoundTripsThroughYamlParse', () => {
-    // Multi-line description where one line begins with whitespace —
-    // exposes naive `description: |` block-scalar renderers that
-    // strip indentation.
     const description = 'First line of the description.\n  Indented continuation line.\nFinal line.';
     const spec = withOverrides(IMPLEMENTER, { description });
     const md = generateClaudeAgentMarkdown(spec);
@@ -152,9 +122,8 @@ describe('ClaudeAdapter_GenerateMarkdown_HandlesYamlSpecialChars', () => {
     expect(parsed.description).toBe(description);
   });
 
+  /** The hook command holds a `$(...)` substitution and embedded double quotes. */
   it('HookCommand_WithSubshellAndQuotes_RoundTripsThroughYamlParse', () => {
-    // The exact failure mode Item 4 will trigger: a hook command that
-    // contains both `$(...)` and embedded double quotes.
     const command = 'cd "$(git rev-parse --show-toplevel)" && npm run test:run';
     const spec = withOverrides(IMPLEMENTER, {
       validationRules: [
@@ -172,18 +141,11 @@ describe('ClaudeAdapter_GenerateMarkdown_HandlesYamlSpecialChars', () => {
     expect(hooks.PostToolUse[0].hooks[0].command).toBe(command);
   });
 
+  /**
+   * The command anchors to the git toplevel, so it puts a `$(...)` substitution inside embedded double quotes.
+   * The frontmatter must parse, and the one PostToolUse hook must hold the same command string.
+   */
   it('ClaudeAdapter_HookCommand_WithSubshell_RendersValidYaml', () => {
-    // #1192 Item 4, T24 — regression guard for the exact hook-command
-    // shape T25 will introduce: `npm --prefix "$(git rev-parse
-    // --show-toplevel)" run test:run`. This combines a `$(...)` shell
-    // substitution with embedded double quotes inside a YAML scalar —
-    // the precise input the pre-T02 string-concat renderer mangled.
-    //
-    // T25 anchors hook commands to the git toplevel so they survive
-    // sub-agent worktree `cd`s (see CLAUDE.md "Worktree Hygiene"). That
-    // anchoring is only safe if this rendered scalar parses back to the
-    // identity. Locking the property here lets T25 land without needing
-    // to re-prove YAML safety in the same change.
     const command = 'npm --prefix "$(git rev-parse --show-toplevel)" run test:run';
     const spec = withOverrides(IMPLEMENTER, {
       validationRules: [
@@ -191,9 +153,7 @@ describe('ClaudeAdapter_GenerateMarkdown_HandlesYamlSpecialChars', () => {
       ],
     });
     const md = generateClaudeAgentMarkdown(spec);
-    // 1. The frontmatter must parse without throwing.
     const parsed = parseYaml(extractFrontmatter(md)) as Record<string, unknown>;
-    // 2. The hook command must round-trip byte-for-byte.
     const hooks = parsed.hooks as Record<string, Array<{
       matcher: string;
       hooks: Array<{ type: string; command: string }>;
@@ -204,10 +164,11 @@ describe('ClaudeAdapter_GenerateMarkdown_HandlesYamlSpecialChars', () => {
     expect(hooks.PostToolUse[0].hooks[0].command).toBe(command);
   });
 
+  /**
+   * A `pre-write` rule with a command renders a PreToolUse hook that matches each file-write tool.
+   * Thus an agent cannot bypass the worktree-boundary guard with `MultiEdit` or `NotebookEdit`.
+   */
   it('ClaudeAdapter_PreWriteRuleWithCommand_RendersWorktreeBoundaryDenyHook', () => {
-    // #1301 structural fix: a `pre-write` rule carrying a command renders a
-    // PreToolUse hook matching every file-write tool, so an out-of-worktree
-    // write is denied by construction (INV-11).
     const command = 'exarchos verify-worktree-boundary';
     const spec = withOverrides(IMPLEMENTER, {
       validationRules: [{ trigger: 'pre-write', rule: 'Writes must stay in the worktree', command }],
@@ -223,9 +184,8 @@ describe('ClaudeAdapter_GenerateMarkdown_HandlesYamlSpecialChars', () => {
     expect(hooks.PreToolUse[0].hooks[0].command).toBe(command);
   });
 
+  /** A rule without a command is guidance only, so it must not render a hook. */
   it('ClaudeAdapter_PreWriteRuleWithoutCommand_RendersNoHook', () => {
-    // Guidance-only rules (the TDD "test file must exist first" rule) carry no
-    // command and must remain guidance — they must NOT emit an enforced hook.
     const spec = withOverrides(IMPLEMENTER, {
       validationRules: [{ trigger: 'pre-write', rule: 'Test file must exist before implementation' }],
     });
@@ -234,11 +194,8 @@ describe('ClaudeAdapter_GenerateMarkdown_HandlesYamlSpecialChars', () => {
     expect((parsed.hooks as Record<string, unknown> | undefined)?.PreToolUse).toBeUndefined();
   });
 
+  /** `Server:Restart` is not a real Claude tool name. It proves that the renderer escapes the entries of a scalar list. */
   it('DisallowedTool_WithEmbeddedColon_RoundTripsThroughYamlParse', () => {
-    // Synthetic case: a tool name with a colon. Not a realistic Claude
-    // tool name, but it proves the renderer escapes scalar list entries
-    // rather than emitting them raw — the same primitive Item 4's hook
-    // commands rely on.
     const spec = withOverrides(IMPLEMENTER, {
       disallowedTools: ['Agent', 'Server:Restart'],
     });
@@ -248,25 +205,13 @@ describe('ClaudeAdapter_GenerateMarkdown_HandlesYamlSpecialChars', () => {
   });
 });
 
-// ─── mcp:exarchos:readonly capability wiring (#1192 Item 1, T06) ──────────
-//
-// The readonly capability tier is enforced server-side at dispatch time
-// (see `READ_ONLY_ACTIONS` + `enforceReadonlyGate` in core/dispatch.ts,
-// task T04). Claude Code's frontmatter only grants/denies MCP servers at
-// the whole-server granularity (`mcpServers: ["exarchos"]`) — there is no
-// per-action allowlist surface in the agent file format. Therefore an
-// agent whose ONLY mcp tier is `mcp:exarchos:readonly` must still receive
-// the `mcpServers: ["exarchos"]` grant in frontmatter; the dispatch-layer
-// gate handles per-action enforcement at runtime.
-//
-// Without this wiring, a spec carrying only `mcp:exarchos:readonly` would
-// render frontmatter that omits the exarchos server entirely, leaving the
-// agent unable to invoke even the read-only action subset.
+/**
+ * A Claude agent file grants an MCP server as a whole (`mcpServers: ["exarchos"]`), and it has no per-action allowlist.
+ * Thus a spec whose only MCP tier is `mcp:exarchos:readonly` must still get the `exarchos` server grant.
+ * `enforceReadonlyGate` in `src/dispatch/core/dispatch.ts` limits that tier to the read-only actions at dispatch time.
+ */
 describe('ClaudeAdapter_LowerSpec_McpReadonlyTier', () => {
   it('ClaudeAdapter_LowerSpec_ReadonlyMaps_To_ExarchosMcpServerGrant', () => {
-    // Spec holds `mcp:exarchos:readonly` (and NOT `mcp:exarchos`).
-    // Expect the adapter to still emit the `exarchos` server entry so
-    // the agent can reach the dispatch-layer readonly gate at all.
     forceCapabilities(['fs:read', 'mcp:exarchos:readonly']);
     const md = generateClaudeAgentMarkdown(IMPLEMENTER);
     const fm = parseYaml(extractFrontmatter(md)) as Record<string, unknown>;
@@ -274,47 +219,39 @@ describe('ClaudeAdapter_LowerSpec_McpReadonlyTier', () => {
   });
 
   it('ClaudeAdapter_LowerSpec_FullMcpCap_StillEmitsExarchosServerGrant', () => {
-    // Sanity: pre-existing behavior unchanged for `mcp:exarchos`.
     forceCapabilities(['fs:read', 'mcp:exarchos']);
     const md = generateClaudeAgentMarkdown(IMPLEMENTER);
     const fm = parseYaml(extractFrontmatter(md)) as Record<string, unknown>;
     expect(fm.mcpServers).toEqual(['exarchos']);
   });
 
+  /** With no MCP tier, the frontmatter has no `mcpServers` field. This proves that the grant depends on the capability. */
   it('ClaudeAdapter_LowerSpec_NoMcpCap_OmitsMcpServersField', () => {
-    // Sanity: when neither tier is present, `mcpServers` is not emitted
-    // at all (so the readonly wiring is provably gated on capability,
-    // not unconditional).
     forceCapabilities(['fs:read']);
     const md = generateClaudeAgentMarkdown(IMPLEMENTER);
     const fm = parseYaml(extractFrontmatter(md)) as Record<string, unknown>;
     expect(fm.mcpServers).toBeUndefined();
   });
 
+  /**
+   * Each capability is `native` in the Claude support map. `validateSupport` rejects only an `unsupported` capability, so it accepts the readonly tier.
+   * The assertion does not tell `native` from `advisory`.
+   */
   it('ClaudeAdapter_ValidateSupport_ReadonlyTier_IsNative', () => {
-    // Claude is the reference runtime — every capability is `native`.
-    // The readonly tier was added to the Capability enum in T03; if the
-    // claude support map weren't refreshed, validateSupport would reject
-    // a spec that uses it.
     forceCapabilities(['fs:read', 'mcp:exarchos:readonly']);
     expect(claudeAdapter.validateSupport(IMPLEMENTER)).toEqual({ ok: true });
   });
 });
 
-// ─── #1333 β-04: adapter routes capability rendering through resolver ──────
-//
-// Pin that the Claude adapter's render path invokes
-// `resolveCapabilities(spec.posture, spec.id)` rather than reading a
-// `spec.capabilities` field directly. The β-03 migration ensures this is
-// already true; the test exists to lock the contract so a future "speed
-// up by inlining" refactor can't reintroduce a divergent rendering path.
-
+/**
+ * The Claude render path must call `resolveCapabilities(spec.posture, spec.id)`.
+ * A second source of capabilities in the adapter can drift from the resolver.
+ */
 describe('ClaudeAdapter capability rendering routes through resolver (#1333 β-04)', () => {
   it('ClaudeAdapter_RenderAgentSpec_CallsResolveCapabilitiesNotSpecField', () => {
     const spy = vi.spyOn(PostureMapping, 'resolveCapabilities');
     claudeAdapter.lowerSpec(IMPLEMENTER);
     expect(spy).toHaveBeenCalled();
-    // At least one call uses the spec's posture + id pair.
     const calledWithSpecPair = spy.mock.calls.some(
       (args) => args[0] === IMPLEMENTER.posture && args[1] === IMPLEMENTER.id,
     );

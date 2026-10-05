@@ -39,9 +39,9 @@ describe('FileVersionLedger (P03-08 durable anti-rollback)', () => {
     expect(await ledger.highestAdmitted('ext.a')).toBeUndefined();
   });
 
+  /** A new instance reads the persisted file, so the mark survives a restart. */
   it('Ledger_PersistsAcrossInstances', async () => {
     await new FileVersionLedger(file).recordAdmitted('ext.a', 7);
-    // A brand-new instance re-reads persisted state — survives a restart.
     expect(await new FileVersionLedger(file).highestAdmitted('ext.a')).toBe(7);
   });
 

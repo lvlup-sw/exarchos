@@ -1,27 +1,10 @@
-// ─── Build pipeline wiring contract tests ──────────────────────────────────
-//
-// These tests pin the build-pipeline contract for the unified per-runtime
-// agent generator (Task 6 of the delegation-runtime-parity plan):
-//
-//   1. The root `package.json` exposes `npm run generate:agents` which
-//      invokes `src/runtime/agents/generate-agents.ts` (the
-//      composition root introduced in Task 5).
-//   2. `npm run build:skills` depends on `generate:agents` so the
-//      regeneration runs as part of the standard build pipeline. This is
-//      the gate that lets Task 13 enforce drift-free in CI.
-//   3. The generator script can be invoked end-to-end (it has a CLI shim
-//      that resolves `outputRoot` from the cwd / argv) and writes the
-//      expected per-runtime files for all 4 specs × 5 runtimes = 20.
-//
-// The third test is an integration test: it spawns the script as a real
-// subprocess against an `os.tmpdir()` sandbox so the assertion covers
-// `import.meta.url`-equals-script gating, real fs writes, and process
-// exit code. We seed the sandbox with a minimal `.claude-plugin/plugin.json`
-// because the composition root refuses to run without one.
-//
-// See docs/plans/archive/2026-04-25-delegation-runtime-parity.md Task 6 and
-// docs/designs/archive/2026-04-25-delegation-runtime-parity.md §5.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Build-pipeline contract tests for the per-runtime agent generator.
+ * The root `package.json` must define `generate:agents`, and that script must run `src/runtime/agents/generate-agents.ts`.
+ * `build:skills` must run `generate:agents`, so each standard build regenerates the agent files.
+ * The last test spawns the generator as a subprocess in a temp directory.
+ * It covers the entry-point check of the script, the file writes and the exit code.
+ */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as fs from 'node:fs';
@@ -32,14 +15,9 @@ import { fileURLToPath } from 'node:url';
 import { spawnAsync } from '../../../../tools/test-helpers/spawn.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
-// ─── Locate repo root ──────────────────────────────────────────────────────
-//
-// This test file lives at:
-//   <repoRoot>/src/runtime/agents/build-pipeline.test.ts
-// so the repo root is four directories up from this file.
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+/** The repo root, four directories up from this test file. */
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const ROOT_PACKAGE_JSON = path.join(REPO_ROOT, 'package.json');
 const GENERATOR_PATH = path.join(
@@ -50,29 +28,27 @@ const GENERATOR_PATH = path.join(
   'generate-agents.ts',
 );
 
-// Expected output paths (relative to outputRoot). 4 specs × 5 runtimes.
+/**
+ * Expected output paths, relative to the output root: four specs for each of five runtimes.
+ * `rendered/agents/` is the Claude tree, and `.github/agents/` is the Copilot tree.
+ */
 const EXPECTED_FILES: readonly string[] = [
-  // Claude
   'rendered/agents/implementer.md',
   'rendered/agents/fixer.md',
   'rendered/agents/reviewer.md',
   'rendered/agents/scaffolder.md',
-  // Codex
   '.codex/agents/implementer.toml',
   '.codex/agents/fixer.toml',
   '.codex/agents/reviewer.toml',
   '.codex/agents/scaffolder.toml',
-  // OpenCode
   '.opencode/agents/implementer.md',
   '.opencode/agents/fixer.md',
   '.opencode/agents/reviewer.md',
   '.opencode/agents/scaffolder.md',
-  // Cursor
   '.cursor/agents/implementer.md',
   '.cursor/agents/fixer.md',
   '.cursor/agents/reviewer.md',
   '.cursor/agents/scaffolder.md',
-  // Copilot
   '.github/agents/implementer.agent.md',
   '.github/agents/fixer.agent.md',
   '.github/agents/reviewer.agent.md',
@@ -96,6 +72,7 @@ function readRootScripts(): ScriptsBlock {
 
 describe('build pipeline wiring (Task 6)', () => {
   describe('BuildPipeline_PackageJson_DefinesGenerateAgentsScript', () => {
+    /** The test accepts any runner, because it matches only the path of the generator file. */
     it('root package.json defines `generate:agents` invoking the unified composition root', () => {
       const scripts = readRootScripts();
       const generateAgents = scripts['generate:agents'];
@@ -103,10 +80,6 @@ describe('build pipeline wiring (Task 6)', () => {
         generateAgents,
         'root package.json must define `scripts["generate:agents"]`',
       ).toBeDefined();
-      // The script body must invoke the unified composition root at
-      // `src/runtime/agents/generate-agents.ts`. We accept
-      // any reasonable runner (`tsx`, `node --import tsx`, `bun run`,
-      // etc.) so long as the target file is referenced.
       expect(
         generateAgents,
         '`generate:agents` must invoke src/runtime/agents/generate-agents.ts',
@@ -117,6 +90,7 @@ describe('build pipeline wiring (Task 6)', () => {
   });
 
   describe('BuildPipeline_BuildSkills_DependsOnGenerateAgents', () => {
+    /** The test accepts a chained `generate:agents` call, an `npm-run-all` composition, or a `prebuild:skills` hook. */
     it('root `build:skills` script chains/composes `generate:agents`', () => {
       const scripts = readRootScripts();
       const buildSkills = scripts['build:skills'];
@@ -124,9 +98,6 @@ describe('build pipeline wiring (Task 6)', () => {
         buildSkills,
         'root package.json must define `scripts["build:skills"]`',
       ).toBeDefined();
-      // Accept either explicit chaining (`npm run generate:agents && ...`,
-      // shorthand `yarn generate:agents` / `pnpm generate:agents`),
-      // composition via `npm-run-all`, or a `prebuild:skills` hook script.
       const directlyChained =
         buildSkills !== undefined &&
         /(npm|pnpm|yarn|bun)\s+(?:run\s+)?generate:agents/.test(buildSkills);
@@ -146,12 +117,11 @@ describe('build pipeline wiring (Task 6)', () => {
   describe('BuildPipeline_GenerateAgentsScript_RunsWithoutError', () => {
     let sandbox: string;
 
+    /** The generator throws when `.claude-plugin/plugin.json` is missing, so the sandbox gets a minimal manifest. */
     beforeAll(() => {
       sandbox = fs.mkdtempSync(
         path.join(os.tmpdir(), 'exarchos-build-pipeline-'),
       );
-      // Composition root requires a plugin.json to exist before it
-      // updates the `agents` field. Seed a minimal manifest.
       fs.mkdirSync(path.join(sandbox, '.claude-plugin'), { recursive: true });
       fs.writeFileSync(
         path.join(sandbox, '.claude-plugin', 'plugin.json'),
@@ -166,14 +136,11 @@ describe('build pipeline wiring (Task 6)', () => {
       }
     });
 
+    /**
+     * The test resolves the `tsx` loader with `createRequire` from this file, so it finds `tsx` in the `node_modules` that runs the test.
+     * Each expected file must exist and must not be empty.
+     */
     it('spawning the generator writes all 20 expected files and exits 0', async () => {
-      // Resolve `tsx`'s loader entry via Node's standard module
-      // resolution from this test file's location. CI installs deps
-      // only inside `servers/exarchos-mcp/`, so a hardcoded
-      // `<REPO_ROOT>/node_modules/tsx/...` path misses on the runner
-      // when the root-level install did not run. Resolving via
-      // `createRequire(import.meta.url)` finds tsx in whichever
-      // node_modules the test is actually being executed from.
       const requireFromTest = createRequire(import.meta.url);
       const tsxPackageJson = requireFromTest.resolve('tsx/package.json');
       const tsxEntry = path.join(path.dirname(tsxPackageJson), 'dist', 'loader.mjs');
@@ -200,7 +167,6 @@ describe('build pipeline wiring (Task 6)', () => {
           `expected ${rel} to exist after generation`,
         ).toBe(true);
       }
-      // Spot-check: at least one of every runtime's files is non-empty.
       for (const rel of EXPECTED_FILES) {
         const stat = fs.statSync(path.join(sandbox, rel));
         expect(stat.size, `${rel} should be non-empty`).toBeGreaterThan(0);

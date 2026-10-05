@@ -3,7 +3,6 @@ import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { execFileAsync } from '../../../tools/test-helpers/spawn.js';
 
-// Resolve repo root (handles worktree paths)
 const repoRoot = process.cwd();
 
 interface HookCommand {
@@ -38,13 +37,16 @@ function collectCommands(config: HooksConfig): Array<{ hookType: string; command
   return out;
 }
 
-// #1476 (T9): the hook layer is observe-only. The four enforcement/control
-// hooks were excised; only the two lifecycle observers remain. See
-// docs/adrs/2026-05-24-hook-layer-observe-only.md.
+/**
+ * The hook layer only observes. `hooks/hooks.json` must hold none of these
+ * enforcement hook types.
+ */
 const ENFORCEMENT_HOOK_TYPES = ['PreToolUse', 'TaskCompleted', 'TeammateIdle', 'SubagentStart'];
 const ENFORCEMENT_SUBCOMMANDS = ['guard', 'task-gate', 'teammate-gate', 'subagent-context'];
-// #1525 W2 Half 1: SubagentStop restored as an observe-only token-telemetry hook.
-// DR-7 (Task 016): SessionEnd dropped everywhere; SessionStart + SubagentStop remain.
+/**
+ * The observer hooks that `hooks/hooks.json` must declare. `SubagentStop`
+ * records token telemetry. `SessionEnd` is not one of them.
+ */
 const OBSERVER_HOOK_TYPES = ['SessionStart', 'SubagentStop'];
 
 describe('hooks/hooks.json — observe-only (#1476)', () => {
@@ -56,22 +58,19 @@ describe('hooks/hooks.json — observe-only (#1476)', () => {
     expect(() => JSON.parse(raw)).not.toThrow();
   });
 
+  /** `PreCompact` is a retired hook type that `ENFORCEMENT_HOOK_TYPES` does not list. */
   it('HooksJson_ContainsObserverHooksOnly', () => {
     const config: HooksConfig = JSON.parse(readFileSync(hooksPath, 'utf-8'));
     const hookTypes = Object.keys(config.hooks);
 
-    // Only the two observer hooks survive.
     for (const t of OBSERVER_HOOK_TYPES) {
       expect(hookTypes, `missing observer hook type: ${t}`).toContain(t);
     }
 
-    // None of the enforcement/control hooks may remain.
     for (const t of ENFORCEMENT_HOOK_TYPES) {
       expect(hookTypes, `enforcement hook type still present: ${t}`).not.toContain(t);
     }
 
-    // T-40 removal stays removed. (SubagentStop is now a live observer — see
-    // OBSERVER_HOOK_TYPES — restored for token telemetry in #1525.)
     expect(hookTypes).not.toContain('PreCompact');
   });
 
@@ -88,11 +87,11 @@ describe('hooks/hooks.json — observe-only (#1476)', () => {
     }
   });
 
+  /** The two observer hooks give two commands or more. */
   it('HooksJson_AllCommands_UseExarchosNotNode', () => {
     const config: HooksConfig = JSON.parse(readFileSync(hooksPath, 'utf-8'));
     const commands = collectCommands(config);
 
-    // Observer set: SessionStart + SubagentStop → at least 2 commands.
     expect(commands.length).toBeGreaterThanOrEqual(2);
 
     for (const { hookType, command } of commands) {
@@ -105,6 +104,10 @@ describe('hooks/hooks.json — observe-only (#1476)', () => {
     }
   });
 
+  /**
+   * The check uses `toContain`, because the `SessionStart` command carries a
+   * trailing `--directive` argument.
+   */
   it('HooksJson_EachObserverHook_InvokesExpectedSubcommand', () => {
     const config: HooksConfig = JSON.parse(readFileSync(hooksPath, 'utf-8'));
 
@@ -117,8 +120,6 @@ describe('hooks/hooks.json — observe-only (#1476)', () => {
       const entries = config.hooks[hookType];
       expect(entries, `hook type ${hookType} not present`).toBeDefined();
       const firstCommand = entries[0].hooks[0].command;
-      // SessionStart carries a trailing `--directive '...'`; use includes, not
-      // exact-match, so the binding directive can ride along.
       expect(firstCommand, `${hookType} does not invoke subcommand '${subcommand}'`).toContain(
         `exarchos ${subcommand}`,
       );
@@ -148,15 +149,17 @@ describe('hooks/hooks.json — observe-only (#1476)', () => {
 });
 
 describe('enforcement-handler excision grep-sweep (#1476)', () => {
-  // After T9, no source file may reference the retired enforcement
-  // subcommands or their deleted handler modules. We grep the tracked
-  // source (excluding docs/historical artifacts, dist, node_modules, and
-  // this test itself, which legitimately names them to assert absence).
+  /**
+   * A tracked file under `src/` or `scripts/` must not name a retired enforcement
+   * subcommand, handler module or handler function. Test files are exempt.
+   *
+   * The path patterns must name `lifecycle/`, the directory that holds the hook
+   * handlers. A pattern for a different directory can never match, so it guards
+   * nothing. `git grep` exits 1 when it finds no match, and the `catch` reads
+   * each failure as a pass.
+   */
   it('NoSourceReferences_ToRetiredEnforcementSubcommands', async () => {
     const patterns = [
-      // Task 017 moved `cli-commands/` to `lifecycle/`. Left pinned to the old
-      // directory these three could never match again — a resurrected handler
-      // would land under the new name and pass unseen.
       'lifecycle/guard',
       'lifecycle/gates',
       'lifecycle/subagent-context',
@@ -172,8 +175,6 @@ describe('enforcement-handler excision grep-sweep (#1476)', () => {
     for (const pattern of patterns) {
       let out = '';
       try {
-        // `git grep` searches only tracked files; the pathspecs exclude
-        // tests, docs, the changelog, and the generated dist tree.
         out = await execFileAsync(
           'git',
           [
@@ -191,7 +192,6 @@ describe('enforcement-handler excision grep-sweep (#1476)', () => {
           { cwd: repoRoot },
         );
       } catch {
-        // `git grep` exits 1 when there are no matches — that's the pass case.
         out = '';
       }
       const files = out.split('\n').map((s) => s.trim()).filter(Boolean);

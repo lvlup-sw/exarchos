@@ -9,12 +9,18 @@ import { AUTHORITY_IDS, type AuthorityLock, type AuthorityPin } from '../../../.
 
 const COMMIT = 'a'.repeat(40);
 
+/**
+ * Return a deterministic `sha256:` digest of 64 hex characters from a short seed.
+ * A character outside `0-9a-f` becomes `0`.
+ */
 function hex(seed: string): string {
-  // deterministic 64-hex from a short seed (pad/truncate)
   return `sha256:${(seed.repeat(64)).slice(0, 64).replace(/[^0-9a-f]/g, '0')}`;
 }
 
-/** A well-formed, approved lock with all six frozen authorities. */
+/**
+ * An approved lock with an entry for each id in `AUTHORITY_IDS`. `overrides` replaces
+ * fields of a pin. `base` holds no `contract-surface` pin, so that entry is an empty object.
+ */
 function makeLock(overrides: Partial<Record<string, Partial<AuthorityPin>>> = {}): AuthorityLock {
   const base: Record<string, AuthorityPin> = {
     'strategos-contracts': {
@@ -52,7 +58,6 @@ describe('buildSourceIdentity (P05-01 source provenance)', () => {
         { path: 'src/b.ts', content: 'export const b = 2;\n' },
       ],
     };
-    // same entries, reversed order → digestTree is order-independent
     const b: RawSourceInputs = {
       commit: COMMIT,
       treeEntries: [...a.treeEntries].reverse(),
@@ -117,7 +122,6 @@ describe('contractIdentityFromLock (P05-01 contract identity)', () => {
 
   it('ContractIdentity_FailsClosed_WhenAuthorityMissing', () => {
     const lock = makeLock();
-    // Drop a required authority — deriving an identity must throw, not silently truncate.
     const truncated: AuthorityLock = {
       ...lock,
       authorities: Object.fromEntries(

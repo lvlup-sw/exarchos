@@ -1,27 +1,8 @@
 /**
- * T-31 (rehydration-machinery-refactor) — the checkpoint **skill** Structured
- * Handoff Output must render the same `### House Rules` block as the rehydrate
- * skill so the agent producing the checkpoint sees the contract it was
- * operating under before context clears (correctness signal symmetry with
- * `rehydrate`).
- *
- * DR-3 (harness conform-and-shrink, Task 007): the fat `commands/checkpoint.md`
- * body was collapsed into a thin shim and its structured-handoff output
- * template migrated into `content/continuity/skills/checkpoint/SKILL.md`. This suite now pins
- * the block in its new home — the skill source — so the contract cannot silently
- * regress after the command→skill fold.
- *
- * Per plan §T-31:
- *   - the handoff output contains the `### House Rules` block when the phase
- *     has a registered playbook
- *   - the summary section ("Checkpoint Saved", task counts) is **preserved**
- *
- * Per plan §T-31 REFACTOR: the House Rules block is duplicated verbatim between
- * the checkpoint and rehydrate skills (no shared-snippet primitive). These
- * assertions guard against drift between the two templates.
- *
- * Scope: content-only validation of the skill source markdown. The skill is
- * consumed by the agent as a prompt; no runtime execution required.
+ * Content checks on the checkpoint skill source, `content/continuity/skills/checkpoint/SKILL.md`.
+ * The Structured Handoff Output must hold the same `### House Rules` block as the rehydrate skill.
+ * The rehydrate skill test pins the same strings, so the two tests catch drift between the copies.
+ * The checks read the Markdown only and run no skill.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -56,13 +37,11 @@ describe('CheckpointSkill_HouseRulesBlock (T-31, P3; DR-3 fold-in)', () => {
     expect(body).toContain('(no playbook for this phase)');
   });
 
+  /**
+   * The sentence must match the rehydrate skill byte for byte. The skill source
+   * names the bare verb `delegate`, with no `/exarchos:` prefix.
+   */
   it('renders the discipline reminder sentence verbatim per brief §5.4', () => {
-    // Verbatim from the rehydrate skill (T-30). Keeping the two templates
-    // byte-identical for this sentence is the whole point of the symmetry —
-    // any reword desyncs against the RCA reference and must be caught here.
-    // Post-DR-3 the collapsed vocabulary uses the bare verb `delegate` (the
-    // neutral render carries no `/exarchos:` prefix — enforced by the
-    // migration NoClaudePrefixes invariant).
     const disciplineReminder =
       '> **Discipline reminder:** every task transition this turn forward MUST land on the workflow event stream via `exarchos_event.append` or `delegate` subagent emission. Direct `Edit` / `Bash` / `git` actions on task branches without corresponding events will desync the workflow tracker (see RCA `docs/rca/2026-05-08-rehydrate-behavioral-gap.md`).';
     expect(body).toContain(disciplineReminder);
@@ -79,11 +58,8 @@ describe('CheckpointSkill_HouseRulesBlock (T-31, P3; DR-3 fold-in)', () => {
 });
 
 /**
- * T-31 also requires that the existing checkpoint summary content
- * ("Checkpoint Saved", task counts, resume instructions) is preserved —
- * the House Rules block is *appended*, not a replacement. These assertions
- * guard against accidental deletion of the summary during the command→skill
- * fold.
+ * The House Rules block is an addition. The summary heading, the task counts and the
+ * resume instructions must stay in the skill.
  */
 describe('CheckpointSkill_SummaryPreservation (T-31, P3; DR-3 fold-in)', () => {
   const body = readFileSync(skillPath, 'utf-8');
@@ -93,13 +69,12 @@ describe('CheckpointSkill_SummaryPreservation (T-31, P3; DR-3 fold-in)', () => {
   });
 
   it('preserves the task-counts line in the Progress section', () => {
-    // The template renders `- Tasks: X/Y complete` under `### Progress`.
     expect(body).toContain('Tasks: X/Y complete');
   });
 
+  /** The skill source names the bare verb `rehydrate`, with no `/exarchos:` prefix. */
   it('preserves the Resume Instructions block pointing back at the rehydrate verb', () => {
     expect(body).toContain('### Resume Instructions');
-    // Bare verb post-DR-3 — the neutral skill render carries no `/exarchos:` prefix.
     expect(body).toContain('run `rehydrate`');
   });
 });

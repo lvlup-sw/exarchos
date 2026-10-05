@@ -1,26 +1,12 @@
-// ─── runtimes/opencode.yaml supportedCapabilities + Task-call tests ─────────
-//
-// Two assertions:
-//
-//   1. `content/harness/runtimes/opencode.yaml` declares a `supportedCapabilities` YAML
-//      mapping (NOT a list) that mirrors `OpenCodeAdapter.supportLevels`.
-//      OpenCode classifies five capabilities as `native`
-//      (fs:read/fs:write/shell:exec/subagent:spawn/mcp:exarchos) and two
-//      as `advisory` (isolation:worktree/session:resume). The three
-//      Claude-only primitives (subagent completion/start signals,
-//      team:agent-teams) are `unsupported` and MUST be absent from the
-//      YAML — the prose renderer's contract is that the map only carries
-//      `native`/`advisory`, and `unsupported` capabilities are omitted.
-//
-//   2. The `SPAWN_AGENT_CALL` placeholder references the bare on-disk
-//      agent name that `OpenCodeAdapter.lowerSpec` actually writes
-//      (`.opencode/agents/<id>.md`). The pre-Task-7c YAML pointed at
-//      `subagent_type: "exarchos-implementer"`, but OpenCode has no
-//      plugin-prefix namespace, so no file of that name exists on disk —
-//      this is the broken-pointer issue called out in discovery §3.
-//
-// Implements: Task 7c of docs/plans/archive/2026-04-25-delegation-runtime-parity.md.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Tests for `content/harness/runtimes/opencode.yaml`.
+ *
+ * - `supportedCapabilities` must be a YAML mapping that agrees with `OpenCodeAdapter.supportLevels`.
+ *   It holds six native and two advisory entries. It omits the three `unsupported` capabilities, which are
+ *   Claude-only: `subagent:completion-signal`, `subagent:start-signal` and `team:agent-teams`.
+ * - `SPAWN_AGENT_CALL` must set `subagent_type` to the `{{agent}}` token, not to `exarchos-implementer`.
+ *   The adapter writes each agent file to `.opencode/agents/<id>.md` with no plugin prefix.
+ */
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -33,13 +19,12 @@ import type { Capability } from '../../../../src/runtime/agents/capabilities.js'
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// `content/harness/runtimes/opencode.yaml` lives at the repo root, four levels up from this
-// test file (src/runtime/runtimes/opencode.test.ts).
+/** The path of the OpenCode runtime map. The repository root is four directories above this file. */
 const OPENCODE_YAML_PATH = resolve(
   __dirname,
   '../../../../content/harness/runtimes/opencode.yaml');
 
-/** OpenCode's expected support classification (mirrors OpenCodeAdapter). */
+/** The expected native capabilities. The three lists repeat the levels of `OpenCodeAdapter` by hand. */
 const EXPECTED_NATIVE = [
   'fs:read',
   'fs:write',
@@ -74,13 +59,14 @@ function loadOpencodeYaml(): Record<string, unknown> {
 }
 
 describe('content/harness/runtimes/opencode.yaml supportedCapabilities', () => {
+  /**
+   * `supportedCapabilities` must be a YAML mapping, not a list, because the renderer reads one support level per capability.
+   * The mapping must hold the six native keys and the two advisory keys, and no other key.
+   */
   it('OpencodeYaml_SupportedCapabilities_SixNativeTwoAdvisory', () => {
     const data = loadOpencodeYaml();
     const supported = data.supportedCapabilities;
 
-    // Must be a YAML mapping (object), not a list/array. The prose renderer
-    // (Tasks 8/9) needs per-capability support-level strings to gate
-    // `<!-- requires:* -->` vs `<!-- requires:native:* -->` blocks.
     expect(supported).toBeDefined();
     expect(supported).not.toBeNull();
     expect(Array.isArray(supported)).toBe(false);
@@ -88,13 +74,11 @@ describe('content/harness/runtimes/opencode.yaml supportedCapabilities', () => {
 
     const map = supported as Record<string, unknown>;
 
-    // Five native capabilities.
     for (const cap of EXPECTED_NATIVE) {
       expect(map, `missing native capability '${cap}'`).toHaveProperty(cap);
       expect(map[cap], `capability '${cap}' should be 'native'`).toBe('native');
     }
 
-    // Two advisory capabilities.
     for (const cap of EXPECTED_ADVISORY) {
       expect(map, `missing advisory capability '${cap}'`).toHaveProperty(cap);
       expect(map[cap], `capability '${cap}' should be 'advisory'`).toBe(
@@ -102,7 +86,6 @@ describe('content/harness/runtimes/opencode.yaml supportedCapabilities', () => {
       );
     }
 
-    // Unsupported Claude-only primitives must NOT appear.
     for (const cap of EXPECTED_UNSUPPORTED) {
       expect(
         map,
@@ -110,17 +93,18 @@ describe('content/harness/runtimes/opencode.yaml supportedCapabilities', () => {
       ).not.toHaveProperty(cap);
     }
 
-    // No additional keys beyond the seven canonical entries.
     const expectedKeys = [...EXPECTED_NATIVE, ...EXPECTED_ADVISORY].sort();
     expect(Object.keys(map).sort()).toEqual(expectedKeys);
   });
 
+  /**
+   * The check runs in both directions. The YAML must agree with each adapter level and omit each `unsupported` capability.
+   * Each YAML key must be a capability that the adapter marks native or advisory.
+   */
   it('OpencodeYaml_AdapterAlignment_MatchesSupportLevels', () => {
     const data = loadOpencodeYaml();
     const supported = data.supportedCapabilities as Record<string, unknown>;
 
-    // Every adapter classification must agree with the YAML — except
-    // `unsupported`, which by contract is absent from the YAML.
     for (const [cap, level] of Object.entries(OpenCodeAdapter.supportLevels)) {
       if (level === 'unsupported') {
         expect(
@@ -135,8 +119,6 @@ describe('content/harness/runtimes/opencode.yaml supportedCapabilities', () => {
       ).toBe(level);
     }
 
-    // And every YAML entry must correspond to a known capability the
-    // adapter classifies as native or advisory — no orphan keys.
     for (const cap of Object.keys(supported)) {
       const level = OpenCodeAdapter.supportLevels[cap as Capability];
       expect(
@@ -147,6 +129,11 @@ describe('content/harness/runtimes/opencode.yaml supportedCapabilities', () => {
     }
   });
 
+  /**
+   * `subagent_type` must hold the `{{agent}}` token in single or double quotes, with any whitespace.
+   * It must not hold `exarchos-implementer`, because the adapter writes no agent file with that name.
+   * The last check pins only the path form: the file name of the implementer agent path is `implementer`.
+   */
   it('OpencodeYaml_SpawnAgentCall_ReferencesGeneratedAgentName', () => {
     const data = loadOpencodeYaml();
     const placeholders = data.placeholders as Record<string, string>;
@@ -154,26 +141,13 @@ describe('content/harness/runtimes/opencode.yaml supportedCapabilities', () => {
 
     expect(typeof spawnCall).toBe('string');
 
-    // SPAWN_AGENT_CALL parameterizes `subagent_type` via the `{{agent}}`
-    // token so each delegation can route to the correct on-disk file
-    // (implementer | fixer | reviewer | scaffolder). The dispatcher
-    // fills in `{{agent}}` with the spec id at call time. Robust to
-    // formatting (single vs double quotes, whitespace) but strict on
-    // the placeholder shape.
     const subagentTypePattern = /subagent_type\s*:\s*['"]\{\{\s*agent\s*\}\}['"]/;
     expect(spawnCall).toMatch(subagentTypePattern);
 
-    // And it must NOT reference the legacy plugin-namespaced
-    // `exarchos-implementer` name — that name has no file under
-    // `.opencode/agents/` and is the broken-pointer issue Task 7c
-    // explicitly fixes (discovery §3).
     expect(spawnCall).not.toMatch(
       /subagent_type\s*:\s*['"]exarchos-implementer['"]/,
     );
 
-    // And the on-disk file the dispatcher will route to still has to
-    // exist for each spec id — verify the implementer path is well-
-    // formed so {{agent}} substitution lands on a real file.
     const agentPath = OpenCodeAdapter.agentFilePath('implementer');
     const agentName = basename(agentPath, extname(agentPath));
     expect(agentName).toBe('implementer');

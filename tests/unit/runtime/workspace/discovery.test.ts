@@ -1,9 +1,8 @@
-// ─── #1290 — Roots-based workspace discovery ─────────────────────────────────
-//
-// RED → GREEN coverage for `resolveWorkspace` and the pure
-// `isExarchosWorkspace` detector. Discovery priority is `explicit > roots
-// > cwd` — these tests pin the roots + cwd branches; the explicit branch
-// is exercised at the dispatch boundary (see tests/outcome/).
+/**
+ * Tests for `resolveWorkspace` and the `isExarchosWorkspace` detector.
+ * The discovery priority is: an explicit `featureId`, then roots, then cwd.
+ * These tests cover the roots branch and the cwd branch. No test in this file passes an explicit `featureId`.
+ */
 
 import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -23,9 +22,11 @@ async function mktemp(prefix: string): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), `discovery-${prefix}-`));
 }
 
+/**
+ * Seeds a workspace with an empty `.exarchos.yml` signature and one `<featureId>.state.json` file.
+ * Discovery only checks that the YAML file exists, so an empty file is sufficient.
+ */
 async function seedExarchosWorkspace(root: string, featureId: string): Promise<void> {
-  // `.exarchos.yml` is the canonical workspace signature. Empty file is
-  // sufficient — the loader is not invoked here.
   await fs.writeFile(path.join(root, '.exarchos.yml'), '', 'utf8');
   await fs.mkdir(path.join(root, 'docs', 'workflow-state'), { recursive: true });
   await fs.writeFile(
@@ -35,10 +36,11 @@ async function seedExarchosWorkspace(root: string, featureId: string): Promise<v
   );
 }
 
+/**
+ * Builds the `file://` URI with `pathToFileURL`.
+ * A hand-built `file://` string is wrong for a Windows path, which has a drive letter and backslashes.
+ */
 function fileUriFor(p: string): string {
-  // Use `pathToFileURL` so the constructed URI is correct on both POSIX
-  // and Windows (where drive letters and backslashes require escaping a
-  // hand-rolled `file://` template cannot produce).
   return pathToFileURL(p).href;
 }
 
@@ -77,10 +79,11 @@ describe('isExarchosWorkspace detector (#1290)', () => {
     }
   });
 
+  /**
+   * A tracked workspace can hold only the event-store db and no `.state.json` file.
+   * The db file in `docs/workflow-state/` is then the workspace signature.
+   */
   it('IsExarchosWorkspace_EventDbPresent_ReturnsTrue', async () => {
-    // #1504 — once the write-path is removed a tracked workspace may carry NO
-    // `.state.json`, only the event-store SQLite db. The detector must still
-    // recognize it via the db file under `docs/workflow-state/`.
     const dir = await mktemp('iexa-db');
     try {
       await fs.mkdir(path.join(dir, 'docs', 'workflow-state'), { recursive: true });
@@ -97,12 +100,13 @@ describe('isExarchosWorkspace detector (#1290)', () => {
 });
 
 describe('resolveWorkspace backend-first featureId derivation (#1504)', () => {
+  /**
+   * The workspace has the `.exarchos.yml` signature and no `.state.json` file.
+   * The event store uses the `docs/workflow-state` directory of this workspace.
+   * Thus `deriveFeatureId` reads `listStates()` from the storage backend, not the file scan.
+   * The test passes no `rootsClient`, so discovery uses the cwd walk.
+   */
   it('WorkspaceDiscovery_NoStateFileButBackendRow_ResolvesFromListStates', async () => {
-    // The workspace has the `.exarchos.yml` signature but NO `*.state.json`
-    // (write-path removed). `deriveFeatureId` must enumerate the authoritative
-    // `workflow_state` projection via the storage backend rather than the
-    // (now absent) file scan — guarded by the probed workflow-state dir
-    // matching the event store's dir.
     const tmp = await mktemp('backend-cwd');
     try {
       const root = path.join(tmp, 'project');
@@ -110,8 +114,6 @@ describe('resolveWorkspace backend-first featureId derivation (#1504)', () => {
       await fs.mkdir(wfDir, { recursive: true });
       await fs.writeFile(path.join(root, '.exarchos.yml'), '', 'utf8');
 
-      // Event store bound to THIS workspace's workflow-state dir so the
-      // backend guard (wfdir === eventStore.dir) matches.
       const eventStore = new EventStore(wfDir);
       await eventStore.initialize();
 
@@ -122,7 +124,6 @@ describe('resolveWorkspace backend-first featureId derivation (#1504)', () => {
       } as unknown as WorkflowState);
 
       const resolver = createInMemoryResolver([]);
-      // No rootsClient → discovery skips the roots branch and uses cwd-walk.
       const result = await resolveWorkspace({
         resolver,
         cwd: root,
@@ -141,6 +142,7 @@ describe('resolveWorkspace backend-first featureId derivation (#1504)', () => {
 });
 
 describe('resolveWorkspace roots branch (#1290)', () => {
+  /** The `workspace.resolved` event goes to the stream of the resolved `featureId`. */
   it('WorkspaceDiscovery_OneRootsMatch_ResolvesAndEmitsEvent', async () => {
     const tmp = await mktemp('one-root');
     try {
@@ -174,7 +176,6 @@ describe('resolveWorkspace roots branch (#1290)', () => {
       expect(result!.featureId).toBe('feat-alpha');
       expect(result!.path).toBe(root);
 
-      // `workspace.resolved` event landed on the resolved featureId's stream.
       const events = await eventStore.query('feat-alpha');
       const evt = events.find((e) => e.type === 'workspace.resolved');
       expect(evt).toBeDefined();
@@ -189,14 +190,13 @@ describe('resolveWorkspace roots branch (#1290)', () => {
     }
   });
 
+  /** The one root is a plain directory, and the cwd is an Exarchos workspace. */
   it('WorkspaceDiscovery_ZeroRootsMatch_FallsBackToCwdWalk', async () => {
     const tmp = await mktemp('zero-root');
     try {
-      // Roots contain a non-exarchos dir.
       const unrelated = path.join(tmp, 'unrelated');
       await fs.mkdir(unrelated, { recursive: true });
 
-      // cwd is itself an exarchos workspace.
       const cwd = path.join(tmp, 'project');
       await fs.mkdir(cwd, { recursive: true });
       await seedExarchosWorkspace(cwd, 'feat-cwd');
@@ -271,6 +271,7 @@ describe('resolveWorkspace roots branch (#1290)', () => {
     }
   });
 
+  /** More than one match emits no `workspace.resolved` event, because no single `featureId` owns the resolution. */
   it('WorkspaceDiscovery_MultipleRootsMatch_ReturnsInvalidInputWithValidTargets', async () => {
     const tmp = await mktemp('multi');
     try {
@@ -310,8 +311,6 @@ describe('resolveWorkspace roots branch (#1290)', () => {
       const paths = result!.validTargets!.map((t) => t.path).sort();
       expect(paths).toEqual([a, b].sort());
 
-      // No event emitted on multi-match — there is no single featureId to
-      // attribute the resolution to.
       const a_events = await eventStore.query('feat-a');
       const b_events = await eventStore.query('feat-b');
       const resolved = [...a_events, ...b_events].filter(
@@ -325,6 +324,10 @@ describe('resolveWorkspace roots branch (#1290)', () => {
     }
   });
 
+  /**
+   * The first call fetches the roots list. The second call uses the cache, although the client now returns a different list.
+   * `invalidateRootsCache()` simulates the `roots/list_changed` notification, and the third call fetches again.
+   */
   it('WorkspaceDiscovery_RootsListChangedDuringDispatch_InvalidatesCache', async () => {
     const tmp = await mktemp('cache');
     try {
@@ -351,22 +354,17 @@ describe('resolveWorkspace roots branch (#1290)', () => {
       const eventStore = new EventStore(stateDir);
       await eventStore.initialize();
 
-      // First call: cache miss → fetch.
       const r1 = await resolveWorkspace({ resolver, rootsClient, cwd: tmp, eventStore });
       expect(r1?.success).toBe(true);
       expect(r1?.featureId).toBe('feat-initial');
       expect(fetchCount).toBe(1);
 
-      // Second call: cache hit → no additional fetch. Even if the
-      // underlying fixture changes the rootsClient response, the cached
-      // entry must win until invalidation.
       nextList = [{ uri: fileUriFor(next) }];
       const r2 = await resolveWorkspace({ resolver, rootsClient, cwd: tmp, eventStore });
       expect(r2?.success).toBe(true);
       expect(r2?.featureId).toBe('feat-initial');
       expect(fetchCount).toBe(1);
 
-      // Simulate `roots/list_changed` notification → cache invalidated.
       resolver.invalidateRootsCache();
 
       const r3 = await resolveWorkspace({ resolver, rootsClient, cwd: tmp, eventStore });
@@ -380,6 +378,10 @@ describe('resolveWorkspace roots branch (#1290)', () => {
     }
   });
 
+  /**
+   * The test records no handshake snapshot, so `isRootsDeclared()` is false.
+   * Discovery uses the cwd walk and never calls the roots client.
+   */
   it('WorkspaceDiscovery_RootsDeclaredFalse_SkipsRootsBranchEntirely', async () => {
     const tmp = await mktemp('no-decl');
     try {
@@ -388,7 +390,6 @@ describe('resolveWorkspace roots branch (#1290)', () => {
       await seedExarchosWorkspace(cwd, 'feat-cwdonly');
 
       const resolver = createInMemoryResolver([]);
-      // Note: NO snapshot call → isRootsDeclared() is false.
 
       let fetchCount = 0;
       const rootsClient: RootsClient = {
@@ -409,7 +410,6 @@ describe('resolveWorkspace roots branch (#1290)', () => {
         eventStore,
       });
 
-      // Resolution falls back to cwd-walk. rootsClient is never called.
       expect(result).toBeDefined();
       expect(result!.success).toBe(true);
       expect(result!.source).toBe('cwd');

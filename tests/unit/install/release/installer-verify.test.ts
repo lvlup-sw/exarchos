@@ -59,7 +59,7 @@ interface Fixture {
   readonly signed: SignedReleaseManifest;
 }
 
-/** A fully valid, trusted, signed fixture. Each test perturbs exactly one seam. */
+/** A valid signed manifest and the trust root that accepts its key. */
 function makeFixture(): Fixture {
   const keyId = 'publisher.a';
   const keys = makeKeyPair();
@@ -91,9 +91,9 @@ describe('verifyReleaseInstall — exit-proof (f): a valid manifest verifies', (
 });
 
 describe('verifyReleaseInstall — exit-proof (b): source mismatch rejected', () => {
+  /** The manifest keeps its valid signature. Only the source that the installer expects is different. */
   it('SourceMismatch_RejectedEvenWhenValidlySigned', () => {
     const f = makeFixture();
-    // Manifest is untouched & validly signed; the installer expects a DIFFERENT source.
     const inputs: VerifyReleaseInputs = {
       ...validInputs(f),
       expectedSource: { commit: 'f'.repeat(40), treeDigest: digestText('other-tree') },
@@ -129,9 +129,9 @@ describe('verifyReleaseInstall — exit-proof (c): contract mismatch rejected', 
 });
 
 describe('verifyReleaseInstall — exit-proof (d): manifest tamper / bad signature rejected', () => {
+  /** The manifest changes after signing, so the signature does not cover the new bytes. */
   it('TamperedManifestBody_FailsSignature', () => {
     const f = makeFixture();
-    // Mutate the manifest AFTER signing — the signature no longer covers these bytes.
     const tamperedManifest = ReleaseManifestSchema.parse({
       ...f.signed.manifest,
       version: '9.9.9-evil',
@@ -142,10 +142,10 @@ describe('verifyReleaseInstall — exit-proof (d): manifest tamper / bad signatu
     if (!result.ok) expect(result.reason).toBe('manifest-signature');
   });
 
+  /** A key outside the trust root signs the unchanged manifest and claims the publisher key id. */
   it('SignedByUntrustedKey_FailsSignature', () => {
     const f = makeFixture();
     const attacker = makeKeyPair();
-    // Attacker re-signs the (unchanged) manifest with their own key, claiming the publisher id.
     const rogue = signReleaseManifest(f.signed.manifest, 'publisher.a', attacker.privateKeyPem);
     const result = verifyReleaseInstall({ ...validInputs(f), signed: rogue });
     expect(result.ok).toBe(false);
@@ -192,8 +192,11 @@ describe('verifyReleaseInstall — exit-proof (e): asset digest mismatch rejecte
 });
 
 describe('verifyReleaseInstall — rejection priority is stable', () => {
+  /**
+   * The input has a bad signature and a source mismatch. The signature check runs
+   * first, so the result names the signature.
+   */
   it('SignatureCheckedBeforeIdentity', () => {
-    // Both a bad signature AND a source mismatch present → signature wins (checked first).
     const f = makeFixture();
     const attacker = makeKeyPair();
     const rogue = signReleaseManifest(f.signed.manifest, 'publisher.a', attacker.privateKeyPem);

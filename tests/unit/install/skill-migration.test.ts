@@ -1,12 +1,7 @@
 /**
- * Tests for the VCS MCP action migration in skill templates.
- *
- * Verifies that actionable `gh` CLI commands in content/ have been
- * migrated to `exarchos_orchestrate({ action: "..." })` MCP action
- * references, and that VCS provider preambles are present in affected
- * skills.
- *
- * Task T34: Migrate skill templates from `gh` to MCP action references.
+ * Tests that skill content uses MCP actions for VCS operations.
+ * A source under `content/` must hold no actionable `gh` command that an `exarchos_orchestrate` action replaces.
+ * A skill that uses VCS operations must hold a VCS provider preamble.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -20,16 +15,12 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const SKILLS_SRC_DIR = resolve(__dirname, '../../../content');
 
-/** Path relative to `SKILLS_SRC_DIR`, forward-slash-normalized so it is
- * platform-stable for both display and equality checks against literal
- * posix-style allowlists. */
+/** The path relative to `SKILLS_SRC_DIR`, with forward slashes on every platform, so it matches the POSIX-style allowlist entries. */
 function relToSkillsSrc(file: string): string {
   return relative(SKILLS_SRC_DIR, file).split(/[\\/]/).join('/');
 }
 
-/**
- * Recursively collect all .md files in a directory.
- */
+/** Collects each `.md` file below `dir`, recursively. */
 function collectMarkdownFiles(dir: string): string[] {
   const results: string[] = [];
   if (!existsSync(dir)) return results;
@@ -44,55 +35,43 @@ function collectMarkdownFiles(dir: string): string[] {
   return results;
 }
 
-/**
- * Patterns that indicate actionable `gh` commands that SHOULD be migrated.
- * These are patterns where the skill tells the agent to RUN the command.
- *
- * The patterns match within code blocks or inline code.
- */
+/** Patterns for an actionable `gh` command, which is one that the skill tells the agent to run. */
 const ACTIONABLE_GH_PATTERNS = [
-  // gh pr create — should use create_pr action
+  /** `gh pr create`, which the `create_pr` action replaces. */
   /(?:^|\n)\s*(?:```[\s\S]*?)?gh pr create\b/,
-  // gh pr merge ... --auto --squash — should use merge_pr action
+  /** `gh pr merge`, which the `merge_pr` action replaces. */
   /(?:^|\n)\s*(?:```[\s\S]*?)?gh pr merge\b/,
-  // gh issue create — should use create_issue action
+  /** `gh issue create`, which the `create_issue` action replaces. */
   /(?:^|\n)\s*(?:```[\s\S]*?)?gh issue create\b/,
-  // gh pr checks — should use check_ci action
+  /** `gh pr checks`, which the `check_ci` action replaces. */
   /(?:^|\n)\s*(?:```[\s\S]*?)?gh pr checks\b/,
-  // gh pr view ... --json reviews,comments — should use get_pr_comments
+  /** `gh pr view` with `--json reviews` or `--json comments`, which the `get_pr_comments` action replaces. */
   /gh pr view\s+\S+\s+--json\s+(?:reviews|comments|reviews,comments)/,
-  // gh pr list (non-documentation context) — should use list_prs action
-  // Only flag when it appears as an actionable command (inside code blocks)
+  /** `gh pr list` at the start of a line, which the `list_prs` action replaces. */
   /(?:^|\n)\s*gh pr list\b/,
-  // gh pr comment — should use add_pr_comment action
+  /** `gh pr comment`, which the `add_pr_comment` action replaces. */
   /(?:^|\n)\s*(?:```[\s\S]*?)?gh pr comment\b/,
 ];
 
-/**
- * Exceptions: files or patterns that should be KEPT as gh commands.
- * These represent operations without MCP action equivalents or
- * pure documentation context.
- */
+/** `gh` commands that skill content can keep. Each element gives the reason. */
 const ALLOWED_GH_REFERENCES = [
-  // gh pr edit --add-label — no MCP action for labels
+  /** `gh pr edit --add-label`. No MCP action sets a label. */
   /gh pr edit\s+\S+\s+--add-label/,
-  // gh pr edit --base — no MCP action for PR retarget
+  /** `gh pr edit --base`. No MCP action retargets a PR. */
   /gh pr edit\s+\S+\s+--base/,
-  // gh pr edit --body — used for updating PR body, complex formatting
+  /** `gh pr edit --body`. The update of a PR body needs complex formatting. */
   /gh pr edit\s+\S+\s+--body/,
-  // gh pr edit --add-reviewer — no MCP action for reviewer assignment
+  /** `gh pr edit --add-reviewer`. No MCP action assigns a reviewer. */
   /gh pr edit\s+\S+\s+--add-reviewer/,
-  // gh pr update-branch — no MCP action for branch update
+  /** `gh pr update-branch`. No MCP action updates a branch. */
   /gh pr update-branch/,
-  // gh pr diff — handled locally
+  /** `gh pr diff`, which is handled locally. */
   /gh pr diff/,
-  // gh pr view ... --json autoMergeRequest — specific operational check
+  /** `gh pr view --json autoMergeRequest`, an auto-merge check with no MCP action. */
   /gh pr view\s+\S+\s+--json\s+autoMergeRequest/,
 ];
 
-/**
- * Skills that use VCS operations and should have a VCS preamble.
- */
+/** Skills that use VCS operations. Each one must hold a VCS preamble. */
 const SKILLS_REQUIRING_VCS_PREAMBLE = [
   'synthesize',
   'shepherd',
@@ -103,11 +82,7 @@ const SKILLS_REQUIRING_VCS_PREAMBLE = [
 ];
 
 describe('skill-migration — T34: gh to MCP action migration', () => {
-  /**
-   * Scan all skill-src markdown files for actionable `gh pr create`,
-   * `gh pr merge`, and `gh issue create` commands that should have been
-   * migrated to MCP action references.
-   */
+  /** Only a Markdown table row can name `gh pr create`. */
   it('NoActionableGhPrCreate_InSkillSources', () => {
     const files = collectMarkdownFiles(SKILLS_SRC_DIR);
     const violations: Array<{ file: string; line: number; text: string }> = [];
@@ -118,13 +93,9 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
 
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
-        // Check for `gh pr create` as actionable command
         if (/\bgh pr create\b/.test(line)) {
-          // Allow if it's in a migration table mapping or pure documentation
           const isAllowed =
-            // Migration mapping table (Graphite equivalents, etc.)
             /\|.*gh pr create.*\|/.test(line) ||
-            // Pure explanation text (not in a code block or actionable instruction)
             false;
           if (!isAllowed) {
             violations.push({
@@ -143,6 +114,7 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
     ).toEqual([]);
   });
 
+  /** Only a Markdown table row can name `gh pr merge`. */
   it('NoActionableGhPrMerge_InSkillSources', () => {
     const files = collectMarkdownFiles(SKILLS_SRC_DIR);
     const violations: Array<{ file: string; line: number; text: string }> = [];
@@ -154,7 +126,6 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         if (/\bgh pr merge\b/.test(line)) {
-          // Allow in migration mapping table
           const isAllowed = /\|.*gh pr merge.*\|/.test(line);
           if (!isAllowed) {
             violations.push({
@@ -235,7 +206,6 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
 
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
-        // Match gh pr view <num> --json reviews,comments or similar
         if (/\bgh pr view\s+\S+\s+--json\s+(?:reviews|comments|reviews,comments)\b/.test(line)) {
           violations.push({
             file: relToSkillsSrc(file),
@@ -279,22 +249,17 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
   });
 
   /**
-   * For gh pr list used as actionable commands (not documentation),
-   * verify migration to list_prs. We exclude the Graphite mapping table
-   * and gh pr list used in safeguards/prune context (kept as gh).
+   * Three contexts can name `gh pr list`:
+   * - the prune files in `ALLOWED_FILES`, because the prune safeguards use `gh` internally
+   * - a Markdown table row
+   * - text with the word "from" directly before the command in backticks
+   * `ALLOWED_FILES` matches the path below the skill, not the path below the content root.
+   * Thus a move of the skill to another domain does not remove the exemption.
    */
   it('NoActionableGhPrList_InSkillSources_ExceptAllowedContexts', () => {
     const files = collectMarkdownFiles(SKILLS_SRC_DIR);
     const violations: Array<{ file: string; line: number; text: string }> = [];
 
-    // Files that are allowed to keep gh pr list references:
-    // - prune references (safeguards use gh internally)
-    // - github-native-stacking.md (Graphite mapping table kept for reference)
-    //
-    // Matched on the path *below the skill*, never on the path below the
-    // content root: the capability domain that owns a skill is not part of
-    // this exception's meaning, and pinning it there is what silently
-    // un-exempts these files the next time a skill is regrouped.
     const ALLOWED_FILES = [
       'prune/references/safeguards.md',
       'prune/SKILL.md',
@@ -310,10 +275,8 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         if (/\bgh pr list\b/.test(line)) {
-          // Allow in Graphite migration mapping table
           const isAllowed =
             /\|.*gh pr list.*\|/.test(line) ||
-            // Allow "from gh pr list" in explanatory text
             /from\s+`gh pr list/.test(line);
           if (!isAllowed) {
             violations.push({
@@ -332,6 +295,10 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
     ).toEqual([]);
   });
 
+  /**
+   * Two kinds of line can name `gh pr view`: a Markdown table row, and a line with `--json autoMergeRequest`.
+   * No MCP action does the auto-merge check.
+   */
   it('NoActionableGhPrView_InSkillSources_ExceptAllowedOperations', () => {
     const files = collectMarkdownFiles(SKILLS_SRC_DIR);
     const violations: Array<{ file: string; line: number; text: string }> = [];
@@ -344,10 +311,9 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         if (/\bgh pr view\b/.test(line)) {
-          // Allowed gh pr view operations (no MCP equivalent)
           const isAllowed =
-            /--json\s+autoMergeRequest/.test(line) || // Auto-merge check — no MCP equiv
-            /\|.*gh pr view.*\|/.test(line);          // In a table (documentation)
+            /--json\s+autoMergeRequest/.test(line) ||
+            /\|.*gh pr view.*\|/.test(line);
           if (!isAllowed) {
             violations.push({
               file: relPath,
@@ -393,7 +359,8 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
   });
 
   /**
-   * Verify VCS preamble is present in skills that use VCS operations.
+   * Each skill in `SKILLS_REQUIRING_VCS_PREAMBLE` must hold a `## VCS Provider` section.
+   * The loop skips a skill that has no `SKILL.md` at `content/<name>/`.
    */
   it('VcsPreamble_PresentInAffectedSkills', () => {
     const missing: string[] = [];
@@ -402,7 +369,6 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
       const skillPath = join(SKILLS_SRC_DIR, skillName, 'SKILL.md');
       if (!existsSync(skillPath)) continue;
       const content = readFileSync(skillPath, 'utf8');
-      // Check for VCS preamble section
       if (!content.includes('## VCS Provider')) {
         missing.push(skillName);
       }
@@ -414,14 +380,11 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
     ).toEqual([]);
   });
 
-  /**
-   * Verify that MCP action references exist in skills that previously used gh commands.
-   */
+  /** The synthesize skill must name the `create_pr` and `merge_pr` actions. */
   it('McpActionReferences_PresentInMigratedSkills', () => {
     const synthSkillPath = resolveSkillPath('synthesize');
     const content = readFileSync(synthSkillPath, 'utf8');
 
-    // Should reference create_pr and merge_pr actions
     expect(content).toContain('action: "create_pr"');
     expect(content).toContain('action: "merge_pr"');
   });
@@ -430,7 +393,6 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
     const synthSkillPath = resolveSkillPath('synthesize');
     const content = readFileSync(synthSkillPath, 'utf8');
 
-    // Should reference list_prs action
     expect(content).toContain('action: "list_prs"');
   });
 
@@ -438,7 +400,6 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
     const dogfoodPath = resolveSkillPath('dogfood');
     const content = readFileSync(dogfoodPath, 'utf8');
 
-    // Should reference create_issue action
     expect(content).toContain('action: "create_issue"');
   });
 
@@ -446,7 +407,6 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
     const troublePath = resolveSkillReference('synthesize', 'troubleshooting.md');
     const content = readFileSync(troublePath, 'utf8');
 
-    // Should reference check_ci action
     expect(content).toContain('action: "check_ci"');
   });
 });

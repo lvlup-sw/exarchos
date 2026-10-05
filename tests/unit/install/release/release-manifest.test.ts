@@ -64,12 +64,11 @@ describe('digestAssetBytes (raw-byte asset digest)', () => {
     expect(digestAssetBytes(ASSET_BYTES)).toMatch(/^sha256:[0-9a-f]{64}$/);
   });
 
+  /** A binary is not text, so the raw-byte digest keeps CRLF and LF distinct. The text digest `digestText` normalizes them. */
   it('AssetDigest_DoesNotNormalizeLineEndings_UnlikeTextDigest', () => {
-    // Raw byte digest MUST treat CRLF and LF as different (binaries are not text).
     const crlf = digestAssetBytes(new Uint8Array([0x41, 0x0d, 0x0a, 0x42]));
     const lf = digestAssetBytes(new Uint8Array([0x41, 0x0a, 0x42]));
     expect(crlf).not.toBe(lf);
-    // Sanity: the P05-04 TEXT digest DOES normalize them (opposite behavior).
     expect(digestText('A\r\nB')).toBe(digestText('A\nB'));
   });
 });
@@ -85,19 +84,17 @@ describe('signReleaseManifest / verify round-trip', () => {
     expect(result.trusted).toBe(true);
   });
 
+  /** The signature covers only the manifest body, so the serialized form does not change the signing bytes. */
   it('SigningBytes_ExcludeSignature_AndSurviveSerializeParse', () => {
     const keys = makeKeyPair();
     const signed = signReleaseManifest(makeManifest(), 'publisher.a', keys.privateKeyPem);
     const roundTripped = parseSignedManifest(serializeSignedManifest(signed));
-    // Bytes derived from the parsed manifest equal bytes from the original —
-    // transport/formatting is irrelevant, only the manifest body is signed.
     expect(manifestSigningBytes(roundTripped.manifest).equals(manifestSigningBytes(signed.manifest))).toBe(true);
     expect(roundTripped.signature.value).toBe(signed.signature.value);
   });
 
   it('Canonicalization_IsKeyOrderIndependent', () => {
     const a = manifestSigningBytes(makeManifest());
-    // Rebuild the same manifest with keys inserted in a different order.
     const m = makeManifest();
     const reordered: ReleaseManifest = ReleaseManifestSchema.parse({
       assets: m.assets,
@@ -108,15 +105,13 @@ describe('signReleaseManifest / verify round-trip', () => {
       manifestVersion: m.manifestVersion,
     });
     expect(manifestSigningBytes(reordered).equals(a)).toBe(true);
-    // toCanonical returns a stable serialization too.
     expect(canonicalBytes(manifestToCanonical(reordered)).equals(a)).toBe(true);
   });
 });
 
 describe('reproducibility exit-proof (a): two independent builds match', () => {
+  /** Canonical JSON and the Ed25519 signature are deterministic, so two builds from the same inputs are byte-identical. */
   it('IndependentManifestBuilds_ProduceByteIdenticalDigests', () => {
-    // Two independent "builds" from identical source inputs must be byte-identical:
-    // deterministic canonical JSON + deterministic (Ed25519) signature.
     const keys = makeKeyPair();
     const buildOne = signReleaseManifest(makeManifest(), 'publisher.a', keys.privateKeyPem);
     const buildTwo = signReleaseManifest(makeManifest(), 'publisher.a', keys.privateKeyPem);
@@ -132,8 +127,8 @@ describe('parseSignedManifest fails closed', () => {
     expect(() => parseSignedManifest('not json {')).toThrow(/not valid JSON/);
   });
 
+  /** The input is valid JSON, but it has no signature and its manifest is incomplete. */
   it('ParseSignedManifest_RejectsMalformedShape', () => {
-    // Well-formed JSON but missing the signature / wrong manifest shape.
     expect(() => parseSignedManifest(JSON.stringify({ manifest: { manifestVersion: 1 } }))).toThrow();
   });
 

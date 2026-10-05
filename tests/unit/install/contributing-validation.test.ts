@@ -14,6 +14,11 @@ function readContributing(): string {
 }
 
 describe('CONTRIBUTING.md validation', () => {
+  /**
+   * `build:binary` must sit within 300 characters of prose about the bootstrap
+   * script, the compiled output or the install path. The test removes the token
+   * from that window before the scan, so the token cannot match a context word.
+   */
   it('Contributing_MentionsBuildBinary', () => {
     const content = readContributing();
 
@@ -22,11 +27,6 @@ describe('CONTRIBUTING.md validation', () => {
       'CONTRIBUTING.md must mention the `npm run build:binary` command literally',
     ).toContain('npm run build:binary');
 
-    // Keyword-proximity check: `build:binary` should appear within 300 chars
-    // of meaningful explanatory context (bootstrap script, compiled output,
-    // install path). The earlier check matched the literal substring "binary"
-    // — true by tautology since `build:binary` itself contains it. Strip the
-    // token before scanning so the assertion exercises real prose.
     const idx = content.indexOf('build:binary');
     expect(idx, 'build:binary must appear in content').toBeGreaterThanOrEqual(0);
     const windowStart = Math.max(0, idx - 300);
@@ -44,7 +44,6 @@ describe('CONTRIBUTING.md validation', () => {
 
   it('Contributing_LinksToBuildBinaryScript', () => {
     const content = readContributing();
-    // Accept `tools/release/build-binary.ts` with or without the extension.
     expect(
       /tools\/release\/build-binary(\.ts)?/.test(content),
       'CONTRIBUTING.md must reference tools/release/build-binary(.ts)',

@@ -1,31 +1,13 @@
 /**
- * Versioned-packaging consistency (Task 022, DR-4).
+ * Packaging consistency checks that run with no network access.
  *
- * Two guarantees, asserted LOCALLY (no network `npx` — CI must stay offline):
- *
- *  1. Version fan-out. Root `package.json` is the single source of truth; every
- *     derived sink (`.claude-plugin/plugin.json` `.version` +
- *     `.metadata.compat.minBinaryVersion`, `manifest.json`, the server package,
- *     and both `SERVER_VERSION` string literals) is a mechanical projection of
- *     it. `tools/release/sync-versions.sh` writes them; this test re-checks the same
- *     invariant from TypeScript so drift is caught in the normal `vitest` run,
- *     not only by the bash `version:check` gate.
- *
- *  2. `.claude-plugin` manifest coherence against the restructured tree. Every
- *     path plugin.json declares (agents, commands dir, skills dir) resolves on
- *     disk, and every shipped `SKILL.md` parses as YAML frontmatter with the
- *     required `name`/`description` fields. Intentionally-malformed fixtures
- *     under `skills/test-fixtures/` (and `skills/trigger-tests/`) are excluded —
- *     they exist to exercise the frontmatter validator and are not shipped
- *     skills.
- *
- * Release-tag / version coordination (preview tag): the git release tag for this
- * bundle is cut as `v2.12.1`, matching the root `package.json` version
- * exactly. `PREVIEW_VERSION` below pins that coordination point — it must be
- * updated in lockstep with the next `package.json` bump (and its release tag),
- * which is the deliberate forcing function for the preview → next-version
- * handoff. `sync-versions.sh` propagates the number; this constant records the
- * tag/version contract the release process must honor.
+ *  1. Version fan-out. The root `package.json` is the single source of the version.
+ *     `tools/release/sync-versions.sh` writes it to `.claude-plugin/plugin.json`
+ *     (`.version` and `.metadata.compat.minBinaryVersion`), to `manifest.json`, and
+ *     to both `SERVER_VERSION` literals. This test compares each of those sinks with
+ *     the root version, so the `vitest` run finds drift without the `version:check` gate.
+ *  2. Plugin manifest coherence. Each path that `plugin.json` declares exists on disk.
+ *     Each rendered `SKILL.md` has YAML frontmatter with a `name` and a `description`.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -34,10 +16,12 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { load as yamlLoad } from 'js-yaml';
 
-// `src/` → repo root is one level up.
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 
-/** The preview release tag this bundle coordinates with (see file header). */
+/**
+ * The version of the release tag for this tree. `sync-versions.sh` does not write this constant.
+ * On each version bump, update it together with `package.json` and create the `v<version>` git tag.
+ */
 const PREVIEW_VERSION = '2.12.1';
 
 const readJson = (rel: string): Record<string, unknown> =>
@@ -55,7 +39,6 @@ function serverVersionLiteral(relFile: string): string {
 
 describe('versioned packaging (Task 022, DR-4)', () => {
   it('versionCheck_AllSinksMatchRootPackageJson', () => {
-    // Root package.json is the SoT; every sink is a projection of it.
     const plugin = readJson('.claude-plugin/plugin.json');
     const manifest = readJson('manifest.json');
     const mcpPkg = readJson('package.json');
@@ -79,16 +62,11 @@ describe('versioned packaging (Task 022, DR-4)', () => {
   });
 
   it('versionCheck_RootMatchesPreviewReleaseTag', () => {
-    // Pins THIS bundle's outcome and the release-tag/version coordination point.
-    // On the next bump, update package.json (via sync-versions.sh) AND
-    // PREVIEW_VERSION here, and cut the matching `v<version>` git tag.
     expect(rootVersion).toBe(PREVIEW_VERSION);
   });
 
+  /** The test does not assert build artifacts, because they do not exist before a build. */
   it('pluginManifest_PathsExistInTree', () => {
-    // Every path plugin.json declares must resolve against the restructured
-    // tree. (Build artifacts like the bundled MCP JS are intentionally NOT
-    // asserted — they don't exist pre-build.)
     const plugin = readJson('.claude-plugin/plugin.json');
 
     const agents = plugin.agents as string[];
@@ -106,10 +84,13 @@ describe('versioned packaging (Task 022, DR-4)', () => {
     }
   });
 
+  /**
+   * The scan reads each rendered `SKILL.md` from disk. It skips each directory whose
+   * name starts with `__`, because that name marks a transient probe directory and
+   * not a skill. The count check stops an empty scan from passing with no assertions.
+   */
   it('pluginManifest_SkillDeclarationsParse_Locally', () => {
-    // Parse every shipped SKILL.md frontmatter locally — no network `npx`.
     const skillsDir = join(repoRoot, 'rendered', 'skills');
-    // Intentionally-malformed fixtures live here; they are not shipped skills.
     const excludedTopDirs = new Set(['test-fixtures', 'trigger-tests']);
 
     const skillFiles: string[] = [];
@@ -117,18 +98,12 @@ describe('versioned packaging (Task 022, DR-4)', () => {
       if (!top.isDirectory() || excludedTopDirs.has(top.name)) continue;
       const runtimeDir = join(skillsDir, top.name);
       for (const skill of readdirSync(runtimeDir, { withFileTypes: true })) {
-        // Skip transient `__…__` probe dirs (e.g. `__wt_probe__`, written into
-        // the real skills tree by generate-legacy-skill-hashes.test.ts) that can
-        // race this scan under parallel test execution. Real skill dirs are
-        // kebab-case verbs and never start with `__`.
         if (!skill.isDirectory() || skill.name.startsWith('__')) continue;
         const skillMd = join(runtimeDir, skill.name, 'SKILL.md');
         if (existsSync(skillMd)) skillFiles.push(skillMd);
       }
     }
 
-    // The restructured tree ships a non-trivial skill set; guard against an
-    // enumeration that silently finds nothing (which would make the loop vacuous).
     expect(skillFiles.length).toBeGreaterThan(10);
 
     for (const file of skillFiles) {

@@ -17,7 +17,6 @@ describe('V1 Migration', () => {
     fakeRepoRoot = path.join(tmpDir, 'exarchos-repo');
     fs.mkdirSync(claudeHome, { recursive: true });
     fs.mkdirSync(fakeRepoRoot, { recursive: true });
-    // Create fake repo content directories
     fs.mkdirSync(path.join(fakeRepoRoot, 'skills'), { recursive: true });
     fs.mkdirSync(path.join(fakeRepoRoot, 'commands'), { recursive: true });
     fs.mkdirSync(path.join(fakeRepoRoot, 'rules'), { recursive: true });
@@ -29,9 +28,9 @@ describe('V1 Migration', () => {
     rmrf(tmpDir);
   });
 
+  /** A v1 install links `skills` in the Claude home to the `skills` directory of the repository. */
   describe('detectV1Install', () => {
     it('detectV1Install_SymlinkedSkills_ReturnsTrue', () => {
-      // Create symlink from claudeHome/skills -> fakeRepoRoot/skills (v1 pattern)
       fs.symlinkSync(
         path.join(fakeRepoRoot, 'skills'),
         path.join(claudeHome, 'skills'),
@@ -44,7 +43,6 @@ describe('V1 Migration', () => {
     });
 
     it('detectV1Install_CopiedSkills_ReturnsFalse', () => {
-      // Create a real directory (not a symlink) — v2 standard mode
       fs.mkdirSync(path.join(claudeHome, 'skills'), { recursive: true });
       fs.writeFileSync(
         path.join(claudeHome, 'skills', 'test.md'),
@@ -58,7 +56,6 @@ describe('V1 Migration', () => {
     });
 
     it('detectV1Install_NoSkills_ReturnsFalse', () => {
-      // No skills directory at all
       const result = detectV1Install(claudeHome);
 
       expect(result.isV1).toBe(false);
@@ -67,8 +64,8 @@ describe('V1 Migration', () => {
   });
 
   describe('getV1RepoPath', () => {
+    /** The repository root is the parent of the symlink target. */
     it('getV1RepoPath_FromSymlink_ReturnsRepoRoot', () => {
-      // Symlink skills -> fakeRepoRoot/skills
       fs.symlinkSync(
         path.join(fakeRepoRoot, 'skills'),
         path.join(claudeHome, 'skills'),
@@ -76,7 +73,6 @@ describe('V1 Migration', () => {
 
       const result = getV1RepoPath(claudeHome);
 
-      // Should resolve to fakeRepoRoot (parent of 'skills')
       expect(result).toBe(fakeRepoRoot);
     });
 
@@ -88,7 +84,6 @@ describe('V1 Migration', () => {
 
   describe('migrateV1', () => {
     it('migrateV1_RemovesSymlinks_ReturnsRemovedPaths', () => {
-      // Create v1 symlinks
       const symlinkDirs = ['skills', 'commands', 'rules', 'scripts'];
       for (const dir of symlinkDirs) {
         fs.symlinkSync(
@@ -104,7 +99,6 @@ describe('V1 Migration', () => {
       const result = migrateV1(claudeHome);
 
       expect(result.removedSymlinks.length).toBeGreaterThanOrEqual(5);
-      // Verify symlinks are actually gone
       for (const dir of symlinkDirs) {
         const targetPath = path.join(claudeHome, dir);
         expect(fs.existsSync(targetPath)).toBe(false);
@@ -114,13 +108,11 @@ describe('V1 Migration', () => {
     });
 
     it('migrateV1_PreservesNonExarchosFiles_InClaudeDir', () => {
-      // Create v1 symlinks
       fs.symlinkSync(
         path.join(fakeRepoRoot, 'skills'),
         path.join(claudeHome, 'skills'),
       );
 
-      // Create non-Exarchos files that should be preserved
       fs.mkdirSync(path.join(claudeHome, 'projects'), { recursive: true });
       fs.writeFileSync(
         path.join(claudeHome, 'projects', 'user-config.json'),
@@ -133,7 +125,6 @@ describe('V1 Migration', () => {
 
       migrateV1(claudeHome);
 
-      // Verify non-Exarchos files are preserved
       expect(
         fs.existsSync(path.join(claudeHome, 'projects', 'user-config.json')),
       ).toBe(true);

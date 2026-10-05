@@ -21,8 +21,6 @@ import { SIGNATURE_ALGORITHM, TrustRootSet } from '../../../../src/runtime/exten
 import { InMemoryVersionLedger } from '../../../../src/runtime/extensions/version-ledger.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
-// ─── Fixtures ─────────────────────────────────────────────────────────────
-
 function makeSigner(keyId: string): {
   keyId: string;
   publicKeyPem: string;
@@ -135,8 +133,6 @@ function request(
   };
 }
 
-// ─── Happy path ─────────────────────────────────────────────────────────────
-
 describe('admitExtension — valid extension (P03-08)', () => {
   it('Admit_ValidExtension_AdmitsAndExecutesVerifiedBytes', async () => {
     const loader = vi.fn(async () => CONTENT);
@@ -154,8 +150,6 @@ describe('admitExtension — valid extension (P03-08)', () => {
   });
 });
 
-// ─── Exit proof: six independently-seeded fail-closed modes ────────────────
-
 describe('admitExtension — exit proof: fail closed before execution (P03-08)', () => {
   it('Admit_Untrusted_FailsClosed_ContentNeverLoaded', async () => {
     const loader = vi.fn(async () => CONTENT);
@@ -167,10 +161,10 @@ describe('admitExtension — exit proof: fail closed before execution (P03-08)',
     expect(loader).not.toHaveBeenCalled();
   });
 
+  /** The test changes the signed `version` field, so the signature does not match the manifest. */
   it('Admit_TamperedSignedField_FailsClosedUntrusted', async () => {
     const loader = vi.fn(async () => CONTENT);
     const signed = signManifest();
-    // Mutate a signed field after signing; the signature no longer covers it.
     const tampered = { ...signed, version: signed.version + 1 };
     const outcome = await admitExtension(request(tampered, loader), freshContext());
 
@@ -220,10 +214,11 @@ describe('admitExtension — exit proof: fail closed before execution (P03-08)',
     expect(loader).not.toHaveBeenCalled();
   });
 
+  /** The ledger holds a high-water mark of 5, and the manifest declares version 2. */
   it('Admit_Rollback_FailsClosed_ContentNeverLoaded', async () => {
     const loader = vi.fn(async () => CONTENT);
     const ledger = new InMemoryVersionLedger();
-    await ledger.recordAdmitted('ext.demo', 5); // high-water mark above version 2
+    await ledger.recordAdmitted('ext.demo', 5);
     const outcome = await admitExtension(
       request(signManifest({ version: 2 }), loader),
       freshContext({ versionLedger: ledger }),
@@ -234,10 +229,11 @@ describe('admitExtension — exit proof: fail closed before execution (P03-08)',
     expect(loader).not.toHaveBeenCalled();
   });
 
+  /** The declared `maxMemoryBytes` of 200_000 exceeds the host budget of 100_000. */
   it('Admit_OverQuotaDeclared_FailsClosed_ContentNeverLoaded', async () => {
     const loader = vi.fn(async () => CONTENT);
     const manifest = signManifest({
-      quota: { ...DEFAULT_QUOTA, maxMemoryBytes: 200_000 }, // exceeds budget 100_000
+      quota: { ...DEFAULT_QUOTA, maxMemoryBytes: 200_000 },
     });
     const outcome = await admitExtension(request(manifest, loader), freshContext());
 
@@ -246,20 +242,22 @@ describe('admitExtension — exit proof: fail closed before execution (P03-08)',
     expect(loader).not.toHaveBeenCalled();
   });
 
+  /**
+   * The declared content ceiling is inside the budget, but the content is larger than the ceiling.
+   * Admission loads the content one time to measure it.
+   */
   it('Admit_OverQuotaContent_FailsClosed_AfterLoad_NeverExecutes', async () => {
     const loader = vi.fn(async () => CONTENT);
-    // Declared content ceiling is tiny (<= budget) but the real content is larger.
     const manifest = signManifest({ quota: { ...DEFAULT_QUOTA, maxContentBytes: 5 } });
     const outcome = await admitExtension(request(manifest, loader), freshContext());
 
     expect(outcome.ok).toBe(false);
     if (!outcome.ok) expect(outcome.rejection.code).toBe('OVER_QUOTA');
-    // Content was loaded once to measure it, but the extension never executes.
     expect(loader).toHaveBeenCalledTimes(1);
   });
 
+  /** The manifest digest is for `CONTENT`, but the loader returns different bytes. */
   it('Admit_Mutated_FailsClosed_LoadedOnce_NeverExecutes', async () => {
-    // Manifest digest is for CONTENT, but the loader yields different bytes.
     const loader = vi.fn(async () => Buffer.from('MUTATED extension bytes'));
     const outcome = await admitExtension(request(signManifest(), loader), freshContext());
 
@@ -290,12 +288,12 @@ describe('admitExtension — exit proof: fail closed before execution (P03-08)',
     expect(loader).not.toHaveBeenCalled();
   });
 
+  /** The `read-only` posture does not grant `shell:exec`. */
   it('Admit_IsolationEscalation_FailsClosed', async () => {
     const loader = vi.fn(async () => CONTENT);
     const manifest = signManifest({
       isolation: { allowedCapabilities: ['shell:exec'], filesystem: 'none', network: false },
     });
-    // read-only posture does not grant shell:exec.
     const outcome = await admitExtension(
       request(manifest, loader, { posture: 'read-only' }),
       freshContext(),
@@ -306,20 +304,20 @@ describe('admitExtension — exit proof: fail closed before execution (P03-08)',
     expect(loader).not.toHaveBeenCalled();
   });
 
+  /**
+   * A rejected outcome carries no admitted extension. Thus no caller can pass a rejected
+   * extension to `executeExtension`.
+   */
   it('Admit_RejectedOutcome_ExposesNoAdmittedExtension', async () => {
     const loader = vi.fn(async () => CONTENT);
     const outcome = await admitExtension(
       request(signManifest({}, untrustedSigner), loader),
       freshContext(),
     );
-    // Structurally, execution is unreachable: there is no admitted extension to
-    // hand to executeExtension, so a rejected extension cannot run.
     expect(outcome.ok).toBe(false);
     expect('admitted' in outcome).toBe(false);
   });
 });
-
-// ─── TOCTOU resistance: read once, execute the verified bytes ──────────────
 
 describe('admitExtension — TOCTOU resistance (P03-08)', () => {
   let dir: string;
@@ -328,12 +326,15 @@ describe('admitExtension — TOCTOU resistance (P03-08)', () => {
     if (dir) await rmrfAsync(dir);
   });
 
+  /**
+   * The loader reads the file one time. The test then changes the file on disk, after
+   * verification and before execution. Execution must run the verified bytes in memory.
+   */
   it('Admit_TOCTOU_MutationAfterVerify_ExecutesVerifiedBytesNotMutated', async () => {
     dir = await mkdtemp(path.join(tmpdir(), 'ext-toctou-'));
     const file = path.join(dir, 'extension.bin');
     await writeFile(file, CONTENT);
 
-    // Loader reads the file once; count calls to prove read-once.
     const loader = vi.fn(async () => readFile(file));
     const outcome = await admitExtension(request(signManifest(), loader), freshContext());
 
@@ -341,19 +342,19 @@ describe('admitExtension — TOCTOU resistance (P03-08)', () => {
     if (!outcome.ok) return;
     expect(loader).toHaveBeenCalledTimes(1);
 
-    // Mutate the ON-DISK file AFTER verification but BEFORE use.
     await writeFile(file, Buffer.from('MALICIOUS replacement bytes'));
 
-    // Execution must run the verified in-memory bytes, never re-reading the path.
     const executed = await executeExtension(outcome.admitted, (content) => content);
     expect(executed.equals(CONTENT)).toBe(true);
     expect(outcome.admitted.content.equals(CONTENT)).toBe(true);
   });
 });
 
-// ─── Anti-rollback ledger advancement ──────────────────────────────────────
-
 describe('admitExtension — anti-rollback ledger (P03-08)', () => {
+  /**
+   * After the admission of version 2, a lower version is a rollback. An equal version is
+   * admissible again, and a higher version advances the high-water mark.
+   */
   it('Admit_LedgerAdvances_RejectsLowerAllowsEqualAndHigher', async () => {
     const context = freshContext();
 
@@ -363,7 +364,6 @@ describe('admitExtension — anti-rollback ledger (P03-08)', () => {
     );
     expect(first.ok).toBe(true);
 
-    // Lower version is a rollback.
     const lower = await admitExtension(
       request(signManifest({ version: 1 }), async () => CONTENT),
       context,
@@ -371,14 +371,12 @@ describe('admitExtension — anti-rollback ledger (P03-08)', () => {
     expect(lower.ok).toBe(false);
     if (!lower.ok) expect(lower.rejection.code).toBe('ROLLBACK');
 
-    // Equal version is still admissible (idempotent re-admit).
     const equal = await admitExtension(
       request(signManifest({ version: 2 }), async () => CONTENT),
       context,
     );
     expect(equal.ok).toBe(true);
 
-    // Higher version advances the high-water mark.
     const higher = await admitExtension(
       request(signManifest({ version: 3 }), async () => CONTENT),
       context,

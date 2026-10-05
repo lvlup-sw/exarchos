@@ -9,8 +9,6 @@ import {
   type RawInstallInputs,
 } from '../../../src/install/install-identity.js';
 
-// ─── Digest determinism + cross-platform normalization (P05-04) ─────────────
-
 describe('install-identity digest primitives', () => {
   it('normalizeLineEndings collapses CRLF and lone CR to LF and strips BOM', () => {
     expect(normalizeLineEndings('a\r\nb\rc\nd')).toBe('a\nb\nc\nd');
@@ -63,8 +61,6 @@ describe('install-identity digest primitives', () => {
     expect(normalizePath('C:\\a\\b')).toBe('C:/a/b');
   });
 });
-
-// ─── buildInstallIdentity (P05-04) ──────────────────────────────────────────
 
 const BASE_RAW: RawInstallInputs = {
   binaryVersion: '2.12.0',

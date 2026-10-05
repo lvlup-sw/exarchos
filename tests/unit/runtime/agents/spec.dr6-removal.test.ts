@@ -1,15 +1,5 @@
-// ─── DR-6 hard-cut guard test (T5b.1, v2.11 substrate-cut) ────────────────
-//
-// In v2.10, specs declaring legacy `capabilities: [...]` were accepted with
-// a `spec.legacy_capabilities_array` deprecation event + `_meta.deprecation`
-// envelope. v2.11 hard-cuts that path: legacy `capabilities[]` becomes a
-// typed validation error, and `posture` is the only authority for
-// declarative capability surfacing.
-//
-// This test fails on v2.10's accept-and-warn behaviour and passes after the
-// hard-cut. Once the cut lands and the wider suite stays green, this guard
-// can be deleted (the broader `spec.test.ts` suite covers the steady-state
-// posture-only contract).
+// Guard for the `capabilities` rejection in `AgentSpecSchema`. A spec that declares a `capabilities`
+// array fails with a typed validation error. `posture` is the only capability declaration.
 
 import { describe, it, expect } from 'vitest';
 import { AgentSpecSchema } from '../../../../src/runtime/agents/spec.js';
@@ -26,31 +16,26 @@ const validBaseSpec = {
 };
 
 describe('AgentSpec DR-6 hard-cut: legacy capabilities[] rejected (T5b.1)', () => {
+  /**
+   * The spec declares `posture` and `capabilities` together, so the rejection does not depend on a
+   * missing `posture`. The error names the two fields, and thus shows the operator the replacement.
+   */
   it('AgentSpec_RejectsLegacyCapabilitiesArray', () => {
-    // A spec carrying BOTH posture (the v2.11 replacement) AND a legacy
-    // capabilities[] declaration must still hard-fail on the
-    // capabilities key — pinning that the rejection is unconditional,
-    // not just "missing posture means no validation."
     const result = AgentSpecSchema.safeParse({
       ...validBaseSpec,
       capabilities: ['fs:read', 'fs:write'],
     });
 
-    // Hard-cut: legacy-array specs no longer parse.
     expect(result.success).toBe(false);
     if (!result.success) {
-      // Error must reference both `capabilities` (the offending field) and
-      // `posture` (the replacement) so the operator's migration path is
-      // unambiguous from the error alone.
       const message = JSON.stringify(result.error.issues);
       expect(message).toMatch(/capabilities/);
       expect(message).toMatch(/posture/);
     }
   });
 
+  /** The rejection of `capabilities` must not reject a spec that declares only `posture`. */
   it('AgentSpec_PostureOnlySpec_StillValidates', () => {
-    // Steady-state: a posture-only spec parses cleanly. Pinning this so the
-    // hard-cut doesn't accidentally over-reject the canonical v2.11 shape.
     const result = AgentSpecSchema.safeParse({
       ...validBaseSpec,
       posture: 'task-isolated',

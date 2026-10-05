@@ -1,27 +1,18 @@
-// ─── Harness Descriptor: pure-data compile-time assertion (DR-4) ─────────────
+// Type-level assertions that `HarnessDescriptor` is pure data: no field is a function or holds one
+// at any depth. A runtime value check cannot prove this, because a function-typed field with a data
+// default passes it. Thus the assertions are conditional types.
 //
-// The load-bearing gate. `HarnessDescriptor` must be *pure data* — no field may
-// be, or (recursively) contain, a function. That invariant cannot be trusted to
-// a runtime value sample: a future function-valued field with a data default
-// would pass a value check. So it is pinned here as a **conditional type** that
-// fails `tsc --noEmit` the moment a function-typed field is introduced.
-//
-// This file is named `*.type-test.ts` (not `*.test.ts`) deliberately: that name
-// dodges the tsconfig `**/*.test.ts` exclude, so `tsc` DOES compile — and thus
-// gate on — the assertions below. Vitest strips types, so the runtime `it`
-// block is only a thin anchor; a green `tsc` is the real guarantee.
-// ────────────────────────────────────────────────────────────────────────────
+// The assertions fail only as a compile error, in a `tsc` program that includes this file.
+// `tests/tsconfig.json` excludes `unit/**`, so `npm run typecheck` does not compile this file.
+// Vitest strips types, so the runtime `it` block is only an anchor.
 
 import { describe, it, expect } from 'vitest';
 import type { HarnessDescriptor, InjectionCandidate } from '../../../../src/runtime/launcher/harness-registry.js';
 
 /**
- * `true` iff `T` is a function type, or (recursively) any of its array elements
- * or object properties is/contains a function. `false` for pure primitive /
- * array-of-primitive / record-of-primitive shapes.
- *
- * Order matters: the function arm is first, and the array arm precedes the
- * object arm (arrays are structurally objects too).
+ * `true` when `T` is a function type, or when an array element or an object property of `T` holds
+ * a function at any depth. The function arm comes first. The array arm comes before the object
+ * arm, because an array is also an object.
  */
 type HasFunctionDeep<T> = T extends (...args: never[]) => unknown
   ? true
@@ -34,30 +25,23 @@ type HasFunctionDeep<T> = T extends (...args: never[]) => unknown
       : false;
 
 /**
- * Resolves to `true` when `T` is pure data, and to `never` when it contains a
- * function — assigning a `true` value to a `never`-typed binding is the `tsc`
- * error that turns "someone added a behavior hook" into a build failure.
+ * Resolves to `true` when `T` is pure data, and to `never` when `T` holds a function. An
+ * assignment of `true` to a `never` binding is then a `tsc` error.
  */
 type AssertPureData<T> = HasFunctionDeep<T> extends false ? true : never;
 
-// ── THE GATE ─────────────────────────────────────────────────────────────────
-// If any HarnessDescriptor field becomes (or nests) a function, `AssertPureData`
-// collapses to `never` and this assignment fails `tsc --noEmit`. This transitively
-// covers the `injection` candidate lists (a `HarnessDescriptor` field).
+/**
+ * The gate. When a `HarnessDescriptor` field is a function or holds one, `AssertPureData` resolves
+ * to `never` and this assignment does not compile. The check includes the `injection` field.
+ */
 const pureDataAssertionHolds: AssertPureData<HarnessDescriptor> = true;
 
-// The injection candidate union pinned EXPLICITLY too — `HasFunctionDeep`
-// distributes over `InjectionCandidate`'s members, so a function smuggled into
-// ANY member (flag/env/none) collapses this to `never` and fails the build. This
-// is the load-bearing pin for Task 014's new field; the descriptor gate above
-// only sees it as one nested array.
+/**
+ * A direct pin on the injection candidate union. `HasFunctionDeep` distributes over the members
+ * of `InjectionCandidate`, so a function in one member resolves this to `never`.
+ */
 const injectionPureDataAssertionHolds: AssertPureData<InjectionCandidate> = true;
 
-// ── Detector self-test (defends against a no-op HasFunctionDeep) ──────────────
-// Each `_Expect*` resolves to `true` only if the detector behaves; to `never`
-// otherwise. The tuple assignment compiles only when all four hold — so a
-// weakened detector (e.g. one that always returns `false`) also fails the build,
-// not just a mutated descriptor.
 type ExpectFn_TopLevel = HasFunctionDeep<{ f: () => void }> extends true ? true : never;
 type ExpectFn_Nested = HasFunctionDeep<{ nested: { g: (x: number) => string } }> extends true
   ? true
@@ -72,18 +56,22 @@ type ExpectPure_Shape = HasFunctionDeep<{
 }> extends false
   ? true
   : never;
-// A function hidden in ONE member of a discriminated union must still be caught —
-// this pins that the GATE mechanism rejects a behavior hook hidden behind a
-// discriminant (the shape of `InjectionCandidate`). `HasFunctionDeep` distributes
-// over the union to `boolean`, so `AssertPureData` collapses to `never`; the tuple
-// wrap dodges the `never`-checked-type short-circuit so this resolves to `true`
-// only when the hook was detected.
+/**
+ * A function in one member of a discriminated union, the shape of `InjectionCandidate`.
+ * `HasFunctionDeep` distributes over the union to `boolean`, so `AssertPureData` resolves to
+ * `never`. The `[T] extends [never]` form then gives `true` only on detection.
+ */
 type ExpectFn_InUnionMember = [
   AssertPureData<{ kind: 'a'; x: string } | { kind: 'b'; run: () => void }>,
 ] extends [never]
   ? true
   : never;
 
+/**
+ * The self-test of the detector. Each `Expect*` type resolves to `true` when the detector is
+ * correct, and to `never` when it is not. The tuple compiles only when all five hold, so a
+ * detector that always returns `false` also fails the compile.
+ */
 const detectorSelfTest: [
   ExpectFn_TopLevel,
   ExpectFn_Nested,
@@ -93,10 +81,11 @@ const detectorSelfTest: [
 ] = [true, true, true, true, true];
 
 describe('harness-registry pure-data (DR-4)', () => {
+  /**
+   * A runtime anchor only. The guarantee is the set of module-level type assignments, and only a
+   * `tsc` compile checks them.
+   */
   it('Registry_DescriptorPureData_CompileTimeAssertion', () => {
-    // Runtime anchor only. The guarantee is the module-level type assignments
-    // above, which `tsc --noEmit` gates on. If any type regresses, the build
-    // fails before this test ever runs.
     expect(pureDataAssertionHolds).toBe(true);
     expect(injectionPureDataAssertionHolds).toBe(true);
     expect(detectorSelfTest).toEqual([true, true, true, true, true]);

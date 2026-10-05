@@ -16,7 +16,6 @@ describe('MCP Server Bundle Copy (C4)', () => {
     rmrf(tmpDir);
   });
 
-  /** Helper: create a fake bundle source file with given content. */
   function createSourceBundle(filename: string, content: string): string {
     const sourcePath = path.join(tmpDir, 'source', filename);
     fs.mkdirSync(path.dirname(sourcePath), { recursive: true });
@@ -43,12 +42,10 @@ describe('MCP Server Bundle Copy (C4)', () => {
       const claudeHome = path.join(tmpDir, 'fresh-claude-home');
       const mcpDir = path.join(claudeHome, 'mcp-servers');
 
-      // Verify the directory does not exist yet
       expect(fs.existsSync(mcpDir)).toBe(false);
 
       installBundle(sourcePath, claudeHome);
 
-      // Directory should have been created
       expect(fs.existsSync(mcpDir)).toBe(true);
     });
 
@@ -57,16 +54,13 @@ describe('MCP Server Bundle Copy (C4)', () => {
       const mcpDir = path.join(claudeHome, 'mcp-servers');
       fs.mkdirSync(mcpDir, { recursive: true });
 
-      // Write an existing (old) bundle
       const existingPath = path.join(mcpDir, 'server.js');
       fs.writeFileSync(existingPath, 'old content', 'utf-8');
 
-      // Create new source
       const sourcePath = createSourceBundle('server.js', 'new content');
 
       installBundle(sourcePath, claudeHome);
 
-      // Should be overwritten with new content
       expect(fs.readFileSync(existingPath, 'utf-8')).toBe('new content');
     });
 
@@ -80,7 +74,7 @@ describe('MCP Server Bundle Copy (C4)', () => {
     });
 
     it('installBundle_ReturnsFileSize_InBytes', () => {
-      const content = 'A'.repeat(1024); // Exactly 1024 bytes
+      const content = 'A'.repeat(1024);
       const sourcePath = createSourceBundle('sized-server.js', content);
       const claudeHome = path.join(tmpDir, '.claude');
 

@@ -1,13 +1,7 @@
 /**
- * Tests for the platform-agnostic skills renderer / build CLI.
- *
- * Structure by task:
- *   - Task 003: render() placeholder substitution core
- *   - Task 004: render() error handling + assertNoUnresolvedPlaceholders
- *   - Task 005: parseTokenArgs + argument-aware substitution
- *   - Task 006: copyReferences
- *   - Task 007: buildAllSkills orchestrator + escape hatch
- *   - Task 009: buildAllSkills render-time CALL macro failure tests
+ * Tests for the skills renderer, which `src/install/build-skills.ts` exports. They cover
+ * placeholder substitution, token arguments, reference copy, CALL macros, `requires` guards,
+ * the vocabulary lint, skill classification, and `buildAllSkills`.
  */
 
 import { describe, it, expect, afterEach, beforeAll, afterAll } from 'vitest';
@@ -52,13 +46,13 @@ function makeTempDir(): string {
   return dir;
 }
 
+/** Removes each temp directory. A removal error does not fail the test. */
 afterEach(() => {
   while (tempDirs.length > 0) {
     const d = tempDirs.pop()!;
     try {
       rmrf(d);
     } catch {
-      // best-effort cleanup
     }
   }
 });
@@ -82,10 +76,8 @@ describe('render — task 003: placeholder substitution core', () => {
     expect(out).toBe('foo and foo and foo');
   });
 
+  /** The token opens at column 4, so each later line of the value gets 4 spaces of indent. */
   it('Render_MultiLineValue_PreservesIndentation', () => {
-    // Opening token at column 4 — every subsequent line of the multi-line
-    // substitution must be prefixed with 4 spaces so the visual indentation
-    // of the rendered block is preserved.
     const body = '    {{BLOCK}}';
     const placeholders = { BLOCK: 'line 1\nline 2\nline 3' };
     const out = render(body, placeholders);
@@ -109,7 +101,6 @@ describe('render — task 003: placeholder substitution core', () => {
     const placeholders = { X: '1', Y: '2' };
     const first = render(body, placeholders);
     const second = render(first, placeholders);
-    // Byte-for-byte identical: idempotence.
     expect(second).toBe(first);
     expect(Buffer.from(second).equals(Buffer.from(first))).toBe(true);
   });
@@ -127,6 +118,7 @@ describe('render — task 004: error handling', () => {
     ).toThrowError(/content\/foo\/SKILL\.md:2/);
   });
 
+  /** The error lists the known tokens in alphabetical order and names the runtime YAML file. */
   it('Render_UnknownPlaceholder_ErrorListsKnownTokens', () => {
     const body = '{{UNKNOWN}}';
     const placeholders = { ZEBRA: 'z', APPLE: 'a', MANGO: 'm' };
@@ -137,14 +129,12 @@ describe('render — task 004: error handling', () => {
       err = e as Error;
     }
     expect(err).toBeDefined();
-    // Alphabetically sorted: APPLE, MANGO, ZEBRA
     expect(err!.message).toContain('APPLE, MANGO, ZEBRA');
     expect(err!.message).toContain('content/harness/runtimes/claude.yaml');
   });
 
+  /** The input is a hand-written string with a leftover token, not the output of `render`. */
   it('Render_UnresolvedPostRender_ThrowsViaAssert', () => {
-    // Residual braces after render: assertNoUnresolvedPlaceholders should
-    // flag them. Here we construct dirty output directly.
     const rendered = 'line1\nline2 has {{LEFTOVER}}\nline3';
     expect(() =>
       assertNoUnresolvedPlaceholders(rendered, 'skills/foo/SKILL.md', 'claude'),
@@ -194,8 +184,8 @@ describe('parseTokenArgs + argument-aware render — task 005', () => {
     });
   });
 
+  /** The value has no closing quote. */
   it('ParseTokenArgs_MalformedArg_ThrowsWithContext', () => {
-    // Missing closing quote — should throw with context about the broken input.
     expect(() => parseTokenArgs('next="plan')).toThrow(/malformed|unterminated|quote/i);
   });
 
@@ -242,7 +232,6 @@ describe('copyReferences — task 006', () => {
   it('CopyReferences_NoReferences_NoOp', () => {
     const src = makeTempDir();
     const dest = makeTempDir();
-    // src has no `references/` subdir
     copyReferences(src, dest);
     expect(existsSync(join(dest, 'references'))).toBe(false);
   });
@@ -260,6 +249,7 @@ describe('copyReferences — task 006', () => {
     expect(readFileSync(join(dest, 'references', 'top.txt'), 'utf8')).toBe('top');
   });
 
+  /** Each copy sets the file mtime to the source mtime, so a second copy gives the same mtime. */
   it('CopyReferences_Idempotent_SecondRunIsNoop', () => {
     const src = makeTempDir();
     const dest = makeTempDir();
@@ -272,17 +262,15 @@ describe('copyReferences — task 006', () => {
     copyReferences(src, dest);
     const secondStat = statSync(join(dest, 'references', 'stable.md'));
 
-    // Content identical after second run.
     expect(readFileSync(join(dest, 'references', 'stable.md'), 'utf8')).toBe('stable content');
-    // mtime preserved → utimesSync pinned it, so the two stats match.
     expect(secondStat.mtimeMs).toBe(firstStat.mtimeMs);
   });
 
+  /** The file holds each byte value from 0 to 255. */
   it('CopyReferences_BinaryFile_CopiedUnchanged', () => {
     const src = makeTempDir();
     const dest = makeTempDir();
     mkdirSync(join(src, 'references'), { recursive: true });
-    // Construct a binary blob: all byte values 0..255.
     const binary = Buffer.alloc(256);
     for (let i = 0; i < 256; i++) binary[i] = i;
     writeFileSync(join(src, 'references', 'blob.bin'), binary);
@@ -296,18 +284,15 @@ describe('copyReferences — task 006', () => {
   });
 });
 
-// -----------------------------------------------------------------------------
-// Task 007 test helpers: lay down a full set of six runtime YAMLs inside a
-// temp dir so `buildAllSkills` / `loadAllRuntimes` can be exercised end-to-end.
-// -----------------------------------------------------------------------------
-
 interface RuntimeFixtureOverrides {
   placeholders?: Record<string, string>;
 }
 
+/**
+ * Builds the YAML of one runtime fixture. Each placeholder value is a double-quoted scalar
+ * with escapes, because a block scalar adds a trailing newline to the value.
+ */
 function makeRuntimeYaml(name: string, placeholders: Record<string, string>): string {
-  // Use double-quoted scalars so values do not pick up a trailing newline
-  // (block scalars `|` would). Escape backslashes and double quotes.
   const escape = (s: string): string =>
     s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
   const placeholderLines =
@@ -336,19 +321,17 @@ function makeRuntimeYaml(name: string, placeholders: Record<string, string>): st
   ].join('\n');
 }
 
+/**
+ * Writes the six runtime YAML files that `loadAllRuntimes` requires. Each runtime gets the full
+ * default placeholder set, because `assertRuntimeTokenCoverage` fails the build on a missing token.
+ * An override merges over the defaults, so an empty override map still gives the full default set.
+ */
 function writeRuntimeFixtures(
   runtimesDir: string,
   overrides: Record<string, RuntimeFixtureOverrides> = {},
 ): void {
   mkdirSync(runtimesDir, { recursive: true });
   const names = ['generic', 'claude', 'codex', 'opencode', 'copilot', 'cursor'];
-  // Wave A: every runtime YAML must declare every RuntimeTokenKey entry,
-  // so test fixtures need the full canonical set or `assertRuntimeTokenCoverage`
-  // fails the build before any of these task-007 fixtures get rendered.
-  // Tests that intentionally exercise per-runtime variation override
-  // individual entries via `overrides[name].placeholders`; tests that
-  // exercise vocabulary edge cases (e.g. `RuntimeWithNoPlaceholders`) pass
-  // an empty override map which the helper substitutes via union below.
   const defaultPlaceholders: Record<string, string> = {
     AGENT_LABEL: 'agent',
     SKILL_INVOCATION: 'call the skill',
@@ -362,18 +345,15 @@ function writeRuntimeFixtures(
   };
   for (const name of names) {
     const override = overrides[name]?.placeholders;
-    // When a test passes a partial override, merge with defaults so the
-    // RuntimeTokenKey coverage check still passes. When the test wants a
-    // truly empty placeholder map (the original RuntimeWithNoPlaceholders
-    // case), it's testing the rendering path's tolerance for empty maps,
-    // which now requires the per-runtime token set; merge defaults so the
-    // contract being asserted (no `{{token}}` references → unchanged
-    // body) still holds without colliding with the new coverage check.
     const placeholders = override !== undefined ? { ...defaultPlaceholders, ...override } : defaultPlaceholders;
     writeFileSync(join(runtimesDir, `${name}.yaml`), makeRuntimeYaml(name, placeholders));
   }
 }
 
+/**
+ * A fixture source that holds `{{TASK_TOOL}}`, an orchestration token, renders one variant for
+ * each runtime. A source with no orchestration token renders once to the `standard` tree.
+ */
 describe('buildAllSkills — task 007', () => {
   it('BuildAllSkills_OneSkillOneRuntime_GeneratesCorrectPath', () => {
     const root = makeTempDir();
@@ -381,7 +361,6 @@ describe('buildAllSkills — task 007', () => {
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'content/harness/runtimes');
     mkdirSync(join(srcDir, 'foo'), { recursive: true });
-    // {{TASK_TOOL}} → orchestration skill → per-runtime render (DR-2).
     writeFileSync(join(srcDir, 'foo', 'SKILL.md'), 'Hello {{AGENT_LABEL}} {{TASK_TOOL}}');
     writeRuntimeFixtures(runtimesDir);
 
@@ -398,7 +377,6 @@ describe('buildAllSkills — task 007', () => {
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'content/harness/runtimes');
     mkdirSync(join(srcDir, 'foo'), { recursive: true });
-    // {{TASK_TOOL}} → orchestration skill → one variant per runtime (DR-2).
     writeFileSync(join(srcDir, 'foo', 'SKILL.md'), '{{AGENT_LABEL}} {{TASK_TOOL}}');
     writeRuntimeFixtures(runtimesDir);
 
@@ -411,18 +389,13 @@ describe('buildAllSkills — task 007', () => {
     expect(report.variantsWritten).toBe(6);
   });
 
+  /** The build copies a reference file only when the rendered SKILL.md links to it. */
   it('BuildAllSkills_ReferencesSubdirectory_CopiedToEachVariant', () => {
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'content/harness/runtimes');
     mkdirSync(join(srcDir, 'foo', 'references'), { recursive: true });
-    // Wave A: references must be linked from the rendered SKILL.md to be
-    // copied (orphan pruning). The original task-007 contract — every
-    // file under `references/` mirrored unconditionally — was replaced
-    // by the link-scanning pass in `copyLinkedReferences`.
-    // {{TASK_TOOL}} → orchestration skill → per-runtime; each variant mirrors
-    // its linked references (DR-2).
     writeFileSync(
       join(srcDir, 'foo', 'SKILL.md'),
       '{{AGENT_LABEL}} {{TASK_TOOL}} — see [note](references/note.md)',
@@ -440,29 +413,26 @@ describe('buildAllSkills — task 007', () => {
     }
   });
 
+  /**
+   * The build copies `SKILL.claude.md` verbatim, so its `{{UNRESOLVED}}` token stays in the
+   * Claude output. The other runtimes render `SKILL.md`. The report records the override path.
+   */
   it('BuildAllSkills_RuntimeSpecificOverrideFile_PrefersOverride', () => {
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'content/harness/runtimes');
     mkdirSync(join(srcDir, 'foo'), { recursive: true });
-    // {{TASK_TOOL}} → orchestration skill: per-runtime rendering + the
-    // per-runtime `SKILL.<runtime>.md` override hatch (DR-2). Overrides are an
-    // orchestration-only construct; the standard render has no override path.
     writeFileSync(join(srcDir, 'foo', 'SKILL.md'), 'default: {{AGENT_LABEL}} {{TASK_TOOL}}');
-    // Claude-specific override — used verbatim (no rendering).
     writeFileSync(join(srcDir, 'foo', 'SKILL.claude.md'), 'verbatim claude override {{UNRESOLVED}}');
     writeRuntimeFixtures(runtimesDir);
 
     const report = buildAllSkills({ srcDir, outDir, runtimesDir });
 
-    // Claude gets the verbatim override (tokens left intact — no rendering).
     expect(readFileSync(join(outDir, 'claude', 'foo', 'SKILL.md'), 'utf8')).toBe(
       'verbatim claude override {{UNRESOLVED}}',
     );
-    // Other runtimes still use SKILL.md + render.
     expect(readFileSync(join(outDir, 'codex', 'foo', 'SKILL.md'), 'utf8')).toBe('default: agent Task');
-    // Override usage recorded in report.
     expect(report.overridesUsed.length).toBeGreaterThan(0);
     expect(report.overridesUsed.some((p) => p.includes('SKILL.claude.md'))).toBe(true);
   });
@@ -473,19 +443,15 @@ describe('buildAllSkills — task 007', () => {
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'content/harness/runtimes');
     mkdirSync(join(srcDir, 'foo'), { recursive: true });
-    // {{TASK_TOOL}} → orchestration skill → per-runtime render (DR-2).
     writeFileSync(join(srcDir, 'foo', 'SKILL.md'), '{{AGENT_LABEL}} {{TASK_TOOL}}');
     writeRuntimeFixtures(runtimesDir);
 
-    // Pre-seed a stale output that is not produced by this build.
     mkdirSync(join(outDir, 'claude', 'old-skill'), { recursive: true });
     writeFileSync(join(outDir, 'claude', 'old-skill', 'SKILL.md'), 'stale content');
 
     buildAllSkills({ srcDir, outDir, runtimesDir });
 
-    // Stale file removed.
     expect(existsSync(join(outDir, 'claude', 'old-skill', 'SKILL.md'))).toBe(false);
-    // Fresh output present.
     expect(existsSync(join(outDir, 'claude', 'foo', 'SKILL.md'))).toBe(true);
   });
 
@@ -494,23 +460,23 @@ describe('buildAllSkills — task 007', () => {
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'content/harness/runtimes');
-    mkdirSync(srcDir, { recursive: true }); // exists but empty (no SKILL.md files)
+    mkdirSync(srcDir, { recursive: true });
     writeRuntimeFixtures(runtimesDir);
 
     expect(() => buildAllSkills({ srcDir, outDir, runtimesDir })).toThrow(/no.*SKILL\.md|empty/i);
   });
 
+  /**
+   * A body with no token is a procedural skill, so it renders once to `standard/foo`. The empty
+   * `generic` override merges over the defaults, so no runtime has an empty placeholder map.
+   */
   it('BuildAllSkills_RuntimeWithNoPlaceholders_CopiesUnchanged', () => {
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'content/harness/runtimes');
     mkdirSync(join(srcDir, 'foo'), { recursive: true });
-    // Body with no tokens at all → a procedural skill (no orchestration
-    // tokens) that collapses to the single `skills/standard/foo/` render.
     writeFileSync(join(srcDir, 'foo', 'SKILL.md'), 'plain content no tokens');
-    // Generic has no placeholders — irrelevant now that this token-free
-    // procedural body renders once to the runtime-neutral standard tree.
     writeRuntimeFixtures(runtimesDir, { generic: { placeholders: {} } });
 
     buildAllSkills({ srcDir, outDir, runtimesDir });
@@ -521,34 +487,22 @@ describe('buildAllSkills — task 007', () => {
   });
 });
 
-// -----------------------------------------------------------------------------
-// Task 003 (DR-1): Renderer surfaces `preferredFacade` on RuntimeMap consumers
-//
-// Tasks 001/002 added `preferredFacade` to the schema and every runtime YAML.
-// This test pins the contract that downstream renderer consumers (the macro
-// work in tasks 005-008) can read `runtime.preferredFacade` directly off the
-// loaded `RuntimeMap` — i.e. the field is not dropped anywhere along the
-// load → render pipeline and is typed as the expected `'mcp' | 'cli'` union.
-// -----------------------------------------------------------------------------
+/**
+ * The loaded `RuntimeMap` must keep `preferredFacade`. Both tests load a real runtime YAML
+ * file: `claude.yaml` declares `mcp` and `generic.yaml` declares `cli`. The assignment to a
+ * `PreferredFacade` constant checks the type only when a typecheck covers this file.
+ */
 describe('renderer RuntimeMap — task 003 (DR-1)', () => {
   it('Renderer_RuntimeMap_ExposesPreferredFacade', () => {
-    // Load a real runtime YAML via the same loader `buildAllSkills` uses.
     const runtime: RuntimeMap = loadRuntime(join(REPO_RUNTIMES_DIR, 'claude.yaml'));
 
-    // Field is present on the RuntimeMap consumer surface.
     expect(runtime.preferredFacade).toBe('mcp');
 
-    // TS-level narrowing: `preferredFacade` is typed as the `PreferredFacade`
-    // ('mcp' | 'cli') union. The assignment below must compile without a cast;
-    // if a future edit strips the field off the renderer-facing type, this
-    // line fails typecheck (the assertion in the task spec).
     const facade: PreferredFacade = runtime.preferredFacade;
     expect(facade === 'mcp' || facade === 'cli').toBe(true);
   });
 
   it('Renderer_RuntimeMap_PreferredFacade_CliVariant', () => {
-    // A runtime that prefers the CLI facade — confirms both enum values flow
-    // through the renderer-facing type without special-casing.
     const runtime: RuntimeMap = loadRuntime(join(REPO_RUNTIMES_DIR, 'generic.yaml'));
     expect(runtime.preferredFacade).toBe('cli');
 
@@ -556,10 +510,6 @@ describe('renderer RuntimeMap — task 003 (DR-1)', () => {
     expect(facade === 'mcp' || facade === 'cli').toBe(true);
   });
 });
-
-// -----------------------------------------------------------------------------
-// Task 005 (dual-facade): parseCallMacro — CALL macro parser
-// -----------------------------------------------------------------------------
 
 describe('parseCallMacro', () => {
   it('ParseCallMacro_ValidInput_ReturnsTypedAst', () => {
@@ -604,21 +554,18 @@ describe('parseCallMacro', () => {
   });
 
   it('ParseCallMacro_MissingAction_ThrowsDescriptiveError', () => {
-    // Only tool name and JSON, no action token
     expect(() => parseCallMacro('exarchos_workflow {"featureId":"X"}')).toThrow(
       /parse|format|expected/i,
     );
   });
 
   it('ParseCallMacro_MissingJsonArgs_ThrowsDescriptiveError', () => {
-    // Tool + action but no JSON body
     expect(() => parseCallMacro('exarchos_workflow set')).toThrow(
       /parse|format|expected|JSON/i,
     );
   });
 
   it('ParseCallMacro_Roundtrip_ParseSerializeIdentity', () => {
-    // Property test: parse(serialize(ast)) === ast for valid ASTs
     const original: CallMacroAst = {
       tool: 'exarchos_view',
       action: 'summary',
@@ -629,9 +576,8 @@ describe('parseCallMacro', () => {
     expect(parsed).toEqual(original);
   });
 
+  /** Group 1 of `CALL_MACRO_REGEX` is the raw string that `parseCallMacro` takes. */
   it('CALL_MACRO_REGEX_ExtractsContent_ParseCallMacroConsumesIt', () => {
-    // End-to-end: CALL_MACRO_REGEX captures the raw string that
-    // parseCallMacro expects — the two compose cleanly.
     const body = 'before {{CALL exarchos_workflow set {"phase":"plan"}}} after';
     const matches = [...body.matchAll(CALL_MACRO_REGEX)];
     expect(matches).toHaveLength(1);
@@ -658,15 +604,12 @@ describe('parseCallMacro', () => {
   });
 });
 
-// -----------------------------------------------------------------------------
-// Task 006 (dual-facade): validateCallMacro — registry validation
-// -----------------------------------------------------------------------------
-
+/**
+ * The `beforeAll` hook wires the real registry lookup, `findActionInRegistry`. The `afterAll`
+ * hook clears it, because the `renderCallMacros` blocks that follow use calls that the real
+ * registry rejects. One example is the `set` action of `exarchos_workflow`, which is absent.
+ */
 describe('validateCallMacro', () => {
-  // Import the real registry lookup from the MCP server package. Test files
-  // are excluded from the root tsconfig (`exclude: ["**/*.test.ts"]`) so the
-  // cross-package import works fine under vitest even though src/build-skills.ts
-  // itself cannot import from the MCP server due to rootDir boundaries.
   let validateCallMacro: typeof import('../../../src/install/build-skills.js').validateCallMacro;
   let setRegistryLookup: typeof import('../../../src/install/build-skills.js').setRegistryLookup;
 
@@ -675,13 +618,9 @@ describe('validateCallMacro', () => {
     const registry = await import('../../../src/registry.js');
     validateCallMacro = buildSkills.validateCallMacro;
     setRegistryLookup = buildSkills.setRegistryLookup;
-    // Wire the real registry lookup so validateCallMacro can resolve schemas.
     setRegistryLookup(registry.findActionInRegistry);
   });
 
-  // Clear the module-level registry lookup after this block so it does
-  // not leak into later describe blocks (e.g. renderCallMacros tests
-  // that use fixture data not matching real schemas).
   afterAll(() => {
     clearRegistryLookup();
   });
@@ -695,11 +634,8 @@ describe('validateCallMacro', () => {
     expect(() => validateCallMacro(ast)).toThrow(/unknown action/i);
   });
 
+  /** `featureId` must be a string, and the fixture passes a number. */
   it('ValidateCallMacro_InvalidArgs_FailsWithZodError', () => {
-    // T5a.1/DR-4 (#1259, v2.11): the prior test exercised
-    // `exarchos_workflow.set`, removed in v2.11. `transition` is the
-    // canonical mutating action and replaces the validation case here —
-    // featureId must be a string and `target` must be a non-empty string.
     const ast: CallMacroAst = {
       tool: 'exarchos_workflow',
       action: 'transition',
@@ -709,8 +645,6 @@ describe('validateCallMacro', () => {
   });
 
   it('ValidateCallMacro_ValidCall_Passes', () => {
-    // T5a.1/DR-4 (#1259, v2.11): replaces the prior `set({phase})` case
-    // with the canonical `transition({target})` shape.
     const ast: CallMacroAst = {
       tool: 'exarchos_workflow',
       action: 'transition',
@@ -719,11 +653,8 @@ describe('validateCallMacro', () => {
     expect(() => validateCallMacro(ast)).not.toThrow();
   });
 
+  /** The tool name is valid, and only the action is unknown. */
   it('ValidateCallMacro_UnknownAction_FailsAtBuildTime', () => {
-    // Exercise validateCallMacro's unknown-action path with a valid tool
-    // name. (parseCallMacro guards against unknown tool names up-front,
-    // so validateCallMacro only sees well-formed ASTs whose tool is
-    // registered — the interesting failure mode here is unknown action.)
     const ast: CallMacroAst = {
       tool: 'exarchos_workflow',
       action: 'nonexistent_action',
@@ -733,16 +664,12 @@ describe('validateCallMacro', () => {
   });
 });
 
-// -----------------------------------------------------------------------------
-// Task 007 (dual-facade): renderCallMacros — MCP facade rendering
-// -----------------------------------------------------------------------------
-
+/**
+ * `makeRuntime` builds a `RuntimeMap` with the given facade and MCP prefix, and fixed values
+ * for the other fields. Each rendered call ends with a fallback HTML comment on a new line.
+ * A test that parses the primary form splits the output at that comment.
+ */
 describe('renderCallMacros — MCP facade', () => {
-  /**
-   * Helper: build a minimal RuntimeMap fixture with the given facade and prefix.
-   * Only the fields that `renderCallMacros` needs are populated; the rest are
-   * set to sensible defaults so the type is satisfied.
-   */
   function makeRuntime(overrides: {
     preferredFacade: 'mcp' | 'cli';
     mcpPrefix: string;
@@ -762,6 +689,7 @@ describe('renderCallMacros — MCP facade', () => {
     };
   }
 
+  /** The output holds the prefixed tool name, the injected `action` field, and the given args. */
   it('RenderCallMacro_McpFacade_EmitsToolUseBlockWithPrefix', () => {
     const runtime = makeRuntime({
       preferredFacade: 'mcp',
@@ -770,11 +698,8 @@ describe('renderCallMacros — MCP facade', () => {
     const input = '{{CALL exarchos_workflow set {"featureId":"X","phase":"plan"}}}';
     const output = renderCallMacros(input, runtime);
 
-    // The output should contain the full prefixed tool name
     expect(output).toContain('mcp__plugin_exarchos_exarchos__exarchos_workflow');
-    // The action discriminator must be injected into the args
     expect(output).toContain('"action": "set"');
-    // Original args must be present
     expect(output).toContain('"featureId": "X"');
     expect(output).toContain('"phase": "plan"');
   });
@@ -787,12 +712,12 @@ describe('renderCallMacros — MCP facade', () => {
     const input = '{{CALL exarchos_workflow set {"featureId":"X","phase":"plan"}}}';
     const output = renderCallMacros(input, runtime);
 
-    // action field should appear before featureId in the serialized output
     const actionIdx = output.indexOf('"action"');
     const featureIdx = output.indexOf('"featureId"');
     expect(actionIdx).toBeLessThan(featureIdx);
   });
 
+  /** The primary form is the prefixed tool name, then the JSON args in parentheses. */
   it('RenderCallMacro_McpFacade_OutputFormat', () => {
     const runtime = makeRuntime({
       preferredFacade: 'mcp',
@@ -801,18 +726,13 @@ describe('renderCallMacros — MCP facade', () => {
     const input = '{{CALL exarchos_event emit {"type":"done"}}}';
     const output = renderCallMacros(input, runtime);
 
-    // Full format check: prefix + tool + parenthesized JSON on the primary
-    // line. Task 020 appends a fallback HTML comment on a following line,
-    // so we split and check only the primary form here.
     const [primary] = output.split('\n<!--');
     expect(primary).toMatch(/^mcp__test__exarchos_event\(/);
     expect(primary).toMatch(/\)$/);
-    // Parse the JSON inside the parens to verify structure.
     const jsonMatch = primary.match(/\((.+)\)$/s);
     expect(jsonMatch).not.toBeNull();
     const parsed = JSON.parse(jsonMatch![1]);
     expect(parsed).toEqual({ action: 'emit', type: 'done' });
-    // Task 020: the fallback remediation comment must also be present.
     expect(output).toContain('<!-- If MCP is unavailable');
   });
 
@@ -830,7 +750,6 @@ describe('renderCallMacros — MCP facade', () => {
 
     expect(output).toContain('mcp__test__exarchos_workflow');
     expect(output).toContain('mcp__test__exarchos_event');
-    // Surrounding text preserved
     expect(output).toContain('Before:');
     expect(output).toContain('Middle text');
     expect(output).toContain('After:');
@@ -844,8 +763,6 @@ describe('renderCallMacros — MCP facade', () => {
     const input = '{{CALL exarchos_view summary {}}}';
     const output = renderCallMacros(input, runtime);
 
-    // Task 020 appends a fallback comment, so parse the JSON from the
-    // primary line only (before the trailing `<!-- ... -->`).
     const [primary] = output.split('\n<!--');
     const jsonMatch = primary.match(/\((.+)\)$/s);
     expect(jsonMatch).not.toBeNull();
@@ -853,6 +770,7 @@ describe('renderCallMacros — MCP facade', () => {
     expect(parsed).toEqual({ action: 'summary' });
   });
 
+  /** The CLI facade renders a `Bash(...)` call with kebab-case flags, then the fallback comment. */
   it('RenderCallMacro_CliFacade_EmitsBashCliInvocation', () => {
     const runtime = makeRuntime({
       preferredFacade: 'cli',
@@ -861,22 +779,19 @@ describe('renderCallMacros — MCP facade', () => {
     const input = '{{CALL exarchos_workflow set {"featureId":"X","phase":"plan"}}}';
     const output = renderCallMacros(input, runtime);
 
-    // CLI facade renders a Bash-style CLI invocation with kebab-case flags.
-    // Task 020 also appends a fallback remediation HTML comment on the next
-    // line; use targeted assertions instead of exact-match.
     expect(output).toContain(
       'Bash(exarchos workflow set --feature-id X --phase plan --json)',
     );
     expect(output).toContain('<!-- If Bash is unavailable');
   });
 
+  /** `true` gives the bare flag `--dry-run`, and `false` gives `--no-dry-run`. */
   it('RenderCallMacro_CliFacade_BooleanArgsEmitNoArgumentFlag', () => {
     const runtime = makeRuntime({
       preferredFacade: 'cli',
       mcpPrefix: 'mcp__test__',
     });
 
-    // Boolean true → bare --dry-run (no value)
     const outputTrue = renderCallMacros(
       '{{CALL exarchos_workflow cancel {"featureId":"X","dryRun":true}}}',
       runtime,
@@ -884,7 +799,6 @@ describe('renderCallMacros — MCP facade', () => {
     expect(outputTrue).toContain('--dry-run');
     expect(outputTrue).not.toMatch(/--dry-run\s+(true|false)/);
 
-    // Boolean false → negated --no-dry-run flag
     const outputFalse = renderCallMacros(
       '{{CALL exarchos_workflow cancel {"featureId":"X","dryRun":false}}}',
       runtime,
@@ -892,10 +806,11 @@ describe('renderCallMacros — MCP facade', () => {
     expect(outputFalse).toContain('--no-dry-run');
   });
 
+  /**
+   * `String(value)` on an object gives `[object Object]`, so an object or array value must
+   * render as JSON.
+   */
   it('RenderCallMacro_CliFacade_ObjectArgsSerializeAsJson', () => {
-    // Regression guard: `String(value)` on an object yields "[object Object]",
-    // which produces a broken CLI invocation. Object/array values must be
-    // JSON-serialized instead.
     const runtime = makeRuntime({
       preferredFacade: 'cli',
       mcpPrefix: 'mcp__test__',
@@ -920,7 +835,6 @@ describe('renderCallMacros — MCP facade', () => {
   });
 
   it('RenderCallMacro_McpFacade_UsesRuntimeMcpPrefix', () => {
-    // Different prefix => different output
     const runtime = makeRuntime({
       preferredFacade: 'mcp',
       mcpPrefix: 'mcp__custom_prefix__',
@@ -933,15 +847,11 @@ describe('renderCallMacros — MCP facade', () => {
   });
 });
 
-// -----------------------------------------------------------------------------
-// Task 020: renderCallMacros — missing-facade remediation (DR-5)
-// -----------------------------------------------------------------------------
-
+/**
+ * Each rendered call ends with a one-line HTML comment that gives the same call in the other
+ * facade. An agent can use that form when the primary facade is unavailable.
+ */
 describe('renderCallMacros — missing-facade remediation', () => {
-  /**
-   * Helper: build a minimal RuntimeMap fixture with the given facade and prefix.
-   * Duplicated locally so this describe block is self-contained.
-   */
   function makeRuntime(overrides: {
     preferredFacade: 'mcp' | 'cli';
     mcpPrefix: string;
@@ -961,10 +871,8 @@ describe('renderCallMacros — missing-facade remediation', () => {
     };
   }
 
+  /** With the MCP facade, the fallback comment holds the CLI form of the call. */
   it('McpMissingAtRuntime_RenderedSkillEmitsActionableError', () => {
-    // When the primary facade is MCP, the rendered output must include a
-    // fallback pointer to the CLI form so an agent can recover if MCP is
-    // unavailable at runtime (DR-5).
     const runtime = makeRuntime({
       preferredFacade: 'mcp',
       mcpPrefix: 'mcp__plugin_exarchos_exarchos__',
@@ -972,25 +880,22 @@ describe('renderCallMacros — missing-facade remediation', () => {
     const input = '{{CALL exarchos_workflow set {"featureId":"X","phase":"plan"}}}';
     const output = renderCallMacros(input, runtime);
 
-    // Primary form still rendered
     expect(output).toContain('mcp__plugin_exarchos_exarchos__exarchos_workflow');
 
-    // Fallback remediation comment must be present as an HTML comment
     expect(output).toContain('<!-- If MCP is unavailable');
 
-    // Fallback must point to the CLI form so the agent can use it directly
     expect(output).toContain(
       'Bash(exarchos workflow set --feature-id X --phase plan --json)',
     );
 
-    // HTML comment must be closed (no dangling comment)
     expect(output).toContain('-->');
   });
 
+  /**
+   * With the CLI facade, the fallback comment holds the MCP form, with the `action` field and
+   * the args.
+   */
   it('BashMissingAtRuntime_RenderedSkillEmitsActionableError', () => {
-    // When the primary facade is CLI, the rendered output must include a
-    // fallback pointer to the MCP tool_use form so an agent can recover if
-    // Bash is unavailable at runtime (DR-5).
     const runtime = makeRuntime({
       preferredFacade: 'cli',
       mcpPrefix: 'mcp__plugin_exarchos_exarchos__',
@@ -998,29 +903,23 @@ describe('renderCallMacros — missing-facade remediation', () => {
     const input = '{{CALL exarchos_workflow set {"featureId":"X","phase":"plan"}}}';
     const output = renderCallMacros(input, runtime);
 
-    // Primary form still rendered
     expect(output).toContain(
       'Bash(exarchos workflow set --feature-id X --phase plan --json)',
     );
 
-    // Fallback remediation comment must be present as an HTML comment
     expect(output).toContain('<!-- If Bash is unavailable');
 
-    // Fallback must point to the MCP tool_use form so the agent can use it
     expect(output).toContain('mcp__plugin_exarchos_exarchos__exarchos_workflow');
 
-    // Fallback MCP form must contain the action discriminator and args
     expect(output).toMatch(/"action"\s*:\s*"set"/);
     expect(output).toMatch(/"featureId"\s*:\s*"X"/);
     expect(output).toMatch(/"phase"\s*:\s*"plan"/);
 
-    // HTML comment must be closed (no dangling comment)
     expect(output).toContain('-->');
   });
 
+  /** The open and close markers of the comment must be on one line. */
   it('McpFallback_SingleLineCommentForScanability', () => {
-    // The fallback comment must be on a single line so it's easy to scan
-    // (spec requirement).
     const runtime = makeRuntime({
       preferredFacade: 'mcp',
       mcpPrefix: 'mcp__test__',
@@ -1032,7 +931,6 @@ describe('renderCallMacros — missing-facade remediation', () => {
       .split('\n')
       .find((l) => l.includes('If MCP is unavailable'));
     expect(commentLine).toBeDefined();
-    // The entire comment (open to close) must live on a single line
     expect(commentLine!).toContain('<!--');
     expect(commentLine!).toContain('-->');
   });
@@ -1054,19 +952,18 @@ describe('renderCallMacros — missing-facade remediation', () => {
   });
 });
 
-// -----------------------------------------------------------------------------
-// Task 009: Render-time CALL macro failure in buildAllSkills
-// -----------------------------------------------------------------------------
-
+/**
+ * The `beforeAll` hook wires the real registry lookup, so `validateCallMacro` can resolve the
+ * action schemas. No hook clears it, so the lookup stays set for the later blocks of this file.
+ */
 describe('buildAllSkills — task 009: render-time CALL macro failures', () => {
-  // Wire the real registry lookup before these tests run so that
-  // validateCallMacro can resolve action schemas.
   beforeAll(async () => {
     const buildSkills = await import('../../../src/install/build-skills.js');
     const registry = await import('../../../src/registry.js');
     buildSkills.setRegistryLookup(registry.findActionInRegistry);
   });
 
+  /** The error names the skill source and the unknown action. */
   it('BuildAllSkills_CallMacroWithUnknownAction_FailsFast', () => {
     const root = makeTempDir();
     const srcDir = join(root, 'content');
@@ -1084,20 +981,16 @@ describe('buildAllSkills — task 009: render-time CALL macro failures', () => {
       err = e as Error;
     }
     expect(err).toBeDefined();
-    // Error must reference the skill source path
     expect(err!.message).toContain('bad-action');
-    // Error must reference the unknown action (from validateCallMacro)
     expect(err!.message).toMatch(/unknown action.*NONEXISTENT_ACTION/i);
   });
 
+  /** `transition` requires `featureId` and `target`, so empty args fail the schema. */
   it('BuildAllSkills_CallMacroArgsFailSchema_FailsFast', () => {
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
     mkdirSync(join(srcDir, 'bad-args'), { recursive: true });
-    // T5a.1/DR-4 (#1259, v2.11): the prior fixture used `set` (removed in
-    // v2.11). `transition` requires at minimum `featureId` and `target` —
-    // empty args still fail schema validation, exercising the same path.
     writeFileSync(
       join(srcDir, 'bad-args', 'SKILL.md'),
       '{{CALL exarchos_workflow transition {}}}',
@@ -1110,37 +1003,20 @@ describe('buildAllSkills — task 009: render-time CALL macro failures', () => {
       err = e as Error;
     }
     expect(err).toBeDefined();
-    // Error must reference the skill source path
     expect(err!.message).toContain('bad-args');
-    // Error must reference schema validation failure (from validateCallMacro)
     expect(err!.message).toMatch(/failed schema validation/i);
   });
 });
 
-// -----------------------------------------------------------------------------
-// Wave A — P4 prose layer: capability-aware renderer (Task 8/9 of
-// docs/plans/archive/2026-04-25-delegation-runtime-parity.md).
-//
-// These tests cover the new behaviors layered on top of the existing renderer:
-//   - SUBAGENT_COMPLETION_HOOK / SUBAGENT_RESULT_API token vocabulary
-//   - Per-runtime token coverage assertion (RuntimeTokenKey enum)
-//   - `<!-- requires:* -->` and `<!-- requires:native:* -->` guards
-//   - Reference-pruning (only links surviving elision are copied)
-//   - Render idempotency (back-to-back builds produce byte-identical output)
-//
-// Each test below uses synthetic fixtures so the assertions don't couple to
-// the real `content/delivery/skills/delegate/**` migration that lands in the source-
-// migration GREEN commit (commit 7 of the GREEN sequence).
-// -----------------------------------------------------------------------------
-
+/**
+ * These tests cover the per-runtime token values, the runtime token coverage check, the
+ * `<!-- requires:* -->` and `<!-- requires:native:* -->` guards, reference pruning, and a
+ * repeated build. The fixtures are synthetic and do not read the real `content/` tree.
+ * Each runtime fixture gets its `supportedCapabilities` map from `SUPPORTED_BY_RUNTIME`, so
+ * the guard result differs by runtime. `FULL_PLACEHOLDERS` holds each token that a runtime
+ * must declare.
+ */
 describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
-  /**
-   * Local helper: build a runtime YAML body with optional placeholder
-   * overrides and an optional `supportedCapabilities` map. We need this here
-   * (rather than reusing the top-level `makeRuntimeYaml` / `writeRuntimeFixtures`)
-   * because Wave A tests have to vary `supportedCapabilities` to exercise
-   * guard semantics and the `RuntimeTokenKey` coverage check.
-   */
   function makeWaveARuntimeYaml(
     name: string,
     placeholders: Record<string, string>,
@@ -1181,10 +1057,6 @@ describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
     return lines.join('\n');
   }
 
-  // Default placeholder set. Includes the two new Wave A tokens that every
-  // runtime must declare (per the token-table policy in the dispatch spec).
-  // Tests that intentionally omit one of these tokens will write a runtime
-  // YAML with a custom (incomplete) placeholder map.
   const FULL_PLACEHOLDERS: Record<string, string> = {
     MCP_PREFIX: 'mcp__test__',
     COMMAND_PREFIX: '/',
@@ -1195,11 +1067,6 @@ describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
     SUBAGENT_RESULT_API: '[poll subagent result]',
   };
 
-  /**
-   * Per-runtime supportedCapabilities maps used across the tests. These
-   * mirror the real shape of `content/harness/runtimes/*.yaml` so guard semantics behave
-   * identically to production.
-   */
   const SUPPORTED_BY_RUNTIME: Record<string, Record<string, 'native' | 'advisory'>> = {
     claude: {
       'fs:read': 'native',
@@ -1253,16 +1120,9 @@ describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
       'fs:read': 'native',
       'fs:write': 'native',
       'shell:exec': 'native',
-      // generic intentionally omits subagent:spawn so guard tests can exercise
-      // the absent-cap branch when needed.
     },
   };
 
-  /**
-   * Lay down a full set of six runtime YAMLs with the given per-runtime
-   * placeholder overrides. All YAMLs include `supportedCapabilities` from
-   * `SUPPORTED_BY_RUNTIME` so guard tests have realistic data.
-   */
   function writeWaveARuntimeFixtures(
     runtimesDir: string,
     perRuntimePlaceholders: Record<string, Record<string, string>>,
@@ -1360,11 +1220,11 @@ describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
     );
   });
 
+  /**
+   * The `codex` fixture omits `SUBAGENT_COMPLETION_HOOK`. The coverage error must name the
+   * runtime and the token.
+   */
   it('BuildSkills_TokenWithoutDefinition_FailsBuild', () => {
-    // One runtime omits SUBAGENT_COMPLETION_HOOK from its placeholder map.
-    // The build must fail with an aggregated diagnostic naming the runtime
-    // and the missing token, rather than only crashing at the per-runtime
-    // render step (which would name the file but not point at the YAML).
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
@@ -1379,7 +1239,6 @@ describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
     delete incompletePh.SUBAGENT_COMPLETION_HOOK;
 
     writeWaveARuntimeFixtures(runtimesDir, {
-      // codex is incomplete on purpose
       codex: incompletePh,
     });
 
@@ -1394,14 +1253,16 @@ describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
     expect(err!.message).toContain('codex');
   });
 
+  /**
+   * Claude declares `team:agent-teams` and OpenCode does not, so only the Claude render keeps
+   * the section. The guard markers never reach the output.
+   */
   it('BuildSkills_RequiresGuard_ElidesUnsupportedSection', () => {
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'content/harness/runtimes');
     mkdirSync(join(srcDir, 'foo'), { recursive: true });
-    // Body has a section that depends on `team:agent-teams` capability.
-    // Claude has it (native); OpenCode does not declare it at all → elide.
     writeFileSync(
       join(srcDir, 'foo', 'SKILL.md'),
       [
@@ -1425,7 +1286,6 @@ describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
     const claudeOut = readFileSync(join(outDir, 'claude', 'foo', 'SKILL.md'), 'utf8');
     expect(claudeOut).toContain('Agent Teams Section');
     expect(claudeOut).toContain('Claude-only content');
-    // Guard markers themselves must not leak into the rendered output.
     expect(claudeOut).not.toContain('<!-- requires:');
     expect(claudeOut).not.toContain('<!-- /requires -->');
 
@@ -1439,6 +1299,10 @@ describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
     expect(opencodeOut).toContain('Always-rendered outro.');
   });
 
+  /**
+   * Claude declares `session:resume` as `native` and keeps the block. The four runtimes that
+   * declare it as `advisory` lose the block.
+   */
   it('BuildSkills_RequiresNativeGuard_AdvisoryRuntimeElides', () => {
     const root = makeTempDir();
     const srcDir = join(root, 'content');
@@ -1459,11 +1323,9 @@ describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
 
     buildAllSkills({ srcDir, outDir, runtimesDir });
 
-    // Claude declares session:resume = native → block is rendered.
     const claudeOut = readFileSync(join(outDir, 'claude', 'foo', 'SKILL.md'), 'utf8');
     expect(claudeOut).toContain('native-only resume strategy block');
 
-    // OpenCode/Cursor/Codex/Copilot mark session:resume as advisory → elided.
     for (const rt of ['opencode', 'cursor', 'codex', 'copilot']) {
       const out = readFileSync(join(outDir, rt, 'foo', 'SKILL.md'), 'utf8');
       expect(out).not.toContain('native-only resume strategy block');
@@ -1472,6 +1334,10 @@ describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
     }
   });
 
+  /**
+   * The error names the capability, the source file, and line 2, the 1-indexed line of the
+   * open guard.
+   */
   it('BuildSkills_UnknownGuardCapability_FailsBuild', () => {
     const root = makeTempDir();
     const srcDir = join(root, 'content');
@@ -1497,17 +1363,16 @@ describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
       err = e as Error;
     }
     expect(err).toBeDefined();
-    // Diagnostic must name the offending capability and the source file/line.
     expect(err!.message).toContain('not-a-real-cap');
     expect(err!.message).toMatch(/SKILL\.md/);
-    // 1-indexed line number of the opening guard
     expect(err!.message).toMatch(/:2/);
   });
 
+  /**
+   * A failed outer guard removes its whole block. That includes an inner block whose own
+   * capability the runtime has.
+   */
   it('BuildSkills_NestedGuards_Respected', () => {
-    // Outer guard is for a cap the runtime LACKS → the entire block elides.
-    // The inner guard's evaluation MUST NOT contribute the inner block to the
-    // output even though, evaluated in isolation, the inner cap is supported.
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
@@ -1531,7 +1396,6 @@ describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
 
     buildAllSkills({ srcDir, outDir, runtimesDir });
 
-    // OpenCode lacks team:agent-teams → outer elides, inner is invisible too.
     const opencodeOut = readFileSync(
       join(outDir, 'opencode', 'foo', 'SKILL.md'),
       'utf8',
@@ -1542,22 +1406,22 @@ describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
     expect(opencodeOut).toContain('intro');
     expect(opencodeOut).toContain('outro');
 
-    // Claude has both → both blocks render.
     const claudeOut = readFileSync(join(outDir, 'claude', 'foo', 'SKILL.md'), 'utf8');
     expect(claudeOut).toContain('outer body');
     expect(claudeOut).toContain('inner body that would otherwise survive');
     expect(claudeOut).toContain('outer trailer');
   });
 
+  /**
+   * The link to `references/foo.md` is inside a `team:agent-teams` guard. OpenCode elides the
+   * link, so its output has no `foo.md`.
+   */
   it('BuildSkills_OrphanReferenceFile_NotCopied', () => {
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'content/harness/runtimes');
     mkdirSync(join(srcDir, 'foo', 'references'), { recursive: true });
-    // Link to references/foo.md is INSIDE a guard for team:agent-teams.
-    // Claude has it (link survives → file copied); OpenCode does not (link
-    // elides → file pruned from OpenCode's references tree).
     writeFileSync(
       join(srcDir, 'foo', 'SKILL.md'),
       [
@@ -1574,10 +1438,8 @@ describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
 
     buildAllSkills({ srcDir, outDir, runtimesDir });
 
-    // Claude: both reference files copied.
     expect(existsSync(join(outDir, 'claude', 'foo', 'references', 'foo.md'))).toBe(true);
     expect(existsSync(join(outDir, 'claude', 'foo', 'references', 'bar.md'))).toBe(true);
-    // OpenCode: foo.md pruned (link elided), bar.md present (always-linked).
     expect(existsSync(join(outDir, 'opencode', 'foo', 'references', 'foo.md'))).toBe(
       false,
     );
@@ -1586,6 +1448,7 @@ describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
     );
   });
 
+  /** A second build must give the same files with the same bytes. */
   it('BuildSkills_RenderIdempotent', () => {
     const root = makeTempDir();
     const srcDir = join(root, 'content');
@@ -1607,7 +1470,6 @@ describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
 
     buildAllSkills({ srcDir, outDir, runtimesDir });
 
-    // Snapshot every output file's bytes after the first run.
     const snapshot = new Map<string, Buffer>();
     const walk = (dir: string): void => {
       if (!existsSync(dir)) return;
@@ -1621,7 +1483,6 @@ describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
     };
     walk(outDir);
 
-    // Second run must produce byte-identical output.
     buildAllSkills({ srcDir, outDir, runtimesDir });
 
     const snapshot2 = new Map<string, Buffer>();
@@ -1654,39 +1515,15 @@ describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
   });
 });
 
-// -----------------------------------------------------------------------------
-// Wave B — P4 prose layer: post-render vocabulary lint enforcement.
-//
-// Wave A added the typed `<!-- requires:* -->` / `<!-- requires:native:* -->`
-// guard parser, the `RuntimeTokenKey` token-coverage check, and migrated the
-// `delegation/` skill source to use tokens/guards instead of Claude-only
-// literals.
-//
-// Wave B adds the *enforcement gate*: a lint that runs post-render, per
-// runtime, against the rendered SKILL.md output bytes. If a Claude-only
-// term (e.g. `TaskOutput`, `TeammateIdle`, `SubagentStart`) appears in a
-// non-Claude render outside an explicitly-allowed context, the build
-// fails. This is what prevents future skill edits from quietly
-// re-introducing Claude-only prose into non-Claude renders.
-//
-// Allowed contexts the lint MUST respect:
-//   1. Claude render (which is the canonical home for Claude-only prose)
-//   2. Inside a fenced code block whose info-string contains
-//      `runtime:claude-only` — these blocks are kept verbatim in the
-//      Claude render and elided wholesale from non-Claude renders, so
-//      a forbidden term inside one never reaches a non-Claude render to
-//      begin with.
-//   3. Substrings of capability identifiers like `team:agent-teams` —
-//      not in the forbidden list at all (deliberately).
-// -----------------------------------------------------------------------------
-
+/**
+ * The lint reads each rendered SKILL.md and fails the build on a Claude-only term in a render
+ * for another runtime. A runtime that declares `team:agent-teams: native` is exempt, and in the
+ * fixtures only Claude does. A `runtime:claude-only` code block never reaches a non-Claude
+ * render. A capability identifier such as `team:agent-teams` is not a forbidden term.
+ * The loader requires all six runtime files, and the tests read only the `claude` and
+ * `opencode` output.
+ */
 describe('buildAllSkills — Wave B: post-render vocabulary lint', () => {
-  /**
-   * Local helpers duplicated from the Wave A describe block so this
-   * describe is self-contained. Wave A's helpers live inside its own
-   * describe scope; rather than refactor those out, we reproduce the
-   * minimal subset needed for Wave B fixtures.
-   */
   const FULL_PLACEHOLDERS_B: Record<string, string> = {
     MCP_PREFIX: 'mcp__test__',
     COMMAND_PREFIX: '/',
@@ -1697,11 +1534,6 @@ describe('buildAllSkills — Wave B: post-render vocabulary lint', () => {
     SUBAGENT_RESULT_API: '[poll subagent result]',
   };
 
-  // Mirror of the production capability matrix per runtime: only Claude
-  // declares the Claude-only primitives (`team:agent-teams`,
-  // `subagent:completion-signal`, `subagent:start-signal`). Wave B's
-  // lint uses these declarations to decide which runtime is exempt
-  // from the forbidden-term check.
   const NON_CLAUDE_CAPS: Record<string, 'native' | 'advisory'> = {
     'fs:read': 'native',
     'fs:write': 'native',
@@ -1731,9 +1563,6 @@ describe('buildAllSkills — Wave B: post-render vocabulary lint', () => {
     codex: NON_CLAUDE_CAPS,
     cursor: NON_CLAUDE_CAPS,
     copilot: NON_CLAUDE_CAPS,
-    // generic intentionally omits subagent:spawn so the runtime test
-    // matrix matches Wave A's fixture; doesn't materially affect Wave B
-    // assertions because we only assert against claude + opencode.
     generic: {
       'fs:read': 'native',
       'fs:write': 'native',
@@ -1776,12 +1605,6 @@ describe('buildAllSkills — Wave B: post-render vocabulary lint', () => {
     return lines.join('\n');
   }
 
-  /**
-   * Lay down all six runtimes (the loader requires the full set). Wave
-   * B only asserts against claude + opencode, but the build pipeline
-   * fails fast on a missing required runtime; the other four are
-   * provided as no-op stand-ins with the non-Claude capability matrix.
-   */
   function writeWaveBRuntimeFixtures(runtimesDir: string): void {
     mkdirSync(runtimesDir, { recursive: true });
     const names = ['generic', 'claude', 'codex', 'opencode', 'copilot', 'cursor'];
@@ -1797,13 +1620,11 @@ describe('buildAllSkills — Wave B: post-render vocabulary lint', () => {
     }
   }
 
+  /**
+   * `TaskList` is inside a `team:agent-teams` guard. The Claude render keeps it and is exempt,
+   * and the OpenCode render elides it.
+   */
   it('VocabularyLint_ForbiddenTermInClaudeRenderInsideRequiresGuard_Passes', () => {
-    // The forbidden term `TaskList` appears inside a `team:agent-teams`
-    // requires-guard. Claude declares `team:agent-teams: native` so the
-    // block is included in the Claude render. Wave B's lint must NOT
-    // false-positive on that case — the term is in its legitimate home.
-    // OpenCode does not declare the cap, so the guard elides the entire
-    // block; `TaskList` never appears in OpenCode's render either.
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
@@ -1821,8 +1642,6 @@ describe('buildAllSkills — Wave B: post-render vocabulary lint', () => {
     );
     writeWaveBRuntimeFixtures(runtimesDir);
 
-    // Build must succeed (no throw). The Claude render contains
-    // `TaskList`; the OpenCode render does not.
     expect(() => buildAllSkills({ srcDir, outDir, runtimesDir })).not.toThrow();
 
     const claudeOut = readFileSync(join(outDir, 'claude', 'foo', 'SKILL.md'), 'utf8');
@@ -1834,12 +1653,11 @@ describe('buildAllSkills — Wave B: post-render vocabulary lint', () => {
     expect(opencodeOut).not.toContain('TaskList');
   });
 
+  /**
+   * `TaskOutput` is in no guard and in no code block, so it reaches the OpenCode render.
+   * The error names the term, the runtime, the source path, line 5, and a remediation.
+   */
   it('VocabularyLint_ForbiddenTermInOpenCodeRender_FailsCI', () => {
-    // `TaskOutput` appears outside any guard or code block. It survives
-    // into both renders. Claude is exempt from the lint (Claude is the
-    // canonical home for Claude-only prose), but OpenCode is not — the
-    // build must throw with a diagnostic naming the term, source path,
-    // line number, and runtime.
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
@@ -1866,28 +1684,18 @@ describe('buildAllSkills — Wave B: post-render vocabulary lint', () => {
       err = e as Error;
     }
     expect(err).toBeDefined();
-    // Diagnostic must name the offending term.
     expect(err!.message).toContain('TaskOutput');
-    // Diagnostic must name the runtime (opencode) where the term landed
-    // in a non-Claude render.
     expect(err!.message).toContain('opencode');
-    // Diagnostic must point at the source file path so the author can
-    // jump straight to the offender.
     expect(err!.message).toMatch(/foo\/SKILL\.md/);
-    // Diagnostic must include the source line number (5 in our fixture).
     expect(err!.message).toMatch(/:5/);
-    // Remediation must point authors at the requires-guard syntax or
-    // the runtime:claude-only code-block escape hatch.
     expect(err!.message).toMatch(/requires:|runtime:claude-only/);
   });
 
+  /**
+   * The Claude render keeps the `runtime:claude-only` snippet. The OpenCode render loses the
+   * block and its info string, so the lint finds no term.
+   */
   it('VocabularyLint_RuntimeClaudeOnlyCodeBlock_ElidedFromNonClaudeRender', () => {
-    // Fenced code block with info-string containing `runtime:claude-only`.
-    // The block is kept verbatim in the Claude render (so an agent on
-    // Claude can copy-paste the snippet) and elided wholesale from
-    // non-Claude renders. The lint passes for both because the term
-    // either lives in its legitimate Claude home or is invisible to the
-    // non-Claude runtime.
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
@@ -1912,31 +1720,23 @@ describe('buildAllSkills — Wave B: post-render vocabulary lint', () => {
     expect(() => buildAllSkills({ srcDir, outDir, runtimesDir })).not.toThrow();
 
     const claudeOut = readFileSync(join(outDir, 'claude', 'foo', 'SKILL.md'), 'utf8');
-    // Claude keeps the entire fenced block verbatim — both the snippet
-    // and its surrounding fences must survive.
     expect(claudeOut).toContain('TaskOutput({ task_id: x, block: true })');
 
     const opencodeOut = readFileSync(
       join(outDir, 'opencode', 'foo', 'SKILL.md'),
       'utf8',
     );
-    // OpenCode render must NOT contain `TaskOutput` at all — the entire
-    // fenced block is elided so the term never reaches the lint.
     expect(opencodeOut).not.toContain('TaskOutput');
-    // The opening fence info-string must not leak either.
     expect(opencodeOut).not.toContain('runtime:claude-only');
-    // Surrounding always-on prose still renders.
     expect(opencodeOut).toContain('always-on intro');
     expect(opencodeOut).toContain('always-on outro');
   });
 
+  /**
+   * The forbidden list does not hold `agent-teams`. Thus the capability identifier
+   * `team:agent-teams` in an OpenCode render passes the lint.
+   */
   it('VocabularyLint_CapabilityIdentifierNotFlagged', () => {
-    // The literal `team:agent-teams` is a capability identifier; it
-    // shows up in skill prose (e.g. as a YAML key in an embedded code
-    // sample). The substring `agent-teams` is intentionally NOT in the
-    // forbidden list to dodge this false-positive class. Belt-and-
-    // suspenders: confirm an OpenCode render that contains the literal
-    // capability identifier passes the lint cleanly.
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
@@ -1965,36 +1765,16 @@ describe('buildAllSkills — Wave B: post-render vocabulary lint', () => {
       join(outDir, 'opencode', 'foo', 'SKILL.md'),
       'utf8',
     );
-    // The literal capability identifier survives into OpenCode's render
-    // (it's not in any guard, it's just descriptive prose). The lint
-    // does NOT fire because `agent-teams` is not in the forbidden list.
     expect(opencodeOut).toContain('team:agent-teams');
   });
 });
 
-// -----------------------------------------------------------------------------
-// Wave C — P4 prose layer: extend the renderer pipeline + vocabulary lint to
-// cover reference files (content/<name>/references/*.md).
-//
-// Wave A applied token expansion + guard elision + Claude-only-block elision
-// only to SKILL.md. Wave B added the post-render vocabulary lint, also only
-// against SKILL.md. References were copied byte-for-byte by
-// `copyTreePreservingMtime` / `copyLinkedReferences`, which let Claude-only
-// prose (e.g. `TaskList`, `agentId`, `SubagentStop`) slip into non-Claude
-// runtimes through the references tree.
-//
-// Wave C closes that gap: the renderer pipeline runs against every reference
-// body that survives the link-prune pass, and the vocabulary lint scans those
-// rendered reference bytes per runtime. Source migration brings the few
-// remaining unguarded Claude-only mentions in `delegation/references/*.md`
-// into the same tokens/guards regime that Wave A applied to SKILL.md.
-// -----------------------------------------------------------------------------
-
+/**
+ * A linked Markdown reference goes through the same pipeline as SKILL.md: token expansion,
+ * guard elision, Claude-only block elision, and the vocabulary lint. A byte-for-byte copy of
+ * a reference lets Claude-only prose reach the other runtimes.
+ */
 describe('buildAllSkills — Wave C: reference rendering + lint', () => {
-  // Wave C reuses Wave B's full-placeholder fixture verbatim — the same
-  // forbidden-term catalog and runtime-capability matrix apply here. The
-  // helpers are duplicated locally so this describe block is self-contained
-  // and doesn't depend on the order Wave B's helpers are declared in.
   const FULL_PLACEHOLDERS_C: Record<string, string> = {
     MCP_PREFIX: 'mcp__test__',
     COMMAND_PREFIX: '/',
@@ -2095,13 +1875,11 @@ describe('buildAllSkills — Wave C: reference rendering + lint', () => {
     }
   }
 
+  /**
+   * Each rendered reference must hold the token value of its runtime, not the literal token.
+   * The Claude value must not reach the OpenCode reference.
+   */
   it('BuildSkills_ReferenceFile_TokenExpansion_RendersPerRuntime', () => {
-    // A reference body using the same `{{TOKEN}}` placeholder vocabulary as
-    // SKILL.md must be expanded per-runtime before being written to disk.
-    // Pre-Wave-C the reference was copied byte-for-byte, so the literal
-    // `{{SUBAGENT_COMPLETION_HOOK}}` would survive into every runtime's
-    // references/foo.md — a broken reference for whichever runtime an agent
-    // happens to load.
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
@@ -2148,15 +1926,14 @@ describe('buildAllSkills — Wave C: reference rendering + lint', () => {
     );
     expect(opencodeRef).toContain('subagent completion signal (poll-based)');
     expect(opencodeRef).not.toContain('{{SUBAGENT_COMPLETION_HOOK}}');
-    // Cross-leak check: the Claude rendering must not bleed into OpenCode.
     expect(opencodeRef).not.toContain('TeammateIdle');
   });
 
+  /**
+   * A guard in a reference body works as it does in SKILL.md. The guard markers never reach
+   * the output.
+   */
   it('BuildSkills_ReferenceFile_RequiresGuard_ElidesUnsupportedSection', () => {
-    // A `<!-- requires:team:agent-teams -->` guard inside a reference body
-    // must elide on runtimes that don't declare the cap, identical to how
-    // it works in SKILL.md. The Claude render keeps the inner block; the
-    // OpenCode render drops it entirely.
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
@@ -2185,7 +1962,6 @@ describe('buildAllSkills — Wave C: reference rendering + lint', () => {
       'utf8',
     );
     expect(claudeRef).toContain('TeamCreate is here');
-    // Guard markers themselves never leak.
     expect(claudeRef).not.toContain('<!-- requires:');
     expect(claudeRef).not.toContain('<!-- /requires -->');
 
@@ -2198,10 +1974,11 @@ describe('buildAllSkills — Wave C: reference rendering + lint', () => {
     expect(opencodeRef).toContain('always-on outro');
   });
 
+  /**
+   * A `runtime:claude-only` block in a reference stays in the Claude render. The OpenCode
+   * render loses the block and its info string.
+   */
   it('BuildSkills_ReferenceFile_RuntimeClaudeOnlyCodeBlock_Elided', () => {
-    // A fenced code block tagged `runtime:claude-only` inside a reference
-    // must survive in the Claude render and elide wholesale in non-Claude
-    // renders, matching SKILL.md semantics.
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
@@ -2237,18 +2014,17 @@ describe('buildAllSkills — Wave C: reference rendering + lint', () => {
       join(outDir, 'opencode', 'foo', 'references', 'foo.md'),
       'utf8',
     );
-    // The entire block (call + fences + info-string) is gone.
     expect(opencodeRef).not.toContain('TaskOutput');
     expect(opencodeRef).not.toContain('runtime:claude-only');
     expect(opencodeRef).toContain('always-on intro');
     expect(opencodeRef).toContain('always-on outro');
   });
 
+  /**
+   * The term is on line 3 of `references/bad.md`. The error must name that file and line,
+   * not SKILL.md.
+   */
   it('VocabularyLint_ForbiddenTermInReferenceFile_FailsCI', () => {
-    // A forbidden term lives in an unguarded reference body. The lint must
-    // fire for non-Claude renders and the diagnostic must point at the
-    // reference file path (not the SKILL.md path) so authors can jump
-    // straight to the offender.
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
@@ -2279,20 +2055,17 @@ describe('buildAllSkills — Wave C: reference rendering + lint', () => {
     expect(err).toBeDefined();
     expect(err!.message).toContain('TaskList');
     expect(err!.message).toContain('opencode');
-    // The diagnostic must point at the reference file, not at SKILL.md.
-    // (The exact term lives in references/bad.md, line 3.)
     expect(err!.message).toMatch(/references\/bad\.md/);
     expect(err!.message).not.toMatch(/foo\/SKILL\.md:/);
     expect(err!.message).toMatch(/:3/);
     expect(err!.message).toMatch(/requires:|runtime:claude-only/);
   });
 
+  /**
+   * Builds the real `content/` tree with the real runtime YAML files. A Claude-only term in a
+   * render for another runtime fails this test.
+   */
   it('VocabularyLint_RealDelegationReferences_AllRuntimesPass', () => {
-    // Regression gate: build the real `content/` tree against the real
-    // `content/harness/runtimes/` YAMLs and confirm Wave C's source migration + renderer
-    // extension keeps every runtime free of forbidden Claude-only prose.
-    // This test pins the migrated state so future PRs to references can't
-    // silently re-introduce a leak.
     const REPO_SRC_DIR = resolve(__dirname, '../../../content');
     const REPO_RUNTIMES_DIR_C = resolve(__dirname, '../../../content/harness/runtimes');
     const root = makeTempDir();
@@ -2308,21 +2081,17 @@ describe('buildAllSkills — Wave C: reference rendering + lint', () => {
   });
 });
 
-// -----------------------------------------------------------------------------
-// Task 001 (conform-and-shrink): skill classification (procedural vs
-// orchestration) + build-time procedural-purity assertion.
-//
-// `classifySkill` derives a skill's class purely from the placeholder tokens
-// its source references: prefix-only (or token-free) sources are procedural;
-// any orchestration token (TASK_TOOL / CHAIN / SPAWN_AGENT_CALL / SUBAGENT_*)
-// makes the skill orchestration. `assertProceduralSkill` is the build-time gate
-// that fails when a source authored as procedural smuggles in an orchestration
-// token or a `<!-- requires:* -->` capability guard — both orchestration-only
-// surfaces that would be lost when a procedural skill collapses to a single
-// canonical render (DR-1/DR-2).
-// -----------------------------------------------------------------------------
-
+/**
+ * `classifySkill` derives the class from only the canonical placeholder tokens of a source.
+ * An orchestration token makes the skill `orchestration`, and each other source is `procedural`.
+ * `assertProceduralSkill` rejects an orchestration token or a `<!-- requires:* -->` guard.
+ * A procedural skill has one render, so neither construct can vary by runtime in it.
+ */
 describe('classifySkill — task 001: procedural vs orchestration', () => {
+  /**
+   * The model records only the two prefix tokens. It ignores the handlebar literal `{{next}}`
+   * and the non-canonical `{{AGENT_LABEL}}`.
+   */
   it('classifySkill_PrefixOnlySource_ClassifiedProcedural', () => {
     const body = [
       '# Foo',
@@ -2333,23 +2102,19 @@ describe('classifySkill — task 001: procedural vs orchestration', () => {
     const model = classifySkill(body);
 
     expect(model.skillClass).toBe('procedural');
-    // Only the two canonical prefix tokens are recorded; the handlebar
-    // literal and the non-canonical identifier are ignored.
     expect([...model.tokensUsed].sort()).toEqual(['COMMAND_PREFIX', 'MCP_PREFIX']);
     expect(model.orchestrationTokensUsed.size).toBe(0);
     expect(model.hasCapabilityGuard).toBe(false);
   });
 
   it('classifySkill_NoTokens_ClassifiedProcedural', () => {
-    // A token-free body is procedural — no per-harness forking surface at all.
     const model = classifySkill('# Plain\nNo placeholders here.');
     expect(model.skillClass).toBe('procedural');
     expect(model.tokensUsed.size).toBe(0);
   });
 
+  /** One orchestration token sets the class, and a prefix token beside it does not change that. */
   it('classifySkill_OrchestrationToken_ClassifiedOrchestration', () => {
-    // A single orchestration token flips the class; prefix tokens alongside
-    // it do not dilute that.
     const body =
       'Spawn with {{SPAWN_AGENT_CALL agent="foo"}} and chain {{CHAIN next="plan"}}; prefix {{MCP_PREFIX}}.';
     const model = classifySkill(body);
@@ -2360,9 +2125,8 @@ describe('classifySkill — task 001: procedural vs orchestration', () => {
     ]);
   });
 
+  /** The test calls `assertProceduralSkill` directly on a source that holds `{{TASK_TOOL}}`. */
   it('classifySkill_ProceduralSourceWithOrchestrationToken_FailsBuild', () => {
-    // A source authored as procedural (prefix tokens) that smuggles in an
-    // orchestration token must fail the build-time assertion.
     const body =
       'Prefix {{MCP_PREFIX}}exarchos_workflow, but also {{TASK_TOOL}} for spawning.';
     let err: Error | undefined;
@@ -2377,11 +2141,11 @@ describe('classifySkill — task 001: procedural vs orchestration', () => {
     expect(err!.message).toContain('content/foo/SKILL.md');
   });
 
+  /**
+   * A guard is not a token, so it does not change the class. The assertion still rejects a
+   * guard in a procedural source.
+   */
   it('classifySkill_RequiresBlockInProceduralSource_FailsBuild', () => {
-    // A `<!-- requires:* -->` capability guard is orchestration-only. A
-    // procedural source (no orchestration token) that carries one must fail
-    // the build-time assertion even though the guard is not a placeholder
-    // token and therefore does not change the derived class.
     const body = [
       'intro',
       '<!-- requires:team:agent-teams -->',
@@ -2390,7 +2154,6 @@ describe('classifySkill — task 001: procedural vs orchestration', () => {
       'outro',
     ].join('\n');
 
-    // The guard does not itself flip classification (tokens only).
     expect(classifySkill(body).skillClass).toBe('procedural');
     expect(classifySkill(body).hasCapabilityGuard).toBe(true);
 
@@ -2406,7 +2169,6 @@ describe('classifySkill — task 001: procedural vs orchestration', () => {
   });
 
   it('assertProceduralSkill_CleanProceduralSource_DoesNotThrow', () => {
-    // Prefix-only, guard-free source is a valid procedural skill.
     const body = 'Use {{MCP_PREFIX}}exarchos_view and {{COMMAND_PREFIX}}review.';
     expect(() =>
       assertProceduralSkill(body, 'content/ok/SKILL.md'),
@@ -2414,8 +2176,6 @@ describe('classifySkill — task 001: procedural vs orchestration', () => {
   });
 
   it('ORCHESTRATION_TOKENS_ExcludePrefixTokens', () => {
-    // The classification split: prefix tokens are NOT orchestration tokens,
-    // and the five orchestration tokens are all present.
     expect(ORCHESTRATION_TOKENS.has('MCP_PREFIX')).toBe(false);
     expect(ORCHESTRATION_TOKENS.has('COMMAND_PREFIX')).toBe(false);
     for (const t of [
@@ -2432,15 +2192,10 @@ describe('classifySkill — task 001: procedural vs orchestration', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Task 002: prefix tokens stay in the required-coverage set.
-//
-// The collapsed-vocabulary rewrite retires `MCP_PREFIX`/`COMMAND_PREFIX` from
-// procedural `content/` sources in a *later* task. Until then the renderer
-// still consumes them, so `assertRuntimeTokenCoverage` must keep requiring
-// every runtime YAML to declare them — dropping them from `RuntimeTokenKey`
-// early would silently un-cover every runtime map.
-// ---------------------------------------------------------------------------
+/**
+ * `RuntimeTokenKey` holds the two prefix tokens, so each runtime YAML must declare them.
+ * Orchestration sources under `content/` still use them.
+ */
 describe('assertRuntimeTokenCoverage — task 002 (prefix retention)', () => {
   function makeCoverageRuntime(
     placeholders: Record<string, string>,
@@ -2460,16 +2215,17 @@ describe('assertRuntimeTokenCoverage — task 002 (prefix retention)', () => {
     };
   }
 
+  /**
+   * A runtime with each canonical token passes. A runtime without the two prefix tokens fails,
+   * and the error names both.
+   */
   it('assertRuntimeTokenCoverage_PrefixTokensStillConsumed_Required', () => {
-    // Full coverage of every canonical token passes.
     const full: Record<string, string> = {};
     for (const token of RuntimeTokenKey) full[token] = 'x';
     expect(() =>
       assertRuntimeTokenCoverage([makeCoverageRuntime(full)]),
     ).not.toThrow();
 
-    // Dropping ONLY the two prefix tokens must still fail coverage — proving
-    // they remain in the required set — and the diagnostic must name both.
     const missingPrefixes: Record<string, string> = {};
     for (const token of RuntimeTokenKey) {
       if (token === 'MCP_PREFIX' || token === 'COMMAND_PREFIX') continue;
@@ -2488,17 +2244,7 @@ describe('assertRuntimeTokenCoverage — task 002 (prefix retention)', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Task 003 (DR-1): classification-driven emission + CHAIN target validation.
-//
-// A procedural skill (no orchestration tokens) collapses to ONE runtime-neutral
-// render under `skills/standard/<skill>/`; prefix tokens resolve to their
-// logical qualified form (`{{MCP_PREFIX}}` → `exarchos:`, `{{COMMAND_PREFIX}}` →
-// bare verb). An orchestration skill (any of TASK_TOOL / CHAIN / SPAWN_AGENT_CALL
-// / SUBAGENT_*) keeps the per-runtime pipeline under `skills/<runtime>/<skill>/`.
-// A `{{CHAIN next="..."}}` to a skill that does not exist fails the build.
-// ---------------------------------------------------------------------------
-
+/** Git identity for the commits that the drift test makes in a temp repository. */
 const GIT_ENV = {
   ...process.env,
   GIT_AUTHOR_NAME: 'test',
@@ -2509,16 +2255,23 @@ const GIT_ENV = {
 
 const ALL_RUNTIME_NAMES = ['generic', 'claude', 'codex', 'opencode', 'copilot', 'cursor'];
 
+/**
+ * A procedural skill renders once to `standard/<skill>`. An orchestration skill renders once
+ * for each runtime, to `<runtime>/<skill>`. A `{{CHAIN next="..."}}` token fails the build
+ * when its target is not a canonical verb and not a skill on disk.
+ */
 describe('buildAllSkills — task 003: classification-driven emission', () => {
+  /**
+   * The source holds no token, so it is procedural and passes the collapsed-vocabulary lint.
+   * Its text already has the logical form `exarchos:exarchos_workflow`, and the render keeps it.
+   * The linked reference goes to the `standard` variant, and no runtime tree gets the skill.
+   */
   it('buildAllSkills_ProceduralSkill_EmitsSingleStandardVariant', () => {
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'content/harness/runtimes');
     mkdirSync(join(srcDir, 'proc'), { recursive: true });
-    // Logical-prose source (no fork tokens) → procedural, and passes the
-    // collapsed-vocabulary enforcement. References a linked reference file so we
-    // can also assert the reference is mirrored into the standard variant.
     writeFileSync(
       join(srcDir, 'proc', 'SKILL.md'),
       'Call exarchos:exarchos_workflow; then run review — see [note](references/note.md).\n',
@@ -2529,26 +2282,19 @@ describe('buildAllSkills — task 003: classification-driven emission', () => {
 
     const report = buildAllSkills({ srcDir, outDir, runtimesDir });
 
-    // Rendered ONCE, to the runtime-neutral standard tree.
     const standardFile = join(outDir, 'standard', 'proc', 'SKILL.md');
     expect(existsSync(standardFile)).toBe(true);
     const rendered = readFileSync(standardFile, 'utf8');
-    // Prefix tokens resolve to the logical qualified form.
     expect(rendered).toContain('exarchos:exarchos_workflow');
-    // COMMAND_PREFIX resolves to the bare canonical verb (empty prefix).
     expect(rendered).toContain('run review —');
-    // No raw harness-prefixed tool names leak into the neutral render.
     expect(rendered).not.toContain('mcp__');
-    // The reference is mirrored under the standard variant.
     expect(
       readFileSync(join(outDir, 'standard', 'proc', 'references', 'note.md'), 'utf8'),
     ).toBe('a shared reference');
 
-    // NOT emitted per-runtime — no `skills/<runtime>/proc/` anywhere.
     for (const rt of ALL_RUNTIME_NAMES) {
       expect(existsSync(join(outDir, rt, 'proc', 'SKILL.md'))).toBe(false);
     }
-    // A single skill → a single variant.
     expect(report.variantsWritten).toBe(1);
   });
 
@@ -2558,7 +2304,6 @@ describe('buildAllSkills — task 003: classification-driven emission', () => {
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'content/harness/runtimes');
     mkdirSync(join(srcDir, 'orch'), { recursive: true });
-    // An orchestration token flips the class → per-runtime rendering.
     writeFileSync(
       join(srcDir, 'orch', 'SKILL.md'),
       'Spawn a subagent with {{TASK_TOOL}} to fan out the work.\n',
@@ -2567,22 +2312,22 @@ describe('buildAllSkills — task 003: classification-driven emission', () => {
 
     const report = buildAllSkills({ srcDir, outDir, runtimesDir });
 
-    // One variant per runtime, under `skills/<runtime>/orch/`.
     for (const rt of ALL_RUNTIME_NAMES) {
       expect(existsSync(join(outDir, rt, 'orch', 'SKILL.md'))).toBe(true);
     }
-    // NOT collapsed to the standard tree.
     expect(existsSync(join(outDir, 'standard', 'orch', 'SKILL.md'))).toBe(false);
     expect(report.variantsWritten).toBe(6);
   });
 
+  /**
+   * The test commits a hand edit to the rendered `standard` file. The guard builds the file
+   * again, so `git diff` reports the drift, and the message names the file.
+   */
   it('skillsGuard_StandardTreeDrift_Fails', async () => {
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'rendered', 'skills');
     const runtimesDir = join(root, 'content/harness/runtimes');
-    // Procedural skill (logical prose, no fork tokens) → renders to
-    // `skills/standard/proc/`.
     mkdirSync(join(srcDir, 'proc'), { recursive: true });
     writeFileSync(
       join(srcDir, 'proc', 'SKILL.md'),
@@ -2595,9 +2340,6 @@ describe('buildAllSkills — task 003: classification-driven emission', () => {
     await execFileAsync('git', ['add', '-A'], { cwd: root, env: GIT_ENV });
     await execFileAsync('git', ['commit', '-q', '-m', 'seed'], { cwd: root, env: GIT_ENV });
 
-    // Hand-edit the committed standard render and commit the drift. A fresh
-    // guard build regenerates the canonical bytes, so `git diff` on the
-    // standard subtree is non-empty.
     const standardFile = join(outDir, 'standard', 'proc', 'SKILL.md');
     expect(existsSync(standardFile)).toBe(true);
     writeFileSync(standardFile, readFileSync(standardFile, 'utf8') + '\n<!-- hand edit -->\n');
@@ -2608,17 +2350,16 @@ describe('buildAllSkills — task 003: classification-driven emission', () => {
 
     expect(result.ok).toBe(false);
     expect(result.exitCode).not.toBe(0);
-    // The drift is attributed to the standard tree, naming the file.
     expect(result.message).toMatch(/rendered\/skills\/standard\/proc\/SKILL\.md/);
   });
 
+  /** The CHAIN target is not a canonical verb and not a skill on disk. */
   it('chainToken_TargetSkillMissing_FailsBuild', () => {
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'content/harness/runtimes');
     mkdirSync(join(srcDir, 'chainer'), { recursive: true });
-    // CHAIN to a target that is neither a canonical verb nor an on-disk skill.
     writeFileSync(
       join(srcDir, 'chainer', 'SKILL.md'),
       'Then run {{CHAIN next="totally-bogus-nonexistent-verb" args="$X"}}.\n',

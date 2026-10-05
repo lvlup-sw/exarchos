@@ -23,7 +23,6 @@ describe('MCP Config Management (C2)', () => {
     rmrf(tmpDir);
   });
 
-  /** Helper: create a bundled McpServerComponent. */
   function createBundledServer(id: string = 'exarchos'): McpServerComponent {
     return {
       id,
@@ -36,7 +35,6 @@ describe('MCP Config Management (C2)', () => {
     };
   }
 
-  /** Helper: create an external McpServerComponent. */
   function createExternalServer(id: string = 'example-ext'): McpServerComponent {
     return {
       id,
@@ -49,7 +47,6 @@ describe('MCP Config Management (C2)', () => {
     };
   }
 
-  /** Helper: create a remote McpServerComponent. */
   function createRemoteServer(id: string = 'microsoft-learn'): McpServerComponent {
     return {
       id,
@@ -113,10 +110,8 @@ describe('MCP Config Management (C2)', () => {
 
       const result = mergeMcpServers(config, servers, 'node', claudeHome);
 
-      // User's custom server should be preserved
       expect(result.mcpServers!['my-custom-server']).toBeDefined();
       expect(result.mcpServers!['my-custom-server'].command).toBe('my-server');
-      // Exarchos server should be added
       expect(result.mcpServers!['exarchos']).toBeDefined();
     });
 
@@ -131,7 +126,6 @@ describe('MCP Config Management (C2)', () => {
 
       const result = mergeMcpServers(config, servers, 'node', claudeHome);
 
-      // Should be updated to the new config
       expect(result.mcpServers!['exarchos'].command).toBe('node');
       expect(result.mcpServers!['exarchos'].args).toContain('run');
     });

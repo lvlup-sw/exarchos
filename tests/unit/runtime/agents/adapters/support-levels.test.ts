@@ -1,14 +1,8 @@
-// ─── Cross-adapter three-state capability support tests ───────────────────
-//
-// Asserts that every RuntimeAdapter declares a typed `supportLevels` map
-// (`'native' | 'advisory' | 'unsupported'`) covering every value of the
-// `Capability` enum, and that `validateSupport` and `lowerSpec` consult
-// the map rather than ad-hoc constants.
-//
-// See docs/designs/archive/2026-04-25-delegation-runtime-parity.md §4 (Task 4f
-// retrofit — replaces the divergent per-adapter policy with a shared
-// three-state contract).
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Cross-adapter tests for the three-state capability support contract.
+ * Each `RuntimeAdapter` declares a `supportLevels` map (`native`, `advisory` or `unsupported`) for each value of the `Capability` enum.
+ * `validateSupport` and `lowerSpec` must obey that map.
+ */
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { parse as parseYaml } from 'yaml';
@@ -23,7 +17,7 @@ import { CursorAdapter } from '../../../../../src/runtime/agents/adapters/cursor
 import { CopilotAdapter } from '../../../../../src/runtime/agents/adapters/copilot.js';
 import * as PostureMapping from '../../../../../src/workflow/capabilities/posture-mapping.js';
 
-/** Adapter registry. The CopilotAdapter is a class — instantiate it. */
+/** The five adapters. `CopilotAdapter` is a class, so the list holds an instance. */
 const ADAPTERS: ReadonlyArray<{ name: string; adapter: RuntimeAdapter }> = [
   { name: 'claude', adapter: claudeAdapter },
   { name: 'codex', adapter: codexAdapter },
@@ -32,25 +26,16 @@ const ADAPTERS: ReadonlyArray<{ name: string; adapter: RuntimeAdapter }> = [
   { name: 'copilot', adapter: new CopilotAdapter() },
 ];
 
-/** Every value of the Capability enum (zod source of truth). */
+/** Each value of the `Capability` zod enum. */
 const ALL_CAPABILITIES = Capability.options;
 
 /** Allowed support-level values. */
 const VALID_LEVELS: readonly SupportLevel[] = ['native', 'advisory', 'unsupported'];
 
 /**
- * Expected support-level classification for each non-Claude adapter.
- * Codex / OpenCode / Cursor / Copilot share the same matrix per the
- * convergence in Task 4f.
+ * Expected support level of each capability for the non-Claude adapters. Codex, OpenCode, Cursor and Copilot share one matrix.
+ * `session:resume` is `advisory`, not `unsupported`, because the implementer resolves to it and each adapter must accept the implementer spec.
  */
-// Note on `session:resume`: the Task 4f matrix initially classified this
-// as `unsupported` for non-Claude adapters, but the regression-safety
-// gate (Test 6) requires every adapter to accept the canonical
-// IMPLEMENTER spec — and IMPLEMENTER declares `session:resume`.
-// Resolution: classify as `advisory` (silently tolerated, no first-class
-// primitive). This matches the prior Copilot adapter's behavior and
-// keeps the IMPLEMENTER spec validating cleanly across all five
-// adapters. See task report for the divergence note.
 const NON_CLAUDE_EXPECTED: Readonly<Record<Capability, SupportLevel>> = {
   'fs:read': 'native',
   'fs:write': 'native',
@@ -66,14 +51,8 @@ const NON_CLAUDE_EXPECTED: Readonly<Record<Capability, SupportLevel>> = {
 };
 
 /**
- * A spec proxy used to probe `validateSupport` with a single, hand-picked
- * capability. Since #1333, capabilities are derived from posture + agentId
- * via `resolveCapabilities`; there is no longer an inbound `spec.capabilities`
- * array for tests to set. Helper spies on the resolver and forces it to
- * return the requested capability set for the duration of the test.
- *
- * Returns the proxy spec plus a `restore` function the caller must invoke
- * (in `afterEach` or inline) to remove the spy.
+ * Return a copy of the implementer spec, and make `resolveCapabilities` return only `cap`.
+ * `AgentSpec` has no `capabilities` field, so the helper mocks the resolver. `afterEach` restores the mock.
  */
 function syntheticSpecWith(cap: Capability): AgentSpec {
   vi.spyOn(PostureMapping, 'resolveCapabilities').mockReturnValue(
@@ -97,7 +76,6 @@ function parseFrontmatter(contents: string): { data: Record<string, unknown>; bo
 }
 
 describe('SupportLevels (cross-adapter contract)', () => {
-  // 1. Exhaustive map: every adapter declares every capability.
   describe('SupportLevels_AllAdaptersDeclareEveryCapability_ExhaustiveMap', () => {
     for (const { name, adapter } of ADAPTERS) {
       for (const cap of ALL_CAPABILITIES) {
@@ -110,14 +88,13 @@ describe('SupportLevels (cross-adapter contract)', () => {
     }
   });
 
-  // 2. Claude is the reference runtime: every capability is `native`.
+  /** Claude is the reference runtime, so each capability is `native`. */
   it('SupportLevels_ClaudeNativeForAll_NoUnsupported', () => {
     for (const cap of ALL_CAPABILITIES) {
       expect(claudeAdapter.supportLevels[cap]).toBe('native');
     }
   });
 
-  // 3. Non-Claude adapters share the convergence matrix.
   describe('SupportLevels_NonClaudeAdaptersHaveCorrectClassification', () => {
     const nonClaude = ADAPTERS.filter((a) => a.name !== 'claude');
     for (const { name, adapter } of nonClaude) {
@@ -129,7 +106,6 @@ describe('SupportLevels (cross-adapter contract)', () => {
     }
   });
 
-  // 4. Advisory capabilities validate as ok:true when sole capability.
   describe('ValidateSupport_AdvisoryCapability_ReturnsOkTrue', () => {
     const nonClaude = ADAPTERS.filter((a) => a.name !== 'claude');
     for (const { name, adapter } of nonClaude) {
@@ -140,7 +116,6 @@ describe('SupportLevels (cross-adapter contract)', () => {
     }
   });
 
-  // 5. Unsupported capabilities validate as ok:false with reason+fixHint.
   describe('ValidateSupport_UnsupportedCapability_ReturnsOkFalse', () => {
     const nonClaude = ADAPTERS.filter((a) => a.name !== 'claude');
     for (const { name, adapter } of nonClaude) {
@@ -156,9 +131,7 @@ describe('SupportLevels (cross-adapter contract)', () => {
     }
   });
 
-  // 6. Regression-safety gate: every adapter accepts the canonical
-  //    IMPLEMENTER spec end-to-end. This is the gate that prevents Task 5
-  //    composition root from build-erroring on session:resume etc.
+  /** Each adapter must accept the implementer spec. If one rejects it, `generateAgents` throws before it writes a file. */
   describe('ValidateSupport_CanonicalImplementerSpec_AllAdaptersAccept', () => {
     for (const { name, adapter } of ADAPTERS) {
       it(`${name} accepts IMPLEMENTER`, () => {
@@ -168,8 +141,7 @@ describe('SupportLevels (cross-adapter contract)', () => {
     }
   });
 
-  // 7. Advisory caps are silently tolerated — not emitted as a tool entry
-  //    in lowered output (frontmatter / tools array / boolean map).
+  /** An adapter accepts an advisory capability but emits no tool entry for it. */
   describe('LowerSpec_AdvisoryCapability_NotEmittedAsTool', () => {
     it('opencode does not include isolation:worktree in tools map', () => {
       const { contents } = OpenCodeAdapter.lowerSpec(IMPLEMENTER);
@@ -179,11 +151,10 @@ describe('SupportLevels (cross-adapter contract)', () => {
       expect(tools).not.toHaveProperty('worktree');
     });
 
+    /** The Cursor frontmatter has no tools field, so the test searches the full frontmatter for the capability name. */
     it('cursor does not include isolation:worktree in frontmatter', () => {
       const { contents } = CursorAdapter.lowerSpec(IMPLEMENTER);
       const { data } = parseFrontmatter(contents);
-      // Cursor frontmatter has no tools field, but assert no advisory key
-      // leaked into frontmatter at all.
       expect(JSON.stringify(data)).not.toContain('isolation:worktree');
     });
 
@@ -196,17 +167,18 @@ describe('SupportLevels (cross-adapter contract)', () => {
       expect(tools).not.toContain('worktree');
     });
 
+    /** The test matches only a TOML key at the start of a line. The capability list in `developer_instructions` is prose, not a tool entry. */
     it('codex does not emit isolation:worktree as a top-level TOML key', () => {
       const { contents } = codexAdapter.lowerSpec(IMPLEMENTER);
-      // Top-level TOML keys appear as `key = ...` at line start. Capability
-      // listings inside developer_instructions multi-line strings are
-      // documentation, not tool/frontmatter entries.
       expect(contents).not.toMatch(/^isolation:worktree\s*=/m);
       expect(contents).not.toMatch(/^worktree\s*=/m);
     });
   });
 
-  // 8. Native caps ARE emitted (each in their runtime-specific tool name).
+  /**
+   * Each adapter emits a native capability in the form of its runtime.
+   * The form is a tool entry, the Cursor `readonly` flag, or a line in the Codex `developer_instructions`.
+   */
   describe('LowerSpec_NativeCapability_EmittedAsTool', () => {
     it('claude emits Read, Write, Bash for fs:read/fs:write/shell:exec', () => {
       const { contents } = claudeAdapter.lowerSpec(IMPLEMENTER);
@@ -241,11 +213,8 @@ describe('SupportLevels (cross-adapter contract)', () => {
       expect(contents).toContain('shell:exec');
     });
 
+    /** Cursor has no tool array. Its `readonly` flag is `false` when the spec resolves to `fs:write`. */
     it('cursor reflects fs:write via readonly=false', () => {
-      // Cursor has no per-capability tool array — its closest analogue is
-      // the `readonly` flag, which is `false` exactly when fs:write is
-      // declared (i.e. native). Verify the IMPLEMENTER (which declares
-      // fs:write) lowers to readonly=false.
       const { contents } = CursorAdapter.lowerSpec(IMPLEMENTER);
       const { data } = parseFrontmatter(contents);
       expect(data.readonly).toBe(false);

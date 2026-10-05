@@ -1,28 +1,8 @@
 /**
- * Migration no-regression test for the dual-facade skill rendering epic.
- *
- * Purpose: verify that existing Claude Code skill renders remain byte-
- * identical after the dual-facade changes, so users on the Claude Code
- * runtime need take no action to stay functional.
- *
- * Strategy:
- *   1. Snapshot the committed `skills/claude/**\/SKILL.md` tree in-memory.
- *   2. Run `buildAllSkills()` into a fresh temp output directory using the
- *      real `content/` and `content/harness/runtimes/` trees at the repo root.
- *   3. Compare each freshly-rendered `SKILL.md` under `<tempdir>/skills/claude/`
- *      against the committed version. Any difference is a regression.
- *
- * This is a pure byte-comparison regression check. Today's skill sources
- * still use raw `mcp__...` tool references (no `{{CALL}}` macros), so the
- * CALL-macro expansion branch is effectively a no-op for the Claude
- * variant and the re-render must reproduce the committed bytes exactly.
- *
- * If the sources ever adopt `{{CALL}}` macros, this test will catch any
- * drift introduced by that migration — and the fix is to re-run
- * `npm run build:skills` and commit the regenerated output, not to relax
- * this test.
- *
- * Implements: Task 028 (migration no-regression integration test).
+ * Regression test for the claude skill renders. It renders the real `content/` tree into a
+ * temp directory with `buildAllSkills()`. Then it compares each new claude `SKILL.md` with the
+ * committed copy under `rendered/skills/claude`. A different file set or a different byte is
+ * a failure. To correct a failure, run `npm run build:skills` and commit the output.
  */
 
 import { describe, it, expect, afterEach } from 'vitest';
@@ -36,7 +16,6 @@ import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Repo root — `src/` is one directory below the project root.
 const REPO_ROOT = resolve(__dirname, '../../..');
 const REPO_SKILLS_SRC = join(REPO_ROOT, 'content');
 const REPO_RUNTIMES = join(REPO_ROOT, 'content/harness/runtimes');
@@ -50,21 +29,18 @@ function makeTempDir(): string {
   return dir;
 }
 
+/** Remove each temp directory. A removal error does not fail the test. */
 afterEach(() => {
   while (tempDirs.length > 0) {
     const d = tempDirs.pop()!;
     try {
       rmrf(d);
     } catch {
-      // best-effort cleanup
     }
   }
 });
 
-/**
- * Recursively walk `root` collecting every path that ends in `SKILL.md`.
- * Returns absolute paths sorted for deterministic iteration.
- */
+/** Return the sorted absolute path of each `SKILL.md` file under `root`. */
 function collectSkillMdPaths(root: string): string[] {
   const results: string[] = [];
   if (!existsSync(root)) return results;
@@ -97,10 +73,9 @@ function collectSkillMdPaths(root: string): string[] {
 }
 
 /**
- * Diff-context helper: produce a short human-readable hint at the first
- * byte (and line) that differs between `expected` and `actual`. Used in
- * assertion messages so that on failure the developer gets a specific
- * pointer instead of a wall of bytes.
+ * Return the first line that differs between `expected` and `actual`, for the failure message.
+ * Return `null` when the strings are equal. The last return is a fallback for a difference
+ * that the line loop does not find.
  */
 function firstDiffContext(
   expected: string,
@@ -119,29 +94,27 @@ function firstDiffContext(
       return { line: i + 1, expected: e, actual: a };
     }
   }
-  // Lines all equal but strings differ (shouldn't happen); fall through.
   return { line: 0, expected: '<unknown>', actual: '<unknown>' };
 }
 
 describe('ExistingClaudeCodeInstall_AfterMigration_RendersIdenticalOutput', () => {
+  /**
+   * The committed tree must exist and hold a `SKILL.md`, or the comparison is vacuous.
+   * `buildAllSkills` writes to `<outDir>/<runtime>`, so the new claude tree is `<tempOut>/claude`.
+   * The two file sets must be equal, and each file must be byte-identical.
+   */
   it('re-rendering content produces byte-identical skills/claude output', () => {
-    // Sanity: committed skills/claude tree must exist — otherwise the
-    // snapshot has nothing to compare against and the test is vacuous.
     expect(existsSync(REPO_SKILLS_CLAUDE)).toBe(true);
 
     const committedPaths = collectSkillMdPaths(REPO_SKILLS_CLAUDE);
     expect(committedPaths.length).toBeGreaterThan(0);
 
-    // Snapshot the committed content in-memory keyed by relative path.
     const committedByRel = new Map<string, string>();
     for (const p of committedPaths) {
       const rel = relative(REPO_SKILLS_CLAUDE, p);
       committedByRel.set(rel, readFileSync(p, 'utf8'));
     }
 
-    // Re-render into a fresh temp directory. buildAllSkills writes to
-    // `<outDir>/<runtime>/**`, so our claude variant lands at
-    // `<tempDir>/claude/**`.
     const tempOut = makeTempDir();
     buildAllSkills({
       srcDir: REPO_SKILLS_SRC,
@@ -159,14 +132,10 @@ describe('ExistingClaudeCodeInstall_AfterMigration_RendersIdenticalOutput', () =
       freshByRel.set(rel, readFileSync(p, 'utf8'));
     }
 
-    // 1. Set of skills must match — no added or dropped skill files.
     const committedRels = [...committedByRel.keys()].sort();
     const freshRels = [...freshByRel.keys()].sort();
     expect(freshRels).toEqual(committedRels);
 
-    // 2. Content must be byte-identical for every skill. If drift exists,
-    //    include the file name and first differing line in the failure
-    //    message so the developer knows exactly where to look.
     const mismatches: Array<{ rel: string; line: number; expected: string; actual: string }> = [];
     for (const rel of committedRels) {
       const expected = committedByRel.get(rel)!;

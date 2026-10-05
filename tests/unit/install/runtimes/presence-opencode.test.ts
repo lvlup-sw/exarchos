@@ -1,12 +1,7 @@
 /**
  * Presence test for `content/harness/runtimes/opencode.yaml`.
- *
- * OpenCode is a Claude-Code-compatible runtime that supports subagents
- * (via a `Task`-shaped tool) and slash commands but does not expose the
- * Claude-specific hook / skill-chaining surface. Its global skill install
- * path lives under `~/.config/opencode/`.
- *
- * Implements: DR-4, DR-5, OQ-3
+ * OpenCode has subagents (through a `Task`-shaped tool) and slash commands, but no skill chaining.
+ * Its global skills path is under `~/.config/opencode/`.
  */
 
 import { describe, it, expect } from 'vitest';

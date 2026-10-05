@@ -1,17 +1,10 @@
-// ─── Unified composition-root contract tests ───────────────────────────────
+// `generateAgents` is the composition root for agent generation. It validates each spec and runtime
+// pair, lowers each `AgentSpec` through each `RuntimeAdapter`, and writes the agent files of Claude,
+// Codex, OpenCode, Cursor and Copilot.
 //
-// `generate-agents.ts` is the singular composition root that fans an
-// `AgentSpec` out across every `RuntimeAdapter`, validates each
-// (spec, runtime) pair, and writes the per-runtime agent definition
-// files (Claude, Codex, OpenCode, Cursor, Copilot).
-//
-// These tests pin the operability contract: aggregated validation
-// errors (DIM-2 observability), idempotent writes, deterministic
-// iteration, and Claude-only plugin manifest registration.
-//
-// See docs/designs/archive/2026-04-25-delegation-runtime-parity.md §5 and Task
-// 5 in docs/plans/archive/2026-04-25-delegation-runtime-parity.md.
-// ────────────────────────────────────────────────────────────────────────────
+// The tests pin these contracts. Validation reports every failure at once. A second run writes the
+// same files. Only the Claude agents go into `plugin.json`. A failed manifest write rolls back the
+// files that the run created.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
@@ -20,13 +13,10 @@ import * as os from 'node:os';
 import matter from 'gray-matter';
 import { parse as parseToml } from '@iarna/toml';
 
-// ─── Test-controlled writePluginManifest ──────────────────────────────────
-//
-// Most tests want the real implementation; the rollback tests below need to
-// inject a synthetic write failure. We hoist a `vi.fn` and route the module
-// through a partial mock that delegates to the real implementation by
-// default, so behaviour is transparent unless an individual test installs
-// `mockImplementationOnce(...)`.
+/**
+ * A partial mock of `writePluginManifest`. The mock factory gives it the real implementation, and
+ * the rollback tests install an implementation that throws.
+ */
 const writePluginManifestMock = vi.hoisted(() => vi.fn());
 vi.mock('../../../../src/runtime/agents/plugin-manifest.js', async (importOriginal) => {
   const actual =
@@ -58,8 +48,6 @@ import { CopilotAdapter } from '../../../../src/runtime/agents/adapters/copilot.
 import { RUNTIMES } from '../../../../src/runtime/agents/adapters/types.js';
 import type { RuntimeAdapter, Runtime } from '../../../../src/runtime/agents/adapters/types.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
-
-// ─── Test utilities ────────────────────────────────────────────────────────
 
 const ALL_ADAPTERS: readonly RuntimeAdapter[] = [
   claudeAdapter,
@@ -102,8 +90,6 @@ function makeTempPluginJson(dir: string): string {
   return pluginJsonPath;
 }
 
-// ─── Tests ─────────────────────────────────────────────────────────────────
-
 describe('generateAgents', () => {
   let tmp: string;
   let pluginJsonPath: string;
@@ -125,7 +111,6 @@ describe('generateAgents', () => {
       pluginJsonPath,
     });
 
-    // 5 runtimes × 4 specs = 20 files, each at the adapter-defined path.
     const expected: string[] = [];
     for (const adapter of ALL_ADAPTERS) {
       for (const spec of CANONICAL_SPECS) {
@@ -138,11 +123,14 @@ describe('generateAgents', () => {
       expect(fs.existsSync(filePath), `expected file at ${filePath}`).toBe(
         true,
       );
-      // Each file must have non-empty contents.
       expect(fs.readFileSync(filePath, 'utf-8').length).toBeGreaterThan(0);
     }
   });
 
+  /**
+   * The generator writes `lowerSpec(spec).contents` byte for byte, with no substitution at
+   * generation time. The test reads only the Claude implementer file.
+   */
   it('GenerateAgents_OutputContent_MatchesAdapterLowerSpec', () => {
     generateAgents({
       outputRoot: tmp,
@@ -151,12 +139,6 @@ describe('generateAgents', () => {
       pluginJsonPath,
     });
 
-    // Confirm generator is a thin orchestrator: output must equal the
-    // adapter's `lowerSpec(spec).contents` byte-for-byte. Post-#1483 F1 there
-    // is no gen-time substitution — the post-test command is the fixed
-    // runtime-resolving `exarchos run-tests` carried directly on the spec
-    // (resolution happens at the consumer's runtime, not here). Pick the
-    // Claude/IMPLEMENTER pair as the canonical regression check.
     const expectedContents = claudeAdapter.lowerSpec(IMPLEMENTER).contents;
     const written = fs.readFileSync(
       path.join(tmp, claudeAdapter.agentFilePath(IMPLEMENTER.id)),
@@ -165,18 +147,17 @@ describe('generateAgents', () => {
     expect(written).toBe(expectedContents);
   });
 
+  /**
+   * `team:agent-teams` is native on Claude and unsupported on the other four tier-1 runtimes. The
+   * spy makes the resolver return it, so four adapters reject the spec. The error must carry all
+   * four failures, because a generator that stops at the first failure hides the others. The
+   * `finally` block restores the spy.
+   */
   it('GenerateAgents_UnsupportedCapability_ProducesAggregatedBuildError', async () => {
-    // `team:agent-teams` is native on Claude but unsupported on every
-    // other tier-1 runtime. Injecting a synthetic spec that declares it
-    // exercises aggregation: a generator that fails on the first error
-    // and hides the others is a DIM-2 observability violation.
     const synthetic: AgentSpec = {
       ...IMPLEMENTER,
-      id: 'implementer', // keep id stable; IDs are a closed set
+      id: 'implementer',
     };
-    // Force the resolver to include `team:agent-teams` so the synthetic
-    // spec exercises the unsupported-cap aggregation path. Restored in
-    // the finally block to avoid bleeding into adjacent tests.
     const PostureMapping = await import('../../../../src/workflow/capabilities/posture-mapping.js');
     const spy = vi.spyOn(PostureMapping, 'resolveCapabilities').mockReturnValue(
       Object.freeze(
@@ -209,18 +190,13 @@ describe('generateAgents', () => {
     expect(caught).toBeInstanceOf(GenerateAgentsError);
     if (!(caught instanceof GenerateAgentsError)) return;
 
-    // Every non-Claude runtime must appear in both the failures array
-    // and the aggregated message.
     const failingRuntimes = ['codex', 'opencode', 'cursor', 'copilot'];
     for (const runtime of failingRuntimes) {
       expect(caught.message).toContain(runtime);
     }
-    // The offending capability and spec id are named in the message.
     expect(caught.message).toContain('team:agent-teams');
     expect(caught.message).toContain('implementer');
 
-    // Structured failures expose runtime + specId + capability + reason
-    // + fixHint per offending runtime.
     expect(caught.failures.length).toBe(failingRuntimes.length);
     const failingByRuntime = new Map(
       caught.failures.map((f) => [f.runtime, f]),
@@ -236,9 +212,11 @@ describe('generateAgents', () => {
     }
   });
 
+  /**
+   * With no adapter, the generator must throw and not finish with zero files. The message must name
+   * a missing tier-1 runtime.
+   */
   it('GenerateAgents_MissingAdapter_ThrowsBuildError', () => {
-    // Empty adapter registry. Generator must reject up-front; it cannot
-    // silently emit zero files.
     let caught: unknown;
     try {
       generateAgents({
@@ -254,11 +232,13 @@ describe('generateAgents', () => {
     expect(caught).toBeInstanceOf(GenerateAgentsError);
     if (!(caught instanceof GenerateAgentsError)) return;
 
-    // Message must name at least one missing tier-1 runtime by name so
-    // operators can see what's missing.
     expect(caught.message).toMatch(/claude|codex|opencode|cursor|copilot/);
   });
 
+  /**
+   * A second run into the same directory must give byte-identical files. The test compares each
+   * file by path, so it catches only a nondeterministic order inside the contents of a file.
+   */
   it('GenerateAgents_Idempotency_RunningTwiceProducesSameOutput', () => {
     generateAgents({
       outputRoot: tmp,
@@ -267,7 +247,6 @@ describe('generateAgents', () => {
       pluginJsonPath,
     });
 
-    // Snapshot every file's contents.
     const firstPass = new Map<string, string>();
     for (const adapter of ALL_ADAPTERS) {
       for (const spec of CANONICAL_SPECS) {
@@ -276,9 +255,6 @@ describe('generateAgents', () => {
       }
     }
 
-    // Run again into the same directory — must not error and must
-    // produce byte-identical contents (catches accidental ordering
-    // nondeterminism, e.g. Map iteration without sorted keys).
     expect(() =>
       generateAgents({
         outputRoot: tmp,
@@ -293,6 +269,7 @@ describe('generateAgents', () => {
     }
   });
 
+  /** Only Claude has a plugin manifest, so `agents` must hold no path of another runtime. */
   it('GenerateAgents_PluginJsonUpdate_OnlyClaudeAgentsRegistered', () => {
     generateAgents({
       outputRoot: tmp,
@@ -306,26 +283,23 @@ describe('generateAgents', () => {
     expect(Array.isArray(agents)).toBe(true);
     expect(agents.length).toBe(CANONICAL_SPECS.length);
 
-    // Other runtimes have no plugin.json equivalent — only Claude agents
-    // are declared.
     for (const spec of CANONICAL_SPECS) {
       const expected = `./rendered/agents/${spec.id}.md`;
       expect(agents).toContain(expected);
     }
     for (const entry of agents) {
-      // Nothing pointing at codex, opencode, cursor, or copilot paths.
       expect(entry).not.toMatch(/\.codex|\.opencode|\.cursor|\.github\/agents/);
     }
   });
 
+  /**
+   * The test writes `plugin.json` below the deep root, and that write creates the root. The
+   * generator must then create the directory of each runtime below the root.
+   */
   it('GenerateAgents_OutputDirectory_CreatedRecursively', () => {
-    // Use a path whose parents do not exist; generator must `mkdir -p`
-    // every per-runtime subtree before writing.
     const deep = path.join(tmp, 'does', 'not', 'exist', 'yet');
     expect(fs.existsSync(deep)).toBe(false);
 
-    // Place plugin.json under the deep root too — the generator will
-    // create the .claude-plugin/ parent on demand if asked.
     const deepPluginDir = path.join(deep, '.claude-plugin');
     fs.mkdirSync(deepPluginDir, { recursive: true });
     const deepPluginJson = path.join(deepPluginDir, 'plugin.json');
@@ -342,7 +316,6 @@ describe('generateAgents', () => {
       pluginJsonPath: deepPluginJson,
     });
 
-    // Every runtime path was created and a file written under it.
     for (const adapter of ALL_ADAPTERS) {
       for (const spec of CANONICAL_SPECS) {
         const filePath = path.join(deep, adapter.agentFilePath(spec.id));
@@ -351,17 +324,11 @@ describe('generateAgents', () => {
     }
   });
 
-  // ─── Claude snapshot regression ──────────────────────────────────────────
-  //
-  // Pins `claudeAdapter.lowerSpec` output to the byte-for-byte contents of
-  // the committed `agents/{implementer,fixer,reviewer,scaffolder}.md`.
-  //
-  // The committed `agents/` files ARE the contract Claude users depend on;
-  // any drift between adapter output and those files is a regression even
-  // if the broader test suite passes. This gate locks in the rendered
-  // markdown's exact output as the regression baseline (it made Task 14's
-  // deletion of the legacy generator safe and now polices the inlined
-  // rendering in `adapters/claude.ts`).
+  /**
+   * Pins the output of `claudeAdapter.lowerSpec` byte for byte to the snapshot fixtures in
+   * `__fixtures__/snapshots/claude/`. Claude users depend on the exact rendered Markdown, so an
+   * unintended change in `adapters/claude.ts` must fail here.
+   */
   describe('Claude snapshot regression', () => {
     const SPEC_BY_ID: Record<string, AgentSpec> = {
       implementer: IMPLEMENTER,
@@ -388,24 +355,17 @@ describe('generateAgents', () => {
     );
   });
 
-  // ─── #1301 worktree-boundary parity (INV-4 gap, logged) ───────────────────
-  //
-  // The PreToolUse worktree-boundary deny-hook is the structural guarantee for
-  // the #1301 leak. It exists ONLY on Claude: the other four tier-1 runtimes
-  // treat `isolation:worktree` as advisory (orchestrator-managed) and render no
-  // hooks, so they have no surface to enforce the boundary by construction.
-  // This test pins that asymmetry as a KNOWN, INTENTIONAL gap (per INV-4 we log
-  // it, we do not fake it) — and will start failing the day a non-Claude
-  // adapter grows a pre-write hook surface, prompting us to wire the guard
-  // there too. See docs/rca/2026-06-21-worktree-isolation-write-leak.md §parity.
+  /**
+   * The PreToolUse worktree-boundary hook exists only on Claude. The other four tier-1 runtimes
+   * treat `isolation:worktree` as advisory and render no hooks, so they cannot enforce the boundary.
+   * The test pins this known gap. It fails when another adapter renders the guard command, which is
+   * the signal to wire the guard into that runtime.
+   */
   describe('Worktree-boundary cross-runtime parity (#1301 / INV-4)', () => {
     it('GenerateAgents_WorktreeBoundaryHook_EnforcedOnClaudeOnly', () => {
-      // Enforced on Claude: the implementer artifact carries the guard command.
       const claudeOut = claudeAdapter.lowerSpec(IMPLEMENTER).contents;
       expect(claudeOut).toContain(WORKTREE_BOUNDARY_COMMAND);
 
-      // Gap (logged, not faked): advisory-isolation runtimes render no hook,
-      // so the guard command never reaches their artifacts.
       for (const adapter of [codexAdapter, CursorAdapter, new CopilotAdapter(), OpenCodeAdapter]) {
         const out = adapter.lowerSpec(IMPLEMENTER).contents;
         expect(out, `${adapter.runtime} unexpectedly renders the boundary hook`).not.toContain(
@@ -415,11 +375,12 @@ describe('generateAgents', () => {
     });
   });
 
+  /**
+   * OpenCode has no primitive for an advisory capability such as `isolation:worktree` or
+   * `session:resume`. The `tools` map of the frontmatter must not hold one. The prompt body can
+   * still name it.
+   */
   it('GenerateAgents_AdvisoryCapability_NotEmittedInTools', () => {
-    // Regression for the 4f integration: advisory capabilities (e.g.
-    // `isolation:worktree`, `session:resume` on OpenCode) must NOT
-    // surface in the rendered tool entries — the runtime has no
-    // primitive to expose.
     generateAgents({
       outputRoot: tmp,
       specs: CANONICAL_SPECS,
@@ -433,49 +394,16 @@ describe('generateAgents', () => {
     );
     const contents = fs.readFileSync(opencodePath, 'utf-8');
 
-    // OpenCode emits `tools` as a boolean map. Advisory capabilities
-    // must not appear as keys/values in that map.
     const fmMatch = contents.match(/^---\r?\n([\s\S]*?)\r?\n---/);
     expect(fmMatch).not.toBeNull();
     const frontmatter = fmMatch ? fmMatch[1] : '';
 
-    // The capability strings themselves should not surface as tool
-    // entries (the runtime body may still mention them in the system
-    // prompt, but the structured tool map must not include them).
     const toolsMatch = frontmatter.match(/tools:\s*\n([\s\S]*?)(?:\n[a-zA-Z]|$)/);
     const toolsBlock = toolsMatch ? toolsMatch[1] : '';
     expect(toolsBlock).not.toContain('isolation:worktree');
     expect(toolsBlock).not.toContain('session:resume');
   });
 });
-
-// ─── Per-runtime smoke validation ──────────────────────────────────────────
-//
-// Parse every (runtime × spec) artifact emitted by the adapter
-// `lowerSpec` path and assert it is structurally well-formed for the
-// runtime that consumes it: required frontmatter (or TOML) keys present,
-// values of the expected type, and a non-empty body.
-//
-// Why this gate exists: a typo in any adapter would otherwise ship
-// malformed YAML/TOML to a runtime and only be caught when a user tried
-// to dispatch the agent. The smoke tests parse with `gray-matter` (for
-// markdown-with-frontmatter runtimes) or `@iarna/toml` (for codex), so
-// any structural breakage surfaces here at build time.
-//
-// Required-field expectations are derived by reading each adapter's
-// `lowerSpec`:
-//   • Claude (`agents/<id>.md`): YAML `name`, `description`, `model`;
-//     non-empty body.
-//   • OpenCode (`.opencode/agents/<id>.md`): YAML `mode` ('subagent'),
-//     `description`, `tools` (object map); non-empty body.
-//   • Cursor (`.cursor/agents/<id>.md`): YAML `name`, `description`,
-//     `model`; non-empty body.
-//   • Copilot (`.github/agents/<id>.agent.md`): YAML `description`,
-//     `tools` (string array); non-empty body. Copilot's adapter omits
-//     `name` because the file path encodes it.
-//   • Codex (`.codex/agents/<id>.toml`): top-level (NOT under `[agent]`)
-//     `name`, `description`, `developer_instructions`. Codex does not
-//     emit `model` from `lowerSpec`.
 
 const SPECS = ['implementer', 'fixer', 'reviewer', 'scaffolder'] as const;
 
@@ -518,6 +446,18 @@ function expectNonEmptyString(
   ).toBeGreaterThan(0);
 }
 
+/**
+ * Parses the output of `lowerSpec` for each runtime and spec pair and checks the fields that the
+ * runtime reads. A typo in an adapter fails here, not when a user dispatches the agent.
+ *
+ * - Each pair: a non-empty path with an extension. Each Markdown runtime: a non-empty body.
+ * - Claude and Cursor: YAML `name`, `description` and `model`. A Claude name is `exarchos-<id>`.
+ * - OpenCode: YAML `mode` (`subagent`), `description`, and a `tools` map of booleans. OpenCode
+ *   ignores a non-boolean entry silently.
+ * - Copilot: YAML `description` and a `tools` array of strings. Copilot rejects an agent file
+ *   without them.
+ * - Codex: top-level TOML `name` (the spec id), `description` and `developer_instructions`.
+ */
 describe('Per-runtime smoke validation', () => {
   for (const runtime of RUNTIMES) {
     for (const spec of SPECS) {
@@ -526,16 +466,11 @@ describe('Per-runtime smoke validation', () => {
         const agentSpec = SMOKE_SPECS[spec];
         const lowered = adapter.lowerSpec(agentSpec);
 
-        // Path basics: every adapter must produce a non-empty path with
-        // an extension. Catches "" or undefined slipping through.
         expect(lowered.path.length).toBeGreaterThan(0);
         expect(path.extname(lowered.path).length).toBeGreaterThan(0);
         expect(lowered.contents.length).toBeGreaterThan(0);
 
         if (runtime === 'codex') {
-          // Codex emits TOML. Parse and assert the top-level keys
-          // produced by `codex.ts` (no `[agent]` table; `model` is not
-          // emitted by `lowerSpec`).
           let parsed: Record<string, unknown>;
           try {
             parsed = parseToml(lowered.contents) as Record<string, unknown>;
@@ -553,23 +488,17 @@ describe('Per-runtime smoke validation', () => {
             parsed.developer_instructions,
             `codex/${spec} developer_instructions`,
           );
-          // The agent id is a closed set; the file's `name` must equal
-          // the spec id so dispatch-by-name works.
           expect(parsed.name).toBe(agentSpec.id);
           return;
         }
 
-        // All non-codex runtimes emit Markdown with YAML frontmatter.
         const { data, body } = parseFrontmatter(lowered.contents);
 
-        // Body must carry the agent's instructions — empty body would
-        // mean the runtime sees a system-prompt-less agent.
         expect(
           body.trim().length,
           `${runtime}/${spec} body must be non-empty`,
         ).toBeGreaterThan(0);
 
-        // Common requirement across all four markdown runtimes.
         expectNonEmptyString(
           data.description,
           `${runtime}/${spec} description`,
@@ -578,25 +507,18 @@ describe('Per-runtime smoke validation', () => {
         if (runtime === 'claude') {
           expectNonEmptyString(data.name, `claude/${spec} name`);
           expectNonEmptyString(data.model, `claude/${spec} model`);
-          // The Claude generator namespaces names as `exarchos-<id>`.
           expect(data.name).toBe(`exarchos-${agentSpec.id}`);
         } else if (runtime === 'cursor') {
           expectNonEmptyString(data.name, `cursor/${spec} name`);
           expectNonEmptyString(data.model, `cursor/${spec} model`);
           expect(data.name).toBe(agentSpec.id);
         } else if (runtime === 'opencode') {
-          // OpenCode encodes the agent name in the file path; the
-          // structured fields the runtime depends on are `mode`,
-          // `description`, and the `tools` boolean map.
           expectNonEmptyString(data.mode, `opencode/${spec} mode`);
           expect(data.mode).toBe('subagent');
           expect(
             typeof data.tools === 'object' && data.tools !== null,
             `opencode/${spec} tools must be an object map`,
           ).toBe(true);
-          // Every value in the tools map must be a boolean (OpenCode
-          // contract — runtime ignores non-boolean entries silently,
-          // which is exactly the kind of bug this gate catches).
           for (const [tool, enabled] of Object.entries(
             data.tools as Record<string, unknown>,
           )) {
@@ -606,9 +528,6 @@ describe('Per-runtime smoke validation', () => {
             ).toBe('boolean');
           }
         } else if (runtime === 'copilot') {
-          // Copilot's adapter omits `name` (file path encodes it) but
-          // requires `description` and a `tools` array. The runtime
-          // rejects custom agents that lack either.
           expect(
             Array.isArray(data.tools),
             `copilot/${spec} tools must be an array`,
@@ -622,16 +541,13 @@ describe('Per-runtime smoke validation', () => {
   }
 });
 
-// ─── Manifest-write rollback (T17) ─────────────────────────────────────────
-//
-// If `writePluginManifest` throws after per-runtime artifact files have
-// been written, `generateAgents` must unlink every artifact it CREATED
-// during the failed run (best-effort), so the on-disk state matches the
-// pre-run state for newly-created paths. Pre-existing files are left
-// untouched: rollback is scoped to "things this run produced", not "things
-// that happened to share a target path".
-//
-// Refs #1192 (Items 3+5+17), T17.
+/**
+ * When `writePluginManifest` throws after the agent files are written, `generateAgents` must remove
+ * each file that the run created. It must not remove a file that existed before the run.
+ *
+ * `mockReset` in `afterEach` leaves the mock with no implementation, so keep this suite last in the
+ * file.
+ */
 describe('generateAgents — manifest write failure rollback', () => {
   let tmp: string;
   let pluginJsonPath: string;
@@ -643,15 +559,15 @@ describe('generateAgents — manifest write failure rollback', () => {
 
   afterEach(() => {
     rmrf(tmp);
-    // Re-bind to the real implementation so subsequent test files /
-    // re-runs see the genuine writePluginManifest behaviour.
     writePluginManifestMock.mockReset();
   });
 
+  /**
+   * No agent file exists before the run, so the rollback must remove all of them. The call assertion
+   * on the mock proves that the run reached the manifest write. The manifest existed before the run,
+   * so it must stay. The last assertion only proves that the mocked module resolves.
+   */
   it('GenerateAgents_RollsBackArtifacts_OnManifestWriteFailure', async () => {
-    // Snapshot the pre-run state of every per-runtime directory under tmp.
-    // Anything not in this set is "newly created by this run" and must be
-    // unlinked when the manifest write fails.
     const pluginManifest = await import('../../../../src/runtime/agents/plugin-manifest.js');
     writePluginManifestMock.mockImplementation(() => {
       throw new Error('simulated manifest write failure');
@@ -666,7 +582,6 @@ describe('generateAgents — manifest write failure rollback', () => {
       }
     }
 
-    // None of these exist before the run.
     for (const p of expectedArtifacts) {
       expect(fs.existsSync(p), `expected ${p} not to exist pre-run`).toBe(
         false,
@@ -685,15 +600,12 @@ describe('generateAgents — manifest write failure rollback', () => {
       caught = err;
     }
 
-    // Sanity: writePluginManifest was actually called (so we exercised the
-    // rollback path) and the original failure surfaced.
     expect(writePluginManifestMock).toHaveBeenCalled();
     expect(caught).toBeInstanceOf(Error);
     expect((caught as Error).message).toMatch(
       /simulated manifest write failure/,
     );
 
-    // Every newly-created artifact must have been unlinked.
     for (const p of expectedArtifacts) {
       expect(
         fs.existsSync(p),
@@ -701,22 +613,19 @@ describe('generateAgents — manifest write failure rollback', () => {
       ).toBe(false);
     }
 
-    // The plugin manifest itself was NOT created by this run, and must
-    // still exist (preflight passed; we just blocked the rewrite).
     expect(fs.existsSync(pluginJsonPath)).toBe(true);
-    // Touch reference so vitest doesn't flag the import as unused — we
-    // want the dynamic import to confirm the mock-bound module resolves.
     expect(typeof pluginManifest.writePluginManifest).toBe('function');
   });
 
+  /**
+   * The run overwrites the pre-existing file at an agent path before the manifest write fails, but
+   * the rollback must not remove it. The rollback must also leave a file that is not an agent target.
+   */
   it('GenerateAgents_PreservesPreExistingFiles_OnManifestWriteFailure', () => {
     writePluginManifestMock.mockImplementation(() => {
       throw new Error('simulated manifest write failure');
     });
 
-    // Pre-create a file at one of the per-runtime artifact paths with
-    // sentinel contents. Rollback must NOT unlink it — the run did not
-    // create it.
     const preexistingPath = path.join(
       tmp,
       claudeAdapter.agentFilePath(IMPLEMENTER.id),
@@ -725,8 +634,6 @@ describe('generateAgents — manifest write failure rollback', () => {
     const sentinel = 'PRE-EXISTING-SENTINEL\n';
     fs.writeFileSync(preexistingPath, sentinel, 'utf-8');
 
-    // Also pre-create a non-artifact file in the same directory to
-    // confirm rollback never touches files outside its tracked set.
     const bystander = path.join(
       path.dirname(preexistingPath),
       'bystander.md',
@@ -747,16 +654,11 @@ describe('generateAgents — manifest write failure rollback', () => {
 
     expect(caught).toBeInstanceOf(Error);
 
-    // Pre-existing artifact-path file still present. Note: the run will
-    // have OVERWRITTEN it with the lowered contents before the manifest
-    // failure, but the file itself must remain on disk — rollback only
-    // unlinks paths that did NOT exist pre-run.
     expect(
       fs.existsSync(preexistingPath),
       'pre-existing artifact file must NOT be unlinked by rollback',
     ).toBe(true);
 
-    // Bystander file untouched (was never an artifact target).
     expect(fs.existsSync(bystander)).toBe(true);
     expect(fs.readFileSync(bystander, 'utf-8')).toBe('BYSTANDER\n');
   });

@@ -19,8 +19,11 @@ function collectMdFiles(dir: string): string[] {
   return results;
 }
 
-// Match Skill({ skill: "X" where X does NOT start with a namespace prefix (word:)
-// Allows exarchos: and companion plugin namespaces (axiom:, impeccable:, etc.)
+/**
+ * Matches a `Skill({ skill: "X" })` call where X has no namespace prefix. A
+ * prefix of lowercase letters and hyphens that ends in `:` passes, so the
+ * namespaces of companion plugins pass too.
+ */
 const UN_NAMESPACED_SKILL = /Skill\(\{\s*skill:\s*"(?![a-z][-a-z]*:)[a-z]/g;
 
 function findUnNamespacedSkillCalls(dir: string): string[] {
@@ -36,9 +39,11 @@ function findUnNamespacedSkillCalls(dir: string): string[] {
   return violations;
 }
 
-// Explicit `name:` frontmatter in a command file bypasses the plugin
-// namespace — surfaces the command as bare `/X` instead of `/exarchos:X`.
-// Let the plugin loader derive the name from the filename instead.
+/**
+ * An explicit `name:` key in the frontmatter of a command file bypasses the
+ * plugin namespace. The command then shows as `/X`, not `/exarchos:X`. The
+ * plugin loader must derive the name from the filename.
+ */
 const FRONTMATTER_BLOCK = /^---\r?\n([\s\S]*?)\r?\n---/m;
 const NAME_KEY = /^name:\s*\S+/m;
 
@@ -56,9 +61,8 @@ function findExplicitNameFrontmatter(dir: string): string[] {
 }
 
 /**
- * Both roots are generator output now. Scanning a directory that no longer
- * exists yields no files and therefore no violations, so these assertions
- * would pass by never reading anything — the denominator is asserted first.
+ * Both roots are generator output. A scan of a missing directory finds no file
+ * and no violation, so the first test asserts that each root holds files.
  */
 const COMMANDS_DIR = join(repoRoot, 'rendered', 'commands');
 const SKILLS_DIR = join(repoRoot, 'rendered', 'skills');

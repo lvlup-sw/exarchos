@@ -1,11 +1,6 @@
 /**
- * Unit tests for `detectRuntime()` — inspects PATH and environment variables
- * to figure out which agent runtime is installed on the host.
- *
- * Determinism: every test injects its own `which` and `env` mocks. The real
- * filesystem and the real `process.env` are never touched.
- *
- * Implements: DR-7 (runtime auto-detection for install-skills).
+ * Tests for `detectRuntime()`, which finds the agent runtime of the host from PATH and environment variables.
+ * Each test injects its own `which` and `env`, so no test reads the real PATH or `process.env`.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -42,11 +37,7 @@ const GENERIC = makeRuntime({
 
 const RUNTIMES: RuntimeMap[] = [CLAUDE, CODEX, GENERIC];
 
-/**
- * Build a deterministic `which` mock from a list of binaries that exist. Any
- * binary in the set resolves to `/fake/bin/<name>`; everything else returns
- * null (the shape required by the DetectDeps interface).
- */
+/** Builds a `which` mock. A listed binary resolves to `/fake/bin/<name>`, and each other name gives null. */
 function whichFrom(available: string[]): (cmd: string) => string | null {
   const set = new Set(available);
   return (cmd) => (set.has(cmd) ? `/fake/bin/${cmd}` : null);
@@ -97,8 +88,8 @@ describe('detectRuntime (task 020)', () => {
     expect(result).toBeNull();
   });
 
+  /** The codex binary is in PATH, but the `CLAUDECODE` variable is set, so claude wins. */
   it('DetectRuntime_EnvVarSet_OverridesPathDetection', () => {
-    // Codex binary is in PATH, but CLAUDECODE env var is set → claude wins.
     const result = detectRuntime(RUNTIMES, {
       which: whichFrom(['codex']),
       env: { CLAUDECODE: '1' },
@@ -107,10 +98,8 @@ describe('detectRuntime (task 020)', () => {
     expect(result?.name).toBe('claude');
   });
 
+  /** The injected `which` resolves no name. A detected runtime here shows that the function read the real host. */
   it('DetectRuntime_RespectsInjectedPathLookup_Deterministic', () => {
-    // Inject a completely custom which that returns nothing for the real names
-    // and only resolves a bogus name. Nothing should be detected, confirming
-    // no OS calls leak through.
     const which = (_cmd: string): string | null => null;
     const result = detectRuntime(RUNTIMES, { which, env: {} });
     expect(result).toBeNull();

@@ -6,7 +6,6 @@ import {
 } from '../../../../src/install/operations/settings.js';
 
 describe('Settings.json Generation (C3)', () => {
-  /** Helper: create a default WizardSelections. */
   function createSelections(overrides: Partial<WizardSelections> = {}): WizardSelections {
     return {
       mcpServers: ['exarchos'],
@@ -27,7 +26,6 @@ describe('Settings.json Generation (C3)', () => {
       expect(result.permissions.allow).toBeDefined();
       expect(Array.isArray(result.permissions.allow)).toBe(true);
       expect(result.permissions.allow.length).toBeGreaterThan(0);
-      // Should contain at least some core permissions
       expect(result.permissions.allow).toContain('Bash(git:*)');
       expect(result.permissions.allow).toContain('Bash(npm:*)');
     });
@@ -138,20 +136,17 @@ describe('Settings.json Generation (C3)', () => {
       expect(Array.isArray(permissions)).toBe(true);
       expect(permissions.length).toBeGreaterThan(10);
 
-      // Should contain fundamental tool permissions
       expect(permissions).toContain('Read');
       expect(permissions).toContain('Write');
       expect(permissions).toContain('Edit');
       expect(permissions).toContain('Glob');
       expect(permissions).toContain('Grep');
 
-      // Should contain bash command permissions
       expect(permissions).toContain('Bash(git:*)');
       expect(permissions).toContain('Bash(npm:*)');
       expect(permissions).toContain('Bash(npx:*)');
       expect(permissions).toContain('Bash(gt:*)');
 
-      // Should contain MCP wildcard
       expect(permissions).toContain('mcp__*');
     });
   });
