@@ -626,8 +626,9 @@ describe('EventStore Append Idempotency', () => {
   });
 
   /**
-   * Each claim persists in `idempotency_claims` with no cap.
-   * A retry of the first of 201 keys returns its original sequence.
+   * Each claim persists in `idempotency_claims` with no cap, and the store does not read `EXARCHOS_MAX_IDEMPOTENCY_KEYS`.
+   * The test appends 201 keys because the in-memory cap that the variable set had a default of 200.
+   * A retry of the first key returns its original sequence.
    */
   it('append_IdempotencyClaim_PersistsAcrossManyAppends', async () => {
     const store = new EventStore(tempDir);
