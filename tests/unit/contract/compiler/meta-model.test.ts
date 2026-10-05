@@ -208,7 +208,7 @@ function propertiesOf(entry: ActionMetaModel): readonly string[] {
  */
 describe('DR-11 — the meta-model is audited against the shipped runtime surface', () => {
   /**
-   * The shipped meta-model must agree with the shipped runtime surface. This arm fails when the derivation is wrong.
+   * The shipped meta-model must agree with the shipped runtime surface. That first assertion fails when the derivation is wrong.
    * Each seeded defect must give findings without the baseline artifact:
    * - a policy dimension that drops the evidence which the server advertises
    * - an entry with the input schema of a sibling action, which a registry-to-registry diff cannot see

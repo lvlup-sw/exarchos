@@ -74,7 +74,7 @@ describe('renderAuditPrompt', () => {
     expect(renderAuditPrompt(invariants)).toBe('');
   });
 
-  /** The blocks appear in ascending id order for every input order. */
+  /** The input is not in id order, and the blocks must appear in ascending id order. */
   it('RenderAuditPrompt_MultipleAuditInvariants_OrderedById', () => {
     const invariants: InvariantEntry[] = [
       entry({

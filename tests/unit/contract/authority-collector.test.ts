@@ -109,7 +109,7 @@ describe('verifyContractAuthority — exit proofs', () => {
   /**
    * A range on the live `@modelcontextprotocol/server` dependency is a floating authority.
    * A range on a retired key leaves the live pin exact, and this kill probe then kills nothing.
-   * The lock is built as approved from the floating tree, and the freeze must still block.
+   * The test builds an approved lock from the floating tree, and the freeze must still block.
    */
   it('Verify_FloatingSdkDependency_Blocks', () => {
     const base = defaultSourcePaths();

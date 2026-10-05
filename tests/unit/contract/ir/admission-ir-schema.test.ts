@@ -9,7 +9,8 @@ import { admissionIrJsonSchema } from '../../../../src/contract/ir/admission-ir.
 
 /**
  * The checked-in JSON Schema is the artifact that a reviewer reads. A change to the authored Zod
- * source fails this guard. `npx tsx src/contract/ir/admission-ir-schema-cli.ts` regenerates it.
+ * source fails this guard until `npx tsx src/contract/ir/admission-ir-schema-cli.ts` regenerates
+ * the artifact.
  */
 describe('shared admission IR — JSON Schema artifact drift guard', () => {
   it('the checked-in artifact matches a fresh generation (byte-for-byte)', () => {

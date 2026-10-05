@@ -72,7 +72,7 @@ describe('CLI ⇄ MCP differential (exit-code agreement)', () => {
 
   /**
    * The fixture table must hold a failure with no `error`.
-   * Without that case, the differential proof cannot see the defect.
+   * Without that case, the differential proof cannot see an exit code of 0 for such a failure.
    */
   it('DifferentialCases_CoverTheErrorlessFailure', () => {
     const errorless = DIFFERENTIAL_CASES.filter((c) => !c.result.success && c.result.error === undefined);
@@ -108,7 +108,7 @@ describe('CLI ⇄ MCP differential (end-to-end through buildCli)', () => {
 
   for (const differential of DIFFERENTIAL_CASES) {
     /**
-     * The mocked `dispatch` returns one result for both surfaces.
+     * The mocked `dispatch` gives the fixture result to the CLI.
      * The CLI envelope must equal `toEnvelope(result)`, which the MCP wire puts into `structuredContent`.
      * The exit code of the real CLI path must equal the hand-written expectation of the fixture.
      */

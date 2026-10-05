@@ -1,7 +1,7 @@
 /**
  * Round-trip proofs for the shared admission IR. The generated JSON Schema and the authored Zod
  * schemas must agree with each other and with the runtime validators in `src/workflow/admission`.
- * The tests only read the runtime validators.
+ * The tests import the runtime validators and do not change them.
  */
 import { describe, it, expect } from 'vitest';
 import Ajv2020 from 'ajv/dist/2020.js';

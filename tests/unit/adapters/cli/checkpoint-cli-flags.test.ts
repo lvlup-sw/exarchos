@@ -1,5 +1,5 @@
 // The handoff convenience flags of `exarchos workflow checkpoint` (alias `wf checkpoint`):
-// `--context <string>`, `--next-steps <step...>` and `--suggestions <sug...>`.
+// `--context <string>`, `--next-steps <step...>` and `--suggestions <suggestion...>`.
 //
 // The CLI maps the flags onto `handoff` (`{ context?, nextSteps?, suggestions? }`) before
 // dispatch. The MCP path accepts the full `handoff` object directly.

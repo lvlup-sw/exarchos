@@ -189,8 +189,8 @@ describe.skipIf(process.platform === 'win32')('CLI correlation filter — end-to
   });
 
   /**
-   * The late imports make `vi.doUnmock` apply to this module subtree. An earlier import keeps the
-   * mocked `dispatch` behind the `buildCli` action callback.
+   * The late imports make `vi.doUnmock` apply to this module subtree. The file-level `buildCli`
+   * still calls the mocked `dispatch` from its action callback.
    * The store holds one `tool.completed` event for `cor-X` and one for `cor-Y`. With
    * `--correlation-id cor-X`, the envelope on stdout must hold only `tool_X`.
    */

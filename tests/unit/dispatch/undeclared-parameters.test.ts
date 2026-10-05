@@ -2,9 +2,10 @@
  * Tests for the parameter-acceptance rule of a composite tool: the action that receives a parameter
  * honors it, or dispatch refuses it.
  *
- * The unit suites cover the rule. Declared keys are forwarded, transport keys are exempt, an
- * SDK-injected default is dropped by value, and a discarded key is reported as ignored. The census
- * walks each action of `getFullRegistry()` against each key that only a sibling declares.
+ * The unit suites cover the rule. `selectForwardedParameters` forwards declared keys, exempts
+ * transport keys, and drops an SDK-injected default by value. `findIgnoredParameters` reports a key
+ * that the schema discarded. The census walks each action of `getFullRegistry()` against each key
+ * that only a sibling declares.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -102,7 +103,8 @@ describe('selectForwardedParameters — carrier and SDK noise vs the caller (DR-
 
   /**
    * The exemption compares values. `false` is the injected default, and `true` comes from the
-   * caller. A drop of `true` opens the silent-ignore hole for every defaulted field.
+   * caller. If the exemption also drops `true`, a caller value for any defaulted field is lost with
+   * no report.
    */
   it('ForwardedParameters_SiblingDefaultFieldWithNonDefaultValue_IsNotDropped', () => {
     const { unshaped } = selectForwardedParameters(
@@ -135,8 +137,9 @@ describe('findIgnoredParameters — the schema answers for its own keys (DR-7)',
   });
 
   /**
-   * A `.passthrough()` action keeps the key in the parse output and answers for it.
-   * `exarchos_orchestrate.prune_stale_workflows` has this shape.
+   * A `.passthrough()` action keeps the key in the parse output, so the rule reports nothing. The
+   * action itself accepts or rejects the key. `exarchos_orchestrate.prune_stale_workflows` has this
+   * shape.
    */
   it('IgnoredParameters_PassthroughObject_ReportsNothing', () => {
     const loose = z.object({ featureId: z.string() }).passthrough();
@@ -176,8 +179,8 @@ describe('Registry-wide parameter-acceptance census (DR-7 sweep, DR-8 denominato
   const registry = getFullRegistry().filter((t) => t.actions.length > 0);
 
   /**
-   * Counts the actions of the scan root in two ways. It also requires more than one tool and more
-   * than one action.
+   * The denominator guard for the census. It requires more than one tool and more than one action.
+   * A scan root that is narrowed to one tool or one action thus fails here.
    */
   it('ParameterCensus_ScanRoot_CoversEveryRegisteredCompositeAction', () => {
     const declaredActions = registry.reduce((n, t) => n + t.actions.length, 0);
@@ -266,7 +269,8 @@ describe('Registry-wide parameter-acceptance census (DR-7 sweep, DR-8 denominato
 
   /**
    * `handleCancel` reads `input.reason` and records it on the cancel event. The `cancel` action
-   * schema must declare `reason`, or dispatch discards it and the cancel still reports success.
+   * schema must declare `reason`. If it does not, dispatch refuses a parameter that the handler
+   * supports.
    */
   it('ParameterCensus_CancelReason_IsDeclaredNotMerelyConsumed', () => {
     const workflow = registry.find((t) => t.name === 'exarchos_workflow');

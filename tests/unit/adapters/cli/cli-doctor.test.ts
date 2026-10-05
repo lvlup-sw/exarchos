@@ -135,8 +135,9 @@ describe('exarchos doctor CLI', () => {
   });
 
   /**
-   * `emitResult` writes the envelope as multi-line JSON. The test parses the whole of stdout, which
-   * proves that stdout is one JSON document.
+   * The mocked `toCliResult` writes the envelope as multi-line JSON, as production does. Thus
+   * `SingleLine` in the title is not accurate. The test parses the whole of stdout, which proves
+   * that stdout is one JSON document.
    */
   it('Cli_DoctorFormatJson_EmitsSingleLineJsonToStdout', async () => {
     vi.mocked(dispatch).mockResolvedValueOnce(makeDoctorResult({ passed: 10 }));

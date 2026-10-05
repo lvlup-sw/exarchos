@@ -142,8 +142,9 @@ describe('elicitation-dispatch (#1274)', () => {
   });
 
   /**
-   * A client that returns `undefined` declined. The hand-off then emits `elicitation.declined` and
-   * no `elicitation.fulfilled`, so the audit trail separates the two outcomes.
+   * A client result with an undefined `value` is a decline. The hand-off then emits
+   * `elicitation.declined` and no `elicitation.fulfilled`, so the audit trail separates the two
+   * outcomes.
    */
   it('PerformElicitation_ClientDeclines_EmitsElicitationDeclinedNotFulfilled', async () => {
     const inputSchema = z.object({ featureId: z.string() });

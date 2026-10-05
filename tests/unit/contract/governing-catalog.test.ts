@@ -121,8 +121,8 @@ describe('DR-26 — INV-2 is contract-client equivalence, not peer-facade parity
 
 describe('DR-26 — INV-4 is standards conformance, not six-runtime fan-out', () => {
   /**
-   * The governing summary emits one standard artifact where a standard exists. A shim stays only
-   * where no standard exists, as technical debt with a retirement condition.
+   * The governing summary requires one standard-conformant artifact where a standard exists. It
+   * allows a shim only where no standard exists, as technical debt with a retirement condition.
    * The summary must not call six runtimes first-class.
    *
    * The test pins the enforcement mode `audit` by name. An entry with no enforcement has the mode
@@ -207,7 +207,7 @@ describe('DR-26 — INV-11 keeps spatial write confinement EXCLUDED', () => {
  * between two peer facades.
  *
  * A match is a citation only when it is comment prose, is not quoted, and has no retirement
- * qualifier in its sentence. A title, a message, a regex source or an identifier is code.
+ * qualifier before it in its sentence. A title, a message, a regex source or an identifier is code.
  * {@link citesRetiredParityFramingIn} keeps the comment prose only.
  * {@link citesRetiredParityFraming} skips the quoted mentions and the qualified sentences.
  */
@@ -215,8 +215,10 @@ const RETIRED_PARITY_RE = /INV-2\s+(?:byte-)?parity/gi;
 
 /**
  * Words that make the phrase a description of the retired framing, not a claim.
- * The detector reads them only from the sentence that holds the phrase. A qualifier on the
- * previous comment line of that sentence applies. A qualifier in a different sentence does not.
+ * The detector reads them only from the part of the sentence that comes before the phrase.
+ * A sentence can span the lines of one block comment, but it stops at the start of a `//` line.
+ * Thus a qualifier after the phrase, on the previous `//` line, or in a different sentence does
+ * not apply.
  */
 const RETIREMENT_QUALIFIER_RE =
   /\b(?:retired|retiring|former|formerly|superseded|supersedes|deprecated|stale|obsolete|no longer|not|never|instead of|rather than|was|used to)\b/i;

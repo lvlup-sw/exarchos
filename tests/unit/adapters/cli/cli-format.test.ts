@@ -314,7 +314,7 @@ describe('toCliResult', () => {
 
   /**
    * `next_actions` must pass unchanged through `toEnvelope` and `toCliResult` to the JSON on stdout,
-   * where the caller reads it. The test asserts the presence and shape of the field only.
+   * where the caller reads it. The test asserts the value of the field, not what a caller does with it.
    * Stage 1 checks the envelope, so a failure shows which seam lost the field. Stage 2 parses the
    * bytes on stdout, because those bytes are what a caller sees.
    */

@@ -41,7 +41,7 @@ const ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Object.freeze({
 
 describe('EmissionVerifier lifecycle axis', () => {
   /**
-   * `workflow.started` landed, so no event is missing. The fault is that the action also declares
+   * Both required events landed, so no event is missing. The fault is that the action declares
    * and emits two events whose registrations say that nothing emits them. A conditional edge is
    * not required, but it is still drift when it lands against such a registration.
    */

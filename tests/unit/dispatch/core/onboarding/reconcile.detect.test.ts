@@ -49,8 +49,8 @@ describe('DetectDesiredState_DerivesCommands_FromLayeredResolver', () => {
 
   /**
    * For a dotnet repo the resolver gives `dotnet test` and leaves `typecheck` and `install` as
-   * `null`. The test asserts that resolver shape first, so a registry change fails as a
-   * precondition.
+   * `null`. The test asserts that resolver shape first. A registry change then fails at that
+   * precondition, and not at the omission checks.
    */
   it('omits (never fabricates) a command field the resolver leaves unresolved', async () => {
     writeFileSync(join(dir, 'Foo.csproj'), '<Project/>');

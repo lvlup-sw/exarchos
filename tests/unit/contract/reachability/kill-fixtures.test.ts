@@ -7,11 +7,13 @@
  * - handler: the real `COMPOSITE_HANDLER_LOADERS` map without one loader, bound by
  *   `buildBindingTable`.
  * - owner: the real `EFFECT_PROVIDERS` map without one provider.
- * - schema, output, fixture: a copy of the shipped `proof-fixtures.json` with one entry changed.
+ * - schema, output, fixture: a copy of the shipped `proof-fixtures.json` with one entry changed
+ *   or removed.
  * - artifact: a copy of the shipped `cli-surface.json` with one command removed or duplicated.
  * - event: the real `EVENT_ANNOTATIONS` catalog without one event.
  *
  * The last suite asserts that the fixtures here kill each hop in `REACHABILITY_HOPS`.
+ * Thus a new hop fails that suite until it has a kill fixture.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import fs from 'node:fs';

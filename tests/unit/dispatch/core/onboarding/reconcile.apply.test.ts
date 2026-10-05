@@ -119,6 +119,7 @@ function makeCtx(fx: Fixture, overrides?: Partial<ApplyCtx>): ApplyCtx {
  *
  * The tests with `createPythonFixture` cover the seed of the verification commands. For a
  * `pyproject.toml`, the registry resolves `mutation` (`mutmut run`) and `lint` (`ruff check`).
+ * The node registry has no `lint` command, so the node fixture seeds only `mutation`.
  */
 describe('apply', () => {
   it('Apply_EmptyPlan_IsNoOp', async () => {

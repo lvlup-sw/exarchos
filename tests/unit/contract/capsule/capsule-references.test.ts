@@ -365,7 +365,7 @@ describe('capsule reference integrity', () => {
 
   /**
    * The kernel builds its definition schema on `z.looseObject`, so an accepted definition can keep unknown objects.
-   * A `stepId` in such an object must not resolve a capsule task: that reports a dangling reference as sound.
+   * A `stepId` in such an object must not resolve a capsule task, or the resolver reports a dangling reference as sound.
    */
   it('CapsuleReferences_AStepIdSmuggledOntoALooseObject_DoesNotResolve', () => {
     const base = baseValidCapsule();

@@ -73,7 +73,7 @@ describe('mergeCatalogs', () => {
     expect(merged.find((e) => e.id === 'team-rule')?.tier).toBe('user');
   });
 
-  /** Only the sdlc layer can hold an `SDLC-*` id, and that entry gets `tier: 'sdlc'`. The user layer cannot. */
+  /** An `SDLC-*` id in the sdlc layer merges and gets `tier: 'sdlc'`. The same prefix in the user layer throws. */
   it('mergeCatalogs_SdlcId_ReservedOutsideBuiltin', () => {
     const merged = mergeCatalogs({
       dev: [],

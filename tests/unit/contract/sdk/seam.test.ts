@@ -35,8 +35,8 @@ const packageRoot = path.join(here, '../../../..');
 const srcRoot = path.join(packageRoot, 'src');
 
 /**
- * The SDK package scope. The fixture specifiers are assembled from it, so a scan
- * that matches text does not count this file as an SDK importer.
+ * The SDK package scope. The helpers below assemble the fixture specifiers from
+ * it, so a scan that matches text does not count this file as an SDK importer.
  */
 const SCOPE = '@modelcontextprotocol';
 const v1Specifier = (subpath: string): string => `${SCOPE}/sdk/${subpath}`;
@@ -491,7 +491,10 @@ describe('DR-26 — owned SDK seam, generation-branded handles', () => {
     expect(isOwnedSeamModule('src/adapters/seam.ts')).toBe(false);
   });
 
-  /** The seam holds both generations by design. Any other module that holds both is a HIGH finding. */
+  /**
+   * The lint exempts the seam, which is the one module that can import both
+   * generations. Any other module that imports both gets one HIGH finding.
+   */
   it('LintSdkGenerationMixing_OwnedSeamOnly_IsExemptFromMixing', () => {
     const mixed = importFrom(v1Specifier('inMemory.js')) + importFrom(v2Specifier('server'));
 
@@ -511,8 +514,8 @@ describe('DR-26 — owned SDK seam, generation-branded handles', () => {
 
 /**
  * Walks the source tree and attributes each SDK import. The walk reads the
- * population from the filesystem, so a relocated tree gives an empty
- * denominator and not a clean pass.
+ * population from the filesystem and holds no module list, so a relocated tree
+ * cannot give a clean pass.
  *
  * @param relativeTo The base of the reported module paths. The narrowed-root
  *   kill fixture sets it to `srcRoot`, so only the coverage differs between

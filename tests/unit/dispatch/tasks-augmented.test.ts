@@ -47,7 +47,10 @@ describe('tasks-augmented dispatch branch (#1273 / T28)', () => {
     expect(isTaskAugmented({ action: 'describe', task: { ttl: null } })).toBe(true);
   });
 
-  /** Dispatch sees raw args before a Zod parse, so a string, a number or `null` must not count. */
+  /**
+   * Dispatch sees raw args before a Zod parse, so a `task` that is a string, a number or `null` is
+   * not an augmentation signal.
+   */
   it('IsTaskAugmented_TaskValueNotObject_ReturnsFalse', () => {
     expect(isTaskAugmented({ action: 'describe', task: 'oops' })).toBe(false);
     expect(isTaskAugmented({ action: 'describe', task: 42 })).toBe(false);
@@ -95,7 +98,7 @@ describe('tasks-augmented dispatch branch (#1273 / T28)', () => {
 
   /**
    * The `TaskCreatedData.pollInterval` schema accepts only a positive integer. `extractTaskOptions`
-   * drops any other value, so the `createTask` default applies and the event append does not fail.
+   * drops any other value, so the `createTask` default applies and the stored value is valid.
    */
   describe('extractTaskOptions / pollInterval validity contract', () => {
     it('ExtractTaskOptions_PositivePollInterval_PreservesValue', () => {

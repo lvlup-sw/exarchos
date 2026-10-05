@@ -126,7 +126,8 @@ describe('scanText (DR-5 core)', () => {
   });
 
   /**
-   * The test sorts the lines into a variable before the assertion.
+   * The sort is in a variable, because an inline sort inside `expect` matches the `sorted-parity` shape of the suite-invariants check.
+   * A file with that shape must declare two independent sources.
    * The expected side is a literal and not a second read of the corpus, so no `@oracle-sources` declaration applies.
    */
   it('scanText_SameTokenDifferentLines_IsOneFindingPerLine', () => {
@@ -320,8 +321,9 @@ describe('scanRegistryActions (DR-4/DR-5)', () => {
 });
 
 /**
- * Pins the boundary between the scan roots and the dated-record trees. The tests scan the four roots in `SCAN_ROOTS`.
+ * Pins the boundary between the scan roots and the dated-record trees. The test scans the four roots in `SCAN_ROOTS`.
  * The two sets are disjoint, so an archive move of a dated record cannot change the scan.
+ * `SCAN_ROOTS` is a local list. The shipped `scanRepoDefaults` scans only `content`.
  */
 describe('scanRepoDefaults / DATED_RECORD_TREES archival-invariance (DR-18, task 030)', () => {
   const SCAN_ROOTS = [

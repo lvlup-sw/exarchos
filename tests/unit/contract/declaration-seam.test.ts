@@ -38,7 +38,7 @@ describe('openDeclarationSeam — the read surface', () => {
   });
 
   /**
-   * Pins the partition to the kind tuple.
+   * This test pins the partition to the kind tuple.
    * A kind in `DECLARATION_KINDS` that the partition switch omits gets no bucket, and `list` returns an empty set with no failure.
    */
   it('openDeclarationSeam_EveryDeclaredKind_HasItsOwnBucket', () => {
@@ -167,7 +167,10 @@ describe('openDeclarationSeam — the read surface', () => {
     expect(seam.list('event')).toHaveLength(1);
   });
 
-  /** A source can be a lazy generator over a new store, so the seam must read it exactly one time. */
+  /**
+   * A source can be a lazy generator over a new store, and a second read of such a source can be empty.
+   * Thus the seam must read the source exactly one time.
+   */
   it('openDeclarationSeam_LazySource_IsDrainedExactlyOnce', () => {
     let reads = 0;
     const lazy: DeclarationSource = {

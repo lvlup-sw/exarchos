@@ -91,9 +91,9 @@ describe('reachability closure — the complete path', () => {
   });
 
   /**
-   * A hop that reads the `compile()` output behind `inputs.actions` resolves to one for each action
-   * and cannot fail. Each hop must name a runtime authority or a shipped-artifact authority.
-   * `kill-fixtures.test.ts` proves that each authority can fail the census.
+   * A hop that reads the `compile()` output behind `inputs.actions` resolves to exactly one entry
+   * for each action and cannot fail. Each hop must name a runtime authority or a shipped-artifact
+   * authority. `kill-fixtures.test.ts` proves that each authority can fail the census.
    */
   it('every hop declares an authority INDEPENDENT of the compile pass that supplies the denominator', () => {
     expect(Object.keys(HOP_AUTHORITIES).sort()).toEqual([...REACHABILITY_HOPS].sort());

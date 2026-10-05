@@ -148,7 +148,7 @@ describe('CLI/MCP argument coercion failure parity (DR-5)', () => {
 });
 
 /**
- * One malformed-argument case for an action of a composite tool. `dispatch/core/dispatch.ts`
+ * The malformed-argument inputs for one action of a composite tool. `dispatch/core/dispatch.ts`
  * validates the arguments of every tool, and the fixtures test that on more than one tool.
  */
 interface ToolFixture {
@@ -169,8 +169,9 @@ interface ToolFixture {
 }
 
 /**
- * `exarchos_sync` has no fixture. Its one action, `now`, takes an empty object, so no argument
- * is malformed. Add a fixture when a sync action gets a required field that is not a boolean.
+ * `exarchos_view` and `exarchos_sync` have no fixture. The one sync action, `now`, declares no
+ * field, so it has no field to omit and no field to give a wrong type. Add a sync fixture when a
+ * sync action gets a required field that is not a boolean.
  */
 const TOOL_FIXTURES: ReadonlyArray<ToolFixture> = [
   {
@@ -253,8 +254,8 @@ describe.each(TOOL_FIXTURES)(
 
     /**
      * The MCP call passes the wrong-typed value and must reject with `INVALID_INPUT`.
-     * The CLI call passes the string form of that value, and the CLI can accept a string.
-     * Thus the test lets the CLI call pass, and a CLI rejection can carry `HANDLER_ERROR`.
+     * The CLI call passes the string form of that value, and a string field can accept it.
+     * So the test accepts a CLI success. A CLI failure must carry `INVALID_INPUT` or `HANDLER_ERROR`.
      */
     it(`MalformedArgs_WrongType_BothFacades_RejectWithSameErrorCode__${fixtureDef.label}`, async () => {
       const mcpResult = await callMcp(fixture.mcpCtx, fixtureDef.tool, {

@@ -70,6 +70,7 @@ function configWith(
 
 /**
  * Returns the ids that the production pipeline resolves and that the dev catalog file declares.
+ * The filter is by source, not by the `INV-` prefix, because a dev entry can have an id without that prefix.
  * `resolveEffectiveCatalog` turns a load error into a warning, so this function asserts that no warning exists.
  * An unexpected warning weakens every assertion that uses the result.
  */
@@ -146,9 +147,10 @@ describe('resolveEffectiveCatalog — real-repo-config characterization (DR-31 /
   });
 
   /**
-   * The acceptance property of the `devCatalog` retirement, asserted in both directions.
-   * One of the two variants always differs from the committed file, with the flag or without it.
-   * The pair must differ, or the equality is a tautology.
+   * The acceptance property of the `devCatalog` retirement: the catalog is the same with the flag and without it.
+   * The committed file can hold the flag or not. In both cases, one of the two variants differs from it.
+   * The two configs must differ, or the equality is a tautology.
+   * Both variants keep the `catalogs:` registration and go to the resolver without a second schema parse.
    */
   it('RealRepoConfig_DevCatalogFlagPresentOrAbsent_ResolvesIdenticalCatalog', () => {
     const block = readRealRepoInvariantsBlock();

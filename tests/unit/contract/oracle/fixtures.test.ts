@@ -195,8 +195,8 @@ describe('DR-24 — the oracle observes real handlers', () => {
 
 describe('DR-24 — live declarations are registry-derived, not fixture literals', () => {
   /**
-   * Each declaration equals the registry entry of its action, and no role or effect list is empty.
-   * At least one action must declare a restrictive role.
+   * The roles and the effects of each declaration equal those of the registry entry of its action.
+   * No role list and no effect list is empty. At least one action must declare a restrictive role.
    * If none does, populated roles prove nothing.
    */
   it('EveryLiveSubjectCarriesTheRealRegistryRolesAndEffects', () => {
@@ -288,9 +288,10 @@ describe('the emission vocabulary is shared by the registry, compiler, verifier 
   });
 
   /**
-   * An envelope subject observes `() => envelope`, not the handler, so no append belongs to it.
-   * Its declaration omits the emission set, and the axis then reports `not-observed`.
-   * At least 50 of these actions declare emissions in the registry, so the omission is not empty.
+   * For an envelope subject, the oracle observes `() => envelope`, not the handler. Thus no append
+   * belongs to the subject. Its declaration omits the emission set, and the axis then reports
+   * `not-observed`. At least 50 of these actions declare emissions in the registry, so the
+   * omission removes real edges.
    */
   it('EnvelopeObservationSubjects_WithholdTheEmissionSet', () => {
     const actions = realRegistryActions();
@@ -370,8 +371,8 @@ describe('DR-24 — real handlers are invoked through the real binding table', (
 
 describe('DR-24 — "we did not look" is a distinct, non-passing outcome', () => {
   /**
-   * The subject is the skipping case without its authorization surface, so the oracle withholds
-   * no principal. The verdict must be `not-observed`, and the report stays `ok`.
+   * The subject is the skipping case without its authorization surface, so the oracle cannot
+   * withhold a principal. The verdict must be `not-observed`, and the report stays `ok`.
    */
   it('AuthorizationAxisIsNotObservedWithoutAProbeableSurface', async () => {
     const { subject } = realRegistryAuthorizationCase('skipping', stateDir, makeRealContext);
@@ -739,7 +740,8 @@ describe('the emission axis reaches a verdict on a live subject', () => {
 
   /**
    * `runEmissionOracleSuite` selects `ALL_AXES`, so each subject has the emission axis selected.
-   * No subject reaches a determinate verdict.
+   * No subject reaches a determinate verdict. The diagnostic must say that the axis observed
+   * nothing, not that no report selected the axis.
    */
   it('RunEmissionOracleSuite_ZeroObserved_FailsDistinctly', async () => {
     const subjects = liveOutputSubjects();

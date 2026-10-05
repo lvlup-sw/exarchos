@@ -507,7 +507,8 @@ describe('detectDeclarationSeamUsage', () => {
 
   /**
    * The synthetic rule names the root-level `registry.ts` as a store, so the detector must resolve a root-file import.
-   * The layering census resolves the same edge. The two censuses stay separate for a different reason.
+   * The last assertion shows that the layering census resolves the same edge.
+   * Thus resolution is not the reason that the two censuses stay separate.
    * A layer allowance is unconditional, and the declaration rule fires only for a module that consumes declarations.
    * That condition keeps the population self-maintaining, and an allowance row cannot express it.
    */
@@ -724,7 +725,10 @@ describe('EXIT PROOF — the live declaration seam (DR-1)', () => {
     expect(scan.storage.filter((s) => !s.resolved)).toEqual([]);
   });
 
-  /** The `subject` of the envelope is a type parameter, so `contract/declaration.ts` needs no store import to type it. */
+  /**
+   * Each contract module must import no declaration store.
+   * The envelope types `subject` with a type parameter, so `contract/declaration.ts` needs no store import to type it.
+   */
   it('scanDeclarationSeam_LiveEnvelopeAndAccessor_ImportNoDeclarationStorage', async () => {
     const scan = await scanDeclarationSeam(SRC_ROOT, lexModule);
 
@@ -853,6 +857,7 @@ describe('DR-26 — SDK generation seam: a direct SDK import fails the rule', ()
    * A scan rooted at `src` cannot see an SDK client under `tests/`.
    * The module count must exceed 80% of an independent `git ls-files` count, so a narrowed root fails.
    * The split uses the seam classification of the scan, so the seam path has one authority.
+   * At this scan root the path of the seam starts with `src/`, so the bare `seamModule` name equals no module path.
    *
    * The second authority is `package.json`. The generations that the scan finds must equal the installed generations.
    * A literal `['v1','v2']` compares the tree with itself and can never disagree.
@@ -917,8 +922,9 @@ describe('DR-26 — SDK generation seam: a direct SDK import fails the rule', ()
 });
 
 /**
- * These cases run the census mechanics against synthetic scans. `SYNTHETIC_RULE` holds no exemptions.
- * Each shipped exemption names a module that a synthetic scan does not hold, so the stale check reports it.
+ * These cases run the census mechanics against synthetic scans.
+ * The positive control uses `SYNTHETIC_RULE`, which holds no exemptions, and not the shipped rule.
+ * No synthetic scan holds the module of a shipped exemption, so the stale check reports each shipped exemption.
  * The last case in this block asserts the shipped roster.
  */
 describe('DR-26 — SDK seam rule: fail-closed teeth', () => {
@@ -1026,7 +1032,7 @@ describe('DR-26 — SDK seam rule: fail-closed teeth', () => {
   /**
    * The roster is pinned, so a new exemption arrives as a reviewed diff.
    * Each entry is a test harness that needs the real transport, which the seam abstracts away.
-   * No production module holds an exemption. An expired entry is debt on every run, so each entry must be live.
+   * No production module holds an exemption. The census reports an expired entry on every run, so each entry must be live.
    */
   it('SdkSeamRule_ShippedExemptions_AreProcessHarnessesOnly_AndFullyGoverned', () => {
     expect(SDK_SEAM_BOUNDARY.exemptions.map((e) => e.module).sort()).toEqual([
@@ -1067,8 +1073,8 @@ describe('Task 040a — neither seam may pass by matching nothing', () => {
   });
 
   /**
-   * The empty-denominator checks fire only at zero, so a denominator of one or two modules still passes them.
-   * The floors on `consumerCount` and `moduleCount` make that shrinkage fail.
+   * The empty-denominator checks fire only at zero, so a denominator of one module still passes them.
+   * This test adds floors: more than one consumer and more than 100 scanned modules.
    */
   it('BothSeams_OnTheLiveTree_HaveNonEmptyDenominators', async () => {
     const declaration = await auditDeclarationSeam(SRC_ROOT, lexModule);

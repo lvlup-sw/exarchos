@@ -1,6 +1,8 @@
 /**
  * Compile-time totality proofs for the error-family contract.
  * A proof fails as a TypeScript compile error, not as a vitest failure.
+ * The proofs hold only in a `tsc` program that includes this file. `tests/tsconfig.json` excludes
+ * `unit/**`, so `npm run typecheck` does not check them.
  * The runtime `it` at the end only lets vitest collect the file.
  */
 import { it, expect } from 'vitest';

@@ -248,7 +248,7 @@ describe('DR-13 kill — the widened detector sees evaded network clients', () =
   /**
    * The plants hold two named clients, a network builtin, an unknown package and a remote-URL import.
    * A curated list cannot name the unknown package, so only the closed-world fallback charges it.
-   * The evidence names a known client by its specifier and an unknown package as `unvetted-dependency`.
+   * The evidence names a known client by its specifier and an unknown package as `unvetted-dependency:<package>`.
    * Thus the named-client rule and the fallback each have an expectation of their own.
    * Only the plants make the tree red: each diagnostic is `INDETERMINATE_OWNER`.
    */
@@ -305,7 +305,7 @@ describe('DR-13 kill — the widened detector sees evaded network clients', () =
   });
 
   /**
-   * No plant holds a direct `fetch(` call. Each one reaches the network through an alias, a global root or a constructor.
+   * No plant calls `fetch` as a bare function. Each one reaches the network through an alias, a global root or a constructor.
    * The evidence names the rule that matched each shape, so the removal of one rule fails a named expectation.
    */
   it('EffectLedger_AliasedFetchGlobal_CensusFailsClosed', async () => {
@@ -373,9 +373,9 @@ describe('DR-13 kill — the widened detector sees evaded network clients', () =
   });
 
   /**
-   * Each snippet has the shape of a shipped module that names a client or a primitive but does no network effect.
+   * Each snippet except the last two has the shape of a shipped module that names a client or a primitive but performs no effect.
    * The token sits in a regex literal, a string, a raw template, a comment or a longer identifier such as `fetchPrData`.
-   * Two more snippets hold inert imports and type-only imports of network builtins.
+   * The last two snippets hold inert imports and type-only imports of network builtins.
    * No snippet yields an occurrence alone, and a planted tree of all of them with a real owner stays green.
    */
   it('EffectLedger_IncidentalTokensFromLiveTreeShapes_YieldNoOccurrence', async () => {
@@ -474,8 +474,9 @@ describe('DR-13 kill — the widened detector sees evaded network clients', () =
   /**
    * A quote inside a regex literal is not a string delimiter.
    * A lexer without regex awareness opens a phantom string there and then reads comment prose as code.
-   * The comment is on the same line as the regex, because a newline ends a phantom `'` or `"` string.
-   * The apostrophe in the comment closes the phantom string, so the documented `from 'axios'` scans as a live import.
+   * In that lexer, the apostrophe in the comment closes the phantom string, and `from 'axios'` scans as a live import.
+   * The comment must stay on the same line as the regex.
+   * A newline ends a phantom `'` or `"` string, so a fixture with the comment on the next line passes with no regex awareness.
    *
    * A regex after `return` must also lex as a regex, and a regex body must be masked.
    * Without that mask, the ledger module matches its own `fetch` detection rules.
@@ -650,7 +651,7 @@ describe('DR-13 live tree — the widened census is green and load-bearing', () 
   });
 
   /**
-   * No bare package that the shipped tree imports can be an unvetted dependency.
+   * A bare package that the shipped tree imports must not be an unvetted dependency.
    * The walk has the scope of the scanner ({@link EXCLUDED_DIRS}, {@link isScannableFile}), so it reads no harness file.
    * The walk must reach each tracked module in that scope, or the finding covers an incomplete tree.
    */
@@ -691,8 +692,8 @@ describe('DR-13 live tree — the widened census is green and load-bearing', () 
 });
 
 /**
- * The census policy, driven by the retired heuristic lexer from `test-helpers/superseded-source-lexer.ts`.
- * Its only use is to measure the gap between that lexer and the parser-based {@link ModuleLexer} port.
+ * This lexer assembles the two retired heuristic walks of `tools/test-helpers/superseded-source-lexer.ts` into a {@link ModuleLexer}.
+ * Its only use is to measure the gap between the retired walks and the parser-based `lexModule`.
  * The tests run both lexers over the same input and assert both answers.
  * The helper does not export an assembled lexer, and a real census must not use this one.
  */
@@ -702,9 +703,9 @@ const SUPERSEDED_LEXER: ModuleLexer = (source: string) => ({
 });
 
 /**
- * The expectations of this census for the shared inputs in `test-helpers/adversarial-lexer-inputs.ts`.
+ * The expectations of this census for the shared inputs in `tools/test-helpers/adversarial-lexer-inputs.ts`.
  * Only the inputs are shared. The two answer columns belong to this site, because each retired walk answers differently.
- * The test asserts `parse` and `heuristic` for each row, so a row that stops its disagreement fails.
+ * The test asserts `parse` and `heuristic` for each row, so the test fails when a row with different answers gets equal answers.
  */
 interface AdversarialExpectation {
   readonly name: string;
@@ -867,8 +868,8 @@ describe('DR-26 kill fixture — where the heuristic and a real parse disagree',
   });
 
   /**
-   * The retired walk exists only as the second half of the measurement in this suite, so no shipped module can import it.
-   * The walk must reach each tracked module in its scope, or an import of the retired walk can sit in the gap.
+   * The retired lexer exists only as the second half of the measurement in this suite, so a shipped module must not import it.
+   * The directory walk of this test must reach each tracked module in its scope, or such an import can sit in the gap.
    */
   it('EffectLedger_NoShippedModuleImportsTheSupersededLexer', async () => {
     const { readdir, readFile } = await import('node:fs/promises');
@@ -959,7 +960,7 @@ describe('DR-26 non-empty denominator — a scan that resolved nothing FAILS', (
   /**
    * The module count has a bound on each side of the tracked count.
    * A count below the tracked count means that the walk lost part of the tree.
-   * A count more than 10% above it means that an exclusion stopped, so the census judges harness code.
+   * A count more than 10% above it means that an exclusion does not apply, so the census judges harness code.
    */
   it('EffectLedger_LiveTree_ResolvesANonEmptyModuleAndSpecifierPopulation', async () => {
     const tracked = await trackedScannableModules();

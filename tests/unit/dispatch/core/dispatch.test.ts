@@ -134,7 +134,7 @@ describe('dispatch', () => {
 
   /**
    * The injected loader throws, like a broken module graph after a partial install. The test
-   * removes the real module from the loader map and the handler cache to force that loader.
+   * replaces the real loader and deletes the cached handler, so dispatch calls the injected one.
    * Dispatch must return a structured failure and must not let the module error escape.
    */
   it('Dispatch_LoadCompositeHandlerThrows_ReturnsCompositeLoadFailed', async () => {
@@ -774,7 +774,7 @@ describe('dispatch', () => {
 
     /**
      * The interceptor skips the `rehydrate` action. A successful rehydrate emits
-     * `workflow.rehydrated`, so a reaction in the same dispatch loops.
+     * `workflow.rehydrated`, so a reaction in the same dispatch causes a loop.
      */
     it('T12_RehydrateActionItself_DoesNotTriggerSessionMachineryConsumed', async () => {
       const featureId = 'feat-t12-rehydrate-shortcircuit';
@@ -1130,7 +1130,8 @@ describe('dispatch', () => {
     /**
      * This test checks only the format of the idempotency key on the stored event:
      * `session.machinery_consumed:<streamId>:<rehydrateSequence>`. It does not run two concurrent
-     * dispatches. The event store uses that key to collapse a race into one event.
+     * dispatches. The event store uses that key to collapse a race into one event, and the
+     * atomic-appender race suite covers that collapse.
      */
     it('T13_IdempotencyKey_SameStreamAndSequence_DoesNotDoubleEmitViaKeyCollapse', async () => {
       const featureId = 'feat-t13-key-format';
@@ -1301,8 +1302,8 @@ describe('dispatch', () => {
   /**
    * The listed view actions are in the registry, so dispatch finds the action and its schema
    * rejects malformed input. `workflowId` is an optional string on each schema, so a number
-   * fails. The error must name the field `workflowId`. An "unknown action" error names only the
-   * action, and it means that the action is not in the registry.
+   * fails. The error must name the field `workflowId`. An "unknown action" error names no field,
+   * and it means that the action is not in the registry.
    */
   describe('T1 — DR-5 dispatch validation for newly registered view actions', () => {
     const NEWLY_REGISTERED_VIEW_ACTIONS = [
@@ -1385,8 +1386,9 @@ describe('dispatch', () => {
    * threshold. Each negative test breaks one condition. `exarchos_workflow.cleanup` declares
    * `dispatch: { taskSuitable: true, taskTtlSuggestionMs: 60_000 }`.
    *
-   * `installClockSequence` makes `Date.now` return a fixed sequence, so no test waits. The two
-   * values are the time at dispatch entry and the time after the handler returns.
+   * `installClockSequence` mocks `Date.now`, so no test waits. The first call returns the first
+   * value, and each later call returns the last value. The first call must be the read at
+   * dispatch entry. A `Date.now` call before that read makes the elapsed time 0.
    */
   describe('retry_with_task hint (Preview-4 §4.4)', () => {
     let dateNowSpy: ReturnType<typeof vi.spyOn> | undefined;
@@ -1625,10 +1627,10 @@ function isOwnScopeFunction(node: ts.Node): boolean {
 
 /**
  * Classifies each return site in `dispatch()`. A missing anchor throws. An anchor that reads as
- * offset 0 makes each comparison true, and then the assertion always passes.
+ * offset 0 makes each comparison a constant, and then the assertion always passes.
  *
  * The callback of `runWithDispatchContext` is the continuation of `dispatch()`, so its returns
- * count. The walk skips each other nested function. The `return` of that call is the scope entry
+ * count. The walk skips all other nested functions. The `return` of that call is the scope entry
  * and is not a site. The outer `try` is a direct statement of the scope body. The handler region
  * ends at the last statement of that `try` block that uses `coreHandler`. The declaration name
  * of `coreHandler` is not a use.

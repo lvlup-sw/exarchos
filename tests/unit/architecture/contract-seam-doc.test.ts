@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const SCHEMA_PATH = path.join(here, '../../../src/architecture/invariant-schema.ts');
-/** The contract-seam note, in the docs corpus that mounts at the repository root. */
+/** The contract-seam note. `npm run docs:mount` puts the docs corpus in `docs/` at the repository root. */
 const DOC_PATH = path.join(
   here,
   '../../../docs/architecture/invariants-v3-contract-seam.md');

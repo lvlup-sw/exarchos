@@ -63,7 +63,7 @@ describe('AdapterDirection_McpImportingCli_IsRejected (INV-2, task 018)', () => 
     expect(offenders).toEqual([]);
   });
 
-  /** Without this test, a broken detector also makes the first test pass. */
+  /** A detector that finds nothing also makes the first test pass. This test proves that the detector finds an edge. */
   it('the detector REJECTS a planted mcp -> cli import', () => {
     const planted = "import { runCli } from '../cli/cli.js';\nrunCli();\n";
     const found = edgesIntoCli(join(ADAPTERS, 'mcp', 'planted.ts'), planted);

@@ -114,9 +114,10 @@ describe('dev-catalog v3 content — CR-1 schema bump', () => {
  * The enforcement modes of the live catalog. For each check-mode entry, a synthetic violation
  * must give a finding and the conforming form must give none. A check that cannot fail is vacuous.
  *
- * The tests assemble each anti-pattern literal from fragments, so the source of this file holds
- * no such literal. The module-path literal trips `tools/audit/gates/check-windows-portability.mjs`.
- * Each literal also trips the grep of its invariant when the review gate reads a diff of this file.
+ * The tests assemble the `reset --hard` literal and the module-path literal from fragments, so
+ * the source of this file holds neither. `tools/audit/gates/check-windows-portability.mjs` scans
+ * the whole repository and flags the module-path literal. The invariant greps read only `src/**`,
+ * so they do not flag this file.
  * `checkTreeOf` asserts that an entry is check-mode and returns its check tree.
  */
 describe('dev-catalog v3 content — CR-2 mode:check enforcement', () => {

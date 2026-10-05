@@ -603,8 +603,8 @@ describe('createMcpServer', () => {
 
   /**
    * Each visible tool advertises annotations that aggregate the annotations of its actions.
-   * `readOnlyHint` and `idempotentHint` are true only when every action is.
-   * `destructiveHint` and `openWorldHint` are true when one action is.
+   * `readOnlyHint` and `idempotentHint` are true only when every action has that flag.
+   * `destructiveHint` and `openWorldHint` are true when one or more actions have that flag.
    * The loop skips a registered tool that `TOOL_REGISTRY` does not hold, such as a custom tool.
    */
   it('MCPServer_ToolsListAnnotations_AggregatesActionAnnotationsPerTool', async () => {
@@ -671,9 +671,10 @@ describe('createMcpServer', () => {
   });
 
   /**
-   * `createMcpServer` must register a handler for the `roots/list_changed` method. Without it, the
-   * roots cache goes stale with no error. The SDK takes the method as a plain string, so the test
-   * compares the first argument of each `setNotificationHandler` call with that string.
+   * When the context holds a capability resolver, `createMcpServer` must register a handler for the
+   * `roots/list_changed` notification. Without it, the roots cache goes stale with no error. The SDK
+   * takes the method as a plain string, so the test compares the first argument of each
+   * `setNotificationHandler` call with that string.
    */
   it('CreateMcpServer_RootsListChangedNotificationHandler_IsRegistered', async () => {
     const { V2_SERVER_CLASS: Server, V2_ROOTS_LIST_CHANGED_NOTIFICATION_METHOD } =

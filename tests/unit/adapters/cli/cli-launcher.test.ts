@@ -6,8 +6,8 @@
 // Thus each test runs the production composition: `cli.ts`, `makeLauncherLifecycleDeps`, the
 // verb, and `runLifecycle`.
 //
-// A real launch must spawn the child, place it, observe it and tear it down. The teardown
-// releases the reservation. A dry-run must spawn nothing.
+// A real launch must create the worktree, place the child in it, spawn the child, observe its exit
+// and tear down. The teardown releases the reservation. A dry-run must spawn nothing.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
@@ -43,7 +43,8 @@ async function git(cwd: string, args: readonly string[]): Promise<string> {
 /**
  * Creates a git repository with one commit and returns its real path.
  * `realpathSync.native` expands Windows 8.3 short names, as the production `defaultRealpath` does.
- * Thus the path equals the one from `deriveWorktreePath` when `os.tmpdir()` is a short path.
+ * Thus the paths that the launcher derives match the test expectations when `os.tmpdir()` is a
+ * short path.
  */
 async function initRepo(dir: string): Promise<string> {
   await mkdir(dir, { recursive: true });
@@ -131,8 +132,9 @@ async function runLauncherCli(
 }
 
 /**
- * `baseOverrides` keeps the launch off the host OS and off real process signals. Its default
- * `recover` does nothing, because one test covers startup recovery separately.
+ * `baseOverrides` supplies a fake spawn and a fake signal registrar, so the launch starts no real
+ * child and touches no real process signal. Its default `recover` does nothing, because one test
+ * covers startup recovery separately.
  */
 describe('exarchos <harness> launcher CLI wiring (DR-1 / DR-6, R-1)', () => {
   let stateDir: string;
@@ -179,8 +181,9 @@ describe('exarchos <harness> launcher CLI wiring (DR-1 / DR-6, R-1)', () => {
   }
 
   /**
-   * The load-bearing test. A real launch exits 0, calls the spawn seam one time with the harness
-   * command, and places the child in the new sibling worktree.
+   * The load-bearing test. A launcher that is not wired returns `NOT_WIRED` and spawns nothing.
+   * A real launch exits 0, calls the spawn seam one time with the harness command, and places the
+   * child in the new sibling worktree.
    * The launch reaches its terminal event, and the teardown releases the worktree reservation.
    * Both sides of the path comparison use `realpathSync.native`, so Windows short names compare equal.
    */

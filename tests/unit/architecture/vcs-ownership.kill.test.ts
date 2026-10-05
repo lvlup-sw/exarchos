@@ -1,9 +1,10 @@
 // Kill tests for the widened VCS-mutation census.
 //
-// Each test plants real `.ts` files into a temp directory tree and runs `auditVcsOwnership(root)` end to end.
+// The plant tests write real `.ts` files into a temp directory tree and run `auditVcsOwnership(root)` end to end.
 // A hand-built site array for `runVcsOwnershipCensus` proves only that the census rejects an unowned site.
 // The detector must see an argv such as `['merge', '--no-ff', x]`.
 // Only a round trip through the file system proves that.
+// Two lexer tests call the detector directly, and the last block audits the live `src` tree.
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
@@ -70,7 +71,10 @@ describe('DR-12 kill — widened census sees merge and branch-create', () => {
     expect(result.ok).toBe(true);
   });
 
-  /** The plant is a direct `git merge --no-ff` in a module that no owner rule claims. It is the only diagnostic. */
+  /**
+   * The plant is a direct `git merge --no-ff` in a module that no owner rule claims.
+   * The census must report that bypass and no other diagnostic.
+   */
   it('VcsOwnership_PlantedMergeOutsideOwner_CensusFailsClosed', async () => {
     const root = await plant({
       [OWNER_MODULE]: OWNER_SOURCE,
@@ -242,7 +246,7 @@ describe('DR-12 kill — widened census sees merge and branch-create', () => {
    * A heuristic that reads the character before a `/` scores the regex after `return` as division and loses sync.
    * The parser reports the regex literal in every operand position.
    * The merge in the comment must not leak, and the real mutation on the next line must still show.
-   * `tools/conformance/src/vcs-ownership.kill-lexer.test.ts` holds an input that a line-bounded cap does not survive.
+   * `tools/conformance/src/vcs-ownership.kill-lexer.test.ts` holds the inputs that the retired character walk reads wrongly.
    */
   it('the retired heuristic blind spot is answered by the grammar, not capped', () => {
     const source = [

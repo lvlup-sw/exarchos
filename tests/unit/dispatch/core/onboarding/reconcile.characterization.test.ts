@@ -1,6 +1,7 @@
 /**
  * Characterization pins for the onboarding reconciler: the field set of `ResolvedCommandsSchema`,
- * and the `DesiredState` that `detectDesiredState` returns for a fixture repo.
+ * and the `DesiredState` that `detectDesiredState` returns for a fixture repo. If a pin fails
+ * after a deliberate contract change, the pin is stale. Any other pin failure is a regression.
  *
  * The suite runs the real detector, resolver and schema over a temp-dir repo. The only stub is
  * `detectRuntimes`, because the real probe reads `$HOME` and makes `runtimes` depend on the host.
@@ -101,11 +102,12 @@ describe('reconcile characterization (T0 baseline)', () => {
     });
 
     /**
-     * The node toolchain seeds `mutation` with no config gate, so this bare fixture carries a
-     * `mutation` command. Node seeds no `lint` command, so detection omits that key.
+     * The node toolchain seeds `mutation` even when the repo has no Stryker config, so this bare
+     * fixture carries a `mutation` command. Node seeds no `lint` command, so detection omits that
+     * key.
      *
-     * Each command must also equal the resolver output for the same directory. That proves the
-     * pinned shape is the resolver shape and not a transcription.
+     * Each command must also equal the resolver output for the same directory. This check proves
+     * that the pinned shape is the resolver shape and not a transcription.
      */
     it('pins the full DesiredState shape for the fixture repo', async () => {
       const desired = await detectDesiredState(dir, { detectRuntimes: async () => [] });

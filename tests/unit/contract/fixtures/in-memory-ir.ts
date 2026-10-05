@@ -14,7 +14,8 @@ import type { DeclarationSource } from '../../../../src/contract/declaration-sea
 
 /**
  * The registration payload that a declaration carries as its `subject`.
- * Both store variants use this shape, so a consumer that narrows the subject compiles against both.
+ * Both store variants use this shape, so a consumer that narrows the subject with its own guard
+ * reads the same payload from both.
  */
 export interface EventRow {
   readonly name: string;
@@ -37,6 +38,7 @@ export interface IrNode {
 /**
  * The contents of the IR. They hold the same keys and authorities as
  * {@link STORE_BEFORE_RELOCATION}, so the seam reads the same data from both stores.
+ * No test compares the data of the two stores, so make each data edit in both.
  */
 export const IR_NODES: readonly IrNode[] = Object.freeze([
   Object.freeze({
@@ -155,7 +157,7 @@ export function openStore(): DeclarationSource {
  *
  * It imports the real `in-memory-ir.js` from disk, so the substitution compiles against the
  * exported signatures of this module. The probes are rooted at a virtual `src/` address and this
- * file is under `tests/`, so this one specifier leaves `PROBE_DIR`.
+ * file is under `tests/`, so this one specifier leaves the `src/` tree.
  */
 export const STORE_AFTER_RELOCATION = `
 import type { DeclarationSource } from '../../declaration-seam.js';

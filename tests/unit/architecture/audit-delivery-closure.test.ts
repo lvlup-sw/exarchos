@@ -89,7 +89,7 @@ function codesOf(findings: readonly { code: ClosureFindingCode }[]): ClosureFind
 }
 
 describe('audit-delivery closure — live proof (DR-4/DR-24, task 069)', () => {
-  /** The counts must be non-zero, because an audit that enumerates nothing also has no findings. */
+  /** The test also asserts non-zero counts, so a clean report cannot come from an audit with no subject. */
   it('AuditDeliveryClosure_LiveObligations_AreClosed', () => {
     const report = auditDeliveryClosure();
 

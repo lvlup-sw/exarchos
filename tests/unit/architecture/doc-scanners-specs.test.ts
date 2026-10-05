@@ -16,11 +16,11 @@ const REPO_ROOT = resolve(__dirname, '../../..');
 /**
  * The feature flow writes one unified spec to the specs tree under `docs`.
  * The doc scanners must include that tree.
- * No live feature surface can tell an agent to write to the designs tree or the plans tree.
+ * A live feature surface must not tell an agent to write to the designs tree or the plans tree.
  */
 describe('doc scanners include docs/specs/ (DR-9, task 019)', () => {
   /**
-   * The vocabulary lint must class the specs tree as a dated record tree, so the lint skips a point-in-time spec.
+   * The vocabulary lint must list the specs tree as a dated record tree, so the lint skips a point-in-time spec.
    * The doc-link verifier must scan a document in a specs directory and report its broken link.
    */
   it('DocScanners_IncludeSpecsDir', () => {

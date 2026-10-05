@@ -112,7 +112,7 @@ describe('validateStreamId — namespaced form (T24)', () => {
     expect(() => validateStreamId('.')).toThrow(/Invalid streamId/);
   });
 
-  /** Both segments of `/` are empty. */
+  /** The id `/` holds two empty segments. */
   it('rejects an empty first segment', () => {
     expect(() => validateStreamId('/')).toThrow(/Invalid streamId/);
   });
@@ -127,8 +127,9 @@ describe('validateStreamId — namespaced form (T24)', () => {
   });
 
   /**
-   * The first six ids hold a space in each segment, punctuation, a backslash,
-   * and `.` or `..` as a middle segment.
+   * The first two ids hold a space, in the left segment and then in the right
+   * segment. The next four hold a `!`, a backslash, a `.` middle segment and a
+   * `..` middle segment.
    */
   it('property: malformed namespaced ids reject', () => {
     const malformed = [

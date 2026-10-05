@@ -1,5 +1,5 @@
 // Progress discipline for long-running CLI actions. Under MCP the host can show progress, but a
-// CLI process that is silent for more than 2 seconds looks broken.
+// CLI process that is silent for about 5 seconds looks broken. The heartbeat interval is 2 seconds.
 //
 // The suite pins two invariants:
 // 1. The registry flags an exact set of orchestrate actions with `longRunning`, the signal that

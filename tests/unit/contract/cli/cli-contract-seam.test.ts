@@ -90,9 +90,9 @@ describe('Dispatch-seam containment census', () => {
   });
 
   /**
-   * The build compiles `evals`, `benchmarks` and `test-helpers` into `dist/`, because `tsconfig.json` does not exclude them.
+   * `tsconfig.json` does not exclude a directory named `evals`, `benchmarks` or `test-helpers`, so the build emits its modules.
    * A scan that skips directories by name hides a direct dispatch path in those modules.
-   * Each case plants a bypass in a temporary tree and asserts whether the scan reports it.
+   * The `scanTree` cases plant a bypass in a temporary tree and assert whether the scan reports it.
    */
   describe('scan boundary derives from the emit, not from folder names', () => {
     const BYPASS = "import { dispatch } from '../core/dispatch.js';\nexport const go = dispatch;\n";
@@ -157,7 +157,7 @@ describe('Dispatch-seam containment census', () => {
 
     /**
      * A change to the build excludes changes the scan boundary.
-     * The live boundary does not hold `evals`, `benchmarks` or `test-helpers`, because the build emits them.
+     * The live boundary does not hold `evals`, `benchmarks` or `test-helpers`, because `tsconfig.json` does not exclude them.
      */
     it('ScanBoundary_ExclusionsComeFromTheTsconfigNotAConstant', () => {
       const derived = parseEmitBoundary(['**/generated/**', '**/*.gen.ts', 'src/vendor/**']);
@@ -171,7 +171,7 @@ describe('Dispatch-seam containment census', () => {
       expect(live.directories.has('__tests__')).toBe(true);
     });
 
-    /** A root with no `tsconfig.json` gets the widest scan: only `node_modules`, `dist` and dot-directories stay out. */
+    /** A root with no `tsconfig.json` gets the widest scan: the only directories that stay out are `node_modules`, `dist` and dot-directories. */
     it('ScanBoundary_NoTsconfig_WidensRatherThanGuesses', async () => {
       const modules = await scanTree({
         'evals/bypass.ts': BYPASS,

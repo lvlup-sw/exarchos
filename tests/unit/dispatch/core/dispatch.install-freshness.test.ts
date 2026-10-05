@@ -28,7 +28,7 @@ const MUTATING_ARGS = { action: 'init', featureId: 'p05-freshness', workflowType
 /** The temp plugin root, in the installed layout. */
 let root: string;
 let cacheDir: string;
-/** Holds the event store only. The lock is not in this directory. */
+/** The temp state directory. It holds the event store only, and the lock is not in it. */
 let stateDir: string;
 /** The temp install-identity directory, which holds the lock. */
 let installDir: string;

@@ -9,6 +9,7 @@
 //   of the `mcp` sub-command, because a real transport takes the stdio streams of the test process.
 //   `adapters/mcp/mcp.ts` also imports the seam, and the real-handler block needs its real
 //   `createV2McpServer`.
+// - `schema-introspection`, `adapters/mcp/mcp.js` and the install-skills bridge are plain stubs.
 //
 // The real-handler block is last in the file, because it resets the module registry.
 
@@ -493,7 +494,7 @@ describe('init command (DR-5 rename stub)', () => {
 });
 
 /**
- * The exit codes are the contract between the CLI adapter and the `ToolResult` shape.
+ * These tests pin how the CLI adapter maps a `ToolResult` to an exit code.
  * Parity tests import `CLI_EXIT_CODES` directly.
  */
 describe('CLI exit-code mapping (DR-3)', () => {
@@ -1009,7 +1010,7 @@ function fixtureDeviation(): ContractDeviation {
   };
 }
 
-/** The fixture row with one field overridden, for the kill arms. */
+/** The fixture row with the fields of `patch` overridden, for the kill arms. */
 function mutateDeviation(patch: Partial<ContractDeviation>): ContractDeviation[] {
   return [{ ...fixtureDeviation(), ...patch }];
 }
@@ -1068,8 +1069,8 @@ describe('DR-25: CLI api-action dispatch path is generated, and the deviation is
 
   /**
    * The ledger holds no row, and the adapter has no dispatch site.
-   * A new row for the adapter covers no live site, so the census reports `STALE_DEVIATION`. Thus
-   * the ledger cannot admit the direct path again unless the import returns.
+   * A new row for the module path `adapters/cli.ts` covers no live site, so the census reports
+   * `STALE_DEVIATION`. Thus the ledger cannot admit the direct path again unless the import returns.
    */
   it('CliDeviation_LedgerIsEmpty_AndTheRetiredRowCannotQuietlyReturn', async () => {
     expect(CLI_CONTRACT_DEVIATIONS).toEqual([]);
@@ -1216,7 +1217,7 @@ describe('DR-25: generated client addresses only compiled contract actions', () 
   /**
    * An unknown id gives a typed error envelope with the stable code `UNKNOWN_ACTION`, and no throw.
    * An escaped exception ends the compiled binary with exit 3. The dispatch core gives the same
-   * code for an action that it cannot route, so the exit code is HANDLER_ERROR.
+   * code for an action that it cannot route, and `exitCodeForError` maps the code to HANDLER_ERROR.
    * The message names the id, because the cause is build drift and not user input. Nothing dispatches.
    */
   it('GeneratedClient_UnknownActionId_FailsLoud_WithoutDispatching', async () => {
@@ -1255,7 +1256,8 @@ describe('DR-25: generated client addresses only compiled contract actions', () 
  * shows only that two renderers agree on a value from the test. This block uses the real graph:
  * - the real `dispatch` over a real `EventStore`, with the registered `exarchos_workflow` handler
  * - the CLI through the real Commander tree and the production generated client
- * - the MCP side through the real `createMcpServer` over a real transport pair
+ * - the MCP side through the real `createMcpServer` over a real transport pair, so the
+ *   output-schema check and `toMcpResult` also run
  * Both calls come from one compiled-contract descriptor.
  *
  * `vi.mock` is file-wide, so the block gets the real graph with `doUnmock`, `resetModules` and
@@ -1264,12 +1266,12 @@ describe('DR-25: generated client addresses only compiled contract actions', () 
 describe('DR-25: generated CLI client agrees with MCP through a real handler', () => {
   /**
    * One compiled action, `exarchos_workflow.get`, drives both seams, so the two calls cannot
-   * address different actions. The required flags are pinned, so a new required input fails here.
+   * address different actions. The test pins the required flags, so a new required input fails here.
    *
    * Twin 1 is the success path. Twin 2 is the failure path, where two adapters drift most.
    * Each comparison drops only `_perf`, a wall-clock value, on top of the `normalize` defaults.
-   * Anti-vacuity: the data is real workflow state, and the mocked `dispatch` returns
-   * `{ mocked: true }`. The call count of the mock also does not change.
+   * Anti-vacuity: the data is real workflow state, which the mocked `dispatch` cannot return,
+   * because it returns `{ mocked: true }`. The call count of the mock also does not change.
    *
    * The CLI exit code must equal `exitCodeForError`, the contract authority. The last probe calls
    * the generated client directly: a compiled id reaches the handler, and an unknown id gives

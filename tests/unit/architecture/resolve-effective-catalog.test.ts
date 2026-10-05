@@ -8,7 +8,7 @@ import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 /**
  * The dev catalog of the fixture: an ordinary `catalogs:` registration with `tier: 'dev'`.
- * Each test puts it last in its `catalogs:` list.
+ * Each test that uses it puts it last in its `catalogs:` list.
  */
 const DEV_REGISTRATION = {
   path: '.exarchos/invariants.md',
@@ -245,6 +245,7 @@ describe('resolveEffectiveCatalog', () => {
 
   /**
    * A malformed entry makes `loadInvariants` throw on the dev catalog. The resolution must not throw.
+   * The `prepare` handler calls the resolver with no `try`, so a throw there fails the command.
    * The dev layer degrades to empty with a warning, and the user layer still resolves.
    */
   it('ResolveEffectiveCatalog_MalformedDevCatalog_DegradesWithWarning', () => {
@@ -409,9 +410,11 @@ describe('resolveEffectiveCatalog', () => {
    * Resolves the real repo catalog through an explicit dev registration, with the default `repoRoot`.
    * The expected ids are a hand-written list, because a snapshot cannot disagree with the code that produced it.
    * Each id must appear one time, so a duplicate registration or a double load fails.
-   * The same file registered as `tier: 'user'` loses every reserved id, with a warning.
+   * The same file registered as `tier: 'user'` loses every `INV-*` id, with a warning.
    * That shows that the dev tier, not the path, grants the reserved namespace.
-   * The `devCatalog` key alone resolves no dev entry.
+   *
+   * The resolver does not read the `devCatalog` key, so a config with only that key resolves no dev entry.
+   * The config schema converts the key into a registration, and the last assertion does not use the schema.
    */
   it('RepoConfig_ExplicitDevRegistration_ResolvesRealCatalog', () => {
     const devLayer = (config: ExarchosConfig): { ids: string[] } => {

@@ -39,8 +39,9 @@ describe('projectCatalog', () => {
   });
 
   /**
-   * A `discovery` projection excludes a substrate invariant that has no explicit workflow affinity.
-   * As a result, the review gate does not fire on code dimensions. An authoring invariant stays.
+   * A `discovery` projection excludes each substrate invariant, so the review gate does not fire on code dimensions.
+   * The substrate fixture has no workflow affinity, so only the axis check can exclude it.
+   * An authoring invariant stays.
    */
   it('ProjectCatalog_DiscoverySubstrateInvariant_Excluded', () => {
     const codeAxis = entry('INV-code', {

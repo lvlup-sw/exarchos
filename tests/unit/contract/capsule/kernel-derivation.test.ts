@@ -2,8 +2,8 @@
 //
 // A copy drifts. A derivation does nothing, in silence, on a shape that it does
 // not handle. Thus these tests assert totality and equivalence modulo closure.
-// Each test reads the installed package and not a recorded constant, so no
-// test compares our work to our work.
+// Those assertions read the installed package and not a recorded constant, so
+// they do not compare our work to our work.
 //
 // @oracle-sources: @lvlup-sw/strategos-contracts read from node_modules, whose emitted JSON Schema is one side of every equivalence assertion here and is produced by a package this repository does not author, ../../../../src/contract/capsule/exarchos-capsule.ts, read as TEXT for the transform-application denominator rather than imported, so a call site added there reaches this file whether or not anyone remembers it
 
@@ -88,7 +88,7 @@ describe('deriving the capsule authority block from the kernel', () => {
 
   /**
    * One side comes from `node_modules` and the other from our derivation, so the test does not compare a copy with itself.
-   * The transform rebuilds array and optional nodes, and a rebuilt node keeps no `.min()`, `.max()`, `.default()` or `.catch()`.
+   * The transform rebuilds array and optional nodes, and a rebuilt node keeps no check of its source, such as `.min()` or `.max()`.
    * Thus "changes only openness" is a property of each application, and each application needs this proof.
    */
   it.each([

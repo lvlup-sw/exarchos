@@ -4,10 +4,10 @@
 // The module docblock of `sdk-generation-seam.ts` gives the rationale.
 
 /**
- * The corpus sweep checks two independent sources against each other.
+ * `ClassifySdkImport_EveryInstalledMcpDependency_IsClassifiable` checks two independent sources against each other.
  * `sdk-generation-seam.ts` holds the rule: the package names of the v1 and v2 generations.
  * `package.json` holds the generations that npm installs.
- * A dependency that the rule cannot classify fails a test.
+ * A dependency that the rule cannot classify fails that test.
  *
  * @oracle-sources: ../../../src/architecture/sdk-generation-seam.ts, ../../../package.json
  */
@@ -60,7 +60,7 @@ function supersededCollectSdkImports(source: string): string[] {
 /**
  * The scope of the MCP SDK packages. The helpers that follow assemble fixture specifiers from it.
  * `CollectSdkImports_LintOwnFixture_DropsFromTenToZero` pins the superseded count of this file at ten.
- * A new literal SDK specifier in an import statement of a fixture raises that count.
+ * A new literal SDK specifier that the superseded regex matches raises that count, in a fixture or in a comment.
  * An assembled specifier keeps the count at ten, and the source text under test still holds a literal specifier.
  */
 const SCOPE = '@modelcontextprotocol';
@@ -90,6 +90,7 @@ describe('DR-0 — MCP SDK generation seam', () => {
   /**
    * A module that imports both generations is a HIGH finding, so a partly migrated tree fails the build.
    * The lint reads the fixture as text through the specifier parser, so the test does not need an installed package.
+   * Do not compile the fixture: v1 is not installed, so `tsc` fails on resolution and shows nothing about the mix.
    * The message must name both specifiers, so the CI output alone shows the fix.
    */
   it('MixedV1V2Imports_AreRejectedByTheGate', () => {
@@ -166,8 +167,8 @@ import type { Tool } from '@modelcontextprotocol/core';
   });
 
   /**
-   * The sweep covers each `.ts` file under `src`. No module can import both generations.
-   * The floor on `scanned` keeps an empty sweep from a green result.
+   * The sweep lints each `.ts` file under `src`, and each file must give no finding. The lint exempts the seam module.
+   * An empty sweep also reports no offender, so the floor on `scanned` makes it fail.
    */
   it('LintSdkGenerationMixing_RepoSources_AreNotYetMixed', () => {
     const offenders: string[] = [];
@@ -198,7 +199,7 @@ import type { Tool } from '@modelcontextprotocol/core';
   /**
    * The test checks the rule against `package.json`. Neither source reads the other, so they can disagree.
    * A new `@modelcontextprotocol` dependency that the rule ignores leaves a package outside the mixing gate.
-   * The floor on `mcpDeps` keeps the assertions from an empty input.
+   * An empty `mcpDeps` list makes the classification check prove nothing, so the test sets a floor on it.
    * The generation set is exact: the tree holds v2 alone, and a v1 dependency that returns fails the test.
    */
   it('ClassifySdkImport_EveryInstalledMcpDependency_IsClassifiable', () => {
@@ -307,7 +308,7 @@ describe('DR-26 — collectSdkImports resolves imports, not text', () => {
    * BLOCKING ARM: a scan that visited no modules must fail, even when its sites look correct.
    * In a migrated tree a low bypass count is no evidence, so the census checks the population separately.
    * NEGATIVE TWIN: the same scan with a real population passes, so the census does not reject everything.
-   * The last arm is a different check: modules were visited, but the parser resolved no site.
+   * The last arm is a different check: the scan visited modules, but the parser resolved no site.
    */
   it('CollectSdkImports_ZeroModulesResolved_FailsClosed', () => {
     const seamSite: SdkImportSite = {

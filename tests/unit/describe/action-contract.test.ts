@@ -2,8 +2,8 @@
 //
 // `describe` is a projection of the declarations, so these tests make sure that
 // the projection preserves them. The two authorities are the projection and the
-// registry normalizer. Each is read through its own published entry point, so
-// neither result comes from the code path of the other.
+// registry normalizer. The tests read the normalizer through `src/registry.ts`,
+// not through `describe`, so the expected value does not come from the projection.
 
 import { fc } from '@fast-check/vitest';
 import { describe, expect, it } from 'vitest';

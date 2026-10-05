@@ -52,7 +52,7 @@ describe('InvariantEntryV3Schema', () => {
     ).toBe(false);
   });
 
-  /** The rich entry does not declare `axiom-overlap`, and it must still parse. */
+  /** The schema has no `axiom-overlap` field, so a rich entry must parse without it. */
   it('InvariantSchemaV3_AcceptsAllV3Fields_ParsesRichEntry', () => {
     const rich = {
       id: 'INV-4',

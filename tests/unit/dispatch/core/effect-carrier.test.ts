@@ -209,8 +209,8 @@ describe('EffectPlan emissions', () => {
 
 describe('runEffect — declared emissions', () => {
   /**
-   * The withheld plan still reports the emissions that a live run records. The live run of the
-   * same plan is the control: it reaches the thunk and the recorder, so the port is not inert.
+   * The withheld plan still reports each emission that it declares. The live run of the same
+   * plan is the control: it reaches the thunk and the recorder, so the port is not inert.
    */
   it('EffectPlan_DryRunArm_ReachesNeitherThunkNorRecorder', async () => {
     const execute = vi.fn().mockResolvedValue('SHOULD NOT RUN');

@@ -5,8 +5,8 @@
 // `cli-format`. This file drives the real `buildCli(ctx)` against a real `EventStore`, so the
 // verb runs the real handler and the real `toEnvelope` formatter.
 //
-// The exit code is HANDLER_ERROR (2) when `summary.failed > 0`, and SUCCESS (0) otherwise.
-// Warnings do not change the exit code.
+// After a successful dispatch, the exit code is HANDLER_ERROR (2) when `summary.failed > 0`, and
+// SUCCESS (0) otherwise. Warnings do not change the exit code.
 //
 // `doctor` is a top-level verb, so the file has its own harness around `parseAsync`.
 

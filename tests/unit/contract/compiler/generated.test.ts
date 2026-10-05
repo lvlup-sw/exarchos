@@ -11,7 +11,7 @@ import {
 
 /**
  * The checked-in proof-fixture baseline is the drift artifact that the downstream oracle verifies against.
- * If the live registry, policy or schema surface changes, these tests fail.
+ * If the live registry, policy or schema surface changes, the two baseline tests fail.
  * To regenerate the baseline, run `npx tsx src/contract/compiler/generate.ts`.
  */
 describe('generated proof-fixture baseline — drift guard', () => {

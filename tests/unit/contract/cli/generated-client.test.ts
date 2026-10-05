@@ -1,15 +1,16 @@
 // Guards for the runtime addressing of the generated client in a packaged binary.
 //
 // In the compiled single-file binary, module-relative paths resolve into a
-// virtual root, and each filesystem read throws ENOENT. `compileForCli()` runs
-// a freeze gate that reads the source tree, so it cannot run on the dispatch
-// path. The dispatch path resolves addressing from the static generated module
-// `generated/cli-action-ids.ts`. It runs no compile, because each CLI
-// invocation is a new process and pays the compile cost.
+// virtual root, and a read of the source tree throws ENOENT. `compileForCli()`
+// runs a freeze gate that reads the source tree, so it cannot run on the
+// dispatch path. The dispatch path resolves addressing from the static
+// generated module `generated/cli-action-ids.ts`. It runs no compile, because
+// each CLI invocation is a new process and a compile costs time in each one.
 //
-// The tests pin four properties. The dispatch path reads no filesystem. The
-// dispatch path runs no compile. The generation-time compile still reads the
-// tree. Each ActionId that the registry serves is addressable at runtime.
+// The tests pin four properties. The dispatch path reads no file. The runtime
+// id set equals the static generated module. The generation-time compile still
+// reads the tree. Each ActionId that the registry serves is addressable at
+// runtime.
 //
 // @oracle-sources: ../../../../src/contract/cli/generated/cli-action-ids.ts, ../../../../src/registry.ts, shipped-src-corpus
 
@@ -60,10 +61,10 @@ afterEach(() => {
 
 describe('Runtime addressing (packaged-binary environment)', () => {
   /**
-   * `invokeContractAction` is the path of every CLI command, and `contractActionIds` is its verify step.
+   * `invokeContractAction` is the path of every CLI action command, and `contractActionIds` is its verify step.
    * The unknown id returns a typed `UNKNOWN_ACTION` envelope before any dispatch.
    * The known id reaches `dispatch` and fails on a missing required input, which needs nothing on disk.
-   * The attempt log must be empty: "no throw" does not tell "no read" from a hidden failed read.
+   * The attempt log must be empty, because a `try/catch` can hide a failed read from a no-throw assertion.
    */
   it('DispatchPathAddressing_InAPackagedBinary_ReadsNoFilesystem', async () => {
     const fsMock = mockPackagedFilesystem();
@@ -124,6 +125,7 @@ describe('Runtime addressing (packaged-binary environment)', () => {
 
   /**
    * Each CLI invocation is a new process, so a compile on the dispatch path costs time on every invocation.
+   * On win32, process spawn plus a compile exceeded the time budget of the packaged-binary proof.
    * The runtime set must equal the static generated module.
    */
   it('DispatchPathAddressing_UsesTheGeneratedModule_NeverACompile', async () => {

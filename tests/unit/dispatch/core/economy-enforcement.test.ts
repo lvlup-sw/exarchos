@@ -430,7 +430,7 @@ describe('response-economy enforcement (DR-1, Task 003)', () => {
     }
   });
 
-  /** A failure carries no `data` to cap, also for the name of a real action. */
+  /** A failure carries no `data` to cap, even when the call names a real action. */
   it('enforceResponseEconomy_FailureEnvelope_ReturnedUntouched', () => {
     const failure: ToolResult = {
       success: false,

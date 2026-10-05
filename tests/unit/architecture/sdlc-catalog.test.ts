@@ -1,5 +1,5 @@
 // Tests for the SDLC consumer catalog that the plugin ships. The catalog is on by default.
-// The catalog is authored inline, and `parseInvariantEntries` validates it, the same path as the dev loader.
+// The source declares the catalog inline, and `parseInvariantEntries` validates it, as it validates the dev catalog.
 
 import { describe, it, expect } from 'vitest';
 import { loadSdlcCatalog } from '../../../src/architecture/sdlc-catalog.js';

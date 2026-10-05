@@ -1,6 +1,8 @@
 /**
- * Tests for `diff`, which turns doctor check results into an executable `ReconcilePlan`: one
- * `PlanStep` for each remediable check, and none when every check passes.
+ * Tests for `diff`, which turns doctor check results into an executable `ReconcilePlan`. Each
+ * remediable check gives one `PlanStep`, and a passing check gives none. `diff` also adds a
+ * `config` step for each resolved `mutation` or `lint` command that `.exarchos.yml` does not
+ * declare.
  *
  * `diff` is pure. It takes the `CheckResult[]` that the doctor roster produces, so each test builds
  * the results by hand and runs no probe.
@@ -32,7 +34,10 @@ function pass(category: CheckResult['category'], name: string): CheckResult {
   return { category, name, status: 'Pass', message: `${name} ok`, durationMs: 1 };
 }
 
-/** A `Fail` or `Warning` check with a `fix`. It gives one plan step. */
+/**
+ * A `Fail` or `Warning` check with a `fix`. It gives one plan step, unless its name is in
+ * `NON_REMEDIABLE_CHECKS`.
+ */
 function remediable(
   category: CheckResult['category'],
   name: string,
@@ -242,7 +247,8 @@ describe('diff', () => {
 
   /**
    * The on-ramp block-write step must come before the retired-hooks removal step. With the gate in
-   * `apply`, a failed block write then keeps the hooks, so a consumer always has one of the two.
+   * `apply`, a failed block write then keeps the hooks, so a consumer always has at least one of
+   * the two.
    */
   describe('DR-7 block-write-before-hook-removal ordering', () => {
     /** The input gives the removal check first, and the plan still puts the block write first. */

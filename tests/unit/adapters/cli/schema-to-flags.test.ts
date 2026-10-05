@@ -328,8 +328,8 @@ describe('validateRequiredBooleans', () => {
   });
 
   /**
-   * When neither `--merge-verified` nor `--no-merge-verified` is given, Commander leaves the
-   * value `undefined`. `validateRequiredBooleans` reports that value as missing.
+   * When the command line holds neither `--merge-verified` nor `--no-merge-verified`, Commander
+   * leaves the value `undefined`. `validateRequiredBooleans` reports that value as missing.
    */
   it('ValidateRequiredBooleans_OmittedFromCLI_DetectedAsMissing', () => {
     const schema = z.object({
@@ -449,10 +449,10 @@ describe('formatZodError snapshot pinning (F-024 #7)', () => {
 });
 
 /**
- * `coerceFlags` parses a string flag as JSON only when the field has the type `'object'`.
+ * `coerceFlags` parses a string flag into an object only when the field has the type `'object'`.
  * In Zod v4, `.refine()` on a `ZodObject` returns a `ZodObject`, so the refined `asOf` keeps that type.
  * Then the CLI string becomes the same object that MCP passes.
- * A `z.union` for `asOf` has the type `'unknown'`, gets no JSON parse, and breaks that parity.
+ * A `z.union` for `asOf` has the type `'unknown'`, stays a string, and breaks that parity.
  */
 describe('asOf flag classification (T8, #1555)', () => {
   /** The `asOf` field of the `get` schema is an optional refined object. The test reads its type through `extractSchemaFields`. */

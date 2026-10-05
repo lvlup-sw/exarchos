@@ -2,6 +2,7 @@
  * Guard for the `references:` paths of the live invariant catalog (`.exarchos/invariants.md`).
  * Each path must resolve on the real filesystem, not in a fixture.
  * The guard skips a pure `#anchor` entry and checks the path part of a `path#anchor` entry.
+ * `dev-catalog-content.test.ts` reads the frontmatter content only, so a path that does not exist passes there.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -63,7 +64,7 @@ describe('dev-catalog reference paths — #1478 existence guard', () => {
   /**
    * A reference to a TypeScript module must name a module that declares something.
    * After a decomposition, the old path can stay as a re-export barrel that resolves but states nothing.
-   * The count assertion stops a catalog with too few TypeScript references from passing with nothing to check.
+   * The count assertion requires more than five TypeScript references, so the barrel check cannot pass with nothing to check.
    */
   it('InvariantCatalog_AfterHotspotDecomposition_StillResolves', () => {
     const entries = loadInvariants(INVARIANTS_DOC, { scope: 'all' }, ENABLED_CONFIG);

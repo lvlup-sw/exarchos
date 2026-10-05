@@ -23,7 +23,7 @@ function reverseKeys(value: unknown): unknown {
 describe('capsule content addresses', () => {
   /**
    * The first assertion proves that the reorder changes the serialized bytes.
-   * Without it, a digest over plain `JSON.stringify` output passes too.
+   * If the reorder changes nothing, a digest over plain `JSON.stringify` output passes too.
    */
   it('CapsuleDigest_KeyOrder_DoesNotReachTheDigest', () => {
     const capsule = baseValidCapsule();

@@ -129,7 +129,7 @@ describe('initializeContext', () => {
 
   /**
    * `EXARCHOS_DISABLE_CACHE_HINTS=1` drops the cache-hint token only. The process
-   * grants stay, so an action that declares its needs is still admitted.
+   * grants stay, so dispatch still admits an action that declares its needs.
    */
   it('InitializeContext_DisableCacheHintsEnv_DropsCacheHintKeepsProcessGrant', async () => {
     const prior = process.env.EXARCHOS_DISABLE_CACHE_HINTS;

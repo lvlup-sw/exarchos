@@ -1,6 +1,7 @@
 /**
- * Tests for `mintDispatchContext`, which mints the three correlation ids of one dispatch:
- * `operationId`, `correlationId` and `causationId`.
+ * Tests for `mintDispatchContext`, which builds the correlation context of one dispatch. The
+ * context holds a new `operationId`, a `correlationId` that comes from upstream or equals the
+ * `operationId`, and an optional upstream `causationId`.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -27,8 +28,8 @@ describe('mintDispatchContext (T18, #1291)', () => {
   });
 
   /**
-   * With no upstream correlation, the operation is the chain root, so each context has a
-   * `correlationId`.
+   * With no upstream correlation, the operation is the chain root and `correlationId` equals
+   * `operationId`. As a result, every context has a `correlationId`.
    */
   it('DispatchContext_NoIncomingCorrelation_SelfBindsToOperationId', () => {
     const ctx = mintDispatchContext();
