@@ -1,41 +1,17 @@
-// ─── Effect-provider connective map (P05-05) ─────────────────────────────────
-//
-// PROGRAM-05, the closure capstone (CTR-013). The reachability graph's
-// `provider/effect owner` hop needs to know WHICH effect owner backs each public
-// action's mutating effect. The two authorities it bridges do not name each
-// other:
-//
-//   • dispatch (`dispatch/core/dispatch.ts::COMPOSITE_HANDLER_LOADERS`) maps a composite
-//     TOOL → the module it dynamically imports (`exarchos_workflow` →
-//     `workflow/composite.ts`); and
-//   • the effect ledger (`architecture/effect-ledger.ts::EFFECT_OWNERSHIP`) maps
-//     a MODULE-PATH PREFIX → a single typed effect owner.
-//
-// This module is the (small, governed) connective tissue between them: for each
-// composite tool it records the module `area` its handler dispatches into (the
-// dispatch loader target) and the single effect `owner` that the ledger declares
-// for that area. It is NOT a rival ownership authority — every entry is
-// VALIDATED against the live `EFFECT_OWNERSHIP` ledger (see
-// {@link validateEffectProviders}), so a renamed/removed/moved owner trips the
-// validation (a two-way ratchet, exactly like the census pattern it mirrors):
-//
-//   • a provider whose `(owner, area, effectClass)` no live ownership rule backs
-//     is a STALE provider (the ledger changed under it); and
-//   • a mutating tool with no provider entry surfaces at closure time as a
-//     `missing owner` break (nothing declared the effect owner for its path).
-//
-// ── The dispatch seam ────────────────────────────────────────────────────────
-// The tool→area correspondence is the one fact dispatch encodes only inside its
-// loader closures (`() => import('../workflow/composite.js')`), which cannot be
-// read as data without importing the module graph. It is transcribed here as a
-// governed constant and pinned by a co-located test that asserts every composite
-// tool in the live registry has exactly one provider.
-//
-// `dispatch-routes.ts` REUSES this `area` field (rather than transcribing the
-// same fact twice) to locate each tool's shipped composite router — the module
-// whose action-level routing table supplies the `route` hop — and asserts the
-// provider tool set and the live dispatch loader tool set are identical.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * The effect-provider map for the reachability graph. The `provider/effect owner` hop needs the
+ * effect owner behind each mutating public action. Dispatch maps a composite tool to the module
+ * that it imports, in `COMPOSITE_HANDLER_LOADERS`. The effect ledger maps a module-path prefix to
+ * one owner, in `EFFECT_OWNERSHIP`. Neither names the other.
+ *
+ * For each composite tool, this map records the handler `area` and the ledger owner of that area.
+ * It is not a second ownership authority. {@link validateEffectProviders} checks each entry against
+ * the live ledger. A mutating tool with no entry shows as a `missing owner` break at closure time.
+ *
+ * Dispatch holds the tool-to-area fact only inside loader closures, so this file copies it as a
+ * constant. A test checks that each composite tool has exactly one provider. `dispatch-routes.ts`
+ * uses the same `area` field to find the composite router of each tool.
+ */
 
 import {
   EFFECT_OWNERSHIP,
@@ -43,35 +19,22 @@ import {
   type EffectOwnershipRule,
 } from '../../architecture/effect-ledger.js';
 
-/**
- * One composite tool's effect provider: the module `area` its dispatch handler
- * runs in, and the single `owner` the effect ledger declares for that area.
- */
+/** The effect provider of one composite tool: the handler module `area` and its ledger `owner`. */
 export interface EffectProvider {
-  /** The composite tool (dispatch key), e.g. `exarchos_workflow`. */
+  /** The composite tool, which is the dispatch key, such as `exarchos_workflow`. */
   readonly tool: string;
-  /**
-   * The forward-slashed module-directory prefix the tool's composite handler
-   * dispatches into — the `COMPOSITE_HANDLER_LOADERS` import target's directory.
-   */
+  /** The module-directory prefix, with forward slashes, of the `COMPOSITE_HANDLER_LOADERS` target. */
   readonly area: string;
   /** The single effect-ledger owner name that backs `area`. */
   readonly owner: string;
-  /** The effect primitive the owner governs (matches the ledger rule). */
+  /** The effect class that the owner governs, as in the ledger rule. */
   readonly effectClass: EffectClass;
 }
 
 /**
- * The governed tool → effect-provider map. One entry per composite tool that can
- * perform a mutating effect. Each entry is backed by exactly one live
- * `EFFECT_OWNERSHIP` rule (asserted by {@link validateEffectProviders}).
- *
- * Sourced from `dispatch/core/dispatch.ts::COMPOSITE_HANDLER_LOADERS`:
- *   exarchos_workflow    → import('../workflow/composite.js')     → workflow/
- *   exarchos_event       → import('../events/composite.js')       → events/
- *   exarchos_orchestrate → import('../verbs/composite.js')        → verbs/
- *   exarchos_view        → import('../projections/views/composite.js') → projections/views/
- *   exarchos_sync        → import('../sync/composite.js')         → sync/
+ * The map from composite tool to effect provider, one entry for each tool that can mutate. Each
+ * `area` is the directory of the tool import target in `COMPOSITE_HANDLER_LOADERS`.
+ * {@link validateEffectProviders} requires exactly one live `EFFECT_OWNERSHIP` rule for each entry.
  */
 export const EFFECT_PROVIDERS: readonly EffectProvider[] = Object.freeze([
   { tool: 'exarchos_event', area: 'events/', owner: 'event-store-fs', effectClass: 'filesystem' },
@@ -81,7 +44,7 @@ export const EFFECT_PROVIDERS: readonly EffectProvider[] = Object.freeze([
   { tool: 'exarchos_workflow', area: 'workflow/', owner: 'workflow-fs', effectClass: 'filesystem' },
 ] as const);
 
-/** A single provider-vs-ledger validation fault. */
+/** One fault from the check of the provider map against the ledger. */
 export interface ProviderValidationDiagnostic {
   readonly code: 'UNBACKED_PROVIDER' | 'DUPLICATE_PROVIDER';
   readonly tool: string;
@@ -89,10 +52,8 @@ export interface ProviderValidationDiagnostic {
 }
 
 /**
- * Is `rule` the ledger backing for `provider`? A rule backs a provider when it
- * governs the same effect class, is owned by the same owner, and its match
- * prefix is exactly the provider's area (the layer-granularity rule for that
- * module subtree).
+ * Whether `rule` backs `provider`. The rule must have the same effect class and owner, and its
+ * match prefix must equal the provider area.
  */
 export function ruleBacksProvider(rule: EffectOwnershipRule, provider: EffectProvider): boolean {
   return (
@@ -103,10 +64,9 @@ export function ruleBacksProvider(rule: EffectOwnershipRule, provider: EffectPro
 }
 
 /**
- * Validate the governed provider map against the live effect ledger. Pure and
- * total: returns a diagnostic per fault, never throws. `ok === true` means every
- * provider is backed by exactly one real ledger rule and no tool is claimed by
- * two providers — the connective map has not drifted from either authority.
+ * Check the provider map against the live effect ledger. It returns one diagnostic for each fault
+ * and does not throw. `ok` is true when each provider has exactly one backing rule and no tool has
+ * two providers.
  */
 export function validateEffectProviders(
   providers: readonly EffectProvider[] = EFFECT_PROVIDERS,
@@ -159,9 +119,8 @@ export class ProviderValidationError extends Error {
 }
 
 /**
- * Validate and return the provider map, or throw {@link ProviderValidationError}
- * on any drift. The collector calls this so a stale provider fails loudly rather
- * than silently dropping an owner and mis-reporting a `missing owner` break.
+ * Return the provider map, or throw {@link ProviderValidationError} on drift. The collector calls
+ * it, so a stale provider fails and does not show as a false `missing owner` break.
  */
 export function assertValidProviders(
   providers: readonly EffectProvider[] = EFFECT_PROVIDERS,

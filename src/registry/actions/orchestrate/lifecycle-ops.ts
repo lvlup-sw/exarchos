@@ -17,24 +17,12 @@ export const lifecycleOpsActions: readonly BuiltinToolAction[] = [
     {
       name: 'prune_stale_workflows',
       description: 'Find stale non-terminal workflows and cancel them. Defaults to dry-run; pass dryRun:false to actually prune. Auto-emits workflow.pruned event per pruned workflow.',
-      // `thresholdMinutes` was removed in the debloat wave (DR-9): per-phase
-      // staleness has lived exclusively in `topology.yaml` `staleness` blocks
-      // since #1334 (v2.10.0-preview.1), so the field was accepted-but-ignored.
-      // Dropping it here also drops the auto-emitted `--threshold-minutes` CLI
-      // flag.
-      //
-      // The rejection lives HERE, on the real dispatch/CLI seam — NOT in the
-      // handler. A plain `z.object` SILENTLY STRIPS unknown keys before any
-      // refinement runs, so a legacy `thresholdMinutes` would be
-      // accepted-then-ignored (`dispatch()` forwards the stripped `parsed.data`
-      // and the handler never sees the key). `.passthrough()` keeps the extra key
-      // VISIBLE to the `.superRefine` below, which emits an ACTIONABLE removal
-      // issue (naming DR-9, #1334, and `topology.yaml`) — the actionable message
-      // WINS because passthrough never emits a competing generic
-      // `unrecognized_keys` for it. Genuinely-unknown keys (caller typos) are
-      // still rejected, preserving the per-action typo guard. `.shape` is retained
-      // (verified), so `buildRegistrationSchema` and the tolerant-dispatch
-      // sibling-key stripping (core/dispatch.ts) are undisturbed.
+      /**
+       * Per-phase staleness comes from the `staleness` blocks of `topology.yaml`. A plain
+       * `z.object` strips unknown keys before a refinement runs. `.passthrough()` keeps them
+       * visible to `.superRefine`, which gives a removed knob an actionable removal message and
+       * still rejects other unknown keys.
+       */
       schema: z
         .object({
           dryRun: z.boolean().optional(),
@@ -75,10 +63,10 @@ export const lifecycleOpsActions: readonly BuiltinToolAction[] = [
           owner: 'orchestrate',
         },
         {
-          // The evaluation's own audit line, written on both dry-run and apply.
-          // Conditional because the malformed-entry handling can suppress the
-          // diagnostics payload entirely, and because the append is
-          // fire-and-forget — a failure never reaches the caller.
+          /**
+           * The audit line of the evaluation, on dry-run and on apply. It is conditional because
+           * malformed-entry handling can suppress it, and a failed append never reaches the caller.
+           */
           event: 'prune.diagnostics',
           condition: 'conditional',
           description: 'Once per evaluation, unless diagnostics are suppressed',
@@ -96,20 +84,16 @@ export const lifecycleOpsActions: readonly BuiltinToolAction[] = [
         featureId: featureIdSchema,
         reason: z.string().optional(),
       }),
-      // Allowed from `plan` as well as `implementing`: the synthesisOptedIn
-      // guard only fires at the `implementing → ?` choice-state boundary, so
-      // emitting the event earlier is idempotent — it sits in the event stream
-      // until finalize_oneshot reads it. Restricting to `implementing` broke
-      // the "I know I'll want a PR" signal during planning.
+      /**
+       * Allowed in `plan` and `implementing`. The `synthesisOptedIn` guard reads the event only at
+       * the choice state after `implementing`, so an earlier request waits in the stream.
+       */
       phases: new Set<string>(['plan', 'implementing']),
       roles: ROLE_LEAD,
-      // T9 (#1440 Op 2, preview-4 design §4.3): the registry-canonical
-      // name for the design's "synthesize" verb — PR creation flow flipped
-      // by emitting `synthesize.requested` to the choice-state guard.
-      // The synthesize phase itself is multi-step (branch staging, PR open,
-      // CI wait) so the verb that gates it benefits from Tasks-augmented
-      // dispatch. Advisory — the binding opt-in gate stays at
-      // `dispatch/core/dispatch.ts:927-954`.
+      /**
+       * An advisory hint. The synthesize phase has many steps, so the verb that gates it suits
+       * Tasks-augmented dispatch. Dispatch keeps the binding opt-in gate.
+       */
       dispatch: { taskSuitable: true, taskTtlSuggestionMs: 60_000 },
       outputSchema: vacuityWaiver('exarchos_orchestrate.request_synthesize'),
       annotations: LOCAL_MUTATION,
@@ -167,7 +151,7 @@ export const lifecycleOpsActions: readonly BuiltinToolAction[] = [
       }),
       phases: ALL_PHASES,
       roles: ROLE_ANY,
-      // DR-1: verbose-by-design detail path — a resolved runbook with step schemas.
+      /** A verbose detail path by design: a resolved runbook with step schemas. */
       economy: { budgetTokens: RUNBOOK_ECONOMY_BUDGET_TOKENS },
       outputSchema: vacuityWaiver('exarchos_orchestrate.runbook'),
       annotations: READ_ONLY_LOCAL,
@@ -215,19 +199,19 @@ export const lifecycleOpsActions: readonly BuiltinToolAction[] = [
       schema: z.object({
         timeoutMs: z.number().int().positive().optional(),
         format: z.enum(['table', 'json']).optional(),
-        // DR-4: repair reconcilable drift through the shared reconciler. The CLI
-        // `--fix` flag auto-emits from this schema via `addFlagsFromSchema`.
+        /**
+         * Repairs reconcilable drift through the shared reconciler. `addFlagsFromSchema` makes the
+         * CLI `--fix` flag from this field.
+         */
         fix: z.boolean().optional(),
       }),
       phases: ALL_PHASES,
       roles: ROLE_ANY,
       outputSchema: vacuityWaiver('exarchos_orchestrate.doctor'),
-      // sentry HIGH on PR #1369: `doctor` emits `diagnostic.executed` on
-      // every invocation (see `autoEmits` above and
-      // `verbs/doctor/index.ts:204`). The advisory annotation must
-      // match the actual write surface — `readOnly: true` would let a
-      // readonly-capability client trigger event-store writes and bypass
-      // the audit boundary.
+      /**
+       * `doctor` appends an event on each call, so the annotation is a local mutation. A read-only
+       * annotation lets a read-only client cause event-store writes.
+       */
       annotations: LOCAL_MUTATION,
     },
     {

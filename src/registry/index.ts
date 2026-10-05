@@ -1,60 +1,19 @@
-// ─── The Exarchos tool registry — the DECLARATION AUTHORITY ──────────────────
-//
-// AUTHORITY DIRECTION (resolved). This module is the single place an Exarchos
-// action is DECLARED. Every other description of the action surface is a
-// PROJECTION of these declarations, never a second declaration:
-//
-//   registry/  ──▶  adapters/mcp.ts        (tools/list: buildRegistrationSchema
-//              │                            + buildToolDescription + annotations)
-//              ├──▶  core/dispatch.ts       (routing + per-action .safeParse)
-//              ├──▶  describe/handler.ts    (the `describe` action clients read)
-//              ├──▶  adapters/cli.ts        (the CLI verb tree)
-//              └──▶  contract/compiler/meta-model.ts
-//                          └──▶ compile() ──▶ descriptors / schemas / proof fixtures
-//
-// The running server consumes the LEFT-hand projections. It does NOT consume a
-// `compile()` descriptor — the compiled contract is an artifact about the
-// server, not the thing the server runs on. Inverting that (so the descriptor
-// IS the runtime surface) is not done; it stays open. Until it lands, do not
-// describe the compiler as "the authority": adding an action here and nowhere
-// else is correct and sufficient; adding one to the meta-model alone ships
-// nothing.
-//
-// WHAT GUARDS THE PROJECTION. Because meta-model.ts derives from these
-// declarations, a guard that compares the two is a tautology and is blind to a
-// wrong meta-model. The drift guard that is NOT blind lives in
-// `contract/compiler/runtime-authority.ts`: it audits the meta-model against
-// the runtime projections listed above — a differential between two independent
-// projections of these declarations. Its limits are stated in that file's
-// header and are real: it catches a wrong PROJECTION (a `derive*Policy` reading
-// the wrong field, an entry bound to the wrong action, a field the strict wire
-// would reject), and it CANNOT catch a wrong DECLARATION here — an action
-// annotated `readOnly: true` whose handler mutates the tree is invisible to it,
-// because every projection reads the same (wrong) declaration.
-//
-// ── How this directory is arranged ──────────────────────────────────────────
-//
-// The declarations were one 4,587-line module. They are now split along the
-// seams that were already implicit in it: the descriptive vocabulary an action
-// carries (`hints`, `gate-metadata`, `annotations`, `types`), the machinery
-// that projects declarations into schemas and descriptions (`schema-builders`,
-// `describe-actions`, `output-schemas`, `phases`), the action lists themselves
-// grouped per composite tool under `actions/`, and the assembled registry
-// (`tools`) with its runtime extension surface (`custom-tools`).
-//
-// The split is a reorganization, not a redefinition: the assembled
-// `TOOL_REGISTRY` names the same tools carrying the same actions. The
-// recorded action snapshot checks that set after sorting. Declaration
-// order is a separate pin: describe and CLI help walk the declaration
-// array, so a family reorder would be silent if only the sorted set
-// were compared.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * The Exarchos tool registry: the one place that declares each action. The MCP adapter, dispatch,
+ * `describe`, the CLI verb tree, and the contract meta-model are projections of these declarations.
+ * The running server uses the runtime projections, not a `compile()` descriptor. Thus a new
+ * action needs only a declaration here.
+ *
+ * `contract/compiler/runtime-authority.ts` compares the meta-model with the runtime projections.
+ * It catches a wrong projection but not a wrong declaration here, because each projection reads
+ * the same declaration.
+ *
+ * The capped-shape constructors and the compile-time proof aliases are re-exported here. Thus the
+ * old import path still works, and `tsc` checks the aliases from this module.
+ */
 
 export { coercedRecord, coercedPositiveInt, coercedNonnegativeInt, coercedStringArray, coercedIntArray } from '../coerce.js';
 
-// The capped-shape constructors live with the brand they mint, and are
-// re-exported here so their long-standing import path keeps working for the
-// economy-enforcement and contract-compiler consumers.
 export { CappedDataSchema, withCappedShape } from '../output-schema-declaration.js';
 
 export type {
@@ -148,8 +107,6 @@ export {
   findActionInRegistry,
 } from './custom-tools.js';
 
-// The compile-time proof aliases are re-exported so `tsc` keeps checking them
-// from the module that owns the declaration surface they constrain.
 export type {
   _OutputSchemaNewActionDeclaringVacuousFailsCompile,
   _OutputSchemaNewActionDeclaringVacuousIsNotRegistered,

@@ -5,8 +5,7 @@ import { LOCAL_MUTATION_IDEMPOTENT } from '../annotations.js';
 import { ALL_PHASES, ROLE_LEAD } from '../phases.js';
 import type { BuiltinToolAction } from '../types.js';
 
-// ─── Composite Tool: exarchos_sync ──────────────────────────────────────────
-
+/** The actions of the `exarchos_sync` composite tool. */
 export const syncActions: readonly BuiltinToolAction[] = [
   withActionContract(
     {

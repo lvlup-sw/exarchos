@@ -1,97 +1,20 @@
-// ─── CLI contract seam: generated CLI client + dispatch-closure census (P03-05) ─
-//
-// PROGRAM-03, API-005. MCP is the standards-compliant WIRE projection of the
-// contract; the CLI is the in-process projection. Both route API-action
-// execution through ONE shared contract-handler seam (`dispatch` from
-// `dispatch/core/dispatch.ts`).
-//
-// ─── DR-25 RESOLUTION: the CLI addresses actions through a generated client ──
-//
-// The GOVERNING framing of INV-2 is stronger than "both call the same handler":
-// the CLI is a GENERATED CLIENT of the contract, equal to the MCP surface BY
-// CONSTRUCTION. DR-25 (T-34) first recorded the gap as a governed, expiring
-// deviation — `adapters/cli.ts` imported the runtime `dispatch` value and
-// hand-assembled `(tool, args)` at six call sites, admitted only by a ledger
-// row. That deviation is now RETIRED via DR-25's PRIMARY resolution:
-//
-//   • `contract/cli/generated-client.ts` is the ONE contract-derived dispatch
-//     site on the CLI side. Every api-action call site in `adapters/cli.ts`
-//     addresses its action by contract ActionId through
-//     `invokeContractAction`, which verifies the id against
-//     `generated/cli-action-ids.ts` before dispatching — the module the golden
-//     emits from `deriveCliSurface(compileForCli())`, pinned byte-identical to a
-//     fresh derivation — so an action the contract does not compile CANNOT be
-//     addressed and the "no direct
-//     CLI-to-dispatch path" exit criterion holds by construction rather than
-//     by ledger cover.
-//   • `adapters/cli.ts` no longer imports the runtime `dispatch` value at all
-//     (the Commander tree remains hand-authored PRESENTATION — groups, command
-//     names, flags — which the classification collector governs).
-//   • The deviation MACHINERY below (`ContractDeviation`,
-//     `CLI_CONTRACT_DEVIATIONS`, `runDeviationLedgerCensus` and its kill arms)
-//     is retained with an EMPTY live ledger: any future direct route to the
-//     dispatch core must either become a contract projection or record a new
-//     governed, owned, expiring row — silence is not an option.
-//
-// The census arms that made the old record self-retiring are unchanged: a new
-// unacknowledged bypass fails as UNACKNOWLEDGED_INV2_DEVIATION, and a ledger
-// row covering nothing fails as STALE_DEVIATION (which is exactly how the
-// retired `cli-direct-dispatch` row was forced out when the generated client
-// landed).
-//
-// This module is the seam between the COMPILED contract (P03-03) and the CLI:
-//
-//   1. GENERATION  — `deriveCliSurface(compiledContract)` projects the compiled
-//      descriptors into a deterministic, byte-stable CLI client surface
-//      (per-action command path, help, flags, render format, and the stable
-//      exit codes each action can produce). The checked-in golden
-//      (`generated/cli-surface.json`) + its drift guard mirror the P03-03
-//      proof-fixture pattern: running the generator IS the regeneration gesture.
-//      Since the DR-25 primary resolution this derivation is GENERATIVE, not
-//      only descriptive: `contract/cli/generated-client.ts` verifies every
-//      CLI-addressed ActionId against it at dispatch time. The derivation
-//      itself lives in `cli-surface.ts` (re-exported here) so that production
-//      edge never touches the census half below.
-//
-//   2. CENSUS      — a THREE-collector, two-way-ratchet structural conformance
-//      gate (same shape as `verbs/gates/gate-ownership-census.ts`,
-//      `architecture/effect-ledger.ts`, `architecture/vcs-ownership.ts`) over
-//      the exit criterion "API actions have no direct CLI-to-dispatch path":
-//        • DISPATCH-SEAM CONTAINMENT (source scan) — the runtime `dispatch`
-//          VALUE is imported only by the authorized projection surface (the MCP
-//          wire, plus any module a recorded deviation covers). Any other module
-//          reaching the dispatch core directly is a bypass; a declared
-//          projection that no longer routes through it is stale cover.
-//        • CLI COMMAND CLASSIFICATION (live Commander walk) — every live CLI
-//          command classifies as an api-action group, a presentation alias, or
-//          a host-local command. Host-local commands legitimately do NOT go
-//          through the contract handler; the census RESPECTS that classification
-//          rather than flagging it. An unclassified live command is a violation;
-//          a declared host-local rule that no longer appears is stale cover.
-//        • DEVIATION LEDGER (DR-25) — every direct dispatch path that is NOT a
-//          contract projection must be covered by a governed, unexpired ledger
-//          row whose acknowledgement the deviating module also exports. An
-//          uncovered path, an ungoverned/expired row, a row covering nothing,
-//          or a ledger↔site disagreement each fail closed.
-//
-// The generation half is PURE apart from reading the in-memory registry (via the
-// compiler); the file-writing generator only runs when invoked directly, so
-// importing this module has no filesystem side effect. The census source scan is
-// comment-aware and string-preserving so a `dispatch` mentioned in prose is not
-// mistaken for a call.
-//
-// Named `*-seam.ts` — the established `source-lint-seam` class (sibling of
-// `architecture/contract-seam.ts`): a test-invoked gate that runs against
-// production SOURCE, never a production import target. The generation half
-// (`deriveCliSurface` / `compileForCli`) moved to `cli-surface.ts` (re-exported
-// here) precisely so `generated-client.ts` can consume it through a LAZY
-// dynamic import without touching this census module — keeping the runtime
-// import graph acyclic and the CLI's static cold-start graph free of the
-// compiler (DR-5).
-//
-// Usage (regenerate the golden, from servers/exarchos-mcp):
-//   npx tsx src/contract/cli/cli-contract-seam.ts
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * The CLI contract seam: the generated CLI client surface and the dispatch-closure census. MCP is
+ * the wire projection of the contract, and the CLI is the in-process projection. Both run API
+ * actions through the shared `dispatch` in `dispatch/core/dispatch.ts`.
+ *
+ * The CLI is a generated client of the contract. `contract/cli/generated-client.ts` is the one
+ * CLI-side dispatch site. It checks each ActionId against `generated/cli-action-ids.ts`, so the CLI
+ * cannot address an action that the contract does not compile. The generation half is in
+ * `cli-surface.ts`, and this module re-exports it for census callers and tests.
+ *
+ * The census has three collectors over the rule that API actions have no direct CLI-to-dispatch
+ * path: dispatch-seam containment, CLI command classification, and the deviation ledger. This
+ * module is a test-invoked gate over production source, not a production import target.
+ *
+ * To regenerate the golden, run `npx tsx src/contract/cli/cli-contract-seam.ts` from the repository
+ * root. The file write occurs only on direct invocation, not on import.
+ */
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -107,18 +30,6 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 /** The shipped `src` root (this module lives at `src/contract/cli/`). */
 export const DEFAULT_SRC_ROOT = path.resolve(HERE, '../..');
-
-// ════════════════════════════════════════════════════════════════════════════
-//  SECTION 1 + 2 — Generated CLI client surface + golden generator
-// ════════════════════════════════════════════════════════════════════════════
-//
-// EXTRACTED to `cli-surface.ts` when the DR-25 primary resolution made the
-// generation half a production import target of `generated-client.ts`: the
-// census half below dynamically imports `adapters/cli.js` (the live Commander
-// walk), so keeping both halves in one module would close a runtime import
-// cycle adapter → generated client → seam → adapter (the `import-cycles` gate
-// counts dynamic imports as runtime edges). Re-exported here so census callers
-// and tests keep one import surface.
 
 export {
   deriveFlags,
@@ -144,10 +55,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-//  SECTION 3 — Structural census (no direct CLI-to-dispatch path)
-// ════════════════════════════════════════════════════════════════════════════
-
 /**
  * The shared MCP contract-handler seam. Both projections (CLI + MCP) route
  * API-action execution through the runtime `dispatch` VALUE exported here.
@@ -155,54 +62,39 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export const DISPATCH_SEAM_MODULE = 'dispatch/core/dispatch.ts';
 
 /**
- * The projections that meet the GOVERNING INV-2 framing with no deviation:
- *
- *   • `adapters/mcp.ts` — the standards-compliant wire rendering of the
- *     contract handler: the reference surface the CLI is equal to, so its
- *     direct route to the shared handler is the projection itself, not a
- *     bypass of one.
- *   • `contract/cli/generated-client.ts` — the CLI's contract-derived dispatch
- *     seam (DR-25 primary resolution): it verifies every ActionId against
- *     `deriveCliSurface(compileForCli())` before dispatching, so an action the
- *     contract does not compile cannot be addressed from the CLI at all.
- *
- * A module here claims FULL compliance. A module that needs the shared handler
- * but does NOT meet the framing belongs in {@link CLI_CONTRACT_DEVIATIONS}
- * instead — it may not be quietly parked here (`runDeviationLedgerCensus`
- * rejects a module claimed by both).
+ * The projections that reach the shared handler with no deviation. `adapters/mcp/mcp.ts` is the
+ * wire rendering of the contract handler, so its route is the projection itself.
+ * `contract/cli/generated-client.ts` checks each ActionId against the generated contract surface
+ * before it dispatches. A module that needs the handler but is not a projection belongs in
+ * {@link CLI_CONTRACT_DEVIATIONS}. `runDeviationLedgerCensus` rejects a module in both lists.
  */
 export const CONTRACT_PROJECTIONS: readonly string[] = Object.freeze([
   'adapters/mcp/mcp.ts',
   'contract/cli/generated-client.ts',
 ]);
 
-// ─── DR-25 (T-34): the governed deviation ledger ────────────────────────────
-
 /** `YYYY-MM-DD`. */
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
- * ONE recorded, accepted deviation from a governing invariant.
- *
- * Field discipline mirrors the repo's `ADVISORY_REGISTRY` (`src/advisory-registry.ts`):
- * an unowned, undated, un-retirable exception is THEATRE — it launders a known
- * violation into permanent silence. Every field below is required and non-empty,
- * and `runDeviationLedgerCensus` enforces that mechanically.
+ * One recorded, accepted deviation from a governing invariant. As in `ADVISORY_REGISTRY`, each field
+ * is required and non-empty, because an exception with no owner or date hides a known violation.
+ * `runDeviationLedgerCensus` enforces this.
  */
 export interface ContractDeviation {
   /** Stable id, unique across the ledger. */
   readonly id: string;
   /** The deviating module, `src`-relative and forward-slashed. */
   readonly module: string;
-  /** The governing invariant deviated from (e.g. `INV-2`). */
+  /** The id of the governing invariant that the module deviates from. */
   readonly invariant: string;
-  /** The deviation shape. Only one exists today; the union documents intent. */
+  /** The deviation shape. There is one shape now. */
   readonly kind: 'direct-dispatch-path';
   /** Accountable owner — must be non-empty. */
   readonly owner: string;
   /** WHY the deviation is accepted rather than fixed now. Non-empty. */
   readonly rationale: string;
-  /** WHAT would close it (the retirement condition). Non-empty. */
+  /** The retirement condition that closes the deviation. Non-empty. */
   readonly retirement: string;
   /** Tracking ref (design rationale id + the spec that accepted it). Non-empty. */
   readonly tracking: string;
@@ -211,20 +103,10 @@ export interface ContractDeviation {
 }
 
 /**
- * The accepted-deviation ledger for the governing INV-2 (DR-25). EMPTY since
- * the DR-25 primary resolution landed: the one recorded row
- * (`cli-direct-dispatch`, covering `adapters/cli.ts`, expiry 2027-02-28)
- * self-retired as STALE_DEVIATION when the adapter stopped importing the
- * runtime `dispatch` value and began addressing actions through
- * `contract/cli/generated-client.ts`.
- *
- * The ledger MACHINERY stays live with all census arms armed: any future
- * direct route to the dispatch core must either be a true contract projection
- * ({@link CONTRACT_PROJECTIONS}) or record a new row here carrying an OWNER, a
- * RATIONALE, a RETIREMENT condition, a TRACKING ref and an EXPIRY — an
- * unacknowledged path fails the census closed. `owner` uses the same
- * vocabulary as `ADVISORY_REGISTRY` (`'exarchos'`), which resolves through
- * `.github/CODEOWNERS` (`servers/exarchos-mcp/ @reedsalus`).
+ * The accepted-deviation ledger. It is empty, and all census arms stay active. A new direct route to
+ * the dispatch core must be a contract projection ({@link CONTRACT_PROJECTIONS}). If it is not, it
+ * must add a row here with an owner, a rationale, a retirement condition, a tracking ref, and an
+ * expiry. Otherwise the census fails. `owner` uses the vocabulary of `ADVISORY_REGISTRY`.
  */
 export const CLI_CONTRACT_DEVIATIONS: readonly ContractDeviation[] = Object.freeze([]);
 
@@ -234,24 +116,18 @@ export const DEVIATING_DISPATCH_MODULES: readonly string[] = Object.freeze(
 );
 
 /**
- * The authorized projection surface — the ONLY modules permitted to import the
- * runtime `dispatch` value. DERIVED (never hand-listed) from the two disjoint
- * sources above, so a module can reach the shared handler in exactly one of two
- * ways: it is a {@link CONTRACT_PROJECTIONS} member (compliant with the
- * governing framing), or it carries a governed row in
- * {@link CLI_CONTRACT_DEVIATIONS} (acknowledged, owned, expiring). Any OTHER
- * importer is a direct-dispatch bypass.
+ * The only modules that can import the runtime `dispatch` value, derived from the two lists above.
+ * Each is a {@link CONTRACT_PROJECTIONS} member or has a row in {@link CLI_CONTRACT_DEVIATIONS}. Any
+ * other importer is a direct-dispatch bypass.
  */
 export const AUTHORIZED_DISPATCH_PROJECTIONS: readonly string[] = Object.freeze(
   [...CONTRACT_PROJECTIONS, ...DEVIATING_DISPATCH_MODULES].sort(byString),
 );
 
 /**
- * Host-local CLI commands that legitimately do NOT route through the contract
- * handler (no MCP-wire equivalent): version/introspection verbs, the MCP
- * server-mode entry, the renamed-verb stubs, and the CLI-only harness launchers
- * (a stdio MCP surface cannot own a child process's lifecycle). The census
- * RESPECTS this classification rather than flagging these.
+ * Host-local CLI commands that do not route through the contract handler and have no MCP
+ * equivalent. They include the introspection verbs, the MCP server entry, and the CLI-only harness
+ * launchers. A stdio MCP surface cannot own the lifecycle of a child process.
  */
 export const HOST_LOCAL_COMMANDS: readonly string[] = Object.freeze([
   'version',
@@ -265,44 +141,34 @@ export const HOST_LOCAL_COMMANDS: readonly string[] = Object.freeze([
 ]);
 
 /**
- * Presentation aliases hard-wired in `adapters/cli.ts` — top-level promotions of
- * an API action (e.g. `exarchos doctor` → `exarchos_orchestrate.doctor`). Unlike
- * registry `cli.topLevel` promotions these are not derivable from the registry,
- * so they are declared here; the stale-rule ratchet keeps the list honest.
+ * Presentation aliases that `adapters/cli/cli.ts` hard-wires, such as `exarchos doctor` for
+ * `exarchos_orchestrate.doctor`. The registry cannot derive them, so they are declared here. A
+ * registry `cli.topLevel` promotion must not go here. The stale-rule ratchet fails on an alias
+ * with no live command.
  */
 export const PRESENTATION_ALIASES: readonly string[] = Object.freeze([
   'doctor',
   'feedback',
   'onboard',
-  // `merge-orchestrate` was here until task 076 (DR-5). It is now a registry
-  // `cli.topLevel` promotion, so it IS derivable and declaring it here would be
-  // a STALE_PRESENTATION_ALIAS — this list is only for promotions the registry
-  // cannot express. The stale-rule ratchet is what forced the removal.
 ]);
 
+/** One census finding. {@link runDeviationLedgerCensus} describes the six deviation-ledger codes. */
 export type CliCensusDiagnostic =
   | { readonly code: 'UNAUTHORIZED_DISPATCH_SITE'; readonly module: string; readonly message: string }
   | { readonly code: 'STALE_DISPATCH_PROJECTION'; readonly module: string; readonly message: string }
   | { readonly code: 'UNCLASSIFIED_CLI_COMMAND'; readonly command: string; readonly message: string }
   | { readonly code: 'STALE_HOST_LOCAL_RULE'; readonly command: string; readonly message: string }
   | { readonly code: 'STALE_PRESENTATION_ALIAS'; readonly command: string; readonly message: string }
-  // ─── DR-25 deviation-ledger arm ───────────────────────────────────────────
-  /** A live direct-dispatch path covered by neither a projection nor a ledger row. */
   | { readonly code: 'UNACKNOWLEDGED_INV2_DEVIATION'; readonly module: string; readonly message: string }
-  /** A ledger row missing a required governance field (owner/rationale/…/expiry). */
   | {
       readonly code: 'UNGOVERNED_DEVIATION';
       readonly deviation: string;
       readonly field: string;
       readonly message: string;
     }
-  /** A ledger row whose expiry has passed — accept again explicitly, or fix it. */
   | { readonly code: 'EXPIRED_DEVIATION'; readonly deviation: string; readonly message: string }
-  /** A ledger row covering no live direct-dispatch path — stale cover. */
   | { readonly code: 'STALE_DEVIATION'; readonly deviation: string; readonly message: string }
-  /** A module claimed as BOTH fully compliant and deviating. */
   | { readonly code: 'CONFLICTING_DEVIATION'; readonly deviation: string; readonly message: string }
-  /** The deviating module's own exported acknowledgement is missing or disagrees. */
   | {
       readonly code: 'DEVIATION_ANNOTATION_MISMATCH';
       readonly deviation: string;
@@ -314,8 +180,6 @@ export interface CliCensusResult {
   readonly diagnostics: readonly CliCensusDiagnostic[];
 }
 
-// ─── Collector 1: dispatch-seam containment (source scan) ────────────────────
-
 /** A shipped module that imports the runtime `dispatch` value. */
 export interface DispatchSite {
   /** Repo-relative to the scan root, forward-slashed. */
@@ -323,36 +187,22 @@ export interface DispatchSite {
 }
 
 /**
- * What the census may skip, and why it may skip it.
- *
- * The list this replaced named six directories as "not shipped source". Three of
- * them — `evals`, `benchmarks`, `test-helpers` — are inside `tsconfig.json`'s
- * `include` and outside its `exclude`, so the build compiles them and emits them
- * to `dist/`. They ARE shipped; the census skipped 51 emitted modules on the
- * strength of their folder names, which is precisely the shape DR-8 forbids
- * (roots exclude by PROPERTY, never by naming subtrees).
- *
- * So the boundary is now read from the build itself: whatever `tsconfig.json`
- * keeps out of the emit is not shipped, and everything else is in the census's
- * subject whatever it is called.
+ * What the census can skip. The boundary comes from the build: a file that `tsconfig.json` keeps out
+ * of the emit is not shipped. The census scans every other file, whatever its folder name.
  */
 export interface EmitBoundary {
-  /** Directory names the build excludes wholesale (e.g. `__tests__`). */
+  /** Directory names that the build excludes as a whole, such as `__tests__`. */
   readonly directories: ReadonlySet<string>;
-  /** Package-relative path prefixes the build excludes (e.g. a fixture tree). */
+  /** Package-relative path prefixes that the build excludes, such as a fixture tree. */
   readonly pathPrefixes: readonly string[];
-  /** File suffixes the build excludes (e.g. `.test.ts`). */
+  /** File suffixes that the build excludes, such as `.test.ts`. */
   readonly suffixes: readonly string[];
 }
 
 /**
- * Exclusions that hold for ANY directory tree, with no build to consult: a
- * dependency tree, a build output, and dot-dirs. `.d.ts` joins them because a
- * declaration emits no runtime code at all.
- *
- * This is the floor, not the answer — it is deliberately the WIDEST scan, so a
- * root with no `tsconfig.json` (a synthetic fixture) is over-scanned rather than
- * under-scanned.
+ * Exclusions that hold for any tree with no build to read: the dependency tree and the build output.
+ * `.d.ts` files also go, because they emit no runtime code. This floor gives the widest scan, so a
+ * root with no `tsconfig.json` gets more scan, not less.
  */
 const UNIVERSAL_EXCLUDED_DIRS: ReadonlySet<string> = new Set(['node_modules', 'dist']);
 const UNIVERSAL_EXCLUDED_SUFFIXES: readonly string[] = Object.freeze(['.d.ts']);
@@ -364,11 +214,10 @@ const UNIVERSAL_EMIT_BOUNDARY: EmitBoundary = Object.freeze({
 });
 
 /**
- * Translate a `tsconfig.json` `exclude` entry into the boundary it describes.
- *
- * Three glob shapes cover every entry this package uses, and an entry that fits
- * none of them is IGNORED rather than guessed at — an unrecognised glob must not
- * silently shrink the census's subject, and over-scanning is the safe direction.
+ * Translate the `tsconfig.json` `exclude` entries into the boundary that they describe. Three glob
+ * shapes cover the entries of this package. The function ignores an entry that fits none, because an
+ * unknown glob must not shrink the scan. The path-prefix arm is last, because a bare-directory glob
+ * such as the `__tests__` entry also contains slashes.
  */
 export function parseEmitBoundary(excludes: readonly string[]): EmitBoundary {
   const directories = new Set(UNIVERSAL_EXCLUDED_DIRS);
@@ -378,8 +227,6 @@ export function parseEmitBoundary(excludes: readonly string[]): EmitBoundary {
     const entry = raw.replaceAll('\\', '/');
     const bareDir = /^(?:\*\*\/)?([^*/]+)(?:\/\*\*)?\/?$/.exec(entry);
     const suffixGlob = /^(?:\*\*\/)?\*(\.[^*/]+)$/.exec(entry);
-    // Order matters: `**/__tests__/**` is a bare-directory glob that happens to
-    // contain slashes, so the path-prefix arm must be the LAST resort.
     if (suffixGlob?.[1] !== undefined) {
       suffixes.add(suffixGlob[1]);
     } else if (bareDir?.[1] !== undefined) {
@@ -396,23 +243,14 @@ export function parseEmitBoundary(excludes: readonly string[]): EmitBoundary {
 }
 
 /**
- * The emit boundary declared by the `tsconfig.json` beside `sourceRoot`, or the
- * universal floor when there is no build to ask (a synthetic root).
- *
- * A tsconfig that EXISTS but cannot be parsed throws: silently widening to the
- * floor there would be the census guessing at its own subject.
+ * The emit boundary of the `tsconfig.json` beside `sourceRoot`, or the universal floor when there is
+ * no such file. The file is JSONC, so `stripComments` removes its comments before the parse. A
+ * tsconfig that exists but does not parse throws, so the census does not guess its own scope.
  */
 export function resolveEmitBoundary(sourceRoot: string): EmitBoundary {
   const configPath = path.join(path.dirname(sourceRoot), 'tsconfig.json');
   if (!fs.existsSync(configPath)) return UNIVERSAL_EMIT_BOUNDARY;
   const raw = fs.readFileSync(configPath, 'utf8');
-  // `tsconfig.json` permits comments; strip them before JSON.parse.
-  // `tsconfig` files are JSONC. The old `^\s*//.*$` regex handled only
-  // whole-line comments, so a trailing `// …` or any `/* … */` reached
-  // `JSON.parse` and surfaced as a bare SyntaxError naming no file — for a
-  // helper whose entire job is deriving the scan boundary FROM this config.
-  // `stripComments` (below, and string-preserving) already knows how to do
-  // this correctly, so it is used rather than a second, weaker stripper.
   let parsed: unknown;
   try {
     parsed = JSON.parse(stripComments(raw));
@@ -443,9 +281,8 @@ function isScannableFile(name: string, boundary: EmitBoundary): boolean {
 }
 
 /**
- * Strip `//` and block comments while PRESERVING string/template-literal content
- * (mirrors `architecture/vcs-ownership.stripComments`), so a `dispatch` named in
- * a JSDoc line is not mistaken for an import.
+ * Strip line and block comments, and keep string and template-literal content. A `dispatch` named in
+ * a comment thus does not count as an import.
  */
 export function stripComments(source: string): string {
   let out = '';
@@ -508,9 +345,10 @@ export function stripComments(source: string): string {
   return out;
 }
 
-// An import statement pulling from a `core/dispatch` specifier. The import clause
-// (named bindings + optional default) is captured so a VALUE import of `dispatch`
-// can be distinguished from a type-only `import type { DispatchContext }`.
+/**
+ * An import statement from a `core/dispatch` specifier. The regex captures the import clause, so a
+ * value import of `dispatch` is different from a type-only `import type { DispatchContext }`.
+ */
 const DISPATCH_IMPORT_RE = /import\s+([^;]*?)\s+from\s+(['"`])([^'"`]*core\/dispatch(?:\.js)?)\2/g;
 
 /**
@@ -526,13 +364,12 @@ export function importsRuntimeDispatchValue(source: string): boolean {
   DISPATCH_IMPORT_RE.lastIndex = 0;
   while ((match = DISPATCH_IMPORT_RE.exec(stripped)) !== null) {
     const clause = (match[1] ?? '').trim();
-    // `import type { ... }` — a whole-clause type import.
     if (/^type[\s{]/.test(clause)) continue;
     const brace = clause.match(/\{([^}]*)\}/);
     if (!brace) continue;
     const tokens = (brace[1] ?? '').split(',').map((s) => s.trim()).filter(Boolean);
     for (const token of tokens) {
-      if (/^type\s/.test(token)) continue; // inline `type X` binding
+      if (/^type\s/.test(token)) continue;
       const localName = (token.split(/\s+as\s+/)[0] ?? '').trim();
       if (localName === 'dispatch') return true;
     }
@@ -540,6 +377,10 @@ export function importsRuntimeDispatchValue(source: string): boolean {
   return false;
 }
 
+/**
+ * The sorted scannable files under `root`. The walk skips the boundary exclusions and the
+ * dot-directories, which hold tooling state.
+ */
 async function collectScannableFiles(
   root: string,
   boundary: EmitBoundary,
@@ -552,7 +393,6 @@ async function collectScannableFiles(
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         if (boundary.directories.has(entry.name)) continue;
-        // Dot-dirs are tooling state, not source, on every tree.
         if (entry.name.startsWith('.')) continue;
         const rel = relative(packageRoot, full).replaceAll('\\', '/');
         if (boundary.pathPrefixes.some((p) => rel === p || rel.startsWith(`${p}/`))) {
@@ -587,10 +427,9 @@ export async function scanDispatchSites(
 }
 
 /**
- * Pure verdict over an already-collected dispatch-site set + the authorized
- * projection surface. Two independent, complementary checks:
- *   - UNAUTHORIZED_DISPATCH_SITE — a site no projection claims (a direct bypass);
- *   - STALE_DISPATCH_PROJECTION  — a projection that claims no site (phantom cover).
+ * The pure verdict over collected dispatch sites and the authorized projections. It reports
+ * `UNAUTHORIZED_DISPATCH_SITE` for a site that no projection claims. It reports
+ * `STALE_DISPATCH_PROJECTION` for a projection that claims no site.
  */
 export function runDispatchSeamCensus(
   sites: readonly DispatchSite[],
@@ -629,17 +468,10 @@ export function runDispatchSeamCensus(
   return diagnostics;
 }
 
-// ─── Collector 3: governed deviation ledger (DR-25) ─────────────────────────
-
 /**
- * The machine-readable acknowledgement a DEVIATING module exports at the
- * deviation site (the retired `adapters/cli.ts` row exported one as
- * `CLI_DIRECT_DISPATCH_DEVIATION`; a future row must do the same).
- *
- * The acknowledgement lives in BOTH places on purpose: a reader of the
- * deviating module sees, at the import that causes the deviation, that it is
- * governed; a reader of the ledger sees the full governance record. The census
- * cross-checks them so neither can rot into decoration.
+ * The machine-readable acknowledgement that a deviating module exports at the deviation site. A
+ * reader of the module sees that the deviation is governed, and the ledger holds the full record.
+ * The census checks that the two agree.
  */
 export interface DeviationAnnotation {
   readonly invariant: string;
@@ -656,13 +488,9 @@ export interface DeviationAnnotationSite {
 }
 
 /**
- * Per-module loaders for the exported acknowledgement. STATIC specifiers (not a
- * computed `import(variable)`) so the bundler/test transform can resolve them —
- * same idiom as `core/dispatch.COMPOSITE_HANDLER_LOADERS`. A ledger row whose
- * module has no loader here fails the census, so the map cannot silently lag
- * behind the ledger. EMPTY while the ledger is empty (the retired
- * `adapters/cli.ts` → `CLI_DIRECT_DISPATCH_DEVIATION` pair was the only
- * entry); a future deviation must add its loader alongside its row.
+ * The per-module loaders for the exported acknowledgement. Each uses a static specifier, so the
+ * bundler and the test transform can resolve it. A ledger row with no loader fails the census. The
+ * map is empty while the ledger is empty. A new deviation must add its loader with its row.
  */
 const DEVIATION_ANNOTATION_LOADERS: Readonly<Record<string, () => Promise<Record<string, unknown>>>> =
   Object.freeze({});
@@ -686,10 +514,8 @@ function asAnnotation(value: unknown): DeviationAnnotation | undefined {
 }
 
 /**
- * Load the acknowledgement each ledger module exports. Uses dynamic imports so
- * this module's STATIC dependency graph stays free of the adapters subtree
- * (keeping the `npx tsx` generator lightweight), matching
- * {@link collectLiveCliCommands}.
+ * Load the acknowledgement that each ledger module exports. Dynamic imports keep the adapters
+ * subtree out of the static dependency graph of this module, as in {@link collectLiveCliCommands}.
  */
 export async function collectDeviationAnnotations(
   ledger: readonly ContractDeviation[] = CLI_CONTRACT_DEVIATIONS,
@@ -717,31 +543,15 @@ function isExpired(expires: string, now: Date): boolean {
 }
 
 /**
- * Pure verdict over the deviation ledger. This is the collector that makes an
- * UNACKNOWLEDGED direct dispatch path impossible to introduce silently under
- * the governing INV-2: any non-projection route must carry a governed,
- * expiring, self-retiring exception. The live ledger is EMPTY today (the DR-25
- * `cli-direct-dispatch` row retired when the CLI's generated client landed);
- * every arm stays armed against the next candidate.
- *
- * Six independent arms — every one of them a way the acknowledgement could rot:
- *   - UNACKNOWLEDGED_INV2_DEVIATION — a live dispatch site claimed by neither a
- *     contract projection nor a ledger row (the bypass this collector exists to
- *     make impossible to introduce silently);
- *   - CONFLICTING_DEVIATION — a module claimed as BOTH compliant and deviating,
- *     so "compliance" cannot be used to launder a known deviation;
- *   - UNGOVERNED_DEVIATION — a row missing an owner / rationale / retirement /
- *     tracking ref, or carrying a malformed expiry;
- *   - EXPIRED_DEVIATION — the window closed; re-accept explicitly or fix it;
- *   - STALE_DEVIATION — a row covering no live dispatch site, i.e. cover for
- *     nothing. This is what retired the DR-25 row once the CLI became
- *     genuinely generated;
- *   - DEVIATION_ANNOTATION_MISMATCH — the deviating module's own exported
- *     acknowledgement is absent or disagrees with the ledger.
- *
- * `annotations` is optional: the annotation arm needs a live module import, so
- * a caller doing a purely structural check (no I/O) may omit it. `auditCliContract`
- * always supplies it.
+ * The pure verdict over the deviation ledger. Each route that is not a projection must carry a
+ * governed, expiring exception. The six codes are:
+ *   - `UNACKNOWLEDGED_INV2_DEVIATION`: a live site with no projection and no ledger row.
+ *   - `CONFLICTING_DEVIATION`: a module that is both a projection and a deviation.
+ *   - `UNGOVERNED_DEVIATION`: a row with an empty field or a malformed expiry.
+ *   - `EXPIRED_DEVIATION`: a row whose expiry has passed.
+ *   - `STALE_DEVIATION`: a row that covers no live site.
+ *   - `DEVIATION_ANNOTATION_MISMATCH`: a module export that is absent or disagrees with its row.
+ * The annotation check needs a module import, so it runs only when `annotations` is given.
  */
 export function runDeviationLedgerCensus(
   sites: readonly DispatchSite[],
@@ -754,7 +564,6 @@ export function runDeviationLedgerCensus(
   const compliantSet = new Set(compliant);
   const covered = new Set(ledger.map((d) => d.module));
 
-  // 1. Every live direct-dispatch site is either compliant or acknowledged.
   for (const site of sites) {
     if (compliantSet.has(site.module) || covered.has(site.module)) continue;
     diagnostics.push({
@@ -774,7 +583,6 @@ export function runDeviationLedgerCensus(
   );
 
   for (const deviation of ledger) {
-    // 2. A module cannot be both compliant and deviating.
     if (compliantSet.has(deviation.module)) {
       diagnostics.push({
         code: 'CONFLICTING_DEVIATION',
@@ -786,7 +594,6 @@ export function runDeviationLedgerCensus(
       });
     }
 
-    // 3. Every governance field is present and well-formed.
     const required: readonly (readonly [string, string])[] = [
       ['id', deviation.id],
       ['module', deviation.module],
@@ -817,7 +624,6 @@ export function runDeviationLedgerCensus(
           `\`YYYY-MM-DD\` date. An exception without a real deadline never expires.`,
       });
     } else if (isExpired(deviation.expires, now)) {
-      // 4. The window closed.
       diagnostics.push({
         code: 'EXPIRED_DEVIATION',
         deviation: deviation.id,
@@ -828,7 +634,6 @@ export function runDeviationLedgerCensus(
       });
     }
 
-    // 5. The row still covers a live dispatch site.
     if (!sites.some((s) => s.module === deviation.module)) {
       diagnostics.push({
         code: 'STALE_DEVIATION',
@@ -840,7 +645,6 @@ export function runDeviationLedgerCensus(
       });
     }
 
-    // 6. The deviating module's own acknowledgement agrees with the ledger.
     if (annotations === undefined) continue;
     const annotation = annotationByModule.get(deviation.module);
     if (annotation === undefined) {
@@ -878,8 +682,6 @@ export function runDeviationLedgerCensus(
   return diagnostics;
 }
 
-// ─── Collector 2: CLI command classification (live Commander walk) ───────────
-
 /** One live top-level CLI command as seen on the real Commander program. */
 export interface LiveCliCommand {
   readonly name: string;
@@ -898,10 +700,9 @@ export interface CliClassification {
 }
 
 /**
- * Derive the CLI command classification from the LIVE registry (plus the two
- * declared hard-wired sets). Tool groups + registry promotions are read from the
- * registry so they can never drift from it; only the hard-wired presentation
- * aliases + host-local set are declared (and ratcheted for staleness).
+ * Derive the CLI command classification. Tool groups and registry promotions come from the live
+ * registry, so they cannot drift from it. Only the presentation aliases and the host-local set are
+ * declared, and the census checks them for stale entries.
  */
 export function deriveCliClassification(
   registry: readonly CompositeTool[] = getFullRegistry(),
@@ -923,17 +724,14 @@ export function deriveCliClassification(
 }
 
 /**
- * Build the real Commander program and enumerate its top-level commands. Uses a
- * dynamic import so this module's STATIC dependency graph stays free of the
- * dispatch/adapters subtree (keeping the direct `npx tsx` generator lightweight
- * and tsx-safe); the census callers `await` it under the test runtime.
+ * Build the real Commander program and list its top-level commands. A dynamic import keeps the
+ * adapters subtree out of the static graph of this module. The walk runs no dispatch, so a
+ * structural stand-in for the context is sufficient.
  */
 export async function collectLiveCliCommands(): Promise<readonly LiveCliCommand[]> {
   const { buildCli } = await import('../../adapters/cli/cli.js');
   const program = buildCli({
     stateDir: '/tmp/exarchos-cli-census',
-    // The census only walks the REGISTERED command tree — no dispatch runs — so a
-    // structural stand-in for the context suffices.
     eventStore: {} as never,
     enableTelemetry: false,
   } as never);
@@ -943,11 +741,9 @@ export async function collectLiveCliCommands(): Promise<readonly LiveCliCommand[
 }
 
 /**
- * Pure verdict over the live command set + a classification. Two-way ratchet:
- *   - UNCLASSIFIED_CLI_COMMAND — a live command that is neither a registry-backed
- *     api-action group / presentation alias nor a declared host-local command;
- *   - STALE_HOST_LOCAL_RULE / STALE_PRESENTATION_ALIAS — a declared rule with no
- *     live command (phantom cover), so the classification can never rot.
+ * The pure verdict over the live commands and a classification. It reports
+ * `UNCLASSIFIED_CLI_COMMAND` for a live command that is not contract-routed or host-local. It reports
+ * `STALE_HOST_LOCAL_RULE` or `STALE_PRESENTATION_ALIAS` for a declared rule with no live command.
  */
 export function runCliClassificationCensus(
   liveCommands: readonly LiveCliCommand[],
@@ -1003,19 +799,16 @@ export function runCliClassificationCensus(
   return diagnostics;
 }
 
-// ─── Composed census over the real system ────────────────────────────────────
-
 export interface CliCensusModel {
   readonly dispatchSites: readonly DispatchSite[];
   readonly projections?: readonly string[];
   readonly liveCommands: readonly LiveCliCommand[];
   readonly classification: CliClassification;
-  /** The DR-25 deviation ledger. Defaults to {@link CLI_CONTRACT_DEVIATIONS}. */
+  /** The deviation ledger. The default is {@link CLI_CONTRACT_DEVIATIONS}. */
   readonly deviations?: readonly ContractDeviation[];
   /**
-   * Acknowledgements exported by the deviating modules. OMIT to skip the
-   * ledger↔site agreement arm (it needs a live module import, which a purely
-   * structural caller cannot do); `auditCliContract` always supplies it.
+   * The acknowledgements that the deviating modules export. Without it, the agreement check between
+   * the ledger and the site does not run, because that check needs a module import.
    */
   readonly annotations?: readonly DeviationAnnotationSite[];
   /** Injectable clock for the expiry arm. Defaults to now. */
@@ -1055,8 +848,7 @@ export async function auditCliContract(sourceRoot: string = DEFAULT_SRC_ROOT): P
   });
 }
 
-// ─── Direct-invocation generator entry (never on import) ─────────────────────
-
+/** True only on direct invocation, so an import of this module writes no file. */
 function invokedDirectly(): boolean {
   const entry = process.argv[1];
   if (!entry) return false;

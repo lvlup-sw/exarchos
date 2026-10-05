@@ -1,23 +1,15 @@
-// ─── One flight per operation key, within this process ──────────────────────
-//
-// A claim-keyed handler reads the operation claim BEFORE it does any work, so
-// a replay is answered from the durable row instead of redoing the effect. Two
-// concurrent calls with the same key would both read an empty claim and both
-// do the work; the loser would then be handed the winner's receipt with its own
-// effect already performed. Serializing per key closes that window inside one
-// process: the second call waits, and its pre-flight finds the first call's
-// claim. A second PROCESS racing the same key is still serialized only at the
-// commit.
-//
-// Shared rather than private to one verb because every claim-keyed verb has the
-// same window, and a second hand-written copy is where it would reopen.
+// Runs one flight per operation key at a time, within this process.
+// A claim-keyed handler reads the operation claim before it does any work.
+// Two concurrent calls with the same key can both read an empty claim and both do the work.
+// Per-key serialization closes that window in one process: the second call waits and then finds the claim.
+// Two processes that race on the same key serialize only at the commit.
+// The module is shared, not part of one verb, because each claim-keyed verb has the same window.
 
 const operationTails = new Map<string, Promise<unknown>>();
 
 /**
- * Run `fn` after every earlier flight for `operationKey` in this process has
- * settled. Mirrors the appender's per-stream promise-chain mutex. Not
- * re-entrant: a flight that awaited itself for the same key would deadlock.
+ * Run `fn` after every earlier flight for `operationKey` in this process settles.
+ * It is not re-entrant: a flight that awaits a flight for its own key deadlocks.
  */
 export async function runExclusivePerOperation<T>(
   operationKey: string,

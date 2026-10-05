@@ -1,24 +1,15 @@
 /**
- * The pure, harness-neutral onboarding reconciler (DR-1).
+ * The harness-neutral onboarding reconciler. The `onboard` and `doctor` facades call it.
  *
- * This module is the single home for onboarding *behavior*. It is consumed by
- * the thin `onboard` / `doctor` facades (INV-2) and grows across the epic:
+ * - `detectDesiredState` derives the reconcile target.
+ * - `diff` turns doctor check results into a `ReconcilePlan`.
+ * - `apply` runs a plan and returns a `ReconcileResult`.
+ * - `reconcileWithEvents` wraps `apply` in the `onboard.requested` and `onboard.executed` events,
+ *   with crash recovery.
  *
- *   - `detectDesiredState` (task 005, here) — derive the reconcile target.
- *   - `diff`               (task 006)        — desired + actual → ReconcilePlan.
- *   - `apply`              (task 007)        — execute a plan → ReconcileResult.
- *   - `reconcileWithEvents`(task 009, here)  — wrap `apply` in the DR-7 two-event
- *     split (`onboard.requested` → side effect → `onboard.executed`) with INV-13
- *     crash recovery, over an INJECTED event seam (INV-2 harness-neutrality).
- *
- * Hard constraints (enforced by tests + INV audits):
- *   - INV-2: NO imports from `adapters/*` — behavior lives here, not in the
- *     presentation facades.
- *   - INV-6: command derivation flows EXCLUSIVELY through the Bundle B layered
- *     resolver (`resolveVerificationRuntime` — the widened verification-ladder
- *     resolver covering test/typecheck/install PLUS mutation/lint). There is no
- *     `applyLanguageCustomizations` / npm string-rewrite in this path; an
- *     unresolved command field is OMITTED, never fabricated.
+ * This module imports nothing from `adapters/*`. It touches the event store only through an
+ * injected seam. Desired commands come only from `resolveVerificationRuntime`, and an unresolved
+ * command field is omitted, never fabricated.
  */
 
 import { existsSync } from 'node:fs';
@@ -57,30 +48,18 @@ import type {
   Surface,
 } from './types.js';
 
-// ─── Options ─────────────────────────────────────────────────────────────────
-
 /**
- * Caller-supplied overrides for {@link detectDesiredState}. All fields are
- * optional; when omitted, detection runs from the filesystem.
- *
- * - `runtimes` / `vcs` mirror the DR-2 `--runtime <id>…` / `--vcs <id>` flags:
- *   an explicit value short-circuits detection and is surfaced verbatim.
- * - `command` overrides are threaded straight into the layered resolver (its
- *   highest-precedence tier), so command derivation stays single-sourced.
- * - `detectRuntimes` is an injection seam for tests/consumers that want to stub
- *   the (async, fs-touching) agent-host probe without hitting `$HOME`.
+ * Caller overrides for {@link detectDesiredState}. When a field is absent, detection reads the
+ * filesystem.
  */
 export interface DetectOptions {
-  /** Explicit agent-host runtime ids (DR-2 `--runtime`). Bypasses probing. */
+  /** Explicit agent-host runtime ids from the `--runtime` flag. They bypass the probe. */
   readonly runtimes?: readonly string[];
-  /** Explicit VCS id (DR-2 `--vcs`). Bypasses `.git` probing. */
+  /** Explicit VCS id from the `--vcs` flag. It bypasses the `.git` probe. */
   readonly vcs?: string;
   /**
-   * Command overrides threaded into the layered resolver's override tier. Covers
-   * the full verification-ladder field set — `deriveCommands` delegates to
-   * `resolveVerificationRuntime`, which resolves `mutation`/`lint` alongside the
-   * legacy triple, so the typed onboarding API must accept overrides for all of
-   * them (otherwise mutation/lint could only be overridden via a type escape).
+   * Command overrides for the override tier of the layered resolver. The resolver also resolves
+   * `mutation` and `lint`, so this type accepts overrides for them too.
    */
   readonly commandOverride?: {
     readonly test?: string;
@@ -90,22 +69,15 @@ export interface DetectOptions {
     readonly lint?: string;
   };
   /**
-   * Injection seam for the agent-host runtime probe (defaults to the real
-   * filesystem detector). Returns the configured runtime ids for the repo.
+   * Replaces the agent-host runtime probe, which reads the filesystem. It returns the configured
+   * runtime ids for the repo.
    */
   readonly detectRuntimes?: (repoRoot: string) => Promise<readonly string[]>;
 }
 
-// ─── Command derivation (INV-6) ──────────────────────────────────────────────
-
 /**
- * Map the layered resolver's output onto {@link ResolvedCommands}.
- *
- * The resolver returns `string | null` per field; `null` means "unresolved".
- * Per the Task 004 contract, an unresolved field is OMITTED from the result —
- * never coerced to `null` and never fabricated into a default command. This is
- * the concrete INV-6 obligation: every command we surface came from the
- * resolver, nothing was string-rewritten in.
+ * Maps the layered resolver output onto {@link ResolvedCommands}. A `null` field means unresolved,
+ * and the result omits it. The function never writes a default command.
  */
 function deriveCommands(
   repoRoot: string,
@@ -125,20 +97,12 @@ function deriveCommands(
   return commands;
 }
 
-// ─── Declared commands (§4.5-seed divergence) ───────────────────────────────
-
 /**
- * Read the verification commands ALREADY DECLARED in the repo's `.exarchos.yml`
- * (the direct top-level `mutation:`/`lint:` keys). This is the "actual" side of
- * the §4.5-seed desired-vs-declared divergence: `diff` seeds a resolved command
- * only when it is NOT already pinned here.
+ * Reads the `mutation` and `lint` commands that `.exarchos.yml` declares at top level. A command
+ * that the resolver derived from detection does not count as declared.
  *
- * Only the directly-declared keys count as "declared" — a command the resolver
- * derived from detection (tier 5) is resolved-but-undeclared and IS a seed
- * candidate. Reads via the shared `.exarchos.yml` loader; a missing/empty config
- * yields `{}` (everything undeclared). Loader throws (malformed/invalid config)
- * are swallowed to `{}` so a broken config can't crash the reconcile — the
- * doctor checks own surfacing config validity.
+ * A missing config gives `{}`. A loader error also gives `{}`, so a broken config cannot stop the
+ * reconcile. The doctor checks report config validity.
  */
 function declaredVerificationCommands(repoRoot: string): ResolvedCommands {
   let config;
@@ -155,26 +119,17 @@ function declaredVerificationCommands(repoRoot: string): ResolvedCommands {
   return declared;
 }
 
-// ─── VCS detection ───────────────────────────────────────────────────────────
-
 /**
- * Detect the VCS at the repo root. Today only `git` is modelled (matching the
- * rest of the reconciler's git-centric assumptions); everything else collapses
- * to `'none'`. Presence is signalled by a `.git` entry (directory for a normal
- * clone, file for a worktree/submodule gitlink) — both count as "git".
+ * Returns `git` when a `.git` entry exists at the repo root, and `none` otherwise. A `.git` file,
+ * which a worktree or a submodule uses, also counts.
  */
 function detectVcs(repoRoot: string): string {
   return existsSync(path.join(repoRoot, '.git')) ? 'git' : 'none';
 }
 
-// ─── Runtime detection ───────────────────────────────────────────────────────
-
 /**
- * Detect which agent-host runtimes are configured for this repo via the shared
- * {@link detectAgentEnvironments} probe, returning the ids whose project config
- * is present. The probe inspects `$HOME` / cwd for runtime configs; we point it
- * at the repo via its `cwd` seam so detection is repo-scoped and side-effect
- * free with respect to this module.
+ * Returns the agent-host runtime ids whose project config is present. The probe gets the repo root
+ * as its `cwd`, so detection stays scoped to the repo.
  */
 async function detectRuntimesDefault(repoRoot: string): Promise<readonly string[]> {
   const environments = await detectAgentEnvironments({ cwd: () => repoRoot });
@@ -183,15 +138,10 @@ async function detectRuntimesDefault(repoRoot: string): Promise<readonly string[
     .map((env): AgentRuntimeName => env.name);
 }
 
-// ─── detectDesiredState ──────────────────────────────────────────────────────
-
 /**
- * Derive the {@link DesiredState} reconcile target for a repo: detected agent
- * runtimes + VCS, plus resolver-derived commands.
- *
- * Command fields come EXCLUSIVELY from the layered resolver (DR-1 / INV-6).
- * `opts.runtimes` / `opts.vcs` short-circuit their respective detection (DR-2
- * `--runtime` / `--vcs`); `opts.commandOverride` is threaded into the resolver.
+ * Derives the {@link DesiredState} for a repo: the agent runtimes, the VCS, and the
+ * resolver-derived commands. `opts.runtimes` and `opts.vcs` skip their detection.
+ * `opts.commandOverride` goes to the resolver.
  */
 export async function detectDesiredState(
   repoRoot: string,
@@ -208,18 +158,9 @@ export async function detectDesiredState(
   return { runtimes, vcs, commands };
 }
 
-// ─── diff (DR-1 / DR-4) ──────────────────────────────────────────────────────
-
 /**
- * Classification of one doctor check into reconcile-step terms. Keyed off the
- * check's stable `name` (its identity in the doctor output), this is the single
- * source for *how* a remediable check becomes a {@link PlanStep}:
- *   - `kind`    — the category of work (`config` / `generate` / `install` / `hook`).
- *   - `surface` — the capability surface required (DR-6: skills/deps install is
- *     `'cli-only'`; everything else runs on `'any'` harness path).
- *
- * A check absent from this map falls back to {@link classifyByCategory} so new
- * checks degrade to a sensible default instead of being silently dropped.
+ * How a remediable doctor check becomes a {@link PlanStep}: the kind of work and the capability
+ * surface that the step needs.
  */
 interface StepClassification {
   readonly kind: PlanStepKind;
@@ -227,47 +168,34 @@ interface StepClassification {
 }
 
 /**
- * Per-check classification table (DR-4 mapping). The doctor `name` is the stable
- * key; the `key` on each emitted {@link PlanStep} reuses it so consumers
- * (`apply` task 007, `doctor --fix` task 013) can idempotence-match a step back
- * to the check that produced it.
+ * The step classification of each doctor check, keyed by the check `name`. Each {@link PlanStep}
+ * reuses that name as its `key`, so a consumer can match a step to its check. A check that is not
+ * in this map falls back to {@link classifyByCategory}.
  */
 const CHECK_CLASSIFICATION: Readonly<Record<string, StepClassification>> = {
-  // runtime — Node upgrade is an environment install action (cli-only).
   'node-version': { kind: 'install', surface: 'cli-only' },
-  // storage — state dir / sqlite are local config/state reconciliation (any).
   'state-dir': { kind: 'config', surface: 'any' },
   'storage-sqlite-health': { kind: 'config', surface: 'any' },
-  // env — stray EXARCHOS_* vars are a config-drift concern (any).
   variables: { kind: 'config', surface: 'any' },
-  // vcs — installing git is an environment install action (cli-only).
   'git-available': { kind: 'install', surface: 'cli-only' },
-  // agent — regenerating runtime artifacts / MCP registration is `generate`.
   'agent-config-valid': { kind: 'generate', surface: 'any' },
   'agent-mcp-registered': { kind: 'generate', surface: 'any' },
-  // agent (DR-8) — the SessionStart binding is a hook step.
   'session-start-hook': { kind: 'hook', surface: 'any' },
-  // agent (DR-5, Task 013/017) — the on-ramp block write is a `generate` step
-  // (the ClaudeCodeWriter's on-ramp phase writes AGENTS.md + the CLAUDE.md shim).
-  // ORDERED before the retired-hooks removal step below so a failed block write
-  // keeps the hooks (see `orderBlockWriteBeforeHookRemoval` + apply's gate).
+  /**
+   * The on-ramp block write. The writer writes `AGENTS.md` and the `CLAUDE.md` shim. `diff` puts
+   * this step before the retired-hooks removal, so a failed block write keeps the hooks.
+   */
   [BLOCK_DRIFT_CHECK_NAME]: { kind: 'generate', surface: 'any' },
-  // agent (DR-7, Task 017) — removing the launcher-superseded retired lifecycle
-  // hooks is a `hook` step; `apply` routes it to `removeRetiredHooks`.
+  /** The removal of the retired lifecycle hooks, which the session launcher replaces. */
   [RETIRED_HOOKS_CHECK_NAME]: { kind: 'hook', surface: 'any' },
-  // plugin — skills-bundle regen / plugin reinstall are install actions (cli-only).
   'plugin-skill-hash-sync': { kind: 'install', surface: 'cli-only' },
   'plugin-version-match': { kind: 'install', surface: 'cli-only' },
-  // invariants — catalog reconciliation is a `.exarchos.yml` config concern.
   'invariants-catalog': { kind: 'config', surface: 'any' },
 };
 
 /**
- * Fallback classification by doctor {@link CheckResult.category} for checks not
- * in {@link CHECK_CLASSIFICATION}. Keeps an unrecognised remediable check from
- * being dropped: `plugin` ⇒ cli-only install (the skills/plugin surface), every
- * other category ⇒ a generic `config`/`any` step the executor can still reason
- * about.
+ * The fallback classification for a check that is not in {@link CHECK_CLASSIFICATION}. It keeps an
+ * unknown remediable check from being dropped.
  */
 function classifyByCategory(category: CheckResult['category']): StepClassification {
   switch (category) {
@@ -281,15 +209,9 @@ function classifyByCategory(category: CheckResult['category']): StepClassificati
 }
 
 /**
- * Checks whose findings no reconcile step can repair. Their `fix` text is
- * guidance for a person — where to look, what not to touch — not an action
- * `apply` owns: run-bundle custody loss cannot be undone by seeding a config
- * file, and a store-path divergence is a documented precedence between two
- * surfaces, not drift in the repository. Classified by category they would
- * become `config` steps that `apply` reports as applied after writing a
- * `.exarchos.yml` the finding never asked for. Listed here as data so the
- * closure over the roster can see every registered check is placed on
- * purpose.
+ * Checks whose findings no reconcile step can repair. Their `fix` text is guidance for a person,
+ * not an action that `apply` owns. Without this set, the category default makes each one a `config`
+ * step. `apply` then writes a `.exarchos.yml` that the finding did not ask for and reports success.
  */
 export const NON_REMEDIABLE_CHECKS: ReadonlySet<string> = new Set([
   'run-bundle-integrity',
@@ -297,22 +219,17 @@ export const NON_REMEDIABLE_CHECKS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Every check name the reconciler places deliberately — either as a step
- * classification or as a non-remediable finding. A registered check absent
- * from both falls to the category default, which is the placement the roster
- * closure exists to make visible.
+ * Returns every check name that the reconciler places on purpose: the keys of
+ * {@link CHECK_CLASSIFICATION} and the members of {@link NON_REMEDIABLE_CHECKS}. Any other
+ * registered check gets the category default.
  */
 export function deliberatelyClassifiedCheckNames(): ReadonlySet<string> {
   return new Set([...Object.keys(CHECK_CLASSIFICATION), ...NON_REMEDIABLE_CHECKS]);
 }
 
 /**
- * Is this check result a *remediable* finding — i.e. does it warrant a reconcile
- * step? Only `Fail`/`Warning` results that carry a `fix` hint qualify; a `Pass`
- * or a non-remediable `Skipped` (no `fix`) contributes no step. The schema
- * guarantees every `Fail`/`Warning` has a non-empty `fix`, so this also screens
- * out a `Skipped` that happens to carry one. A check on the non-remediable
- * list contributes no step whatever its status: its fix text is not a step.
+ * Returns true when a check needs a reconcile step: a `Fail` or `Warning` result with a `fix` hint.
+ * A check in {@link NON_REMEDIABLE_CHECKS} never needs a step.
  */
 function isRemediable(check: CheckResult): boolean {
   if (NON_REMEDIABLE_CHECKS.has(check.name)) return false;
@@ -320,11 +237,8 @@ function isRemediable(check: CheckResult): boolean {
 }
 
 /**
- * Derive the optional `target` a step acts on. Storage checks act on a known
- * artifact path; everything else leaves `target` unset (the description carries
- * the actionable detail). Kept conservative on purpose — `apply` (task 007) is
- * the owner of concrete path/identifier semantics, so we only set `target` when
- * the doctor check already pins it unambiguously.
+ * Returns the step `target` for the two storage checks, which name a known artifact. Other checks
+ * get no target, and the step description carries the detail.
  */
 function deriveTarget(check: CheckResult): string | undefined {
   switch (check.name) {
@@ -338,9 +252,8 @@ function deriveTarget(check: CheckResult): string | undefined {
 }
 
 /**
- * Turn one remediable doctor check into a {@link PlanStep}. The `key` reuses the
- * check `name` for stable diff/idempotence; the `description` prefers the `fix`
- * hint (the actionable text) and falls back to the `message`.
+ * Turns one remediable check into a {@link PlanStep}. The `key` is the check `name`. The
+ * description is the `fix` hint, or the `message` when the check has no hint.
  */
 function toPlanStep(check: CheckResult): PlanStep {
   const classification = CHECK_CLASSIFICATION[check.name] ?? classifyByCategory(check.category);
@@ -357,21 +270,16 @@ function toPlanStep(check: CheckResult): PlanStep {
 }
 
 /**
- * The widened verification commands `diff` seeds when they are resolved but not
- * yet declared in `.exarchos.yml` (§4.5-seed). `test`/`typecheck`/`install` are
- * NOT in this set: their seeding is already covered by the doctor-check config
- * path + the fresh-create seeder, so adding them here would double-emit. Only
- * the verification-ladder additions (`mutation`, `lint`) flow through the
- * desired-vs-declared command divergence path.
+ * The commands that `diff` seeds when the resolver resolves them and `.exarchos.yml` does not
+ * declare them. `test`, `typecheck` and `install` are not here, because the doctor-check config
+ * step and the fresh-create seeder already seed them.
  */
 const SEEDABLE_VERIFICATION_FIELDS = ['mutation', 'lint'] as const;
 type SeedableVerificationField = (typeof SEEDABLE_VERIFICATION_FIELDS)[number];
 
 /**
- * The stable PlanStep key PREFIX for verification-command seed steps. Distinct
- * from the doctor-check keys so the two config-step families never collide and
- * `apply` / `doctor --fix` can idempotence-match per field. Shared by the key
- * builder and {@link isVerificationCommandStep} so the two never drift.
+ * The `PlanStep` key prefix for verification-command seed steps. It keeps these keys apart from
+ * the doctor-check keys. The key builder and {@link isVerificationCommandStep} share it.
  */
 const VERIFICATION_COMMAND_KEY_PREFIX = 'verification-command-';
 
@@ -381,30 +289,22 @@ function verificationCommandKey(field: SeedableVerificationField): string {
 }
 
 /**
- * Is `step` a verification-command seed step (vs the whole-config seed step)?
- * These steps are emitted ONLY for a resolved-but-UNDECLARED field, so a
- * pre-existing `.exarchos.yml` provably does NOT already contain the command —
- * which {@link applyConfigStep} uses to report an un-seedable field as residual
- * rather than mis-classifying it as a preserved hand-edit.
+ * Returns true for a verification-command seed step. `diff` emits one only for an undeclared
+ * field, so an existing `.exarchos.yml` does not contain that command. {@link applyConfigStep}
+ * uses this to report such a step as residual.
  */
 function isVerificationCommandStep(step: PlanStep): boolean {
   return step.key.startsWith(VERIFICATION_COMMAND_KEY_PREFIX);
 }
 
 /**
- * Build the config-kind PlanSteps that seed resolved-but-undeclared verification
- * commands into `.exarchos.yml` (§4.5-seed). A field contributes a step iff the
- * resolver resolved it (it is present in `desired.commands`) AND it is NOT
- * already declared in the repo's `.exarchos.yml` (`declared`). The step shape
- * mirrors the test/typecheck config steps exactly — `kind: 'config'`,
- * `surface: 'any'` — so `apply` routes it through the SAME seeder; no new kinds.
+ * Builds one `config` step for each seedable command that the resolver resolved and `.exarchos.yml`
+ * does not declare. An unresolved field is absent from `desired.commands`, so it never becomes a
+ * step. After `apply` seeds a field, the next detect reads it as declared, and the next `diff`
+ * omits the step.
  *
- * Idempotence: once `apply` has seeded a field, a re-detect surfaces it as
- * declared (config-direct tier), so the next `diff` omits the step → empty plan.
- *
- * NOTE (§4.5 negative guarantee): this seeds COMMANDS only. No `verification:`
- * policy block is ever emitted — seeding the resolved policy default would freeze
- * today's builtin table into consumer config (the gen-time-bake trap, #1483).
+ * The steps seed commands only, never a `verification:` policy block. A seeded policy default
+ * freezes the builtin table into consumer config (lvlup-sw/exarchos#1483).
  */
 function verificationCommandSteps(
   desired: DesiredState,
@@ -413,10 +313,6 @@ function verificationCommandSteps(
   const steps: PlanStep[] = [];
   for (const field of SEEDABLE_VERIFICATION_FIELDS) {
     const resolved = desired.commands[field];
-    // Resolved (the resolver surfaced a value) AND not already declared in
-    // `.exarchos.yml` (the operator hasn't pinned it). INV-6 omit-never-fabricate
-    // carries through: an unresolved field is absent from `desired.commands`, so
-    // it never becomes a step.
     if (resolved !== undefined && declared[field] === undefined) {
       steps.push({
         kind: 'config',
@@ -430,29 +326,19 @@ function verificationCommandSteps(
 }
 
 /**
- * DR-7 plan-step ordering: the on-ramp managed-block WRITE
- * ({@link BLOCK_DRIFT_CHECK_NAME}, a `generate` step) MUST precede the retired-hooks
- * REMOVAL ({@link RETIRED_HOOKS_CHECK_NAME}, a `hook` step). Combined with apply's
- * cross-step gate (a failed block write ⇒ hooks kept), this guarantees no consumer
- * ever transitions through the hook-less + block-less window: the replacement
- * on-ramp is written before the superseded hooks are removed.
+ * Moves the on-ramp block-write step to just before the retired-hooks removal step. The other
+ * steps keep their order. Nothing moves when either step is absent or the order is already correct.
  *
- * The pass is a minimal, order-preserving reorder — it moves the block-write step
- * to immediately before the removal step ONLY when both are present and currently
- * out of order, leaving every other step's relative position untouched (so it can
- * safely run over the full plan without disturbing unrelated steps). Roster order
- * already emits them in the right order; this pass makes the guarantee robust to
- * any future reordering or a caller that hands checks in a different order.
+ * With the gate in `apply`, this order writes the replacement on-ramp before it removes the hooks
+ * that the on-ramp replaces. The roster order is already correct, so this pass guards against a
+ * caller that supplies the checks in another order.
  */
 function orderBlockWriteBeforeHookRemoval(steps: readonly PlanStep[]): PlanStep[] {
   const removalIdx = steps.findIndex((s) => s.key === RETIRED_HOOKS_CHECK_NAME);
   const blockIdx = steps.findIndex((s) => s.key === BLOCK_DRIFT_CHECK_NAME);
-  // Nothing to do when either step is absent, or the block write already precedes
-  // the removal (the common, roster-ordered case).
   if (removalIdx === -1 || blockIdx === -1 || blockIdx < removalIdx) {
     return [...steps];
   }
-  // Block write currently AFTER removal — lift it to just before the removal step.
   const reordered = [...steps];
   const [blockStep] = reordered.splice(blockIdx, 1);
   if (blockStep === undefined) return [...steps];
@@ -462,29 +348,13 @@ function orderBlockWriteBeforeHookRemoval(steps: readonly PlanStep[]): PlanStep[
 }
 
 /**
- * `diff(desired, actual, declared?)` — the structured `doctor` diff (DR-1 / DR-4).
+ * Turns doctor check results into an executable {@link ReconcilePlan}. Each remediable check gives
+ * exactly one {@link PlanStep}, and a passing check gives none. It also adds a `config` step for
+ * each verification command that is resolved but not declared. `declared` defaults to `{}`, which
+ * treats every command as undeclared.
  *
- * Turns the doctor check results into an EXECUTABLE {@link ReconcilePlan}: each
- * remediable (`Fail`/`Warning` with a `fix`) check becomes exactly one
- * {@link PlanStep}; passing and non-remediable checks contribute nothing. A
- * fully-configured repo (all checks `Pass`) ⇒ the empty plan `{ steps: [] }`,
- * which is the idempotence precondition for `apply` (task 007).
- *
- * `diff` ALSO folds in desired-vs-declared command divergence (§4.5-seed): a
- * verification command the resolver resolved (present in `desired.commands`) but
- * NOT yet declared in the repo's `.exarchos.yml` (`declared`) becomes a
- * `config`-kind step so `apply` seeds it via the SAME seeder test/typecheck use.
- * `declared` defaults to `{}` (treat everything as undeclared) so the legacy
- * two-arg call — the doctor-check path — keeps working unchanged.
- *
- * Seam: `actual` is the doctor composer's own output — `readonly CheckResult[]`,
- * exactly what `handleDoctorWithChecks` produces by running the roster. The
- * caller (doctor `--fix` / `onboard`) runs the probes; `diff` stays PURE (no fs,
- * no process) and only classifies. `declared` is likewise supplied by the caller
- * (read from `.exarchos.yml`), keeping `diff` free of I/O.
- *
- * Step order: the doctor-check steps come first (mirroring input check order),
- * then the verification-command seed steps, so callers can scan top-to-bottom.
+ * `diff` is pure. The caller runs the probes and reads `.exarchos.yml`. The check steps come first
+ * in input order, then the seed steps, and then the block write moves before the hook removal.
  */
 export function diff(
   desired: DesiredState,
@@ -493,70 +363,46 @@ export function diff(
 ): ReconcilePlan {
   const checkSteps = actual.filter(isRemediable).map(toPlanStep);
   const seedSteps = verificationCommandSteps(desired, declared);
-  // DR-7 ordering: the on-ramp block WRITE must precede the retired-hook REMOVAL.
   const ordered = orderBlockWriteBeforeHookRemoval([...checkSteps, ...seedSteps]);
   return { steps: ordered };
 }
 
-// ─── apply (DR-1 / DR-10) ─────────────────────────────────────────────────────
-
 /**
- * The injected side-effect dependency bundle for {@link apply}.
- *
- * `apply` is a PURE-ISH executor: it holds NO real I/O of its own and performs
- * side effects ONLY through these hooks, so task 009 (the event-emitting wrapper)
- * and the unit tests can drive it against a temp-dir fs without touching `$HOME`
- * or the event store. Crucially, `apply` emits NO events itself — the
- * `onboard.requested` / `onboard.executed` two-event split + crash recovery is
- * owned by task 009, which wraps this function (DR-7 / INV-13).
+ * The injected side-effect bundle for {@link apply}. `apply` performs its side effects only through
+ * these fields and their defaults. It emits no events: {@link reconcileWithEvents} owns the event
+ * pair and the crash recovery.
  */
 export interface ApplyCtx {
   /** Repo root the config step seeds (`.exarchos.yml` lives here). */
   readonly repoRoot: string;
   /**
-   * Capability surface the run executes on (DR-6). A `cli-only` step is only
-   * run when `surface === 'cli'`; off-CLI it is downgraded to an {@link Advisory}.
+   * The capability surface of the run. An `install` step runs only when this is `cli`. On another
+   * surface, the step becomes an {@link Advisory}.
    */
   readonly surface: Surface | 'cli';
   /**
-   * Overwrite hand-edited config (DR-10). Default `false` preserves the
-   * `seedExarchosConfig` never-overwrite posture; `true` overwrites and records
-   * the overwrite as an advisory.
+   * Overwrite hand-edited config. The default `false` keeps the never-overwrite rule of
+   * `seedExarchosConfig`. `true` overwrites and records an advisory.
    */
   readonly force?: boolean;
   /** Injected writer deps for GENERATE (real-fs in prod, temp-dir in tests). */
   readonly writerDeps: WriterDeps;
   /**
-   * Init writers GENERATE steps route through (defaults to none — the caller
-   * supplies the production writer list). Reused verbatim; not reimplemented.
+   * The init writers for `generate` steps. The default is none, so the caller supplies the
+   * production writer list.
    */
   readonly writers?: ReadonlyArray<RuntimeConfigWriter>;
-  /**
-   * Config seeder (defaults to {@link seedExarchosConfig}). Injection seam so
-   * tests can stub detection; production passes the real seeder.
-   */
+  /** The config seeder. The default calls {@link seedExarchosConfig}, and tests replace it. */
   readonly seed?: (repoRoot: string, force: boolean) => SeedResult;
-  /**
-   * CLI-only install hook (real impl is task 015). Default no-op so the routing
-   * + result semantics can be exercised before install logic lands.
-   */
+  /** The CLI-only install hook. The default does nothing. */
   readonly installStep?: (step: PlanStep, ctx: ApplyCtx) => Promise<void>;
-  /**
-   * Lifecycle-hook installer (real impl is task 012). Default no-op so the hook
-   * routing can be exercised before the #1485 binding logic lands.
-   */
+  /** The lifecycle-hook installer. The default does nothing. */
   readonly installHook?: (step: PlanStep, ctx: ApplyCtx) => Promise<void>;
 }
 
 /**
- * The config seeder, with `force` threaded onto the never-overwrite check.
- *
- * `seedExarchosConfig` is non-destructive by contract: it short-circuits on an
- * existing `.exarchos.yml`. The only honest way to overwrite under `--force`
- * (DR-10 "force overwrites and says so") is to bypass its existence gate — which
- * we do by injecting `exists: () => false`, so the real seeder writes the
- * resolver-derived config over the hand-edit. Without force we call the seeder
- * unmodified, preserving its posture verbatim.
+ * Calls `seedExarchosConfig`, which never overwrites an existing `.exarchos.yml`. With `force`, it
+ * injects `exists: () => false` to bypass that check, so the seeder writes over the hand edit.
  */
 function defaultSeed(repoRoot: string, force: boolean): SeedResult {
   return force
@@ -571,45 +417,30 @@ interface ResultAcc {
   readonly residual: PlanStep[];
   readonly advisories: Advisory[];
   /**
-   * Did an EARLIER `config` step in THIS apply run already write `.exarchos.yml`?
-   * The single-file seeder writes the whole resolver-derived config in one shot,
-   * so once the first config step seeds the file, every later config step in the
-   * same plan (e.g. a second verification-command seed) finds it already present.
-   * That `already-exists` is CONVERGENCE (their field was just written by us),
-   * not a preserved hand-edit. Tracking it lets {@link applyConfigStep}
-   * distinguish the two — see its body.
+   * True when an earlier `config` step in this run wrote `.exarchos.yml`. The seeder writes the
+   * whole config at once, so a later config step finds the file present. That result is
+   * convergence, not a preserved hand edit.
    */
   configSeededThisRun: boolean;
   /**
-   * DR-7 cross-step gate: did the on-ramp managed-block WRITE step
-   * ({@link BLOCK_DRIFT_CHECK_NAME}) run in this plan AND fail to converge
-   * (residual)? The retired-hooks REMOVAL step consults this — a failed block
-   * write ⇒ KEEP the hooks (never strand the consumer with neither the on-ramp
-   * block nor the superseded hooks). The plan ordering (block write before
-   * removal) is what makes this flag authoritative by the time removal runs.
+   * True when the on-ramp block-write step ran in this plan and did not converge. The retired-hooks
+   * removal step reads it and keeps the hooks.
    *
-   * Note the polarity: `false` also means "no block-write step was in the plan",
-   * i.e. the on-ramp block already matched (its drift check Passed) — in which
-   * case the block is present and removal is safe to proceed.
+   * `false` also means that the plan had no block-write step, because the block already matched.
+   * Removal is then safe.
    */
   blockWriteFailed: boolean;
 }
 
 /**
- * Route a `config` step through the (force-aware) seeder. A fresh write or a
- * forced overwrite ⇒ applied; an unresolved-no-fields seeder no-op ⇒ residual
- * (still needs doing). A forced overwrite additionally emits an advisory.
+ * Routes a `config` step through the seeder. A write is `applied`, and a forced write also adds an
+ * advisory. When the seeder has no fields to write, the step is `residual`.
  *
- * The `already-exists` no-op splits two ways (mirroring {@link applyGenerateStep}
- * convergence, #1534): the single-file seeder writes the whole config in one
- * shot, so multiple config steps in one plan (the test/typecheck doctor-check
- * step PLUS the §4.5-seed verification-command steps) all hit the SAME file.
- *   - If an EARLIER config step in this run already wrote it
- *     ({@link ResultAcc.configSeededThisRun}), this step's field was just seeded
- *     by us — it CONVERGED → `applied`. Marking it `skipped` would mis-report the
- *     verification-command seed as "not run" even though it landed in the file.
- *   - Otherwise the file pre-existed the run — a genuine hand-edit preserved by
- *     the never-overwrite posture → `skipped`.
+ * An `already-exists` result has three outcomes:
+ * - If an earlier config step in this run wrote the file, the step converged and is `applied`.
+ * - A verification-command step is `residual` with an advisory. The file existed before the run,
+ *   and the create-only seeder cannot add one key to it.
+ * - The whole-config seed step is `skipped`, because the never-overwrite rule keeps the hand edit.
  */
 function applyConfigStep(step: PlanStep, ctx: ApplyCtx, acc: ResultAcc): void {
   const seed = ctx.seed ?? defaultSeed;
@@ -630,17 +461,8 @@ function applyConfigStep(step: PlanStep, ctx: ApplyCtx, acc: ResultAcc): void {
 
   if (seedResult.reason === 'already-exists') {
     if (acc.configSeededThisRun) {
-      // An earlier config step in THIS run already seeded the file — this step's
-      // field is in it now. That is convergence, not a preserved hand-edit.
       acc.applied.push(step);
     } else if (isVerificationCommandStep(step)) {
-      // A verification-command step is emitted ONLY for a resolved-but-UNDECLARED
-      // field, so a pre-existing `.exarchos.yml` does NOT already contain it. The
-      // create-only seeder cannot add a single key to an existing file, so the
-      // command is genuinely still absent → RESIDUAL (a re-diff re-surfaces it),
-      // NOT `skipped`. Reporting it `skipped` would mis-classify a never-written
-      // verification command as a preserved hand-edit — a silent success that
-      // leaves the ladder on the built-in fallback (Sentry 14615676).
       acc.residual.push(step);
       acc.advisories.push({
         surface: 'any',
@@ -649,35 +471,24 @@ function applyConfigStep(step: PlanStep, ctx: ApplyCtx, acc: ResultAcc): void {
           `(never-overwrite); add this key to it by hand to pin the command.`,
       });
     } else {
-      // The whole-config seed step: the file pre-existed → hand-edit preserved
-      // by the never-overwrite posture.
       acc.skipped.push(step);
     }
     return;
   }
 
-  // unresolved-no-fields: nothing could be written; the step still needs doing.
   acc.residual.push(step);
 }
 
 /**
- * Route a `generate` step through the existing init writers (no rewrite). Runs
- * every supplied writer with the injected {@link WriterDeps}.
+ * Routes a `generate` step through every supplied init writer. The step is `applied` when every
+ * writer converges with the status `written` or `skipped`. A `failed` or `stub` status, a thrown
+ * error, or an empty writer list makes it `residual`.
  *
- * Convergence, not "did we write": a generate step is APPLIED when every writer
- * reaches its desired state — `'written'` (just produced) OR `'skipped'`
- * (already present / not applicable). It is RESIDUAL only when a writer genuinely
- * could not converge: a `'failed'` / `'stub'` status or a thrown error (the
- * latter swallowed for forward-only reconcile, DR-10).
+ * Two generate steps can share one writer set. The writers then return `skipped` for the second
+ * step, and that counts as convergence. A writer error does not stop `apply`.
  *
- * This matters for multi-step plans (#1534 review): `agent-config-valid` and
- * `agent-mcp-registered` both classify to `kind: 'generate'`, so a repo failing
- * both yields two generate steps over the SAME writer set. Once the first step
- * writes the artifacts, the second step's writers legitimately no-op
- * (`'skipped'`). Keying success on `'written'` alone would mis-mark that second
- * step `residual` and misreport convergence in the `onboard.executed` result
- * (INV-1). Treating an already-converged writer as success fixes it; the VERIFY
- * re-diff remains the authoritative blocking gate.
+ * For the block-write step, `onrampFailed` also means no convergence. A block-write step that does
+ * not converge sets `blockWriteFailed`, so the retired-hooks removal step keeps the hooks.
  */
 async function applyGenerateStep(
   step: PlanStep,
@@ -687,7 +498,6 @@ async function applyGenerateStep(
   const writers = ctx.writers ?? [];
   if (writers.length === 0) {
     acc.residual.push(step);
-    // A block-write generate step with no writers can't have written the block.
     if (step.key === BLOCK_DRIFT_CHECK_NAME) acc.blockWriteFailed = true;
     return;
   }
@@ -702,19 +512,9 @@ async function applyGenerateStep(
   for (const writer of writers) {
     try {
       const res = await writer.write(ctx.writerDeps, options);
-      // 'written' = produced now; 'skipped' = already in desired state (e.g.
-      // written by an earlier generate step in this same plan, or not applicable
-      // to this repo). Both are convergence. 'failed'/'stub' are not.
       if (res.status !== 'written' && res.status !== 'skipped') allConverged = false;
-      // DR-7: a writer can converge overall (its MCP/commands/skills phases wrote)
-      // while its consumer-side on-ramp block (AGENTS.md) write FAILED — surfaced
-      // as `onrampFailed`, never a status change. For the on-ramp block-write step
-      // that means the replacement on-ramp is NOT in place, so it must NOT count as
-      // converged (else the retired-hooks removal below runs and strands the
-      // consumer with neither the on-ramp block nor the hooks).
       if (step.key === BLOCK_DRIFT_CHECK_NAME && res.onrampFailed) allConverged = false;
     } catch {
-      // forward-only: a writer failure does not abort apply (DR-10).
       allConverged = false;
     }
   }
@@ -723,27 +523,17 @@ async function applyGenerateStep(
     acc.applied.push(step);
   } else {
     acc.residual.push(step);
-    // DR-7 gate input: a non-converged on-ramp block write means the replacement
-    // on-ramp is NOT in place, so the retired-hooks removal step must be deferred.
     if (step.key === BLOCK_DRIFT_CHECK_NAME) acc.blockWriteFailed = true;
   }
 }
 
 /**
- * Route an `install` step (DR-6 + DR-10 forward-only). Install is CLI-only: on
- * the `'cli'` surface it runs through the injected {@link ApplyCtx.installStep}
- * hook (a no-op default here; real `npx` install is task 015) and is applied.
- * Off-CLI it is downgraded to a structured {@link Advisory} pointing at the CLI —
- * never a silent server-side write.
+ * Routes an `install` step. Off the `cli` surface, it adds an {@link Advisory} that points to the
+ * CLI and does not run the step.
  *
- * FORWARD-ONLY (DR-10): an install side effect that THROWS (offline / `npx`
- * network error) must NOT abort the whole `apply` — that would reject the
- * pipeline AFTER config/generate have already written, with no way to keep the
- * work that succeeded. Instead, mirroring {@link applyGenerateStep}, the throw is
- * swallowed: the step is left in `residual` (so the VERIFY re-diff sees it still
- * failing and a re-run resumes it) and an {@link Advisory} records the failure
- * so the operator is told. The already-applied config/generate steps are NOT
- * rolled back; the run exits non-zero via the VERIFY blocking-residual gate.
+ * On the `cli` surface, it calls {@link ApplyCtx.installStep}. A thrown error does not stop
+ * `apply`. The step stays `residual` with an advisory, and the steps that already ran stay applied.
+ * A re-run resumes from the residual step.
  */
 async function applyInstallStep(
   step: PlanStep,
@@ -763,9 +553,6 @@ async function applyInstallStep(
   try {
     await installStep(step, ctx);
   } catch (err) {
-    // forward-only: an install failure does not abort apply (DR-10). Leave the
-    // step residual and surface the failure as an advisory; config/generate
-    // steps already applied stay applied (no rollback).
     const reason = err instanceof Error ? err.message : String(err);
     acc.residual.push(step);
     acc.advisories.push({
@@ -781,29 +568,17 @@ async function applyInstallStep(
 }
 
 /**
- * Route a `hook` step through the injected {@link ApplyCtx.installHook} (a no-op
- * default; the #1485 SessionStart binding installer lives in `onboard/hooks.ts`).
+ * Routes a `hook` step through {@link ApplyCtx.installHook}. A thrown error does not stop `apply`.
+ * The step stays `residual` with an advisory, and the steps that already ran stay applied.
  *
- * FORWARD-ONLY (DR-10): a hook side effect that THROWS (e.g. an unwritable
- * settings file) must NOT abort the whole `apply` — that would reject the
- * pipeline AFTER config/generate/install have already written, with no way to
- * keep the work that succeeded. Mirroring {@link applyInstallStep}, the throw is
- * swallowed: the step is left in `residual` (so the VERIFY re-diff sees it still
- * failing and a re-run resumes it) and an {@link Advisory} records the failure so
- * the operator is told. Already-applied steps are NOT rolled back; the run exits
- * non-zero via the VERIFY blocking-residual gate. Applied on success.
+ * If the block write failed in this run, the retired-hooks removal step does not run. It stays
+ * `residual` with an advisory, so the consumer keeps the hooks until a re-run writes the block.
  */
 async function applyHookStep(
   step: PlanStep,
   ctx: ApplyCtx,
   acc: ResultAcc,
 ): Promise<void> {
-  // DR-7 cross-step gate: the retired-hooks REMOVAL step consults the on-ramp
-  // block-write outcome. If the block write (ordered before this step) failed,
-  // KEEP the retired hooks — removing them now would strand the consumer with
-  // neither the replacement on-ramp block nor the superseded hooks. The removal
-  // stays residual so the VERIFY re-diff resurfaces it and a re-run (once the
-  // block write succeeds) completes the uninstall.
   if (step.key === RETIRED_HOOKS_CHECK_NAME && acc.blockWriteFailed) {
     acc.residual.push(step);
     acc.advisories.push({
@@ -820,9 +595,6 @@ async function applyHookStep(
   try {
     await installHook(step, ctx);
   } catch (err) {
-    // forward-only: a hook failure does not abort apply (DR-10). Leave the step
-    // residual and surface the failure as an advisory; already-applied steps
-    // stay applied (no rollback).
     const reason = err instanceof Error ? err.message : String(err);
     acc.residual.push(step);
     acc.advisories.push({
@@ -837,25 +609,15 @@ async function applyHookStep(
 }
 
 /**
- * `apply(plan, ctx)` — execute a {@link ReconcilePlan} into a
- * {@link ReconcileResult} (DR-1 / DR-10).
+ * Runs the steps of a {@link ReconcilePlan} in order and returns a {@link ReconcileResult}. It
+ * routes each step by `kind`:
+ * - `config` goes to the seeder, which overwrites only with `ctx.force`.
+ * - `generate` goes to the init writers in `ctx.writers`.
+ * - `install` runs only on the CLI surface. On another surface it becomes an {@link Advisory}.
+ * - `hook` goes to `ctx.installHook`.
  *
- * Routes each {@link PlanStep} to the right EXISTING writer by `kind`:
- *   - `config`   → `seedExarchosConfig` (never-overwrite unless `ctx.force`).
- *   - `generate` → the init writers (`ctx.writers`, run with `ctx.writerDeps`).
- *   - `install`  → CLI-only; off-CLI it downgrades to an {@link Advisory} (DR-6).
- *   - `hook`     → `ctx.installHook` (real impl task 012; no-op default).
- *
- * Result semantics: `applied` = side effect ran; `skipped` = intentionally not
- * run (preserved hand-edit without force); `residual` = still needs doing after
- * apply (feeds the verify re-diff); `advisories` = surface-gated downgrades +
- * the forced-overwrite notice.
- *
- * Idempotence precondition: an empty plan is a NO-OP — no side effect fires and
- * every bucket is empty. Apply emits NO events; that is task 009's wrapper.
- *
- * Steps run in plan order; routing is exhaustive over {@link PlanStepKind} so an
- * unhandled kind is a compile error, never a silent drop.
+ * An empty plan does nothing, and `apply` emits no events. The switch is exhaustive, so a new
+ * {@link PlanStepKind} without a router does not compile.
  */
 export async function apply(plan: ReconcilePlan, ctx: ApplyCtx): Promise<ReconcileResult> {
   const acc: ResultAcc = {
@@ -883,7 +645,6 @@ export async function apply(plan: ReconcilePlan, ctx: ApplyCtx): Promise<Reconci
         await applyHookStep(step, ctx, acc);
         break;
       default: {
-        // Exhaustiveness guard — a new PlanStepKind must add a router here.
         const _exhaustive: never = kind;
         throw new Error(`apply: unhandled PlanStep kind: ${String(_exhaustive)}`);
       }
@@ -898,40 +659,27 @@ export async function apply(plan: ReconcilePlan, ctx: ApplyCtx): Promise<Reconci
   };
 }
 
-// ─── reconcileWithEvents (DR-7 / DR-10 — two-event split + crash recovery) ─────
-
 /**
- * The trigger discriminator carried on both halves of the split — mirrors the
- * `OnboardTriggerSchema` enum in `events/schemas.ts` (`onboard` reconciles
- * an existing repo, `onboard-new` scaffolds, `doctor-fix` applies the structured
- * doctor diff). Derived from the event data type so the two never drift.
+ * The trigger on both events of the pair. It derives from the `OnboardRequested` data type, so it
+ * always matches `OnboardTriggerSchema`.
  */
 export type OnboardTrigger = OnboardRequested['trigger'];
 
 /**
- * A type-tagged event the wrapper hands to the injected seam. We model ONLY the
- * `{ type, data }` shape `apply`'s wrapper needs — the full `WorkflowEvent`
- * envelope (streamId, sequence, timestamp…) is the seam owner's concern
- * (Task 010's `onboard` handler), keeping `reconcile.ts` harness-neutral (INV-2).
- *
- * The two-event split only ever emits these two types; `data` is the validated
- * payload shape from `events/schemas.ts`.
+ * An event that the wrapper gives to the injected seam, with only `type` and `data`. The seam owner
+ * adds the full `WorkflowEvent` envelope, so this module stays harness-neutral.
  */
 export type EmittedEvent =
   | { readonly type: 'onboard.requested'; readonly data: OnboardRequested }
   | { readonly type: 'onboard.executed'; readonly data: OnboardExecuted };
 
 /**
- * The injected event-store seam (INV-2). The wrapper performs NO real I/O
- * against the event store — it appends through {@link emit} and inspects prior
- * intent through {@link readStreamTail}. Tests pass spies; production (Task 010)
- * wires the real `EventStore` + `getAllWriters()` + `buildWriterDeps()`.
+ * The injected event-store seam. The wrapper appends through {@link emit} and reads the earlier
+ * intent through {@link readStreamTail}.
  *
- * CRITICAL (CAS-pin idempotency trap): {@link readStreamTail} MUST be a FRESH
- * read of the current stream tail. The seam owner MUST NOT CAS-pin a follow-on
- * `emit` to a prior `emit`'s returned sequence — the appender's idempotency
- * cache-hit precedes its CAS check, so a pinned retry reproduces the same
- * conflict forever. Plain appends + fresh tail reads sidestep that entirely.
+ * {@link readStreamTail} must read the current tail fresh. The seam owner must not CAS-pin an
+ * `emit` to the sequence of an earlier `emit`. The appender checks its idempotency cache before
+ * the CAS check, so a pinned retry repeats the same conflict forever.
  */
 export interface ReconcileEventCtx {
   /** Append one event (plain append — never CAS-pinned to a prior sequence). */
@@ -941,11 +689,8 @@ export interface ReconcileEventCtx {
 }
 
 /**
- * Input to {@link reconcileWithEvents}: the repo + trigger plus the (injected)
- * detect/diff seams. `runDoctorChecks` produces the `actual` check results that
- * `diff` classifies; `detectOptions` thread into {@link detectDesiredState}.
- * Both are seams so the wrapper stays pure (no fs/process of its own); the
- * `onboard` handler (Task 010) supplies the real doctor composer + detection.
+ * Input to {@link reconcileWithEvents}. `runDoctorChecks` produces the check results that `diff`
+ * classifies, and `detectOptions` goes to {@link detectDesiredState}.
  */
 export interface ReconcileEventInput {
   /** Repo root the reconcile targets. */
@@ -960,44 +705,34 @@ export interface ReconcileEventInput {
   readonly detectOptions?: DetectOptions;
 }
 
-/**
- * The structured outcome of {@link reconcileWithEvents}: the plan that was
- * diffed and the {@link ReconcileResult} (omitted on the dry-run path, which
- * runs no `apply`). `idempotencyKey` is surfaced so callers can correlate the
- * run with its event pair.
- */
+/** The outcome of {@link reconcileWithEvents}. */
 export interface ReconcileOutcome {
   /** The plan diffed for this run (the structured doctor diff). */
   readonly plan: ReconcilePlan;
-  /** The apply result; absent on the dry-run path. */
+  /**
+   * The apply result. It is absent on the dry-run path and when the key already has an
+   * `onboard.executed` event.
+   */
   readonly result?: ReconcileResult;
   /** The key both emitted events share. */
   readonly idempotencyKey: string;
-  /** Whether this invocation resumed a crashed prior run (INV-13). */
+  /** True when this call resumed a run that crashed between the two events. */
   readonly recovered: boolean;
 }
 
 /**
- * Derive the idempotency key for a logical reconcile run (INV-8). Keyed off the
- * `repoRoot` + `trigger`, so a retry of the *same* logical run (same repo, same
- * reason) collapses onto one `onboard.requested`, while a genuinely different
- * trigger (e.g. `onboard` vs `doctor-fix`) gets its own pair. Deterministic and
- * side-effect-free — no clock, no randomness — which is what makes the
- * crash-recovery precheck able to MATCH a dangling prior intent.
+ * Derives the idempotency key from `repoRoot` and `trigger`. A retry of the same run maps to one
+ * `onboard.requested`, and another trigger gets its own pair. The key uses no clock and no
+ * randomness, so the crash-recovery check can match an earlier intent.
  */
 function deriveIdempotencyKey(repoRoot: string, trigger: OnboardTrigger): string {
   return `onboard:${repoRoot}:${trigger}`;
 }
 
 /**
- * Crash-recovery precheck (INV-13 + INV-8). Reads the FRESH stream tail and asks:
- * is there a prior `onboard.requested` for THIS key with NO paired
- * `onboard.executed`? If so the prior run crashed between the two events, and
- * this invocation must resume it — re-detect, re-diff, apply only the residual,
- * and emit the missing `onboard.executed` — WITHOUT a second `requested` and
- * without re-running an already-completed non-idempotent write.
- *
- * Returns `true` when a dangling request for `key` exists (⇒ recovery mode).
+ * Returns true when the tail has an `onboard.requested` for `key` and no matching
+ * `onboard.executed`. The earlier run then crashed between the two events, and this call resumes
+ * it without a second request.
  */
 function hasDanglingRequest(tail: readonly EmittedEvent[], key: string): boolean {
   const requested = tail.some(
@@ -1011,29 +746,18 @@ function hasDanglingRequest(tail: readonly EmittedEvent[], key: string): boolean
 }
 
 /**
- * `reconcileWithEvents(input, ctx, applyCtx)` — the DR-7 two-event orchestration
- * around the event-free {@link apply} (Task 007). `apply`'s contract is unchanged
- * and it still emits NO events of its own; this wrapper owns the event split.
+ * Wraps {@link apply} in the `onboard.requested` and `onboard.executed` events.
  *
- * Flow (per the DR-7 event diagram):
- *   1. detect → diff to compute the plan.
- *   2. dry-run ⇒ return the plan, emit NOTHING, run NO side effect.
- *   3. crash-recovery precheck (fresh tail read): a dangling `onboard.requested`
- *      for this key ⇒ RESUME — skip emitting a second `requested`, re-diff, and
- *      apply only the residual, then emit the missing `onboard.executed`.
- *   4. normal path: emit `onboard.requested {plan, trigger, idempotencyKey}`
- *      BEFORE side effects → `await apply(plan, applyCtx)` →
- *      emit `onboard.executed {result, trigger, idempotencyKey, durationMs}`.
+ * 1. It detects and diffs to get the plan. `declared` holds the commands that `.exarchos.yml`
+ *    pins, so a re-run after a seed gives an empty plan.
+ * 2. On a dry run, it returns the plan, emits nothing, and runs no side effect.
+ * 3. It reads the stream tail fresh. If the key has an `onboard.executed` event, it returns.
+ * 4. If a request for the key has no pair, it resumes that run and emits no second request.
+ *    The plan is then the re-diff of the half-applied repo, so only the remaining steps run.
+ * 5. Otherwise it emits `onboard.requested` before any side effect.
+ * 6. It runs `apply`, then emits `onboard.executed` with the result and the duration.
  *
- * INV-2: every event-store touch goes through the injected {@link ctx}; INV-13 +
- * INV-8: the non-idempotent side effect runs AT MOST ONCE across a crash because
- * a re-run with a completed `executed` short-circuits and a crashed run applies
- * only the residual. INV-8: the key is derived deterministically so retries
- * collapse onto one logical request.
- *
- * @param applyCtx the {@link ApplyCtx} side-effect bundle passed straight to
- *   `apply` (writers, seeder, install/hook hooks) — kept separate from the event
- *   seam so the two injection axes stay independent.
+ * @param applyCtx the side-effect bundle for `apply`, kept apart from the event seam.
  */
 export async function reconcileWithEvents(
   input: ReconcileEventInput,
@@ -1043,25 +767,17 @@ export async function reconcileWithEvents(
   const { repoRoot, trigger } = input;
   const idempotencyKey = deriveIdempotencyKey(repoRoot, trigger);
 
-  // detect → diff (always; needed for the dry-run plan AND the live re-diff).
-  // `declared` is the verification commands ALREADY pinned in `.exarchos.yml` —
-  // the "actual" side of the §4.5-seed divergence, so a re-run after a seed
-  // (commands now declared) re-diffs to an empty plan (idempotence).
   const desired = await detectDesiredState(repoRoot, input.detectOptions);
   const checks = await input.runDoctorChecks(repoRoot);
   const declared = declaredVerificationCommands(repoRoot);
   const plan = diff(desired, checks, declared);
 
-  // Dry-run: surface the plan, but emit nothing and perform no side effect.
   if (input.dryRun) {
     return { plan, idempotencyKey, recovered: false };
   }
 
-  // Crash-recovery precheck — FRESH tail read (no CAS-pin to a prior append).
   const tail = await ctx.readStreamTail();
 
-  // Already-completed run for this key ⇒ fully idempotent no-op (no re-apply,
-  // no duplicate events). This is what makes a retry collapse (INV-8).
   const alreadyExecuted = tail.some(
     (e) => e.type === 'onboard.executed' && e.data.idempotencyKey === idempotencyKey,
   );
@@ -1071,8 +787,6 @@ export async function reconcileWithEvents(
 
   const recovering = hasDanglingRequest(tail, idempotencyKey);
 
-  // Normal path emits the INTENT before any side effect. Recovery resumes a
-  // prior intent, so it must NOT emit a second `requested`.
   if (!recovering) {
     await ctx.emit({
       type: 'onboard.requested',
@@ -1080,13 +794,10 @@ export async function reconcileWithEvents(
     });
   }
 
-  // Execute. On recovery, `plan` IS the residual re-diff (detect/diff above ran
-  // against the half-applied repo), so only the outstanding steps run.
   const startedAt = Date.now();
   const result = await apply(plan, applyCtx);
   const durationMs = Date.now() - startedAt;
 
-  // Emit the RESULT after side effects, pairing on the shared key.
   await ctx.emit({
     type: 'onboard.executed',
     data: { trigger, result, idempotencyKey, durationMs },

@@ -1,41 +1,12 @@
 /**
- * Economy-seam no-bypass gate (INV-17 Axis-2 — enforcement application).
- *
- * INV-17's mechanical backstops guarantee the *coverage* axis (which actions
- * carry a budget / a total output schema — see the registry-economy and
- * registry-schema pin tests). They do NOT guarantee the second axis:
- * *enforcement application* — that every result-producing branch of
- * `dispatch()` actually routes the raw handler payload through the response-
- * economy seam (`enforceResponseEconomy`, directly or via `withTelemetry`).
- *
- * The review fix cycle for the tool-token-economy-remediation feature caught
- * two live bypasses: the telemetry-OFF branches capped nothing, so
- * `EXARCHOS_TELEMETRY=false` silently disabled all enforcement. That was a
- * local patch — it plugged the known holes. This gate makes the whole *class*
- * structurally impossible: it asserts, by source structure, that
- *
- *   (A) every invocation of the raw tool handler (`coreHandler`) inside
- *       `dispatch()` is *enclosed by* the seam — the call is the direct
- *       argument of `enforceResponseEconomy(...)`, or `coreHandler` is passed
- *       to `withTelemetry(...)`, and
- *   (B) `withTelemetry` — the indirect arm dispatch() trusts to cap — binds the
- *       seam output and *returns a value derived from it* (not the raw result).
- *
- * Axis A matches the ENCLOSING call, not mere proximity: an unrelated
- * `enforceResponseEconomy(...)` on a nearby line does not launder a bare
- * `coreHandler(...)` call (that false-negative is covered by a regression
- * fixture). A future execution mode that ships a bare `coreHandler(...)` fails
- * this gate, mirroring the event-upcasting
- * (`events/store.upcast-seam.test.ts`) and merge-orchestrate no-bypass
- * gates already in this codebase.
- *
- * NOTE: the checks are anchored to THIS code's identifiers (`coreHandler`,
- * `result`, `rawResult`, `injectPerf`). That is deliberate: a refactor that
- * renames them — including collapsing enforcement to a single outermost seam
- * (the "stronger" INV-17 Axis-2 follow-up, where `coreHandler(...)` becomes
- * intentionally bare) — MUST update this gate. It fails loud, never silent.
- *
- * Pure source-text check; introduces NO runtime dependency.
+ * The economy-seam no-bypass gate. It checks by source structure that every result branch of
+ * `dispatch()` sends the raw handler payload through `enforceResponseEconomy`.
+ * - Axis A: each `coreHandler` use in `dispatch()` is the direct argument of
+ *   `enforceResponseEconomy(...)`, or `coreHandler` goes to `withTelemetry(...)`. A seam call on a
+ *   nearby line does not count.
+ * - Axis B: `withTelemetry` binds the seam output and returns a value from it, not the raw result.
+ * The checks name this code's identifiers (`coreHandler`, `result`, `rawResult`, `injectPerf`).
+ * A rename must update this gate, and the gate fails until it does. The check reads source text only.
  */
 import fs from 'node:fs';
 import type { PluginFinding } from '../../review/check-catalog.js';
@@ -43,9 +14,8 @@ import type { PluginFinding } from '../../review/check-catalog.js';
 const SOURCE = 'economy-seam';
 
 /**
- * The raw tool handler is bound to `const coreHandler = ...` inside dispatch().
- * It is the single origin of the un-capped tool payload; every place it is
- * invoked or wrapped must be enclosed by the seam.
+ * The `const coreHandler = ...` binding inside `dispatch()`. It is the origin of the uncapped payload,
+ * so the seam must enclose each place that calls or wraps it.
  */
 const CORE_HANDLER_DECL_RE = /\bconst\s+coreHandler\s*=/;
 
@@ -64,9 +34,8 @@ const GUARDED_WRAP_RE = /\bwithTelemetry\s*\(\s*coreHandler\b/g;
 const ANY_CORE_HANDLER_RE = /\bcoreHandler\b/g;
 
 /**
- * Replace `//` line comments and `/* *\/` block comments with equal-length
- * whitespace so tokens inside prose never match, while byte offsets (and thus
- * reported line numbers) stay exact.
+ * Replaces comments with whitespace of equal length. Tokens in comments then do not match, and the
+ * reported line numbers stay exact.
  */
 function stripComments(src: string): string {
   return src
@@ -94,15 +63,12 @@ function guardedHandlerOffsets(src: string, re: RegExp): Set<number> {
 }
 
 /**
- * Scan `dispatch()` source for raw-handler invocations not *enclosed* by the
- * seam (Axis A).
+ * Scans `dispatch()` source for raw-handler uses that the seam does not enclose (Axis A).
  *
- * @param filePath Path to `dispatch.ts` (used for the finding's `file`, and
- *   read from disk when `source` is not supplied).
- * @param source  Optional source text (dependency injection for tests).
- * @returns One finding per `coreHandler` invocation/reference not enclosed by
- *   the seam, plus an anchor-liveness finding if the declaration or every
- *   invocation site has vanished (so a rename can't make the gate pass vacuously).
+ * @param filePath Path to `dispatch.ts`. The function reads it when `source` is absent.
+ * @param source  Optional source text for tests.
+ * @returns One finding for each `coreHandler` use outside the seam. It adds one more finding when the
+ *   declaration or all use sites are gone, so a rename cannot pass the gate.
  */
 export function lintDispatchEconomyBypass(
   filePath: string,
@@ -159,10 +125,9 @@ export function lintDispatchEconomyBypass(
 }
 
 /**
- * `withTelemetry`'s anchors: the raw payload binding, the seam applied to it,
- * the size measured on the CAPPED binding, and the returned envelope seeded
- * from that binding. Together they prove the returned value *derives from* the
- * seam output — not merely that a cap was computed and discarded.
+ * The anchors in `withTelemetry`: the raw payload binding, the seam on it, the size measured on the
+ * capped binding, and the envelope built from it. Together they prove that the return value comes
+ * from the seam output.
  */
 const MW_RAW_RESULT_RE = /const\s+rawResult\s*=\s*await\s+handler\s*\(/;
 const MW_SEAM_BINDING_RE = /const\s+result\s*=\s*enforceResponseEconomy\s*\(\s*rawResult\b/;
@@ -171,15 +136,13 @@ const MW_INJECTS_CAPPED_RE = /injectPerf\(\s*result\b/;
 const MW_RETURNS_RAW_RE = /return\s+rawResult\b/;
 
 /**
- * Prove the indirect arm of the seam (Axis B): `withTelemetry` binds the seam
- * output (`const result = enforceResponseEconomy(rawResult, …)`), measures and
- * returns a value *derived from* that binding, and never returns the raw
- * result. Without this, a wrapper could compute the cap and then return
- * `rawResult` — every `withTelemetry(coreHandler)` site in dispatch() would be
- * a silent bypass while the Axis-A scan still passes.
+ * Checks the indirect arm of the seam (Axis B). `withTelemetry` must bind the seam output, measure
+ * and return a value from that binding, and never return `rawResult`. The measured and returned
+ * value must come from the capped `result`. A wrapper that returns `rawResult` makes each
+ * `withTelemetry(coreHandler)` site a bypass that Axis A cannot see.
  *
  * @param filePath Path to `projections/telemetry/middleware.ts`.
- * @param source  Optional source text (dependency injection for tests).
+ * @param source  Optional source text for tests.
  */
 export function lintMiddlewareEconomySeam(
   filePath: string,
@@ -207,8 +170,6 @@ export function lintMiddlewareEconomySeam(
         `this as its telemetry-ON economy seam (INV-17 Axis-2).`,
     );
   }
-  // Derivation proof: the measured/returned value must come from the capped
-  // `result` binding, and the raw result must never be returned directly.
   if (!MW_MEASURES_CAPPED_RE.test(src) || !MW_INJECTS_CAPPED_RE.test(src)) {
     push(
       `withTelemetry measures or returns a value not derived from the capped ` +

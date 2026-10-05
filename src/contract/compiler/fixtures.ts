@@ -1,17 +1,9 @@
-// ─── Proof fixtures (P03-03) ─────────────────────────────────────────────────
-//
-// PROGRAM-03, API-003. Emits the deterministic, content-addressed fixtures the
-// DOWNSTREAM packages verify against: P03-04 (MCP registration/bindings), P03-05
-// (the generated CLI client), and P03-09 (the independent oracle). A fixture is
-// the compiler's byte-stable claim about the compiled contract — the per-action
-// descriptor/schema/policy digests plus the whole-contract digest and the
-// authority snapshot that gated generation.
-//
-// The bundle is what an oracle re-derives independently and compares: if a later
-// registry edit changes an action's schema or policy, the corresponding fixture
-// digest changes and the oracle's comparison fails loudly. The checked-in
-// fixture is therefore the review artifact for contract drift.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Builds the deterministic proof fixtures that downstream consumers verify against.
+ * A fixture holds per-action digests of the descriptor, schemas and policy, the whole-contract
+ * digest, and the authority snapshot that gated generation. An oracle re-derives the bundle and
+ * compares it, so a registry edit to a schema or a policy changes a digest and fails the comparison.
+ */
 
 import { digestText } from '../authority-digest.js';
 import { canonicalJson } from '../request-context.js';
@@ -50,9 +42,8 @@ export interface ProofFixtureBundle {
 const byString = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
 /**
- * Build the proof fixtures for a compiled contract. Every digest is derived over
- * canonical JSON so the bundle is byte-stable and platform-independent; actions
- * are sorted by ActionId for a stable diff.
+ * Builds the proof fixtures for a compiled contract. Every digest is over canonical JSON, so the
+ * bundle is byte-stable. Actions are sorted by ActionId for a stable diff.
  */
 export function buildProofFixtures(
   surfaceVersion: string,

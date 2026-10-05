@@ -1,15 +1,12 @@
-// ─── Content addresses for compiled artifacts ────────────────────────────────
-//
-// A capsule is pinned by what it says, not by where it was stored or when it
-// was written. Both it and the definition it compiled from are named by the
-// sha256 of their canonical JSON, spelled as bare lowercase hex — the kernel's
-// digest spelling, so a digest computed here is one `definitionVersion` and
-// every other kernel digest field accepts as it stands.
-//
-// Canonical, because two encodings of one document that differ only by object
-// key order are one document. A digest over plain `JSON.stringify` would name
-// the same capsule twice, and a settlement comparing the two would refuse its
-// own compilation.
+/**
+ * Content addresses for compiled artifacts. A capsule and its source definition are named by the
+ * sha256 of their canonical JSON, as bare lowercase hex. This is the kernel digest spelling, so
+ * `definitionVersion` and the other kernel digest fields accept the value as it is.
+ *
+ * The JSON is canonical so that two encodings that differ only in key order get one digest. A plain
+ * `JSON.stringify` digest can name one capsule twice, and then settlement refuses its own compiled
+ * capsule.
+ */
 
 import { createHash } from 'node:crypto';
 

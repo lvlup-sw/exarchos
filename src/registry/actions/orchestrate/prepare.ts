@@ -1,14 +1,12 @@
-// ─── The compilation endpoint's public action ────────────────────────────────
-//
-// `prepare` compiles a workflow's outstanding delegation batch into ONE
-// immutable capsule and records `workflow.prepared` pinning its digest. The
-// compiler, the custody write and the record live in `verbs/prepare/`; this
-// file is only the registration — schema, contract, economy — that makes the
-// action reachable.
-//
-// It is the first of the semantic plane's two calls, and `settle` is the
-// second: the harness runs the capsule in between with no governance calls,
-// and settlement judges what comes back against the capsule recorded here.
+/**
+ * The registration of the `prepare` action: schema, contract, and economy. `prepare` compiles the
+ * outstanding delegation batch of a workflow into one immutable capsule. It records
+ * `workflow.prepared` with the capsule digest. The compiler, the custody write, and the record are
+ * in `verbs/prepare/`.
+ *
+ * `prepare` is the first call of the semantic plane, and `settle` is the second. Between them, the
+ * harness runs the capsule with no governance calls.
+ */
 
 import { z } from 'zod';
 import { withCappedShape } from '../../../output-schema-declaration.js';
@@ -70,14 +68,18 @@ export const prepareActions: readonly BuiltinToolAction[] = [
       'INVALID_TASK_STAMP, UNKNOWN_DEPENDENCY, CAPSULE_UNSOUND, RUNTIME_UNFIT.',
     schema: z
       .object({
-        // Alias, matching settle: `streamId` IS the bare featureId; either
-        // spelling is accepted and exactly one is required.
+        /**
+         * An alias, as in `settle`, because `streamId` is the bare featureId. The call needs at least
+         * one of the two. When it passes both, the values must match.
+         */
         streamId: z.string().min(1).optional(),
         featureId: z.string().min(1).optional(),
       })
       .strict(),
-    // Advisory — only the next-actions computer reads it. A batch is compiled
-    // from the delegate phase's outstanding work, and nowhere else.
+    /**
+     * Advisory: only the next-actions computer reads it. A batch comes from the outstanding work of
+     * the delegate phase.
+     */
     phases: new Set<string>([...DELEGATE_PHASES]),
     roles: ROLE_ANY,
     outputSchema: withCappedShape(PreparedCapsuleOutputSchema),
@@ -91,17 +93,19 @@ export const prepareActions: readonly BuiltinToolAction[] = [
       'the compilation reads the workflow it compiles; the phase it needs is checked by the ' +
         'handler before any effect rather than consumed as a resolved gate floor',
     ),
-    // The same replay shape `settle` states: a replay is answered from the
-    // persisted claim before any effect and appends nothing, so an event-append
-    // ensure would refuse the replay path by construction.
+    /**
+     * A replay returns the persisted claim before any effect and appends nothing. An event-append
+     * ensure then refuses every replay, so the contract declares no postcondition.
+     */
     ensures: none(
       'the prepared record is appended once, on the call that compiles; a replay returns the ' +
         'recorded capsule without appending, so a per-dispatch append observation would refuse ' +
         'the replay path by construction',
     ),
-    // `fs:read` is the repository's configuration and invariants catalog;
-    // `fs:write` is the capsule reaching content-addressed custody before the
-    // record that names it commits.
+    /**
+     * `fs:read` reads the repository config and the invariants catalog. `fs:write` puts the capsule
+     * into content-addressed custody before the record commits.
+     */
     needs: declared('fs:read', 'fs:write'),
     resources: declared({ kind: 'stream', selector: 'featureId' }),
     replay: { kind: 'claim-required', scope: 'stream-subject-request' },

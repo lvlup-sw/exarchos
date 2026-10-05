@@ -5,12 +5,11 @@ import type { ResolvedGate } from '../workflow/phase-kind.js';
 import { VERIFICATION_GATE_NAMES } from '../workflow/verification-policy.js';
 import type { AutoEmissionRole } from './gate-metadata.js';
 
-// The vocabularies below declare the type first and annotate the array with it,
-// rather than pinning the array with `as const` and deriving the type back out
-// of it. Both forms produce the same literal union; this one states the closed
-// set where a reader looks for it, and does not spend the DR-14 cast budget on
-// a vocabulary that asserts nothing.
-
+/**
+ * The kinds of resource that an action names. Each vocabulary in this file declares the type first
+ * and annotates the array with it. Thus the closed set is easy to find, and no `as const` counts
+ * against the cast budget.
+ */
 export type ActionResourceKind = 'stream' | 'path' | 'worktree' | 'git-ref';
 export const ACTION_RESOURCE_KINDS: readonly ActionResourceKind[] = [
   'stream',
@@ -32,15 +31,11 @@ export const HOST_OBLIGATIONS: readonly HostObligation[] = [
 ];
 
 /**
- * Host obligations the host must discharge BEFORE the action can do anything.
- * An approval, an interactive login and a host-UI prompt are all preconditions:
- * until one is satisfied there is no useful work for the handler to do, so
- * dispatch returns the obligation instead of executing.
+ * The host obligations that the host must discharge before the action can run. Until one is
+ * satisfied, dispatch returns the obligation and does not run the handler.
  *
- * `agent-spawn` is deliberately absent, and the distinction is load-bearing.
- * The host spawns USING what the action returns — `agent_spec` returns the
- * spec to spawn with, `prepare_review` provisions the packet — so short-
- * circuiting those hands the caller an obligation where its payload should be.
+ * `agent-spawn` is not in this list. The host spawns with the result of the action, for example
+ * the spec from `agent_spec`. A short circuit there returns an obligation in place of that result.
  */
 export const BLOCKING_HOST_OBLIGATIONS: readonly HostObligation[] = [
   'human-approval',
@@ -179,8 +174,7 @@ const HOST_OBLIGATION_SET = new Set<string>(HOST_OBLIGATIONS);
 const POSTCONDITION_SOURCE_SET = new Set<string>(POSTCONDITION_SOURCES);
 const CAPABILITY_NAMES: ReadonlySet<string> = new Set<string>(CAPABILITY_KEYS);
 
-// Predicates rather than assertions: each one proves the membership it claims,
-// so the narrowing survives review instead of being taken on trust.
+/** A type predicate, not an assertion: it proves the membership that it claims. */
 function isPostconditionWhen(value: unknown): value is PostconditionWhen {
   return typeof value === 'string' && POSTCONDITION_WHEN_SET.has(value);
 }
@@ -414,9 +408,8 @@ function compareEmissions(left: ActionEmission, right: ActionEmission): number {
 }
 
 /**
- * `EVENT_EMISSION_REGISTRY`'s key domain is exactly `EventTypes`, so membership
- * doubles as the narrowing that lets the auto-source lookup below index the
- * registry without widening the checked string back out.
+ * True when `event` is a key of `EVENT_EMISSION_REGISTRY`. The keys are exactly the event types,
+ * so the check also narrows `event` for the registry lookup.
  */
 function isCatalogEventType(event: string): event is EventType {
   return Object.prototype.hasOwnProperty.call(EVENT_EMISSION_REGISTRY, event);
@@ -721,13 +714,9 @@ export function contractEmissionsOf(action: object): readonly ActionEmission[] {
 }
 
 /**
- * Every event name an action's contract ENSURES by append, or empty when the
- * block is absent, unreadable, or reasons that it ensures nothing.
- *
- * The `durable-evidence` arm of a postcondition names an evidence type, not an
- * event, so it is filtered out here rather than at each caller — re-deriving
- * that narrowing at every consumer is how two consumers end up disagreeing
- * about what an `ensures` entry names.
+ * The event names that the contract of an action ensures by append. It is empty when the block is
+ * absent, unreadable, or ensures nothing. A `durable-evidence` postcondition names an evidence
+ * type, not an event, so this function drops it for all callers.
  */
 export function contractEnsuredEventsOf(action: object): readonly string[] {
   const raw = Reflect.get(action, 'actionContract');

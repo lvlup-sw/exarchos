@@ -1,27 +1,11 @@
-// ─── The SHIPPED generated-artifact authorities (P05-05) ─────────────────────
-//
-// PROGRAM-05, the closure capstone (CTR-013). Typed, fail-loud readers for the
-// CHECKED-IN artifacts that other generation passes ship:
-//
-//   • `compiler/generated/proof-fixtures.json` — P03-03's packaged proof
-//     baseline (per action: descriptor / schema / policy digests + the bound
-//     error-family and output-kind contract); and
-//   • `cli/generated/cli-surface.json`          — P03-05's shipped CLI client
-//     surface (per action: the command the packaged client exposes).
-//
-// ── Why these are read from DISK ─────────────────────────────────────────────
-// The reachability census's denominator comes from `compile(deriveMetaModel())`.
-// Any hop re-derived from THAT SAME in-process compile is a tautology: it
-// resolves for every action by construction and can never surface a break. These
-// two files are produced by DIFFERENT generation passes and are committed, so
-// comparing the live compile against them is a real edge with real teeth: it
-// fails when the shipped artifacts and the live contract disagree (a stale
-// baseline, a hand-edited artifact, a half-regenerated surface).
-//
-// Every reader is strict: an absent file, a wrong-shaped body, or an entry that
-// is missing a required field THROWS. A lenient reader that skipped malformed
-// entries would understate the shipped surface and mis-report a closure break.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Strict readers for two checked-in generated artifacts: `compiler/generated/proof-fixtures.json`
+ * and `cli/generated/cli-surface.json`.
+ * The reachability census compares the live compile against these files. Separate generation passes
+ * write them, so the comparison fails when the shipped artifacts and the live contract disagree.
+ * An absent file, a body with the wrong shape, or an entry with a missing field throws. A lenient
+ * reader understates the shipped surface and misreports a closure break.
+ */
 
 import fs from 'node:fs';
 
@@ -32,8 +16,6 @@ import { CLI_SURFACE_FILE } from '../cli/cli-contract-seam.js';
 export class ShippedArtifactError extends Error {
   override readonly name = 'ShippedArtifactError';
 }
-
-// ─── Narrowing helpers (no `any`; `unknown` + guards) ────────────────────────
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -83,8 +65,6 @@ function requireStringArray(
   return value.filter((v): v is string => typeof v === 'string');
 }
 
-// ─── The packaged proof-fixture baseline (P03-03, checked in) ────────────────
-
 /** One action's entry in the SHIPPED proof-fixture baseline. */
 export interface ShippedActionFixture {
   readonly actionId: string;
@@ -98,10 +78,7 @@ export interface ShippedActionFixture {
   readonly outputKinds: readonly string[];
 }
 
-/**
- * Read the checked-in proof-fixture baseline. Strict: every entry must carry the
- * full digest set and its bound output contract.
- */
+/** Reads the checked-in proof-fixture baseline. Every entry must carry all digests and its output contract. */
 export function readShippedProofFixtures(
   file: string = PROOF_FIXTURES_FILE,
 ): readonly ShippedActionFixture[] {
@@ -121,19 +98,13 @@ export function readShippedProofFixtures(
   });
 }
 
-// ─── The shipped CLI client surface (P03-05, checked in) ─────────────────────
-
 /** One action's command in the SHIPPED CLI-surface artifact. */
 export interface ShippedCliCommand {
   readonly actionId: string;
   readonly commandName: string;
 }
 
-/**
- * Read the checked-in CLI-surface baseline — the packaged client artifact that
- * exposes each ActionId as a command. Independent of the contract compiler's
- * in-process output: it is a separate generation pass's committed result.
- */
+/** Reads the checked-in CLI-surface baseline, which maps each ActionId to a command. */
 export function readShippedCliCommands(file: string = CLI_SURFACE_FILE): readonly ShippedCliCommand[] {
   const entries = requireArray(readJson(file, 'CLI-surface baseline'), 'commands', file, 'CLI-surface baseline');
   return entries.map((raw, index): ShippedCliCommand => {

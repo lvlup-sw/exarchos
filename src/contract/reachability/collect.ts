@@ -1,46 +1,14 @@
-// ─── Reachability inputs collector (P05-05) ──────────────────────────────────
-//
-// PROGRAM-05, the closure capstone (CTR-013). The impure adapter that assembles
-// the pure {@link ReachabilityInputs} from the LIVE upstream authorities — one
-// materialized projection per hop, so the closure model in `graph.ts` runs over
-// the real tree, not a hand-maintained mirror.
-//
-// ── The INDEPENDENCE rule (why this file was rewritten) ──────────────────────
-// The closure DENOMINATOR (`actions`) comes from `compile(deriveMetaModel())`.
-// A hop materialized by re-deriving something from THAT SAME compile output is
-// a TAUTOLOGY: it resolves to exactly one for every action by construction, can
-// never surface a break, and inflates the headline census with evidence it does
-// not have. Four hops used to be built that way:
-//
-//   • `route`    ← `generateRegistration(contract.descriptors)`  (1 per descriptor)
-//   • `schema`   ← `contract.schemas.actions[actionId]`          (always present)
-//   • `output`   ← the descriptor's own `outputKinds`/`errorCodes` (never empty)
-//   • `artifact` ← `contract.proofFixtures.actions`              (1 per descriptor)
-//
-// Every hop is now resolved against an authority that is INDEPENDENT of that
-// compile pass, and `HOP_AUTHORITIES` in `graph.ts` records which class of
-// authority each hop consumes (asserted by the co-located tests, so no hop can
-// silently regress to self-derivation):
-//
-//   • route    ← the SHIPPED composite routers' real action-level dispatch
-//                tables (`dispatch-routes.ts`) — the code that actually runs.
-//   • handler  ← `BINDING_TABLE` ← `dispatch/core/dispatch.ts::COMPOSITE_HANDLER_LOADERS`.
-//   • owner    ← the P04-01 effect ledger via the governed provider map.
-//   • schema   ← the CHECKED-IN `proof-fixtures.json`: the shipped input/output
-//                schema digests must equal the live compile's.
-//   • output   ← the CHECKED-IN `proof-fixtures.json`: the shipped error-family
-//                + output-kind contract must be non-empty AND equal the live one.
-//   • artifact ← the CHECKED-IN `cli-surface.json`: the shipped client artifact
-//                exposes exactly one command for the ActionId.
-//   • fixture  ← the CHECKED-IN `proof-fixtures.json`: the packaged proof.
-//
-// It fails LOUD (throws) when an authority is itself broken — a blocked contract
-// compile, a stale effect-provider map, an unreadable router, a malformed
-// shipped artifact — rather than emitting a graph that silently mis-reports a
-// break. The `authored workflow` origin is the ActionId itself; binding
-// ActionIds to shared-IR built-in workflows is the P07-02 seam, intentionally
-// left as a pluggable origin attribute (not read here).
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Builds the pure {@link ReachabilityInputs} from the live authorities, so the closure model in
+ * `graph.ts` runs over the real tree.
+ *
+ * The denominator (`actions`) comes from `compile(deriveMetaModel())`. A hop derived from that same
+ * compile output resolves for each action by construction, and can never show a break. So each hop
+ * reads an independent authority, and `HOP_AUTHORITIES` in `graph.ts` records which one.
+ *
+ * The collector throws when an authority is broken, such as a blocked compile, a stale provider
+ * map, an unreadable router, or a malformed shipped artifact.
+ */
 
 import { deriveMetaModel } from '../compiler/meta-model.js';
 import { compile, type CompiledContract } from '../compiler/compile.js';
@@ -79,27 +47,16 @@ import type {
 } from './graph.js';
 
 /**
- * The governed closure-exception list. An entry is added only with a conscious,
- * reviewed reason for a genuinely-unclosed action — and a stale entry (an
- * action that is actually closed) is itself flagged by `evaluateClosure` (the
- * two-way ratchet). Kept here, beside the collector, so the governed
- * exceptions travel with the live wiring.
- *
- * CURRENTLY EMPTY: the #1739 cutover-verb entries were removed when the
- * regenerated CLI-surface golden picked the two actions up (122-action
- * surface) — exactly the removal the two-way ratchet forces on a stale entry.
+ * The governed closure-exception list. Add an entry only with a reviewed reason for an action that
+ * is not closed. `evaluateClosure` reports an entry for a closed action as a `stale-exception`.
  */
 export const LIVE_CLOSURE_EXCEPTIONS: readonly ClosureException[] = Object.freeze([]);
 
 /**
- * Overridable inputs so a test can target another tree / snapshot.
- *
- * Each option names a REAL authority, not a materialized hop projection: a kill
- * fixture points these at a MUTATED COPY of the real input (a router source with
- * a renamed case arm, a dispatch loader map with an entry removed, a tampered
- * shipped artifact) and the census must drop. There is deliberately no option to
- * hand-author `ReachabilityInputs` directly — that would prove only that the
- * evaluator works, which is the exact gap this collector's proof used to have.
+ * Overridable inputs, so a test can target another tree. Each option names a real authority, not a
+ * hop projection. A kill fixture points an option at a changed copy of the real input, and the
+ * census must drop. No option accepts hand-authored `ReachabilityInputs`, because that proves only
+ * the evaluator.
  */
 export interface CollectOptions {
   readonly compiled?: CompiledContract;
@@ -112,7 +69,7 @@ export interface CollectOptions {
   readonly fixturesFile?: string;
   /** Path to the checked-in shipped CLI-surface artifact. */
   readonly cliSurfaceFile?: string;
-  /** The event catalog the `event` / `consumer` hops resolve against. */
+  /** The event catalog that the `event` hop resolves against. */
   readonly annotations?: Readonly<Record<string, EventRegistration>>;
   /** The tool registry supplying each action's nested contract emissions. */
   readonly registry?: readonly BuiltinCompositeTool[];
@@ -140,12 +97,14 @@ export function readPackagedFixtureActionIds(
   return readShippedProofFixtures(fixturesFile).map((a) => a.actionId);
 }
 
-/** Materialize the owner projection from the (validated) effect-provider map. */
+/**
+ * Builds the owner projection from the effect-provider map. It throws on a stale or duplicate
+ * provider.
+ */
 function collectOwners(
   providers: readonly EffectProvider[],
   rules: readonly EffectOwnershipRule[],
 ): readonly OwnerEntry[] {
-  // Throws on a stale/duplicate provider — fail loud, never mis-report an owner.
   const valid = assertValidProviders(providers, rules);
   return valid.map((p): OwnerEntry => ({ tool: p.tool, owner: p.owner }));
 }
@@ -156,10 +115,14 @@ function sameStrings(a: readonly string[], b: readonly string[]): boolean {
 }
 
 /**
- * Assemble the live {@link ReachabilityInputs}. Deterministic and side-effect
- * free apart from reading the shipped generated artifacts + the composite router
- * sources. Every projection is derived from a real authority, and NO hop is
- * re-derived from the same `compile()` pass that supplies the denominator.
+ * Assembles the live {@link ReachabilityInputs}. It reads the shipped generated artifacts and the
+ * composite router sources, and has no other side effect. The hop sources:
+ * - `route`: the dispatch tables of the shipped routers. An action that no router serves gives 0.
+ * - `handler` and `owner`: the binding table and the effect-provider map.
+ * - `schema`, `output`, `fixture`: the checked-in proof fixtures. The schema digests and the output
+ *   contract must equal the live compile.
+ * - `artifact`: the checked-in CLI surface.
+ * - `event`: `EVENT_ANNOTATIONS`, looked up for each nested `actionContract.emissions` entry.
  */
 export function collectReachabilityInputs(opts: CollectOptions = {}): ReachabilityInputs {
   const contract = opts.compiled ?? compileLive();
@@ -177,20 +140,13 @@ export function collectReachabilityInputs(opts: CollectOptions = {}): Reachabili
     mutates: d.policy.effect.mutates,
   }));
 
-  // ── route ── the SHIPPED routers' real action-level dispatch tables. A route
-  // exists because the composite router code routes that action, NOT because a
-  // descriptor declared it: an ActionId the registry declares but no router
-  // serves resolves to 0 here, and a duplicated routing arm resolves to 2.
   const dispatchRoutes: readonly DispatchRoute[] = collectDispatchRoutes(routerSources);
   const routes: RouteEntry[] = dispatchRoutes.map((r) => ({ actionId: r.actionId, tool: r.tool }));
 
-  // ── handler ── the real composite-handler loader map (via the binding table).
   const handlers = bindings.map((b) => ({ tool: b.tool }));
 
-  // ── owner ── the P04-01 effect ledger via the governed provider map.
   const owners = collectOwners(providers, rules);
 
-  // ── schema / output / fixture ── the CHECKED-IN proof-fixture baseline.
   const shippedFixtures: readonly ShippedActionFixture[] = readShippedProofFixtures(fixturesFile);
   const shippedByActionId = new Map<string, ShippedActionFixture[]>();
   for (const entry of shippedFixtures) {
@@ -201,9 +157,6 @@ export function collectReachabilityInputs(opts: CollectOptions = {}): Reachabili
 
   const fixtures: FixtureEntry[] = shippedFixtures.map((f) => ({ actionId: f.actionId }));
 
-  // The action's I/O schema AS SHIPPED must be the schema the live compile
-  // derives — digests are compared, so a stale or hand-edited baseline breaks
-  // the hop instead of being re-derived into agreement with itself.
   const schemas: SchemaEntry[] = [];
   const outputs: OutputEntry[] = [];
   for (const descriptor of contract.descriptors) {
@@ -218,9 +171,6 @@ export function collectReachabilityInputs(opts: CollectOptions = {}): Reachabili
       ) {
         schemas.push({ actionId: descriptor.actionId });
       }
-      // The bound output contract AS SHIPPED. `resolveHops` additionally
-      // requires both lists to be non-empty, so an emptied shipped contract is
-      // a `missing output` break rather than a silently-degraded one.
       if (
         sameStrings(shipped.outputKinds, [...descriptor.outputKinds]) &&
         sameStrings(shipped.errorCodes, [...descriptor.errorCodes])
@@ -234,20 +184,10 @@ export function collectReachabilityInputs(opts: CollectOptions = {}): Reachabili
     }
   }
 
-  // ── artifact ── the SHIPPED client surface (a different generation pass's
-  // committed artifact): the packaged CLI exposes a command for the ActionId.
   const artifacts: ArtifactEntry[] = readShippedCliCommands(cliSurfaceFile).map((c) => ({
     actionId: c.actionId,
   }));
 
-  // ── event ── the EVENT CATALOG, an independently-authored table.
-  //
-  // The declared side is nested `actionContract.emissions`. Sibling
-  // `autoEmits` is leftover and is not the hop's subject. The answer comes
-  // from `EVENT_ANNOTATIONS`, not from the compile that the registry feeds —
-  // reading the compile would be self-derivation. The two genuinely
-  // disagree: an action can declare an emission the catalog never registered,
-  // which is a break this census could not see until this hop existed.
   const annotations = opts.annotations ?? EVENT_ANNOTATIONS;
   const emissions: EmissionEntry[] = [];
   for (const tool of opts.registry ?? TOOL_REGISTRY) {

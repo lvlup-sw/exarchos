@@ -14,11 +14,10 @@ function contracted(action: BuiltinActionDraft, contract: unknown): BuiltinToolA
 }
 
 export const cutoverActions: readonly BuiltinToolAction[] = [
-  // ─── Cutover promotion path (#1739) ───────────────────────────────────────
-  // The two verbs that consult the six-condition cutover gate over ONE local
-  // store's durable shadow substrate (`workflow/admission/cutover-gate.ts` +
-  // `evidence-reader.ts`). INV-5d: actions on exarchos_orchestrate, not a new
-  // visible tool.
+  /**
+   * Reads the six-condition cutover gate over the durable shadow evidence of one local store.
+   * The cutover verbs are actions on `exarchos_orchestrate`, not a new visible tool.
+   */
   contracted(
     {
       name: 'cutover_readiness',
@@ -51,9 +50,10 @@ export const cutoverActions: readonly BuiltinToolAction[] = [
       schema: z.object({}),
       phases: ALL_PHASES,
       roles: ROLE_LEAD,
-      // Mutates shared governance state (the store-wide enforcement posture) —
-      // the strictest mutating trust tier, so the resolver gate rejects
-      // read-only / task-isolated callers BEFORE the handler's operator check.
+      /**
+       * The store-wide enforcement posture is shared state.
+       * The resolver gate rejects read-only and task-isolated callers before the handler checks for an operator.
+       */
       posture: 'shared-mutating',
       outputSchema: withCappedShape(CutoverDecideOutputSchema),
       annotations: LOCAL_MUTATION,

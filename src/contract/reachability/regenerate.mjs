@@ -1,19 +1,13 @@
-// ─── Regenerate the checked-in reachability graph under Node (P05-05) ────────
-//
-// `npx tsx src/contract/reachability/generate.ts` cannot run under plain Node
-// because the generator pulls in `bun:sqlite` TRANSITIVELY (reachability →
-// binding table → core/dispatch → the SQLite storage backend). `bun:sqlite`
-// only resolves under Bun; vitest aliases it to a node shim, but a bare Node/tsx
-// invocation does not. This runner reproduces that alias with a synchronous
-// resolve hook, then runs the TS generator via tsx — so regeneration is a single
-// committed command:
-//
-//   node src/contract/reachability/regenerate.mjs
-//
-// It writes `generated/reachability-graph.json`; commit the result. Mirrors the
-// "regenerate + review" gesture of P03-01's authority lock and P03-03's
-// proof-fixture baseline.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Regenerates the checked-in reachability graph under Node with
+ * `node src/contract/reachability/regenerate.mjs`. Commit the written
+ * `generated/reachability-graph.json`.
+ *
+ * The generator imports `bun:sqlite` transitively, and `bun:sqlite` resolves only under Bun. Vitest
+ * aliases it to a Node shim, but plain Node or tsx does not. This runner adds the same alias with a
+ * synchronous resolve hook. Then it registers tsx, which compiles the TypeScript generator and the
+ * shim.
+ */
 
 import { registerHooks } from 'node:module';
 import { register as registerTsx } from 'tsx/esm/api';
@@ -23,7 +17,6 @@ const SHIM = pathToFileURL(
   fileURLToPath(new URL('../../storage/__shims__/bun-sqlite-node.ts', import.meta.url)),
 ).href;
 
-// Redirect `bun:sqlite` → the node shim (mirrors the vitest.config alias).
 registerHooks({
   resolve(specifier, context, nextResolve) {
     if (specifier === 'bun:sqlite') return { url: SHIM, shortCircuit: true };
@@ -31,7 +24,6 @@ registerHooks({
   },
 });
 
-// Let tsx compile the TypeScript generator (and the shim, itself a .ts file).
 registerTsx();
 
 const { generateReachabilityArtifact } = await import('./generate.ts');

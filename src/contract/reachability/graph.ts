@@ -1,58 +1,18 @@
-// ─── Generated reachability graph — the closure model (P05-05) ───────────────
-//
-// PROGRAM-05, the CLOSURE CAPSTONE (CTR-013). Program objective: every public
-// action reaches ONE implementation, ONE owned effect path where applicable, ONE
-// output contract, and ONE packaged proof. This module is the pure model that
-// proves it: it assembles the reachability graph from the upstream authorities'
-// projections and evaluates CLOSURE — every public action must have exactly ONE
-// complete path from authored ActionId all the way to its packaged fixture.
-//
-// ── The node chain (one path per public action) ──────────────────────────────
-//
-//   ActionId  →  schema  →  route  →  handler  →  [owner]  →  output  →  artifact  →  fixture
-//   (authored)  (shipped)  (dispatch) (dispatch)  (P04-01)   (shipped)  (shipped)    (packaged)
-//
-//   • schema   — the action's input/output schema AS SHIPPED in the checked-in
-//                `proof-fixtures.json` baseline matches (by digest) the schema
-//                the live contract compile derives.
-//   • route    — the SHIPPED composite router for the action's tool actually
-//                routes the action name: the real `switch (action)` / handler-
-//                table / branch arm that dispatch executes. NOT a re-derivation
-//                of the registration manifest from the same compiled contract
-//                (that could never fail — see `collect.ts`).
-//   • handler  — exactly one non-serializable implementation binding serves the
-//                tool (the tool→handler hop, backed by dispatch's real
-//                `COMPOSITE_HANDLER_LOADERS`).
-//   • owner    — CONDITIONAL ("where applicable"): a MUTATING action's effect
-//                path resolves to exactly one effect owner (via the provider map,
-//                backed by the P04-01 ledger). A pure action skips this hop.
-//   • output   — the action's output-kind + error-family contract AS SHIPPED in
-//                the checked-in baseline is non-empty and agrees with the live
-//                compile.
-//   • artifact — the SHIPPED client surface (`cli/generated/cli-surface.json`)
-//                exposes exactly one command for the ActionId.
-//   • fixture  — the action's fixture is present in the checked-in / packaged
-//                proof-fixture baseline (the packaged proof).
-//
-// A break at ANY applicable hop — or AMBIGUITY (two handlers, two owners, two
-// routing arms) at one — is a closure failure that names the action and the
-// broken hop. The pure core here takes fully-materialized inputs so every break
-// class and ambiguity is unit-testable with no filesystem. The impure
-// `collect.ts` assembles the real inputs from the live authorities, and
-// `kill-fixtures.test.ts` proves each hop actually drops the census when the
-// corresponding REAL authority is broken.
-//
-// ── The authored-workflow seam (P07-02) ──────────────────────────────────────
-// The chain's origin is the authored ActionId (authored in the tool registry).
-// Binding each ActionId to a specific shared-IR built-in workflow definition is
-// the P07-02 surface, which is authored in parallel; that refinement is a
-// PLUGGABLE origin attribute, not a required hop here (see `collect.ts`).
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * The pure closure model of the reachability graph. Closure means that each public action has
+ * exactly one complete path from its authored ActionId to its packaged fixture.
+ *
+ * The hops are `schema`, `route`, `handler`, `owner`, `output`, `artifact`, `fixture`, and
+ * `event`. The `owner` hop applies only to a mutating action, and the `event` hop only to an
+ * action that declares emissions. A missing hop or an ambiguous hop is a closure failure that
+ * names the action and the hop.
+ *
+ * This core takes materialized inputs, so tests need no filesystem. `collect.ts` reads the real
+ * inputs from the live authorities.
+ */
 
 import { digestText } from '../authority-digest.js';
 import { canonicalJson } from '../request-context.js';
-
-// ─── Hops ────────────────────────────────────────────────────────────────────
 
 /** The ordered reachability hops from authored ActionId to packaged fixture. */
 export const REACHABILITY_HOPS = [
@@ -68,26 +28,12 @@ export const REACHABILITY_HOPS = [
 export type ReachabilityHop = (typeof REACHABILITY_HOPS)[number];
 
 /**
- * The CLASS of authority a hop is resolved against — the assurance-integrity
- * ratchet for this census.
+ * The class of authority that each hop resolves against. The closure denominator comes from the
+ * contract compile, so a hop that reads the same compile resolves for every action and can never fail.
  *
- * The closure denominator (`actions`) comes from the contract compiler. A hop
- * re-derived from that SAME compile pass is TAUTOLOGICAL: it resolves for every
- * action by construction, can never surface a break, and would inflate the
- * headline number with evidence it does not have. `self` is therefore not a
- * value any hop may take — it exists only so the co-located test can state the
- * prohibition, and `collect.ts` must resolve every hop against one of:
- *
- *   • `runtime`         — the real wiring the server executes: the shipped
- *     composite routers' action-level dispatch tables, dispatch's composite
- *     handler-loader map, the P04-01 effect ledger.
- *   • `shipped-artifact` — a CHECKED-IN artifact emitted by a DIFFERENT
- *     generation pass (the packaged proof-fixture baseline, the generated CLI
- *     client surface). Comparing the live compile against these catches shipped
- *     drift; they can and do disagree, which is what gives the hop teeth.
- *
- * Every entry here is proven killable by `kill-fixtures.test.ts`: for each hop,
- * a mutation of the REAL upstream authority drops the census below 100%.
+ * Thus no hop is `self`. A `runtime` hop reads the wiring that the server runs. A
+ * `shipped-artifact` hop reads a checked-in artifact from a different generation pass.
+ * `kill-fixtures.test.ts` breaks the real authority of each hop and expects the census to drop.
  */
 export const HOP_AUTHORITIES: Readonly<Record<ReachabilityHop, 'runtime' | 'shipped-artifact'>> =
   Object.freeze({
@@ -98,68 +44,51 @@ export const HOP_AUTHORITIES: Readonly<Record<ReachabilityHop, 'runtime' | 'ship
     output: 'shipped-artifact',
     artifact: 'shipped-artifact',
     fixture: 'shipped-artifact',
-    // Resolves against the EVENT CATALOG, a different authority from the compile
-    // pass this census's denominator comes from. An action's `autoEmits` feed the
-    // compile, so re-reading the ANSWER from the compiled contract would be
-    // tautological — `self`, and forbidden. `EVENT_ANNOTATIONS` is an
-    // independently-authored table, and the two genuinely disagree: the whole
-    // emission-coupling programme exists because they did.
+    /**
+     * Resolves against `EVENT_ANNOTATIONS`, the event catalog. The declared emissions feed the
+     * compile, so a read from the compiled contract is a `self` read.
+     */
     event: 'runtime',
   });
 
 /** Resolution status of one hop for one action. */
 export type HopStatus = 'ok' | 'missing' | 'ambiguous' | 'not-applicable';
 
-// ─── Graph inputs (materialized projections of the upstream authorities) ─────
-
-/** An authored public action — the graph's origin node. */
+/** An authored public action. It is the origin node of the graph. */
 export interface ActionNode {
   readonly actionId: string;
   readonly tool: string;
   readonly action: string;
-  /** True when the action's effect policy mutates — the `owner` hop applies. */
+  /** True when the effect policy of the action mutates. Then the `owner` hop applies. */
   readonly mutates: boolean;
 }
 
-/** The compiled action's shipped input/output schema (P03-03 baseline). */
+/** The shipped input and output schema of a compiled action, from the proof-fixture baseline. */
 export interface SchemaEntry {
   readonly actionId: string;
 }
 
-/**
- * A routing arm in the SHIPPED composite router that serves the ActionId — the
- * real action-level dispatch table, not a projection of the compiled contract.
- */
+/** A routing arm in the shipped composite router that serves the ActionId. */
 export interface RouteEntry {
   readonly actionId: string;
   readonly tool: string;
 }
 
-/** A tool bound to exactly one implementation handler (P03-04). */
+/** A tool bound to an implementation handler. */
 export interface HandlerEntry {
   readonly tool: string;
 }
 
-/** A tool's effect path resolved to one effect owner (P04-01 via the provider map). */
+/** The effect owner of a tool, from the provider map. */
 export interface OwnerEntry {
   readonly tool: string;
   readonly owner: string;
 }
 
 /**
- * One event an action declares it emits, carried with BOTH catalog answers.
- *
- * `registered` says the event exists in `EVENT_ANNOTATIONS` at all — an action
- * declaring an emission the catalog has never heard of is a dangling reference,
- * and nothing else in the tree reports it.
- *
- * There is deliberately NO `consumed` flag here. The far end of the coupling
- * claim — that something folds the result — is the `consumer` hop, and it is
- * the SIBLING re-scope spec's DR-6 to add. Writing it here would have shipped a
- * vacuous check: `consumedBy` is a non-empty tuple by TYPE on every arm that
- * carries it, so "names at least one consumer" cannot fail. An honest consumer
- * hop has to resolve those ids against the live projection registry, which is
- * that spec's work and not this one's.
+ * One event that an action declares it emits. An emission that is not in `EVENT_ANNOTATIONS`
+ * is a dangling reference. There is no `consumed` flag, because `consumedBy` is a non-empty
+ * tuple by type, and a check on it cannot fail.
  */
 export interface EmissionEntry {
   readonly actionId: string;
@@ -168,29 +97,26 @@ export interface EmissionEntry {
   readonly registered: boolean;
 }
 
-/** The action's output contract: bound output kinds + error families (P03-02). */
+/** The output contract of the action: its output kinds and error codes. */
 export interface OutputEntry {
   readonly actionId: string;
   readonly outputKinds: readonly string[];
   readonly errorCodes: readonly string[];
 }
 
-/** The SHIPPED client-surface artifact carries a command for the action. */
+/** The shipped client surface has a command for the action. */
 export interface ArtifactEntry {
   readonly actionId: string;
 }
 
-/** The action's fixture is present in the checked-in / packaged baseline. */
+/** The fixture of the action is in the checked-in proof-fixture baseline. */
 export interface FixtureEntry {
   readonly actionId: string;
 }
 
 /**
- * A governed known-unclosed action + hop, with a human reason. An action listed
- * here is expected to fail closure at that hop and is NOT counted as a closure
- * failure — but a listed action that is actually CLOSED is a STALE exception
- * (the same two-way ratchet as the census pattern). The live tree carries an
- * EMPTY list; entries are added only with a conscious, reviewed reason.
+ * A known unclosed action and hop, with a reason. A break at that hop does not count as a
+ * closure failure. If the action is closed at that hop, the exception is stale.
  */
 export interface ClosureException {
   readonly actionId: string;
@@ -210,11 +136,9 @@ export interface ReachabilityInputs {
   readonly artifacts: readonly ArtifactEntry[];
   readonly fixtures: readonly FixtureEntry[];
   readonly emissions: readonly EmissionEntry[];
-  /** Governed known-unclosed exceptions (empty in a fully-closed tree). */
+  /** The governed closure exceptions. */
   readonly exceptions?: readonly ClosureException[];
 }
-
-// ─── Hop resolution ──────────────────────────────────────────────────────────
 
 const byString = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
@@ -234,13 +158,12 @@ function statusFor(applicable: boolean, count: number): HopStatus {
 }
 
 /**
- * Count the resolvers each hop offers this action, in the fixed hop order. The
- * `owner` hop is APPLICABLE only for a mutating action ("one owned effect path
- * where applicable"); every other hop is always applicable. `handler` and
- * `owner` resolve by the action's tool, so a duplicate binding/provider for that
- * tool surfaces as `ambiguous` (count > 1), not just absence. The `route` hop
- * requires the routing arm to belong to the action's OWN tool — a route filed
- * under the wrong tool does not resolve it.
+ * Counts the resolvers of each hop for one action, in the fixed hop order. `handler` and `owner`
+ * resolve by tool, so a duplicate binding or provider for the tool is `ambiguous`. A route counts
+ * only under the tool of the action.
+ *
+ * `owner` applies only to a mutating action. The `event` hop applies only to an action that
+ * declares emissions, and resolves only when the catalog registers every declared event.
  */
 export function resolveHops(action: ActionNode, inputs: ReachabilityInputs): readonly HopResolution[] {
   const schemaCount = inputs.schemas.filter((s) => s.actionId === action.actionId).length;
@@ -255,15 +178,8 @@ export function resolveHops(action: ActionNode, inputs: ReachabilityInputs): rea
   const artifactCount = inputs.artifacts.filter((a) => a.actionId === action.actionId).length;
   const fixtureCount = inputs.fixtures.filter((f) => f.actionId === action.actionId).length;
 
-  // The emission pair. `emits` is the action's own declared event set; an action
-  // that declares none is NOT-APPLICABLE on both hops, exactly as a non-mutating
-  // action is on `owner`. Reporting those as `missing` would make every read verb
-  // a closure break and turn the headline number into noise.
   const emitted = inputs.emissions.filter((e) => e.actionId === action.actionId);
   const emits = emitted.length > 0;
-  // REGISTERED: every event the action declares is in the catalog. Counted as
-  // "all resolved" rather than per-event, because one hop resolves one action:
-  // a partially-registered action is `missing`, not fractionally ok.
   const eventCount = emits && emitted.every((e) => e.registered) ? 1 : 0;
 
   const counts: Record<ReachabilityHop, { applicable: boolean; count: number }> = {
@@ -283,9 +199,7 @@ export function resolveHops(action: ActionNode, inputs: ReachabilityInputs): rea
   });
 }
 
-// ─── Closure evaluation ──────────────────────────────────────────────────────
-
-/** The per-action closure verdict: is there exactly one complete path? */
+/** The closure verdict of one action: is there exactly one complete path? */
 export interface ActionClosure {
   readonly actionId: string;
   readonly tool: string;
@@ -308,7 +222,7 @@ export interface ClosureReport {
   readonly closedActions: number;
   readonly actions: readonly ActionClosure[];
   readonly diagnostics: readonly ClosureDiagnostic[];
-  /** The governed exceptions honoured (a listed action that genuinely broke). */
+  /** The governed exceptions that matched a real break. */
   readonly honouredExceptions: readonly ClosureException[];
 }
 
@@ -322,15 +236,11 @@ function diagnosticMessage(action: ActionNode, res: HopResolution): string {
 }
 
 /**
- * Evaluate closure over the materialized inputs. Pure and total: every public
- * action is resolved along every applicable hop; an action is CLOSED iff every
- * applicable hop resolves to exactly one. A `missing`/`ambiguous` hop yields a
- * diagnostic naming the action and the broken hop.
+ * Evaluates closure over the materialized inputs. An action is closed when each applicable hop
+ * resolves to exactly one. A `missing` or `ambiguous` hop gives a diagnostic that names the action and the hop.
  *
- * Governed exceptions cut both ways (census two-way ratchet): a listed
- * `(actionId, hop)` that genuinely breaks is HONOURED (not a failure, not a
- * diagnostic); a listed pair that is actually OK is a `stale-exception`
- * diagnostic — remove it. `ok === true` is the closure green light.
+ * A listed exception that matches a real break is honoured and gives no diagnostic. A listed
+ * exception with no break gives a `stale-exception` diagnostic.
  */
 export function evaluateClosure(inputs: ReachabilityInputs): ClosureReport {
   const exceptions = inputs.exceptions ?? [];
@@ -352,7 +262,7 @@ export function evaluateClosure(inputs: ReachabilityInputs): ClosureReport {
       const excepted = exceptionByKey.get(key);
       if (excepted) {
         usedExceptions.add(key);
-        continue; // honoured governed exception — not a closure failure
+        continue;
       }
       closed = false;
       diagnostics.push({
@@ -371,8 +281,6 @@ export function evaluateClosure(inputs: ReachabilityInputs): ClosureReport {
     });
   }
 
-  // Stale exceptions: a governed exception that never fired (the action is
-  // actually closed at that hop). Remove it — it masks nothing.
   for (const exc of exceptions) {
     if (!usedExceptions.has(exceptionKey(exc.actionId, exc.hop))) {
       diagnostics.push({
@@ -401,19 +309,17 @@ export function evaluateClosure(inputs: ReachabilityInputs): ClosureReport {
   };
 }
 
-// ─── The generated graph artifact ────────────────────────────────────────────
-
 /** The current reachability-graph artifact schema version. */
 export const REACHABILITY_GRAPH_VERSION = 1 as const;
 
-/** One action's ordered hop chain in the serialized graph. */
+/** The ordered hop chain of one action in the serialized graph. */
 export interface GraphHop {
   readonly hop: ReachabilityHop;
   readonly status: HopStatus;
   readonly resolverCount: number;
 }
 
-/** One action's path through the graph (its node chain + edges, compact form). */
+/** The compact path of one action through the graph. */
 export interface GraphActionPath {
   readonly actionId: string;
   readonly tool: string;
@@ -437,15 +343,13 @@ export interface ReachabilityGraph {
   readonly actions: readonly GraphActionPath[];
   readonly exceptions: readonly ClosureException[];
   readonly summary: GraphSummary;
-  /** `sha256:` over the canonical graph body (excludes this digest itself). */
+  /** The `sha256:` digest of the canonical graph body, without this field. */
   readonly contentDigest: string;
 }
 
 /**
- * Build the deterministic reachability graph from the materialized inputs.
- * Byte-stable: actions are sorted by ActionId, hops are in the fixed order, and
- * the content digest is over canonical JSON — so regeneration from identical
- * inputs is byte-identical (mirrors P03-03's proof-fixture discipline).
+ * Builds the reachability graph from the materialized inputs. Actions are sorted by ActionId,
+ * hops keep the fixed order, and the digest covers canonical JSON. Thus the same inputs give the same bytes.
  */
 export function buildReachabilityGraph(inputs: ReachabilityInputs): ReachabilityGraph {
   const report = evaluateClosure(inputs);
@@ -477,18 +381,16 @@ export function buildReachabilityGraph(inputs: ReachabilityInputs): Reachability
   return { ...body, contentDigest: digestText(canonicalJson(body)) };
 }
 
-/** Canonical, byte-stable serialization of the graph (trailing newline). */
+/** The canonical serialization of the graph, with a trailing newline. */
 export function serializeReachabilityGraph(graph: ReachabilityGraph): string {
   return canonicalJson(graph) + '\n';
 }
 
-// ─── Explicit node/edge expansion (the graph, spelled out) ───────────────────
-
 export interface GraphNode {
-  /** Stable node id, `${actionId}::${hop}` (or `${actionId}::origin`). */
+  /** The stable node id: `${actionId}::${hop}`, or `${actionId}::origin`. */
   readonly id: string;
   readonly actionId: string;
-  /** `origin` for the authored ActionId node; otherwise the hop it represents. */
+  /** `origin` for the authored ActionId node. Otherwise, the hop of the node. */
   readonly kind: 'origin' | ReachabilityHop;
   readonly status: HopStatus;
 }
@@ -497,14 +399,13 @@ export interface GraphEdge {
   readonly from: string;
   readonly to: string;
   readonly hop: ReachabilityHop;
-  /** True when the source node resolved to exactly one target (the edge holds). */
+  /** True when both the source node and the target node resolve to `ok`. */
   readonly complete: boolean;
 }
 
 /**
- * Expand the compact graph into explicit nodes: one `origin` node per action
- * plus one node per hop the action carries. `not-applicable` hops (a pure
- * action's `owner`) are omitted — the path legitimately skips that node.
+ * Expands the compact graph into one `origin` node per action and one node per applicable hop.
+ * A `not-applicable` hop gets no node.
  */
 export function reachabilityNodes(graph: ReachabilityGraph): readonly GraphNode[] {
   const nodes: GraphNode[] = [];
@@ -524,10 +425,8 @@ export function reachabilityNodes(graph: ReachabilityGraph): readonly GraphNode[
 }
 
 /**
- * Expand the compact graph into explicit edges: the origin→…→fixture chain for
- * each action, skipping `not-applicable` hops (the edge bridges to the next
- * applicable node). An edge is `complete` when its source hop resolved to
- * exactly one.
+ * Expands the compact graph into the edge chain of each action. An edge skips a `not-applicable`
+ * hop and goes to the next applicable node. An edge is `complete` when both of its nodes are `ok`.
  */
 export function reachabilityEdges(graph: ReachabilityGraph): readonly GraphEdge[] {
   const edges: GraphEdge[] = [];
